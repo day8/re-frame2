@@ -474,6 +474,13 @@
   (EP-0013 §Composition; issue 7). PURE — no realm, no registrar, no side
   effect; an app value is inert until a stage-7 `install!` seats it.
 
+  Duplicate MODULE ids are likewise NOT last-writer-wins (rf2-c6armm.1 #4):
+  module id is the provenance key (`:modules` is keyed by it; descriptors carry
+  it as `:owner`). Two `:modules` entries with the SAME `:rf.module/id` that are
+  EXACTLY equal are deduped (idempotent re-listing); DIVERGENT same-id modules
+  THROW `:rf.error/app-composition-collision` (`:kind :module`), since silently
+  keeping one would make composition order-dependent.
+
   Throws `:rf.error/invalid-app` when `:id` is missing, or when a `:modules`
   entry is not a module value (a `module`-constructed map carrying
   `:rf.module/id`)."
@@ -492,15 +499,48 @@
                          :app id
                          :bad-module m
                          :recovery :wrap-the-descriptor-in-rf-module}))))
-    {:rf.app/id     id
-     :modules       (into {} (map (juxt :rf.module/id identity)) modules)
-     :registrations (reduce (fn [acc m]
-                              (merge-module-registrations acc (:registrations m)))
-                            {}
-                            modules)
-     :requires      (reduce (fn [acc m] (into acc (:requires m)))
-                            #{}
-                            modules)}))
+    ;; Module id is the PROVENANCE key — `:modules` is keyed by it, every
+    ;; descriptor's `:owner` carries it, and `app-owns` resolves through it. A
+    ;; duplicate `:rf.module/id` must not silently last-writer-win (rf2-c6armm.1
+    ;; #4 / .3 #3): that makes composition order-dependent — reversing module
+    ;; order would change which module value `:modules` records and which source
+    ;; a collision diagnostic names, even though the descriptors of BOTH modules
+    ;; are folded in. Two modules with the same id that are EXACTLY equal are
+    ;; deduped (idempotent re-listing is harmless); DIVERGENT same-id modules
+    ;; THROW `:rf.error/app-composition-collision` (the ex-data IS the
+    ;; diagnostic — EP-0013 §Composition: deterministic, order-stable, never
+    ;; last-writer-wins).
+    (let [by-id (reduce (fn [acc m]
+                          (let [mid (:rf.module/id m)]
+                            (if-let [prev (get acc mid)]
+                              (if (= prev m)
+                                acc            ; exact-equal duplicate — idempotent
+                                (throw (ex-info
+                                         (str "rf/app: two distinct modules share the id "
+                                              mid " — module id is the provenance key, so a"
+                                              " divergent duplicate makes composition"
+                                              " order-dependent (not last-writer-wins).")
+                                         {:error/id :rf.error/app-composition-collision
+                                          :app      id
+                                          :kind     :module
+                                          :id       mid
+                                          :recovery :give-each-module-a-unique-id})))
+                              (assoc acc mid m))))
+                        {}
+                        modules)
+          ;; Compose registrations + requires from the DEDUPED module set, so an
+          ;; exact-equal duplicate does not double-fold (which would otherwise
+          ;; trip the same-(kind,id) collision check spuriously).
+          deduped (vals by-id)]
+      {:rf.app/id     id
+       :modules       by-id
+       :registrations (reduce (fn [acc m]
+                                (merge-module-registrations acc (:registrations m)))
+                              {}
+                              deduped)
+       :requires      (reduce (fn [acc m] (into acc (:requires m)))
+                              #{}
+                              deduped)})))
 
 ;; ---- public inspection over an app value (EP-0013 §Examples) --------------
 ;;
@@ -593,6 +633,50 @@
     (some? handler) (assoc :handler-fn handler)
     (some? owner)   (assoc :owner owner)))
 
+(defn- resolve-target-realm!
+  "Resolve `realm-or-id` to the realm-id `install!` / `reinstall!` will seat
+  into, validating that an EXPLICIT non-nil id names a real, registered realm
+  BEFORE any registrar mutation (EP-0013 correctness, rf2-c6armm.1/.2).
+
+  EP/API defaulting is for the ABSENCE of a realm, not for an arbitrary unknown
+  explicit id (Runtime-Subsystems §The default realm: 'absence of a realm means
+  the default realm … never a synthesised one'; Spec 002 §Frames reference
+  realms; spec/API.md install! row). The pre-fix path silently fell back to the
+  default/global registrar for a typo'd or never-constructed id — `seat-into-realm!`
+  resolved `(realm/registrar (realm/realm rid))` to the default atom and
+  `set-installed-app!`'s `update-realm!` no-op'd, so the program polluted the
+  DEFAULT registrar while the requested realm recorded no installed app.
+
+  Three cases:
+    * nil               — the absence-is-default sugar. Resolves to the default
+                          realm id (the byte-identical single-realm path).
+    * the default id     — explicit default. Always valid (it is seeded at boot).
+    * a realm MAP        — the caller holds the constructed realm value; trust its
+                          `:rf.realm/id` (the `(-> (rf/realm …) (rf/install! app))`
+                          compose path hands the map straight through).
+    * any other keyword  — an EXPLICIT id. Must be registered in `realm/realms`,
+                          else THROW `:rf.error/unknown-realm` (the ex-data IS the
+                          diagnostic — naming the id + the live realm ids + the
+                          recovery: construct it first).
+
+  Returns the resolved realm-id keyword. INTERNAL."
+  [realm-or-id]
+  (cond
+    (nil? realm-or-id)                          realm/default-realm-id
+    (= realm-or-id realm/default-realm-id)      realm/default-realm-id
+    (map? realm-or-id)                          (realm/realm-id realm-or-id)
+    (some? (realm/realm realm-or-id))           realm-or-id
+    :else
+    (throw (ex-info (str "rf/install!: realm " realm-or-id
+                         " is not registered — an explicit realm must be"
+                         " constructed (rf/realm) before an app value can be"
+                         " installed into it. Absence defaults to the default"
+                         " realm; an unknown explicit id does not.")
+                    {:error/id    :rf.error/unknown-realm
+                     :realm       realm-or-id
+                     :known-realms (realm/realm-ids)
+                     :recovery    :construct-the-realm-first}))))
+
 (defn- realm-capabilities
   "The realm's capability map (`:rf.capability/* → service`), or `{}` when the
   realm seats none. INTERNAL."
@@ -627,6 +711,54 @@
         [id desc]       id->desc]
     [kind id desc]))
 
+(defn- frame-descriptor-ids
+  "The `:frame` descriptor ids an app value carries (the keys of its
+  `:registrations :frame` map), or `nil` when it declares no frames. INTERNAL."
+  [app]
+  (keys (get-in app [:registrations :frame])))
+
+(defn- refuse-non-default-realm-frames!
+  "Refuse `:frame` descriptors seated into a NON-default realm, BEFORE any
+  lowering, throwing `:rf.error/realm-frames-unsupported` (rf2-c6armm.1).
+
+  EP-0013 §Frames Reference Realms requires a frame to belong to the realm it
+  is installed into (frame ids are unique WITHIN a realm; the same id in two
+  realms is a tested legal case). But the realm-aware frame-registration path is
+  a NOT-YET-SHIPPED EP-0013 slice (staging step 4 — 'thread realm through frame
+  records / dispatch envelopes / subscription resolution'): `re-frame.frame`'s
+  `reg-frame` is `[id metadata]`-only and HARDCODES `:realm default-realm-id` on
+  every frame record, and live dispatch/subscribe resolve through the default
+  registrar regardless of realm. So a `:frame` descriptor lowered into an
+  explicit realm would:
+    * create a frame STAMPED with the default realm, not the requested realm
+      (the realm does not actually own its frames — `frame-realm` would report
+      the default), and
+    * key the live frame in the process-global `frame/frames` atom by frame-id
+      ALONE, so the same frame id installed into two realms collides globally
+      (one overwrites the other; both realms' membership sets stay empty).
+
+  Until the realm-aware frame path lands (tracked: rf2-a15n62 — staging step 4),
+  refuse loudly rather than silently mis-seat — fail-closed, the EP-0013 issue-12
+  stance, and the masterpiece-correctness posture. The default realm is fine:
+  `reg-frame`'s hardcoded default IS the target, so a default-realm `:frame`
+  descriptor lowers correctly (the rf2-chc8vs wiring). INTERNAL."
+  [rid app]
+  (when-not (= rid realm/default-realm-id)
+    (when-let [fids (seq (frame-descriptor-ids app))]
+      (throw (ex-info (str "rf/install!: cannot seat :frame descriptor(s) "
+                           (pr-str (vec (sort fids))) " into the non-default realm "
+                           rid " — realm-aware frame registration is a later"
+                           " EP-0013 slice (frames are still stamped with the"
+                           " default realm and keyed globally by frame-id). A"
+                           " :frame seated into an explicit realm would not be"
+                           " owned by it and would collide across realms. Install"
+                           " :frame descriptors into the default realm, or register"
+                           " the frame through reg-frame.")
+                      {:error/id    :rf.error/realm-frames-unsupported
+                       :realm       rid
+                       :frame-ids   (vec (sort fids))
+                       :recovery    :install-frames-into-the-default-realm})))))
+
 (defn- register-descriptor!
   "Seat one descriptor into the realm's registrar so it is dispatch/resolve-
   ready. A CONSTRUCTED descriptor (high-level `module` form) must be lowered
@@ -655,10 +787,11 @@
   lowering path issues targets THAT realm's `(kind, id) → metadata` table
   (EP-0013 stage 9 isolation). For the default realm the realm's registrar IS
   the process-global atom, so the binding rebinds to the same atom — the
-  default-realm seating path is byte-identical. A realm with no registry entry
-  (unknown id) falls back to the global atom rather than throwing — installing
-  into an unconstructed id seats into the default table (the absence-is-default
-  rule).
+  default-realm seating path is byte-identical. `install!` / `reinstall!`
+  validate `rid` upstream (`resolve-target-realm!`), so an explicit unknown id
+  never reaches here — it threw `:rf.error/unknown-realm` before any mutation
+  (rf2-c6armm.1/.2). The nil-registrar arm below stays as a defensive no-op for
+  any non-install caller; the install path always resolves a real registrar.
 
   ATOMIC (EP-0013 §Installation step 4 — \"attach the app and registrar
   atomically\"): the seating loop is all-or-nothing. The thunk seats a
@@ -716,9 +849,21 @@
   on the registration hot path."
   ([app] (install! realm/default-realm-id app))
   ([realm-or-id app]
-   (let [rid (realm/realm-id realm-or-id)]
-     ;; (1) capability check FIRST — fail loud before any mutation.
+   ;; (0) resolve the target realm FIRST — an explicit non-nil unknown id throws
+   ;; `:rf.error/unknown-realm` before any registrar mutation (rf2-c6armm.1/.2),
+   ;; rather than silently seating into the default registrar. nil/default sugar
+   ;; and the realm-map compose form are preserved.
+   (let [rid (resolve-target-realm! realm-or-id)]
+     ;; (1) capability check — fail loud before any mutation.
      (check-capabilities! rid app)
+     ;; (1b) refuse :frame descriptors into a non-default realm BEFORE lowering
+     ;; (rf2-c6armm.1) — the realm-aware frame path is a later EP-0013 slice, so a
+     ;; :frame seated into an explicit realm would be stamped default + collide
+     ;; globally. Throwing here (pre-lowering) also keeps install! atomic for live
+     ;; frame state: no `reg-frame` runs, so no live container is created and then
+     ;; orphaned by a partial rollback (the rollback restores the registrar atom
+     ;; but not the side-channel `frame/frames` atom).
+     (refuse-non-default-realm-frames! rid app)
      ;; (2) derive the registrar, then record the seated value at the realm
      ;; boundary. Each descriptor is lowered through its kind's real
      ;; registration logic (so a constructed handler becomes dispatch-ready),
@@ -922,7 +1067,10 @@
   ([new-app] (reinstall! realm/default-realm-id new-app nil))
   ([realm-or-id new-app] (reinstall! realm-or-id new-app nil))
   ([realm-or-id new-app opts]
-   (let [rid     (realm/realm-id realm-or-id)
+   ;; Resolve + validate the target realm FIRST (rf2-c6armm.1/.2): a reinstall!
+   ;; against an explicit unknown id throws `:rf.error/unknown-realm` before any
+   ;; mutation, symmetric with install!. nil/default sugar is preserved.
+   (let [rid     (resolve-target-realm! realm-or-id)
          ;; The installed app — the stored `:app` if a prior install! seated
          ;; one, else the recomputable projection of the realm's registrar
          ;; (so the FIRST reinstall after a pure-sugar boot still diffs against
@@ -949,6 +1097,24 @@
      ;; here — before any mutation — rather than silently orphaned. Targeted
      ;; check against the core frame registry only; no cross-subsystem machinery.
      (refuse-live-frame-removal! rid diff)
+     ;; Refuse :frame descriptors ADDED or CHANGED into a non-default realm
+     ;; (rf2-c6armm.1), symmetric with install!'s `refuse-non-default-realm-frames!`:
+     ;; the realm-aware frame path is a later EP-0013 slice, so a `:frame` seated
+     ;; into an explicit realm would be stamped default + collide globally. Throw
+     ;; before any mutation. (`:removed` :frame is already handled above.)
+     (when-not (= rid realm/default-realm-id)
+       (when-let [fids (seq (->> (concat (:added diff) (:changed diff))
+                                 (filter (fn [[kind _]] (= :frame kind)))
+                                 (map second)))]
+         (throw (ex-info (str "rf/reinstall!: cannot seat :frame descriptor(s) "
+                              (pr-str (vec (sort fids))) " into the non-default realm "
+                              rid " — realm-aware frame registration is a later"
+                              " EP-0013 slice. Reinstall :frame descriptors against"
+                              " the default realm.")
+                         {:error/id  :rf.error/realm-frames-unsupported
+                          :realm     rid
+                          :frame-ids (vec (sort fids))
+                          :recovery  :install-frames-into-the-default-realm}))))
      ;; Apply the delta against the realm's OWN registrar (EP-0013 stage 9):
      ;; added + changed re-derive the registrar slot from the new descriptor
      ;; (lowered through its kind's real registration logic, so a reloaded

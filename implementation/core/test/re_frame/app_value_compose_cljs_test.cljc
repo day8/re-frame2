@@ -193,6 +193,53 @@
           "same id, different kind — both compose without collision"))))
 
 ;; ---------------------------------------------------------------------------
+;; (3b) DUPLICATE MODULE IDS — provenance key, not last-writer-wins
+;;      (rf2-c6armm.1 #4 / .3 #3)
+;; ---------------------------------------------------------------------------
+
+(deftest app-divergent-duplicate-module-ids-throw
+  (testing "two DISTINCT modules with the SAME :rf.module/id THROW
+            :rf.error/app-composition-collision (:kind :module) — module id is
+            the provenance key, so silently keeping one would make composition
+            order-dependent (rf2-c6armm.1 #4)"
+    (let [ma (rf/module {:id :dup/m :events {:dup/a {:handler cart-add}}})
+          mb (rf/module {:id :dup/m :events {:dup/b {:handler auth-login}}})
+          ed (try (rf/app {:id :dup/app :modules [ma mb]})
+                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                    (ex-data e)))]
+      (is (= :rf.error/app-composition-collision (:error/id ed)))
+      (is (= :module (:kind ed)) "the collision names the :module provenance kind")
+      (is (= :dup/m  (:id ed))   "the colliding module id is named"))))
+
+(deftest app-divergent-duplicate-module-ids-order-independent
+  (testing "the divergent-duplicate-module-id rejection is ORDER-INDEPENDENT —
+            both orderings throw, so composition is not last-writer-wins
+            (rf2-c6armm.3 #3 — would have silently kept whichever module came
+            last in the vector)"
+    (let [ma (rf/module {:id :dup/m :events {:dup/a {:handler cart-add}}})
+          mb (rf/module {:id :dup/m :events {:dup/b {:handler auth-login}}})
+          ed-ab (try (rf/app {:id :dup/app :modules [ma mb]}) :no-throw
+                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                       (:error/id (ex-data e))))
+          ed-ba (try (rf/app {:id :dup/app :modules [mb ma]}) :no-throw
+                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                       (:error/id (ex-data e))))]
+      (is (= :rf.error/app-composition-collision ed-ab) "[ma mb] throws")
+      (is (= :rf.error/app-composition-collision ed-ba) "[mb ma] throws too — order-independent"))))
+
+(deftest app-exact-equal-duplicate-module-is-idempotent
+  (testing "an EXACTLY-equal module listed twice is deduped (idempotent
+            re-listing is harmless) — the same module value contributes its
+            registrations once, not a spurious same-(kind,id) collision
+            (rf2-c6armm.1 #4)"
+    (let [m (rf/module {:id :idem/m :events {:idem/e {:handler cart-add}}})
+          a (rf/app {:id :idem/app :modules [m m]})]
+      (is (= #{:idem/m} (set (keys (:modules a))))
+          "the deduped module appears once in :modules")
+      (is (identical? cart-add (get-in a [:registrations :event :idem/e :handler]))
+          "its single descriptor is composed in (no double-fold collision)"))))
+
+;; ---------------------------------------------------------------------------
 ;; (4) the composition LAWS (EP-0013 §Composition / §Validation/Conformance)
 ;; ---------------------------------------------------------------------------
 

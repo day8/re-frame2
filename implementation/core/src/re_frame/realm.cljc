@@ -315,14 +315,22 @@
                   run N different substrate roots.
     :capabilities (optional) the `:rf.capability/* → service` map a stage-7
                   `install!` capability-checks the installed app against.
-    :app          (optional) an app value to record in the realm's `:app` slot
-                  up front (the seating that makes it dispatch-ready is still
-                  `install!`'s job — this only records the value).
+
+  The realm's `:app` slot is INSTALL-OWNED state, NOT a public constructor input
+  (rf2-c6armm.2 #1): an app value is INERT until `install!` seats its descriptors
+  into the realm's registrar AND records the value. Accepting a public `:app` here
+  would record an installed-app value WITHOUT seating any descriptor, so
+  `installed-app` (which prefers the stored `:app`) would report a program the
+  registrar does not hold, and the FIRST `reinstall!` would diff against that
+  phantom app and only apply the delta — never populating the registrar with the
+  base program. So `construct-realm` does NOT accept `:app`; seat a program with
+  `(-> (rf/realm {:id …}) (rf/install! app))`.
 
   Returns the constructed realm map (now in the `realms` registry), so the call
   composes: `(-> (rf/realm {:id …}) (rf/install! app))`.
 
-  Throws `:rf.error/invalid-realm` when `:id` is missing, and
+  Throws `:rf.error/invalid-realm` when `:id` is missing or when an `:app` key is
+  supplied (install-owned state is not a constructor input), and
   `:rf.error/realm-id-conflict` when `:id` is already registered."
   [opts]
   (let [id (:id opts)]
@@ -331,6 +339,16 @@
                       {:error/id   :rf.error/invalid-realm
                        :opts       opts
                        :recovery   :supply-a-realm-id})))
+    ;; An `:app` here would create a FALSE installed-app state — the value is
+    ;; recorded without its descriptors being seated (rf2-c6armm.2 #1). The
+    ;; realm's `:app` slot is install-owned; reject it loudly at the constructor.
+    (when (contains? opts :app)
+      (throw (ex-info (str "rf/realm: :app is install-owned state, not a constructor"
+                           " input — an app value is inert until rf/install! seats it."
+                           " Use (-> (rf/realm {:id " id "}) (rf/install! app)).")
+                      {:error/id :rf.error/invalid-realm
+                       :realm    id
+                       :recovery :install-the-app-with-rf-install})))
     (when (contains? @realms id)
       (throw (ex-info (str "rf/realm: a realm with id " id " is already registered")
                       {:error/id   :rf.error/realm-id-conflict
@@ -341,8 +359,7 @@
           ;; constructor exists to provide.
           realm-map (cond-> (make-realm id {:registrar (get opts :registrar (atom {}))})
                       (contains? opts :adapter)      (assoc :adapter      (:adapter opts))
-                      (contains? opts :capabilities) (assoc :capabilities (:capabilities opts))
-                      (contains? opts :app)          (assoc :app          (:app opts)))]
+                      (contains? opts :capabilities) (assoc :capabilities (:capabilities opts)))]
       (register-realm! realm-map))))
 
 ;; `dispose-realm!` (the teardown counterpart of `construct-realm`) lives at the

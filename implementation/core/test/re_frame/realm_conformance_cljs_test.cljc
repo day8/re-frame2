@@ -40,7 +40,15 @@
         requirement before any mutation to the realm's own registrar;
     (8) the DEFAULT realm is byte-identical — install!/reg-* against the default
         realm behave exactly as before (no regression from the realm-scoped
-        seating seam).
+        seating seam);
+    (9) NON-DEFAULT realm live behavior pinned to the SHIPPED contract
+        (rf2-c6armm.3 #1) — a constructed realm is QUERY-isolated but not yet a
+        live-dispatch target: a :frame into a non-default realm is REFUSED (not
+        silently default-seated), and a constructed realm's handlers do not leak
+        into the default realm's live-dispatch resolution path;
+   (10) reinstall! APPLY-PHASE rollback into a constructed realm (rf2-c6armm.3
+        #2) — a throw during the reinstall! apply loop rolls the realm's
+        registrar back to its pre-reinstall state and records no new :app.
 
   Realm conformance is entirely within `re-frame.core` (realm + app-value +
   registrar are all core artefacts), so it lives in the core test tree rather
@@ -471,3 +479,127 @@
         ;; The default realm never saw any of these ids.
         (is (nil? (registrar/lookup :event :rl/keep))
             "the reinstall touched only the constructed realm's registrar")))))
+
+;; ---------------------------------------------------------------------------
+;; (9) NON-DEFAULT REALM live behavior — pinned to the SHIPPED contract
+;;     (rf2-c6armm.3 #1)
+;; ---------------------------------------------------------------------------
+;;
+;; The realm-aware frame / live-dispatch slice has NOT shipped: `reg-frame`
+;; hardcodes `:realm default-realm-id`, and the router/subs resolve handlers
+;; through the default registrar (the `*registrar*` binding is scoped only to the
+;; install!/reinstall! seating, never to live dispatch). So a constructed realm
+;; is QUERY-isolated (its own registrar, read by the realm-targeted queries) but
+;; NOT yet a live-dispatch target. These tests PIN that shipped contract so the
+;; gap is explicit and a future regression is caught:
+;;   * a :frame into a non-default realm is REFUSED (rf2-c6armm.1 #3) — you
+;;     cannot even construct a frame in a non-default realm, so the "constructed
+;;     realms are query-isolated but live frames silently dispatch through the
+;;     default realm" regression the review worried about is structurally closed;
+;;   * a non-default realm's installed handlers do NOT leak into the default
+;;     realm's live dispatch (the isolation half that DOES hold today).
+;; The full realm-routed live dispatch/subscribe is tracked as rf2-a15n62
+;; (EP-0013 staging step 4); when it lands, the refusal below is lifted and these
+;; tests become the live-routing assertions the bead sketched.
+
+(deftest non-default-realm-frame-descriptor-is-refused-not-default-seated
+  (testing "rf2-c6armm.3 #1 / .1 #3: installing a :frame into a constructed realm
+            is REFUSED (:rf.error/realm-frames-unsupported) — it does NOT silently
+            create a default-realm frame. This pins that the realm-aware frame
+            path has not shipped and closes the silent-default-seating regression"
+    (let [ra (rf/realm {:id :live/a})
+          rb (rf/realm {:id :live/b})]
+      (try
+        ;; The same frame id into two realms — the bead's exact probe. Both refuse,
+        ;; rather than overwriting one global default-realm frame.
+        (doseq [r [ra rb]]
+          (let [ed (try (rf/install! r (rf/app {:id :live/app :modules
+                                                [(rf/module {:id :m :frames {:live/f {}}})]}))
+                        (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                          (ex-data e)))]
+            (is (= :rf.error/realm-frames-unsupported (:error/id ed))
+                "the non-default-realm :frame install is refused")))
+        ;; No :live/f frame was created in ANY realm (no silent default seating).
+        (is (not (contains? (rf/frame-ids) :live/f))
+            "no live frame :live/f exists — neither realm silently created a default frame")
+        (finally
+          (rf/dispose-realm! :live/a)
+          (rf/dispose-realm! :live/b))))))
+
+(deftest non-default-realm-handlers-do-not-leak-into-default-live-dispatch
+  (testing "rf2-c6armm.3 #1: a handler installed ONLY into a constructed realm is
+            NOT resolvable through the default realm's live dispatch path — the
+            isolation half that holds today (a default-realm frame dispatching
+            the id is recovered as a no-op, not silently running the constructed
+            realm's handler)"
+    (let [r (rf/realm {:id :leak/r})]
+      (try
+        (rf/install! r (rf/app {:id :leak/app :modules
+                                [(rf/module {:id :m
+                                             :events {:leak/only-in-r {:handler add-a}}})]}))
+        ;; The handler lives in the constructed realm's own registrar.
+        (is (= add-a (:handler-fn (rf/handler-meta {:realm :leak/r :kind :event :id :leak/only-in-r})))
+            "the handler is in the constructed realm's registrar")
+        ;; But the DEFAULT realm's registrar (the live-dispatch resolution path)
+        ;; does NOT see it — no cross-realm leak into live behavior.
+        (is (nil? (registrar/lookup :event :leak/only-in-r))
+            "the constructed realm's handler does not leak into the default registrar")
+        (is (nil? (rf/handler-meta :event :leak/only-in-r))
+            "the default-realm query also does not see it (live dispatch resolves here)")
+        (finally (rf/dispose-realm! :leak/r))))))
+
+;; ---------------------------------------------------------------------------
+;; (10) reinstall! APPLY-PHASE rollback into a constructed realm (rf2-c6armm.3 #2)
+;; ---------------------------------------------------------------------------
+
+(deftest reinstall-apply-phase-throw-rolls-back-the-realm-registrar
+  (testing "rf2-c6armm.3 #2: a throw DURING the reinstall! apply loop (after one
+            real register!/unregister! mutation landed, before set-installed-app!)
+            rolls the constructed realm's registrar back to its pre-reinstall
+            state — the seat-into-realm! snapshot/restore covers reinstall too,
+            not just install. Old slots, removed slots, and installed-app all
+            stay unchanged"
+    (let [r  (rf/realm {:id :rb/r})
+          v1 (rf/app {:id :rb/app :modules
+                      [(rf/module {:id :m :events {:rb/keep {:handler add-a}
+                                                   :rb/drop {:handler add-a}}})]})
+          v2 (rf/app {:id :rb/app :modules
+                      [(rf/module {:id :m :events {:rb/keep {:handler add-b}
+                                                   :rb/new  {:handler add-b}}})]})]
+      (try
+        (rf/install! r v1)
+        (let [reg-before @(realm/registrar r)
+              calls (atom 0)
+              real-register! registrar/register!
+              ;; Force a throw on the FIRST register! the apply loop issues, AFTER
+              ;; it has run for real once — so at least one mutation has landed in
+              ;; the realm's registrar when the loop blows up (the partial-apply
+              ;; edge the bead names).
+              ed (with-redefs [registrar/register!
+                               (fn [kind id metadata]
+                                 (if (= 1 (swap! calls inc))
+                                   (do (real-register! kind id metadata)
+                                       (throw (ex-info "boom mid-apply"
+                                                       {:error/id :rb.test/boom})))
+                                   (real-register! kind id metadata)))]
+                   (try (rf/reinstall! r v2)
+                        (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                          (ex-data e))))]
+          (is (= :rb.test/boom (:error/id ed)) "the mid-apply throw propagated")
+          (is (>= @calls 1) "the apply loop issued at least one register!")
+          ;; ROLLBACK: the realm's registrar is byte-identical to its pre-reinstall
+          ;; state — the changed/added register! that landed AND any removed
+          ;; unregister! are all reverted.
+          (is (= reg-before @(realm/registrar r))
+              "the realm's registrar is rolled back to its pre-reinstall state")
+          (is (= add-a (get-in @(realm/registrar r) [:event :rb/keep :handler-fn]))
+              ":rb/keep still holds the OLD handler (the changed register! was rolled back)")
+          (is (some? (get-in @(realm/registrar r) [:event :rb/drop]))
+              ":rb/drop was NOT unregistered (the removal was rolled back)")
+          (is (nil? (get-in @(realm/registrar r) [:event :rb/new]))
+              ":rb/new did not leak (the added register! was rolled back)")
+          ;; ATOMIC :app: set-installed-app! runs only after a clean apply, so the
+          ;; installed app is still v1.
+          (is (= v1 (realm/installed-app r))
+              "installed-app is still v1 — set-installed-app! never ran on the failed reinstall"))
+        (finally (rf/dispose-realm! :rb/r))))))
