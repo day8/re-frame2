@@ -96,14 +96,14 @@ Let me show you the thing the live cell is the clean version of. Here's a real l
               :on-failure [:auth/login-error]}]]})))
 
 (rf/reg-event-db :auth/login-success
-  (fn [db [_ resp]]
-    (-> db (assoc :auth/state :authed) (assoc :auth/user (:user resp)))))
+  (fn [db [_ {:keys [value]}]]                 ;; managed-HTTP compat payload {:kind :success :value v}
+    (-> db (assoc :auth/state :authed) (assoc :auth/user (:user value)))))
 
 (rf/reg-event-db :auth/login-error
-  (fn [db [_ err]]
+  (fn [db [_ {:keys [failure]}]]               ;; {:kind :failure :failure m}
     (cond
       (>= (:auth/attempts db) 3) (assoc db :auth/state :locked-out)
-      :else (-> db (assoc :auth/state :error-shown) (assoc :auth/error err)))))
+      :else (-> db (assoc :auth/state :error-shown) (assoc :auth/error failure)))))
 
 ;; ... plus :auth/dismiss, plus :auth/reset, ...
 ```
@@ -149,8 +149,8 @@ The fix isn't better `cond` clauses. The fix is to step back and notice: *this i
     (fn [_] {:fx [[:rf.http/managed {:request {:method :post :url "/api/auth/lock"}}]]})
 
     :store-session
-    (fn [{[_ {:keys [token]}] :event}]
-      {:fx [[:auth.session/store {:token token}]]})}
+    (fn [{[_ {:keys [value]}] :event}]            ;; folded {:kind :success :value v}; token is under :value
+      {:fx [[:auth.session/store {:token (:token value)}]]})}
 
    :states
    {:idle
@@ -234,7 +234,7 @@ When a machine fires an HTTP request, you build a *2-element template* and let `
 ;;   [:auth.login/success {:kind :success :value v}]
 ```
 
-This "extras-fold" is structural: the runtime folds *whatever the source event appended* onto the machine's inner event, so any async surface ships its value into the machine the same way. What it appends, though, is the source's — **the `{:kind :success :value v}` / `{:kind :failure :failure m}` shape is `:rf.http/managed`'s public compatibility payload** ([chapter 10](10-http.md)), not a uniform reply map every surface shares. Resources, mutations, and future managed surfaces append the canonical reply map (`{:status :ok :value v …}` from the envelope box in [chapter 10](10-http.md#why-there-is-no-await--and-the-one-shape-every-async-effect-replies-through)) instead. So write each action's destructure against the payload the *source event* actually folds — `{:kind …}` when the source is `:rf.http/managed`, `{:status …}` when it's a resource or mutation. Machines and managed-HTTP compose without an adapter layer; the fold just carries the source's own payload through.
+This "extras-fold" is structural: the runtime folds *whatever the source event appended* onto the machine's inner event, so any async surface ships its value into the machine the same way. What it appends, though, is the source's — **the `{:kind :success :value v}` / `{:kind :failure :failure m}` shape is `:rf.http/managed`'s public compatibility payload** ([chapter 10](10-http.md)), not a uniform reply map every surface shares. A mutation's call-site `:reply-to` ([chapter 27](27-resources.md#continue-the-workflow-with-reply-to)) — and future public continuation surfaces — append the canonical reply map (`{:status :ok :value v …}` from the envelope box in [chapter 10](10-http.md#why-there-is-no-await--and-the-one-shape-every-async-effect-replies-through)) instead. (Resource *reads* lower onto the same canonical map internally, to settle the cache — it is not a public app continuation a machine action normally folds.) So write each action's destructure against the payload the *source event* actually folds — `{:kind …}` when the source is `:rf.http/managed`, `{:status …}` when it's a mutation `:reply-to`. Machines and managed-HTTP compose without an adapter layer; the fold just carries the source's own payload through.
 
 A machine's *own* async completions are different again, and don't fold a reply map at all. A spawned child finishing on a `:final?` leaf, and a fired `:after` timer, lower onto the same uniform envelope *internally* — but their public statechart API is preserved exactly: a child's result reaches the parent through the `:on-done` `:data` callback (and a failing child through the `:on-error` transition), and an `:after` fires its declared transition. You write `:on-done` / `:on-error` / `:after`, not a folded `{:status …}` map. (The lowering is internal vocabulary — one `:work/id`, one closed `:status`, stale-suppression on the actor/epoch — so the trace stream correlates machine completions like every other managed async family; see [Spec 005 §Async completions share the uniform reply envelope](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md).)
 
