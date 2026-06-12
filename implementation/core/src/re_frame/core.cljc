@@ -1944,6 +1944,26 @@
   values and composition (EP-0013)."}
   realm-ids realm/realm-ids)
 
+(def ^{:doc "Return the app VALUE installed in a running realm — `(installed-app)`
+  (default realm) / `(installed-app realm-or-id)`. The public realm→installed-app
+  READ seam (EP-0013 disposition 6): the static read of a running realm's
+  install-time program-as-a-value that nothing public exposed before. A realm
+  that had an app value SEATED via `install!` returns that rich constructed value
+  — carrying `:modules` provenance (per-module `:owns` / `:requires` / `:owner`-
+  stamped descriptors / source coords) — so a tool can feed it straight to the
+  `app-registrations` / `app-owns` / `app-requires` inspectors to read which
+  module owns a handler/sub/path WITHOUT installing anything. A realm seated only
+  through the `reg-*` sugar (load-order, no `install!`) carries no module
+  structure, so its installed app is the recomputable projection over the realm's
+  registrar — registrations grouped by kind, but an empty `:modules`/`:requires`
+  (load-order registrations declare no module). nil resolves to the default realm
+  (absence = default realm). `tooling` tier alongside `realm-ids` / `frame-realm`
+  — the realm-aware-tool read surface (it unblocks the Xray Module-view's MODULES
+  section, EP-0013 disposition 6). A STATIC read of the install-time value: it does
+  NOT route live dispatch through a non-default realm (the deferred runtime-routing
+  slice). Per spec/API.md §App values and composition (EP-0013)."}
+  installed-app realm/installed-app)
+
 ;; ---- interceptors --------------------------------------------------------
 
 (def ^{:doc "Fn-form of `->interceptor` (HoF / programmatic / REPL

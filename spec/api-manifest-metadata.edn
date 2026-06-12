@@ -477,6 +477,18 @@
   ;; frame registry query API home, alongside the other frame-* readers).
   ["re-frame.core" "realm-ids"]            {:tier :tooling :owner "Runtime-Subsystems" :status "v1"}
   ["re-frame.core" "frame-realm"]          {:tier :tooling :owner "002" :status "v1"}
+  ;; EP-0013 disposition 6 (rf2-imquoq): the PUBLIC realm→installed-app READ
+  ;; seam — returns a running realm's installed app VALUE (the `install!`-seated
+  ;; value with its `:modules` provenance, else the recomputable registrar
+  ;; projection), so a tool can feed it to `app-registrations` / `app-owns` /
+  ;; `app-requires` WITHOUT installing anything. This is the named graduation:
+  ;; the per-module provenance/ownership/capability facts graduate from internal
+  ;; WHEN the Xray Module-view demands them (which it now does). A STATIC read of
+  ;; the install-time value — NOT the deferred runtime-routing slice (a15n62).
+  ;; `tooling` tier alongside `realm-ids` / `frame-realm` (the realm-aware-tool
+  ;; read surface), not the `advanced` constructor/install path. Owner:
+  ;; Runtime-Subsystems (the EP-0013 realm/app-value contract home).
+  ["re-frame.core" "installed-app"]        {:tier :tooling :owner "Runtime-Subsystems" :status "v1"}
   ;; Feature registry (optional-artefact presence checks).
   ["re-frame.core" "feature-loaded?"]      {:tier :advanced :owner "Conventions" :status "v1"}
   ["re-frame.core" "features"]             {:tier :advanced :owner "Conventions" :status "v1"}
