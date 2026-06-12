@@ -809,12 +809,9 @@
     :description "Install the substrate-specific hiccup emitter for SSR. Chained — every loaded React-shaped adapter contributes its own install step so a single SSR ns-load auto-wires every adapter's render-to-string slot."}
 
    ;; ---- re-frame.views (CLJS, rf2-4edk warn-once chain) ---------------------
-   {:key         :views/maybe-warn-plain-fn-under-non-default-frame!
-    :producer-ns 're-frame.views.warn-once
-    :description "Emit the once-per-pair warning when a plain fn renders under a non-default frame."}
    {:key         :views/clear-plain-fn-warned-pairs!
     :producer-ns 're-frame.views.warn-once
-    :description "Clear the warned-pairs cache (test isolation)."}
+    :description "Clear the warned-plain-fn-frame-pairs cache (warn-once-clear chain / test isolation; rf2-z79p8). The warning this cache once gated is retired per EP-0002 (rf2-7yqn39) — the cache is retained only as a governed member of the :adapter/clear-warn-once-caches! chain."}
    {:key         :views/reading-render-key
     :producer-ns 're-frame.views
     :design-bead "rf2-vh1k3"

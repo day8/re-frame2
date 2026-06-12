@@ -289,29 +289,29 @@
   typo advisory — each a DIAGNOSTIC catalogue row (they fail the EP-0008
   promotion criterion and correctly stay diagnostic).
 
-  TWO categories are ruled INTENTIONALLY-OUT-OF-CATALOGUE with a one-line
-  note in Spec 009 §Error event catalogue (rf2-r8oiw7), NOT a row:
+  TWO categories were ruled INTENTIONALLY-OUT-OF-CATALOGUE with a one-line
+  note in Spec 009 §Error event catalogue (rf2-r8oiw7), NEITHER needing an
+  allow-list entry now:
     - `:rf.route/navigation-blocked` — a `:rf.event` op-type user-event
       lifecycle trace, not an error/warning category; it never matched this
       scan's chokepoints anyway, so it needs no allow-list entry.
-    - `:rf.warning/plain-fn-under-non-default-frame-once` — a catalogue/source
-      DRIFT: RETIRED in the catalogue (the strikethrough row, superseded by
-      `:rf.error/no-frame-context` per EP-0002) but `re-frame.views.warn_once`
-      still carries the dev-gated emit site as a structural no-op (the firing
-      case is unreachable — the no-frame-context throw happens first). Adding a
-      live row would contradict the EP-0002 retirement; the fix is the
-      source-side retirement of the dead emit, tracked as rf2-7yqn39
-      (an rf2-r8oiw7 follow-up). Until that lands it stays on this
-      allow-list — the ONLY remaining entry.
+    - `:rf.warning/plain-fn-under-non-default-frame-once` — was a
+      catalogue/source DRIFT: RETIRED in the catalogue (the strikethrough row,
+      superseded by `:rf.error/no-frame-context` per EP-0002) but
+      `re-frame.views.warn_once` still carried the dev-gated emit site as a
+      structural no-op (the firing case was unreachable — the no-frame-context
+      throw happens first). rf2-7yqn39 deleted that dead emit site, so the
+      category is NO LONGER emitted from source; its allow-list entry — the
+      last remaining one — was dropped in the same PR. Source now matches the
+      catalogue's RETIRED ruling.
 
-  `allow-list-stays-honest` fails if this last entry becomes catalogued or
-  stops being emitted, forcing the co-edit so the list cannot rot into a
-  silent blanket suppression."
-  #{;; views plain-fn advisory — catalogue marks RETIRED but source still
-    ;; emits it (a catalogue/source drift; source-side retirement is the fix,
-    ;; tracked as an rf2-r8oiw7 follow-up — see the Spec 009
-    ;; INTENTIONALLY-OUT-OF-CATALOGUE note)
-    :rf.warning/plain-fn-under-non-default-frame-once})
+  The allow-list is now EMPTY: the wider-scan backlog is fully catalogued and
+  the one drift entry is retired at the source. It is kept as a live ratchet
+  seam — a future deliberate non-catalogue emit category lands here with a
+  rationale — and `allow-list-stays-honest` fails if any future entry becomes
+  catalogued or stops being emitted, forcing the co-edit so the list cannot rot
+  into a silent blanket suppression."
+  #{})
 
 ;; ---------------------------------------------------------------------------
 ;; Tests

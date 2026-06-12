@@ -953,11 +953,11 @@ Per Spec 009 §Performance instrumentation: every render of a registered view br
 
 The trace late-bind hook (`:trace/emit!`) is unchanged. The render-key binding (`*render-key*`) is unchanged.
 
-### §9.6 The plain-fn-under-non-default-frame warning
+### §9.6 The plain-fn-under-non-default-frame warning — RETIRED (EP-0002)
 
-The detection at `re-frame.views/maybe-warn-plain-fn-under-non-default-frame!` (views.cljs:454-531) reads `(r/current-component)` and inspects `(.-context cmp)`. Under the rewrite this becomes `(reagent2.core/current-component)` — same shape, same field access. **The narrowness contract is preserved**: reg-view-wrapped components carry `:contextType frame-context` (read into `(.-context cmp)`) so they get the surrounding frame; plain Reagent fns lack the wiring and route to `:rf/default`, triggering the warning.
+The `:rf.warning/plain-fn-under-non-default-frame-once` warning and its detection helper were RETIRED (EP-0002; rf2-7yqn39 deleted the dead emit). Under EP-0002 there is no `:rf/default` floor: a plain (non-`reg-view`) Reagent fn that cannot read the surrounding Provider's frame resolves to nil and its ambient `subscribe`/`dispatch` raises the always-on `:rf.error/no-frame-context` — the loud error superseded the soft warning. There is no longer a plain-fn detection path for the rewrite to preserve.
 
-This is the one place the rewrite is forced to keep Reagent's class-component context-read shape (`(.-context cmp)`) — UIx / Helix function components route through `_currentValue` per `re-frame.adapter.context/function-component-current-frame`. The rewrite's class-component-shape preserves the existing detection path.
+Reg-view-wrapped components still carry `:contextType frame-context` (read into `(.-context cmp)`) so they pick up the surrounding frame; this is the one place the rewrite keeps Reagent's class-component context-read shape (`(.-context cmp)`) — UIx / Helix function components route through `_currentValue` per `re-frame.adapter.context/function-component-current-frame`.
 
 ---
 

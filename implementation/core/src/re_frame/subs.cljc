@@ -921,22 +921,11 @@
    ;; than silently reading the wrong frame's app-db. The `extra` threads
    ;; the sub-id into the error payload's `:event-id` slot so a frameless
    ;; subscribe's error is attributed to the query it carried.
-   #?(:cljs
-      (let [frame-id (frame/require-current-frame!
-                       :subscribe
-                       {:where    're-frame.subs/subscribe
-                        :event-id (first query-v)})]
-        (when interop/debug-enabled?
-          (when-let [warn! (late-bind/get-fn
-                            :views/maybe-warn-plain-fn-under-non-default-frame!)]
-            (warn! frame-id query-v)))
-        (subscribe frame-id query-v))
-      :clj
-      (subscribe (frame/require-current-frame!
-                   :subscribe
-                   {:where    're-frame.subs/subscribe
-                    :event-id (first query-v)})
-                 query-v)))
+   (subscribe (frame/require-current-frame!
+                :subscribe
+                {:where    're-frame.subs/subscribe
+                 :event-id (first query-v)})
+              query-v))
   ([frame-id query-v]
    ;; rf2-9hoos (CLJS, dev-only): record the view→sub edge — push this
    ;; query-v into the in-flight render's deref sink so `:rf.view/rendered`

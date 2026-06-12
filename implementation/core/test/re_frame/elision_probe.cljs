@@ -332,25 +332,14 @@
   (let [_m (views/first-render?! [:probe/unmounted 1])]
     nil)
   (views/clear-seen-render-keys!)
-  ;; Per Spec 004 §Plain Reagent fns and Spec 006 §Plain-fn-under-non-
-  ;; default-frame warning (rf2-d3k3): the warn-once helper sits inside
-  ;; `(when interop/debug-enabled? ...)`. Touch the helper's public
-  ;; entry points so the reachability graph keeps the ns body — the
-  ;; trace-emit branch itself is gated on `(some? (r/current-component))`
-  ;; which is nil at probe time (no Reagent render in flight), so the
-  ;; emit-site keyword is DCE'd from BOTH bundles by closure dataflow.
-  ;; The browser-runner test
-  ;; (re-frame.cross-spec-dom-cljs-test/plain-fn-under-non-default-frame) is
-  ;; the load-bearing assertion that the gate fires under DEBUG=true;
-  ;; production elision rests on the surrounding
-  ;; `(when interop/debug-enabled? ...)` constant-folding to false the
-  ;; same way every other warn site does.
-  (rf/reg-sub :probe/sub (fn [_db _q] nil))
-  (let [_r (rf/subscribe [:probe/sub])]
-    (views/clear-plain-fn-warned-pairs!)
-    (views/maybe-warn-plain-fn-under-non-default-frame!
-      :rf/default [:probe/sub])
-    nil))
+  ;; The plain-fn-under-non-default-frame WARNING is retired (EP-0002;
+  ;; superseded by the always-on :rf.error/no-frame-context — rf2-7yqn39
+  ;; deleted the dead emit). The `warned-plain-fn-frame-pairs` suppression
+  ;; cache and its `clear-plain-fn-warned-pairs!` clear-fn are retained only
+  ;; as a governed member of the warn-once-clear chain (rf2-z79p8). Touch the
+  ;; clear-fn so the warn-once ns body stays in the reachability graph for
+  ;; the elision check.
+  (views/clear-plain-fn-warned-pairs!))
 
 ;; ---- Spec 005 §Source-coord stamping — reg-machine macro (rf2-8bp3) -------
 

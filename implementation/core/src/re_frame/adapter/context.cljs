@@ -173,10 +173,12 @@
 ;; canonical impl that the UIx and Helix adapters publish through the
 ;; `:adapter/current-frame` late-bind hook. Reagent has its own impl
 ;; in `re-frame.views/current-frame` that uses the class-component
-;; `(.-context cmp)` path so the plain-fn-under-non-default-frame-once
-;; warning's narrowness contract is preserved (plain Reagent fns
-;; lacking `:contextType` continue to route to `:rf/default`, which is
-;; what the warning targets).
+;; `(.-context cmp)` path: a plain Reagent fn lacking `:contextType`
+;; cannot read the surrounding Provider's frame, so under EP-0002 (no
+;; `:rf/default` floor) its ambient `subscribe`/`dispatch` resolves nil
+;; and raises the always-on `:rf.error/no-frame-context` rather than
+;; silently routing to a default. (This superseded the retired
+;; `:rf.warning/plain-fn-under-non-default-frame-once` warning.)
 
 (defn function-component-current-frame
   "Resolution chain (READER) for function-component substrates (UIx,
