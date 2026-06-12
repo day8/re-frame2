@@ -177,21 +177,15 @@ Time to stop reading and start poking. Here's a todo-adder, live, in your browse
 (require '[reagent2.core :as r]
          '[re-frame.core :as rf])
 
-;; ---- A genuine cofx: a non-durable display preference read from the host ----
-;;      (NOT the clock — the clock is a recorded world input, see below.)
-(rf/reg-cofx :demo.todo/locale
-  (fn [ctx] (assoc-in ctx [:coeffects :demo.todo/locale] "en-US")))
-
 ;; ---- Event: a PURE handler. The clock comes from :rf.world/inputs (recorded,
-;;      replay-safe); the fresh id rides the event from the dispatch site. ----
+;;      replay-safe); the fresh id rides the event from the dispatch site.
+;;      Both facts are durable — both are recorded. No ambient read. ----
 (rf/reg-event-fx :demo.todo/add
-  [(rf/inject-cofx :demo.todo/locale)]
-  (fn [{:keys [db demo.todo/locale] :rf.world/keys [inputs]} [_ {:keys [id]}]]
+  (fn [{:keys [db] :rf.world/keys [inputs]} [_ {:keys [id]}]]
     {:db (assoc-in db [:demo.todo/items id]
                    {:id id
                     :title (str "Todo #" (inc (count (:demo.todo/items db))))
-                    :created-at (:time-ms inputs)
-                    :locale locale})}))
+                    :created-at (:time-ms inputs)})}))
 
 (rf/reg-event-db :demo.todo/initialise
   (fn [_db _event] {:demo.todo/items {}}))
@@ -201,7 +195,9 @@ Time to stop reading and start poking. Here's a todo-adder, live, in your browse
   (fn [db _query] (vals (:demo.todo/items db))))
 
 ;; ---- View: plain defn, explicit rf/ verbs. The id is minted at the dispatch
-;;      site and rides the event, so it lands in the ledger as recorded data. ----
+;;      site and rides the event, so it lands in the ledger as recorded data.
+;;      The locale used to format the time is a *display-time*, non-durable
+;;      choice — it lives at the view, never written into app-db. ----
 (defn todo-list []
   [:div
    [:button {:on-click #(rf/dispatch [:demo.todo/add {:id (random-uuid)}])} "Add a todo"]
@@ -210,14 +206,14 @@ Time to stop reading and start poking. Here's a todo-adder, live, in your browse
       ^{:key id}
       [:li title
        [:span {:style {:color "#888" :margin-left "1em" :font-size "0.85em"}}
-        (.toLocaleTimeString (js/Date. created-at))]])]])
+        (.toLocaleTimeString (js/Date. created-at) "en-US")]])]])
 
 ;; ---- Seed app-db, then hand back the view ----
 (rf/dispatch-sync [:demo.todo/initialise])
 [todo-list]
 ```
 
-Read the handler again now that it's running: `:demo.todo/add` never calls `js/Date.` or `random-uuid`. The timestamp arrives as `(:time-ms inputs)` — the recorded world input the runtime stamped at the causal boundary — and the id arrives *in the event*, minted at the click site. The only `reg-cofx` is `:demo.todo/locale`, a genuinely non-durable display preference. The impurity is real — each todo gets a real timestamp and a real id — but every fact that touches durable state is something the ledger recorded, so replay reproduces it exactly.
+Read the handler again now that it's running: `:demo.todo/add` never calls `js/Date.` or `random-uuid`. The timestamp arrives as `(:time-ms inputs)` — the recorded world input the runtime stamped at the causal boundary — and the id arrives *in the event*, minted at the click site. The only ambient host read left — the `"en-US"` locale that formats the displayed time — lives at the *view*, a transient render-time choice that never touches durable state. The impurity is real — each todo gets a real timestamp and a real id — but every fact that touches durable state is something the ledger recorded, so replay reproduces it exactly.
 
 > **Try it.** Because the clock is a recorded input rather than an ambient read, you fix it by *supplying* it on the dispatch — not by re-registering a cofx. Change the button to `#(rf/dispatch [:demo.todo/add {:id (random-uuid)}] {:rf.world/inputs {:time-ms 1735732800000}})`, re-evaluate, and add a few todos: every one is now stamped that exact instant (noon UTC, New Year's Day 2025), because you handed the runtime the world fact instead of letting it read the wall clock. That's the testing story in miniature — the next section is the same move with a `deftest` around it.
 
