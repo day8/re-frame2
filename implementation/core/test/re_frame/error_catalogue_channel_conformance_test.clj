@@ -274,62 +274,43 @@
   stops being emitted, forcing the co-edit so the list cannot rot into a
   silent blanket suppression.
 
-  Grouped by the EP-0008 audit's disposition (rf2-r8oiw7) where known;
-  the remainder are feature-artefact diagnostics surfaced by the wider
-  scan and awaiting the same triage."
-  #{;; --- the original rf2-r8oiw7 audit set (ruled: stay diagnostic) ---
-    ;; rf2-hhutya folded FOUR of the original rf2-r8oiw7 rows into the Spec
-    ;; 009 catalogue (as DIAGNOSTIC rows — they fail the EP-0008 promotion
-    ;; criterion and correctly stay diagnostic): `:rf.epoch.cb/listener-
-    ;; exception`, `:rf.warning/epoch-redact-fn-exception`,
-    ;; `:rf.warning/resource-sub-scope-mismatch`,
-    ;; `:rf.warning/on-spawn-return-ignored`. Now catalogued → dropped from
-    ;; the allow-list (the `allow-list-stays-honest` test fails on a listed
-    ;; entry that became catalogued). The remaining original-set members
-    ;; below are NOT yet catalogued.
-    ;; resources clock-skew advisory — owned by the time-axis / resource family
-    :rf.resource/hydrate-clock-skew
-    ;; (`:rf.resource/restore-clock-skew` + `:rf.route/navigation-blocked`
-    ;;  from the audit are NOT in this scan's set: the former is built as a
-    ;;  deferred-trace record literal, the latter is emitted with op-type
-    ;;  `:rf.event` — neither matches the diagnostic/error/advisory emit
-    ;;  chokepoints this scan targets, so they need no allow-list entry.)
+  rf2-r8oiw7 has now CATALOGUED the entire wider-scan backlog as DIAGNOSTIC
+  rows (Spec 009 §Error event catalogue) and dropped them from this list in
+  the same PR. The earlier rf2-hhutya pass folded FOUR original-set rows into
+  the catalogue (`:rf.epoch.cb/listener-exception`,
+  `:rf.warning/epoch-redact-fn-exception`,
+  `:rf.warning/resource-sub-scope-mismatch`,
+  `:rf.warning/on-spawn-return-ignored`) and PROMOTED + catalogued
+  `:rf.error/ssr-ring-error-view-failed`. rf2-r8oiw7 then catalogued the rest:
+  the resources clock-skew advisories, the routing `:can-leave` / navigate
+  diagnostics, the machines `:after` timer + spawn-join diagnostics, the SSR
+  hydration / streaming / ring-host diagnostics, the HTTP transport / decode
+  diagnostics, the resource clear-scope advisory, and the router dispatch-opt
+  typo advisory — each a DIAGNOSTIC catalogue row (they fail the EP-0008
+  promotion criterion and correctly stay diagnostic).
 
-    ;; --- wider scan: feature-artefact diagnostics awaiting triage (rf2-r8oiw7) ---
-    ;; routing :can-leave guard validation + artefact-missing advisories
-    :rf.error/can-leave-non-boolean
-    :rf.warning/can-leave-subs-artefact-missing
-    :rf.error/navigate-arity-misuse
-    ;; machines `:after` timer / spawn-join validation diagnostics
-    :rf.error/machine-after-fn-threw
-    :rf.error/machine-after-sub-threw
-    :rf.error/machine-after-watch-failed
-    :rf.error/machine-spawn-all-bad-child-id
-    ;; SSR hydration / streaming / ring host diagnostics
-    :rf.error/hydration-frame-id-mismatch
-    :rf.error/suspense-boundary-duplicate-id
-    :rf.ssr/suspense-boundary-failed
-    ;; (`:rf.error/ssr-ring-error-view-failed` was PROMOTED + catalogued by
-    ;;  rf2-hhutya → dropped from the allow-list; the coverage check now
-    ;;  governs it via its always-on catalogue row.)
-    :rf.error/ssr-ring-on-error-failed
-    :rf.ssr/csp-allowlist-violation
-    :rf.ssr/destroy-frame-failed
-    :rf.ssr/ssr-non-integer-status
-    :rf.ssr/ssr-non-string-header-value
-    :rf.ssr/ssr-redirect-no-target
-    :rf.ssr.head/cleanup-failed
-    ;; HTTP transport / decode diagnostics
-    :rf.http/aborted
-    :rf.warning/http-header-invalid
-    :rf.warning/http-malli-absent
-    :rf.warning/failure-swallowed
-    ;; resources clear-scope advisory
-    :rf.warning/resource-clear-scope-unresolved
-    ;; router dispatch-opt typo advisory
-    :rf.warning/unknown-dispatch-opt
-    ;; views plain-fn advisory — catalogue marks RETIRED but source still
-    ;; emits it (a catalogue/source drift rf2-r8oiw7 must reconcile)
+  TWO categories are ruled INTENTIONALLY-OUT-OF-CATALOGUE with a one-line
+  note in Spec 009 §Error event catalogue (rf2-r8oiw7), NOT a row:
+    - `:rf.route/navigation-blocked` — a `:rf.event` op-type user-event
+      lifecycle trace, not an error/warning category; it never matched this
+      scan's chokepoints anyway, so it needs no allow-list entry.
+    - `:rf.warning/plain-fn-under-non-default-frame-once` — a catalogue/source
+      DRIFT: RETIRED in the catalogue (the strikethrough row, superseded by
+      `:rf.error/no-frame-context` per EP-0002) but `re-frame.views.warn_once`
+      still carries the dev-gated emit site as a structural no-op (the firing
+      case is unreachable — the no-frame-context throw happens first). Adding a
+      live row would contradict the EP-0002 retirement; the fix is the
+      source-side retirement of the dead emit, tracked as rf2-7yqn39
+      (an rf2-r8oiw7 follow-up). Until that lands it stays on this
+      allow-list — the ONLY remaining entry.
+
+  `allow-list-stays-honest` fails if this last entry becomes catalogued or
+  stops being emitted, forcing the co-edit so the list cannot rot into a
+  silent blanket suppression."
+  #{;; views plain-fn advisory — catalogue marks RETIRED but source still
+    ;; emits it (a catalogue/source drift; source-side retirement is the fix,
+    ;; tracked as an rf2-r8oiw7 follow-up — see the Spec 009
+    ;; INTENTIONALLY-OUT-OF-CATALOGUE note)
     :rf.warning/plain-fn-under-non-default-frame-once})
 
 ;; ---------------------------------------------------------------------------
