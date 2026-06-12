@@ -167,12 +167,12 @@ Non-Ring hosts implement the same contract: stash the request in the per-frame s
 
 ## Reading the request — the `:rf.server/request` cofx
 
-The adapter binds the request; `:rf.server/request` is the cofx your handlers use to read it. It's gated `:platforms #{:server}`, so a client dispatch no-ops (the same handler runs on both platforms; the read just returns `nil` on the client):
+The adapter binds the request; `:rf.server/request` is the cofx your handlers **declare** to read it. It's a *provided* fact — the adapter stamps it onto the request's dispatch envelope, so the registration carries no generator — and it's gated `:platforms #{:server}`, so a client dispatch no-ops (the same handler runs on both platforms; the value is simply absent on the client):
 
 ```clojure
 (rf/reg-event-fx :rf/server-init
-  {:platforms #{:server}}
-  [(rf/inject-cofx :rf.server/request)]
+  {:platforms        #{:server}
+   :rf.cofx/requires [:rf.server/request]}
   (fn [{:keys [db rf.server/request]} _]
     (let [{:keys [uri request-method headers session]} request]
       {:db (-> db
@@ -181,7 +181,7 @@ The adapter binds the request; `:rf.server/request` is the cofx your handlers us
        :fx [[:dispatch [:rf.route/handle-url-change uri]]]})))
 ```
 
-The request map carries `:uri`, `:request-method`, `:headers`, `:query-params`, `:form-params` (set by the adapter for POSTs), `:session`, `:cookies`. Read the cofx **once**, at `:rf/server-init`, and thread the values you need down into your loaders via the dispatched events' args. Don't read it from deep inside child machines — that would make those children server-only and break the "same machine for client navigation" property that makes the whole thing pull its weight. (The 2-arity form `(inject-cofx :rf.server/request {:uri "/articles" ...})` supplies an explicit override, handy in tests that drive the drain without a real adapter.)
+The request map carries `:uri`, `:request-method`, `:headers`, `:query-params`, `:form-params` (set by the adapter for POSTs), `:session`, `:cookies`. Declare the cofx **once**, at `:rf/server-init`, and thread the values you need down into your loaders via the dispatched events' args. Don't read it from deep inside child machines — that would make those children server-only and break the "same machine for client navigation" property that makes the whole thing pull its weight. (Because supplied values win, a test that drives the drain without a real adapter just hands the request in on the dispatch — `(rf/dispatch-sync [:rf/server-init] {:rf.cofx {:rf.server/request {:uri "/articles" …}}})` — exactly the supply-not-stub idiom from [chapter 13](13-testing.md#freezing-the-clock-with-recordable-coeffects).)
 
 ## The server response is more than HTML
 

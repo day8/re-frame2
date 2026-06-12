@@ -38,7 +38,7 @@ The shape of a good interactive section is: a sentence of *why*, the live cell, 
 A `cljs-rf2` cell evaluates against re-frame2's real public API. The names that resolve inside a cell:
 
 - **Registrations** — `reg-event-db`, `reg-event-fx`, `reg-sub`, `reg-fx`, `reg-cofx`, and the rest of the `reg-*` family. (In compiled code these are plain functions; the macro forms only add source-location capture, which a browser cell doesn't need.)
-- **Runtime verbs** — `dispatch`, `dispatch-sync`, `subscribe`, `inject-cofx`. (On the real public surface these are macros; the cell environment binds the same names to their underlying functions, so you write them exactly as in real code.)
+- **Runtime verbs** — `dispatch`, `dispatch-sync`, `subscribe`. (On the real public surface these are macros; the cell environment binds the same names to their underlying functions, so you write them exactly as in real code.)
 - **The view substrate** — `reagent2.core` (require it `:as r`).
 
 A cell's standard preamble is therefore:
