@@ -81,12 +81,18 @@ Every form POST MUST carry a CSRF token; the server MUST reject a mismatched tok
 
 `enctype="multipart/form-data"` — the host adapter parses files under `:form-params` as `{:filename :content-type :size :tempfile}` maps. The `:tempfile` is host-specific and **opaque**: pass it to a file-storage fx (S3 PUT, disk write); never dereference it in the handler, and write only the resulting URL/storage-id into `app-db`. File **contents** never appear in trace events.
 
-**Marking the POST sensitive — use the current privacy surface, not handler metadata.** A handler-meta `{:sensitive? true}` flag on the action is a **no-op** — the runtime removed it and the trace surface no longer consults it, so marking the action does nothing and the `:form-params` ship verbatim into trace/Story/MCP egress. Sensitivity is path-based now (per [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md)):
+**Marking the POST sensitive — classify at the owner, not via handler metadata.** A handler-meta `{:sensitive? true}` flag on the action is a **no-op** — the runtime removed it, so marking the action does nothing and the `:form-params` ship verbatim into trace/Story/MCP egress. Sensitivity is owner-classified now (the three-owner model — per [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md)):
 
-- If the upload metadata (or any field) lands at an **app-db slot** that can hold credentials/PII, declare that slot `{:sensitive? true}` in `reg-app-schema` — the router auto-redacts it on the trace surface and stamps the event sensitive.
-- If a secret rides only in the **event payload** (e.g. a one-time token in `:form-params`) and never lands at an app-db slot, scrub the named payload paths with a positional `(rf/redact-interceptor [[:form-params :token] …])` on the action handler. Filenames and other payload keys that should not appear in traces are named the same way. An empty-path `(rf/redact-interceptor [[:form-params]])` scrubs the whole `:form-params` map.
+- If the upload metadata (or any field) lands at a durable **app-db slot** that can hold credentials/PII, declare that path on the **frame**: `(rf/reg-frame :app/main {:sensitive {:app-db [[:uploads :token]]}})`. The frame owns durable app-db classification.
+- If a secret rides only in the **event payload** (e.g. a one-time token in `:form-params`) and never lands at an app-db slot, name its path in the **registration's** `:sensitive` metadata — the action handler is just a `reg-event-*`, so it carries the same metadata map:
 
-Mixed sensitive + non-sensitive fields → name the sensitive payload paths in the interceptor (or split into two POSTs); the scrub is per-named-path, applied via `redact-interceptor`/schema, not a whole-action toggle.
+```clojure
+(rf/reg-event-fx :upload/submit
+  {:sensitive [[:form-params :token]]}    ;; empty path [[:form-params]] scrubs the whole map
+  (fn [_ [_ {:keys [form-params]}]] ,,,)) ;; handler body still sees the real value
+```
+
+Mixed sensitive + non-sensitive fields → name the sensitive payload paths in the registration `:sensitive` vector (or split into two POSTs); the scrub is per-named-path, owned by the registration, not a whole-action toggle.
 
 ## Anti-patterns
 
