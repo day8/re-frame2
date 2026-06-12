@@ -1054,9 +1054,9 @@
   Use in tests, REPL sessions, machine-action bodies, SSR builders,
   or any non-reactive consumer that wants the value right now. For
   reactive consumers (Reagent views, tools holding the reaction) use
-  `subscribe`. For event handlers prefer `(inject-cofx :sub-as-cofx)`
-  so the read is part of the cofx contract rather than a side-effect
-  inside the handler body.
+  `subscribe`. For event handlers prefer declaring a sub-reading cofx via
+  `:rf.cofx/requires` (EP-0017) so the read is part of the cofx contract
+  rather than a side-effect inside the handler body.
 
   Per rf2-cmfln (Spec 006 §Reference counting and disposal): the
   teardown `unsubscribe` runs synchronously on the 1 → 0 transition,
@@ -1065,7 +1065,7 @@
   the slot alive via ref-count and are unaffected — `subscribe-once`'s
   decrement only drives the eviction when it owned the last reference.
 
-  See also: `subscribe`, `unsubscribe`, `compute-sub`, `inject-cofx`.
+  See also: `subscribe`, `unsubscribe`, `compute-sub`, `reg-cofx`.
 
   EP-0002: the 1-arity ambient form resolves the frame through the
   scope/hold chain via `frame/require-current-frame!` — a one-shot read
