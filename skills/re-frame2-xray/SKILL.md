@@ -14,7 +14,9 @@ description: >
  "Xray mode toggle", "Xray popout", "Xray overlay",
  "Xray open-overlay!", "open Xray with no layout host / no
  [data-rf-xray-host] / full-screen canvas", "Xray machine inspector",
- "Xray epoch cascade", "where do Xray issues show up", and similar.
+ "Xray epoch cascade", "where do Xray issues show up", "Xray Graph
+ tab", "Xray derivation/process graph", "where does this value come
+ from in Xray", "Xray Resources tab", and similar.
  **Do not use** for: driving Xray
  programmatically from a live REPL (that's `re-frame2-pair`), authoring
  the host app (`re-frame2`), bootstrapping a new project
@@ -66,8 +68,9 @@ This skill answers three questions, and only three:
  programmatic entry points, the wired hotkeys, the Dynamic ↔ Static
  mode toggle.
 2. **Which tab shows X?** — a one-line purpose for each tab Xray ships,
- across both modes: the 6 Dynamic event-spine tabs (per spec/018 §5 +
- spec/021 §9.1) and the 5 Static registry-browse tabs (per
+ across both modes: the 8 Dynamic event-spine tabs (the 6 in
+ spec/018 §5 + spec/021 §9.1, plus the cross-feature **Resources**
+ and **Graph** tabs) and the 5 Static registry-browse tabs (per
  spec/007-UX-IA.md §Static mode).
 3. **What's the chrome around the tabs for?** — the first-screen
  navigation primitives the user meets immediately: the time-travel
@@ -118,7 +121,8 @@ the `Cmd/Ctrl+Shift+M` chord:
 - **Dynamic** — the event-coupled spine. A 4-layer chrome (L1 ribbon ·
  L2 event list · L3 tab bar · L4 detail). Every tab is a *lens on the
  one focused event* — pick an event in the L2 list and every tab
- rebinds. This is "what happened in **this** epoch?". 6 tabs.
+ rebinds. This is "what happened in **this** epoch?". 8 tabs (the
+ core 6 plus the cross-feature Resources + Graph lenses).
 - **Static** — event-INDEPENDENT browse of what's *registered*. A
  3-layer chrome (no L2 spine — Static has no event focus). Every tab is
  a registry catalogue: every machine, every route, every schema, every
@@ -230,16 +234,19 @@ Static (about the whole registry) — then route to the tab. For per-tab
 layout, iconography, stripe tokens, and "open it when…" depth see
 [`references/panels.md`](references/panels.md).
 
-### Dynamic mode — 6 lenses on the focused event
+### Dynamic mode — 8 lenses on the focused event
 
-The L3 tab bar holds **6 lenses on the focused event**, in the order set
-by spec/018 §5 + spec/021 §9.1 (mnemonics `e a v t m r`): **Epoch ·
-app-db · Views · Trace · Machine · Routes**. Cross-epoch
-signal lives on the L2 timeline above (badges + stripes); every tab
-answers "what happened in **this** epoch?" through its own lens. To
-browse a machine's full topology cold (spine-INDEPENDENT — picker +
-zoom / pan / fit, regardless of the focused event), flip to **Static
-mode** and open its Machines tab.
+The L3 tab bar holds **8 lenses on the focused event**, left-to-right
+(mnemonics `e a v t m r s g`): **Epoch · app-db · Views · Trace ·
+Machine · Routes · Resources · Graph**. The first six are the core spine
+lenses (spec/018 §5 + spec/021 §9.1); **Resources** and **Graph** are the
+two cross-feature lenses that landed last (the registry-driven L4 tab
+seam lets a panel register its own tab — see `panels/resources.cljs` and
+`panels/derivation_graph.cljs`). Cross-epoch signal lives on the L2
+timeline above (badges + stripes); every tab answers "what happened in
+**this** epoch?" through its own lens. To browse a machine's full
+topology cold (spine-INDEPENDENT — picker + zoom / pan / fit, regardless
+of the focused event), flip to **Static mode** and open its Machines tab.
 
 There is **no Issues tab** — Mike ruled it out (Option
 (c), 2026-05-31; `panels/issues_ribbon.cljs` deleted). Issues now surface
@@ -253,6 +260,32 @@ inline (see *Where issues surface now* below).
 | **Trace** | `t` · `⬢` · orange | Raw Spec 009 trace events for the focused epoch — a single **flat oldest-first row list** (no bands/envelope), each row carrying a **stage column** (DISPATCH·COEFFECT·HANDLER·FLOW·SIDE EFFECTS·SUBSCRIPTIONS·VIEWS) + a **colour-coded left edge** reusing the Epoch badge taxonomy; the focused epoch IS the scope (no filter chips), click any row to expand its payload inline. | "Show me every raw op in this epoch." / "Is `:rf.fx/*` firing as expected?" |
 | **Machine** | `m` · `◆` · green | **Event-driven.** Per-machine topology + transition highlight + guards / actions / cancellation cascade for the focused event. BLANK when the focused event had no machine activity; per-machine prev/next walks the spine. (Display label is singular **Machine** — the focused-epoch lens is on one machine; internal tab id `:machines`.) To browse a machine's full topology cold (picker + zoom / pan / fit, spine-INDEPENDENT), use **Static mode**'s Machines tab. | "What did this event do to my machines?" / "What transition fired?" / "What guards passed/failed?" |
 | **Routes** | `r` · `🌐` · yellow | Flat focused-event lens: current matched route + params/query/fragment + a **Simulate-URL** input that ranks every registered route, with per-event glyphs `◉ TO` / `◇ FROM` / `● HERE`. Silent when no routes registered. (Display label **Routes**, plural-noun convention; internal tab id `:routing`.) | "What route am I on?" / "Did the route change this epoch?" / "What params resolved?" |
+| **Resources** | `s` · cross-feature | The declarative server-state lens (Spec 016 §Xray and AI tooling): the static resource registry, per-frame **live instances** (state · generation · owners · freshness), the **work ledger** of live fetch attempts, the route/resource graph, lifecycle/invalidation/cache-growth, and a scope audit + lints. **Read-only** — observing pins nothing; values are summarized (params/scopes/data redaction-aware), never raw. Reads the runtime-db resource slices decoupled — Xray does **not** `:require` the optional resources artefact, so the panel renders cleanly even when the host has no resources. | "Where's my server state, what owns it, and is it stale?" / "What fetches are in flight?" |
+| **Graph** | `g` · cross-feature (violet — the algebra lens) | Xray's UI over the **EP-0014 derivation/process graph** — the one node-and-edge view where every declared fact and process (subscriptions, flows, resources, route facts, machine processes + selectors) is a node over the frame fold. Every node is classified by its two closed superkinds (`:derivation` / `:process`) read off `:kind` alone; the refined kinds tint the family accent. A per-panel **static ↔ live** toggle (its own toggle, distinct from the L1 mode pill) flips between the registration-derived graph (parametric subs marked, no edge — the don't-execute rule) and the frame-realized graph (concrete query vectors, active resource keys, live machine instances). **On-box raw, off-box redacted.** | "Where does this value come from / when is it evaluated / where does it live / who owns it?" — across families, in one place |
+
+#### What the Graph tab contributes today (and what it doesn't)
+
+The Graph tab composes the families Xray's artefact already carries —
+**subscriptions, flows, and routes**. Machines and resources are
+optional, post-v1 artefacts that Xray does **not** statically depend on,
+so today they contribute **no nodes** to the graph (the no-machines /
+no-resources story). The contributor seam is ready: those families join
+the one graph the moment their artefacts are on Xray's classpath, with no
+panel change. So if a user asks "why aren't my machines in the Graph
+tab?", that's the dependency boundary, not a bug — point them at the
+per-family lenses (the **Machine** Dynamic tab, the **Resources** Dynamic
+tab, and **Static → Machines**) for those families in the meantime.
+
+> **The underlying graph accessor is internal, not a public API.** The
+> Graph tab is a *consumer* of EP-0014's internal `re-frame.derivation.graph`
+> composer — a **structured** internal accessor, NOT a `re-frame.core`
+> facade export and NOT a public app authoring/accessor primitive. EP-0014
+> defers the public name until a third consumer (beyond Xray and the
+> conformance fixtures) needs it. So tell users to **open the Graph tab**
+> (it exists, it ships), but do **not** tell them to call a public graph
+> API from their app code — there isn't one. Source of truth:
+> [`spec/Derivations.md` §Graph inspection — internal but structured](../../spec/Derivations.md#graph-inspection--internal-but-structured)
+> + [`docs/EP/EP-0014-derivation-and-process-algebra.md`](../../docs/EP/EP-0014-derivation-and-process-algebra.md).
 
 #### Where issues surface now (no Issues tab)
 
@@ -349,19 +382,20 @@ short of improvising.
  [`tools/xray/spec/011-Launch-Modes.md` §Mount lifecycle](../../tools/xray/spec/011-Launch-Modes.md)
  and the per-panel implementation specs. A `xray-implementor` sibling
  skill is **deferred to post-alpha** until the Xray surface stabilises.
-- **The "derivation/process graph" view** (subs / flows / resources /
- routes / machines as one node-and-edge graph — the EP-0014 algebra).
- There is **no shipped Xray tab** that renders that unified graph today.
- The algebra view is an **internal, structured accessor** the framework
- produces for Xray + the conformance fixtures to consume — it ships **no
- public accessor name** and **no `re-frame.core` facade export** (the
- public name is deferred until a third consumer needs it). So: do **not**
- tell a user to "open the derivation-graph tab" or call a public graph
- API — neither exists. What Xray ships *today* is the per-family browse:
- **Static → Machines / Routes / Flows** (registry catalogues) and the
- Dynamic per-epoch lenses. If a user asks for the cross-family graph,
- say it's an internal substrate (not a current panel) and cite
- [`spec/Derivations.md` §Graph inspection — internal but structured](../../spec/Derivations.md#graph-inspection--internal-but-structured).
+- **Deep derivation-graph workflow recipes** (reading large cross-family
+ graphs, the static↔live diffing workflow, the off-box egress/redaction
+ grammar). The **Graph** Dynamic tab itself is **in scope** — it ships,
+ and §The tabs above is the router for it. What's deferred here is the
+ deep how-to-debug-with-it recipe layer; cite
+ [`spec/Derivations.md`](../../spec/Derivations.md) +
+ [`docs/EP/EP-0014-derivation-and-process-algebra.md`](../../docs/EP/EP-0014-derivation-and-process-algebra.md)
+ for the algebra contract. **Note on the public boundary:** the graph the
+ tab renders comes from EP-0014's **internal, structured**
+ `re-frame.derivation.graph` composer — there is **no public accessor
+ name** and **no `re-frame.core` facade export** (deferred until a third
+ consumer beyond Xray + the conformance fixtures needs it). So route users
+ to *open the Graph tab*, but do **not** tell them to call a public graph
+ API from app code — there isn't one.
 ---
 
 ## Style guidance
