@@ -375,6 +375,17 @@ the frame target is carried explicitly — a frameless call with no
 resolvable context fails closed (`{:ok? false :reason
 :no-frame-resolved}`).
 
+The live `:rf.runtime/resources :entries` map is keyed on the **opaque
+CEDN-1 byte `key-id` string** (rf2-9e0tyq), with the kind-preserving
+`[scope resource-id params]` scoped-key vector carried on each entry as
+`:resource/key`. The upstream `:scope` / `:resource-id` / `:params` key
+filter therefore matches against the entry's **`:resource/key` stamp**
+(falling back to the map key only for a legacy entry that lacks it) — never
+the byte map-key, which would match nothing for live runtime data. The
+selected map preserves its byte map-keys as the row identity. Symmetrically,
+the work-ledger projection reads each row's kind-preserving `:work/id`
+vector from the record, not its byte `work-id-id` map-key.
+
 ## `:rf.xray/*` registry surface
 
 Installed by `panels/resources.cljs`'s `install!` under the `:rf.xray/*`

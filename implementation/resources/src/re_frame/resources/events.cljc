@@ -48,7 +48,9 @@
   ## Work-ledger substrate (rf2-afpdkn)
 
   Each load-causing attempt now also writes a SERIALIZABLE work record at
-  `[:rf.runtime/work-ledger <work-id>]` (the entry points at it via
+  `[:rf.runtime/work-ledger <work-id-id>]` — keyed on the CEDN-1 byte
+  `work-ledger/work-id-id` (NOT the work-id vector; rf2-9e0tyq), via
+  `work-ledger/record-path` (the entry points at it via
   `:current-work`; the record carries status / owners / causes / deadline /
   outcome — NO host handles). Host abort handles live in a side table keyed
   by `[frame-id work-id]` (`work-ledger/handle-table`), recorded via the
@@ -141,7 +143,7 @@
   Returns the event-fx map `{:rf.db/runtime :fx}`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, gen-snapshot :rf.resource/generation
     world :rf.world/inputs, app-db :db}
-   {:keys [resource params owner cause keep-previous?] :as payload} {:keys [force-new? where]}]
+   {:keys [resource owner cause keep-previous?] :as payload} {:keys [force-new? where]}]
   (let [runtime-db (or rt {})
         spec       (registry/require-resource-spec! resource where)
         ;; EP-0016 D3 slice 3: a `{:from-db …}` payload-scope OR spec-policy
@@ -150,7 +152,11 @@
         ;; scopes resolve as before.
         scope      (registry/resolve-scope-for-event
                      resource spec {:payload-scope (:scope payload) :db app-db} where)
-        cparams    (registry/validate+canonicalize-params resource spec params where)
+        ;; rf2-hgy5kf — thread `:params` PRESENCE (absent vs explicit nil) to
+        ;; the validation boundary; an absent slot becomes `{}` there, an
+        ;; explicit `{:params nil}` reaches the schema unchanged.
+        cparams    (registry/validate+canonicalize-params
+                     resource spec (state/params-present? payload) where)
         scoped-key (state/scoped-resource-key scope resource cparams)
         entry      (or (get-in runtime-db (state/entry-path scoped-key))
                        (state/empty-entry resource scoped-key))
@@ -1043,14 +1049,17 @@
   "`:rf.resource/remove` — remove a single resource instance from the cache
   by its scoped key, and drop its owner/tag-index rows. Per Spec 016
   §Events. Payload: `{:resource :scope :params}`."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id, app-db :db} [_event-id {:keys [resource params] :as payload}]]
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, app-db :db} [_event-id {:keys [resource] :as payload}]]
   (let [runtime-db (or rt {})
         spec       (registry/require-resource-spec! resource 'rf.resource/remove)
         ;; EP-0016 D3 slice 3: resolve a `{:from-db …}` scope against app-db.
         scope      (registry/resolve-scope-for-event
                      resource spec {:payload-scope (:scope payload) :db app-db} 'rf.resource/remove)
+        ;; rf2-hgy5kf — thread `:params` presence (absent vs explicit nil) to
+        ;; the validation boundary so removal keys on the SAME identity an
+        ;; explicit-nil-params ensure produced.
         cparams    (registry/validate+canonicalize-params
-                     resource spec params 'rf.resource/remove)
+                     resource spec (state/params-present? payload) 'rf.resource/remove)
         scoped-key (state/scoped-resource-key scope resource cparams)
         entry      (get-in runtime-db (state/entry-path scoped-key))
         wid        (:current-work entry)

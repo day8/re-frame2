@@ -142,12 +142,6 @@
   [k-id]
   [resources-key :entries k-id])
 
-(defn work-record-path
-  "Runtime-db-relative path to a single work record by its `:work/id`.
-  Per Spec 016 §Frame work ledger."
-  [work-id]
-  [work-ledger-key work-id])
-
 ;; ---- framework-write authority -------------------------------------------
 ;;
 ;; `:rf.runtime/resources` and `:rf.runtime/work-ledger` are framework-
@@ -264,6 +258,54 @@
 ;; `identity/canonical` also fails closed on DUPLICATE canonical map keys
 ;; (two distinct host keys whose CEDN-1 bytes collide), so a colliding cache
 ;; key can never silently collapse two identity-distinct param maps.
+
+;; ---- explicit-nil vs omitted params (Spec 016 §Resource identity —
+;; ---- "nil vs missing MUST be schema-defined, not accidental";
+;; ---- EP-0012 §canonical-forms) -------------------------------------------
+;;
+;; A payload `:params` slot is one of THREE distinct things, and the cache-key
+;; boundary must not silently fold them: a present non-nil value, a PRESENT
+;; explicit `nil` (`{:params nil}`), or an ABSENT key (`{}`). Spec 016 + EP-0012
+;; say present-nil and absent are DISTINCT unless explicitly elided — the
+;; `:params-schema` (not the framework) decides whether nil / absence conforms.
+;;
+;; The defaulting policy (omitted `:params` → `{}`) is therefore a PAYLOAD-
+;; BOUNDARY default, applied ONLY when the key is genuinely absent — never a
+;; blanket `(or params {})` that also collapses an explicit nil before Malli /
+;; canonicalization can decide. A handler that has destructured `:params` out
+;; of its payload has lost the absent-vs-nil distinction, so it threads the
+;; presence explicitly: a present slot (incl. explicit nil) passes its value,
+;; an absent slot passes `missing-params`.
+
+(def missing-params
+  "The sentinel a payload boundary threads for an ABSENT `:params` slot
+  (distinct from a PRESENT explicit `nil`). `default-omitted-params` lowers
+  it to the documented omitted-params default (`{}`); a present value —
+  INCLUDING explicit `nil` — is passed through to schema validation /
+  canonicalization unchanged. Per Spec 016 §Resource identity (nil vs missing
+  is schema-defined) / EP-0012 §canonical-forms."
+  ::missing-params)
+
+(defn params-present?
+  "Resolve a payload's `:params` presence WITHOUT collapsing explicit nil:
+  returns `missing-params` when `payload` lacks a `:params` key, else the
+  present value (which may be `nil`). The single helper a handler uses to
+  thread params presence to `validate+canonicalize-params` so an absent slot
+  and a `{:params nil}` slot stay distinct at the validation boundary."
+  [payload]
+  (if (contains? payload :params)
+    (:params payload)
+    missing-params))
+
+(defn default-omitted-params
+  "Apply the documented omitted-`:params` API default: an ABSENT slot
+  (`missing-params`) becomes `{}`; every present value — INCLUDING explicit
+  `nil` — passes through unchanged so the `:params-schema` (not a blanket
+  `(or params {})`) decides whether nil conforms. The single home for the
+  defaulting policy both registrars share. Per Spec 016 §Resource identity /
+  EP-0012 §canonical-forms."
+  [params]
+  (if (= params missing-params) {} params))
 
 (defn serializable-edn?
   "True iff `x` is a portable CEDN-1 EDN identity value the cache key may

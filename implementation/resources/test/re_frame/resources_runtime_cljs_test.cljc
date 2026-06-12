@@ -232,6 +232,86 @@
                  (state/scoped-resource-key :rf.scope/global :r/x absent)))
           "the scoped resource keys differ — present-nil is its own cache fact"))))
 
+;; rf2-hgy5kf (EP-0012) — the WHOLE-slot case the prior `(or params {})` at the
+;; validation boundary silently collapsed: a PAYLOAD with `:params` PRESENT and
+;; explicitly `nil` (`{:params nil}`) vs `:params` ABSENT (`{}`). Spec 016:70 +
+;; EP-0012:1316 say present-nil and absent are DISTINCT unless explicitly
+;; elided; the schema (not a blanket boundary default) decides whether the
+;; whole-slot nil conforms. `state/params-present?` threads the presence, and
+;; `state/default-omitted-params` applies the omitted-→`{}` policy ONLY to an
+;; absent slot — an explicit whole-slot nil reaches the schema unchanged.
+
+(deftest resource-explicit-nil-params-slot-distinct-from-omitted
+  (testing "the presence helper distinguishes an explicit nil :params slot from
+            an absent one (the distinction the old (or params {}) destroyed)"
+    (is (= nil (state/params-present? {:params nil}))
+        "a PRESENT explicit nil slot threads nil")
+    (is (= state/missing-params (state/params-present? {}))
+        "an ABSENT slot threads the missing sentinel")
+    (is (= {} (state/default-omitted-params (state/params-present? {})))
+        "an absent slot defaults to {} at the boundary")
+    (is (= nil (state/default-omitted-params (state/params-present? {:params nil})))
+        "an explicit nil slot passes THROUGH the default unchanged (not {})"))
+  (testing "under a schema that ACCEPTS a nil params value ([:maybe :map]), an
+            explicit whole-slot nil is preserved to the cache key and is a
+            DISTINCT canonical identity from the omitted-→{} case"
+    (let [spec {:scope         :rf.scope/global
+                :params-schema [:maybe :map]   ;; the whole params value may be nil
+                :request       (fn [_ _ctx] {:request {:method :get :url "/x"}})}
+          explicit-nil (registry/validate+canonicalize-params
+                         :r/x spec (state/params-present? {:params nil}) 'test)
+          omitted      (registry/validate+canonicalize-params
+                         :r/x spec (state/params-present? {}) 'test)]
+      (is (nil? explicit-nil)
+          "explicit whole-slot nil survives validation — NOT coerced to {}")
+      (is (= {} omitted) "the omitted slot defaults to {}")
+      (is (not (identity/identical-identity? explicit-nil omitted))
+          "explicit-nil and omitted are DISTINCT canonical identities")
+      (is (not (identity/identical-identity?
+                 (state/scoped-resource-key :rf.scope/global :r/x explicit-nil)
+                 (state/scoped-resource-key :rf.scope/global :r/x omitted)))
+          "the scoped resource keys differ — explicit-nil params is its own fact"))))
+
+(deftest resource-explicit-nil-params-slot-rejected-when-schema-rejects-nil
+  (testing "rf2-hgy5kf — under a schema that REJECTS a nil params value
+            ([:map], a non-nilable map), an explicit whole-slot {:params nil}
+            fails closed with :rf.error/resource-invalid-params and the
+            structured error reports the offending nil (NOT a coerced {})"
+    (let [spec {:scope         :rf.scope/global
+                :params-schema [:map [:slug :string]]   ;; requires a map, rejects nil
+                :request       (fn [_ _] {:request {:method :get :url "/x"}})}
+          ex   (try (registry/validate+canonicalize-params
+                      :r/x spec (state/params-present? {:params nil}) 'test)
+                    nil
+                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e))]
+      (is (some? ex)
+          "an explicit whole-slot nil against a non-nilable schema throws — NOT
+           silently coerced to {} (which would have PASSED a [:map] schema)")
+      (is (= :rf.error/resource-invalid-params (:rf.error/id (ex-data ex))))
+      (is (nil? (:params (ex-data ex)))
+          "the reported params preserve the offending nil (not coerced away)"))))
+
+(deftest mutation-explicit-nil-params-slot-rejected-when-schema-rejects-nil
+  (testing "rf2-hgy5kf — the mutation registry applies the SAME presence-aware
+            policy: an explicit whole-slot {:params nil} reaches a non-nilable
+            :params-schema and fails closed (not coerced to {})"
+    (let [spec {:scope         :rf.scope/global
+                :params-schema [:map [:slug :string]]
+                :request       (fn [_ _] {:request {:method :post :url "/x"}})}
+          ex   (try (mreg/validate+canonicalize-params
+                      :m/x spec (state/params-present? {:params nil}) 'test)
+                    nil
+                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e))]
+      (is (some? ex) "an explicit nil mutation params slot against [:map] throws")
+      (is (= :rf.error/mutation-invalid-params (:rf.error/id (ex-data ex))))
+      (is (nil? (:params (ex-data ex)))
+          "the reported params preserve the offending nil"))
+    (testing "an OMITTED mutation params slot still defaults to {} (API policy)"
+      (let [spec {:scope :rf.scope/global :params-schema [:map]
+                  :request (fn [_ _] {:request {:method :post :url "/x"}})}]
+        (is (= {} (mreg/validate+canonicalize-params
+                    :m/x spec (state/params-present? {}) 'test)))))))
+
 (deftest resource-present-nil-rejected-when-schema-rejects-nil
   (testing "under a schema that REJECTS nil ([:map [:x :string]]), an explicit
             {:x nil} fails closed with :rf.error/resource-invalid-params and
@@ -876,10 +956,16 @@
         (is (empty? (get-in (runtime-db) (state/owner-index-path)))))
       (testing "rf2-m9h5iq — the in-flight work record is settled terminal
                 (:suppressed) so the ledger row is not left in-flight"
-        (let [rec (get-in (runtime-db) (state/work-record-path inflight-wid))]
-          ;; record may be pruned or marked terminal; if present it must be
-          ;; the terminal :suppressed status, never still in-flight.
+        ;; Read through the byte-keyed work-ledger API (rf2-hgy5kf): the row is
+        ;; addressed by `work-ledger/work-id-id`, NOT the stale vector key. The
+        ;; assertion is NON-vacuous — a present post-clear row MUST be terminal
+        ;; (`:suppressed`), and a present-but-NON-terminal row FAILS the test
+        ;; (the exact drift EP-0012 closes; the old `(when rec …)` made it pass
+        ;; silently when the byte-keyed row was read through a dead address).
+        (let [rec (work-ledger/get-record (runtime-db) inflight-wid)]
           (when rec
+            (is (work-ledger/terminal? (:status rec))
+                "a present post-clear work record must be terminal, never in-flight")
             (is (= :suppressed (:status rec))))))
       (testing "rf2-m9h5iq — a LATE reply for a cleared in-flight entry cannot
                 recreate it (its existence check finds the entry gone)"

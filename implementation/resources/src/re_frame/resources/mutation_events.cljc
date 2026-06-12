@@ -614,11 +614,15 @@
   Returns the event-fx map (`:rf.db/runtime` + `:fx`)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, gen-snapshot :rf.resource/generation
     world :rf.world/inputs, app-db :db}
-   [_event-id {:keys [mutation params instance scope cause reply-to] :as _payload}]]
+   [_event-id {:keys [mutation instance scope cause reply-to] :as payload}]]
   (let [where      'rf.mutation/execute
         runtime-db (or rt {})
         spec       (mreg/require-mutation-spec! mutation where)
-        cparams    (mreg/validate+canonicalize-params mutation spec params where)
+        ;; rf2-hgy5kf — thread `:params` presence (absent vs explicit nil) to
+        ;; the validation boundary: an absent slot defaults to `{}` there, an
+        ;; explicit `{:params nil}` reaches `:params-schema` unchanged.
+        cparams    (mreg/validate+canonicalize-params
+                     mutation spec (state/params-present? payload) where)
         cscope     (mreg/resolve-scope mutation spec scope)
         ;; rf2-e8wj5t — reject a non-serializable caller-supplied instance id
         ;; BEFORE any runtime-db / work-ledger write or HTTP lowering (the

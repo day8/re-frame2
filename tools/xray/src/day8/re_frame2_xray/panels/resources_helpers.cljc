@@ -650,9 +650,16 @@
        :attempt      2
        :transport    :rf.http/managed
        :outcome      <summary>}"
-  [[work-id record]]
+  [[map-key record]]
   (let [rkey (or (:resource/key record) (:resource-key record))
-        {:keys [scope resource-id params]} (scoped-key-summary rkey)]
+        {:keys [scope resource-id params]} (scoped-key-summary rkey)
+        ;; rf2-9e0tyq / rf2-hgy5kf: the `:rf.runtime/work-ledger` map is keyed
+        ;; on the opaque CEDN-1 byte `work-id-id` STRING; the kind-preserving
+        ;; work-id VECTOR is carried on the record as `:work/id`. Read it from
+        ;; there (fall back to the map key for a legacy record that lacks the
+        ;; stamp) so the displayed `:work-id` / `:stale-key` is the
+        ;; kind-preserving identity, NOT the byte string.
+        work-id (or (:work/id record) map-key)]
     {:work-id      work-id
      :kind         (or (:work/kind record) (:kind record))
      :resource-key {:scope scope :resource-id resource-id :params params}
@@ -1283,10 +1290,16 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- scoped-key-matches?
-  "Does a scoped key `[scope rid params]` match the supplied filter
+  "Does the scoped key `[scope rid params]` match the supplied filter
   axes? `scope` / `resource-id` / `params` are compared against the RAW
-  key parts (the accessor receives the raw runtime-db key); a nil filter
-  axis is a wildcard."
+  key parts; a nil filter axis is a wildcard.
+
+  rf2-9e0tyq / rf2-hgy5kf: the `:entries` map is keyed on the opaque CEDN-1
+  byte `key-id` STRING, so the kind-preserving `[scope rid params]` scoped-key
+  VECTOR is read from the entry's `:resource/key` stamp (with a fallback to
+  the map key for a legacy entry that lacks the stamp) — exactly as
+  `instance-row` projects. Matching the map key directly would silently match
+  NOTHING for live byte-keyed runtime data."
   [scoped-key {:keys [scope resource-id params]}]
   (let [[ks krid kparams] (if (and (vector? scoped-key) (= 3 (count scoped-key)))
                             scoped-key
@@ -1312,14 +1325,22 @@
        vec))
 
 (defn select-raw-entries
-  "Select the RAW runtime-db entries (`{<scoped-key> <entry>}`) matching
-  the scope / resource-id / params key axes — the upstream filter the
-  accessors apply BEFORE projection/elision (so an accessor can scope its
-  read by the cache key before summarizing). Pure; the accessor still
-  routes selected values through the off-box elision walker afterwards."
+  "Select the RAW runtime-db entries (`{<key-id> <entry>}`) matching the
+  scope / resource-id / params key axes — the upstream filter the accessors
+  apply BEFORE projection/elision (so an accessor can scope its read by the
+  cache key before summarizing). Pure; the accessor still routes selected
+  values through the off-box elision walker afterwards.
+
+  rf2-9e0tyq / rf2-hgy5kf: the `:entries` map is keyed on the opaque CEDN-1
+  byte `key-id` STRING, so each entry is matched against its `:resource/key`
+  stamp (the kind-preserving `[scope rid params]` vector), with a fallback to
+  the map key for a legacy entry that lacks the stamp. Matching the byte
+  map-key directly would silently return NO matches for live byte-keyed
+  runtime data."
   [entries key-filter]
   (into {}
-        (filter (fn [[k _]] (scoped-key-matches? k key-filter)))
+        (filter (fn [[k entry]]
+                  (scoped-key-matches? (or (:resource/key entry) k) key-filter)))
         (or entries {})))
 
 ;; ---------------------------------------------------------------------------

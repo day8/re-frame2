@@ -354,12 +354,17 @@
   `:rf.error/resource-invalid-params` on a schema-conformance failure.
   Per Spec 016 §Resource identity / §Canonicalization rule.
 
-  `nil` vs missing is schema-defined: the `:params-schema` decides whether a
-  key may be absent or nil — this fn does not impose a separate policy, it
-  defers to the schema (Spec 016: \"nil vs missing MUST be schema-defined,
-  not accidental\")."
+  `nil` vs missing is schema-defined (rf2-hgy5kf): a caller threads
+  `state/missing-params` for an ABSENT `:params` slot (the documented
+  omitted-default lowers it to `{}` via `state/default-omitted-params`), while
+  a PRESENT explicit `nil` is passed THROUGH to `:params-schema` validation +
+  canonicalization unchanged — the schema (not a blanket `(or params {})`)
+  decides whether nil conforms. This keeps the validation boundary from
+  silently performing an accidental API default, so `{:params nil}` and an
+  omitted `:params` stay distinct identities (Spec 016: \"nil vs missing MUST
+  be schema-defined, not accidental\"; EP-0012 §canonical-forms)."
   [resource-id spec params where]
-  (let [params (or params {})
+  (let [params (state/default-omitted-params params)
         schema (:params-schema spec)]
     ;; host / opaque values are rejected at the cache-key boundary
     (state/reject-non-edn! params where :params resource-id)
