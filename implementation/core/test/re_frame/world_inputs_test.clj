@@ -345,6 +345,34 @@
                                       :dispatched-at 123}))
           "dispatch-sync surfaces the retirement hard error synchronously"))))
 
+(deftest retired-dispatched-at-rejected-before-world-input-clock-read
+  ;; rf2-s2mizv finding #3: the retired-opt validation runs BEFORE the
+  ;; world-input clock stamp, so an invalid dispatch fails fast WITHOUT first
+  ;; triggering the always-on `epoch-now-ms` read + world-input map allocation.
+  ;; Pre-fix, `build-envelope` stamped `:rf.world/inputs {:time-ms …}` and only
+  ;; THEN rejected `:dispatched-at` — wasting a clock read on a dispatch that
+  ;; cannot proceed. We assert ordering by redefining `epoch-now-ms` to throw a
+  ;; DISTINCT marker: if the clock is read before the retirement check, that
+  ;; marker surfaces instead of the retirement error.
+  (testing "supplying :dispatched-at throws the retirement error WITHOUT reading
+            the world-input clock first"
+    (rf/reg-frame :wi/order {:doc "ctx"})
+    (with-redefs [interop/epoch-now-ms
+                  (fn [] (throw (ex-info "clock read before retirement check"
+                                         {::clock-read true})))]
+      (let [ex   (try
+                   (build-envelope [:noop] {:frame :wi/order :dispatched-at 123})
+                   nil
+                   (catch clojure.lang.ExceptionInfo e e))
+            data (ex-data ex)]
+        (is (some? ex) "an exception was thrown")
+        (is (not (::clock-read data))
+            "the world-input clock was NOT read before the retirement check —
+             the dispatch failed fast on the retired opt")
+        (is (= :rf.error/dispatched-at-retired (:rf.error/id data))
+            "the surfaced error is the retirement hard error, proving the
+             retirement check ran first")))))
+
 ;; ===========================================================================
 ;; rf2-sppf0m: a handler READS :uuid / :random from the :rf.world/inputs
 ;; coeffect and WRITES the supplied values into a durable app-db entity.
