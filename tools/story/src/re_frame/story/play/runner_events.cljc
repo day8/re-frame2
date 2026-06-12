@@ -49,6 +49,10 @@
             [re-frame.story.play.runner :as runner]
             [re-frame.story.play.settled-boundary :as boundary]
             [re-frame.story.predicates  :as pred]
+            ;; rf2-c6armm.12 — the shared absent-key realm util (the
+            ;; "carry only a non-default realm" rule, here under the `:realm`
+            ;; address-map key rather than the recording `:rf.realm/id` stamp).
+            [re-frame.story.realm       :as story-realm]
             [re-frame.story.registrar   :as registrar]))
 
 ;; ---- per-variant run-state -----------------------------------------------
@@ -280,9 +284,10 @@
   [variant-id]
   (let [realm (try (rf/frame-realm variant-id)
                    (catch #?(:clj Throwable :cljs :default) _ nil))]
-    (cond-> {:frame variant-id}
-      (and (some? realm) (not= realm :rf.realm/default))
-      (assoc :realm realm))))
+    ;; rf2-c6armm.12 — the absent-key rule through the shared Story realm util,
+    ;; under the `:realm` address-map key: a nil / default realm carries `:realm`
+    ;; nothing (target is `{:frame v}`), a constructed realm carries it.
+    (story-realm/stamp-realm {:frame variant-id} :realm realm)))
 
 ;; ---- folded-plan consumption (rf2-5x1wt.19) ------------------------------
 ;;
