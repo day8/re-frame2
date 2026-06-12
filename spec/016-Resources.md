@@ -199,6 +199,10 @@ An implementation MAY support a function sugar:
 
 The sugar lowers to an **explicit whole-db dependency**. Tooling **marks the whole-db cost on both axes** ([EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md) disposition 8): declared inputs make resolvers members of the derived-sensitivity graph, so whole-db sugar degrades **both** narrow re-resolution **and** sensitivity-inheritance precision. The declared-inputs form is the recommended path; the sugar is a marked convenience, not a peer.
 
+##### Derived-sensitivity inheritance
+
+A named scope resolver is the **fourth framework-known derivation graph** in the data-classification model ([Spec 015 §Derived sensitivity](015-Data-Classification.md#derived-sensitivity), alongside subs / flows / machine-selectors). When a resource's `:scope` is a `{:from-db <id>}` reference whose resolver reads a **frame-sensitive** `:db` input path, the derived scope — and thus the resolved resource's egress — **inherits `:sensitive`, even when the owning resource was not declared `:sensitive?`** (automatic-inheritance defence-in-depth). The resolver MAY declare its derived scope's classification with the closed **`:rf.egress/output-sensitivity`** claim (the *same* claim subs/flows honour — `:rf.egress/inherit` is the propagating default, `:rf.egress/sensitive` force-marks, `:rf.egress/public` declassifies). The consumption side reads this at durable-entry / scoped-key classification: a derived-sensitive entry rides **metadata-only** (data redacted, scope + params redacted to opaque digests in the wire key — [§SSR and hydration](#ssr-and-hydration)). This arm is **defence-in-depth, not the load-bearing scope boundary**: the primary boundary holds independently via the resource-owned `:sensitive?` claim + scoped-key redaction.
+
 <a id="resolver-references--from-db-id"></a>
 
 ### Resolver references — `{:from-db <id>}`

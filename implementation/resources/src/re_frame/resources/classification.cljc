@@ -60,9 +60,12 @@
   - It does NOT change the Spec-Schemas schema-marker grammar (the
     `:sensitive?` / `:large?` Malli props are owned by the schemas artefact
     + Spec-Schemas — EP-0015 bead-plan item 9)."
-  (:require [re-frame.late-bind :as late-bind]
+  (:require [re-frame.elision :as elision]
+            [re-frame.late-bind :as late-bind]
+            [re-frame.path :as path]
             [re-frame.privacy :as privacy]
-            [re-frame.projection :as projection]))
+            [re-frame.projection :as projection]
+            [re-frame.resources.scope-registry :as scope-registry]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -97,6 +100,141 @@
     (:sensitive? spec) :redact
     (:large? spec)     :omit
     :else              :serialize))
+
+;; ---------------------------------------------------------------------------
+;; Named-scope-resolver DERIVED-sensitivity propagation (EP-0016 wave,
+;; rf2-fi6tda.1) — the fourth framework-known derivation graph EP-0015
+;; disposition 8 names (subs / flows / machine-selectors shipped in
+;; rf2-t55hxg.8; this is the deferred scope-resolver arm rf2-t55hxg.11 walked
+;; back to EP-0016).
+;;
+;; A resource whose `:scope` policy is a `{:from-db <resolver-id>}` reference
+;; derives its cache scope from the resolver's declared `:db` inputs. If any of
+;; those inputs reads a FRAME-SENSITIVE app-db path, the derived scope (user /
+;; tenant / impersonation identity) MAY carry that sensitivity — so the
+;; resource's durable entry (whose scoped KEY embeds the resolved scope, and
+;; whose data shares the same privacy class — Spec 016 clause 4) inherits
+;; `:sensitive` EVEN WHEN the owning resource was not itself declared
+;; `:sensitive?`. This is the automatic-inheritance defence-in-depth arm,
+;; consistent with the subs/flows `:rf.egress/output-sensitivity` model
+;; (EP-0015 issue 9):
+;;
+;;   :rf.egress/sensitive — force-mark the derived scope sensitive;
+;;   :rf.egress/public    — DECLASSIFY (the resolver asserts the derived scope
+;;                          is safe to surface despite sensitive inputs — the
+;;                          declassification analogue of :rf.scope/global,
+;;                          enumerable as a standing audit surface);
+;;   :rf.egress/inherit   — (default) propagate: sensitive iff any declared
+;;                          `:db` input path overlaps a frame-sensitive
+;;                          declaration.
+;;
+;; Conservative + FAIL-CLOSED (footgun prevention, not security-grade taint —
+;; the SAME posture as subs' layer-1 check and flows' input-overlap check): an
+;; input that reads a sensitive slot, a parent of one, or a child of one all
+;; count (path overlap, either direction). The PRIMARY scope boundary holds
+;; independently of this arm (the resource-owned `:sensitive?` claim +
+;; scoped-key redaction); this arm only ADDS the inheritance precision.
+;; ---------------------------------------------------------------------------
+
+(defn- frame-sensitive-paths
+  "The frame's declared sensitive app-db paths for `frame-id` — the keys of the
+  frame-owned `:sensitive` elision declarations (union of `:source :frame` and
+  any `:source :marks` / `:source :flow` entries; `re-frame.elision/`
+  `sensitive-declarations`). A nil `frame-id` (a frameless / pure projection —
+  no resolvable frame scope) yields `[]`: there is no frame classification to
+  inherit from, and the primary owner `:sensitive?` boundary still governs."
+  [frame-id]
+  (if frame-id
+    (vec (keys (elision/sensitive-declarations frame-id)))
+    []))
+
+(defn- input-overlaps-sensitive?
+  "True iff ANY of the resolver's declared `:db` input paths overlaps ANY
+  frame-sensitive path (one a prefix of the other, either direction — the
+  shared `re-frame.path/overlap?` relation, the SAME prefix test subs / flows
+  inherit). Conservative + fail-closed: an input reading a sensitive slot, a
+  parent of one, or a child of one all count. Empty input or sensitive-path
+  set → false."
+  [input-paths sensitive-paths]
+  (boolean
+    (when (and (seq input-paths) (seq sensitive-paths))
+      (some (fn [in-path]
+              (some #(path/overlap? in-path %) sensitive-paths))
+            input-paths))))
+
+(defn resolver-derived-sensitive?
+  "True iff the named-scope resolver `resolver-id` derives a SENSITIVE scope
+  against `frame-id`'s app-db classification (EP-0016 wave, rf2-fi6tda.1 —
+  EP-0015 disposition 8's fourth framework-known graph). Pure over the resolver
+  registry + the frame's elision registry. Resolution, honouring the closed
+  `:rf.egress/output-sensitivity` claim (the SAME claim subs/flows honour):
+
+    :rf.egress/sensitive — true (force-mark, even from public inputs);
+    :rf.egress/public    — false (DECLASSIFY — the resolver asserts safe);
+    :rf.egress/inherit   — (default) true iff any declared `:db` input path
+                           overlaps a frame-sensitive declaration.
+
+  Fail-closed: a `resolver-id` with no registered resolver returns false (no
+  derivation graph to read — the consumption side still honours the owner's
+  `:sensitive?` independently). Per Spec 015 §Derived sensitivity."
+  [resolver-id frame-id]
+  (let [spec (scope-registry/scope-resolver-meta resolver-id)]
+    (if (nil? spec)
+      false
+      (case (:output-sensitivity spec :rf.egress/inherit)
+        :rf.egress/sensitive true
+        :rf.egress/public    false
+        ;; :rf.egress/inherit (default) — propagate from sensitive :db inputs
+        (input-overlaps-sensitive?
+          (scope-registry/input-db-paths (:inputs spec))
+          (frame-sensitive-paths frame-id))))))
+
+(defn scope-derived-sensitive?
+  "True iff a resource `spec`'s `:scope` policy is a `{:from-db <resolver-id>}`
+  reference whose resolver derives a SENSITIVE scope against `frame-id`
+  (`resolver-derived-sensitive?`). The provenance hook the consumption side
+  reads at scoped-key / entry classification: the resolved concrete scope in a
+  cache key has lost its resolver provenance, but the resource SPEC retains the
+  `{:from-db …}` policy, so the resolver-id is recoverable from the resource-id
+  the entry's scoped key carries (Spec 016 §Scope resolution). A non-`{:from-db}`
+  scope policy (`:rf.scope/global`, a literal scope, a fn resolver,
+  `:rf.scope/from-caller`) has no named-resolver derivation graph and returns
+  false. A nil spec returns false. Pure. Per Spec 015 §Derived sensitivity /
+  Spec 016 §Resolver references — `{:from-db <id>}`."
+  [spec frame-id]
+  (boolean
+    (when-let [scope (:scope spec)]
+      (when (scope-registry/from-db-reference? scope)
+        (resolver-derived-sensitive? (:from-db scope) frame-id)))))
+
+(defn whole-entry-disposition-for
+  "Frame-aware whole-entry disposition (EP-0016 wave, rf2-fi6tda.1). Returns
+  `:serialize` / `:redact` / `:omit` exactly as `whole-entry-disposition`, but
+  ALSO folds in the named-scope-resolver derived-sensitivity inheritance arm
+  against `frame-id`:
+
+    - the resource OWNER's coarse `:sensitive?` / `:large?` claims govern as
+      before (`whole-entry-disposition`) — the PRIMARY boundary, frame-blind;
+    - ADDITIONALLY, when the owner did not declare `:sensitive?` but the
+      resource's `:scope` is a `{:from-db <id>}` reference whose resolver
+      derives a sensitive scope against the frame (`scope-derived-sensitive?`),
+      the entry is `:redact` — automatic inheritance, defence-in-depth.
+
+  Sensitive (owner-declared OR derived) wins over large: a derived-sensitive
+  resource that is also coarse-`:large?` redacts (the more conservative shape).
+  A nil `frame-id` (frameless projection) reduces to `whole-entry-disposition`
+  (no frame classification to inherit from; the owner boundary still governs).
+  Pure. Per Spec 015 §Derived sensitivity / Spec 016 clause 4."
+  [spec frame-id]
+  (let [owner (whole-entry-disposition spec)]
+    (if (= :redact owner)
+      ;; owner already redacts (declared :sensitive?) — unchanged
+      :redact
+      ;; owner is :serialize or :omit — derived-sensitivity, when it fires,
+      ;; UPGRADES to :redact (sensitive wins over large / serialize).
+      (if (scope-derived-sensitive? spec frame-id)
+        :redact
+        owner))))
 
 ;; ---------------------------------------------------------------------------
 ;; Per-slot owner classification — the canonical fine-grained surface.
