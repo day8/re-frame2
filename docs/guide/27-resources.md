@@ -64,6 +64,8 @@ Concepts before notation. Here's the entire idea in three moves — register, ca
 
 The view is passive; the event caused the ensure; the runtime owns the state. Every other thing in this chapter is a refinement of those three moves.
 
+A resource creates durable runtime-db state — cache data, params, scopes — that egresses to traces, tools, SSR, and hosted monitoring. Because that data's natural home is the schema that already validates it, **classification rides per-slot `:sensitive?` / `:large?` Malli props on the resource's `:params-schema` / `:data-schema`** (the same mechanism machine `:data` and HTTP bodies use), not a separate declaration: `:params-schema [:map [:slug :string] [:partner-token {:sensitive? true} :string]]` redacts the token everywhere the resource entry egresses. Sensitive scopes/params don't ride raw merely because the entry's `:data` was redacted, and a sensitive resource entry hydrates as a metadata-only redacted entry under SSR. The full model — and why durable `app-db` policy lives on the *frame* instead — is [chapter 23](23-privacy-and-large-things.md).
+
 ## Resource identity — the scoped key
 
 A resource *instance* is identified by a triple:

@@ -231,6 +231,8 @@ This vocabulary is *closed for v1* — adding a category requires a spec change,
 
 `:decode` controls how the response body gets parsed, and it takes four shapes: a Malli schema (the canonical form — `:decode CounterResponse` parses by content-type, runs Malli's `decode`, and hands the validated value on); a keyword to force a format (`:json`, `:text`, `:blob`, `:array-buffer`, `:form-data`, no Malli step); a function `(fn [body-text headers] decoded)` for full control; or `:auto`, the default, which sniffs the `Content-Type` and routes JSON to JSON, text to text, anything else to a blob. (When `:auto` resolves and you didn't explicitly ask for it, the runtime drops a single informational `:rf.warning/decode-defaulted` trace — not an error, just visible in tooling, a gentle nudge to be explicit.)
 
+A response body is a *transient payload* whose owner is the request's `:decode` schema — so that's also where you classify it. Per-slot `:sensitive?` / `:large?` Malli props on the `:decode` schema redact or elide a field everywhere the response egresses (trace, error records, MCP, hosted monitoring): `:decode [:map [:user-id :string] [:token {:sensitive? true} :string]]` ships the token as `:rf/redacted`. Whole-body sensitivity is a root-level prop, and the fail-closed default bites — an **unschematized response body is treated as whole-sensitive** off-box. (The Malli surface is the *only* route for this owner; durable `app-db` classification, by contrast, lives on the frame. The full three-owner model is [chapter 23](23-privacy-and-large-things.md).)
+
 Now the rule that catches every newcomer exactly once:
 
 **Decode runs only on 2xx responses. Status is classified *before* the body is touched.**

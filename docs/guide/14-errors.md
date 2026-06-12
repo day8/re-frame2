@@ -45,7 +45,7 @@ The optional **`:rf.trace/trigger-handler`** slot is the one that turns a debugg
 
 Everything else rides under `:tags`, keyed by category. Each category names exactly the slots its listener should expect — a `:rf.error/handler-exception` carries `:handler-id`, `:event-id`, and `:exception`; a `:rf.error/schema-validation-failure` carries `:schema-id`, `:value`, and `:errors` — one fixed shape per category, so a consumer always knows what's in the envelope.
 
-One thing to bank before we go further, because it governs everything: **production builds eliminate the trace surface entirely.** Not "disable" — *eliminate*. Your release bundles contain zero trace code. The whole rich error path described in this chapter is dev-only. Errors that genuinely need to reach a monitoring service in production get there through the always-on `register-error-listener!` surface (below) or, server-side, through SSR's error projector. The dossier is a development luxury; the production path is yours to wire deliberately.
+One thing to bank before we go further, because it governs everything: **production builds eliminate the trace surface entirely.** Not "disable" — *eliminate*. Your release bundles contain zero trace code. The whole rich error path described in this chapter is dev-only. Errors that genuinely need to reach a monitoring service in production get there through the always-on error axis — normally declared as a frame `:observability` sink ([chapter 16](16-observability.md), [chapter 23](23-privacy-and-large-things.md)), with the raw `register-error-listener!` registry beneath it as an advanced surface — or, server-side, through SSR's error projector. The dossier is a development luxury; the production path is yours to wire deliberately.
 
 ## The taxonomy, at a glance
 
@@ -84,7 +84,7 @@ And the contract on all of it: **stable and additive.** New categories adopt one
 There are two distinct ways to observe errors at runtime, and they are not interchangeable — picking the wrong one for a production monitor is the single most common mistake here. The split tracks the elision boundary from line one of this chapter:
 
 - **The trace stream — `register-listener!` — is the *dev* surface.** Rich, fully-tagged, every `:op-type`, every dev-side enrichment. It is *elided in production*: under `:advanced` + `goog.DEBUG=false` the registration is a no-op and the listener never fires. Use it for dev-loop observation, error tests, and client-side error UX.
-- **The error-emit listener — `register-error-listener!` — is the *production* surface.** It rides a small always-on substrate that survives `goog.DEBUG=false`, fanning one tight record per production-reachable `:rf.error/*` to a hosted monitor. Use it for Sentry / Honeybadger / Rollbar shipping that must keep firing in production. The full posture lives in [chapter 16 §Production observability](16-observability.md).
+- **The always-on error axis is the *production* surface.** It rides a small always-on substrate that survives `goog.DEBUG=false`, fanning one tight record per production-reachable `:rf.error/*` to a hosted monitor. The normal way you consume it is a frame `:observability` sink (`reg-observability-sink!`) — which hands you an already-projected record — with the raw `register-error-listener!` registry beneath it as an advanced integration surface. Use it for Sentry / Honeybadger / Rollbar shipping that must keep firing in production. The full posture lives in [chapter 16 §Production observability](16-observability.md).
 
 ### Dev observation, on the trace stream
 
@@ -121,7 +121,7 @@ And here's the thing worth sitting with: that snippet is *exactly* how Xray and 
 
 ### Production shipping, on the always-on error-emit substrate
 
-The trace-stream listener above is gone in production. To ship errors to a hosted monitor from a release bundle, register through `register-error-listener!` — the always-on surface that survives `:advanced` + `goog.DEBUG=false`:
+The trace-stream listener above is gone in production. The normal way to ship errors to a hosted monitor from a release bundle is to declare a sink under the frame's `:observability` policy and register its fn with `reg-observability-sink!` ([chapter 16](16-observability.md) / [chapter 23](23-privacy-and-large-things.md)) — the runtime hands your sink an **already-projected** record (sensitive fields arrive `:rf/redacted`, large payloads marker-substituted), so you never re-walk for privacy. Beneath that sink path sits the raw `register-error-listener!` registry — the always-on substrate that survives `:advanced` + `goog.DEBUG=false`. Reach for the raw listener directly only for an advanced corpus-wide hook; when you do, *you* own projecting the record before it crosses the wire:
 
 ```clojure
 ;; Production-shaped: belt-and-braces gate the *registration*, then ship
