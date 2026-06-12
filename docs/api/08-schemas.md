@@ -2,7 +2,7 @@
 
 Schemas in re-frame2 are *Malli schemas attached to `app-db` paths*. You register them with `reg-app-schema` (path-keyed, not id-keyed — the only `reg-*` that breaks that pattern, deliberately); the runtime validates `app-db` writes against the matching schemas in dev; production builds elide the validation at the call sites.
 
-Schemas describe **shape and validation**. Per [EP-0015](../../docs/EP/EP-0015-frame-owned-egress-policy.md), durable `app-db` data classification is *not* a schema concern: a schema must not be a second route to classify an `app-db` path the **frame** already owns. Where a schema *is* the owner's natural surface — a machine's `:data`, a resource's data/params, an HTTP response body's `:decode` slots — per-slot `:sensitive?` / `:large?` Malli props remain the one-and-only classification route for that owner's data. The full three-owner model (frame config for durable `app-db`; per-slot schema props for owner-local schema'd data; registration metadata for transient payloads) lives in [Guide ch.23 — Privacy and large things](../guide/23-privacy-and-large-things.md).
+Schemas describe **shape and validation**. Per [EP-0015](../EP/EP-0015-frame-owned-egress-policy.md), durable `app-db` data classification is *not* a schema concern: a schema must not be a second route to classify an `app-db` path the **frame** already owns. Where a schema *is* the owner's natural surface — a machine's `:data`, a resource's data/params, an HTTP response body's `:decode` slots — per-slot `:sensitive?` / `:large?` Malli props remain the one-and-only classification route for that owner's data. The full three-owner model (frame config for durable `app-db`; per-slot schema props for owner-local schema'd data; registration metadata for transient payloads) lives in [Guide ch.23 — Privacy and large things](../guide/23-privacy-and-large-things.md).
 
 This chapter covers the registration macros (rowed in [01 — Core](01-core.md), summarised here), the introspection surface in `re-frame.schemas`, the validator-extension seams (`set-schema-validator!` etc.), and the boundary-validation interceptor. For the canonical contracts, see [010-Schemas.md](../../spec/010-Schemas.md), [015-Data-Classification.md](../../spec/015-Data-Classification.md), and [Privacy.md](../../spec/Privacy.md).
 
@@ -151,7 +151,7 @@ The pattern: dev-time validation runs at every commit by default; production-tim
 
 ## Data classification
 
-Schemas describe shape; **classification of durable `app-db` data is frame-owned**, not schema-attached. Per [EP-0015](../../docs/EP/EP-0015-frame-owned-egress-policy.md), you declare sensitive/large `app-db` paths on the **frame** at creation (`reg-frame` / `make-frame`), and the framework's centralized projection enforces them at every wire boundary:
+Schemas describe shape; **classification of durable `app-db` data is frame-owned**, not schema-attached. Per [EP-0015](../EP/EP-0015-frame-owned-egress-policy.md), you declare sensitive/large `app-db` paths on the **frame** at creation (`reg-frame` / `make-frame`), and the framework's centralized projection enforces them at every wire boundary:
 
 ```clojure
 (rf/reg-frame :app/main
