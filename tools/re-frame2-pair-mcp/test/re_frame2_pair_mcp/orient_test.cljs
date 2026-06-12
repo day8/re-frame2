@@ -50,8 +50,14 @@
               :ambiguous-frame? false :runtime-instance-id "abc"}
    :frames   {:all [:rf/default :rf/xray] :app [:rf/default] :operating :rf/default}
    :app-db-top-keys {:rf/default [:cart :route :user]}
+   ;; rf2-uydhif: the runtime orient counts carry the three EP-0016
+   ;; resources-artefact kinds (:resource / :mutation / :resource-scope)
+   ;; — see the orient descriptor example in descriptors_data.cljs. The
+   ;; pre-EP-0016 sample omitted them, so a runtime that dropped a kind
+   ;; from the counts map would have passed green here.
    :registry {:counts {:event 14 :sub 9 :fx 3 :cofx 1 :view 6
-                       :frame 2 :route 4 :flow 0 :head 0 :error-projector 0}
+                       :frame 2 :route 4 :flow 0 :head 0 :error-projector 0
+                       :resource 3 :mutation 2 :resource-scope 1}
               :events [:cart/add :cart/checkout]
               :subs   [:cart/total :current-user]
               :fx     [:http :navigate :persist]}
@@ -100,6 +106,12 @@
                        "per-app-frame app-db top-keys ride through")
                    (is (= 14 (get-in edn [:registry :counts :event]))
                        "registrar counts ride through")
+                   (is (= 3 (get-in edn [:registry :counts :resource]))
+                       "EP-0016 :resource count rides through (rf2-uydhif)")
+                   (is (= 2 (get-in edn [:registry :counts :mutation]))
+                       "EP-0016 :mutation count rides through")
+                   (is (= 1 (get-in edn [:registry :counts :resource-scope]))
+                       "EP-0016 :resource-scope count rides through")
                    (is (= [:cart/total :current-user] (get-in edn [:registry :subs]))
                        "the navigable sub-id vector rides through")
                    (is (= [:checkout] (:machines edn)))
