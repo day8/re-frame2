@@ -228,6 +228,32 @@
 ;; path + per-path `:rf/after-epoch` ARE the data-only suppression gate.
 ;; ---------------------------------------------------------------------------
 
+(defn timer-work-id
+  "Build the machine `:after` timer work-id for one timer attempt:
+  `[:rf.work/timer logical-timer-id epoch]` (Managed-Effects §Work-id
+  correlation — the Timer row; the machine `:after` is a specialized timer
+  instance per EP-0011 §Timer Reply). The `logical-timer-id` is the timer's
+  declaring path (`[machine-id decl-path...]` when a `machine-id` is known,
+  else the bare declaring path) — the stable identity of THIS `:after` within
+  the chart; the `epoch` is the per-path `:rf/after-epoch` the timer was
+  SCHEDULED in, which discriminates one timer attempt from a re-armed one on
+  node re-entry (one attempt has one work id — EP-0007). `=`-comparable and
+  EDN-serializable. `decl-path` nil (the node was exited — no live
+  counterpart) yields `[:rf.work/timer nil epoch]`, a valid distinct id.
+
+  rf2-niarhz — without this the machine `:after` timer completions
+  (`:rf.machine.timer/fired` / `:rf.machine.timer/stale-after`) carried the
+  reply STATUS / work-status but NO `:work/id`, so they could not join into
+  the uniform work/reply rows that every other managed async family
+  correlates by (Managed-Effects §Tracing — \"one `:work/id`\")."
+  [machine-id decl-path epoch]
+  (let [logical-id (cond
+                     (and (some? machine-id) (some? decl-path))
+                     (into [machine-id] (vec decl-path))
+                     (some? decl-path) (vec decl-path)
+                     :else machine-id)]
+    [:rf.work/timer logical-id epoch]))
+
 (defn after-suppression-gate
   "Build the data-only suppression gate for an `:after` timer completion:
   `{:path <decl-path> :rf/after-epoch <epoch>}` (Managed-Effects §Stale
@@ -254,12 +280,18 @@
   `:work/status :suppressed`, and the carried/current epoch facts under
   `:correlation`.
 
+  rf2-niarhz — the reply now carries the canonical `:work/id`
+  `[:rf.work/timer <decl-path> <scheduled-epoch>]` (the timer's attempt
+  identity — see `timer-work-id`), so a stale `:after` completion joins into
+  the uniform work/reply rows by the same key HTTP / resources / routing use.
+
   `ctx` keys: `:machine-id` (optional), `:state`, `:delay`,
   `:decl-path`, `:scheduled-epoch`, `:current-epoch`, `:frame`."
   [{:keys [machine-id state delay decl-path scheduled-epoch current-epoch frame]}]
   (cond-> {:status       :stale
            :stale?       true
            :stale/reason :rf.machine.timer/after-epoch-mismatch
+           :work/id      (timer-work-id machine-id decl-path scheduled-epoch)
            :work/kind    :timer
            :work/status  :suppressed
            :correlation  (cond-> {:state   state
@@ -267,6 +299,48 @@
                                   :carried (after-suppression-gate decl-path scheduled-epoch)
                                   :current (after-suppression-gate decl-path current-epoch)}
                            (some? machine-id) (assoc :machine-id machine-id))}
+    (some? frame) (assoc :rf.frame/id frame)))
+
+(defn after-fired-reply
+  "Build the canonical reply for a machine `:after` timer that FIRED (live —
+  its declaring path is still active and its carried epoch equals the node's
+  current per-path epoch). rf2-niarhz — a fired `:after` timer is a CLOSED
+  `:after` completion: `:status :ok` / `:work/status :completed`, carrying the
+  canonical `:work/id` `[:rf.work/timer <decl-path> <epoch>]` and
+  `:work/kind :timer` so its `:rf.machine.timer/fired` trace joins the uniform
+  work/reply rows the same way every other managed async completion does
+  (Managed-Effects §Tracing — \"completion classified as one of the five
+  statuses\"). A timer carries no `:value` (its effect is the transition it
+  triggers, not a payload).
+
+  A GUARD-SUPPRESSED fired timer (the timer was live but its transition guard
+  evaluated false, so no transition fired) is STILL a closed `:status :ok` /
+  `:work/status :completed` completion — the timer fired and completed; the
+  guard's no-transition decision is APP-level, not the stale-suppression
+  correctness boundary (the timer was NOT stale). The distinction rides as
+  `:guard-suppressed? true` under `:correlation` (data-only), keeping
+  `:work/status` inside the closed `work-statuses` vocabulary. Pass
+  `:guard-suppressed? true` for that case.
+
+  `ctx` keys: `:machine-id` (optional), `:state`, `:delay`, `:decl-path`,
+  `:epoch`, `:frame`, optional `:guard-suppressed?`."
+  [{:keys [machine-id state delay decl-path epoch frame guard-suppressed?]}]
+  (cond-> {:status      :ok
+           ;; A timer carries no payload — its effect is the transition it
+           ;; triggers, not a value. The reply-map contract requires a `:value`
+           ;; slot for `:status :ok` (the "omit when absent" rule uses
+           ;; `contains?`, so an explicit nil is the conformant "completed with
+           ;; no payload" shape); a nil value keeps the reply schema-valid
+           ;; without inventing a synthetic payload.
+           :value       nil
+           :work/id     (timer-work-id machine-id decl-path epoch)
+           :work/kind   :timer
+           :work/status :completed
+           :correlation (cond-> {:state state
+                                 :delay delay
+                                 :gate  (after-suppression-gate decl-path epoch)}
+                          (some? machine-id) (assoc :machine-id machine-id)
+                          guard-suppressed?  (assoc :guard-suppressed? true))}
     (some? frame) (assoc :rf.frame/id frame)))
 
 ;; ---------------------------------------------------------------------------

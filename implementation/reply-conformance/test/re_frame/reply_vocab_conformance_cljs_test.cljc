@@ -151,6 +151,15 @@
      :current-epoch   2
      :frame           :app/main}))
 
+(defn- after-fired-reply []
+  (m-reply/after-fired-reply
+    {:machine-id :a/multi
+     :state      :loading
+     :delay      30000
+     :decl-path  [:loading]
+     :epoch      1
+     :frame      :app/main}))
+
 (defn- route-stale-reply []
   (:reply (route-reply/suppress {:route-id  :route/article
                                  :nav-token "nav-1"
@@ -223,11 +232,13 @@
     :cancel    nil
     :stale     machine-stale-reply}
 
-   ;; The machine :after timer is a specialized timer instance — its ONLY
-   ;; reply-envelope completion is the stale (epoch-mismatch) suppression.
+   ;; The machine :after timer is a specialized timer instance. rf2-niarhz —
+   ;; both its FIRED (live) and STALE (epoch-mismatch) completions now carry
+   ;; the canonical `:work/id` `[:rf.work/timer <decl-path> <epoch>]` so they
+   ;; join the uniform work/reply rows.
    {:family    :timer
-    :work-head nil ;; :after stale reply carries no :work/id (the gate is the path+epoch)
-    :success   nil
+    :work-head :rf.work/timer
+    :success   after-fired-reply
     :error     nil
     :cancel    nil
     :stale     after-stale-reply}
@@ -276,8 +287,9 @@
           :when (and builder work-head)
           :let [reply (builder)
                 wid   (:work/id reply)]
-          ;; The :after stale reply legitimately carries no :work/id (its
-          ;; gate IS the path+epoch correlation); skip rows that produce none.
+          ;; Defensive: skip any row that legitimately produces no :work/id
+          ;; (none today — rf2-niarhz gave the machine :after timer a canonical
+          ;; [:rf.work/timer …] work-id too).
           :when (some? wid)]
     (testing (str family " / " situation " :work/id correlation")
       (is (vector? wid) (str family " " situation " :work/id is not a vector"))

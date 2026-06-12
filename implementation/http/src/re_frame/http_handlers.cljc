@@ -27,6 +27,7 @@
             [re-frame.http-middleware :as middleware]
             [re-frame.http-privacy   :as privacy]
             [re-frame.http-registry  :as registry]
+            [re-frame.http-reply     :as http-reply]
             [re-frame.http-transport :as transport]
             [re-frame.http-transport-jvm :as transport-jvm]))
 
@@ -358,10 +359,37 @@
         ;; in the `:after`, which is what makes request-correlated
         ;; response handling (response-time telemetry, header-driven
         ;; auth refresh, …) expressible in a single interceptor.
-        normalised   (assoc (normalise-args args-map' frame-ctx')
+        normalised0  (assoc (normalise-args args-map' frame-ctx')
                             :middleware-ctx ctx)
-        request-id   (:request-id normalised)]
-    (when request-id (registry/supersede! request-id))
+        request-id   (:request-id normalised0)
+        ;; rf2-azcmd3 — allocate this request's monotonic per-request-id
+        ;; ISSUANCE number BEFORE superseding the prior in-flight request, so
+        ;; the new attempt's `:work/id` `[:rf.work/http logical-id issuance
+        ;; attempt]` is `=`-distinct from the superseded one's (both reset
+        ;; their retry `:attempt` to 1; the issuance discriminates them). One
+        ;; attempt has one work id (EP-0007 / Managed-Effects §Work-id
+        ;; correlation §184). An anonymous request (nil request-id) never
+        ;; supersedes and stays at issuance 1.
+        issuance     (registry/next-issuance! request-id)
+        normalised   (assoc normalised0 :issuance issuance)]
+    ;; rf2-azcmd3 — supersession emits the SUPERSEDED attempt's canonical
+    ;; `:status :stale` / `:work/status :suppressed` reply-envelope trace
+    ;; (Managed-Effects §Stale suppression) carrying carried/current work-id
+    ;; correlation, with NO app dispatch. `supersede!` returns the old handle
+    ;; (carrying its identity facts); we hand it plus the NEW attempt's
+    ;; work-id (the live `:work/id` now taking over the request-id) to the
+    ;; stale-trace emitter. The old handle's own abort path still fires
+    ;; (`:reason :request-id-superseded`) — that suppresses its app reply; this
+    ;; ADDS the canonical stale reply-envelope row the old `:rf.http/aborted`
+    ;; trace alone did not record.
+    (when request-id
+      (when-let [superseded (registry/supersede! request-id)]
+        (transport/emit-superseded-stale-trace!
+          superseded
+          (http-reply/work-id {:request-id   request-id
+                               :origin-event origin-event
+                               :issuance     issuance
+                               :attempt      1}))))
     (transport/run-attempt! normalised)
     nil))
 

@@ -617,7 +617,12 @@
     `extra`   — optional reply fields to carry verbatim (`:work/id`,
                 `:work/kind`, `:rf.frame/id`, `:completed-at`, `:meta`, …);
                 `:stale/reason` defaults to `:rf.reply/correlation-mismatch`
-                when not supplied.
+                when not supplied. The stale boundary is NON-NEGOTIABLE:
+                `extra` CANNOT override `:status :stale` / `:stale? true` /
+                `:work/status :suppressed`, and a `:value` in `extra` is
+                STRIPPED (a stale reply MUST NOT carry `:value` — see
+                `validate-reply`). So threading a natural success/error reply
+                as `extra` cannot produce a non-stale outcome (rf2-waawic).
 
   Returns:
     {:deliver? <bool>           ;; false ⇒ DO NOT dispatch the app target
@@ -646,12 +651,26 @@
                                     {:rf.error/kind :rf.reply/unauthorized-stale-delivery
                                      :target        d})))
          opt-in?  (and wants? authorised?)
-         carry    (dissoc extra :stale/reason)
-         reply    (merge {:status       :stale
-                          :stale?       true
-                          :stale/reason reason
-                          :work/status  :suppressed}
-                         carry)]
+         ;; rf2-waawic — `suppress` is THE correctness boundary, so "stale
+         ;; wins over the natural completion status" (Managed-Effects
+         ;; §Status taxonomy) MUST be structurally impossible for a caller
+         ;; to violate. Merge `extra` FIRST (its identity facts — `:work/id`,
+         ;; `:work/kind`, `:rf.frame/id`, `:completed-at`, `:correlation`,
+         ;; `:meta` — ride verbatim), then FORCE the stale invariants on top
+         ;; and STRIP `:value`. A caller that accidentally threads a natural
+         ;; success/error reply as `extra` (`{:status :ok :value … :work/
+         ;; status :completed}`) can no longer produce an invalid non-stale
+         ;; reply — the forced fields override and `:value` (which a stale
+         ;; reply MUST NOT carry — see `validate-reply`) is dissoc'd.
+         carry    (dissoc extra :stale/reason :value)
+         ;; `carry` is merged FIRST so the stale-boundary map (the second
+         ;; `merge` arg) wins every shared key — `extra` cannot override
+         ;; `:status` / `:stale?` / `:work/status`, and `:value` was already
+         ;; stripped above.
+         reply    (merge carry {:status       :stale
+                                :stale?       true
+                                :stale/reason reason
+                                :work/status  :suppressed})]
      {:deliver?    opt-in?
       :reply       reply
       :work/status :suppressed

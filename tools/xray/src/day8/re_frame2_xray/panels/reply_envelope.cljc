@@ -142,10 +142,16 @@
   tags (EP-0011 one-name-per-fact — every family emits the qualified
   `:work/id`; the bare `:work-id` trace-tag spelling was retired). The single
   attempt identity (Managed-Effects §Work-id correlation — `=`-comparable,
-  EDN-serializable); the key the stale-races view groups on. nil when absent
-  (a non-ledger-backed managed async)."
+  EDN-serializable); the key the stale-races view groups on.
+
+  rf2-waawic — falls back to the additive production trace key
+  `:rf.reply/work-id` some family completion rows stamp ALONGSIDE their
+  bespoke facts (machine `:rf.machine/done`, resource / mutation
+  stale-suppression). The canonical `:work/id` is preferred; the
+  `:rf.reply/work-id` fallback keeps a row that carries only the additive
+  spelling joinable. nil when absent (a non-ledger-backed managed async)."
   [m]
-  (:work/id m))
+  (or (:work/id m) (:rf.reply/work-id m)))
 
 (defn work-kind-of
   "Read the `:work/kind` family tag off a reply map or trace tags (one of
@@ -387,10 +393,18 @@
    ;; ---- stale suppression (the correctness boundary) ----
    ;; Resources emit `:rf.resource/stale-suppressed` (landed). The shared
    ;; substrate suppression trace is `:rf.reply/suppressed` (re-frame.reply
-   ;; §suppress). Routing / machine family suppression ops (`.5` / `.4`) are
-   ;; forward-looking; the suffix heuristic catches `*stale-suppress*` /
-   ;; `*suppressed*` until those PRs land.
+   ;; §suppress). Routing emits `:rf.route.nav-token/stale-suppressed`.
+   ;; rf2-waawic — the machine `:after` timer emits
+   ;; `:rf.machine.timer/stale-after` (a reply-shaped stale completion); the
+   ;; suffix heuristic catches `stale-suppress` / `suppressed` but NOT
+   ;; `stale-after`, so an EP-0011 managed async stale completion from
+   ;; machines was invisible to the uniform reply-envelope view. Enumerate it
+   ;; explicitly. rf2-azcmd3 — HTTP supersession emits
+   ;; `:rf.http/stale-suppressed` (a canonical superseded-attempt stale row).
    :rf.resource/stale-suppressed           :stale-suppressed
+   :rf.route.nav-token/stale-suppressed    :stale-suppressed
+   :rf.machine.timer/stale-after           :stale-suppressed
+   :rf.http/stale-suppressed               :stale-suppressed
    ;; Mutations emit `:rf.mutation/stale-suppressed` for a superseded / cleared
    ;; / cross-frame reply (EP-0016 D1 — a stale reply NEVER fires the
    ;; `:reply-to` continuation; it suppresses here instead), carrying the
@@ -497,11 +511,17 @@
       (let [tags    (trace-tags ev)
             work-id (work-id-of tags)
             status  (when (= phase :completed)
-                      (let [s (:status tags)]
-                        ;; some resource completion rows stamp the LEDGER status
-                        ;; (`:completed`/`:failed`) under :status; the closed
-                        ;; reply status is what the cross-surface badge keys on,
-                        ;; so only surface a real reply status here.
+                      ;; rf2-waawic — read the closed reply status from EITHER
+                      ;; the bare `:status` OR the additive production
+                      ;; `:rf.reply/status` key (machine / resource / mutation
+                      ;; completion rows stamp the latter ALONGSIDE a bespoke
+                      ;; `:status`). Some resource completion rows stamp the
+                      ;; LEDGER status (`:completed`/`:failed`) under bare
+                      ;; `:status`; the closed reply status is what the
+                      ;; cross-surface badge keys on, so only surface a real
+                      ;; reply status, preferring the unambiguous
+                      ;; `:rf.reply/status` when present.
+                      (let [s (or (:rf.reply/status tags) (:status tags))]
                         (when (reply-status? s) s)))]
         (cond-> {:id           (:id ev)
                  :operation    op
@@ -509,7 +529,11 @@
                  :work-kind    (or (work-kind-of tags) (infer-work-kind work-id))
                  :work-id      work-id
                  :frame        (or (:rf.frame/id tags) (:frame-id tags) (:frame ev))
-                 :work-status  (or (:work/status tags) (:work-status tags))
+                 ;; rf2-waawic — tolerate the additive `:rf.reply/work-status`
+                 ;; production key so machine / resource / mutation rows do not
+                 ;; lose their work status.
+                 :work-status  (or (:work/status tags) (:work-status tags)
+                                   (:rf.reply/work-status tags))
                  :time         (:time ev)
                  :dispatch-id  (or (:rf.trace/dispatch-id tags) (:dispatch-id tags))}
           status
@@ -521,7 +545,8 @@
                             (rh/summarize (:rf.reply/carried tags)))
                  :current (when (contains? tags :rf.reply/current)
                             (rh/summarize (:rf.reply/current tags)))
-                 :stale-reason (or (:stale/reason tags) (:reason tags) (:outcome tags)))
+                 :stale-reason (or (:stale/reason tags) (:rf.reply/stale-reason tags)
+                                   (:reason tags) (:outcome tags)))
 
           (= phase :cancel-requested)
           (assoc :cancelled?    true

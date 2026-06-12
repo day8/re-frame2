@@ -96,16 +96,24 @@
    :completed-at 1781078400456})
 
 (deftest work-id-head
-  (testing "HTTP work-id head is [:rf.work/http logical-id attempt]"
-    (is (= [:rf.work/http :article/by-id 1] (http-reply/work-id base-ctx)))
+  (testing "HTTP work-id head is [:rf.work/http logical-id issuance attempt]"
+    (is (= [:rf.work/http :article/by-id 1 1] (http-reply/work-id base-ctx)))
     (testing "logical-id falls back to the origin event-id when :request-id is absent"
-      (is (= [:rf.work/http :article/load 1]
+      (is (= [:rf.work/http :article/load 1 1]
              (http-reply/work-id (dissoc base-ctx :request-id)))))
-    (testing "the attempt is the generation slot — retries are distinct work ids"
-      (is (= [:rf.work/http :article/by-id 3]
-             (http-reply/work-id (assoc base-ctx :attempt 3))))))
+    (testing "the attempt slot discriminates transport retries within one issuance"
+      (is (= [:rf.work/http :article/by-id 1 3]
+             (http-reply/work-id (assoc base-ctx :attempt 3)))))
+    (testing "the issuance slot discriminates re-issuances across supersessions (rf2-azcmd3)"
+      ;; A superseded attempt (issuance 1) and its superseder (issuance 2) both
+      ;; reset their retry :attempt to 1, but the issuance keeps their work
+      ;; ids =-distinct — the EP-0011 one-attempt-one-work-id rule.
+      (is (= [:rf.work/http :article/by-id 2 1]
+             (http-reply/work-id (assoc base-ctx :issuance 2))))
+      (is (not= (http-reply/work-id base-ctx)
+                (http-reply/work-id (assoc base-ctx :issuance 2))))))
   (testing "the frame-qualified transport request-id is [:rf.req frame-id work-id]"
-    (is (= [:rf.req :app/main [:rf.work/http :article/by-id 1]]
+    (is (= [:rf.req :app/main [:rf.work/http :article/by-id 1 1]]
            (http-reply/transport-request-id :app/main (http-reply/work-id base-ctx))))))
 
 (deftest success-reply-is-canonical
@@ -116,7 +124,7 @@
       (is (= {:title "Welcome"} (:value r)))
       (is (= :completed (:work/status r)))
       (is (= :http (:work/kind r)))
-      (is (= [:rf.work/http :article/by-id 1] (:work/id r)))
+      (is (= [:rf.work/http :article/by-id 1 1] (:work/id r)))
       (is (= :app/main (:rf.frame/id r)))
       (is (= 1781078400456 (:completed-at r)))
       (testing ":request-id rides as :correlation metadata, NOT a top-level stale key"
@@ -256,7 +264,7 @@
             ;; identity facts ride verbatim on the canonical trace summary
             (is (= :ok (:status tags)))
             (is (= :http (:work/kind tags)))
-            (is (= [:rf.work/http :t/load 1] (:work/id tags)))
+            (is (= [:rf.work/http :t/load 1 1] (:work/id tags)))
             ;; :request-id is correlation metadata, not a second stale key
             (is (= {:request-id :t/load} (:correlation tags)))))
         (finally
@@ -313,3 +321,62 @@
         (is (= :success (:kind (first @replies)))
             "the surviving reply is request #2's success")
         (finally (stop-server! srv))))))
+
+(deftest supersede-distinct-work-ids-and-canonical-stale-trace
+  (testing "rf2-azcmd3 — superseded + superseding attempts have DISTINCT :work/id, and the superseded one records a canonical :status :stale / :work/status :suppressed reply-envelope trace with carried/current correlation; only the new app reply fires"
+    (let [gate    (java.util.concurrent.CountDownLatch. 1)
+          srv     (start-server!
+                    (fn [^HttpExchange ex]
+                      (.countDown gate)
+                      (try (.await gate 2 java.util.concurrent.TimeUnit/SECONDS)
+                           (catch InterruptedException _ nil))
+                      (write-response! ex 200 "application/json" "{\"v\":1}")))
+          replies (atom [])
+          traces  (atom [])
+          lid     ::supersede-stale]
+      (try
+        (trace/register-listener! lid (fn [ev] (swap! traces conj ev)))
+        (rf/reg-event-db :search/replied
+          (fn [db [_ payload]] (swap! replies conj payload) db))
+        (rf/reg-event-fx :search/go
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url (str "http://127.0.0.1:" (:port srv) "/s")}
+                    :request-id :search
+                    :decode     :json
+                    :on-success [:search/replied]
+                    :on-failure [:search/replied]}]]}))
+        ;; #1 (issuance 1) goes in flight; #2 (issuance 2) supersedes it.
+        (rf/dispatch-sync [:search/go])
+        (rf/dispatch-sync [:search/go])
+        (.countDown gate)
+        (test-support/poll-until
+          (fn []
+            (when (and (seq @replies)
+                       (some (fn [ev] (= :rf.http/stale-suppressed (:operation ev))) @traces))
+              true))
+          {:timeout-ms 5000 :label "supersede-stale"})
+        (Thread/sleep 200)
+        ;; Exactly one DELIVERED app reply — request #2's; #1 suppressed.
+        (is (= 1 (count @replies))
+            "only the surviving request's app reply is delivered")
+        ;; The superseded attempt records a canonical stale reply-envelope row.
+        (let [stale (filter #(= :rf.http/stale-suppressed (:operation %)) @traces)]
+          (is (= 1 (count stale)) "exactly one stale-suppression row for the superseded attempt")
+          (let [tags (:tags (first stale))]
+            (is (= :stale (:rf.reply/status tags)))
+            (is (= :suppressed (:rf.reply/work-status tags)))
+            (is (= :rf.http/request-id-superseded (:rf.reply/stale-reason tags)))
+            (is (= :http (:work/kind tags)))
+            ;; Carried = the superseded attempt's work-id (issuance 1);
+            ;; current = the superseding attempt's work-id (issuance 2). The
+            ;; two are =-distinct — tooling can tell them apart by :work/id.
+            (is (= [:rf.work/http :search 1 1] (:work/id (:rf.reply/carried tags))))
+            (is (= [:rf.work/http :search 2 1] (:work/id (:rf.reply/current tags))))
+            (is (not= (:work/id (:rf.reply/carried tags))
+                      (:work/id (:rf.reply/current tags))))
+            ;; The canonical join key reads the carried (superseded) work-id.
+            (is (= [:rf.work/http :search 1 1] (:work/id tags)))))
+        (finally
+          (trace/unregister-listener! lid)
+          (stop-server! srv))))))

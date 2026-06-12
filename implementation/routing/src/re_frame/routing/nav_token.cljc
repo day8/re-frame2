@@ -115,7 +115,20 @@ result. Per Spec 012 §Navigation tokens — stale-result suppression."})
   suppress` carries it on the reply + trace."
   [{:keys [carried-token current-token event-id frame-id route-id loader-id]}]
   (let [{:keys [trace]} (route-reply/suppress
-                          {:route-id  route-id
+                          {;; rf2-azcmd3 — `route-id` is the route id CAPTURED
+                           ;; at scheduling time (carried with the nav-token),
+                           ;; NOT the live route slice id read at stale-arrival.
+                           ;; If route A's stale completion arrives after a
+                           ;; navigation to route B, the live slice id is B's —
+                           ;; using it would mint a corrupt work-id
+                           ;; `[:rf.work/route :route/B nav-A loader]` mixing
+                           ;; B's route id with A's carried nav-token. The
+                           ;; carried id keeps the work-id attributed to the
+                           ;; route-loader ATTEMPT (Spec 012 §742 / EP-0011
+                           ;; §Work-id correlation). nil when the caller did
+                           ;; not capture one — preferred over a false
+                           ;; live-route attribution.
+                           :route-id  route-id
                            :nav-token carried-token
                            :loader-id loader-id
                            :frame     frame-id}
@@ -130,6 +143,15 @@ result. Per Spec 012 §Navigation tokens — stale-result suppression."})
                                 ;; `[:rf.work/route route-id nav-token
                                 ;; loader-id]` the shared substrate built.
                                 :work/id           (:work/id trace)
+                                ;; rf2-waawic — the shared carried/current
+                                ;; correlation facts `re-frame.reply/suppress`
+                                ;; computes (Managed-Effects §Tracing), so the
+                                ;; uniform reply-envelope view reads the route
+                                ;; stale gate without route-family-specific
+                                ;; parsing. The bespoke `:carried-token` /
+                                ;; `:current-token` above are preserved.
+                                :rf.reply/carried  (:rf.reply/carried trace)
+                                :rf.reply/current  (:rf.reply/current trace)
                                 :recovery          :replaced-with-default}
                          frame-id (assoc :frame frame-id)))))
 
@@ -147,7 +169,12 @@ result. Per Spec 012 §Navigation tokens — stale-result suppression."})
 `:rf.route.nav-token/stale-suppressed`."
    :schema [:map
             [:do        [:vector :any]]
-            [:nav-token :any]]})
+            [:nav-token :any]
+            ;; rf2-azcmd3 — OPTIONAL captured route id. When the loader
+            ;; captured the route id at scheduling time and threads it here,
+            ;; a cross-route stale completion attributes its work-id to the
+            ;; route-loader ATTEMPT rather than the route live at arrival.
+            [:route-id {:optional true} :any]]})
 
 (defn with-nav-token-handler
   "`:rf.route/with-nav-token` fx handler. Registered by the façade so a
@@ -166,6 +193,13 @@ result. Per Spec 012 §Navigation tokens — stale-result suppression."})
   ;; §Threading the `:do` slot is the wrapped fx entry to perform.
   (let [do-entry        (get args :do)
         nav-token       (get args :nav-token)
+        ;; rf2-azcmd3 — the CAPTURED route id (optional). Captured at
+        ;; scheduling time alongside the nav-token and threaded into the
+        ;; async continuation, so a cross-route stale completion attributes
+        ;; its work-id to the route-loader ATTEMPT, not whatever route is live
+        ;; when the stale completion arrives. Absent ⇒ nil (preferred over a
+        ;; false live-route attribution).
+        carried-route-id (get args :route-id)
         ;; EP-0002 carried invariant — the fx context carries the cascade
         ;; envelope frame as `:frame`; a nil stamp is an invariant failure
         ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
@@ -204,5 +238,9 @@ result. Per Spec 012 §Navigation tokens — stale-result suppression."})
          :current-token current
          :event-id      (inner-fx-event-id do-entry)
          :frame-id      frame-id
-         :route-id      (:id slice)
+         ;; rf2-azcmd3 — use the CAPTURED route id (carried with the
+         ;; nav-token), NOT `(:id slice)` (the route live at stale-arrival).
+         ;; A cross-route stale completion would otherwise attribute the
+         ;; stale loader to the CURRENT route id.
+         :route-id      carried-route-id
          :loader-id     (inner-fx-event-id do-entry)}))))

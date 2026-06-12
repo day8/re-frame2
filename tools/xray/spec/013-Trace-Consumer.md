@@ -378,9 +378,24 @@ machines / timers:
   groups by phase, not by family. An explicit op table covers the landed
   literals (`:rf.resource/work-started`, `:rf.http/replied`,
   `:rf.http/retry-attempt`, `:rf.resource/stale-suppressed`,
-  `:rf.reply/suppressed`, …); a name-suffix heuristic classifies a
-  not-yet-enumerated family op (e.g. a future `:rf.stream/*` surface)
-  before the table learns its literal.
+  `:rf.reply/suppressed`, the routing `:rf.route.nav-token/stale-suppressed`,
+  the machine `:rf.machine.timer/stale-after`, and the HTTP-supersession
+  `:rf.http/stale-suppressed` — rf2-waawic / rf2-azcmd3; the suffix heuristic
+  catches `stale-suppress` / `suppressed` but NOT `stale-after`, so the
+  machine-timer op is enumerated explicitly); a name-suffix heuristic
+  classifies a not-yet-enumerated family op (e.g. a future `:rf.stream/*`
+  surface) before the table learns its literal.
+- **Production `:rf.reply/*` trace vocabulary (rf2-waawic).** Family
+  completion / stale rows stamp the canonical reply facts ADDITIVELY as
+  `:rf.reply/status` / `:rf.reply/work-id` / `:rf.reply/work-status` /
+  `:rf.reply/carried` / `:rf.reply/current` alongside their bespoke
+  family facts (machine `:rf.machine/done`, resource / mutation
+  stale-suppression). The trace readers normalize BOTH the canonical bare
+  keys (`:work/id` / `:status` / `:work/status`) AND these additive
+  `:rf.reply/*` keys, preferring the canonical key and falling back to the
+  `:rf.reply/*` spelling, so a row carrying only the additive vocabulary is
+  still joined into the uniform work/reply rows by `:work/id` rather than
+  losing its status / work-id / grouping.
 - **`status->class`** gives the one cross-surface colour class so a
   `:stale` HTTP reply and a `:stale` resource reply render the **same
   badge** (Cross-Cutting [F.11](019-Cross-Cutting-Insight.md) — the
