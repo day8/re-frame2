@@ -56,22 +56,28 @@
   edge + node structure (rf2-yjarv6). This panel renders on-box, so it
   reads the RAW graph.
 
-  ## The contributor seam — present families only
+  ## The contributor seam — all five families
 
   The composer reaches each optional family through a `{family
   contributor}` map. On CLJS the consuming tool supplies it from the
   tooling siblings it statically `:require`s ([Derivations.md] §The
-  graph-assembly composer — \"the optional siblings it has\"). Xray's
-  artefact deps are core (→ `re-frame.subs.tooling`), routing (→
-  `re-frame.routing.tooling`), and flows (→ `re-frame.flows.tooling`); it
-  does NOT `:require` the optional `re-frame.machines.*` / `re-frame.
-  resources.*` runtime artefacts (the same decoupling the Resources panel +
-  Machine Inspector honour — they read those families' runtime-db slices
-  decoupled, never `:require`ing the artefact). So the contributor map here
-  carries the three families Xray HAS; the composer's present-family-only
-  contract renders machines/resources as soon as those siblings join the
-  map (the seam is ready). A family Xray lacks simply contributes no nodes
-  — the no-machines / no-resources story.
+  graph-assembly composer — \"the optional siblings it has\"). As EP-0014's
+  NAMED FIRST CONSUMER, Xray hard-deps ALL FIVE algebra-view families so
+  the single graph it renders is complete (rf2-1fc459): core
+  (→ `re-frame.subs.tooling`), routing (→ `re-frame.routing.tooling`),
+  flows (→ `re-frame.flows.tooling`), resources
+  (→ `re-frame.resources.tooling`), and machines
+  (→ `re-frame.machines.tooling`). So `xray-contributors` carries all five;
+  a family with no registrations in the host app simply contributes no
+  nodes — the no-machines / no-resources story now holds PER-APP (an app
+  that registers no machines) rather than per-tool (Xray missing the
+  artefact). The tooling siblings' bodies are dev-gated
+  (`interop/debug-enabled?`) + bundle-isolated; Xray itself is dev-only
+  (`:devtools/preloads`), so none of these reach a production bundle. The
+  Resources panel (024) + Machine Inspector (003) still read those
+  families' runtime-db slices decoupled — those are SEPARATE surfaces; the
+  Derivation-Graph tab needs the algebra-view projection, not the raw
+  slice, so it `:require`s the tooling siblings.
 
   ## Read-only
 
@@ -83,6 +89,8 @@
   (:require [re-frame.core :as rf]
             [re-frame.derivation.graph :as dgraph]
             [re-frame.flows.tooling :as flows-tooling]
+            [re-frame.machines.tooling :as machines-tooling]
+            [re-frame.resources.tooling :as resources-tooling]
             [re-frame.routing.tooling :as routing-tooling]
             [re-frame.subs.tooling :as subs-tooling]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
@@ -92,24 +100,36 @@
 
 ;; ---- the Xray contributor map -------------------------------------------
 ;;
-;; The three families Xray statically `:require`s (see ns docstring). The
-;; composer composes these; machines/resources are absent from Xray's deps
-;; and contribute no nodes (the no-machines/no-resources story). When those
-;; artefacts join Xray's deps the seam accepts them with no panel change.
+;; ALL FIVE algebra-view families Xray statically `:require`s (see ns
+;; docstring). The composer composes every family into the single
+;; DerivationGraph this panel renders (rf2-1fc459 — the named first consumer
+;; shows every EP-0014 family). A family with no registrations in the host
+;; app contributes no nodes (the no-machines / no-resources story still
+;; holds per-app, not per-tool).
 
 (def xray-contributors
   "The `{family contributor}` map for `re-frame.derivation.graph`, built
-  from the tooling siblings Xray statically `:require`s. `:subs` lives in
-  core (always present); `:flows` + `:routes` are Xray hard deps."
-  {:subs   {:static-fn  subs-tooling/sub-algebra-view
-            :live-fn    subs-tooling/sub-cache-algebra-view
-            :live-shape :map}
-   :flows  {:static-fn  flows-tooling/flow-algebra-view
-            :live-fn    flows-tooling/flow-algebra-view
-            :live-shape :map}
-   :routes {:static-fn  routing-tooling/route-algebra-view
-            :live-fn    routing-tooling/route-slice-algebra-view
-            :live-shape :node}})
+  from the five tooling siblings Xray statically `:require`s. `:subs` lives
+  in core (always present); `:flows`, `:routes`, `:resources`, and
+  `:machines` are Xray hard deps (rf2-1fc459). The `:machines` contributor
+  carries the `machine-selector-targets` extractor so the graph draws
+  precise machine→selector edges (rf2-4qmiij)."
+  {:subs      {:static-fn  subs-tooling/sub-algebra-view
+               :live-fn    subs-tooling/sub-cache-algebra-view
+               :live-shape :map}
+   :flows     {:static-fn  flows-tooling/flow-algebra-view
+               :live-fn    flows-tooling/flow-algebra-view
+               :live-shape :map}
+   :resources {:static-fn  resources-tooling/resource-algebra-view
+               :live-fn    resources-tooling/resource-cache-algebra-view
+               :live-shape :map}
+   :routes    {:static-fn  routing-tooling/route-algebra-view
+               :live-fn    routing-tooling/route-slice-algebra-view
+               :live-shape :node}
+   :machines  {:static-fn         machines-tooling/machine-algebra-view
+               :live-fn           machines-tooling/machine-instance-algebra-view
+               :live-shape        :map
+               :selector-targets  machines-tooling/machine-selector-targets}})
 
 (def ^:private mode-accent (:magenta tokens))     ; violet — the algebra lens
 
@@ -314,9 +334,9 @@
    [:span {:style {:font-style "italic"}}
     "No derivation/process nodes in the host app."]
    [:span
-    "Register subscriptions, flows, or routes — the unified graph renders once "
-    "the host installs any algebra-view family. (Machines + resources join the "
-    "graph when their artefacts are on Xray's classpath.)"]])
+    "Register subscriptions, flows, resources, routes, or machines — the "
+    "unified graph renders across all five algebra-view families once the "
+    "host installs any of them."]])
 
 ;; ---- public view ---------------------------------------------------------
 

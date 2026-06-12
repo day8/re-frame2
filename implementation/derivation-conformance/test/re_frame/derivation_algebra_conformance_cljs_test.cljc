@@ -225,10 +225,10 @@
    :routes    {:static-fn  routing-tooling/route-algebra-view
                :live-fn    routing-tooling/route-slice-algebra-view
                :live-shape :node}
-   :machines  {:static-fn  machines-tooling/machine-algebra-view
-               :live-fn    machines-tooling/machine-instance-algebra-view
-               :live-shape :map
-               :selector?  machines-tooling/machine-selector?}})
+   :machines  {:static-fn         machines-tooling/machine-algebra-view
+               :live-fn           machines-tooling/machine-instance-algebra-view
+               :live-shape        :map
+               :selector-targets  machines-tooling/machine-selector-targets}})
 
 ;; ---------------------------------------------------------------------------
 ;; ONE whole-value function shared by the subscription AND the flow — the

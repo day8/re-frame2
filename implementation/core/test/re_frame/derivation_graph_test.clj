@@ -87,10 +87,10 @@
    :routes    {:static-fn  routing-tooling/route-algebra-view
                :live-fn    routing-tooling/route-slice-algebra-view
                :live-shape :node}
-   :machines  {:static-fn  machines-tooling/machine-algebra-view
-               :live-fn    machines-tooling/machine-instance-algebra-view
-               :live-shape :map
-               :selector?  machines-tooling/machine-selector?}})
+   :machines  {:static-fn         machines-tooling/machine-algebra-view
+               :live-fn           machines-tooling/machine-instance-algebra-view
+               :live-shape        :map
+               :selector-targets  machines-tooling/machine-selector-targets}})
 
 (defn- register-one-of-each! []
   ;; :subs — a static `:<-` sub (an :input edge source) + a layer-1 sub.
@@ -216,6 +216,68 @@
                       (= :param (:role %)))
                 param)
           "the route-owned resource activation edge runs route → resource"))))
+
+;; ---- precise machine→selector edge targeting (rf2-4qmiij) -----------------
+
+(deftest machine-selector-edge-targets-only-the-machine-it-reads
+  (testing "in a multi-machine app a selector edge runs ONLY from the machine
+            the selector reads — never the cross product of every machine"
+    ;; Two registered machines; ONE selector reading ONLY :upload/main.
+    (rf/reg-machine :upload/main
+                    {:initial :idle
+                     :data    {:progress 0}
+                     :states  {:idle {:on {:upload/start {:target :uploading}}}
+                               :uploading {:on {:upload/done {:target :idle}}}}})
+    (rf/reg-machine :download/main
+                    {:initial :idle
+                     :data    {:bytes 0}
+                     :states  {:idle {:on {:download/start {:target :fetching}}}
+                               :fetching {:on {:download/done {:target :idle}}}}})
+    (rf/reg-sub :upload/progress
+                :<- [:rf/machine :upload/main]
+                (fn [snapshot _] (get-in snapshot [:data :progress] 0)))
+    (let [g     (graph/derivation-graph all-contributors)
+          edges (:edges g)
+          sel   (filter #(= :selector (:role %)) edges)]
+      ;; EXACTLY one selector edge, from :upload/main → :upload/progress.
+      (is (= [{:from [:machine :upload/main]
+               :to   [:sub :upload/progress]
+               :role :selector}]
+             (vec sel))
+          "one selector edge from the machine the selector actually reads")
+      ;; The unrelated machine receives NO selector edge (the cross-product bug).
+      (is (not-any? #(= [:machine :download/main] (:from %)) sel)
+          "no selector edge from the unrelated :download/main machine"))))
+
+(deftest machine-has-tag-selector-targets-the-named-machine
+  (testing "a [:rf/machine-has-tag? machine-id tag] selector targets only that machine"
+    (rf/reg-machine :upload/main
+                    {:initial :idle :data {} :states {:idle {}}})
+    (rf/reg-machine :download/main
+                    {:initial :idle :data {} :states {:idle {}}})
+    (rf/reg-sub :upload/busy?
+                :<- [:rf/machine-has-tag? :upload/main :busy]
+                (fn [tagged? _] (boolean tagged?)))
+    (let [g   (graph/derivation-graph all-contributors)
+          sel (filter #(= :selector (:role %)) (:edges g))]
+      (is (= [{:from [:machine :upload/main]
+               :to   [:sub :upload/busy?]
+               :role :selector}]
+             (vec sel))
+          "the has-tag? selector edge runs from the named machine only"))))
+
+(deftest selector-targeting-on-machine-selector-targets-fn
+  (testing "machine-selector-targets returns the set of machine ids a selector reads"
+    (rf/reg-sub :upload/progress
+                :<- [:rf/machine :upload/main]
+                (fn [snapshot _] snapshot))
+    (rf/reg-sub :plain/sub (fn [db _] db))
+    (is (= #{:upload/main} (machines-tooling/machine-selector-targets :upload/progress))
+        "the target machine id is extracted")
+    (is (= #{} (machines-tooling/machine-selector-targets :plain/sub))
+        "a non-selector sub has no targets")
+    (is (= #{} (machines-tooling/machine-selector-targets :nope/unregistered))
+        "an unregistered sub has no targets")))
 
 ;; ---- static vs live: the don't-execute rule -------------------------------
 

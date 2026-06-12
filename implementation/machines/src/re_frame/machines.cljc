@@ -193,7 +193,8 @@
    (do
      (def machine-algebra-view          machines-tooling/machine-algebra-view)
      (def machine-instance-algebra-view machines-tooling/machine-instance-algebra-view)
-     (def machine-selector?             machines-tooling/machine-selector?)))
+     (def machine-selector?             machines-tooling/machine-selector?)
+     (def machine-selector-targets      machines-tooling/machine-selector-targets)))
 
 ;; ---- :rf.machine/dispatch-to-system — action→spawned-actor messaging fx --
 ;;

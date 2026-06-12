@@ -12,7 +12,10 @@
   `:scheduled` / `:on-reply` when the spec declares timers / spawns), owned by
   its `:machine-instance` lifecycle. `…/machine-instance-algebra-view` is the
   live counterpart (one node per materialized snapshot — singleton AND spawned
-  actor). `…/machine-selector?` recognizes a sub that reads a machine snapshot.
+  actor). `…/machine-selector?` recognizes a sub that reads a machine snapshot;
+  `…/machine-selector-targets` extracts the SET of machine ids that selector
+  reads (so a graph tool draws the `:selector` edge to the SPECIFIC machine,
+  never the cross product — rf2-4qmiij).
 
   These tests pin the registrar-derived projection: the fixed classifications
   (`:kind` / `:storage` / `:lifecycle` / `:materialized?`), the declared
@@ -301,3 +304,35 @@
     (rf/reg-sub :plain/sub (fn [db _] (:x db)))
     (is (false? (mtooling/machine-selector? :plain/sub)))
     (is (false? (mtooling/machine-selector? :nope/missing)))))
+
+;; ---- machine-selector-targets extractor (rf2-4qmiij) ---------------------
+
+(deftest machine-selector-targets-extractor
+  (testing "extracts the target machine id from a [:rf/machine machine-id] selector"
+    (rf/reg-machine :upload/main upload-machine)
+    (rf/reg-sub :upload/progress
+      :<- [:rf/machine :upload/main]
+      (fn [snapshot _] (get-in snapshot [:data :progress] 0)))
+    (is (= #{:upload/main} (mtooling/machine-selector-targets :upload/progress))
+        "the second element of the [:rf/machine …] input is the target id"))
+  (testing "extracts the target from a [:rf/machine-has-tag? machine-id tag] selector"
+    (rf/reg-sub :upload/has-tag
+      :<- [:rf/machine-has-tag? :upload/main :busy]
+      (fn [has? _] has?))
+    (is (= #{:upload/main} (mtooling/machine-selector-targets :upload/has-tag))
+        "the has-tag? form's machine id (second element) is the target"))
+  (testing "a selector reading two machines yields both targets"
+    (rf/reg-sub :combined
+      :<- [:rf/machine :upload/main]
+      :<- [:rf/machine :download/main]
+      (fn [[u d] _] [u d]))
+    (is (= #{:upload/main :download/main}
+           (mtooling/machine-selector-targets :combined))
+        "every [:rf/machine …] input contributes its target id"))
+  (testing "a non-selector sub and an unregistered id yield #{}"
+    (rf/reg-sub :plain/sub (fn [db _] (:x db)))
+    (is (= #{} (mtooling/machine-selector-targets :plain/sub)))
+    (is (= #{} (mtooling/machine-selector-targets :nope/missing))))
+  (testing "the JVM facade alias is the tooling fn"
+    (is (= mtooling/machine-selector-targets machines/machine-selector-targets)
+        "machine-selector-targets alias is the tooling fn")))

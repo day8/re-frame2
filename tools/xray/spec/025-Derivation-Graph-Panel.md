@@ -102,26 +102,49 @@ graphs):
 │ EDGES  — :input / :param / :selector records (from → to)                      │
 ```
 
-## The contributor seam — present families only
+## The contributor seam — all five families
 
 The composer reaches each optional family through a `{family contributor}`
 map. On CLJS the **consuming tool supplies it** from the tooling siblings it
 statically `:require`s
 ([`spec/Derivations.md`](../../../spec/Derivations.md) §The graph-assembly
-composer — "the optional siblings it has"). Xray's artefact deps are core
-(→ `re-frame.subs.tooling`, always present), routing
-(→ `re-frame.routing.tooling`), and flows (→ `re-frame.flows.tooling`); it
-does **not** `:require` the optional `re-frame.machines.*` /
-`re-frame.resources.*` runtime artefacts — the same decoupling the Resources
-panel ([024](024-Resources-Panel.md)) and the Machine Inspector
-([003](003-Machine-Inspector.md)) honour (they read those families'
-runtime-db slices decoupled, never `:require`ing the artefact). So
-`day8.re-frame2-xray.panels.derivation-graph/xray-contributors` carries the
-**three families Xray HAS**; the composer's present-family-only contract
-renders machines + resources as soon as those siblings join the map — a
-family Xray lacks simply contributes no nodes (the no-machines /
-no-resources story). The panel's silent state names this when nothing is
-registered.
+composer — "the optional siblings it has"). As EP-0014's **named first
+consumer**, Xray hard-deps **all five** algebra-view families so the single
+graph it renders is complete (rf2-1fc459): core (→ `re-frame.subs.tooling`,
+always present), routing (→ `re-frame.routing.tooling`), flows
+(→ `re-frame.flows.tooling`), resources (→ `re-frame.resources.tooling`),
+and machines (→ `re-frame.machines.tooling`). So
+`day8.re-frame2-xray.panels.derivation-graph/xray-contributors` carries
+**all five families**; a family with no registrations in the host app
+simply contributes no nodes — the no-machines / no-resources story now
+holds **per-app** (an app that never registered a machine), not per-tool
+(Xray missing the artefact). The panel's silent state names this when
+nothing at all is registered.
+
+> **Why hard deps, not the decoupled-slice posture.** The Resources panel
+> ([024](024-Resources-Panel.md)) and the Machine Inspector
+> ([003](003-Machine-Inspector.md)) read those families' **runtime-db
+> slices** decoupled (never `:require`ing the artefact). The
+> Derivation-Graph tab is a **separate surface**: it needs the
+> **algebra-view projection** (`resource-algebra-view` /
+> `machine-algebra-view` + their live counterparts and the
+> `machine-selector-targets` extractor), which lives in the resources /
+> machines **tooling siblings**, so it `:require`s them. The machines /
+> resources artefacts depend only on core; their tooling-sibling bodies are
+> dev-gated (`interop/debug-enabled?`) + bundle-isolated, and Xray itself is
+> dev-only (`:devtools/preloads`) — so none of this reaches a production
+> bundle (the bundle-isolation gate verifies it).
+
+### The `:machines` contributor's selector-target extractor
+
+The `:machines` contributor carries `machine-selector-targets` (not the
+boolean `machine-selector?` recognizer) in its `:selector-targets` slot. The
+composer mines each selector subscription's **target machine ids** from its
+static `[:rf/machine machine-id …]` / `[:rf/machine-has-tag? machine-id …]`
+inputs and draws the `:selector` edge from **exactly** the
+`[:machine target-id]` node(s) the selector reads — never the cross product
+of every machine against every selector (rf2-4qmiij). In a multi-machine app
+an unrelated machine receives **no** spurious selector edge.
 
 ## Privacy — ON-BOX raw, OFF-BOX redacted
 
@@ -206,6 +229,23 @@ the enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
   testing-coverage audit flagged as missing); large elision → marker keeping
   structure; per-frame policy (a non-classifying frame ships the same value
   raw); frameless fail-closed.
+- **`derivation_graph_consumer_cljs_test.cljs`** (node) — the **behavioral
+  consumer** test (rf2-4wtllq): registers the panel handlers via
+  `derivation-graph/install!` + `registry/register-xray-handlers!`, then
+  asserts the `:rf.xray/derivation-graph` subscription actually calls the
+  shared composer path — static mode returns a graph the composer produced
+  (`:mode :static`, real node/edge counts, by-family grouping, edge roles
+  through `:rf.xray/derivation-graph-tab-data`); switching to `:live` +
+  setting `:rf.xray/target-frame` makes it call `live-derivation-graph` with
+  the observed `:frame`; the test override still bypasses the composer; and a
+  node carrying the reserved EP-0013 relocation coordinates (`:realm/id`,
+  `:app/id`, `:module/id`) survives tab-data summarization unchanged. This
+  closes the seam the helper/registry/redaction tests leave: that Xray's
+  ACTUAL subscriptions consume `re-frame.derivation.graph` in both modes
+  across all five families.
 - The composer assembly mechanics + the cross-family classification
   conformance are pinned by `re-frame.derivation-graph-test` (JVM) and the
-  derivation-algebra conformance fixture (the other named first consumer).
+  derivation-algebra conformance fixture (the other named first consumer) —
+  including the **precise machine→selector edge targeting** (rf2-4qmiij: two
+  machines, one selector reading only one of them, asserting no edge from the
+  unrelated machine).
