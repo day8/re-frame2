@@ -88,7 +88,7 @@ Fires once per catalogued production-reachable `:rf.error/*` event the runtime e
 (rf/unregister-error-listener! :sentry/errors)
 ```
 
-The listener payload is a **closed union of two record shapes** — the per-event error record below, and the frame-teardown report (§The first promoted category). Branch on `(:error record)`; the teardown report carries no `:event` / `:event-id` / `:exception`.
+The listener payload is an **error-keyed union** of several record shapes — the per-event error record below, the frame-teardown report (§The first promoted category), and the EP-0008-promoted **non-event SSR records** (§The promoted-SSR records). **Always branch on `(:error record)` — never assume `:event` / `:event-id` / `:exception` are present.** Only the per-event records carry those slots; the teardown report and the SSR records do not (a teardown report carries `:hook-failures`; the SSR records carry `:frame` + category-specific slots, some with no `:event` at all). A listener that destructures `:event-id` / `:exception` off every record will NPE on a non-event record.
 
 **Per-event error record (tight — Spec 009 §Error-emit listener):**
 
@@ -134,6 +134,19 @@ One always-on category beyond the per-failure errors is worth knowing because it
 
 In **development** the per-hook detail still surfaces as `:rf.warning/teardown-hook-exception` traces on the diagnostic channel (at their causal positions, DCE'd in prod); the single always-on report is what a production shipper sees. A generic shipper body that maps `(:error record)` to the alert name and forwards the rest already handles this category without special-casing — the only gotcha is not assuming an `:event`/`:event-id` slot (a teardown report has neither; branch on `(:error record)` if you need the per-category shape).
 
+### The promoted-SSR records: `:rf.error/ssr-*` (non-event)
+
+EP-0008 (rf2-hhutya) promoted the production-reachable **SSR error categories** onto this same always-on axis. On a long-lived JVM SSR host, a shipper registered via `register-error-listener!` receives them **even under `-Dre-frame.debug=false`** — where the dev trace surface is elided, the off-box record is the only telemetry. The six categories:
+
+- **`:rf.error/ssr-render-failed`** — a render-time `Throwable` while building the response body (slots: `:frame`, `:exception`, `:exception-message`, `:ex-class`). Projection-eligible (the wire status is stamped), so promotion does not double-stamp.
+- **`:rf.error/ssr-streaming-writer-failed`** — a streaming-SSR writer thread threw on a post-commit chunk (slots: `:frame`, `:exception`, `:ex-class`, `:phase`, `:boundary-id` on continuation phases, `:committed? true`). Non-projecting (the 200 already committed).
+- **`:rf.error/malformed-hydration-payload`** — a bad hydration payload (the hydrate-handler path AND the pre-frame **frameless** parse sub-path, the latter carrying `:frame nil`).
+- **`:rf.error/ssr-head-resolution-failed`** — the active route's `:head` fn threw; the host degrades to an empty head fragment (slots: `:frame`, `:exception`). Recoverable-degradation, non-projecting (still 200).
+- **`:rf.error/sanitised-on-projection`** — the error projector itself threw / returned a non-`:rf/public-error` shape; the runtime fell back to the locked generic-500 (slots: `:projector-id`, `:original-operation`, `:projection-failure-reason`). Non-projecting + re-entry-guarded (one-shot, never re-projects).
+- **`:rf.error/ssr-ring-error-view-failed`** — a caller-supplied `:error-view` threw; the host falls back to its locked default error template (slots: `:frame`, `:exception`, `:ex-class`). Non-projecting.
+
+**These are NON-EVENT records — none carries `:event` / `:event-id`, and some (the frameless hydration-parse path) carry `:frame nil`.** A listener that assumes the per-event shape NPEs; branch on `(:error record)` and read each category's own slots. The recoverable-degradation members (`:rf.error/ssr-head-resolution-failed`, `:rf.error/ssr-ring-error-view-failed`) and the post-commit members (`:rf.error/ssr-streaming-writer-failed`, `:rf.error/sanitised-on-projection`) are **non-projecting** — promotion changes what off-box shippers see, never the wire outcome. (Keep these distinct from the `:rf.ssr/*` *compatibility* diagnostics — version/digest/hydration mismatch — which stay trace-channel and do NOT ride this axis. See [`ssr-authoring.md`](ssr-authoring.md).)
+
 ## Triple-gate registration pattern
 
 The substrate is always-on; **registration sites** should belt-and-braces gate on explicit config + `goog.DEBUG=false` + a credential probe, so an accidental dev-bundle deploy with prod config doesn't quietly ship records to your back-end.
@@ -162,7 +175,16 @@ Three independent conditions: **config env tag** (the app knows it's production)
 
 The two always-on listener APIs carve a minimal substrate that **survives** that elision: a tiny record shape, a `defonce` registry that hot reload won't blow away, fan-out gated on registry size (empty-map check short-circuits). Re-enable the full trace bus in production by flipping `:closure-defines {goog.DEBUG true}` if and only if the bundle cost is acceptable.
 
-Full rationale: [`docs/guide/16-observability.md`](../../../../docs/guide/16-observability.md) and [`spec/009-Instrumentation.md §What IS available in production`](../../../../spec/009-Instrumentation.md).
+### The JVM production gate (`re-frame.debug` / `RE_FRAME_DEBUG`)
+
+`goog.DEBUG=false` is the **CLJS** posture gate (Closure DCE). On the **JVM** — SSR hosts, headless tooling, test runners — there is no Closure DCE, so the diagnostic trace surface is gated at runtime by a separate switch, set BEFORE `re-frame.interop` loads:
+
+- **`-Dre-frame.debug=false`** — the Java system property on the JVM command line, or
+- **`RE_FRAME_DEBUG`** — the process environment variable.
+
+**The JVM default is ON** ("production-elided" means *elidable*, not *elided by default*). A production JVM SSR / tooling process that does not set `-Dre-frame.debug=false` runs the **full dev diagnostic surface** — retaining user input in per-frame trace rings and epoch history. EP-0008 calls this out: a JVM artefact shipped for production **MUST set `-Dre-frame.debug=false` explicitly** in its deployment (the audit-finding posture — an SSR/headless process should not retain user input by default). These are build-time / process-start gates that select the posture; apps do not toggle them per-request. Critically, the gate suppresses the **diagnostic trace** surface only — the **always-on error-emit axis (surface #4) survives it**, so `register-error-listener!` shippers (including the promoted SSR records above) keep delivering under `-Dre-frame.debug=false`. That is the whole point of the always-on split: event/error observability survives the production posture; the dev trace surface does not.
+
+Full rationale: [`docs/guide/16-observability.md`](../../../../docs/guide/16-observability.md), [`spec/009-Instrumentation.md §What IS available in production`](../../../../spec/009-Instrumentation.md#what-is-available-in-production), and [`spec/009-Instrumentation.md §JVM builds`](../../../../spec/009-Instrumentation.md#jvm-builds).
 
 ## Generic shipper recipe (Datadog / Sentry / Honeycomb)
 
