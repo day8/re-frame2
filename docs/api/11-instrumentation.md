@@ -268,7 +268,9 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
 
 Composition rule: when both predicates match (sensitive AND large for the same path), **sensitive drop wins** — the size marker is suppressed because it would leak `:path` / `:bytes` / `:digest` from a sensitive slot.
 
-See [08 — Schemas](08-schemas.md) for the registration side (`add-marks`, `set-marks`, `reg-app-schema` with `:sensitive?` / `:large?` flags).
+`elide-wire-value` is the low-level *value* walker. The public, record-level boundary primitive is **`project-egress`**: real egress surfaces (handled-event records, error records, epoch records, MCP snapshots, HTTP diagnostics) emit *records*, and `project-egress` projects a whole record under the owning frame's classification and a named `:rf.egress/*` profile — delegating to `elide-wire-value` for each tree-shaped slot. Sinks and tools call `project-egress`; they rarely call the walker directly. See [Guide ch.23 — Privacy and large things](../guide/23-privacy-and-large-things.md) for the full projection model and the closed `:rf.egress/*` profile enum.
+
+See [08 — Schemas §Data classification](08-schemas.md#data-classification) for the declaration side — durable `app-db` classification is frame-owned (`reg-frame` `:sensitive` / `:large`), and per-slot `:sensitive?` / `:large?` schema props own machine `:data` / resource / HTTP-body classification.
 
 ## Privacy predicate
 
@@ -280,15 +282,6 @@ See [08 — Schemas](08-schemas.md) for the registration side (`add-marks`, `set
   (sensitive? trace-event) → boolean
   ```
 - **Description**: True iff `trace-event` is a map carrying `:sensitive? true` at the top level (not under `:tags`). The framework-published predicate every consumer composes against — replaces per-consumer reimplementations of the same five-token check.
-
-### `redact-interceptor`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (redact-interceptor paths) → interceptor
-  ```
-- **Description**: Positional interceptor that overwrites the named keys in the event vector's payload map with the `:rf/redacted` sentinel before the handler chain runs. The handler body itself sees the UNREDACTED payload via the regular `:event` coeffect slot; the redaction is for the trace surface only.
 
 ## DOM source-coord annotations
 

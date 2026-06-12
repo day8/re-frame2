@@ -34,6 +34,10 @@ If a row says "(proposed earlier)," that means the surface was named in an early
 | `enrich` interceptor | Flows (derived state) / `:schema` (validation) / custom `->interceptor` (escape hatch) | MIGRATION M-21 |
 | `after` interceptor | Registered fx (`:fx [[:my-fx ...]]`) for side-effects; custom `->interceptor` for context-shaped work; vendor from v1 if the helper is wanted as a local utility | MIGRATION M-21 |
 | `with-overrides` (v1 macro name) | Renamed to `with-fx-overrides`. | MIGRATION M-50 |
+| `add-marks` / `set-marks` (imperative `app-db` path-marks) | Declare durable `app-db` classification on the **frame**: `reg-frame` `:sensitive` / `:large` `{:app-db [...]}` path maps. The underlying `re-frame.marks/*` fns remain internal/test helpers only. | EP-0015 / 015 |
+| `redact-interceptor` (positional payload-scrub interceptor) | Classify transient payloads on the **registration**: `reg-event-*` `:sensitive` / `:large` metadata. Projection happens centrally at egress, not via interceptor placement. | EP-0015 §7 / 015 |
+| Schema-attached `:sensitive?` / `:large?` as the **`app-db`** classification route | `app-db` classification is frame-owned (above). Per-slot `:sensitive?` / `:large?` Malli props remain the route for *owner-local schema'd* data — machine `:data`, resource data/params, HTTP `:decode` bodies. | EP-0015 §8 / 015 |
+| `:rf.privacy/show-sensitive?` / `set-show-sensitive!` (process-global on/off privacy toggle) | There is no process-global toggle. On-box visibility is a named `:rf.egress/*` profile **per (tool, frame)** — `:rf.egress/local-redacted` (default, fail-closed) / `:rf.egress/local-raw` (trusted-local opt-in). | EP-0015 issue 7 / 015 |
 
 ## Why these went
 
@@ -44,6 +48,7 @@ A few one-line rationales for the larger cuts:
 - **`reg-sub-raw`** — the v1 escape hatch covered four distinct use cases (app-db reads, async sources, lifecycle, external reactivity). Each now has its own surface — `reg-sub`, Pattern-AsyncEffect, state machines, the adapter contract — and the escape hatch isn't necessary.
 - **`re-frame.alpha`** — the alpha namespace was an experiment to unify registration / dispatch under generic `reg` / `sub` / `dis` verbs. The unification didn't pay for itself — the per-kind macros read better at the call site and survive better in the linter — and the alpha namespace is dissolved. No APIs in this reference live outside `re-frame.core` (with the documented per-namespace exceptions).
 - **The five v1 interceptors** (`debug`, `trim-v`, `on-changes`, `enrich`, `after`) — each was either trivially `->interceptor`-able (so didn't earn its own surface), or replaced by a richer mechanism (flows, schemas, the trace surface).
+- **The pre-EP-0015 privacy surfaces** (`add-marks` / `set-marks` / `redact-interceptor` / schema-attached `app-db` marks / the process-global `:rf.privacy/show-sensitive?` toggle) — five overlapping ways to express one fact. [EP-0015](../../docs/EP/EP-0015-frame-owned-egress-policy.md) collapsed them to one model: classification is declarative and local to the **owner** (frame config for durable `app-db`; per-slot schema props for owner-local schema'd data; registration metadata for transient payloads), projection is centralized at trust boundaries (`project-egress` + the closed `:rf.egress/*` profile enum), and sinks consume already-projected records. The full teaching is [Guide ch.23](../guide/23-privacy-and-large-things.md).
 
 ## See also
 

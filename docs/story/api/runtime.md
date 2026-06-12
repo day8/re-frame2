@@ -361,7 +361,7 @@ The boot-time entry point for project-wide defaults. The host calls it once befo
   ```clojure
   (configure! opts) → nil
   ```
-- **Description**: Set Story's global config. Every key lives under `:rf.story/*` (Story-specific) or `:rf.privacy/*` (cross-tool). Unknown keys are silently ignored for forward-compat.
+- **Description**: Set Story's global config. Every key lives under the `:rf.story/*` reserved sub-namespace. The known-keys set is **closed and small** — an unknown key (a typo like `:rf.story/edtior`) fails loudly at boot with `:rf.error/unknown-story-config-key` rather than silently no-opping.
 
 The full v1 key surface:
 
@@ -382,14 +382,14 @@ The full v1 key surface:
    ;; On-disk root — prepended to classpath-relative source-coord :file slots
    :rf.story/project-root "C:/Users/me/code/my-app"
 
-   ;; Cross-tool privacy gate — read by Story AND Xray
-   :rf.privacy/show-sensitive? false})
+   ;; On-box dev-UI egress profile — the per-(tool, frame) privacy boundary
+   :rf.story/egress-profile :rf.egress/local-redacted})
 ```
 
 Two key behaviours are worth pinning:
 
 - **`:rf.story/project-root` bridges into Xray**. When set, Story propagates the value into Xray's own `:rf.xray/project-root` slot via `re-frame.story.xray-preset/propagate-project-root!` so the Xray-as-RHS source-coord chips share the same on-disk root. The bridge is one-way; hosts that want Xray pointed at a different root call `xray-config/configure!` directly AFTER `story/configure!`.
-- **`:rf.privacy/show-sensitive?` is cross-tool**. The slot is shared with Xray under the `:rf.privacy/*` reservation. Setting it from either Story's or Xray's `configure!` flips both tools' diagnostic surfaces.
+- **`:rf.story/egress-profile` is Story's on-box visibility boundary**. Per [EP-0015](../../../docs/EP/EP-0015-frame-owned-egress-policy.md), on-box visibility is a **named boundary profile per (tool, frame)** — there is no process-global on/off privacy toggle. The value is one of the six closed `:rf.egress/*` profiles; in practice the two on-box members: `:rf.egress/local-redacted` (the default — suppress sensitive display, fail-closed) or `:rf.egress/local-raw` (the trusted-local opt-in — show path-marked-sensitive values verbatim on your own machine). Every value-bearing Story surface (the recorder, the per-variant trace-buffer listener, the play-assertion listeners) projects through the centralized `re-frame.core/project-egress` walker under this profile. Lifting to `:rf.egress/local-raw` is an operator act and is itself trace-visible (auditable); narrowing back to the redacting default retroactively scrubs the per-variant buffers. An unknown profile raises `:rf.error/unknown-egress-profile`; `nil` resets to the redacting default.
 
 ## Substrate registration (CLJS-only)
 

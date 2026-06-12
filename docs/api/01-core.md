@@ -139,7 +139,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-frame id metadata)
   ```
-- **Description**: Atomic create-and-register. A frame is the scoping unit — one `app-db`, one event queue, one cascade — and `reg-frame` minted it with metadata you can later read via `frame-meta`.
+- **Description**: Atomic create-and-register. A frame is the scoping unit — one `app-db`, one event queue, one cascade — and `reg-frame` minted it with metadata you can later read via `frame-meta`. The frame is also where **durable `app-db` data classification** lives (EP-0015): `:sensitive` / `:large` `:app-db` path maps, frame-local HTTP carrier names, and `:observability` sink policy are declared here and projected at every wire boundary. See [08 — Schemas §Data classification](08-schemas.md#data-classification) and [Guide ch.23 — Privacy and large things](../guide/23-privacy-and-large-things.md).
 - **Example**:
   ```clojure
   ;; User-defined fxs sit under a user-feature prefix per
@@ -147,6 +147,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ;; which is reserved for framework-owned surfaces.
   (rf/reg-frame :app/main
     {:doc          "App demo frame."
+     :sensitive    {:app-db [[:auth :token]]}
      :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}})
   ```
 - **In the wild**: [boot](https://github.com/day8/re-frame2/tree/main/examples/reagent/boot)
@@ -254,24 +255,6 @@ This is the surface every re-frame2 app touches. You're answering "what events c
      [:profile]  ProfileState})
   ```
 - **In the wild**: [realworld](https://github.com/day8/re-frame2/tree/main/examples/reagent/realworld)
-
-### `add-marks`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (add-marks frame-id {path mark, ...})
-  ```
-- **Description**: Frame-scoped path-marks for data classification — `:sensitive` paths render as `:rf/redacted` at egress; `:large` paths surface as `:rf/large` summaries. **Additively merges** with existing marks. See [08 — Schemas](08-schemas.md#data-classification).
-
-### `set-marks`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (set-marks frame-id {path mark, ...})
-  ```
-- **Description**: Frame-scoped path-marks. **Wholesale replaces** the frame's prior mark-set (paths not mentioned are cleared). Schema-attached marks are preserved either way.
 
 ### `reg-flow`
 

@@ -42,7 +42,7 @@ The canonical facade. Every user-callable surface lives here.
 
 | Symbol | Signature | Intuition |
 | --- | --- | --- |
-| `configure!` | `(configure! opts)` → nil | Top-level config. Map keyed by `:rf.story/*` and `:rf.privacy/*`. |
+| `configure!` | `(configure! opts)` → nil | Top-level config. Map keyed under the closed `:rf.story/*` set (incl. `:rf.story/egress-profile`, the on-box dev-UI egress boundary). |
 | `reg-global-decorator` | `(reg-global-decorator id body)` / `(reg-global-decorator id body ref-args)` | Register a decorator AND opt it into the global stack in one call. |
 | `unreg-global-decorator!` | `(unreg-global-decorator! id)` | Remove `id` from the global-decorators vector. |
 | `global-decorators` | `(global-decorators)` → vec | Current ordered vector of global-decorator references. |
