@@ -151,6 +151,11 @@
   "The schemas-surface capabilities plus the `:core/*` cross-cuts that
   every schema fixture declares. The four `:schemas/*` tags map 1:1 to
   the four validation points in Spec 010 §Validation order."
+  ;; :schemas/cofx — UNCLAIMED in EP-0017 slice A.3 (rf2-oa2dun): cofx
+  ;; `:schema` validation is slice-B-built (the old inject-cofx-time
+  ;; validation path is retired with `inject-cofx`). The
+  ;; `schema-cofx-validates.edn` fixture is non-runnable (out of claim) until
+  ;; slice B wires recordable-value `:schema` validation.
   #{:core/event-handler
     :core/sub
     :core/fx
@@ -158,7 +163,6 @@
     :core/trace
     :schemas/runtime
     :schemas/event-payload
-    :schemas/cofx
     :schemas/sub-return})
 
 (def claimed-spec-versions
