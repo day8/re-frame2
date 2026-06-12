@@ -126,7 +126,7 @@ A subscription resolves scope from, in order:
 
 A sub that **cannot** resolve a scope raises a structured `:rf.error/resource-sub-unresolved-scope` carrying the resource id and the unresolvable policy — **never** a silent global read and **never** a silent `:idle`. The fix the error points at is explicit: pass `:scope` on the subscription payload (the same scope the owning route/event ensured under), or re-declare the resource with a sub-resolvable policy.
 
-The practical rule: **if a route or event ensures under a session scope, the view must subscribe under that same session scope.** The cleanest way to do that is a subscription that derives the session scope from `app-db`:
+The practical rule: **if a route or event ensures under a session scope, the view must subscribe under that same session scope.** One way to do that is a hand-written subscription that derives the session scope from `app-db` and threads it onto the payload:
 
 ```clojure
 (rf/reg-sub :session/resource-scope
@@ -138,6 +138,8 @@ The practical rule: **if a route or event ensures under a session scope, the vie
                             {:resource :dashboard/summary :scope scope :params {}}])]
   ...)
 ```
+
+But once the viewer derivation is named with a **scope resolver** (next section), you don't thread it by hand — you reference it by id as `{:from-db <resolver-id>}` directly on the subscription payload, and the runtime resolves and re-keys it for you. That named-resolver form is the idiom to reach for; the hand-written scope sub above is only the fallback for a one-off scope that isn't worth naming.
 
 ### Named scope resolvers — derive viewer scope once
 
@@ -175,6 +177,30 @@ You reference a named resolver with `{:from-db :realworld/session}` anywhere a d
 The session feed can now be a declarative route resource — loaded on entry, released on leave, read by subs, and invalidated by descriptors — all keyed by the *same* resolver. Nil from a resolver at a scope-requiring site is **fail-closed**: route planning never substitutes global, and a subscription surfaces a "scope unresolved" diagnostic rather than quietly reading a different entry.
 
 Xray surfaces both halves: a **Named scope resolvers** section lists each resolver's id + declared inputs + the whole-db cost flag (the static declaration, no PII), and a **scope resolution timeline** shows each `:rf.resource/scope-resolved` event — which resolver ran, the resolved scope (summarized), and the fail-closed nil evidence.
+
+### `{:from-db …}` subscriptions re-key when the viewer changes
+
+A view reads a session-scoped resource by naming the resolver right on the subscription payload — no hand-threaded scope:
+
+```clojure
+(rf/reg-view feed-page []
+  (let [state @(rf/subscribe [:rf.resource/state
+                              {:resource :realworld/feed
+                               :scope    {:from-db :realworld/session}   ;; the named resolver
+                               :params   {:page 1}}])]
+    (cond
+      (:loading? state)                              [feed-skeleton]
+      (and (:error state) (not (:has-data? state)))  [feed-error (:error state)]
+      :else                                          [feed-list (:data state)])))
+```
+
+The load-bearing property is **reactive re-keying**: this subscription observes the whole frame-state — both the `app-db` partition the resolver reads its `:inputs` from *and* the runtime-db partition the cache lives in. When the viewer identity changes mid-session — login, logout, account switch, impersonation enter/exit — the resolver yields a **different** scoped key, and the *same* subscription re-points to that new key's entry on the next reactive pass. The view never re-subscribes; it just tracks the new principal. ([Spec 016 §A `{:from-db …}` subscription re-keys](../../spec/016-Resources.md#a-from-db--subscription-re-keys-when-the-resolvers-inputs-change), pinned by `sub-re-keys-on-mid-session-account-switch` in `implementation/resources/test/re_frame/resources_from_db_scope_cljs_test.cljc`.)
+
+Three caveats keep the leak boundary intact across the re-key:
+
+- **The transition state is the *new* key's state, never the old principal's.** During the switch the subscription reads the new scoped key — typically `:idle` (no entry yet) or `:loading` (something is ensuring it under the new scope) — and **never** the previous viewer's `:data`. The fail-closed leak boundary holds across the re-key, not only at first resolution.
+- **The subscription is passive — it does not fetch or attach an owner.** Re-pointing the *read* moves no owner lease. Loading the new principal's entry is the job of whatever **causes** it: a route entry attaching `[:route …]` under the resolved new scope (the [route resource](#named-scope-resolvers--derive-viewer-scope-once) above), an event-side ensure, or — at logout — `clear-scope` (next). A bare re-keying sub with no cause behind it sits at `:idle` until something ensures the new key.
+- **A nil resolution is the loud fail-closed condition, not the old entry.** If the new key resolves nil (the resolver's inputs are absent — e.g. logged-out), the subscription raises `:rf.error/resource-sub-unresolved-scope` — the same diagnostic an initially-unresolvable `{:from-db …}` sub raises — never a silent fall-through to the old entry or to global.
 
 ### `clear-scope` is causal
 
@@ -561,6 +587,15 @@ You *can* write with an ordinary `:rf.http/managed` event whose success handler 
 
 > **When managed HTTP is still the right tool: user-visible optimistic *rollback*.** `:patches` / `:populates` are **forward-only** seeds — they make a change appear immediately and let the success-time invalidation reconcile, but there is **no automatic revert on failure** (the snapshot/rollback shape is deferred — see [What's deferred](#whats-deferred)). So when you need a write that flips the UI optimistically *and* rolls the change back if the server rejects it — the favourite toggle that un-flips on a 500, a like-count that decrements again, a positional list re-insert that undoes itself — reach for a plain `:rf.http/managed` write where your own `:on-failure` handler restores the prior `app-db` value. A mutation cannot express that today. The favourite / follow / comment-delete shapes in [`examples/reagent/realworld/`](../../examples/reagent/realworld/) (the managed-HTTP sibling of the resources RealWorld variant) are worked examples of exactly this optimistic-then-rollback pattern; the resources variant ([`examples/reagent/realworld_resources/`](../../examples/reagent/realworld_resources/)) uses forward-only `:populates` for the same toggles and accepts the brief refetch round-trip instead.
 
+### Mutation scope is hybrid — fail-open default, fail-closed invalidation
+
+Before the descriptor form, one rule about *which* scope a mutation's cache consequences land in. A resource's single scope is uniformly **fail-closed** (no policy is a registration error; an unresolvable scope is a loud read error). A **mutation is different**: it carries two scopes with opposite defaults, because a causal write and a cached read have different safety boundaries.
+
+- **`:scope` is optional and fail-*open* on absence.** A mutation is a causal write, not a cached read, so it has no leak boundary of its own — defaulting to global leaks nothing. The mutation's resolved scope (what its patch / populate / invalidate target) is computed in precedence order: **execute-payload `:scope` → mutation-spec `:scope` → `:rf.scope/global`.** Omit `:scope` everywhere and the mutation operates in global scope. (Fail-open is on *absence* only — a misspelled `:rf.scope/*` keyword or an opaque host scope value is still rejected loudly. [Spec 016 §Mutation scope is two distinct scopes](../../spec/016-Resources.md#mutation-scope-is-two-distinct-scopes-hybrid); `resolve-scope` in `implementation/resources/src/re_frame/resources/mutation_registry.cljc`.)
+- **The invalidation itself is fail-*closed*.** The resolved execution scope is supplied *as* the scope the success-time `:rf.resource/invalidate-tags` runs in, and that invalidation requires a concrete scope — `:cross-scope? true` is the only scope-agnostic opt-out, and it's audited.
+
+> **The footgun this creates.** `:invalidates` matches only entries **in the resolved scope**. So a mutation that defaults to `:rf.scope/global` while the resource it means to refresh lives under `:rf.scope/session` **silently misses** — no entry matches, the cached read is never refreshed, and *no error is raised* (it's a legitimate "no match in this scope"). When a write affects session- or tenant-scoped reads, either set the execute-payload `:scope` to match, or — better, when the write spans both a global fact and a scoped one — reach for the **per-target descriptors** below, which let one write invalidate across more than one named scope without a blanket cross-scope sweep.
+
 ### Per-target scoped invalidation
 
 The bare tag-set shorthand invalidates those tags **in the mutation's resolved scope**:
@@ -600,7 +635,7 @@ It must never be the default reading of a bare tag.
 
 ### Map-form exact targets
 
-`:populates`, `:patches`, and removes address an **exact** cache entry. The canonical source shape is the **target map**:
+`:populates`, `:patches`, and `:removes` address an **exact** cache entry. The canonical source shape is the **target map**:
 
 ```clojure
 {:resource :realworld/article
@@ -608,7 +643,36 @@ It must never be the default reading of a bare tag.
  :scope    :rf.scope/global}
 ```
 
-`:scope` may be concrete, `:rf.scope/same`, `:rf.scope/global`, or a named resolver reference. Populate creates-or-replaces exactly one key; patch updates an existing exact key only (patch does not target tags). The internal storage representation is a scoped-key tuple, but the **map form is the only public input form** — spec, guide, traces, and examples use it.
+`:scope` may be concrete (`[:rf.scope/session {:username "jake"}]`), `:rf.scope/global`, a named resolver reference (`{:from-db :realworld/session}`), or **omitted** — an omitted `:scope` defaults to **`:rf.scope/same`**, the mutation's resolved scope. There is no tuple/positional target form and no `{:target … :value …}` wrapper: the target map names the entry, and the *value* (or patch fn) is what the callback associates **to** that target. The internal storage representation is a scoped-key tuple, but the **map form is the only public input form** — spec, guide, traces, and examples use it.
+
+Each callback returns a different shape, keyed by these target maps. Copyable final shapes:
+
+```clojure
+;; :populates → {target value} — create-or-replace exactly one key with an
+;; authoritative value (the resource's full stored shape; see the next section).
+:populates
+(fn [{:keys [slug]} result]
+  {{:resource :realworld/article :params {:slug slug}}   ;; :scope omitted → :rf.scope/same
+   (:article result)})
+
+;; :patches → {target patch-fn} — update an EXISTING exact key only; the
+;; patch-fn receives the current entry value and returns the next one. Patch
+;; never targets tags and never creates a missing entry.
+:patches
+(fn [{:keys [slug]} result]
+  {{:resource :realworld/article :params {:slug slug} :scope :rf.scope/global}
+   (fn [article] (assoc article :favorited (:favorited result)))})
+
+;; :removes → [target …] — a VECTOR of target maps; each names an exact key
+;; to drop from the cache (a delete write; the in-flight attempt is best-effort
+;; aborted). Note this is a sequence of targets, not a {target …} map.
+:removes
+(fn [{:keys [slug]} _result]
+  [{:resource :realworld/article :params {:slug slug}}
+   {:resource :realworld/comments :params {:slug slug} :scope :rf.scope/global}])
+```
+
+Populate creates-or-replaces exactly one key; patch updates an existing exact key only; removes drops exact keys. All three run **before** the success-time tag invalidation. (`:populates` / `:patches` keys are the target maps; `:removes` is a vector of them. [Spec 016 §The write lowers through the same managed-HTTP transport](../../spec/016-Resources.md); the registry docstrings in `implementation/resources/src/re_frame/resources/mutation_registry.cljc` pin the three return shapes, and `implementation/resources/test/re_frame/resources_populate_exact_target_cljs_test.cljc` covers the final forms.)
 
 ### Populate is an authoritative load
 
@@ -630,11 +694,25 @@ The key may still be invalidated/refetched later by other events, focus/reconnec
 Resources and mutations lower through Spec 014 managed HTTP. A resource's `:request` fn describes the **domain** request — method, URL, params, body, decode. Cross-cutting transport concerns — auth headers, tracing headers, common base URLs, tenant headers, default read-retry policy — are **frame/application managed-HTTP policy**, not something to copy into every resource. The seam is the managed-HTTP interceptor/defaults layer ([chapter 10](10-http.md)):
 
 ```clojure
+;; At app boot, with the target frame explicit. `reg-http-interceptor` is
+;; CONTEXT-REQUIRED FRAME-LOCAL: it installs against the carried frame scope,
+;; and a boot-time call has no carried frame — so name :frame explicitly (or
+;; wrap the call in `with-frame`), or it raises :rf.error/no-frame-context
+;; rather than installing against a synthesised default chain.
 (rf/reg-http-interceptor :realworld/auth
-  {:before (fn [ctx]
+  {:frame  app-frame                              ;; explicit target — required at boot
+   :before (fn [ctx]
              (let [token (some-> (rf/app-db-value (:frame ctx)) :auth :token)]
                (cond-> ctx
                  token (assoc-in [:request :headers "Authorization"] (str "Token " token)))))})
+
+;; Equivalently, install it inside the frame's scope (no :frame key needed):
+(rf/with-frame app-frame
+  (rf/reg-http-interceptor :realworld/auth
+    {:before (fn [ctx]
+               (let [token (some-> (rf/app-db-value (:frame ctx)) :auth :token)]
+                 (cond-> ctx
+                   token (assoc-in [:request :headers "Authorization"] (str "Token " token)))))}))
 
 (rf/reg-resource :realworld/current-user
   {:params-schema [:map]
@@ -642,7 +720,7 @@ Resources and mutations lower through Spec 014 managed HTTP. A resource's `:requ
    :request       (fn [_params _ctx] {:request {:method :get :url "/user"} :decode :json})})
 ```
 
-Registered once per frame, the interceptor decorates *every* managed request the frame issues — resource reads, mutations, and plain managed calls alike — so `:realworld/current-user` needs no per-resource opt-in. It reads the token from `(:frame ctx)` (carried-frame-correct, not an ambient db) and returns `ctx` unchanged when there's no token. Two riders: default retry policy should be **read-focused** (retrying writes can duplicate side effects, so mutation retry defaults stay conservative), and traces should report *that* an auth interceptor applied, never the bearer token value.
+Registered once per frame — naming `:frame` explicitly (the override) or under a carried `with-frame` scope — the interceptor decorates *every* managed request that frame issues: resource reads, mutations, and plain managed calls alike, so `:realworld/current-user` needs no per-resource opt-in. (At boot there is no carried frame, so an interceptor with neither `:frame` nor a `with-frame` scope raises `:rf.error/no-frame-context` rather than installing against a synthesised default — `implementation/http/src/re_frame/http_middleware.cljc` enforces this.) The `:before` reads the token from `(:frame ctx)` (carried-frame-correct, not an ambient db) and returns `ctx` unchanged when there's no token. Two riders: default retry policy should be **read-focused** (retrying writes can duplicate side effects, so mutation retry defaults stay conservative), and traces should report *that* an auth interceptor applied, never the bearer token value.
 
 ## Route-driven loading
 
