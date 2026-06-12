@@ -30,7 +30,14 @@
 ;; ============================================================================
 
 (rf/reg-route :realworld/home
-  {:doc      "The landing page: global feed, your feed, and optional tag filter.
+  {:doc      "The landing page: global feed and (signed-in) your feed.
+
+              ROUTE-SHAPE CONFORMANCE (rf2-e90vfv). The official RealWorld
+              browser/E2E contract uses `/?feed=following` for the
+              authenticated feed (NOT `?feed=your`) and a PATH-param tag route
+              `/tag/:tag` (NOT `?tag=`). The tag filter therefore lives on its
+              own `:realworld/home-tag` route below; this home route carries
+              only `?feed=` (the following toggle) and `?page=`.
 
               `?page=N` is the 1-indexed pagination page for the active feed
               (official RealWorld limit/offset pagination). It rides the route
@@ -39,9 +46,22 @@
               fills page 1 when the key is absent."
    :path     "/"
    :query    [:map
-              [:tag  {:optional true} :string]
               [:feed {:optional true} :string]
               [:page {:optional true} :int]]
+   :query-defaults {:page 1}
+   :on-match [[:home/load]]
+   :scroll   :top})
+
+(rf/reg-route :realworld/home-tag
+  {:doc      "The tag-filtered article list at the official RealWorld
+              `/tag/:tag` PATH route (rf2-e90vfv — replacing the prior
+              `?tag=` query). `?page=N` paginates within the tag the same way
+              the home feed does (`/tag/:tag?page=2`); `:query-defaults` fills
+              page 1. Same `:home/load` on-match — it reads the active tag off
+              the route params now rather than the query."
+   :path     "/tag/:tag"
+   :params   [:map [:tag :string]]
+   :query    [:map [:page {:optional true} :int]]
    :query-defaults {:page 1}
    :on-match [[:home/load]]
    :scroll   :top})

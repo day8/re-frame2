@@ -12,8 +12,10 @@
      (keeping their `:status` field) so the items live in app-db and
      favorites.cljs's optimistic-update paths can scan across slices. See
      the `:data` region note below.
-   - route-query driven loading (`?tag=` and `?feed=your`) — every
-     navigation broadcasts the corresponding feed-region transition.
+   - route-driven loading — the `/tag/:tag` PATH route filters the list and
+     `?feed=following` switches to the authenticated feed (official RealWorld
+     contract shapes, rf2-e90vfv); every navigation broadcasts the
+     corresponding feed-region transition.
    - home-page tabs expressed as feed-region state transitions.
    - The home view's root is a `case` over `:articles.home/render`, a
      selector sub that consults a render-priority table against the
@@ -26,6 +28,7 @@
             ;; below at ns-load) and the `:rf/machine` framework subs
             ;; resolve.
             [re-frame.machines]
+            [realworld-shared.avatar :as avatar]
             [realworld.schema :as schema]
             [realworld.http :as rh])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -168,7 +171,7 @@
               :reset          :global}}
 
       :user-feed
-      ;; `?feed=your`. Reads from the :feed slice. Authenticated only.
+      ;; `?feed=following`. Reads from the :feed slice. Authenticated only.
       {:tags #{:feed/user-feed}
        :on   {:show-global   {:target :global   :action :clear-count}
               :show-tag-feed {:target :tag-feed :action :clear-count}
@@ -232,10 +235,13 @@
   ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
   ;; `?page=` (1-indexed, durable on the route query) becomes the wire's
   ;; limit/offset window via `rh/paginate-path` (official RealWorld pagination).
+  ;; rf2-e90vfv: the active tag is now a `/tag/:tag` route PARAM (not `?tag=`).
+  ;; Read it off the route params + the page off the query. The WIRE stays
+  ;; `/articles?tag=…` — the frontend route shape changed, not the API.
   (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [query     (get-in rt [:rf.runtime/routing :current :query])
-          tag       (:tag query)
-          page      (or (:page query) 1)
+    (let [current   (get-in rt [:rf.runtime/routing :current])
+          tag       (get-in current [:params :tag])
+          page      (or (get-in current [:query :page]) 1)
           base      (if tag
                       (str "/articles?tag=" tag)
                       "/articles")
@@ -380,10 +386,11 @@
 
 (rf/reg-sub :articles.home/current-page
   {:doc "The 1-indexed current page for the home feed, read off the route
-         query (`?page=`; `:query-defaults {:page 1}` fills it when absent)."}
-  :<- [:home/query]
-  (fn sub-home-page [query _]
-    (or (:page query) 1)))
+         query (`?page=`; `:query-defaults {:page 1}` fills it when absent).
+         Composes off `:home/page` (tags.cljs)."}
+  :<- [:home/page]
+  (fn sub-home-page [page _]
+    (or page 1)))
 
 (rf/reg-sub :articles.home/page-count
   {:doc "Total number of pages for the active home feed —
@@ -403,7 +410,7 @@
      [:div.article-meta
       [rf/route-link {:to     :realworld.profile/show
                            :params {:username (:username author)}}
-       [:img {:src (:image author)}]]
+       [:img.user-pic {:src (avatar/avatar-src (:image author))}]]
       [:div.info
        [rf/route-link {:to     :realworld.profile/show
                             :params {:username (:username author)}
@@ -459,9 +466,12 @@
     [:div.article-preview.error
      (str "Couldn't load articles: " (pr-str (or err feed-err)))]))
 
-(reg-view ^{:doc "Data region :empty / :nothing — no articles to show."}
+(reg-view ^{:doc "Data region :empty / :nothing — no articles to show. Renders
+                  the official RealWorld `.article-preview.empty-feed-message`
+                  marker (rf2-e90vfv) the E2E contract asserts on for empty
+                  list states."}
           articles-empty []
-  [:div.article-preview "No articles are here… yet."])
+  [:div.article-preview.empty-feed-message "No articles are here… yet."])
 
 (reg-view ^{:doc "Data region :some — articles to show. Inline refresh
                   indicator overlays when the :data/refreshing tag is

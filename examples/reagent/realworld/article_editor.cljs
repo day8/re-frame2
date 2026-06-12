@@ -478,6 +478,7 @@
           [:fieldset.form-group
            [:input.form-control.form-control-lg
             {:type        "text"
+             :name        "title"
              :placeholder "Article Title"
              :value       (:title draft)
              :disabled    busy?
@@ -488,6 +489,7 @@
           [:fieldset.form-group
            [:input.form-control
             {:type        "text"
+             :name        "description"
              :placeholder "What's this article about?"
              :value       (:description draft)
              :disabled    busy?
@@ -498,6 +500,7 @@
           [:fieldset.form-group
            [:textarea.form-control
             {:rows        8
+             :name        "body"
              :placeholder "Write your article (in markdown)"
              :value       (:body draft)
              :disabled    busy?
@@ -508,6 +511,7 @@
           [:fieldset.form-group
            [:input.form-control
             {:type        "text"
+             :name        "tags"
              :placeholder "Enter tags"
              :value       (:tagList draft)
              :disabled    busy?

@@ -30,23 +30,36 @@
 ;; the localStorage edge a single seam: one fx to mock in tests, one fx
 ;; for the machine's `:store-session` and `:clear-session` actions to
 ;; call with different args.
+;;
+;; CONFORMANCE-CONTRACT SURFACE (rf2-e90vfv). The official RealWorld
+;; browser/E2E suite reads the session from `localStorage["jwtToken"]` — that
+;; exact key is the contract, so this seam uses it verbatim (it is NOT
+;; namespaced under `conduit/…`). SAME-ORIGIN CAVEAT: the contract assumes one
+;; RealWorld app per origin. The repo's dev orchestrator serves BOTH the
+;; managed-HTTP and the resources variant from a single origin (at
+;; `/realworld/` and `/realworld-resources/`), so the two conforming apps share
+;; — and clobber — each other's `jwtToken` there. That is a known dev-mode
+;; artifact, NOT a contract violation: conformance is validated against
+;; STANDALONE serving (one app per origin), which the external suite does
+;; anyway. See the README §RealWorld contract conformance.
 
 (rf/reg-fx :auth.session/persist
-  {:doc       "Persist (or clear) the JWT in localStorage. Arg `{:token t}`
-               writes the token when truthy; nil removes the key."
+  {:doc       "Persist (or clear) the JWT in localStorage under the official
+               contract key `jwtToken` (rf2-e90vfv). Arg `{:token t}` writes
+               the token when truthy; nil removes the key."
    :platforms #{:client}}
   (fn fx-auth-session-persist [_m {:keys [token]}]
     (when-let [ls (.-localStorage js/globalThis)]
       (if token
-        (.setItem    ls "conduit/jwt" token)
-        (.removeItem ls "conduit/jwt")))))
+        (.setItem    ls "jwtToken" token)
+        (.removeItem ls "jwtToken")))))
 
 (rf/reg-cofx :auth.session/token
   {:doc "Inject the saved token (or nil) from localStorage into coeffects."}
   (fn cofx-auth-session-token [ctx _]
     (rf/assoc-coeffect ctx :auth.session/token
                        (some-> (.-localStorage js/globalThis)
-                               (.getItem "conduit/jwt")))))
+                               (.getItem "jwtToken")))))
 
 ;; ============================================================================
 ;; SUPPORT EVENTS
@@ -370,6 +383,7 @@
       [:fieldset
        [:fieldset.form-group
         [:input {:type        "email"
+                 :name        "email"
                  :data-testid "login-email"
                  :placeholder "Email"
                  :value       (:email draft)
@@ -377,6 +391,7 @@
                  :on-change   #(dispatch [:auth.login-form/edit-field :email (.. % -target -value)])}]]
        [:fieldset.form-group
         [:input {:type        "password"
+                 :name        "password"
                  :data-testid "login-password"
                  :placeholder "Password"
                  :value       (:password draft)
@@ -403,18 +418,21 @@
       [:fieldset
        [:fieldset.form-group
         [:input {:type        "text"
+                 :name        "username"
                  :placeholder "Username"
                  :value       (:username draft)
                  :disabled    submitting?
                  :on-change   #(dispatch [:auth.register-form/edit-field :username (.. % -target -value)])}]]
        [:fieldset.form-group
         [:input {:type        "email"
+                 :name        "email"
                  :placeholder "Email"
                  :value       (:email draft)
                  :disabled    submitting?
                  :on-change   #(dispatch [:auth.register-form/edit-field :email (.. % -target -value)])}]]
        [:fieldset.form-group
         [:input {:type        "password"
+                 :name        "password"
                  :placeholder "Password"
                  :value       (:password draft)
                  :disabled    submitting?

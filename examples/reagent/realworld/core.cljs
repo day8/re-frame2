@@ -58,6 +58,7 @@
             ;; :rf.error/ssr-artefact-missing.
             [re-frame.ssr]
             [re-frame.adapter.reagent :as reagent-adapter]
+            [realworld-shared.avatar :as avatar]
             [realworld.schema]
             [realworld.http]
             [realworld.routing :as routing]
@@ -117,11 +118,15 @@
            [rf/route-link {:to :realworld.user/settings :class "nav-link"}
             [:i.ion-gear-a] " Settings"]]
           [:li.nav-item
+           ;; rf2-e90vfv: the official RealWorld navbar shows the authenticated
+           ;; user's avatar (`.user-pic`) next to their name; default-avatar
+           ;; covers a nil/empty image.
            [rf/route-link {:to :realworld.profile/show
                                 :params {:username (:username user)}
                                 :class "nav-link"
                                 :data-testid "nav-username"}
-            (:username user)]]
+            [:img.user-pic {:src (avatar/avatar-src (:image user))}]
+            " " (:username user)]]
           [:li.nav-item
            [:a.nav-link {:data-testid "nav-logout"
                          :href        "#"
@@ -173,6 +178,7 @@
    [pending-nav-dialog]
    (case @(subscribe [:rf.route/id])
      :realworld/home              [articles/home-page]
+     :realworld/home-tag          [articles/home-page]
      :realworld.auth/login             [auth/login-page]
      :realworld.auth/register          [auth/register-page]
      :realworld.article/show           [comments/article-page]
@@ -457,6 +463,30 @@
       token (assoc-in [:request :headers "Authorization"]
                       (str "Token " token)))))
 
+;; ============================================================================
+;; window.__conduit_debug__  — CONFORMANCE-CONTRACT SURFACE (rf2-e90vfv)
+;; ============================================================================
+;;
+;; The official RealWorld browser/E2E harness sometimes reads app session state
+;; through a global accessor rather than poking the framework's internals. This
+;; installs `window.__conduit_debug__` with `getToken` / `getAuthState` /
+;; `getCurrentUser`, reading the live `:rf/default` frame's app-db.
+;;
+;; THIS IS A CONFORMANCE SURFACE, NOT A re-frame2 PATTERN. An unannotated global
+;; token accessor is exactly the anti-pattern that gets copied into real apps
+;; (it bypasses the frame/sub system and leaks the raw JWT to any script on the
+;; page). Real re-frame2 code reads session state through subs under the frame
+;; provider — never a `window.*` global. It exists ONLY so the external suite
+;; can introspect this demo; a production RealWorld app would NOT ship it.
+(defn- install-conduit-debug! [frame-id]
+  (when (exists? js/window)
+    (set! (.-__conduit_debug__ js/window)
+          #js {:getToken       (fn [] (some-> (rf/app-db-value frame-id) :auth :token))
+               :getAuthState   (fn [] (name (or (some-> (rf/app-db-value frame-id)
+                                                         :auth :user (#(if % :authed :anonymous)))
+                                                 :anonymous)))
+               :getCurrentUser (fn [] (clj->js (some-> (rf/app-db-value frame-id) :auth :user)))})))
+
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
@@ -514,6 +544,9 @@
     ;; wires the popstate listener; the sync runs under the frame scope, and
     ;; the listener captures the URL owner per dispatch (see routing.cljs).
     (routing/install-router!))
+  ;; Conformance-contract surface (rf2-e90vfv) — NOT a re-frame2 pattern; see
+  ;; install-conduit-debug! above. The external RealWorld suite may read it.
+  (install-conduit-debug! :rf/default)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))

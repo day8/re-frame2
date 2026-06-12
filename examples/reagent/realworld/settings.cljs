@@ -343,6 +343,7 @@
           [:fieldset.form-group
            [:input.form-control
             {:type "text"
+             :name "image"
              :placeholder "URL of profile picture"
              :value (:image draft)
              :disabled submitting?
@@ -350,6 +351,7 @@
           [:fieldset.form-group
            [:input.form-control.form-control-lg
             {:type "text"
+             :name "username"
              :placeholder "Username"
              :value (:username draft)
              :disabled submitting?
@@ -357,6 +359,7 @@
           [:fieldset.form-group
            [:textarea.form-control.form-control-lg
             {:rows 8
+             :name "bio"
              :placeholder "Short bio about you"
              :value (:bio draft)
              :disabled submitting?
@@ -364,6 +367,7 @@
           [:fieldset.form-group
            [:input.form-control.form-control-lg
             {:type "email"
+             :name "email"
              :placeholder "Email"
              :value (:email draft)
              :disabled submitting?
@@ -371,6 +375,7 @@
           [:fieldset.form-group
            [:input.form-control.form-control-lg
             {:type "password"
+             :name "password"
              :placeholder "New Password"
              :value (:password draft)
              :disabled submitting?
