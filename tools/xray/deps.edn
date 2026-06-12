@@ -89,6 +89,45 @@
          ;; haven't registered any schemas yet.
          day8/re-frame2-schemas {:local/root "../../implementation/schemas"}
 
+         ;; Per rf2-1fc459 — `day8/re-frame2-resources` is a hard dep of
+         ;; Xray. The Derivation-Graph tab (025) is EP-0014's NAMED FIRST
+         ;; CONSUMER and its spec promises a single graph across ALL FIVE
+         ;; algebra-view families — subscriptions, flows, resources, route
+         ;; facts, and machine processes + selectors. The composer
+         ;; (`re-frame.derivation.graph`) reaches each optional family
+         ;; through the `{family contributor}` map the consuming tool
+         ;; supplies from the tooling siblings it statically `:require`s; on
+         ;; CLJS that means Xray must pull the resources artefact so it can
+         ;; `:require re-frame.resources.tooling` (the
+         ;; `resource-algebra-view` / `resource-cache-algebra-view`
+         ;; projections) and feed the `:resources` contributor. Same posture
+         ;; as the flows / routing / schemas deps above: the resources
+         ;; artefact depends only on core, and the tooling sibling's body is
+         ;; gated by `interop/debug-enabled?` + is DCE'd / bundle-isolated
+         ;; from production (Xray is dev-only via `:devtools/preloads`). The
+         ;; Resources PANEL (024) still reads the runtime-db slice decoupled;
+         ;; the Derivation-Graph tab is a SEPARATE surface that needs the
+         ;; algebra-view projection, not the raw slice.
+         day8/re-frame2-resources {:local/root "../../implementation/resources"}
+
+         ;; Per rf2-1fc459 — `day8/re-frame2-machines` is a hard dep of Xray
+         ;; for the same reason as the resources dep above: the
+         ;; Derivation-Graph tab's `:machines` contributor needs
+         ;; `re-frame.machines.tooling` (the `machine-algebra-view` /
+         ;; `machine-instance-algebra-view` projections + the
+         ;; `machine-selector-targets` extractor that draws precise
+         ;; `:selector` edges). Without this dep the named first consumer
+         ;; cannot show machine process nodes or machine-selector edges even
+         ;; when the host app registers machines. Xray ALREADY pulls
+         ;; `day8/re-frame2-machines-viz` (the MachineChart), but that
+         ;; artefact depends only on core — it carries the chart, NOT the
+         ;; machines runtime / tooling sibling. The machines artefact
+         ;; depends only on core; its tooling body is dev-gated + DCE'd /
+         ;; bundle-isolated from production. The Machine Inspector (003)
+         ;; still reads the runtime-db slice decoupled; the Derivation-Graph
+         ;; tab needs the algebra-view projection.
+         day8/re-frame2-machines {:local/root "../../implementation/machines"}
+
          ;; Per rf2-o9arp — the MachineChart implementation lives in
          ;; day8/re-frame2-machines-viz. Xray's panels require the
          ;; canonical machines-viz chart surface directly

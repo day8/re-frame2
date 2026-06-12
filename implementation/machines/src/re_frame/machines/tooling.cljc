@@ -444,6 +444,47 @@
                                          (first q))))
                  (:input-signals meta))))))
 
+(defn machine-selector-targets
+  "The SET of machine ids the subscription registered under `sub-id` reads
+  as a machine selector (Derivations §Machine process and selector; EP-0014
+  issue-4). Where `machine-selector?` answers only the boolean \"is this a
+  selector?\", this returns the actual TARGET machine ids — the second
+  element of each accepted `[:rf/machine machine-id …]` /
+  `[:rf/machine-has-tag? machine-id …]` static `:<-` input.
+
+  A graph tool needs the target, not just the boolean: a machine selector
+  draws a `:selector` edge from the SPECIFIC machine it reads, never from
+  every registered machine. The boolean `machine-selector?` could only say
+  \"this sub is a selector\", forcing the graph composer to cross-product
+  every machine node against every selector — a false-edge bug in
+  multi-machine apps (rf2-4qmiij). This fn lets the composer draw the edge
+  from exactly the `[:machine target-id]` node(s) the selector names.
+
+  Only the STATIC `:<-` form is mined: the machine-id MUST be a literal
+  keyword in the static input vector. A `[:rf/machine-has-tag? machine-id
+  tag]` selector still names ONE machine id (the second element). A
+  parametric input-fn sub's realized edges are not statically enumerable
+  (the don't-execute rule), so a parametric selector yields `#{}` here and
+  is recognized only in the live sub-cache view. An input vector whose
+  machine-id is not a keyword (e.g. a param-threaded form) contributes no
+  target — skipped, never executed.
+
+  Returns `#{}` for a non-machine sub, an unregistered id, a parametric
+  input-fn sub, or a selector whose machine-id is non-literal. JVM-runnable
+  — pure data over the registrar."
+  [sub-id]
+  (let [meta (registrar/lookup :sub sub-id)]
+    (if-not (and meta (= :static (:input-kind meta)))
+      #{}
+      (into #{}
+            (keep (fn [q]
+                    (when (and (vector? q)
+                               (contains? #{:rf/machine :rf/machine-has-tag?}
+                                          (first q))
+                               (keyword? (second q)))
+                      (second q))))
+            (:input-signals meta)))))
+
 ;; ---- bundle-isolation sentinel ------------------------------------------
 ;;
 ;; Per rf2-s8w3nw / rf2-bmzq0 / rf2-qwm0a (the flows / subs / trace tooling

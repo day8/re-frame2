@@ -151,16 +151,19 @@
    {:subs subs-contributor}
    #?(:clj
       (into {}
-            (keep (fn [[family static-sym live-sym live-shape selector-sym]]
+            (keep (fn [[family static-sym live-sym live-shape selector-targets-sym]]
                     (when-let [c (resolve-sibling static-sym live-sym live-shape)]
                       ;; the machines family additionally carries the
-                      ;; optional `machine-selector?` recognizer so the
-                      ;; graph can draw `:selector` edges (Derivations
-                      ;; §Machines: selectors are ordinary derivations the
-                      ;; machine draws a :selector edge to).
+                      ;; optional `machine-selector-targets` extractor so the
+                      ;; graph can draw `:selector` edges to the SPECIFIC
+                      ;; machine each selector reads, never the cross product
+                      ;; (Derivations §Machines: selectors are ordinary
+                      ;; derivations the machine draws a :selector edge to;
+                      ;; rf2-4qmiij — precise targeting, no false edges).
                       [family (cond-> c
-                                selector-sym
-                                (assoc :selector? (some-> (requiring-resolve selector-sym) deref)))])))
+                                selector-targets-sym
+                                (assoc :selector-targets
+                                       (some-> (requiring-resolve selector-targets-sym) deref)))])))
             ;; flows reuse the ONE `flow-algebra-view` for both slots
             ;; (static = zero-arity all-frames, live = one-arity per-frame —
             ;; a flow has no separate ephemeral cache to snapshot; see the
@@ -173,7 +176,7 @@
                          're-frame.routing.tooling/route-slice-algebra-view :node]
              [:machines  're-frame.machines.tooling/machine-algebra-view
                          're-frame.machines.tooling/machine-instance-algebra-view :map
-                         're-frame.machines.tooling/machine-selector?]])
+                         're-frame.machines.tooling/machine-selector-targets]])
       :cljs nil)))
 
 ;; ---------------------------------------------------------------------------
@@ -307,11 +310,15 @@
 ;;   - `:param`    — a route node's `:resource-edges` (route-owned resource
 ;;                   activation — Derivations §Route-owned resource
 ;;                   activation edges) ride through verbatim.
-;;   - `:selector` — a machine `:process` node → each of its machine
-;;                   SELECTOR subscription nodes (the recognizer label —
-;;                   Derivations §Machines: selectors are ordinary
+;;   - `:selector` — a machine `:process` node → each of the machine
+;;                   SELECTOR subscription nodes that read THAT machine
+;;                   (Derivations §Machines: selectors are ordinary
 ;;                   derivations; the machine draws the `:selector` edge to
-;;                   them). Computed by `machine-selector-edges`.
+;;                   them). The selector's TARGET machine ids are mined from
+;;                   its static `[:rf/machine …]` inputs (not the boolean
+;;                   recognizer), so the edge runs from the specific machine
+;;                   each selector reads — never the cross product
+;;                   (rf2-4qmiij). Computed by `machine-selector-edges`.
 ;;
 ;; A `:parametric` `:inputs` marker contributes NO static edges (the
 ;; don't-execute rule — Derivations §Static and live graphs); its realized
@@ -356,34 +363,47 @@
        vec))
 
 (defn- machine-selector-edges
-  "The `:selector`-role edges from each machine `:process` node to its
-  machine-selector subscription nodes (Derivations §Machines: selectors
-  are ordinary derivations; the machine draws the `:selector` edge to
-  them). `selector?` is the optional `machine-selector?` recognizer from
-  the machines sibling (passed through the `:machines` contributor's
-  `:selector?` slot, or nil when machines is absent); when present, every
-  static subscription node whose id this recognizer accepts gets a
-  `:selector` edge from each machine node. Returns `[]` when the recognizer
-  or machine nodes are absent — the don't-execute rule applies (the
-  recognizer reads registrar metadata, never runs a sub body)."
-  [machine-node-ids subs-node-ids selector?]
-  (if (or (nil? selector?) (empty? machine-node-ids))
+  "The `:selector`-role edges from each machine `:process` node to the
+  machine-selector subscription nodes that read THAT machine (Derivations
+  §Machines: selectors are ordinary derivations; the machine draws the
+  `:selector` edge to them). `selector-targets` is the optional
+  `machine-selector-targets` extractor from the machines sibling (passed
+  through the `:machines` contributor's `:selector-targets` slot, or nil
+  when machines is absent): it returns the SET of machine ids one selector
+  subscription reads.
+
+  Precise targeting (rf2-4qmiij): for each subscription node we ask which
+  machine ids it selects, then emit a `:selector` edge ONLY from each
+  `[:machine target-id]` node that actually EXISTS in the graph — never the
+  cross product of every machine against every selector. A selector that
+  names a machine which is not a node (unregistered / a different family)
+  contributes no edge for that target. Indexing is by the machine-node-id
+  SET so the scan is `O(subs × targets-per-sub)`, not `O(machines × subs)`.
+
+  Returns `[]` when the extractor or machine nodes are absent — the
+  don't-execute rule applies (the extractor reads registrar metadata, never
+  runs a sub body)."
+  [machine-node-ids subs-node-ids selector-targets]
+  (if (or (nil? selector-targets) (empty? machine-node-ids))
     []
-    (vec
-     (for [m-id   machine-node-ids
-           sub-id subs-node-ids
-           :let   [raw (second sub-id)]                ;; [:sub <id-or-q>] → id|q
-           :let   [sid (if (vector? raw) (first raw) raw)]
-           :when  (and (keyword? sid) (selector? sid))]
-       {:from m-id :to sub-id :role :selector}))))
+    (let [machine-node-set (set machine-node-ids)]
+      (vec
+       (for [sub-id    subs-node-ids
+             :let      [raw (second sub-id)]            ;; [:sub <id-or-q>] → id|q
+             :let      [sid (if (vector? raw) (first raw) raw)]
+             :when     (keyword? sid)
+             target-id (selector-targets sid)
+             :let      [m-id [:machine target-id]]
+             :when     (contains? machine-node-set m-id)]
+         {:from m-id :to sub-id :role :selector})))))
 
 (defn- graph-edges
   "Every edge across the assembled `nodes` map, in `mode` (`:static` /
   `:live`). Composes the per-node `:input` edges, the route `:param`
   resource-activation edges, and the machine→selector `:selector` edges,
-  de-duplicated. `selector?` is the optional machine-selector recognizer
-  (nil when machines is absent)."
-  [mode nodes selector?]
+  de-duplicated. `selector-targets` is the optional machine-selector target
+  extractor (nil when machines is absent)."
+  [mode nodes selector-targets]
   (let [machine-ids (->> nodes keys (filter #(and (vector? %) (= :machine (first %)))) vec)
         subs-ids    (->> nodes keys (filter #(and (vector? %) (= :sub (first %)))) vec)
         per-node    (reduce-kv
@@ -395,7 +415,7 @@
                              (into (resource-activation-edges node-id node)))))
                      []
                      nodes)
-        selector    (machine-selector-edges machine-ids subs-ids selector?)]
+        selector    (machine-selector-edges machine-ids subs-ids selector-targets)]
     (->> (concat per-node selector)
          distinct
          vec)))
@@ -406,13 +426,13 @@
 
 (defn- assemble
   "Assemble a `DerivationGraph` from a `{node-id node}` map + a `:mode`.
-  Computes the edge set (the optional machine-selector recognizer threads
-  through `selector?`)."
-  [mode nodes selector? extra]
+  Computes the edge set (the optional machine-selector target extractor
+  threads through `selector-targets`)."
+  [mode nodes selector-targets extra]
   (merge
    {:mode  mode
     :nodes nodes
-    :edges (graph-edges mode nodes selector?)}
+    :edges (graph-edges mode nodes selector-targets)}
    extra))
 
 (defn derivation-graph
@@ -459,8 +479,8 @@
                   (merge acc (family-static-nodes family (get contributors family))))
                 {}
                 families)
-         selector? (get-in contributors [:machines :selector?])]
-     (assemble :static nodes selector? nil))))
+         selector-targets (get-in contributors [:machines :selector-targets])]
+     (assemble :static nodes selector-targets nil))))
 
 (defn live-derivation-graph
   "Return the LIVE `DerivationGraph` for `frame-id` — the full graph
@@ -496,8 +516,8 @@
                   (merge acc (family-live-nodes family (get contributors family) frame-id)))
                 {}
                 families)
-         selector? (get-in contributors [:machines :selector?])]
-     (assemble :live nodes selector? {:frame frame-id}))))
+         selector-targets (get-in contributors [:machines :selector-targets])]
+     (assemble :live nodes selector-targets {:frame frame-id}))))
 
 ;; ---- bundle-isolation sentinel ------------------------------------------
 ;;
