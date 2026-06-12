@@ -31,7 +31,7 @@ The interceptor and the handler communicate through a single Clojure map, thread
 
 | Key | What's in it | Who fills it |
 |---|---|---|
-| `:coeffects` | The handler's **inputs**: the event vector, the current `app-db`, plus exactly the coeffects the handler *declared* with `:rf.cofx/requires` — the clock (`:rf/time-ms`) and any other world facts ([chapter 07](07-effects-and-coeffects.md#recordable-coeffects--where-the-clock-and-fresh-ids-come-from)), each delivered flat under its own id. | The runtime assembles the whole map before the chain runs — `:db`/`:event` plus the declared facts. |
+| `:coeffects` | The handler's **inputs**: the event vector, the current `app-db`, the base framework context keys (`:rf.db/runtime`, `:rf.frame/id`, the `:rf.cofx` envelope), plus exactly the *registered world facts* the handler *declared* with `:rf.cofx/requires` — the clock (`:rf/time-ms`) and any others ([chapter 07](07-effects-and-coeffects.md#recordable-coeffects--where-the-clock-and-fresh-ids-come-from)), each delivered flat under its own id. | The runtime assembles the whole map before the chain runs — `:db`/`:event` and the framework keys always, plus the declared facts. |
 | `:effects` | The handler's **outputs**: the new `:db`, the `:fx` vector. | The handler itself, then modified by `:after` interceptors on the way out. |
 
 This is the same `:coeffects` / `:effects` pair from [chapter 07](07-effects-and-coeffects.md) — coeffects are what the handler reads, effects are what it writes. Interceptors live in the gap between them. A typical context map, caught mid-pipeline, looks like this:
@@ -45,7 +45,7 @@ This is the same `:coeffects` / `:effects` pair from [chapter 07](07-effects-and
              :fx    [[:rf.http/managed {...}]]}}
 ```
 
-Note the flat shape: every declared fact sits beside `:db` under its own owner-qualified id, not in a nested coeffects sub-map. A handler receives *exactly* what it declared in `:rf.cofx/requires` — nothing it didn't ask for is staged.
+Note the flat shape: every declared fact sits beside `:db` under its own owner-qualified id, not in a nested coeffects sub-map. Beyond `:db`/`:event` and the base framework context keys the runtime always carries (`:rf.db/runtime`, `:rf.frame/id`, the `:rf.cofx` envelope), a handler receives *exactly* the registered world facts it declared in `:rf.cofx/requires` — no other supplier-backed fact it didn't ask for is staged.
 
 An interceptor's `:before` runs before the handler, so it sees only `:coeffects` — the outputs don't exist yet. Its `:after` runs after the handler, so it sees both — `:effects` is now filled in. That's the entire mental model: `:before` reads inputs, `:after` reads inputs *and* outputs, and an interceptor's whole power is what it chooses to do in that gap.
 
