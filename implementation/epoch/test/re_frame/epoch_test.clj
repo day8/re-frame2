@@ -837,8 +837,8 @@
           (is (= {:rf.runtime/resources {:entries {}}} (:rdb @seen))
               "the hook receives the runtime-db PARTITION value")
           (is (= :test/x (:frame-id @seen)) "the hook receives the carried frame-id")
-          (is (= {:defer-traces? true} (:opts @seen))
-              "rf2-obi8rr — the hook is consulted with :defer-traces? true so it does not emit success rows before the install")
+          (is (= {:defer-traces? true :restore-time-ms nil} (:opts @seen))
+              "rf2-obi8rr — the hook is consulted with :defer-traces? true so it does not emit success rows before the install; rf2-wshzsp — and a :restore-time-ms slot (nil here, the 2-arity no-token path)")
           (is (true? (get-in out [:rf.db/runtime :rf.runtime/reconciled?]))
               "the hook's reconciled runtime-db is installed back into the frame-state")
           (is (= {:n 1} (:rf.db/app out)) "the app-db partition is untouched"))
@@ -914,6 +914,55 @@
                 "the mid-flight :loading entry was settled by the reconcile, not installed verbatim")
             (is (nil? (get-in rdb [:rf.runtime/resources :entries :k :current-work]))
                 "the vanished current-work pointer was cleared during the reconcile")))
+        (finally
+          (late-bind/set-fn! hook-key original))))))
+
+(deftest perform-restore!-threads-restored-epoch-causal-time-as-restore-time-ms
+  (testing "rf2-wshzsp — perform-restore! threads the RESTORED epoch's causal
+            :committed-at (the committing token's :rf.world/inputs :time-ms,
+            replay-stable per EP-0010 §Time) into the reconcile hook as
+            :restore-time-ms — NOT the live install wall clock. The hook stamps a
+            dangled-on-restore mutation instance's durable :settled-at from it, so
+            the durable field comes from a causal input rather than an ambient
+            world read at install (EP-0010 §Restore/Replay)."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-fx :put-resource
+      (fn [{rt :rf.db/runtime} _]
+        {:db {:phase :mid-flight}
+         :rf.db/runtime (assoc-in (or rt {})
+                                  [:rf.runtime/resources :entries :k]
+                                  {:status :loading :current-work [:w 1]})}))
+    (rf/reg-event-db :clear (fn [_ _] {:phase :cleared}))
+
+    (let [hook-key   :resources/reconcile-on-restore
+          original   (late-bind/get-fn hook-key)
+          seen-opts  (atom nil)
+          token-time 1781078400777          ; the causal token time of the mid-flight commit
+          clock-time 9999999999999]         ; the (wrong) ambient install-clock sentinel
+      (try
+        (late-bind/set-fn! hook-key
+                           (fn [rdb _frame-id opts]
+                             (reset! seen-opts opts)
+                             rdb))
+        ;; Commit the mid-flight epoch under a SCRIPTED causal token time so the
+        ;; restored epoch's :committed-at is a known sentinel-distinct value.
+        (rf/dispatch-sync [:put-resource] {:frame           :test/main
+                                           :rf.world/inputs {:time-ms token-time}})
+        (let [mid-record (last (rf/epoch-history :test/main))
+              mid-epoch  (:epoch-id mid-record)]
+          (is (= token-time (:committed-at mid-record))
+              "precondition: the mid-flight epoch's :committed-at is the scripted causal token time")
+          (rf/dispatch-sync [:clear] {:frame :test/main})
+          ;; Restore UNDER a wrong ambient install clock — a regression that
+          ;; sourced :restore-time-ms from now-ms would stamp the sentinel here.
+          (with-redefs [interop/now-ms       (constantly clock-time)
+                        interop/epoch-now-ms (constantly clock-time)]
+            (is (true? (rf/restore-epoch :test/main mid-epoch))
+                "restore to the mid-flight epoch succeeded"))
+          (is (= token-time (:restore-time-ms @seen-opts))
+              ":restore-time-ms is the RESTORED epoch's causal :committed-at — replay-stable")
+          (is (not= clock-time (:restore-time-ms @seen-opts))
+              ":restore-time-ms is NOT the live ambient install clock"))
         (finally
           (late-bind/set-fn! hook-key original))))))
 

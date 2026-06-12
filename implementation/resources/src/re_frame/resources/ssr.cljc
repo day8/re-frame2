@@ -82,11 +82,17 @@
 
 ;; ---- shared clock ---------------------------------------------------------
 
-(defn- now-ms
+(defn now-ms
   "Current epoch-ms — the server clock stamped on `loaded-at` / `stale-at`
   and the live clock the client compares restored absolute timestamps
   against to surface skew. Host-platform clock (JVM under SSR; the browser
-  on the client). Per Spec 016 §SSR and hydration (absolute timestamps)."
+  on the client). Per Spec 016 §SSR and hydration (absolute timestamps).
+
+  Public (rf2-wshzsp) so the restore-reconcile suite can `with-redefs` it to a
+  sentinel and ADVERSARIALLY pin that restore reads it ONLY for the clock-skew
+  DIAGNOSTIC — never to freshen a DURABLE restored entry/instance timestamp
+  (EP-0010 §Restore/Replay: \"restored resource entries do not re-read the live
+  clock during install\")."
   []
   #?(:clj  (System/currentTimeMillis)
      :cljs (.now js/Date)))
@@ -1169,12 +1175,23 @@
   hydration has no client routing yet — `hydrate-runtime-db` passes a nil live
   nav-token, leaving route owners for routing's own client reconcile.
 
-  `opts` (3-arity, rf2-obi8rr): `{:defer-traces? <bool>}`. When true (the epoch
-  hook path) the trace rows are NOT emitted inline; they ride back as
-  `::deferred-trace-intents` metadata on the returned runtime-db for
-  `commit-restore-reconcile-traces!` to emit post-install. The host-side-transient
-  clear runs regardless (idempotent; the only failure path is an already-
-  destroyed frame whose transients were already released).
+  `opts` (3-arity): `{:defer-traces? <bool> :restore-time-ms <epoch-ms>}`.
+
+  - `:defer-traces?` (rf2-obi8rr) — when true (the epoch hook path) the trace
+    rows are NOT emitted inline; they ride back as `::deferred-trace-intents`
+    metadata on the returned runtime-db for `commit-restore-reconcile-traces!`
+    to emit post-install. The host-side-transient clear runs regardless
+    (idempotent; the only failure path is an already-destroyed frame whose
+    transients were already released).
+  - `:restore-time-ms` (rf2-wshzsp) — the restore's CAUSAL time: the restored
+    epoch's `:committed-at` (the committing token's `:rf.world/inputs`
+    `:time-ms`, replay-stable per EP-0010 §Time). It is the source of the
+    DURABLE `:settled-at` stamped on a PENDING mutation instance dangled on
+    restore — NOT the live install clock (`now-ms`). Per EP-0010 §Restore/Replay
+    a durable frame-state field MUST come from a causal input, never an ambient
+    world read at install. nil on the pure-unit 1-/2-arity (no token / no real
+    restore epoch), where it falls back to the live clock — those paths install
+    no epoch and the stamp is never replayed.
 
   NEVER crosses scopes (it only reconciles entries under their own scoped keys).
   Part 1 (the monotone host-side generation allocator) is restore-safe by
@@ -1182,7 +1199,7 @@
   touches it."
   ([runtime-db] (reconcile-on-restore runtime-db nil nil))
   ([runtime-db frame-id] (reconcile-on-restore runtime-db frame-id nil))
-  ([runtime-db frame-id {:keys [defer-traces?]}]
+  ([runtime-db frame-id {:keys [defer-traces? restore-time-ms]}]
    (let [resources (get runtime-db state/resources-key)
          entries   (:entries resources)
          ledger    (get runtime-db state/work-ledger-key)
@@ -1225,7 +1242,23 @@
              ;; by the instance work-id + generation gate (rf2-o3d1uf). Runs on
              ;; the resource-reconciled runtime-db; the mutation work-ledger row
              ;; was already dangled by `dangle-non-terminal-work!` above.
-             [rdb''' dangled-mutations] (dangle-pending-mutations! rdb'' clock-ms)
+             ;;
+             ;; rf2-wshzsp — the dangled instance's DURABLE `:settled-at` is a
+             ;; frame-state field, so per EP-0010 §Time + §Restore/Replay it MUST
+             ;; come from the restore's CAUSAL time (`restore-time-ms` — the
+             ;; restored epoch's `:committed-at`, itself the committing token's
+             ;; `:rf.world/inputs` `:time-ms`), NOT the ambient `clock-ms`
+             ;; (`now-ms`) read above. Sourcing it from the live install clock
+             ;; would make the durable stamp non-replayable (the exact shape the
+             ;; EP's restore clause warns against: a durable write fed by an
+             ;; ambient read at install). `clock-ms` legitimately feeds ONLY the
+             ;; clock-skew DIAGNOSTIC (below) — never a durable entry/instance
+             ;; field. Falls back to `clock-ms` only on the pure-unit 1-/2-arity
+             ;; (no token in flight, no causal time available — and those paths
+             ;; carry no real restore epoch), keeping the unit harness's existing
+             ;; behaviour intact.
+             settled-at (or restore-time-ms clock-ms)
+             [rdb''' dangled-mutations] (dangle-pending-mutations! rdb'' settled-at)
              ;; rf2-obi8rr — compute the restore-reconcile trace rows as INTENTS
              ;; (plain `{:level :op :tags}` data). They are emitted inline below
              ;; for the direct (unit-test) path, or deferred onto the returned

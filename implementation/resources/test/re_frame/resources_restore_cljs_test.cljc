@@ -167,6 +167,42 @@
     (is (= :loaded (:status (ssr/settle-entry-to-last-stable
                               (entry {:resource-id :a :status :loaded :data {:x 1}})))))))
 
+(deftest restore-does-not-re-read-the-live-clock-for-durable-entry-timestamps
+  ;; rf2-wshzsp — ADVERSARIAL guard for EP-0010 §Restore/Replay: "Restore
+  ;; installs a durable frame-state value. It MUST NOT re-read ambient world
+  ;; facts to freshen that state during install ... restored resource entries do
+  ;; not re-read the live clock during install." The structural restore tests
+  ;; prove the durable timestamps SURVIVE (they are passed through, not
+  ;; recomputed); this one PROVES it adversarially — it stubs the ONLY live-clock
+  ;; read in the reconcile (`ssr/now-ms`) to a sentinel NOTHING durable should
+  ;; ever stamp, then asserts every restored entry's :loaded-at / :stale-at /
+  ;; :invalidated-at is the SNAPSHOT's value, untouched by the sentinel. A
+  ;; regression that freshened any durable timestamp from the live install clock
+  ;; would stamp the sentinel and fail loudly here.
+  (testing "the live install clock (now-ms) does NOT freshen any durable restored
+            entry timestamp — they ride through equal to the snapshot's"
+    (let [sentinel    9999999999999  ; the install-clock value nothing durable may stamp
+          ;; one of each freshness shape: a loaded entry with a future stale-at,
+          ;; a stale-by-window entry, and an explicitly invalidated one — all
+          ;; ALREADY stable so the settle is a no-op and only the timestamps matter.
+          loaded      (entry {:resource-id :a :status :loaded :data {:x 1}
+                              :loaded-at 1000 :stale-at 2000})
+          invalidated (entry {:resource-id :b :status :loaded :data {:y 2}
+                              :loaded-at 1000 :stale-at 8000 :invalidated-at 1500})
+          ka (state/scoped-resource-key :rf.scope/global :a {})
+          kb (state/scoped-resource-key :rf.scope/global :b {})]
+      (with-redefs [ssr/now-ms (constantly sentinel)]
+        (let [out (ssr/reconcile-on-restore (runtime-db-with {ka loaded kb invalidated}) :app/main)
+              es  (get-in out [state/resources-key :entries])]
+          (is (= 1000 (:loaded-at (es ka))) ":loaded-at is the snapshot's, NOT the install clock")
+          (is (= 2000 (:stale-at  (es ka))) ":stale-at is the snapshot's, NOT the install clock")
+          (is (= 1000 (:loaded-at (es kb))) ":loaded-at (invalidated entry) is the snapshot's")
+          (is (= 8000 (:stale-at  (es kb))) ":stale-at (invalidated entry) is the snapshot's")
+          (is (= 1500 (:invalidated-at (es kb))) ":invalidated-at is the snapshot's, NOT the install clock")
+          (is (not-any? #{sentinel}
+                        (mapcat (juxt :loaded-at :stale-at :invalidated-at) (vals es)))
+              "NO durable entry timestamp equals the stubbed install clock — restore re-read it nowhere durable"))))))
+
 ;; ===========================================================================
 ;; 2. Dangle non-terminal work-ledger rows (Spec 016 §Restore part 2)
 ;; ===========================================================================
@@ -288,6 +324,40 @@
           out (ssr/reconcile-on-restore rdb :app/main)]
       (is (= :error (get-in out [mstate/mutations-key :inst-1 :status])))
       (is (nil? (get-in out [mstate/mutations-key :inst-1 :current-work]))))))
+
+(deftest dangled-instance-settled-at-is-the-restore-causal-time-not-the-live-clock
+  ;; rf2-wshzsp (the option-1 CORRECTNESS fix) — a dangled-on-restore mutation
+  ;; instance's durable :settled-at is a frame-state field, so per EP-0010 §Time
+  ;; + §Restore/Replay it MUST be sourced from the restore's CAUSAL time (the
+  ;; restored epoch's :committed-at, threaded as :restore-time-ms) — NOT the live
+  ;; install clock (`now-ms`). Sourcing a durable write from an ambient read at
+  ;; install is the exact shape the EP's restore clause warns against; this pins
+  ;; the replay-stable source.
+  (testing "the dangled instance's durable :settled-at equals the causal
+            :restore-time-ms, NOT the stubbed live install clock"
+    (let [restore-time 1781078400777   ; the restore's causal time (epoch :committed-at)
+          live-sentinel 9999999999999  ; the (wrong) ambient install clock
+          pending (mutation-instance {:instance-id :inst-1
+                                      :work-id [:rf.work/resource [:rf.mutation :inst-1 3] 3]})
+          rdb {mstate/mutations-key {:inst-1 pending}}]
+      (with-redefs [ssr/now-ms (constantly live-sentinel)]
+        (let [out (ssr/reconcile-on-restore rdb :app/main {:restore-time-ms restore-time})
+              inst (get-in out [mstate/mutations-key :inst-1])]
+          (is (= :error (:status inst)) "the pending instance is terminally dangled")
+          (is (= restore-time (:settled-at inst))
+              ":settled-at is the causal :restore-time-ms — replay-stable")
+          (is (not= live-sentinel (:settled-at inst))
+              ":settled-at is NOT the live install clock (now-ms)")))))
+  (testing "fallback: with NO :restore-time-ms (the pure-unit 2-arity, no token)
+            the dangle stamps the live clock — the no-causal-time path is intact"
+    (let [live-sentinel 9999999999999
+          pending (mutation-instance {:instance-id :inst-1
+                                      :work-id [:rf.work/resource [:rf.mutation :inst-1 3] 3]})
+          rdb {mstate/mutations-key {:inst-1 pending}}]
+      (with-redefs [ssr/now-ms (constantly live-sentinel)]
+        (let [out (ssr/reconcile-on-restore rdb :app/main)]
+          (is (= live-sentinel (get-in out [mstate/mutations-key :inst-1 :settled-at]))
+              "no causal time supplied → the unit path falls back to the live clock"))))))
 
 (deftest late-pre-restore-mutation-reply-is-suppressed-end-to-end
   (rf/reg-resource :article/by-slug
