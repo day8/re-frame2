@@ -191,9 +191,14 @@ with a separate gate:
 
 ### Asking for the unmasked view
 
-re-frame2-pair-mcp ships with a **`--allow-sensitive-reads` boot gate
-that is OFF by default**; the CLI flag name is aligned across MCP
-servers. When OFF (the published-build posture), the following surfaces
+Conceptually this is the EP-0015 per-(tool, frame) reveal: the pair tool
+defaults to the redacting boundary (`:rf.egress/local-redacted` /
+off-box `:rf.egress/off-box-tool`), and revealing raw values is a
+deliberate trusted-local opt-in (`:rf.egress/local-raw`) that is itself
+an auditable operator act. The pair-mcp server expresses that coarse
+opt-in as its boot gate: re-frame2-pair-mcp ships with a
+**`--allow-sensitive-reads` boot gate that is OFF by default**; the CLI
+flag name is aligned across MCP servers. When OFF (the published-build posture), the following surfaces
 ride the redacted/elided shape regardless of any per-call MCP arg or
 in-runtime `configure-privacy!` toggle:
 
