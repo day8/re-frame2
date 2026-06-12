@@ -2,10 +2,11 @@
   "Navigation-token stale-result suppression for re-frame2 routing.
 
   Per Spec 012 §Navigation tokens — stale-result suppression. Owns:
-    - `:nav-token` cofx — injects the current navigation epoch token
-      (`[:rf.runtime/routing :current :nav-token]`) into an `:on-match`
-      handler's `:coeffects` under key `:nav-token`, so the handler can
-      capture it and thread it into an async continuation;
+    - `:rf.route/nav-token` cofx — injects the current navigation epoch
+      token (`[:rf.runtime/routing :current :nav-token]`) into an
+      `:on-match` handler's `:coeffects` under key `:rf.route/nav-token`,
+      so the handler can capture it and thread it into an async
+      continuation;
     - `:rf.route/with-nav-token` fx — wraps an async-completion fx
       entry (`:do`) with a stale-result check: match → run; mismatch →
       suppress and emit `:rf.route.nav-token/stale-suppressed`.
@@ -41,7 +42,7 @@
             [re-frame.trace :as trace]))
 
 (def nav-token-cofx-meta
-  "Metadata for the `:nav-token` cofx registration. Per Spec 012
+  "Metadata for the `:rf.route/nav-token` cofx registration. Per Spec 012
   §Navigation tokens — stale-result suppression step 2: the cofx
   injects the current navigation epoch token so an `:on-match`-reached
   handler can capture the token live at scheduling time and thread it
@@ -52,13 +53,14 @@
   so the cofx resolves under SSR and browser alike."
   {:doc "The current navigation epoch token, read from
 `[:rf.runtime/routing :current :nav-token]` and delivered under
-`:coeffects :nav-token`. Declare with `:rf.cofx/requires [:nav-token]` on an
-`:on-match`-reached handler; capture the value and thread it into an
-async continuation so a superseding navigation suppresses the stale
-result. Per Spec 012 §Navigation tokens — stale-result suppression."})
+`:coeffects :rf.route/nav-token`. Declare with
+`:rf.cofx/requires [:rf.route/nav-token]` on an `:on-match`-reached
+handler; capture the value and thread it into an async continuation so a
+superseding navigation suppresses the stale result. Per Spec 012
+§Navigation tokens — stale-result suppression."})
 
 (defn nav-token-cofx
-  "Value-returning AMBIENT supplier for the `:nav-token` cofx (EP-0017 §2).
+  "Value-returning AMBIENT supplier for the `:rf.route/nav-token` cofx (EP-0017 §2).
   Reads the current navigation epoch token from the active frame's runtime-db
   route slice (`[:rf.runtime/routing :current :nav-token]`, read via
   `frame/frame-runtime-db-value` of `frame/*current-frame*` — bound by the
@@ -66,7 +68,7 @@ result. Per Spec 012 §Navigation tokens — stale-result suppression."})
   routing runtime-db state. Never recorded; replay re-runs it (the token is
   re-presented because the route slice itself is recorded durable state).
 
-  A handler declares `:rf.cofx/requires [:nav-token]` and reads the value flat.
+  A handler declares `:rf.cofx/requires [:rf.route/nav-token]` and reads the value flat.
   Meaningful only inside a handler reached via an `:on-match` drain (or a
   follow-up of one), where the route slice holds the epoch the navigation
   cascade allocated. Read from any other handler it reflects whatever

@@ -1,6 +1,6 @@
 (ns re-frame.routing-nav-token-test
   "Navigation-token stale-result-suppression + `:on-match` loader tests
-  for re-frame.routing (nav-token allocation, the `:nav-token` cofx, the
+  for re-frame.routing (nav-token allocation, the `:rf.route/nav-token` cofx, the
   `:rf.route/with-nav-token` fx, and multi-loader `:on-match` ordering /
   error precedence). Split from routing_test.clj per rf2-u8qe7y finding 3."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -279,20 +279,21 @@
                               @traces)))
           "exactly one stale-suppressed trace fired — the fresh :do did NOT trip the validation"))))
 
-;; ---- Spec 012 §Navigation tokens step 2 — the `:nav-token` cofx ----------
+;; ---- Spec 012 §Navigation tokens step 2 — the `:rf.route/nav-token` cofx ----------
 ;;
-;; rf2-8fnwq: the spec promised an `:on-match`-reachable `:nav-token` cofx
-;; (step 2 / step 4 "validating cofx") but no `reg-cofx :nav-token` was
-;; registered. A handler that followed the spec — declared
-;; `(inject-cofx :nav-token)` and read `{:keys [db nav-token]}` — threaded
-;; `nil`, which mismatched the current token in `:rf.route/with-nav-token`
-;; EVERY time, so the documented stale-suppression pattern silently ate
-;; the result. These tests are the failing-before / passing-after guard.
+;; rf2-8fnwq: the spec promised an `:on-match`-reachable `:rf.route/nav-token`
+;; cofx (step 2 / step 4 "validating cofx") but no `reg-cofx
+;; :rf.route/nav-token` was registered. A handler that followed the spec —
+;; declared `:rf.cofx/requires [:rf.route/nav-token]` and read
+;; `{:rf.route/keys [nav-token]}` — threaded `nil`, which mismatched the
+;; current token in `:rf.route/with-nav-token` EVERY time, so the documented
+;; stale-suppression pattern silently ate the result. These tests are the
+;; failing-before / passing-after guard.
 
 (deftest nav-token-cofx-injects-the-live-token
-  (testing ":rf.cofx/requires [:nav-token] delivers the current slice token — not nil"
+  (testing ":rf.cofx/requires [:rf.route/nav-token] delivers the current slice token — not nil"
     ;; The minimal contract: a handler declaring the cofx sees the live
-    ;; navigation epoch. Pre-fix this was nil (no reg-cofx :nav-token).
+    ;; navigation epoch. Pre-fix this was nil (no reg-cofx :rf.route/nav-token).
     (rf/reg-route :route/article {:path   "/articles/:id"
                                   :params [:map [:id :string]]})
     (rf/reg-fx :rf.nav/push-url
@@ -301,8 +302,8 @@
     (let [seen (atom :unset)]
       ;; An :on-match-reached handler that captures the injected token.
       (rf/reg-event-fx :article/capture-token
-                       {:rf.cofx/requires [:nav-token]}
-                       (fn [{:keys [nav-token]} _]
+                       {:rf.cofx/requires [:rf.route/nav-token]}
+                       (fn [{:rf.route/keys [nav-token]} _]
                          (reset! seen nav-token)
                          {}))
       ;; Land on the route, then fire the on-match-style continuation.
@@ -352,8 +353,8 @@
       ;; The capture closes over `captured` so the test replays the
       ;; completion later, out of order.
       (rf/reg-event-fx :article/load
-                       {:rf.cofx/requires [:nav-token]}
-                       (fn [{:keys [nav-token]} [_ id]]
+                       {:rf.cofx/requires [:rf.route/nav-token]}
+                       (fn [{:rf.route/keys [nav-token]} [_ id]]
                          (swap! captured assoc id nav-token)
                          {}))
 
