@@ -33,10 +33,10 @@ Type: standards-track
 > omission.
 >
 > **`final` settles the decisions; it does not on its own assert the build is
-> gap-free (EP-0005 pattern).** One non-blocking follow-up remains open (a P4
-> cosmetic one-name-per-fact tidy); the one P3 observability follow-up has since
-> been resolved. Both are tracked in the
-> [Implementation errata](#implementation-errata) ledger below — neither reopens
+> gap-free (EP-0005 pattern).** Both non-blocking follow-ups have since been
+> resolved — the P3 observability follow-up and the P4 cosmetic
+> one-name-per-fact tidy. Both are tracked in the
+> [Implementation errata](#implementation-errata) ledger below — neither reopened
 > a ruling.
 >
 > Plain-language summary: when framework-managed async work completes, it
@@ -79,16 +79,20 @@ pattern: finalizing the *decisions* does not, on its own, assert the
   The machine completion model is synchronous, so a genuinely-late completion
   arriving after the child itself was destroyed is not reachable;
   parent-destroyed-before-child-finishes was the only live case.
-- **`rf2-mdjzs0`** *(open — P4, cosmetic, one-name-per-fact tidy)* — converge
-  the unqualified `:work-id` spelling that survives in several resource /
+- **`rf2-mdjzs0`** *(RESOLVED — P4, cosmetic, one-name-per-fact tidy)* — converge
+  the unqualified `:work-id` spelling that survived in several resource /
   mutation **trace-tag** and internal in-flight-bookkeeping maps onto the
-  qualified `:work/id`. The **durable** identity is already uniformly
+  qualified `:work/id`. The **durable** identity was already uniformly
   `:work/id` everywhere it matters (the verification payload, the entry's
   `:current-work`, the ledger row key, and the canonical reply map), so there
-  is no second stale-suppression key and no second identity on durable state —
-  this is trace-stream readability only ([EP-0007](EP-0007-one-name-per-fact.md)).
-  Xray already tolerates both spellings; the tidy lets that tolerance be
-  dropped.
+  was no second stale-suppression key and no second identity on durable state —
+  this was trace-stream readability only ([EP-0007](EP-0007-one-name-per-fact.md)).
+  **Now resolved:** the resource / mutation reply-envelope identity is the
+  qualified `:work/id` at every emit and consume site, and the Xray
+  reply-envelope reader's tolerance for the bare `:work-id` was dropped — it now
+  reads only the canonical `:work/id` (the unqualified spelling is no longer
+  accepted). The remaining bare `:work-id` keys are the internal in-flight
+  bookkeeping maps, which are not the identity and are deliberately retained.
 
 The two **decision-level** Open Issues that did not resolve to a contract here —
 the `:rf.runtime/work-ledger` multi-writer authority path and the streaming /
@@ -1439,10 +1443,11 @@ Resource internals may consolidate
 `:rf.resource.internal/aborted` into one `:rf.resource.internal/replied`
 handler, or may keep separate event ids that all receive the canonical reply
 map. The normative rule is the reply map and work id, not the exact internal
-event id split. When that lowering lands, the internal verification-payload
-key Spec 016 currently spells `:work-id` should converge on the qualified
-`:work/id` already used by the ledger row and this EP — one attempt identity,
-one spelling, per EP-0007.
+event id split. The internal verification-payload key has since converged on the
+qualified `:work/id` already used by the ledger row and this EP — one attempt
+identity, one spelling, per EP-0007 (the convergence and the Xray
+tolerance-drop landed under `rf2-mdjzs0`; see the
+[Implementation errata](#implementation-errata) ledger).
 
 Mutation internals follow the same compatibility posture. The current
 `:rf.mutation.internal/succeeded` / `:rf.mutation.internal/failed` event ids
