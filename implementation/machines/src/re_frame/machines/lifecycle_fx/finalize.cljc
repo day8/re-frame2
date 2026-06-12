@@ -225,10 +225,25 @@
         ;; routes the raw failure payload to the parent transition. This is
         ;; internal lowering only — the reply map is what the trace stream,
         ;; ledger, and future work-correlation read uniformly (m-reply).
-        reply-ctx   {:actor-id          machine-id
-                     :parent-id         parent-id
-                     :work-bearing-path invoke-id
-                     :frame             frame-id}
+        ;; (rf2-6mfkp3) Thread the CAUSAL completion timestamp into the
+        ;; reply so `:completed-at` carries the one host-clock read the
+        ;; router captured for the finishing event — NOT an ambient
+        ;; `(.now)`. Per spec/Managed-Effects.md §155/§231 a machine
+        ;; completion that affects durable state (a spawned child's
+        ;; `:on-done` mutating the parent's `:data`) MUST carry causal
+        ;; completion metadata. The router's `:rf.world/inputs` `:time-ms`
+        ;; (EP-0010 — the single causal-boundary clock read) is threaded
+        ;; onto the machine def under `:rf/world-inputs`
+        ;; (lifecycle-fx.registration); read it here so the done reply +
+        ;; trace carry the causal time instead of silently losing it. nil
+        ;; when the trigger was unscripted (no world-input) — omitted, not
+        ;; nil-filled (Managed-Effects §The reply map).
+        completed-at (get-in machine [:rf/world-inputs :time-ms])
+        reply-ctx   (cond-> {:actor-id          machine-id
+                             :parent-id         parent-id
+                             :work-bearing-path invoke-id
+                             :frame             frame-id}
+                      (some? completed-at) (assoc :completed-at completed-at))
         ;; (1) Find parent's `:on-done` / `:on-error`, if this is a `:spawn`-
         ;; spawned actor. The parent's spec carries the `:spawn` map at
         ;; `invoke-id`. Per rf2-a2sn1 — resolve the parent's spec from the
@@ -341,6 +356,15 @@
                                 :rf.reply/status      (:status done-summary)
                                 :rf.reply/work-id     (:work/id done-summary)
                                 :rf.reply/work-status (:work/status done-summary)}
+                         ;; (rf2-6mfkp3) the causal completion timestamp — the
+                         ;; router's `:rf.world/inputs` `:time-ms` threaded
+                         ;; into the reply (Managed-Effects §155/§231: a
+                         ;; completion affecting durable state carries causal
+                         ;; completion metadata). Additive + present-only so
+                         ;; the unscripted (no-world-input) path stays clean.
+                         (some? (:completed-at done-summary))
+                         (assoc :rf.reply/completed-at (:completed-at done-summary)
+                                :completed-at          (:completed-at done-summary))
                          ;; stale-suppression vocabulary (rf2-lohbfg) — carried
                          ;; ADDITIVELY only for a stale late completion, joined
                          ;; to `:work/id` via the shared `:rf.reply/*` facts.

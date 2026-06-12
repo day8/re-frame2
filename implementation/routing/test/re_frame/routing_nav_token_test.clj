@@ -237,6 +237,41 @@
                 @traces)
           "the production :rf.route/with-nav-token suppression is joined to the route :work/id")
 
+      ;; rf2-6mfkp3 — the PRODUCTION stale trace carries the canonical
+      ;; EP-0011 reply-envelope vocabulary, NOT only the route-specific
+      ;; carried/current tokens. A superseded route loader is a managed
+      ;; async family, so it MUST be classifiable via the SAME
+      ;; `:rf.reply/status` / `:rf.reply/work-status` / `:rf.reply/
+      ;; stale-reason` facts the resource / machine / HTTP families stamp —
+      ;; the uniform cross-surface view reads one vocabulary, not a
+      ;; route-private token pair. (The pure helper already produced these
+      ;; on `route-reply/suppress`; this pins they reach the production
+      ;; trace.)
+      (let [stale (some (fn [ev]
+                          (when (= :rf.route.nav-token/stale-suppressed
+                                   (:operation ev))
+                            ev))
+                        @traces)]
+        (is (some? stale) "a production stale-suppressed trace fired")
+        (let [tags (:tags stale)]
+          (is (= :stale (:rf.reply/status tags))
+              "canonical EP-0011 :rf.reply/status :stale on the production trace")
+          (is (= :suppressed (:rf.reply/work-status tags))
+              "canonical EP-0011 :rf.reply/work-status :suppressed")
+          (is (= :rf.route/nav-token-stale (:rf.reply/stale-reason tags))
+              "canonical EP-0011 :rf.reply/stale-reason — the named route stale cause")
+          ;; the carried/current correlation gates ride the SAME shared
+          ;; `:rf.reply/*` facts the other families use (rf2-waawic).
+          (is (= {:route/nav-token "nav-1"} (:rf.reply/carried tags))
+              "carried gate = the captured (stale) nav-token")
+          (is (= {:route/nav-token "nav-2"} (:rf.reply/current tags))
+              "current gate = the live nav-token that superseded it")
+          ;; the work-id is the join key — present here under the canonical
+          ;; bare :work/id (EP-0011 §Work-id correlation).
+          (is (= [:rf.work/route :route/article "nav-1" :article/loaded]
+                 (:work/id tags))
+              "canonical :work/id correlation rides the production stale trace")))
+
       ;; Negative: no spurious suppressed-trace for the fresh path.
       (is (= 1 (count (filter (fn [ev]
                                 (= :rf.route.nav-token/stale-suppressed

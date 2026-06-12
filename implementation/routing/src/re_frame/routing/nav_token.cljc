@@ -112,9 +112,21 @@ result. Per Spec 012 §Navigation tokens — stale-result suppression."})
   suppression so it lands in the emitting frame's epoch / Xray
   (rf2-7d30s). The work-id is built from the route context
   (`{:route-id … :nav-token <carried> :loader-id …}`) — `route-reply/
-  suppress` carries it on the reply + trace."
+  suppress` carries it on the reply + trace.
+
+  rf2-6mfkp3 — the canonical EP-0011 reply-envelope facts ride ADDITIVELY
+  (`:rf.reply/status :stale`, `:rf.reply/work-status :suppressed`,
+  `:rf.reply/stale-reason`) — the SAME shape the resource
+  (`:rf.resource/stale-suppressed`) and machine (`:rf.machine/done` /
+  `:rf.machine.timer/stale-after`) families stamp — so a superseded route
+  loader (an EP-0011 managed async family) is classifiable on the
+  production trace via the identical canonical facts as every other family,
+  not only the route-specific `:carried-token` / `:current-token` tokens.
+  The facts are read off the `route-reply/suppress` `:reply` (the
+  `:status :stale` / `:work/status :suppressed` / `:stale/reason` the
+  shared substrate produced)."
   [{:keys [carried-token current-token event-id frame-id route-id loader-id]}]
-  (let [{:keys [trace]} (route-reply/suppress
+  (let [{:keys [reply trace]} (route-reply/suppress
                           {;; rf2-azcmd3 — `route-id` is the route id CAPTURED
                            ;; at scheduling time (carried with the nav-token),
                            ;; NOT the live route slice id read at stale-arrival.
@@ -152,6 +164,17 @@ result. Per Spec 012 §Navigation tokens — stale-result suppression."})
                                 ;; `:current-token` above are preserved.
                                 :rf.reply/carried  (:rf.reply/carried trace)
                                 :rf.reply/current  (:rf.reply/current trace)
+                                ;; rf2-6mfkp3 — the canonical EP-0011 status /
+                                ;; work-status / stale-reason vocabulary
+                                ;; (Managed-Effects §9), read off the shared
+                                ;; substrate `:reply`. Route loaders are a
+                                ;; managed async family: a superseded route
+                                ;; completion is classifiable on the production
+                                ;; trace via the SAME canonical facts as the
+                                ;; resource / machine / HTTP families.
+                                :rf.reply/status      (:status reply)
+                                :rf.reply/work-status (:work/status reply)
+                                :rf.reply/stale-reason (:stale/reason reply)
                                 :recovery          :replaced-with-default}
                          frame-id (assoc :frame frame-id)))))
 
