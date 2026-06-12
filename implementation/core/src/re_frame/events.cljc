@@ -899,14 +899,24 @@
   handlers reach for `reg-event-fx`; for full-context manipulation reach
   for `reg-event-ctx`.
 
-  Shapes (the middle slot is optional and may be metadata OR
-  interceptor-vector, NOT both — per Conventions §`:interceptors` is
-  positional, not metadata):
+  Shapes (the optional middle slot is the **superset** metadata map —
+  it carries reflection metadata (`:doc`, `:schema`, …) **and** a
+  reserved `:interceptors` chain in one map; the positional interceptor
+  vector is sugar for `{:interceptors [...]}` — per Conventions
+  §`:interceptors` in the metadata-map — the superset middle slot):
 
       (reg-event-db :id                            (fn [db ev] new-db))
       (reg-event-db :id {:doc \"...\" :schema ...} (fn [db ev] new-db))
       (reg-event-db :id [(path :counter)]          (fn [slice ev] new-slice))
+      (reg-event-db :id {:doc \"...\" :interceptors [(path :counter)]}
+                                                    (fn [slice ev] new-slice))
       (reg-event-db :id {:doc \"...\"} [icpt]        (fn [db ev] new-db))
+
+  The positional vector and the metadata-map `:interceptors` key are
+  exactly equivalent (`[i1 i2]` ≡ `{:interceptors [i1 i2]}`). Supplying
+  a chain in **both** slots at once raises the loud registration error
+  `:rf.error/interceptors-supplied-twice` — the two sources are never
+  silently merged.
 
   Returns `id`.
 
@@ -944,13 +954,21 @@
   keys (`:dispatch`, `:dispatch-later`, `:http`, ...) wrap as `:fx`
   entries — `{:fx [[:dispatch event] ...]}`.
 
-  Shapes (the middle slot is optional and may be metadata OR
-  interceptor-vector, NOT both):
+  Shapes (the optional middle slot is the **superset** metadata map —
+  it carries reflection metadata **and** a reserved `:interceptors`
+  chain in one map; the positional interceptor vector is sugar for
+  `{:interceptors [...]}`):
 
       (reg-event-fx :id                       (fn [cofx ev] {...}))
       (reg-event-fx :id {:doc \"...\"}          (fn [cofx ev] {...}))
       (reg-event-fx :id [(inject-cofx :now)]  (fn [cofx ev] {...}))
+      (reg-event-fx :id {:doc \"...\" :interceptors [(inject-cofx :now)]}
+                                              (fn [cofx ev] {...}))
       (reg-event-fx :id {:doc \"...\"} [icpt]   (fn [cofx ev] {...}))
+
+  `[i1 i2]` ≡ `{:interceptors [i1 i2]}`; supplying a chain in **both**
+  slots raises `:rf.error/interceptors-supplied-twice` (per Conventions
+  §`:interceptors` in the metadata-map — the superset middle slot).
 
   Returns `id`. Returning `nil` from the handler is a documented no-op.
 
@@ -986,12 +1004,20 @@
   Returns `id`. Returning `nil` from the handler leaves the inbound
   context unchanged (documented no-op).
 
-  Shapes (the middle slot is optional and may be metadata OR
-  interceptor-vector, NOT both):
+  Shapes (the optional middle slot is the **superset** metadata map —
+  it carries reflection metadata **and** a reserved `:interceptors`
+  chain in one map; the positional interceptor vector is sugar for
+  `{:interceptors [...]}`):
 
       (reg-event-ctx :id                  (fn [ctx] new-ctx))
       (reg-event-ctx :id {:doc \"...\"}     (fn [ctx] new-ctx))
       (reg-event-ctx :id [icpt1 icpt2]    (fn [ctx] new-ctx))
+      (reg-event-ctx :id {:doc \"...\" :interceptors [icpt1 icpt2]}
+                                          (fn [ctx] new-ctx))
+
+  `[i1 i2]` ≡ `{:interceptors [i1 i2]}`; supplying a chain in **both**
+  slots raises `:rf.error/interceptors-supplied-twice` (per Conventions
+  §`:interceptors` in the metadata-map — the superset middle slot).
 
   See also: `reg-event-db`, `reg-event-fx`, `->interceptor`,
   `assoc-coeffect`, `assoc-effect`."
