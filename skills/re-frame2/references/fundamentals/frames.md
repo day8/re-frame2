@@ -172,6 +172,21 @@ Wraps a Reagent / Helix / UIx subtree so descendants resolve `current-frame-id` 
 - **Wrapping plain Reagent fns in a `frame-provider` doesn't bind the frame.** A plain fn can't read the provider's frame from context, so its ambient `subscribe`/`dispatch` raise `:rf.error/no-frame-context`. Use `reg-view` so the `:contextType` wiring picks up the provider, or capture a `frame-handle`.
 - **`:rf/default` is an ordinary id, not a fallback.** The runtime never creates or infers it; it carries no privilege. You may register and scope it explicitly like any other frame (a migration sometimes picks it for familiarity), but a single-frame app is freer choosing a descriptive id like `:app/main` and establishing it at the root.
 
+## Realms — the container a frame lives in (concept, not yet an API)
+
+The mental model: **the program is a value; the runtime is a container you install it into.** Today your registrations (`reg-event-db`, `reg-sub`, `reg-fx`, …) update one process-wide table, and your frames all share it. The forward direction (EP-0013) names that table's owner a **realm** — the operational environment holding the registered behaviour, the installed adapter, runtime capabilities (HTTP, clock, schema validation), and the frame registry. A frame belongs to exactly one realm; the durable app-db / runtime-db partitions a frame owns are unchanged.
+
+You almost certainly do not need to think about this. The two facts an author should hold:
+
+- **A single-realm app sees nothing new.** The process you already have is one realm — the **default realm** — and every `reg-*` / `dispatch` / `subscribe` call targets it implicitly. This is the same refinement EP-0002 makes for frames: the default realm is *explicit machinery the runtime creates*, not ambient magic, and the zero-ceremony path stays zero-ceremony. The realm is the analogue of `:rf/default` one level up: a real, runtime-created thing, never synthesised from absence.
+- **Realms are carried, never ambient — the EP-0002 rule, one level up.** When more than one realm exists, a frame-scoped operation reads its realm from the same carrier that identifies its frame (a frame is registered into a realm; an operation runs under that frame's scope). There is no `with-runtime`-style dynamic binding to search — that would re-introduce the exact ambient-context trap EP-0002 deleted for frames, and it breaks for the same async reason (a captured callback outlives the binding). Absence fails loudly with the same no-frame-context family; it never selects a realm.
+
+The payoff lands only when one process must run **two programs side by side** — independent tenants, a feature pack with its own handler graph, or **two adapters at once** (a legacy Reagent root next to a new UIx root, impossible under one-adapter-per-process). Each gets its own realm; the same event id can carry different behaviour in each without collision. A single-product SPA never reaches for it.
+
+> **Not yet a callable API.** `rf/realm`, `rf/app`, `rf/module`, and `rf/install!` are **reserved vocabulary** graduating internal-first — there is no day-one public facade, and you cannot author against them today. Use `rf/realm` for the container concept (never `rf/runtime` — "runtime" already names runtime-db and the runtime subsystems). Treat this section as orientation: it explains why the default realm exists and how realm targeting will follow the carried rule, not a how-to. When the explicit constructors graduate, they will arrive as new surfaces, not a reshape of anything you write now.
+
+If you ever describe a feature slice as a composable **module value** (an app-value fragment), one migration accident is worth flagging: registering the same handler *both* via a top-level `reg-*` (which targets the default realm) *and* by listing it in a module installed into that same realm is a same-id collision, caught loudly — not a silent merge. A module map on its own is inert data with no registration side effect until it is installed.
+
 ## Deeper material
 
 Frame presets in detail, machine-instance teardown contract, the React-context chain through Reagent / Helix / UIx, `dispatch-to-system`: `SKILL-REDIRECT.md` → **EP — Frames (002)**, **EP — State machines (005)**.
