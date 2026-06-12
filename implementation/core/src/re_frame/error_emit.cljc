@@ -303,8 +303,32 @@
   `<artefact>` → `error-emit` require would close a load cycle, or the
   artefact simply ships above core's require graph). Returns nil."
   [record]
-  ;; Corpus-wide listeners fan out (the ADVANCED integration registry).
+  ;; Corpus-wide listeners fan out (the ADVANCED integration registry). The
+  ;; record is delivered UNCHANGED — raw `:exception` and all — because this
+  ;; surface is the off-box-shipper API (Sentry / Datadog need the host
+  ;; exception / stack), NOT privacy-gated like the dev trace; the caller is
+  ;; contracted to keep identifiers tight and carry no raw app-db slice.
   ((:fan-out registry) record)
+  ;; EP-0015 §9 / Spec 015 §Frame-owned observability sink policy
+  ;; (rf2-ntv9i9.1): the frame-owned `:observability :errors` sink route — the
+  ;; NORMAL production error-observation surface. Parallel to the corpus-wide
+  ;; fan-out above, exactly as the event-centric `dispatch-on-error!` routes to
+  ;; `route-error!`: a NON-EVENT union record carrying a resolvable `:frame`
+  ;; ALSO routes to that frame's declared error sinks, PROJECTED under the
+  ;; frame's classification + the sink's egress profile (the flat category
+  ;; slots ride `:tags` → redacted; `:exception` drops under
+  ;; `:rf.egress/public-error`). Before this, the teardown report + the EP-0008
+  ;; SSR promotions reached ONLY the low-level listener registry and bypassed
+  ;; the frame-sink model — leaving the flagship teardown report invisible to
+  ;; the normal Datadog/Sentry sink story. Late-bound (the static
+  ;; `error-emit` → `observability` → `projection` → `elision` require would
+  ;; re-enter this ns's own require graph); the hook is nil (no-op) until
+  ;; `re-frame.observability` loads. Fail-closed + sibling-isolated inside
+  ;; `route-error-record!` (a frameless `:frame nil` record routes nothing —
+  ;; no frame-owned policy exists). Always-on.
+  (when-let [route-error-record! (late-bind/get-fn-cached
+                                   :observability/route-error-record)]
+    (route-error-record! record))
   nil)
 
 ;; ---- frame-teardown report (EP-0008 promotion criterion) ------------------

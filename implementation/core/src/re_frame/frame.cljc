@@ -128,6 +128,22 @@
 (defonce ^:private destroying-frames
   (atom #{}))
 
+;; EP-0008 (rf2-ntv9i9.1): monotonic counter for the per-destroy UNIQUE
+;; transient `:on-destroy`-throw capture listener key. `fire-on-destroy-event!`
+;; installs a listener on the always-on error-emit registry for the duration of
+;; the `:on-destroy` dispatch; the registry keys by id (assoc/dissoc). A
+;; CONSTANT key (the former `::on-destroy-throw-watch`) let an OVERLAPPING /
+;; NESTED destroy — a Spec 002 (rf2-r1ciy) supported shape: an `:on-destroy`
+;; handler destroying a DIFFERENT frame — REPLACE the outer destroy's listener
+;; under the same key, then DROP it on the inner's finally, so the outer's
+;; `:rf.error/handler-exception` was never captured and its dedicated
+;; `:rf.error/on-destroy-handler-exception` discriminator was silently dropped.
+;; A fresh per-invocation key gives each (possibly nested) destroy its own
+;; listener — no clobber, no cross-removal. `defonce` so a hot reload does not
+;; rewind the counter mid-flight.
+(defonce ^:private on-destroy-watch-counter
+  (atom 0))
+
 ;; ---- frame resolution at call sites — the carried invariant ---------------
 ;;
 ;; Per Spec 002 §Frame target resolution — the carried invariant (EP-0002):
@@ -1231,9 +1247,11 @@
   `:rf.error/handler-exception` — `dispatch-sync!` does not re-throw. To
   surface the throw as the dedicated `:rf.error/on-destroy-handler-
   exception` category (Mike's decision), we install a TRANSIENT listener
-  on the ALWAYS-ON error-emit axis for the duration of the dispatch: any
-  `:rf.error/handler-exception` record whose `:frame` matches us is
-  captured and re-emitted under the new category. The always-on axis is
+  on the ALWAYS-ON error-emit axis for the duration of the dispatch under a
+  UNIQUE per-destroy key (rf2-ntv9i9.1 — a constant key let a nested /
+  overlapping destroy clobber the outer's listener and drop its dedicated
+  record): any `:rf.error/handler-exception` record whose `:frame` matches us
+  is captured and re-emitted under the new category. The always-on axis is
   the one surface the router's handler-exception fan-out ALSO rides
   (`re-frame.router/emit-pipeline-exception!` → `error-emit/dispatch-on-
   error!`), so this capture survives `:advanced` + `goog.DEBUG=false`
@@ -1276,7 +1294,15 @@
             ;; guard keeps the install defensive regardless.
             register     (late-bind/get-fn :error-emit/register-error-listener!)
             remove-cb    (late-bind/get-fn :error-emit/unregister-error-listener!)
-            listener-k   ::on-destroy-throw-watch
+            ;; rf2-ntv9i9.1: a UNIQUE per-destroy listener key — NOT a constant.
+            ;; A nested / overlapping destroy (an `:on-destroy` that destroys a
+            ;; different frame, Spec 002 rf2-r1ciy) would otherwise clobber the
+            ;; outer destroy's listener under a shared key and drop the outer's
+            ;; dedicated `:on-destroy-handler-exception`. A fresh key per call
+            ;; gives each extent its own listener.
+            listener-k   [::on-destroy-throw-watch
+                          id
+                          (swap! on-destroy-watch-counter inc)]
             listener     (fn [record]
                            (when (and (= :rf.error/handler-exception (:error record))
                                       (= id (:frame record))
