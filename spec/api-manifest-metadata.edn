@@ -725,6 +725,11 @@
   ["re-frame.machines" "machine-algebra-view"]          {:tier :tooling :owner "005" :status "v1"}
   ["re-frame.machines" "machine-instance-algebra-view"] {:tier :tooling :owner "005" :status "v1"}
   ["re-frame.machines" "machine-selector?"]             {:tier :tooling :owner "005" :status "v1"}
+  ;; rf2-4qmiij — machine-selector edge extractor: the SET of machine ids a
+  ;; selector sub reads, so a graph tool draws the `:selector` edge to the
+  ;; SPECIFIC machine(s), never the cross product. Same JVM-alias / tooling
+  ;; shape as `machine-selector?`.
+  ["re-frame.machines" "machine-selector-targets"]      {:tier :tooling :owner "005" :status "v1"}
 
   ;; =========================================================================
   ;; re-frame.routing — optional artefact (day8/re-frame2-routing), §012.
