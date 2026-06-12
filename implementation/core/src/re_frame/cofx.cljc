@@ -121,16 +121,27 @@
   by the runtime before the interceptor chain runs.
 
   Consumed by event handlers via `inject-cofx` placed in the
-  interceptor-vector slot of `reg-event-{db,fx,ctx}`:
-
-      (rf/reg-cofx :now
-        (fn [ctx]
-          (assoc-in ctx [:coeffects :now] (js/Date.))))
+  interceptor-vector slot of `reg-event-{db,fx,ctx}`. A DURABLE timestamp
+  reads the causal world input (EP-0010 §The World-Input Rule) — the
+  framework stamps `:time-ms` (wall-clock epoch ms) into `:rf.world/inputs`
+  once at the dispatch boundary, so a durable write that folds it stays
+  replay-/restore-/SSR-stable. It is read from the framework coeffect, not
+  a fresh host-clock cofx:
 
       (rf/reg-event-fx :user/save
-        [(rf/inject-cofx :now)]                       ;; <-- inject here
-        (fn [{:keys [db now]} [_ user]]               ;; <-- read here
-          {:db (assoc db :saved-at now :user user)}))
+        (fn [{:keys [db] :rf.world/keys [inputs]} [_ user]] ;; <-- read here
+          {:db (assoc db :saved-at (:time-ms inputs)        ;; durable epoch ms
+                         :user user)}))
+
+  A raw host-clock cofx (`(js/Date.)`) is for DIAGNOSTIC / host-transient
+  reads only — values that never fold into a durable app-db write (a
+  performance probe, a debug stamp). It MUST NOT feed a durable timestamp,
+  or replay / restore would diverge (EP-0010 §The Boundary Is Already
+  Visible):
+
+      (rf/reg-cofx :now-wall                              ;; DIAGNOSTIC only
+        (fn [ctx]
+          (assoc-in ctx [:coeffects :now-wall] (js/Date.))))
 
   Shapes:
 
@@ -172,15 +183,20 @@
   under `cofx-id` and merges its result into the running event
   handler's `:coeffects`.
 
-  Used in the positional interceptor-vector of `reg-event-{db,fx,ctx}`:
+  Used in the positional interceptor-vector of `reg-event-{db,fx,ctx}`. A
+  cofx whose value is genuinely user-injected and recordable (a stub, a
+  fixture seam, a DIAGNOSTIC reading) is the right tool here; a value that
+  feeds a DURABLE app-db write must be a recordable causal input — the
+  framework `:rf.world/inputs` coeffect for time / generated ids (EP-0010),
+  not a fresh ambient host read at the write site:
 
-      (rf/reg-cofx :now
-        (fn [ctx] (assoc-in ctx [:coeffects :now] (js/Date.))))
+      (rf/reg-cofx :stub-config
+        (fn [ctx] (assoc-in ctx [:coeffects :stub-config] {:env :test})))
 
       (rf/reg-event-fx :foo
-        [(rf/inject-cofx :now)]                 ;; <-- interceptor position
-        (fn [{:keys [db now]} _]                ;; <-- read injected value
-          {:db (assoc db :timestamp now)}))
+        [(rf/inject-cofx :stub-config)]         ;; <-- interceptor position
+        (fn [{:keys [db stub-config]} _]        ;; <-- read injected value
+          {:db (assoc db :config stub-config)}))
 
   The handler sees the injected value under the conventional `cofx-id`
   key in its first arg. Some cofx accept a per-call value:

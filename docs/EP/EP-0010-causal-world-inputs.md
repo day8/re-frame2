@@ -452,11 +452,15 @@ and host integrations provide exact world facts.
 If the caller omits `:rf.world/inputs`, the router stamps:
 
 ```clojure
-:rf.world/inputs {:time-ms (interop/now-ms)}
+:rf.world/inputs {:time-ms (interop/epoch-now-ms)}
 ```
 
-The `now-ms` read happens at the causal boundary. It is not repeated inside the
-handler, flow transform, resource reducer, work-ledger writer, or commit path.
+The wall-clock epoch-ms read (`interop/epoch-now-ms` — `js/Date.now()` /
+`System/currentTimeMillis`, **not** the origin-relative `interop/now-ms` /
+`performance.now()`) happens at the causal boundary. It is not repeated inside
+the handler, flow transform, resource reducer, work-ledger writer, or commit
+path. The durable timestamp must be wall-clock epoch ms so it stays comparable
+with `js/Date`-based freshness checks.
 
 Child dispatches produced by `:dispatch` or `:dispatch-later` get their own
 world-input map. They MUST NOT inherit the parent's `:time-ms`, because they are

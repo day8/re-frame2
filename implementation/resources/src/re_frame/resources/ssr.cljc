@@ -1336,7 +1336,46 @@
                                    :reason       (str "restored entry's absolute :stale-at is "
                                                       skew "ms ahead of the live clock — clock "
                                                       "skew makes freshness ambiguous; the next "
-                                                      "live-owner ensure will resolve it.")}})])]
+                                                      "live-owner ensure will resolve it.")}})
+                        ;; rf2-nftz2s §4 — a PENDING mutation instance was
+                        ;; terminally dangled and its DURABLE :settled-at stamped
+                        ;; from the LIVE install clock (`clock-ms`) because NO
+                        ;; causal `:restore-time-ms` was supplied. Per EP-0010
+                        ;; §Time + §Restore/Replay a durable frame-state field
+                        ;; MUST come from the restore's causal time (the restored
+                        ;; epoch's `:committed-at`), never an ambient read at
+                        ;; install — so this is a replay-determinism HAZARD, not
+                        ;; a silent fallback. The pure-unit 1-/2-arity paths
+                        ;; (no token, no real restore epoch) legitimately have no
+                        ;; causal time and install no epoch, so the stamp is never
+                        ;; replayed there; but a PRODUCTION restore that dangles
+                        ;; real pending mutations without threading
+                        ;; `:restore-time-ms` is the seam the bead flags. We
+                        ;; surface it LOUDLY (no-silent-swallow) rather than
+                        ;; refuse — the 3-arity production caller
+                        ;; (`reconcile-runtime-db-on-restore`) always threads the
+                        ;; epoch's `:committed-at`, so this fires only on a
+                        ;; genuinely-missing causal time.
+                        (when (and (seq dangled-mutations) (nil? restore-time-ms))
+                          [{:level :warning
+                            :op    :rf.resource/restore-settled-at-from-live-clock
+                            :tags  {:rf.frame/id        frame-id
+                                    :dangled-mutations  (vec dangled-mutations)
+                                    :settled-at         settled-at
+                                    :reason             (str (count dangled-mutations)
+                                                             " pending mutation instance(s) were "
+                                                             "dangled on restore with NO causal "
+                                                             ":restore-time-ms — their durable "
+                                                             ":settled-at was stamped from the live "
+                                                             "install clock (" settled-at "), which "
+                                                             "is NOT replay-stable (EP-0010 §Time + "
+                                                             "§Restore/Replay). Thread the restored "
+                                                             "epoch's :committed-at as "
+                                                             ":restore-time-ms so the durable stamp "
+                                                             "folds the causal token. (Expected nil "
+                                                             "only on the pure-unit 1-/2-arity, which "
+                                                             "installs no epoch.)")
+                                    :recovery           :restore-reconcile}}])])]
          ;; rf2-nd1r9q — clear the restored frame's HOST-SIDE transients (stale /
          ;; GC timer handles + work-ledger host handles) that the pre-restore
          ;; timeline armed (Spec 016 §Restore and replay part 5). These are NOT

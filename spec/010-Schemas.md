@@ -44,10 +44,12 @@ Every registration accepts an optional `:schema` in its metadata map:
   {:schema [:map [:method :keyword] [:url :string]]}
   http-xhrio-handler)
 
-(rf/reg-cofx :now
+(rf/reg-cofx :now-wall                           ;; DIAGNOSTIC only — not a durable source
   {:schema inst?}
-  (fn [coeffects _] (assoc coeffects :now (js/Date.))))
+  (fn [coeffects _] (assoc coeffects :now-wall (js/Date.))))
 ```
+
+> A raw host-clock cofx like `:now-wall` is for **diagnostic / host-transient** reads — values that never fold into a durable app-db write. A durable timestamp reads the recordable causal world input instead — `(:time-ms (:rf.world/inputs coeffects))`, stamped once at the dispatch boundary so replay / restore / SSR stay deterministic ([EP-0010 §The World-Input Rule](../docs/EP/EP-0010-causal-world-inputs.md), [002 §Causal world inputs](002-Frames.md#causal-world-inputs)).
 
 Machines (per [005 §Schema validation](005-StateMachines.md#schema-validation)) carry `:data-schema` at the top of the machine spec — the value validates the machine's `:data` slot at every macrostep boundary and at bootstrap. The key is named `:data-schema` rather than the bare `:schema` because the machine spec is the only registration surface where the validated value (`:data`) has its own visible sibling key:
 

@@ -135,7 +135,7 @@ Each section below states **inputs**, **outputs**, **invariants**, and **who cal
 
 **Invariants.**
 - Per-frame. Cross-frame dispatch is ordinary async — no drain spans frames ([002 §Run-to-completion §Rules](002-Frames.md#rules)).
-- FIFO. Dispatch ordering is identical to trace's `:dispatched-at` ordering.
+- FIFO. Dispatch ordering is the router's enqueue/dequeue order — identical to the order the trace events are emitted (correlate via `:rf.trace/dispatch-id`). (The retired `:dispatched-at` field is **gone** — see [002 §`:dispatched-at` is retired](002-Frames.md#dispatched-at-is-retired).)
 - The router schedules drain via the interop layer's `next-tick` (CLJS reference: `goog.async.nextTick`); the loop yields between drain cycles so the host's event loop can interleave rendering and other work.
 
 **Note on `:raise`.** `:raise` is **not** a router-layer effect. It is a machine-internal pre-commit queue, drained inside one Level-3 cascade ([005 §Drain semantics §Level 3](005-StateMachines.md#level-3--within-a-single-machine-event)). External observers see the macrostep, never the raise queue.

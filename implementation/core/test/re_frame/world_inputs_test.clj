@@ -120,6 +120,129 @@
           "the framework-required :time-ms is filled in alongside the supplied keys"))))
 
 ;; ===========================================================================
+;; rf2-47lgee / rf2-nftz2s: PUBLIC-boundary validation of a caller-supplied
+;; :rf.world/inputs. A malformed causal token folds into durable writes (the
+;; epoch record's :committed-at, resource :settled-at) and breaks the
+;; deterministic fold, so build-envelope rejects it with a structured
+;; :rf.error/invalid-world-inputs BEFORE stamping — always-on, prod-survivable,
+;; and BEFORE the clock read (a dispatch that cannot proceed never reads the
+;; clock). The pair-tool validated this on its own wire; this pins the central
+;; core boundary that protects ordinary public dispatch.
+;; ===========================================================================
+
+(deftest non-map-world-inputs-is-a-hard-error
+  (testing "a supplied non-map :rf.world/inputs is a hard error (not silently stamped)"
+    (rf/reg-frame :wi/bad-shape {:doc "ctx"})
+    (testing "build-envelope throws even with the dev gate OFF (prod-survivable)"
+      (with-redefs [interop/debug-enabled? false]
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (build-envelope [:noop] {:frame :wi/bad-shape
+                                              :rf.world/inputs "now"}))
+            "a string :rf.world/inputs is rejected, not coerced/stamped")))
+    (testing "the error carries the structured :rf.error/invalid-world-inputs id"
+      (let [ex   (try
+                   (build-envelope [:noop] {:frame :wi/bad-shape
+                                            :rf.world/inputs [:not :a :map]})
+                   nil
+                   (catch clojure.lang.ExceptionInfo e e))
+            data (ex-data ex)]
+        (is (some? ex) "an exception was thrown")
+        (is (= :rf.error/invalid-world-inputs (:rf.error/id data))
+            "the error category is :rf.error/invalid-world-inputs")
+        (is (= [:not :a :map] (:supplied data)) "names the bad supplied value")
+        (is (re-find #":time-ms" (:reason data))
+            "the message explains :time-ms is the durable causal token")
+        (is (= :no-recovery (:recovery data)) "no recovery / no coercion")))))
+
+(deftest non-integer-time-ms-is-a-hard-error
+  (testing "a supplied :time-ms that is not an integer is a hard error"
+    (rf/reg-frame :wi/bad-time {:doc "ctx"})
+    (testing "build-envelope throws on a string :time-ms (even dev-gate OFF)"
+      (with-redefs [interop/debug-enabled? false]
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (build-envelope [:noop] {:frame :wi/bad-time
+                                              :rf.world/inputs {:time-ms "now"}}))
+            "a string :time-ms is rejected (the schema requires :int)")))
+    (testing "nil :time-ms is also rejected (a present-but-nil causal time is malformed)"
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (build-envelope [:noop] {:frame :wi/bad-time
+                                            :rf.world/inputs {:time-ms nil}}))
+          "a nil :time-ms is not an integer — rejected"))
+    (testing "a fractional :time-ms is rejected (epoch ms is an integer)"
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (build-envelope [:noop] {:frame :wi/bad-time
+                                            :rf.world/inputs {:time-ms 1781078400.5}}))
+          "a double :time-ms is not an integer — rejected"))
+    (testing "the error names the bad :time-ms and the integer/epoch-ms contract"
+      (let [ex   (try
+                   (build-envelope [:noop] {:frame :wi/bad-time
+                                            :rf.world/inputs {:time-ms "now"}})
+                   nil
+                   (catch clojure.lang.ExceptionInfo e e))
+            data (ex-data ex)]
+        (is (= :rf.error/invalid-world-inputs (:rf.error/id data))
+            "the error category is :rf.error/invalid-world-inputs")
+        (is (= "now" (:time-ms data)) "names the bad :time-ms value")
+        (is (re-find #"INTEGER" (:reason data))
+            "the message states the integer/epoch-ms contract")))))
+
+(deftest valid-world-inputs-shapes-pass
+  (testing "the valid shapes the validator must NOT reject"
+    (rf/reg-frame :wi/valid {:doc "ctx"})
+    (testing "nil :rf.world/inputs passes (the router stamps a fresh map)"
+      (is (number? (get-in (build-envelope [:noop] {:frame :wi/valid
+                                                    :rf.world/inputs nil})
+                           [:rf.world/inputs :time-ms]))
+          "a nil supplied value is filled with a stamped :time-ms"))
+    (testing "an integer :time-ms passes verbatim"
+      (is (= 1781078400123
+             (get-in (build-envelope [:noop] {:frame :wi/valid
+                                              :rf.world/inputs {:time-ms 1781078400123}})
+                     [:rf.world/inputs :time-ms]))
+          "a valid integer :time-ms rides through preserved"))
+    (testing "a map with NO :time-ms passes (the router fills it)"
+      (let [world (get (build-envelope [:noop]
+                                       {:frame :wi/valid
+                                        :rf.world/inputs {:uuid {:todo/id 1}}})
+                       :rf.world/inputs)]
+        (is (= {:todo/id 1} (:uuid world)) "the supplied :uuid rides through")
+        (is (number? (:time-ms world)) "the missing :time-ms is filled")))))
+
+(deftest invalid-world-inputs-rejected-before-clock-read
+  ;; Mirrors retired-dispatched-at-rejected-before-world-input-clock-read: the
+  ;; validation runs BEFORE the world-input clock stamp, so an invalid token
+  ;; fails fast WITHOUT triggering the always-on epoch-now-ms read for a
+  ;; dispatch that cannot proceed. Redefine epoch-now-ms to throw a distinct
+  ;; marker; if the clock is read before validation, that marker surfaces.
+  (testing "a malformed :rf.world/inputs throws the validation error WITHOUT
+            reading the world-input clock first"
+    (rf/reg-frame :wi/order2 {:doc "ctx"})
+    (with-redefs [interop/epoch-now-ms
+                  (fn [] (throw (ex-info "clock read before validation"
+                                         {::clock-read true})))]
+      (let [ex   (try
+                   (build-envelope [:noop] {:frame :wi/order2
+                                            :rf.world/inputs {:time-ms "now"}})
+                   nil
+                   (catch clojure.lang.ExceptionInfo e e))
+            data (ex-data ex)]
+        (is (some? ex) "an exception was thrown")
+        (is (not (::clock-read data))
+            "the world-input clock was NOT read before validation — failed fast")
+        (is (= :rf.error/invalid-world-inputs (:rf.error/id data))
+            "the surfaced error is the validation error, proving it ran first")))))
+
+(deftest invalid-world-inputs-raised-through-full-dispatch
+  (testing "the full dispatch path (not just build-envelope) raises the validation error"
+    (rf/reg-frame :wi/dispatch-bad {:doc "ctx"})
+    (rf/reg-event-db :wi/bad-noop (fn [db _] db))
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (rf/dispatch-sync [:wi/bad-noop]
+                                   {:frame :wi/dispatch-bad
+                                    :rf.world/inputs {:time-ms "now"}}))
+        "dispatch-sync surfaces the malformed-token error synchronously")))
+
+;; ===========================================================================
 ;; Child dispatch gets its OWN world-input map (no :time-ms inheritance)
 ;; ===========================================================================
 
