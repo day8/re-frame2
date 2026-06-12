@@ -53,21 +53,34 @@ are kept here as a closed record and no longer reopen any ruling:
 - **`rf2-8k9vk2`** *(fixed — review)* — correctness + completeness review of the
   whole EP-0008 wave against this EP and Mike's ruling; follow-ups filed.
 
-### Open follow-ups
+### Resolved follow-ups
 
 The `rf2-iq51qu` audit promoted GAP-1 (`rf2-500ech`, `write-after-destroy`) and
 GAP-3 (`rf2-7b9r4l`, `on-destroy-handler-exception`) onto the always-on axis —
-both **fixed** and closed. Two items remain genuinely open and do **not** reopen
-any ruling:
+both **fixed** and closed. The two items the audit had left for a later call are
+now **also closed**; neither reopens any ruling:
 
-- **`rf2-hhutya`** *(open — operator decision)* — the SSR-specific recoverable
-  degradation members (`ssr-head-resolution-failed`, `sanitised-on-projection`)
-  ride only the DCE'd / JVM-gated `trace/emit-error!`; whether the deliberate
-  degraded-200 path should also surface off-box telemetry is a call for Mike, not
-  a silent drop.
-- **`rf2-r8oiw7`** *(open — catalogue hygiene, P4)* — co-edit-invariant gap:
-  several emitted-but-uncatalogued `:rf.*` categories should appear in the Spec 009
-  catalogue. These all fail the promotion criterion (not promotion gaps).
+- **`rf2-hhutya`** *(fixed — PR #3986, impl/spec)* — the SSR-specific recoverable
+  degradation members rode only the DCE'd / JVM-gated `trace/emit-error!`. Mike's
+  call was to surface the degraded-200 path off-box: the build promoted **seven**
+  SSR error categories (`ssr-render-failed`, `ssr-streaming-writer-failed`,
+  `malformed-hydration-payload` — incl. the pre-frame frameless parse path,
+  `ssr-head-resolution-failed`, `sanitised-on-projection`,
+  `ssr-ring-error-view-failed`) onto the always-on error-emit axis through the
+  general non-event `dispatch-error-record!` union helper, and **demoted** two
+  (`resource-ssr-blocking-timeout`, `resource-route-blocking`) — kept diagnostic
+  with a named-home note (their failure is recorded in observable resource/route
+  state, failing the promotion criterion's leg 2). Spec 009 / 011 updated in the
+  same PR.
+- **`rf2-r8oiw7`** *(fixed — PR #4022, catalogue, P4)* — the co-edit-invariant
+  gap: every emitted-but-uncatalogued `:rf.*` category was catalogued as a
+  **diagnostic** Spec 009 row (each cited emit-site verified), the conformance
+  scan's `out-of-catalogue-allow-list` was drained to empty, and two categories
+  were ruled intentionally-out-of-catalogue with a one-line 009 note
+  (`:rf.route/navigation-blocked`, the retired
+  `:rf.warning/plain-fn-under-non-default-frame-once`). The catalogued rows all
+  fail the promotion criterion and correctly stay diagnostic. The source-side
+  retirement of the dead `plain-fn` emit followed as `rf2-7yqn39` (closed).
 
 ## Abstract
 
