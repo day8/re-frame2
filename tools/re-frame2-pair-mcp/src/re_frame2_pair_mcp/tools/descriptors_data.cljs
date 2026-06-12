@@ -282,7 +282,7 @@
                      "vectors + per-frame top-keys, NOT the full app-db. Drill via list-handlers / "
                      "list-subscriptions / snapshot / get-path / read-sub. "
                      "Examples: "
-                     "1. Orient an unfamiliar app: {} -> {:ok? true :liveness {:debug-enabled? true :frame-count 2 :app-frame-count 1 :ambiguous-frame? false} :frames {:all [:rf/default :rf/xray] :app [:rf/default] :operating :rf/default} :app-db-top-keys {:rf/default [:cart :route :user]} :registry {:counts {:event 14 :sub 9 :fx 3 :cofx 1 :view 6 :frame 2 :route 4 :flow 0 :head 0 :error-projector 0} :events [:cart/add :cart/checkout ...] :subs [:cart/total :current-user ...] :fx [:http :navigate :persist]} :machines [:checkout]}. "
+                     "1. Orient an unfamiliar app: {} -> {:ok? true :liveness {:debug-enabled? true :frame-count 2 :app-frame-count 1 :ambiguous-frame? false} :frames {:all [:rf/default :rf/xray] :app [:rf/default] :operating :rf/default} :app-db-top-keys {:rf/default [:cart :route :user]} :registry {:counts {:event 14 :sub 9 :fx 3 :cofx 1 :view 6 :frame 2 :route 4 :flow 0 :head 0 :error-projector 0 :resource 0 :mutation 0 :resource-scope 0} :events [:cart/add :cart/checkout ...] :subs [:cart/total :current-user ...] :fx [:http :navigate :persist]} :machines [:checkout]}. "
                      "2. Production build (debug off): {} -> {:ok? true :liveness {:debug-enabled? false ...} ...} — trace/epoch surfaces elide, but the registry/frame shape still answers.")
    :typicalTokens 600
    :annotations idempotent-read-only-annotations
@@ -1459,8 +1459,17 @@
                      "— `where is :user/login registered?`, `what does sub "
                      ":current-user look like?`, `which file owns the :navigate "
                      "fx?`. Supported kinds: event, sub, fx, cofx, view, frame, "
-                     "route, flow, head, error-projector, machine — the closed "
-                     "v1 registrar set (per Spec 001 §Registry model). App-db "
+                     "route, flow, head, error-projector, resource, mutation, "
+                     "resource-scope, machine — the closed "
+                     "v1 registrar set (per Spec 001 §Registry model; the three "
+                     "resources-artefact kinds are EP-0016). For resource-scope, "
+                     "the meta surfaces a named scope resolver's declared :inputs "
+                     "map + :whole-db? cost (the EP-0016 disposition-2 "
+                     "inspectability promise — which app facts decide a cache "
+                     "scope); resource/mutation surface their scope policy + "
+                     "declared cache consequences. Nested handler fns "
+                     "(:request/:tags/:invalidates/:populates/:resolve) ride as "
+                     "the :rf/fn sentinel so the meta is EDN-clean. App-db "
                      "schemas are NOT a registrar kind (rf2-cq1ak) — their "
                      "metadata lives in the schemas artefact's per-frame side-"
                      "table, queried via `rf/app-schemas` /  "
@@ -1479,8 +1488,8 @@
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:kind {:type "string"
-                                     :description "Registrar kind. One of event, sub, fx, cofx, view, frame, route, flow, head, error-projector, machine."
-                                     :enum ["event" "sub" "fx" "cofx" "view" "frame" "route" "flow" "head" "error-projector" "machine"]}
+                                     :description "Registrar kind. One of event, sub, fx, cofx, view, frame, route, flow, head, error-projector, resource, mutation, resource-scope, machine."
+                                     :enum ["event" "sub" "fx" "cofx" "view" "frame" "route" "flow" "head" "error-projector" "resource" "mutation" "resource-scope" "machine"]}
                               :id   {:type "string"
                                      :description (str "EDN-encoded id, e.g. \":user/login\". For "
                                                        "composite-key subs, pass the vector form "
@@ -1507,8 +1516,13 @@
                      "surface — agents call this first to find out what's "
                      "registered, then `handler-meta` to drill into a specific "
                      "id. Supported kinds: event, sub, fx, cofx, view, frame, "
-                     "route, flow, head, error-projector, machine — the closed "
-                     "v1 registrar set (per Spec 001 §Registry model). App-db "
+                     "route, flow, head, error-projector, resource, mutation, "
+                     "resource-scope, machine — the closed "
+                     "v1 registrar set (per Spec 001 §Registry model; the three "
+                     "resources-artefact kinds are EP-0016). `list-handlers "
+                     "{kind \"resource-scope\"}` enumerates the named scope "
+                     "resolvers on a resources app — drill any with "
+                     "`handler-meta` for its declared :inputs. App-db "
                      "schemas are NOT a registrar kind (rf2-cq1ak) — use "
                      "`rf/app-schemas` for schema enumeration. The `machine` "
                      "kind lists every event handler flagged `:rf/machine? "
@@ -1520,14 +1534,15 @@
                      "Examples: "
                      "1. List events: {:kind \"event\"} -> {:ok? true :kind :event :ids [:cart/add :cart/checkout :user/login ...] :count 47}. "
                      "2. List subs: {:kind \"sub\"} -> {:ok? true :kind :sub :ids [:current-user :cart/items ...] :count 23}. "
-                     "3. List machines: {:kind \"machine\"} -> {:ok? true :kind :machine :ids [:auth/session :checkout/flow] :count 2}.")
+                     "3. List scope resolvers: {:kind \"resource-scope\"} -> {:ok? true :kind :resource-scope :ids [:realworld/session] :count 1}. "
+                     "4. List machines: {:kind \"machine\"} -> {:ok? true :kind :machine :ids [:auth/session :checkout/flow] :count 2}.")
    :typicalTokens 800
    :annotations idempotent-read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:kind {:type "string"
-                                     :description "Registrar kind. One of event, sub, fx, cofx, view, frame, route, flow, head, error-projector, machine."
-                                     :enum ["event" "sub" "fx" "cofx" "view" "frame" "route" "flow" "head" "error-projector" "machine"]}
+                                     :description "Registrar kind. One of event, sub, fx, cofx, view, frame, route, flow, head, error-projector, resource, mutation, resource-scope, machine."
+                                     :enum ["event" "sub" "fx" "cofx" "view" "frame" "route" "flow" "head" "error-projector" "resource" "mutation" "resource-scope" "machine"]}
                               :realm {:type "string"
                                       :description (str "OPTIONAL realm-id keyword (EP-0013), e.g. "
                                                         "\":shop/realm\". Omit for the default realm "

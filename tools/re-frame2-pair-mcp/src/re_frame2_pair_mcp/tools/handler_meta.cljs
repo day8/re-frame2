@@ -35,13 +35,14 @@
   immediate jump-to-editor link off the handler-meta response.
 
   Supported kinds: `event`, `sub`, `fx`, `cofx`, `view`, `frame`,
-  `route`, `flow`, `head`, `error-projector`, `machine` — the closed
-  v1 registrar set (per Spec 001 §Registry model). App-db schemas are
-  NOT a registrar kind (rf2-cq1ak); their metadata lives in the
-  schemas artefact's per-frame side-table, surfaced via
-  `rf/app-schemas` / `rf/app-schema-meta-at`. The ten registrar kinds
-  map directly to `rf/handler-meta`; `machine` routes through the
-  dedicated `rf/machine-meta` surface (Spec 005 §Querying machines —
+  `route`, `flow`, `head`, `error-projector`, `resource`, `mutation`,
+  `resource-scope`, `machine` — the closed v1 registrar set (per Spec
+  001 §Registry model; the three resources-artefact kinds are EP-0016 /
+  rf2-f8s9g6). App-db schemas are NOT a registrar kind (rf2-cq1ak);
+  their metadata lives in the schemas artefact's per-frame side-table,
+  surfaced via `rf/app-schemas` / `rf/app-schema-meta-at`. The thirteen
+  registrar kinds map directly to `rf/handler-meta`; `machine` routes
+  through the dedicated `rf/machine-meta` surface (Spec 005 §Querying machines —
   machines are registered as `:event` handlers carrying
   `:rf/machine? true` with their spec in the `:rf/machine` slot, and
   `machine-meta` unwraps that slot).
@@ -57,10 +58,11 @@
   out what's registered, then `handler-meta` to drill in.
 
   For every registrar kind (`event` / `sub` / `fx` / `cofx` / `view`
-  / `frame` / `route` / `flow` / `head` / `error-projector`) the list
-  comes from `re-frame2-pair.runtime/registrar-list`. For `machine`
-  the list comes from `re-frame.core/machines` — every event handler
-  flagged `:rf/machine? true`.
+  / `frame` / `route` / `flow` / `head` / `error-projector` /
+  `resource` / `mutation` / `resource-scope`) the list comes from
+  `re-frame2-pair.runtime/registrar-list`. For `machine` the list
+  comes from `re-frame.core/machines` — every event handler flagged
+  `:rf/machine? true`.
 
   ## Why not `eval-cljs`?
 
@@ -88,14 +90,28 @@
 
 (def ^:private registrar-kinds
   "Kinds that map directly to the registrar's `kind->id->metadata`
-  table — the closed v1 registrar set (per Spec 001 §Registry model).
+  table — the closed v1 registrar set (per Spec 001 §Registry model),
+  including the three resources-artefact kinds `:resource` / `:mutation`
+  / `:resource-scope` (Spec 001 §Registry model — `reg-resource` /
+  `reg-mutation` / `reg-resource-scope`; EP-0016 / rf2-f8s9g6). They
+  enumerate / describe through the same kind-agnostic
+  `re-frame2-pair.runtime/registrar-list` + `registrar-describe`
+  accessors as every other kind — so `list-handlers {kind \"resource-scope\"}`
+  enumerates the named scope resolvers and `handler-meta {kind
+  \"resource-scope\" id …}` surfaces a resolver's declared `:inputs` +
+  `:whole-db?` cost (the EP-0016 disposition-2 inspectability promise).
+  `registrar-describe`'s `strip-fns` (rf2-f8s9g6) keeps the nested handler
+  fns (`:request` / `:tags` / `:invalidates` / `:populates` / `:resolve`)
+  off the EDN wire so the serializable structure rides cleanly.
+
   App-db schemas (rf2-cq1ak) are intentionally absent — they are NOT
   a registrar kind; their metadata lives in the schemas artefact's
   per-frame side-table. `machine` is intentionally absent here too —
   it routes through `rf/machine-meta` (which inspects `:event`-kind
   metadata for the `:rf/machine?` flag) — but is in `supported-kinds`
   below."
-  #{:event :sub :fx :cofx :view :frame :route :flow :head :error-projector})
+  #{:event :sub :fx :cofx :view :frame :route :flow :head :error-projector
+    :resource :mutation :resource-scope})
 
 (def ^:private supported-kinds
   "The full set of kinds the tool accepts. The ten registrar kinds

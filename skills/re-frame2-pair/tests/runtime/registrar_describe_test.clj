@@ -88,5 +88,42 @@
  "friendly substitute consumers (hot-reload probing, tail-build) "
  "actually use. Dropping it would silently break those flows.")))
 
+(deftest registrar-describe-strips-nested-fns
+ (is (form-contains? (fn [node] (= 'strip-fns node))
+ registrar-describe-form)
+ (str "registrar-describe MUST run `strip-fns` over the meta map so the "
+ "resources-artefact kinds (`:resource` / `:mutation` / "
+ "`:resource-scope`, EP-0016 / rf2-f8s9g6) serialize cleanly. Their "
+ "spec lives under `:rf/resource` / `:rf/mutation` / `:rf/resource-scope` "
+ "with NESTED handler fns (`:request` / `:tags` / `:invalidates` / "
+ "`:populates` / `:resolve`). Dropping only the top-level `:handler-fn` "
+ "leaves those nested handles, so the response still `pr-str`s to "
+ "`#object[Function]` and trips the wire codec's `:unserializable` "
+ "path — hiding the inspectable structure (a resolver's `:inputs` map "
+ "+ `:whole-db?` cost, the EP-0016 disposition-2 promise). See rf2-f8s9g6.")))
+
+(def ^:private strip-fns-form
+ ;; `strip-fns` is a private `defn-`, so match both `defn` and `defn-`.
+ (some (fn [form]
+ (when (and (seq? form)
+ (contains? #{'defn 'defn-} (first form))
+ (= 'strip-fns (second form)))
+ form))
+ all-forms))
+
+(deftest strip-fns-defn-present
+ (is (some? strip-fns-form)
+ (str "preload/re_frame2_pair/runtime.cljs must define `strip-fns` — the "
+ "recursive fn→`:rf/fn` sentinel walker registrar-describe uses to keep "
+ "nested handler fns off the EDN wire (rf2-f8s9g6).")))
+
+(deftest strip-fns-handles-fn-and-recurses
+ (is (and (form-contains? (fn [node] (= 'fn? node)) strip-fns-form)
+ (form-contains? (fn [node] (= 'map? node)) strip-fns-form))
+ (str "strip-fns must test `fn?` (replace a Function with the sentinel) AND "
+ "recurse through `map?` collections (the nested spec slots live under "
+ "`:rf/resource-scope` etc.). A flat top-level-only strip would leave the "
+ "nested `:resolve` / `:request` fns on the wire.")))
+
 (let [{:keys [fail error]} (run-tests 'registrar-describe-test)]
  (System/exit (if (zero? (+ (or fail 0) (or error 0))) 0 1)))
