@@ -112,6 +112,19 @@ Two elision layers compose:
    fails closed with `:reason :missing-key` (a partial key cannot address
    an entry).
 
+The same `instance-row` per-slot egress seam carries the EP-0015 **on-box
+local-render** default (`:rf.egress/local-redacted`, Spec 015 §Projection
+profiles + §The graduation gate; `panels/local-render`). When a panel routes
+the payload values (scope / params / `:data` / `:error`) through
+`local-render-value` keyed on the **observed frame** before `summarize`, the
+frame's declared `:sensitive` LEAVES become `:rf/redacted` in place (the local
+operator still sees large values — the `include-large?` overlay) while the
+metadata projects from the raw entry; an **unreachable observed frame fails
+closed** (the whole value redacts, so the summary preview is `[redacted]`)
+rather than ship raw under no policy. Pinned by
+`resources_local_render_cljs_test` — the Resources-arm complement to the
+App-DB arm's `local_render_cljs_test` (rf2-t55hxg.15).
+
 Resource **history is bounded** (the accessor `:limit`, default 50).
 
 ## Panel sections (top → bottom)
