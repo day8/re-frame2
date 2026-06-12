@@ -137,8 +137,8 @@
   {:namespace "re-frame.core", :var "head-snapshot", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "init!", :tier :front-porch, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "init-platform", :tier :advanced, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "inject-cofx", :tier :front-porch, :kind :macro, :owner "002", :status "v1 (preserved)", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "inject-cofx*", :tier :advanced, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "inject-cofx", :tier :deprecated, :kind :macro, :owner "002", :status "v1 (removed, EP-0017)", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "inject-cofx*", :tier :deprecated, :kind :fn, :owner "002", :status "v1 (removed, EP-0017)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "install!", :tier :advanced, :kind :fn, :owner "Runtime-Subsystems", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "install-adapter!", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "install-history-listener!", :tier :advanced, :kind :fn, :owner "012", :status "v1", :facade? true, :runtime-verified? true}
@@ -169,7 +169,7 @@
   {:namespace "re-frame.core", :var "redact-matching-values", :tier :tooling, :kind :fn, :owner "015", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "reg-app-schema", :tier :advanced, :kind :macro, :owner "010", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "reg-app-schemas", :tier :advanced, :kind :macro, :owner "010", :status "v1", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "reg-cofx", :tier :front-porch, :kind :macro, :owner "002", :status "v1 (preserved)", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "reg-cofx", :tier :front-porch, :kind :macro, :owner "002", :status "v1 (changed, EP-0017)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "reg-error-projector", :tier :advanced, :kind :macro, :owner "011", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "reg-event-ctx", :tier :advanced, :kind :macro, :owner "002", :status "v1 (preserved + extended)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "reg-event-db", :tier :front-porch, :kind :macro, :owner "002", :status "v1 (preserved + extended)", :facade? true, :runtime-verified? true}

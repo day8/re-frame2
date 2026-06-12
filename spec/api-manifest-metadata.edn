@@ -307,7 +307,15 @@
   ["re-frame.core" "reg-event-ctx"]       {:tier :advanced    :owner "002" :status "v1 (preserved + extended)"}
   ["re-frame.core" "reg-sub"]             {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
   ["re-frame.core" "reg-fx"]              {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
-  ["re-frame.core" "reg-cofx"]            {:tier :front-porch :owner "002" :status "v1 (preserved)"}
+  ;; EP-0017 (rf2-m4l7l2): `reg-cofx`'s signature is a BREAKING change, not a
+  ;; preservation — the v1 ctx→ctx handler `(fn [ctx] ctx)` is retired for a
+  ;; value-returning supplier `(fn [] v)` / `(fn [arg] v)` plus a registration
+  ;; grade (ambient default, or recordable via `:recordable?`/`:provided?`).
+  ;; Still a real front-porch registrar, so the tier holds; the status moves
+  ;; off "v1 (preserved)" to "v1 (changed, EP-0017)" (cf. spec/API.md §Registration,
+  ;; which carries Status `EP-0017` for this row). See spec/001-Registration.md
+  ;; §Coeffects — `reg-cofx` (value-returning, graded).
+  ["re-frame.core" "reg-cofx"]            {:tier :front-porch :owner "002" :status "v1 (changed, EP-0017)"}
   ["re-frame.core" "reg-frame"]           {:tier :front-porch :owner "002" :status "v1"}
   ["re-frame.core" "make-frame"]          {:tier :advanced    :owner "002" :status "v1"}
   ["re-frame.core" "reg-view"]            {:tier :front-porch :owner "004" :status "v1"}
@@ -406,8 +414,20 @@
   ;; Interceptor authoring (spec/API.md §Interceptors).
   ["re-frame.core" "->interceptor"]       {:tier :front-porch :owner "002" :status "v1 (preserved)"}
   ["re-frame.core" "->interceptor*"]      {:tier :advanced :owner "002" :status "v1"}
-  ["re-frame.core" "inject-cofx"]         {:tier :front-porch :owner "002" :status "v1 (preserved)"}
-  ["re-frame.core" "inject-cofx*"]        {:tier :advanced :owner "002" :status "v1"}
+  ;; EP-0017 (rf2-m4l7l2): `inject-cofx` / `inject-cofx*` — the v1 ctx→ctx
+  ;; coeffect-injection interceptors — are REMOVED (EP-0017 slice A, no alias;
+  ;; spec/API.md §Standard interceptors). The vars are retained ONLY as throwing
+  ;; stubs (the hard error `:rf.error/inject-cofx-removed`, naming `:rf.cofx/requires`)
+  ;; so a stale call site fails LOUDLY rather than as an opaque "no such var" —
+  ;; so the manifest ROW is correct (the var is still a live facade export), but
+  ;; the classification was stale. `:front-porch`/`:advanced` (recommended entry
+  ;; surfaces) + "v1 (preserved)"/"v1" were exactly wrong for removed stubs. The
+  ;; apt closed-vocab tier (spec/API.md §Tier taxonomy) is `:deprecated` — "on
+  ;; the way out, migrate off"; coeffect delivery is now declared via the
+  ;; handler's `:rf.cofx/requires` registration metadata against a value-returning
+  ;; `reg-cofx` supplier. Status reads "v1 (removed, EP-0017)".
+  ["re-frame.core" "inject-cofx"]         {:tier :deprecated :owner "002" :status "v1 (removed, EP-0017)"}
+  ["re-frame.core" "inject-cofx*"]        {:tier :deprecated :owner "002" :status "v1 (removed, EP-0017)"}
   ["re-frame.core" "get-coeffect"]        {:tier :advanced :owner "002" :status "v1 (preserved)"}
   ["re-frame.core" "assoc-coeffect"]      {:tier :advanced :owner "002" :status "v1 (preserved)"}
   ["re-frame.core" "get-effect"]          {:tier :advanced :owner "002" :status "v1 (preserved)"}
