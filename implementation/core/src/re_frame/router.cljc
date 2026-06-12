@@ -219,12 +219,25 @@
         ;; is a correctness contract that must fire in production too — see
         ;; `reject-retired-dispatch-opts!`.
         _                  (diag/reject-retired-dispatch-opts! opts event)
+        ;; EP-0010 (rf2-47lgee / rf2-nftz2s): VALIDATE a caller-supplied
+        ;; `:rf.world/inputs` at the PUBLIC dispatch boundary BEFORE the clock
+        ;; stamp below — a supplied value must be nil-or-map and a supplied
+        ;; `:time-ms` must be an integer (Spec 002 §The World-Input Rule +
+        ;; Spec-Schemas.md §:rf.world/inputs). A malformed causal token is not
+        ;; a harmless typo: it folds straight into durable writes (the epoch
+        ;; record's `:committed-at`, resource `:settled-at`) and breaks the
+        ;; deterministic fold / replay. Always-on (a corrupt durable token is a
+        ;; production correctness contract); fails fast WITHOUT reading the
+        ;; clock for a dispatch that cannot proceed — same fail-before-clock-
+        ;; read ordering as the retirement check above. See
+        ;; `diag/validate-world-inputs!`.
+        _                  (diag/validate-world-inputs! opts event)
         ;; EP-0010 §Dispatch Envelope Stamping (rf2-s9ss0t): the CAUSAL
         ;; BOUNDARY — ensure `:rf.world/inputs` carries `:time-ms`, the one
         ;; host-clock read durable writes fold. `ensure-world-inputs` owns the
         ;; preserve-supplied / fill-missing-`:time-ms` shape contract (see the
-        ;; section comment on the helper above). Stamped AFTER the retirement
-        ;; check so an invalid dispatch never reads the clock.
+        ;; section comment on the helper above). Stamped AFTER the retirement +
+        ;; validation checks so an invalid dispatch never reads the clock.
         world-inputs       (ensure-world-inputs (:rf.world/inputs opts))
         ;; Per rf2-jbzhj: surface unrecognised opts keys (typically a typo'd
         ;; opt like `:fram` for `:frame`) rather than silently swallowing

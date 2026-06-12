@@ -174,6 +174,89 @@
                                        "is no back-compat alias.")
                      :recovery    :no-recovery}))))
 
+(defn validate-world-inputs!
+  "Throw `:rf.error/invalid-world-inputs` when a caller-supplied
+  `:rf.world/inputs` is structurally malformed at the PUBLIC dispatch
+  boundary (rf2-47lgee / rf2-nftz2s).
+
+  EP-0010 makes `:rf.world/inputs` the durable causal token: its `:time-ms`
+  is the one host-clock fact durable writes fold (Spec 002 §The World-Input
+  Rule), and replay / restore / SSR-hydration feed it verbatim. So a
+  malformed token is not a harmless typo — a non-map supplied value, or a
+  non-integer `:time-ms`, propagates straight into durable-write code (the
+  epoch record's `:committed-at`, resource `:settled-at`, …) and makes the
+  fold dishonest. The pair-tool (`re-frame2-pair-mcp.tools.args/parse-world-
+  inputs`) already validates its own wire shape, but that does NOT protect
+  ordinary public `dispatch` / `dispatch-sync`; a single central validator
+  at the dispatch boundary is simpler to reason about than relying on every
+  caller / tool to validate (rf2-nftz2s §1).
+
+  The contract MIRRORS `WorldInputs` (Spec-Schemas.md §:rf.world/inputs):
+
+    - a supplied `:rf.world/inputs` MUST be nil or a MAP (`nil` ⇒ the router
+      stamps a fresh map — the ordinary live-dispatch path);
+    - a supplied `:time-ms` MUST be an integer (wall-clock epoch ms — the
+      schema's lone required-on-the-envelope key).
+
+  Other slots (`:uuid` / `:random` / `:storage` / browser facts) ride
+  through unvalidated here — they are open, subsystem-qualified, and a
+  narrower spec / schema gate is the deeper check; this is the cheap
+  structural shape gate that stops the two shapes that corrupt the durable
+  fold.
+
+  ALWAYS-ON — NOT gated on `interop/debug-enabled?`: like
+  `reject-retired-dispatch-opts!`, a corrupt causal token is a correctness
+  contract that must fail fast in `:advanced` + `goog.DEBUG=false`
+  production too (a non-integer `:time-ms` folded into a durable timestamp
+  is a production data-integrity bug, not a dev nicety). The cost is a
+  `contains?` + a `map?` / `int?` check on the dispatch path — no allocation
+  unless the caller supplied a `:rf.world/inputs`.
+
+  Checked at the causal boundary in `re-frame.router/build-envelope` BEFORE
+  `ensure-world-inputs` stamps `:time-ms`, so an invalid token fails fast
+  WITHOUT first reading the clock for a dispatch that cannot proceed (the
+  same fail-before-clock-read ordering as the retirement check). Per Spec
+  002 §The World-Input Rule + EP-0010 §Time."
+  [opts event]
+  (when (contains? opts :rf.world/inputs)
+    (let [supplied (:rf.world/inputs opts)]
+      (when-not (or (nil? supplied) (map? supplied))
+        (throw (ex-info ":rf.error/invalid-world-inputs"
+                        {:rf.error/id :rf.error/invalid-world-inputs
+                         :where       're-frame.router/build-envelope
+                         :event-id    (first event)
+                         :event       event
+                         :supplied    supplied
+                         :reason      (str ":rf.world/inputs must be nil or a MAP "
+                                           "of causal world facts (Spec 002 §The "
+                                           "World-Input Rule), got "
+                                           (pr-str supplied)
+                                           ". The map's `:time-ms` (wall-clock "
+                                           "epoch ms) is the durable causal token "
+                                           "durable writes fold; a non-map value "
+                                           "cannot carry it.")
+                         :recovery    :no-recovery})))
+      (when (and (map? supplied)
+                 (contains? supplied :time-ms)
+                 (not (int? (:time-ms supplied))))
+        (throw (ex-info ":rf.error/invalid-world-inputs"
+                        {:rf.error/id :rf.error/invalid-world-inputs
+                         :where       're-frame.router/build-envelope
+                         :event-id    (first event)
+                         :event       event
+                         :time-ms     (:time-ms supplied)
+                         :reason      (str ":rf.world/inputs :time-ms must be an "
+                                           "INTEGER (wall-clock epoch milliseconds "
+                                           "— Spec-Schemas.md §:rf.world/inputs), "
+                                           "got " (pr-str (:time-ms supplied))
+                                           ". This value becomes the durable "
+                                           "causal time the frame fold reads "
+                                           "(epoch `:committed-at`, resource "
+                                           "`:settled-at`, …); a non-integer "
+                                           "corrupts the durable fold and breaks "
+                                           "replay determinism.")
+                         :recovery    :no-recovery}))))))
+
 (defn unknown-dispatch-opts
   "Return the seq of keys in `opts` that fall OUTSIDE
   `known-dispatch-opts`, or nil when every key is known (so callers can

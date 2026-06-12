@@ -373,6 +373,48 @@
           (is (= live-sentinel (get-in out [mstate/mutations-key :inst-1 :settled-at]))
               "no causal time supplied → the unit path falls back to the live clock"))))))
 
+(deftest dangling-mutation-without-restore-time-warns-loudly
+  ;; rf2-nftz2s §4 — when a PENDING mutation instance is terminally dangled on
+  ;; restore but NO causal :restore-time-ms was supplied, its durable :settled-at
+  ;; is stamped from the live install clock — a replay-determinism hazard. The
+  ;; live-clock fallback is KEPT (the pure-unit path has no causal time), but it
+  ;; is no longer SILENT: a :rf.resource/restore-settled-at-from-live-clock
+  ;; warning fires so a production restore that forgot to thread :restore-time-ms
+  ;; is loud, not a quiet footgun (no-silent-swallow).
+  (let [pending (mutation-instance {:instance-id :inst-1
+                                    :work-id [:rf.work/resource [:rf.mutation :inst-1 3] 3]})
+        rdb {mstate/mutations-key {:inst-1 pending}}
+        recorder (fn []
+                   (let [seen (atom [])
+                         k    ::live-clock-warn-recorder]
+                     (trace-tooling/register-listener!
+                       k (fn [ev] (when (= :rf.resource/restore-settled-at-from-live-clock
+                                           (:operation ev))
+                                    (swap! seen conj ev))))
+                     [seen (fn [] (trace-tooling/unregister-listener! k))]))]
+    (testing "dangling a pending mutation with NO :restore-time-ms warns loudly"
+      (let [[seen unregister!] (recorder)]
+        (try (ssr/reconcile-on-restore rdb :app/main)
+             (finally (unregister!)))
+        (is (= 1 (count @seen))
+            "exactly one restore-settled-at-from-live-clock warning fired")
+        (is (= [:inst-1] (:dangled-mutations (:tags (first @seen))))
+            "the warning names the dangled instance whose :settled-at is unstable")))
+    (testing "supplying a causal :restore-time-ms suppresses the warning (the
+              durable stamp folds the causal token — replay-stable)"
+      (let [[seen unregister!] (recorder)]
+        (try (ssr/reconcile-on-restore rdb :app/main {:restore-time-ms 1781078400777})
+             (finally (unregister!)))
+        (is (empty? @seen)
+            "no live-clock warning when the causal restore time is threaded")))
+    (testing "no warning when NO pending mutations are dangled (nothing durable
+              was stamped from the live clock)"
+      (let [[seen unregister!] (recorder)]
+        (try (ssr/reconcile-on-restore {mstate/mutations-key {}} :app/main)
+             (finally (unregister!)))
+        (is (empty? @seen)
+            "an empty restore stamps no durable :settled-at, so no warning")))))
+
 (deftest late-pre-restore-mutation-reply-is-suppressed-end-to-end
   (rf/reg-resource :article/by-slug
     {:scope :rf.scope/global

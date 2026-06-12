@@ -82,12 +82,18 @@ the sanctioned sites the spec calls out:
 
   2. FORM allowlist within a durable-write file. Even inside a scanned
      namespace, a field-key←ambient-read pair is exempted when its enclosing
-     window names a sanctioned wrapper: `trace/emit!`, `(when
-     interop/debug-enabled? ...)` perf probe, `getRandomValues` (effect-side
-     crypto, rider c), or an explicit `#_:rf.world/ambient-ok` reader-discard
-     escape (the conscious-allowlist marker for a deliberate diagnostic read in
-     a durable-write file — documented so a future author can opt out with a
-     reviewed annotation rather than silently).
+     window names a sanctioned STRUCTURAL wrapper: `trace/emit!` (the read is a
+     trace payload, not a durable frame-state write), `getRandomValues`
+     (effect-side crypto, rider c), or an explicit `#_:rf.world/ambient-ok`
+     reader-discard escape (the conscious-allowlist marker for a deliberate
+     diagnostic read in a durable-write file — documented so a future author can
+     opt out with a reviewed annotation rather than silently). The old generic
+     `interop/debug-enabled?` perf-probe window allowlist was REMOVED (rf2-
+     nftz2s §3): a debug probe being NEAR a durable write is not a structural
+     guarantee the write itself is diagnostic, so it let a real durable
+     `:updated-at (now-ms)` slip past CI. A genuine diagnostic read in a
+     durable-write file now uses the explicit per-site `#_:rf.world/ambient-ok`
+     escape, not ambient proximity to a debug flag.
 
 The gate is line-local on the field-key match but consults a small +/-3-line
 window for the form-allowlist wrappers (mirrors the SSR-redirect window in
@@ -252,27 +258,40 @@ _AMBIENT_READ_LEADING_RE = re.compile(r"^\s*(?:" + _AMBIENT_READ_ALT + r")")
 # --------------------------------------------------------------------------
 #
 # Even inside a durable-write namespace, a field-key←ambient pair is EXEMPT when
-# the enclosing +/-3-line window names a sanctioned wrapper:
-#   - trace/emit!            -> the read is a trace/diagnostic payload
-#   - interop/debug-enabled? -> a perf probe gated on the dev flag
+# the enclosing +/-N-line window names a sanctioned STRUCTURAL wrapper:
+#   - trace/emit!            -> the read is a trace/diagnostic payload (the
+#       payload IS a trace event — structurally not a durable frame-state write)
 #   - getRandomValues        -> effect-side crypto (rider c) — already handled
 #       by NOT listing it as a durable-id violation when wrapped, but a
 #       getRandomValues into a durable :token/:nonce key is exempt regardless
 #   - #_:rf.world/ambient-ok -> the explicit conscious-allowlist reader-discard
 #       escape for a reviewed deliberate diagnostic read in a durable-write file
+#
+# DELIBERATELY NOT a wrapper (rf2-nftz2s §3): `interop/debug-enabled?`. The old
+# generic debug-window allowlist exempted ANY durable field←ambient pair merely
+# because a `(when interop/debug-enabled? ...)` perf probe sat within +/-6 lines
+# — so a REAL durable `:updated-at (interop/now-ms)` write slipped past CI just
+# by being NEAR an unrelated debug probe (a genuine false negative, not a
+# contrived one). A debug perf probe is not a STRUCTURAL guarantee that the
+# nearby durable write is itself diagnostic. The replacements: (a) `trace/emit!`
+# still exempts a genuine trace payload structurally; (b) a deliberate
+# diagnostic read in a durable-write file that is NOT inside a trace payload
+# annotates the EXACT site with the reviewed `#_:rf.world/ambient-ok` reader-
+# discard escape — an explicit per-site opt-out, not an ambient proximity
+# heuristic. A perf-probe's own `(when interop/debug-enabled? (now-ms))` elapsed
+# read writes no durable field key, so it never matched the violating shape and
+# needs no window exemption.
 _ALLOWLIST_WINDOW_RE = re.compile(
-    r"trace/emit!|interop/debug-enabled\?|getRandomValues|#_:rf\.world/ambient-ok"
+    r"trace/emit!|getRandomValues|#_:rf\.world/ambient-ok"
 )
 # A `(trace/emit! ... {... :detected-at (now-ms)})` payload map runs ~6 lines
-# (the real router/diagnostics.cljc site spans 6), and a perf probe's
-# `(when interop/debug-enabled? ...)` opener can sit several lines above the
-# durable-adjacent read it measures, so the form-allowlist window is generous.
-# This widens ONLY the EXEMPTION reach inside a scanned durable-write file; the
-# namespace allowlist (trace.cljc / diagnostics.cljc never scanned) is the
-# primary defence, so a slightly-too-wide exemption window only ever risks a
-# FALSE NEGATIVE on a contrived adjacency, never a false positive. The
-# `#_:rf.world/ambient-ok` reader-discard escape is the precise per-site opt-out
-# when an author wants to keep a diagnostic read tighter than this heuristic.
+# (the real router/diagnostics.cljc site spans 6), so the trace-payload window
+# is generous. This widens ONLY the EXEMPTION reach inside a scanned durable-
+# write file; the namespace allowlist (trace.cljc / diagnostics.cljc never
+# scanned) is the primary defence, so a slightly-too-wide exemption window only
+# ever risks a FALSE NEGATIVE on a contrived adjacency, never a false positive.
+# The `#_:rf.world/ambient-ok` reader-discard escape is the precise per-site
+# opt-out when an author wants a diagnostic read tighter than this heuristic.
 _ALLOWLIST_WINDOW = 6
 
 
@@ -589,6 +608,9 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("positive/random_uuid_into_id.cljc",          1),
         ("positive/now_ms_multiline.cljc",             1),
         ("positive/rand_nth_into_temp_id.cljc",        1),
+        # rf2-nftz2s §3: a real durable write near a debug probe now FLAGS
+        # (the old generic debug-window allowlist hid it — false negative).
+        ("positive/durable_write_near_debug_probe.cljc", 1),
         # --- negatives: every sanctioned counterpart must stay GREEN ---
         # threaded causal time from the reply token (the correct pattern)
         ("negative/threaded_completed_at.cljc",        0),
@@ -596,7 +618,9 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("negative/effect_side_crypto_token.cljc",     0),
         # a trace/diagnostic timestamp (allowlisted wrapper)
         ("negative/trace_diagnostic_timestamp.cljc",   0),
-        # a perf probe gated on debug-enabled?
+        # a perf probe gated on debug-enabled? (its reads bind locals + write
+        # no durable key; the durable :updated-at threads the causal token) —
+        # green on its own merits, NOT via a debug-proximity allowlist (rf2-nftz2s §3)
         ("negative/debug_enabled_perf_probe.cljc",     0),
         # the conscious #_:rf.world/ambient-ok escape
         ("negative/ambient_ok_escape.cljc",            0),
