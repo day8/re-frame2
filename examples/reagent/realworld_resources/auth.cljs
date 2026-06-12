@@ -19,7 +19,18 @@
    resolver every resource site references (EP-0016 D3) — one scope-resolution
    currency, including teardown. The public `:rf.scope/global` reads (article
    lists, detail, profiles, tags) are unaffected — they are the same for
-   everyone, so logout leaves them alone."
+   everyone, so logout leaves them alone.
+
+   On COLD-BOOT SESSION RESTORE the machine ALSO re-ensures the feed under the
+   freshly-restored principal (`:auth/ensure-session-feed`, rf2-mdmjix). A
+   `{:from-db :realworld/session}` subscription re-keys reactively when the
+   principal changes but, being passive, does NOT fetch (Spec 016 §A `{:from-db
+   …}` subscription re-keys); restore is the one principal switch with NO route
+   change (the home route was entered logged-out, so the feed was not planned),
+   so without an explicit re-ensure the feed would sit stuck at :idle. The
+   interactive login / logout paths re-enter the route and so need no explicit
+   ensure — see the `:auth/ensure-session-feed` event below for the full
+   rationale."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             ;; The Spec 005 state-machine ns lives in day8/re-frame2-machines.
@@ -66,6 +77,66 @@
         (assoc-in [:auth :user] user)
         (assoc-in [:auth :token] (:token user)))))
 
+;; ----------------------------------------------------------------------------
+;; PRINCIPAL-SWITCH RE-ENSURE  (the qiv160-review footgun, rf2-mdmjix)
+;; ----------------------------------------------------------------------------
+;;
+;; A `{:from-db :realworld/session}` resource SUBSCRIPTION re-keys reactively
+;; when the resolver's app-db input (the authenticated `:username`) changes
+;; (Spec 016 §A `{:from-db …}` subscription re-keys). BY DESIGN that re-key does
+;; NOT fetch — subscriptions are passive; the NEW scope's data loads only when a
+;; CAUSE ensures it (route entry / an event-side `:rf.resource/ensure` /
+;; clear-scope). So a principal switch by an app-db WRITE ALONE — no route
+;; change — re-keys the feed sub but never loads it: the feed sits at :idle
+;; indefinitely (fail-closed and safe, but a surprising "feed stuck loading"
+;; DX trap, qiv160 review).
+;;
+;; The one place this app switches principal WITHOUT a route change is
+;; COLD-BOOT SESSION RESTORE: the home route is entered logged-out (the
+;; `{:from-db :realworld/session}` feed resolves nil and is NOT planned), THEN
+;; the async `GET /user` lands and `:restore-session` writes the principal — by
+;; design WITHOUT navigating (a deep link must be preserved). The interactive
+;; login / logout paths DO navigate (`:auth/post-login-redirect` / logout's
+;; `:rf.route/navigate :realworld/home`), so the route plan re-ensures the feed
+;; for them; restore is the lone gap.
+;;
+;; The fix is the bead's recommended shape: an explicit `:rf.resource/ensure`
+;; of the feed under the NEW session scope (the `{:from-db :realworld/session}`
+;; resolves itself against the post-restore app-db). It rides an app-minted
+;; lease `session-feed-owner` so the feed stays active while signed in (the
+;; logged-out route entry attached no route owner to release later); logout
+;; releases the lease alongside its `clear-scope` (Spec 016 §Active owners —
+;; an event-created owner MUST have a matching release path). The `:page` is
+;; read from the live route slice so the ensure hits the SAME cache key the
+;; home route / feed subscription use. Logged out (post-restore-failure) the
+;; reference resolves nil and the runtime fail-closes (no feed to load).
+
+(def session-feed-owner
+  "The app-minted liveness lease the principal-switch re-ensure attaches to
+   the session feed (a `[:lease …]` owner, Spec 016 §Active owners). Stable
+   across switches; released on logout."
+  [:lease :auth/session-feed])
+
+(rf/reg-event-fx :auth/ensure-session-feed
+  {:doc "Re-ensure the session feed under the CURRENT principal so a principal
+         switch with no route change (cold-boot session restore) actually
+         loads it — the `{:from-db :realworld/session}` re-key alone is passive
+         and does not fetch (Spec 016 §A `{:from-db …}` subscription re-keys /
+         the rf2-mdmjix footgun). Resolves the scope from the post-restore
+         app-db via the resource's own `{:from-db :realworld/session}` policy,
+         reads `:page` from the live route slice so the ensure hits the SAME
+         cache key the home route + feed subscription use, and attaches the
+         stable `session-feed-owner` lease (released by `:auth/clear-session`).
+         A fresh `:loaded` entry the route already ensured is a cache-hit; a
+         logged-out resolution fail-closes."}
+  (fn [{rt :rf.db/runtime} _]
+    (let [page (get-in rt [:rf.runtime/routing :current :query :page])]
+      {:fx [[:dispatch [:rf.resource/ensure
+                        {:resource :realworld/feed
+                         :params   {:page page}
+                         :owner    session-feed-owner
+                         :cause    [:principal-switch :realworld/feed]}]]]})))
+
 (rf/reg-event-fx :auth/clear-session
   {:doc "Clear the auth slice AND drop the session-scoped resource cache. The
          personalised feed is cached under the session scope (Spec 016
@@ -76,13 +147,22 @@
          user) and the named `:realworld/session` resolver (EP-0016 D3) — the
          same resolver every resource site references. Resolves nil when no user
          was present (nothing to clear). Public `:rf.scope/global` reads are
-         untouched."}
+         untouched.
+
+         ALSO releases the `session-feed-owner` lease the principal-switch
+         re-ensure (`:auth/ensure-session-feed`, rf2-mdmjix) may have attached
+         — an event-created owner MUST have a matching release path (Spec 016
+         §Active owners). The `clear-scope` removes the entry the lease was on,
+         so the release is belt-and-braces, but it keeps the owner-lease
+         lifecycle a readable attach/release pair (no dangling lease in the
+         owner index)."}
   (fn [{:keys [db]} _]
     (let [old-scope (rf/resolve-resource-scope db :realworld/session)]
       {:db (-> db
                (assoc-in [:auth :user] nil)
                (assoc-in [:auth :token] nil))
-       :fx (cond-> []
+       :fx (cond-> [[:dispatch [:rf.resource/release-owner
+                                {:owner session-feed-owner}]]]
              old-scope (conj [:dispatch [:rf.resource/clear-scope
                                          {:scope old-scope :cause :logout}]]))})))
 
@@ -171,10 +251,20 @@
       ;; fixes). Only an INTERACTIVE login/register bounces (`:store-session`).
       ;; The token is already in app-db + localStorage from `:auth/initialise`;
       ;; we re-persist defensively in case the server rotated it on `GET /user`.
+      ;;
+      ;; rf2-mdmjix: this is the one PRINCIPAL SWITCH with no route change — the
+      ;; home route was already entered logged-out (the `{:from-db
+      ;; :realworld/session}` feed resolved nil and was not planned), so storing
+      ;; the principal now RE-KEYS the feed sub but, being passive, does not
+      ;; fetch. Re-ensure the feed under the freshly-stored session scope so
+      ;; "Your Feed" actually loads (a no-op cache-hit when the user is not on
+      ;; home / when the route already ensured it). The interactive login /
+      ;; logout paths re-enter the route and need no explicit ensure.
       (let [user (:user value)]
         {:data {:error nil}
          :fx [[:dispatch [:auth/store-session user]]
-              [:realworld-resources.session/persist {:token (:token user)}]]}))
+              [:realworld-resources.session/persist {:token (:token user)}]
+              [:dispatch [:auth/ensure-session-feed]]]}))
 
     :record-error
     (fn [{[_ {:keys [failure]}] :event}]
