@@ -987,7 +987,7 @@
   FULL pending `:db` value under `:tags :rf.event/db`. The bulk
   `project-payload-slot` above walks `:trace-events` as a single root —
   its path tracker treats the nested `:db` value as `[<i> :tags
-  :rf.event/db :a :b …]`, so schema-declared sensitive paths like
+  :rf.event/db :a :b …]`, so frame-declared sensitive paths like
   `[:auth :password]` do NOT match (the walker expects them rooted at
   the frame's app-db).
 
@@ -1291,7 +1291,7 @@
     2. **`:redact-fn` advanced override.** If the app installed a
        `(rf/configure! :epoch-history {:redact-fn …})`, it is applied to
        the already-projected record (`assembly/apply-redact-fn`) as the
-       rare advanced escape for material the schema-driven projection
+       rare advanced escape for material the frame/profile projection
        cannot prove. It runs ONLY here, on the off-box egress copy — the
        ring stays raw (post-EP-0010 causal replay material), so the fn can
        never affect `restore-epoch` fidelity.
@@ -1360,7 +1360,7 @@
   After the frame/profile projection lands, the installed `:redact-fn`
   advanced override (`assembly/apply-redact-fn`) runs over the PROJECTED
   record (EP-0015 §15 + open-issue 6, RULED) — the rare escape for
-  material the schema-driven projection cannot prove. A throwing override
+  material the frame/profile projection cannot prove. A throwing override
   emits `:rf.warning/epoch-redact-fn-exception` and falls back to the
   projected record. When no `:redact-fn` is installed it is an identity
   pass-through (the common case).

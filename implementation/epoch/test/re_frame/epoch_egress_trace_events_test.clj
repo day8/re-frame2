@@ -7,7 +7,7 @@
   `:rf.event/db-pending-post-flow` (t2) trace events each carry the FULL
   pending app-db value under `:tags :rf.event/db`. The bulk
   `elide-wire-value` walk over `:trace-events` treats that nested db as
-  rooted at `[<i> :tags :rf.event/db ...]`, so a schema-declared sensitive
+  rooted at `[<i> :tags :rf.event/db ...]`, so a frame-declared sensitive
   path like `[:auth :password]` does NOT match (the walker expects it
   rooted at the frame's app-db). `reroot-trace-event-db-slots` re-roots the
   walk at the frame's app-db (`{:path []}`) so the sensitive / large
@@ -26,7 +26,7 @@
   DEFENCE-IN-DEPTH note (verified against `re-frame.marks/project-db-tags`,
   rf2-6773q): when the frame HAS elision declarations, the t1/t2
   `:rf.event/db` tag is ALSO redacted at EMIT time, so the on-ring trace
-  already carries `:rf/redacted` for schema-declared paths. The egress
+  already carries `:rf/redacted` for frame-declared paths. The egress
   re-root is therefore the redaction site for records whose tag was NOT
   emit-redacted — a raw record fed to `projected-record` directly, or a
   frame whose declarations were registered after the record was captured —
@@ -170,7 +170,7 @@
                   t-evts)
           "every projected t1/t2 trace's nested :rf.event/db sensitive leaf
            is :rf/redacted (or absent) — the re-root matched the
-           schema-declared path")
+           frame-declared path")
       (is (not (contains-secret? projected))
           "the raw secret appears NOWHERE in the projected record — not in
            :db-after, not nested inside any :trace-events :rf.event/db tag"))))
@@ -241,7 +241,7 @@
   (testing "the re-root is SCOPED to the t1/t2 ops: a non-t1/t2 trace event
             whose tags carry a value at a NON-app-db-rooted path is NOT
             re-rooted (the bulk walk handles it at its real root, where the
-            schema-declared [:auth :password] does not match)"
+            frame-declared [:auth :password] does not match)"
     (rf/reg-frame :test/eg2 {})
     (install-sensitive-schema! :test/eg2)
     (let [;; A non-t1/t2 op carrying a nested map at a slot that is NOT the

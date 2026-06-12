@@ -71,6 +71,37 @@
       ;; defaults are immutable — they apply regardless of extras
       (is (headers/sensitive-header? "Authorization")))))
 
+(deftest frame-cannot-remove-a-built-in-header-default
+  (testing "EP-0015 §3 — the built-in header denylist is IMMUTABLE: a frame's
+            carrier policy is a union-EXTEND of the defaults, never a remove.
+            There is no removal API; the only frame surface is the additive
+            `:sensitive {:http {:headers [..]}}` extras set. Adversarially: a
+            frame that tries to 'declare' a built-in default itself (a no-op
+            redeclaration) cannot DROP it, and extras for unrelated headers
+            leave every default intact — a built-in carrier stays denylisted
+            regardless of what the frame supplies (rf2-t55hxg.5)"
+    ;; a frame whose extras set is non-empty (even if it names a default,
+    ;; which is a harmless redeclaration) cannot turn a default OFF.
+    (let [extras-redeclaring-default #{"authorization"}
+          extras-unrelated          #{"x-honeycomb-team"}
+          extras-empty              #{}]
+      (doseq [extras [extras-redeclaring-default extras-unrelated extras-empty nil]]
+        (is (headers/sensitive-header? "Authorization" extras)
+            "the built-in Authorization default survives every frame extras shape")
+        (is (headers/sensitive-header? "Cookie" extras)
+            "the built-in Cookie default survives every frame extras shape")
+        (is (headers/sensitive-header? "Set-Cookie" extras)
+            "the built-in Set-Cookie default survives every frame extras shape"))
+      ;; redact-headers (the egress chokepoint) honours the same immutability:
+      ;; a built-in default value is scrubbed even when the frame supplies
+      ;; unrelated extras.
+      (let [r (headers/redact-headers
+                {"Authorization" "Bearer abc" "X-Honeycomb-Team" "team-1" "Accept" "json"}
+                extras-unrelated)]
+        (is (= :rf/redacted (get r "Authorization")) "built-in default still redacted")
+        (is (= :rf/redacted (get r "X-Honeycomb-Team")) "frame extra also redacted (extend)")
+        (is (= "json" (get r "Accept")) "an unlisted header rides verbatim")))))
+
 (deftest sensitive-header-tolerates-non-string
   (testing "nil / non-string is not sensitive"
     (is (not (headers/sensitive-header? nil)))

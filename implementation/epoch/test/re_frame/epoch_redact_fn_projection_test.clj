@@ -9,10 +9,10 @@
 
     1. frame/profile projection — each tree slot through
        `re-frame.projection/project-egress` under
-       `:rf.egress/off-box-observability` (schema-declared sensitive paths
+       `:rf.egress/off-box-observability` (frame-declared sensitive paths
        → `:rf/redacted`, large paths → markers);
     2. `:redact-fn` advanced override — the installed fn applied to the
-       already-projected record (the escape for non-schema-declared
+       already-projected record (the escape for non-frame-declared
        material).
 
   This file pins the cross-surface contract: the two stages compose
@@ -85,7 +85,7 @@
 
 (deftest A-override-runs-after-frame-profile-projection
   (testing "the :redact-fn override observes the ALREADY-PROJECTED record:
-            a schema-declared sensitive path is :rf/redacted by the
+            a frame-declared sensitive path is :rf/redacted by the
             frame/profile stage before the override runs over it. The
             override is the escape for a NON-declared slot the projection
             could not prove."
@@ -115,7 +115,7 @@
             "the override saw :password ALREADY :rf/redacted — it ran after
              the frame/profile projection")
         (is (= :rf/redacted (get-in projected [:db-after :auth :password]))
-            "schema-declared path redacted by the projection")
+            "frame-declared path redacted by the projection")
         (is (= :rf/redacted (get-in projected [:db-after :session :token]))
             "non-declared path scrubbed by the override")
         (is (= "topsecret" (get-in r [:db-after :auth :password]))
@@ -156,7 +156,7 @@
 ;; ============================================================================
 
 (deftest C-projection-redacts-declared-override-redacts-the-rest
-  (testing "the frame/profile projection redacts the schema-declared
+  (testing "the frame/profile projection redacts the frame-declared
             sensitive path; the override redacts a SECOND, non-declared
             path against the same projected map. No double-walk corruption:
             the declared leaf stays :rf/redacted, the override's leaf
@@ -181,7 +181,7 @@
     (let [r         (last-record :test/main)
           projected (epoch/projected-record r)]
       (is (= :rf/redacted (get-in projected [:db-after :auth :password]))
-          "frame/profile projection redacted the schema-declared :password")
+          "frame/profile projection redacted the frame-declared :password")
       (is (= :rf/redacted (get-in projected [:db-after :session :token]))
           "the override redacted the non-declared :token")
       (is (= "alice" (get-in projected [:db-after :public :name]))
@@ -230,7 +230,7 @@
 ;;
 ;; Per Spec-Schemas §`:rf/epoch-record` and Security.md §Epoch privacy
 ;; posture: each assembled record carries an integer count of
-;; schema-declared sensitive paths whose value differs between :db-before
+;; frame-declared sensitive paths whose value differs between :db-before
 ;; and :db-after. Computed inside `build-record` from the RAW dbs (now
 ;; always raw — storage-side redaction was removed). Closes the
 ;; "redact-fn ⇒ empty diff but something changed" gap for projected egress.
@@ -244,7 +244,7 @@
 ;;   G7. Halted record (nil :db-after) — counter handles the nil edge.
 
 (deftest G1-no-sensitive-paths-yields-zero-count
-  (testing "with no schema-declared sensitive paths registered, the
+  (testing "with no frame-declared sensitive paths registered, the
             counter is 0 (the empty-paths short-circuit)."
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
@@ -455,7 +455,7 @@
           "ordering preserved across the projection pass")
 
       (testing "every projected record's password slot is nil or
-                :rf/redacted — the schema-declared path is redacted by the
+                :rf/redacted — the frame-declared path is redacted by the
                 frame/profile projection on every record, regardless of when
                 the override was installed"
         (doseq [r ph]
@@ -487,7 +487,7 @@
 
 (deftest fixpoint-project-twice-equals-project-once
   (testing "the core composition claim: (project (project r)) = (project r).
-            The first projection lands schema-declared sensitive paths on
+            The first projection lands frame-declared sensitive paths on
             :rf/redacted (frame/profile) and the override's leaf on
             :rf/redacted; the second projection finds the same sentinels and
             produces no further change."

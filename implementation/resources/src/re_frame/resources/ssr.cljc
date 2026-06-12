@@ -235,19 +235,31 @@
   "Project a scoped resource KEY (`[scope resource-id params]`) to its wire
   shape per the resource's `disposition` (Spec 016 clause 4 / rf2-otms75):
 
-    - `:serialize` — the key rides VERBATIM (a non-sensitive, non-large
-      resource: its scope / params are wire-safe, same as its data);
+    - `:serialize` — the key rides with its scope verbatim, but its PARAMS
+      are projected through the resource OWNER's per-slot `:params-schema`
+      classification (`classification/project-params`) so a params slot the
+      owner marked `:sensitive?` / `:large?` does NOT ride raw even though the
+      coarse whole-entry claim leaves the key serialized (EP-0015 issue 11 —
+      the CO-EQUAL fine-grained counterpart to the data surface; Spec 016
+      clause 4 \"params, scopes, and data carry the same classification\").
+      A resource with no `:params-schema` marks rides its params verbatim
+      (the wire-safe default — same as its data);
     - `:redact` / `:omit` — the scope and params are replaced by opaque
       content-addressed `{:rf/redacted <digest>}` tokens so the sensitive /
       large raw identity does NOT ride, while the resource-id (position 1) and
       key DISTINCTNESS are preserved (the digest differs per distinct value).
+      The COARSE whole-entry claim already redacts the WHOLE params component
+      here, so the per-slot `:params-schema` surface is subsumed.
 
   The wire key keeps the `[scope resource-id params]` SHAPE so the client's
   index recompute + refetch plan parse it unchanged (resource-id at position
-  1). PURE."
-  [scoped-key disposition]
+  1). `spec` is the resource owner spec (`registry/resource-meta`), carrying
+  the `:params-schema` marks; nil / no marks → the params ride verbatim on
+  `:serialize`. PURE."
+  [scoped-key disposition spec]
   (if (= :serialize disposition)
-    scoped-key
+    (let [[scope resource-id params] scoped-key]
+      [scope resource-id (classification/project-params params spec)])
     (let [[scope resource-id params] scoped-key]
       [(redact-key-component scope) resource-id (redact-key-component params)])))
 
@@ -388,8 +400,10 @@
             clock-ms (now-ms)
             wired    (into {}
                            (map (fn [[k entry]]
-                                  (let [disposition (entry-classification frame-id k entry)
-                                        wire-key    (project-scoped-key k disposition)]
+                                  (let [resource-id (nth k 1)
+                                        spec        (registry/resource-meta resource-id)
+                                        disposition (entry-classification frame-id k entry)
+                                        wire-key    (project-scoped-key k disposition spec)]
                                     [wire-key (first (project-entry frame-id clock-ms k entry))])))
                            entries)]
         {state/resources-key {:entries wired}})

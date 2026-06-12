@@ -179,7 +179,7 @@
    arbitrary user data, so :rf.view/render-args routes through the SAME
    emit-time elision chokepoint as :rf.event/db — the marks projection runs
    `elide-wire-value` against the frame's app-db elision registry. A
-   schema-declared `{:sensitive? true}` path inside a render arg reaches the
+   frame-declared `:sensitive` app-db path inside a render arg reaches the
    trace surface as :rf/redacted, never raw."
     (with-trace-recorder! [traces {:pred view-rendered-pred}]
       ;; EP-0015 §8 (rf2-d2r3um): durable app-db classification is frame-owned.

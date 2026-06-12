@@ -393,7 +393,7 @@
   ;; A declared `:large?` path inside a sub-cache `:value` emits the
   ;; `:rf.size/large-elided` marker. The marker's `:path` is the actual
   ;; walked-from-root path so the agent's follow-up `get-path` can drill
-  ;; in directly. Mirrors the schema-declared :large? coverage above,
+  ;; in directly. Mirrors the frame-declared :large? coverage above,
   ;; but with sub-cache-shaped input.
   (let [path     [[:user/uploaded] :value :pdf]
         frame-id :rf/default

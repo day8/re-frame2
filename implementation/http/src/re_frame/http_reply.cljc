@@ -247,11 +247,11 @@
    - `:sensitive?` — Spec 014 §Privacy per-call sensitivity. When true,
                      EVERY wire slot is redacted to the framework sentinel
                      BEFORE the shared walker runs (the coarse escape hatch
-                     for an ad-hoc sensitive request whose payload is not
-                     schema-declared), matching the existing `:rf.http/*`
+                     for an ad-hoc sensitive request whose payload carries no
+                     schema marks), matching the existing `:rf.http/*`
                      trace redaction posture. When false/absent the shared
-                     walker applies the frame's schema-declared
-                     `:sensitive?` / `:large?` policy as usual."
+                     walker applies the frame's frame-declared
+                     `:sensitive?` / `:large?` app-db policy as usual."
   ([reply] (trace-reply reply nil))
   ([reply {:keys [sensitive?] :as opts}]
    (let [;; Per-call sensitivity is the coarse escape hatch — redact every
@@ -266,6 +266,6 @@
                          wire-slots)
                  reply)]
      ;; The shared walker still runs (the EP mandate): on a non-sensitive
-     ;; reply it applies the frame's schema-declared elision; on a
+     ;; reply it applies the frame's frame-declared elision; on a
      ;; pre-redacted one the sentinel passes through untouched.
      (reply/trace-summary reply (dissoc opts :sensitive?)))))
