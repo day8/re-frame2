@@ -455,7 +455,7 @@
   (when-let [completed (reply/complete reply-to reply)]
     (trace/emit! :rf.event :rf.mutation/replied
                  {:rf.frame/id frame-id :mutation mutation-id :instance instance-id
-                  :work-id work-id :status status :target reply-to
+                  :work/id work-id :status status :target reply-to
                   :cause [:mutation mutation-id instance-id]})
     [:dispatch completed]))
 
@@ -600,7 +600,7 @@
                        (work-ledger/put-record work-id record))]
     (trace/emit! :rf.event :rf.mutation/started
                  (cond-> {:rf.frame/id frame-id :mutation mutation :instance instance-id
-                          :work-id work-id :generation generation :scope cscope
+                          :work/id work-id :generation generation :scope cscope
                           :cause cause :invalidate-timing invalidate-timing}
                    ;; EP-0016 D2: a `:before-request` invalidation attaches its
                    ;; descriptor-level evidence (resolved scopes + fail-closed
@@ -756,7 +756,7 @@
 
 (defn- emit-mutation-stale-suppressed!
   "Emit the `:rf.mutation/stale-suppressed` trace for a suppressed late
-  mutation reply, carrying its bespoke facts (`:instance` / `:work-id` /
+  mutation reply, carrying its bespoke facts (`:instance` / `:work/id` /
   `:generation` / `:outcome`) PLUS the canonical reply-envelope vocabulary
   ADDITIVELY (joined to `:work/id` via the shared `:rf.reply/*` facts):
   `:rf.reply/status :stale`, `:rf.reply/work-status :suppressed`,
@@ -770,7 +770,7 @@
   (let [summary (rreply/trace-reply (:reply stale))]
     (trace/emit! :rf.event :rf.mutation/stale-suppressed
                  {:rf.frame/id frame-id :instance instance-id
-                  :work-id work-id :generation generation :outcome outcome
+                  :work/id work-id :generation generation :outcome outcome
                   ;; reply-envelope vocabulary (Managed-Effects §9) — the
                   ;; canonical :status :stale reply produced via the shared
                   ;; substrate, recorded ADDITIVELY (the bespoke facts above
@@ -979,7 +979,7 @@
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.mutation/succeeded
                      (cond-> {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
-                              :work-id work-id :generation generation
+                              :work/id work-id :generation generation
                               :affected-keys affected :patch-summary patch-summary}
                        ;; EP-0016 D2: the descriptor-level invalidation evidence
                        ;; (resolved scope per descriptor + fail-closed
@@ -1095,7 +1095,7 @@
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.mutation/failed
                      (cond-> {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
-                              :work-id work-id :generation generation :error error
+                              :work/id work-id :generation generation :error error
                               :invalidated-tags (vec (or inv-tags #{}))}
                        ;; EP-0016 D2: descriptor-level failure-invalidation
                        ;; evidence rides the failed-settlement trace (no

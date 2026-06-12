@@ -260,7 +260,7 @@
           (trace/emit! :rf.event :rf.resource/owner-attached
                        {:rf.frame/id frame-id :resource-key scoped-key
                         :generation (:generation entry) :owner owner :cause cause
-                        :work-id nil :joined-in-flight? false}))
+                        :work/id nil :joined-in-flight? false}))
         {:rf.db/runtime rdb'})
       ;; ----- dedupe: join the in-flight request (ensure only) -------------
       ;; Attach any supplied owner to the existing entry + record the cause;
@@ -285,14 +285,14 @@
         (trace/emit! :rf.event :rf.resource/deduped
                      {:rf.frame/id frame-id :resource-key scoped-key
                       :generation (:generation entry) :owner owner :cause cause
-                      :work-id prior-work})
+                      :work/id prior-work})
         ;; the ensure joined the in-flight work (no new generation) but ALSO
         ;; attached a new owner lease — record that distinct liveness change.
         (when owner-newly-attached?
           (trace/emit! :rf.event :rf.resource/owner-attached
                        {:rf.frame/id frame-id :resource-key scoped-key
                         :generation (:generation entry) :owner owner :cause cause
-                        :work-id prior-work :joined-in-flight? true}))
+                        :work/id prior-work :joined-in-flight? true}))
         {:rf.db/runtime rdb'})
       ;; ----- start a new load attempt (fresh generation) -----------------
       :else
@@ -351,7 +351,7 @@
                                               update owner (fnil conj #{}) scoped-key)))
             ;; lower into the resource's transport (the existing seam). The
             ;; runtime owns reply addressing: the internal reply payloads
-            ;; stamp the qualified :rf.frame/id + :work-id + :resource-key +
+            ;; stamp the qualified :rf.frame/id + :work/id + :resource-key +
             ;; :scope + :generation so the reply handlers verify before
             ;; writing (stale suppression is the correctness boundary).
             http-args  (let [req-fn (:request spec)]
@@ -368,12 +368,12 @@
                           :where        where})]
         (trace/emit! :rf.event :rf.resource/work-started
                      {:rf.frame/id frame-id :resource-key scoped-key
-                      :generation generation :work-id work-id
+                      :generation generation :work/id work-id
                       :status :running :owner owner :cause cause
                       :superseded (when superseding? prior-work)})
         (trace/emit! :rf.event :rf.resource/fetch-started
                      {:rf.frame/id frame-id :resource-key scoped-key
-                      :generation generation :work-id work-id
+                      :generation generation :work/id work-id
                       :status (:status entry') :owner owner :cause cause})
         ;; a fresh load that also attaches a NEW owner lease — record the
         ;; liveness change distinctly from the work it kicked off (symmetric
@@ -382,7 +382,7 @@
           (trace/emit! :rf.event :rf.resource/owner-attached
                        {:rf.frame/id frame-id :resource-key scoped-key
                         :generation generation :owner owner :cause cause
-                        :work-id work-id :joined-in-flight? false}))
+                        :work/id work-id :joined-in-flight? false}))
         {:rf.db/runtime rdb'
          ;; WRITE half of the host-side generation seam + the transport fx +
          ;; the work-handle side-table record + (when superseding) a
@@ -1065,7 +1065,7 @@
 
 (defn- emit-resource-stale-suppressed!
   "Emit the `:rf.resource/stale-suppressed` trace for a suppressed late
-  resource reply, carrying its bespoke facts (`:resource-key` / `:work-id` /
+  resource reply, carrying its bespoke facts (`:resource-key` / `:work/id` /
   `:generation` / `:outcome`) PLUS the canonical reply-envelope vocabulary
   ADDITIVELY (joined to `:work/id` via the shared `:rf.reply/*` facts):
   `:rf.reply/status :stale`, `:rf.reply/work-status :suppressed`,
@@ -1079,7 +1079,7 @@
   (let [summary (rreply/trace-reply (:reply stale))]
     (trace/emit! :rf.event :rf.resource/stale-suppressed
                  {:rf.frame/id frame-id :resource-key resource-key
-                  :work-id work-id :generation generation :outcome outcome
+                  :work/id work-id :generation generation :outcome outcome
                   ;; reply-envelope vocabulary (Managed-Effects §9) — the
                   ;; canonical :status :stale reply produced via the shared
                   ;; substrate, recorded ADDITIVELY (the bespoke facts above
@@ -1094,7 +1094,7 @@
   "Look the live entry up for an internal reply and verify it is still the
   one the reply belongs to: the reply's stamped `:rf.frame/id` equals the
   RECEIVING frame (`receiving-frame-id`), the entry exists, its
-  `:current-work` equals the reply's `:work-id`, AND its `:generation`
+  `:current-work` equals the reply's `:work/id`, AND its `:generation`
   equals the reply's `:generation`. Returns the entry on a match, nil on a
   cross-frame / stale / superseded / vanished reply (which MUST be suppressed
   — Spec 016 §Cancellation is opportunistic; stale suppression is mandatory).
@@ -1314,10 +1314,10 @@
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.resource/work-completed
                      {:rf.frame/id frame-id :resource-key resource-key
-                      :work-id work-id :generation generation :status :completed})
+                      :work/id work-id :generation generation :status :completed})
         (trace/emit! :rf.event :rf.resource/succeeded
                      {:rf.frame/id frame-id :resource-key resource-key
-                      :work-id work-id :generation generation
+                      :work/id work-id :generation generation
                       :status-before (:status entry) :status-after :loaded})
         ;; arm the advisory stale / GC timers (host-side side table) for this
         ;; freshly-loaded entry — the WRITE rides an fx exactly as the
@@ -1442,7 +1442,7 @@
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.resource/work-abort-requested
                      {:rf.frame/id frame-id :resource-key resource-key
-                      :work-id work-id :generation generation
+                      :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')})
         {:rf.db/runtime rdb'})
 
@@ -1468,10 +1468,10 @@
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.resource/work-completed
                      {:rf.frame/id frame-id :resource-key resource-key
-                      :work-id work-id :generation generation :status :failed})
+                      :work/id work-id :generation generation :status :failed})
         (trace/emit! :rf.event op
                      {:rf.frame/id frame-id :resource-key resource-key
-                      :work-id work-id :generation generation
+                      :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')})
         {:rf.db/runtime rdb'}))))
 
@@ -1489,7 +1489,7 @@
     (work-ledger/clear-handle! frame-id work-id)
     (trace/emit! :rf.event :rf.resource/work-abort-requested
                  {:rf.frame/id frame-id :resource-key resource-key
-                  :work-id work-id :generation generation})
+                  :work/id work-id :generation generation})
     {:rf.db/runtime (work-ledger/update-record
                       runtime-db work-id work-ledger/mark-terminal
                       :cancelled {:reason :aborted})}))

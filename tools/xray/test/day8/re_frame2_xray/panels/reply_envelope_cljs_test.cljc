@@ -58,9 +58,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest work-id+kind-readers
-  (testing "reads canonical :work/id and bare :work-id"
+  (testing "reads the canonical :work/id (EP-0011 — the bare :work-id trace-tag
+            spelling was retired; every family emits the qualified :work/id)"
     (is (= [:rf.work/http :a 1] (re/work-id-of {:work/id [:rf.work/http :a 1]})))
-    (is (= [:rf.work/resource :k 4] (re/work-id-of {:work-id [:rf.work/resource :k 4]}))))
+    (is (nil? (re/work-id-of {:work-id [:rf.work/resource :k 4]}))
+        "the retired bare :work-id is no longer tolerated"))
   (testing "reads explicit :work/kind, tolerating bare spellings"
     (is (= :http (re/work-kind-of {:work/kind :http})))
     (is (= :resource (re/work-kind-of {:work-kind :resource})))
@@ -239,14 +241,14 @@
   non-managed noise — the cross-family input the uniform vocabulary reads."
   [{:id 1 :operation :rf.sub/run :tags {}}
    {:id 2 :operation :rf.resource/work-started
-    :time 100 :tags {:work-id [:rf.work/resource :k 1] :rf.frame/id :f
+    :time 100 :tags {:work/id [:rf.work/resource :k 1] :rf.frame/id :f
                      :generation 1 :owner [:lease :a]}}
    {:id 3 :operation :rf.resource/fetch-started
-    :time 110 :tags {:work-id [:rf.work/http :req 1] :rf.frame/id :f}}
+    :time 110 :tags {:work/id [:rf.work/http :req 1] :rf.frame/id :f}}
    {:id 4 :operation :rf.resource/work-abort-requested
-    :time 120 :tags {:work-id [:rf.work/resource :k 1] :reason :superseded}}
+    :time 120 :tags {:work/id [:rf.work/resource :k 1] :reason :superseded}}
    {:id 5 :operation :rf.resource/stale-suppressed
-    :time 130 :tags {:work-id [:rf.work/resource :k 1]
+    :time 130 :tags {:work/id [:rf.work/resource :k 1]
                      :rf.reply/carried {:work/id [:rf.work/resource :k 1] :generation 1}
                      :rf.reply/current {:work/id [:rf.work/resource :k 2] :generation 2}
                      :outcome :success}}
@@ -371,9 +373,9 @@
   (testing "joining to the trace stream enriches each live row with its latest
             reply-envelope phase + emitting op (UNIFORM across families)"
     (let [trace [{:id 1 :operation :rf.resource/work-started :time 100
-                  :tags {:work-id [:rf.work/resource :k 2]}}
+                  :tags {:work/id [:rf.work/resource :k 2]}}
                  {:id 2 :operation :rf.http/aborted-on-actor-destroy :time 110
-                  :tags {:work-id [:rf.work/http :req 5] :reason :actor-destroyed}}]
+                  :tags {:work/id [:rf.work/http :req 5] :reason :actor-destroyed}}]
           live  (re/live-work ledger trace)
           by-id (into {} (map (juxt :work-id identity)) live)]
       (is (= :issued (:latest-phase (get by-id [:rf.work/resource :k 2]))))
@@ -384,9 +386,9 @@
       (is (every? #(not (contains? % :latest-phase)) live))))
   (testing "latest-phase-by-work-id keeps the MOST-RECENT phase per work id"
     (let [trace [{:id 1 :operation :rf.resource/work-started :time 100
-                  :tags {:work-id [:rf.work/resource :k 2]}}
+                  :tags {:work/id [:rf.work/resource :k 2]}}
                  {:id 2 :operation :rf.resource/work-abort-requested :time 200
-                  :tags {:work-id [:rf.work/resource :k 2] :reason :superseded}}]
+                  :tags {:work/id [:rf.work/resource :k 2] :reason :superseded}}]
           idx   (re/latest-phase-by-work-id trace)]
       (is (= :cancel-requested (:phase (get idx [:rf.work/resource :k 2])))))))
 

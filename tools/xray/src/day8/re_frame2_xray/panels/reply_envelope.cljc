@@ -121,9 +121,12 @@
 ;; ---------------------------------------------------------------------------
 ;; Reply-map field readers (Managed-Effects §The reply map). A reply map is
 ;; the appended last-arg of a reply-target event, or the data-only trace
-;; summary a family emits on completion. Readers tolerate either the
-;; canonical `:work/id` / `:rf.frame/id` namespaced spelling or the bare
-;; `:work-id` / `:frame-id` trace-tag spelling some emit sites use, so one
+;; summary a family emits on completion. The work-correlation reads the
+;; canonical `:work/id` (EP-0011 one-name-per-fact: every family — HTTP,
+;; resources, mutations — emits the qualified `:work/id` on both the reply
+;; map and the trace row's `:tags`; no bare `:work-id` trace-tag spelling
+;; remains to tolerate). The frame reader still accepts either the canonical
+;; `:rf.frame/id` or the bare `:frame-id` some trace rows stamp, so one
 ;; reader works on both the dispatched reply map and the trace row's `:tags`.
 ;; ---------------------------------------------------------------------------
 
@@ -135,13 +138,14 @@
   (and (map? m) (reply-status? (:status m))))
 
 (defn work-id-of
-  "Read the `:work/id` work-correlation off a reply map or trace tags.
-  Tolerates the canonical `:work/id` or the bare `:work-id` trace-tag
-  spelling. The single attempt identity (Managed-Effects §Work-id
-  correlation — `=`-comparable, EDN-serializable); the key the stale-races
-  view groups on. nil when absent (a non-ledger-backed managed async)."
+  "Read the canonical `:work/id` work-correlation off a reply map or trace
+  tags (EP-0011 one-name-per-fact — every family emits the qualified
+  `:work/id`; the bare `:work-id` trace-tag spelling was retired). The single
+  attempt identity (Managed-Effects §Work-id correlation — `=`-comparable,
+  EDN-serializable); the key the stale-races view groups on. nil when absent
+  (a non-ledger-backed managed async)."
   [m]
-  (or (:work/id m) (:work-id m)))
+  (:work/id m))
 
 (defn work-kind-of
   "Read the `:work/kind` family tag off a reply map or trace tags (one of
@@ -482,7 +486,7 @@
        :dispatch-id <id>}
 
   Reads the envelope facts the family stamped on the row per §Tracing: the
-  `:work/id` (or bare `:work-id`), the frame, the completion `:status`, the
+  `:work/id`, the frame, the completion `:status`, the
   carried/current correlation on a stale-suppression row, the cancel reason
   on a cancel-requested row. nil for a non-managed-async op. PRIVACY: the
   carried/current correlation + any value/error tags are summarized. Pure."

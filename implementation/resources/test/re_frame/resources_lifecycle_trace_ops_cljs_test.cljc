@@ -301,7 +301,7 @@
         (let [tags (:tags sup)]
           ;; bespoke facts preserved (additive, not replaced)
           (is (= scoped-key (:resource-key tags)))
-          (is (= wid1       (:work-id tags)))
+          (is (= wid1       (:work/id tags)))
           (is (= :success   (:outcome tags)) "the stale reply's natural outcome diagnostic")
           ;; CANONICAL reply-envelope vocabulary via the shared substrate
           (is (= :stale (:rf.reply/status tags))
