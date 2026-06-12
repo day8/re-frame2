@@ -63,7 +63,8 @@ The framework emits errors from a fixed-but-additive set of categories. You don'
 | Subscription | `:rf.error/no-such-sub` | A sub's `:<-` input referenced an unregistered sub. |
 | Fx | `:rf.error/no-such-fx` | A dispatched fx-id had no registered handler. |
 | Fx | `:rf.error/fx-handler-exception` | A registered fx threw during effect resolution. |
-| Cofx | `:rf.error/no-such-cofx` | An `inject-cofx` referenced an unregistered cofx-id. |
+| Cofx | `:rf.error/unregistered-cofx` | A handler's `:rf.cofx/requires` named a cofx-id with no registration (the typo case). |
+| Cofx | `:rf.error/missing-required-cofx` | A required recordable fact was absent and couldn't be supplied — strict mode, or any mode for a provided fact whose value wasn't stamped. |
 | Interceptor | `:rf.error/unwrap-bad-event-shape` | The `:rf/unwrap` interceptor saw a non-`[id payload-map]` shape. |
 | Schema | `:rf.error/schema-validation-failure` | A `:spec`-validated value failed Malli validation. |
 | Frame | `:rf.error/no-frame-context` | A `dispatch` / `subscribe` ran with **no frame in scope** — no `with-frame` / `with-new-frame` region, no carried `frame-handle`, no explicit `{:frame ...}`. The absence of a target, raised *before* any registry lookup; the runtime does not synthesise a default. |
@@ -77,7 +78,7 @@ Two conventions make the table navigable instead of a thing to look up every tim
 - **Five prefixes** — `:rf.error/`, `:rf.warning/`, `:rf.fx/`, `:rf.ssr/`, `:rf.epoch/`. The prefix marks the subsystem that owns the category, so "show me everything SSR emitted" is a cheap filter: `(filter #(str/starts-with? (namespace (:operation %)) "rf.ssr") trace-events)`.
 - **`:op-type` is severity, independent of category** — `:error` for genuine failures, `:warning` for misuse the runtime recovers from, `:info` for informational events riding the same envelope (`:rf.http/retry-attempt`, say).
 
-And the contract on all of it: **stable and additive.** New categories adopt one of the five existing prefixes; existing names are never renamed or repurposed. You can pin a test to `:rf.error/no-such-cofx` and trust it'll still mean that next year.
+And the contract on all of it: **stable and additive.** New categories adopt one of the five existing prefixes; existing names are never renamed or repurposed. You can pin a test to `:rf.error/unregistered-cofx` and trust it'll still mean that next year.
 
 ## Observing errors at runtime: two surfaces, not one
 
@@ -172,7 +173,7 @@ A few of the per-category defaults are worth knowing by heart, because they shap
 - **`:rf.error/handler-exception` → `:no-recovery`.** The exception propagates, the cascade halts, the snapshot is *not* committed. A handler that throws leaves `app-db` exactly as it was — no half-applied state.
 - **`:rf.error/no-such-handler` → `:replaced-with-default`.** The dispatch becomes a no-op; the runtime traces it and moves on. This is what lets a feature module with a botched load order boot into a degraded state instead of crashing the whole app.
 - **`:rf.error/no-such-fx` → `:no-recovery` for that fx, but the cascade continues.** This one's load-bearing and people get it backwards, so read it twice: an unknown fx-id does **not** halt the whole cascade. The bad fx is dropped, the trace flags it, and *the handler's `:db` change still applies and the other `:fx` entries still fire.* One effect failing doesn't poison its siblings.
-- **`:rf.error/no-such-cofx` → `:no-recovery` for the injection.** The cofx injection is a no-op, the ctx flows through unchanged, and the handler still runs — it just reads `nil` where it expected the injected value. A typo'd cofx-id shows up as "the thing isn't in my cofx map," plus the trace.
+- **`:rf.error/unregistered-cofx` → `:no-recovery`.** A handler that `:rf.cofx/requires` a cofx-id with no registration fails loud — the typo dies at registration where statically checkable, else at first processing, *before* the handler runs. Declared coeffects are exactly-what-you-asked-for, so a requirement that resolves to nothing is an error, not a silent `nil`. (Its sibling `:rf.error/missing-required-cofx` is a registered-but-absent recordable fact — strict replay, or a provided fact never stamped.)
 - **`:rf.error/schema-validation-failure` → `:no-recovery`.** Hard-fail, to surface the bug early in dev. (Production elides validation entirely, so this is dev-only by design — schemas are a correctness tool, not a runtime guard. More in [chapter 08](08-schemas.md).)
 
 The shape to internalise: **the runtime makes a well-chosen default decision per category, and that's the whole story.** You do not write try/catch in handler code, and you do not register a recovery policy. You accept the typed default and handle *expected* failures at their source — instead of scattering error-steering across three hundred handlers.
@@ -286,16 +287,16 @@ Dispatch `[:cart/add-item {...}]` against a db with no `:cart` and `update-in` w
 
 The bogus fx emits `:rf.error/no-such-fx`, and — the load-bearing part again — `:rf.http/managed` *still fires*, the `:db` change *still applies*, the cascade *continues*. One fx's failure doesn't halt the others.
 
-A missing cofx is the same flavour. If `inject-cofx` names an unregistered id:
+A missing cofx is the *stricter* sibling. If a handler's `:rf.cofx/requires` names an id with no registration — a typo, a feature-module that didn't load — the framework emits `:rf.error/unregistered-cofx`:
 
 ```clojure
 (rf/reg-event-fx :user/load
-  [(rf/inject-cofx :auth/token-from-storage)]    ;; oops, not registered
+  {:rf.cofx/requires [:auth/token-from-storage]}    ;; oops, not registered
   (fn [{:keys [db]} _]
     {:db (assoc db :loading? true)}))
 ```
 
-…the framework emits `:rf.error/no-such-cofx`, the interceptor chain continues, and the handler runs with the cofx map *unchanged* — so it reads `nil` where it expected a token. This is the structured-trace replacement for v1's `println` warning, and unlike a println you can assert on it in a test.
+Unlike the missing-fx case, this one **fails loud rather than continuing** — a typo'd requirement dies at registration where statically checkable, else at first processing, *before* the handler runs. The point of declared coeffects is that a handler receives exactly the facts it declared; resolving a requirement against nothing would reintroduce the silent-`nil` coupling the declaration exists to kill. (A required *recordable* fact that's registered but absent — strict replay with no value on the token, a provided fact never stamped — is the neighbouring `:rf.error/missing-required-cofx`.) Both are structured traces you can assert on in a test, where v1 would have left a `println` warning at best.
 
 ### Schema validation at the boundary
 
@@ -340,7 +341,7 @@ A dispatch arrives against a frame whose lifecycle is `:destroyed? true`. It hap
 
 ## Testing error paths
 
-Errors are data on a wire, which makes asserting them as boring as asserting anything else: register a listener that collects events, run the thing that should fail, filter for the operation you expect, assert on the `:tags`. This is the exact shape the framework's own suite uses to pin the `:rf.error/no-such-cofx` contract:
+Errors are data on a wire, which makes asserting them as boring as asserting anything else: register a listener that collects events, run the thing that should fail, filter for the operation you expect, assert on the `:tags`. This is the exact shape the framework's own suite uses to pin the `:rf.error/unregistered-cofx` contract:
 
 ```clojure
 (ns my-app.cart-test
@@ -356,12 +357,12 @@ Errors are data on a wire, which makes asserting them as boring as asserting any
     acc))
 
 (deftest unknown-cofx-emits-structured-trace
-  (testing "inject-cofx against a never-registered cofx-id emits
-            :rf.error/no-such-cofx and leaves the ctx unchanged"
+  (testing "a :rf.cofx/requires naming a never-registered cofx-id emits
+            :rf.error/unregistered-cofx and the handler does not run"
     (let [traces  (collect-traces! ::no-cofx)
           fired?  (atom false)]
       (rf/reg-event-fx :test/run-no-cofx
-        [(rf/inject-cofx :test/never-registered)]
+        {:rf.cofx/requires [:test/never-registered]}
         (fn [_ _]
           (reset! fired? true)
           {}))
@@ -369,12 +370,12 @@ Errors are data on a wire, which makes asserting them as boring as asserting any
         (rf/dispatch-sync [:test/run-no-cofx]))
       (rf/unregister-listener! ::no-cofx)
 
-      (is (true? @fired?)
-          "the event handler still fired — the unknown cofx did not halt the chain")
+      (is (false? @fired?)
+          "the handler did not fire — an unregistered required cofx fails loud")
 
-      (let [missing (filter #(= :rf.error/no-such-cofx (:operation %)) @traces)]
+      (let [missing (filter #(= :rf.error/unregistered-cofx (:operation %)) @traces)]
         (is (= 1 (count missing))
-            "exactly one :rf.error/no-such-cofx trace was emitted")
+            "exactly one :rf.error/unregistered-cofx trace was emitted")
         (let [t (first missing)]
           (is (= :error (:op-type t)))
           (is (= :test/never-registered (get-in t [:tags :cofx-id])))
