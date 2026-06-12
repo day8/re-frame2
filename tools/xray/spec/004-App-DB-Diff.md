@@ -613,6 +613,55 @@ log. Xray's writes are funnelled through dispatch — inspection is the
 default, rewind is opt-in (per
 [Tool-Pair §Time-travel: epoch snapshots and undo](../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)).
 
+## On-box local-render egress policy (EP-0015, rf2-t55hxg.12)
+
+Even though the panel renders on-box, the value the section model hands
+to the shared edn-inspector is **projected** through the frame-owned
+egress policy first. The App-DB panel is the **graduating on-box-dev-tool
+consumer** of the `:rf.egress/local-redacted` profile (the on-box dev-UI
+default — [Spec 015 §Projection profiles](../../../spec/015-Data-Classification.md#projection-profiles--the-rfegress-enum-provisional)
++ [§The graduation gate](../../../spec/015-Data-Classification.md#the-graduation-gate)).
+
+The section-model sub `:rf.xray/app-db-state` projects every value-bearing
+partition (the app-db `value` / `before` + the runtime-db `runtime-value`
+/ `runtime-before`) through `re-frame.core/project-egress` under
+`:rf.egress/local-redacted`, keyed on the **observed frame** (the frame
+the picker / focus selects). The contract — the shared seam
+`day8.re-frame2-xray.panels.local-render/local-render-value`:
+
+- **Suppress sensitive display by default.** A slot the observed frame
+  declared `:sensitive` (`re-frame.frame-classification`) is replaced by
+  the `:rf/redacted` sentinel — which the edn-inspector already renders as
+  a first-class muted chip (the R8 redaction type). A shoulder-surfer,
+  screen-share, or recorded debugging session never sees the secret.
+- **The local operator MAY see large values.** `:rf.egress/local-redacted`'s
+  floor (`:rf.size/include-large? false`) is overlaid with an explicit
+  `:rf.size/include-large? true` (the override wins —
+  [`re-frame.projection` composition](../../../spec/015-Data-Classification.md#projection-profiles--the-rfegress-enum-provisional)).
+  On-box size bounding is a *display ergonomics* concern owned by the
+  edn-inspector, **not** an egress-redaction concern — the operator is
+  entitled to big values, only secrets are withheld.
+- **Per-frame.** The policy is applied from the OBSERVED frame's own
+  classification, passed as the explicit `:frame` opt, never a borrowed or
+  ambient one. Both the value and its diff pre-image are projected under
+  the same policy, so a sensitive slot reads `:rf/redacted` on both sides
+  and the inline `← was X` annotation never reconstructs the redacted
+  content.
+- **Fail-closed.** An unreachable observed frame (nil / destroyed /
+  never-registered) projects WITHOUT a `:frame` opt so the underlying
+  `elide-wire-value` walker takes its frameless redact-whole branch —
+  redacting the entire value rather than shipping it raw under no policy.
+
+Revealing sensitive values is **not** a process-global toggle. Per
+[Spec 015 §Cross-tool visibility grain](../../../spec/015-Data-Classification.md#cross-tool-visibility-grain)
+on-box visibility is **per (tool, frame)**: an explicit trusted-local
+operator act flips the grain to `:rf.egress/local-raw` (include sensitive
+AND large), carried by `local-render-value`'s `raw?` arg. This is the
+on-box analogue of the off-box redaction call site
+`derivation-graph-helpers/redact-graph-for-egress` (rf2-yjarv6) — the same
+frame-owned, fail-closed `project-egress` boundary, here the on-box render
+default rather than the off-box wire.
+
 ## "Show me when this changed"
 
 The high-leverage right-click affordance. When invoked on any path:

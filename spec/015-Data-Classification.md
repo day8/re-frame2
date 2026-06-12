@@ -303,12 +303,12 @@ The six-profile enum is a **closed set** but the **exact names do not lock** unt
 |---|---|---|
 | `:rf.egress/off-box-observability` | a hosted-monitoring sink (Datadog / Sentry shape) | ✅ frame `:observability` sink routing — `re-frame.observability` routes handled-event / error records through `project-egress` under this profile to declared sinks (`re-frame.frame-classification` default; rf2-t55hxg.7) |
 | `:rf.egress/off-box-tool` | pair-MCP / Story-MCP wire | ✅ re-frame2-pair-mcp + story-mcp default boundary — both servers resolve their direct-read / live-state egress to this profile via `re-frame.mcp-base.egress` (rf2-qus09h) |
-| `:rf.egress/local-redacted` | an on-box dev tool (Xray panel) | ⏳ **gap** — defined + unit-tested in `re-frame.projection`; Xray local-render adoption is deferred behind the in-flight EP-0014 derivation-graph panel (rf2-9ett2d) to avoid a same-file rewrite (follow-up: rf2-t55hxg.12) |
+| `:rf.egress/local-redacted` | an on-box dev tool (Xray panel) | ✅ Xray's App-DB panel local render — the `:rf.xray/app-db-state` section-model sub projects every value-bearing partition through `project-egress` under this profile, keyed on the observed frame (`day8.re-frame2-xray.panels.local-render`; suppress sensitive display, keep large on-box, fail-closed; rf2-t55hxg.12) |
 | `:rf.egress/local-raw` | a dev tool under explicit trusted-local opt-in | ✅ the pair-MCP / story-mcp `--allow-sensitive-reads` + per-call `:include-sensitive` two-key opt-in resolves to this profile (rf2-qus09h) |
 | `:rf.egress/ssr-hydration` | a real SSR / hydration payload | ✅ `re-frame.resources.ssr` projects the allowlisted resource hydration slice under this profile (`re-frame.resources.classification`) |
 | `:rf.egress/public-error` | a public error-response projection | ✅ `re-frame.error-emit` / `re-frame.observability` route the `:rf.observe/error` record under this profile (drops the host `:exception`, never internal raw values) |
 
-Until every row is exercised, the names are provisional and may be re-thrashed. The EP stays `accepted` (not `final`) for the duration. **Five of six profiles now have a real consumer; `:rf.egress/local-redacted` is the one remaining gap** (the on-box Xray-render adoption, deferred to sequence behind rf2-9ett2d's in-flight panel work). Additions to the set after lock require a recorded ruling.
+**All six profiles now have a real consumer** (rf2-t55hxg.12 closed the final gap — the on-box Xray App-DB local-render adoption of `:rf.egress/local-redacted`). With every row exercised, the names are eligible to lock and the EP can move `accepted` → `final` (the EP-0015 graduation assessment owns that flip). Additions to the set after lock require a recorded ruling.
 
 ## Frame-owned observability sink policy
 

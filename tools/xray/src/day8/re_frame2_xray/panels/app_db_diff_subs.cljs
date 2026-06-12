@@ -58,7 +58,8 @@
   machinery is needed (adding any would be machinery for a surface that
   no longer exists)."
   (:require [re-frame.core :as rf]
-            [day8.re-frame2-xray.panels.app-db-diff-helpers :as h]))
+            [day8.re-frame2-xray.panels.app-db-diff-helpers :as h]
+            [day8.re-frame2-xray.panels.local-render :as local-render]))
 
 (defn- find-epoch-in-history
   "Return the `:rf/epoch-record` in `history` whose `:epoch-id` matches
@@ -277,16 +278,41 @@
   ;; nil-safe — absent / empty partitions yield an empty TOP + zero
   ;; reserved-area entries (rf2-jcdvo — empty areas are filtered at
   ;; projection time so the renderer never draws placeholder cards).
+  ;; EP-0015 (rf2-t55hxg.12) — the ON-BOX LOCAL-RENDER egress seam. Every
+  ;; value-bearing partition of the section model (the app-db `value` /
+  ;; `before` + the runtime-db `runtime-value` / `runtime-before`) is
+  ;; projected through `re-frame.core/project-egress` under the on-box
+  ;; dev-UI default profile `:rf.egress/local-redacted` (Spec 015
+  ;; §Projection profiles + §The graduation gate). Xray is the EP-0015
+  ;; issue-3 GRADUATING CONSUMER for that profile: the local operator sees
+  ;; large values (the `include-large?` overlay) but NOT slots the OBSERVED
+  ;; frame declared `:sensitive` — those redact to `:rf/redacted`, which
+  ;; the shared edn-inspector already paints as a first-class chip. Per
+  ;; EP-0015 §Cross-tool visibility grain there is NO process-global
+  ;; show-sensitive toggle: revealing sensitive values is a per-(tool,frame)
+  ;; `:rf.egress/local-raw` operator opt-in, not the default.
+  ;;
+  ;; Projecting BOTH the value AND the matching pre-image under the SAME
+  ;; frame policy keeps the diff honest — a sensitive slot reads
+  ;; `:rf/redacted` on both sides, so the inline `← was X` annotation never
+  ;; reconstructs (or even hints at) the redacted content. Fail-closed: an
+  ;; unreachable observed frame redacts the whole value rather than ship it
+  ;; raw under no policy (`local-render/local-render-value`).
   (rf/reg-sub :rf.xray/app-db-state
     :<- [:rf.xray/app-db-current+diff]
-    (fn [{:keys [value before runtime-value runtime-before]} _query]
-      ;; Diff-mode is entered iff a real app-db pre-image is present,
-      ;; mirroring the pre-rf2-yng0y `(if-let [before (:db-before record)]
-      ;; …)` contract: an absent / nil `:db-before` (cold boot, or a record
-      ;; with no pre-image slot) renders plain current-state. When diffing,
-      ;; the runtime areas diff against the SAME focused epoch's runtime-db
-      ;; pre-image.
-      (if (some? before)
-        (h/current-state-sections value runtime-value
-                                  {:app before :runtime runtime-before})
-        (h/current-state-sections value runtime-value)))))
+    :<- [:rf.xray/observed-frame]
+    (fn [[{:keys [value before runtime-value runtime-before]} observed-frame] _query]
+      (let [redact (fn [v] (local-render/local-render-value v observed-frame))
+            value          (redact value)
+            runtime-value  (redact runtime-value)]
+        ;; Diff-mode is entered iff a real app-db pre-image is present,
+        ;; mirroring the pre-rf2-yng0y `(if-let [before (:db-before record)]
+        ;; …)` contract: an absent / nil `:db-before` (cold boot, or a record
+        ;; with no pre-image slot) renders plain current-state. When diffing,
+        ;; the runtime areas diff against the SAME focused epoch's runtime-db
+        ;; pre-image.
+        (if (some? before)
+          (h/current-state-sections value runtime-value
+                                    {:app     (redact before)
+                                     :runtime (redact runtime-before)})
+          (h/current-state-sections value runtime-value))))))
