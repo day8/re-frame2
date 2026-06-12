@@ -39,9 +39,36 @@
   spawned actors / machine async work. Per Spec 016 §Frame work ledger."
   :rf.runtime/work-ledger)
 
+(defn key-id
+  "The CEDN-1 BYTE-IDENTITY map-key for a scoped resource key
+  `[canonical-scope resource-id canonical-params]` — its `canonical-bytes`
+  string (rf2-9e0tyq). This is the value the `:entries` map, the reverse
+  indexes, and the work-ledger map are keyed on, replacing the scoped-key
+  VECTOR as the map key.
+
+  WHY (the EP-0012 `=`-collapse fix): the scoped-key vector was used directly
+  as a Clojure map key, and Clojure map keys compare by `=` + hash. The SOLE
+  place `=` is COARSER than the authoritative CEDN-1 byte identity is
+  SEQUENTIAL vector-vs-list — `(= [1 2 3] '(1 2 3))` is TRUE while their
+  `canonical-bytes` differ (`v[…]` vs `l(…)`). Keying on the canonical-bytes
+  STRING makes the map-key comparison EXACTLY the CEDN-1 byte identity
+  (strings compare by `=` over their content, which IS the byte identity), so
+  a list-params key and a vector-params key get DISTINCT entries — without
+  re-erasing the kind (the canonical scoped-key vector, kind-preserving, is
+  stored alongside as `:resource/key`). The bytes string is plain serializable
+  EDN, so it rides the SSR / epoch / trace wire with no custom transit handler
+  (the failure mode a `deftype` key would have silently introduced).
+
+  Total on an already-canonical scoped key (`scoped-resource-key` canonicalizes
+  scope + params, and `canonical-bytes` is total on canonical EDN). Per Spec
+  016 §Resource identity / Conventions §Canonical EDN identity."
+  [scoped-key]
+  (identity/canonical-bytes scoped-key))
+
 (defn entries-path
-  "Runtime-db-relative path to the cache entries map
-  `{<scoped-resource-key> <entry>}`. Per Spec 016 §Cache home."
+  "Runtime-db-relative path to the cache entries map `{<key-id> <entry>}` —
+  keyed on the CEDN-1 byte-identity `key-id` (NOT the scoped-key vector;
+  rf2-9e0tyq). Per Spec 016 §Cache home."
   []
   [resources-key :entries])
 
@@ -61,11 +88,20 @@
   [resources-key :owner-index])
 
 (defn entry-path
-  "Runtime-db-relative path to a single cache entry by its scoped
-  resource key `[cache-scope resource-id canonical-params]`. Per Spec 016
-  §Resource identity."
+  "Runtime-db-relative path to a single cache entry. Accepts the scoped
+  resource key VECTOR `[cache-scope resource-id canonical-params]` and keys
+  the entry on its CEDN-1 byte-identity `key-id` (rf2-9e0tyq) so a list- and
+  a vector-params key never collapse. Per Spec 016 §Resource identity."
   [scoped-resource-key]
-  [resources-key :entries scoped-resource-key])
+  [resources-key :entries (key-id scoped-resource-key)])
+
+(defn entry-path-by-id
+  "Runtime-db-relative path to a single cache entry by its already-computed
+  `key-id` (the CEDN-1 byte string). Used by callers that hold a reverse-index
+  member (already a `key-id`) and must not re-transform it through `entry-path`
+  (rf2-9e0tyq). Per Spec 016 §Resource identity."
+  [k-id]
+  [resources-key :entries k-id])
 
 (defn work-record-path
   "Runtime-db-relative path to a single work record by its `:work/id`.
@@ -111,17 +147,13 @@
   §Ledger row retention and identity."
   #{:completed :failed :timed-out :suppressed :cancelled})
 
-(defn empty-entry
-  "Construct an empty `:idle` durable cache entry for `resource-id`. The
-  durable entry stores FACTS, not derived booleans (`:stale?` /
-  `:loading?` / `:has-data?` are public derived sub values, computed in
-  the subs layer, never stored). Per Spec 016 §Status semantics.
-
-  The runtime populates / transitions this shape; this constructor pins
-  the canonical key set so an entry written by one sibling reads correctly
-  in another."
+(defn- empty-entry*
+  "The base empty `:idle` durable cache entry shape for `resource-id`,
+  `:resource/key` nil. `empty-entry` stamps the key. Private — callers use
+  `empty-entry`."
   [resource-id]
   {:resource/id    resource-id
+   :resource/key   nil
    :status         :idle
    :data           nil
    :error          nil
@@ -144,6 +176,30 @@
    ;; key becomes `:loaded` (it then has its own data). nil when this entry
    ;; does not keep previous data.
    :previous-key   nil})
+
+(defn empty-entry
+  "Construct an empty `:idle` durable cache entry for `resource-id`. The
+  durable entry stores FACTS, not derived booleans (`:stale?` /
+  `:loading?` / `:has-data?` are public derived sub values, computed in
+  the subs layer, never stored). Per Spec 016 §Status semantics.
+
+  The runtime populates / transitions this shape; this constructor pins
+  the canonical key set so an entry written by one sibling reads correctly
+  in another.
+
+  The 2-arity stamps the entry's own `:resource/key` — the scoped-key VECTOR
+  `[canonical-scope resource-id canonical-params]` (rf2-9e0tyq). Since the
+  `:entries` map is now keyed on the CEDN-1 byte `key-id` (a string), the
+  kind-preserving scoped-key vector is carried INSIDE the entry so every
+  consumer that needs the `[scope rid params]` shape (the prior-sibling scan,
+  the scope-mismatch heuristic, the clear-scope filter, the Xray live-node
+  view, the SSR projection) reads it from the entry rather than the map key.
+  The 1-arity (no key in scope — e.g. the SSR timeout settle) leaves
+  `:resource/key` nil; callers that have the key use the 2-arity or stamp it."
+  ([resource-id] (empty-entry* resource-id))
+  ([resource-id scoped-key]
+   (cond-> (empty-entry* resource-id)
+     scoped-key (assoc :resource/key scoped-key))))
 
 ;; ---- canonicalization (Spec 016 §Canonicalization rule) -------------------
 ;;
@@ -374,18 +430,17 @@
   supersede each other). Per Spec 016 §Resource identity. Assumes scope +
   params are already validated serializable EDN (`reject-non-edn!`).
 
-  KNOWN DEFERRED EDGE (rf2-o84qq2; full fix planned in rf2-9e0tyq): the
-  returned vector is used DIRECTLY as a Clojure map key (in `:entries` and,
-  embedded, in the work-ledger work-id), so it compares by `=` + hash. The
-  SOLE place `=` is COARSER than the authoritative CEDN-1 byte identity is
-  SEQUENTIAL vector-vs-list — `(= [1 2 3] '(1 2 3))` is TRUE while their
-  `canonical-bytes` differ (`v[…]` vs `l(…)`). So a LIST as a params/scope
-  VALUE collapses with the vector spelling at the map-keying layer even
-  though `canonicalize` preserves the kind. The edge is extremely narrow
-  (params are Malli `:map`s of scalars/vectors, never lists); pinned in
-  `resources_runtime_cljs_test` so it cannot silently shift. The fix is a
-  cross-cutting re-keying onto `canonical-bytes` (rf2-9e0tyq), NOT a
-  list→vector normalize (that would re-erase the kind rf2-wgutc2 added)."
+  The returned vector is the kind-PRESERVING canonical identity (a list value
+  stays a list, distinct from a vector — rf2-wgutc2). It is NO LONGER used
+  directly as a Clojure map key: the `:entries` map, the reverse indexes, and
+  the work-ledger map are keyed on its CEDN-1 byte `key-id` (`state/key-id`,
+  rf2-9e0tyq) so the map-key comparison is EXACTLY the CEDN-1 byte identity
+  and a list- and a vector-params key get DISTINCT entries (Clojure `=` would
+  otherwise collapse `[1 2 3]` and `'(1 2 3)`). The vector itself remains the
+  kind-preserving value carried as the entry's `:resource/key`, embedded in
+  the work-id, on the SSR wire, and in trace payloads — so the kind distinction
+  rf2-wgutc2 introduced is preserved end-to-end, and the `=`-collapse is closed
+  at the map-keying layer where it actually occurred."
   [scope resource-id params]
   [(canonicalize scope) resource-id (canonicalize params)])
 
@@ -394,18 +449,23 @@
   (Spec 016 §Paginated and previous data): among the cache `entries`, the
   key with the SAME `[scope resource-id]` as `new-key` but DIFFERENT
   params, that currently has usable `:data`, picking the most recently
-  loaded (`:loaded-at`). Returns the sibling scoped key, or nil when there
-  is no sibling to project (the new key first-loads with no placeholder).
-  A pure selection — the projection pointer it returns never inserts data
-  into the new entry."
+  loaded (`:loaded-at`). Returns the sibling SCOPED KEY (the vector — the
+  `:previous-key` projection pointer is the kind-preserving vector, not the
+  byte `key-id`), or nil when there is no sibling to project (the new key
+  first-loads with no placeholder). A pure selection — the projection pointer
+  it returns never inserts data into the new entry.
+
+  rf2-9e0tyq: `entries` is now keyed on the CEDN-1 byte `key-id`, so the
+  scope/params comparison reads each candidate entry's stored `:resource/key`
+  vector — NOT the map key (which is the opaque bytes string)."
   [entries new-key]
   (let [[scope rid params] new-key]
     (->> entries
-         (keep (fn [[k entry]]
-                 (let [[s r p] k]
+         (keep (fn [[_k-id entry]]
+                 (let [[s r p] (:resource/key entry)]
                    (when (and (= s scope) (= r rid) (not= p params)
                               (some? (:data entry)))
-                     [k (:loaded-at entry)]))))
+                     [(:resource/key entry) (:loaded-at entry)]))))
          (sort-by (fn [[_ loaded-at]] (or loaded-at 0)) >)
          ffirst)))
 
@@ -571,20 +631,27 @@
 ;; rebuild both restore and an in-cascade index repair use.
 
 (defn recompute-indexes
-  "Rebuild `:tag-index` (`{<tag> #{<scoped-key> …}}`) and `:owner-index`
-  (`{<owner> #{<scoped-key> …}}`) from the resource subtree's `:entries`.
+  "Rebuild `:tag-index` (`{<tag> #{<key-id> …}}`) and `:owner-index`
+  (`{<owner> #{<key-id> …}}`) from the resource subtree's `:entries`.
   Returns the resource subtree with both indexes replaced. Per Spec 016
-  §Restore and replay part 5 / §Cache home."
+  §Restore and replay part 5 / §Cache home.
+
+  rf2-9e0tyq: the index MEMBERS are the CEDN-1 byte `key-id` — the SAME key
+  the `:entries` map uses — so a list- and a vector-params key produce
+  DISTINCT index members (the `=`-collapse would otherwise fold two sets'
+  members into one). The member is the map key of `:entries` directly (it
+  already IS the byte `key-id`), so consumers resolve an index member to its
+  entry via `entry-path-by-id`."
   [resources-subtree]
   (let [entries (:entries resources-subtree)]
     (reduce-kv
-      (fn [acc k entry]
+      (fn [acc k-id entry]
         (-> acc
             (update :tag-index
-                    (fn [ti] (reduce (fn [ti tag] (update ti tag (fnil conj #{}) k))
+                    (fn [ti] (reduce (fn [ti tag] (update ti tag (fnil conj #{}) k-id))
                                      ti (:tags entry))))
             (update :owner-index
-                    (fn [oi] (reduce (fn [oi owner] (update oi owner (fnil conj #{}) k))
+                    (fn [oi] (reduce (fn [oi owner] (update oi owner (fnil conj #{}) k-id))
                                      oi (:active-owners entry))))))
       (assoc resources-subtree :tag-index {} :owner-index {})
       entries)))

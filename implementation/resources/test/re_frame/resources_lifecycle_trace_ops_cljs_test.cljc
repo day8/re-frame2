@@ -207,11 +207,13 @@
   (let [k-fresh [:rf.scope/global :h/fresh {:slug "f"}]
         k-stale [:rf.scope/global :h/stale {:slug "s"}]
         k-meta  [:rf.scope/global :h/meta  {:slug "m"}]]
+    ;; rf2-9e0tyq — `:entries` is keyed on the byte `key-id`; each entry carries
+    ;; its own `:resource/key` (the refetch plan reads it for :resource-id).
     {state/resources-key
      {:entries
-      {k-fresh {:status :loaded :data {:x 1} :loaded-at (- clock 10) :stale-at (+ clock 10000)}
-       k-stale {:status :loaded :data {:y 2} :loaded-at (- clock 20000) :stale-at (- clock 1)}
-       k-meta  {:status :loaded :data nil    :loaded-at (- clock 10) :stale-at (+ clock 10000)}}}}))
+      {(state/key-id k-fresh) {:resource/key k-fresh :status :loaded :data {:x 1} :loaded-at (- clock 10) :stale-at (+ clock 10000)}
+       (state/key-id k-stale) {:resource/key k-stale :status :loaded :data {:y 2} :loaded-at (- clock 20000) :stale-at (- clock 1)}
+       (state/key-id k-meta)  {:resource/key k-meta  :status :loaded :data nil    :loaded-at (- clock 10) :stale-at (+ clock 10000)}}}}))
 
 (deftest hydrate-refetch-emits-per-plan-entry
   (testing "hydrate-refetch-plan emits one :rf.resource/hydrate-refetch per

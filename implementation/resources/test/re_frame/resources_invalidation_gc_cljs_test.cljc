@@ -370,7 +370,8 @@
     (succeed! k {:rev 1})
     (testing "first load produces version-1 tags"
       (is (= #{[:article "w"] [:rev 1]} (:tags (entry k))))
-      (is (= #{k} (get-in (runtime-db) (conj (state/tag-index-path) [:rev 1])))))
+      ;; rf2-9e0tyq — tag-index members are the byte key-id.
+      (is (= #{(state/key-id k)} (get-in (runtime-db) (conj (state/tag-index-path) [:rev 1])))))
     ;; refetch → data now rev 2 → tags REPLACED
     (rf/dispatch-sync [:rf.resource/refetch {:resource :tagrep/article :scope scope
                                              :params {:slug "w"}}])
@@ -380,7 +381,7 @@
               removed (stale list/detail relationships stop receiving
               invalidations)"
       (is (= #{[:article "w"] [:rev 2]} (:tags (entry k))) "entry tags replaced")
-      (is (= #{k} (get-in (runtime-db) (conj (state/tag-index-path) [:rev 2])))
+      (is (= #{(state/key-id k)} (get-in (runtime-db) (conj (state/tag-index-path) [:rev 2])))
           "new tag indexed")
       (is (nil? (get-in (runtime-db) (conj (state/tag-index-path) [:rev 1])))
           "OLD tag removed from the index (not accumulated)"))))
@@ -540,29 +541,34 @@
   (testing "Spec 016 §Stale and GC scheduling — timers live in a host SIDE
             TABLE keyed by [frame-id resource-key kind], NOT in frame-state"
     (timers/reset-cache!)
-    (let [k [:rf.scope/global :t/x {:id 1}]]
+    ;; rf2-9e0tyq — the side-table key's resource-key element is the CEDN-1
+    ;; byte `key-id` (so a list- and a vector-params resource never share a
+    ;; timer slot). The dispatched recheck event still carries the vector.
+    (let [k    [:rf.scope/global :t/x {:id 1}]
+          k-id (state/key-id k)]
       ;; arm a real (long) timer so it does not fire during the test
       (timers/schedule! :rf/default k timers/gc-kind 1000000)
-      (is (contains? @timers/timer-table [:rf/default k timers/gc-kind])
+      (is (contains? @timers/timer-table [:rf/default k-id timers/gc-kind])
           "the timer handle lives in the module-level side table")
       ;; the durable runtime-db carries NO timer handle
       (is (not (contains? (runtime-db) :rf.runtime/resources-timers))
           "no timer state leaked into runtime-db")
       (timers/cancel! :rf/default k timers/gc-kind)
-      (is (not (contains? @timers/timer-table [:rf/default k timers/gc-kind]))
+      (is (not (contains? @timers/timer-table [:rf/default k-id timers/gc-kind]))
           "cancel! drops the handle"))))
 
 (deftest timer-reschedule-cancels-prior
   (testing "Spec 016 — a re-load reschedules (cancel-then-arm), not accumulate"
     (timers/reset-cache!)
-    (let [k [:rf.scope/global :t/y {:id 1}]]
+    (let [k    [:rf.scope/global :t/y {:id 1}]
+          k-id (state/key-id k)]
       (timers/schedule! :rf/default k timers/stale-kind 1000000)
-      (let [h1 (get @timers/timer-table [:rf/default k timers/stale-kind])]
+      (let [h1 (get @timers/timer-table [:rf/default k-id timers/stale-kind])]
         (timers/schedule! :rf/default k timers/stale-kind 1000000)
-        (let [h2 (get @timers/timer-table [:rf/default k timers/stale-kind])]
+        (let [h2 (get @timers/timer-table [:rf/default k-id timers/stale-kind])]
           (is (not= h1 h2) "a fresh handle replaced the prior one")
           (is (= 1 (count (filter (fn [[[_ rk kind] _]]
-                                    (and (= rk k) (= kind timers/stale-kind)))
+                                    (and (= rk k-id) (= kind timers/stale-kind)))
                                   @timers/timer-table)))
               "exactly one live stale timer per [key kind]")))
       (timers/cancel-for-key! :rf/default k))))
@@ -718,13 +724,14 @@
         k     (state/scoped-resource-key scope :rmt/article {:slug "w"})]
     (ensure! :rmt/article scope "w" [:lease :rmt 1])
     (succeed! k {:title "W"})
-    ;; arm a real long timer so remove has something to cancel
+    ;; arm a real long timer so remove has something to cancel. rf2-9e0tyq —
+    ;; the timer side-table key's resource-key element is the byte key-id.
     (timers/schedule! :rf/default k timers/gc-kind 1000000)
-    (is (contains? @timers/timer-table [:rf/default k timers/gc-kind]))
+    (is (contains? @timers/timer-table [:rf/default (state/key-id k) timers/gc-kind]))
     (testing "Spec 016 §Events / §Stale and GC scheduling — :rf.resource/remove
               evicts the instance AND cancels its advisory timers"
       (rf/dispatch-sync [:rf.resource/remove {:resource :rmt/article :scope scope
                                               :params {:slug "w"}}])
       (is (nil? (entry k)) "instance removed")
-      (is (not (contains? @timers/timer-table [:rf/default k timers/gc-kind]))
+      (is (not (contains? @timers/timer-table [:rf/default (state/key-id k) timers/gc-kind]))
           "its GC timer cancelled"))))

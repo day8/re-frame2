@@ -197,7 +197,10 @@
   [frame-id resource-id scope params {:keys [status owner in-flight?]}]
   (let [scoped-key (state/scoped-resource-key scope resource-id params)
         work-id    (when in-flight? (work-ledger/resource-work-id scoped-key 1))
-        entry      (cond-> (assoc (state/empty-entry resource-id)
+        ;; rf2-9e0tyq — the runtime stamps each entry's `:resource/key`; the
+        ;; live algebra view reads it for the node `:id` / `:inputs` (the
+        ;; `:entries` map is keyed on the opaque byte `key-id`).
+        entry      (cond-> (assoc (state/empty-entry resource-id scoped-key)
                                   :status        (or status :loaded)
                                   :data          {:slug (:slug params)}
                                   :active-owners (if owner #{owner} #{}))

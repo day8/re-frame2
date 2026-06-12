@@ -181,8 +181,10 @@
   other scope for this resource is active. Pure."
   [entries sub-key]
   (let [[sub-scope rid _params] sub-key]
-    (some (fn [[k entry]]
-            (let [[scope r _p] k]
+    (some (fn [[_k-id entry]]
+            ;; rf2-9e0tyq — read the scope/rid from the entry's stored
+            ;; `:resource/key` VECTOR (the map key is now the opaque byte id).
+            (let [[scope r _p] (:resource/key entry)]
               (when (and (= r rid)
                          (not= scope sub-scope)
                          (entry-active? entry))

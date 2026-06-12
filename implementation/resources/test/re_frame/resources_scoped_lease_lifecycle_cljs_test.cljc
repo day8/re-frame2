@@ -81,9 +81,22 @@
 ;; ---- helpers --------------------------------------------------------------
 
 (defn- runtime-db [] (rf/runtime-db-value :rf/default))
-(defn- entries [] (get-in (runtime-db) (state/entries-path)))
+;; rf2-9e0tyq — `:entries` is keyed on the opaque byte `key-id`; this test
+;; reasons about scoped-key VECTORS, so `entries` returns a vector-keyed VIEW
+;; (re-keyed from each entry's `:resource/key`) and `owner-index` returns the
+;; index with its member byte-ids mapped back to the scoped-key vectors. The
+;; semantics (which keys/owners map where) are unchanged.
+(defn- entries []
+  (into {} (map (fn [[_k-id e]] [(:resource/key e) e]))
+        (get-in (runtime-db) (state/entries-path))))
 (defn- entry [scoped-key] (get-in (runtime-db) (state/entry-path scoped-key)))
-(defn- owner-index [] (get-in (runtime-db) (state/owner-index-path)))
+(defn- owner-index []
+  (let [rdb (runtime-db)
+        es  (get-in rdb (state/entries-path))
+        id->sk (into {} (map (fn [[k-id e]] [k-id (:resource/key e)])) es)]
+    (into {} (map (fn [[owner members]]
+                    [owner (into #{} (map #(get id->sk % %)) members)]))
+          (get-in rdb (state/owner-index-path)))))
 
 (defn- tenant-key
   "The scoped feed key for tenant `t`, page `page`."

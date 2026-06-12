@@ -144,32 +144,12 @@
 ;; (the owner-classification seam); this slice consults it — never a
 ;; family-private elider.
 
-(defn- entry-classification
-  "Classify how `entry` (under `scoped-key`) may ride the wire against the SSR
-  `frame-id`, deferring to the resource OWNER's coarse root-prop `:sensitive?` /
-  `:large?` claim AND the named-scope-resolver derived-sensitivity inheritance
-  arm (`classification/whole-entry-disposition-for`, EP-0015 §6 / issue 11 +
-  EP-0016 wave rf2-fi6tda.1). Returns one of:
-
-    :serialize  — ship the data (still PROJECTED through frame
-                  classification — see `project-entry`);
-    :redact     — ship the entry as METADATA ONLY (status / timestamps /
-                  generation) with the data replaced by the redaction
-                  sentinel — a `:sensitive?` resource, OR a resource whose
-                  `{:from-db <id>}` scope resolver derived a sensitive scope
-                  from a frame-sensitive `:db` input (automatic inheritance);
-    :omit       — drop the entry's data wholesale (ship metadata only, no
-                  data key at all) — a `:large?` resource whose payload is
-                  too big to ride the hydration wire.
-
-  Sensitive (owner-declared OR derived) wins over large when both apply (the
-  redaction sentinel is the more conservative shape — it still announces an
-  entry exists). Per Spec 016 §Runtime-subsystem graduation clause 4 / EP-0015
-  §6 / Spec 015 §Derived sensitivity."
-  [frame-id scoped-key _entry]
-  (let [resource-id (nth scoped-key 1)
-        spec        (registry/resource-meta resource-id)]
-    (classification/whole-entry-disposition-for spec frame-id)))
+;; The per-entry disposition (`:serialize` / `:redact` / `:omit`) is computed
+;; inside `project-entry` (`classification/whole-entry-disposition-for` over the
+;; resource OWNER's coarse root-prop `:sensitive?` / `:large?` claim PLUS the
+;; named-scope-resolver derived-sensitivity inheritance arm — EP-0015 §6 / issue
+;; 11 + EP-0016 wave rf2-fi6tda.1; Spec 015 §Derived sensitivity). Sensitive wins
+;; over large (the redaction sentinel is the more conservative shape).
 
 ;; ---- scoped-key privacy (Spec 016 clause 4, rf2-otms75) -------------------
 ;;
@@ -288,9 +268,17 @@
   `:refresh-error` rides ONLY when the entry's data is serialized (it is
   the same privacy/size class as data — Spec 016 §SSR and hydration: a
   `:refresh-error` serializes only when the error envelope is allowed by
-  the data projection). A redacted/omitted entry drops `:refresh-error`."
-  [frame-id clock-ms scoped-key entry]
-  (let [resource-id (nth scoped-key 1)
+  the data projection). A redacted/omitted entry drops `:refresh-error`.
+
+  rf2-9e0tyq: the entry carries its own scoped-key VECTOR as `:resource/key`
+  (the `:entries` map is keyed on the byte `key-id`), so the scoped key is
+  read from the entry, not a separate map-key argument. The wire entry's
+  `:resource/key` is PROJECTED through `project-scoped-key` (scope+params
+  redacted for a `:redact` / `:omit` resource) so the raw identity never rides
+  in the in-entry copy any more than in the wire MAP key."
+  [frame-id clock-ms entry]
+  (let [scoped-key  (:resource/key entry)
+        resource-id (second scoped-key)
         ;; resolve the owner spec once: it carries BOTH the coarse root-prop
         ;; disposition (`whole-entry-disposition`) and the per-slot
         ;; `:data-schema` marks (`project-data` layer (a)) — EP-0015 §6.
@@ -348,6 +336,14 @@
         ;; survive the round-trip (Spec 016 §Restore and replay part 2 — a
         ;; non-terminal attempt is dangling on install).
         wire-entry  (dissoc wire-entry :current-work)
+        ;; rf2-9e0tyq — the in-entry `:resource/key` copy is PROJECTED the same
+        ;; way as the wire MAP key (`project-scoped-key`): a `:redact` / `:omit`
+        ;; resource redacts its scope + params to opaque content-addressed
+        ;; tokens here too, so the raw identity never rides in EITHER carrier.
+        ;; The client's `recompute-indexes` keys index members on the byte
+        ;; `key-id` of this projected `:resource/key`, matching the wire map key.
+        wire-entry  (assoc wire-entry :resource/key
+                           (project-scoped-key scoped-key disposition spec))
         meta'       (assoc base
                            :disposition (case disposition
                                           :serialize :serialized
@@ -364,7 +360,7 @@
   decisions). Returns a vector of per-entry metadata maps. PURE; the host
   adapter records it in route/SSR diagnostics."
   [frame-id clock-ms entries]
-  (mapv (fn [[k entry]] (second (project-entry frame-id clock-ms k entry)))
+  (mapv (fn [[_k-id entry]] (second (project-entry frame-id clock-ms entry)))
         entries))
 
 (defn project-resources-runtime-db
@@ -398,13 +394,16 @@
     (if (seq entries)
       (let [frame-id (frame/resolve-current-frame)
             clock-ms (now-ms)
+            ;; rf2-9e0tyq — the projected wire entries are RE-KEYED on the byte
+            ;; `key-id` of each entry's PROJECTED `:resource/key` (the wire
+            ;; entry's own `:resource/key`, set by `project-entry`), so the
+            ;; client installs them under the same byte identity it will then
+            ;; `recompute-indexes` over. `entries` here is keyed on the byte
+            ;; `key-id`; the scoped-key vector is read from each entry.
             wired    (into {}
-                           (map (fn [[k entry]]
-                                  (let [resource-id (nth k 1)
-                                        spec        (registry/resource-meta resource-id)
-                                        disposition (entry-classification frame-id k entry)
-                                        wire-key    (project-scoped-key k disposition spec)]
-                                    [wire-key (first (project-entry frame-id clock-ms k entry))])))
+                           (map (fn [[_k-id entry]]
+                                  (let [wire-entry (first (project-entry frame-id clock-ms entry))]
+                                    [(state/key-id (:resource/key wire-entry)) wire-entry])))
                            entries)]
         {state/resources-key {:entries wired}})
       {})))
@@ -437,20 +436,24 @@
   with no blocking resources never blocks the render). PURE — the host
   reads the live frame's entries each tick and re-evaluates.
 
-  `blocking-keys` are scoped resource keys; nav-token isolation is the
-  CALLER's responsibility — the route slice computes the blocking-keys for
-  the current nav-token only, so a superseded navigation's keys never enter
-  this predicate."
+  `blocking-keys` are scoped resource keys (the VECTOR form the route slice
+  stores); nav-token isolation is the CALLER's responsibility — the route
+  slice computes the blocking-keys for the current nav-token only, so a
+  superseded navigation's keys never enter this predicate.
+
+  rf2-9e0tyq: `entries` is keyed on the CEDN-1 byte `key-id`, so each
+  scoped-key vector is translated through `state/key-id` before lookup."
   [entries blocking-keys]
-  (every? (fn [k] (entry-settled? (get entries k))) blocking-keys))
+  (every? (fn [k] (entry-settled? (get entries (state/key-id k)))) blocking-keys))
 
 (defn unsettled-blocking-keys
   "Return the subset of `blocking-keys` whose entries have NOT settled
   (still `:idle` / `:loading` / `:fetching`, or absent). The set
   `settle-blocking-timeout` fails closed against when the SSR deadline
-  fires. Per Spec 016 §SSR and hydration (blocking timeout policy)."
+  fires. Per Spec 016 §SSR and hydration (blocking timeout policy).
+  rf2-9e0tyq: looks each scoped-key vector up by its byte `key-id`."
   [entries blocking-keys]
-  (into #{} (remove (fn [k] (entry-settled? (get entries k)))) blocking-keys))
+  (into #{} (remove (fn [k] (entry-settled? (get entries (state/key-id k))))) blocking-keys))
 
 (defn ssr-timeout-error
   "The structured first-load failure envelope a blocking SSR timeout
@@ -496,11 +499,17 @@
     (if (empty? unsettled)
       {:entries entries :route-blocking-failure nil}
       (let [error    (ssr-timeout-error deadline-ms)
+            ;; rf2-9e0tyq — `unsettled` are scoped-key VECTORS; the `:entries`
+            ;; map is keyed on the byte `key-id`, so key each settle by
+            ;; `key-id` and stamp the entry's own `:resource/key` vector (so a
+            ;; freshly-minted timeout entry carries its identity for the
+            ;; downstream iterators / projection).
             entries' (reduce
                        (fn [es k]
-                         (let [entry (or (get es k)
-                                         (state/empty-entry (nth k 1)))]
-                           (assoc es k (state/entry-failed entry {:error error}))))
+                         (let [k-id  (state/key-id k)
+                               entry (or (get es k-id)
+                                         (state/empty-entry (second k) k))]
+                           (assoc es k-id (state/entry-failed entry {:error error}))))
                        entries unsettled)]
         (trace/emit-error! :rf.error/resource-ssr-blocking-timeout
                            {:rf.error/id :rf.error/resource-ssr-blocking-timeout
@@ -1006,12 +1015,16 @@
                            ledger)]
     (if (empty? non-terminal)
       [runtime-db []]
-      [(reduce (fn [rdb work-id]
-                 (work-ledger/update-record rdb work-id
-                                            work-ledger/mark-terminal
-                                            :suppressed
-                                            {:reason :dangling
-                                             :recovery :restore-reconcile}))
+      ;; rf2-9e0tyq — `non-terminal` are ledger map keys (already byte
+      ;; `work-id-id`s from the `(map key)` scan), so update them via
+      ;; `update-record-by-id` (NOT `update-record`, which re-transforms a
+      ;; work-id VECTOR to its byte id and would double-hash).
+      [(reduce (fn [rdb work-id-id]
+                 (work-ledger/update-record-by-id rdb work-id-id
+                                                   work-ledger/mark-terminal
+                                                   :suppressed
+                                                   {:reason :dangling
+                                                    :recovery :restore-reconcile}))
                runtime-db non-terminal)
        non-terminal])))
 
@@ -1433,12 +1446,16 @@
   ([runtime-db clock-ms] (hydrate-refetch-plan runtime-db clock-ms nil))
   ([runtime-db clock-ms frame-id]
    (let [entries (get-in runtime-db [state/resources-key :entries])
+         ;; rf2-9e0tyq — `entries` is keyed on the opaque byte `key-id`; the
+         ;; plan names each entry by its stored `:resource/key` VECTOR (the
+         ;; route slice re-resolves params from the live route under that key)
+         ;; and reads the resource-id from position 1 of THAT vector.
          plan    (into []
                        (comp
                          (filter (fn [[_ entry]] (entry-needs-refetch? entry clock-ms)))
-                         (map (fn [[k entry]]
-                                {:resource-key k
-                                 :resource-id  (nth k 1)
+                         (map (fn [[_k-id entry]]
+                                {:resource-key (:resource/key entry)
+                                 :resource-id  (second (:resource/key entry))
                                  :reason       (cond
                                                  ;; a REDACTED entry rides the
                                                  ;; sentinel as `:data` — metadata

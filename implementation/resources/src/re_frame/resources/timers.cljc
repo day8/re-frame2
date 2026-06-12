@@ -60,7 +60,8 @@
   `:server` and a JVM client-mode unit test must still arm timers. A re-load
   reschedules (cancel-then-arm) so a single live timer per `[key kind]`
   survives."
-  (:require [re-frame.interop :as interop]
+  (:require [re-frame.identity :as identity]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]))
 
@@ -117,9 +118,14 @@
   (atom {}))
 
 (defn- timer-key
-  "The side-table key for `[frame-id resource-key kind]`."
+  "The side-table key for `[frame-id resource-key kind]`. rf2-9e0tyq: the
+  `resource-key` is reduced to its CEDN-1 byte identity (`canonical-bytes`)
+  so a list- and a vector-params resource never share a timer slot (the
+  Clojure-`=` map-key collapse the cache-key re-keying closes). The dispatched
+  recheck event still carries the kind-preserving scoped-key VECTOR; only the
+  host side-table key is byte-reduced."
   [frame-id resource-key kind]
-  [frame-id resource-key kind])
+  [frame-id (identity/canonical-bytes resource-key) kind])
 
 (defn cancel!
   "Cancel + drop the host timer for `[frame-id resource-key kind]` (a no-op

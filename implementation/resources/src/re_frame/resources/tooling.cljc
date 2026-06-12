@@ -460,8 +460,12 @@
   (let [runtime-db (frame/frame-runtime-db-value frame-id)
         entries    (get-in runtime-db (state/entries-path))]
     (reduce-kv
-      (fn [acc scoped-key entry]
-        (let [resource-id (second scoped-key)
+      ;; rf2-9e0tyq — `:entries` is keyed on the opaque byte `key-id`; the live
+      ;; node's `:id` / inputs use the entry's own `:resource/key` VECTOR (the
+      ;; canonical fact identity), read from the entry, not the map key.
+      (fn [acc _k-id entry]
+        (let [scoped-key  (:resource/key entry)
+              resource-id (second scoped-key)
               static-node (resource-algebra-view resource-id)]
           (assoc acc scoped-key
                  (live-node-for runtime-db scoped-key entry static-node))))

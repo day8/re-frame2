@@ -270,13 +270,17 @@
 
   `resource-id` stamps the seeded entry's `:resource/id` when fresh; `tags`
   is the produced tag set (a populated entry MUST carry its own tags so a
-  later invalidation can reach it)."
-  [entry resource-id populate-value {:keys [clock-ms stale-at tags]}]
-  (let [base   (or entry (state/empty-entry resource-id))
+  later invalidation can reach it). `scoped-key` (opt) stamps the seeded
+  entry's `:resource/key` when fresh (rf2-9e0tyq — a populate may CREATE an
+  entry, and every entry must carry its own scoped-key vector now that
+  `:entries` is keyed on the byte `key-id`); an existing entry keeps its own."
+  [entry resource-id populate-value {:keys [clock-ms stale-at tags scoped-key]}]
+  (let [base   (or entry (state/empty-entry resource-id scoped-key))
         old    (:data base)
         shared (if (and (some? old) (= old populate-value)) old populate-value)]
     (assoc base
            :resource/id    (:resource/id base resource-id)
+           :resource/key   (or (:resource/key base) scoped-key)
            :data           shared
            :status         :loaded
            :error          nil
