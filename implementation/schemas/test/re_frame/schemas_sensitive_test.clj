@@ -929,7 +929,8 @@
 ;; above.) These tests assert the conforming sensitive sibling is ABSENT
 ;; from every egressed slot.
 
-(deftest cofx-validation-conforming-sensitive-sibling-redacted-whole-value
+;; EP-0017 slice A.3 (rf2-oa2dun): cofx `:schema` validation deferred to slice B (retired with inject-cofx).
+#_(deftest cofx-validation-conforming-sensitive-sibling-redacted-whole-value
   (testing "rf2-3qam7b — a cofx schema with a CONFORMING sensitive sibling
             (:token) AND a non-sensitive failing sibling (:count): every
             value-bearing slot on this surface carries the WHOLE cofx value
@@ -962,7 +963,8 @@
         (is (not (str/includes? (pr-str (:tags v)) "SECRET-COFX-tok"))
             "the conforming sensitive sibling :token is ABSENT from every egressed slot")))))
 
-(deftest cofx-validation-sensitive-slot-failure-still-redacts
+;; EP-0017 slice A.3 (rf2-oa2dun): cofx `:schema` validation deferred to slice B (retired with inject-cofx).
+#_(deftest cofx-validation-sensitive-slot-failure-still-redacts
   (testing "rf2-k0ew8n — the path-targeted check still REDACTS when the
             FAILING slot itself is sensitive (no privacy regression)"
     (rf/reg-cofx :auth/ctx2
@@ -1212,7 +1214,8 @@
 
 ;; ---- redaction at cofx validation site -----------------------------------
 
-(deftest cofx-validation-ignores-meta-sensitive
+;; EP-0017 slice A.3 (rf2-oa2dun): cofx `:schema` validation deferred to slice B (retired with inject-cofx).
+#_(deftest cofx-validation-ignores-meta-sensitive
   (testing "The handler-meta `:sensitive?` annotation has been removed.
             Cofx-meta `:sensitive?` no longer triggers cofx-validation
             redaction — the schema-walker now drives the decision
@@ -1242,7 +1245,8 @@
         (is (= :auth/credentials (-> v :tags :rf.cofx/id))
             "structural :rf.cofx/id survives")))))
 
-(deftest cofx-validation-redacts-when-schema-container-sensitive
+;; EP-0017 slice A.3 (rf2-oa2dun): cofx `:schema` validation deferred to slice B (retired with inject-cofx).
+#_(deftest cofx-validation-redacts-when-schema-container-sensitive
   (testing "A container-level :sensitive? on the cofx :schema also triggers
             redaction even when the cofx-meta doesn't carry the flag"
     (rf/reg-cofx :secret-blob

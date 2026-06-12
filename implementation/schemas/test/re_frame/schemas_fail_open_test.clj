@@ -98,7 +98,10 @@
         (is (= 0 @calls) "handler skipped")
         (is (= 1 (count (malformed-traces traces))) "one malformed-schema trace fired")))))
 
-(deftest cofx-malformed-schema-fails-closed
+;; EP-0017 slice A.3 (rf2-oa2dun): cofx `:schema` validation at injection time
+;; is retired with `inject-cofx` and deferred to slice B. `#_`-disabled until
+;; slice B wires recordable-value `:schema` validation.
+#_(deftest cofx-malformed-schema-fails-closed
   (testing "rf2-a5kzs (finding 2) — a malformed cofx :schema does not run the
             handler via throw-as-pass; the handler is skipped and a
             malformed-schema trace fires."

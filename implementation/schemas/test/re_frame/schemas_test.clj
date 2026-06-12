@@ -368,8 +368,17 @@
             "exactly one trace from the malformed compute-sub call")))))
 
 ;; ---- rf2-7leq — cofx validation ------------------------------------------
+;;
+;; EP-0017 slice A.3 (rf2-oa2dun): cofx `:schema` validation at injection time
+;; is RETIRED with `inject-cofx` and DEFERRED to slice B (per Spec 009
+;; §`:rf.error/cofx-value-invalid` — "the `:schema` validation step is
+;; slice-B-built"). The two deftests below pinned the old inject-cofx-interceptor
+;; validation path; they are `#_`-disabled until slice B wires recordable-value
+;; `:schema` validation. The `validate-cofx!` DIRECT-call shape test
+;; (`cofx-validation-direct-call-shape`, below) still runs — the validator fn is
+;; unchanged; only its injection-time wiring moved to slice B.
 
-(deftest cofx-validation-fires-and-skips-handler
+#_(deftest cofx-validation-fires-and-skips-handler
   (testing "Per Spec 010 §step 2 (rf2-7leq): a cofx whose injected value
             fails its :schema emits :rf.error/schema-validation-failure
             :where :cofx and the handler is NOT invoked"
@@ -406,7 +415,8 @@
                 ":frame tag carries the in-flight cascade's frame")
             (is (= :no-recovery (:recovery v)))))))))
 
-(deftest cofx-validation-passes-when-conforming
+;; EP-0017 slice A.3 (rf2-oa2dun): cofx `:schema` validation deferred to slice B.
+#_(deftest cofx-validation-passes-when-conforming
   (testing "well-typed cofx values flow through to the handler — no trace, handler runs"
     (rf/reg-cofx :app-version/well
       {:schema :string}
@@ -577,7 +587,8 @@
 ;; the violation to that frame (mirrors
 ;; schema-fires-only-on-the-frame-it-registers-against for :where :app-db).
 
-(deftest cofx-validation-frame-tag-attributes-named-frame
+;; EP-0017 slice A.3 (rf2-oa2dun): cofx `:schema` validation deferred to slice B.
+#_(deftest cofx-validation-frame-tag-attributes-named-frame
   (testing "rf2-9cm27 — a cofx validation failure on a NAMED frame stamps
             that frame's id on the trace (not :rf/default), so the epoch
             capture buffers it into the right per-frame cascade."
