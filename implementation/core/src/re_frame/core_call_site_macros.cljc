@@ -95,22 +95,9 @@
                      `(re-frame.core/subscribe* ~query-v))]
        (gate stamped plain))))
 
-#?(:clj
-   (defn build-inject-cofx-form
-     [form-meta ns-sym file cofx-id value-form]
-     (let [cs-form (call-site-form form-meta ns-sym file)
-           stamped (if value-form
-                     `(re-frame.core/inject-cofx* ~cofx-id ~value-form ~cs-form)
-                     ;; 1-arity routes through the 3-arity with the
-                     ;; cofx/no-value sentinel so the call-site can
-                     ;; ride; the 3-arity branch in cofx/inject-cofx
-                     ;; detects the sentinel via `identical?` and takes
-                     ;; the no-value path through the cofx fn body.
-                     `(re-frame.core/inject-cofx* ~cofx-id re-frame.cofx/no-value ~cs-form))
-           plain   (if value-form
-                     `(re-frame.core/inject-cofx* ~cofx-id ~value-form)
-                     `(re-frame.core/inject-cofx* ~cofx-id))]
-       (gate stamped plain))))
+;; `build-inject-cofx-form` was retired with `inject-cofx` (EP-0017 slice
+;; A.3): the macro now expands directly to the throwing `inject-cofx*` stub
+;; (no call-site interceptor to build), so the dedicated builder is gone.
 
 ;; ---- ->interceptor (definition-site coord capture, rf2-siheh) ------------
 ;;

@@ -21,6 +21,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
             [re-frame.late-bind :as late-bind]
+            [re-frame.cofx :as cofx]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
 
@@ -657,6 +658,52 @@
   (boolean (or (:rf/framework-authority? meta)
                (:rf/machine? meta))))
 
+;; ---- :rf.cofx/requires parsing (EP-0017 §4 / Spec 001 §The declaration key) -
+;;
+;; `:rf.cofx/requires` is a standard registration-metadata key (Spec 001 middle
+;; slot) on `reg-event-fx` and `reg-event-ctx` declaring the handler's consumed
+;; coeffect ids. The runtime delivers EXACTLY the declared facts, flat, into the
+;; handler's coeffects map (declared-only delivery — Spec 002 §Satisfaction).
+;;
+;; On `reg-event-db` it is a REGISTRATION-TIME ERROR
+;; (`:rf.error/cofx-request-invalid`): a db handler receives only the db and
+;; cannot take delivery. Needing the world is what graduates a handler to the
+;; fx form. The parsing / shape validation / duplicate-id check lives in
+;; `re-frame.cofx/parse-requires`; the parsed entries are stored on the
+;; registration under `:rf.cofx/requires-parsed` for the satisfaction step
+;; (`assemble-initial-ctx`) and the raw value is retained under
+;; `:rf.cofx/requires` so `handler-meta` surfaces it exactly as authored
+;; (Spec 009 §9).
+
+(defn- reject-db-handler-requires!
+  "Raise `:rf.error/cofx-request-invalid` when a `reg-event-db` registration
+  carries `:rf.cofx/requires`: a db handler is `(fn [db event] new-db)` and
+  cannot take coeffect delivery. Per Spec 001 §The declaration key + EP-0017
+  §4. A no-op for any other kind, or when the key is absent."
+  [kind id meta]
+  (when (and (= kind :db) (contains? meta :rf.cofx/requires))
+    (trace/emit-error! :rf.error/cofx-request-invalid
+                       {:failing-id id
+                        :received   (:rf.cofx/requires meta)
+                        :reason     (str "`reg-event-db` for `" id "` carried "
+                                         "`:rf.cofx/requires`, but a db handler "
+                                         "receives only the db and cannot take "
+                                         "coeffect delivery.")
+                        :recovery   :no-recovery})
+    (throw (ex-info ":rf.error/cofx-request-invalid"
+                    {:rf.error/id :rf.error/cofx-request-invalid
+                     :failing-id  id
+                     :received    (:rf.cofx/requires meta)
+                     :where       'rf/reg-event-db
+                     :recovery    :no-recovery
+                     :reason
+                     (str "`reg-event-db` for `" id "` declared "
+                          "`:rf.cofx/requires`. A db handler `(fn [db event] "
+                          "new-db)` cannot take coeffect delivery — a handler "
+                          "that needs world facts graduates to `reg-event-fx`. "
+                          "Move the declaration to a `reg-event-fx` "
+                          "registration.")}))))
+
 ;; ---- registration ---------------------------------------------------------
 
 ;; ---- bare-interceptor detection (rf2-3ut12) -------------------------------
@@ -862,11 +909,21 @@
     ;; (always — both dev and prod) rather than waiting for the first
     ;; dispatch in production.
     (reject-at-boundary-without-schema! reg-fn-name id meta interceptors)
-    (registrar/register! :event id
-      (assoc (-> meta source-coords/merge-coords merge-form-source)
-             :event/kind   kind
-             :handler-fn   handler-fn
-             :interceptors (-> [] (into interceptors) (conj wrapped))))
+    ;; EP-0017 §4: parse + validate `:rf.cofx/requires`. On `reg-event-db` the
+    ;; key is a registration-time error (a db handler cannot take delivery);
+    ;; otherwise parse into the normalised entry vector the satisfaction step
+    ;; consumes (`cofx/deliver-declared-cofx`, via `assemble-initial-ctx`),
+    ;; raising `:rf.error/cofx-request-invalid` / `:rf.error/cofx-name-collision`
+    ;; on a malformed / duplicate declaration.
+    (reject-db-handler-requires! kind id meta)
+    (let [requires-parsed (cofx/parse-requires id (:rf.cofx/requires meta))]
+      (registrar/register! :event id
+        (cond-> (assoc (-> meta source-coords/merge-coords merge-form-source)
+                       :event/kind   kind
+                       :handler-fn   handler-fn
+                       :interceptors (-> [] (into interceptors) (conj wrapped)))
+          (seq requires-parsed)
+          (assoc :rf.cofx/requires-parsed requires-parsed))))
     ;; Per Spec 015 §1. Event handlers: stash any declared `:sensitive`
     ;; / `:large` paths in the marks table so emit-time projection can
     ;; resolve them. Late-bound — the hook is unbound when the marks
