@@ -117,9 +117,12 @@ inside the relevant slice) before treating a result as raw data:
   reuse the prior call's payload.
 - `{:rf.size/large-elided {:path ... :handle [:rf.elision/at ...] ...}}` —
   drill into the handle (or pass `elision false`). Markers come from
-  app-schema slots carrying `{:large? true}`. If a large value appears
-  without schema metadata, dev builds emit `:rf.warning/large-value-unschema'd`;
-  authors should add `{:large? true}` to the schema slot when elision is desired.
+  owner-declared `:large` classification: a durable app-db slice declared on
+  the **frame** (`reg-frame :large {:app-db [[...]]}`), or a `{:large? true}`
+  per-slot prop on owner-local schema'd data (machine `:data`, resource
+  data/params). If a large value appears unclassified, dev builds emit
+  `:rf.warning/large-value-unschema'd`; classify it at its owner when elision
+  is desired.
 - `{:rf.mcp/summary {:type :map :keys [...] :count N :bytes ~B}}` —
   ask for `"full"` mode (per-slice or globally) when you need detail.
 

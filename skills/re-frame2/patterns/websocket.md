@@ -31,7 +31,7 @@ Bearer tokens, cookies, refresh tokens, and similar credentials **must never liv
 
 > **The credential cofx/fx live under YOUR app's prefix, not `:rf/*`.** re-frame2 ships **no** credential surface — there is no `:rf.cred/fetch` cofx or `:rf.cred/store` fx, and the `:rf/*` root (every sub-namespace, `:rf.cred/*` included) is **framework-reserved**: app code MUST NOT register handlers, fx, cofx, subs, or frames under it (`spec/Conventions.md` §single-root reserved set). Register the credential cofx/fx under your auth slice's own feature prefix — e.g. `:auth.cred/fetch` and `:auth.cred/store` — substituting whatever prefix your app already owns. The `:auth.cred/*` names in this leaf are illustrative placeholders for *your* registrations, not framework-provided surfaces.
 
-For events that genuinely must carry a secret across the dispatch boundary (e.g. `:ws/refresh-token` propagating a freshly minted bearer), prefer storing the secret in an app-schema slot marked `{:sensitive? true}` and handle it through a path-scoped event. If the secret rides only in the event payload (not at a schema slot), scrub the payload path with a positional `(rf/redact-interceptor [[:bearer]])`. There is **no** handler-meta `{:sensitive? true}` privacy switch — that annotation was removed from the runtime and is no longer consulted.
+For events that genuinely must carry a secret across the dispatch boundary (e.g. `:ws/refresh-token` propagating a freshly minted bearer), classify the secret at its owner. If it lands at a durable **app-db** slot, declare that path on the **frame** (`{:sensitive {:app-db [[:auth :bearer]]}}`). If it rides only in the **event payload**, name it in the registration's `:sensitive` metadata — `(rf/reg-event-fx :ws/refresh-token {:sensitive [[:bearer]]} handler)`. Either way the handler body sees the real value; only the framework's observation surfaces ship `:rf/redacted`. There is **no** handler-meta `{:sensitive? true}` privacy switch — that annotation was removed from the runtime and is no longer consulted.
 
 The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaque key your auth slice already issues (a UUID, a `(random-uuid)` index into a host-side credential vault, a session id, etc.). The crucial property: the value in `:data` is **not** the bearer itself.
 
@@ -142,16 +142,14 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
 
 Caller: `(rf/dispatch [:ws/connection [:ws/connect {:url "wss://api.example.com/ws" :cred-ref (current-session-cred-ref)}]])` — `current-session-cred-ref` returns an opaque pointer into the host-side credential vault. The bearer itself never crosses the dispatch boundary; the actor's app-side `:auth.cred/fetch` cofx (your prefix) resolves the pointer to a bearer at spawn time.
 
-If the credential genuinely must move via dispatch (e.g. an out-of-band rotation event), prefer writing it through a schema-sensitive app-db path — see [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md):
+If the credential genuinely must move via dispatch (e.g. an out-of-band rotation event), name the payload path in the **registration's** `:sensitive` metadata — the registration owns transient-payload classification (see [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md)):
 
 ```clojure
 (rf/reg-event-fx :ws/rotate-cred-from-bearer
-  [(rf/redact-interceptor [[:bearer]])]
+  {:sensitive [[:bearer]]}                ;; the registration owns this transient payload's classification
   (fn [{:keys [db]} [_ {:keys [bearer]}]]
-    ;; redact-interceptor scrubs the :bearer payload key to :rf/redacted on
-    ;; the trace/listener/error surface when the bearer cannot be represented
-    ;; as a schema-sensitive app-db path; the handler body still sees the real
-    ;; value via the :event coeffect.
+    ;; the :bearer payload key ships as :rf/redacted on the trace/listener/error
+    ;; surface; the handler body still sees the real value via the :event coeffect.
     ;; :auth.cred/store is YOUR app's fx (an app-prefixed registration);
     ;; re-frame2 ships no credential fx and :rf/* is reserved.
     {:fx [[:auth.cred/store {:bearer bearer :on-stored [:ws/connection [:ws/rotate-cred ::new-ref]]}]]}))

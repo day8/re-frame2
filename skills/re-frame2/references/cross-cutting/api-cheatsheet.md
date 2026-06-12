@@ -122,6 +122,25 @@ The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-t
 | `rf/set-schema-validator!` / `rf/set-schema-explainer!` | swap-in non-Malli validator |
 | `rf/validate-at-boundary-interceptor` | production-side validation interceptor |
 
+## Privacy / egress — `015 Data Classification` (see `cross-cutting/privacy-and-elision.md`)
+
+Owner classifies / framework projects / sinks consume. Classification keys are *declarations*, not calls — they live in `reg-frame` / registration / schema maps:
+
+| Surface | Shape |
+|---|---|
+| frame `:sensitive` / `:large` | `(reg-frame id {:sensitive {:app-db [[…]] :http {:headers […] :query-params […]}} :large {:app-db [[…]]}})` — durable app-db + frame-local HTTP carrier classification |
+| frame `:observability` | `{:handled-events [{:sink <id> :rf.egress/profile :rf.egress/off-box-observability :opts {…}}] :errors [...]}` — production sink policy (fail-closed, frame-scoped) |
+| registration `:sensitive` / `:large` | `{:sensitive [[:password]] :large [[:blob]]}` on `reg-event-*`/`reg-sub`/`reg-fx`/`reg-flow` — transient-payload paths; `[[]]` = whole shape |
+| schema `:sensitive?` / `:large?` | `[:token {:sensitive? true} :string]` Malli prop — machine `:data-schema`, resource `:data-schema`/`:params-schema`, HTTP `:decode` (owner-local schema'd data only; NOT app-db) |
+| `:rf.egress/output-sensitivity` | `:rf.egress/inherit` (default) \| `:rf.egress/sensitive` \| `:rf.egress/public` — derived-output declassification on a `reg-sub`/`reg-flow`; `:public` is an audited claim (Xray enumerates) |
+| `rf/project-egress` | `(record-or-value opts)` — record-level boundary primitive; `opts` `{:rf.egress/profile <closed six-member enum> :frame … :path […]}`. Required before any off-box sink; fail-closed when no frame known |
+| `rf/elide-wire-value` | `(value opts)` — low-level tree-shaped-value walker `project-egress` delegates to; advanced `:rf.size/include-sensitive?` / `:include-large?` / `:include-digests?` overrides |
+| `rf/reg-observability-sink!` | `(sink-id fn)` — register the concrete sink fn for a frame `:observability` sink id; fn receives an **already-projected** record (no sink-local redaction) |
+| `rf/projected-record` | `(record)` — dev-only projected epoch/observation record read |
+| `rf/register-event-listener!` / `rf/register-error-listener!` (+ `unregister-*`) | advanced low-level listener registries beneath frame `:observability` |
+
+Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability` · `off-box-tool` · `local-redacted` (local default) · `local-raw` (trusted-local opt-in) · `ssr-hydration` · `public-error`. **Retired (removed from the public façade, EP-0015):** `add-marks` / `set-marks` → frame `:sensitive {:app-db …}`; `redact-interceptor` → registration `:sensitive`; `declare-sensitive-header!` / `declare-sensitive-query-param!` → frame `:sensitive {:http …}`.
+
 ## Trace and epoch — `day8/re-frame2-epoch`
 
 | Surface | Shape |
