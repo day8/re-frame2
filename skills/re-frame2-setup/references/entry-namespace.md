@@ -56,7 +56,7 @@ If you render *without* the `frame-provider` (or before `reg-frame`), every `sub
 
 ## Why `rf/init!` exists (and why it's explicit)
 
-re-frame2 splits **the registry** (a process-global handler / sub / fx map) from **the substrate** (Reagent / UIx / Helix / plain atom). The substrate is supplied at boot via an *adapter map*; `rf/init!` is the moment that adapter map is installed as the runtime's substrate (it installs adapters and capabilities; it does not create a frame).
+re-frame2 splits **the registry** (the handler / sub / fx map) from **the substrate** (Reagent / UIx / Helix / plain atom). Both live in a **realm** (EP-0013) — the container that holds a program's registrar and its installed adapter + capabilities. Single-realm apps never spell a realm: every app boots into the implicit **default realm**, so "process-global registry" is a fair shorthand for the single-realm case, not the underlying model (the registrar is realm-owned; a second realm holds its own). The substrate is supplied at boot via an *adapter map*; `rf/init!` is the moment that adapter map and the runtime capabilities are **seated into the default realm** (it does not create a frame).
 
 Three consequences:
 

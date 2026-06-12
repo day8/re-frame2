@@ -63,7 +63,7 @@ Each variant has its own isolated copy of every per-frame surface. State does no
 
 ## What's NOT per-variant (registry-scoped)
 
-The **registrar** is global: `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `reg-view`, `reg-decorator`, etc. are visible from every frame. Hot-swapping a handler via re-frame2-pair's `eval-cljs` affects every variant that dispatches that event — useful for the experiment loop (`recipes.md §Experiment loop`), occasionally surprising if you expected variant-scoped isolation.
+The **registrar** is **realm-owned**, not frame-owned (EP-0013): `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `reg-view`, `reg-decorator`, etc. register into the picked frame's **realm**, and every variant/frame in that *same* realm sees them. Hot-swapping a handler via re-frame2-pair's `eval-cljs` affects every variant **in that realm** that dispatches the event — useful for the experiment loop (`recipes.md §Experiment loop`), occasionally surprising if you expected variant-scoped isolation. (Story variants all mount in one realm — the default realm in a single-realm app — so in practice the swap reaches every variant. It would *not* leak into a sibling realm, but Story doesn't put variants in separate realms.)
 
 If you need a handler change to affect *only* one variant, use the per-frame `:interceptor-overrides` slot on `reg-frame` (Spec 002 §Per-frame overrides) — but Story's variant-mount doesn't expose this directly; you'd need to mutate the variant's frame metadata via `eval-cljs`. Usually the right move is to dispatch different args into different variants rather than reach for per-frame overrides.
 
