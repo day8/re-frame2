@@ -223,7 +223,14 @@
       (let [r (first @seen)]
         (is (= :rf.error/frame-destroyed (:error r)))
         (is (= :gone/frame (:frame r)))
-        (is (= [:any-sub] (:event r)))))))
+        ;; EP-0015 issue 1 (rf2-t55hxg.18) — the `:event` slot is projected
+        ;; against the record's frame, which is UNRESOLVABLE here. With no
+        ;; classification policy to consult the slot FAILS CLOSED to
+        ;; `:rf/redacted` (it must not leak the attempted query-v under an
+        ;; empty policy) — and the fail-closed posture holds in production
+        ;; (`goog.DEBUG=false`), not just dev.
+        (is (= :rf/redacted (:event r))
+            ":event fails closed under an unresolvable frame (prod survival)")))))
 
 (deftest no-such-handler-listener-survives-prod
   (testing "Per rf2-2hvga (= B / widen): a dispatch to a never-registered
