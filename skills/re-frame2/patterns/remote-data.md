@@ -54,12 +54,17 @@ The dominant shape; used wherever an explicit `:status` keyword and Pattern-Remo
               :on-failure [:articles/load-failed]}]]})))
 
 (rf/reg-event-db :articles/loaded
-  (fn [db [_ {:keys [value]}]]
+  ;; :loaded-at is a DURABLE timestamp, so it rides the causal reply
+  ;; (EP-0010 §Causal world inputs / EP-0011 §Causal completion metadata):
+  ;; read `:completed-at` off the reply map — do NOT call (current-time-ms)
+  ;; here, or the same reply replays to a different `:loaded-at` on epoch
+  ;; restore / SSR hydration / time-travel.
+  (fn [db [_ {:keys [value completed-at]}]]
     (-> db
         (assoc-in [:articles :status]    :loaded)
         (assoc-in [:articles :data]      value)
         (assoc-in [:articles :error]     nil)
-        (assoc-in [:articles :loaded-at] (current-time-ms)))))
+        (assoc-in [:articles :loaded-at] completed-at))))
 
 (rf/reg-event-db :articles/load-failed
   (fn [db [_ {:keys [failure]}]]
@@ -91,6 +96,11 @@ Used when the lifecycle is *part of* a larger page's machine (the page already h
    :data    {:tags [] :error nil :loaded-at nil :attempt 0}
    :actions
    {:bump-attempt (fn [{d :data}] {:data (update d :attempt (fnil inc 0))})
+    ;; `now` is the causal `:completed-at` carried in on the `:fetch-succeeded`
+    ;; event payload (threaded from the reply map / managed-HTTP completion) —
+    ;; NOT an ambient `(current-time-ms)` read inside the action. A durable
+    ;; `:loaded-at` MUST source from causal context so the snapshot replays
+    ;; identically; see EP-0010 §Causal world inputs.
     :set-tags     (fn [{d :data [_ {:keys [tags now]}] :event}]
                     {:data (assoc d :tags (vec tags) :error nil :loaded-at now)})
     :set-error    (fn [{d :data [_ {:keys [failure]}] :event}] {:data (assoc d :error failure)})}
