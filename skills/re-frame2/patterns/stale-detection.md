@@ -17,8 +17,11 @@ Load when the task is:
 Do NOT load for:
 
 - **A cached server-state read with freshness / TTL / invalidation.** That is declarative [`patterns/resources.md`](resources.md) (`reg-resource`) — the resource runtime owns generation-based stale suppression *internally*, so you do not hand-roll the epoch for a resource read. This leaf is the manual epoch idiom for async work the framework does not already track (search-as-you-type, hand-built WebSocket replies, machine `:after`).
+- **Driving app workflow after a mutation/write succeeds** (navigate on save, update the auth slice, toast). That is call-site **`:reply-to`** on `[:rf.mutation/execute …]` — see [`patterns/resources.md` §Mutation completion](resources.md). The runtime dispatches your event with a reply map *after* it has accepted and settled the reply (and already suppressed stale ones). This **supersedes** the watcher-reaction idiom below.
 - A reply whose event id is unique to its request (`:auth/succeeded`, `:cart/loaded`). Re-frame's standard "unhandled event" fallback already drops it cleanly when the receiving state has moved past handling it. The epoch is needed only when the *same event id* may be dispatched against *different state instances* of the same container.
 - Cancellation as an optimisation (saving bandwidth or CPU). That's an `AbortController` concern, not stale-detection. The epoch handles correctness regardless.
+
+> **Superseded — post-mutation watcher reactions.** Before mutation `:reply-to`, an app drove post-write workflow by *watching mutation state from a component lifecycle hook*: a Reagent Form-3 reaction watched `@(rf/subscribe [:rf.mutation/state {:instance …}])` and dispatched a workflow event once the watched instance became successful. That is adapter-specific, per-site, lifecycle-sensitive boilerplate that inverts ownership — the runtime knows when it accepted and settled the reply, so it should produce the continuation. **Use call-site `:reply-to` instead** (above). The watcher idiom is shown here only as the shape `:reply-to` replaces; do not author it for new code.
 
 ## The shape
 

@@ -48,7 +48,7 @@ If both, **load RemoteData first, ManagedHTTP second** — RemoteData owns the s
 Both model "the result of a fetch". The difference is **who owns the cache bookkeeping**.
 
 - **RemoteData** — you hand-roll the slice (or machine region): the 5-key shape, the four-event lifecycle, any TTL/refetch/invalidation logic. Choose it for a **one-off fetch** with no sharing and no cross-read invalidation story, or when the optional `day8/re-frame2-resources` artefact is not on the classpath.
-- **Resources** — the framework owns identity, **cache scope** (fail-closed tenant/user boundary), **staleness/TTL**, dedupe, **tag invalidation** (so a write refreshes related reads), GC, in-flight ownership, route-declared loading, and SSR preload. Choose it when the same fetch is **shared across views**, needs freshness/fresh-skip, must be **invalidated after a mutation**, or wants auditable scoping. It is the TanStack-Query-shaped layer; it lowers onto the same managed HTTP underneath.
+- **Resources** — the framework owns identity, **cache scope** (fail-closed tenant/user boundary), **staleness/TTL**, dedupe, **tag invalidation** (so a write refreshes related reads), GC, in-flight ownership, route-declared loading, and SSR preload. Choose it when the same fetch is **shared across views**, needs freshness/fresh-skip, must be **invalidated after a mutation**, wants auditable scoping, or needs a **write-completion workflow continuation** (navigate / toast / fold errors after a save — call-site `:reply-to`, the `onSuccess` shape). It is the TanStack-Query-shaped layer; it lowers onto the same managed HTTP underneath.
 
 Rule of thumb: a single feature's private fetch → RemoteData; a server-state cache several features read and a write must invalidate → Resources.
 
