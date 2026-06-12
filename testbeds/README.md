@@ -25,6 +25,7 @@ testbeds/
   ssr_basic/               <-- SSR hydration baseline: payload → :rf/hydrate → render → verify-hydration!
   ssr_hydration_mismatch/  <-- deliberate-mismatch: known-wrong :rf/render-hash emits :rf.ssr/hydration-mismatch
   ssr_multi_frame/         <-- three frames, each hydrated from its own slice of the baked payload
+  tenant_switcher/         <-- one app, one frame, two tenant scopes coexisting in one cache; the multi-scope leak boundary
 ```
 
 Per-surface conventions (every testbed in this directory follows them):
@@ -52,6 +53,7 @@ shadow-cljs watch testbeds/large-dispatcher
 shadow-cljs watch testbeds/ssr-basic
 shadow-cljs watch testbeds/ssr-hydration-mismatch
 shadow-cljs watch testbeds/ssr-multi-frame
+shadow-cljs watch testbeds/tenant-switcher
 ```
 
 Then open `http://localhost:9630/build/<build-id>/dashboard` (or the per-testbed index.html served from `implementation/out/testbeds/<name>/`). The Xray preload is wired on every testbed build (mirroring the examples convention) so the trace panel and dev-tools are live on each surface.
