@@ -574,14 +574,28 @@
   fail (a destroyed-frame install returns nil). The deferred trace intents ride
   back as metadata on the reconciled runtime-db; `perform-restore!` emits them via
   `:resources/commit-restore-reconcile!` only AFTER a successful install, so a
-  failed restore leaks no resource success traces."
-  [frame-id frame-state]
-  (if-let [reconcile (late-bind/get-fn :resources/reconcile-on-restore)]
-    (if (contains? frame-state frame/runtime-partition-key)
-      (update frame-state frame/runtime-partition-key
-              (fn [rdb] (when (some? rdb) (reconcile rdb frame-id {:defer-traces? true}))))
-      frame-state)
-    frame-state))
+  failed restore leaks no resource success traces.
+
+  Per rf2-wshzsp the restore's CAUSAL time — `restore-time-ms`, the restored
+  epoch's `:committed-at` (the committing token's `:rf.world/inputs` `:time-ms`,
+  replay-stable per EP-0010 §Time) — is threaded through `:restore-time-ms` so
+  the reconcile stamps a dangled-on-restore mutation instance's DURABLE
+  `:settled-at` from that causal input rather than the live install clock
+  (`now-ms`). A durable frame-state field MUST come from a causal input, never
+  an ambient world read at install (EP-0010 §Restore/Replay). The 2-arity
+  passes a nil causal time (a legacy / app-db-only record carries no mutation
+  instances to stamp; the reconcile then falls back to its own clock for the
+  no-token case)."
+  ([frame-id frame-state] (reconcile-runtime-db-on-restore frame-id frame-state nil))
+  ([frame-id frame-state restore-time-ms]
+   (if-let [reconcile (late-bind/get-fn :resources/reconcile-on-restore)]
+     (if (contains? frame-state frame/runtime-partition-key)
+       (update frame-state frame/runtime-partition-key
+               (fn [rdb] (when (some? rdb)
+                           (reconcile rdb frame-id {:defer-traces?   true
+                                                    :restore-time-ms restore-time-ms}))))
+       frame-state)
+     frame-state)))
 
 (defn commit-resources-restore-traces!
   "Emit the resources restore-reconcile trace rows DEFERRED by
@@ -669,7 +683,13 @@
             ;; `:loading` / `:fetching` entries pointing at vanished attempts,
             ;; and a pre-restore reply cannot write stale data into a restored
             ;; entry.
-            frame-state-target (reconcile-runtime-db-on-restore frame-id frame-state-target)
+            ;; rf2-wshzsp: thread the restored epoch's CAUSAL time
+            ;; (`:committed-at` = the committing token's `:rf.world/inputs`
+            ;; `:time-ms`) so the reconcile stamps a dangled-on-restore
+            ;; mutation instance's durable `:settled-at` from a replay-stable
+            ;; causal input, not the live install clock (EP-0010 §Restore/Replay).
+            frame-state-target (reconcile-runtime-db-on-restore
+                                 frame-id frame-state-target (:committed-at epoch))
             ;; EP-0001 (rf2-3aizt1): write the WHOLE frame-state — both
             ;; partitions in ONE atomic install through the one physical
             ;; frame-state container. `frame/app-db-container` /
