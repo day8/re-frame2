@@ -462,6 +462,19 @@
   ;; Owner: Runtime-Subsystems (the EP-0013 realm/app-value contract home).
   ["re-frame.core" "realm"]                {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
   ["re-frame.core" "dispose-realm!"]       {:tier :advanced :owner "Runtime-Subsystems" :status "v1"}
+  ;; EP-0013 (rf2-f1xa3k): the PUBLIC realm-enumeration surface — the (realm,
+  ;; frame) addressing model's two read halves (EP-0013 disposition 3). The
+  ;; `{:realm …}` registrar query forms take a realm id but nothing public told
+  ;; a tool WHICH ids exist or WHICH realm a given frame lives in. `realm-ids`
+  ;; enumerates the installed realms; `frame-realm` (promoted from internal)
+  ;; reads a frame's realm. `tooling` tier — these are the realm-aware-tool
+  ;; read surface, alongside `frame-ids` / `handler-ids` / `registrations`
+  ;; (also `:tooling`), not the `advanced` constructor/install path. They
+  ;; unblock the 5 tools/realm-awareness beads. Owner: Runtime-Subsystems
+  ;; (`realm-ids`, the EP-0013 realm contract home) / 002 (`frame-realm`, the
+  ;; frame registry query API home, alongside the other frame-* readers).
+  ["re-frame.core" "realm-ids"]            {:tier :tooling :owner "Runtime-Subsystems" :status "v1"}
+  ["re-frame.core" "frame-realm"]          {:tier :tooling :owner "002" :status "v1"}
   ;; Feature registry (optional-artefact presence checks).
   ["re-frame.core" "feature-loaded?"]      {:tier :advanced :owner "Conventions" :status "v1"}
   ["re-frame.core" "features"]             {:tier :advanced :owner "Conventions" :status "v1"}

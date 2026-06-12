@@ -425,12 +425,18 @@
     true))
 
 (defn frame-realm
-  "Return the id of the runtime realm `id` belongs to (EP-0013 D1,
+  "Return the id of the runtime realm `id` belongs to (EP-0013,
   Spec 002 §Frames reference realms), or nil for an unknown / destroyed
   frame. A frame references its realm internally; the registrar, adapter,
   and capabilities are the realm's. In a single-realm app this is
-  `realm/default-realm-id` for every frame. INTERNAL — D1 ships no public
-  realm-targeted API."
+  `realm/default-realm-id` for every frame.
+
+  The frame-side half of the (realm, frame) addressing model — the (realm,
+  frame) pair is the full address (EP-0013 disposition 3). Re-exported as the
+  PUBLIC `rf/frame-realm`: the realm-targeted query surface needs a public way
+  to learn a frame's realm so a tool can route a `{:realm …}` query to the
+  realm a given frame lives in; the realm enumeration half is
+  `re-frame.realm/realm-ids`."
   [id]
   (when-let [f (frame id)]
     (or (:realm f) realm/default-realm-id)))

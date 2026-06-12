@@ -136,6 +136,51 @@
     (rf/dispose-realm! realm/default-realm-id)
     (is (some? (realm/default-realm)) "the default realm survives a dispose call")))
 
+;; ---------------------------------------------------------------------------
+;; the PUBLIC realm-enumeration surface (rf2-f1xa3k) — the (realm, frame)
+;; address read halves: rf/realm-ids enumerates the installed realms,
+;; rf/frame-realm reads the realm a frame lives in.
+;; ---------------------------------------------------------------------------
+
+(deftest realm-ids-enumerates-the-installed-realms
+  (testing "rf/realm-ids returns the set of installed realm ids — always
+            including the default realm; constructed realms join, disposed
+            realms drop out (the live enumeration)"
+    ;; A single-realm app sees exactly the default realm.
+    (is (= #{realm/default-realm-id} (rf/realm-ids))
+        "with no constructed realms, realm-ids is exactly the default realm")
+    (rf/realm {:id :conf/e1})
+    (rf/realm {:id :conf/e2})
+    (is (= #{realm/default-realm-id :conf/e1 :conf/e2} (rf/realm-ids))
+        "constructed realms join the enumeration")
+    (rf/dispose-realm! :conf/e1)
+    (is (= #{realm/default-realm-id :conf/e2} (rf/realm-ids))
+        "a disposed realm drops out of the enumeration")
+    ;; The default realm is never disposed, so it never leaves the set.
+    (rf/dispose-realm! realm/default-realm-id)
+    (is (contains? (rf/realm-ids) realm/default-realm-id)
+        "the default realm is always present (never disposed)")))
+
+(deftest frame-realm-reads-a-frames-realm
+  (testing "rf/frame-realm reads the realm a frame belongs to — the default
+            realm for a frame registered with no explicit realm, nil for an
+            unknown frame"
+    (rf/reg-frame :conf/frame-a {:doc "a frame"})
+    (is (= realm/default-realm-id (rf/frame-realm :conf/frame-a))
+        "a frame with no explicit realm lives in the default realm")
+    (is (nil? (rf/frame-realm :conf/never-registered))
+        "an unknown frame has no realm")
+    (rf/destroy-frame! :conf/frame-a)))
+
+(deftest realm-ids-and-frame-realm-form-the-address
+  (testing "the two read halves compose into the (realm, frame) address —
+            every frame's realm is an installed realm id"
+    (rf/reg-frame :conf/addr-frame {:doc "addr frame"})
+    (let [rid (rf/frame-realm :conf/addr-frame)]
+      (is (contains? (rf/realm-ids) rid)
+          "a frame's realm is always one of the installed realm ids"))
+    (rf/destroy-frame! :conf/addr-frame)))
+
 (deftest realm-carries-its-capabilities
   (testing "a constructed realm carries the :capabilities map it was built with"
     (let [r (rf/realm {:id :conf/caps

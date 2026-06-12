@@ -1538,6 +1538,15 @@
   §`:rf/frame-meta`."}
   frame-meta   frame/frame-meta)
 
+(def ^{:doc "Return the id of the runtime realm a frame belongs to —
+  `(frame-realm frame-id)` — or nil for an unknown / destroyed frame. In a
+  single-realm app this is the default realm id for every frame. The
+  frame-side half of the (realm, frame) addressing model (EP-0013 disposition
+  3): pair it with `realm-ids` (the installed realms) to route a `{:realm …}`
+  registrar query to the realm a given frame lives in. Per Spec 002 §Frames
+  reference realms."}
+  frame-realm  frame/frame-realm)
+
 (defn app-db-value
   "Return the current `app-db` VALUE (a plain map) for the named frame,
   or `nil` if not registered. Value-form accessor (no deref, no
@@ -1919,6 +1928,18 @@
   multi-tenant realm lifecycle. Per spec/API.md §App values and composition
   (EP-0013)."}
   dispose-realm! realm/dispose-realm!)
+
+(def ^{:doc "Return the set of installed runtime realm ids — `(realm-ids)`.
+  Always includes the default realm id (seeded at process load, never
+  disposed), so a single-realm app returns exactly `#{:rf.realm/default}`.
+  Constructed realms (`realm`) join the set; disposed realms (`dispose-realm!`)
+  drop out — it is the LIVE enumeration of which realms exist now. The
+  realm-enumeration half of the (realm, frame) addressing model (EP-0013
+  disposition 3): the `{:realm …}` registrar query forms take a realm id, and
+  this is the public way to discover WHICH ids exist; pair it with
+  `frame-realm` (a frame's realm) for the full address. Per spec/API.md §App
+  values and composition (EP-0013)."}
+  realm-ids realm/realm-ids)
 
 ;; ---- interceptors --------------------------------------------------------
 
