@@ -211,7 +211,12 @@
                "An ambient supplier must be a value-returning fn.")))
       (registrar/register! :cofx id
                            (assoc (source-coords/merge-coords meta)
-                                  :supplier    supplier
+                                  ;; The value-returning supplier rides the
+                                  ;; registrar's conventional `:handler-fn`
+                                  ;; slot (so `registrar/handler` + descriptor
+                                  ;; lifting resolve it like every other kind);
+                                  ;; nil for a provided fact with no generator.
+                                  :handler-fn  supplier
                                   :recordable? recordable?
                                   :provided?   provided?)))
     ;; Per Spec 015 §5. Coeffects — stash `:sensitive` / `:large` path
@@ -413,7 +418,7 @@
 
           :else                                   ;; ambient
           (let [[delivered? value]
-                (run-ambient-supplier id meta (:supplier meta) arg frame-id)]
+                (run-ambient-supplier id meta (:handler-fn meta) arg frame-id)]
             (if delivered?
               (assoc cofx-map id value)
               cofx-map)))))
