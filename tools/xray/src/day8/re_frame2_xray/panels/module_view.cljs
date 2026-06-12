@@ -17,32 +17,34 @@
       │     frames: :app/main  :app/cart                                │
       │ ─────────────────────────────────────────────────────────────  │
       │ MODULES                                                         │
-      │   Per-module ownership, capability requirements, classification │
-      │   and descriptor provenance await a public realm→installed-app  │
-      │   read seam (EP-0013 disposition 6 graduation).                 │
+      │   :shop/cart                                                    │
+      │     owns      :app-db [:cart]                                   │
+      │     requires  :rf.capability/http                               │
+      │     registers 1 event · 1 sub                                   │
 
-  ## The provenance graduation (why MODULES is scaffolded)
+  ## The provenance graduation (rf2-at0oen — the seam SHIPPED)
 
-  EP-0013 disposition 6 keeps per-module descriptor PROVENANCE / metadata
-  (`:owns` · `:requires` · EP-0015 classification · source coords)
-  INTERNAL until a Module-view demands it — and this is that view. But
-  reading those facts from a RUNNING process needs a CORE seam that has
-  not shipped: there is no public read of a realm's installed app value,
-  and the internal projection over a realm's registrar carries no module
-  structure at all (the per-module facts exist only on a CONSTRUCTED app
-  value — `rf/app` / `rf/module`). Per the rf2-wtg9z4 brief, this slice
-  does NOT silently expand core scope to invent the seam — a follow-up
-  bead is filed for the public realm→installed-app provenance read
-  surface, and the MODULES section renders the calm awaiting-seam caption
-  until it graduates. The row shapes already carry the
-  `:owns` / `:requires` / `:classification` slots so the fill-in is a
-  no-reshape change.
+  EP-0013 disposition 6 kept per-module descriptor PROVENANCE / metadata
+  (`:owns` · `:requires` · the owner-stamped descriptors) INTERNAL until a
+  Module-view demanded it — and this is that view. The follow-up beads
+  (rf2-imquoq → rf2-at0oen) shipped the public realm→installed-app READ
+  seam `rf/installed-app` (PR #4061): `(rf/installed-app realm)` returns a
+  running realm's installed app value WITHOUT installing anything. A realm
+  seated via `rf/install!` returns the RICH constructed value whose
+  `:modules` map carries each module's `:owns` / `:requires` and its
+  owner-stamped descriptors; a realm on the `reg-*` sugar / load-order path
+  has no `:modules` (the registrar projection declares no module), so the
+  MODULES section renders the honest no-module caption rather than
+  fabricated rows. (EP-0015 classification is FRAME-owned, declared on
+  `reg-frame` — not a per-module fact, so it is not surfaced here.)
 
   ## Public seams used (all genuinely public today)
 
-    - `rf/realm-ids`  — the installed realm ids (EP-0013, PR #4038);
-    - `rf/frame-ids`  — the live frame ids;
-    - `rf/frame-realm`— a frame's realm (the frame-side address half).
+    - `rf/realm-ids`     — the installed realm ids (EP-0013, PR #4038);
+    - `rf/frame-ids`     — the live frame ids;
+    - `rf/frame-realm`   — a frame's realm (the frame-side address half);
+    - `rf/installed-app` — a realm's installed app value, for the per-module
+                           provenance (EP-0013 disposition 6, PR #4061).
 
   ## Zero-ceremony (single-realm unchanged)
 
@@ -109,6 +111,81 @@
    :font-size   "12px"
    :line-height 1.5})
 
+(def ^:private module-id-style
+  {:color       (:accent tokens)
+   :font-weight 600
+   :font-family mono-stack
+   :font-size   "12px"
+   :padding     "4px 0 1px 0"})
+
+(def ^:private module-fact-style
+  {:color       (:text-secondary tokens)
+   :font-family mono-stack
+   :font-size   "11px"
+   :padding     "0 0 0 18px"})
+
+(def ^:private module-fact-label-style
+  {:color (:text-tertiary tokens)})
+
+(def ^:private module-realm-header-style
+  {:color          (:text-tertiary tokens)
+   :font-family    sans-stack
+   :font-size      "11px"
+   :letter-spacing "0.4px"
+   :text-transform "uppercase"
+   :padding        "6px 0 2px 0"})
+
+;; ---- module row ----------------------------------------------------------
+
+(defn- owns-summary
+  "A compact one-line rendering of a module's `:owns` declarations —
+  `:app-db [:cart]  :routes :shop/checkout`. Empty when the module owns
+  nothing. Pure string."
+  [owns]
+  (->> owns
+       (sort-by (comp str key))
+       (keep (fn [[kind paths]]
+               (when (seq paths)
+                 (str kind " " (str/join " " (map pr-str paths))))))
+       (str/join "   ")))
+
+(defn- registers-summary
+  "A compact rendering of the registry kinds a module owns —
+  `1 event · 1 sub`. Pure string."
+  [module-row]
+  (let [{:keys [registration-kinds registration-count]} module-row]
+    (if (seq registration-kinds)
+      (str registration-count " descriptor"
+           (when (not= 1 registration-count) "s")
+           " (" (str/join " · " (map name registration-kinds)) ")")
+      "no registrations")))
+
+(defn- module-row
+  "Render one module's provenance: its id + owned surfaces + capability
+  requirements + the descriptor kinds it registers. Pure hiccup."
+  [{:keys [module-id owns requires source] :as m-row}]
+  (let [mid-name (str module-id)]
+    [:div {:data-testid (str "rf-xray-module-view-module-" mid-name)}
+     [:div {:data-testid (str "rf-xray-module-view-module-" mid-name "-id")
+            :style       module-id-style}
+      mid-name]
+     (when (seq owns)
+       [:div {:style module-fact-style}
+        [:span {:style module-fact-label-style} "owns      "]
+        (owns-summary owns)])
+     (when (seq requires)
+       [:div {:style module-fact-style}
+        [:span {:style module-fact-label-style} "requires  "]
+        (str/join "  " (sort-by str requires))])
+     [:div {:style module-fact-style}
+      [:span {:style module-fact-label-style} "registers "]
+      (registers-summary m-row)]
+     (when source
+       [:div {:style module-fact-style}
+        [:span {:style module-fact-label-style} "source    "]
+        (str (:ns source)
+             (when (:line source) (str ":" (:line source))))])]))
+
 ;; ---- realm row -----------------------------------------------------------
 
 (defn- realm-row
@@ -130,15 +207,45 @@
 
 ;; ---- public view ---------------------------------------------------------
 
+(defn- modules-section-body
+  "The MODULES section body — every realm's modules, grouped by realm only
+  when the process is multi-realm (zero-ceremony: a single-realm process
+  lists its modules with the realm dimension implicit). When NO realm carries
+  module provenance (a load-order / sugar-only process), renders the calm
+  no-module caption rather than an empty list. Pure hiccup."
+  [realms multi-realm?]
+  (if (h/any-modules? realms)
+    (into [:div {:data-testid "rf-xray-module-view-modules-list"}]
+          (for [{:keys [realm modules] :as _r} realms
+                :when (seq modules)]
+            (with-meta
+              [:div {:data-testid (str "rf-xray-module-view-modules-realm-"
+                                       (name realm))}
+               ;; Spell the realm header only when more than one realm exists
+               ;; (zero-ceremony — single-realm keeps the realm implicit).
+               (when multi-realm?
+                 [:div {:style module-realm-header-style} (str realm)])
+               (into [:div]
+                     (for [m modules]
+                       (with-meta (module-row m)
+                         {:key (str (:module-id m))})))]
+              {:key (str realm)})))
+    [:div {:data-testid "rf-xray-module-view-modules-empty"
+           :style       awaiting-caption-style}
+     h/no-modules-caption]))
+
 (rf/reg-view Panel
   "The Module-view tab's root — the (realm, frame) address space of the
-  running process (EP-0013 disposition 3 · rf2-wtg9z4). Subscribes to
-  `:rf.xray/module-view` (the projected address space) and renders a
-  REALMS section (every installed realm + its frames) followed by a
-  MODULES section that, until the per-module provenance seam graduates
-  (rf2-wtg9z4 follow-up rf2-imquoq), reads the calm awaiting-seam caption."
+  running process (EP-0013 disposition 3) PLUS the per-module provenance read
+  off each realm's installed app value (EP-0013 disposition 6 · rf2-at0oen).
+  Subscribes to `:rf.xray/module-view` and renders a REALMS section (every
+  installed realm + its frames) followed by a MODULES section listing each
+  realm's modules with their ownership / capability / descriptor provenance.
+  A process running entirely on the `reg-*` sugar / load-order path has no
+  constructed app value, so the MODULES section shows the honest no-module
+  caption."
   []
-  (let [{:keys [realms provenance-available?] :as _data}
+  (let [{:keys [realms multi-realm?] :as _data}
         @(rf/subscribe [:rf.xray/module-view])]
     [:section {:data-testid "rf-xray-module-view"
                :style       panel-root-style}
@@ -151,19 +258,13 @@
         (into [:div {:data-testid "rf-xray-module-view-realms-list"}]
               (for [r realms]
                 (with-meta (realm-row r) {:key (str (:realm r))}))))
-      ;; MODULES — the per-module ownership / capability / classification /
-      ;; provenance facts. Scaffolded: until the core realm→installed-app
-      ;; read seam graduates (rf2-wtg9z4 follow-up rf2-imquoq) this reads the calm
-      ;; awaiting-seam caption rather than fabricating data.
+      ;; MODULES — the per-module ownership / capability / descriptor
+      ;; provenance, read from each realm's installed app value via
+      ;; `rf/installed-app` (EP-0013 disposition 6, rf2-at0oen).
       (section/section-row
         {:label  "Modules"
          :testid "rf-xray-module-view-modules"}
-        (if provenance-available?
-          ;; rf2-wtg9z4 follow-up rf2-imquoq fills this in from the graduated seam.
-          [:div {:data-testid "rf-xray-module-view-modules-list"}]
-          [:div {:data-testid "rf-xray-module-view-modules-awaiting"
-                 :style       awaiting-caption-style}
-           h/awaiting-provenance-caption]))]]))
+        (modules-section-body realms multi-realm?))]]))
 
 ;; ---- registration entry --------------------------------------------------
 
@@ -172,11 +273,15 @@
   (rf2-wtg9z4). Registers the address-space composite + the Dynamic L4
   tab."
   []
-  ;; `:rf.xray/module-view` — the projected (realm, frame) address space.
+  ;; `:rf.xray/module-view` — the projected (realm, frame) address space PLUS
+  ;; the per-module provenance read off each realm's installed app value.
   ;; Reads the PUBLIC realm/frame seams (`rf/realm-ids` · `rf/frame-ids` ·
-  ;; `rf/frame-realm`) and projects via the pure
-  ;; `module-view-helpers/project-module-view`. Read-only — enumerating
-  ;; realms/frames pins nothing and dispatches nothing.
+  ;; `rf/frame-realm`) and the realm→installed-app read seam
+  ;; (`rf/installed-app`, EP-0013 disposition 6, PR #4061), and projects via
+  ;; the pure `module-view-helpers/project-module-view`. Read-only —
+  ;; enumerating realms/frames and reading installed app values pins nothing
+  ;; and dispatches nothing (`rf/installed-app` is a STATIC read of the
+  ;; install-time value, not a routing path).
   ;;
   ;; It does NOT compose off an `:rf.xray/*` app-db slot because the
   ;; address space is a process-global fact (realms + frames live in the
@@ -190,7 +295,8 @@
     (fn [_db _query]
       (h/project-module-view (rf/realm-ids)
                              (rf/frame-ids)
-                             frame/frame-realm)))
+                             frame/frame-realm
+                             rf/installed-app)))
 
   ;; Register the Dynamic Module-view tab with the internal L4 tab
   ;; registry. Order 9 — after the Derivation-Graph (order 8), keeping the

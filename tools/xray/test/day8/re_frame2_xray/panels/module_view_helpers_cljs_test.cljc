@@ -1,16 +1,46 @@
 (ns day8.re-frame2-xray.panels.module-view-helpers-cljs-test
   "JVM + CLJS coverage for the Module-view pure-data helpers (rf2-wtg9z4
-  — the EP-0013 disposition-6 demand-trigger surface).
+  address space + rf2-at0oen per-module provenance — the EP-0013
+  disposition-6 demand-trigger surface).
 
   Verifies the (realm, frame) address-space projection (EP-0013
   disposition 3): realm→frames grouping, the realm-row shape, the
   single/multi-realm classification, and the zero-ceremony posture (a
-  single-realm process projects ONE realm). The per-module provenance
-  slots are asserted EMPTY (the seam has not graduated — rf2-wtg9z4
-  follow-up)."
+  single-realm process projects ONE realm); AND the per-module provenance
+  projection (rf2-at0oen): the module-row shape (`:owns` / `:requires` /
+  registration kinds+count / source) read off a realm's installed app
+  value, the no-modules (load-order / sugar-only) case, and the seam-fed
+  `project-module-view` with `:provenance-available?` true."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.panels.module-view-helpers :as h]))
+
+;; A representative module value (the shape `(rf/module {...})` produces — see
+;; re-frame.app-value/module): `:rf.module/id` · `:owns` · `:requires` ·
+;; `:registrations` (kind→id→owner-stamped descriptor) · optional `:source`.
+(def ^:private cart-module
+  {:rf.module/id  :shop/cart
+   :owns          {:app-db [[:cart]] :routes [:shop/checkout]}
+   :requires      #{:rf.capability/http}
+   :registrations {:event {:cart/add   {:kind :event :id :cart/add   :owner :shop/cart}}
+                   :sub   {:cart/items {:kind :sub   :id :cart/items :owner :shop/cart}}}
+   :source        {:ns "shop.cart" :file "cart.cljs" :line 12 :column 1}})
+
+;; A constructed app value seating that module (the shape `rf/app` / a seated
+;; `rf/installed-app` returns): `:modules` keyed by module id.
+(def ^:private cart-app
+  {:rf.app/id     :shop/app
+   :modules       {:shop/cart cart-module}
+   :registrations (:registrations cart-module)
+   :requires      #{:rf.capability/http}})
+
+;; A projected (load-order / sugar-only) app value: registrations present, but
+;; NO :modules and empty :requires (re-frame.realm/installed-app returns this
+;; for a realm seated through reg-* sugar with no install!).
+(def ^:private projected-app
+  {:rf.app/id     :rf.realm/default
+   :registrations {:event {:sugar/inc {:kind :event :id :sugar/inc}}}
+   :requires      #{}})
 
 ;; ---- realm-frames -------------------------------------------------------
 
@@ -30,20 +60,76 @@
       (is (= #{:app/main :ghost} (get grouped :rf.realm/default))
           "nil realm → default realm bucket"))))
 
+;; ---- project-module-row -------------------------------------------------
+
+(deftest project-module-row-shape
+  (testing "a module value projects to the module-row: id, owns, requires,
+            sorted registration kinds + total descriptor count, source"
+    (let [row (h/project-module-row cart-module)]
+      (is (= :shop/cart (:module-id row)))
+      (is (= {:app-db [[:cart]] :routes [:shop/checkout]} (:owns row)))
+      (is (= #{:rf.capability/http} (:requires row)))
+      (is (= [:event :sub] (:registration-kinds row)) "kinds sorted by str")
+      (is (= 2 (:registration-count row)) "one event + one sub")
+      (is (= {:ns "shop.cart" :file "cart.cljs" :line 12 :column 1} (:source row))))))
+
+(deftest project-module-row-defaults
+  (testing "a bare module (no owns/requires/source) projects empty/nil slots"
+    (let [row (h/project-module-row {:rf.module/id :m/empty :registrations {}})]
+      (is (= :m/empty (:module-id row)))
+      (is (= {} (:owns row)))
+      (is (= #{} (:requires row)))
+      (is (= [] (:registration-kinds row)))
+      (is (= 0 (:registration-count row)))
+      (is (nil? (:source row))))))
+
+;; ---- project-app-modules ------------------------------------------------
+
+(deftest project-app-modules-constructed
+  (testing "a constructed app value projects its :modules to sorted module rows
+            + the app's union requires"
+    (let [{:keys [modules requires]} (h/project-app-modules cart-app)]
+      (is (= [:shop/cart] (mapv :module-id modules)))
+      (is (= #{:rf.capability/http} requires)))))
+
+(deftest project-app-modules-sorted-by-id
+  (testing "module rows sort by module-id str (stable render)"
+    (let [m-b {:rf.module/id :b/mod :registrations {}}
+          m-a {:rf.module/id :a/mod :registrations {}}
+          app {:rf.app/id :x :modules {:b/mod m-b :a/mod m-a} :requires #{}}
+          {:keys [modules]} (h/project-app-modules app)]
+      (is (= [:a/mod :b/mod] (mapv :module-id modules))))))
+
+(deftest project-app-modules-projected-is-module-less
+  (testing "a projected (load-order / sugar-only) app carries no :modules — the
+            honest no-provenance case; :modules is nil (not [])"
+    (let [{:keys [modules requires]} (h/project-app-modules projected-app)]
+      (is (nil? modules) "module-less app → nil modules (distinct from [])")
+      (is (= #{} requires))))
+  (testing "nil app (no seam value) is likewise module-less"
+    (is (nil? (:modules (h/project-app-modules nil))))))
+
 ;; ---- project-realm-row --------------------------------------------------
 
-(deftest project-realm-row-shape
-  (testing "the realm-row carries id, sorted frames, count, and EMPTY
-            provenance slots (seam not graduated)"
+(deftest project-realm-row-shape-no-app
+  (testing "the realm-row (no installed app) carries id, sorted frames, count,
+            and module-less provenance slots"
     (let [row (h/project-realm-row :rf.realm/default #{:app/cart :app/main})]
       (is (= :rf.realm/default (:realm row)))
       (is (= [:app/cart :app/main] (:frames row)) "frames sorted by str")
       (is (= 2 (:frame-count row)))
-      ;; provenance slots — awaiting the core seam (rf2-wtg9z4 follow-up).
-      (is (nil? (:modules row)))
+      (is (nil? (:modules row)) "no installed app → no modules")
       (is (= #{} (:requires row)))
+      ;; reserved slots — ownership is per-module (`:modules … :owns`);
+      ;; classification is frame-owned (not a module fact).
       (is (nil? (:owns row)))
       (is (nil? (:classification row))))))
+
+(deftest project-realm-row-shape-with-app
+  (testing "the realm-row fills :modules + :requires from the installed app value"
+    (let [row (h/project-realm-row :rf.realm/default #{:app/main} cart-app)]
+      (is (= [:shop/cart] (mapv :module-id (:modules row))))
+      (is (= #{:rf.capability/http} (:requires row))))))
 
 ;; ---- project-module-view ------------------------------------------------
 
@@ -57,8 +143,30 @@
       (is (false? (:multi-realm? data)))
       (is (= :rf.realm/default (:realm (first (:realms data)))))
       (is (= [:app/cart :app/main] (:frames (first (:realms data)))))
-      (is (false? (:provenance-available? data))
-          "the provenance seam has NOT graduated (rf2-wtg9z4 follow-up)"))))
+      (is (true? (:provenance-available? data))
+          "the rf/installed-app read seam has graduated (rf2-at0oen)"))))
+
+(deftest project-module-view-fills-modules-from-seam
+  (testing "project-module-view reads the per-realm installed app value via the
+            installed-app-of resolver and fills each realm's :modules"
+    (let [installed-app-of {:rf.realm/default cart-app}
+          data (h/project-module-view #{:rf.realm/default}
+                                      [:app/main]
+                                      (constantly :rf.realm/default)
+                                      installed-app-of)
+          row  (first (:realms data))]
+      (is (true? (:provenance-available? data)))
+      (is (= [:shop/cart] (mapv :module-id (:modules row))))
+      (is (= #{:rf.capability/http} (:requires row))))))
+
+(deftest project-module-view-no-resolver-is-module-less
+  (testing "the 3-arity (no installed-app-of) projects the address space with no
+            module provenance — the legacy address-only call still works"
+    (let [data (h/project-module-view #{:rf.realm/default}
+                                      [:app/main]
+                                      (constantly :rf.realm/default))]
+      (is (true? (:provenance-available? data)))
+      (is (nil? (:modules (first (:realms data))))))))
 
 (deftest project-module-view-multi-realm
   (testing "more than one realm → multi-realm? true, every realm present,
@@ -96,17 +204,26 @@
       (is (contains? (set (map :realm (:realms data))) :app/gone)
           "the orphan realm is surfaced rather than dropped"))))
 
-;; ---- captions / summaries -----------------------------------------------
+;; ---- no-modules empty-state / any-modules? ------------------------------
 
-(deftest awaiting-caption-names-the-deferred-facts
-  (testing "the awaiting-seam caption names ownership, capability,
-            classification, and provenance so the operator knows the
-            surface is scaffolded, not broken"
-    (let [c h/awaiting-provenance-caption]
-      (is (re-find #"(?i)ownership" c))
-      (is (re-find #"(?i)capability" c))
-      (is (re-find #"(?i)classification" c))
-      (is (re-find #"(?i)provenance" c)))))
+(deftest any-modules?-detects-provenance
+  (testing "any-modules? is true when some realm-row carries modules"
+    (is (true? (h/any-modules? [{:realm :r1 :modules nil}
+                                {:realm :r2 :modules [{:module-id :m/a}]}])))
+    (is (false? (h/any-modules? [{:realm :r1 :modules nil}
+                                 {:realm :r2 :modules []}]))
+        "no modules anywhere → false")))
+
+(deftest no-modules-caption-explains-the-empty-state
+  (testing "the no-modules caption names the load-order / sugar reason and the
+            rf/app / rf/module / rf/install! remedy so the operator knows the
+            section is the honest empty state, not broken"
+    (let [c h/no-modules-caption]
+      (is (re-find #"(?i)load-order" c))
+      (is (re-find #"(?i)rf/module" c))
+      (is (re-find #"(?i)rf/install!" c)))))
+
+;; ---- summaries ----------------------------------------------------------
 
 (deftest realm-summary-line-pluralizes
   (is (= ":rf.realm/default · 1 frame"
