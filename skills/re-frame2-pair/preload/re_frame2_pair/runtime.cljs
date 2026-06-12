@@ -636,6 +636,44 @@
   [meta-map]
   (some-> meta-map :handler-fn str hash))
 
+(def ^:private fn-slot-sentinel
+  "Readable EDN placeholder substituted for a Function value anywhere in a
+   handler-meta map. `pr-str` of a raw Function emits `#object[Function …]`
+   — unreadable EDN on the MCP wire (rf2-l7vnd), and the result-envelope
+   codec then tags the WHOLE response `:unserializable`, hiding the
+   serializable structure around it. Replacing each fn with this keyword
+   keeps the map EDN-clean while still surfacing THAT a fn slot is declared
+   — so an agent reads the shape (e.g. a resource-scope's `:inputs` map,
+   `:whole-db?` flag, or a mutation's declared `:invalidates`/`:populates`)
+   without the unreadable handle."
+  :rf/fn)
+
+(defn- strip-fns
+  "Recursively replace every Function value in `x` with `fn-slot-sentinel`,
+   leaving all other structure intact. Hand-rolled (the runtime preload
+   does not require `clojure.walk`) and shallow-cheap: a handler-meta map is
+   small. Maps/vectors/sets/seqs recurse; a fn becomes the sentinel; every
+   other scalar passes through.
+
+   This is the general counterpart to the top-level `:handler-fn` dissoc:
+   the resources-artefact kinds (`:resource` / `:mutation` /
+   `:resource-scope`, EP-0016) store their spec under `:rf/resource` /
+   `:rf/mutation` / `:rf/resource-scope` with NESTED fns (`:request`,
+   `:tags`, `:invalidates`, `:populates`, `:resolve`). The top-level dissoc
+   alone leaves those nested handles in the map, so the response would still
+   `pr-str` to `#object[Function]` and trip the codec's `:unserializable`
+   path. Stripping at every depth keeps the inspectable structure (input
+   shapes, scope policy, declared-consequence presence) on the wire."
+  [x]
+  (cond
+    (fn? x)         fn-slot-sentinel
+    (map? x)        (reduce-kv (fn [m k v] (assoc m k (strip-fns v))) (empty x) x)
+    (map-entry? x)  x
+    (vector? x)     (mapv strip-fns x)
+    (set? x)        (into (empty x) (map strip-fns) x)
+    (seq? x)        (map strip-fns x)
+    :else           x))
+
 (defn registrar-describe
   "Return public handler metadata for kind+id. (rf/handler-meta kind id)
    already gives the source coords (:ns :line :file :column), the
@@ -650,12 +688,24 @@
    handler-meta envelope misreport :unexpected-shape. The hash already
    covers every hot-reload probing use; the raw fn ref had no surviving
    on-the-wire consumer. Drop it before returning so the response is
-   EDN-clean by construction."
+   EDN-clean by construction.
+
+   rf2-f8s9g6 (EP-0016 prop-3): the resources-artefact kinds store their
+   spec under `:rf/resource` / `:rf/mutation` / `:rf/resource-scope` with
+   NESTED handler fns (`:request`, `:tags`, `:invalidates`, `:populates`,
+   `:resolve`). Dropping only the top-level `:handler-fn` leaves those
+   nested handles, so the response would still trip the wire codec's
+   `:unserializable` path. `strip-fns` replaces every fn at any depth with
+   the readable `:rf/fn` sentinel, so the serializable structure (a
+   resource-scope's `:inputs` map + `:whole-db?` flag — the EP-0016
+   disposition-2 inspectability promise — a mutation's declared
+   consequences, a resource's scope policy) survives on the wire."
   [kind id]
   (if-let [m (rf/handler-meta kind id)]
     (-> m
         (assoc :handler-fn-hash (handler-fn-hash m))
-        (dissoc :handler-fn))
+        (dissoc :handler-fn)
+        strip-fns)
     {:ok? false :reason :not-registered :kind kind :id id}))
 
 (defn registrar-handler-ref
@@ -4159,13 +4209,18 @@
 
 (def ^:private orient-registrar-kinds
   "The registrar kinds whose COUNTS the orientation summary reports — the
-   closed v1 registrar set (mirrors `handler-meta`'s `registrar-kinds`).
-   `:event` / `:sub` / `:fx` additionally surface their full sorted id
-   vectors (the most navigable surfaces for 'what can I drive / read');
-   the rest contribute counts only so the summary stays compact and under
-   the wire cap. Drill via `list-handlers {kind ...}` for the full ids of
-   any kind."
-  [:event :sub :fx :cofx :view :frame :route :flow :head :error-projector])
+   closed v1 registrar set (mirrors `handler-meta`'s `registrar-kinds`),
+   including the three resources-artefact kinds (`:resource` / `:mutation` /
+   `:resource-scope`, EP-0016 / rf2-f8s9g6) so a resources-heavy app's
+   orientation summary names its cached-read / write / scope-resolver
+   counts (zero on an app that uses none — `registrar-count` is defensively
+   zero on an empty registrar). `:event` / `:sub` / `:fx` additionally
+   surface their full sorted id vectors (the most navigable surfaces for
+   'what can I drive / read'); the rest contribute counts only so the
+   summary stays compact and under the wire cap. Drill via `list-handlers
+   {kind ...}` for the full ids of any kind."
+  [:event :sub :fx :cofx :view :frame :route :flow :head :error-projector
+   :resource :mutation :resource-scope])
 
 (defn- registrar-count
   "Count of registered ids under `kind`, defensively zero on a registrar
