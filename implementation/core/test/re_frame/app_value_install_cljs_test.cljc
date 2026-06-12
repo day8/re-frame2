@@ -414,6 +414,84 @@
       (is (nil? (registrar/lookup :frame :fr1/live)) "the :frame registrar slot is dropped")
       (is (some? (registrar/lookup :event :fr1/ev)) "the new event handler is seated"))))
 
+;; ---------------------------------------------------------------------------
+;; (4c) reinstall! — the REMOVAL-path kind boundary: a sugar-registered step-8
+;; DEFERRED kind omitted from the new app is REFUSED, not silently unregistered
+;; (rf2-cquy9u — symmetric closure of the rf2-7zn9kg kind-boundary ruling)
+;; ---------------------------------------------------------------------------
+
+(deftest reinstall-removing-a-sugar-registered-step8-kind-refuses-loudly
+  (testing "rf2-cquy9u: a step-8 DEFERRED kind (:mutation/:resource/:route/
+            :flow/…) registered through its OWN sugar reaches the realm's
+            registrar and is projected into reinstall!'s old-app, so a reinstall!
+            that OMITS it lands it in :removed. PRE-FIX the :removed path called
+            registrar/unregister! UNCONDITIONALLY — silently dropping the slot
+            and skipping the subsystem teardown (in-flight abort, routing
+            :current, flow owner-rebind), the silent-orphan window the :frame fix
+            closed, reopened on the removal path. The fix REFUSES LOUDLY with
+            :rf.error/unsupported-descriptor-kind — symmetric with the add/changed
+            path's throw — BEFORE any mutation, enumerating the blocking [kind id]
+            and naming the deferred set + the clear-* recovery."
+    ;; Simulate the sugar registration (reg-mutation lives in the resources
+    ;; artefact, off core's test classpath): seat a :mutation slot directly into
+    ;; the default realm's registrar (which IS the global atom), exactly as the
+    ;; sugar's registrar/register! :mutation would. The projection picks it up.
+    (registrar/register! :mutation :cquy9u/save {:handler-fn (fn [& _] nil)})
+    (is (some? (registrar/lookup :mutation :cquy9u/save))
+        "the sugar-registered :mutation slot is in the registrar")
+    ;; reinstall! a new app that OMITS :cquy9u/save → it lands in :removed.
+    ;; Re-declare nothing else mutation/frame-shaped so this refusal (not the
+    ;; :frame refusal) is the one that fires.
+    (let [ed (try (rf/reinstall! :rf.realm/default
+                                 (rf/app {:id :cquy9u/app :modules
+                                          [(rf/module {:id :m
+                                                       :events {:cquy9u/ev {:handler (fn [db _] db)}}})]}))
+                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                    (ex-data e)))]
+      (is (= :rf.error/unsupported-descriptor-kind (:error/id ed))
+          "removing a sugar-registered step-8 kind refuses loudly, not silently")
+      (is (some #{[:mutation :cquy9u/save]} (:removed ed))
+          "the diagnostic enumerates exactly the blocking removed [kind id]")
+      (is (contains? (:deferred ed) :mutation)
+          "the refusal names the deferred set")
+      (is (= :clear-through-reg-*-sugar (:recovery ed))
+          "the error names the recovery: clear through the kind's own clear-* sugar"))
+    ;; The refusal was BEFORE any mutation — the :mutation slot is UNTOUCHED (the
+    ;; orphan the bug produced: pre-fix it would be nil here) and the new :added
+    ;; event was NOT seated.
+    (is (some? (registrar/lookup :mutation :cquy9u/save))
+        "the sugar-registered slot survives the refused reinstall — NOT silently unregistered")
+    (is (nil? (registrar/lookup :event :cquy9u/ev))
+        "the refused reinstall seated nothing — it failed before any mutation")
+    ;; Cleanup: drop the directly-seeded slot (the runtime-reset fixture
+    ;; snapshots the registrar, but be explicit since this test seeds it raw).
+    (registrar/unregister! :mutation :cquy9u/save)))
+
+(deftest reinstall-not-omitting-the-step8-kind-leaves-it-untouched
+  (testing "rf2-cquy9u: the refusal is targeted at REMOVAL only — a reinstall!
+            whose new app does NOT drop the sugar-registered step-8 kind (it is
+            neither :added nor :removed, since it is not in the app-value diff at
+            all when the new app omits no projected slot it carries) applies
+            cleanly. Here the new app re-declares nothing of that kind, but the
+            slot is re-asserted into the registrar by the test so it is present in
+            BOTH old and new projections → not :removed. (Belt-and-braces: the
+            kind-boundary throw must not fire on a no-op reinstall.)"
+    ;; Seed the :resource slot, then reinstall with an app that ALSO carries it
+    ;; (re-seed after building old-app's projection is not possible, so instead we
+    ;; assert the simpler invariant: a reinstall whose diff has NO :removed
+    ;; step-8 kind does not throw). Build a new app that only ADDS an event; the
+    ;; :resource slot is in old-app — to keep it OUT of :removed we re-register it
+    ;; into the registrar so the post-reinstall projection still carries it. The
+    ;; cleanest expression: reinstall the SAME projected app (a no-op diff).
+    (registrar/register! :resource :cquy9u/feed {:handler-fn (fn [& _] nil)})
+    (let [current (av/app-value :rf.realm/default)
+          diff    (rf/reinstall! :rf.realm/default current)]
+      (is (= [] (:removed diff))
+          "reinstalling the current projection removes nothing — no step-8 kind in :removed")
+      (is (some? (registrar/lookup :resource :cquy9u/feed))
+          "the :resource slot is untouched by the no-op reinstall"))
+    (registrar/unregister! :resource :cquy9u/feed)))
+
 (deftest reinstall-changed-sub-invalidates-the-live-cache
   (testing "the EP-0013 §Hot Reload behavioural claim the registrar-slot
             assertion only approximates: a :changed sub reinstall INVALIDATES the
@@ -497,20 +575,29 @@
             sugar-booted app still computes a correct delta"
     ;; Pure-sugar boot: no install!, just reg-*.
     (rf/reg-event-db :boot/a {:doc "a"} cart-add)
-    ;; Reinstall a new app value. The diff is against the projection of the
-    ;; sugar-booted registrar, so :boot/a (present in the projection, absent in
-    ;; the new app) shows as :removed, and :boot/b shows as :added. The new app
-    ;; RE-DECLARES the fixture's live `:rf/default` frame (in the projection too)
-    ;; so it stays unchanged, not :removed — otherwise the reinstall would
-    ;; (correctly) refuse to orphan that live frame (rf2-7zn9kg).
-    (let [diff (rf/reinstall! (rf/app {:id :app :modules
-                                       [(rf/module {:id :m
-                                                    :events {:boot/b {:handler cart-add}}
-                                                    :frames {:rf/default {}}})]}))]
+    ;; Reinstall a new app value derived FROM the live projection: drop the
+    ;; sugar-booted :boot/a event and add :boot/b, leaving every other projected
+    ;; slot in place. Building from the projection (rather than a fresh `rf/app`)
+    ;; keeps the fixture's live `:rf/default` :frame AND the artefact-load step-8
+    ;; slots (`:view :route/link`, `:error-projector …`) present in BOTH old and
+    ;; new — so they are NEITHER :removed (which would correctly refuse: a live
+    ;; `:frame` per rf2-7zn9kg, a sugar-registered step-8 kind per rf2-cquy9u).
+    ;; The diff then isolates exactly the event delta this test asserts.
+    (let [projected (av/app-value :rf.realm/default)
+          new-app   (-> projected
+                        (update-in [:registrations :event] dissoc :boot/a)
+                        (assoc-in  [:registrations :event :boot/b]
+                                   {:kind :event :id :boot/b :handler cart-add}))
+          diff      (rf/reinstall! new-app)]
       (is (some #{[:event :boot/b]} (:added diff))
           ":boot/b is added relative to the projected installed app")
       (is (some #{[:event :boot/a]} (:removed diff))
-          ":boot/a (sugar-booted, in the projection) is removed by the reinstall"))))
+          ":boot/a (sugar-booted, in the projection) is removed by the reinstall")
+      (is (empty? (filter (fn [[kind _]]
+                            (contains? #{:view :route :flow :resource :mutation
+                                         :resource-scope :head :error-projector} kind))
+                          (:removed diff)))
+          "no step-8 deferred kind is in :removed — they ride through unchanged (rf2-cquy9u)"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (5) descriptor round-trip — lowering is the inverse of normalisation

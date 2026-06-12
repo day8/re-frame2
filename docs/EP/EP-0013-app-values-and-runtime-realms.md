@@ -967,15 +967,33 @@ behavior is app-value replacement and diff-driven invalidation.
 #### Live-instance refusal binds at the kind boundary, then per-kind
 
 The first reinstall slice is descriptor-only (issue 12). Refuse-loudly binds at
-the **kind boundary** in this slice: the step-8-deferred kinds (`:route` /
-`:flow` / `:resource` / `:mutation` / `:resource-scope` / `:view` / `:head` /
-`:error-projector`) throw `:rf.error/unsupported-descriptor-kind` at
-install/reinstall, so the live-instance classes the refusal rule worried about
-(machine actors, in-flight resources/mutations, route transitions) are
-**structurally unreachable** through the descriptor diff. The per-kind
-live-instance **blocker / continue / migrate** rule binds **when each deferred
-kind becomes installable** — it is not a single global query over a universal
-work ledger.
+the **kind boundary** in this slice, **in both directions**: the step-8-deferred
+kinds (`:route` / `:flow` / `:resource` / `:mutation` / `:resource-scope` /
+`:view` / `:head` / `:error-projector`) throw
+`:rf.error/unsupported-descriptor-kind` on the **add/changed** path
+(`install-descriptor!`) **and** on the **removal** path
+(`refuse-unsupported-removal!`). A deferred kind is neither
+app-value-installable nor app-value-removable in this slice — the descriptor
+diff does not own it in either direction; it stays owned by its own
+`reg-*` / `clear-*` sugar lifecycle. So the live-instance classes the refusal
+rule worried about (machine actors, in-flight resources/mutations, route
+transitions) can be neither seated nor silently orphaned through the descriptor
+diff. The per-kind live-instance **blocker / continue / migrate** rule binds
+**when each deferred kind becomes installable** — it is not a single global
+query over a universal work ledger.
+
+> **Errata (bead `rf2-cquy9u`).** As originally written this disposition claimed
+> the deferred kinds were "structurally unreachable through the descriptor diff"
+> full stop. That held only on the **register** (add/changed) path, where the
+> kind throw lived in `install-descriptor!`. The **removal** path called
+> `registrar/unregister!` *unconditionally* for every removed `[kind id]` — and
+> a step-8 kind registered through its own sugar (`reg-mutation` / `reg-resource`
+> / `reg-route` / `reg-flow` / …) *does* reach the realm's registrar and *is*
+> projected into the diff's old-app, so a `reinstall!` that omitted such an id
+> landed it in `:removed` and silently unregistered it, skipping the subsystem
+> teardown — the same silent-orphan window the `:frame` refusal closed, reopened
+> on the removal path. `refuse-unsupported-removal!` (symmetric with the
+> add/changed throw) closes it and restores the claim's truth in both directions.
 
 The ONE wired kind that *is* a live instance is `:frame`. A `:removed` `:frame`
 whose live container still exists MUST be **refused loudly** — never silently
@@ -1747,14 +1765,25 @@ inline.
     >
     > 1. **Where refuse-loudly binds in slice 1.** The shipped slice 1
     >    (`reinstall!`) is descriptor-only and binds refuse-loudly **at the kind
-    >    boundary**: the step-8-deferred kinds (`:route` / `:flow` /
-    >    `:resource` / `:mutation` / `:resource-scope` / `:view` / `:head` /
-    >    `:error-projector`) throw `:rf.error/unsupported-descriptor-kind` at
-    >    install/reinstall, so the live-instance classes this disposition worried
-    >    about (machine actors, in-flight resources/mutations, route transitions)
-    >    are **structurally unreachable** through the descriptor diff — a generic
-    >    blocker query would protect nothing reachable while inventing
-    >    cross-subsystem machinery ahead of those kinds having install semantics.
+    >    boundary, in both directions**: the step-8-deferred kinds (`:route` /
+    >    `:flow` / `:resource` / `:mutation` / `:resource-scope` / `:view` /
+    >    `:head` / `:error-projector`) throw
+    >    `:rf.error/unsupported-descriptor-kind` on the **add/changed** path
+    >    (`install-descriptor!`) **and** on the **removal** path
+    >    (`refuse-unsupported-removal!`, bead `rf2-cquy9u`), so the live-instance
+    >    classes this disposition worried about (machine actors, in-flight
+    >    resources/mutations, route transitions) are neither seated nor silently
+    >    orphaned through the descriptor diff — a generic blocker query would
+    >    protect nothing reachable while inventing cross-subsystem machinery ahead
+    >    of those kinds having install semantics. (**Errata `rf2-cquy9u`:** as
+    >    first shipped the throw lived ONLY in `install-descriptor!`, i.e. ONLY on
+    >    the add/changed path; the removal path called `registrar/unregister!`
+    >    unconditionally, so a step-8 kind registered through its OWN sugar — which
+    >    reaches the registrar and is projected into the diff's old-app — was
+    >    silently unregistered when a `reinstall!` omitted it, reopening the
+    >    silent-orphan window on the removal path. "Structurally unreachable
+    >    through the descriptor diff" was therefore true only on the register path
+    >    until `refuse-unsupported-removal!` extended the boundary to removal.)
     >    The live-instance **blocker / continue / migrate rule binds PER-KIND**,
     >    when each deferred kind becomes installable; defining that rule is a
     >    **precondition of lifting the unsupported-kind throw** for that kind (see
