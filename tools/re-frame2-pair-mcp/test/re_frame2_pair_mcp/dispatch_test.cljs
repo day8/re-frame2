@@ -1166,22 +1166,24 @@
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; world-inputs wire shape (rf2-q6s1nb / EP-0010) — a scripted causal
-;; world-input map is parsed as EDN data and threaded into the dispatch opts
-;; under the namespaced `:rf.world/inputs` key the router reads
-;; (router.cljc:202-204, which preserves a caller-supplied map verbatim). A
-;; dispatched event then carries the agent's exact `:time-ms` / `:uuid` /
-;; `:random`, so the resulting state is REPRODUCIBLE — the agent-replay-
-;; determinism affordance the EP calls for. A malformed value short-circuits
-;; to an :isError envelope before the eval rather than threading a value the
-;; runtime's :rf/dispatch-opts validation would reject.
+;; cofx wire shape (rf2-q6s1nb / EP-0010 + EP-0017) — a scripted recordable-
+;; coeffect map is parsed as EDN data and threaded into the dispatch opts
+;; under the flat `:rf.cofx` key the router reads (which preserves a
+;; caller-supplied map verbatim). A dispatched event then carries the agent's
+;; exact `:rf/time-ms` / owner-qualified recordable facts, so the resulting
+;; state is REPRODUCIBLE — the agent-replay-determinism affordance the EP
+;; calls for. EP-0017 renamed the MCP arg `world-inputs` → `cofx`, the opts
+;; key `:rf.world/inputs` → `:rf.cofx`, and the time fact `:time-ms` →
+;; `:rf/time-ms`. A malformed value short-circuits to an :isError envelope
+;; before the eval rather than threading a value the runtime's
+;; :rf/dispatch-opts validation would reject.
 ;; ---------------------------------------------------------------------------
 
-(deftest world-inputs-threaded-into-opts-under-namespaced-key
-  ;; The headline rf2-q6s1nb case: `world-inputs "{:time-ms 1781078400123}"`
-  ;; must appear in the emitted runtime opts map under the namespaced
-  ;; `:rf.world/inputs` key, as DATA (the exact integer time), so the router
-  ;; preserves it verbatim and the dispatch is reproducible.
+(deftest cofx-threaded-into-opts-under-flat-key
+  ;; The headline rf2-q6s1nb case: `cofx "{:rf/time-ms 1781078400123}"`
+  ;; must appear in the emitted runtime opts map under the flat `:rf.cofx`
+  ;; key, as DATA (the exact integer time), so the router preserves it
+  ;; verbatim and the dispatch is reproducible.
   (async done
     (let [captured (atom nil)]
       (-> (with-captured-eval! captured {:ok? true :epoch-id 7 :db-changed? true
@@ -1189,23 +1191,24 @@
             (fn []
               (dispatch/dispatch-tool (fresh-conn)
                                       #js {:event "[:todo/add {:text \"buy milk\"}]"
-                                           :world-inputs "{:time-ms 1781078400123}"})))
+                                           :cofx "{:rf/time-ms 1781078400123}"})))
           (.then (fn [r]
                    (is (not (err? r)))
                    (let [parsed (cljs.reader/read-string @captured)
                          opts   (nth parsed 2)]
                      (is (= [:todo/add {:text "buy milk"}] (second parsed)))
-                     (is (= {:time-ms 1781078400123} (:rf.world/inputs opts))
-                         "world-inputs is threaded under the :rf.world/inputs opts key the router reads")
-                     (is (int? (get-in opts [:rf.world/inputs :time-ms]))
-                         ":time-ms rides as an integer — DATA, not source")
-                     (is (re-find #":rf\.world/inputs" @captured)
-                         "the namespaced key is emitted in the runtime form"))
+                     (is (= {:rf/time-ms 1781078400123} (:rf.cofx opts))
+                         "cofx is threaded under the :rf.cofx opts key the router reads")
+                     (is (int? (get-in opts [:rf.cofx :rf/time-ms]))
+                         ":rf/time-ms rides as an integer — DATA, not source")
+                     (is (re-find #":rf\.cofx" @captured)
+                         "the flat key is emitted in the runtime form"))
                    (done)))))))
 
-(deftest world-inputs-supports-uuid-and-random-maps
-  ;; The schema's optional :uuid / :random domain-keyed maps ride through
-  ;; verbatim so an agent can script generated ids and random choices too.
+(deftest cofx-supports-owner-qualified-recordable-facts
+  ;; Owner-qualified recordable facts (the app's :counter/delta, a
+  ;; subsystem's :rf.route/location) ride through verbatim so an agent can
+  ;; script the recorded causal token too.
   (async done
     (let [captured (atom nil)]
       (-> (with-captured-eval! captured {:ok? true :epoch-id 8}
@@ -1213,21 +1216,21 @@
               (dispatch/dispatch-tool (fresh-conn)
                                       #js {:event "[:todo/add {:text \"x\"}]"
                                            :sync true
-                                           :world-inputs "{:time-ms 1700000000000 :uuid {:todo/id \"id-1\"} :random {:roll 4}}"})))
+                                           :cofx "{:rf/time-ms 1700000000000 :counter/delta 4 :rf.route/location {:path \"/todos\"}}"})))
           (.then (fn [_]
                    (let [opts (nth (cljs.reader/read-string @captured) 2)
-                         wi   (:rf.world/inputs opts)]
-                     (is (= 1700000000000 (:time-ms wi)))
-                     (is (= {:todo/id "id-1"} (:uuid wi))
-                         ":uuid domain-keyed map rides through verbatim")
-                     (is (= {:roll 4} (:random wi))
-                         ":random recorded choices ride through verbatim"))
+                         cofx (:rf.cofx opts)]
+                     (is (= 1700000000000 (:rf/time-ms cofx)))
+                     (is (= 4 (:counter/delta cofx))
+                         "an app-owned recordable fact rides through verbatim")
+                     (is (= {:path "/todos"} (:rf.route/location cofx))
+                         "a subsystem recordable fact rides through verbatim"))
                    (done)))))))
 
-(deftest no-world-inputs-arg-omits-the-opts-key
-  ;; Absent `world-inputs` ⇒ no `:rf.world/inputs` key in the emitted opts
-  ;; (the ordinary live path — the runtime stamps :time-ms itself). Guards
-  ;; against a stray nil-valued slot that would defeat the router's stamp.
+(deftest no-cofx-arg-omits-the-opts-key
+  ;; Absent `cofx` ⇒ no `:rf.cofx` key in the emitted opts (the ordinary
+  ;; live path — the runtime stamps :rf/time-ms itself). Guards against a
+  ;; stray nil-valued slot that would defeat the router's stamp.
   (async done
     (let [captured (atom nil)]
       (-> (with-captured-eval! captured {:ok? true :epoch-id 7}
@@ -1236,50 +1239,50 @@
                                       #js {:event "[:counter/inc]" :sync true})))
           (.then (fn [_]
                    (let [opts (nth (cljs.reader/read-string @captured) 2)]
-                     (is (not (contains? opts :rf.world/inputs))
-                         "no :rf.world/inputs opt when the arg is absent"))
+                     (is (not (contains? opts :rf.cofx))
+                         "no :rf.cofx opt when the arg is absent"))
                    (done)))))))
 
-(deftest world-inputs-non-map-rejected
+(deftest cofx-non-map-rejected
   ;; A vector / scalar is valid EDN but the wrong shape — reject with
-  ;; :invalid-world-inputs rather than thread it into the opts.
+  ;; :invalid-cofx rather than thread it into the opts.
   (async done
     (-> (with-captured-eval! (atom nil) {:ok? true}
           (fn []
             (dispatch/dispatch-tool (fresh-conn)
                                     #js {:event "[:counter/inc]"
-                                         :world-inputs "[:not :a :map]"})))
+                                         :cofx "[:not :a :map]"})))
         (.then (fn [r]
-                 (is (err? r) "a non-map world-inputs ⇒ :isError")
+                 (is (err? r) "a non-map cofx ⇒ :isError")
                  (let [edn (read-result-text r)]
-                   (is (= :invalid-world-inputs (:reason edn))))
+                   (is (= :invalid-cofx (:reason edn))))
                  (done))))))
 
-(deftest world-inputs-unreadable-rejected
-  ;; Unreadable EDN (mismatched brackets) ⇒ :invalid-world-inputs.
+(deftest cofx-unreadable-rejected
+  ;; Unreadable EDN (mismatched brackets) ⇒ :invalid-cofx.
   (async done
     (-> (with-captured-eval! (atom nil) {:ok? true}
           (fn []
             (dispatch/dispatch-tool (fresh-conn)
                                     #js {:event "[:counter/inc]"
-                                         :world-inputs "{:time-ms 1"})))
+                                         :cofx "{:rf/time-ms 1"})))
         (.then (fn [r]
                  (is (err? r))
                  (let [edn (read-result-text r)]
-                   (is (= :invalid-world-inputs (:reason edn))))
+                   (is (= :invalid-cofx (:reason edn))))
                  (done))))))
 
-(deftest world-inputs-non-integer-time-ms-rejected
-  ;; :time-ms must be an integer (epoch ms). A string / float ⇒
-  ;; :invalid-world-inputs-time-ms, short-circuited before the eval.
+(deftest cofx-non-integer-time-ms-rejected
+  ;; :rf/time-ms must be an integer (epoch ms). A string / float ⇒
+  ;; :invalid-cofx-time-ms, short-circuited before the eval.
   (async done
     (-> (with-captured-eval! (atom nil) {:ok? true}
           (fn []
             (dispatch/dispatch-tool (fresh-conn)
                                     #js {:event "[:counter/inc]"
-                                         :world-inputs "{:time-ms \"now\"}"})))
+                                         :cofx "{:rf/time-ms \"now\"}"})))
         (.then (fn [r]
-                 (is (err? r) "a non-integer :time-ms ⇒ :isError")
+                 (is (err? r) "a non-integer :rf/time-ms ⇒ :isError")
                  (let [edn (read-result-text r)]
-                   (is (= :invalid-world-inputs-time-ms (:reason edn))))
+                   (is (= :invalid-cofx-time-ms (:reason edn))))
                  (done))))))
