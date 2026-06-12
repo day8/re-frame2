@@ -386,11 +386,12 @@
 
 (deftest coeffect-rows-granular-test
   (testing "rf2-mmlgk — granular `:rf.cofx/run` events are walked; each
-            row carries the RESOLVED INJECTED VALUE off the run-end's
+            row carries the RESOLVED DELIVERED VALUE off the run-end's
             `:rf.event/coeffects` map (NOT the input arg). The
             `:rf.cofx/value` tag rides on the row as `:input` when
-            present so the per-call arg of a 2-arity cofx
-            (`(inject-cofx :session :auth-token)`) is preserved."
+            present so the per-call arg of a 1-arity supplier (an
+            `[id arg]` declaration, e.g. `[:session :auth-token]`) is
+            preserved."
     (let [evs [(cofx-run-ev :session :auth-token)
                (cofx-run-ev :now nil)
                (run-end-ev 0.1 {:session {:user-id 42}
