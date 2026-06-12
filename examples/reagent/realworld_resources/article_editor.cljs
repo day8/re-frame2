@@ -7,11 +7,14 @@
    exercises three things at once:
 
    1. The WRITE is a MUTATION. `:realworld/save-article` POSTs `/articles`
-      (create) or PUTs `/articles/:slug` (edit) and declares
-      `:invalidates #{[:article slug] [:article-list] [:feed]}` — so on success
-      the detail read, every list showing the article, and the feed refetch with
-      NO further wiring (the read→write→invalidate→refetch loop, end to end). A
-      `:realworld/delete-article` mutation invalidates the same tags. The write
+      (create) or PUTs `/articles/:slug` (edit) and declares per-target scoped
+      `:invalidates` descriptors (EP-0016 D2) — the global article tags
+      (`[:article slug]` / `[:article-list]`) in `:rf.scope/global`, and the
+      session `[:feed]` in `{:from-db :realworld/session}` — so on success the
+      detail read, every list showing the article, AND the session feed refetch
+      with NO further wiring (the read→write→invalidate→refetch loop, end to
+      end; one mutation reaches both scopes). A `:realworld/delete-article`
+      mutation invalidates the same tags. The write
       lifecycle is the mutation INSTANCE watched through `[:rf.mutation/state
       {:instance …}]` — there is no `:status` app-db field.
 
