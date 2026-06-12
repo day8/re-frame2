@@ -754,17 +754,25 @@
 ;; caches", "future lookups use the new registrar").
 ;;
 ;; This is the descriptor-only first slice (EP-0013 issue 12, PRECISED: the first
-;; reinstall slice is descriptor-only). Refuse-loudly binds at the KIND BOUNDARY:
-;; the step-8-deferred kinds throw `:rf.error/unsupported-descriptor-kind` at
-;; install/reinstall, so the live-instance classes the disposition worried about
-;; (machine actors / in-flight resources/mutations / route transitions) are
-;; STRUCTURALLY UNREACHABLE through the diff — the per-kind live-instance
+;; reinstall slice is descriptor-only). Refuse-loudly binds at the KIND BOUNDARY
+;; in BOTH directions: the step-8-deferred kinds throw
+;; `:rf.error/unsupported-descriptor-kind` on the ADD/CHANGED path (the
+;; `install-descriptor!` lowering) AND on the REMOVAL path
+;; (`refuse-unsupported-removal!`, rf2-cquy9u). So a deferred kind is neither
+;; app-value-INSTALLABLE nor app-value-REMOVABLE in this slice — the descriptor
+;; diff simply does not own it in either direction (it stays owned by its own
+;; `reg-*`/`clear-*` sugar lifecycle). The per-kind live-instance
 ;; blocker/continue/migrate rule binds when each deferred kind becomes
 ;; installable. The per-kind hot-reload rules each subsystem already honours
 ;; (active machine instances continue with their captured spec, etc.) are
-;; unchanged. The ONE reachable live edge — `:frame` removal of a live container
-;; — is refused loudly (`refuse-live-frame-removal!`) rather than silently
-;; orphaned.
+;; unchanged. ERRATA (rf2-cquy9u): the earlier "structurally unreachable through
+;; the diff" claim held only for the REGISTER (add/changed) path — the kind
+;; throw lived solely in `install-descriptor!`. The REMOVAL path reached the
+;; registrar unconditionally, so a sugar-registered step-8 id omitted from a
+;; reinstall could be silently `unregister!`-ed; `refuse-unsupported-removal!`
+;; closes that. The ONE reachable WIRED live edge — `:frame` removal of a live
+;; container — is refused loudly (`refuse-live-frame-removal!`) rather than
+;; silently orphaned.
 
 (defn- diff-registrations
   "Diff two `:registrations` maps (`kind → id → descriptor`) into added /
@@ -793,10 +801,15 @@
   fail-loud's on future use per EP-0013 §Hot Reload And Reinstall —
   \"removed registrations fail loudly on future use\"), a removed `:sub`'s
   disposal/loud-read is pre-existing per-kind hot-reload behaviour, and
-  the step-8-deferred kinds are STRUCTURALLY UNREACHABLE through the diff
-  (they throw `:rf.error/unsupported-descriptor-kind` at install/reinstall,
-  so no live instance of those classes can be seated through the descriptor
-  path). `:frame` is the exception: a removed `:frame` whose live container
+  the step-8-deferred kinds are refused at the KIND BOUNDARY in BOTH
+  directions — they throw `:rf.error/unsupported-descriptor-kind` on
+  add/changed (`install-descriptor!`) AND on removal
+  (`refuse-unsupported-removal!`, which runs just before this check), so no
+  live instance of those classes is seated OR silently orphaned through the
+  descriptor path. (ERRATA rf2-cquy9u: pre-fix this held only on the
+  register path; the removal path unregistered unconditionally.) `:frame` —
+  a WIRED kind that IS a live instance — is the exception this check owns: a
+  removed `:frame` whose live container
   still exists would be ORPHANED — `registrar/unregister! :frame id` drops
   only the registrar SLOT, leaving the container live in the core frame
   registry (`@frame/frames`), still dispatchable/subscribable, with its
@@ -867,19 +880,29 @@
   before any mutation, exactly as `install!` would.
 
   Descriptor-only slice (EP-0013 issue 12, PRECISED): the diff is over
-  registration descriptors. Refuse-loudly binds at the KIND BOUNDARY in this
-  slice — the step-8-deferred kinds (`:route`/`:flow`/`:resource`/`:mutation`/
-  `:resource-scope`/…) THROW `:rf.error/unsupported-descriptor-kind` at
-  install/reinstall, so the live-instance classes the disposition worried about
-  (machine actors, in-flight resources/mutations, route transitions) are
-  STRUCTURALLY UNREACHABLE through the descriptor diff; the live-instance
-  blocker/continue/migrate rule binds PER-KIND when each deferred kind becomes
-  installable (defining that rule is a precondition of lifting the kind throw).
-  The per-kind hot-reload rules each subsystem already honours (active machine
-  instances continue with their captured spec; changed subs invalidate caches;
-  removed registrations fail loudly on future use) are unchanged.
+  registration descriptors. Refuse-loudly binds at the KIND BOUNDARY in BOTH
+  directions — the step-8-deferred kinds (`:route`/`:flow`/`:resource`/
+  `:mutation`/`:resource-scope`/…) THROW `:rf.error/unsupported-descriptor-kind`
+  on the ADD/CHANGED path (`register-descriptor!` → `install-descriptor!`) AND
+  on the REMOVAL path (`refuse-unsupported-removal!`, rf2-cquy9u). A deferred
+  kind is neither app-value-installable nor app-value-removable in this slice:
+  the descriptor diff does not own it in either direction — it stays owned by
+  its own `reg-*`/`clear-*` sugar lifecycle. So the live-instance classes the
+  disposition worried about (machine actors, in-flight resources/mutations,
+  route transitions) cannot be seated OR silently orphaned through the diff; the
+  live-instance blocker/continue/migrate rule binds PER-KIND when each deferred
+  kind becomes installable (defining that rule is a precondition of lifting the
+  kind throw). The per-kind hot-reload rules each subsystem already honours
+  (active machine instances continue with their captured spec; changed subs
+  invalidate caches; removed registrations fail loudly on future use) are
+  unchanged. (ERRATA rf2-cquy9u: the earlier \"structurally unreachable through
+  the descriptor diff\" claim was true only on the REGISTER path; the removal
+  path unregistered every removed `[kind id]` unconditionally, so a
+  sugar-registered step-8 id omitted from a reinstall was silently
+  unregistered. `refuse-unsupported-removal!` restores the claim's truth on the
+  removal path.)
 
-  The ONE reachable live-instance edge is `:frame` REMOVAL — `:frame` is the
+  The ONE reachable WIRED live-instance edge is `:frame` REMOVAL — `:frame` is the
   only wired kind that IS a live instance. A `:removed` `:frame` whose live
   container still exists is REFUSED loudly (`refuse-live-frame-removal!` →
   `:rf.error/live-frame-removal-unsupported`, enumerating the blocking
@@ -910,8 +933,19 @@
      ;; The capability invariant holds across reloads too — fail loud before
      ;; any mutation if the new app raises a requirement the realm can't meet.
      (check-capabilities! rid new-app)
-     ;; The ONE reachable live-instance edge (EP-0013 issue 12, PRECISED): a
-     ;; `:removed` `:frame` that still backs a live container is refused loudly
+     ;; Kind-boundary refusal on the REMOVAL path (rf2-cquy9u), symmetric with
+     ;; the add/changed path's throw (`register-descriptor!` →
+     ;; `install-descriptor!`): a `:removed` step-8-DEFERRED kind THROWS
+     ;; `:rf.error/unsupported-descriptor-kind` here — before any mutation —
+     ;; rather than silently `unregister!`-ing a sugar-registered slot (which
+     ;; would orphan its live instances, skipping the subsystem teardown). The
+     ;; deferred-kind set lives in core; this leaf ns refuses through the
+     ;; `:app-value/refuse-unsupported-removal!` hook (mirroring the install
+     ;; hook), no-op when the hook is unbound.
+     (when-let [refuse (late-bind/get-fn :app-value/refuse-unsupported-removal!)]
+       (refuse (:removed diff)))
+     ;; The ONE reachable WIRED live-instance edge (EP-0013 issue 12, PRECISED):
+     ;; a `:removed` `:frame` that still backs a live container is refused loudly
      ;; here — before any mutation — rather than silently orphaned. Targeted
      ;; check against the core frame registry only; no cross-subsystem machinery.
      (refuse-live-frame-removal! rid diff)

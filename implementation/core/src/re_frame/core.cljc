@@ -1808,6 +1808,61 @@
 
 (late-bind/set-fn! :app-value/install-descriptor! install-descriptor!)
 
+(defn- refuse-unsupported-removal!
+  "The REMOVAL-path counterpart of `install-descriptor!`'s kind-boundary throw.
+  Given the `:removed` `[kind id]` pairs of a `reinstall!` diff, THROWS
+  `:rf.error/unsupported-descriptor-kind` (enumerating the blocking
+  `[kind id]`s) when any names a step-8-DEFERRED kind (`install-deferred-kinds`)
+  — symmetric with the add/changed path, which already throws via
+  `install-descriptor!`. The descriptor diff does not own step-8 kinds in EITHER
+  direction in this slice: a deferred kind is not yet app-value-INSTALLABLE, so
+  it is not app-value-REMOVABLE either.
+
+  Without this, `reinstall!`'s `:removed` path would call `registrar/unregister!`
+  UNCONDITIONALLY for every removed `[kind id]`. A step-8 kind registered through
+  its OWN sugar (`reg-mutation`/`reg-resource`/`reg-route`/`reg-flow`/…) DOES
+  reach the realm's registrar and IS projected into the diff's old-app, so a
+  `reinstall!` that omits a sugar-registered step-8 id would land it in `:removed`
+  and silently `unregister!` it — running NO subsystem teardown (in-flight
+  mutation/resource abort, routing `:current`, flow owner-rebind), the same
+  silent-orphan window `refuse-live-frame-removal!` closed for `:frame`. This is
+  the symmetric closure on the removal path (rf2-cquy9u, completing the
+  rf2-7zn9kg kind-boundary ruling).
+
+  Throws BEFORE any mutation so a refused reinstall leaves the realm untouched.
+  Published as `:app-value/refuse-unsupported-removal!` (mirroring the install
+  hook) so the leaf `re-frame.app-value` ns refuses through core rather than
+  re-stating the deferred-kind set — when the hook is unbound (a bundle that
+  never loaded core's reg surfaces) the removal path falls back to the bare
+  `registrar/unregister!`, exactly as `install-descriptor!` falls back to the
+  flat registrar lowering."
+  [removed]
+  (let [blocking (->> removed
+                      (filter (fn [[kind _]] (contains? install-deferred-kinds kind)))
+                      (sort)
+                      (vec))]
+    (when (seq blocking)
+      (throw (ex-info (str "rf/reinstall!: cannot remove the descriptor(s) "
+                           (pr-str blocking) " — their kinds are step-8-DEFERRED "
+                           "(" (pr-str install-deferred-kinds) "), not yet "
+                           "installable through the descriptor diff, so they are "
+                           "not removable through it either. A step-8 kind "
+                           "registered via its own sugar (reg-mutation / "
+                           "reg-resource / reg-route / reg-flow / …) stays owned "
+                           "by that sugar's clear-* lifecycle — unregistering it "
+                           "through the app-value diff would skip the subsystem "
+                           "teardown (in-flight abort, routing :current, flow "
+                           "owner-rebind) and silently orphan its live instances. "
+                           "Clear it through its own clear-* surface before "
+                           "reinstalling without it.")
+                      {:error/id    :rf.error/unsupported-descriptor-kind
+                       :removed     blocking
+                       :deferred    install-deferred-kinds
+                       :wired       install-wired-kinds
+                       :recovery    :clear-through-reg-*-sugar})))))
+
+(late-bind/set-fn! :app-value/refuse-unsupported-removal! refuse-unsupported-removal!)
+
 (def ^{:doc "Seat an immutable app value into a runtime realm — `(install! app)`
   (default realm) or `(install! realm app)`. CAPABILITY-CHECKS first: every
   `:rf.capability/*` in `(app-requires app)` must be present in the realm's
