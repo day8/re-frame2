@@ -188,12 +188,38 @@
 (defn- update-realm!
   "Apply `f` (+ `args`) to the realm map registered under `rid`, in place in
   the `realms` registry. INTERNAL — the single mutation seam for the
-  realm-owned mutable slots (adapter SELECTION + host-transient). Returns the
-  updated realm map. A no-op (returns nil) for an unknown realm — D1 only ever
-  has the default realm at runtime, so this is defensive."
+  realm-owned mutable slots (the installed-app `:app`, the adapter SELECTION,
+  the host-transient inventory). Returns the updated realm map.
+
+  FAILS CLOSED on an UNKNOWN id (rf2-c6armm.6 #2): a realm is an isolation
+  boundary, so a mutation aimed at a realm that was never constructed must NOT
+  silently no-op (the prior posture) — a typo'd or never-constructed id would
+  then drop the write on the floor while the caller believes it seated state.
+  The id reaching here is already resolved (callers pass `(realm-id …)`, so nil
+  has become `default-realm-id`, which is seeded at boot and always present);
+  any OTHER id that is not in the registry is an explicit unknown target and
+  THROWS `:rf.error/unknown-realm` BEFORE mutating, naming the id + the live
+  realm ids. This guards the non-`install!` mutation seams (`set-installed-app!`
+  / `install-realm-adapter!` / `register-host-transient!` / …) the same way
+  `app-value/resolve-target-realm!` already guards `install!` — the silent
+  default/global fallback is the wrong failure mode for an isolation boundary."
   [rid f & args]
+  (let [snapshot @realms]
+    (when-not (contains? snapshot rid)
+      (throw (ex-info (str "realm " rid " is not registered — a realm-owned"
+                           " mutation cannot target a realm that was never"
+                           " constructed. Absence defaults to the default realm;"
+                           " an unknown explicit id does not.")
+                      {:error/id     :rf.error/unknown-realm
+                       :realm        rid
+                       :known-realms (set (keys snapshot))
+                       :recovery     :construct-the-realm-first}))))
   (rid (swap! realms
               (fn [m]
+                ;; Single-threaded host: the guard above already proved `rid`
+                ;; present. Re-check inside the swap so a (theoretical) drop
+                ;; between deref and swap can never resurrect the realm via a
+                ;; spurious `(f nil …)` — leave the registry untouched instead.
                 (if (contains? m rid)
                   (apply update m rid f args)
                   m)))))

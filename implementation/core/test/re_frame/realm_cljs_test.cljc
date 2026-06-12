@@ -393,3 +393,84 @@
       (is (true? @second-ran)
           "a sibling host-transient teardown still ran after the throwing one"))
     (realm/clear-host-transient!)))
+
+;; ---------------------------------------------------------------------------
+;; (6) FAIL-CLOSED realm-owned mutation — an unknown id cannot silently mutate
+;;     (rf2-c6armm.6 #2)
+;; ---------------------------------------------------------------------------
+;;
+;; A realm is an isolation boundary, so a realm-owned mutation aimed at a realm
+;; that was never constructed must NOT silently no-op (the prior `update-realm!`
+;; posture) — a typo'd id would drop the write while the caller believes it
+;; seated state, and the symmetrical hazard the install! guard (rf2-c6armm.1/.2)
+;; closed for the install path was still open on the non-install mutation seams
+;; (`set-installed-app!` / `install-realm-adapter!` / `register-host-transient!`
+;; / …, all routed through the single `update-realm!` seam). These pin that the
+;; seam now THROWS `:rf.error/unknown-realm` for a non-nil unknown id, BEFORE any
+;; mutation, while the default realm (absence resolves to it) is untouched.
+
+(deftest mutating-an-unknown-realm-id-throws-before-any-mutation
+  (testing "rf2-c6armm.6 #2: a realm-owned mutation targeting an EXPLICIT,
+            never-constructed realm id THROWS :rf.error/unknown-realm and does
+            NOT silently no-op (nor pollute the default realm) — fail-closed at
+            the isolation boundary"
+    ;; :ghost/realm was never constructed, so it has no registry entry.
+    (is (nil? (realm/realm :ghost/realm)) "the realm id was never constructed")
+    (let [;; set-installed-app! routes through update-realm! — the central seam.
+          ed (try (realm/set-installed-app! :ghost/realm {:rf.app/id :ghost})
+                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                    (ex-data e)))]
+      (is (= :rf.error/unknown-realm (:error/id ed))
+          "mutating an unknown realm id throws :rf.error/unknown-realm")
+      (is (= :ghost/realm (:realm ed)) "the diagnostic names the unknown realm id")
+      (is (contains? (:known-realms ed) :rf.realm/default)
+          "the diagnostic enumerates the live realm ids")
+      (is (= :construct-the-realm-first (:recovery ed)))
+      ;; Pre-mutation: NOTHING leaked. The ghost realm is still absent AND the
+      ;; default realm did not silently acquire a phantom :app.
+      (is (nil? (realm/realm :ghost/realm))
+          "the unknown realm was not created by the failed mutation")
+      (is (nil? (:app (realm/default-realm)))
+          "the default realm acquired no phantom :app — no silent fallback"))))
+
+(deftest unknown-realm-throw-covers-every-realm-owned-mutation-seam
+  (testing "rf2-c6armm.6 #2: the fail-closed guard sits at the single
+            update-realm! seam, so EVERY realm-owned mutator (adapter install,
+            host-transient register) throws on an unknown id — not just
+            set-installed-app!"
+    (doseq [[label thunk]
+            [[:install-realm-adapter!
+              #(realm/install-realm-adapter! :ghost/realm {:id :x})]
+             [:register-host-transient!
+              #(realm/register-host-transient!
+                 :ghost/realm
+                 {:id :rf.test/x :storage-class :host-transient
+                  :scope :frame :durability :none})]]]
+      (let [ed (try (thunk)
+                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                      (ex-data e)))]
+        (is (= :rf.error/unknown-realm (:error/id ed))
+            (str label " throws :rf.error/unknown-realm on an unknown id"))
+        (is (= :ghost/realm (:realm ed))
+            (str label " names the unknown realm id"))))
+    (is (nil? (realm/realm :ghost/realm))
+        "no failed mutation resurrected the ghost realm")))
+
+(deftest realm-owned-mutation-still-works-for-known-realms
+  (testing "rf2-c6armm.6 #2: the guard is narrow — the DEFAULT realm (absence
+            resolves to it) and a CONSTRUCTED realm both still mutate normally,
+            so the fix is fail-closed-on-unknown, not fail-closed-on-everything"
+    ;; (a) the default realm — the byte-identical absence-is-default path.
+    (realm/register-host-transient!
+      {:id :rf.test/known :storage-class :host-transient
+       :scope :frame :durability :none})
+    (is (some? (realm/host-transient :rf.realm/default :rf.test/known))
+        "a default-realm mutation still seats (absence resolves to the default)")
+    (realm/clear-host-transient!)
+    ;; (b) an explicitly constructed realm.
+    (let [r (rf/realm {:id :known/realm})]
+      (try
+        (realm/set-installed-app! :known/realm {:rf.app/id :seated})
+        (is (= {:rf.app/id :seated} (:app (realm/realm :known/realm)))
+            "a constructed realm's :app mutates normally — only UNKNOWN ids throw")
+        (finally (rf/dispose-realm! :known/realm))))))
