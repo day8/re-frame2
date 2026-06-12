@@ -14,9 +14,17 @@ reviews caught the skill drifting from shipped reality:
   * **rf2-6c59ob** — HTTP-fx + data-classification summary drift: the reference
     tour described the Spec 014 managed HTTP lifecycle as "the `:http` fx"
     (the canonical surface is `:rf.http/managed`), and the SKILL.md / tour
-    summaries implied all seven marking sites accept
-    `{:sensitive [paths] :large [paths]}` — contradicting the `reg-machine`
-    schema-first exception (no top-level `:sensitive` / `:large` keys).
+    summaries implied that *every* classification site accepts a
+    `{:sensitive [paths] :large [paths]}` metadata map — contradicting the
+    `reg-machine` schema-first exception (no top-level `:sensitive` / `:large`
+    keys). EP-0015 then made the model owner-owned (one declaration surface per
+    owner): durable app-db classification is frame-owned (`reg-frame`
+    `:sensitive`/`:large {:app-db ...}`); machine `:data`, resource data/params,
+    and HTTP bodies classify via per-slot `:sensitive?` / `:large?` schema props
+    (the schema-first route — still NO top-level `reg-machine` keys); transient
+    payloads classify via `:sensitive`/`:large` registration metadata. Rule 4
+    below polices exactly the surviving invariant: a `reg-machine` line must
+    never imply top-level `:sensitive` / `:large` keys.
 
 This guard makes each of those re-introductions a build failure. It scans the
 user-facing implementor docs and asserts:
