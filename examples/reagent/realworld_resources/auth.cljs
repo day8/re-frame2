@@ -80,31 +80,22 @@
 ;; token as the flat recordable coeffect
 ;; `:rf.cofx {:realworld-resources.session/stored-token …}`.
 (defn read-jwt-from-storage
-  "Host-boundary read of the saved JWT from localStorage (or nil). Called from
-   `realworld-resources.core/run` so the token rides the boot dispatch token as
-   a causal world input rather than being read ambiently in the durable
-   initialise handler. nil when absent / unavailable."
+  "Host-boundary read of the saved JWT from localStorage (or nil). The
+   value-returning supplier for the `:realworld-resources.session/token`
+   ambient coeffect. nil when absent / unavailable."
   []
   (some-> (.-localStorage js/globalThis)
           (.getItem "jwtToken")))
 
 (rf/reg-cofx :realworld-resources.session/token
-  {:doc "Inject the saved JWT (or nil) into coeffects.
-
-         EP-0010 / EP-0017 recordable storage coeffect (the `:app/now-ms`
-         pattern, EP-0010 §Backwards Compatibility): returns the captured
-         `(:realworld-resources.session/stored-token (:rf.cofx cofx))` value when
-         the boot token supplied one (replay / restore / test fixtures get the
-         exact recorded value, no host re-read), falling back to a live
-         `read-jwt-from-storage` host read only when none was supplied — i.e.
-         when building a fresh live token at the boundary where reading the host
-         IS correct."}
-  (fn [ctx _]
-    (let [cofx (get-in ctx [:coeffects :rf.cofx])]
-      (rf/assoc-coeffect ctx :realworld-resources.session/token
-                         (if (contains? cofx :realworld-resources.session/stored-token)
-                           (:realworld-resources.session/stored-token cofx)
-                           (read-jwt-from-storage))))))
+  {:doc "Ambient coeffect: the saved JWT (or nil) read from localStorage.
+         A handler that needs the token declares
+         `:rf.cofx/requires [:realworld-resources.session/token]` and reads it
+         flat. The value-returning supplier runs at context assembly and is
+         never recorded (EP-0017 §2); tests / replay re-register the supplier
+         to stub it."}
+  (fn []
+    (read-jwt-from-storage)))
 
 ;; ============================================================================
 ;; SESSION SUPPORT EVENTS
@@ -340,7 +331,7 @@
 ;; ============================================================================
 
 (rf/reg-event-fx :auth/initialise
-  [(rf/inject-cofx :realworld-resources.session/token)]
+  {:rf.cofx/requires [:realworld-resources.session/token]}
   (fn [{:keys [db realworld-resources.session/token]} _]
     ;; Dispatch `:auth/restore` UNCONDITIONALLY (even with a nil token) so the
     ;; machine snapshot spawns at `:idle` from cold boot; the `:has-token?`

@@ -43,7 +43,7 @@
            (.setItem ls db/ls-key)))))
 
 (rf/reg-event-fx :todo/initialise
-  [(rf/inject-cofx :todo.storage/todos)]
+  {:rf.cofx/requires [:todo.storage/todos]}
   (fn [{:todo.storage/keys [todos]} _]
     {:db (assoc db/default-db :todos todos)}))
 

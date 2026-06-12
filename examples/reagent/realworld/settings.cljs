@@ -227,13 +227,13 @@
 (rf/reg-event-fx :settings/load
   {:doc "Seed the form draft from the currently-authenticated user.
          Dispatched by the :realworld.user/settings :on-match (see routing.cljs)
-         and by tests after :auth/store-session."}
-  [(rf/inject-cofx :realworld/now)]
-  (fn handler-settings-load [{:keys [db realworld/now]} _]
+         and by tests after :auth/store-session."
+   :rf.cofx/requires [:rf/time-ms]}
+  (fn handler-settings-load [{:keys [db rf/time-ms]} _]
     (let [user (get-in db [:auth :user])]
       {:fx [[:dispatch [:settings/form
                         [:load {:user user
-                                :now  now}]]]]})))
+                                :now  time-ms}]]]]})))
 
 (rf/reg-event-fx :settings/edit-field
   {:doc  "User edited a form field. Broadcasts :edit into the machine —

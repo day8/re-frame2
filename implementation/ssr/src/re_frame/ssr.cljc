@@ -379,18 +379,23 @@ rf2-zfm8v (Mike decision, Option A, 2026-05-14)."
 ;; Per Spec 011 §Server-only `reg-cofx` for request context.
 
 (cofx/reg-cofx :rf.server/request
-  {:doc       "The active HTTP request. Server only. Surfaces the
-host-supplied request map (Ring shape under rf2-ny6v7's Ring adapter;
-host-defined for other adapters) so handlers can read URL, headers,
-session cookies, etc. without threading the request as an event arg.
+  {:doc       "The active HTTP request. Server only. AMBIENT value-returning
+coeffect (EP-0017 §2): surfaces the host-supplied request map (Ring shape
+under rf2-ny6v7's Ring adapter; host-defined for other adapters) so handlers
+can read URL, headers, session cookies, etc. without threading the request as
+an event arg.
 
-The host adapter populates the slot via `re-frame.ssr/set-request!`
-once per request before the drain begins. Apps consume via
-`(inject-cofx :rf.server/request)` in any server-side event handler.
+The host adapter populates the per-frame slot via `re-frame.ssr/set-request!`
+once per request before the drain begins. A server-side event handler consumes
+it by declaring `{:rf.cofx/requires [:rf.server/request]}` on its registration
+and reading the value FLAT under `:rf.server/request`. The supplier runs at
+context assembly, reading the active frame's slot; it is never recorded, and
+replay re-runs it.
 
-The 2-arity form accepts an explicit value override — useful in tests
-and conformance harnesses that drive the drain without a host adapter:
-`(inject-cofx :rf.server/request {:uri \"/articles\" ...})`.
+Tests and conformance harnesses that drive the drain without a host adapter
+`re-frame.ssr/set-request!` the target frame's slot before dispatching (the
+visible seam — there is no `inject-cofx` value override anymore: `inject-cofx`
+is removed in EP-0017).
 
 Per Spec 011 §Server-only `reg-cofx` for request context."
    :platforms #{:server}}

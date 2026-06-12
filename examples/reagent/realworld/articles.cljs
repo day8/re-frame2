@@ -266,9 +266,9 @@
          Receives `{:kind :success :value <ArticlesResponse>}` from
          Spec 014's reply-addressing. Folds the new count into the home
          machine via `:fetch-succeeded`; the `:data` region's
-         `:resolving` `:always`-cascade picks `:empty` or `:some`."}
-  [(rf/inject-cofx :realworld/now)]
-  (fn [{:keys [db realworld/now]} [_ {:keys [value]}]]
+         `:resolving` `:always`-cascade picks `:empty` or `:some`."
+   :rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
     (let [items (vec (:articles value))
           ;; `articlesCount` is the GRAND total (all matching articles), not
           ;; this page's size — it drives the page-count. Fall back to the
@@ -279,7 +279,7 @@
                (assoc-in [:articles :data] items)
                (assoc-in [:articles :articles-count] total)
                (assoc-in [:articles :error] nil)
-               (assoc-in [:articles :loaded-at] now))
+               (assoc-in [:articles :loaded-at] time-ms))
        :fx [[:dispatch [:realworld/articles-home
                         [:fetch-succeeded {:items items}]]]]})))
 

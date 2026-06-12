@@ -63,9 +63,9 @@
          re-dispatches the reply back to this same event id with
          `:rf/reply` merged into the original message map. The handler
          body branches on `(:rf/reply msg)` — one event id, two roles."
-   :rf.http/decode-schemas [schema/ArticleResponse]}
-  [(rf/inject-cofx :realworld/now)]
-  (fn [{:keys [db realworld/now] rt :rf.db/runtime} [_ msg]]
+   :rf.http/decode-schemas [schema/ArticleResponse]
+   :rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db rf/time-ms] rt :rf.db/runtime} [_ msg]]
     (if-let [reply (:rf/reply msg)]
       ;; Reply branch — handle success or failure.
       (case (:kind reply)
@@ -74,7 +74,7 @@
                  (assoc-in [:article :status] :loaded)
                  (assoc-in [:article :data] (:article (:value reply)))
                  (assoc-in [:article :error] nil)
-                 (assoc-in [:article :loaded-at] now))}
+                 (assoc-in [:article :loaded-at] time-ms))}
 
         :failure
         {:db (-> db
@@ -123,13 +123,13 @@
                           :on-failure [:comments/load-failed]})]]})))
 
 (rf/reg-event-fx :comments/loaded
-  [(rf/inject-cofx :realworld/now)]
-  (fn [{:keys [db realworld/now]} [_ {:keys [value]}]]
+  {:rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
     {:db (-> db
              (assoc-in [:comments :status] :loaded)
              (assoc-in [:comments :data] (vec (:comments value)))
              (assoc-in [:comments :error] nil)
-             (assoc-in [:comments :loaded-at] now))}))
+             (assoc-in [:comments :loaded-at] time-ms))}))
 
 (rf/reg-event-db :comments/load-failed
   (fn [db [_ {:keys [failure]}]]

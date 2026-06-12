@@ -178,12 +178,12 @@
 (rf/reg-event-fx :tags/loaded
   {:doc "Successful tags fetch. Folds the list + a load timestamp into
          the machine's `:data` via the `:set-tags` action; the region
-         lands in `:loaded`."}
-  [(rf/inject-cofx :realworld/now)]
-  (fn handler-tags-loaded [{:keys [realworld/now]} [_ {:keys [value]}]]
+         lands in `:loaded`."
+   :rf.cofx/requires [:rf/time-ms]}
+  (fn handler-tags-loaded [{:keys [rf/time-ms]} [_ {:keys [value]}]]
     {:fx [[:dispatch [:realworld/tags
                       [:fetch-succeeded {:tags (vec (:tags value))
-                                         :now  now}]]]]}))
+                                         :now  time-ms}]]]]}))
 
 (rf/reg-event-fx :tags/load-failed
   {:doc "Failed tags fetch. Folds a human-readable error message into

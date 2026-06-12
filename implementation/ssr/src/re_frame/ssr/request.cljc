@@ -38,7 +38,8 @@
   handler fn only.
 
   Per the rf2-gxgo7 split of re-frame.ssr."
-  (:require [re-frame.late-bind :as late-bind]
+  (:require [re-frame.frame :as frame]
+            [re-frame.late-bind :as late-bind]
             [re-frame.ssr.error-listener :as error-listener]
             [re-frame.ssr.response :as response]
             [re-frame.trace :as trace]))
@@ -153,13 +154,18 @@
   nil)
 
 (defn request-cofx
-  "Handler fn for `:rf.server/request`. 1-arity reads from the
-  per-frame slot; 2-arity accepts an explicit value override (tests
-  and conformance harnesses that drive the drain without a host
-  adapter)."
-  ([ctx]
-   (let [frame-id (get-in ctx [:coeffects :rf.frame/id])
-         request  (get-request frame-id)]
-     (assoc-in ctx [:coeffects :rf.server/request] request)))
-  ([ctx request]
-   (assoc-in ctx [:coeffects :rf.server/request] request)))
+  "Value-returning AMBIENT supplier for `:rf.server/request` (EP-0017 §2).
+  Reads the per-frame request slot for the frame currently being dispatched
+  (`frame/*current-frame*`, bound by the router during processing). Returns
+  nil when no host adapter has populated the slot (e.g. JVM tests that drive
+  the drain without a host wrapper, or a client-side dispatch — in which case
+  the `:platforms #{:server}` gate fires `:rf.cofx/skipped-on-platform` and
+  the supplier never runs).
+
+  The request is HOST-CONTROLLED INPUT (a read of the active host wire-shape),
+  delivered to handlers that declare `:rf.cofx/requires [:rf.server/request]`
+  and never recorded — replay re-runs it. Tests / conformance harnesses that
+  drive the drain without a host adapter `set-request!` the slot for the
+  target frame first (the visible seam), exactly as before."
+  []
+  (get-request frame/*current-frame*))
