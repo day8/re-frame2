@@ -2122,6 +2122,50 @@
   {:app-db …}`). Per Spec 015 §Frame-owned durable classification."}
   elision-sensitive-declarations   elision/sensitive-declarations)
 
+(def ^{:doc "Value-redact a DERIVED tree (rendered hiccup, a resolved
+  `:effective-args` map, a snapshot body, a plan-resolved value slot) against
+  the live values at the frame's declared-`:sensitive?` app-db paths, before
+  wire egress (EP-0015 issue 2). The value-based DUAL of `elide-wire-value`:
+  where the path-based walker redacts by app-db PATH, this collects the
+  sensitive VALUES from the source db and substitutes any matching leaf in the
+  derived tree (a sensitive value re-surfaces at a non-app-db position the
+  path-based walker can't reach) with `:rf/redacted`. Includes the
+  non-unique-secret guard (a candidate already disclosed on the wire is
+  dropped, classified against the elided db). `(redact-derived-values tree
+  source-db frame-id wire-opts)` — `wire-opts` is the `elide-wire-value` opts
+  the path-based `:app-db` slot ships under (the egress floor; `:frame` is
+  supplied automatically). Per Spec 015 §Projection and Security.md §Off-box
+  egress."}
+  redact-derived-values            elision/redact-derived-values)
+
+(def ^{:doc "The set of live values at the frame's declared-`:sensitive?`
+  app-db paths, read from a raw db, MINUS any value already disclosed on the
+  wire (the non-unique-secret guard, classified against the elided db). The
+  candidate secret set `redact-derived-values` substitutes; exposed for tools
+  that drive the value-match over MULTIPLE derived slots from one collection
+  pass. `(elision-sensitive-value-set app-db frame-id wire-opts)`. Per
+  Spec 015 §Projection."}
+  elision-sensitive-value-set      elision/sensitive-value-set)
+
+(def ^{:doc "The set of values at the frame's declared-`:sensitive?` app-db
+  paths, read from a raw source db, with NO wire-disclosure guard — the
+  fail-SAFE base candidate set. Use for a source that is NOT the live wire
+  `:app-db` (e.g. a plan's authored `:db-seed` slot), where every governed
+  value must stay redacted; for the live source use
+  `elision-sensitive-value-set`. `(elision-collect-sensitive-values source-db
+  frame-id)`. Per Spec 015 §Projection."}
+  elision-collect-sensitive-values elision/collect-sensitive-values)
+
+(def ^{:doc "Walk a derived tree, substituting any leaf `=` to a member of a
+  pre-collected `secrets` set with the `:rf/redacted` sentinel (the redaction
+  arm of the value-match primitive). Recurses maps/vectors/sets/seqs; map keys
+  walked too; returns the tree unchanged when `secrets` is empty. Use with a
+  set from `elision-sensitive-value-set` /
+  `elision-collect-sensitive-values` to redact MULTIPLE derived slots from one
+  collection pass. `(redact-matching-values tree secrets)`. Per Spec 015
+  §Projection."}
+  redact-matching-values           elision/redact-matching-values)
+
 (def ^{:doc "Project a sequence of raw trace events into one cascade
   record per `:dispatch-id`. Pure data — JVM and CLJS. Used by
   `re-frame-10x`, Xray, and other tools that present cascade-level

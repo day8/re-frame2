@@ -88,8 +88,10 @@ data, so the egress classifies each payload as runtime/captured VALUE
   that carries observed runtime state or a captured/plan-resolved value
   is run through the egress scrubbers (path-based
   `re-frame.core/elide-wire-value` for `:app-db`; value-based redaction
-  against the variant frame's declared-`:sensitive?` values for derived
-  / non-live trees). This covers the live-state tools' `:app-db` /
+  via the framework `re-frame.core/redact-derived-values` against the
+  variant frame's declared-`:sensitive?` values for derived / non-live
+  trees — the value-match engine is centralized in `re-frame.elision`,
+  EP-0015 issue 2). This covers the live-state tools' `:app-db` /
   `:rendered-hiccup` / `:snapshot` / evidence slots and assertion
   records (`preview-variant` / `run-variant` / `read-failures`),
   `run-a11y`'s `:violations` (axe-core nodes — the violating element's

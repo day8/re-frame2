@@ -616,6 +616,269 @@
   [v]
   (and (vector? v) (= :rf.elision/at (first v))))
 
+;; ---------------------------------------------------------------------------
+;; Derived-tree VALUE-based redaction (EP-0015 issue 2, rf2-i783h0).
+;;
+;; `elide-wire-value` redacts a value by its frame-declared `:sensitive`
+;; app-db PATH. But a DERIVED tree — rendered hiccup, a resolved
+;; `:effective-args` map, a snapshot body, a plan-resolved value slot —
+;; re-surfaces the SAME sensitive value at a NON-app-db position the
+;; path-based walker can never reach (a token sitting at hiccup coordinate
+;; `[1 :value]`, not at `[:auth :token]`). The path-based walker is
+;; structurally blind to the re-keyed copy.
+;;
+;; The sound posture for a DERIVED tree is VALUE-based redaction: collect the
+;; live values sitting at the frame's declared-`:sensitive?` app-db paths,
+;; then substitute any leaf in the derived tree that EQUALS one of them with
+;; the same `:rf/redacted` sentinel `elide-wire-value` emits. This is the
+;; value-based DUAL of the path-based walker above — it belongs in the same
+;; ns so the two arms of "redact app-db-sensitive values at egress" share one
+;; home (the elision registry, the sentinel, the indexing convention). It
+;; centralizes the engine Story-MCP / re-frame2-pair-mcp previously each
+;; carried privately (the SECOND place EP-0015 egress semantics could drift).
+;;
+;; ## Non-unique-secret guard
+;;
+;; Value-matching is a heuristic: it substitutes EVERY derived-tree leaf `=`
+;; a sensitive value. When a sensitive path holds a short/common scalar (`0`,
+;; an HTTP `200`, `:ok`, `""`), naive matching scrubs every benign leaf that
+;; merely equals it — degrading the consumer's view AND leaking the secret's
+;; value-CLASS. The guard subtracts any candidate value that ALSO appears,
+;; VERBATIM, on the wire — i.e. in the POST-elision db (the actual wire
+;; bytes). Such a value is provably NOT a protected secret: the path-based
+;; `:app-db` egress already discloses it, so removing it from the secret set
+;; leaks nothing new — the fail-SAFE invariant (never leak a genuine secret)
+;; holds by construction.
+;;
+;; Classifying against the ELIDED db (not the raw db) is load-bearing: a
+;; secret aliased into a `:large?`-declared subtree is replaced by the
+;; `:rf.size/large-elided` marker on the wire, so it is NOT disclosed and MUST
+;; stay redacted; and a seq-indexed `:sensitive?` element redacted by
+;; `elide-wire-value` simply does not appear in the elided db. Reasoning
+;; against the actual wire bytes is robust to any elision class (digests, new
+;; markers, the string auto-detect threshold) without per-class reasoning.
+
+(defn- under-prefix?
+  "True when `path` is `prefix` or descends from it (element-wise prefix
+  match). Both are indexed vectors. Decides whether an app-db position is
+  governed by a declared-`:sensitive?` path — a slot marked sensitive covers
+  itself AND everything beneath it."
+  [prefix path]
+  (let [pn (count prefix)]
+    (and (<= pn (count path))
+         (loop [i 0]
+           (cond
+             (== i pn)                       true
+             (= (nth prefix i) (nth path i)) (recur (inc i))
+             :else                           false)))))
+
+(defn- collect-governed-values!
+  "Walk the RAW `node` at `path`, conj!ing onto transient set `acc!` every
+  scalar value sitting at (or beneath) a `:sensitive?` prefix — the candidate
+  secrets. Returns `acc!`.
+
+  Indexing MIRRORS the path-based walker above so a declared path lands on
+  the SAME node `elide-wire-value` redacts: maps descend by key, vectors AND
+  seqs descend by integer index (so a seq-indexed `[:tokens 0]` declaration
+  is reached — `get-in` cannot read a seq index), and sets are walked at
+  their own path (set elements have no stable index, so a whole
+  sensitive-declared set contributes all its members).
+
+  Only governed positions contribute, and `nil` / boolean leaves are skipped
+  (a `nil`/`false` is not a secret and value-matching it would scrub swathes
+  of benign tree). Collections that ARE governed still recurse so nested
+  scalars under a sensitive subtree are all collected."
+  [acc! node path sensitive-prefixes]
+  (let [governed? (some #(under-prefix? % path) sensitive-prefixes)]
+    (when (and governed?
+               (not (coll? node))
+               (not (nil? node))
+               (not (boolean? node)))
+      (conj! acc! node))
+    (cond
+      (map? node)
+      (reduce-kv (fn [a k v]
+                   (collect-governed-values! a v (conj path k) sensitive-prefixes))
+                 acc! node)
+
+      (vector? node)
+      (reduce (fn [a i] (collect-governed-values! a (nth node i) (conj path i)
+                                                  sensitive-prefixes))
+              acc! (range (count node)))
+
+      (seq? node)
+      (let [idx (volatile! -1)]
+        (reduce (fn [a x]
+                  (collect-governed-values! a x (conj path (vswap! idx inc))
+                                            sensitive-prefixes))
+                acc! node))
+
+      (set? node)
+      ;; Sets have no stable element index; walk members at the set's own
+      ;; path so a sensitive-declared set contributes every member.
+      (reduce (fn [a x] (collect-governed-values! a x path sensitive-prefixes))
+              acc! node)
+
+      :else
+      acc!)))
+
+(defn- collect-wire-values!
+  "Walk the POST-elision `node`, conj!ing onto transient set `acc!` every
+  value (intermediate collections AND leaves) that is `=` to a candidate
+  secret. `node` is the elided db — the actual wire bytes — so any candidate
+  found here is one the path-based egress ships VERBATIM. Returns `acc!`.
+
+  Because the input is already elided, every `:sensitive?` slot is the
+  `:rf/redacted` sentinel and every `:large?` (or auto-detected) slot is the
+  `:rf.size/large-elided` marker — the secret value simply is not present at
+  any governed position, so there is no path-shape reasoning to get right.
+  Membership is the only question; map keys, vector elements, and set/seq
+  elements are all walked, since a candidate aliased to ANY surviving wire
+  position is disclosed."
+  [acc! node candidates]
+  (when (contains? candidates node)
+    (conj! acc! node))
+  (cond
+    (map? node)
+    (reduce-kv (fn [a k v]
+                 (collect-wire-values! a k candidates)
+                 (collect-wire-values! a v candidates))
+               acc! node)
+
+    (coll? node)
+    (reduce (fn [a x] (collect-wire-values! a x candidates))
+            acc! node)
+
+    :else
+    acc!))
+
+(defn collect-sensitive-values
+  "The set of values sitting at `frame-id`'s declared-`:sensitive?` app-db
+  paths, read out of the RAW `source-db` — the candidate secrets, with NO
+  wire-disclosure guard applied. The fail-SAFE base set for value-matching a
+  derived tree (EP-0015 issue 2, rf2-i783h0).
+
+  Reads the SAME frame-owned `:sensitive` `:app-db` declarations
+  (`sensitive-declarations`) the path-based walker reads — installed by
+  `re-frame.frame-classification` at `reg-frame` time (EP-0015 §8). Candidates
+  are collected by WALKING `source-db` at governed positions (mirroring the
+  elider's indexing) rather than by `get-in` on each declared path — `get-in`
+  cannot index into a seq, so a seq-indexed declaration (`[:tokens 0]`) would
+  otherwise yield no candidate and the secret would leak. `nil` / boolean
+  leaves are excluded (not secrets, and value-matching them would scrub
+  swathes of benign tree).
+
+  No guard means every governed value stays in the set — over-scrub at worst,
+  never under-scrub. Use this for a source that is NOT the live wire `:app-db`
+  (e.g. a plan's authored `:db-seed` slot); for the live source use
+  `sensitive-value-set`, which layers the non-unique-secret guard on top.
+  Returns `#{}` when `source-db` is nil or the frame declares nothing
+  sensitive."
+  [source-db frame-id]
+  (if (nil? source-db)
+    #{}
+    (let [sensitive-prefixes (mapv vec (keys (sensitive-declarations frame-id)))]
+      (if (empty? sensitive-prefixes)
+        #{}
+        (persistent!
+          (collect-governed-values! (transient #{}) source-db []
+                                    sensitive-prefixes))))))
+
+(defn sensitive-value-set
+  "The set of live values sitting at `frame-id`'s declared-`:sensitive?`
+  app-db paths, read out of the RAW `app-db`, MINUS any value that is already
+  disclosed on the wire (the non-unique-secret guard). Use this to
+  value-redact a DERIVED tree where the same sensitive value reappears at a
+  non-app-db position the path-based `elide-wire-value` walker can't reach
+  (EP-0015 issue 2, rf2-i783h0).
+
+  Candidates come from `collect-sensitive-values` (the unguarded base set).
+  The non-unique-secret guard then subtracts any candidate that ALSO appears,
+  VERBATIM, in the POST-elision db — the actual wire bytes produced by
+  walking `app-db` through `elide-wire-value` under `wire-opts` (which MUST
+  carry the egress floor the path-based `:app-db` slot ships under, so the
+  wire-classification reasons about the IDENTICAL bytes; `:frame frame-id` is
+  supplied automatically).
+
+  A candidate present there is already disclosed by the path-based egress, so
+  dropping it leaks nothing new; one that is absent (redacted / large-elided)
+  stays in the set and is redacted everywhere. Classifying against the ELIDED
+  db (not the raw db) is load-bearing — a secret aliased into a
+  `:large?`-declared subtree is the marker on the wire, NOT the verbatim
+  value, so it must stay redacted; a seq-indexed `:sensitive?` element
+  redacted by `elide-wire-value` does not appear in the elided db either. The
+  irreducible same-value aliasing case (a uniquely-secret short scalar)
+  over-scrubs — fail-SAFE, never under-safe.
+
+  Returns `#{}` when `app-db` is nil, when the frame declares nothing
+  sensitive, or when every candidate is already on the wire."
+  [app-db frame-id wire-opts]
+  (let [candidates (collect-sensitive-values app-db frame-id)]
+    (if (empty? candidates)
+      #{}
+      (let [wire   (elide-wire-value app-db (assoc wire-opts :frame frame-id))
+            public (persistent!
+                     (collect-wire-values! (transient #{}) wire candidates))]
+        (into #{} (remove public) candidates)))))
+
+(defn redact-matching-values
+  "Walk `tree`, substituting any leaf `=` to a member of `secrets` with the
+  `:rf/redacted` sentinel. Recurses through maps, vectors, sets, seqs; treats
+  every other value as a leaf. Map KEYS are walked too — a secret used as a
+  key (rare, but a `{:value <token>}`-style attribute map could in principle
+  key on one) is redacted on both sides. Returns `tree` unchanged when
+  `secrets` is empty."
+  [tree secrets]
+  (if (empty? secrets)
+    tree
+    (letfn [(walk* [t]
+              (cond
+                (contains? secrets t) privacy/redacted-sentinel
+                (map? t)    (persistent!
+                              (reduce-kv (fn [acc k v]
+                                           (assoc! acc (walk* k) (walk* v)))
+                                         (transient {})
+                                         t))
+                (vector? t) (mapv walk* t)
+                (set? t)    (into #{} (map walk*) t)
+                (seq? t)    (map walk* t)
+                :else       t))]
+      (walk* tree))))
+
+(defn redact-derived-values
+  "Value-redact a DERIVED `tree` (rendered hiccup, a resolved `:effective-args`
+  map, a snapshot body, a plan-resolved value slot) against the live values
+  at `frame-id`'s declared-`:sensitive?` app-db paths, before wire egress
+  (EP-0015 issue 2, rf2-i783h0). The single framework home for the
+  value-match-redaction primitive Story-MCP / re-frame2-pair-mcp previously
+  each carried privately.
+
+  Collects the secret set from `source-db` (the raw db the derived tree was
+  produced from) via `sensitive-value-set` — including the non-unique-secret
+  guard, classified against the wire bytes `source-db` ships under
+  `wire-opts` — then substitutes any matching leaf in `tree` with
+  `:rf/redacted`.
+
+  `wire-opts` is the `elide-wire-value` opts the path-based `:app-db` slot
+  ships under (the egress floor — e.g. an off-box-tool / off-box-observability
+  profile's `:rf.size/*` opt-set); `:frame frame-id` is supplied
+  automatically. Keeping the egress floor a caller argument keeps this helper
+  egress-profile-agnostic — the `:rf.egress/*` profile vocabulary stays in the
+  MCP-base / tool layer.
+
+  Short-circuits: a nil `tree` or nil `source-db` returns `tree` (nothing to
+  scrub / no source of secrets); no declared-sensitive (or all-disclosed)
+  values returns `tree` unwalked. The opt-out (trusted-local raw) belongs to
+  the caller — pass the value through directly when the operator has waived
+  redaction."
+  [tree source-db frame-id wire-opts]
+  (cond
+    (nil? tree)      tree
+    (nil? source-db) tree
+    :else            (redact-matching-values
+                       tree
+                       (sensitive-value-set source-db frame-id wire-opts))))
+
 ;; EP-0015 §8 (rf2-d2r3um): no `:elision/populate-from-schemas!` hook —
 ;; schemas no longer feed the app-db egress registry (frame policy owns it).
 (late-bind/set-fn! :elision/sensitive-declarations sensitive-declarations)
