@@ -577,19 +577,23 @@
                              :rf.cofx         (:rf.cofx envelope)}
                       (:source envelope)   (assoc :source (:source envelope))
                       (:trace-id envelope) (assoc :trace-id (:trace-id envelope)))]
-    {:coeffects (if (seq requires)
-                  ;; EP-0017 §5 step 4: deliver EXACTLY the declared facts,
-                  ;; flat. Recordable facts come from the token's `:rf.cofx`;
-                  ;; ambient facts run their suppliers now; a declared-absent
-                  ;; provided fact is `:rf.error/missing-required-cofx`; an
-                  ;; unregistered declared id is `:rf.error/unregistered-cofx`.
-                  ;; Undeclared leaves on the token are NOT staged.
-                  (cofx/deliver-declared-cofx
-                    base-cofx requires (:rf.cofx envelope) (first event) frame)
-                  base-cofx)
-     :effects {}
-     :rf/framework-authority? (events/framework-authority? handler-meta)
-     :rf/fx-overrides fx-overrides}))
+    ;; EP-0017 §5 step 4: deliver EXACTLY the declared facts, flat. Recordable
+    ;; facts come from the token's `:rf.cofx`; ambient facts run their suppliers
+    ;; now; a declared-absent provided fact is `:rf.error/missing-required-cofx`;
+    ;; an unregistered declared id is `:rf.error/unregistered-cofx`. Undeclared
+    ;; leaves on the token are NOT staged. A supplier that THROWS emits
+    ;; `:rf.error/coeffect-exception` and sets `:rf/skip-handler?` (the handler
+    ;; does not run; the cascade fails without a raw throw escaping assembly).
+    (let [{:keys [coeffects rf/skip-handler?]}
+          (if (seq requires)
+            (cofx/deliver-declared-cofx
+              base-cofx requires (:rf.cofx envelope) (first event) frame)
+            {:coeffects base-cofx :rf/skip-handler? false})]
+      (cond-> {:coeffects coeffects
+               :effects {}
+               :rf/framework-authority? (events/framework-authority? handler-meta)
+               :rf/fx-overrides fx-overrides}
+        skip-handler? (assoc :rf/skip-handler? true)))))
 
 (def ^:private handler-wrapping-interceptor-ids
   "The `:id`s the three `reg-event-*` forms stamp on the handler-wrapping

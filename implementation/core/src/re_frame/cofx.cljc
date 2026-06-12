@@ -348,27 +348,59 @@
                    :failing-id  failing-id
                    :recovery    :no-recovery})))
 
+(defn- emit-coeffect-exception!
+  "Emit `:rf.error/coeffect-exception` for a supplier that threw during
+  context assembly, then re-throw. Mirrors the router's
+  `classify-pipeline-exception` shape (`:operation`
+  `:rf.error/coeffect-exception`, `:failing-id` = the cofx id, `:phase
+  :before`) so tools that capture pipeline exceptions (Story) surface a
+  supplier throw with the same fidelity as the retired `inject-cofx`
+  interceptor path. Fans out through the always-on error-emit listener too.
+  Does NOT re-throw — the cascade is failed by SKIPPING the handler (the
+  retired `inject-cofx` interceptor captured rather than propagated, so the
+  drain emitted exactly one pipeline-exception trace; matching that keeps
+  tools from double-recording a captured trace AND a propagated Throwable)."
+  [cofx-id failing-id frame-id ^Throwable t]
+  (let [msg #?(:clj (.getMessage t) :cljs (.-message t))]
+    (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
+      (dispatch-on-error! :rf.error/coeffect-exception nil failing-id frame-id t 0 (interop/now-ms)))
+    (trace/emit-error! :rf.error/coeffect-exception
+                       (cond-> {:rf.cofx/id        cofx-id
+                                :failing-id        cofx-id
+                                :rf.trace/event-id failing-id
+                                :phase             :before
+                                :exception         t
+                                :reason            (str "Coeffect supplier for `" cofx-id "` threw"
+                                                        (when msg (str ": " msg)) ".")
+                                :recovery          :no-recovery}
+                         frame-id (assoc :frame frame-id)))))
+
 (defn- run-ambient-supplier
   "Run an ambient supplier under its HandlerScope + platform gate, returning
-  `[delivered? value]`. A platform-skipped supplier emits
-  `:rf.cofx/skipped-on-platform` and returns `[false nil]` (the fact is not
-  delivered). A run emits the dev-only `:rf.cofx/run` success op."
-  [cofx-id meta supplier arg frame-id]
+  `[outcome value]` where `outcome` is `:delivered`, `:skipped` (platform
+  gate; the fact is not delivered), or `:threw` (the supplier threw — emits
+  `:rf.error/coeffect-exception` and the caller skips the handler). A run
+  emits the dev-only `:rf.cofx/run` success op."
+  [cofx-id meta supplier arg frame-id failing-id]
   (let [active-platform (active-platform-for-frame frame-id)]
     (if (cofx-runs-on-platform? meta active-platform)
       (trace/with-handler-scope
         (trace/handler-scope-from-meta :cofx cofx-id meta)
         (let [valued? (not (identical? arg no-arg))
               t0      (when interop/debug-enabled? (interop/now-ms))
-              value   (if valued? (supplier arg) (supplier))
+              outcome (try
+                        [:delivered (if valued? (supplier arg) (supplier))]
+                        (catch #?(:clj Throwable :cljs :default) t
+                          (emit-coeffect-exception! cofx-id failing-id frame-id t)
+                          [:threw nil]))
               elapsed (when interop/debug-enabled? (- (interop/now-ms) t0))]
-          (when interop/debug-enabled?
+          (when (and interop/debug-enabled? (= :delivered (first outcome)))
             (trace/emit! :rf.cofx :rf.cofx/run
                          (cond-> {:rf.cofx/id cofx-id
                                   :frame      frame-id}
                            valued?           (assoc :rf.cofx/value arg)
                            (some? elapsed)   (assoc :rf.cofx/elapsed-ms elapsed))))
-          [true value]))
+          outcome))
       (do
         (trace/emit! :warning :rf.cofx/skipped-on-platform
                      {:rf.cofx/id                   cofx-id
@@ -376,7 +408,7 @@
                       :rf.cofx/platform             active-platform
                       :rf.cofx/registered-platforms (:platforms meta)
                       :recovery                     :skipped})
-        [false nil]))))
+        [:skipped nil]))))
 
 (defn deliver-declared-cofx
   "Deliver the handler's declared coeffects FLAT into `coeffects`, per Spec
@@ -399,30 +431,38 @@
   Delivery is DECLARED-ONLY and FLAT: an undeclared leaf on the token is not
   staged, and there is no nested `:cofx` / `:rf.cofx` duplicate in the
   delivered spread (the envelope's canonical `:rf.cofx` map is reachable
-  through the context for generic code)."
+  through the context for generic code).
+
+  Returns `{:coeffects <augmented> :rf/skip-handler? <bool>}`. An unregistered
+  or missing-required declared fact halts loudly (throws); a supplier that
+  THREW emits `:rf.error/coeffect-exception` and sets `:rf/skip-handler?` so
+  the handler does not run and the cascade is failed without a raw throw
+  escaping context assembly (mirroring the retired `inject-cofx` interceptor's
+  capture-don't-propagate behaviour)."
   [coeffects requires recorded failing-id frame-id]
   (reduce
-    (fn [cofx-map {:keys [id arg]}]
+    (fn [{:keys [coeffects] :as acc} {:keys [id arg]}]
       (let [meta (registrar/lookup :cofx id)]
         (cond
-          ;; Built-in framework facts whose registration is the provided
-          ;; `:rf/time-ms` (or any future provided fact): present on the
-          ;; token → deliver; absent → missing-required.
+          ;; A declared id with NO registration is the typo case (the
+          ;; framework's own facts — e.g. the provided `:rf/time-ms` — are
+          ;; registered, so a nil meta is always an unregistered id).
           (nil? meta)
           (emit-unregistered-cofx! id failing-id frame-id)
 
           (:recordable? meta)
           (if (contains? recorded id)
-            (assoc cofx-map id (get recorded id))
+            (assoc-in acc [:coeffects id] (get recorded id))
             (emit-missing-required-cofx! id failing-id frame-id))
 
           :else                                   ;; ambient
-          (let [[delivered? value]
-                (run-ambient-supplier id meta (:handler-fn meta) arg frame-id)]
-            (if delivered?
-              (assoc cofx-map id value)
-              cofx-map)))))
-    coeffects
+          (let [[outcome value]
+                (run-ambient-supplier id meta (:handler-fn meta) arg frame-id failing-id)]
+            (case outcome
+              :delivered (assoc-in acc [:coeffects id] value)
+              :skipped   acc
+              :threw     (assoc acc :rf/skip-handler? true))))))
+    {:coeffects coeffects :rf/skip-handler? false}
     requires))
 
 ;; ---- inject-cofx is REMOVED (EP-0017 slice A.3, no alias) ------------------

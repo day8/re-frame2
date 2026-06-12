@@ -1315,9 +1315,9 @@
             :rf.error/coeffect-exception operation (rf2-294yq5.2) — the
             old handler-exception-only capture was a false green"
     (rf/reg-cofx :test/boom-cofx
-      (fn [_coeffects] (throw (ex-info "cofx blew up" {:why :cofx}))))
+      (fn [] (throw (ex-info "cofx blew up" {:why :cofx}))))
     (rf/reg-event-fx :test/uses-boom-cofx
-      [(rf/inject-cofx :test/boom-cofx)]
+      {:rf.cofx/requires [:test/boom-cofx]}
       (fn [_ _] {}))
     (story/reg-variant :story.cofx-boom/v
       {:events [[:test/uses-boom-cofx]]})
