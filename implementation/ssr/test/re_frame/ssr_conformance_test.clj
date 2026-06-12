@@ -98,7 +98,6 @@
             [clojure.string :as str]
             [re-frame.conformance :as conformance]
             [re-frame.core :as rf]
-            [re-frame.cofx :as cofx]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.ssr :as ssr]
@@ -219,8 +218,9 @@
 
 (defn- collect-cofx-keys
   "Walk DSL body steps and collect every cofx-id referenced via
-  `[:cofx-key K]`. Used to auto-wire `(inject-cofx K)` interceptors per
-  rf2-g25p convention."
+  `[:cofx-key K]`. Used to auto-wire `:rf.cofx/requires` declarations per
+  rf2-g25p convention (EP-0017 — `inject-cofx` is removed; a handler takes
+  delivery by declaring the id, not by an injector interceptor)."
   [steps]
   (let [out (atom #{})]
     ((fn walk [form]
@@ -244,40 +244,43 @@
         cofx-registry (get-in fixture [:fixture/registry :cofx] {})
         helpers       (adapter-helpers)]
     ;; ---- cofx -----------------------------------------------------------
+    ;; EP-0017: `reg-cofx` registers a value-returning AMBIENT supplier
+    ;; (`(fn [] value)`), not the retired ctx→ctx injector. For ssr the cofx
+    ;; registry slots are declarative only (their presence in
+    ;; :fixture/registry exists so meta lookups don't 404); fixtures that
+    ;; need real cofx delivery use the core conformance-test ns. The
+    ;; supplier returns the fixture's declared value (or nil for a bare
+    ;; `[[:noop]]`), delivered flat under the cofx-id to handlers that
+    ;; declare `:rf.cofx/requires [cofx-id]`.
     (doseq [[cofx-id meta] cofx-registry]
-      (let [body    (get-in hmap [:cofx cofx-id] [[:noop]])
-            handler (fn [ctx]
-                      ;; A no-op cofx — fixtures that need real cofx
-                      ;; injection use the conformance-test ns. For ssr
-                      ;; the cofx registry slots are declarative only
-                      ;; (their presence in :fixture/registry exists so
-                      ;; meta lookups don't 404).
-                      (reduce (fn [c step]
-                                (case (first step)
-                                  :set (let [[_ _ v] step]
-                                         (assoc-in c [:coeffects cofx-id] v))
-                                  c))
-                              ctx
-                              body))]
-        (rf/reg-cofx cofx-id (assoc meta :handler-fn handler) handler)))
+      (let [body     (get-in hmap [:cofx cofx-id] [[:noop]])
+            supplier (fn []
+                       (reduce (fn [v step]
+                                 (case (first step)
+                                   :set (let [[_ _ sv] step] sv)
+                                   v))
+                               nil
+                               body))]
+        (rf/reg-cofx cofx-id meta supplier)))
     ;; ---- events --------------------------------------------------------
+    ;; EP-0017: a handler takes delivery of a cofx by DECLARING it in the
+    ;; `:rf.cofx/requires` registration metadata — not via an `inject-cofx`
+    ;; interceptor (removed). Scan the body for `[:cofx-key K]` references and
+    ;; auto-wire `:rf.cofx/requires [K …]` for every K with a registered cofx.
     (doseq [[id steps] (:event hmap)]
       (let [[kind handler] (conformance/realise-event-handler steps)
-            meta           (get event-meta id {})
+            base-meta      (get event-meta id {})
             ks             (collect-cofx-keys steps)
             cofx-ids       (vec (filter cofx-registry ks))
-            interceptors   (mapv cofx/inject-cofx cofx-ids)]
+            meta           (cond-> base-meta
+                             (seq cofx-ids) (assoc :rf.cofx/requires cofx-ids))]
         (case kind
           :db (if (seq meta)
-                (rf/reg-event-db id meta interceptors handler)
-                (if (seq interceptors)
-                  (rf/reg-event-db id interceptors handler)
-                  (rf/reg-event-db id handler)))
+                (rf/reg-event-db id meta handler)
+                (rf/reg-event-db id handler))
           :fx (if (seq meta)
-                (rf/reg-event-fx id meta interceptors handler)
-                (if (seq interceptors)
-                  (rf/reg-event-fx id interceptors handler)
-                  (rf/reg-event-fx id handler))))))
+                (rf/reg-event-fx id meta handler)
+                (rf/reg-event-fx id handler)))))
     ;; ---- subs ----------------------------------------------------------
     (doseq [[id steps] (:sub hmap)]
       (let [{:keys [kind inputs body]} (conformance/realise-sub steps)

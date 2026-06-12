@@ -239,9 +239,10 @@
                      url-change/handle-url-change-handler)
 
 ;; :nav-token cofx — Spec 012 §Navigation tokens — stale-result
-;; suppression step 2. Injects the current navigation epoch token under
-;; `:coeffects :nav-token` for any `:on-match`-reached handler that
-;; declares `(inject-cofx :nav-token)`, so the documented
+;; suppression step 2. A value-returning AMBIENT supplier (EP-0017) for
+;; the current navigation epoch token; delivered under `:coeffects
+;; :nav-token` to any `:on-match`-reached handler that declares
+;; `:rf.cofx/requires [:nav-token]`, so the documented
 ;; `(fn [{:keys [db nav-token]} _] ...)` shape resolves the live token
 ;; (not nil). Registered in the façade so a `:reload` re-wires it on a
 ;; fresh registrar.
