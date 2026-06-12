@@ -636,8 +636,9 @@ The renderer does NOT depend on `binaryage/cljs-devtools` (that library targets 
 Shipped layout per rf2-zh2qc + rf2-jhhqt + rf2-lo37i + rf2-9fyn40 (rf2-jhhqt
 swaps DISPATCH SITE before EVENT per Mike's Q1 verbatim and adds the COEFFECTS
 section; rf2-lo37i adds the FLOWS section as a peer surface to make the
-cascade's flow step first-class; rf2-9fyn40 adds the WORLD INPUTS section
-right after DISPATCH SITE — the EP-0010 causal-provenance surface). FLOWS sits
+cascade's flow step first-class; rf2-9fyn40 adds the RECORDABLE COEFFECTS
+section right after DISPATCH SITE — the EP-0010 causal-provenance surface,
+renamed from WORLD INPUTS by EP-0017 §9). FLOWS sits
 RIGHT AFTER the HANDLER — flows fire at the outermost `:after` interceptor,
 reshaping the pending `:db` before it commits, so the lens reads in true
 pipeline order (handler → flows → committed effects → fx-handlers).
@@ -651,9 +652,9 @@ sections that read top-to-bottom as the developer scans.
 │   src/cart/views.cljs:127       [code]                                             │
 │   via :ui · origin :app                                                              │
 │                                                                                      │
-│ ▼ WORLD INPUTS                                                                       │
-│   time-ms  1781078400123                                                             │
-│   :uuid    [redacted]            (value-bearing keys redact by default)              │
+│ ▼ RECORDABLE COEFFECTS                                                               │
+│   time-ms         1781078400123                                                      │
+│   :counter/delta  [redacted]     (value-bearing leaves redact by default)            │
 │                                                                                      │
 │ ▼ EVENT                                                                              │
 │   [:cart/add-item {:id 42 :qty 2}]                                                   │
@@ -715,37 +716,48 @@ sections that read top-to-bottom as the developer scans.
    call-site was captured. **Comes FIRST** per Mike's Q1 — the
    developer's first instinct ("who fired this?") gets the most
    prominent slot.
-1a. **WORLD INPUTS** (rf2-9fyn40 · EP-0010) — the dispatch envelope's
-   causal `:rf.world/inputs` map, surfaced **RIGHT AFTER DISPATCH SITE**
-   (it answers the same orienting "where did this state value come from?"
-   question — the explicit time / id / randomness / browser facts the fold
-   consumed). **Silent-by-default** when the cascade surfaced no world-input
-   map (older runtimes / the production-elided emit arm). Reads the map off
-   the `:rf.event/dispatched` trace's `[:tags :rf.world/inputs]` slot (the
-   substrate stamps it per rf2-jt854w · `router/emit-dispatched-trace!`,
-   DEBUG-gated so it rides the same whole-body production elision as the
-   rest of the dispatched emit; see EP-0010 §Tooling). Each row reads
-   `<key>  <value>`.
-   - **PRIVACY** (EP-0010 §Privacy / Open Issue 4, ruled 2026-06-11):
-     `:time-ms` is **ALWAYS safe to surface** (a wall-clock fact, never PII)
-     and renders **verbatim**. **Every other key is value-bearing and
-     REDACTS BY DEFAULT** — its value is routed through the same
-     summarize/projection path the reply-envelope consumer uses
-     (`resources-helpers/summarize`, mirroring `reply_envelope.cljc`'s
-     wire-slot summarization), so the panel renders a privacy-preserving
-     summary (type + bounded size + a redaction-aware preview; an upstream
-     `:rf/redacted` / `:rf.size/large-elided` sentinel keeps its sentinel
-     status as `[redacted]` / `[large — elided]`) and **NEVER a raw value**.
-     The KEY itself (`:uuid` / `:random` / `:browser/location` / `:storage`
-     / …) is framework vocabulary, not PII, so it rides verbatim as the row
-     label; only the VALUE is summarized.
+1a. **RECORDABLE COEFFECTS** (rf2-9fyn40 · EP-0010 · EP-0017 §9) — the
+   dispatch envelope's flat `:rf.cofx` map, surfaced **RIGHT AFTER DISPATCH
+   SITE** (it answers the same orienting "where did this state value come
+   from?" question — the explicit time / id / randomness facts the fold
+   consumed). Shows the handler's **declared recordable leaves** (EP-0017
+   §9). **Silent-by-default** when the cascade surfaced no `:rf.cofx` map
+   (older runtimes / the production-elided emit arm). Reads the map off the
+   `:rf.event/dispatched` trace's `[:tags :rf.cofx]` slot (the substrate
+   stamps it per rf2-alc1lf · `router/emit-dispatched-trace!`, DEBUG-gated
+   so it rides the same whole-body production elision as the rest of the
+   dispatched emit; see EP-0010 §Tooling). Each row reads
+   `<leaf-id>  <value>`.
+   - **EP-0017 §9 renamed this surface** from **WORLD INPUTS** (the nested
+     `:rf.world/inputs` map keyed `:time-ms`) to **RECORDABLE COEFFECTS**
+     (the flat `:rf.cofx` map keyed `:rf/time-ms`) — "world inputs" was the
+     vocabulary fracture EP-0017 closes; the recorded map *is* the
+     recordable GRADE of coeffect. The ambient grade keeps its own COEFFECTS
+     section (§3 below); the two grades sit side by side.
+   - **PRIVACY** (EP-0010 §Privacy / Open Issue 4, ruled 2026-06-11;
+     EP-0017 §9 restates per leaf): `:rf/time-ms` is **ALWAYS safe to
+     surface** (a wall-clock fact, never PII) and renders **verbatim**.
+     **Every other leaf is value-bearing and REDACTS BY DEFAULT** — its
+     value is routed through the same summarize/projection path the
+     reply-envelope consumer uses (`resources-helpers/summarize`, mirroring
+     `reply_envelope.cljc`'s wire-slot summarization), so the panel renders
+     a privacy-preserving summary (type + bounded size + a redaction-aware
+     preview; an upstream `:rf/redacted` / `:rf.size/large-elided` sentinel
+     keeps its sentinel status as `[redacted]` / `[large — elided]`) and
+     **NEVER a raw value**. The KEY itself is owner-qualified vocabulary
+     (the app's `:counter/delta`, a subsystem's `:rf.route/location`, …),
+     not PII, so it rides verbatim as the row label; only the VALUE is
+     summarized.
 2. **EVENT** — the dispatched event vector via `inspector/inspect`.
    Always present.
-3. **COEFFECTS** — user-injected coeffects only, **silent when zero**
-   (the section is ABSENT entirely, NOT '(none)'). Reads `:coeffects`
-   off the `:event/do-fx` trace's `:tags` (rf2-jhhqt — the runtime
-   stamps the user-injected subset; the framework defaults `:db`
-   `:event` `:frame` `:source` `:trace-id` are filtered at the
+3. **COEFFECTS** — the **ambient grade** (EP-0017 §1): declared coeffects
+   whose value-returning supplier ran at context assembly and was NOT
+   recorded (display preferences, diagnostics, host-transient reads). The
+   recordable grade rides §1a above. **Silent when zero** (the section is
+   ABSENT entirely, NOT '(none)'). Reads the per-supplier `:rf.cofx/run` op
+   plus the `:rf.event/run-end :rf.event/coeffects` stamp (the runtime
+   stamps the declared subset; the fold-argument / framework-context keys
+   `:db` `:event` `:frame` `:source` `:trace-id` are filtered at the
    substrate). Mirrors the INTERCEPTORS section's filter-out-framework-
    defaults posture. Each row: `<:cofx-id>  <inspected-value>`.
 4. **INTERCEPTORS** — non-standard chain only, **silent when zero**
@@ -808,17 +820,18 @@ sections that read top-to-bottom as the developer scans.
 
 - **No call-site captured** — DISPATCH SITE shows
   `"source coord unavailable"`; no open chip rendered.
-- **No world-input map** — WORLD INPUTS section ABSENT entirely (silent-by-
-  default — older runtimes, the production-elided emit arm, or fixtures that
-  synthesise an epoch without the `:rf.world/inputs` tag).
-- **World-input map carries only `:time-ms`** — WORLD INPUTS renders the
-  single `time-ms <ms>` row (the time fact is worth surfacing on its own).
-- **Empty world-input map (`{}`)** — WORLD INPUTS section ABSENT (nothing to
-  show).
-- **A value-bearing key was redacted upstream** (`:rf/redacted` for a
+- **No `:rf.cofx` map** — RECORDABLE COEFFECTS section ABSENT entirely
+  (silent-by-default — older runtimes, the production-elided emit arm, or
+  fixtures that synthesise an epoch without the `:rf.cofx` tag).
+- **`:rf.cofx` map carries only `:rf/time-ms`** — RECORDABLE COEFFECTS
+  renders the single `time-ms <ms>` row (the time fact is worth surfacing
+  on its own).
+- **Empty `:rf.cofx` map (`{}`)** — RECORDABLE COEFFECTS section ABSENT
+  (nothing to show).
+- **A value-bearing leaf was redacted upstream** (`:rf/redacted` for a
   `:sensitive?` slot) — the row renders `[redacted]`, never the raw value
-  (marks/projection redact by default; only `:time-ms` is exempt).
-- **No user coeffects** — COEFFECTS section ABSENT entirely.
+  (marks/projection redact by default; only `:rf/time-ms` is exempt).
+- **No ambient coeffects** — COEFFECTS section ABSENT entirely.
 - **No user interceptors** — INTERCEPTORS section ABSENT entirely.
 - **No effects returned** — EFFECTS RETURNED section ABSENT.
 - **No fx handlers ran** — EFFECTS HANDLERS RAN section ABSENT.

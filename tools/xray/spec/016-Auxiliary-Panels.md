@@ -194,40 +194,50 @@ A registered-flows-overview is reachable via the Cmd-K palette under
 the `:flow` source: flow-id, inputs, output path, last recompute. No
 standalone tab.
 
-## World inputs content — Epoch panel WORLD INPUTS section (rf2-9fyn40 · EP-0010)
+## Recordable-coeffect content — Epoch panel RECORDABLE COEFFECTS section (rf2-9fyn40 · EP-0010 · EP-0017 §9)
 
-The dispatch envelope's causal `:rf.world/inputs` map surfaces as a
-dedicated **WORLD INPUTS section of the Epoch panel placed RIGHT AFTER
-DISPATCH SITE** — the EP-0010 "where did this state value come from?"
-answer (the explicit time / id / randomness / browser facts the fold
-consumed, so a durable write reads as a function of prior frame-state PLUS
-explicit tokens rather than ambient host reads). The canonical home for
-the per-cascade section is [`018-Event-Spine.md`](./018-Event-Spine.md)
-§5.1 (section 1a — the 9-section event lens). **Silent-by-default** when
-the focused cascade surfaced no world-input map.
+The dispatch envelope's flat recordable-coeffect map `:rf.cofx` surfaces as
+a dedicated **RECORDABLE COEFFECTS section of the Epoch panel placed RIGHT
+AFTER DISPATCH SITE** — the EP-0010 "where did this state value come from?"
+answer (the explicit time / id / randomness facts the fold consumed, so a
+durable write reads as a function of prior frame-state PLUS recorded tokens
+rather than ambient host reads). The section shows the handler's **declared
+recordable leaves** (EP-0017 §9 — the most user-relevant facts on the
+token). The canonical home for the per-cascade section is
+[`018-Event-Spine.md`](./018-Event-Spine.md) §5.1 (section 1a — the
+9-section event lens). **Silent-by-default** when the focused cascade
+surfaced no `:rf.cofx` map.
 
-The runtime stamps the map onto the `:rf.event/dispatched` trace under
-`[:tags :rf.world/inputs]` (rf2-jt854w · `router/emit-dispatched-trace!`,
+> EP-0017 §9 renamed this surface from **WORLD INPUTS** (the
+> `:rf.world/inputs` nested map keyed `:time-ms`) to **RECORDABLE
+> COEFFECTS** (the flat `:rf.cofx` map keyed `:rf/time-ms`). "World inputs"
+> was the vocabulary fracture EP-0017 closes: the recorded map *is* the
+> recordable GRADE of coeffect. The ambient grade keeps its own COEFFECTS
+> section (event-lens section 3); the two grades sit side by side.
+
+The runtime stamps the flat map onto the `:rf.event/dispatched` trace under
+`[:tags :rf.cofx]` (rf2-alc1lf · `router/emit-dispatched-trace!`,
 DEBUG-gated so it rides the same whole-body production elision as the rest
 of the dispatched emit). The section reads it decoupled — no require on
 core; Xray consumes the WIRE FACTS.
 
-**PRIVACY** (EP-0010 §Privacy / Open Issue 4, ruled 2026-06-11):
+**PRIVACY** (EP-0010 §Privacy / Open Issue 4, ruled 2026-06-11; EP-0017 §9
+restates per leaf):
 
-- `:time-ms` is **ALWAYS safe to surface** (a wall-clock fact, never PII)
-  and renders **verbatim**.
-- **Every other key is value-bearing and REDACTS BY DEFAULT** — its value
+- `:rf/time-ms` is **ALWAYS safe to surface** (a wall-clock fact, never
+  PII) and renders **verbatim**.
+- **Every other leaf is value-bearing and REDACTS BY DEFAULT** — its value
   is routed through the same summarize/projection path the reply-envelope
   consumer uses (`resources-helpers/summarize`, mirroring
   `reply_envelope.cljc`'s wire-slot summarization), so the panel renders a
   privacy-preserving summary (type + bounded size + a redaction-aware
   preview; an upstream `:rf/redacted` / `:rf.size/large-elided` sentinel
-  keeps its sentinel status) and **NEVER a raw value**. The KEY itself
-  (`:uuid` / `:random` / `:browser/*` / `:storage` / …) is framework
-  vocabulary, not PII, so it rides verbatim as the row label.
+  keeps its sentinel status) and **NEVER a raw value**. The KEY itself is
+  owner-qualified vocabulary (the app's `:counter/delta`, a subsystem's
+  `:rf.route/location`, …), not PII, so it rides verbatim as the row label.
 
-No standalone tab; no palette overview (a world-input map is per-cascade,
-not a registry).
+No standalone tab; no palette overview (a recordable-coeffect map is
+per-cascade, not a registry).
 
 ## Issues — the dedicated tab was REMOVED (rf2-gbz39, Option (c))
 
