@@ -65,6 +65,17 @@
    :elision           {:default true}
    :cache             {:default false}
    :include-sensitive {:default false}
+   ;; rf2-6to9xj — dispatch-dry-run's :would-fire-effects[*].args are
+   ;; RAW fx-handler arguments (HTTP request bodies, dispatched event
+   ;; vectors, payment maps). They are NOT rooted at the frame's app-db,
+   ;; so the schema-path-keyed `elide-wire-value` walker cannot prove them
+   ;; safe — the same leak class as an epoch record's :effects[].args,
+   ;; which `projected-record` fails closed (EP-0015 §13 residual). Off-box
+   ;; egress therefore FAILS CLOSED: :args redacts to :rf/redacted by
+   ;; default. This knob is the trusted-local opt-in that keeps the raw
+   ;; args, honoured only under --allow-sensitive-reads (same gate as
+   ;; :include-sensitive). Wire-key drops the trailing `?` per rf2-y710n.
+   :include-fx-args   {:default false}
    ;; rf2-qicji — list-subscriptions toggles its per-entry shape.
    ;; Default false: only the query-vectors ride the wire (the cheap
    ;; "what's subscribed" read); true also ships :value + :ref-count.
