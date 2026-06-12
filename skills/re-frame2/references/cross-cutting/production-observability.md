@@ -1,10 +1,25 @@
 # Production observability
 
-Production observability rides **two always-on listener APIs** that survive `goog.DEBUG=false` and `:advanced` compilation. They are **parallel to** (not a fallback from) the dev-only trace bus. The trace surface DCEs in CLJS production builds; `register-event-listener!` and `register-error-listener!` do not. Use them to ship event + error records to Datadog / Sentry / Honeycomb / a custom pipeline.
+The **normal** way an app ships event + error records to Datadog / Sentry / Honeycomb / a custom pipeline is **declarative, frame-owned**: declare a sink under a frame's `:observability` policy, register its fn with `rf/reg-observability-sink!`, and let the runtime route one **already-projected** record per event/error to it. This is the EP-0015 egress path — it composes the owning frame's classification (`:sensitive` / `:large`) with the entry's `:rf.egress/profile`, so your sink never sees raw sensitive values and never has to re-walk for privacy / size. Reach for the low-level listener APIs only when you need lower-level control than frame `:observability` gives.
 
-Authoring rule: in production, you wire two listeners — one for events (success + error outcomes), one for errors (exception payloads). The framework already runs `elide-wire-value` against each record's `:event` vector before fan-out — listeners do **not** re-walk for privacy / size.
+```clojure
+;; The normal path: frame :observability + a registered sink fn.
+(rf/reg-frame :rf/default
+  {:observability {:handled-events [{:sink :my-app.sinks/datadog
+                                     :rf.egress/profile :rf.egress/off-box-observability}]
+                   :errors         [{:sink :my-app.sinks/sentry
+                                     :rf.egress/profile :rf.egress/off-box-observability}]}})
 
-> **Where this sits in the EP-0015 egress model.** The two listener registries are the **advanced** integration substrate. The **normal** production story is *declarative*: declare a sink under a frame's `:observability` policy and register its fn with `rf/reg-observability-sink!` — the runtime routes one projected record per event/error through `project-egress` (under the owning frame's classification + the entry's `:rf.egress/profile`) to your sink, which receives an **already-projected** record. Reach for `register-event-listener!` / `register-error-listener!` directly only when you need lower-level control than frame `:observability` gives. See [`privacy-and-elision.md`](privacy-and-elision.md) (§Choosing where observations go).
+(rf/reg-observability-sink! :my-app.sinks/datadog
+  (fn [record] (datadog/track-event! record)))   ;; record is ALREADY projected
+
+(rf/reg-observability-sink! :my-app.sinks/sentry
+  (fn [record] (sentry/capture! record)))
+```
+
+Both routes ride the **same two always-on substrates** that survive `goog.DEBUG=false` and `:advanced` compilation — they are **parallel to** (not a fallback from) the dev-only trace bus, which DCEs in CLJS production builds. The frame `:observability` path is the projection-and-routing layer **on top of** those substrates; the listener APIs below (`register-event-listener!` / `register-error-listener!`) are the **advanced low-level hooks beneath** the frame policy. Documented here so you know what the declarative path lowers onto — and for the cases where you bypass it.
+
+Authoring rule: prefer frame `:observability` + `reg-observability-sink!`. Drop to a raw listener only for lower-level control. Either way the framework runs `elide-wire-value` against each record's `:event` vector before fan-out — neither sinks nor listeners re-walk for privacy / size. See [`privacy-and-elision.md`](privacy-and-elision.md) (§Choosing where observations go) for the egress composition.
 
 ## The mental model: three channels, three production guarantees
 
@@ -18,9 +33,11 @@ The JS-ecosystem anchor: this is the equivalent of "Sentry/Rollbar SDK for the e
 
 ## When to load
 
-Wiring a production observability shipper, writing a `register-event-listener!` / `register-error-listener!` body, or asking "what's the prod-survivable equivalent of `register-listener!`?".
+Wiring a production observability shipper, declaring a frame `:observability` sink, writing a `register-event-listener!` / `register-error-listener!` body, or asking "what's the prod-survivable equivalent of `register-listener!`?".
 
-## `register-event-listener!` — one record per dispatched event
+## `register-event-listener!` — one record per dispatched event (advanced low-level hook)
+
+> The sections below document the always-on listener substrate the frame `:observability` path lowers onto. Prefer the declarative frame-owned sinks above for the normal app; reach for these raw registries only for lower-level control (e.g. you need a record the frame policy doesn't route, or a non-frame-scoped global hook).
 
 Fires once per event the runtime processes — NOT per sub, NOT per fx, NOT per `:event/db-changed`. Registration is idempotent (re-registering the same id replaces); listener exceptions are caught (cascade continues).
 
@@ -55,7 +72,7 @@ No trace-bus keys (no `:dispatch-id`, `:parent-dispatch-id`, `:rf.trace/trigger-
 
 **Privacy is path-based, applied at egress — the record always fans out.** Every surviving record's `:event` vector is walked by `elide-wire-value` with off-box defaults (large → `:rf.size/large-elided`; classified sensitive paths → `:rf/redacted`) *before* listeners run. Sensitivity is owner-classified (the registration's `:sensitive` paths for transient event args; the frame's `:sensitive {:app-db …}` for durable app-db slices). There is **no** whole-record privacy drop at the handler boundary: `dispatch-on-event!` never suppresses a record for sensitivity — it redacts the payload per `[:rf.runtime/elision :sensitive-declarations]` (in runtime-db) and ships the rest. (Handler-meta `:sensitive?` is **not** consulted; it was removed from the runtime — see `event_emit.cljc` ns docstring.) The only whole-record drop gate is `:rf.trace/no-emit?` on handler-meta, which is **framework-internal** (Xray / Story bookkeeping handlers) and not a user privacy knob.
 
-## `register-error-listener!` — one record per runtime error
+## `register-error-listener!` — one record per runtime error (advanced low-level hook)
 
 Fires once per catalogued production-reachable `:rf.error/*` event the runtime emits through the error-emit substrate. This is the single error-observability surface; per-listener exceptions are isolated (one bad listener cannot affect siblings or the cascade).
 

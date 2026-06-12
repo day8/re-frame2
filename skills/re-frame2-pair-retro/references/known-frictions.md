@@ -123,12 +123,12 @@ Typical improvements:
 
 Signals:
 - the trace stream, epoch history, or schema reflection returned empty and the user thought the tool was broken
-- the build is `:advanced` and `goog.DEBUG=false`, so the **dev-gated** Tool-Pair surfaces elide — specifically the trace stream, schema validation, the epoch machinery (epoch-history / `restore-epoch` / the epoch streaming topic), and source-coordinate annotation. Crucially this is NOT a total wall across the whole tool surface: `orient` still returns registry/frame shape (it is built from `health` + frame ids + app-db top keys + registry counts, none of which are dev-gated), the direct-read primitives (`snapshot` / `get-path` / `read-sub`) carry their own egress/privacy posture rather than the debug gate, and the always-on error-emit substrate (`:on-error` / error projection, per Spec 009 §What IS available in production) keeps answering. Misclassifying a mixed production result as everything-is-gone teaches an agent to abandon usable probes.
+- the build is `:advanced` and `goog.DEBUG=false`, so the **dev-gated** Tool-Pair surfaces elide — specifically the trace stream, schema validation, the epoch machinery (epoch-history / `restore-epoch` / the epoch streaming topic), and source-coordinate annotation. Crucially this is NOT a total wall across the whole tool surface: `orient` still returns registry/frame shape (it is built from `health` + frame ids + app-db top keys + registry counts, none of which are dev-gated), the direct-read primitives (`snapshot` / `get-path` / `read-sub`) carry their own egress/privacy posture rather than the debug gate, and the always-on event/error-emit substrate (`register-event-listener!` / `register-error-listener!`, per Spec 009 §What IS available in production) keeps answering. Misclassifying a mixed production result as everything-is-gone teaches an agent to abandon usable probes.
 - the user cannot tell whether they hit an elision wall or a tool bug
 
 Typical improvements:
 - preflight check that reads `re-frame.interop/debug-enabled?` and reports the answer
-- make "I am attached to a production-elided build" a first-class result state, distinguishing the dev-only surfaces that go dark (trace / epoch / schema / source-coord) from the surfaces that still answer (orientation, registry/frame shape, the direct-read primitives, and the always-on error-policy diagnostics)
+- make "I am attached to a production-elided build" a first-class result state, distinguishing the dev-only surfaces that go dark (trace / epoch / schema / source-coord) from the surfaces that still answer (orientation, registry/frame shape, the direct-read primitives, and the always-on event/error-emit listeners — observability, not an app-steerable recovery policy)
 - recipe for switching to a dev build before continuing
 
 ### Tool-catalogue / build-capability uncertainty
