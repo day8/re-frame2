@@ -124,6 +124,13 @@
   - `append-assertion`        — pure: state → state with assertion appended.
   - `insert-assertion!`       — impure entrypoint for the picker UI."
   (:require [clojure.string :as str]
+            ;; rf2-0io9uq (EP-0013): `re-frame.core/frame-realm` reads the
+            ;; runtime realm a recording-target frame lives in, so a recording
+            ;; can carry the `:rf.realm/id` stamp WHERE the frame is in a
+            ;; non-default realm (the absent-key default-realm rule — see
+            ;; `realm-stamp`). The runner already requires `re-frame.core`;
+            ;; this is the same framework-facade dependency, JVM + CLJS.
+            [re-frame.core :as rf]
             [re-frame.story.config :as config]
             [re-frame.story.predicates :as pred]
             [re-frame.story.review-dialog :as review-dialog]
@@ -175,6 +182,77 @@
   from `re-frame.privacy`) has no registered handler — the resulting
   dispatch error is clean rather than a malformed-event-vector error."
   [:rf/redacted])
+
+;; ---------------------------------------------------------------------------
+;; rf2-0io9uq (EP-0013): the recording's runtime-realm stamp
+;;
+;; A re-frame2 frame references the runtime REALM it lives in (Spec 002
+;; §Frames reference realms; EP-0013). A single-realm app runs every frame in
+;; the process DEFAULT realm; a multi-tenant / hermetic-test app can construct
+;; explicit realms (`rf/realm`) and seat frames in them. A recording targets a
+;; FRAME (`:variant-id`), so the realm the recording belongs to is the realm
+;; THAT frame lives in — read off the live runtime via `rf/frame-realm`.
+;;
+;; The disposition is the documented ABSENT-KEY rule (Spec-Schemas §`:rf/realm`,
+;; EP-0013 issue 2): "absence of `:rf.realm/id` means THE DEFAULT realm". So a
+;; recording carries the `:rf.realm/id` stamp ONLY where the target frame is in
+;; a NON-default realm; a single-realm / default-realm recording carries NO
+;; realm key and replays unchanged (zero ceremony). `realm-stamp` is the ONE
+;; place this decision is made: it returns the realm id to stamp, or nil when
+;; the realm is the default (or unknown — an unknown frame's `rf/frame-realm`
+;; is nil, which also stamps nothing). The pure `start` threads the resolved
+;; stamp through `assoc-realm`, so the predicate is JVM-testable without a live
+;; frame.
+;; ---------------------------------------------------------------------------
+
+(def ^:const realm-stamp-key
+  "The reserved app-value key a recording stamps its target frame's runtime
+  realm under (EP-0013). Matches the framework's reserved `:rf.realm/id`
+  spelling (Spec-Schemas §`:rf/realm`) so a stamped recording reads the way
+  the realm-targeted query forms (`rf/registrations {:realm …}`) spell it."
+  :rf.realm/id)
+
+(defn realm-stamp
+  "Return the realm id to STAMP on a recording whose target frame reports
+  `frame-realm-id` (the value `rf/frame-realm` returned), or nil when nothing
+  should be stamped. Pure data → data.
+
+  The absent-key rule (EP-0013 disposition): a recording stamps `:rf.realm/id`
+  ONLY where the frame is in a NON-default realm. Returns nil for:
+
+    - `nil` — an unknown / destroyed frame (`rf/frame-realm` returns nil), or
+              no realm resolvable.
+    - `re-frame.realm/default-realm-id` (`:rf.realm/default`) — a single-realm
+              / default-realm frame. Absence IS the default, so we stamp
+              nothing and the recording replays unchanged (zero ceremony).
+
+  Returns the realm id verbatim for any other (constructed) realm so replay
+  can verify it targets the same realm the recording was captured in."
+  [frame-realm-id]
+  (when (and (some? frame-realm-id)
+             (not= frame-realm-id :rf.realm/default))
+    frame-realm-id))
+
+(defn- frame-realm-stamp
+  "Impure: read the live runtime realm `variant-id`'s frame lives in (via
+  `rf/frame-realm`) and reduce it through `realm-stamp` to the value the
+  recording should carry (the constructed realm id, or nil for the default /
+  unknown). Tolerant — a frame-realm read that throws (no frame, framework
+  absent) yields nil, so recording is never broken by realm-read failure."
+  [variant-id]
+  (realm-stamp
+    (try (rf/frame-realm variant-id)
+         (catch #?(:clj Throwable :cljs :default) _ nil))))
+
+(defn assoc-realm
+  "Pure: stamp `realm-id` onto recorder `state` under `realm-stamp-key`, or
+  leave `state` UNTOUCHED when `realm-id` is nil (the default-realm absent-key
+  rule — EP-0013). The single helper both `start` and the impure
+  `start-recording!` thread through so the absent-key invariant lives in one
+  place: a default-realm recording's state map carries no `:rf.realm/id` key."
+  [state realm-id]
+  (cond-> state
+    (some? realm-id) (assoc realm-stamp-key realm-id)))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: dispatch-only code-gen — `(reg-variant ... :script {...})` snippet
@@ -459,7 +537,13 @@
   `:dom/submit`) with per-event timestamps — consumed by the
   `:play-script` translator; `:variant-id` records which frame the
   capture targets; `:started-ms` is the wall-clock start time for
-  elapsed-time display."
+  elapsed-time display.
+
+  rf2-0io9uq (EP-0013): the idle state carries NO `:rf.realm/id` key — by the
+  absent-key rule absence means the default realm. `start` adds the
+  `:rf.realm/id` stamp only when the target frame is in a NON-default realm
+  (`realm-stamp` / `assoc-realm`), so a single-realm recording's state map is
+  byte-identical to the pre-realm shape."
   {:recording? false
    :variant-id nil
    :events     []
@@ -487,6 +571,17 @@
   []
   (:variant-id @state))
 
+(defn recording-realm
+  "Return the runtime realm id the current recording is stamped with
+  (`:rf.realm/id`), or nil when the recording carries no realm stamp
+  (rf2-0io9uq, EP-0013). nil is the DEFAULT-realm signal under the absent-key
+  rule: a single-realm recording stamps no realm, so this returns nil and
+  replay targets the frame's (default) realm unchanged. A non-nil return is a
+  constructed (non-default) realm the recording was captured in — replay must
+  land in THAT realm."
+  []
+  (get @state realm-stamp-key))
+
 (defn recorded-events
   "Return the vector of captured event vectors (oldest first). Feeds the
   simple `gen-play-snippet` codegen, which wraps each as a
@@ -507,13 +602,24 @@
 
 (defn start
   "Pure: return the recorder state for a new recording targeting
-  `variant-id`. `now-ms` is the wall-clock start time."
-  [_state variant-id now-ms]
-  {:recording? true
-   :variant-id variant-id
-   :events     []
-   :entries    []
-   :started-ms now-ms})
+  `variant-id`. `now-ms` is the wall-clock start time.
+
+  rf2-0io9uq (EP-0013): the four-arity stamps the recording's runtime-realm
+  id (`realm-id`) onto the state under `realm-stamp-key` via `assoc-realm` —
+  but ONLY when `realm-id` is non-nil (a constructed, non-default realm; the
+  caller passes the value `realm-stamp` already reduced, so a default-realm /
+  unknown frame is nil here). The three-arity is the default-realm path: it
+  stamps nothing, so a single-realm recording carries no `:rf.realm/id` key
+  and replays unchanged (the absent-key rule)."
+  ([state variant-id now-ms]
+   (start state variant-id now-ms nil))
+  ([_state variant-id now-ms realm-id]
+   (-> {:recording? true
+        :variant-id variant-id
+        :events     []
+        :entries    []
+        :started-ms now-ms}
+       (assoc-realm realm-id))))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-d5u89 — per-event timestamps + DOM-event entries
@@ -735,13 +841,26 @@
   "Begin recording events dispatched against `variant-id`'s frame.
   Returns the new state. Stops any in-flight recording first. Under
   elision (`config/enabled?` false) returns the idle `initial-state`
-  without touching the atom."
+  without touching the atom.
+
+  rf2-0io9uq (EP-0013): reads the runtime realm `variant-id`'s frame lives in
+  (via `rf/frame-realm`) and STAMPS it on the recording WHERE the frame is in
+  a non-default realm (`frame-realm-stamp` → `realm-stamp`). A single-realm /
+  default-realm recording stamps nothing (absent-key rule); the stamp read is
+  tolerant, so realm-read failure never breaks recording.
+
+  The two-arity `(start-recording! variant-id now-ms)` resolves the realm
+  off the live frame; the three-arity `(start-recording! variant-id now-ms
+  realm-id)` lets a test pin the realm without a live frame (the value is
+  reduced through `realm-stamp` again so the absent-key rule still applies)."
   ([variant-id]
    (start-recording! variant-id #?(:clj (System/currentTimeMillis)
                                    :cljs (.now js/Date))))
   ([variant-id now-ms]
+   (start-recording! variant-id now-ms (frame-realm-stamp variant-id)))
+  ([variant-id now-ms realm-id]
    (if config/enabled?
-     (swap! state start variant-id now-ms)
+     (swap! state start variant-id now-ms (realm-stamp realm-id))
      initial-state)))
 
 (defn stop-recording!

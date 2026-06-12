@@ -29,7 +29,11 @@
             ;; published from `re-frame.core`; it survives as an internal
             ;; helper in its home ns, exercised here directly.
             [re-frame.privacy :as privacy]
+            ;; rf2-0io9uq (EP-0013): the realm-stamp tests reach for the
+            ;; default-realm id constant + the replay-target resolver.
+            [re-frame.realm :as realm]
             [re-frame.registrar :as registrar]
+            [re-frame.story.play.runner-events :as runner-events]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story :as story]
             [re-frame.story.async :as async]
@@ -749,3 +753,222 @@
       ;; thin delegation, not a divergent reimplementation.
       (is (= one-arg (play-export/recording->play-script events))
           "facade re-export == sub-namespace fn (pure delegation)"))))
+
+;; ---- rf2-0io9uq (EP-0013): recording realm stamp + replay targeting ------
+;;
+;; A recording targets a FRAME; the frame references its runtime REALM
+;; (Spec 002 §Frames reference realms). The recorder stamps `:rf.realm/id`
+;; on a recording WHERE the frame is in a NON-default realm; a single-realm /
+;; default-realm recording carries NO realm key (the absent-key rule — absence
+;; means the default realm) and replays unchanged (zero ceremony). Replay
+;; dispatches frame-scoped, so it lands in the frame's own realm by
+;; construction; `runner-events/replay-target` resolves the explicit
+;; `{:realm :frame}` address applying the same absent-key rule.
+
+;; ---- pure: realm-stamp (the absent-key decision) -------------------------
+
+(deftest realm-stamp-drops-the-default-realm
+  (testing "realm-stamp returns nil for the default realm — absence is the
+            default (the absent-key rule); only a non-default realm stamps"
+    (is (nil? (recorder/realm-stamp realm/default-realm-id))
+        "the default realm stamps nothing")
+    (is (nil? (recorder/realm-stamp nil))
+        "a nil (unknown / destroyed frame) realm stamps nothing")
+    (is (= :tenant/acme (recorder/realm-stamp :tenant/acme))
+        "a constructed (non-default) realm stamps its id verbatim")))
+
+(deftest assoc-realm-respects-the-absent-key-rule
+  (testing "assoc-realm stamps :rf.realm/id only for a non-nil realm; a nil
+            leaves the state byte-identical (no realm key)"
+    (is (= {:recording? true}
+           (recorder/assoc-realm {:recording? true} nil))
+        "nil realm → state untouched (no :rf.realm/id key)")
+    (is (not (contains? (recorder/assoc-realm {:recording? true} nil)
+                        :rf.realm/id))
+        "the absent-key invariant: default-realm state never grows a realm key")
+    (is (= {:recording? true :rf.realm/id :tenant/acme}
+           (recorder/assoc-realm {:recording? true} :tenant/acme))
+        "non-nil realm → stamped under :rf.realm/id")))
+
+;; ---- pure: start arities -------------------------------------------------
+
+(deftest start-default-realm-carries-no-realm-key
+  (testing "the 3-arity start (default-realm path) writes no :rf.realm/id —
+            a single-realm recording's state map is byte-identical to the
+            pre-realm shape"
+    (let [s (recorder/start recorder/initial-state :story.x/y 1000)]
+      (is (not (contains? s :rf.realm/id))
+          "no realm key on a default-realm recording")
+      (is (= {:recording? true :variant-id :story.x/y
+              :events [] :entries [] :started-ms 1000}
+             s)
+          "state shape unchanged from the pre-realm recorder"))))
+
+(deftest start-stamps-a-non-default-realm
+  (testing "the 4-arity start stamps :rf.realm/id for a non-default realm"
+    (let [s (recorder/start recorder/initial-state :story.x/y 1000 :tenant/acme)]
+      (is (= :tenant/acme (:rf.realm/id s))
+          "the constructed realm id rides onto the recording state")))
+  (testing "the 4-arity start is the LOW-LEVEL stamper — it assocs whatever
+            non-nil value it is handed (the absent-key reduction is
+            start-recording!'s job, via realm-stamp); only a nil value here
+            stamps nothing"
+    ;; A nil passed to the 4-arity stamps nothing (assoc-realm's guard).
+    (is (not (contains?
+               (recorder/start recorder/initial-state :story.x/y 1000 nil)
+               :rf.realm/id))
+        "a nil realm in the 4-arity stamps nothing (assoc-realm guard)")
+    ;; A raw default keyword DOES stamp at this layer — proving the reduction
+    ;; lives in start-recording! / realm-stamp, not in start.
+    (is (= realm/default-realm-id
+           (:rf.realm/id (recorder/start recorder/initial-state :story.x/y 1000
+                                         realm/default-realm-id)))
+        "the 4-arity assocs a raw default verbatim; start-recording! reduces
+         through realm-stamp BEFORE calling start, so callers never hit this")))
+
+;; ---- impure: start-recording! 3-arity (pinned realm) ---------------------
+
+(deftest start-recording!-3-arity-reduces-through-realm-stamp
+  (testing "the pinned-realm 3-arity reduces the realm through realm-stamp —
+            a default realm stamps nothing, a constructed realm stamps"
+    (recorder/clear!)
+    (recorder/start-recording! :story.x/y 0 realm/default-realm-id)
+    (is (nil? (recorder/recording-realm))
+        "a pinned default realm → no stamp (absent-key rule)")
+    (is (not (contains? (recorder/current-state) :rf.realm/id))
+        "the recorder state carries no realm key for a default-realm recording")
+    (recorder/clear!)
+    (recorder/start-recording! :story.x/y 0 :tenant/acme)
+    (is (= :tenant/acme (recorder/recording-realm))
+        "a pinned constructed realm → stamped + readable via recording-realm")
+    (recorder/clear!)))
+
+;; ---- recording->play-script realm passthrough ----------------------------
+
+(deftest recording->play-script-omits-default-realm
+  (testing "the play-export translator carries no :rf.realm/id for a nil /
+            default realm — the body is byte-identical to the no-realm shape"
+    (let [events  [[:counter/inc] [:counter/by 7]]
+          no-opt  (play-export/recording->play-script events)
+          nil-rlm (play-export/recording->play-script events {:realm nil})
+          dflt    (play-export/recording->play-script events
+                                                      {:realm realm/default-realm-id})]
+      (is (not (contains? no-opt :rf.realm/id)))
+      (is (not (contains? nil-rlm :rf.realm/id)))
+      (is (not (contains? dflt :rf.realm/id))
+          "an explicit default realm omits the key (absent-key rule)")
+      (is (= no-opt nil-rlm dflt)
+          "all three default-realm bodies are identical — zero ceremony"))))
+
+(deftest recording->play-script-stamps-non-default-realm
+  (testing "a non-default realm rides onto the body under :rf.realm/id while
+            the :script is otherwise unchanged"
+    (let [events (vec [[:counter/inc]])
+          base   (play-export/recording->play-script events)
+          realm- (play-export/recording->play-script events {:realm :tenant/acme})]
+      (is (= :tenant/acme (:rf.realm/id realm-)))
+      (is (= (:script base) (:script realm-))
+          "the script is unaffected by the realm stamp")
+      (is (= base (dissoc realm- :rf.realm/id))
+          "dropping the realm key recovers the default-realm body exactly"))))
+
+;; ---- replay-target (the explicit {:realm :frame} address) ----------------
+
+(deftest replay-target-omits-default-realm
+  (testing "replay-target resolves {:frame v} for a default-realm frame —
+            absent-key rule (no :realm)"
+    (reset-rf-state!)
+    (story/reg-variant :story.replay/default {})
+    (async/deref-blocking (story/run-variant :story.replay/default) 5000)
+    ;; Every frame today lives in the default realm (core seats no other),
+    ;; so the resolved target carries no :realm.
+    (is (= {:frame :story.replay/default}
+           (runner-events/replay-target :story.replay/default))
+        "a default-realm recording replays into {:frame v} (no :realm key)")
+    (story/destroy-variant! :story.replay/default))
+  (testing "an unknown frame resolves to {:frame v} tolerantly (no :realm)"
+    (is (= {:frame :story.replay/never-registered}
+           (runner-events/replay-target :story.replay/never-registered)))))
+
+(deftest replay-target-carries-a-non-default-realm
+  (testing "replay-target carries :realm WHERE the frame is in a non-default
+            realm — the (realm, frame) address replay re-enters"
+    (reset-rf-state!)
+    (story/reg-variant :story.replay/tenant {})
+    (async/deref-blocking (story/run-variant :story.replay/tenant) 5000)
+    ;; Core ships no public realm-targeted reg-frame yet (every frame is
+    ;; seated in the default realm), so simulate a frame living in a
+    ;; constructed realm by setting its :realm slot directly. rf/frame-realm
+    ;; reads that slot, so this exercises the real read path.
+    (swap! frame/frames assoc-in [:story.replay/tenant :realm] :tenant/acme)
+    (is (= :tenant/acme (rf/frame-realm :story.replay/tenant))
+        "the frame now reports the constructed realm")
+    (is (= {:realm :tenant/acme :frame :story.replay/tenant}
+           (runner-events/replay-target :story.replay/tenant))
+        "replay-target carries the constructed realm + frame as the address")
+    (story/destroy-variant! :story.replay/tenant)))
+
+;; ---- end-to-end: realm-stamped recording round-trip ----------------------
+
+(deftest end-to-end-default-realm-recording-carries-no-realm-key
+  (testing "a recording against a default-realm frame (the single-realm case)
+            captures NO :rf.realm/id and its play body replays unchanged —
+            the absent-key round-trip (zero ceremony)"
+    (reset-rf-state!)
+    (rf/reg-event-db :counter/inc (fn [db _] (update db :n (fnil inc 0))))
+    (story/reg-variant :story.realm/default {})
+    (async/deref-blocking (story/run-variant :story.realm/default) 5000)
+    (recorder/install-trace-listener!)
+    (recorder/start-recording! :story.realm/default)
+    (rf/dispatch-sync [:counter/inc] {:frame :story.realm/default})
+    (rf/dispatch-sync [:counter/inc] {:frame :story.realm/default})
+    (let [final-state (recorder/stop-recording!)]
+      (is (not (contains? final-state :rf.realm/id))
+          "the recording carries no realm key for a default-realm frame")
+      (is (nil? (recorder/recording-realm))
+          "recording-realm is nil — the default-realm signal")
+      ;; The play body the recording translates to is byte-identical to the
+      ;; pre-realm body — passing the (nil) recorded realm changes nothing.
+      (let [events (:events final-state)
+            body   (story/recording->play-script
+                     events {:realm (get final-state :rf.realm/id)})]
+        (is (not (contains? body :rf.realm/id))
+            "the default-realm play body carries no realm key — replays unchanged")
+        (is (= (story/recording->play-script events) body)
+            "the recorded-realm body == the no-realm body (round-trips unchanged)")))
+    (story/destroy-variant! :story.realm/default)
+    (recorder/remove-trace-listener!)))
+
+(deftest end-to-end-non-default-realm-recording-carries-the-stamp
+  (testing "a recording against a frame in a NON-default realm captures the
+            :rf.realm/id stamp, and the stamp rides through to the replayable
+            play body so replay targets the same realm"
+    (reset-rf-state!)
+    (rf/reg-event-db :counter/inc (fn [db _] (update db :n (fnil inc 0))))
+    (story/reg-variant :story.realm/tenant {})
+    (async/deref-blocking (story/run-variant :story.realm/tenant) 5000)
+    ;; Simulate the frame living in a constructed realm (core seats no other
+    ;; realm yet); rf/frame-realm reads the :realm slot, so start-recording!
+    ;; will stamp the constructed realm.
+    (swap! frame/frames assoc-in [:story.realm/tenant :realm] :tenant/acme)
+    (recorder/install-trace-listener!)
+    (recorder/start-recording! :story.realm/tenant)
+    (rf/dispatch-sync [:counter/inc] {:frame :story.realm/tenant})
+    (let [final-state (recorder/stop-recording!)]
+      (is (= :tenant/acme (get final-state :rf.realm/id))
+          "the recording captured the frame's constructed realm")
+      (is (= :tenant/acme (recorder/recording-realm))
+          "recording-realm reads the stamp back")
+      ;; The recorded realm rides into the replayable body so replay targets
+      ;; the same realm the recording was captured in.
+      (let [events (:events final-state)
+            body   (story/recording->play-script
+                     events {:realm (get final-state :rf.realm/id)})]
+        (is (= :tenant/acme (:rf.realm/id body))
+            "the play body carries the realm stamp for replay targeting")
+        ;; replay-target resolves the same realm off the live frame.
+        (is (= {:realm :tenant/acme :frame :story.realm/tenant}
+               (runner-events/replay-target :story.realm/tenant))
+            "replay-target re-enters the SAME realm the recording was captured in")))
+    (story/destroy-variant! :story.realm/tenant)
+    (recorder/remove-trace-listener!)))

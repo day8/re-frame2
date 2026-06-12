@@ -261,12 +261,32 @@ write-back path (`record-as-variant`) registers (rf2-x9zsr / rf2-d5u89).
 | Fn | Signature | Purpose |
 |---|---|---|
 | `start-recording!` | `(start-recording! variant-id)` | Begin recording dispatched events against `variant-id`'s frame. |
-| `stop-recording!` | `(stop-recording!)` | Stop the in-flight recording; return the captured events. |
+| `stop-recording!` | `(stop-recording!)` | Stop the in-flight recording; return the captured events. The returned state carries `:rf.realm/id` WHERE the target frame is in a non-default runtime realm (rf2-0io9uq, EP-0013); a single-realm recording carries no realm key (the absent-key rule). |
 | `clear-recording!` | `(clear-recording!)` | Drop the buffer + return the recorder to idle. |
 | `recording?` | `(recording?)` | Predicate — is a recording in flight? |
-| `recorder-state` | `(recorder-state)` | Read-only view of the current recorder state map. |
+| `recorder-state` | `(recorder-state)` | Read-only view of the current recorder state map (includes `:rf.realm/id` where the recording is stamped — rf2-0io9uq). |
 | `gen-play-snippet` | `(gen-play-snippet events opts)` | Pure codegen → string: render a captured `events` vector as a `(reg-variant <id> {... :script {:script [...]}})` EDN snippet. Emits the PUBLIC `:script` slot (rf2-7mj4z); each captured event vector is wrapped as `[:dispatch-sync <event-vec>]` (rf2-0wrud). See [005-SOTA-Features.md](005-SOTA-Features.md) §Recorder for the round-trip contract. |
-| `recording->play-script` | `(recording->play-script events)` / `(recording->play-script events opts)` | Pure data → data: translate a recording (bare `events` vector OR the rich `:entries` vector) into the live, replayable `{:script [...] :auto-run? bool :name str?}` body a runner executes. The runtime counterpart to `gen-play-snippet`'s text output; the MCP write-back path calls this to re-register the variant with a live `:script` slot. Re-exported from `re-frame.story.recorder.play-export`. |
+| `recording->play-script` | `(recording->play-script events)` / `(recording->play-script events opts)` | Pure data → data: translate a recording (bare `events` vector OR the rich `:entries` vector) into the live, replayable `{:script [...] :auto-run? bool :name str?}` body a runner executes. The runtime counterpart to `gen-play-snippet`'s text output; the MCP write-back path calls this to re-register the variant with a live `:script` slot. `opts :realm` (rf2-0io9uq, EP-0013) carries the recording's runtime realm onto the body under `:rf.realm/id` WHERE non-default so replay targets the same realm (omitted for the default realm — absent-key rule). Re-exported from `re-frame.story.recorder.play-export`. |
+
+### Runtime-realm stamp on recordings (rf2-0io9uq, EP-0013)
+
+A recording targets a **frame** (`:variant-id`); a frame references the
+runtime **realm** it lives in (Spec 002 §Frames reference realms; EP-0013).
+The recorder reads that realm off the live runtime via
+`re-frame.core/frame-realm` at `start-recording!` and stamps it on the
+recording under `:rf.realm/id` — but ONLY **where** the frame is in a
+**non-default** realm. The default-realm **absent-key rule**
+(Spec-Schemas §`:rf/realm`, EP-0013 issue 2) holds end-to-end: a
+single-realm / default-realm recording carries **no** realm key, its play
+body is byte-identical to the pre-realm shape, and it replays unchanged
+(zero ceremony). Replay dispatches frame-scoped (`{:frame variant-id}`), so
+it lands in the frame's own realm by construction; the explicit
+`{:realm r :frame v}` address is resolved by
+`re-frame.story.play.runner-events/replay-target` (which applies the same
+absent-key rule), making "replay targets the right realm" verifiable. When
+a frame is in a constructed realm, the stamp + the resolved target carry
+that realm id so a caller can assert replay re-enters the SAME realm the
+recording was captured in.
 
 ### Rich-DSL `:script` translator — sub-namespace home
 
