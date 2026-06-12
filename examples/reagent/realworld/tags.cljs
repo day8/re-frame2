@@ -221,21 +221,33 @@
 ;; HOME-PAGE QUERY HELPERS
 ;; ============================================================================
 ;;
-;; The route-query driven part of the home page:
-;; - `?tag=<name>` filters the global articles list
-;; - `?feed=your` switches the home page to the authenticated feed
-;; - navigation is always expressed as `:rf.route/navigate` events
+;; The route-driven part of the home page (rf2-e90vfv route-shape conformance):
+;; - the tag filter is the `/tag/:tag` PATH route (`:realworld/home-tag`); the
+;;   active tag is a route PARAM, not a `?tag=` query.
+;; - `?feed=following` switches the home page to the authenticated feed (the
+;;   official contract value — NOT `?feed=your`).
+;; - navigation is always expressed as `:rf.route/navigate` events.
 ;;
-;; `:home/load` is dispatched by the `:realworld/home` `:on-match`; it
-;; broadcasts the per-axis transitions into the home machine
-;; (`:realworld/articles-home`) before kicking the per-feed fetch.
+;; `:home/load` is dispatched by BOTH the `:realworld/home` and
+;; `:realworld/home-tag` `:on-match`; it broadcasts the per-axis transitions
+;; into the home machine (`:realworld/articles-home`) before kicking the
+;; per-feed fetch.
+
+;; The official-contract feed token for the authenticated "Your Feed".
+(def following-feed-token "following")
 
 ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state —
-;; `home-query` reads it off a runtime-db value (event handlers pass the
-;; `:rf.db/runtime` coeffect; the `:home/query` sub composes off the public
-;; `[:rf.route/query]` framework sub).
-(defn home-query [runtime-db]
-  (get-in runtime-db [:rf.runtime/routing :current :query] {}))
+;; `home-context` reads it off a runtime-db value (event handlers pass the
+;; `:rf.db/runtime` coeffect; the subs below compose off the public
+;; `[:rf.route/params]` / `[:rf.route/query]` framework subs). It normalises
+;; the two home routes into one `{:tag :feed :page}` context: the tag comes
+;; from the `/tag/:tag` route's params, the feed + page from the query.
+(defn home-context [runtime-db]
+  (let [cur   (get-in runtime-db [:rf.runtime/routing :current] {})
+        query (:query cur {})]
+    {:tag  (get-in cur [:params :tag])
+     :feed (:feed query)
+     :page (:page query)}))
 
 (rf/reg-event-fx :home/load
   {:doc "Route :on-match handler for `:realworld/home`. Reads the route's
@@ -249,8 +261,8 @@
          home machine's `:data` region (per articles.cljs and
          favorites.cljs)."}
   (fn [{rt :rf.db/runtime} _]
-    (let [{:keys [feed tag] :as _query} (home-query rt)
-          your-feed? (= "your" feed)
+    (let [{:keys [feed tag]} (home-context rt)
+          your-feed? (= following-feed-token feed)
           tag-feed?  (and (not your-feed?) (some? tag))
           feed-event (cond
                        your-feed? [:show-user-feed]
@@ -263,10 +275,15 @@
              your-feed?       (conj [:dispatch [:feed/load]])
              (not your-feed?) (conj [:dispatch [:articles/load]]))})))
 
-;; Switching feed or tag, or clearing a filter, builds a fresh query and so
+;; Switching feed or applying/clearing a tag is a fresh navigation and so
 ;; drops any in-flight `?page=` — landing back on page 1, which is the
 ;; official Conduit behaviour (the page-number control resets when the feed or
-;; tag changes). Only `:home/show-page` carries the other query keys forward.
+;; tag changes). Only `:home/show-page` carries the active feed/tag forward.
+;;
+;; ROUTE-SHAPE CONFORMANCE (rf2-e90vfv): the tag filter navigates to the
+;; `/tag/:tag` PATH route (`:realworld/home-tag`), the following feed uses
+;; `?feed=following`. `:home/show-page` re-targets whichever home route is
+;; active (tag route keeps its `:tag` param) so paging stays within the tag.
 
 (rf/reg-event-fx :home/show-global-feed
   (fn [_ _]
@@ -274,31 +291,40 @@
 
 (rf/reg-event-fx :home/show-your-feed
   (fn [_ _]
-    {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {:feed "your"}}]]]}))
+    {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {:feed following-feed-token}}]]]}))
 
 (rf/reg-event-fx :home/show-page
   {:doc "Navigate to a 1-indexed pagination page for the active home feed,
-         carrying the current `?feed=` / `?tag=` forward so paging stays
-         within the same feed. Changing `?page=` re-fires the `:realworld/home`
+         carrying the current feed / tag forward so paging stays within it. A
+         tag-filtered list re-targets the `/tag/:tag` PATH route with the tag
+         param preserved and `?page=` set; otherwise the home route carries
+         `?feed=` + `?page=`. Changing `?page=` re-fires the active route's
          `:on-match` (Spec 012 — same route, changed query), re-running
          `:home/load` and the per-feed fetch with the new limit/offset window."}
   (fn [{rt :rf.db/runtime} [_ page]]
-    (let [query (assoc (home-query rt) :page page)]
-      {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query query}]]]})))
+    (let [{:keys [tag feed]} (home-context rt)]
+      (if tag
+        {:fx [[:dispatch [:rf.route/navigate :realworld/home-tag {:tag tag} {:query {:page page}}]]]}
+        (let [query (cond-> {:page page} feed (assoc :feed feed))]
+          {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query query}]]]})))))
 
 (rf/reg-event-fx :tags/apply-filter
   (fn [_ [_ tag]]
-    {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {:tag tag}}]]]}))
+    {:fx [[:dispatch [:rf.route/navigate :realworld/home-tag {:tag tag}]]]}))
 
 (rf/reg-event-fx :tags/clear-filter
-  (fn [{rt :rf.db/runtime} _]
-    (let [query (dissoc (home-query rt) :tag :page)]
-      {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query query}]]]})))
-
-(rf/reg-sub :home/query
-  :<- [:rf.route/query]
-  (fn [query _] (or query {})))
+  (fn [_ _]
+    ;; Clearing the tag leaves the `/tag/:tag` route entirely, back to the
+    ;; global feed at `/` (page 1).
+    {:fx [[:dispatch [:rf.route/navigate :realworld/home]]]}))
 
 (rf/reg-sub :home/selected-tag
-  :<- [:home/query]
-  (fn [query _] (:tag query)))
+  {:doc "The active tag, read from the `/tag/:tag` route's PATH params
+         (rf2-e90vfv — no longer a `?tag=` query)."}
+  :<- [:rf.route/params]
+  (fn [params _] (:tag params)))
+
+(rf/reg-sub :home/page
+  {:doc "The 1-indexed home/tag page, off the route query (`?page=`)."}
+  :<- [:rf.route/query]
+  (fn [query _] (or (:page query) 1)))

@@ -137,23 +137,23 @@
           :on-submit (fn [e] (.preventDefault e) (dispatch [:settings/submit]))}
          [:fieldset
           [:fieldset.form-group
-           [:input.form-control {:type "text" :placeholder "URL of profile picture"
+           [:input.form-control {:type "text" :name "image" :placeholder "URL of profile picture"
                                  :value (:image draft) :disabled pending?
                                  :on-change #(dispatch [:settings/edit-field :image (.. % -target -value)])}]]
           [:fieldset.form-group
-           [:input.form-control.form-control-lg {:type "text" :placeholder "Username" :data-testid "settings-username"
+           [:input.form-control.form-control-lg {:type "text" :name "username" :placeholder "Username" :data-testid "settings-username"
                                                  :value (:username draft) :disabled pending?
                                                  :on-change #(dispatch [:settings/edit-field :username (.. % -target -value)])}]]
           [:fieldset.form-group
-           [:textarea.form-control.form-control-lg {:rows 8 :placeholder "Short bio about you" :data-testid "settings-bio"
+           [:textarea.form-control.form-control-lg {:rows 8 :name "bio" :placeholder "Short bio about you" :data-testid "settings-bio"
                                                     :value (:bio draft) :disabled pending?
                                                     :on-change #(dispatch [:settings/edit-field :bio (.. % -target -value)])}]]
           [:fieldset.form-group
-           [:input.form-control.form-control-lg {:type "email" :placeholder "Email"
+           [:input.form-control.form-control-lg {:type "email" :name "email" :placeholder "Email"
                                                  :value (:email draft) :disabled pending?
                                                  :on-change #(dispatch [:settings/edit-field :email (.. % -target -value)])}]]
           [:fieldset.form-group
-           [:input.form-control.form-control-lg {:type "password" :placeholder "New Password"
+           [:input.form-control.form-control-lg {:type "password" :name "password" :placeholder "New Password"
                                                  :value (:password draft) :disabled pending?
                                                  :on-change #(dispatch [:settings/edit-field :password (.. % -target -value)])}]]
           [:button.btn.btn-lg.btn-primary.pull-xs-right {:type "submit" :data-testid "settings-submit" :disabled pending?}

@@ -409,28 +409,28 @@
          [:fieldset
           [:fieldset.form-group
            [:input.form-control.form-control-lg
-            {:type "text" :placeholder "Article Title" :data-testid "editor-title"
+            {:type "text" :name "title" :placeholder "Article Title" :data-testid "editor-title"
              :value (:title draft) :disabled busy?
              :on-blur #(dispatch [:editor/blur-field :title])
              :on-change #(dispatch [:editor/edit-field :title (.. % -target -value)])}]
            (when title-err [:div.error-messages title-err])]
           [:fieldset.form-group
            [:input.form-control
-            {:type "text" :placeholder "What's this article about?" :data-testid "editor-description"
+            {:type "text" :name "description" :placeholder "What's this article about?" :data-testid "editor-description"
              :value (:description draft) :disabled busy?
              :on-blur #(dispatch [:editor/blur-field :description])
              :on-change #(dispatch [:editor/edit-field :description (.. % -target -value)])}]
            (when desc-err [:div.error-messages desc-err])]
           [:fieldset.form-group
            [:textarea.form-control
-            {:rows 8 :placeholder "Write your article (in markdown)" :data-testid "editor-body"
+            {:rows 8 :name "body" :placeholder "Write your article (in markdown)" :data-testid "editor-body"
              :value (:body draft) :disabled busy?
              :on-blur #(dispatch [:editor/blur-field :body])
              :on-change #(dispatch [:editor/edit-field :body (.. % -target -value)])}]
            (when body-err [:div.error-messages body-err])]
           [:fieldset.form-group
            [:input.form-control
-            {:type "text" :placeholder "Enter tags (comma-separated)" :data-testid "editor-tags"
+            {:type "text" :name "tags" :placeholder "Enter tags (comma-separated)" :data-testid "editor-tags"
              :value (:tagList draft) :disabled busy?
              :on-change #(dispatch [:editor/edit-field :tagList (.. % -target -value)])}]]
           [:button.btn.btn-lg.pull-xs-right.btn-primary

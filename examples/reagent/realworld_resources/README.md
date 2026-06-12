@@ -30,7 +30,7 @@ Every RealWorld read is `reg-resource`d once and read **passively** through `[:r
 
 | Resource | Read |
 |---|---|
-| `:realworld/articles` | the global article list, `:tag`-filtered when `?tag=` is set and `:page`-paginated (tag AND page are in params, so a filtered list and each page are distinct cache entries) |
+| `:realworld/articles` | the global article list, `:tag`-filtered when the `/tag/:tag` PATH route is active and `:page`-paginated (tag AND page are in params, so a filtered list and each page are distinct cache entries) |
 | `:realworld/article` | article detail by slug |
 | `:realworld/comments` | an article's comments (a sub-resource: an ordinary resource whose params carry the parent slug) |
 | `:realworld/profile` | a user's public profile banner |
@@ -48,7 +48,7 @@ Every RealWorld read is `reg-resource`d once and read **passively** through `[:r
 
 The Conduit list endpoints page with `limit` / `offset`; the UI is 1-indexed with a fixed page size and renders numbered controls off the server's `articlesCount`. Resources make all of that **declarative** — and this is the missing Spec 016 dogfood: pagination is where canonical-params identity and `:keep-previous?` (the TanStack-parity surface) earn their keep, and it needs **no new spec surface**.
 
-- **The page is just another `:params` key.** `:realworld/articles`, `:realworld/author-articles`, `:realworld/favorited-articles`, and the session feed all carry `:page` in params (mapped to `limit`/`offset` by the one `page->limit-offset` helper). So **page N and page N+1 are DISTINCT cache entries** under the same params-identity rule a `?tag=` filter already used. Every server-visible list option participates in the cache key.
+- **The page is just another `:params` key.** `:realworld/articles`, `:realworld/author-articles`, `:realworld/favorited-articles`, and the session feed all carry `:page` in params (mapped to `limit`/`offset` by the one `page->limit-offset` helper). So **page N and page N+1 are DISTINCT cache entries** under the same params-identity rule the `/tag/:tag` filter already uses (the active tag flows into params from the route). Every server-visible list option participates in the cache key.
 - **Page state rides the route query.** `?page=N` flows into every list route's `:resources` `:params` fn — including the session feed's, which is now an ordinary route resource. Paging is a navigation that swaps only `?page=` and preserves the active feed/tag — no page-cache map, no `:status` field. Page 1 drops the param (the canonical first-page URL).
 - **Back-navigation is a cache-hit.** Returning to a previously-loaded page re-`ensure`s the same params-identity entry — no fetch (`:rf.resource/cache-hit`), as long as it's still within its stale window.
 - **`:keep-previous?` = no flicker.** The route `:resources` entries set `:keep-previous? true`, so while a NEW page key first-loads the public `:rf.resource/state` projection carries `:previous? true` + `:previous-data` (the prior page's articles). The list view renders that prior page (plus a quiet "Loading next page…" indicator) instead of a skeleton — the user never sees a flash of empty list on page change. The projection is **not** inserted into the new key and never provides its tags (Spec 016 §Paginated and previous data); the new entry becomes ordinary `:loaded` only after its own request succeeds.
@@ -155,7 +155,7 @@ Login / register / session-restore / logout are a Spec 005 state machine issuing
 | `resources.cljs` | Every RealWorld read as `reg-resource` (identity / scope / `:request` / `:tags` / stale + GC policy); the `page-size` + `page->limit-offset` pagination helpers. |
 | `mutations.cljs` | Every RealWorld write as `reg-mutation` — `:populates` (authoritative-load seeds), `:invalidates` as per-target `{:scope … :tags …}` descriptors (incl. the session-feed `{:from-db :realworld/session}` target so one mutation reaches both scopes — EP-0016 D2). |
 | `scope.cljs` | The named `reg-resource-scope :realworld/session` resolver (`{:inputs … :resolve …}`) — the single scope-resolution currency every resource site references as `{:from-db :realworld/session}` (EP-0016 D3). |
-| `routing.cljs` | Routes with `:resources` metadata (incl. the `?page=` query → resource params + `:keep-previous?`, the session feed as a `:scope {:from-db :realworld/session}` route resource, and the `:realworld.profile/favorites` tab route) + the `auth-guard` interceptor. |
+| `routing.cljs` | Routes with `:resources` metadata (incl. the `?page=` query → resource params + `:keep-previous?`, the session feed as a `:scope {:from-db :realworld/session}` route resource, the `/tag/:tag` PATH tag route `:realworld/home-tag`, and the `:realworld.profile/favorites` tab route) + the `auth-guard` interceptor. |
 | `auth.cljs` | The `:auth/flow` auth machine (login / register / restore-without-navigating / logout) + the login/register forms; logout resolves the session scope via `rf/resolve-resource-scope` and clears it; cold-boot restore re-ensures the feed under the new principal (`:auth/ensure-session-feed`, rf2-mdmjix) since the re-key alone does not fetch. |
 | `settings.cljs` | The settings page as a mutation instance (`:rf.mutation/state`); the save-success continuation is the mutation's `:reply-to [:settings/replied]` target (EP-0016 D1) — a plain Form-1 view, no off-render reaction. |
 | `article_editor.cljs` | Create / edit / delete an article: the `:realworld/save-article` + `:realworld/delete-article` mutations, the `:editor/can-submit?` Spec 013 flow, the `:editor/can-leave?` guard, the `:reply-to [:editor/replied]` save/delete continuation (EP-0016 D1), and the one remaining Form-3 reaction (seed-on-load from the article read). |
@@ -163,7 +163,9 @@ Login / register / session-restore / logout are a Spec 005 state machine issuing
 | `realworld_shared/markdown.cljs` | Shared (both realworld apps) CommonMark → hiccup renderer for the article body, built on `io.github.nextjournal/markdown` in hiccup-emitting mode (full CommonMark: headings, emphasis, code, links, images, tables, nested lists, blockquotes). **Sanitized by construction**: emits hiccup (never raw HTML / `dangerouslySetInnerHTML`) so React escapes all text; raw inline/block HTML degrades to inert escaped text; and link/image URL schemes are allowlisted (http/https/mailto + relative) so `javascript:`/`data:`/`vbscript:` URLs are dropped. Supersedes the hand-rolled per-app subset from rf2-ke9gtx (rf2-e2t7v4). |
 | `schema.cljs` | Malli wire shapes + the small app-db schemas (auth + form drafts only — the reads live in runtime-db). `User`'s `:token` slot carries the EP-0005 `:sensitive?` property (EP-0015) so the JWT is redacted out of off-box reply captures. |
 | `http.cljs` | The demo backend stub (resources + mutations lower onto `:rf.http/managed`, so one stub serves the whole API) — synthesises a multi-page article set + honours `limit`/`offset` + a distinct favorited subset — plus the shared `data-fetch-retry` read policy + the `:rf.http/*` failure projection. |
+| `realworld_shared/avatar.cljs` | Shared (both realworld apps) default-avatar helper — `avatar-src` falls a nil/empty author/user image back to `default-avatar.svg` on every `.user-img` / `.user-pic` / `.comment-author-img` (RealWorld contract conformance, rf2-e90vfv). |
 | `index.html` | Static host page. |
+| `default-avatar.svg` | The fallback avatar asset, served from the app root. |
 
 ## How to run
 
@@ -183,6 +185,34 @@ The app supports three backend modes; the default needs no network.
 2. **Official hosted API.** Point `realworld-resources.http/api-base` at the current official hosted API — <https://api.realworld.show/api> (the old `api.realworld.io` host is stale) — and remove the `:fx-overrides {:rf.http/managed :realworld-resources.demo/http-stub}` line from the demo frame in `core.cljs`. The frame-wide `:realworld/bearer-auth` HTTP interceptor (`core.cljs`) attaches the JWT to every outbound resource / mutation / restore request, so authenticated calls work against the real API (rf2-j4kbro); the read resources also carry the shared `data-fetch-retry` policy.
 
 3. **Local reference backend.** The upstream spec ships a Node/Postgres reference backend on `http://localhost:3000/api`; set `api-base` to that and drop the stub override as in mode 2.
+
+## RealWorld contract conformance
+
+This example is **code-conformant** with the official RealWorld browser/E2E contract (the upstream Cypress E2E suite + the Newman/Postman API collection) — the external official suites validate against it; there is **no in-repo test harness and no `*.spec.cjs`** (the examples tree is test-free, rf2-8cevm). The contract interpretation is **identical to the `realworld/` sibling** (rf2-e90vfv — one worker conformed both apps); the differences below are only where the resources/mutations shape expresses it:
+
+- **Route shapes.** The official frontend route surface — `/`, `/login`, `/register`, `/settings`, `/editor`, `/editor/:slug`, `/article/:slug`, `/profile/:username`, `/profile/:username/favorites`, the tag list at the PATH route `/tag/:tag` (`:realworld/home-tag`, with `/tag/:tag?page=N`), and the following feed at `/?feed=following`. The active tag is a route PARAM that flows into the articles resource's params (a distinct cache entry per tag); the following token is `following` (NOT `your`). Pagination rides `?page=N` (page 1 drops the param).
+- **Session storage.** The JWT is persisted under `localStorage["jwtToken"]` — the exact contract key (`auth.cljs`). **Same-origin caveat:** the contract assumes **one app per origin**. The repo's dev orchestrator serves both this app and the `realworld/` sibling from a *single* origin (at `/realworld-resources/` and `/realworld/`), so the two conforming apps share — and clobber — each other's `jwtToken` there. A known dev-mode artifact, not a contract violation: conformance is validated against **standalone serving** (one app per origin), which the external suite does anyway (see the runbook).
+- **Debug accessor.** `window.__conduit_debug__` exposes `getToken` / `getAuthState` / `getCurrentUser` (`core.cljs`). This is a **conformance-contract surface, NOT a re-frame2 pattern** — an unannotated global token accessor bypasses the frame/sub system and leaks the raw JWT; it is comment-marked as such and a production app would not ship it.
+- **Form input `name` attributes.** `username` / `email` / `password` (login, register, settings), `image` / `bio` (settings), `title` / `description` / `body` / `tags` (editor).
+- **Default avatar.** A nil/empty image falls back to `default-avatar.svg` on every `.user-img` / `.user-pic` / `.comment-author-img`; the navbar shows the authenticated user's `.user-pic`. Centralised in the shared `realworld-shared/avatar.cljs`.
+- **Empty-list marker.** Empty list states carry the official `.empty-feed-message` selector.
+- **Favorite / follow conventions.** The article-detail favorite control shows visible **Favorite** / **Unfavorite** text and toggles `.btn-outline-primary` ↔ `.btn-primary` on the favorited flag. The profile follow control shows **Follow** / **Unfollow** (`.btn-outline-secondary`). The compact heart-only card button stays `.btn-outline-primary`.
+
+### Validation runbook (external official suite)
+
+Conformance is claimed against an **actual external run**, not an in-repo assertion. To exercise it:
+
+1. **Build the app standalone** (one app per origin — sidesteps the same-origin `jwtToken` caveat). From `implementation/`:
+   ```bash
+   npx shadow-cljs release examples/realworld-resources   # → out/examples/realworld-resources/
+   ```
+   Serve `examples/reagent/realworld_resources/index.html` + the built `main.js` from a single static origin (e.g. `npx http-server`), mounted at `/` (drop the `/realworld-resources` base-path — set `realworld-resources.routing/set-base-path!` to `""`, or serve at that sub-path and point the suite there).
+2. **Point the app at a real backend** (modes 2/3 above): set `realworld-resources.http/api-base` to the hosted Conduit API or a local reference backend and remove the demo-stub `:fx-overrides` line in `core.cljs`. The real-backend modes are live (the bearer-auth interceptor + the JWT path are real, rf2-j4kbro); the canned stub cannot exercise the API-collection contract.
+3. **Run the official suites externally** against the served origin:
+   - **Cypress E2E:** the upstream `gothinkster/realworld` Cypress spec with `CYPRESS_baseUrl=<your-origin>`.
+   - **Newman/Postman API:** the upstream `Conduit.postman_collection.json` with `newman run … --env-var APIURL=<api-base>`.
+
+Record the run result in the PR. **Rows that need the hosted backend** (favorite/follow round-trips, comment post/delete, settings save) cannot be exercised against the canned stub; if a hosted backend is unavailable, note honestly which rows were and were not executed rather than claiming conformance from an in-repo test alone (rf2-lo28u).
 
 ## Verification posture
 

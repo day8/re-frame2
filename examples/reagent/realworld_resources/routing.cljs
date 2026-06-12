@@ -51,47 +51,63 @@
 ;; ROUTES — each declares the server-state its page needs via `:resources`
 ;; ============================================================================
 
+;; The route resources for the home page + its tag-filtered sibling. Both
+;; routes plan the same three reads (global list, popular tags, session feed);
+;; they differ only in WHERE the active tag comes from — the `/tag/:tag` route
+;; reads it from PATH params, the bare home route has none. `home-resources`
+;; takes a `tag-fn` so each route supplies its own tag source (rf2-e90vfv).
+(defn- home-resources [tag-fn]
+  [{:resource  :realworld/articles
+    ;; Route → resource params: the active tag (param or nil) AND `?page=` flow
+    ;; into identity. Every server-visible list option participates in the
+    ;; cache key (Spec 016 §Paginated and previous data).
+    :params    (fn [route] {:tag  (tag-fn route)
+                            :page (get-in route [:query :page])})
+    :blocking? true
+    :keep-previous? true}
+   {:resource  :realworld/tags
+    :params    (fn [_route] {})
+    :blocking? false}
+   ;; The personalised feed — a declarative route resource scoped by the
+   ;; named `{:from-db :realworld/session}` resolver (EP-0016 D3). The runtime
+   ;; resolves the scope against the navigation handler's app-db at route
+   ;; entry, owns it under the route nav-token, and releases it on leave —
+   ;; replacing the prior `:home/on-match` event + app-minted lease. Logged
+   ;; out the reference resolves nil, so the feed is simply not planned (no
+   ;; scope, no fetch — the feed never leaks across users). The `?page=` flows
+   ;; into params here like every other paginated list.
+   {:resource  :realworld/feed
+    :scope     {:from-db :realworld/session}
+    :params    (fn [route] {:page (get-in route [:query :page])})
+    :blocking? false
+    :keep-previous? true}])
+
 (rf/reg-route :realworld/home
   {:doc   "Home: the global article list + popular tags, plus (when signed in)
-           the personalised feed. The `:tag` query param filters the list and
-           `:page` paginates it — BOTH flow into the resource's params, so a
-           tag-filtered list and each page are distinct cache entries.
-           `:keep-previous?` keeps the prior page/filter visible while the next
-           first-loads (no flicker); back to a previously-loaded page is a
-           cache-hit. The session feed is the third route resource, scoped by
-           the named `{:from-db :realworld/session}` resolver (EP-0016 D3) —
-           logged out it resolves nil and is not planned."
+           the personalised feed. `?feed=following` switches to the session
+           feed (the official-contract token — NOT `?feed=your`) and `?page=`
+           paginates — both flow into the resources' params. `:keep-previous?`
+           keeps the prior page visible while the next first-loads (no
+           flicker). The tag filter is its own `/tag/:tag` PATH route below
+           (rf2-e90vfv route-shape conformance — no `?tag=` query)."
    :path  "/"
    :query [:map
-           [:tag  {:optional true} :string]
            [:feed {:optional true} :string]
            [:page {:optional true} :int]]
    :scroll   :top
-   :resources
-   [{:resource  :realworld/articles
-     ;; Route query → resource params: the `?tag=` AND `?page=` flow into
-     ;; identity. Every server-visible list option participates in the cache
-     ;; key (Spec 016 §Paginated and previous data).
-     :params    (fn [route] {:tag  (get-in route [:query :tag])
-                             :page (get-in route [:query :page])})
-     :blocking? true
-     :keep-previous? true}
-    {:resource  :realworld/tags
-     :params    (fn [_route] {})
-     :blocking? false}
-    ;; The personalised feed — a declarative route resource scoped by the
-    ;; named `{:from-db :realworld/session}` resolver (EP-0016 D3). The runtime
-    ;; resolves the scope against the navigation handler's app-db at route
-    ;; entry, owns it under the route nav-token, and releases it on leave —
-    ;; replacing the prior `:home/on-match` event + app-minted lease. Logged
-    ;; out the reference resolves nil, so the feed is simply not planned (no
-    ;; scope, no fetch — the feed never leaks across users). The `?page=` flows
-    ;; into params here like every other paginated list.
-    {:resource  :realworld/feed
-     :scope     {:from-db :realworld/session}
-     :params    (fn [route] {:page (get-in route [:query :page])})
-     :blocking? false
-     :keep-previous? true}]})
+   :resources (home-resources (fn [_route] nil))})
+
+(rf/reg-route :realworld/home-tag
+  {:doc   "The tag-filtered article list at the official RealWorld `/tag/:tag`
+           PATH route (rf2-e90vfv — replacing the prior `?tag=` query). The
+           active tag is a route PARAM that flows into the articles resource's
+           params, so each tag is a distinct cache entry; `?page=` paginates
+           within it (`/tag/:tag?page=2`). Same three reads as the home route."
+   :path   "/tag/:tag"
+   :params [:map [:tag :string]]
+   :query  [:map [:page {:optional true} :int]]
+   :scroll :top
+   :resources (home-resources (fn [route] (get-in route [:params :tag])))})
 
 (rf/reg-route :realworld.auth/login
   {:doc "Login page." :path "/login"})

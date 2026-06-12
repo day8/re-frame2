@@ -621,10 +621,15 @@
 (defn- tag-query-test []
   (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}})]
+    ;; rf2-e90vfv route-shape conformance: applying a tag navigates to the
+    ;; official `/tag/:tag` PATH route, so the active tag is a route PARAM (read
+    ;; via `:home/selected-tag`), NOT a `?tag=` query.
     (rf/dispatch-sync [:tags/apply-filter "clojure"] {:frame f})
-    (is (= "clojure" (:tag (rf/compute-sub [:rf.route/query] (rf/frame-state-value f)))))
+    (is (= :realworld/home-tag (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))
+    (is (= "clojure" (rf/compute-sub [:home/selected-tag] (rf/frame-state-value f))))
+    ;; The following feed uses the official `?feed=following` token (NOT `your`).
     (rf/dispatch-sync [:home/show-your-feed] {:frame f})
-    (is (= "your" (:feed (rf/compute-sub [:rf.route/query] (rf/frame-state-value f)))))))
+    (is (= "following" (:feed (rf/compute-sub [:rf.route/query] (rf/frame-state-value f)))))))
 
 (defn- tags-machine-load-test []
   ;; The :tags lifecycle — load happy path through the machine.
@@ -702,8 +707,11 @@
     (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
     (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))
 
-    (rf/dispatch-sync [:rf.route/handle-url-change "/?tag=clojure"] {:frame f})
-    (is (= "clojure" (:tag (rf/compute-sub [:rf.route/query] (rf/frame-state-value f)))))
+    ;; rf2-e90vfv: the tag filter is the official `/tag/:tag` PATH route — the
+    ;; tag is a route PARAM, not a `?tag=` query.
+    (rf/dispatch-sync [:rf.route/handle-url-change "/tag/clojure"] {:frame f})
+    (is (= :realworld/home-tag (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))
+    (is (= "clojure" (:tag (rf/compute-sub [:rf.route/params] (rf/frame-state-value f)))))
 
     (rf/dispatch-sync [:rf.route/handle-url-change "/garbage/path"] {:frame f})
     (is (= :rf.route/not-found (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))))

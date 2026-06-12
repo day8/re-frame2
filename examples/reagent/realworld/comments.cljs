@@ -8,6 +8,7 @@
    - Post/delete flows are optimistic and roll back via ordinary events."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
+            [realworld-shared.avatar :as avatar]
             [realworld-shared.markdown :as md]
             [realworld.schema :as schema]
             [realworld.http :as rh])
@@ -388,7 +389,7 @@
       [rf/route-link {:to     :realworld.profile/show
                            :params {:username (get-in comment [:author :username])}
                            :class  "comment-author"}
-       [:img.comment-author-img {:src (get-in comment [:author :image])}]
+       [:img.comment-author-img {:src (avatar/avatar-src (get-in comment [:author :image]))}]
        " "
        (get-in comment [:author :username])]
       [:span.date-posted (:createdAt comment)]
@@ -413,7 +414,7 @@
         authed? @(subscribe [:auth/authenticated?])]
     [:div.article-meta
      [rf/route-link {:to :realworld.profile/show :params {:username (:username author)}}
-      [:img {:src (:image author)}]]
+      [:img.user-pic {:src (avatar/avatar-src (:image author))}]]
      [:div.info
       [rf/route-link {:to :realworld.profile/show :params {:username (:username author)} :class "author"}
        (:username author)]
@@ -472,13 +473,22 @@
           [:h1 {:data-testid "article-title"} (:title article)]
           [:p {:data-testid "article-description"} (:description article)]
           [:span.article-controls
-           [:button.btn.btn-sm.btn-outline-primary
-            {:type        "button"
-             :data-testid "article-favorite"
-             :on-click    #(dispatch [:article/toggle-favorite (:slug article)])}
-            [:i.ion-heart] " "
-            [:span {:data-testid "article-favorites-count"}
-             (:favoritesCount article)]]
+           ;; rf2-e90vfv: the official RealWorld article-detail favorite
+           ;; control shows visible "Favorite"/"Unfavorite" text and toggles
+           ;; `.btn-outline-primary` (not favorited) ↔ `.btn-primary`
+           ;; (favorited) — the E2E contract asserts on both. The compact
+           ;; heart-only button on article cards stays `.btn-outline-primary`
+           ;; (that one is correct per the official client).
+           (let [favorited? (:favorited article)]
+             [:button.btn.btn-sm
+              {:type        "button"
+               :data-testid "article-favorite"
+               :class       (if favorited? "btn-primary" "btn-outline-primary")
+               :on-click    #(dispatch [:article/toggle-favorite (:slug article)])}
+              [:i.ion-heart] " "
+              (if favorited? "Unfavorite" "Favorite") " Article "
+              [:span.counter {:data-testid "article-favorites-count"}
+               "(" (:favoritesCount article) ")"]])
            " "
            [article-meta]]]]
         [:div.container.page
@@ -510,7 +520,7 @@
                  :disabled submitting?
                  :on-change #(dispatch [:comment-form/edit-field :body (.. % -target -value)])}]]
               [:div.card-footer
-               [:img.comment-author-img {:src (:image current-user)}]
+               [:img.comment-author-img {:src (avatar/avatar-src (:image current-user))}]
                [:button.btn.btn-sm.btn-primary
                 {:type "submit"
                  :data-testid "comment-submit"

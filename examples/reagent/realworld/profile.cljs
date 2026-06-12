@@ -31,6 +31,7 @@
             ;; below at ns-load) and the `:rf/machine` framework subs
             ;; resolve.
             [re-frame.machines]
+            [realworld-shared.avatar :as avatar]
             [realworld.schema :as schema]
             [realworld.http :as rh]
             [realworld.articles :as articles])
@@ -465,7 +466,7 @@
       [:div.container
        [:div.row
         [:div.col-xs-12.col-md-10.offset-md-1
-         [:img.user-img {:src (:image profile)}]
+         [:img.user-img {:src (avatar/avatar-src (:image profile))}]
          [:h4 (:username profile)]
          [:p (:bio profile)]
          (if own?
@@ -498,7 +499,7 @@
           (for [article articles*]
             ^{:key (:slug article)}
             [articles/article-preview {:article article}])
-          [:div.article-preview "No articles here yet."])
+          [:div.article-preview.empty-feed-message "No articles here yet."])
         [articles/pagination {:current-page current-page
                               :page-count   page-count
                               :on-select    #(dispatch [:profile/show-page %])}]]]]]))

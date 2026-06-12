@@ -50,22 +50,33 @@
 ;; SESSION PERSISTENCE SEAM
 ;; ============================================================================
 
+;; CONFORMANCE-CONTRACT SURFACE (rf2-e90vfv). The official RealWorld
+;; browser/E2E suite reads the session from `localStorage["jwtToken"]` — that
+;; exact key is the contract, so this seam uses it verbatim (NOT namespaced
+;; under `conduit-resources/…`). SAME-ORIGIN CAVEAT: the contract assumes one
+;; RealWorld app per origin. The repo's dev orchestrator serves BOTH variants
+;; from one origin (`/realworld/` + `/realworld-resources/`), so the two
+;; conforming apps share — and clobber — each other's `jwtToken` there. A known
+;; dev-mode artifact, NOT a contract violation: conformance is validated
+;; against STANDALONE serving (one app per origin), which the external suite
+;; does. See the README §RealWorld contract conformance.
 (rf/reg-fx :realworld-resources.session/persist
-  {:doc       "Persist (or clear) the JWT in localStorage. `{:token t}` writes
-               when truthy; nil removes the key."
+  {:doc       "Persist (or clear) the JWT in localStorage under the official
+               contract key `jwtToken` (rf2-e90vfv). `{:token t}` writes when
+               truthy; nil removes the key."
    :platforms #{:client}}
   (fn [_m {:keys [token]}]
     (when-let [ls (.-localStorage js/globalThis)]
       (if token
-        (.setItem ls "conduit-resources/jwt" token)
-        (.removeItem ls "conduit-resources/jwt")))))
+        (.setItem ls "jwtToken" token)
+        (.removeItem ls "jwtToken")))))
 
 (rf/reg-cofx :realworld-resources.session/token
   {:doc "Inject the saved token (or nil) from localStorage into coeffects."}
   (fn [ctx _]
     (rf/assoc-coeffect ctx :realworld-resources.session/token
                        (some-> (.-localStorage js/globalThis)
-                               (.getItem "conduit-resources/jwt")))))
+                               (.getItem "jwtToken")))))
 
 ;; ============================================================================
 ;; SESSION SUPPORT EVENTS
@@ -390,11 +401,11 @@
        :on-submit (fn [e] (.preventDefault e) (dispatch [:auth.login-form/submit]))}
       [:fieldset
        [:fieldset.form-group
-        [:input {:type "email" :data-testid "login-email" :placeholder "Email"
+        [:input {:type "email" :name "email" :data-testid "login-email" :placeholder "Email"
                  :value (:email draft) :disabled submitting?
                  :on-change #(dispatch [:auth.login-form/edit-field :email (.. % -target -value)])}]]
        [:fieldset.form-group
-        [:input {:type "password" :data-testid "login-password" :placeholder "Password"
+        [:input {:type "password" :name "password" :data-testid "login-password" :placeholder "Password"
                  :value (:password draft) :disabled submitting?
                  :on-change #(dispatch [:auth.login-form/edit-field :password (.. % -target -value)])}]]
        [:button {:type "submit" :data-testid "login-submit" :disabled submitting?}
@@ -412,13 +423,13 @@
       {:on-submit (fn [e] (.preventDefault e) (dispatch [:auth.register-form/submit]))}
       [:fieldset
        [:fieldset.form-group
-        [:input {:type "text" :placeholder "Username" :value (:username draft) :disabled submitting?
+        [:input {:type "text" :name "username" :placeholder "Username" :value (:username draft) :disabled submitting?
                  :on-change #(dispatch [:auth.register-form/edit-field :username (.. % -target -value)])}]]
        [:fieldset.form-group
-        [:input {:type "email" :placeholder "Email" :value (:email draft) :disabled submitting?
+        [:input {:type "email" :name "email" :placeholder "Email" :value (:email draft) :disabled submitting?
                  :on-change #(dispatch [:auth.register-form/edit-field :email (.. % -target -value)])}]]
        [:fieldset.form-group
-        [:input {:type "password" :placeholder "Password" :value (:password draft) :disabled submitting?
+        [:input {:type "password" :name "password" :placeholder "Password" :value (:password draft) :disabled submitting?
                  :on-change #(dispatch [:auth.register-form/edit-field :password (.. % -target -value)])}]]
        [:button {:type "submit" :disabled submitting?}
         (if submitting? "Signing up…" "Sign up")]]]]))

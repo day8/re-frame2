@@ -30,6 +30,7 @@
             [re-frame.core :as rf]
             [re-frame.resources]
             [realworld-resources.http :as rh]
+            [realworld-shared.avatar :as avatar]
             [realworld-shared.markdown :as md]
             [realworld-resources.resources :as resources])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -45,40 +46,50 @@
 ;; `{:from-db :realworld/session}` resolver (routing.cljs / resources.cljs) —
 ;; so the home page no longer needs an `:on-match` event to ensure it by hand.
 
+;; ROUTE-SHAPE CONFORMANCE (rf2-e90vfv): the tag filter is the `/tag/:tag` PATH
+;; route (`:realworld/home-tag`) — the active tag is a route PARAM, not a
+;; `?tag=` query — and the following feed uses `?feed=following` (NOT `your`).
+;;
 ;; Switching feed / tab / tag RESETS pagination to page 1 (a new filter is a
 ;; fresh list); paging KEEPS the current feed + tag and only changes `?page=`.
 ;; The page lives in the route query, so it flows straight into the resource
 ;; params — no page-cache map, no `:status` field.
 
+(def following-feed-token "following")
+
 (rf/reg-event-fx :home/show-global-feed
   (fn [_ _] {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {}}]]]}))
 
 (rf/reg-event-fx :home/show-your-feed
-  (fn [_ _] {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {:feed "your"}}]]]}))
+  (fn [_ _] {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {:feed following-feed-token}}]]]}))
 
 (rf/reg-event-fx :home/apply-tag
-  (fn [_ [_ tag]] {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {:tag tag}}]]]}))
+  (fn [_ [_ tag]] {:fx [[:dispatch [:rf.route/navigate :realworld/home-tag {:tag tag}]]]}))
 
 (rf/reg-event-fx :home/clear-tag
-  (fn [_ _] {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {}}]]]}))
+  (fn [_ _] {:fx [[:dispatch [:rf.route/navigate :realworld/home]]]}))
 
-;; Page navigation preserves the active feed + tag (read off the live route
-;; query) and swaps only `?page=` — so page N and N+1 share filter but are
-;; distinct cache keys. Page 1 drops the param entirely (the canonical
-;; first-page URL).
+;; Page navigation preserves the active feed + tag (read off the live route)
+;; and swaps only `?page=` — so page N and N+1 share filter but are distinct
+;; cache keys. A tag-filtered page re-targets the `/tag/:tag` PATH route with
+;; the tag param preserved; otherwise the home route carries `?feed=`. Page 1
+;; drops the `?page=` param entirely (the canonical first-page URL).
 (rf/reg-event-fx :home/go-to-page
   (fn [{rt :rf.db/runtime} [_ page]]
-    (let [{:keys [tag feed]} (get-in rt [:rf.runtime/routing :current :query])
-          query (cond-> {}
-                  tag         (assoc :tag tag)
-                  feed        (assoc :feed feed)
-                  (> page 1)  (assoc :page page))]
-      {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query query}]]]})))
+    (let [current (get-in rt [:rf.runtime/routing :current])
+          tag     (get-in current [:params :tag])
+          feed    (get-in current [:query :feed])]
+      (if tag
+        (let [query (cond-> {} (> page 1) (assoc :page page))]
+          {:fx [[:dispatch [:rf.route/navigate :realworld/home-tag {:tag tag} {:query query}]]]})
+        (let [query (cond-> {}
+                      feed       (assoc :feed feed)
+                      (> page 1) (assoc :page page))]
+          {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query query}]]]})))))
 
-(rf/reg-sub :home/query :<- [:rf.route/query] (fn [q _] (or q {})))
-(rf/reg-sub :home/selected-tag :<- [:home/query] (fn [q _] (:tag q)))
-(rf/reg-sub :home/your-feed?   :<- [:home/query] (fn [q _] (= "your" (:feed q))))
-(rf/reg-sub :home/page         :<- [:home/query] (fn [q _] (or (:page q) 1)))
+(rf/reg-sub :home/selected-tag :<- [:rf.route/params] (fn [p _] (:tag p)))
+(rf/reg-sub :home/your-feed?   :<- [:rf.route/query]  (fn [q _] (= following-feed-token (:feed q))))
+(rf/reg-sub :home/page         :<- [:rf.route/query]  (fn [q _] (or (:page q) 1)))
 
 ;; ============================================================================
 ;; FAVORITE / FOLLOW — fire a mutation, watch its instance
@@ -222,7 +233,7 @@
     [:div.article-preview {:data-testid (str "article-preview-" slug)}
      [:div.article-meta
       [rf/route-link {:to :realworld.profile/show :params {:username (:username author)}}
-       [:img {:src (:image author)}]]
+       [:img.user-pic {:src (avatar/avatar-src (:image author))}]]
       [:div.info
        [rf/route-link {:to :realworld.profile/show :params {:username (:username author)} :class "author"}
         (:username author)]
@@ -304,7 +315,10 @@
        (if (seq articles)
          (into [:div {:data-testid "article-list"}]
                (for [a articles] ^{:key (:slug a)} [article-preview {:article a}]))
-         [:div.article-preview {:data-testid "list-empty"} (or empty-msg "No articles are here… yet.")])
+         ;; rf2-e90vfv: the official RealWorld E2E contract asserts the
+         ;; `.empty-feed-message` marker on an empty list state.
+         [:div.article-preview.empty-feed-message {:data-testid "list-empty"}
+          (or empty-msg "No articles are here… yet.")])
        (when (and on-page articles-count)
          [pagination {:articles-count articles-count
                       :current-page   (or current-page 1)
@@ -393,7 +407,7 @@
      [:div.card-footer
       [rf/route-link {:to :realworld.profile/show :params {:username (get-in comment [:author :username])}
                       :class "comment-author"}
-       [:img.comment-author-img {:src (get-in comment [:author :image])}] " "
+       [:img.comment-author-img {:src (avatar/avatar-src (get-in comment [:author :image]))}] " "
        (get-in comment [:author :username])]
       [:span.date-posted (:createdAt comment)]
       (when mine?
@@ -416,7 +430,7 @@
         own?      (and me (= (:username me) username))]
     [:div.article-meta
      [rf/route-link {:to :realworld.profile/show :params {:username username}}
-      [:img {:src (:image author)}]]
+      [:img.user-pic {:src (avatar/avatar-src (:image author))}]]
      [:div.info
       [rf/route-link {:to :realworld.profile/show :params {:username username} :class "author"}
        username]
@@ -480,12 +494,20 @@
             (when (:fetching? article-state)
               [:span {:data-testid "article-refreshing"} " (refreshing…)"])
             [:span.article-controls
-             [:button.btn.btn-sm.btn-outline-primary
+             ;; rf2-e90vfv: the official RealWorld article-detail favorite
+             ;; control shows visible "Favorite"/"Unfavorite" text and toggles
+             ;; `.btn-outline-primary` ↔ `.btn-primary` on the favorited flag —
+             ;; the E2E contract asserts on both. (The compact heart-only card
+             ;; button stays `.btn-outline-primary`, correct per the official
+             ;; client.)
+             [:button.btn.btn-sm
               {:type "button" :data-testid "article-favorite"
+               :class (if favorited "btn-primary" "btn-outline-primary")
                :disabled (:pending? fav-state)
                :on-click #(dispatch [:ui/favorite slug favorited])}
               [:i.ion-heart] " "
-              [:span {:data-testid "article-favorites-count"} favoritesCount]]
+              (if favorited "Unfavorite" "Favorite") " Article "
+              [:span.counter {:data-testid "article-favorites-count"} "(" favoritesCount ")"]]
              " "
              [article-meta {:article article :del-state del-state}]]]]
           [:div.container.page
@@ -579,7 +601,7 @@
            [:div.container
             [:div.row
              [:div.col-xs-12.col-md-10.offset-md-1
-              [:img.user-img {:src image}]
+              [:img.user-img {:src (avatar/avatar-src image)}]
               [:h4 {:data-testid "profile-username"} username]
               [:p bio]
               (when (:fetching? profile-state) [:span {:data-testid "profile-refreshing"} " (refreshing…)"])
