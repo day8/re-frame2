@@ -1321,25 +1321,38 @@
      :edn-submap {:ok? false :reason :no-such-realm :realm :nope}}}
 
    {:fixture/id    :reset-operating-frame/clears-pin
-    :fixture/doc   "reset-operating-frame clears the session pin (select-frame! nil) and returns the post-reset triple with :selected nil."
+    :fixture/doc   "reset-operating-frame clears BOTH session pins — the frame pin (select-frame! nil) AND the realm pin (select-realm! nil, EP-0013 rf2-09ijml) — and returns the post-reset map with :selected nil, :selected-realm nil, and :operating-realm back at the default realm (rf2-c6armm.9 #2)."
     :fixture/tool  "reset-operating-frame"
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
-     ;; The clear-then-reread form: select-frame! nil, then frames-list
-     ;; reports :selected nil. In a multi-frame app :operating is now nil
-     ;; (back to tier-4 ambiguous).
+     ;; The clear-then-reread form: select-frame! nil, select-realm! nil, then
+     ;; frames-list reports BOTH pins cleared — :selected nil (multi-frame app →
+     ;; :operating nil, back to tier-4 ambiguous) AND :selected-realm nil
+     ;; (:operating-realm falls back to the default realm). The substring match
+     ;; on "select-frame!" matches the single clear-then-reread form.
      ["select-frame!"             {:ok? true
                                    :frames [:rf/default :stories]
                                    :selected nil
-                                   :operating nil}]
+                                   :operating nil
+                                   :realms [:rf.realm/default :shop/realm]
+                                   :selected-realm nil
+                                   :operating-realm :rf.realm/default
+                                   :frame-realms {:rf/default :rf.realm/default
+                                                  :stories :shop/realm}}]
      [:default                    nil]]
+    ;; The emitted reset form MUST clear BOTH pins, not just the frame pin: a
+    ;; regression that dropped `select-realm! nil` would leave a stale operating
+    ;; realm after reset (subsequent tool calls scoped to the wrong realm) yet
+    ;; still pass a frame-only assertion (rf2-c6armm.9 #2).
     :fixture/eval-form-must-contain
-    ["select-frame! nil" "frames-list"]
+    ["select-frame! nil" "select-realm! nil" "frames-list"]
     :fixture/expect
     {:isError? false
-     :edn-submap {:ok? true :selected nil :operating nil}
-     :edn-contains-keys #{:frames :selected :operating}}}
+     :edn-submap {:ok? true :selected nil :operating nil
+                  :selected-realm nil :operating-realm :rf.realm/default}
+     :edn-contains-keys #{:frames :selected :operating
+                          :realms :selected-realm :operating-realm :frame-realms}}}
 
    {:fixture/id    :get-operating-frame/reports-triple
     :fixture/doc   "get-operating-frame returns the normative {:frames :selected :operating} triple; :selected reflects a prior set."
