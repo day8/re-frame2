@@ -85,23 +85,30 @@
     (update-in db [:click-count :event] inc)))
 
 ;; ----------------------------------------------------------------------------
-;; Button C — :where :cofx (cofx :spec rejects the injected value)
+;; Button C — :where :cofx (cofx :schema rejects the supplied value)
 ;; ----------------------------------------------------------------------------
 ;;
-;; The cofx :spec demands the injected value is a positive int; the
-;; cofx body deliberately injects -1. The handler is NOT invoked; the
-;; failure trace fires with :where :cofx and :failing-id naming the
-;; cofx. The downstream queue continues to drain.
+;; EP-0017: `reg-cofx` is a value-returning supplier — the v1 ctx->ctx
+;; idiom and `inject-cofx` are removed. The cofx :schema demands a
+;; positive int; the supplier deliberately returns -1. The consumer
+;; declares the cofx via `:rf.cofx/requires` (the one declaration
+;; surface). Per [spec/010 §Validation order] step 2 the supplied value
+;; is validated after delivery, before the handler sees the merged
+;; context: the handler is NOT invoked; the failure trace fires with
+;; :where :cofx and :failing-id naming the cofx. The downstream queue
+;; continues to drain.
 
 (rf/reg-cofx ::bad-counter
-  {:schema pos-int?}
-  (fn [ctx _]
-    ;; HOT PATH — the injection site for :where :cofx.
+  {:doc    "Deliberately returns a value its own :schema rejects, to
+            light up the :where :cofx schema-validation surface."
+   :schema pos-int?}
+  (fn []
+    ;; HOT PATH — the supply site for :where :cofx.
     ;; Returns a value that the registered :schema will reject.
-    (rf/assoc-coeffect ctx ::bad-counter -1)))
+    -1))
 
 (rf/reg-event-fx ::violate-cofx
-  [(rf/inject-cofx ::bad-counter)]
+  {:rf.cofx/requires [::bad-counter]}
   (fn [{:keys [db]} _ev]
     {:db (update-in db [:click-count :cofx] inc)}))
 
