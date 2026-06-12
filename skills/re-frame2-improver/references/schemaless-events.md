@@ -173,24 +173,23 @@ This handler carries **both** a `:schema` for its event id **and** `[rf/validate
         {:db (assoc db :session parsed)}
         {:fx [[:session/clear-corrupt]]}))))                     ;; reject, don't ingest
 
-;; (b) Better — move the read+validation into a cofx; the handler only sees a clean value:
+;; (b) Better — move the read+validation into a value-returning cofx; the handler only sees a clean value:
 (rf/reg-cofx :session/stored
   {:doc "Materialise + validate the persisted session; nil if absent/corrupt."}
-  (fn [ctx]
+  (fn []
     (let [parsed (some-> (.getItem js/globalThis.localStorage "session")
                          js/JSON.parse (js->clj :keywordize-keys true))]
-      (assoc-in ctx [:coeffects :session]
-                (when (m/validate Session parsed) parsed)))))    ;; ALWAYS-ON validation in the cofx
+      (when (m/validate Session parsed) parsed))))               ;; ALWAYS-ON validation; returns the value
 
 (rf/reg-event-fx :session/rehydrate
-  [(rf/inject-cofx :session/stored)]
-  (fn [{:keys [db session]} _]                                   ;; :session is already validated data
-    (cond-> {} session (assoc :db (assoc db :session session)))))
+  {:rf.cofx/requires [:session/stored]}
+  (fn [{:keys [db session/stored]} _]                            ;; the validated value arrives flat
+    (cond-> {} stored (assoc :db (assoc db :session stored)))))
 ```
 
 Both gates validate the **value the body would have read**, so the boundary is closed in the production bundle — not just the dispatch shape.
 
-> **Validation is necessary but not sufficient — this read is durable (EP-0010).** `:session/rehydrate` writes the validated `localStorage` value straight into `:db`, so the read decides a **durable** write. Validation closes the *trust* boundary, but it does **not** make the write replay-deterministic: an ambient `localStorage` read re-reads the *current* host on every replay, so epoch restore / SSR hydration / time-travel each diverge from the recorded boot (Spec 002 §Causal world inputs). The fix is the same direction as the cofx in shape (b), made **recordable**: register the cofx with a `:schema` so its captured value is **recorded in the replay record and returned from the record on replay** (not re-read from the host), or source the value from `:rf.world/inputs` `:storage`. A read that lands only in a diagnostic / host-transient slot — deciding no durable write — stays an ordinary unrecorded cofx and validation alone suffices.
+> **Validation is necessary but not sufficient — this read is durable (EP-0010 recording / EP-0017 authoring).** `:session/rehydrate` writes the validated `localStorage` value straight into `:db`, so the read decides a **durable** write. Validation closes the *trust* boundary, but it does **not** make the write replay-deterministic: an ambient `localStorage` read re-reads the *current* host on every replay, so epoch restore / SSR hydration / time-travel each diverge from the recorded boot (Spec 002 §Recordable coeffects). The fix makes the fact **recordable** — a boot/rehydrate value is the persisted durable state itself (no prior recorded epoch to diverge from, so the ambient boot read is the legitimate edge), but a `localStorage` read that feeds durable state *mid-session* must arrive as recorded data: the boot/restore token carries the value as a recordable fact (declared via `:rf.cofx/requires`), not a fresh host read at the write site. A read that lands only in a diagnostic / host-transient slot — deciding no durable write — stays an ordinary ambient cofx and validation alone suffices.
 
 ## Edge cases — when schemaless is fine
 
