@@ -68,25 +68,31 @@
     * it is correct under hot-reload for free: re-registration replaces the
       registrar slot, so the next projection carries the new handler/coords.
 
-  The EP's later stages (6/7) add explicit `rf/app` / `rf/module`
-  *construction* (compose modules into an app value as INERT data, before
-  any realm) and `install!` / `reinstall!` (seat an explicit app value into a
-  realm). This stage ships neither — it ships only the read direction: the
-  default realm already HAS an installed program (the process-load `reg-*`
-  registrations), and this projects it into the descriptor value the later
-  stages and tooling will read and diff.
+  Projection (stage 5) is the READ direction over the default realm's
+  load-order program (the process-load `reg-*` registrations re-grouped into
+  the descriptor value tooling reads and diffs). On top of it this ns now also
+  ships the WRITE directions that complete D2: explicit `rf/app` / `rf/module`
+  *construction* (stage 6 — compose modules into an app value as INERT data,
+  before any realm) and `install!` / `reinstall!` (stage 7 — seat an explicit
+  app value into a realm; see §Installation + §reinstall below). All three
+  produce or consume the SAME descriptor-grouped shape, so a projected app and
+  a constructed app are interchangeable to the inspectors and the installer.
 
   ## Production elision
 
-  Pure readers over the realm/registrar maps; no trace emit sites, no
+  Pure data over the realm/registrar maps; no trace emit sites, no
   DEBUG-gated branches, no feature sentinels, and no per-feature `:require`
-  (only `re-frame.realm` + `re-frame.late-bind`, both already in the core
-  spine; the registrar atom is reached through `realm/registrar`, never
-  required directly). The projection is operational metadata, not a dev
-  surface — it survives `:advanced` + `goog.DEBUG=false` intact and is
-  bundle-isolation neutral. (It is never *called* on the hot path; in stage 5
-  it is reached only by tests, so in a production app it is dead code Closure
-  DCE removes.)"
+  (only `re-frame.realm` + `re-frame.registrar` + `re-frame.late-bind`, all
+  already in the core spine; the lowering into a kind's real registration
+  logic is reached through the `:app-value/install-descriptor!` late-bind hook,
+  never a direct `:require` of the reg surfaces, so this ns stays a leaf on the
+  realm/registrar spine and is bundle-isolation neutral). The projection +
+  construction are operational metadata, not a dev surface — they survive
+  `:advanced` + `goog.DEBUG=false` intact. None of these fns runs on the
+  registration hot path (the `reg-*` sugar path is byte-identical), so in an
+  app that never calls the construction/install surface they are dead code
+  Closure DCE removes; an app that DOES call `rf/app` / `rf/install!` keeps
+  exactly what it references."
   (:require [clojure.set        :as set]
             [re-frame.realm     :as realm]
             [re-frame.registrar :as registrar]
@@ -242,12 +248,18 @@
   Returns:
     {:rf.app/id     <realm-id>            ;; the app the realm carries
      :registrations {kind {id descriptor}} ;; normalized descriptors by kind
-     :requires      #{}}                  ;; capability requirements (empty in
-                                          ;; stage 5 — declared on modules, D3)
+     :requires      #{}}                  ;; capability requirements — always
+                                          ;; empty for a projected app
+                                          ;; (requirements are declared on
+                                          ;; MODULE values; load-order
+                                          ;; registrations carry none)
 
-  INTERNAL — there is NO public `rf/app` constructor and no public
-  installed-app read surface in stage 5 (EP-0013 issue 1; stages 6/7). nil
-  resolves to the default realm (absence = default realm, the D1 rule)."
+  This PROJECTION fn is INTERNAL — there is no public read surface for a
+  realm's projected installed app (the public app-value vocabulary is the
+  stage-6 `rf/app` / `rf/module` CONSTRUCTORS + the `rf/install!` seating
+  path, not this read seam). `re-frame.realm/installed-app` reaches it through
+  the `:app-value/project` late-bind hook. nil resolves to the default realm
+  (absence = default realm, the D1 rule)."
   ([] (app-value realm/default-realm-id))
   ([realm-or-id]
    (let [rid       (realm/realm-id realm-or-id)
@@ -733,8 +745,9 @@
 ;;   :removed — (kind, id) in OLD but not NEW → unregister (removed
 ;;              registrations fail loudly on future lookup — §Hot Reload rule)
 ;; then records the new app value in the realm's `:app` slot. Returns the diff
-;; (the same `{:realm :added :changed :removed}` shape the EP's example shows),
-;; so a dev tool can show what a save changed. The diff is the value; trace +
+;; (the `{:realm :reason :added :changed :removed}` shape the EP's example shows
+;; — `:reason` echoes `opts`, defaulting to `:hot-reload`), so a dev tool can
+;; show what a save changed. The diff is the value; trace +
 ;; cache invalidation ride the registrar's existing hot-reload surface (a
 ;; re-register fires the replacement hooks subs.cljc already uses to invalidate
 ;; its cache — §Hot Reload: "changed subscriptions invalidate the relevant
@@ -777,7 +790,8 @@
   (EP-0013 issue 12, PRECISED — see `reinstall!`'s docstring). Of the
   step-7 wired kinds, `:frame` is the only one that IS a live instance: a
   removed `:event`/`:fx`/`:cofx` has no live runtime instance (it
-  fail-loud's on future use per EP body rule 960), a removed `:sub`'s
+  fail-loud's on future use per EP-0013 §Hot Reload And Reinstall —
+  \"removed registrations fail loudly on future use\"), a removed `:sub`'s
   disposal/loud-read is pre-existing per-kind hot-reload behaviour, and
   the step-8-deferred kinds are STRUCTURALLY UNREACHABLE through the diff
   (they throw `:rf.error/unsupported-descriptor-kind` at install/reinstall,
