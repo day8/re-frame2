@@ -50,6 +50,7 @@
             [re-frame.test-support :as test-support]
             [re-frame.machines]                     ;; load the machines facade so reg-machine works
             [re-frame.machines.tooling :as machines-tooling]
+            [re-frame.routing]                      ;; load routing so reg-route + navigate materialize a live route slice
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
@@ -198,6 +199,63 @@
           "the live composer was called with the observed target frame id"))
     (let [{:keys [mode]} (read-xray [:rf.xray/derivation-graph-tab-data])]
       (is (= :live mode) "tab-data reflects the live mode"))))
+
+;; ---- (4b) LIVE mode carries REAL live CONTENT + frame isolation (rf2-k0meap.3)
+;;
+;; The §4 test above proves the live composer is CALLED with the target frame,
+;; but a regression that returned an EMPTY live graph for the selected frame,
+;; dropped the live nodes/edges, or failed to feed live content into tab-data
+;; would still satisfy it (it asserts only :mode + :frame). This test plants a
+;; REAL live fact in the target frame — a navigation that materializes the
+;; route slice — and asserts the live node + family grouping flow through the
+;; consumer path; a SECOND frame (no navigation) proves target-frame isolation.
+
+(deftest live-mode-carries-the-target-frames-live-content-and-isolates-by-frame
+  (testing "a live fact in the TARGET frame surfaces as a live node through
+            the Xray consumer path (graph + tab-data carry it)"
+    (setup-xray!)
+    (frame/reg-frame :app/main {})
+    (frame/reg-frame :app/other {})
+    ;; Register a route and materialize the route slice in :app/main by
+    ;; navigating (the live route slice view reads runtime-db, ungated).
+    (rf/with-frame :app/main
+      (rf/reg-route :route/article {:path "/articles/:slug"}))
+    (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "welcome"}]
+                      {:frame :app/main})
+    (rf/dispatch-sync [:rf.xray/set-derivation-graph-mode :live] {:frame :rf/xray})
+    (rf/dispatch-sync [:rf.xray/set-target-frame :app/main] {:frame :rf/xray})
+    (let [graph (read-xray [:rf.xray/derivation-graph])
+          slice (get (:nodes graph) :rf/route)]
+      (is (= :live (:mode graph)))
+      ;; The realized route slice is a LIVE node in the composed graph — not
+      ;; an empty graph (the regression this closes).
+      (is (some? slice) "the live route slice node is present in the live graph")
+      (is (= :route/article (:route-id slice)) "the realized matched route id")
+      (is (= {:slug "welcome"} (:params slice)) "the realized live params")
+      (is (= :routes (:rf/family slice)) "the live node is family-tagged :routes"))
+    (testing "tab-data feeds the live node into its by-family grouping (live
+              content reaches the view-facing composite, not just :mode)"
+      (let [{:keys [mode by-family silent?]} (read-xray [:rf.xray/derivation-graph-tab-data])]
+        (is (= :live mode))
+        (is (not silent?) "the live graph is NOT empty — tab-data carries live content")
+        (is (contains? (set (keys by-family)) :routes)
+            "the routes family is grouped from the live node")
+        (let [route-entries (get by-family :routes)]
+          (is (some (fn [[node-id _]] (= :rf/route node-id)) route-entries)
+              "the live route node is in the routes group")))))
+
+  (testing "target-frame ISOLATION — pointing Xray at a DIFFERENT frame (no
+            navigation) yields an empty live graph; the first frame's live
+            slice does NOT leak across"
+    ;; (state from the previous testing block persists within the deftest's
+    ;; single fixture run — :app/other was registered but never navigated.)
+    (rf/dispatch-sync [:rf.xray/set-target-frame :app/other] {:frame :rf/xray})
+    (let [graph (read-xray [:rf.xray/derivation-graph])]
+      (is (= :app/other (:frame graph)) "the live graph targets the OTHER frame")
+      (is (nil? (get (:nodes graph) :rf/route))
+          "no route slice leaks from :app/main into the :app/other live graph")
+      (is (= {} (into {} (filter (fn [[_ n]] (= :routes (:rf/family n))) (:nodes graph))))
+          "the :app/other live graph carries no routes-family live node"))))
 
 ;; ---- (5) the override path bypasses the composer ------------------------
 

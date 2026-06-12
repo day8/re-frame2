@@ -153,14 +153,17 @@
           "all five algebra-view families are present in the assembled graph")
       ;; Canonical node-id tagging per family.
       (is (contains? nodes [:sub :cart/total]) "a subscription node, [:sub …]-tagged")
-      (is (contains? nodes [:flow :cart/materialized-total]) "a flow node, [:flow …]-tagged")
+      ;; flow node id is FRAME-SCOPED (rf2-k0meap.2): [:flow <frame-id> <flow-id>]
+      ;; so a reused flow-id across frames does not collapse onto one slot.
+      (is (contains? nodes [:flow :rf/default :cart/materialized-total])
+          "a flow node, [:flow <frame-id> <flow-id>]-tagged (frame-scoped)")
       (is (contains? nodes [:resource :article/by-slug]) "a resource node, [:resource …]-tagged")
       (is (contains? nodes [:machine :upload/main]) "a machine node, [:machine …]-tagged")
       (is (contains? nodes [:rf/route :route/article]) "a route node, [:rf/route …]-tagged")
       ;; The superkinds are classified — a tool that knows only the two
       ;; superkinds can classify every node.
       (is (= :derivation (get-in nodes [[:sub :cart/total] :kind])))
-      (is (= :derivation (get-in nodes [[:flow :cart/materialized-total] :kind])))
+      (is (= :derivation (get-in nodes [[:flow :rf/default :cart/materialized-total] :kind])))
       (is (= :process    (get-in nodes [[:resource :article/by-slug] :kind])))
       (is (= :process    (get-in nodes [[:rf/route :route/article] :kind])))
       (is (= :process    (get-in nodes [[:machine :upload/main] :kind])))
@@ -191,7 +194,55 @@
                 edges)
           "the :selector edge from the machine process to its selector sub")
       (is (contains? roles :input))
-      (is (contains? roles :selector)))))
+      (is (contains? roles :selector))
+      ;; rf2-k0meap.2: the selector sub node is ENRICHED with the
+      ;; :machine-selector refinement (still a :derivation superkind — not a
+      ;; second subscription system; the refinement is colour, not contract).
+      (is (= :machine-selector
+             (get-in (:nodes g) [[:sub :upload/progress] :refinement]))
+          "the selector sub node carries :refinement :machine-selector")
+      (is (= :derivation (get-in (:nodes g) [[:sub :upload/progress] :kind]))
+          "the selector remains an ordinary :derivation — refinement is not a superkind")
+      ;; A NON-selector sub (no machine input) carries no machine-selector
+      ;; refinement — only the actual selector targets are enriched.
+      (is (nil? (get-in (:nodes g) [[:sub :cart/total] :refinement]))
+          "a non-selector sub is not falsely refined :machine-selector"))))
+
+(deftest same-flow-id-on-two-frames-stays-distinct
+  ;; rf2-k0meap.2 point-1: a flow is FRAME-SCOPED — the same flow-id may
+  ;; register against two frames with different :inputs / :output / :path.
+  ;; The composed graph must preserve the frame dimension so one frame's
+  ;; flow does NOT overwrite another's when their ids match.
+  (testing "the SAME flow-id registered on two frames yields TWO distinct
+            composed flow nodes, keyed by [:flow <frame-id> <flow-id>]"
+    (rf/reg-frame :app/a {})
+    (rf/reg-frame :app/b {})
+    ;; Same flow-id, different output paths, on two different frames.
+    (rf/with-frame :app/a
+      (rf/reg-flow {:id     :shared/total
+                    :inputs [[:cart :items]]
+                    :output count
+                    :path   [:a-total]}))
+    (rf/with-frame :app/b
+      (rf/reg-flow {:id     :shared/total
+                    :inputs [[:basket :lines]]
+                    :output count
+                    :path   [:b-total]}))
+    (let [g     (graph/derivation-graph all-contributors)
+          nodes (:nodes g)
+          a-id  [:flow :app/a :shared/total]
+          b-id  [:flow :app/b :shared/total]]
+      (is (contains? nodes a-id) "frame :app/a's flow node is present, frame-scoped")
+      (is (contains? nodes b-id) "frame :app/b's flow node is present, frame-scoped")
+      (is (not= a-id b-id) "the two nodes have DISTINCT ids (no collapse)")
+      ;; Each preserved its own per-frame output — the collapse bug would
+      ;; have left only one of these.
+      (is (= [:db [:a-total]] (get-in nodes [a-id :output]))
+          "frame A's flow kept its own :output path")
+      (is (= [:db [:b-total]] (get-in nodes [b-id :output]))
+          "frame B's flow kept its own :output path")
+      (is (= [:frame :app/a] (get-in nodes [a-id :owner])))
+      (is (= [:frame :app/b] (get-in nodes [b-id :owner]))))))
 
 (deftest route-resource-activation-edge-is-param-role
   (testing "a route's :resources route-metadata becomes a :param edge"
@@ -343,3 +394,110 @@
       (is (some? slice) "the live route slice node is present, keyed by :rf/route")
       (is (= :route/article (:route-id slice)) "the live matched route id")
       (is (= {:slug "welcome"} (:params slice)) "the live matched params"))))
+
+;; ---- live graph: realized route-owned resource edges (rf2-k0meap.1) -------
+;;
+;; The composer's live route→resource edge derivation is exercised through
+;; the PUBLIC `live-derivation-graph` over CUSTOM contributors that return
+;; the realized shapes a navigation-then-fetch produces — the live route
+;; slice with its `[:route route-id nav-token]` owner, and a concrete
+;; scoped-key resource entry whose `:lifecycle :owners` carries that SAME
+;; route owner. Driving these through the real edge-extraction path (not a
+;; private fn) pins that the static graph's `:parametric` route-resource
+;; marker resolves to a concrete edge in the live graph.
+
+(def ^:private nav-token-fixture 42)
+(def ^:private scoped-key-fixture
+  [[:rf.scope/global] :article/by-slug {:slug "welcome"}])
+
+(defn- live-route-node-fixture []
+  {:id         :rf/route
+   :kind       :process
+   :refinement :route-fact
+   :route-id   :route/article
+   :params     {:slug "welcome"}
+   :nav-token  nav-token-fixture
+   :owner      [:route :route/article nav-token-fixture]
+   :output     [:runtime [:rf.runtime/routing :current]]
+   :storage    :runtime-db :evaluation :on-route :lifecycle :frame})
+
+(defn- live-resource-node-fixture [owners]
+  {:id         scoped-key-fixture
+   :kind       :process
+   :refinement :resource-process
+   :inputs     [[:scope [:rf.scope/global]] [:param {:slug "welcome"}]]
+   :output     [:runtime [:rf.runtime/resources :entries scoped-key-fixture]]
+   :storage    :runtime-db
+   :authority  {:kind :remote :system :server}
+   :evaluation #{:on-route}
+   :lifecycle  {:kind :resource-key :owners owners}
+   :status     :loaded})
+
+(defn- fixture-live-contributors
+  "A contributor map whose route + resource live-fns return the supplied
+  fixture nodes (and whose other families contribute nothing), so the
+  composer's live edge derivation runs over realized shapes."
+  [route-node resource-node]
+  {:routes    {:static-fn (constantly {}) :live-shape :node
+               :live-fn   (constantly route-node)}
+   :resources {:static-fn (constantly {}) :live-shape :map
+               :live-fn   (constantly (when resource-node
+                                        {scoped-key-fixture resource-node}))}})
+
+(deftest live-graph-draws-realized-route-owned-resource-edge
+  (testing "a route-owned resource entry (owner [:route route-id nav-token])
+            yields a :param edge from the live route node to the CONCRETE
+            [:resource <scoped-key>] node — the live resolution of the
+            static graph's :parametric route-resource marker (rf2-k0meap.1)"
+    (let [route-node (live-route-node-fixture)
+          res-node   (live-resource-node-fixture
+                       #{[:route :route/article nav-token-fixture]})
+          g          (graph/live-derivation-graph
+                       :rf/default
+                       (fixture-live-contributors route-node res-node))
+          res-id     [:resource scoped-key-fixture]]
+      (is (contains? (:nodes g) :rf/route) "the live route node is present")
+      (is (contains? (:nodes g) res-id) "the concrete scoped-key resource node is present")
+      (is (some #(= % {:from  :rf/route
+                       :to    res-id
+                       :role  :param
+                       :owner [:route :route/article nav-token-fixture]})
+                (:edges g))
+          "the realized route→concrete-resource :param edge targets the concrete scoped key")))
+
+  (testing "a NON-route owner (e.g. a :rf.scope/global activation owner)
+            draws NO route-resource edge — only realized route owners do"
+    (let [route-node (live-route-node-fixture)
+          ;; owner is NOT a [:route …] shape → no route edge.
+          res-node   (live-resource-node-fixture #{[:component :some/widget]})
+          g          (graph/live-derivation-graph
+                       :rf/default
+                       (fixture-live-contributors route-node res-node))]
+      (is (not-any? #(and (= :param (:role %))
+                          (= [:resource scoped-key-fixture] (:to %)))
+                    (:edges g))
+          "no route-resource edge for a non-route owner")))
+
+  (testing "an owner whose nav-token does NOT match any live route node
+            draws no edge (a stale / superseded owner)"
+    (let [route-node (live-route-node-fixture)        ;; nav-token 42
+          res-node   (live-resource-node-fixture
+                       #{[:route :route/article 999]}) ;; stale token
+          g          (graph/live-derivation-graph
+                       :rf/default
+                       (fixture-live-contributors route-node res-node))]
+      (is (not-any? #(and (= :param (:role %))
+                          (= [:resource scoped-key-fixture] (:to %)))
+                    (:edges g))
+          "no edge when the resource owner's route nav-token matches no live route")))
+
+  (testing "the STATIC graph draws NO realized route-resource edge — realized
+            owners are live-only"
+    (let [g (graph/derivation-graph
+              (fixture-live-contributors (live-route-node-fixture)
+                                         (live-resource-node-fixture
+                                           #{[:route :route/article nav-token-fixture]})))]
+      ;; static-fns return {} so there are no nodes; the realized-edge derivation
+      ;; is also gated on :live mode regardless.
+      (is (not-any? #(= :param (:role %)) (:edges g))
+          "the static graph emits no realized route-resource edge"))))

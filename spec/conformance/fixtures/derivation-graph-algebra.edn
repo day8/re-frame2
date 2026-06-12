@@ -1,0 +1,99 @@
+;; Conformance fixture: derivation-graph/algebra (EP-0014, rf2-k0meap.3)
+;;
+;; The host-agnostic corpus pin for the EP-0014 derivation/process ALGEBRA
+;; GRAPH (spec/Derivations.md §Graph inspection + §Conformance; EP-0014
+;; §Validation / Conformance — "Source lowering", "Static graph", "Storage
+;; classification"). Before this fixture the EP-0014 graph laws were pinned
+;; ONLY by implementation-local CLJS/JVM tests (the per-family algebra-view
+;; suites + the composer test); the shared corpus had NO derivation/algebra
+;; graph operator, so a future PORT could pass the whole corpus while missing
+;; the lowering / node-edge shape / storage classification the EP names.
+;;
+;; The `:derivation-graph` call op composes the cross-family graph over the
+;; host's loaded contributors (subscriptions are pattern-required; machines
+;; are the canonical :process member) and asserts NORMALIZED node + edge
+;; shapes against the spec/Derivations.md fixed-classification tables.
+;;
+;; What it pins (the EP-0014 §Conformance laws, restated portably):
+;;   - LOWERING        — a `reg-sub` lowers to a `:derivation` node; a
+;;                       `reg-machine` lowers to a `:process` node refined
+;;                       `:machine-process`. Every node's `:kind` is one of
+;;                       the closed two-superkind enum (a tool classifies by
+;;                       `:kind` alone); the refined kind rides `:refinement`.
+;;   - CLASSIFICATION  — subscriptions are ephemeral / on-demand /
+;;                       subscription-cache-entry; machines are runtime-db /
+;;                       machine-instance. No node uses `:remote` as a storage
+;;                       class (external authority is the separate axis).
+;;   - GRAPH EDGES     — a `:<-` chain becomes a static `:input` edge resolved
+;;                       to the upstream subscription node id; a node with no
+;;                       declared `[:sub …]` input draws no spurious edge.
+;;
+;; Capability `:derivation/algebra-graph`. A port that does not expose the
+;; algebra-view graph declares this capability in its
+;; `known-skipped-capabilities` allowlist; the fixture is then reported as an
+;; out-of-claim skip rather than a failure.
+
+{:fixture/id           :derivation-graph/algebra
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/sub :fsm/flat :derivation/algebra-graph}
+ :fixture/doc          "The cross-family derivation/process algebra graph: a reg-sub lowers to a :derivation node (ephemeral / on-demand / subscription-cache-entry), a :<- chain becomes a static :input edge, and a reg-machine lowers to a :process node (runtime-db / machine-instance, refinement :machine-process). Pins EP-0014 lowering + storage classification + edge roles in the host-agnostic corpus."
+
+ :fixture/registry
+ {:sub {:cart/items {:doc "All items in the cart (a layer-1 :db reader)."}
+        :cart/total {:doc   "Item count (a :<- derivation over :cart/items)."
+                     :inputs [:cart/items]}}
+  :machine
+  {:upload/main
+   {:initial :idle
+    :data    {:progress 0}
+    :states  {:idle      {:on {:upload/start {:target :uploading}}}
+              :uploading {:on {:upload/done {:target :idle}}}}}}}
+
+ ;; NB the sub BODIES never run here (this fixture asserts the registration-
+ ;; derived GRAPH, not sub values) — but the realizer resolves the mapper at
+ ;; registration, so use the known `:identity` builtin. The `:input` edge is
+ ;; derived from the `:<-` declared input, not from executing the body.
+ :fixture/handlers
+ {:sub {:cart/items [[:get [:cart :items]]]
+        :cart/total [[:reduce-input :cart/items [:fn :+] [:fn :identity]]]}}
+
+ :fixture/frame-config {}
+
+ :fixture/calls
+ [{:call :derivation-graph
+   :mode :static
+
+   ;; LOWERING + CLASSIFICATION — each :expect-node is a SUBMAP matched
+   ;; against the composed node at :id.
+   :expect-nodes
+   [;; a subscription is a :derivation; ephemeral / on-demand / cache-entry.
+    {:id         [:sub :cart/items]
+     :kind       :derivation
+     :storage    :ephemeral
+     :evaluation :on-demand
+     :lifecycle  :subscription-cache-entry}
+    {:id         [:sub :cart/total]
+     :kind       :derivation
+     :storage    :ephemeral
+     :evaluation :on-demand
+     :lifecycle  :subscription-cache-entry}
+    ;; a machine is a :process; runtime-db / machine-instance; refined
+    ;; :machine-process (the refinement rides :refinement, never :kind).
+    {:id         [:machine :upload/main]
+     :kind       :process
+     :refinement :machine-process
+     :storage    :runtime-db
+     :lifecycle  :machine-instance}]
+
+   ;; GRAPH EDGES — the static :<- chain becomes an :input edge resolved to
+   ;; the upstream subscription node id (by bare sub-id in the static graph).
+   :expect-edges
+   [{:from [:sub :cart/items] :to [:sub :cart/total] :role :input}]
+
+   ;; the layer-1 sub names no [:sub …] input, so no edge points AT it.
+   :expect-absent-edges
+   [{:from [:sub :cart/total] :to [:sub :cart/items] :role :input}]}]
+
+ ;; No app-db assertion — this fixture exercises the registration-derived
+ ;; graph, not runtime state.
+ :fixture/expect {}}

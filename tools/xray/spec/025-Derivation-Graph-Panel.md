@@ -86,8 +86,19 @@ graphs):
   time. Concrete subscription query vectors with realized `[:sub q]` input
   edges, active resource cache entries keyed by scoped key, live machine
   instances + spawned actors, and the materialized route slice with its
-  nav-token owner. Empty for a missing/destroyed frame or a production build
-  (the live projections are dev-gated; their bodies DCE).
+  nav-token owner. The live graph additionally resolves the **realized
+  route-owned resource edge** (rf2-k0meap.1): a route-owned resource entry
+  (whose lifecycle owner is `[:route route-id nav-token]`) draws a `:param`
+  edge from the live route node to the **concrete** `[:resource <scoped-key>]`
+  node — the live resolution of the static graph's `:parametric` route-resource
+  marker. Empty for a missing/destroyed frame or a production build (the live
+  projections are dev-gated; their bodies DCE).
+
+Across **both** modes, a **machine-selector** subscription node is enriched
+with `:refinement :machine-selector` (rf2-k0meap.2) — it stays an ordinary
+`:derivation` superkind (the refinement is the colour axis, never a third
+superkind), and is the `:to` end of the `:selector` edge from the specific
+machine it reads.
 
 ## Panel sections (top → bottom)
 
@@ -187,12 +198,34 @@ call site:
   value → the `:rf.size/large-elided` marker.
 
 **Redaction MUST NOT lose graph structure** (the headline guarantee — a
-redacted param is still an edge): the node **keys** (canonical family-tagged
-ids) and the `:edges` vector ride through **untouched**; the node is still
-present and still classified by its superkind; the storage / evaluation /
-lifecycle classifications, `:source-form`, `:refinement`, `:inputs`
-topology, and `:output` address are **structure, not values**, and are never
-walked. Only the value-bearing leaf fields inside node bodies are redacted.
+redacted param/value is still an edge): the node is still present and still
+classified by its superkind; the storage / evaluation / lifecycle
+classifications, `:source-form`, and `:refinement` are **structure, not
+values**, and are never walked. The value-bearing leaf fields inside node
+bodies are redacted by the policy walk above.
+
+#### Live resource IDENTITY redaction (rf2-k0meap.1)
+
+The value-path walk above matches a frame's declared `:sensitive` `:app-db`
+**paths** — but a live **resource** node carries its sensitive scope/params
+in its **identity**, a place that walk can never reach: the concrete scoped
+key `[cache-scope resource-id canonical-params]` is the node **key**
+(`[:resource <scoped-key>]`), the node `:id`, and is embedded in the
+`:output` runtime path, the realized `:inputs` `[:scope …]` / `[:param …]`,
+and the in-flight `:work-ledger :record :resource/key`; a route-owned
+activation names it on a `:param` edge endpoint. So `redact-graph-for-egress`
+**also** projects each scoped key's secret-bearing **scope** and **params**
+into **stable opaque handles** — minted from the core CEDN-1 identity
+primitive (`identity/canonical-bytes`) then **hashed one-way** so the same
+key maps to the same handle (connectivity survives) but the raw scope/params
+can never be read back off the wire (fail-closed to `:rf/redacted` for any
+value outside the CEDN-1 domain). The non-sensitive registration
+`resource-id` is **preserved** so a tool still sees *which* resource the node
+is. The **same** projection is applied consistently to the `:nodes` keys, the
+identity positions inside node bodies (`:id` / `:output` / `:inputs` /
+`:work-ledger`), **and** every `:edges` endpoint that names a resource node —
+a redacted resource node is still a node, and the edges naming it still
+connect. Structure survives; the identity-embedded secret does not egress.
 
 ## `:rf.xray/*` registry surface
 
@@ -228,7 +261,15 @@ the enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
   + edge structure survives (the "redact value, keep edge" arm the EP-0014
   testing-coverage audit flagged as missing); large elision → marker keeping
   structure; per-frame policy (a non-classifying frame ships the same value
-  raw); frameless fail-closed.
+  raw); frameless fail-closed. Plus the **adversarial** live resource
+  identity arm (rf2-k0meap.1): a live resource scoped key carrying a session
+  token in BOTH its cache scope and its canonical params, with an in-flight
+  work-ledger record and a route-owned `:param` edge naming it — asserting
+  NO raw secret survives anywhere in the egressed graph (node key, `:id`,
+  `:inputs`, `:output`, work-ledger, edges) while connectivity survives (the
+  node is still classified, the edge still connects to the projected key),
+  the projection is deterministic across all identity positions, and it is
+  idempotent under double-projection.
 - **`derivation_graph_consumer_cljs_test.cljs`** (node) — the **behavioral
   consumer** test (rf2-4wtllq): registers the panel handlers via
   `derivation-graph/install!` + `registry/register-xray-handlers!`, then
@@ -242,10 +283,20 @@ the enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
   `:app/id`, `:module/id`) survives tab-data summarization unchanged. This
   closes the seam the helper/registry/redaction tests leave: that Xray's
   ACTUAL subscriptions consume `re-frame.derivation.graph` in both modes
-  across all five families.
+  across all five families. Plus the **live-content** arm (rf2-k0meap.3): a
+  navigation materializes a route slice in the TARGET frame; live mode then
+  surfaces that realized route node through the consumer path (graph +
+  tab-data carry the live node + its `:routes` family grouping, NOT an empty
+  graph), and pointing Xray at a DIFFERENT frame proves target-frame
+  isolation (the first frame's slice does not leak).
 - The composer assembly mechanics + the cross-family classification
   conformance are pinned by `re-frame.derivation-graph-test` (JVM) and the
-  derivation-algebra conformance fixture (the other named first consumer) —
-  including the **precise machine→selector edge targeting** (rf2-4qmiij: two
-  machines, one selector reading only one of them, asserting no edge from the
-  unrelated machine).
+  derivation-algebra conformance test + the host-agnostic
+  `derivation-graph-algebra.edn` corpus fixture (the `:derivation-graph` call
+  op, rf2-k0meap.3) — including the **precise machine→selector edge
+  targeting** (rf2-4qmiij: two machines, one selector reading only one of
+  them, asserting no edge from the unrelated machine), the **frame-scoped
+  flow node id** (`[:flow <frame-id> <flow-id>]` — a reused flow-id across two
+  frames stays distinct, rf2-k0meap.2), the **`:machine-selector` refinement**
+  enrichment (rf2-k0meap.2), and the **realized route-owned resource edge**
+  (rf2-k0meap.1).

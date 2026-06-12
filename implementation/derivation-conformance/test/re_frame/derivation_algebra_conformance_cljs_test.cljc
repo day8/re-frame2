@@ -529,6 +529,127 @@
           (is (= [:route :route/article (:nav-token slice)] owner)
               "the live route OWNER is [:route route-id nav-token]"))))))
 
+;; ---------------------------------------------------------------------------
+;; (c+) The live graph's NON-route realized composition (rf2-k0meap.3 point-1).
+;;
+;; `c-live-graph-…-realizes-the-route-slice` above only ever asserts the route
+;; slice — leaving the composer's live SUB / RESOURCE projection + realized
+;; `:input` / `:param` edge assembly untested (a regression in
+;; `family-live-nodes`, the canonical `[:sub …]` / `[:resource …]` wrapping,
+;; the live `:input` edge derivation, or composed resource/machine inclusion
+;; could pass while Xray's composed live graph is wrong). The realized
+;; sub-cache materialization needs a reactive substrate (so it is exercised on
+;; the node CLJS gate, not the pure JVM path); but the composer's live
+;; ASSEMBLY contract — that it wraps realized facts into canonical node ids,
+;; derives realized `:input` edges a parametric sub cannot enumerate
+;; statically, includes composed resource nodes with their lifecycle /
+;; work-ledger, and resolves route-owned resource edges — is deterministic
+;; data over the live projections and is pinned HERE through
+;; `live-derivation-graph` over CONTRIBUTORS that return the realized shapes a
+;; navigation-then-fetch produces. No `when`-skip: the composer's live edge
+;; derivation runs unconditionally over realized inputs.
+
+(def ^:private k3-nav-token 7)
+(def ^:private k3-scoped-key
+  ;; [cache-scope resource-id canonical-params] — a concrete live fact id.
+  [[:rf.scope/global] :article/by-slug {:slug "a1"}])
+
+(defn- k3-live-contributors
+  "Contributors whose subs / resources / routes live-fns return the realized
+  shapes a `[:article/page \"a1\"]` materialization + a route-owned fetch
+  produce, so the composer's live node-wrapping + edge derivation runs over
+  concrete facts."
+  []
+  {;; a LIVE sub-cache projection: a realized parametric sub keyed by its
+   ;; concrete query vector, declaring a concrete `[:sub q]` upstream input —
+   ;; the realized edge a parametric sub cannot enumerate statically.
+   :subs
+   {:live-shape :map
+    :static-fn  (constantly {})
+    :live-fn    (constantly
+                  {[:article/page "a1"]
+                   {:id      [:article/page "a1"]
+                    :kind    :derivation
+                    :inputs  [[:sub [:article/by-slug "a1"]]]
+                    :output  [:fact [:article/page "a1"]]
+                    :storage :ephemeral :evaluation :on-demand
+                    :lifecycle :subscription-cache-entry}
+                   [:article/by-slug "a1"]
+                   {:id      [:article/by-slug "a1"]
+                    :kind    :derivation
+                    :inputs  [[:db [:articles "a1"]]]
+                    :output  [:fact [:article/by-slug "a1"]]
+                    :storage :ephemeral :evaluation :on-demand
+                    :lifecycle :subscription-cache-entry}})}
+   ;; a LIVE resource cache entry, route-owned, with lifecycle + work-ledger.
+   :resources
+   {:live-shape :map
+    :static-fn  (constantly {})
+    :live-fn    (constantly
+                  {k3-scoped-key
+                   {:id          k3-scoped-key
+                    :kind        :process :refinement :resource-process
+                    :inputs      [[:scope [:rf.scope/global]] [:param {:slug "a1"}]]
+                    :output      [:runtime [:rf.runtime/resources :entries k3-scoped-key]]
+                    :storage     :runtime-db
+                    :authority   {:kind :remote :system :server}
+                    :evaluation  #{:on-route}
+                    :lifecycle   {:kind :resource-key
+                                  :owners #{[:route :route/article k3-nav-token]}}
+                    :status      :loading
+                    :work-ledger {:work/id 3
+                                  :record  {:work/id 3 :status :pending
+                                            :resource/key k3-scoped-key}}}})}
+   ;; the LIVE route slice with its realized owner.
+   :routes
+   {:live-shape :node
+    :static-fn  (constantly {})
+    :live-fn    (constantly
+                  {:id :rf/route :kind :process :refinement :route-fact
+                   :route-id :route/article :params {:slug "a1"}
+                   :nav-token k3-nav-token
+                   :owner [:route :route/article k3-nav-token]
+                   :output [:runtime [:rf.runtime/routing :current]]
+                   :storage :runtime-db :evaluation :on-route :lifecycle :frame})}})
+
+(deftest cplus-live-graph-realizes-non-route-nodes-and-edges
+  (let [g     (graph/live-derivation-graph :rf/default (k3-live-contributors))
+        nodes (:nodes g)
+        edges (:edges g)]
+    (testing "realized SUB nodes are wrapped by their CONCRETE query vector
+              (the canonical live `[:sub q]` id — not the static bare-id form)"
+      (is (contains? nodes [:sub [:article/page "a1"]])
+          "the realized parametric sub is keyed by its concrete query vector")
+      (is (contains? nodes [:sub [:article/by-slug "a1"]])
+          "its concrete upstream sub is a node too"))
+    (testing "the realized :input edge a parametric sub CANNOT enumerate
+              statically is present in the live graph (live `[:sub q]` input
+              resolves to the concrete upstream node id)"
+      (is (some #(= % {:from [:sub [:article/by-slug "a1"]]
+                       :to   [:sub [:article/page "a1"]]
+                       :role :input})
+                edges)
+          "the realized :input edge from the concrete upstream sub"))
+    (testing "the composed RESOURCE node is keyed by its concrete scoped key,
+              carrying its live lifecycle owners + work-ledger"
+      (let [res (get nodes [:resource k3-scoped-key])]
+        (is (some? res) "the live resource node is present, scoped-key keyed")
+        (is (= :process (:kind res)))
+        (is (= #{[:route :route/article k3-nav-token]}
+               (get-in res [:lifecycle :owners]))
+            "the live owner set is composed through verbatim")
+        (is (= 3 (get-in res [:work-ledger :work/id]))
+            "the in-flight work-ledger link is composed through")))
+    (testing "the REALIZED route-owned resource edge (rf2-k0meap.1) resolves
+              the static :parametric marker into a concrete edge: live route
+              → concrete [:resource scoped-key], :param role"
+      (is (some #(= % {:from  :rf/route
+                       :to    [:resource k3-scoped-key]
+                       :role  :param
+                       :owner [:route :route/article k3-nav-token]})
+                edges)
+          "the live route → concrete resource :param edge"))))
+
 ;; ===========================================================================
 ;; (d) WHOLE-VALUE — the semantic whole-value law (slice-1).
 ;; ===========================================================================
