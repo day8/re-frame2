@@ -65,13 +65,17 @@
 ;; ============================================================================
 
 (rf/reg-event-fx :app/initialise
-  {:doc "App boot. Seeds the auth slice + form drafts and kicks session
-         restore. The page reads (articles, tags, feed, …) are CAUSED by the
+  {:doc "App boot. Seeds the form drafts. Session restore (`:auth/initialise`)
+         is NOT in this fan-out — it consumes the RECORDABLE+PROVIDED
+         `:realworld-resources.session/token` coeffect, whose value the host
+         boundary (`run`) reads ONCE and stamps onto a dedicated boot dispatch
+         token (EP-0017, rf2-16ck78). The `:dispatch` fx does not forward
+         `:rf.cofx`, so that boot dispatch is issued directly at the boundary in
+         `run`. The page reads (articles, tags, feed, …) are CAUSED by the
          route's `:resources` metadata on the initial URL→route sync, not from
          here — that is the point of the variant."}
   (fn [_ _]
-    {:fx [[:dispatch [:auth/initialise]]
-          [:dispatch [:auth.login-form/initialise]]
+    {:fx [[:dispatch [:auth.login-form/initialise]]
           [:dispatch [:auth.register-form/initialise]]]}))
 
 ;; ============================================================================
@@ -248,6 +252,18 @@
   ;; prefix before the matcher sees the URL so :realworld/home (path "/") matches.
   (routing/set-base-path! "/realworld-resources")
   (rf/with-frame app-frame
+    ;; EP-0017 (rf2-16ck78): session restore consumes the RECORDABLE+PROVIDED
+    ;; `:realworld-resources.session/token` coeffect and folds it into durable
+    ;; [:auth :token]. The host read happens ONCE here at the boundary; its
+    ;; value rides this boot dispatch token as the flat recordable coeffect, so
+    ;; it is recorded and replay / epoch-restore re-presents the captured token
+    ;; verbatim rather than re-reading localStorage then. It is dispatched
+    ;; directly at the boundary (not via the `:app/initialise` `:dispatch`
+    ;; fan-out, which does not forward `:rf.cofx`), and BEFORE `:app/initialise`
+    ;; so the token is in app-db before the bearer-auth interceptor fires any
+    ;; authenticated request. Tests / replay supply the value the same way.
+    (rf/dispatch-sync [:auth/initialise]
+                      {:rf.cofx {:realworld-resources.session/token (auth/read-jwt-from-storage)}})
     (rf/dispatch-sync [:app/initialise])
     ;; The initial URL→route sync (under the frame scope) is what fires the
     ;; route's `:resources` ensures — server-state loads because the route

@@ -65,13 +65,17 @@
   (rf/init! reagent-adapter/adapter)
   (rf/reg-frame app-frame {:doc "TodoMVC demo frame." :url-bound? true})
   (rf/with-frame app-frame
-    ;; EP-0017 (rf2-oa2dun): `:todo/initialise` DECLARES the
-    ;; `:todo.storage/todos` ambient cofx (db.cljs) via
-    ;; `:rf.cofx/requires` — its value-returning supplier reads localStorage at
-    ;; context assembly and delivers the saved todos flat to the handler. No
-    ;; boot-token supply needed (the supplier owns the host read); tests / replay
-    ;; re-register the supplier to stub it (the EP-0017 §10 ambient seam).
-    (rf/dispatch-sync [:todo/initialise])
+    ;; EP-0017 (rf2-16ck78): `:todo/initialise` DECLARES the
+    ;; `:todo.storage/todos` RECORDABLE+PROVIDED cofx (db.cljs) via
+    ;; `:rf.cofx/requires` and folds it into durable app-db. The host read
+    ;; happens ONCE here at the boundary; its value rides the boot dispatch
+    ;; token as the flat recordable coeffect, so it is recorded and replay /
+    ;; epoch-restore re-presents the captured snapshot verbatim rather than
+    ;; re-reading whatever localStorage holds then. Tests / replay supply the
+    ;; value the same way — `{:rf.cofx {:todo.storage/todos …}}` — never by
+    ;; re-registering an ambient supplier.
+    (rf/dispatch-sync [:todo/initialise]
+                      {:rf.cofx {:todo.storage/todos (db/read-todos-from-storage)}})
     (rf/dispatch-sync [:rf.route/handle-url-change (current-path)]))
   (.removeEventListener js/window "hashchange" on-hashchange)
   (.addEventListener js/window "hashchange" on-hashchange)

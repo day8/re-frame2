@@ -117,9 +117,15 @@
                                :bio      nil
                                :image    nil}})
 
-  (with-new-frame [f (rf/make-frame {:on-create    [:auth/initialise]
-                                 :fx-overrides {:rf.http/managed      :realworld.test/login-success
-                                                :auth.session/persist :rf/no-op}})]
+  (with-new-frame [f (rf/make-frame {:fx-overrides {:rf.http/managed      :realworld.test/login-success
+                                                    :auth.session/persist :rf/no-op}})]
+    ;; EP-0017 (rf2-16ck78): `:auth/initialise` consumes the RECORDABLE+PROVIDED
+    ;; `:auth.session/token` coeffect — its value rides the dispatch token,
+    ;; supplied here exactly as `realworld.core/run` supplies it at the boundary
+    ;; (node-side localStorage is absent, so the token is nil). Dispatched
+    ;; explicitly (not via `:on-create`, which does not forward `:rf.cofx`).
+    (rf/dispatch-sync [:auth/initialise]
+                      {:frame f :rf.cofx {:auth.session/token nil}})
     (is (= :idle (rf/compute-sub [:auth/state] (rf/frame-state-value f))))
 
     (rf/dispatch-sync [:auth/flow [:auth/login {:email "alice@example.com"
@@ -133,18 +139,21 @@
     (is (nil? (rf/compute-sub [:auth/user] (rf/frame-state-value f))))))
 
 (defn- session-token-cofx-shape-test []
-  ;; EP-0017 cofx contract — the :auth.session/token cofx is a value-returning
-  ;; AMBIENT supplier `(fn [] value)` (no ctx, no assoc). It reads the saved JWT
-  ;; from `js/globalThis.localStorage`; node-side that is absent so the value is
-  ;; nil. The contract under test: the registered supplier is a zero-arg fn that
-  ;; returns the value directly (a declaring handler then receives it FLAT under
-  ;; `:auth.session/token` via `:rf.cofx/requires`).
-  (let [cofx-meta (registrar/handler-meta :cofx :auth.session/token)
-        supplier  (:handler-fn cofx-meta)]
-    (is (fn? supplier)
-        "the cofx registers a value-returning supplier fn")
-    (is (nil? (supplier))
-        "node-side (no localStorage) the supplier returns nil — the value, not a ctx")))
+  ;; EP-0017 cofx contract (rf2-16ck78) — the :auth.session/token cofx is a
+  ;; RECORDABLE + PROVIDED fact: it carries NO generator (its value is stamped
+  ;; onto the boot dispatch token by `realworld.core/run`, which reads the host
+  ;; once at the boundary), is recorded with the token, and replay re-presents
+  ;; the captured value verbatim rather than re-reading localStorage. The
+  ;; contract under test: the registration carries the provided-recordable grade
+  ;; and NO supplier fn (a declaring handler receives the supplied value FLAT
+  ;; under `:auth.session/token` via `:rf.cofx/requires`).
+  (let [cofx-meta (registrar/handler-meta :cofx :auth.session/token)]
+    (is (true? (:recordable? cofx-meta))
+        "the cofx is recordable — its value rides the recorded token")
+    (is (true? (:provided? cofx-meta))
+        "the cofx is provided — its owner stamps the value; no generator")
+    (is (nil? (:handler-fn cofx-meta))
+        "a provided recordable fact carries no supplier fn — the boundary stamps it")))
 
 (defn- login-failure-test []
   (reg-canned-failure! :realworld.test/login-failure
@@ -152,8 +161,11 @@
                        {:status 422
                         :body   {:errors {:body ["email or password is invalid"]}}})
 
-  (with-new-frame [f (rf/make-frame {:on-create    [:auth/initialise]
-                                 :fx-overrides {:rf.http/managed :realworld.test/login-failure}})]
+  (with-new-frame [f (rf/make-frame {:fx-overrides {:rf.http/managed :realworld.test/login-failure}})]
+    ;; EP-0017 (rf2-16ck78): supply the RECORDABLE+PROVIDED `:auth.session/token`
+    ;; on the boot dispatch token (nil node-side), mirroring `realworld.core/run`.
+    (rf/dispatch-sync [:auth/initialise]
+                      {:frame f :rf.cofx {:auth.session/token nil}})
     (rf/dispatch-sync [:auth/flow [:auth/login {:email "x@y.z" :password "wrong"}]]
                       {:frame f})
     (is (= :error (rf/compute-sub [:auth/state] (rf/frame-state-value f))))
@@ -882,6 +894,14 @@
   (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
                                  :fx-overrides {:rf.http/managed      :realworld.test/canned-success-empty
                                                 :auth.session/persist :rf/no-op}})]
+    ;; EP-0017 (rf2-16ck78): `:auth/initialise` is no longer in the
+    ;; `:app/initialise` fan-out — it consumes the RECORDABLE+PROVIDED
+    ;; `:auth.session/token` coeffect, which `realworld.core/run` supplies on a
+    ;; dedicated boundary dispatch (the `:dispatch` fx does not forward
+    ;; `:rf.cofx`). Mirror that boundary dispatch here so the :auth slice is
+    ;; seeded (node-side token is nil).
+    (rf/dispatch-sync [:auth/initialise]
+                      {:frame f :rf.cofx {:auth.session/token nil}})
     ;; After init: the :auth + :articles slices and the
     ;; :realworld/tags + :settings/form machine snapshots are present.
     ;; EP-0001 (rf2-vzld77): app data is in app-db; machine snapshots in runtime-db.
