@@ -357,7 +357,7 @@ The model buys partition-aware sub-cache invalidation **for free** from existing
 
 #### Event context threads both partitions
 
-A standard event context threads both partitions plus the frame id and the causal world inputs:
+A standard event context threads both partitions plus the frame id and the handler's declared recordable coeffects:
 
 ```clojure
 {:coeffects
@@ -366,11 +366,13 @@ A standard event context threads both partitions plus the frame id and the causa
   :rf.db/runtime   {:rf.runtime/machines {}      ;; runtime-db (reserved)
                     :rf.runtime/routing  {}}
   :rf.frame/id     :todo                         ;; the running frame's id
-  :rf.world/inputs {:time-ms 1781078400123}}     ;; causal world inputs (EP-0010)
+  :rf/time-ms      1781078400123}                ;; a declared recordable coeffect, delivered flat
  :effects {}}
 ```
 
-The runtime-db coeffect is injected **by reference** (the persistent runtime-db value, no copy); an app-only commit performs no runtime re-commit, so a pure app event pays nothing for a partition it never touches. `:rf.frame/id` is the *runtime-context* spelling of the frame id; it is distinct from the public `:frame` dispatch/subscribe opt, which is unchanged (the `:frame` → `:rf.frame/id` *context-key* concern is owned by the frame-target-resolution work, not this contract). `:rf.world/inputs` is the causal world-input map carried on the envelope and exposed here so durable writes read host facts (time, generated ids, …) from a captured value rather than an ambient host read — see [§The World-Input Rule](#the-world-input-rule).
+The runtime-db coeffect is injected **by reference** (the persistent runtime-db value, no copy); an app-only commit performs no runtime re-commit, so a pure app event pays nothing for a partition it never touches. `:rf.frame/id` is the *runtime-context* spelling of the frame id; it is distinct from the public `:frame` dispatch/subscribe opt, which is unchanged (the `:frame` → `:rf.frame/id` *context-key* concern is owned by the frame-target-resolution work, not this contract).
+
+The **recordable coeffects a handler declares** (here `:rf/time-ms`) are delivered **flat** into the coeffects map under their own ids — never grouped in a sub-map. Delivery is **declared-only**: a handler receives `:db`, `:event` (the fold's own arguments), the framework context keys above, and *exactly* the facts it named in `:rf.cofx/requires` ([§Recordable coeffects](#recordable-coeffects)). The canonical complete record of the run's recordable facts lives on the envelope's `:rf.cofx` map; the coeffects map carries the declared spread (one home per layer — exactly how `:event` is reachable at both layers).
 
 #### An ordinary `:db` return replaces only app-db
 
@@ -753,7 +755,7 @@ The hybrid `[<id> <map>]` shape for non-trivial events is canonical. Subscribe t
  :trace-id     "..."                   ;; tooling/agent fields
  :source       :ui                     ;; trigger kind — the canonical enum is `:rf/dispatch-envelope`'s `:source` in [Spec-Schemas](Spec-Schemas.md#rfdispatch-envelope) (`:ui :frame-init :machine-spawn :machine-action :always :after-timer :fx-dispatch :fx-dispatch-later :http :repl :ssr-hydration :test :unknown :other`); defaults to `:unknown` per [rf2-hxj0d](https://github.com/day8/re-frame2/issues/rf2-hxj0d) (previously `:ui`); substrate-internal dispatch sites stamp the matching value (`:after-timer`, `:machine-spawn`, `:machine-action`, `:fx-dispatch`, `:fx-dispatch-later`) per [rf2-ejtpd](https://github.com/day8/re-frame2/issues/rf2-ejtpd) + [rf2-c3990](https://github.com/day8/re-frame2/issues/rf2-c3990)
  :origin       :pair                   ;; actor identity — open vocabulary, defaults to `:app`; e.g. `:pair`, `:claude`, `:story`, `:test`
- :rf.world/inputs {:time-ms 1781078400123} ;; EP-0010 causal world inputs — see §The World-Input Rule
+ :rf.cofx      {:rf/time-ms 1781078400123} ;; recordable coeffects (flat, fact-name→value) — see §Recordable coeffects
  ;; :rf.realm/id :rf.realm/default     ;; RESERVED (EP-0013) — not stamped in v1; absent = the default realm
  }
 ```
@@ -762,7 +764,7 @@ The hybrid `[<id> <map>]` shape for non-trivial events is canonical. Subscribe t
 
 The envelope is just a map. Any field can be set by:
 
-- **The two-arg dispatch form** — `(dispatch [:foo] {:frame :todo :fx-overrides {...}})`. The opts map's keys flow into the envelope. `dispatch-sync` takes the same opts arg. The opts map's schema is `:rf/dispatch-opts` in [Spec-Schemas](Spec-Schemas.md#rfdispatch-opts) — a strict subset of the envelope (the runtime supplies `:event` and stamps `:rf.world/inputs` `:time-ms` when absent).
+- **The two-arg dispatch form** — `(dispatch [:foo] {:frame :todo :fx-overrides {...}})`. The opts map's keys flow into the envelope. `dispatch-sync` takes the same opts arg. The opts map's schema is `:rf/dispatch-opts` in [Spec-Schemas](Spec-Schemas.md#rfdispatch-opts) — a strict subset of the envelope (the runtime supplies `:event` and stamps `:rf.cofx` `:rf/time-ms` when absent). A caller MAY supply exact recordable facts via the `:rf.cofx` opt (`(dispatch [:e] {:rf.cofx {...}})`) for replay, tests, SSR hydration, and host integrations — supplied values are preserved verbatim and never overwritten (see [§Recordable coeffects](#recordable-coeffects)).
 - **Frame-level config** — `reg-frame` keys (`:fx-overrides`, `:interceptor-overrides`, etc.) are merged into the envelope by the routing layer when an event is routed to that frame.
 - **Lexical injection** — `reg-view`-injected `dispatch` closures carry `:frame` from React context.
 
@@ -834,61 +836,100 @@ Per [rf2-ejtpd](https://github.com/day8/re-frame2/issues/rf2-ejtpd) (refined by 
 
 The naming preserves the spec's own terminology — `:after`, `:always`, `:dispatch-later` — so panel labels grep back to spec/005 and spec/002 directly. Per [rf2-1ve9h](https://github.com/day8/re-frame2/issues/rf2-1ve9h) (Mike-approved Option A, 2026-05-28), `:source` is the single closed-enum functional-origin axis on the dispatch envelope — the prior parallel `:rf/dispatch-origin` axis was collapsed into `:source` (every value either co-occurred with a finer `:source` value or was added as a new value: `:router`, `:tool`, `:websocket`). `:source` is **not inherited** through `:fx [[:dispatch ...]]` cascades — each child dispatch's `:source` reflects its *immediate* trigger (`:fx-dispatch` / `:fx-dispatch-later` / `:machine-action`), not the originating user event's. Inheritance still applies to `:fx-overrides`, `:interceptor-overrides`, `:trace-id`, `:origin`, and `:frame`. See [009 §Dispatch source as the functional-origin axis](009-Instrumentation.md#dispatch-source-as-the-functional-origin-axis-source) for the full canonical inventory + consumer expectations.
 
-## Causal world inputs
+<a id="causal-world-inputs"></a>
 
-re-frame2's core model is a causal fold: `next-frame-state = transition(previous-frame-state, causal-token)`. That model is only literal when a transition's durable result is determined by prior frame-state plus the token being folded. An event handler, resource reducer, work-ledger writer, machine action, or routing reducer that calls the host directly for facts — "what time is it?", "give me a UUID", "what URL is the browser on?" — and writes the result into app-db or runtime-db produces state that is correct for the live session but **not replayable as a value**. The dispatch envelope therefore carries a canonical `:rf.world/inputs` map, exposed to handlers as a framework coeffect, so those host facts enter the fold as causal input data rather than as ambient reads at the write site. This contract is graduated from [EP-0010](../docs/EP/EP-0010-causal-world-inputs.md), which carries the full rationale, the diagnostic/host-transient classification, the randomness/UUID/browser/storage rules, and the restore/replay/hydration semantics; the core envelope + coeffect + stamping rules are normative here.
+## Recordable coeffects
 
-### The World-Input Rule
+re-frame2's core model is a causal fold: `next-frame-state = transition(previous-frame-state, causal-token)`. That model is only literal when a transition's durable result is determined by prior frame-state plus the token being folded. An event handler, resource reducer, work-ledger writer, machine action, or routing reducer that calls the host directly for facts — "what time is it?", "give me a UUID", "what URL is the browser on?" — and writes the result into app-db or runtime-db produces state that is correct for the live session but **not replayable as a value**. The dispatch envelope therefore carries a canonical `:rf.cofx` map of **recordable coeffects**, delivered to handlers that declare them, so those host facts enter the fold as causal input data rather than as ambient reads at the write site. The discipline in one sentence: **durable state folds facts, never reads.** The recording rule is graduated from [EP-0010](../docs/EP/EP-0010-causal-world-inputs.md) (which carries the full rationale, the diagnostic/host-transient classification, the randomness/UUID/browser/storage rules, and the restore/replay/hydration semantics); the authoring surface — the `:rf.cofx` envelope field, the `:rf.cofx/requires` declaration, the graded `reg-cofx` registrar, and the removal of `inject-cofx` — is graduated from [EP-0017](../docs/EP/EP-0017-recordable-coeffects.md). The two coeffect grades and the registrar contract are owned by [Spec 001 §Coeffects](001-Registration.md#coeffects--reg-cofx-value-returning-graded); the envelope + delivery + stamping rules are normative here.
+
+### The two grades (summary)
+
+Every coeffect id is **registered** ([001 §Coeffects](001-Registration.md#coeffects--reg-cofx-value-returning-graded)) and carries a grade:
+
+- **Ambient** (the default) — its value-returning supplier runs at context assembly, the value is delivered to declaring handlers and **never recorded**; replay re-runs the supplier. Permitted only where no durable write depends on the value (display preferences, diagnostics, host-transient measurements).
+- **Recordable** (`:recordable? true`) — the fact is **ensured onto the causal token** before the fold consumes it, recorded with the token, and re-presented verbatim by replay. Required for any fact that can affect durable frame-state.
+
+### The recordable-coeffect rule (the durable-write rule)
 
 A transition that performs a **durable write** MUST be deterministic with respect to prior frame-state and the causal token being folded. Therefore:
 
-> If a world input can affect a durable write, the transition MUST read that world input from a causal token or from a recordable coeffect captured in that token. It MUST NOT read the host ambiently at the durable write site.
+> If a world fact can affect a durable write, the transition MUST read that fact from a recordable coeffect on the causal token (or from the event payload). It MUST NOT read the host ambiently at the durable write site.
 
-A **durable write** is any write to app-db, runtime-db, a resource entry, a work-ledger row, a machine snapshot, durable routing state, an epoch record, or a hydration payload — anything that rides epoch-restore, SSR/hydration projection, or a replay log (per [§Durable vs transient](#durable-vs-transient)). A **world input** is a host fact not determined by prior frame-state and the current causal token: wall-clock time, monotonic time, randomness, generated UUIDs, browser location/visibility/online status, storage reads, and asynchronous-completion facts such as a network reply's receipt time.
+A **durable write** is any write to app-db, runtime-db, a resource entry, a work-ledger row, a machine snapshot, durable routing state, an epoch record, or a hydration payload — anything that rides epoch-restore, SSR/hydration projection, or a replay log (per [§Durable vs transient](#durable-vs-transient)). A **world fact** is a host fact not determined by prior frame-state and the current causal token: wall-clock time, monotonic time, randomness, generated UUIDs, browser location/visibility/online status, storage reads, and asynchronous-completion facts such as a network reply's receipt time.
 
 Ambient host reads remain allowed for **diagnostics** (dev-only trace timestamps, performance spans, always-on error metadata), **host-transient** scheduling and side tables (timers, AbortControllers, caches, monotonic high-water allocators), effect interpretation, and clock-skew measurement — provided their values do not directly decide a durable write. The rule is not "no host"; it is "no hidden host facts in durable writes". It applies equally to application handlers and framework internals.
 
-### The `:rf.world/inputs` envelope field
+<a id="the-rfworldinputs-envelope-field"></a>
 
-`:rf.world/inputs` is an EDN map on every dispatch envelope. It is serializable after the same projection, elision, and privacy rules as other replayable event data (per [§Privacy in EP-0010](../docs/EP/EP-0010-causal-world-inputs.md#privacy-and-projection)). It has one required key:
+### The `:rf.cofx` envelope field
 
-- `:time-ms` — wall-clock epoch milliseconds, stamped when the token enters the fold unless the caller supplied it. This is the canonical durable wall-clock fact: app entity `:created-at` / `:updated-at`, resource `:loaded-at` / `:stale-at` / `:invalidated-at`, work-ledger `:started-at` / `:deadline-at` / `:completed-at`, mutation `:started-at` / `:settled-at`, durable routing timestamps, machine snapshot times, and epoch record causal time all read from it.
-
-It MAY carry additional keys as a subsystem or fixture needs them: `:monotonic-ms` (replayable elapsed-time base), `:uuid` (a map of domain names to generated ids — e.g. `{:todo/id #uuid "…"}`), `:random` (recorded random *choices*, not seeds — see [EP-0010 §Randomness](../docs/EP/EP-0010-causal-world-inputs.md#randomness-uuids-and-generated-identity), noting crypto-grade secrets are excluded), normalized `:browser/*` facts, `:storage` reads, and subsystem-qualified keys such as `:rf.route/location`. Browser host objects are never stored as world inputs — tokens carry EDN (strings, booleans, numbers, keywords, vectors, maps, projected ids).
-
-The schema is registered as [`:rf.world/inputs`](Spec-Schemas.md#rfworldinputs) in [Spec-Schemas](Spec-Schemas.md); it is an optional key of [`:rf/dispatch-opts`](Spec-Schemas.md#rfdispatch-opts) and a (runtime-guaranteed) key of [`:rf/dispatch-envelope`](Spec-Schemas.md#rfdispatch-envelope).
-
-#### Envelope stamping
-
-When a dispatch envelope is built, the router MUST ensure `:rf.world/inputs` exists and contains `:time-ms`:
-
-- **Caller omitted it** → the router stamps `:rf.world/inputs {:time-ms (epoch-now-ms)}`. The wall-clock epoch-ms read (`interop/epoch-now-ms` — `js/Date.now()` / `System/currentTimeMillis`, **not** the origin-relative `interop/now-ms` / `performance.now()`) happens **once, at the causal boundary** — it is not repeated inside the handler, flow transform, resource reducer, work-ledger writer, or commit path. The durable timestamp must be wall-clock epoch ms so it stays comparable with `js/Date`-based freshness checks (resource `:stale-at`, invalidation).
-- **Caller supplied it** → the router preserves the supplied map verbatim and fills only the framework-required `:time-ms` when absent (it never overwrites a supplied `:time-ms`). This is how tests, replay fixtures, SSR hydration, and host integrations provide exact world facts.
-
-Child dispatches produced by `:dispatch` / `:dispatch-later` get their **own** world-input map. They MUST NOT inherit the parent's `:time-ms` — each is a distinct causal token — so `:rf.world/inputs` is deliberately absent from the cascade's `inheritable-envelope-keys` (per [§Cascade propagation](#cascade-propagation)) and is stamped fresh per child. Timer-fire events, HTTP replies, router events, machine timer events, SSR hydration events, and tool-issued events are all dispatch envelopes for this purpose; each stamps or supplies its own `:rf.world/inputs`.
-
-Unlike the dev-only `:dispatch-id` correlation slot, `:rf.world/inputs` is stamped **unconditionally** (in production as well as dev): world inputs are durable causal data that durable writes fold, not a diagnostic that may elide under `goog.DEBUG=false`.
-
-#### `:rf.world/inputs` as a coeffect
-
-The initial event context includes `:rf.world/inputs` as a framework coeffect alongside `:db`, `:event`, `:rf.db/runtime`, and `:rf.frame/id` (per [§Event context threads both partitions](#event-context-threads-both-partitions)). Handlers read it directly:
+`:rf.cofx` is an EDN map on every dispatch and reply envelope — **flat**, fact-name → value, no grouping sub-maps:
 
 ```clojure
-(rf/reg-event-fx
-  :todo/create
-  (fn [{:keys [db] :rf.world/keys [inputs]} [_ {:keys [text]}]]
-    (let [todo-id (get-in inputs [:uuid :todo/id])]
-      {:db (assoc-in db [:todos todo-id]
-                     {:id todo-id :text text :created-at (:time-ms inputs)})})))
+{:event   [:counter/inc]
+ :rf.cofx {:rf/time-ms    1781078400123    ;; framework, provided (enqueue stamp)
+           :counter/delta 4}}              ;; app, generated at processing-start (slice B)
 ```
 
-Like the other framework coeffects, `:rf.world/inputs` is **filtered out of the user-coeffect trace projection** (the COEFFECTS lens shows only genuinely user-injected coeffects). A standard `reg-cofx` coeffect remains useful, but a coeffect that can affect durable state MUST be recordable — stable id, EDN-serializable value, value captured in the replay record, replay returns the captured value rather than re-reading the host (per [EP-0010 §Event Context And Coeffects](../docs/EP/EP-0010-causal-world-inputs.md#event-context-and-coeffects)). A coeffect that only measures diagnostics may remain ambient and unrecorded.
+- It is serializable after the same projection, elision, and privacy rules as other replayable event data ([EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md) applies per leaf; `:rf/time-ms` is always safe to surface).
+- It is stamped **unconditionally in production** — recordable coeffects are durable causal data, not diagnostics that elide under `goog.DEBUG=false`.
+- The dispatch-opts key is `:rf.cofx` (`(rf/dispatch [:e] {:rf.cofx {...}})`); supplied values are preserved verbatim and never overwritten (§Supplied values win, below).
+- Each fact's name is **owner-qualified** (`:rf/*` framework, subsystem roots for subsystem facts, app namespaces for app facts) — per [Conventions §Recordable-coeffect fact naming](Conventions.md#recordable-coeffect-fact-naming-rfcofx).
+
+The schema is registered as [`:rf.cofx`](Spec-Schemas.md#rfcofx) in [Spec-Schemas](Spec-Schemas.md); it is an optional key of [`:rf/dispatch-opts`](Spec-Schemas.md#rfdispatch-opts) and a (runtime-guaranteed) key of [`:rf/dispatch-envelope`](Spec-Schemas.md#rfdispatch-envelope). `:rf.world/inputs` is **retired** with no alias and no coexistence window (the `:dispatched-at` pattern, EP-0007 rule 2): supplying it in dispatch opts is a hard error (`:rf.error/world-inputs-renamed`) naming `:rf.cofx`, in production too.
+
+**Two sampling moments are normative.** `:rf.cofx` is one causal record, not one sampling instant: `:rf/time-ms` is sampled at *enqueue* (queue latency is real causal time); generator-backed facts are sampled at *processing-start* — the declaration is only knowable once the handler is resolved, late registration is legal (the generation step is slice-B-built — see §Mint policies). Both precede the fold; a generated value postdating its token's `:rf/time-ms` is correct behavior, not a bug.
+
+<a id="envelope-stamping"></a>
+
+#### Envelope stamping (`:rf/time-ms`)
+
+`:rf/time-ms` is the framework's **one built-in** coeffect registration — recordable, provided ([001 §Coeffects](001-Registration.md#coeffects--reg-cofx-value-returning-graded)). When a dispatch envelope is built, the router MUST ensure `:rf.cofx` exists and contains `:rf/time-ms`:
+
+- **Caller omitted it** → the router stamps `:rf.cofx {:rf/time-ms (epoch-now-ms)}`. The wall-clock epoch-ms read (`interop/epoch-now-ms` — `js/Date.now()` / `System/currentTimeMillis`, **not** the origin-relative `interop/now-ms` / `performance.now()`) happens **once, at the causal boundary** — it is not repeated inside the handler, flow transform, resource reducer, work-ledger writer, or commit path. The durable timestamp must be wall-clock epoch ms so it stays comparable with `js/Date`-based freshness checks (resource `:stale-at`, invalidation). `:rf/time-ms` is the canonical durable wall-clock fact: app entity `:created-at` / `:updated-at`, resource `:loaded-at` / `:stale-at` / `:invalidated-at`, work-ledger `:started-at` / `:deadline-at` / `:completed-at`, mutation `:started-at` / `:settled-at`, durable routing timestamps, machine snapshot times, and epoch record causal time all read it **from the envelope's `:rf.cofx`** — the framework's own durable writers are envelope consumers, not handler-declaration consumers.
+- **Caller supplied it** → the router preserves the supplied map verbatim and fills only the framework-required `:rf/time-ms` when absent (it never overwrites a supplied `:rf/time-ms`). This is how tests, replay fixtures, SSR hydration, and host integrations provide exact world facts.
+
+Child dispatches produced by `:dispatch` / `:dispatch-later` get their **own** `:rf.cofx` map. They MUST NOT inherit the parent's `:rf/time-ms` — each is a distinct causal token — so `:rf.cofx` is deliberately absent from the cascade's `inheritable-envelope-keys` (per [§Cascade propagation](#cascade-propagation)) and is stamped fresh per child. Timer-fire events, HTTP replies, router events, machine timer events, SSR hydration events, and tool-issued events are all dispatch envelopes for this purpose; each stamps or supplies its own `:rf.cofx`.
+
+Unlike the dev-only `:dispatch-id` correlation slot, `:rf.cofx` is stamped **unconditionally** (in production as well as dev): recordable coeffects are durable causal data that durable writes fold, not a diagnostic that may elide under `goog.DEBUG=false`.
+
+#### Declaration and delivery — `:rf.cofx/requires`
+
+A handler declares the coeffects it consumes via the registration-metadata key **`:rf.cofx/requires`** ([001 §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key)) — a vector of registered coeffect ids on `reg-event-fx` / `reg-event-ctx` (a registration-time error on `reg-event-db`, which receives only the db). Handlers read declared facts directly, flat:
+
+```clojure
+(rf/reg-event-fx :todo/create
+  {:doc "Create a todo, stamping its creation time."
+   :rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db rf/time-ms]} [_ {:keys [text]}]]
+    (let [todo-id (random-uuid)]                 ;; slice A: id rides the payload or derives from state
+      {:db (assoc-in db [:todos todo-id]
+                     {:id todo-id :text text :created-at time-ms})})))
+```
+
+**Delivery is flat and declared-only.** The initial event context stages `:db`, `:event`, the framework context keys above (`:rf.db/runtime`, `:rf.frame/id`), **plus exactly the declared leaves** — recordable values read from the token's `:rf.cofx`, ambient values from running their suppliers at context assembly, each flat under its own id. A leaf on the token but **undeclared by this handler is not staged** (no silent green-in-test / nil-in-prod coupling; `handler-meta` becomes the complete consumption record). There is no nested map in the coeffects map — no `:cofx` key, no `:rf.world/inputs` successor, no duplicate of `:rf/time-ms`. The satisfaction algorithm, the error family, and the registrar grades are owned by [001 §Coeffects](001-Registration.md#coeffects--reg-cofx-value-returning-graded).
+
+**Coeffects are context assembly, not chain members.** Operationally, satisfaction behaves like an implicit interceptor at the head of the chain; normatively it is the *construction of the chain's input*: envelope finalization → context assembly → `:before` pass → handler → `:after` pass. Consequences: there is no cofx ordering question (v1's wart — an early interceptor blind to a later injection — cannot be expressed); every interceptor observes the complete input; the chain stays homogeneous. Interceptors that *modify* coeffects remain legal as ordinary transformations of an assembled context. Generic code that wants the whole record (transition helpers, interceptors, `reg-event-ctx`) reads the envelope's `:rf.cofx` map through the context — exactly how `:event` is reachable at both layers.
+
+**Supplied values win.** Dispatch opts, replay fixtures, SSR hydration, and host integrations supply exact values via the `:rf.cofx` opt; the runtime fills only what is missing and never overwrites. A registration's `:schema` is thereby a *contract*, not merely a generation instruction — it is the type of the replay hole.
+
+#### Mint policies (contract — generation is slice-B)
+
+In slice A every requirable fact is **provided** (stamped by an owner — `:rf/time-ms`, subsystem facts) or **ambient** (a supplier run at context assembly); generator-backed recordable facts do not yet exist. The generation machinery — running a recordable supplier at processing-start to fill a declared-absent fact, `:schema` validation of supplied/replayed values, and the mint policies below — is **slice-B-built**, gated on the first real generator consumer (EP-0016 optimistic temp-ids the named candidate). The contract those policies will honor:
+
+| Mode | Behavior | Normative binding |
+|---|---|---|
+| `:live` | generate declared-absent recordable values | the router's default |
+| `:strict` | required-but-absent is `:rf.error/missing-required-cofx`; no generator runs, no host reads | **hard-wired for replay** (Tool-Pair surface); the **default of the `:test` preset** ([§Frame presets](#frame-presets--capability-bundles-for-common-configurations)) |
+| `:explicit-live` | generates, but the test has *declared* it accepts nondeterminism | opt-in escape hatch in tests |
+
+Replay is unconditionally strict — an incomplete record MUST fail loudly rather than silently re-read the host. A *provided* recordable fact (no generator) that is absent from the token is `:rf.error/missing-required-cofx` in **every** mode; `:rf/time-ms` always succeeds (the stamp guarantees it).
 
 #### `:dispatched-at` is retired
 
-The earlier optional `:dispatched-at` envelope field is **gone** — retired in the same change that landed the envelope stamp (no coexistence window), per [EP-0010 disposition 5](../docs/EP/EP-0010-causal-world-inputs.md#open-issues). Two spellings of "when was this dispatched" violate one-name-per-fact ([EP-0007](../docs/EP/EP-0007-one-name-per-fact.md)); the *durable* causal-time fact is now `(:time-ms (:rf.world/inputs envelope))`, and the *diagnostic* dispatch-time need is the trace event's own `:time` stamp (Spec 009 — ambient by design). Durable code reads `:rf.world/inputs`.
+The earlier optional `:dispatched-at` envelope field is **gone** — retired in the same change that landed the envelope stamp (no coexistence window), per [EP-0010 disposition 5](../docs/EP/EP-0010-causal-world-inputs.md#open-issues). Two spellings of "when was this dispatched" violate one-name-per-fact ([EP-0007](../docs/EP/EP-0007-one-name-per-fact.md)); the *durable* causal-time fact is now `(:rf/time-ms (:rf.cofx envelope))`, and the *diagnostic* dispatch-time need is the trace event's own `:time` stamp (Spec 009 — ambient by design). Durable code reads `:rf.cofx`.
 
-Per the standard retirement treatment (EP-0007 rule 2 — a hard error naming the replacement, never a silent alias), supplying `:dispatched-at` in a `dispatch` / `dispatch-sync` opts map is a **hard error** (`:rf.error/dispatched-at-retired`) that names `(:time-ms (:rf.world/inputs envelope))` as the replacement — not the generic unknown-opt warning. The error fires in production too (it is a correctness contract, not a dev diagnostic).
+Per the standard retirement treatment (EP-0007 rule 2 — a hard error naming the replacement, never a silent alias), supplying `:dispatched-at` in a `dispatch` / `dispatch-sync` opts map is a **hard error** (`:rf.error/dispatched-at-retired`) that names `(:rf/time-ms (:rf.cofx envelope))` as the replacement — not the generic unknown-opt warning. The error fires in production too (it is a correctness contract, not a dev diagnostic).
 
 ## View ergonomics (the hard part)
 
@@ -1435,7 +1476,7 @@ The per-event interceptor chain runs `:before` stages in declaration order, then
 
 This pair is pattern contract — a conformant port MUST mirror both rules. Rule 1 keeps the chain from running the handler against a half-assembled context (a `:before` that was meant to inject a cofx has already thrown; the handler would observe a corrupt context); rule 2 keeps user-installed interceptors safe to allocate resources in `:before` and release them in `:after` (a chain that skipped `:after` on a `:before` failure would leak whatever the surviving `:before` stages allocated). The most common case is an interceptor that mutates host state in `:before` and restores it in `:after` (e.g. a debug `pp` interceptor, or a Story snapshot capturer) — the always-runs rule means the restoration fires regardless of where in the chain a failure occurred.
 
-Trace emission tracks the singleton: the trace stream emits exactly one error event per chain execution, keyed off `:rf/interceptor-error` and **attributed to the true failing component** (per rf2-mszrz). The captured singleton's identity drives the category — `:rf.error/handler-exception` when the event handler itself threw (the terminal `:before`), `:rf.error/coeffect-exception` when an `inject-cofx` injection threw, and `:rf.error/interceptor-exception` when a user interceptor's `:before`/`:after` threw (the `:phase` tag discriminates the two). The `:failing-id` carries the true component (event id / cofx id / interceptor id). Tools wanting every failure (Xray, Story) read `:rf/interceptor-errors` from the post-drain context directly. See [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) for the per-category shapes.
+Trace emission tracks the singleton: the trace stream emits exactly one error event per chain execution, keyed off `:rf/interceptor-error` and **attributed to the true failing component** (per rf2-mszrz). The captured singleton's identity drives the category — `:rf.error/handler-exception` when the event handler itself threw (the terminal `:before`), `:rf.error/coeffect-exception` when a coeffect supplier threw during context assembly (an ambient supplier run, or — slice B — a recordable generator), and `:rf.error/interceptor-exception` when a user interceptor's `:before`/`:after` threw (the `:phase` tag discriminates the two). The `:failing-id` carries the true component (event id / cofx id / interceptor id). Tools wanting every failure (Xray, Story) read `:rf/interceptor-errors` from the post-drain context directly. See [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) for the per-category shapes.
 
 ### Drain-loop pseudocode
 
@@ -1549,7 +1590,8 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
     ;;    Trace stream emits one error event per chain execution, keyed off
     ;;    the singleton and attributed to the true failing component (per
     ;;    rf2-mszrz): `:rf.error/handler-exception` (the handler),
-    ;;    `:rf.error/coeffect-exception` (a cofx injection), or
+    ;;    `:rf.error/coeffect-exception` (a coeffect supplier threw at context
+    ;;    assembly), or
     ;;    `:rf.error/interceptor-exception` (a user interceptor). See
     ;;    [Spec-Schemas §InterceptorContextErrorKeys](Spec-Schemas.md#interceptorcontexterrorkeys--post-chain-interceptor-context-error-contract).
     (let [effects (run-interceptor-chain      ;; flow-transform is outermost :after
@@ -1654,9 +1696,9 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
 ;; :dispatch-later queue a new envelope. This is the "envelope-field-copying
 ;; when queueing children" mechanism named in [§Cascade propagation]
 ;; (#cascade-propagation). `:event` is NOT inherited — the child gets its
-;; own. `:rf.world/inputs` is NOT inherited either — a child dispatch is a
-;; DISTINCT causal token, so it gets a freshly-stamped world-input map (no
-;; `:time-ms` inheritance — see [§The World-Input Rule]). `:source` is NOT
+;; own. `:rf.cofx` is NOT inherited either — a child dispatch is a
+;; DISTINCT causal token, so it gets a freshly-stamped recordable-coeffect map
+;; (no `:rf/time-ms` inheritance — see [§Recordable coeffects]). `:source` is NOT
 ;; inherited either —
 ;; each child dispatch's `:source` reflects its IMMEDIATE trigger
 ;; (`:fx-dispatch` / `:fx-dispatch-later`), stamped by the queueing fx
@@ -1871,7 +1913,7 @@ When the router builds the interceptor chain for the event, a small step walks i
 Use cases (all testing-flavoured):
 
 - **Turn off a logging interceptor in tests** — `{:my-app/logging nil}` removes it for the test's events.
-- **Swap a real-clock cofx-injector for a fixed-time one** — `{:rf/inject-cofx-now (constantly fixed-time-icpt)}`.
+- **Swap a custom audit interceptor for a recording stub** — `{:my-app/audit (constantly recording-icpt)}`. (Deterministic *time* is not an interceptor override under EP-0017 — supply the exact fact in the envelope: `(dispatch-sync [:e] {:rf.cofx {:rf/time-ms fixed-ms}})`; see [§Recordable coeffects](#recordable-coeffects).)
 - **Replace a remote-call validator with a relaxed one** for stories that intentionally violate the schema for visualisation.
 - **Wrap a specific interceptor with timing** for a perf test.
 

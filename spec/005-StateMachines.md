@@ -377,20 +377,51 @@ Guards or actions that need to branch on the discrete FSM state name or on any u
 
 The context-map shape is uniform across every callback slot — `:state` and `:meta` are always present alongside `:data` and `:event` for `:guard` / `:action` / `:entry` / `:exit`. There is no opt-in flag and no separate 3-arity variant; the runtime delivers the full map and the user's destructure pattern decides what's bound.
 
-#### Causal host facts — `:rf.world/inputs` (EP-0010)
+#### Causal host facts — `:rf.cofx` (EP-0017)
 
-A `:guard` / `:action` / `:entry` / `:exit` callback whose decision depends on a host fact — the wall-clock time, a random draw, a generated UUID — reads it from the context map's **`:rf.world/inputs`** key, **not** from an ambient host read (`(js/Date.now)`, `(rand)`, `(random-uuid)`). `:rf.world/inputs` is the dispatch's **causal world-input token** — the same `{:time-ms N …}` map the router stamps onto the event coeffects at the dispatch envelope's causal boundary ([Spec 002 §The World-Input Rule](002-Frames.md#the-world-input-rule)). Folding the token (rather than reading the ambient clock) is what makes a durable machine decision — and any `:data` it writes into the snapshot — **replay deterministically**: the same token replays the same decision under `restore-epoch` / SSR hydration / replay.
+A `:guard` / `:action` / `:entry` / `:exit` callback whose decision depends on a host fact — the wall-clock time, a random draw, a generated UUID — reads it from a **declared recordable coeffect**, **not** from an ambient host read (`(js/Date.now)`, `(rand)`, `(random-uuid)`). The dispatch's recordable coeffects ride the envelope's flat `:rf.cofx` map ([Spec 002 §Recordable coeffects](002-Frames.md#recordable-coeffects), renamed and flattened from EP-0010's `:rf.world/inputs`). Folding recorded facts (rather than reading the ambient clock) is what makes a durable machine decision — and any `:data` it writes into the snapshot — **replay deterministically**: the same token replays the same decision under `restore-epoch` / SSR hydration / replay.
+
+The machine context map surfaces the **whole** recordable-coeffect record under the key **`:rf.cofx`** (the threading key, renamed from EP-0010's `:rf/world-inputs`); individual facts are reachable as flat leaves under their owner-qualified ids. A bare-fn guard/action reads the time off the record directly; a callback that wants the framework to *ensure* a fact declares it via **consumer attachment** (below).
 
 ```clojure
-;; a guard / action that needs "now" reads the causal token, NOT (js/Date.now)
-:guard  (fn [{inputs :rf.world/inputs}]
-          (> (- (:time-ms inputs) (:started-at data)) timeout-ms))
+;; a guard / action that needs "now" reads the recorded fact, NOT (js/Date.now)
+:guard  (fn [{cofx :rf.cofx}]
+          (> (- (:rf/time-ms cofx) (:started-at data)) timeout-ms))
 
-:action (fn [{inputs :rf.world/inputs}]
-          {:data {:completed-at (:time-ms inputs)}})   ;; durable, replayable
+:action (fn [{cofx :rf.cofx}]
+          {:data {:completed-at (:rf/time-ms cofx)}})   ;; durable, replayable
 ```
 
-The key is present whenever the machine is driven through the normal dispatch path (the router always stamps `:time-ms`). It is **absent** when the engine is driven as a pure function with no router coeffect (the conformance corpus / JVM fixtures); a destructure of `:rf.world/inputs` then binds `nil`, so pure-fn callers are unaffected. Region callbacks (inside a parallel machine) receive the same token.
+The `:rf.cofx` record carries `:rf/time-ms` whenever the machine is driven through the normal dispatch path (the router always stamps it). It is **absent** when the engine is driven as a pure function with no router coeffect (the conformance corpus / JVM fixtures); a destructure of `:rf.cofx` then binds `nil`, so pure-fn callers are unaffected. Region callbacks (inside a parallel machine) receive the same record.
+
+##### Consumer attachment — declaring requirements on named entries
+
+A fact-consuming guard/action declares its requirements with **`:rf.cofx/requires`** on the machine's **named** entry (the entry-map shape Spec 005's source-coords work established), so the declaration sits with the code that can be checked against it:
+
+```clojure
+:guards
+{;; normal case — no facts consumed → bare fn, no nesting
+ :retries-remaining?
+ (fn [{:keys [data]}] (< (:attempts data) 3))
+
+ ;; facts consumed → map form; the diet sits beside the destructure
+ :within-retry-window?
+ {:rf.cofx/requires [:rf/time-ms]
+  :fn (fn [{:keys [data rf/time-ms]}]
+        (< (- time-ms (:first-attempt-at data)) 60000))}}
+
+:actions
+{:schedule-retry
+ {:rf.cofx/requires [:payment/retry-jitter-ms]
+  :fn (fn [{:keys [data payment/retry-jitter-ms]}]
+        {:data {:next-retry-in (+ 1000 retry-jitter-ms)}})}}
+```
+
+- **Inline callbacks cannot declare requirements.** Fact-consuming guards/actions MUST be named entries (the form already preferred for visualisers and AI legibility); a bare fn destructuring beyond `{:data :event :state :meta :rf.cofx}` is lintable.
+- At registration, `make-machine-handler` **derives** the per-(state × event-type) ensure-set — the static union of `:rf.cofx/requires` across every guard/action any candidate transition for that event type can touch (including the `:always` cascade reachable from candidate targets) — and at dispatch the derived set is ensured **before transition selection** runs, so guard-consumed facts are never generated per-fired-transition (a mid-selection host read would put nondeterminism in the fold's most sensitive spot — replay selecting a *different* transition). **The derivation + ensure machinery is slice-B-built** (gated on the first generator consumer); in slice A the declared facts are provided or ambient.
+- Timer (`:after`) fires, reply deliveries, and other synthetic machine events are dispatch envelopes like any other — each stamps or supplies its own `:rf.cofx`. The shipped `:after` epoch-staleness mechanism needs no coeffect machinery (its check was already facts-against-facts). **Flows do not generate** — a flow is derived state over declared inputs; flows continue reading `:rf/time-ms` from the threaded record as framework consumers of the envelope.
+
+**The minting ladder** (preference order for "my machine needs X from the world"): (1) **derive from recorded state** where possible (`:rf/spawn-counter` is the exemplar — deterministic spawn identity from a snapshot-resident counter, no new fact recorded); (2) **ride the event payload** where the dispatch site owns the fact's meaning; (3) **recorded coeffect** only for genuinely fold-internal facts. Recorded coeffects are the last rung, not the default. (XState offers no parity guidance here — it has no replay contract; this surface is re-frame2's own.)
 
 For a guard / action running **inside a parallel region**, the context map additionally carries `:tags` (the machine-wide active-configuration tag union) and `:all-state` (the full region-name → active-state map) — the cross-region `stateIn` substitute. These two keys are present only for region callbacks; flat / compound machines never carry them. See [§Cross-region coordination — tags as `stateIn`](#cross-region-coordination--tags-as-statein).
 
@@ -648,7 +679,7 @@ A machine *almost never* needs to write `app-db` directly; it acts on its own st
 
 - **Action signature:** `(fn [{:keys [data event state meta]}] effects)` — single context-map argument; user destructures the keys it needs.
 - **Guard signature:** `(fn [{:keys [data event state meta]}] boolean)` — single context-map argument, same shape as `:action`.
-- **What the fn sees:** the keys it destructures from the context map — `:data` (the snapshot's `:data` slot), `:event` (the inbound event vector), `:state` (the discrete FSM-keyword), `:meta` (any user `:meta` on the snapshot), and `:rf.world/inputs` (the dispatch's causal world-input token — EP-0010; see [§Causal host facts](#causal-host-facts--rfworldinputs-ep-0010)). Never `app-db`; never cofx (`:rf.world/inputs` is the one host-fact channel, threaded causally — not a general cofx surface).
+- **What the fn sees:** the keys it destructures from the context map — `:data` (the snapshot's `:data` slot), `:event` (the inbound event vector), `:state` (the discrete FSM-keyword), `:meta` (any user `:meta` on the snapshot), and `:rf.cofx` (the dispatch's recordable-coeffect record — EP-0017; see [§Causal host facts](#causal-host-facts--rfcofx-ep-0017)). Never `app-db`. Facts a callback consumes are declared with `:rf.cofx/requires` on the named entry; `:rf.cofx` is the host-fact channel, threaded causally as recorded data.
 
 The impure plumbing (reading the snapshot from runtime-db at `[:rf.runtime/machines :snapshots <id>]`, writing `:data` back as a `:rf.db/runtime` write, lowering `:fx` / `:raise` / `:rf.machine/spawn` into standard re-frame effects) lives in the *handler boundary* — the fn returned by `make-machine-handler`. **Inside the boundary: pure. Outside: standard re-frame.**
 
@@ -684,9 +715,9 @@ every machine callback receives a SINGLE context-map argument; the keys present 
 
 | Slot | Signature | Ctx keys | What it returns |
 |---|---|---|---|
-| `:guard` | `(fn [{:keys [data event state meta] inputs :rf.world/inputs}] boolean)` | `:data :event :state :meta :rf.world/inputs` | a boolean |
-| `:action` | `(fn [{:keys [data event state meta] inputs :rf.world/inputs}] effects)` | `:data :event :state :meta :rf.world/inputs` | `{:data ... :fx ...}` (or `nil`) |
-| `:entry` / `:exit` | same as `:action` | `:data :event :state :meta :rf.world/inputs` | `{:data ... :fx ...}` (or `nil`) |
+| `:guard` | `(fn [{:keys [data event state meta] cofx :rf.cofx}] boolean)` | `:data :event :state :meta :rf.cofx` | a boolean |
+| `:action` | `(fn [{:keys [data event state meta] cofx :rf.cofx}] effects)` | `:data :event :state :meta :rf.cofx` | `{:data ... :fx ...}` (or `nil`) |
+| `:entry` / `:exit` | same as `:action` | `:data :event :state :meta :rf.cofx` | `{:data ... :fx ...}` (or `nil`) |
 | `:on-spawn` | `(fn [{:keys [data id]}] _)` — **advisory** | `:data :id` | ignored (return is dropped; runtime tracks the spawn-id at `[:rf.runtime/machines :spawned <parent> <invoke-id>]`) |
 | `:on-done` | `(fn [{:keys [data result]}] new-data)` | `:data :result` | the parent's new `:data` map |
 | `:after` delay-fn | `(fn [{:keys [snapshot]}] ms)` | `:snapshot` | a positive-int millisecond delay |

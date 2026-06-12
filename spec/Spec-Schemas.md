@@ -102,10 +102,12 @@ Carried internally by every dispatch. User-facing event vector remains a vector;
    [:trace-id              {:optional true} :any]
    [:source                {:optional true} [:enum :ui :frame-init :machine-spawn :machine-action :always :after-timer :fx-dispatch :fx-dispatch-later :http :router :ssr-hydration :test :tool :websocket :repl :unknown :other]] ;; trigger kind — default `:unknown` (envelope-construction); per rf2-1ve9h the `:rf/dispatch-origin` axis was collapsed into `:source` (Mike-approved 2026-05-28). Substrate-internal stamp sites: `:ui` (UI handlers), `:frame-init` (frame `:on-create`), `:machine-spawn` (spawn fx — actor bootstrap), `:machine-action` (machine handler's `:dispatch`(-later) — actor-message path, rf2-c3990), `:always` (machine `:always` microstep marker), `:after-timer` (machine `:after` timer fire), `:fx-dispatch` / `:fx-dispatch-later` (ordinary handler's `:dispatch` / `:dispatch-later` fx), `:http` (managed-HTTP reply settle), `:router` (routing-internal dispatches), `:ssr-hydration` (`:rf/hydrate` boot), `:test` (test-harness fixtures), `:tool` (tool / REPL / story dispatches), `:websocket` (reserved — app websocket adapters opt in), `:repl` (REPL eval), `:unknown` (the default — un-stamped dispatch site, per rf2-hxj0d), `:other` (escape hatch)
    [:origin                {:optional true} :keyword]                      ;; actor identity (default :app) — per [002 §Dispatch origin tagging]
-   [:rf.world/inputs       {:optional true} #'WorldInputs]])               ;; EP-0010 causal world inputs — runtime-guaranteed to carry `:time-ms` (stamped when caller omits); `{:optional true}` because the user-facing OPTS schema is a subset and the runtime fills it (see `:rf.world/inputs` below + [002 §The World-Input Rule])
+   [:rf.cofx               {:optional true} #'Cofx]])                      ;; EP-0017 recordable coeffects — runtime-guaranteed to carry `:rf/time-ms` (stamped when caller omits); `{:optional true}` because the user-facing OPTS schema is a subset and the runtime fills it (see `:rf.cofx` below + [002 §Recordable coeffects])
 ```
 
-> **`:dispatched-at` is retired.** The earlier optional `:dispatched-at` envelope key is **removed** (EP-0010 rider b — retired in the same change that landed the envelope stamp, no coexistence window). The durable causal-time fact is now `(:time-ms (:rf.world/inputs envelope))`; the diagnostic dispatch-time need is the trace event's own `:time` stamp ([009](009-Instrumentation.md)). See [002 §`:dispatched-at` is retired](002-Frames.md#dispatched-at-is-retired).
+> **`:rf.world/inputs` is renamed to `:rf.cofx` (EP-0017).** The EP-0010 envelope field `:rf.world/inputs` is **retired** — renamed to the flat `:rf.cofx` map, no alias, no coexistence window (EP-0007 rule 2). Supplying `:rf.world/inputs` in dispatch opts is a hard error `:rf.error/world-inputs-renamed` naming `:rf.cofx`. See [002 §Recordable coeffects](002-Frames.md#recordable-coeffects).
+
+> **`:dispatched-at` is retired.** The earlier optional `:dispatched-at` envelope key is **removed** (EP-0010 rider b — retired in the same change that landed the envelope stamp, no coexistence window). The durable causal-time fact is now `(:rf/time-ms (:rf.cofx envelope))`; the diagnostic dispatch-time need is the trace event's own `:time` stamp ([009](009-Instrumentation.md)). See [002 §`:dispatched-at` is retired](002-Frames.md#dispatched-at-is-retired).
 
 ### `:rf/dispatch-opts`
 
@@ -113,7 +115,7 @@ Carried internally by every dispatch. User-facing event vector remains a vector;
 > **Owner:** [002-Frames §Routing](002-Frames.md#routing-the-dispatch-envelope)
 > **Status:** v1-required
 
-The opts map a user passes to `(dispatch event opts)` / `(dispatch-sync event opts)` / `(subscribe query-v opts)`. The runtime promotes these into a `:rf/dispatch-envelope`. **The opts schema is a *subset* of the envelope** — opts the user supplies are user-facing; the envelope key the runtime adds (`:event` itself) is internal. A caller MAY supply `:rf.world/inputs` (for tests, replay, SSR hydration, tools); when absent the runtime stamps `:time-ms` (see [002 §Envelope stamping](002-Frames.md#envelope-stamping)).
+The opts map a user passes to `(dispatch event opts)` / `(dispatch-sync event opts)` / `(subscribe query-v opts)`. The runtime promotes these into a `:rf/dispatch-envelope`. **The opts schema is a *subset* of the envelope** — opts the user supplies are user-facing; the envelope key the runtime adds (`:event` itself) is internal. A caller MAY supply `:rf.cofx` (exact recordable facts for tests, replay, SSR hydration, tools); when absent the runtime stamps `:rf/time-ms` (see [002 §Envelope stamping](002-Frames.md#envelope-stamping-rftime-ms)).
 
 ```clojure
 (def DispatchOpts
@@ -125,35 +127,55 @@ The opts map a user passes to `(dispatch event opts)` / `(dispatch-sync event op
    [:trace-id              {:optional true} :any]
    [:source                {:optional true} [:enum :ui :frame-init :machine-spawn :machine-action :always :after-timer :fx-dispatch :fx-dispatch-later :http :router :ssr-hydration :test :tool :websocket :repl :unknown :other]]
    [:origin                {:optional true} :keyword]                       ;; actor identity tag — defaults to :app when omitted
-   [:rf.world/inputs       {:optional true} #'WorldInputs]])                ;; EP-0010 causal world inputs — caller-supplied for replay/tests/SSR; runtime stamps `:time-ms` when omitted
+   [:rf.cofx               {:optional true} #'Cofx]])                       ;; EP-0017 recordable coeffects — caller-supplied for replay/tests/SSR; runtime stamps `:rf/time-ms` when omitted
 ```
 
-The promotion is structural: `(dispatch event opts)` → envelope is `(merge {:event event} opts)` with `:frame` resolved per the EP-0002 carried invariant and `:rf.world/inputs` ensured to carry `:time-ms`. The runtime asserts `:event` and `:frame` are present after the merge.
+The promotion is structural: `(dispatch event opts)` → envelope is `(merge {:event event} opts)` with `:frame` resolved per the EP-0002 carried invariant and `:rf.cofx` ensured to carry `:rf/time-ms`. The runtime asserts `:event` and `:frame` are present after the merge.
 
-### `:rf.world/inputs`
+<a id="rfworldinputs"></a>
+
+### `:rf.cofx`
 
 > **Layer:** Runtime
-> **Owner:** [002-Frames §Causal world inputs](002-Frames.md#causal-world-inputs)
+> **Owner:** [002-Frames §Recordable coeffects](002-Frames.md#recordable-coeffects)
 > **Status:** v1-required
 > **Conformance:** `implementation/core/test/re_frame/world_inputs_test.clj` + `implementation/core/test/re_frame/event_context_coeffect_keys_test.clj`
 
-The EP-0010 causal world-input map carried on every dispatch envelope and exposed to handlers as the `:rf.world/inputs` framework coeffect. Host facts that can affect a durable write (time, generated identity, browser/storage facts, async-completion facts) enter the frame fold as data here rather than as an ambient host read at the write site — making replay, restore, and SSR hydration deterministic ([002 §The World-Input Rule](002-Frames.md#the-world-input-rule)). An **open** EDN map with one required key; serializable after the same projection / elision / privacy rules as event payloads.
+The **recordable-coeffect** map carried on every dispatch and reply envelope (EP-0017; renamed and flattened from the EP-0010 `:rf.world/inputs`). Host facts that can affect a durable write (time, generated identity, browser/storage facts, async-completion facts) enter the frame fold as data here rather than as an ambient host read at the write site — making replay, restore, and SSR hydration deterministic ([002 §The recordable-coeffect rule](002-Frames.md#the-recordable-coeffect-rule-the-durable-write-rule)). The map is **flat** — `fact-name → value`, one fact per owner-qualified key, **no grouping sub-maps**. An **open** EDN map with one required key on the envelope; serializable after the same projection / elision / privacy rules as event payloads (EP-0015 per leaf; `:rf/time-ms` always safe to surface).
 
 ```clojure
-(def WorldInputs
+(def Cofx
   [:map
-   [:time-ms                            :int]                              ;; REQUIRED — wall-clock epoch milliseconds; the canonical durable wall-clock fact. Stamped at the causal boundary when the caller omits it.
-   [:monotonic-ms      {:optional true} :int]                              ;; a monotonic host time for replayable elapsed-time bases
-   [:uuid              {:optional true} [:map-of :keyword :any]]           ;; domain-name → generated id (e.g. `{:todo/id #uuid "…"}`)
-   [:random            {:optional true} [:map-of :keyword :any]]           ;; recorded random CHOICES (not seeds, save named-stable-algorithm cases); crypto-grade secrets EXCLUDED (EP-0010 rider)
-   [:storage           {:optional true} [:map-of :keyword :any]]           ;; normalized storage values read at the causal boundary
-   [:browser/location  {:optional true} :any]                             ;; normalized browser facts — EDN only, never host objects
-   [:browser/visibility {:optional true} :any]
-   [:browser/online?   {:optional true} :boolean]])
-   ;; open: subsystem-qualified keys (e.g. `:rf.route/location`, `:rf.http/completed-at`) ride additively when a narrower spec defines them
+   [:rf/time-ms                         :int]                              ;; REQUIRED on the envelope — wall-clock epoch milliseconds; the framework's one built-in (recordable, provided) coeffect. Stamped at enqueue when the caller omits it.
+   ;; open: every other leaf is an owner-qualified recordable-coeffect fact
+   ;;   registered via `reg-cofx` (app facts under app namespaces, subsystem
+   ;;   facts under their roots e.g. `:rf.route/location`). Values are EDN
+   ;;   (strings, booleans, numbers, keywords, vectors, maps, projected ids) —
+   ;;   never host objects. No fixed `:uuid` / `:random` / `:storage` /
+   ;;   `:browser/*` sub-maps: provenance lives in each fact's registration
+   ;;   (`handler-meta`, `:doc`, `:schema`), not in nesting.
+   ])
 ```
 
-The map is required to carry `:time-ms` on the envelope (the runtime guarantees it); it is optional on `:rf/dispatch-opts` because the user-facing opts schema is a subset and the runtime fills `:time-ms` when omitted. Child dispatches receive their own freshly-stamped map — `:time-ms` is not inherited ([002 §Envelope stamping](002-Frames.md#envelope-stamping)).
+The map is required to carry `:rf/time-ms` on the envelope (the runtime guarantees it); it is optional on `:rf/dispatch-opts` because the user-facing opts schema is a subset and the runtime fills `:rf/time-ms` when omitted. Supplied leaves are preserved verbatim and never overwritten. Child dispatches receive their own freshly-stamped map — `:rf/time-ms` is not inherited ([002 §Envelope stamping](002-Frames.md#envelope-stamping-rftime-ms)).
+
+### `:rf.cofx/requires`
+
+> **Layer:** Public
+> **Owner:** [001-Registration §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key)
+> **Status:** v1-required
+
+The registration-metadata value declaring a handler's (or machine named-entry's) consumed coeffects — a vector of registered coeffect ids, each either a bare id keyword or a `[id arg]` 2-vector for a call-site-parameterized supplier (mirroring the binary supplier arity). EP-0017.
+
+```clojure
+(def CofxRequires
+  [:vector
+   [:or
+    :keyword                                                               ;; a bare coeffect id
+    [:tuple :keyword :any]]])                                              ;; [id arg] — parameterized supplier; delivers under the bare `id`
+```
+
+A malformed value (a non-vector, or an entry that is neither a keyword nor an `[id arg]` tuple) is `:rf.error/cofx-request-invalid` at registration; a referenced id with no `reg-cofx` registration is `:rf.error/unregistered-cofx`; declaring the same id twice (any args) in one consumer scope is `:rf.error/cofx-name-collision`. The key is a registration-time error on `reg-event-db` (per [001 §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key)).
 
 ### `:rf/registration-metadata`
 
@@ -199,10 +221,11 @@ The metadata map accepted by `reg-event-db` / `reg-event-fx` / `reg-event-ctx`. 
   [:merge
    RegistrationMetadata
    [:map
-    [:event/kind   {:optional true} [:enum :db :fx :ctx]]                    ;; runtime stamps this; user code MUST NOT set it
-    [:interceptors {:optional true} [:vector :map]]                          ;; the interceptor chain (superset middle slot; rf2-bpmszk) — vector form is sugar for this
-    [:rf/machine?  {:optional true} :boolean]                                ;; true iff this :event entry is a machine handler (reg-machine path)
-    [:rf/machine   {:optional true} [:ref :rf/machine-spec]]                 ;; the captured machine spec (when :rf/machine? true); see [005](005-StateMachines.md)
+    [:event/kind       {:optional true} [:enum :db :fx :ctx]]                ;; runtime stamps this; user code MUST NOT set it
+    [:interceptors     {:optional true} [:vector :map]]                      ;; the interceptor chain (superset middle slot; rf2-bpmszk) — vector form is sugar for this
+    [:rf.cofx/requires {:optional true} [:ref :rf.cofx/requires]]            ;; EP-0017 — declared consumed coeffects (reg-event-fx / reg-event-ctx only; a registration error on reg-event-db)
+    [:rf/machine?      {:optional true} :boolean]                            ;; true iff this :event entry is a machine handler (reg-machine path)
+    [:rf/machine       {:optional true} [:ref :rf/machine-spec]]             ;; the captured machine spec (when :rf/machine? true); see [005](005-StateMachines.md)
     ]])
 ```
 
@@ -251,16 +274,20 @@ The metadata map accepted by `reg-fx`. Carries `:platforms` per [011 §`:platfor
 
 > **Layer:** Public
 
-The metadata map accepted by `reg-cofx`. Carries `:platforms` mirroring `reg-fx` per [011 §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx). The handler fn's arity (1-arity `(fn [cofx])` vs 2-arity `(fn [cofx arg])`) is **fn-shape, not metadata** — the cofx resolver detects arity at injection time and routes the optional `inject-cofx` second-arg accordingly (per [API.md §`inject-cofx`](API.md)). Tools that need the arity discriminator inspect the fn's arity directly.
+The metadata map accepted by `reg-cofx`. Carries the EP-0017 **grade** keys (`:recordable?` / `:provided?`), `:schema` (validates supplied and replayed values — the validation step is slice-B-built), and `:platforms` mirroring `reg-fx` per [011 §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx). The supplier is **value-returning** (`(fn [] v)` / `(fn [arg] v)`); its arity (0 vs 1) is **fn-shape, not metadata** — the resolver detects arity and routes the optional `[id arg]` requirement-arg accordingly. Tools that need the arity discriminator inspect the fn's arity directly. Grades and the registrar contract are owned by [001 §Coeffects](001-Registration.md#coeffects--reg-cofx-value-returning-graded).
 
 ```clojure
 (def CofxMeta
   [:merge
    RegistrationMetadata
    [:map
+    [:recordable?  {:optional true} :boolean]                               ;; EP-0017 grade — true ⇒ recordable (ensured onto the token, recorded, replayed); absent/false ⇒ ambient (run at context assembly, never recorded)
+    [:provided?    {:optional true} :boolean]                               ;; EP-0017 — true (with :recordable? true) ⇒ no generator; the value is stamped onto the token by its owner (framework / subsystem / dispatch boundary). Meaningful only alongside :recordable? true.
     [:platforms    {:optional true} [:set [:enum :server :client]]]          ;; default if absent: #{:server :client}; mirrors :rf/fx-meta
     ]])
 ```
+
+`:provided? true` without `:recordable? true` is meaningless (an ambient coeffect always has a supplier); the framework's one built-in registration is `:rf/time-ms` (`{:recordable? true :provided? true}`).
 
 #### `:rf/view-meta`
 
@@ -576,7 +603,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:rf.sub` | Subscription family — `:rf.sub/create` (first reference / registration into the reactive graph), `:rf.sub/run` (input changed; output recomputed), `:rf.sub/skip` (memo-hit; body did not re-run) | 009 |
 | `:rf.view` | View-substrate family — `:rf.view/render` (per-render marker), plus the `:rf.view/rendered` per-render cascade-attribution / per-view ACTION+REASON marker (carries `:rf.view/mount?`, `:rf.view/deref-subs`, and `:rf.view/render-args` — the latter elided as user data), its `:rf.view/rendered-cap-reached` truncation marker, and the `:rf.view/unmounted` instance-teardown marker. Per [Spec 004 §Render-tree primitives](004-Views.md) and [009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary) | 004 / 009 |
 | `:rf.fx` | Effect-substrate success-path / lifecycle family — `:rf.fx/do-fx` (the effects-resolution pass after the handler returns — folded in here from the former standalone `:event/do-fx` op-type), `:rf.fx/handled`, `:rf.fx/override-applied`. The universal discriminator for fx outcomes when not error/warning-shaped | 002 / 009 |
-| `:rf.cofx` | Coeffect-substrate success-path family — `:rf.cofx/run` (a cofx handler ran to success during the interceptor `:before` chain; carries `:rf.cofx/id` + `:rf.cofx/value` + `:rf.cofx/elapsed-ms`). The cofx skip / error paths ride the `:warning` / `:error` severity discriminators (`:rf.cofx/skipped-on-platform`, `:rf.error/no-such-cofx`). | 002 / 009 |
+| `:rf.cofx` | Coeffect-substrate success-path family — `:rf.cofx/run` (a coeffect supplier ran to success during context assembly; carries `:rf.cofx/id` + `:rf.cofx/value` + `:rf.cofx/elapsed-ms`). The cofx skip / error paths ride the `:warning` / `:error` severity discriminators (`:rf.cofx/skipped-on-platform`; the EP-0017 cofx error family `:rf.error/unregistered-cofx` / `:rf.error/missing-required-cofx` / `:rf.error/cofx-value-invalid`). The slice-B generation step emits `:rf.cofx/generated` (reserved). | 002 / 009 |
 
 **Family-level discriminators** (umbrella `:op-type` values whose per-emit-site `:operation` varies; consumers filter the whole family with one key):
 
@@ -626,7 +653,7 @@ A refinement of `:rf/trace-event` for the unified error/warning envelope. Every 
                                                [:column {:optional true} :int]]]]]
    [:rf.trace/call-site       {:optional true}    ;; invocation coord stamped by the
                               [:map               ;; macro form of dispatch / dispatch-sync /
-                               [:ns     {:optional true} :symbol]    ;; subscribe / inject-cofx
+                               [:ns     {:optional true} :symbol]    ;; subscribe
                                [:file   {:optional true} :string]
                                [:line   {:optional true} :int]
                                [:column {:optional true} :int]]]
@@ -641,7 +668,7 @@ The `:op-type` discriminates severity: `:error` halts or recovers a specific ope
 
 The optional `:rf.trace/trigger-handler` slot (top-level, NOT under `:tags`) names the handler whose execution produced the error and carries its registration-site source-coord. Inherited from the universal `TraceEvent` shape — the slot rides on every trace event emitted while a handler is in scope, not just errors (success-path traces like `:rf.fx/handled` and `:rf.machine/transition` carry it too). Present when a handler is in scope at emit time (event handler running, sub recomputing, fx handler dispatching, cofx injecting, view rendering); absent when no handler is in scope (e.g. outermost-dispatch `:rf.error/no-such-handler`, depth-exceeded drain rollback). Source-coord values come from the registrar slot stamped by the kind-specific `reg-*` macro at registration time; programmatic registration paths (the underlying registration fns called without the macro wrapping) carry no coord, in which case the slot is omitted rather than populated with placeholder data. Tools render click-to-jump-to-handler links by reading `[:rf.trace/trigger-handler :source-coord]`. The slot is **not separately elided** — when a trace event is emitted at all, the slot rides along on it when bound — but it rides only on **dev** trace events: the whole trace surface is gated by `re-frame.interop/debug-enabled?`, so default production builds (`:advanced` + `goog.DEBUG=false`) get neither this slot nor the surrounding trace event (per [009 §`:rf.trace/trigger-handler`](009-Instrumentation.md#rftracetrigger-handler--naming-the-in-scope-handler)). Production-surviving source coordinates for error observability come from a **separate** always-on channel — the always-on error-coord registry / error-emit record (per [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference)) — not from a retained `:rf.trace/trigger-handler` slot.
 
-The optional `:rf.trace/call-site` slot (top-level, sibling of `:rf.trace/trigger-handler`) names the **invocation** line of the user-facing surface that triggered the error — the `(rf/dispatch [:bad-event])` line, the `(rf/subscribe [:bad-sub])` line, the `(rf/inject-cofx :missing)` line. Where `:rf.trace/trigger-handler` answers "where is the failing handler **defined**?", `:rf.trace/call-site` answers "where is the failing handler **called**?". Tools that consume both render two clickable links per error: registration-site jump and invocation-site jump. Present when the surface was reached through its macro form (`dispatch`, `dispatch-sync`, `subscribe`, `inject-cofx`); absent when reached through the runtime-callable fn form (`dispatch*`, `dispatch-sync*`, `subscribe*`, `inject-cofx*`) — HoF use, programmatic / REPL paths, view-render closures captured by `(rf/frame-handle)`'s `:dispatch` / `:subscribe` ops — and absent under `:advanced` + `goog.DEBUG=false` builds (per Q3=B: dev-only elision; the macro's stamp branch DCEs and the literal map vanishes).
+The optional `:rf.trace/call-site` slot (top-level, sibling of `:rf.trace/trigger-handler`) names the **invocation** line of the user-facing surface that triggered the error — the `(rf/dispatch [:bad-event])` line, the `(rf/subscribe [:bad-sub])` line. Where `:rf.trace/trigger-handler` answers "where is the failing handler **defined**?", `:rf.trace/call-site` answers "where is the failing handler **called**?". Tools that consume both render two clickable links per error: registration-site jump and invocation-site jump. Present when the surface was reached through its macro form (`dispatch`, `dispatch-sync`, `subscribe`); absent when reached through the runtime-callable fn form (`dispatch*`, `dispatch-sync*`, `subscribe*`) — HoF use, programmatic / REPL paths, view-render closures captured by `(rf/frame-handle)`'s `:dispatch` / `:subscribe` ops — and absent under `:advanced` + `goog.DEBUG=false` builds (per Q3=B: dev-only elision; the macro's stamp branch DCEs and the literal map vanishes).
 
 The canonical category vocabulary is fixed-and-additive (Spec-ulation): existing categories cannot be renamed or removed; new categories are added by extending the operation namespace. The current set is enumerated in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) — the single source of truth for the `:operation` enum domain (every row of the catalogue corresponds to one reserved keyword in this enum). [API.md §Error contract](API.md#error-contract) points consumers at the catalogue rather than reproducing it. Reserved operation namespaces:
 
@@ -810,9 +837,9 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 
 (def NoSuchCofxTags
   [:map
-   [:category          :keyword]            ;; [:= :rf.error/no-such-cofx] in a closed schema
+   [:category          :keyword]            ;; EP-0017: a required cofx id with no registration is `:rf.error/unregistered-cofx` (the typo case); a registered-but-unsatisfiable fact is `:rf.error/missing-required-cofx`. The v1 `:rf.error/no-such-cofx` is retired with `inject-cofx`.
    [:rf.cofx/id        :keyword]
-   [:rf.cofx/value     {:optional true} :any]   ;; only present when the 2-arity inject-cofx was used
+   [:rf.cofx/value     {:optional true} :any]   ;; the requirement-arg, present only for a parameterized `[id arg]` requirement
    [:rf.trace/event-id {:optional true} :keyword]])
 
 (def OverrideFallthroughTags
@@ -1751,7 +1778,7 @@ The schemas above are *open* (Malli's default `[:map ...]`) — consumers receiv
 > **Owner:** [002-Frames §Per-event drain](002-Frames.md)
 > **Status:** v1-required
 
-When an interceptor's `:before` or `:after` function throws, the chain runner records the failure into the context map under two paired keys before continuing or short-circuiting. Each captured error is a `{:phase :id :exception}` record; per rf2-mszrz it additionally carries `:rf/cofx-id` when the throwing interceptor is an `inject-cofx` injector (so the router can attribute a coeffect-injection throw to the fully-qualified cofx id rather than the bare interceptor `:id`):
+When an interceptor's `:before` or `:after` function throws, the chain runner records the failure into the context map under two paired keys before continuing or short-circuiting. Each captured error is a `{:phase :id :exception}` record; per rf2-mszrz it additionally carries `:rf/cofx-id` when the failing component is a coeffect supplier that threw at context assembly (so the router can attribute a coeffect-supplier throw to the fully-qualified cofx id rather than the bare interceptor `:id`):
 
 ```clojure
 (def InterceptorContextErrorKeys
@@ -1777,7 +1804,7 @@ Semantics (the contract ports must uphold):
 1. **Singleton-FIRST / vector-ALL.** `:rf/interceptor-error` is set *once* — to the first throw observed. `:rf/interceptor-errors` collects *every* throw in order; subsequent entries append.
 2. **`:before` failures short-circuit subsequent `:before` stages.** Remaining `:before` interceptors are skipped; the handler is also skipped.
 3. **`:after` pass runs in full** regardless of `:before` failures — interceptors that allocate cleanup-on-`:after` resources must always get their `:after` call. An `:after` throw appends to `:rf/interceptor-errors` but does not abort the remaining `:after` stages.
-4. **Trace emission tracks the singleton, attributed to the true failing component.** The trace stream emits one error event per chain execution — keyed off `:rf/interceptor-error`. The category is derived from the captured component identity (per rf2-mszrz): `:rf.error/handler-exception` when the throwing `:id` is the handler-wrapper (`:rf/db-handler` / `:rf/fx-handler` / `:rf/ctx-handler`), `:rf.error/coeffect-exception` when the captured error carries `:rf/cofx-id` (an `inject-cofx` injection threw), and `:rf.error/interceptor-exception` otherwise (a user interceptor's `:before`/`:after`, with `:phase` discriminating the two). The `:failing-id` tag carries the true component id (event id / cofx id / interceptor id), NOT a blanket event id. Consumers wanting the full failure set read `:rf/interceptor-errors` from the post-drain context snapshot directly.
+4. **Trace emission tracks the singleton, attributed to the true failing component.** The trace stream emits one error event per chain execution — keyed off `:rf/interceptor-error`. The category is derived from the captured component identity (per rf2-mszrz): `:rf.error/handler-exception` when the throwing `:id` is the handler-wrapper (`:rf/db-handler` / `:rf/fx-handler` / `:rf/ctx-handler`), `:rf.error/coeffect-exception` when the captured error carries `:rf/cofx-id` (a coeffect supplier threw at context assembly), and `:rf.error/interceptor-exception` otherwise (a user interceptor's `:before`/`:after`, with `:phase` discriminating the two). The `:failing-id` tag carries the true component id (event id / cofx id / interceptor id), NOT a blanket event id. Consumers wanting the full failure set read `:rf/interceptor-errors` from the post-drain context snapshot directly.
 
 Both keys are namespaced under `:rf/`, so user-installed interceptors that read or write context entries don't collide with the runtime-owned slots. Per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned), user code MUST NOT write to either key.
 
@@ -2994,7 +3021,7 @@ Args of the framework-supplied `:rf.route/with-nav-token` fx wrapper, per [012 �
    [:route-id {:optional true} :any]])                                    ;; OPTIONAL captured route id (rf2-azcmd3): when present, a cross-route stale completion attributes its work-id to the route-loader attempt, not the route live at arrival
 ```
 
-Registered under spec id `:rf.fx/with-nav-token-args`. The wrapped fx receives the carried token in cofx; on receipt, the framework-provided `:nav-token` cofx checks the carried token against the current route slice's (`[:rf.runtime/routing :current]`) `:nav-token`. Mismatch → suppress + emit `:rf.route.nav-token/stale-suppressed` trace.
+Registered under spec id `:rf.fx/with-nav-token-args`. The wrapped fx receives the carried token in cofx; on receipt, the `:nav-token` cofx (a subsystem-registered coeffect a handler declares via `:rf.cofx/requires [:nav-token]` per [001 §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key)) checks the carried token against the current route slice's (`[:rf.runtime/routing :current]`) `:nav-token`. Mismatch → suppress + emit `:rf.route.nav-token/stale-suppressed` trace.
 
 ### `:rf/hydration-payload`
 
