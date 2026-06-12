@@ -1502,7 +1502,7 @@
   data, so :rf.view/render-args routes through the SAME emit-time elision
   chokepoint as every other user-data trace payload — the marks projection
   runs `elide-wire-value` against the frame's app-db elision registry. A
-  schema-declared `{:sensitive? true}` path inside a render arg must reach
+  frame-declared `:sensitive` app-db path inside a render arg must reach
   the trace surface as the `:rf/redacted` sentinel, never raw. Marks
   artefact must be loaded for this to apply; substrate-agnostic."
   [{:keys [substrate-kw name]}]

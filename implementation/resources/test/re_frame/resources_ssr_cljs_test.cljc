@@ -291,14 +291,15 @@
             scope+params, preserve resource-id + distinctness"
     (let [k1 (state/scoped-resource-key :rf.scope/global :r {:a 1})
           k2 (state/scoped-resource-key :rf.scope/global :r {:a 2})]
-      (is (= k1 (ssr/project-scoped-key k1 :serialize)))
-      (let [r1 (ssr/project-scoped-key k1 :redact)
-            r2 (ssr/project-scoped-key k2 :redact)]
+      ;; nil spec → no :params-schema marks → :serialize rides params verbatim.
+      (is (= k1 (ssr/project-scoped-key k1 :serialize nil)))
+      (let [r1 (ssr/project-scoped-key k1 :redact nil)
+            r2 (ssr/project-scoped-key k2 :redact nil)]
         (is (= :r (nth r1 1)) "resource-id preserved")
         (is (contains? (nth r1 2) :rf/redacted))
         (is (not= r1 r2) "distinct params → distinct redacted keys")
-        (is (= r1 (ssr/project-scoped-key k1 :redact)) "deterministic (same input → same digest)")
-        (is (= (ssr/project-scoped-key k1 :redact) (ssr/project-scoped-key k1 :omit))
+        (is (= r1 (ssr/project-scoped-key k1 :redact nil)) "deterministic (same input → same digest)")
+        (is (= (ssr/project-scoped-key k1 :redact nil) (ssr/project-scoped-key k1 :omit nil))
             ":redact and :omit redact the key identically (both metadata-only)")))))
 
 ;; ===========================================================================

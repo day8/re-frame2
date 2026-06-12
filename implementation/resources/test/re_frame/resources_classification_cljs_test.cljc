@@ -123,6 +123,76 @@
       (is (false? (classification/data-schema-classifies? spec))))))
 
 ;; ===========================================================================
+;; 2b. params-schema-marks — the CO-EQUAL fine-grained owner surface (issue 11)
+;; ===========================================================================
+;;
+;; EP-0015 issue 11 names :params-schema co-equal with :data-schema as a
+;; canonical fine-grained owner surface (Spec 015 / Spec 016 clause 4 "params,
+;; scopes, and data carry the same classification"). The audit (rf2-edbj53)
+;; flagged only :data-schema was exercised; this section pins the :params-schema
+;; arm symmetrically (rf2-t55hxg.5).
+
+(deftest params-schema-marks-extract-per-slot-props
+  (testing "per-slot :sensitive? / :large? props on :params-schema are extracted
+            via the SAME shared walker as :data-schema — the co-equal fine-grained
+            owner surface, rooted at the params root"
+    (let [spec {:params-schema [:map
+                                 [:account-id {:sensitive? true} :string]
+                                 [:cursor     {:large? true} :string]
+                                 [:page :int]]}
+          {:keys [sensitive large]} (classification/params-schema-marks spec)]
+      (is (contains? sensitive [:account-id]) "the :sensitive? params slot path is extracted")
+      (is (contains? large [:cursor]) "the :large? params slot path is extracted")
+      (is (not (contains? sensitive [:page])) "a plain params slot is not classified")
+      (is (true? (classification/params-schema-classifies? spec))
+          "params-schema-classifies? is true when any params slot is marked"))))
+
+(deftest params-schema-marks-empty-without-schema-or-marks
+  (testing "no :params-schema, or a schema with no marks → empty maps, classifies? false"
+    (is (= {:sensitive {} :large {}} (classification/params-schema-marks {})))
+    (let [plain {:params-schema [:map [:slug :string]]}]
+      (is (= {} (:sensitive (classification/params-schema-marks plain))))
+      (is (= {} (:large (classification/params-schema-marks plain))))
+      (is (false? (classification/params-schema-classifies? plain))))))
+
+(deftest project-params-redacts-sensitive-and-elides-large
+  (testing "EP-0015 issue 11: project-params applies the owner's per-slot
+            :params-schema marks — :sensitive? slots redact to the :rf/redacted
+            sentinel, :large? slots elide to the :rf.size/large-elided marker,
+            plain slots ride verbatim — via the SHARED redact-with-paths walker,
+            frame-independently"
+    (let [spec {:params-schema [:map
+                                [:account-id {:sensitive? true} :string]
+                                [:cursor     {:large? true} :string]
+                                [:page :int]]}
+          out  (classification/project-params
+                 {:account-id "acct-secret-42" :cursor (apply str (repeat 200 "x")) :page 3}
+                 spec)]
+      (is (= privacy/redacted-sentinel (:account-id out))
+          "the :sensitive? params slot is redacted")
+      (is (contains? (:cursor out) :rf.size/large-elided)
+          "the :large? params slot is elided to the size marker")
+      (is (= 3 (:page out)) "the plain params slot rides verbatim")
+      (is (not (str/includes? (pr-str out) "acct-secret-42"))
+          "the raw sensitive params value does not ride"))))
+
+(deftest project-params-sensitive-wins-over-large
+  (testing "a params slot marked BOTH :sensitive? and :large? redacts (sensitive
+            wins over large — the shared walker ordering, same as data + HTTP body)"
+    (let [spec {:params-schema [:map [:token {:sensitive? true :large? true} :string]]}
+          out  (classification/project-params {:token (apply str (repeat 100 "z"))} spec)]
+      (is (= privacy/redacted-sentinel (:token out))
+          "sensitive wins — the slot is the redaction sentinel, not a large marker"))))
+
+(deftest project-params-no-marks-rides-verbatim
+  (testing "a spec with no :params-schema marks (or nil spec) rides params
+            UNCHANGED — the coarse whole-entry disposition is the separate
+            authority that redacts/omits the whole key"
+    (is (= {:slug "x"} (classification/project-params {:slug "x"}
+                                                      {:params-schema [:map [:slug :string]]})))
+    (is (= {:slug "x"} (classification/project-params {:slug "x"} nil)))))
+
+;; ===========================================================================
 ;; 3. project-data — defer to the merged frame-owned project-egress
 ;; ===========================================================================
 
@@ -257,6 +327,31 @@
       (is (= "Alice" (get-in we [:data :name])) "the unmarked sibling rides verbatim")
       (is (not (str/includes? (pr-str we) "4111-1111-1111-1111"))
           "no raw owner-marked value rides on the wire"))))
+
+(deftest ssr-serialize-entry-redacts-owner-params-schema-sensitive-slot-in-key
+  (reg! :report/by-account {:params-schema [:map
+                                            [:account-id {:sensitive? true} :string]
+                                            [:slug :string]]})
+  (testing "EP-0015 issue 11 END-TO-END: a :serialize resource whose
+            :params-schema marks a params slot :sensitive? must NOT ride that
+            slot RAW in the projected wire KEY — the params surface is co-equal
+            with the data surface (Spec 016 clause 4). The coarse claim leaves
+            the key serialized, so the per-slot params classification is the
+            only thing standing between the secret and every SSR visitor's wire"
+    (let [k   (state/scoped-resource-key :rf.scope/global :report/by-account
+                                         {:account-id "acct-secret-42" :slug "q3"})
+          e   (entry {:resource-id :report/by-account :data {:total 99}})
+          [wk we] (only-wire-entry (ssr/project-resources-runtime-db (runtime-db-with {k e})))]
+      (is (= :serialize (classification/whole-entry-disposition
+                          (rf/resource-meta :report/by-account)))
+          "no coarse claim → :serialize (the per-slot params mark is the surface)")
+      (is (= :report/by-account (nth wk 1)) "resource-id preserved (position 1)")
+      (is (= privacy/redacted-sentinel (get-in wk [2 :account-id]))
+          "the owner-marked :account-id params slot is redacted in the wire key")
+      (is (= "q3" (get-in wk [2 :slug])) "the unmarked params sibling rides verbatim")
+      (is (= {:total 99} (:data we)) "the (unmarked) data rides verbatim — serialize")
+      (is (not (str/includes? (pr-str wk) "acct-secret-42"))
+          "no raw sensitive params value rides in the wire key"))))
 
 ;; ===========================================================================
 ;; 5. load-bearing Spec 016 rules preserved (the projection contract)

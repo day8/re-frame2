@@ -111,7 +111,7 @@
     - :seed — non-sensitive bookkeeping
     - :login — writes the sensitive path (secret value closed-over in the
               handler so it never appears in the trigger-event vector;
-              the schema-declared sensitive path is the only sensitive
+              the frame-declared sensitive path is the only sensitive
               leaf the projection's wire-elision walker can match
               against, not arbitrary positional event args)
     - :upload — writes the large path (large payload closed-over in the
@@ -332,7 +332,7 @@
           thrice (mapv epoch/projected-record twice)
           ;; The :upload cascade is the third one driven (index 2):
           ;; that record is the one whose :db-after carries the large
-          ;; payload at the schema-declared `[:blob :payload]` slot.
+          ;; payload at the frame-declared `[:blob :payload]` slot.
           large-slot (fn [r] (get-in r [:db-after :blob :payload]))]
       (is (elision/marker? (large-slot (nth once 2)))
           "first projection pass substitutes a marker at the large slot")

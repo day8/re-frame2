@@ -11,7 +11,7 @@
                           Delegates the cascade-buffer walks to
                           `re-frame.epoch.capture`.
     2. `sensitive-rollup` — computes `:rf.epoch/sensitive?` from raw
-                          signals (trace-event stamps + schema-declared
+                          signals (trace-event stamps + frame-declared
                           sensitive paths).
     3. `apply-redact-fn` — runs the installed `:redact-fn` advanced
                           override at the OFF-BOX EGRESS boundary only
@@ -194,7 +194,7 @@
 ;;   1. The captured trace stream already stamps `:sensitive?` per
 ;;      handler-meta scope — if any event in `:trace-events` carries the
 ;;      stamp, the record's cascade involved sensitive material.
-;;   2. The frame's schema-declared `[:rf.runtime/elision :sensitive-declarations]`
+;;   2. The frame's frame-declared `[:rf.runtime/elision :sensitive-declarations]`
 ;;      registry names paths that hold sensitive data; if any such path
 ;;      resolves to a non-nil leaf in `:db-before` or `:db-after`, the
 ;;      record's app-db state carries sensitive material.
@@ -212,9 +212,10 @@
   (boolean (some privacy/sensitive? events)))
 
 (defn- sensitive-paths-for
-  "Return the schema-declared sensitive paths for `frame-id`. Empty when
-  no schema layer is registered or when no slot carries
-  `{:sensitive? true}`."
+  "Return the frame-declared sensitive paths for `frame-id`. Empty when
+  the frame declares no `:sensitive {:app-db …}` classification (EP-0015
+  §3/§8 — the `[:rf.runtime/elision :sensitive-declarations]` registry is
+  frame-owned, not schema-populated)."
   [frame-id]
   (try (keys (elision/sensitive-declarations frame-id))
        (catch #?(:clj Throwable :cljs :default) _ nil)))
@@ -236,14 +237,14 @@
   "Compute the record-level `:rf.epoch/sensitive?` rollup for the
   assembled record. Returns `true` when the record's content overlaps
   a sensitive area — either via a stamped trace event or via a
-  schema-declared sensitive path that holds a non-nil leaf in the
+  frame-declared sensitive path that holds a non-nil leaf in the
   recorded db. Returns `false` otherwise (always a strict boolean —
   consumers branch on `(true? ...)` / `(false? ...)`).
 
   HOT PATH: fires once per dequeued event (rf2-nj6p7). `sensitive-paths-for` derefs
   the elision registry once; the leaf check short-circuits at the
   first non-nil hit; the trace-event check short-circuits at the first
-  stamped event. For the common case (no schema-declared sensitive
+  stamped event. For the common case (no frame-declared sensitive
   paths, no sensitive handlers in scope) the cost is one keys-of-empty
   call plus two sequence-with-no-work walks."
   [frame-id db-before db-after events]
@@ -258,7 +259,7 @@
 ;;
 ;; Per Security.md §Epoch privacy posture and rf2-dl3gx (follow-on to
 ;; rf2-bz1cl's Xray-side heuristic chip): the record carries a
-;; top-level integer count of schema-declared sensitive paths
+;; top-level integer count of frame-declared sensitive paths
 ;; (`[:rf.runtime/elision :sensitive-declarations]`) whose value differs between
 ;; `:db-before` and `:db-after`. Computed inside `build-record` from RAW
 ;; values BEFORE the installed `:redact-fn` runs — parallel to the
@@ -275,7 +276,7 @@
 ;; sees an empty diff body and no signal that anything happened.
 ;;
 ;; The count closes that gap by recording, on the raw record, exactly
-;; how many schema-declared sensitive paths mutated this cascade.
+;; how many frame-declared sensitive paths mutated this cascade.
 ;; Downstream consumers (Xray's `redacted-paths-modified` chip per
 ;; `tools/xray/spec/004-App-DB-Diff.md`, MCP wire pipeline, story
 ;; recorders) read the integer directly rather than re-deriving from
@@ -286,7 +287,9 @@
 ;;
 ;; A path P counts when:
 ;;   1. P appears in `sensitive-paths-for frame-id`
-;;      (schema-declared via `{:sensitive? true}` props per Spec 015).
+;;      (frame-declared via `:sensitive {:app-db …}` on `reg-frame` —
+;;      EP-0015 §3/§8; the app-db elision registry is frame-owned, no
+;;      longer populated from schema `{:sensitive? true}` props).
 ;;   2. `(not= (get-in db-before P) (get-in db-after P))`.
 ;;
 ;; The check uses **value-equality** on the raw (pre-redact-fn) dbs.
@@ -296,15 +299,15 @@
 ;;
 ;; ## What this does NOT cover
 ;;
-;; - `:redact-fn` substitutions at NON-schema-declared paths. The
+;; - `:redact-fn` substitutions at NON-frame-declared paths. The
 ;;   redact-fn is opaque (record-in, record-out); the framework cannot
 ;;   inspect "would the fn redact this leaf?" without running it. The
-;;   schema-declared sensitive-paths set is the framework's authoritative
+;;   frame-declared sensitive-paths set is the framework's authoritative
 ;;   "what would be redacted" oracle — apps that install a redact-fn
-;;   pointing at non-schema paths get the schema-declared count, not a
-;;   superset. (In practice apps either declare sensitive props on
-;;   schemas or run a redact-fn covering the same paths; the two
-;;   surfaces compose at the schema-declaration site.)
+;;   pointing at non-declared paths get the frame-declared count, not a
+;;   superset. (In practice apps either declare sensitive paths on the
+;;   frame or run a redact-fn covering the same paths; the two surfaces
+;;   compose at the frame-declaration site.)
 ;; - Paths nominated as sensitive but with no live leaf (`nil` on both
 ;;   sides) — `(= nil nil)` is true, so the path doesn't count. A
 ;;   transition from non-nil to nil (or vice versa) counts as a value
@@ -316,19 +319,19 @@
 (defn redacted-modified-paths-count
   "Compute the record-level `:rf.epoch/redacted-modified-paths-count`
   rollup for the assembled record. Returns the integer count of
-  schema-declared sensitive paths whose value differs between
+  frame-declared sensitive paths whose value differs between
   `db-before` and `db-after` (per rf2-dl3gx).
 
   HOT PATH: fires once per dequeued event (rf2-nj6p7). `sensitive-paths-for` derefs
   the elision registry once and the walk is O(P) where P is the
   declared-sensitive-path count for the frame — typically a small
   constant (apps declare a handful of `[:auth :password]`-shaped
-  paths). For the common case (no schema-declared sensitive paths)
+  paths). For the common case (no frame-declared sensitive paths)
   the cost is one keys-of-empty call and an empty-reduce.
 
   Returns `0` when:
-    - No paths are declared sensitive (no schema layer / no
-      `{:sensitive? true}` props), OR
+    - No paths are declared sensitive (the frame declares no
+      `:sensitive {:app-db …}` classification), OR
     - No declared-sensitive path's value differs across the cascade.
 
   Halted records: `db-before` and/or `db-after` may be `nil` on the
@@ -382,8 +385,8 @@
    ;; PROJECTION (`(:rf.db/app frame-state-…)`) so pair tools can render
    ;; app-db diffs cheaply without re-projecting (Spec-Schemas
    ;; §`:rf/epoch-record`). The two `db-*` projections are also what the
-   ;; sensitive-path rollup + redacted-modified count read — schema-declared
-   ;; sensitive declarations target app-db paths (Spec 015), so the rollup
+   ;; sensitive-path rollup + redacted-modified count read — frame-declared
+   ;; sensitive declarations target app-db paths (EP-0015 §3/§8), so the rollup
    ;; reasons over the app-db projection, not the whole frame-state.
    ;;
    ;; Per rf2-v0jwt §Outcomes — :outcome is required and pins the
@@ -428,7 +431,7 @@
          ;; the app-db projection (`db-before` / `db-after`).
          sensitive? (sensitive-rollup frame-id db-before db-after events)
          ;; Per rf2-dl3gx and Security.md §Epoch privacy posture: the
-         ;; record-level integer counter of schema-declared sensitive
+         ;; record-level integer counter of frame-declared sensitive
          ;; paths whose value differs between :db-before / :db-after.
          ;; Closes Xray's "redact-fn ⇒ empty diff but something changed"
          ;; gap by surfacing the suppressed signal directly on the

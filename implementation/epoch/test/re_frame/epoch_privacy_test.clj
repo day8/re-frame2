@@ -4,7 +4,7 @@
 
     1. The record-level :rf.epoch/sensitive? rollup — true when any
        captured trace event carries the :sensitive? stamp OR any
-       schema-declared sensitive path holds a non-nil leaf in
+       frame-declared sensitive path holds a non-nil leaf in
        :db-before / :db-after; false otherwise.
 
     2. re-frame.epoch/projected-record + projected-history — the
@@ -102,7 +102,7 @@
 ;; ---- 1. sensitive rollup ---------------------------------------------------
 
 (deftest rollup-false-on-non-sensitive-cascade
-  (testing "no sensitive handler, no schema-declared sensitive path —
+  (testing "no sensitive handler, no frame-declared sensitive path —
             rollup reads strict false"
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
@@ -128,8 +128,8 @@
       (is (false? (:rf.epoch/sensitive? r))
           "rollup reads false — handler-meta annotation no longer drives the stamp"))))
 
-(deftest rollup-true-from-schema-declared-non-nil-leaf
-  (testing "a schema-declared sensitive path that resolves to a non-nil
+(deftest rollup-true-from-frame-declared-non-nil-leaf
+  (testing "a frame-declared sensitive path that resolves to a non-nil
             leaf in :db-after triggers the rollup even when no handler
             in scope is sensitive"
     (rf/reg-frame :test/main {})
@@ -141,7 +141,7 @@
       (is (true? (:rf.epoch/sensitive? r))))))
 
 (deftest rollup-false-when-schema-path-resolves-to-nil
-  (testing "a frame with a schema-declared sensitive path BUT the
+  (testing "a frame with a frame-declared sensitive path BUT the
             recorded :db-before / :db-after carry no value at the path
             — rollup reads false (the declaration is structural; the
             cascade carried no actual sensitive material)"
@@ -255,7 +255,7 @@
 ;; Keep idempotency assertions there; do not duplicate them here (rf2-zymix).
 
 (deftest projected-record-redacts-sensitive-in-db-after
-  (testing "schema-declared sensitive path in :db-after lands as
+  (testing "frame-declared sensitive path in :db-after lands as
             :rf/redacted in the projected record"
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
@@ -293,7 +293,7 @@
           "projected :db-before substitutes :rf/redacted"))))
 
 (deftest projected-record-elides-large-in-db-after
-  (testing "schema-declared :large? path in :db-after lands as a
+  (testing "frame-declared :large? path in :db-after lands as a
             :rf.size/large-elided marker in the projected record"
     (rf/reg-frame :test/main {})
     (install-large-schema! :test/main)
@@ -569,7 +569,7 @@
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
     ;; The login event payload itself is the sensitive value, but the
-    ;; schema-declared sensitive path is :auth/password, not the
+    ;; frame-declared sensitive path is :auth/password, not the
     ;; trigger-event slot. The projection still walks :trigger-event;
     ;; whether the leaf there gets redacted depends on whether the
     ;; walker can find a sensitive declaration matching that path.

@@ -1467,12 +1467,15 @@
      :emit-event   (if (seq all-paths)
                      (privacy/redact-event (:event envelope) all-paths)
                      (:event envelope))
-     ;; `:schema-sensitive?` strictly tracks the schema-declared
-     ;; sensitive path overlap — it drives the scope-meta `:sensitive?`
-     ;; stamp on every emitted trace event. User `redact-interceptor` does
-     ;; NOT stamp `:sensitive?`; sensitivity is path-marked via the
-     ;; schema-slot meta (the handler-meta annotation has been
-     ;; removed).
+     ;; `:schema-sensitive?` (a RETAINED key name, like the
+     ;; `schema-redaction-paths` fn it derives from — see
+     ;; `re-frame.privacy`) strictly tracks the FRAME-DECLARED sensitive
+     ;; path overlap (EP-0015 §3/§8 — the `:sensitive {:app-db …}` frame
+     ;; classification registry, no longer schema-attached slot props). It
+     ;; drives the scope-meta `:sensitive?` stamp on every emitted trace
+     ;; event. User `redact-interceptor` does NOT stamp `:sensitive?`;
+     ;; sensitivity is path-marked via the frame's app-db classification
+     ;; (the handler-meta annotation has been removed).
      :schema-sensitive? (boolean (seq redaction-paths))}))
 
 (defn- run-chain

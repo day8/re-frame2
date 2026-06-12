@@ -62,6 +62,7 @@
     + Spec-Schemas — EP-0015 bead-plan item 9)."
   (:require [re-frame.elision :as elision]
             [re-frame.late-bind :as late-bind]
+            [re-frame.marks :as marks]
             [re-frame.path :as path]
             [re-frame.privacy :as privacy]
             [re-frame.projection :as projection]
@@ -260,6 +261,18 @@
     (or (extract schema base-path) {})
     {}))
 
+(defn- schema-marks
+  "The per-slot `:sensitive?` / `:large?` classification a `schema` declares,
+  as `{:sensitive {path decl} :large {path decl}}` rooted at `[]`, via the
+  shared schema walker. The common engine behind `data-schema-marks`
+  (resource DATA value) and `params-schema-marks` (resource PARAMS value) —
+  one extraction, two owner surfaces (EP-0015 issue 11: `:data-schema` /
+  `:params-schema` are CO-EQUAL fine-grained surfaces). Empty maps when
+  `schema` is nil or carries no marks. Pure (modulo the memoised walker)."
+  [schema]
+  {:sensitive (extract-paths :schemas/extract-sensitive-paths-from-schema schema [])
+   :large     (extract-paths :schemas/extract-large-paths-from-schema     schema [])})
+
 (defn data-schema-marks
   "The per-slot `:sensitive?` / `:large?` classification a resource /
   mutation `spec`'s `:data-schema` declares for its DATA value, as
@@ -267,9 +280,21 @@
   (`[]`). The fine-grained owner surface (EP-0015 issue 11). Empty maps when
   no `:data-schema` or no marks. Pure (modulo the memoised shared walker)."
   [spec]
-  (let [schema (:data-schema spec)]
-    {:sensitive (extract-paths :schemas/extract-sensitive-paths-from-schema schema [])
-     :large     (extract-paths :schemas/extract-large-paths-from-schema     schema [])}))
+  (schema-marks (:data-schema spec)))
+
+(defn params-schema-marks
+  "The per-slot `:sensitive?` / `:large?` classification a resource /
+  mutation `spec`'s `:params-schema` declares for its PARAMS value, as
+  `{:sensitive {path decl} :large {path decl}}` rooted at the params root
+  (`[]`). The CO-EQUAL fine-grained owner surface to `data-schema-marks`
+  (EP-0015 issue 11, ruled: `:params-schema` is a canonical fine-grained
+  surface alongside `:data-schema`) — extracted through the SAME shared
+  walker, so a `[:account-id {:sensitive? true} :string]` params slot is
+  classified identically to a data slot. Spec 016 §Runtime-subsystem
+  graduation clause 4: \"params, scopes, and data carry the same
+  classification.\" Empty maps when no `:params-schema` or no marks. Pure."
+  [spec]
+  (schema-marks (:params-schema spec)))
 
 (defn data-schema-classifies?
   "True iff `spec`'s `:data-schema` marks ANY slot `:sensitive?` or
@@ -279,6 +304,15 @@
   `project-data`."
   [spec]
   (let [{:keys [sensitive large]} (data-schema-marks spec)]
+    (boolean (or (seq sensitive) (seq large)))))
+
+(defn params-schema-classifies?
+  "True iff `spec`'s `:params-schema` marks ANY slot `:sensitive?` or
+  `:large?`. When true, a `:serialize` entry's scoped-key PARAMS carry a
+  fine-grained classification that must be honoured on the wire — see
+  `project-params`."
+  [spec]
+  (let [{:keys [sensitive large]} (params-schema-marks spec)]
     (boolean (or (seq sensitive) (seq large)))))
 
 ;; ---------------------------------------------------------------------------
@@ -349,3 +383,55 @@
                                  {:frame             frame-id
                                   :rf.egress/profile boundary-profile})
       owner-redacted)))
+
+;; ---------------------------------------------------------------------------
+;; Params projection — the CO-EQUAL fine-grained owner surface for the scoped
+;; key (EP-0015 issue 11; Spec 016 clause 4 "params, scopes, and data carry
+;; the same classification").
+;;
+;; The scoped resource key is `[scope resource-id canonical-params]`. On a
+;; `:serialize` entry (no coarse whole-entry claim) the key rides VERBATIM on
+;; the hydration wire — so without this, a params slot the owner marked
+;; `:sensitive?` via `:params-schema` (e.g. `[:account-id {:sensitive? true}
+;; :string]`) would ride RAW in the wire key even though it is the same
+;; privacy class as the data. `project-params` applies the OWNER's per-slot
+;; `:params-schema` marks to the params component of the key so a marked slot
+;; redacts (`:sensitive?`) / elides (`:large?`) — the SAME walker, sentinel,
+;; and ordering (`sensitive` wins) as `project-data` layer (a). It is
+;; frame-INDEPENDENT (the owner declaration, not frame app-db classification —
+;; resource params do not live at a frame app-db path), so it fires even
+;; frameless. The COARSE whole-entry `:redact` / `:omit` dispositions still
+;; replace the entire params component with an opaque content-addressed digest
+;; (`re-frame.resources.ssr/project-scoped-key`) — this per-slot surface is
+;; the fine-grained complement that fires on a `:serialize` key the coarse
+;; claim leaves verbatim.
+;; ---------------------------------------------------------------------------
+
+(defn project-params
+  "Project a resource entry's scoped-key PARAMS value for egress against the
+  resource `spec`'s OWNER per-slot `:params-schema` marks (EP-0015 issue 11;
+  Spec 016 clause 4). The CO-EQUAL counterpart to `project-data` for the
+  params component of the scoped key:
+
+    - each slot the `:params-schema` marks `:sensitive?` is redacted to the
+      `:rf/redacted` sentinel via `re-frame.privacy/redact-paths`;
+    - each slot it marks `:large?` is elided through the shared
+      `re-frame.elision/elide-wire-value` walker to the
+      `:rf.size/large-elided` marker.
+
+  Both axes go through the SHARED frame-independent
+  `re-frame.marks/redact-with-paths` walker (sensitive → `:rf/redacted`,
+  large → `:rf.size/large-elided`, sensitive wins over large at the same
+  slot) — the SAME walker the HTTP response-body surface
+  (`re-frame.http-privacy-body/classify-decoded`) uses, never a
+  resource-private walker. Frame-INDEPENDENT — the OWNER's declaration fires
+  irrespective of any frame app-db classification (resource params do not
+  live at a frame app-db path). `spec` nil / no `:params-schema` / no marks →
+  `params` rides UNCHANGED (the coarse whole-entry disposition is the
+  separate authority that redacts/omits the whole key — see
+  `re-frame.resources.ssr/project-scoped-key`). Pure."
+  [params spec]
+  (let [{:keys [sensitive large]} (params-schema-marks spec)]
+    (if (or (seq sensitive) (seq large))
+      (marks/redact-with-paths params (keys sensitive) (keys large))
+      params)))

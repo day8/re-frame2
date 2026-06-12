@@ -23,12 +23,12 @@
 
     2. **`projected-record` applies the override.** The installed
        `:redact-fn` runs on the PROJECTED record (after the frame/profile
-       projection). It sees the projected shape (schema-declared sensitive
+       projection). It sees the projected shape (frame-declared sensitive
        paths already `:rf/redacted`) and is the escape for material the
        projection cannot prove.
 
     3. **`:rf.epoch/sensitive?` rollup is raw-signal-derived.** Computed
-       inside `build-record` from the raw record's schema-declared
+       inside `build-record` from the raw record's frame-declared
        sensitive leaves; it is a trustworthy off-box-branch signal on the
        RAW ring record regardless of any projection-side redaction.
 
@@ -250,15 +250,15 @@
 
 (deftest invariant-2-override-sees-projected-shape
   (testing "the :redact-fn runs AFTER the frame/profile projection, so it
-            observes the projected record — a schema-declared sensitive
+            observes the projected record — a frame-declared sensitive
             path is already :rf/redacted when the override runs. The
             override is the escape for material the projection cannot
-            prove (a non-schema-declared slot)."
+            prove (a non-frame-declared slot)."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
     (let [observed (atom nil)]
       ;; The override records what it SEES at [:db-after :auth :password]
-      ;; and scrubs a NON-schema-declared slot the projection left raw.
+      ;; and scrubs a NON-frame-declared slot the projection left raw.
       (rf/configure! :epoch-history
                     {:redact-fn (fn [r]
                                   (reset! observed
@@ -277,13 +277,13 @@
       (let [r         (last-record :test/main)
             projected (epoch/projected-record r)]
         (is (= :rf/redacted @observed)
-            "the override observed the schema-declared :password ALREADY
+            "the override observed the frame-declared :password ALREADY
              :rf/redacted by the frame/profile projection (it ran AFTER)")
         (is (= :rf/redacted (get-in projected [:db-after :session :token]))
-            "the override scrubbed the NON-schema-declared slot the
+            "the override scrubbed the NON-frame-declared slot the
              projection could not prove — its purpose as the advanced escape")
         (is (= :rf/redacted (get-in projected [:db-after :auth :password]))
-            "the schema-declared path stays redacted (projection did it)")
+            "the frame-declared path stays redacted (projection did it)")
         (is (= "tok-xyz" (get-in r [:db-after :session :token]))
             "the RAW ring record keeps the non-declared token verbatim")))))
 
@@ -310,7 +310,7 @@
 
 (deftest invariant-3-rollup-on-raw-ring-record
   (testing "the :rf.epoch/sensitive? rollup on the RAW ring record reflects
-            the schema-declared sensitive leaves the cascade touched — a
+            the frame-declared sensitive leaves the cascade touched — a
             trustworthy off-box-branch signal independent of any
             projection-side redaction."
     (rf/reg-frame :test/main {})
@@ -355,7 +355,7 @@
         ;; The projection ran the (throwing) override → warning + fallback.
         (is (= :rf/redacted (get-in projected [:db-after :auth :password]))
             "fallback is the PROJECTED record — the frame/profile projection
-             still redacted the schema-declared path; the throwing override
+             still redacted the frame-declared path; the throwing override
              only forfeited its own additional scrub")
         (is (= "topsecret" (get-in r [:db-after :auth :password]))
             "the RAW ring record is untouched by the throwing override")
@@ -399,7 +399,7 @@
 
 (deftest invariant-5-no-redact-fn-projection-is-plain-frame-profile
   (testing "without a :redact-fn installed, projected-record is exactly the
-            frame/profile projection — no override stage. A schema-declared
+            frame/profile projection — no override stage. A frame-declared
             sensitive path is redacted by the projection; everything else
             passes through."
     (rf/reg-frame :test/main {})
@@ -414,7 +414,7 @@
     (let [r         (last-record :test/main)
           projected (epoch/projected-record r)]
       (is (= :rf/redacted (get-in projected [:db-after :auth :password]))
-          "schema-declared sensitive path redacted by the frame/profile walk")
+          "frame-declared sensitive path redacted by the frame/profile walk")
       (is (= "alice" (get-in projected [:db-after :public :name]))
           "non-sensitive sibling passes through the projection unchanged")
       (is (= "topsecret" (get-in r [:db-after :auth :password]))
@@ -534,7 +534,7 @@
 ;; the :redact-fn override) happens at projection time. These tests pin:
 ;; (a) a back-filled value is RAW in the ring + listener record; (b) the
 ;; projection of that record redacts via the frame/profile projection (a
-;; schema-declared sensitive value) and via the override (a non-declared
+;; frame-declared sensitive value) and via the override (a non-declared
 ;; value); (c) a benign value passes through.
 ;;
 ;; POST-SETTLE-EMIT TECHNIQUE (mirrors epoch_attribution_test): emit the
@@ -593,11 +593,11 @@
 (deftest back-fill-value-redacted-on-projection
   (testing "EP-0015 §15 — the back-filled RAW value is REDACTED when the
             record is projected for off-box egress: the frame/profile
-            projection redacts a schema-declared sub-value, and the
+            projection redacts a frame-declared sub-value, and the
             :redact-fn override can scrub a non-declared one."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    ;; The override scrubs the :secret sub-run's :value (a non-schema-
+    ;; The override scrubs the :secret sub-run's :value (a non-frame-
     ;; declared, non-app-db-rooted slot the projection cannot prove).
     (rf/configure! :epoch-history
                   {:redact-fn (fn [r]
