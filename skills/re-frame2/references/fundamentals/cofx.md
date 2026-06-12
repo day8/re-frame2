@@ -8,7 +8,7 @@ Registering a coeffect supplier (current time, a localStorage value, a generated
 
 A coeffect is a **fact the causal run consumed** — data from outside the event. There is **one registrar** (`reg-cofx`, a value-returning supplier) and **one declaration surface** (`:rf.cofx/requires`, registration metadata). A handler receives `:db`, `:event` (the fold's own arguments) **plus exactly the facts it declares**, delivered flat under their ids. Nothing is delivered implicitly — including the time.
 
-> **`inject-cofx` is REMOVED (EP-0017, no alias).** Calling it is the hard error `:rf.error/inject-cofx-removed`. Declare the coeffect on the handler's registration metadata instead. If you are migrating a v1 app, see [`skills/re-frame-migration/references/causal-world-inputs.md`].
+> **`inject-cofx` is REMOVED (EP-0017, no alias).** Calling it is the hard error `:rf.error/inject-cofx-removed`. Declare the coeffect on the handler's registration metadata instead. If you are migrating a v1 app, see [`causal-world-inputs.md`](../../../re-frame-migration/references/causal-world-inputs.md).
 
 ## Canonical signature — `reg-cofx` is value-returning
 
