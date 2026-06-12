@@ -62,17 +62,22 @@
   - `:story/active-args`  — deep-merge of all active modes' `:args`.
 
   Both back off `re-frame.story.ui.state/shell-state-atom` — the same
-  slot the chrome-level toolbar writes."
+  slot the chrome-level toolbar writes.
+
+  EP-0017: `reg-cofx` is value-returning + graded. Both are AMBIENT
+  coeffects — a snapshot of shell UI state (display chrome, never durable
+  frame-state) — so they run their supplier at context assembly and are not
+  recorded. A consuming handler declares them via `:rf.cofx/requires`."
   []
   (rf/reg-cofx
     :story/active-modes
-    (fn [ctx _]
-      (rf/assoc-coeffect ctx :story/active-modes (active-modes-snapshot))))
+    {:doc "Ambient — the vector of mode ids currently active in the shell."}
+    (fn [] (active-modes-snapshot)))
 
   (rf/reg-cofx
     :story/active-args
-    (fn [ctx _]
-      (rf/assoc-coeffect ctx :story/active-args (active-args-snapshot))))
+    {:doc "Ambient — the deep-merged :args of every active shell mode."}
+    (fn [] (active-args-snapshot)))
 
   ;; Subscriptions backed by the shell-state-atom. The atom is a
   ;; Reagent ratom on CLJS, plain atom on JVM — deref participates in
