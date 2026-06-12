@@ -125,6 +125,14 @@ Two things to internalise before you reach for them, because the easy mistake is
 
 The rewrite itself is Type B — mechanically `(rf/on-changes f out-path & in-paths)` → `(rf/reg-flow {:id ... :inputs in-paths :output f :path out-path})`, but the agent stops to ask about the `:id` (it suggests `:legacy/<event-id>` as a default) and whether the flow should be conditional rather than always-on. An app with no `on-changes` sees no migration here at all.
 
+### Registrations, app values, and realms
+
+A v1 app registers everything at namespace load with `reg-*`, into one process-global registrar. v2 keeps that path working — `reg-*` still registers, now into the **default realm** ([chapter 21](21-dynamic-model.md#realms--the-container-your-registrations-live-in)) — so the mechanical migration changes nothing about how you register. Keep writing `reg-*`; you are using a realm without naming it, exactly as you've always used a frame without naming it.
+
+You reach past that only when v2 gives you a shape v1 didn't have. The explicit constructors — `rf/module` and `rf/app` to describe a feature pack or program as a *value*, `rf/install!` to seat that value into a realm, `rf/realm` for an explicit realm — are the route for genuinely new structure: a packaged feature you install and dispose as a unit, a per-tenant or multi-program process, a second substrate root. They're public from `re-frame.core` today, but they are a *refinement you grow into*, not a step the migration forces.
+
+One accident to avoid the day you do reach for a module: do **not** register the same id *both* through `reg-*` sugar *and* in a module you install into the same realm. The runtime catches it as a same-id collision and fails loudly rather than silently merging ([chapter 21](21-dynamic-model.md#realms--the-container-your-registrations-live-in)) — the first error a migrating app meets when it half-adopts modules. Pick one source per id. And the reserved-vocabulary spelling is `rf/realm`, never `rf/runtime`.
+
 ## The devtools moved house
 
 One last orientation point that trips people who lived in v1's tooling. `re-frame-10x` — the v1 devtools panel — has been renamed and *reimplemented* as **Xray** (`day8/re-frame2-xray`). The word to weight is *reimplemented*: Xray is not 10x ported to v2, it's a from-scratch build against re-frame2's own trace bus and epoch-history surfaces. The mental model carries over completely — events, subs, app-db diff, time-travel are all there — but the wiring underneath is new. If your v1 project depended on 10x during development, the v2 equivalent is Xray, and [the Xray tutorial](../xray/index.md) is where you meet it.
