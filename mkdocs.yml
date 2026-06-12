@@ -224,6 +224,7 @@ nav:
     - "7. Hydration debugger": xray/07-hydration.md
     - "8. Machine inspector": xray/08-machine-inspector.md
     - "9. App-DB diff": xray/09-app-db-diff.md
+    - "10. Derivation graph": xray/10-derivation-graph.md
     - "API reference":
       # Sub-section label IS its overview (navigation.indexes, rf2-qgpkm).
       - xray/api/index.md

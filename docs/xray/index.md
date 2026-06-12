@@ -42,6 +42,7 @@ Start by installing Xray, then run one small debugging session on the standard-e
 - [7. Hydration debugger](07-hydration.md) covers SSR hydration mismatches and how Xray helps locate the first divergent node.
 - [8. Machine inspector](08-machine-inspector.md) covers the event-coupled machine lens and the Static machine browser.
 - [9. App-DB diff](09-app-db-diff.md) teaches the changed-slices-first app-db view.
+- [10. Derivation graph](10-derivation-graph.md) draws subscriptions, flows, resources, routes, and machines as one dependency graph — "where does this value come from?" — with static/live modes and the off-box redaction boundary.
 
 ## What Xray Is Not
 

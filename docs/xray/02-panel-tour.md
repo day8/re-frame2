@@ -79,6 +79,10 @@ Static tabs:
 
 Use Static mode before a debugging session when you want the map. Use Dynamic mode during the debugging session when you want the journey.
 
+## The Derivation Graph
+
+There is one more surface worth knowing about, and it cuts across the Dynamic/Static split: the **derivation graph**. Where the tabs above each show one lens on one epoch, the derivation graph draws *how your derived values relate* — every subscription, flow, resource, route fact, and machine selector as nodes in one dependency graph, with its own static (what's registered) and live (what the observed frame realized) modes. Reach for it when the question is structural — "where does this value come from, and what feeds it?" — rather than event-coupled. [10. Derivation graph](10-derivation-graph.md) is the chapter.
+
 ## The Daily Path
 
 Most debugging sessions are pleasantly boring:
