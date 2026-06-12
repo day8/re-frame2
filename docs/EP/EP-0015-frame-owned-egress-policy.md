@@ -1,6 +1,6 @@
 # EP-0015: Frame-Owned Egress Policy
 
-Status: accepted
+Status: final
 Type: standards-track
 
 > This EP defines one public model for sensitive/large classification,
@@ -28,6 +28,15 @@ Type: standards-track
 > `spec/011-SSR.md`, `spec/016-Resources.md`, `spec/Tool-Pair.md`,
 > `spec/Security.md`, `spec/Privacy.md`, `spec/API.md`, and guide material
 > for privacy and observability.
+>
+> **Graduated `accepted → final` 2026-06-12 (Mike, in-session).** The decisions
+> are settled and the normative homes above govern (where this EP and the spec
+> differ, the spec governs). The wave-end completeness+correctness review
+> (`rf2-cuc6es`) returned graduation-ready — prior review tails clean, no new
+> non-test bug. Remaining work is build-not-decision and is tracked in the
+> implementation-errata ledger: the `:rf.egress/local-redacted` Xray-local-render
+> adoption (`rf2-t55hxg.12`) and the schema-prop `:large?` / `:params-schema`
+> classification coverage (`rf2-t55hxg.5`).
 
 ## Abstract
 
