@@ -123,7 +123,7 @@ If the example contradicts the leaf, **the example wins** — re-frame2's cardin
 | Primary pattern | Leaf to load | Worked example |
 |---|---|---|
 | RemoteData | [`patterns/remote-data.md`](../patterns/remote-data.md) | (inline mini-example) |
-| Resources | [`patterns/resources.md`](../patterns/resources.md) | (inline mini-example) |
+| Resources | [`patterns/resources.md`](../patterns/resources.md) | `examples/reagent/resources/` (read-side) · `examples/reagent/realworld_resources/` (the EP-0016 mutation dogfood) |
 | Forms | [`patterns/forms.md`](../patterns/forms.md) | `examples/reagent/login/` |
 | Boot | [`patterns/boot.md`](../patterns/boot.md) | `examples/reagent/boot/` |
 | WebSocket | [`patterns/websocket.md`](../patterns/websocket.md) | `examples/reagent/websocket/` |
