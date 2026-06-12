@@ -528,7 +528,7 @@
     :tags {:rf.frame/id :app/main
            :mutation :realworld/save-article
            :instance [:editor/save "first-post"]
-           :work-id [:rf.work/resource [:rf.mutation [:editor/save "first-post"]] 8]
+           :work/id [:rf.work/resource [:rf.mutation [:editor/save "first-post"]] 8]
            :status :ok
            :target [:editor/save-replied]
            :cause [:mutation :realworld/save-article [:editor/save "first-post"]]}}])
