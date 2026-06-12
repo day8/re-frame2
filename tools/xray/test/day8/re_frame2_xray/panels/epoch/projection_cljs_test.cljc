@@ -272,111 +272,115 @@
       (is (nil? (:source-enrichment r))
           "no parent-dispatch-id → no enrichment map (graceful degrade)"))))
 
-;; ---- WORLD INPUTS (rf2-9fyn40 · EP-0010) --------------------------------
+;; ---- RECORDABLE COEFFECTS (rf2-9fyn40 · EP-0010 · EP-0017 §9) ------------
 ;;
-;; The dispatch envelope's causal `:rf.world/inputs` map rides under
-;; `[:tags :rf.world/inputs]` on the `:rf.event/dispatched` trace (the
-;; substrate stamps it per rf2-jt854w). The Event lens surfaces it as a
-;; dedicated WORLD INPUTS step right after DISPATCH SITE.
+;; The dispatch envelope's flat recordable-coeffect map `:rf.cofx` rides
+;; under `[:tags :rf.cofx]` on the `:rf.event/dispatched` trace (the
+;; substrate stamps it per rf2-alc1lf). EP-0017 renamed it from the nested
+;; `:rf.world/inputs` (key `:time-ms`) to the flat `:rf.cofx` (key
+;; `:rf/time-ms`). The Event lens surfaces the declared recordable leaves as
+;; a dedicated RECORDABLE COEFFECTS step right after DISPATCH SITE (§9).
 ;;
-;; PRIVACY (EP-0010 §Privacy / Open Issue 4, ruled 2026-06-11): `:time-ms`
-;; is ALWAYS safe to surface (rides verbatim); every other key is value-
-;; bearing and REDACTS BY DEFAULT — routed through `resources-helpers/
-;; summarize` (the same path reply_envelope.cljc uses), so the row carries
-;; a privacy summary, never a raw value.
+;; PRIVACY (EP-0010 §Privacy / Open Issue 4, ruled 2026-06-11; EP-0017 §9):
+;; `:rf/time-ms` is ALWAYS safe to surface (rides verbatim); every other
+;; leaf is value-bearing and REDACTS BY DEFAULT — routed through
+;; `resources-helpers/summarize` (the same path reply_envelope.cljc uses),
+;; so the row carries a privacy summary, never a raw value.
 
-(defn- dispatched-with-world-inputs
-  "A `:rf.event/dispatched` trace event carrying a `:rf.world/inputs` map
-  under `:tags` (the substrate-canonical placement per rf2-jt854w)."
-  [event world-inputs]
+(defn- dispatched-with-cofx
+  "A `:rf.event/dispatched` trace event carrying a flat `:rf.cofx` map
+  under `:tags` (the substrate-canonical placement per rf2-alc1lf)."
+  [event cofx]
   {:op-type   :rf.event
    :operation :rf.event/dispatched
-   :tags      {:rf.event/v       event
-               :source           :ui
-               :rf.world/inputs  world-inputs}})
+   :tags      {:rf.event/v event
+               :source     :ui
+               :rf.cofx    cofx}})
 
-(deftest world-inputs-row-time-ms-only-test
-  (testing "rf2-9fyn40 — a world-input map carrying only :time-ms produces a
-            WORLD INPUTS row surfacing :time-ms verbatim (always safe per
-            EP-0010 Open Issue 4), with no value-bearing input rows"
-    (let [ev (dispatched-with-world-inputs [:counter/inc] {:time-ms 1781078400123})
-          r  (proj/world-inputs-row [ev])]
-      (is (= :world-inputs (:step r)))
-      (is (= :WORLD-INPUTS (:badge r)))
-      (is (= 1781078400123 (:time-ms r)) ":time-ms rides verbatim")
-      (is (nil? (:inputs r)) "no value-bearing keys → no :inputs slot"))))
+(deftest recordable-cofx-row-time-ms-only-test
+  (testing "rf2-9fyn40 · EP-0017 — a :rf.cofx map carrying only :rf/time-ms
+            produces a RECORDABLE COEFFECTS row surfacing the time fact
+            verbatim (always safe per EP-0010 Open Issue 4), with no
+            value-bearing leaf rows"
+    (let [ev (dispatched-with-cofx [:counter/inc] {:rf/time-ms 1781078400123})
+          r  (proj/recordable-cofx-row [ev])]
+      (is (= :recordable-cofx (:step r)))
+      (is (= :RECORDABLE-COFX (:badge r)))
+      (is (= 1781078400123 (:time-ms r)) ":rf/time-ms rides verbatim")
+      (is (nil? (:inputs r)) "no value-bearing leaves → no :inputs slot"))))
 
-(deftest world-inputs-row-value-bearing-keys-summarized-test
-  (testing "rf2-9fyn40 — value-bearing keys (:uuid / :random) are routed
-            through resources-helpers/summarize: the KEY rides verbatim
-            (framework vocabulary, not PII); the VALUE is a summary map,
-            never the raw value (EP-0010 §Privacy / Open Issue 4 —
-            redact-by-default for everything except :time-ms)"
-    (let [wi {:time-ms 1781078400123
-              :uuid    {:todo/id #uuid "00000000-0000-0000-0000-000000000001"}
-              :random  {:todo/color :green}}
-          ev (dispatched-with-world-inputs [:todo/create] wi)
-          r  (proj/world-inputs-row [ev])
+(deftest recordable-cofx-row-value-bearing-leaves-summarized-test
+  (testing "rf2-9fyn40 · EP-0017 — value-bearing owner-qualified leaves
+            (the app's :counter/delta, a subsystem's :rf.route/location) are
+            routed through resources-helpers/summarize: the leaf id rides
+            verbatim (owner-qualified vocabulary, not PII); the VALUE is a
+            summary map, never the raw value (redact-by-default for
+            everything except :rf/time-ms)"
+    (let [cofx {:rf/time-ms      1781078400123
+                :counter/delta   {:roll 4}
+                :rf.route/location {:path "/todos"}}
+          ev (dispatched-with-cofx [:todo/create] cofx)
+          r  (proj/recordable-cofx-row [ev])
           inputs (:inputs r)
           by-key (into {} (map (juxt :key identity) inputs))]
-      (is (= 1781078400123 (:time-ms r)) ":time-ms still surfaced verbatim")
-      (is (= 2 (count inputs)) "two value-bearing keys (:uuid + :random)")
-      (is (= [:random :uuid] (mapv :key inputs)) "sorted by key name")
+      (is (= 1781078400123 (:time-ms r)) ":rf/time-ms still surfaced verbatim")
+      (is (= 2 (count inputs)) "two value-bearing leaves")
+      (is (= [:counter/delta :rf.route/location] (mapv :key inputs)) "sorted by leaf id")
       ;; each value is a summarize SHAPE (a map with :type/:preview/…),
       ;; never the raw value.
-      (is (map? (:value (by-key :uuid))))
-      (is (contains? (:value (by-key :uuid)) :preview)
-          ":uuid value is a summarize shape, not the raw map")
-      (is (= "map" (:type (:value (by-key :uuid)))))
-      (is (map? (:value (by-key :random))))
-      (is (= "map" (:type (:value (by-key :random)))))
-      ;; the keys ride verbatim — framework vocabulary, not summarized.
-      (is (= :uuid (:key (by-key :uuid))))
-      (is (= :random (:key (by-key :random)))))))
+      (is (map? (:value (by-key :counter/delta))))
+      (is (contains? (:value (by-key :counter/delta)) :preview)
+          ":counter/delta value is a summarize shape, not the raw map")
+      (is (= "map" (:type (:value (by-key :counter/delta)))))
+      (is (map? (:value (by-key :rf.route/location))))
+      (is (= "map" (:type (:value (by-key :rf.route/location)))))
+      ;; the leaf ids ride verbatim — owner-qualified vocabulary, not summarized.
+      (is (= :counter/delta (:key (by-key :counter/delta))))
+      (is (= :rf.route/location (:key (by-key :rf.route/location)))))))
 
-(deftest world-inputs-row-redacted-value-stays-sentinel-test
-  (testing "rf2-9fyn40 — a value already redacted UPSTREAM (the framework
-            :rf/redacted sentinel for a :sensitive? slot) keeps its sentinel
-            status through summarize: the row renders [redacted], NEVER the
-            raw value (EP-0010 §Privacy — marks/projection redact by default)"
-    (let [wi {:time-ms 1781078400123
-              :storage :rf/redacted}   ;; runtime elided a sensitive storage read
-          ev (dispatched-with-world-inputs [:prefs/load] wi)
-          r  (proj/world-inputs-row [ev])
+(deftest recordable-cofx-row-redacted-value-stays-sentinel-test
+  (testing "rf2-9fyn40 · EP-0017 — a value already redacted UPSTREAM (the
+            framework :rf/redacted sentinel for a :sensitive? slot) keeps its
+            sentinel status through summarize: the row renders [redacted],
+            NEVER the raw value (EP-0015 — marks/projection redact by default)"
+    (let [cofx {:rf/time-ms 1781078400123
+                :prefs/theme :rf/redacted}   ;; runtime elided a sensitive read
+          ev (dispatched-with-cofx [:prefs/load] cofx)
+          r  (proj/recordable-cofx-row [ev])
           row (first (:inputs r))]
-      (is (= :storage (:key row)))
+      (is (= :prefs/theme (:key row)))
       (is (true? (:redacted? (:value row))) "the sentinel summarizes as redacted")
       (is (= "[redacted]" (:preview (:value row)))
           "renders the redaction marker, not the raw value"))))
 
-(deftest world-inputs-row-absent-when-no-map-test
-  (testing "rf2-9fyn40 — silent-by-default: no :rf.world/inputs tag (older
-            runtimes / prod-elided arm / fixtures) → no WORLD INPUTS step"
-    (let [ev (dispatched-ev [:counter/inc] :ui)]  ;; builder stamps no world inputs
-      (is (nil? (proj/world-inputs-row [ev]))
-          "no world-input map → nil row")))
+(deftest recordable-cofx-row-absent-when-no-map-test
+  (testing "rf2-9fyn40 · EP-0017 — silent-by-default: no :rf.cofx tag (older
+            runtimes / prod-elided arm / fixtures) → no RECORDABLE COEFFECTS step"
+    (let [ev (dispatched-ev [:counter/inc] :ui)]  ;; builder stamps no cofx
+      (is (nil? (proj/recordable-cofx-row [ev]))
+          "no :rf.cofx map → nil row")))
   (testing "rf2-9fyn40 — no dispatched trace at all → nil row"
-    (is (nil? (proj/world-inputs-row []))))
-  (testing "rf2-9fyn40 — an EMPTY world-input map → nil row (nothing to show)"
-    (let [ev (dispatched-with-world-inputs [:counter/inc] {})]
-      (is (nil? (proj/world-inputs-row [ev]))))))
+    (is (nil? (proj/recordable-cofx-row []))))
+  (testing "rf2-9fyn40 — an EMPTY :rf.cofx map → nil row (nothing to show)"
+    (let [ev (dispatched-with-cofx [:counter/inc] {})]
+      (is (nil? (proj/recordable-cofx-row [ev]))))))
 
-(deftest project-places-world-inputs-after-dispatch-test
-  (testing "rf2-9fyn40 — `project` slots the WORLD INPUTS step RIGHT AFTER
-            DISPATCH SITE (before COEFFECTS), and numbers it as a first-class
-            cascade entry"
-    (let [ev    (dispatched-with-world-inputs [:counter/inc] {:time-ms 1781078400123})
+(deftest project-places-recordable-cofx-after-dispatch-test
+  (testing "rf2-9fyn40 · EP-0017 — `project` slots the RECORDABLE COEFFECTS
+            step RIGHT AFTER DISPATCH SITE (before the ambient COEFFECTS), and
+            numbers it as a first-class cascade entry"
+    (let [ev    (dispatched-with-cofx [:counter/inc] {:rf/time-ms 1781078400123})
           steps (proj/project-numbered (record [ev]))
           kinds (mapv :step steps)]
       (is (= :dispatch (first kinds)) "DISPATCH first")
-      (is (= :world-inputs (second kinds)) "WORLD INPUTS immediately after DISPATCH")
+      (is (= :recordable-cofx (second kinds)) "RECORDABLE COEFFECTS immediately after DISPATCH")
       (is (= 2 (:step-number (second steps))) "numbered as step 2")))
-  (testing "rf2-9fyn40 — no world-input map → no WORLD INPUTS step in the cascade"
+  (testing "rf2-9fyn40 — no :rf.cofx map → no RECORDABLE COEFFECTS step in the cascade"
     (let [ev    (dispatched-ev [:counter/inc] :ui)
           steps (proj/project (record [ev]))
           kinds (mapv :step steps)]
-      (is (not (some #{:world-inputs} kinds))
-          "WORLD INPUTS is silent-by-default — absent when no map surfaced"))))
+      (is (not (some #{:recordable-cofx} kinds))
+          "RECORDABLE COEFFECTS is silent-by-default — absent when no map surfaced"))))
 
 ;; ---- COEFFECT ------------------------------------------------------------
 
@@ -3004,11 +3008,12 @@
       (is (= 10 (count proj/badge-set))
           "rf2-sc3r1 7 + rf2-xgeag (SCHEMA-HOT-RELOAD, renamed from
            SCHEMA-VIOLATIONS) + rf2-yz57h (INTERCEPTOR) = 9 badges, +
-           rf2-9fyn40 (WORLD-INPUTS, EP-0010 causal provenance) = 10.
+           rf2-9fyn40 (RECORDABLE-COFX, EP-0010 causal provenance, renamed
+           from WORLD-INPUTS by EP-0017 §9) = 10.
            rf2-btt0s deleted :CHILD-DISPATCHES + :APP-DB-DIFF (retired
            steps the projection can no longer emit).")
-      (is (contains? proj/badge-set :WORLD-INPUTS)
-          "rf2-9fyn40 — WORLD-INPUTS badge is in the inventory")
+      (is (contains? proj/badge-set :RECORDABLE-COFX)
+          "rf2-9fyn40 · EP-0017 — RECORDABLE-COFX badge is in the inventory")
       ;; rf2-btt0s — guard against step-level drift: badge-set must NOT
       ;; advertise a badge no step can produce. The conditional steps
       ;; (FLOW / SIDE-EFFECTS / SCHEMA-HOT-RELOAD / INTERCEPTOR) are
