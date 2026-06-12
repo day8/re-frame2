@@ -85,6 +85,7 @@
             [day8.re-frame2-xray.panels.routing :as routing]
             [day8.re-frame2-xray.panels.resources :as resources]
             [day8.re-frame2-xray.panels.derivation-graph :as derivation-graph]
+            [day8.re-frame2-xray.panels.module-view :as module-view]
             [day8.re-frame2-xray.panels.reactive-panel :as reactive-panel]
             [day8.re-frame2-xray.panels.trace :as trace]))
 
@@ -970,6 +971,16 @@
     ;; redaction is `derivation-graph-helpers/redact-graph-for-egress`.
     ;; Read-only: assembling the graph pins nothing, dispatches nothing.
     (derivation-graph/install!)
+    ;; Module-view tab (EP-0013 disposition 6, rf2-wtg9z4) — Dynamic L4
+    ;; tab: the (realm, frame) address space of the running process
+    ;; (`rf/realm-ids` × `rf/frame-realm`, the EP-0013 disposition-3
+    ;; public address halves). The disposition-6 demand-trigger surface
+    ;; for per-module ownership/capability/classification/provenance —
+    ;; the MODULES section is scaffolded behind the awaiting-seam caption
+    ;; until the public realm→installed-app provenance read seam
+    ;; graduates (follow-up bead). Read-only: enumerating realms/frames
+    ;; pins nothing, dispatches nothing.
+    (module-view/install!)
     ;; Static Routes panel (rf2-o5f5f.3) — Static-surface browse +
     ;; Simulate-URL + per-row inline expand + hermetic Simulate-
     ;; navigation preview. Installs the UI-state slots under

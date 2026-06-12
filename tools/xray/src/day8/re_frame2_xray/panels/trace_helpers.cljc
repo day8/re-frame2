@@ -692,6 +692,21 @@
   (or (get-in ev [:tags :frame])
       (:frame ev)))
 
+(defn realm-of
+  "Project the event's runtime realm id — the `:rf.realm/id` stamp
+  (EP-0013 disposition 2), WHERE PRESENT. Reads `[:tags :rf.realm/id]`
+  then a top-level `:rf.realm/id` fallback (defensive against the
+  emit-shape settling). Returns nil when the event carries no realm
+  stamp — today the framework's trace emit does not stamp it (the slot
+  is reserved per disposition 2; the actual emit is a later core slice),
+  so this is nil for every event in a single-realm process and the view
+  renders the trace rows unchanged (zero-ceremony). When a realm stamp
+  IS present, the view surfaces it WHERE PRESENT and omits it otherwise.
+  Pure data → keyword-or-nil; JVM-testable."
+  [ev]
+  (or (get-in ev [:tags :rf.realm/id])
+      (:rf.realm/id ev)))
+
 (defn origin-of
   "Project the dispatch-origin slot (`:tags :rf.event/origin`).
   Defensive against absence — returns nil."
@@ -783,6 +798,9 @@
        :source          <kw-or-nil>
        :origin          <kw-or-nil>
        :frame           <kw-or-nil>
+       :realm           <kw-or-nil>        ;; the :rf.realm/id stamp (EP-0013
+                                           ;; disposition 2) WHERE PRESENT;
+                                           ;; nil otherwise (single-realm)
        :event-id        <kw-or-nil>
        :handler-id      <kw-or-nil>
        :dispatch-id     <int-or-nil>
@@ -825,6 +843,7 @@
    :source          (or source (get-in ev [:tags :source]))
    :origin          (origin-of ev)
    :frame           (frame-of ev)
+   :realm           (realm-of ev)
    :event-id        (get-in ev [:tags :rf.trace/event-id])
    :handler-id      (get-in ev [:tags :handler-id])
    :dispatch-id     (get-in ev [:tags :rf.trace/dispatch-id])
@@ -854,6 +873,35 @@
   (into [] (comp (filter (comp some? :id))
                  (map project-row))
         events))
+
+;; ---- realm surface (EP-0013 disposition 2 · rf2-7vqpwa) -----------------
+;;
+;; The realm stamp `:rf.realm/id` is surfaced in the Trace rows WHERE
+;; PRESENT and omitted otherwise (zero-ceremony: single-realm rows are
+;; unchanged). The view reads `multi-realm-feed?` over the projected rows
+;; to decide whether to render the realm surface at all — in a
+;; single-realm process every row's `:realm` is nil (the framework does
+;; not stamp it yet — the slot is reserved per disposition 2, the emit is
+;; a later core slice), so the predicate is false and the rows render
+;; byte-identically to the pre-bead panel. Only when the rows actually
+;; span more than one realm does the view surface the stamp.
+
+(defn feed-realms
+  "The set of distinct non-nil `:rf.realm/id` stamps across `rows` — the
+  realms the focused epoch's trace arc touched (EP-0013 disposition 2).
+  Empty in a single-realm process (no row carries a realm stamp). Pure
+  data → set; JVM-testable."
+  [rows]
+  (into #{} (keep :realm) rows))
+
+(defn multi-realm-feed?
+  "Pure predicate — true when the projected `rows` carry MORE THAN ONE
+  distinct realm stamp. Drives the Trace view's zero-ceremony branch: the
+  realm surface (a conditional inline stamp on each row) renders ONLY
+  when the arc spans multiple realms; a single-realm (or unstamped) arc
+  renders unchanged. Pure; JVM-testable."
+  [rows]
+  (> (count (feed-realms rows)) 1))
 
 ;; ---- band projection (spec/023 §2 · §4) ---------------------------------
 ;;
@@ -992,6 +1040,8 @@
        :total       <int>         ;; the epoch's trace-event count
        :rendered    <int>         ;; same as :total (no filtering)
        :epoch-id    <int-or-nil>  ;; the focused epoch's id
+       :multi-realm? <bool>       ;; rf2-7vqpwa — arc spans >1 realm (the
+                                  ;; view surfaces the realm stamp only then)
        :empty-kind  <:no-events / :no-focus / :epoch-evicted / nil>}
 
   Rows render OLDEST-first (chronological) so the arc reads top-down —
@@ -1019,14 +1069,18 @@
                           (= focus-status :epoch-evicted) :epoch-evicted
                           (zero? n)                       :no-events
                           :else                           nil)]
-    {:rows       rows
-     :envelope   envelope
-     :outcome    outcome
-     :bands      bands
-     :total      n
-     :rendered   n
-     :epoch-id   (:epoch-id epoch-record)
-     :empty-kind empty-kind}))
+    {:rows         rows
+     :envelope     envelope
+     :outcome      outcome
+     :bands        bands
+     :total        n
+     :rendered     n
+     :epoch-id     (:epoch-id epoch-record)
+     ;; rf2-7vqpwa — true only when the arc spans >1 realm; the view
+     ;; renders the realm surface (a conditional inline stamp per row)
+     ;; ONLY then, so a single-realm arc is byte-identical (zero-ceremony).
+     :multi-realm? (multi-realm-feed? rows)
+     :empty-kind   empty-kind}))
 
 ;; ---- React keys ---------------------------------------------------------
 

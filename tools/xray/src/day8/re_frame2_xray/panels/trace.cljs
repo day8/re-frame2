@@ -310,6 +310,22 @@
    :white-space "nowrap"
    :text-align  "right"})
 
+;; rf2-7vqpwa — the realm stamp chip. Rendered inline in the target
+;; column ONLY when the focused arc spans more than one realm (EP-0013
+;; disposition 2 — surface the `:rf.realm/id` WHERE PRESENT, omit
+;; otherwise). A single-realm (or unstamped) arc never renders this, so
+;; the row is byte-identical to the pre-bead panel (zero-ceremony).
+(def ^:private op-row-realm-chip-style
+  {:flex-shrink    0
+   :color          (:text-tertiary tokens)
+   :background     (:bg-1 tokens)
+   :border         (str "1px solid " (:border-subtle tokens))
+   :border-radius  "3px"
+   :padding        "0 4px"
+   :font-size      "10px"
+   :letter-spacing "0.3px"
+   :white-space    "nowrap"})
+
 ;; Severity row tints — `color-mix` over the semantic CSS-var keeps
 ;; light/dark theme correct (the var resolves at paint time).
 (def ^:private op-row-bg-error
@@ -583,10 +599,18 @@
   duration). Each carries `data-rf-xray-resizable-col` so the
   pointer-down handler can locate the adjacent cell off the live DOM,
   AND keeps the original `data-testid` so the trace_view tests resolve
-  unchanged."
+  unchanged.
+
+  `multi-realm?` (rf2-7vqpwa) drives the conditional realm stamp: when
+  the focused arc spans >1 realm AND this row carries a `:rf.realm/id`
+  stamp, a compact realm chip rides at the end of the target column. A
+  single-realm (or unstamped) arc never renders it — the row is
+  byte-identical to the pre-bead panel (zero-ceremony)."
   [{:keys [id operation rel-time time area area-badge stage-label
-           stage-colour verb target duration-ms source-coord dispatch-id]
-    :as row}]
+           stage-colour verb target duration-ms source-coord dispatch-id
+           realm]
+    :as row}
+   multi-realm?]
   ;; rf2-nesy9 — render-time frame capture for the deferred cell handlers.
   (let [frame       (rf/current-frame-id)
         row-test-id (str "rf-xray-trace-row-" id)
@@ -666,7 +690,17 @@
                                     {:kind :dispatch-id :id dispatch-id}]
                                    {:frame frame}))
                   :style       op-row-cancellation-button-style}
-         "⟲"])]
+         "⟲"])
+      ;; rf2-7vqpwa — the realm stamp, surfaced WHERE PRESENT (EP-0013
+      ;; disposition 2). Renders ONLY when the arc spans >1 realm AND
+      ;; this row carries a `:rf.realm/id`; a single-realm / unstamped
+      ;; arc renders nothing here (zero-ceremony — the row is unchanged).
+      (when (and multi-realm? realm)
+        [:span {:data-testid (str row-test-id "-realm")
+                :data-rf-xray-realm (name realm)
+                :title       (str "Runtime realm: " realm)
+                :style       op-row-realm-chip-style}
+         (str realm)])]
      ;; ⑥ duration — `N.N ms` when timed, em-dash otherwise (spec/023 §6).
      [:span {:data-rf-xray-resizable-col "duration"
              :data-testid (str row-test-id "-duration")
@@ -706,8 +740,11 @@
   rows (rf2-aqusw). Rows mount through `rt/resizable-table` with
   `:header? false` (the header lives once at the top of the panel) so
   the list shares the `:rf.xray.trace/ops` column-widths slot — a drag
-  on the panel header re-aligns every row live."
-  [rows expanded-row-ids]
+  on the panel header re-aligns every row live.
+
+  `multi-realm?` (rf2-7vqpwa) is threaded to every row's cells so the
+  realm stamp surfaces only when the arc spans >1 realm (zero-ceremony)."
+  [rows expanded-row-ids multi-realm?]
   [rt/resizable-table
    {:table-id        trace-ops-table-id
     :header?         false
@@ -720,7 +757,7 @@
                        (op-row-attrs row
                                      (contains? (or expanded-row-ids #{})
                                                 (:id row))))
-    :row-cells       (fn [row _i] (op-row-cells row))
+    :row-cells       (fn [row _i] (op-row-cells row multi-realm?))
     :row-extras      (fn [row _i]
                        (op-row-extras row
                                       (contains? (or expanded-row-ids #{})
@@ -783,7 +820,7 @@
   on its raw trace MAP inline. No bands, no envelope, no hierarchy. No
   mock data — fed by real trace data throughout."
   []
-  (let [{:keys [rows empty-kind] :as _data}
+  (let [{:keys [rows empty-kind multi-realm?] :as _data}
         @(rf/subscribe [:rf.xray/trace-feed])
         ;; rf2-wcfsy — focused-cascade is a layer-3 composite over
         ;; `:rf.xray/cascades` + `:rf.xray/focus`, NOT an inline scan in
@@ -825,8 +862,10 @@
            :header-cell-style trace-header-cell-style}]
          ;; rf2-aqusw — the flat list of every op the focused epoch
          ;; emitted, in fire order (oldest-first). No bands, no envelope.
+         ;; rf2-7vqpwa — `multi-realm?` threads the realm-surface gate so
+         ;; the per-row realm stamp shows only in a multi-realm arc.
          ^{:key "rows"}
-         (flat-row-list rows expanded-ids)])]]))
+         (flat-row-list rows expanded-ids multi-realm?)])]]))
 
 ;; ---- registration entry --------------------------------------------------
 

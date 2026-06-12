@@ -175,8 +175,9 @@
     (let [panels (palette-subs/palette-panels)
           ids    (set (map :id panels))]
       (is (contains? ids :routing) ":routing in palette-panels")
-      (is (= 8 (count panels))
-          "exactly 8 entries — Epoch / App DB / Views / Trace / Machines / Routing / Resources / Graph (the Resources tab — Spec 016 §Xray and AI tooling — earns its own L4 tab per Mike's cohesive-sub-domain ruling; rf2-9ett2d added the EP-0014 derivation-graph 'Graph' tab — the unified derivation/process graph across all algebra-view families; rf2-gbz39 removed the Issues tab per Mike's Option (c) ruling — issues surface inline + event-row pink-wash + the always-on issues ribbon signal. rf2-5gl5r retired the Event/Handler tab; the Epoch panel supersedes it. rf2-sc3r1 originally added Epoch at order 5; rf2-4v67l removed the Chrome A11y dogfood in favour of Story's shipped panel; rf2-ga16q removed the Machines Canvas tab — its browse-all canvas relocated to the Static Machines sub-tab.)"))))
+      (is (contains? ids :module-view) ":module-view in palette-panels")
+      (is (= 9 (count panels))
+          "exactly 9 entries — Epoch / App DB / Views / Trace / Machines / Routing / Resources / Graph / Modules (the Resources tab — Spec 016 §Xray and AI tooling — earns its own L4 tab per Mike's cohesive-sub-domain ruling; rf2-9ett2d added the EP-0014 derivation-graph 'Graph' tab — the unified derivation/process graph across all algebra-view families; rf2-wtg9z4 added the EP-0013 'Modules' tab — the (realm, frame) address space + the disposition-6 demand-trigger surface; rf2-gbz39 removed the Issues tab per Mike's Option (c) ruling — issues surface inline + event-row pink-wash + the always-on issues ribbon signal. rf2-5gl5r retired the Event/Handler tab; the Epoch panel supersedes it. rf2-sc3r1 originally added Epoch at order 5; rf2-4v67l removed the Chrome A11y dogfood in favour of Story's shipped panel; rf2-ga16q removed the Machines Canvas tab — its browse-all canvas relocated to the Static Machines sub-tab.)"))))
 
 ;; ---- (2) three sections render (always-visible base layer) --------------
 

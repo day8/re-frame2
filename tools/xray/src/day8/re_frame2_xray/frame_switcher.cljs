@@ -85,6 +85,24 @@
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens type-scale sans-stack]]))
 
+;; ---- public contract: realm grouping (EP-0013 disposition 3 · rf2-3caq85) --
+;;
+;; In a MULTI-REALM process the picker groups its frame options by the
+;; runtime realm each frame belongs to (a `<optgroup>` per realm). In a
+;; SINGLE-REALM process the picker render is BYTE-IDENTICAL to the
+;; pre-bead flat option list — zero-ceremony extends to the tooling
+;; (EP-0013 disposition 3: a single-realm app never spells a realm, and
+;; neither does its devtool). The grouping appears ONLY when more than
+;; one distinct realm is present across the pickable frames.
+;;
+;; The frame→realm map is the public `re-frame.frame/frame-realm`
+;; (re-exported `rf/frame-realm`) — the frame-side half of the (realm,
+;; frame) address. Pairing it with `rf/realm-ids` (the installed realms)
+;; is the full address-space walk EP-0013 disposition 3 documents. The
+;; grouping helper takes the resolver as an argument so the pure
+;; data-shape logic runs under the unit-test target without a live
+;; frame registry.
+
 ;; ---- public contract: which frames Xray filters out by default ---------
 
 (def internal-frames
@@ -144,6 +162,48 @@
                        (not (contains? internal-frames f)))
               f)))
         (reverse cascades)))
+
+;; ---- realm grouping (EP-0013 disposition 3 · rf2-3caq85) ----------------
+
+(defn group-frames-by-realm
+  "Pure helper — group `frames` (a first-seen-order vec from
+  `distinct-frames`) by the runtime realm each frame belongs to, using
+  `realm-of` (a `frame-id → realm-id` resolver, normally
+  `rf/frame-realm`). Returns a vector of `{:realm <realm-id> :frames
+  [<frame-id> …]}` groups in first-realm-seen order, each group's
+  `:frames` preserving the input frame order.
+
+  Frames whose `realm-of` resolves to nil (an unknown / destroyed frame
+  the picker still lists) fall into a single trailing group keyed by
+  `:rf.realm/default` — absence is the default realm, the documented
+  EP-0013 D1 rule, so an unstamped frame never strands the picker.
+
+  The view calls `multi-realm?` on the result first: in a single-realm
+  process this collapses to one group and the picker renders the FLAT
+  option list (byte-identical to the pre-bead render); only a
+  multi-realm result drives the `<optgroup>` grouping. Pure data → data;
+  JVM-testable."
+  [frames realm-of]
+  (let [order (volatile! [])
+        seen  (volatile! #{})]
+    (->> frames
+         (reduce
+           (fn [acc f]
+             (let [rid (or (realm-of f) :rf.realm/default)]
+               (when-not (contains? @seen rid)
+                 (vswap! seen conj rid)
+                 (vswap! order conj rid))
+               (update acc rid (fnil conj []) f)))
+           {})
+         (#(mapv (fn [rid] {:realm rid :frames (get % rid)}) @order)))))
+
+(defn multi-realm?
+  "Pure predicate — true when `groups` (the `group-frames-by-realm`
+  result) spans more than one realm. Drives the picker's zero-ceremony
+  branch: a single-realm process renders the flat option list, a
+  multi-realm process renders `<optgroup>`s. Pure; JVM-testable."
+  [groups]
+  (> (count groups) 1))
 
 ;; ---- persistence ---------------------------------------------------------
 
@@ -326,6 +386,12 @@
   [_props]
   (let [selected-frame  @(rf/subscribe [:rf.xray/current-frame])
         frames          @(rf/subscribe [:rf.xray/available-frames])
+        ;; rf2-3caq85 — the realm grouping of the same pickable frames.
+        ;; A single-realm process collapses to one group and renders the
+        ;; flat option list below (byte-identical to the pre-bead render);
+        ;; only a multi-realm process renders `<optgroup>`s.
+        realm-groups    @(rf/subscribe [:rf.xray/available-frame-realm-groups])
+        multi-realm     (multi-realm? realm-groups)
         active          (or selected-frame (first frames))
         ;; rf2-ad7zx.14 — interactive whenever there is >=1 frame. A native
         ;; <select> with one option opens + shows it (not inert), which is
@@ -392,10 +458,23 @@
                              :border     "none"
                              :margin     0
                              :padding    0}}
-      (for [f frames]
-        ^{:key (str f)}
-        [:option {:value (str f)}
-         (str (if (= f active) "✓ " "  ") f)])]]))
+      ;; rf2-3caq85 — in a MULTI-REALM process the options group by realm
+      ;; (a `<optgroup>` per realm). In a SINGLE-REALM process this branch
+      ;; is skipped and the flat option list below renders byte-identically
+      ;; to the pre-bead picker — zero-ceremony extends to the tooling.
+      (if multi-realm
+        (for [{:keys [realm frames]} realm-groups]
+          ^{:key (str realm)}
+          [:optgroup {:label       (str realm)
+                      :data-testid (str "rf-xray-ribbon-frame-realm-group-" (name realm))}
+           (for [f frames]
+             ^{:key (str f)}
+             [:option {:value (str f)}
+              (str (if (= f active) "✓ " "  ") f)])])
+        (for [f frames]
+          ^{:key (str f)}
+          [:option {:value (str f)}
+           (str (if (= f active) "✓ " "  ") f)]))]]))
 
 ;; ---- install -------------------------------------------------------------
 
@@ -510,6 +589,23 @@
     (fn [cascades _query]
       ;; show-tool-frames? hardcoded false — see ns docstring.
       (distinct-frames cascades false)))
+
+  ;; `:rf.xray/available-frame-realm-groups` (rf2-3caq85) — the same
+  ;; pickable frames, grouped by the runtime realm each belongs to
+  ;; (EP-0013 disposition 3). Composes off `:rf.xray/available-frames`
+  ;; and resolves each frame's realm through the PUBLIC `rf/frame-realm`
+  ;; (the frame-side half of the (realm, frame) address). In a
+  ;; single-realm process every frame resolves to the default realm, so
+  ;; the result is ONE group and the picker renders the flat option list
+  ;; (byte-identical to the pre-bead render — `multi-realm?` is false);
+  ;; only a multi-realm process drives the `<optgroup>` grouping in the
+  ;; view. The resolver is `frame/frame-realm` (live frame registry); the
+  ;; pure grouping is `group-frames-by-realm` so the data shape is
+  ;; JVM-testable independently of a runtime.
+  (rf/reg-sub :rf.xray/available-frame-realm-groups
+    :<- [:rf.xray/available-frames]
+    (fn [frames _query]
+      (group-frames-by-realm frames frame/frame-realm)))
 
   ;; ---- events --------------------------------------------------------
   ;;
