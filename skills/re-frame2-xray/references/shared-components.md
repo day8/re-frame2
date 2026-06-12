@@ -37,7 +37,7 @@ Operator expansion state persists in app-db
 ### `film_strip/header`
 
 Shared `[◀ Prev] [Next ▶]` header consumed by most L4 panels (**Trace
-opts out** per rf2-o6yqq — the L2 list owns its spine navigation). Lives
+opts out** — the L2 list owns its spine navigation). Lives
 at
 [`tools/xray/src/day8/re_frame2_xray/panels/shared/film_strip/header.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/shared/film_strip/header.cljc).
 MVP: chronological walk through the L2 spine. Hit-target sizing per
@@ -86,13 +86,13 @@ signal, colour is never alone):
 | Routes | `r` | `🌐` | `:yellow` |
 
 Six Dynamic tabs (Epoch is `:order -1`, the leftmost / default-landing
-slot). There is **no Issues tab** (rf2-gbz39) and **no Event tab**
-(rf2-5gl5r, replaced by Epoch) — issues surface inline in the Epoch
+slot). There is **no Issues tab** and **no Event tab**
+(replaced by Epoch) — issues surface inline in the Epoch
 cascade, the L2 pink-wash, and the issues-ribbon signal.
 
 L2 row badges (live impl `l2_timeline.cljc`): `⚠` issue · `◆` machine
 transition · `🌐` HTTP activity · `⚡` fx-emit child dispatch · `⏲` timer
-dispatch. **L2 issue pink-wash** (rf2-b8guz): a cascade carrying an issue
+dispatch. **L2 issue pink-wash**: a cascade carrying an issue
 washes its whole L2 row pink (`:bg-issue-row`) — the per-row "this epoch
 is broken" signal that replaced the dedicated Issues tab.
 

@@ -22,7 +22,7 @@ directory lists no `evals/` files — that is by design, and it matches the
 `re-frame2-improver` and `re-frame2-xray` siblings make the opposite, equally
 valid, choice — they carry `evals/` in `files` so a vendored copy can re-run its
 own gate; either stance is fine as long as the skill's docs and its `files` array
-agree. rf2-myge8z.)
+agree.)
 
 ## Convention
 

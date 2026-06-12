@@ -44,7 +44,7 @@ Five topics, two underlying buses.
 
 The `:fx` and `:error` topics are convenience sugar — they pre-pin the `:op-type` filter so you can layer additional trace-vocab keys on top.
 
-**Cascade-bundle vs flat delivery (rf2-mscih).** On `:trace` / `:fx` / `:error` each tick's matched events ship **grouped by `:rf.trace/dispatch-id` into cascade bundles** (matching the `(re-frame.trace.tooling/trace-buffer frame-id)` shape — `:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other :trace-events :parent-dispatch-id`); the progress payload's load slot is `:cascades`. `:epoch` and `:frameless` ship flat as `:events`. **Frameless events NEVER ride the cascade-bundle topics** — opt into the `:frameless` topic explicitly to see registration / REPL / lifecycle events that belong to no cascade.
+**Cascade-bundle vs flat delivery.** On `:trace` / `:fx` / `:error` each tick's matched events ship **grouped by `:rf.trace/dispatch-id` into cascade bundles** (matching the `(re-frame.trace.tooling/trace-buffer frame-id)` shape — `:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other :trace-events :parent-dispatch-id`); the progress payload's load slot is `:cascades`. `:epoch` and `:frameless` ship flat as `:events`. **Frameless events NEVER ride the cascade-bundle topics** — opt into the `:frameless` topic explicitly to see registration / REPL / lifecycle events that belong to no cascade.
 
 Use `:epoch` whenever you want assembled cascades (with their `:sub-runs` / `:renders` / `:effects` projections); use `:trace` (or its sugar) when you need raw trace-event detail (handler timings, registry traces, sub-cache events, the things the projection drops).
 
@@ -104,12 +104,12 @@ The MCP client passes a `progressToken` on the `tools/call` for `subscribe`; eac
 
 The structured drop counts live under **`_meta.data`**, not a top-level `data` slot — the MCP SDK strips unknown top-level progress params but preserves `_meta`. `overflow-reason` carries the stringified EDN keyword of the budget that tripped on this tick (`null` when no eviction happened).
 
-The `message` slot is an EDN-printed **map** (not a bare vector). It carries `:sub-id` plus the delivered batch under exactly one topic-dependent slot (rf2-mscih):
+The `message` slot is an EDN-printed **map** (not a bare vector). It carries `:sub-id` plus the delivered batch under exactly one topic-dependent slot:
 
 - `:cascades` — on the cascade-bundle topics (`:trace` / `:fx` / `:error`): a vector of cascade bundles, each matching the `(rf/trace-buffer frame-id)` shape (`:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other :trace-events :parent-dispatch-id`).
 - `:events` — on the flat topics (`:epoch` / `:frameless`): a flat vector (`:rf/epoch-record` maps for `:epoch`; raw trace events for `:frameless`).
 
-So a `:epoch` tick's `message` reads as `{:sub-id "<uuid>" :events [<epoch-record> ...] :dedup <bool> :dropped-events <n> :dropped-bytes <n>}`, and a `:trace`/`:fx`/`:error` tick reads as `{:sub-id "<uuid>" :cascades [<bundle> ...] :dedup <bool> ...}`. The `:dedup` flag signals whether the slot was structurally deduped (rf2-obpa9; reconstruct via `(de-dupe.core/expand cache-map)`); `:overflow-reason` rides the map too when a budget tripped. The agent reads `message` directly; capable hosts can additionally inspect `_meta.data` for the structured counts.
+So a `:epoch` tick's `message` reads as `{:sub-id "<uuid>" :events [<epoch-record> ...] :dedup <bool> :dropped-events <n> :dropped-bytes <n>}`, and a `:trace`/`:fx`/`:error` tick reads as `{:sub-id "<uuid>" :cascades [<bundle> ...] :dedup <bool> ...}`. The `:dedup` flag signals whether the slot was structurally deduped (reconstruct via `(de-dupe.core/expand cache-map)`); `:overflow-reason` rides the map too when a budget tripped. The agent reads `message` directly; capable hosts can additionally inspect `_meta.data` for the structured counts.
 
 When sensitive events are dropped, the payload carries an extra `:dropped-sensitive` count; see [Privacy posture](#privacy-posture) below.
 
@@ -185,4 +185,4 @@ Returns `{:ok? true :subs [{:id :topic :filter :queue-depth :queue-bytes :droppe
 
 Optional filters: pass `topic` (one of `trace` / `epoch` / `fx` / `error` / `frameless`) to narrow to a single topic, or `sub-id` to look up a specific stream — e.g. `mcp__re-frame2-pair__list-streams {topic: "epoch"}` or `mcp__re-frame2-pair__list-streams {sub-id: "<uuid>"}`.
 
-> **Note (rf2-qicji):** `list-streams` is the streaming-tap diagnostic. It is distinct from `list-subscriptions`, which reports the **live reactive sub-cache** for a frame (the answer to "what reactive subscriptions are active?", matching `snapshot :sub-cache`). The two answer different questions.
+> **Note:** `list-streams` is the streaming-tap diagnostic. It is distinct from `list-subscriptions`, which reports the **live reactive sub-cache** for a frame (the answer to "what reactive subscriptions are active?", matching `snapshot :sub-cache`). The two answer different questions.

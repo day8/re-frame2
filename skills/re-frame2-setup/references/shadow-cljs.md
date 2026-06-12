@@ -152,7 +152,7 @@ The top-level `:dev-http` (above) already starts the dev server. The day-one bui
     (rdc/render react-root [counter-app]))   ;; re-render only — no rf/init!, no dispatch-sync
   ```
 
-  Keep `(rf/init! …)` and the `(rf/dispatch-sync [:counter/initialise])` seed in `init` (the one-time startup path); the after-load hook only re-renders, so app-db state survives the reload instead of resetting to its seed on every save. (Coordinate this wording with the generator template's own hot-reload notes — see rf2-8n4s71 — so the template docs and this skill teach the same `:init-fn` = startup / `^:dev/after-load` = reload-hook lifecycle.)
+  Keep `(rf/init! …)` and the `(rf/dispatch-sync [:counter/initialise])` seed in `init` (the one-time startup path); the after-load hook only re-renders, so app-db state survives the reload instead of resetting to its seed on every save. (Coordinate this wording with the generator template's own hot-reload notes so the template docs and this skill teach the same `:init-fn` = startup / `^:dev/after-load` = reload-hook lifecycle.)
 - `:preloads [day8.re-frame2-xray.preload]` — loads the Xray in-app devtools panel in dev/watch builds. `:preloads` (and the whole `:devtools` block) are cut from `release` builds automatically, so Xray never ships to production.
 - The dev server itself comes from the top-level `:dev-http {8280 "resources/public"}` (not from a `:http-port`/`:http-root` inside `:devtools` — that's the older style; the template uses the top-level `:dev-http` form).
 

@@ -50,7 +50,7 @@ The default path. Add the preload namespace to shadow-cljs's
 ```
 
 The preload runs four foundation side-effects (per
-[`spec/011-Launch-Modes.md` §Mount lifecycle](../../../tools/xray/spec/011-Launch-Modes.md#mount-lifecycle-rf2-9kkrm)):
+[`spec/011-Launch-Modes.md` §Mount lifecycle](../../../tools/xray/spec/011-Launch-Modes.md)):
 
 1. Register `:rf.xray/*` handlers against the `:rf/xray` frame.
 2. Register the trace collector via `register-listener!` under
@@ -186,7 +186,7 @@ layout column.
 
 `open-overlay!` is one of the mount facade's three open verbs by design
 (`open!` inline · `open-overlay!` modal overlay · `popout!` window — per
-[`spec/API.md` §rf2-sa4fr](../../../tools/xray/spec/API.md), the three
+[`spec/API.md` §Mount facade](../../../tools/xray/spec/API.md), the three
 naming distinct mount surfaces, not modal variants of one shape). It is
 the **optional, non-default** path: the inline panel is the canonical
 developer experience, and `open-overlay!` is explicitly documented as a
@@ -246,7 +246,7 @@ in [`core.cljs`](../../../tools/xray/src/day8/re_frame2_xray/core.cljs)):
  matching class / font-size immediately (no reload).
 - `:buffer-depths` honours `{:epoch <n>}` only — it drives the substrate's
  per-frame ring (depth + trace-keep to the same `n`). A `:trace` axis is
- **silently dropped** (folded into the one `:epoch` knob per the rf2-3g9nw
+ **silently dropped** (folded into the one `:epoch` knob per the
  D1=a ruling — one operator knob, atomic relationship).
 
 Unknown opt keys are silently ignored for forward-compat — so an `init!`

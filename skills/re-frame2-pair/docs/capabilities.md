@@ -124,4 +124,4 @@ All in SKILL.md's Recipes section.
 
 ---
 
-*Last updated: 2026-06-05 — Notes column conformed to the MCP-primary 28-tool surface (rf2-ojo3z).*
+*Last updated: 2026-06-05 — Notes column conformed to the MCP-primary 28-tool surface.*

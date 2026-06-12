@@ -138,7 +138,7 @@ A growing `evals/` set of input/output pairs would let the skill be regression-t
 
 Some patterns (state machines, managed HTTP) are growing. A future split into `re-frame2-machines/` or `re-frame2-http/` is possible. Status: not until any single leaf exceeds ~400 LoC consistently.
 
-## 10. Decision — EP-0014 derivation/process algebra propagation (2026-06-12, rf2-1w4x3l)
+## 10. Decision — EP-0014 derivation/process algebra propagation (2026-06-12)
 
 EP-0014 (`spec/Derivations.md`) names the one *inspection/specification* view subscriptions, flows, resources, route facts, and machine selectors lower to (inputs / output / storage class / evaluation policy / lifecycle; superkinds `:derivation` / `:process`). It mints **no new authoring API**. The propagation question for an *authoring-only* skill: does the fundamentals layer benefit from the unified frame as an orienting paragraph?
 

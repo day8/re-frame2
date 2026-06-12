@@ -104,7 +104,7 @@ raw-eval carve-out below).
 - **Redacted / elided by default (NOT shipped raw)**: `:rf/epoch-record`
   values that the structured pull-mode tools (`trace-window`,
   `watch-epochs`), `snapshot`'s `:epochs` slice, and the `:epoch`
-  streaming topic egress. As of rf2-6wvh5 / rf2-vr2hn / rf2-8fin7.1 the
+  streaming topic egress. The
   pull-mode tools and `snapshot`'s `:epochs` slice route every egressed
   record through `re-frame.core/projected-record` and the streaming
   `:epoch` topic wraps each delivered record through
@@ -113,7 +113,7 @@ raw-eval carve-out below).
   `:db-after` / `:trigger-event` / `:trace-events` lands as `:rf/redacted`
   and a declared-large slot as `:rf.size/large-elided`, even with the
   `--allow-sensitive-reads` gate OFF (the published default) and even if a
-  caller passed `:include-sensitive true`. (Before rf2-8fin7.1 the
+  caller passed `:include-sensitive true`. (Earlier the
   `:epochs` slice rode the wire verbatim — the client-side scrub only
   dropped whole `:rf.epoch/sensitive?` records, never a declared-sensitive
   slot inside a non-sensitive epoch — so a sensitive slot could leak when
@@ -125,8 +125,8 @@ raw-eval carve-out below).
   `{:app-db [path]}` / `{:sub [query-v]}` signals that `record` /
   `read-recording` sample into the change-log, and `watch-until`'s
   `:sample` (on hold) / `:last-sample` (on timeout) slots, are raw
-  app-db-derived values that ship back to the model. As of rf2-8fin7.2
-  the recorders mirror the `get-path` / `read-sub` / `snapshot` posture:
+  app-db-derived values that ship back to the model. The
+  recorders mirror the `get-path` / `read-sub` / `snapshot` posture:
   the `--allow-sensitive-reads` gate + per-call `:include-sensitive` /
   `:elision` args resolve an elision-opts map threaded into the runtime's
   `start-recording!`, so every `:app-db` / `:sub` sample walks through
@@ -137,7 +137,7 @@ raw-eval carve-out below).
   (`{:focus true}`) signals are read-only host reads, not app-db slots,
   so the gate does not transform them.
 - **Redacted / elided by default (`dispatch-dry-run`)**: dry-run
-  (rf2-z7roa) commits nothing, but it returns the would-be app-db under
+  commits nothing, but it returns the would-be app-db under
   `:db-state-after-simulation` and each recorded fx call's args under
   `:would-fire-effects[*].args` — reducers / fx routinely derive tokens
   / auth headers / PII from app-db. Both slots run through
@@ -201,17 +201,16 @@ in-runtime `configure-privacy!` toggle:
   `watch-epochs`, `dispatch-dry-run`, and the signal recorders `record` /
   `read-recording` / `watch-until` — forced wire arg
   `:include-sensitive false` + forced `:elision true`. For
-  `dispatch-dry-run` (rf2-z7roa) the forced posture walks
+  `dispatch-dry-run` the forced posture walks
   `:db-state-after-simulation` + each `:would-fire-effects[*].args` slot
   through `elide-wire-value` server-side. For the epoch-egressing tools
   (`trace-window`,
   `watch-epochs`, `snapshot`'s `:epochs` slice, and the `:epoch`
   streaming topic) the forced posture routes each record through
-  `projected-record` / `elide-wire-value` server-side (rf2-6wvh5 /
-  rf2-vr2hn / rf2-8fin7.1) so sensitive slots inside the `:db-before` /
+  `projected-record` / `elide-wire-value` server-side so sensitive slots inside the `:db-before` /
   `:db-after` payloads redact. For the recorders the forced posture walks
   each `:app-db` / `:sub` signal sample through `elide-wire-value`
-  server-side (rf2-8fin7.2) before it lands in the change-log / `:sample`
+  server-side before it lands in the change-log / `:sample`
   slot. (The MCP wire arg is `:include-sensitive`, no `?`; the runtime
   `configure-privacy!` opt and the walker option
   `:rf.size/include-sensitive?` keep the `?`.)
@@ -259,7 +258,7 @@ vocabulary; both pair-mcp and story-mcp expose their sensitive-read
 opt-in under the same flag name.
 
 - re-frame2-pair-mcp `--no-eval` — opt-out for the `eval-cljs` tool
-  (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture — eval
+  (inverts the prior default-OFF posture — eval
   is the REPL primitive of a pair-debug session and ships ENABLED).
 - re-frame2-pair-mcp `--allow-sensitive-reads` — this gate.
 - re-frame2-pair-mcp `--allow-writes` — opt-in for the two
