@@ -203,7 +203,15 @@
       (let [r (first @seen)]
         (is (= :rf.error/frame-destroyed (:error r)))
         (is (= :gone/frame (:frame r)) ":frame names the target frame")
-        (is (= [:whatever] (:event r)) ":event carries the attempted vector")
+        ;; EP-0015 issue 1 (rf2-t55hxg.18) — the `:event` slot is projected
+        ;; through `elide-wire-value` against the record's frame. Here the
+        ;; frame is UNRESOLVABLE (never registered), so there is no
+        ;; classification policy to consult and the slot FAILS CLOSED: the
+        ;; attempted vector is redacted whole rather than shipped verbatim
+        ;; under no policy. The structural `:event-id` keyword still survives
+        ;; for observability — it is not a user-value tree slot.
+        (is (= :rf/redacted (:event r))
+            ":event fails closed under an unresolvable frame (no empty-policy leak)")
         (is (= :whatever (:event-id r)))))))
 
 (deftest listener-fires-on-frame-destroyed-dispatch-sync
@@ -234,7 +242,12 @@
       (let [r (first @seen)]
         (is (= :rf.error/frame-destroyed (:error r)))
         (is (= :gone/frame (:frame r)))
-        (is (= [:any-sub] (:event r)) ":event carries the attempted query-v")))))
+        ;; EP-0015 issue 1 (rf2-t55hxg.18) — `:event` (here the attempted
+        ;; query-v) is projected against the record's frame. The frame is
+        ;; UNRESOLVABLE, so the slot fails closed to `:rf/redacted` rather
+        ;; than leaking the attempted query-v under no policy.
+        (is (= :rf/redacted (:event r))
+            ":event fails closed under an unresolvable frame (no empty-policy leak)")))))
 
 (deftest listener-fires-on-frame-destroyed-after-destroy-frame
   (testing "Per rf2-2hvga + Spec 002 §Destroy: after `destroy-frame!`,

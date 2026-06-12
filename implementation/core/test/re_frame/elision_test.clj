@@ -464,6 +464,88 @@
         "include-sensitive? true ⇒ frameless value rides verbatim (opt-out)")))
 
 ;; ---------------------------------------------------------------------------
+;; EP-0015 issue 1 (rf2-t55hxg.18) — an explicit / carried frame-id that
+;; cannot RESOLVE to a live frame fails CLOSED, identical to the frameless
+;; case. Before the fix `elide-wire-value` only checked `(some? frame-id)`:
+;; a non-nil id that named a never-registered or destroyed frame slipped
+;; into the policy walk, where `registry-of` returned nil → empty `:large` /
+;; `:sensitive` tables → an IDENTITY walk that shipped every value verbatim
+;; under NO policy. Spec 015 §Direct reads and fail-closed frame resolution:
+;; an unresolved frame must fail closed, never fall through to a permissive
+;; walk and never synthesize `:rf/default`.
+;; ---------------------------------------------------------------------------
+
+(deftest never-registered-explicit-frame-fails-closed
+  ;; An explicit `:frame` opt naming a frame that was never registered is
+  ;; non-nil but unresolvable ⇒ redact the whole value (do NOT pass through
+  ;; under an empty policy).
+  (binding [frame/*current-frame* nil]
+    (is (= :rf/redacted
+           (rf/elide-wire-value {:a 1 :b [2 3]}
+                                {:frame :elision-test/never-registered}))
+        "explicit unknown frame ⇒ whole value redacted (no empty-policy leak)")
+    (is (= :rf/redacted
+           (rf/elide-wire-value 42 {:frame :elision-test/never-registered}))
+        "fail-closed applies to scalars under an unknown explicit frame too")))
+
+(deftest destroyed-explicit-frame-fails-closed
+  ;; A frame that WAS registered (and could have carried a real `:large` /
+  ;; `:sensitive` policy) but has since been destroyed is no longer
+  ;; resolvable ⇒ fail closed. `frame/frame` returns nil for a destroyed id.
+  (frame/reg-frame :elision-test/doomed {})
+  (frame/destroy-frame! :elision-test/doomed)
+  (binding [frame/*current-frame* nil]
+    (is (= :rf/redacted
+           (rf/elide-wire-value {:secret "shh"}
+                                {:frame :elision-test/doomed}))
+        "destroyed explicit frame ⇒ whole value redacted")))
+
+(deftest unresolvable-frame-redacts-value-that-would-be-public-under-known-frame
+  ;; ADVERSARIAL — the value here carries NO sensitive declaration, so under
+  ;; a KNOWN frame it rides through verbatim (the value is "public"). The
+  ;; safety property is that the SAME value, projected under a frame that
+  ;; cannot be resolved, must NOT leak: fail-closed redacts the whole value
+  ;; regardless of what its policy WOULD have been under a live frame.
+  (binding [frame/*current-frame* nil]
+    ;; Baseline: under the live :rf/default frame (no declarations) the value
+    ;; passes through verbatim — it is "public".
+    (is (= {:profile {:name "Ada"}}
+           (rf/elide-wire-value {:profile {:name "Ada"}}
+                                {:frame :rf/default}))
+        "baseline: under a KNOWN frame with no policy the value is public")
+    ;; Same value, unresolvable frame ⇒ redacted whole. A would-be-public
+    ;; value still fails closed when the frame can't be resolved.
+    (is (= :rf/redacted
+           (rf/elide-wire-value {:profile {:name "Ada"}}
+                                {:frame :elision-test/never-registered}))
+        "the would-be-public value redacts whole under an unresolvable frame")))
+
+(deftest unresolvable-frame-include-sensitive-opt-out-still-identity
+  ;; The deliberate opt-out is unchanged: `:rf.size/include-sensitive? true`
+  ;; against an unresolvable frame walks the value under an empty (no-frame)
+  ;; policy — the caller explicitly waived redaction, so the value rides
+  ;; through. This keeps the escape hatch symmetric with the frameless case.
+  (binding [frame/*current-frame* nil]
+    (is (= {:a 1 :b [2 3]}
+           (rf/elide-wire-value {:a 1 :b [2 3]}
+                                {:frame :elision-test/never-registered
+                                 :rf.size/include-sensitive? true}))
+        "include-sensitive? true ⇒ unresolvable-frame value rides verbatim (opt-out)")))
+
+(deftest stale-carried-scope-frame-fails-closed
+  ;; The carried scope (`*current-frame*`) can outlive the frame it names —
+  ;; e.g. a `frame-bound-fn` closure fires after the frame was destroyed.
+  ;; A stale scope id that no longer resolves to a live frame must fail
+  ;; closed exactly like an explicit unknown `:frame` opt (the same
+  ;; `frame/frame` liveness check governs both resolution tiers).
+  (frame/reg-frame :elision-test/stale {})
+  (frame/destroy-frame! :elision-test/stale)
+  (binding [frame/*current-frame* :elision-test/stale]
+    (is (= :rf/redacted
+           (rf/elide-wire-value {:a 1}))
+        "stale carried scope naming a destroyed frame ⇒ fail closed")))
+
+;; ---------------------------------------------------------------------------
 ;; Collection-nested frame-declared elision at direct-read egress
 ;; (rf2-wm9kp).
 ;;

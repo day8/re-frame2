@@ -557,32 +557,54 @@
   (Spec 002 §Frame target resolution; EP-0002 §Trace, Projection, And
   Elision / §Privacy And Egress).
 
-  Frameless egress FAILS CLOSED. When no frame is carried, the per-frame
-  elision registry is unreachable, so a permissive identity walk would ship
-  every value verbatim under NO policy — the silent leak this contract
-  exists to abolish. Rather than borrow another frame's marks, the whole
-  value is conservatively redacted to the `:rf/redacted` sentinel.
-  `:rf.size/include-sensitive? true` is the deliberate opt-out: a caller
-  that has explicitly waived sensitive redaction gets the value walked with
-  an empty policy (the identity transform), so an inspector that genuinely
-  wants the raw, policy-free value asks for it on purpose."
+  A resolved frame-id is not enough — it must RESOLVE to a live frame.
+  An explicit `:frame` opt (or a stale carried scope) may name a frame that
+  was never registered or has since been destroyed. EP-0015 issue 1
+  (rf2-t55hxg.18): an unresolvable frame's per-frame elision registry is
+  unreachable (`registry-of` returns nil), so feeding it through the policy
+  walk produced an EMPTY-policy identity transform — shipping every value
+  verbatim under NO policy, the exact silent leak this contract abolishes.
+  An unknown / destroyed frame therefore FAILS CLOSED here too, identically
+  to the frameless case: it is validated against the live registry
+  (`frame/frame`) before being treated as policy-bearing. Spec 015
+  §Direct reads and fail-closed frame resolution: an unresolved frame must
+  fail closed — it must not fall through to a permissive walk, and never
+  synthesizes `:rf/default`.
+
+  Frameless / unresolvable-frame egress FAILS CLOSED. When no LIVE frame is
+  carried, the per-frame elision registry is unreachable, so a permissive
+  identity walk would ship every value verbatim under NO policy. Rather than
+  borrow another frame's marks, the whole value is conservatively redacted
+  to the `:rf/redacted` sentinel. `:rf.size/include-sensitive? true` is the
+  deliberate opt-out: a caller that has explicitly waived sensitive
+  redaction gets the value walked with an empty policy (the identity
+  transform), so an inspector that genuinely wants the raw, policy-free
+  value asks for it on purpose."
   ([v] (elide-wire-value v nil))
   ([v opts]
-   (let [frame-id (or (:frame opts) (frame/resolve-current-frame))]
+   (let [frame-id   (or (:frame opts) (frame/resolve-current-frame))
+         ;; A frame-id alone is not policy-bearing — it must resolve to a
+         ;; LIVE frame. `frame/frame` returns nil for an unknown /
+         ;; never-registered / destroyed id, so an explicit `:frame` opt or
+         ;; a stale carried scope that names a dead frame is treated exactly
+         ;; like the frameless case below (fail closed). rf2-t55hxg.18.
+         live-frame? (and (some? frame-id) (some? (frame/frame frame-id)))]
      (cond
-       ;; Known carried frame ⇒ apply that frame's elision policy.
-       (some? frame-id)
+       ;; Known + LIVE carried frame ⇒ apply that frame's elision policy.
+       live-frame?
        (elide-against-frame v opts frame-id)
 
-       ;; Frameless + the caller waived sensitive redaction ⇒ identity
-       ;; walk against an empty (no-frame) policy. The walker is the
-       ;; identity transform when no declarations are reachable.
+       ;; Frameless / unresolvable-frame + the caller waived sensitive
+       ;; redaction ⇒ identity walk against an empty (no-frame) policy. The
+       ;; walker is the identity transform when no declarations are
+       ;; reachable.
        (true? (:rf.size/include-sensitive? opts))
        (elide-against-frame v opts ::no-frame)
 
-       ;; Frameless egress, no opt-out ⇒ fail closed: no policy is
-       ;; available, so conservatively redact the whole value rather than
-       ;; borrow another frame's marks.
+       ;; Frameless / unresolvable-frame egress, no opt-out ⇒ fail closed:
+       ;; no policy is available, so conservatively redact the whole value
+       ;; rather than borrow another frame's marks or pass it through under
+       ;; an empty policy.
        :else
        privacy/redacted-sentinel))))
 
