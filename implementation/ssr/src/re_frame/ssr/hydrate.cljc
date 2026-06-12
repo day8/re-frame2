@@ -127,6 +127,24 @@
                               :failing-id :rf/hydrate
                               :reason    reason
                               :recovery  :no-recovery}))
+        ;; EP-0008 (rf2-hhutya): the hydrate-handler shape-guard path
+        ;; (frame EXISTS) rides the always-on axis ALONGSIDE the dev trace
+        ;; above. Corrupt hydration input is a fail-closed boundary event,
+        ;; not a dev teaching diagnostic — an off-box shipper on a
+        ;; goog.DEBUG=false client build (dev trace elided) must still see
+        ;; the rejected payload. UNGATED. (The PRE-FRAME parse failure in
+        ;; `boot/read-server-payload` is the FRAMELESS sibling of this same
+        ;; category.) Union record shape via the late-bind hook.
+        (when-let [dispatch-error-record!
+                   (late-bind/get-fn :error-emit/dispatch-error-record)]
+          (dispatch-error-record!
+            {:error      :rf.error/malformed-hydration-payload
+             :frame      frame
+             :time       (interop/now-ms)
+             :where      'rf.ssr/hydrate
+             :failing-id :rf/hydrate
+             :reason     reason
+             :recovery   :no-recovery}))
         ;; Fail CLOSED: leave the client app-db untouched, fire no
         ;; compatibility-check fxs (there is no trustworthy server slice
         ;; to compare against).

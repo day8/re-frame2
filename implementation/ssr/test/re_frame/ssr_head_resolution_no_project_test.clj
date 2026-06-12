@@ -105,12 +105,15 @@
            the head-category skip in (1) is therefore meaningful"))))
 
 ;; ===========================================================================
-;; (3) Always-on substrate — symmetry guard. The head trace rides only the
-;;     dev bus today (`trace/emit-error!`), but non-Ring host adapters MUST
-;;     emit the same category (Spec 011 §1070), and a future change could
-;;     route it through the always-on `register-error-listener!` substrate.
-;;     The skip is symmetric, so the degraded-200 contract holds under
-;;     production hardening too.
+;; (3) Always-on substrate — symmetry guard. Post-rf2-hhutya the head trace
+;;     rides the always-on `register-error-listener!` substrate (via
+;;     `dispatch-error-record!`) ALONGSIDE the dev bus (`trace/emit-error!`),
+;;     so the EP-0008 promotion ships the off-box record on a
+;;     `-Dre-frame.debug=false` JVM SSR host. The category stays NON-
+;;     PROJECTING: the always-on `error-emit-projection-listener` skips it
+;;     symmetrically with the dev listener, so the degraded-200 contract
+;;     holds whichever substrate carries the trace — promotion changed what
+;;     SHIPPERS see, NOT what the WIRE does.
 ;; ===========================================================================
 
 (deftest always-on-path-head-failure-record-is-not-buffered-or-projected

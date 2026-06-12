@@ -12,9 +12,41 @@
 
   Per the rf2-gxgo7 split of re-frame.ssr."
   (:require [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.ssr.error-projector :as error-projector]
             [re-frame.ssr.response :as response]
             [re-frame.trace :as trace]))
+
+;; ---- always-on error-emit helper (EP-0008 rf2-hhutya) ---------------------
+;;
+;; The promoted SSR error categories ride the always-on error-emit axis
+;; (surface #4) ALONGSIDE the existing dev-gated `trace/emit-error!`. The
+;; always-on emit reaches `error-emit/dispatch-error-record!` through the
+;; published `:error-emit/dispatch-error-record` late-bind hook (the SSR
+;; artefact ships above core's require graph; the hook keeps the axis
+;; addressable without a static require). UNGATED — it fires under
+;; `interop/debug-enabled? = false` so off-box shippers (Sentry / Datadog)
+;; on a `-Dre-frame.debug=false` JVM SSR host see the structured record the
+;; dev trace surface would have elided. The corresponding
+;; `error-emit-projection-listener` is registered with id `::error-projection`
+;; (re-frame.ssr façade), so this record drives status projection for the
+;; projection-eligible categories and is skipped (observability-only) for
+;; the recoverable-degradation members — same `non-projection-eligible-error?`
+;; gate that governs the wire (promotion changes what SHIPPERS see, never
+;; what the WIRE does).
+
+(defn emit-always-on-error!
+  "Fan a PRE-BUILT always-on SSR error record out through the corpus-wide
+  error-emit registry (surface #4), via the `:error-emit/dispatch-error-
+  record` late-bind hook. `record` is the union shape `{:error <kw> :frame
+  <id-or-nil> :time <ms> + flat category keys}`. A no-op when the
+  `error-emit` producer hasn't loaded (the hook is nil) — the dev
+  `trace/emit-error!` companion still fires. Returns nil."
+  [record]
+  (when-let [dispatch-error-record! (late-bind/get-fn :error-emit/dispatch-error-record)]
+    (dispatch-error-record! record))
+  nil)
 
 (defn- candidate-frame-for-error
   "Select the frame to project against for a trace-event: the frame named
@@ -91,9 +123,27 @@
 ;; and silently flip 4xx→5xx. Skipping it here closes that hole by
 ;; construction — symmetric with the head category, enforced at the same
 ;; chokepoint across both buffering listeners.
+;; EP-0008 (rf2-hhutya) extends the skip set with the two further NON-
+;; PROJECTING SSR categories promoted to the always-on axis (the RULED
+;; "keep categories 2/4/5/6 in the non-projection-eligible skip set"):
+;;
+;;   `:rf.error/ssr-streaming-writer-failed` — POST-HEAD-COMMIT (the chunked
+;;   200 is already on the wire on the daemon writer thread; the status can
+;;   no longer change). Promoting it to the always-on axis would otherwise
+;;   let `error-emit-projection-listener` buffer + project a 500 onto a
+;;   response that has already committed — flipping the wire. It is pure
+;;   off-box telemetry; skip it so promotion ships the record WITHOUT
+;;   touching the (already-committed) status.
+;;
+;;   `:rf.error/sanitised-on-projection` — the projector-fallback path. It
+;;   was always guarded explicitly here (the re-entry guard); folding it
+;;   into the set makes the classification uniform and keeps the one-shot,
+;;   never-re-enter-projection contract enforced at the same chokepoint.
 (def ^:private non-projection-eligible-errors
   #{:rf.error/ssr-head-resolution-failed
-    :rf.error/ssr-ring-error-view-failed})
+    :rf.error/ssr-ring-error-view-failed
+    :rf.error/ssr-streaming-writer-failed
+    :rf.error/sanitised-on-projection})
 
 (defn- non-projection-eligible-error?
   "True when `operation` names a recoverable-degradation error category
@@ -245,14 +295,35 @@
       ;; we drain it again via the 1-arity call below so the buffer
       ;; clears.
       (trace/emit-error! :rf.error/ssr-render-failed tags)
+      ;; EP-0008 (rf2-hhutya): ALSO ride the always-on error-emit axis so
+      ;; an off-box shipper on a `-Dre-frame.debug=false` JVM SSR host sees
+      ;; the structured render-failure record (the dev trace above is
+      ;; elided there). `:rf.error/ssr-render-failed` is PROJECTION-ELIGIBLE
+      ;; — the always-on `error-emit-projection-listener` (id
+      ;; `::error-projection`) buffers it onto the SAME pending-error-traces
+      ;; atom as the dev listener; the `consume-pending-traces!` clear below
+      ;; drops BOTH buffered duplicates, so the wire status is driven solely
+      ;; by the DIRECT `apply-error-projection!` call (no double-stamp, no
+      ;; re-project on a later flush). Union record shape.
+      (emit-always-on-error!
+        {:error :rf.error/ssr-render-failed
+         :frame frame-id
+         :time  (interop/now-ms)
+         :exception         t
+         :exception-message #?(:clj  (.getMessage t)
+                               :cljs (.-message t))
+         :ex-class          #?(:clj  (.getName (class t))
+                               :cljs (str (type t)))
+         :recovery          :projected-to-public-error})
       ;; Apply directly with the synthesised trace event — this is
       ;; the projection that stamps :status on the response and
       ;; returns the public-error map the caller uses to render the
       ;; wire body.
       (let [public-error (apply-error-projection! frame-id trace-event)]
-        ;; Clear any duplicate buffer entry the listener appended above
+        ;; Clear any duplicate buffer entry the listeners appended above
         ;; (apply-error-projection! 2-arity does not drain). Without
         ;; this a later peek/flush would re-project the same event.
+        ;; Clears BOTH the dev-trace AND the always-on buffered duplicates.
         (consume-pending-traces! frame-id)
         public-error))))
 
@@ -297,12 +368,19 @@
   pending-error-traces buffer in the same trace-event shape the
   projector consumes.
 
-  The error-emit record arrives as the tight flat shape
-  `{:error :event :event-id :frame :time :exception :elapsed-ms
-    :source-coord}` (per `re-frame.error-emit/dispatch-on-error!`'s
-  contract). We synthesise the `{:operation :op-type :tags}` envelope
-  the existing projector pipeline expects — symmetric with the trace-cb
-  delivery — so the projector body is substrate-agnostic.
+  The error-emit record arrives in the UNION shape `{:error <kw> :frame
+  <id-or-nil> :time <ms> + flat category-specific keys}` (rf2-hhutya /
+  rf2-ini4wr — the shared non-event always-on shape). The event-centric
+  `dispatch-on-error!` path carries `:event` / `:event-id` / `:elapsed-ms`
+  / `:source-coord`; the EP-0008 SSR promotions carry `:exception` /
+  `:phase` / `:reason` / `:projector-id` / … instead. We synthesise the
+  `{:operation :op-type :tags}` envelope the existing projector pipeline
+  expects — symmetric with the trace-cb delivery — by lifting EVERY
+  non-`:error` slot onto `:tags` GENERICALLY (rf2-hhutya), so a custom
+  projector reading `(get-in event [:tags :exception])` sees the same keys
+  on this always-on path as on the trace-cb path regardless of which
+  category was promoted. `:operation` is the record's `:error`; `:recovery`
+  defaults to `:no-recovery` when the record didn't carry one.
 
   Registered in the `re-frame.ssr` façade under `::error-projection`.
   Survives `interop/debug-enabled? = false` — Spec 011 §Server error
@@ -336,21 +414,22 @@
             ;; `server-frame?` predicate — so it could never yield a frame
             ;; the direct check below had not already accepted.
             direct-frame-id (:frame record)
-            ;; Synthesise a trace-event-shaped envelope. The projector
-            ;; reads `(:operation event)`; we copy the relevant flat
-            ;; slots onto `:tags` so custom projectors using the tag
-            ;; shape (e.g. `(get-in event [:tags :exception])`) see the
-            ;; same keys they would on the trace path.
+            ;; Synthesise a trace-event-shaped envelope GENERICALLY
+            ;; (rf2-hhutya): the projector reads `(:operation event)` and
+            ;; tag-shaped custom projectors read `(get-in event [:tags …])`.
+            ;; Lift EVERY non-`:error` slot of the union record onto `:tags`
+            ;; — both the event-centric `dispatch-on-error!` slots
+            ;; (`:event` / `:event-id` / `:elapsed-ms` / `:source-coord`)
+            ;; AND the flat category-specific slots the EP-0008 SSR
+            ;; promotions carry (`:exception` / `:phase` / `:reason` /
+            ;; `:projector-id` / …). `:recovery` defaults to `:no-recovery`
+            ;; when the record didn't supply one. Generic-lift means a newly
+            ;; promoted category's tags ride through without re-listing each
+            ;; slot here.
             event {:operation op
                    :op-type   :error
-                   :tags      {:frame             (:frame      record)
-                               :event-id          (:event-id   record)
-                               :event             (:event      record)
-                               :exception         (:exception  record)
-                               :elapsed-ms        (:elapsed-ms record)
-                               :time              (:time       record)
-                               :source-coord      (:source-coord record)
-                               :recovery          :no-recovery}}]
+                   :tags      (-> (dissoc record :error)
+                                  (update :recovery #(or % :no-recovery)))}]
         (when (and direct-frame-id
                    (error-projector/server-frame? direct-frame-id))
           (buffer-error-trace! direct-frame-id event))))))

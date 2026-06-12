@@ -11,6 +11,8 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as error-emit]
+            [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.ring :as ssr-ring]
             [re-frame.ssr.test-fixture :as tf]))
@@ -2557,3 +2559,117 @@
       (is (= "Internal error" (:body response))
           "locked generic body — the secondary throw's internals never
            reach the wire (rf2-kzvwq topology-leak contract held)"))))
+
+;; ===========================================================================
+;; EP-0008 (rf2-hhutya) — HTTP-WIRE acceptance: the promoted SSR error
+;; categories reach the always-on `register-error-listener!` axis under
+;; production hardening (`interop/debug-enabled? = false`), through the FULL
+;; Ring handler, WITHOUT changing the wire status the request would have
+;; produced. Each test runs the real `ssr-handler` under debug-off, captures
+;; the always-on (off-box shipper) records, and pins the wire outcome.
+;;
+;; Distinct from the dev-trace pins above (`handler-throwing-head-fn-ships-
+;; degraded-200-not-projected-error`, `handler-error-view-throw-falls-back-
+;; to-default-template`): those run debug-ON and watch the dev
+;; `register-listener!` bus. THESE run debug-OFF and watch the production-
+;; survivable `register-error-listener!` axis — the channel the EP-0008
+;; promotion adds.
+;; ===========================================================================
+
+(defn- capture-always-on-categories!
+  "Register a corpus-wide error listener recording the `:error` slot of
+  every fanned record; returns the seen-categories atom."
+  []
+  (let [seen (atom [])]
+    (rf/register-error-listener!
+      ::hhutya-wire-recorder
+      (fn [record] (swap! seen conj (:error record))))
+    seen))
+
+(deftest hhutya-render-failed-off-box-record-under-debug-off-wire-5xx
+  (testing "rf2-hhutya: a view that throws mid-render → the full Ring
+            handler ships a 5xx (PROJECTION-ELIGIBLE) AND delivers a
+            :rf.error/ssr-render-failed record to register-error-listener!
+            under debug-off. Promotion adds the off-box record; the 5xx
+            wire outcome is unchanged."
+    (error-emit/clear-error-listeners!)
+    (rf/reg-event-fx :init/ok {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-view* :pages/render-throws
+      (fn [] (throw (ex-info "render boom" {}))))
+    (let [seen (capture-always-on-categories!)]
+      (with-redefs [interop/debug-enabled? false]
+        (let [handler  (ssr-ring/ssr-handler
+                         {:on-create [:init/ok]
+                          :root-view [:pages/render-throws]
+                          :payload   :rf.ssr.payload/whole-app-db})
+              response (handler {:uri "/render-throws" :request-method :get})]
+          (error-emit/clear-error-listeners!)
+          ;; WIRE-UNCHANGED: a render-time throw still projects 5xx.
+          (is (= 500 (:status response))
+              "render-failed still ships a 5xx through the full handler")
+          ;; OFF-BOX: the always-on record reached the shipper under debug-off.
+          (is (some #{:rf.error/ssr-render-failed} @seen)
+              ":rf.error/ssr-render-failed reached register-error-listener!
+               under -Dre-frame.debug=false (the dev trace is elided there)"))))))
+
+(deftest hhutya-head-failed-off-box-record-under-debug-off-wire-degraded-200
+  (testing "rf2-hhutya: a throwing route :head fn → the full Ring handler
+            ships a DEGRADED 200 (NON-PROJECTING) AND delivers a
+            :rf.error/ssr-head-resolution-failed record to register-error-
+            listener! under debug-off. Promotion ships the off-box record
+            but NEVER flips the deliberate degraded-200."
+    (error-emit/clear-error-listeners!)
+    (register-head-throwing-app!)
+    (let [seen (capture-always-on-categories!)]
+      (with-redefs [interop/debug-enabled? false]
+        (let [handler  (ssr-ring/ssr-handler
+                         {:on-create [:init/seed-throwing-head-route]
+                          :root-view [:pages/head-throws-body]
+                          :payload   :rf.ssr.payload/whole-app-db})
+              response (handler {:uri "/head-throws" :request-method :get})]
+          (error-emit/clear-error-listeners!)
+          ;; WIRE-UNCHANGED: degraded 200, body intact.
+          (is (= 200 (:status response))
+              "throwing :head fn degrades to a 200 — promotion did NOT flip
+               the wire (NON-PROJECTING)")
+          (is (str/includes? (:body response) "Body rendered fine")
+              "the body still renders — only the head degraded")
+          ;; OFF-BOX: the always-on record reached the shipper under debug-off.
+          (is (some #{:rf.error/ssr-head-resolution-failed} @seen)
+              ":rf.error/ssr-head-resolution-failed reached register-error-
+               listener! under -Dre-frame.debug=false"))))))
+
+(deftest hhutya-error-view-failed-off-box-record-under-debug-off-wire-unchanged
+  (testing "rf2-hhutya: a buggy :error-view (itself throwing) → the full
+            Ring handler falls back to the locked default template (the
+            render-time 5xx already stamped is unchanged, NON-PROJECTING)
+            AND delivers a :rf.error/ssr-ring-error-view-failed record to
+            register-error-listener! under debug-off."
+    (error-emit/clear-error-listeners!)
+    (rf/reg-event-fx :init/ok {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-view* :pages/broken-evt-hhutya
+      (fn [] (throw (ex-info "boom" {}))))
+    (let [seen (capture-always-on-categories!)]
+      (with-redefs [interop/debug-enabled? false]
+        (let [handler  (ssr-ring/ssr-handler
+                         {:on-create  [:init/ok]
+                          :root-view  [:pages/broken-evt-hhutya]
+                          :error-view (fn [_public]
+                                        (throw (ex-info "error-view itself broke" {})))
+                          :payload :rf.ssr.payload/whole-app-db})
+              response (handler {:uri "/broken" :request-method :get})]
+          (error-emit/clear-error-listeners!)
+          ;; WIRE-UNCHANGED: the error boundary holds at 500 with the locked
+          ;; default template; the error-view's own failure did NOT re-flip
+          ;; or escape (NON-PROJECTING).
+          (is (= 500 (:status response))
+              "the error boundary holds at 500 — the buggy error-view did
+               not re-project (NON-PROJECTING)")
+          (is (str/includes? (:body response) "Something went wrong")
+              "fell back to the locked default error template")
+          (is (not (str/includes? (:body response) "error-view itself broke"))
+              "the error-view's throwable never reaches the wire")
+          ;; OFF-BOX: the always-on record reached the shipper under debug-off.
+          (is (some #{:rf.error/ssr-ring-error-view-failed} @seen)
+              ":rf.error/ssr-ring-error-view-failed reached register-error-
+               listener! under -Dre-frame.debug=false"))))))

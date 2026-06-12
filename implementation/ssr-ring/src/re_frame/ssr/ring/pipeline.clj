@@ -35,6 +35,7 @@
   no fixed `\"Internal error\"` fallback string ever reaches a client
   (rf2-kzvwq)."
   (:require [re-frame.core :as rf]
+            [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.ring.headers :as headers]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
@@ -283,6 +284,21 @@
                             :exception (.getMessage t)
                             :ex-class  (.getName (class t))
                             :recovery  :fell-back-to-default-error-template})
+        ;; EP-0008 (rf2-hhutya): ALSO ride the always-on axis. The
+        ;; recoverable-degradation sibling of head-resolution — a buggy
+        ;; error-view falls back to the locked default template (a degraded
+        ;; outcome on the ALREADY-error response, not a new failure).
+        ;; NON-PROJECTING: the always-on `error-emit-projection-listener`
+        ;; skips this category (`non-projection-eligible-error?`, rf2-sccp5),
+        ;; so promotion ships the off-box record WITHOUT re-projecting /
+        ;; flipping the status the render-time path already stamped.
+        (lifecycle/emit-always-on-error!
+          {:error     :rf.error/ssr-ring-error-view-failed
+           :frame     frame-id
+           :time      (interop/now-ms)
+           :exception (.getMessage t)
+           :ex-class  (.getName (class t))
+           :recovery  :fell-back-to-default-error-template})
         (render-error-body public-error)))))
 
 (defn ^:private build-full-response*
