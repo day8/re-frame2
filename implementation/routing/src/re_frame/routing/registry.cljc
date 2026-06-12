@@ -999,6 +999,111 @@
     (url/url-encode-splat v)
     (url/url-encode v)))
 
+;; ---- fail-closed URL-scalar guard (rf2-94o54l.1, EP-0012) ----------------
+;; A route path-param value and a (non-nil) query value reach the URL string
+;; only through `url/url-encode` / `url/url-encode-splat`, both of which call
+;; host `(str v)`. For a URL scalar (string / keyword / symbol / boolean /
+;; portable integer / UUID) host `(str v)` produces a stable, decodable,
+;; HOST-IDENTICAL segment that round-trips through `match-url`. But two
+;; classes of value would silently `(str v)` into a fabricated identity:
+;;
+;;   (a) a HOST value with no EDN identity — a function, an atom / promise, a
+;;       raw JS object, a DOM node, a non-portable number (float / ratio /
+;;       out-of-safe-range integer) — `(str v)` yields `#object[...]`,
+;;       `[object Object]`, `cljs$core...`, or a host-specific numeral, an
+;;       identity invented from a host reference;
+;;   (b) an INSTANT / host `Date` — which IS a portable EDN identity for a
+;;       resource cache key (`re-frame.identity` canonicalizes it to UTC text),
+;;       but whose host `(str v)` is HOST-DIVERGENT for a URL segment
+;;       (`#inst "..."` on CLJ vs an ISO string on CLJS vs `Thu Jun 12 ...`
+;;       for a `java.util.Date`) and which `match-url` has no instant
+;;       coercion vocabulary to read back (it coerces only
+;;       `:int :double :uuid :boolean :keyword`), so it cannot round-trip.
+;;
+;; EP-0012 forbids exactly this: "If a route param value cannot be represented
+;; as canonical EDN after schema coercion, route matching or URL printing MUST
+;; fail closed at the relevant boundary. It MUST NOT use host `str`, JS object
+;; stringification, or object identity to invent a cache or route identity"
+;; (docs/EP/EP-0012 §893-896; Conventions §Canonical EDN identity §584-592).
+;;
+;; The query KEY side is already guarded: every surviving key is run through
+;; `identity/canonical-bytes` by the canonical-order sort above, which throws
+;; `:rf.error/non-edn-identity` on a host key. The path-param and query-VALUE
+;; sides were NOT — they went straight to `(str v)`. This helper closes that
+;; gap with a DOCUMENTED NARROWER URL-SCALAR predicate (the second option the
+;; bead's smallest-fix offers): it routes class (a) through
+;; `identity/canonical-bytes` (the same CEDN-1 boundary, the same fail-closed
+;; posture the resources cache key uses via `state/reject-non-edn!`) and
+;; additionally rejects class (b) at the URL boundary — because a URL segment
+;; has no round-trippable instant form and no host-stable instant `(str v)`.
+;; A rejected value raises a structured `:rf.error/route-url-non-edn-value`
+;; carrying route context (the underlying `:rf.error/non-edn-identity` rides
+;; `:rf.error/cause` for class (a)) BEFORE any URL string is built — never a
+;; host-stringified URL.
+;;
+;; This is the URL-EMISSION boundary, NARROWER than the general CEDN-1 identity
+;; domain (which admits instants and composites): `url-encode` stays the
+;; encoder for the admitted URL scalars, but it is never the boundary that
+;; invents a host-reference or host-divergent identity. The route's declared
+;; `:params` / `:query` schema is the surface that further constrains a param
+;; to a specific scalar shape.
+
+(defn- host-instant?
+  "True when `v` is a host instant / `Date` — a portable EDN identity for a
+  cache key, but NOT a round-trippable URL segment (host-divergent `(str v)`,
+  no `match-url` instant coercion). Rejected at the URL boundary (rf2-94o54l.1)."
+  [v]
+  #?(:clj  (or (instance? java.time.Instant v)
+               (instance? java.util.Date v))
+     :cljs (instance? js/Date v)))
+
+(defn- assert-url-value!
+  "Fail closed when `v` (a used path-param value or a non-nil query value) is
+  not an admitted URL scalar — i.e. it is a host value outside the CEDN-1
+  identity domain (function / atom / promise / raw JS object / DOM node /
+  non-portable number) OR an instant / host `Date` (a portable identity, but
+  not a round-trippable URL segment). Either would otherwise be
+  host-stringified by `url/url-encode` into a fabricated or host-divergent
+  route identity (EP-0012 §Canonical EDN identity). `slot` is `:params` or
+  `:query`; `k` is the offending param / query key. Raises
+  `:rf.error/route-url-non-edn-value` (for the host-value class, the underlying
+  `:rf.error/non-edn-identity` rides `:rf.error/cause`); returns `v` unchanged
+  when it is admitted."
+  [route-id slot k v]
+  (when (host-instant? v)
+    (throw (route-error
+             :rf.error/route-url-non-edn-value
+             'rf/route-url
+             (str "route " route-id " " (name slot) " value for " k
+                  " is an instant / host Date — re-frame2 will not "
+                  "host-stringify it into a URL (its host string is "
+                  "host-divergent and has no round-trippable URL segment; "
+                  "EP-0012 §Canonical EDN identity). Encode it as a portable "
+                  "string (e.g. an ISO-8601 token) at the boundary first")
+             {:route-id route-id
+              :slot     slot
+              :param    k
+              :value    v})))
+  (try
+    (identity/canonical-bytes v)
+    v
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) ex
+      (if (= :rf.error/non-edn-identity (:rf.error/id (ex-data ex)))
+        (throw (route-error
+                 :rf.error/route-url-non-edn-value
+                 'rf/route-url
+                 (str "route " route-id " " (name slot) " value for " k
+                      " is not a portable EDN identity (" (:bad-type (ex-data ex))
+                      ") — re-frame2 will not host-stringify it into a URL "
+                      "(EP-0012 §Canonical EDN identity); encode it as portable "
+                      "EDN at the boundary first")
+                 {:route-id        route-id
+                  :slot            slot
+                  :param           k
+                  :value           v
+                  :rf.error/cause  (ex-data ex)}))
+        (throw ex)))))
+
 (defn route-url
   "Per Spec 012 §Bidirectional URL ↔ params. Build a URL string from a
   route-id + path-params (+ optional query-params + optional fragment).
@@ -1208,11 +1313,15 @@
                    ;; URL the top-level path rejects. Spec 012's nil-policy
                    ;; table makes `""` a hard error for ANY path segment, so
                    ;; reject it here too (`false`/`0` still round-trip).
+                   ;; rf2-94o54l.1: same fail-closed identity gate as the
+                   ;; top-level path — an optional-group inner segment must
+                   ;; not host-stringify a host value into the URL either.
                    (or (= ch \:) (= ch \*))
                    (let [splat?  (= ch \*)
                          [end k] (param-seg-bounds pattern n i)
-                         v       (reject-empty-segment k (if splat? "splat" "path")
-                                                       (get path-params k))]
+                         v       (->> (get path-params k)
+                                      (reject-empty-segment k (if splat? "splat" "path"))
+                                      (assert-url-value! route-id :params k))]
                      (recur end (conj parts (encode-param splat? v))))
 
                    :else
@@ -1282,10 +1391,14 @@
 
                    ;; `:name` / `*name` in the top-level pattern — the
                    ;; value is REQUIRED; `require-param` throws on absent.
+                   ;; rf2-94o54l.1: a host value fails closed via
+                   ;; `assert-url-value!` BEFORE `encode-param` host-stringifies
+                   ;; it into a fabricated route identity (EP-0012).
                    (or (= ch \:) (= ch \*))
                    (let [splat?  (= ch \*)
                          [end k] (param-seg-bounds pattern n i)
-                         v       (require-param k (if splat? "splat" "path"))]
+                         v       (->> (require-param k (if splat? "splat" "path"))
+                                      (assert-url-value! route-id :params k))]
                      (recur end (conj parts (encode-param splat? v))))
 
                    :else
@@ -1298,10 +1411,19 @@
            ;; `?page=`; a present-but-falsy value (`false`, `0`, `""`) is a
            ;; legitimate query value and round-trips, but `nil` means
            ;; "absent" and is elided.
+           ;; rf2-94o54l.1: query KEYS are already CEDN-guarded by the
+           ;; canonical-order sort that built `emitted-query` (it runs each
+           ;; surviving key through `identity/canonical-bytes`, which throws
+           ;; on a host key). The VALUES went straight to `url/url-encode`'s
+           ;; `(str v)` — a host value would have been host-stringified into
+           ;; the URL. Guard each non-nil value through `assert-url-value!`
+           ;; (nil values are already elided out of `emitted-query`) so the
+           ;; value side fails closed the same way the key side does.
            qs (when (seq emitted-query)
                 (str "?"
                      (clojure.string/join "&"
                        (map (fn [[k v]]
+                              (assert-url-value! route-id :query k v)
                               (str (url/url-encode (name k)) "="
                                    (url/url-encode v)))
                             emitted-query))))
