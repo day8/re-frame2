@@ -62,6 +62,7 @@
   (:require [clojure.set :as set]
             [re-frame.frame :as frame]
             [re-frame.reply :as reply]
+            [re-frame.resources.events :as events]
             [re-frame.resources.mutation-registry :as mreg]
             [re-frame.resources.mutation-runtime :as mstate]
             [re-frame.resources.registry :as registry]
@@ -253,6 +254,61 @@
         populates)
       [runtime-db #{} {} (vec nil-ids)])))
 
+(defn- apply-removes
+  "Apply the mutation spec's `:removes` to the resource cache (EP-0016 Rider 2 /
+  Spec 016 §Map-form exact resource targets — accepted replies apply patches,
+  populates, invalidates, AND removes). `:removes` is
+  `(fn [params result] -> [target …])` (a collection of map-form exact targets,
+  or a single one) — each target is the public map-form `{:resource :params
+  :scope}`, resolved + canonicalized exactly as `:patches` / `:populates` are
+  (`validate-target-map!`, which threads VALUES; a remove carries no value, so
+  each target maps to a placeholder). Each resolved key is DISSOC'd from the
+  cache by its byte `key-id` (rf2-9e0tyq — a dissoc by the scoped-key vector
+  would no-op and leak the entry), mirroring `:rf.resource/remove`. A target
+  whose `{:from-db …}` scope resolves nil is FAIL-CLOSED (dropped). Returns
+  `[runtime-db' removed-keys removed-work nil-resolved-ids]` where
+  `removed-work` is `[[work-id transport] …]` for each removed entry's in-flight
+  attempt (best-effort abort + terminal `:cancelled` work row, as `remove` does)
+  and `removed-keys` are the scoped-key VECTORS removed (for `:affected-keys` +
+  the trace). A remove of a key with no entry is a no-op. Per EP-0003
+  §Mutations / Spec 016 §Map-form exact resource targets."
+  [runtime-db removes-fn params result mut-scope db where]
+  (let [targets (when removes-fn
+                  (let [raw (removes-fn params result)]
+                    ;; accept a single map-form target or a collection thereof;
+                    ;; lower into the {target placeholder} shape validate-target-map!
+                    ;; consumes (it threads VALUES — a remove carries none).
+                    (cond
+                      (nil? raw)                 nil
+                      (mstate/target-map? raw)   {raw ::remove}
+                      :else                      (into {} (map (fn [t] [t ::remove])) raw))))
+        [resolved nil-ids]
+        (when (seq targets)
+          (mstate/validate-target-map!
+            targets
+            #(resolve-exact-target-scope % mut-scope db where)
+            registry/resource-meta :removes where))]
+    (if (seq resolved)
+      (reduce-kv
+        (fn [[db' ks work nils] scoped-key _placeholder]
+          (let [k-id  (state/key-id scoped-key)
+                entry (get-in db' (state/entry-path scoped-key))]
+            (if entry
+              (let [wid       (:current-work entry)
+                    transport (when wid (:transport (work-ledger/get-record db' wid)))]
+                [(-> db'
+                     (update-in (state/entries-path) dissoc k-id)
+                     (cond-> wid (work-ledger/update-record
+                                   wid work-ledger/mark-terminal
+                                   :cancelled {:reason :mutation-remove})))
+                 (conj ks scoped-key)
+                 (cond-> work wid (conj [wid transport]))
+                 nils])
+              [db' ks work nils])))
+        [runtime-db #{} [] (vec nil-ids)]
+        resolved)
+      [runtime-db #{} [] (vec nil-ids)])))
+
 ;; ---- scoped invalidation descriptors (EP-0016 D2 / slice 5) ---------------
 ;;
 ;; The mutation `:invalidates` arm now lowers TWO public forms — the bare
@@ -369,27 +425,87 @@
   [plan]
   (into #{} (mapcat :tags) (:dispatches plan)))
 
+(defn- plan-key-evidence
+  "The per-descriptor scoped-key evidence the SETTLEMENT path needs from an
+  invalidation `plan`, computed against the settle-time cache `entries` (read
+  from `runtime-db`) — the SAME match the dispatched `:rf.resource/invalidate-
+  tags` passes will see — via the SHARED pure `events/match-invalidation-keys`
+  (so the reply, the trace, and the engine never disagree). Returns
+  `{:invalidated-keys <vec> :populate-exempt <vec> :per-descriptor [<vec> …]}`:
+
+  - `:invalidated-keys` (rf2-fi6tda.2) — every key a dispatched descriptor
+    WILL mark stale (tags intersect, in the descriptor's resolved scope, not
+    its own exempt key), de-duplicated across descriptors. This is the set
+    Spec 016 §Mutation completion continuations wants unioned into the
+    accepted reply's `:affected-keys` (the contract names keys POPULATED,
+    PATCHED, REMOVED, **or marked stale**).
+  - `:per-descriptor` (rf2-fi6tda.3 finding 2) — the EXACT exempt keys EACH
+    dispatched descriptor spared, in `:dispatches` order. The runtime applies
+    `:refetch-populated?` PER DESCRIPTOR (`plan->fx` passes the populated keys
+    as `:exempt-keys` only for non-opt-in descriptors), so an opt-in descriptor
+    spares NONE and a default descriptor spares the populated keys it matched.
+    This is the truthful per-pass evidence (the settlement facet's
+    `:dispatched` rows carry it).
+  - `:populate-exempt` — the UNION of every descriptor's spared keys (a single
+    `:refetch-populated? true` descriptor no longer collapses it to `[]`).
+
+  `populated-ks` is the set of EXACT scoped keys this same mutation populated
+  (matched by byte `key-id`). Per Spec 016 §Trace evidence for invalidation /
+  §Populate is an authoritative load."
+  [plan populated-ks runtime-db]
+  (let [populated-ids (into #{} (map state/key-id) populated-ks)
+        entries       (get-in runtime-db (state/entries-path))
+        sk-by-id      (into {} (map (fn [[k-id e]] [k-id (:resource/key e)])) entries)
+        id->sk        (fn [ids] (into [] (keep sk-by-id) ids))
+        ;; per dispatch: the keys it will stale (exempt set = the populated keys
+        ;; UNLESS it opted into a same-mutation refetch — the EXACT exempt rule
+        ;; `plan->fx` applies) + the populated keys THIS descriptor spared.
+        per-descriptor
+        (mapv (fn [{:keys [scope cross-scope? tags refetch-populated?]}]
+                (let [tag-set (set tags)
+                      exempt  (if refetch-populated? #{} populated-ids)
+                      ;; what this descriptor actually stales (exempt removed)
+                      {stale :matched-ids} (events/match-invalidation-keys
+                                             entries scope cross-scope? tag-set exempt)
+                      ;; the populated keys it SPARED (matched with no exempt set)
+                      spared  (if refetch-populated?
+                                #{}
+                                (let [{m :matched-ids} (events/match-invalidation-keys
+                                                         entries scope cross-scope? tag-set #{})]
+                                  (set/intersection (set m) populated-ids)))]
+                  {:stale stale :exempt spared}))
+              (:dispatches plan))
+        stale-ids  (into #{} (mapcat :stale) per-descriptor)
+        exempt-ids (into #{} (mapcat :exempt) per-descriptor)]
+    {:invalidated-keys (id->sk stale-ids)
+     ;; report by the scoped-key VECTOR, preserving each populated key's spelling
+     :populate-exempt  (into [] (filter (fn [sk] (contains? exempt-ids (state/key-id sk)))) populated-ks)
+     :per-descriptor   (mapv (comp id->sk :exempt) per-descriptor)}))
+
 (defn- plan-trace
   "The descriptor-level invalidation evidence facet for the mutation settlement
   trace (Spec 016 §Trace evidence for invalidation): the descriptor count, the
-  per-descriptor resolved `(scope, cross-scope?, tags, refetch-populated?)`, the
-  fail-closed `:unresolved` `{:from-db …}` ids (descriptors that resolved nil
-  and produced no invalidation), and `:populate-exempt` — the EXACT keys this
-  same mutation populated that are exempted from same-mutation refetch by
-  Rider 1 (empty when no `:populates`, or when every descriptor opted into
-  `:refetch-populated? true`). nil-safe (an absent plan yields nil)."
-  [plan populated-ks]
+  per-descriptor resolved `(scope, cross-scope?, tags, refetch-populated?)` —
+  each now also carrying its OWN `:exempt-keys` (the populated keys THAT
+  descriptor's pass spared, rf2-fi6tda.3 finding 2) — the fail-closed
+  `:unresolved` `{:from-db …}` ids (descriptors that resolved nil and produced
+  no invalidation), and the top-level `:populate-exempt` UNION (the keys at
+  least one descriptor spared; NOT collapsed to `[]` the instant any descriptor
+  opts into `:refetch-populated? true`). Computed per-descriptor against
+  `runtime-db`'s settle-time entries. nil-safe (an absent plan yields nil)."
+  [plan populated-ks runtime-db]
   (when plan
-    (let [any-refetch? (some :refetch-populated? (:dispatches plan))]
+    (let [{:keys [populate-exempt per-descriptor]}
+          (plan-key-evidence plan populated-ks runtime-db)]
       {:descriptor-count (:descriptor-count plan)
-       :dispatched (mapv (fn [{:keys [scope cross-scope? tags refetch-populated?]}]
+       :dispatched (mapv (fn [{:keys [scope cross-scope? tags refetch-populated?]} exempt-keys]
                            {:scope scope :cross-scope? cross-scope? :tags (vec tags)
-                            :refetch-populated? (boolean refetch-populated?)})
-                         (:dispatches plan))
+                            :refetch-populated? (boolean refetch-populated?)
+                            :exempt-keys exempt-keys})
+                         (:dispatches plan)
+                         per-descriptor)
        :unresolved (vec (:unresolved plan))
-       ;; Rider 1: the populated keys exempted from this mutation's refetch
-       ;; (empty when a descriptor opted into a same-mutation refetch).
-       :populate-exempt (if any-refetch? [] (vec populated-ks))})))
+       :populate-exempt populate-exempt})))
 
 ;; ---- mutation completion continuation — call-site :reply-to (D1) -----------
 ;;
@@ -606,7 +722,8 @@
                    ;; EP-0016 D2: a `:before-request` invalidation attaches its
                    ;; descriptor-level evidence (resolved scopes + fail-closed
                    ;; nil-resolved `{:from-db …}` ids) to the started trace.
-                   before-plan (assoc :invalidation (plan-trace before-plan #{}))))
+                   ;; No populates before the request, so the exempt set is empty.
+                   before-plan (assoc :invalidation (plan-trace before-plan #{} runtime-db))))
     {:rf.db/runtime rdb'
      ;; rf2-agrjvk — `:before-request` invalidation must precede the request
      ;; being lowered to transport. fx run in order, so the invalidation
@@ -896,9 +1013,17 @@
             ;; populate wins on a key written by both (it ran last).
             [rdb1 patched-ks patch-policies patch-nil-ids]        (apply-patches runtime-db (:patches spec) params result clock-ms scope app-db where)
             [rdb2 populated-ks populate-policies populate-nil-ids] (apply-populates rdb1 (:populates spec) params result clock-ms scope app-db where)
+            ;; controlled REMOVES (EP-0016 Rider 2 / rf2-fi6tda.3 finding 1 —
+            ;; accepted replies apply patches, populates, invalidates, AND
+            ;; removes). Each map-form target's scope resolves exactly as a
+            ;; patch / populate target; the resolved key is DISSOC'd + its
+            ;; in-flight work settled `:cancelled` (mirroring
+            ;; `:rf.resource/remove`). Applied BEFORE the invalidation match so
+            ;; a removed key is never ALSO reported stale (it is gone).
+            [rdb3 removed-ks removed-work remove-nil-ids] (apply-removes rdb2 (:removes spec) params result scope app-db where)
             patch-affected      (set/union patched-ks populated-ks)
             timer-policies      (merge patch-policies populate-policies)
-            target-nil-ids      (into (vec patch-nil-ids) populate-nil-ids)
+            target-nil-ids      (-> (vec patch-nil-ids) (into populate-nil-ids) (into remove-nil-ids))
             ;; the success-time invalidation (EP-0016 D2: per-descriptor
             ;; scoped). The patch already freshened the keys it touched; the
             ;; invalidation reaches the OTHER tagged entries (lists, siblings)
@@ -917,23 +1042,33 @@
             ;; the union of every dispatched descriptor's tags (the affected-key
             ;; / patch-summary trace reservation records the invalidated tags).
             inv-tags    (when inv-plan (plan-tags inv-plan))
-            ;; the affected-key / patch-summary trace reservation (optimistic
-            ;; rollback shape — DEFERRED; populated descriptively here)
-            affected    (vec patch-affected)
+            ;; rf2-fi6tda.2 — the keys the invalidation pass WILL mark stale,
+            ;; computed against the post-cache-consequence entries (`rdb3`) via
+            ;; the SHARED match the dispatched invalidate-tags will use, PLUS
+            ;; the actual per-descriptor populate-exempt evidence (rf2-fi6tda.3
+            ;; finding 2). Empty when no invalidation timing fires.
+            inv-key-evidence (when inv-plan (plan-key-evidence inv-plan populated-ks rdb3))
+            invalidated-ks   (vec (:invalidated-keys inv-key-evidence))
+            ;; Spec 016 §Mutation completion continuations: `:affected-keys` are
+            ;; the keys POPULATED, PATCHED, REMOVED, OR MARKED STALE by the
+            ;; accepted reply — the union of all four (rf2-fi6tda.2 + .3).
+            affected    (vec (distinct (concat patched-ks populated-ks removed-ks invalidated-ks)))
             patch-summary {:patched   (vec patched-ks)
                            :populated (vec populated-ks)
+                           :removed   (vec removed-ks)
+                           :invalidated      invalidated-ks
                            :invalidated-tags (vec (or inv-tags #{}))
                            ;; EP-0016 Rider 2 fail-closed evidence: map-form
-                           ;; populate/patch targets whose {:from-db …} scope
-                           ;; resolved nil were DROPPED (never written under an
-                           ;; implicit global).
+                           ;; populate/patch/remove targets whose {:from-db …}
+                           ;; scope resolved nil were DROPPED (never written
+                           ;; under an implicit global).
                            :target-unresolved (vec target-nil-ids)
                            ;; reserved for the later optimistic slice:
                            :snapshot-id nil :rollback nil :reconciliation-refetches nil}
             inst'       (mstate/instance-succeeded
                           inst {:result result :settled-at clock-ms
                                 :affected-keys affected :patch-summary patch-summary})
-            rdb'        (-> rdb2
+            rdb'        (-> rdb3
                             (assoc-in (mstate/instance-path instance-id) inst')
                             (work-ledger/update-record
                               work-id work-ledger/mark-terminal
@@ -973,15 +1108,31 @@
                           (continuation-reply
                             reply {:mutation-id mutation-id :params params
                                    :instance-id instance-id :scope scope
-                                   :affected-keys patch-affected})
+                                   ;; rf2-fi6tda.2 + .3: the full affected set
+                                   ;; (populated + patched + removed + stale),
+                                   ;; not just patch/populate.
+                                   :affected-keys affected})
                           {:frame-id frame-id :mutation-id mutation-id
                            :instance-id instance-id :work-id work-id
-                           :status (:status reply)})]
+                           :status (:status reply)})
+            ;; best-effort abort of each REMOVED entry's in-flight attempt +
+            ;; cancel its advisory timers (its durable facts are gone) —
+            ;; mirroring `:rf.resource/remove`. Stale suppression by work-id +
+            ;; generation remains the correctness boundary.
+            remove-abort-fx (into [] (keep (fn [[wid transport]]
+                                             (work-ledger/abort-fx transport frame-id wid)))
+                                  removed-work)
+            remove-timer-fx (when (seq removed-ks)
+                              [[:rf.resource/cancel-timers
+                                {:frame-id frame-id :resource-keys (vec removed-ks)}]])]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.mutation/succeeded
                      (cond-> {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
                               :work/id work-id :generation generation
                               :affected-keys affected :patch-summary patch-summary}
+                       ;; rf2-fi6tda.3 finding 1: removed keys ride the
+                       ;; settlement trace (the same scoped-key VECTOR shape).
+                       (seq removed-ks) (assoc :removed (vec removed-ks))
                        ;; EP-0016 D2: the descriptor-level invalidation evidence
                        ;; (resolved scope per descriptor + fail-closed
                        ;; nil-resolved `{:from-db …}` ids) rides the settlement
@@ -989,11 +1140,13 @@
                        ;; Rider 1 populate-exempt evidence (the populated keys
                        ;; exempted from this mutation's refetch) rides the same
                        ;; facet (Spec 016 §Populate is an authoritative load).
-                       inv-plan (assoc :invalidation (plan-trace inv-plan populated-ks))))
+                       inv-plan (assoc :invalidation (plan-trace inv-plan populated-ks rdb3))))
         {:rf.db/runtime rdb'
          :fx (cond-> (vec timer-fx)
-               inv-fxs (into inv-fxs)
-               cont-fx (conj cont-fx))}))))
+               (seq remove-abort-fx) (into remove-abort-fx)
+               remove-timer-fx       (into remove-timer-fx)
+               inv-fxs               (into inv-fxs)
+               cont-fx               (conj cont-fx))}))))
 
 (defn failed-handler
   "`:rf.mutation.internal/failed` — a mutation write failed. Verifies frame
@@ -1067,9 +1220,17 @@
             ;; invalidation a plain pass.
             inv-fxs  (when inv-plan (plan->fx inv-plan [:mutation mutation-id instance-id] #{}))
             inv-tags (when inv-plan (plan-tags inv-plan))
+            ;; rf2-fi6tda.2 — an `:after-failure` invalidation marks tagged
+            ;; keys stale; those keys ARE affected and must flow into
+            ;; `:affected-keys` (the failure path previously recorded an empty
+            ;; vector). Computed against the (unchanged) settle-time entries via
+            ;; the SHARED match the dispatched invalidate-tags will use.
+            invalidated-ks (when inv-plan
+                             (vec (:invalidated-keys (plan-key-evidence inv-plan #{} runtime-db))))
+            affected (vec (or invalidated-ks []))
             inst'    (mstate/instance-failed
                        inst {:error error :settled-at clock-ms
-                             :affected-keys (when inv-tags [])})
+                             :affected-keys affected})
             rdb'     (-> runtime-db
                          (assoc-in (mstate/instance-path instance-id) inst')
                          (work-ledger/update-record
@@ -1080,16 +1241,17 @@
             ;; enumeration), so an accepted `:error` (and an accepted terminal
             ;; `:cancelled`) reply dispatches `:reply-to` too — the handler folds
             ;; validation errors / form state / notifications off the reply
-            ;; `:status`. A failed write touches no EXACT cache key, so
-            ;; `:affected-keys` is empty (the invalidate-on-failure timing marks
-            ;; TAGS stale, not exact keys). Dispatched LAST, after the optional
-            ;; failure-time invalidation it composes with.
+            ;; `:status`. A failed write applies no patch/populate/remove (no
+            ;; result), so the ONLY affected keys are those an `:after-failure`
+            ;; invalidation marks stale (rf2-fi6tda.2 — previously dropped to
+            ;; `#{}`). Dispatched LAST, after the optional failure-time
+            ;; invalidation it composes with.
             cont-fx  (continuation-fx
                        reply-to
                        (continuation-reply
                          reply {:mutation-id mutation-id :params params
                                 :instance-id instance-id :scope scope
-                                :affected-keys #{}})
+                                :affected-keys affected})
                        {:frame-id frame-id :mutation-id mutation-id
                         :instance-id instance-id :work-id work-id
                         :status (:status reply)})]
@@ -1097,12 +1259,13 @@
         (trace/emit! :rf.event :rf.mutation/failed
                      (cond-> {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
                               :work/id work-id :generation generation :error error
+                              :affected-keys affected
                               :invalidated-tags (vec (or inv-tags #{}))}
                        ;; EP-0016 D2: descriptor-level failure-invalidation
                        ;; evidence rides the failed-settlement trace (no
                        ;; populated keys on a failure, so the Rider 1 exempt
                        ;; set is empty).
-                       inv-plan (assoc :invalidation (plan-trace inv-plan #{}))))
+                       inv-plan (assoc :invalidation (plan-trace inv-plan #{} runtime-db))))
         {:rf.db/runtime rdb'
          :fx (cond-> []
                inv-fxs (into inv-fxs)

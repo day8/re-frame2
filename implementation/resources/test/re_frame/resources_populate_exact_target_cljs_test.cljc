@@ -268,6 +268,51 @@
       (is (= [] (:populate-exempt (:invalidation trace)))))))
 
 ;; ===========================================================================
+;; 4b. rf2-fi6tda.3 finding 2 — MIXED-descriptor populate-exempt evidence
+;; ===========================================================================
+
+(deftest mixed-descriptor-populate-exempt-not-collapsed-by-one-opt-in
+  ;; rf2-fi6tda.3 finding 2: a mixed plan where ONE descriptor opts into
+  ;; :refetch-populated? true and ANOTHER default descriptor matches the same
+  ;; populated key. The runtime exempts per descriptor (plan->fx), so the
+  ;; default descriptor's pass SPARES the populated key — the settlement
+  ;; evidence MUST reflect that, NOT collapse to [] just because one descriptor
+  ;; opted in. Both the per-descriptor :exempt-keys AND the top-level
+  ;; :populate-exempt union are pinned.
+  (reg-article-resource!)
+  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :detail]})
+  (rf/reg-mutation :m/save
+    {:scope :rf.scope/global
+     :params-schema [:map [:slug :string]]
+     :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
+     :populates (fn [{:keys [slug]} result]
+                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})
+     ;; descriptor 0 (opt-in, refetches the populated key) on [:article-list];
+     ;; descriptor 1 (DEFAULT, spares the populated key) on [:article w] — both
+     ;; tags match the populated detail key (the article resource carries both).
+     :invalidates (fn [{:keys [slug]} _r]
+                    [{:scope :rf.scope/global :tags #{[:article-list]} :refetch-populated? true}
+                     {:scope :rf.scope/global :tags #{[:article slug]}}])})
+  (let [trace (succeeded-trace
+                #(do (rf/dispatch-sync [:rf.mutation/execute
+                                        {:mutation :m/save :params {:slug "w"} :instance :mx1}])
+                     (reply-success! @last-managed-args {:slug "w" :title "fresh"})))
+        inv   (:invalidation trace)
+        dispatched (:dispatched inv)]
+    (testing "two descriptors dispatched"
+      (is (= 2 (:descriptor-count inv)))
+      (is (= 2 (count dispatched))))
+    (testing "the OPT-IN descriptor spared NO key (its own :exempt-keys is empty)"
+      (let [opt-in (first (filter :refetch-populated? dispatched))]
+        (is (= [] (:exempt-keys opt-in)))))
+    (testing "the DEFAULT descriptor SPARED the populated key (its own :exempt-keys)"
+      (let [default (first (remove :refetch-populated? dispatched))]
+        (is (= [global-article-key] (:exempt-keys default)))))
+    (testing "the top-level :populate-exempt is the UNION — NOT collapsed to []
+              by the one opt-in descriptor (the bug rf2-fi6tda.3 flagged)"
+      (is (= [global-article-key] (:populate-exempt inv))))))
+
+;; ===========================================================================
 ;; 5. Composes with slice-5 descriptors AND the slice-4 :reply-to continuation
 ;; ===========================================================================
 

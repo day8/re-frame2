@@ -329,3 +329,64 @@
       ;; which is exactly what failed to resolve here)
       (is (some? (entry (session-key "jake" 1)))
           "the nil-resolving clear-scope cleared NOTHING (fail-closed, not silent)"))))
+
+;; ===========================================================================
+;; rf2-fi6tda.4 finding 2 — pin the runtime :rf.resource/scope-resolved trace
+;; ===========================================================================
+
+(defn- record-scope-resolved!
+  "Run `body-fn`; return the vector of every :rf.resource/scope-resolved trace
+  event emitted during it (the named-resolver resolution evidence)."
+  [body-fn]
+  (let [seen (atom [])
+        k    ::scope-resolved-recorder]
+    (trace-tooling/register-listener!
+      k (fn [ev] (when (= :rf.resource/scope-resolved (:operation ev)) (swap! seen conj ev))))
+    (try (body-fn) (finally (trace-tooling/unregister-listener! k)))
+    @seen))
+
+(deftest scope-resolved-trace-emitted-on-event-ensure-with-full-shape
+  ;; rf2-fi6tda.4 finding 2: a {:from-db :t/session} resolution on event ensure
+  ;; emits a :rf.resource/scope-resolved row carrying :resource-id, :kind, the
+  ;; declared :inputs, the resolved :input-values, :whole-db?, the resolved
+  ;; :scope, and :resolved-nil? — pinned against the RUNTIME, not a synthetic
+  ;; row (so a regression that stops emitting or mis-shapes it fails here).
+  (rf/dispatch-sync [:t/login "jake"])
+  (let [rows (record-scope-resolved!
+               (fn []
+                 (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
+                                                         :owner [:lease :sr 1]}])))
+        row  (some (fn [ev] (when (= :t/session (:resource-id (:tags ev))) (:tags ev))) rows)]
+    (testing "a scope-resolved row was emitted for the :t/session resolver"
+      (is (some? row)))
+    (testing "the row carries the full resolution evidence shape"
+      (is (= :t/session (:resource-id row)))
+      (is (= :resource-scope (:kind row)))
+      (is (= [:username] (:inputs row)) "the declared input NAMES")
+      (is (= {:username "jake"} (:input-values row)) "the resolved input VALUES")
+      (is (= [:rf.scope/session {:username "jake"}] (:scope row)) "the resolved scope")
+      (is (false? (:resolved-nil? row))))))
+
+(deftest scope-resolved-trace-records-resolved-nil-on-absent-input
+  ;; the fail-closed nil-resolution evidence: when the resolver's :inputs are
+  ;; absent (no logged-in user), the row carries :resolved-nil? true + a nil
+  ;; :scope (the use site interprets it — never an implicit global).
+  (rf/reg-resource :t/notes
+    {:scope         :rf.scope/from-caller
+     :params-schema [:map]
+     :request       (fn [_p _ctx] {:request {:method :get :url "/notes"}})})
+  (let [rows (record-scope-resolved!
+               (fn []
+                 ;; no :t/login — the resolver's :username input is absent → nil.
+                 ;; the event ensure fails closed (a throw the loop surfaces), but
+                 ;; the scope-resolved trace fires FIRST, carrying the nil evidence.
+                 (try
+                   (rf/dispatch-sync [:rf.resource/ensure {:resource :t/notes :params {}
+                                                           :scope {:from-db :t/session}
+                                                           :owner [:lease :sn 1]}])
+                   (catch #?(:clj Throwable :cljs :default) _ nil))))
+        row  (some (fn [ev] (when (= :t/session (:resource-id (:tags ev))) (:tags ev))) rows)]
+    (testing "the resolution emitted a :resolved-nil? true row with a nil :scope"
+      (is (some? row))
+      (is (true? (:resolved-nil? row)))
+      (is (nil? (:scope row))))))
