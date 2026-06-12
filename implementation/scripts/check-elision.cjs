@@ -452,18 +452,12 @@ const DEV_ONLY_SENTINELS = [
   // enough that a global grep is unambiguous.
   { source: 're-frame.core/reg-* macros (:doc pure-documentation metadata literal)',
     sentinel: 'rf2-9wwkcm-doc-elision-sentinel' }
-  // Note (rf2-d3k3): re-frame.views/maybe-warn-plain-fn-under-non-
-  // default-frame! emits :rf.warning/plain-fn-under-non-default-frame-
-  // once gated on interop/debug-enabled?. We do NOT add a sentinel
-  // entry here because the elision-probe runs outside Reagent's render
-  // cycle — `(r/current-component)` is nil — and closure compiler's
-  // dataflow analysis under :advanced determines the inner emit branch
-  // is unreachable, so the keyword's literal string is dropped from
-  // the control build too. The methodology check would be vacuous.
-  // The browser-test (re-frame.cross-spec-dom-cljs-test/plain-fn-under-
-  // non-default-frame) is the load-bearing assertion that the gate is
-  // wired up under DEBUG=true; under :advanced + goog.DEBUG=false the
-  // gate is constant-folded false and the body DCE's regardless.
+  // Note (rf2-7yqn39): the :rf.warning/plain-fn-under-non-default-frame-
+  // once warning + its emit helper were RETIRED (EP-0002; superseded by
+  // the always-on :rf.error/no-frame-context). There is no longer any
+  // gated emit site to elide-probe; the browser-test
+  // (re-frame.cross-spec-dom-cljs-test/plain-fn-under-non-default-frame)
+  // pins the replacement no-frame-context contract.
 ];
 
 // ----- helpers ---------------------------------------------------------------

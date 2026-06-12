@@ -1,11 +1,9 @@
 (ns re-frame.views.warn-once
   "Warn-once caches and detection helpers for the Reagent-side views ns.
   Re-frame.views re-exports the publicly-referenced surface
-  (`clear-warned-non-dom-roots!`,
-  `maybe-warn-plain-fn-under-non-default-frame!`,
-  `clear-plain-fn-warned-pairs!`).
+  (`clear-warned-non-dom-roots!`, `clear-plain-fn-warned-pairs!`).
 
-  Two warn-once concerns live here:
+  Two warn-once caches live here:
 
   1. Non-DOM-root warning (Spec 006 §Source-coord annotation,
      documented exemption). When a reg-view'd component returns a
@@ -15,16 +13,14 @@
      the per-process set; `make-reset-runtime-fixture` clears it via the
      chained `:adapter/clear-warn-once-caches!` hook.
 
-  2. Plain-fn-under-non-default-frame warning (Spec 004 §Plain
-     Reagent fns / Spec 006 §706). Detected at subscribe-time;
-     suppression keyed by `[component-id non-default-frame-id]` pairs.
-     Production builds elide via the `interop/debug-enabled?` gate."
-  (:require [re-frame.adapter.context :as adapter-context]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.trace :as trace]
-            [re-frame.views.provider :as provider]))
+  2. Plain-fn-under-non-default-frame suppression cache (`warned-plain-fn-
+     frame-pairs`). The warning this cache once gated is RETIRED — see the
+     section below — but the cache itself is retained as a governed member
+     of the warn-once-clear chain (rf2-z79p8): it is one of the empirical
+     example caches the warn-once-clear governance gate arms/fires/asserts
+     against, proving the canonical `:adapter/clear-warn-once-caches!`
+     chain wipes every enrolled cache between tests."
+  (:require [re-frame.late-bind :as late-bind]))
 
 ;; ---- non-DOM-root warning ------------------------------------------------
 
@@ -57,196 +53,57 @@
              "§Source-coord annotation: pair tools fall back to :rf/id "
              "for non-DOM roots).")))))
 
-;; ---- plain-fn-under-non-default-frame warning (rf2-d3k3) -----------------
+;; ---- plain-fn-under-non-default-frame warning — RETIRED (EP-0002) --------
 ;;
-;; SUPERSEDED BY EP-0002 (rf2-69r7ui). The old contract: a plain Reagent fn
-;; (not registered via `reg-view`, so without the `^{:contextType
-;; frame-context}` metadata `reg-view` attaches) cannot read the
-;; surrounding React-context frame, so its `(rf/subscribe ...)` /
-;; `(rf/dispatch ...)` fell through to `:rf/default` — and this helper
+;; The `:rf.warning/plain-fn-under-non-default-frame-once` warning is RETIRED
+;; (Spec 009 §Error event catalogue, the strikethrough row), superseded by the
+;; always-on `:rf.error/no-frame-context` error per EP-0002 (rf2-69r7ui). The
+;; old contract: a plain Reagent fn (not registered via `reg-view`, so without
+;; the `^{:contextType frame-context}` metadata `reg-view` attaches) cannot
+;; read the surrounding React-context frame, so its `(rf/subscribe ...)` /
+;; `(rf/dispatch ...)` fell through to `:rf/default` — and a now-deleted helper
 ;; emitted a once-per-pair warning about the silent fall-through.
 ;;
-;; Under EP-0002 there is NO `:rf/default` floor. A plain fn that cannot
-;; read the context resolves to nil (the no-provider sentinel coerces to
-;; nil), and `frame/require-current-frame!` — which `subs/subscribe` and
-;; the dispatch envelope call BEFORE this helper — raises the always-on
-;; `:rf.error/no-frame-context` and HALTS the operation. That loud error
-;; IS the sharper diagnostic this warning used to soften: a bare reagent fn
-;; under no usable scope now fails fast rather than silently targeting a
-;; default. So the warning's original firing case (plain fn under a
-;; non-default provider, no `with-frame`) is now UNREACHABLE — the throw
-;; happens first. The only remaining reachable code path is a plain fn
-;; under an explicit `with-frame` scope (Condition 4 below requires
-;; `*current-frame*` SET for the resolution to have succeeded), where the
-;; fn correctly picks up the dynamic-var frame and NO warning is wanted —
-;; so this helper is now a structural no-op. It is retained (rather than
-;; deleted) so the late-bind hook table + the warn-once governance chain
-;; keep a stable shape across the EP-0002 chain; a follow-on cleanup bead
-;; may retire it once the `:rf.warning/plain-fn-under-non-default-frame-once`
-;; consumers (10x / pair) migrate to the no-frame-context error.
+;; Under EP-0002 there is NO `:rf/default` floor. A plain fn that cannot read
+;; the context resolves to nil (the no-provider sentinel coerces to nil), and
+;; `frame/require-current-frame!` — which `subs/subscribe` and the dispatch
+;; envelope call BEFORE anything else — raises the always-on
+;; `:rf.error/no-frame-context` and HALTS the operation. That loud error IS
+;; the sharper diagnostic the warning used to soften. So the warning's firing
+;; case (plain fn under a non-default provider, no `with-frame`) became
+;; UNREACHABLE — the throw happened first — leaving the helper a structural
+;; no-op contradicting the catalogue's RETIRED ruling. rf2-7yqn39 deleted the
+;; dead emit site, the helper, its `:views/maybe-warn-plain-fn-under-non-
+;; default-frame!` late-bind hook, the `subs/subscribe` call site, and the
+;; `re-frame.views` re-export.
 ;;
-;; Detection sits at subscribe-time per Spec 006 §706: subscribe
-;; consults this helper through the late-bind hook table; the JVM build
-;; never sees this ns and the lookup returns nil there.
-;;
-;; Suppression: a process-wide `defonce` atom set keyed by [component-id
-;; frame-id] pairs. The suppression cache survives hot-reload (`defonce`)
-;; so repeated re-renders of the same plain fn produce exactly one
-;; warning per pair across the JS process. Per Spec 004 §The suppression
-;; cache: destroying and re-creating a frame resets the warning history
-;; for that frame — implemented by `clear-plain-fn-warned-pairs-for-frame!`
-;; which the frame-destroy path can call (today the cache is process-wide
-;; and the helper is exported for tests / future destroy-frame! integration).
-;;
-;; Production-elision: every code path is gated on `interop/debug-enabled?`.
-;; Under :advanced + `goog.DEBUG=false` the closure compiler constant-folds
-;; the gate and the entire detection branch, the trace emission, and the
-;; `console.warn` fallback are dead-code-eliminated. Per Spec 009
-;; §Production builds.
+;; The `warned-plain-fn-frame-pairs` suppression cache and its
+;; `clear-plain-fn-warned-pairs!` clear-fn are RETAINED — not for the retired
+;; warning, but as a governed member of the warn-once-clear chain (rf2-z79p8).
+;; They enrol through `register-warn-once-clear-fn!` below so the warn-once-
+;; clear governance gate (`re-frame.warn-once-clear-governance-{cljs-,}test`)
+;; can arm/fire/assert that the canonical `:adapter/clear-warn-once-caches!`
+;; chain wipes every enrolled cache between tests.
 
 (defonce ^:private warned-plain-fn-frame-pairs
-  ;; Set of `[component-id frame-id]` pairs already warned about. Per
-  ;; Spec 004 §The suppression cache.
+  ;; Set of `[component-id frame-id]` pairs. Retained as a governed member of
+  ;; the warn-once-clear chain (rf2-z79p8); the warning it once gated is
+  ;; retired (see the section above).
   (atom #{}))
 
 (defn clear-plain-fn-warned-pairs!
-  "Reset the warn-once suppression cache. Tests use this between cases
-  so each case starts from a clean slate. Per Spec 004 §The suppression
-  cache."
+  "Reset the warn-once suppression cache. Retained as the clear-fn the
+  warn-once-clear governance chain (rf2-z79p8) drives — see the RETIRED
+  section above and `register-warn-once-clear-fn!` below."
   []
   (reset! warned-plain-fn-frame-pairs #{})
   nil)
 
-(defn- plain-fn-component-id
-  "Identify the rendering component for warn-once keying. Reagent
-  components carry the user's render-fn as `.-cljsLegacyRender` (form-1)
-  or as the bound fn proper. We prefer `displayName` (which Reagent /
-  React tend to set for named fns), then fall back to the constructor's
-  `name`, then a string repr. The id is opaque text used only as the
-  cache key and the warning's `:fn-name` payload — stable across renders
-  of the same component, distinct across different component fns."
-  [cmp]
-  (or (when-let [n (.-displayName ^js cmp)]
-        (when (and (string? n) (not= "" n)) n))
-      (let [c (.-constructor ^js cmp)
-            n (when c (.-name ^js c))]
-        (when (and (string? n) (not= "" n) (not= "Object" n)) n))
-      (pr-str cmp)))
-
-(defn- read-react-context-frame
-  "Read the value the closest enclosing frame-provider has pushed onto
-  the shared React context. A thin wrapper around
-  `adapter-context/current-frame` minus the dynamic-var tier — the
-  warn-once detection below has already filtered to the case where
-  `*current-frame*` is unset (Condition 4), so we want the React-
-  context value alone.
-
-  The canonical user-facing surface (`rf/frame-provider`) mounts the
-  Provider via Reagent's `:r>` interop head so the props map flows to
-  React as a raw JS object — `convert-prop-value` is bypassed and the
-  keyword reaches React unchanged. A raw-hiccup mount via
-  `[:> (.-Provider frame-context) {:value :foo}]` directly still
-  passes through stock Reagent's `convert-prop-value`, which
-  stringifies the keyword. The keyword/string coercion below tolerates
-  both shapes so the detection logic sees a keyword regardless of how
-  the closest Provider was authored. EP-0002 (rf2-69r7ui): the
-  createContext default is the no-provider sentinel
-  (`adapter-context/no-provider-sentinel`, a keyword), so this raw read
-  returns that sentinel when no Provider sits above — distinguishable
-  from a genuine frame keyword by the caller (the detection below already
-  filters to the non-default-provider case)."
-  []
-  (let [v (.-_currentValue ^js adapter-context/frame-context)]
-    (cond
-      (keyword? v)                  v
-      (and (string? v) (not= "" v)) (keyword v))))
-
-(defn maybe-warn-plain-fn-under-non-default-frame!
-  "Detection per Spec 006 §706 (plain-fn-under-non-default-frame
-  warning). Called from `re-frame.subs/subscribe` after frame
-  resolution; `resolved-frame-id` is the frame the subscribe call
-  routed to.
-
-  Conditions for the warning to fire (all must hold):
-    1. We are mid-render — `(current-component)` returns a component.
-    2. The component is NOT a reg-view-wrapped one — its `contextType`
-       is not the shared `frame-context`. (reg-view-wrapped components
-       carry the `:contextType` so they read the surrounding Provider's
-       value into `(.-context cmp)`; plain fns do not.)
-    3. The closest enclosing Provider names a non-default frame.
-    4. The dynamic `*current-frame*` tier is unset — i.e. no `with-frame`
-       binding shadows the React-context read. When `with-frame` IS set,
-       the plain fn picks up the frame correctly via the dynamic var,
-       and no warning is needed.
-
-  Suppression: warn-once per `[component-id non-default-frame-id]` pair.
-  Subsequent renders of the same plain fn under the same Provider stay
-  silent. Per Spec 004 §at most once per (component, non-default-frame)
-  pair.
-
-  Returns nil. Production builds elide the entire body via the
-  `interop/debug-enabled?` gate the trace surface itself rides — the
-  call site in subs already pays a `(when interop/debug-enabled? ...)`
-  test, so this fn is reached only in dev / JVM (where it is unbound
-  via late-bind and not called)."
-  [resolved-frame-id _query-v]
-  (when interop/debug-enabled?
-    (let [cmp (provider/current-component)]
-      ;; Condition 1: must be mid-render.
-      (when (some? cmp)
-        ;; Condition 2: component must NOT be reg-view-wrapped. The
-        ;; sentinel is the `contextType` static — reg-view's wrapper
-        ;; sets it to `frame-context`; plain fns leave it unset (or
-        ;; React's empty default).
-        (let [ctx-type (some-> ^js cmp .-constructor .-contextType)]
-          (when-not (identical? ctx-type adapter-context/frame-context)
-            ;; Condition 3: closest enclosing Provider names a
-            ;; non-default frame.
-            (let [provider-frame (read-react-context-frame)]
-              (when (and (keyword? provider-frame)
-                         (not= :rf/default provider-frame))
-                ;; Condition 4: no with-frame binding shadowing the
-                ;; React-context read.
-                (when (nil? frame/*current-frame*)
-                  (let [fn-id (plain-fn-component-id cmp)
-                        pair  [fn-id provider-frame]]
-                    (when-not (contains? @warned-plain-fn-frame-pairs pair)
-                      (swap! warned-plain-fn-frame-pairs conj pair)
-                      (let [reason (str "Plain Reagent fns do not pick "
-                                        "up the surrounding frame; their "
-                                        "dispatch/subscribe targets "
-                                        ":rf/default. To capture the "
-                                        "surrounding frame, register the "
-                                        "view via reg-view.")]
-                        (trace/emit! :warning
-                                     :rf.warning/plain-fn-under-non-default-frame-once
-                                     {:fn-name        fn-id
-                                      :rendered-under provider-frame
-                                      :routed-to      resolved-frame-id
-                                      :reason         reason
-                                      :recovery       :warned-and-replaced})
-                        ;; Per Spec 004 §The footgun is loud: in dev,
-                        ;; the runtime also `console.warn`s the first
-                        ;; occurrence. The trace event is the
-                        ;; programmatic surface (10x, re-frame-pair);
-                        ;; the console message is the human-eyeballs
-                        ;; surface.
-                        (when (exists? js/console)
-                          (.warn js/console
-                            (str "[re-frame] :rf.warning/plain-fn-under-"
-                                 "non-default-frame-once — " fn-id
-                                 " rendered under " provider-frame
-                                 "; subscribe/dispatch routed to "
-                                 resolved-frame-id ". " reason)))))))))))))
-    nil))
-
-;; Publish through the late-bind hook table so re-frame.subs (a leaf
-;; namespace, .cljc, JVM-runnable) can call the helper without
-;; statically requiring this CLJS-only ns. JVM builds never load this
-;; file; the lookup returns nil there and subs no-ops the warning
-;; check. Per re-frame.late-bind §Hook keys.
-(late-bind/set-fn! :views/maybe-warn-plain-fn-under-non-default-frame!
-                   maybe-warn-plain-fn-under-non-default-frame!)
+;; Publish the clear-fn through the late-bind hook table so re-frame.subs
+;; (a leaf namespace, .cljc, JVM-runnable) and the governance chain can
+;; reach it without statically requiring this CLJS-only ns. JVM builds
+;; never load this file; the lookup returns nil there. Per re-frame.late-bind
+;; §Hook keys.
 (late-bind/set-fn! :views/clear-plain-fn-warned-pairs!
                    clear-plain-fn-warned-pairs!)
 
@@ -260,14 +117,9 @@
 ;; registry so the governance assertion proves the chain wipes it.
 ;;
 ;;   1. `warned-non-dom-roots` — the rf2-4edk source-coord / non-DOM-root
-;;      cache (kept chained here as it was at line 240 pre-rf2-z79p8).
-;;   2. `warned-plain-fn-frame-pairs` — the Spec 004 plain-fn-under-non-
-;;      default-frame suppression set (rf2-z79p8: the 4th straggler, NOT
-;;      chained before this fix, so the standard fixture never re-armed
-;;      it — only three test files reset it by hand). The standalone
-;;      `:views/clear-plain-fn-warned-pairs!` hook (set above) is RETAINED
-;;      for the per-frame destroy path / elision-probe direct call; this
-;;      adds the fixture-chain wiring it was missing.
+;;      cache.
+;;   2. `warned-plain-fn-frame-pairs` — the rf2-z79p8 4th straggler (its
+;;      warning is now retired, but it stays a governed chain member).
 (late-bind/register-warn-once-clear-fn!
   {:label    :views/warned-non-dom-roots
    :clear-fn clear-warned-non-dom-roots!

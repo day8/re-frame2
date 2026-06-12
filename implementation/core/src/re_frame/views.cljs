@@ -185,8 +185,6 @@
 
 (def clear-warned-non-dom-roots! warn-once/clear-warned-non-dom-roots!)
 (def clear-plain-fn-warned-pairs! warn-once/clear-plain-fn-warned-pairs!)
-(def maybe-warn-plain-fn-under-non-default-frame!
-  warn-once/maybe-warn-plain-fn-under-non-default-frame!)
 
 ;; The React-context object is consumed by `reg-view*` below (the
 ;; `:contextType` static-field) and by the warn-once helpers in
