@@ -836,12 +836,13 @@
   ([frame-id query-v]   (subs/subscribe frame-id query-v)))
 
 (defn inject-cofx*
-  "Runtime-callable fn form of `inject-cofx` (HoF / programmatic callers).
-  The macro form routes through the 3-arity with a `cofx/no-value`
-  sentinel."
-  ([cofx-id]                 (cofx/inject-cofx cofx-id))
-  ([cofx-id value]           (cofx/inject-cofx cofx-id value nil))
-  ([cofx-id value call-site] (cofx/inject-cofx cofx-id value call-site)))
+  "REMOVED in EP-0017 (no alias). The fn form of the removed `inject-cofx`;
+  calling it is the hard error `:rf.error/inject-cofx-removed` naming
+  `:rf.cofx/requires` as the replacement (fires in production too). Declare
+  coeffects on the handler's registration metadata
+  (`{:rf.cofx/requires [...]}`) instead. See `re-frame.cofx/inject-cofx`."
+  [& args]
+  (apply cofx/inject-cofx args))
 
 #?(:clj
    (defmacro dispatch
@@ -899,19 +900,21 @@
 
 #?(:clj
    (defmacro inject-cofx
-     "Used as an interceptor in the interceptor-vector of `reg-event-*`.
-     Builds a `:before`-only interceptor that runs the cofx registered
-     under `cofx-id` and merges its result into the handler's
-     `:coeffects`. 2-arity `(inject-cofx :id value)` passes a per-call
-     value. Captures call-site coords (rf2-ts1a). For HoF / programmatic
-     use call `inject-cofx*`. See `re-frame.cofx/inject-cofx` for the
-     full signature."
-     ([cofx-id]
-      (csm/build-inject-cofx-form (meta &form) (symbol (str (ns-name *ns*))) *file*
-                                  cofx-id nil))
-     ([cofx-id value]
-      (csm/build-inject-cofx-form (meta &form) (symbol (str (ns-name *ns*))) *file*
-                                  cofx-id value))))
+     "REMOVED in EP-0017 (no alias). Was the interceptor-vector idiom for
+     consuming a registered cofx; calling it is now the hard error
+     `:rf.error/inject-cofx-removed` naming `:rf.cofx/requires` as the
+     replacement (fires in production too). Declare the coeffect on the
+     handler's registration metadata instead —
+     `(rf/reg-event-fx :id {:rf.cofx/requires [:your/cofx]} (fn [{:keys [...]} ev] ...))`
+     — and the value arrives flat under its id in the coeffects map. See
+     `re-frame.cofx/inject-cofx` and spec/001-Registration.md §`inject-cofx`
+     is removed.
+
+     The macro expands to a call of the throwing `inject-cofx*` stub so a
+     stale call site fails loudly with the actionable retirement error rather
+     than an opaque \"no such var\"."
+     [& args]
+     `(re-frame.core/inject-cofx* ~@args)))
 
 ;; ---- frame-handle (the keystone) + frame-aware closures ------------------
 ;;

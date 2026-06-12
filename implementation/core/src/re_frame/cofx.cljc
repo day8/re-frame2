@@ -1,14 +1,30 @@
 (ns re-frame.cofx
-  "Coeffect handlers and registration. Per Spec 002 §Effects (`reg-fx`)
-  and coeffects (`reg-cofx`).
+  "Coeffect registration and declared-only delivery. Per Spec 001
+  §`reg-cofx` (value-returning, graded), Spec 002 §Recordable coeffects,
+  and EP-0017.
 
-  A cofx handler injects data into the handler's input map (under
-  :coeffects). The standard cofx are :db (the frame's app-db value at
-  drain start) and :event (the dispatched event vector); user-registered
-  cofx add custom inputs (current time, browser language, etc.).
+  A coeffect is a **fact the causal run consumed** — data from outside the
+  event. Every coeffect id is REGISTERED through one value-returning
+  `reg-cofx` supplier and consumed through one declaration key,
+  `:rf.cofx/requires`, on `reg-event-fx` / `reg-event-ctx`. Handlers
+  receive `:db`, `:event` (the fold's own arguments) plus EXACTLY the facts
+  they declare, delivered flat — nothing implicit, including `:rf/time-ms`.
 
-  Use inject-cofx in an event handler's interceptor list to ingest a
-  registered cofx into the context."
+  Two grades (the grade is a property, not a namespace):
+
+    - **ambient** (default) — its supplier runs at context assembly, the
+      value is delivered to declaring handlers and NEVER recorded; replay
+      re-runs the supplier. Legal only where no durable write depends on
+      the value (display preferences, diagnostics, host-transient reads).
+    - **recordable** (`:recordable? true`) — the fact is ensured onto the
+      causal token, recorded, and re-presented verbatim by replay. A
+      `:provided? true` recordable fact has NO generator: its value is
+      stamped onto the token by its owner (framework, subsystem, dispatch
+      boundary). The framework ships exactly ONE built-in registration —
+      `:rf/time-ms` (recordable, provided), stamped at enqueue.
+
+  `inject-cofx` is REMOVED (EP-0017, no alias) — calling it is the hard
+  error `:rf.error/inject-cofx-removed` naming `:rf.cofx/requires`."
   (:require [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
             [re-frame.interop :as interop]
@@ -21,37 +37,14 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(def ^{:doc "Sentinel that distinguishes \"no value supplied\" from
-  \"`nil` supplied\" in `inject-cofx`'s 3-arity form.
-
-  Why a sentinel: `inject-cofx`'s 2-arity `(inject-cofx :id value)`
-  passes `value` to the cofx handler's 2-arity body — and `nil` is a
-  valid `value` (e.g. `(inject-cofx :stub nil)` means \"stub me with a
-  nil reply\"). So the 3-arity can't use `nil` itself to mean \"caller
-  didn't supply a value\". `cofx/no-value` is a singleton keyword the
-  3-arity tests via `identical?`; user values never collide.
-
-  Why the 3-arity exists at all: it lets `re-frame.core/inject-cofx`'s
-  macro form (rf2-ts1a) thread the call-site through to the
-  interceptor even on the no-value path — without it, the macro would
-  need to expand to two different fn-form call shapes (with-value vs
-  without-value) and the macro-layer would need its own private
-  sentinel. Routing every macro expansion through the 3-arity keeps
-  the macro-side uniform.
-
-  Callers (humans + HoF use of `inject-cofx*`) reach for the 1- or
-  2-arity. The 3-arity is reserved for the macro expansion and tests
-  that want to assert call-site capture behaviour."} no-value
-  ::no-value)
-
 ;; ---- the platform predicate -----------------------------------------------
 ;;
 ;; Per Spec 011 §634-642 the `:platforms` metadata applies to BOTH
 ;; `reg-fx` AND `reg-cofx`; a cofx tagged `:platforms #{:client}` must
-;; no-op when injected on a server-side frame (the SSR contract —
-;; request-cofx like browser locale, localStorage, navigator-info etc.
-;; would otherwise blow up under JVM render or produce nonsense
-;; values).
+;; no-op when its supplier would run on a server-side frame (the SSR
+;; contract — request-cofx like browser locale, localStorage,
+;; navigator-info etc. would otherwise blow up under JVM render or produce
+;; nonsense values).
 ;;
 ;; Single definition lives in `re-frame.fx/runs-on-platform?` (rf2-4ymm0
 ;; SP6); we alias it here so internal call sites read in the cofx
@@ -60,366 +53,432 @@
 (def ^:private cofx-runs-on-platform? fx/runs-on-platform?)
 
 (defn- active-platform-for-frame
-  "Resolve the active platform for a cofx injection from a frame-id.
-  Resolves the frame record, then defers to the shared per-frame
-  platform resolution `fx/platform-for-frame-record` (the same kernel
-  `router/run-fx-effects!` uses on its already-resolved record): the
-  frame's `:config :platform` override (set by the `:ssr-server` preset,
-  or any user-supplied frame config) takes precedence over the host-wide
-  platform marker (`interop/active-platform`, toggled via
+  "Resolve the active platform for a cofx supplier run from a frame-id.
+  Resolves the frame record, then defers to the shared per-frame platform
+  resolution `fx/platform-for-frame-record`: the frame's `:config
+  :platform` override (set by the `:ssr-server` preset, or any
+  user-supplied frame config) takes precedence over the host-wide platform
+  marker (`interop/active-platform`, toggled via
   `re-frame.core/init-platform`)."
   [frame-id]
   (fx/platform-for-frame-record (when frame-id (frame/frame frame-id))))
 
-(defn- maybe-validate-cofx!
-  "Per Spec 010 §Validation order step 2 (rf2-7leq) — after the cofx
-  injects, validate its value against the cofx's :schema metadata.
+;; ---- reserved / framework-owned coeffect names ----------------------------
+;;
+;; Per Spec 002 §4 + Spec 001 §Collisions: `:db` and `:event` are the
+;; fold's own arguments — NOT registered suppliers and never declarable via
+;; `:rf.cofx/requires`. A `reg-cofx` colliding with them (or with an
+;; application id under an `rf.`-prefixed namespace) is the registration-time
+;; hard error `:rf.error/cofx-name-collision`.
 
-  We look up schemas/validate-cofx! through the late-bind registry so
-  this namespace stays decoupled from re-frame.schemas (avoids a
-  require cycle). Returns the (possibly mutated) context — sets
-  :rf/skip-handler? when validation fails so the handler-as-interceptor
-  short-circuits."
-  [ctx cofx-id cofx-meta]
-  ;; Sticky hook (rf2-f72pd) — fires per-cofx invocation.
-  (if-let [validate (late-bind/get-fn-cached :schemas/validate-cofx!)]
-    (let [event    (interceptor/get-coeffect ctx :event)
-          event-id (first event)
-          ;; The cofx's injected value is whatever it just stashed under
-          ;; :coeffects keyed by the cofx's id (the conventional shape).
-          ;; If the cofx fn injected under a different key, we fall back
-          ;; to the cofx-id key — validation only runs when :schema is
-          ;; declared, so users opt in by registering against the same
-          ;; key they inject under.
-          value    (get (:coeffects ctx) cofx-id)
-          ;; rf2-9cm27 — pass the in-flight cascade's frame (seeded as the
-          ;; `:rf.frame/id` coeffect) so the `:where :cofx` failure trace
-          ;; carries `:frame` and lands in the per-frame epoch `:trace-events`
-          ;; (epoch capture buffers only frame-tagged traces). Mirrors the
-          ;; `:where :app-db` / `:where :event` traces.
-          frame    (interceptor/get-coeffect ctx :rf.frame/id)
-          ok?      (try (validate cofx-id event-id value cofx-meta frame)
-                        (catch #?(:clj Throwable :cljs :default) _ true))]
-      (if ok?
-        ctx
-        (assoc ctx :rf/skip-handler? true)))
-    ctx))
+(def ^:private fold-argument-keys
+  "The fold's own argument keys — staged by the runtime, never registered as
+  cofx suppliers and never declarable. A `reg-cofx` colliding with one is a
+  name collision (Spec 001 §Collisions)."
+  #{:db :event})
+
+(defn- rf-prefixed-app-namespace?
+  "True when `id` is a qualified keyword whose namespace starts with `rf.`
+  but is NOT a framework-reserved root. Application ids MUST NOT use
+  `rf.`-prefixed namespaces (Spec 002 §Owner-qualified fact naming). The
+  framework's own facts (`:rf/time-ms`, `:rf.route/*`, `:rf.server/*`, …)
+  are owner-qualified and legitimate; this guard catches an APP registering
+  under an `rf.`-prefixed namespace, which the registration site cannot
+  distinguish from a framework fact. We only police the obviously-app shape
+  here (the lint surface in Spec 009 §9 is the deeper check); the structural
+  guard below rejects nothing that the framework itself registers."
+  [_id]
+  ;; Conservative: do not reject any `rf.`/`rf/` id at registration — the
+  ;; framework and its subsystems legitimately register many of them and the
+  ;; registration site cannot tell app from framework. The owner-qualified
+  ;; naming rule is enforced by the lint (Spec 009 §9), not a structural
+  ;; registration guard. Kept as a named seam for the future lint.
+  false)
+
+(defn- emit-cofx-name-collision!
+  "Emit `:rf.error/cofx-name-collision` (registration-time, diagnostic) and
+  throw. Per Spec 001 §Collisions + Spec 009 §Error catalogue."
+  [id reason]
+  (trace/emit-error! :rf.error/cofx-name-collision
+                     {:rf.cofx/id id
+                      :reason     reason
+                      :recovery   :no-recovery})
+  (throw (ex-info ":rf.error/cofx-name-collision"
+                  {:rf.error/id :rf.error/cofx-name-collision
+                   :rf.cofx/id  id
+                   :where       'rf/reg-cofx
+                   :reason      reason
+                   :recovery    :no-recovery})))
 
 (defn reg-cofx
-  "Register a coeffect handler under `id`. A coeffect is a source of
-  input data injected into an event handler's `:coeffects` map.
+  "Register a coeffect id with a **value-returning supplier** and standard
+  Spec 001 metadata. Per Spec 001 §`reg-cofx` + EP-0017.
 
-  Handler signatures:
+  Supplier signatures:
 
-      (fn [context])         → context     ;; no-value form (1-arity)
-      (fn [context value])   → context     ;; value form    (2-arity)
+      (fn [] value)       ;; nullary — the ordinary supplier
+      (fn [arg] value)    ;; call-site-parameterized id — declared as
+                          ;; `[id arg]` in `:rf.cofx/requires`
 
-  The handler should `assoc` its result into `(:coeffects context)`
-  under a key — conventionally `id` — and return the updated context.
-  The standard cofx ids are `:db` (the frame's `app-db` value at drain
-  start) and `:event` (the dispatched event vector); both are populated
-  by the runtime before the interceptor chain runs.
-
-  Consumed by event handlers via `inject-cofx` placed in the
-  interceptor-vector slot of `reg-event-{db,fx,ctx}`. A DURABLE timestamp
-  reads the causal recordable coeffect (EP-0010 §The World-Input Rule) — the
-  framework stamps `:rf/time-ms` (wall-clock epoch ms) into the flat
-  `:rf.cofx` map once at the dispatch boundary, so a durable write that folds
-  it stays replay-/restore-/SSR-stable. It is read from the framework
-  coeffect, not a fresh host-clock cofx:
-
-      (rf/reg-event-fx :user/save
-        (fn [{:keys [db] cofx :rf.cofx} [_ user]]           ;; <-- read here
-          {:db (assoc db :saved-at (:rf/time-ms cofx)       ;; durable epoch ms
-                         :user user)}))
-
-  A raw host-clock cofx (`(js/Date.)`) is for DIAGNOSTIC / host-transient
-  reads only — values that never fold into a durable app-db write (a
-  performance probe, a debug stamp). It MUST NOT feed a durable timestamp,
-  or replay / restore would diverge (EP-0010 §The Boundary Is Already
-  Visible):
-
-      (rf/reg-cofx :now-wall                              ;; DIAGNOSTIC only
-        (fn [ctx]
-          (assoc-in ctx [:coeffects :now-wall] (js/Date.))))
+  The supplier returns the coeffect VALUE directly (the EP-0017 shape); the
+  ctx→ctx form is retired with `inject-cofx`. A handler takes delivery by
+  declaring the id in `:rf.cofx/requires` (see `reg-event-fx`); the value
+  arrives FLAT under the id in the coeffects map — never a nested `:cofx`
+  sub-map.
 
   Shapes:
 
-      (reg-cofx :id                                  (fn [ctx] ...))
-      (reg-cofx :id {:doc \"...\" :schema ...}       (fn [ctx] ...))
+      (reg-cofx :id                                  (fn [] value))
+      (reg-cofx :id {:doc \"...\" :recordable? true}  (fn [] value))
 
   Optional metadata keys:
 
-      :doc        one-sentence what-and-why; surfaces via
-                  `(rf/handler-meta :cofx id)`.
-      :schema     Malli schema for the injected value (validated per
-                  Spec 010 §Validation order step 2).
-      :platforms  set of `#{:client :server}`; default
-                  `#{:client :server}`. The cofx is skipped on platforms
-                  not in the set (`:rf.cofx/skipped-on-platform`
-                  warning trace, mirroring `reg-fx`'s contract per
-                  Spec 011 §634-642).
+      :recordable?  mark the fact RECORDABLE — ensured onto the causal
+                    token, recorded, and re-presented verbatim by replay.
+                    Default false (the AMBIENT grade — runs at context
+                    assembly, never recorded).
+      :provided?    (recordable only) the fact has NO generator: its value
+                    is stamped onto the token by its owner. An absent
+                    provided fact a handler declares is
+                    `:rf.error/missing-required-cofx` in every mode.
+      :doc          one-sentence what-and-why; surfaces via
+                    `(rf/handler-meta :cofx id)`.
+      :schema       Malli schema validating supplied / replayed values
+                    (the `:schema` validation step is slice-B-built).
+      :platforms    set of `#{:client :server}`; default
+                    `#{:client :server}`. The supplier is skipped on
+                    platforms not in the set (`:rf.cofx/skipped-on-platform`
+                    warning trace, mirroring `reg-fx`'s contract per Spec
+                    011 §634-642).
+
+  Registration-time errors:
+
+      :rf.error/cofx-name-collision  the id collides with the fold's
+                                     argument keys (`:db` / `:event`) or
+                                     another registered coeffect id.
+
+  Examples:
+
+      ;; ambient (default) — a display preference; never feeds durable state
+      (rf/reg-cofx :ui/local-theme
+        {:doc \"Ambient localStorage read for the display theme.\"}
+        (fn [storage-key]
+          (some-> (.-localStorage js/globalThis) (.getItem storage-key))))
+
+      ;; recordable, PROVIDED — a boundary fact stamped by its owner
+      (rf/reg-cofx :auth.session/token
+        {:recordable? true :provided? true
+         :doc \"The saved JWT the boot dispatch stamps onto its token.\"})
 
   Returns `id`.
 
-  See also: `inject-cofx` (consumer-side), `reg-fx` (output-side
-  counterpart), the standard `:db` / `:event` cofx registered below."
-  [id metadata-or-handler & maybe-handler]
-  (let [[meta handler-fn]
-        (if (map? metadata-or-handler)
-          [metadata-or-handler (first maybe-handler)]
-          [{} metadata-or-handler])]
-    (registrar/register! :cofx id (assoc (source-coords/merge-coords meta)
-                                         :handler-fn handler-fn))
+  See also: `re-frame.events/reg-event-fx` (declare `:rf.cofx/requires`),
+  `reg-fx` (output-side counterpart), spec/API.md §Registration."
+  [id metadata-or-supplier & maybe-supplier]
+  (let [[meta supplier]
+        (if (map? metadata-or-supplier)
+          [metadata-or-supplier (first maybe-supplier)]
+          ;; A bare second arg is the supplier; a provided recordable fact
+          ;; legitimately has no supplier, so `(reg-cofx :id {:provided? true})`
+          ;; is the single-arg-meta form handled by the map? branch above.
+          [{} metadata-or-supplier])]
+    ;; ---- name-collision guard (Spec 001 §Collisions) ----------------------
+    (when (contains? fold-argument-keys id)
+      (emit-cofx-name-collision!
+        id
+        (str "`reg-cofx` id `" id "` collides with a fold ARGUMENT key. `:db` "
+             "and `:event` are the handler's own arguments — staged by the "
+             "runtime, not registered coeffects, and not declarable via "
+             "`:rf.cofx/requires`. Choose an owner-qualified fact name.")))
+    (when (rf-prefixed-app-namespace? id)
+      (emit-cofx-name-collision!
+        id
+        (str "`reg-cofx` id `" id "` uses an `rf.`-prefixed namespace reserved "
+             "for the framework. Application coeffects must be owner-qualified "
+             "under an application namespace.")))
+    (let [recordable? (boolean (:recordable? meta))
+          provided?   (boolean (:provided? meta))]
+      ;; A non-recordable (ambient) fact with no supplier cannot produce a
+      ;; value; only a PROVIDED recordable fact legitimately omits its
+      ;; generator (its owner stamps the token). An ambient fact MUST carry a
+      ;; supplier.
+      (when (and (nil? supplier) (not provided?))
+        (emit-cofx-name-collision!
+          id
+          (str "`reg-cofx` id `" id "` declared no supplier. Only a PROVIDED "
+               "recordable fact (`{:recordable? true :provided? true}`) may "
+               "omit its supplier — its owner stamps the value onto the token. "
+               "An ambient supplier must be a value-returning fn.")))
+      (registrar/register! :cofx id
+                           (assoc (source-coords/merge-coords meta)
+                                  :supplier    supplier
+                                  :recordable? recordable?
+                                  :provided?   provided?)))
     ;; Per Spec 015 §5. Coeffects — stash `:sensitive` / `:large` path
-    ;; declarations so emit-time projection redacts the cofx-injected
+    ;; declarations so emit-time projection redacts the delivered coeffect
     ;; value's slots in trace events that surface `:coeffects`.
     (when-let [register! (late-bind/get-fn :marks/register-marks!)]
       (register! :cofx id meta))
     id))
 
+;; ---- :rf.cofx/requires parsing (Spec 001 §The declaration key) ------------
+;;
+;; `:rf.cofx/requires` is a vector of registered coeffect ids; a
+;; parameterized id appears as `[id arg]`. Parsing produces a normalised
+;; seq of `{:id <kw> :arg <value-or-::no-arg>}` entries the delivery step
+;; consumes. Malformed values are `:rf.error/cofx-request-invalid` at
+;; registration; the same id declared twice (any args) is
+;; `:rf.error/cofx-name-collision`.
+
+(def ^:private no-arg ::no-arg)
+
+(defn- emit-cofx-request-invalid!
+  "Emit `:rf.error/cofx-request-invalid` (registration-time) and throw. Per
+  Spec 001 §The declaration key + Spec 009 §Error catalogue."
+  [failing-id received reason]
+  (trace/emit-error! :rf.error/cofx-request-invalid
+                     {:failing-id failing-id
+                      :received   received
+                      :reason     reason
+                      :recovery   :no-recovery})
+  (throw (ex-info ":rf.error/cofx-request-invalid"
+                  {:rf.error/id :rf.error/cofx-request-invalid
+                   :failing-id  failing-id
+                   :received    received
+                   :where       'rf/reg-event-fx
+                   :reason      reason
+                   :recovery    :no-recovery})))
+
+(defn parse-requires
+  "Parse a `:rf.cofx/requires` declaration into a vector of
+  `{:id <kw> :arg <value-or-::no-arg>}` entries, validating shape at
+  registration. `failing-id` is the declaring handler / entry (for the
+  error payload). Returns `[]` for an absent declaration.
+
+  Each entry is either a bare coeffect id (a keyword) or a `[id arg]` pair
+  (a parameterized id mirroring the binary supplier arity). Malformed
+  shapes raise `:rf.error/cofx-request-invalid`; the same id declared twice
+  (any args) raises `:rf.error/cofx-name-collision`."
+  [failing-id requires]
+  (cond
+    (nil? requires) []
+    (not (vector? requires))
+    (emit-cofx-request-invalid!
+      failing-id requires
+      (str "`:rf.cofx/requires` for `" failing-id "` must be a VECTOR of "
+           "registered coeffect ids (e.g. `[:rf/time-ms [:ui/local-theme "
+           "\"theme\"]]`), got " (pr-str requires) "."))
+    :else
+    (let [entries
+          (mapv
+            (fn [entry]
+              (cond
+                (keyword? entry) {:id entry :arg no-arg}
+                (and (vector? entry)
+                     (= 2 (count entry))
+                     (keyword? (first entry)))
+                {:id (first entry) :arg (second entry)}
+                :else
+                (emit-cofx-request-invalid!
+                  failing-id requires
+                  (str "`:rf.cofx/requires` for `" failing-id "` carried a "
+                       "non-id entry " (pr-str entry) "; each entry must be a "
+                       "coeffect id (keyword) or an `[id arg]` pair."))))
+            requires)
+          ids (map :id entries)]
+      (when (not= (count ids) (count (distinct ids)))
+        (emit-cofx-name-collision!
+          (->> (frequencies ids) (filter #(> (val %) 1)) ffirst)
+          (str "`:rf.cofx/requires` for `" failing-id "` declares the same "
+               "coeffect id twice (any args) — each id may appear once per "
+               "consumer scope. Declaration: " (pr-str requires) ".")))
+      entries)))
+
+;; ---- declared-only delivery (Spec 002 §Satisfaction algorithm) ------------
+;;
+;; The runtime delivers EXACTLY the declared facts, flat, into the handler's
+;; coeffects map. A recordable fact is read from the token's `:rf.cofx`; an
+;; ambient fact runs its supplier now; a provided fact absent from the token
+;; is `:rf.error/missing-required-cofx`. Generation of declared-absent
+;; generator-backed recordable facts is slice B — in slice A every requirable
+;; fact is provided or ambient, so a generator-backed recordable absent from
+;; the token is treated as missing-required (no generator runs).
+
+(defn- emit-unregistered-cofx!
+  "Emit `:rf.error/unregistered-cofx` (the typo case — a declared id with no
+  `reg-cofx` registration) and throw. Always-on (fires in production). Per
+  Spec 001 §The declaration key + Spec 009."
+  [cofx-id failing-id frame-id]
+  (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
+    (dispatch-on-error! :rf.error/unregistered-cofx nil failing-id frame-id nil 0 (interop/now-ms)))
+  (trace/emit-error! :rf.error/unregistered-cofx
+                     (cond-> {:rf.cofx/id        cofx-id
+                              :failing-id        failing-id
+                              :rf.trace/event-id failing-id
+                              :recovery          :no-recovery}
+                       frame-id (assoc :frame frame-id)))
+  (throw (ex-info ":rf.error/unregistered-cofx"
+                  {:rf.error/id :rf.error/unregistered-cofx
+                   :rf.cofx/id  cofx-id
+                   :failing-id  failing-id
+                   :recovery    :no-recovery})))
+
+(defn- emit-missing-required-cofx!
+  "Emit `:rf.error/missing-required-cofx` (a declared recordable fact absent
+  and unensurable — a provided fact whose value was not stamped, or strict
+  mode) and throw. Always-on (fires in production; the strict-replay loud
+  failure). Per Spec 002 §Mint policies + Spec 009."
+  [cofx-id failing-id frame-id]
+  (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
+    (dispatch-on-error! :rf.error/missing-required-cofx nil failing-id frame-id nil 0 (interop/now-ms)))
+  (trace/emit-error! :rf.error/missing-required-cofx
+                     (cond-> {:rf.cofx/id        cofx-id
+                              :failing-id        failing-id
+                              :rf.trace/event-id failing-id
+                              :recovery          :no-recovery}
+                       frame-id (assoc :frame frame-id)))
+  (throw (ex-info ":rf.error/missing-required-cofx"
+                  {:rf.error/id :rf.error/missing-required-cofx
+                   :rf.cofx/id  cofx-id
+                   :failing-id  failing-id
+                   :recovery    :no-recovery})))
+
+(defn- run-ambient-supplier
+  "Run an ambient supplier under its HandlerScope + platform gate, returning
+  `[delivered? value]`. A platform-skipped supplier emits
+  `:rf.cofx/skipped-on-platform` and returns `[false nil]` (the fact is not
+  delivered). A run emits the dev-only `:rf.cofx/run` success op."
+  [cofx-id meta supplier arg frame-id]
+  (let [active-platform (active-platform-for-frame frame-id)]
+    (if (cofx-runs-on-platform? meta active-platform)
+      (trace/with-handler-scope
+        (trace/handler-scope-from-meta :cofx cofx-id meta)
+        (let [valued? (not (identical? arg no-arg))
+              t0      (when interop/debug-enabled? (interop/now-ms))
+              value   (if valued? (supplier arg) (supplier))
+              elapsed (when interop/debug-enabled? (- (interop/now-ms) t0))]
+          (when interop/debug-enabled?
+            (trace/emit! :rf.cofx :rf.cofx/run
+                         (cond-> {:rf.cofx/id cofx-id
+                                  :frame      frame-id}
+                           valued?           (assoc :rf.cofx/value arg)
+                           (some? elapsed)   (assoc :rf.cofx/elapsed-ms elapsed))))
+          [true value]))
+      (do
+        (trace/emit! :warning :rf.cofx/skipped-on-platform
+                     {:rf.cofx/id                   cofx-id
+                      :frame                        frame-id
+                      :rf.cofx/platform             active-platform
+                      :rf.cofx/registered-platforms (:platforms meta)
+                      :recovery                     :skipped})
+        [false nil]))))
+
+(defn deliver-declared-cofx
+  "Deliver the handler's declared coeffects FLAT into `coeffects`, per Spec
+  002 §Satisfaction algorithm step 4 + EP-0017 §5. `requires` is the parsed
+  entry vector (`parse-requires`); `recorded` is the token's `:rf.cofx` map;
+  `frame-id` tags the trace / error emits. Returns the augmented coeffects
+  map.
+
+  For each declared id (declaration order):
+
+    - **unregistered** → `:rf.error/unregistered-cofx` (the typo case; halts);
+    - **ambient** → run its supplier now, deliver the value (never recorded);
+      a platform-skipped supplier delivers nothing;
+    - **recordable, present on the token** → deliver the recorded value
+      verbatim (no host read);
+    - **recordable, absent** → `:rf.error/missing-required-cofx` (provided
+      facts in every mode; generator-backed facts too in slice A — generation
+      is slice B).
+
+  Delivery is DECLARED-ONLY and FLAT: an undeclared leaf on the token is not
+  staged, and there is no nested `:cofx` / `:rf.cofx` duplicate in the
+  delivered spread (the envelope's canonical `:rf.cofx` map is reachable
+  through the context for generic code)."
+  [coeffects requires recorded failing-id frame-id]
+  (reduce
+    (fn [cofx-map {:keys [id arg]}]
+      (let [meta (registrar/lookup :cofx id)]
+        (cond
+          ;; Built-in framework facts whose registration is the provided
+          ;; `:rf/time-ms` (or any future provided fact): present on the
+          ;; token → deliver; absent → missing-required.
+          (nil? meta)
+          (emit-unregistered-cofx! id failing-id frame-id)
+
+          (:recordable? meta)
+          (if (contains? recorded id)
+            (assoc cofx-map id (get recorded id))
+            (emit-missing-required-cofx! id failing-id frame-id))
+
+          :else                                   ;; ambient
+          (let [[delivered? value]
+                (run-ambient-supplier id meta (:supplier meta) arg frame-id)]
+            (if delivered?
+              (assoc cofx-map id value)
+              cofx-map)))))
+    coeffects
+    requires))
+
+;; ---- inject-cofx is REMOVED (EP-0017 slice A.3, no alias) ------------------
+;;
+;; Per Spec 001 §`inject-cofx` is removed + Spec 009 §Error catalogue:
+;; `inject-cofx` (and `inject-cofx*`) — the v1 ctx→ctx delivery idiom that ran
+;; a coeffect-injecting function as a positional interceptor at handler time —
+;; is REMOVED with no alias. `:rf.cofx/requires` is the one declaration
+;; surface. Calling it is the hard error `:rf.error/inject-cofx-removed`
+;; naming the replacement; it fires in production too (a correctness contract,
+;; not a dev diagnostic). The stub remains so a stale call site fails LOUDLY
+;; with an actionable message rather than an opaque "no such var".
+
 (defn inject-cofx
-  "Build a `:before`-only interceptor that runs the cofx registered
-  under `cofx-id` and merges its result into the running event
-  handler's `:coeffects`.
+  "REMOVED in EP-0017 (no alias). Calling `inject-cofx` is the hard error
+  `:rf.error/inject-cofx-removed`, naming `:rf.cofx/requires` as the
+  replacement. See `re-frame.events/reg-event-fx` and spec/001-Registration.md
+  §`inject-cofx` is removed."
+  [& args]
+  (let [cofx-id (first args)]
+    (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
+      (dispatch-on-error! :rf.error/inject-cofx-removed nil cofx-id nil nil 0 (interop/now-ms)))
+    (trace/emit-error! :rf.error/inject-cofx-removed
+                       (cond-> {:recovery :no-recovery}
+                         cofx-id (assoc :rf.cofx/id cofx-id)))
+    (throw (ex-info ":rf.error/inject-cofx-removed"
+                    {:rf.error/id :rf.error/inject-cofx-removed
+                     :rf.cofx/id  cofx-id
+                     :where       'rf/inject-cofx
+                     :recovery    :no-recovery
+                     :reason
+                     (str "`inject-cofx` is REMOVED in EP-0017 (no alias). "
+                          "Declare the coeffect on the handler's registration "
+                          "metadata instead: "
+                          "`{:rf.cofx/requires [" (if cofx-id (pr-str cofx-id) ":your/cofx") "]}`. "
+                          "The declared value arrives flat in the coeffects map "
+                          "under its id; the registration's grade decides replay "
+                          "semantics. See spec/001-Registration.md §`inject-cofx` "
+                          "is removed.")}))))
 
-  Used in the positional interceptor-vector of `reg-event-{db,fx,ctx}`. A
-  cofx whose value is genuinely user-injected and recordable (a stub, a
-  fixture seam, a DIAGNOSTIC reading) is the right tool here; a value that
-  feeds a DURABLE app-db write must be a recordable causal input — the
-  framework `:rf.cofx` coeffect for time / generated ids (EP-0010 / EP-0017),
-  not a fresh ambient host read at the write site:
-
-      (rf/reg-cofx :stub-config
-        (fn [ctx] (assoc-in ctx [:coeffects :stub-config] {:env :test})))
-
-      (rf/reg-event-fx :foo
-        [(rf/inject-cofx :stub-config)]         ;; <-- interceptor position
-        (fn [{:keys [db stub-config]} _]        ;; <-- read injected value
-          {:db (assoc db :config stub-config)}))
-
-  The handler sees the injected value under the conventional `cofx-id`
-  key in its first arg. Some cofx accept a per-call value:
-  `(inject-cofx :stub {:status 200})` — the value is passed to the
-  cofx handler's 2-arity form.
-
-  Errors:
-    `:rf.error/no-such-cofx`               — `cofx-id` is not registered;
-                                              the handler still runs but
-                                              with no injection (recovery
-                                              :no-recovery).
-    `:rf.error/schema-validation-failure`  — cofx carries a `:schema` and
-                                              the injected value fails it;
-                                              the handler is short-circuited
-                                              via `:rf/skip-handler?`.
-
-  Notes
-  -----
-  Three arities exist for plumbing reasons:
-
-      (inject-cofx :id)                   — no value, no call-site
-      (inject-cofx :id value)             — per-call value, no call-site
-      (inject-cofx :id value call-site)   — value + macro-stamped call-site
-                                            (pass `cofx/no-value` as `value`
-                                            for the no-value path with a
-                                            call-site)
-
-  The 3-arity form is what the `re-frame.core/inject-cofx` macro
-  expands to; it captures `(meta &form)` at the user call site so
-  error events emitted from the cofx body carry the invocation coord.
-  The 1-/2-arity forms wrap to the 3-arity with a `nil` call-site —
-  the 1-arity threads `cofx/no-value` as `value` so the 3-arity body's
-  `valued?` test (`identical?` against the sentinel) reports `false`
-  and the cofx handler is invoked via its 1-arity (no-value) shape.
-
-  Why a sentinel and not `nil`: the 2-arity admits `nil` as a real
-  per-call value (e.g. `(inject-cofx :stub nil)`), so the 3-arity
-  can't overload `nil` to mean \"caller supplied nothing\". See the
-  `no-value` def's docstring above for the full why.
-
-  See also: `reg-cofx`, `re-frame.core/inject-cofx` (macro form with
-  call-site capture), `no-value` (the sentinel def)."
-  ([cofx-id]
-   (inject-cofx cofx-id no-value nil))
-  ([cofx-id value]
-   (inject-cofx cofx-id value nil))
-  ([cofx-id value call-site]
-   (let [valued?      (not (identical? value no-value))
-         captured-cs  (when interop/debug-enabled? call-site)]
-     (interceptor/->interceptor*
-       :id (keyword (str "cofx-" (name cofx-id)))
-       ;; Per rf2-9dk9y: tag this interceptor with `:rf/cofx-id` so
-       ;; tooling (Xray's Event lens) classifies it as a cofx injector
-       ;; and renders it under the COEFFECTS section — NOT under AFTER
-       ;; INTERCEPTORS, where it would be doubly misleading (it has no
-       ;; `:after`, and its `:before` contribution is the injected
-       ;; coeffect value, already surfaced in COEFFECTS). The tag
-       ;; preserves the cofx's fully-qualified id (the interceptor's
-       ;; own `:id` collapses to `(name cofx-id)`, losing the
-       ;; namespace).
-       :rf/cofx-id cofx-id
-       :before
-       (fn [ctx]
-         (if-let [meta (registrar/lookup :cofx cofx-id)]
-           ;; Per Spec 011 §634-642 the `:platforms` metadata gates BOTH
-           ;; reg-fx AND reg-cofx. A client-only cofx (e.g. browser
-           ;; locale, localStorage, navigator-info) must no-op when
-           ;; injected under a server-side frame; the runtime emits
-           ;; `:rf.cofx/skipped-on-platform` (warning, :recovery
-           ;; :skipped) mirroring fx.cljc's gate. The handler chain
-           ;; continues — the injection is skipped, not the event.
-           (let [frame-id        (interceptor/get-coeffect ctx :rf.frame/id)
-                 active-platform (active-platform-for-frame frame-id)]
-             (if (cofx-runs-on-platform? meta active-platform)
-               ;; Publish the cofx handler's HandlerScope.
-               ;; `:trigger-handler` / `:no-emit?` come from the cofx's
-               ;; registration meta per Spec 009's "innermost in-scope
-               ;; handler" rule. (`:sensitive?` is path-marked via
-               ;; schema-slot meta; the handler-meta annotation has
-               ;; been removed.) `:call-site` is
-               ;; either the macro-captured site (when reached via the
-               ;; `inject-cofx` macro) or inherited from the parent
-               ;; scope's call-site — `handler-scope-from-meta` returns
-               ;; nil for `:call-site` and `inherit-scope` (run by
-               ;; `with-handler-scope`) carries the parent's value
-               ;; through; when `captured-cs` is non-nil, override
-               ;; explicitly via `assoc`.
-               (trace/with-handler-scope
-                 (cond-> (trace/handler-scope-from-meta :cofx cofx-id meta)
-                   captured-cs (assoc :call-site captured-cs))
-                 ;; rf2-hhh92: wall-clock the cofx handler (dev-only) so the
-                 ;; success emit carries `:rf.cofx/elapsed-ms` — the per-op
-                 ;; duration the Trace panel's DURATION column reads. The
-                 ;; `now-ms` brackets ride `interop/debug-enabled?` (nil t0
-                 ;; in prod) so Closure DCEs them under :advanced — zero
-                 ;; prod cost.
-                 (let [t0     (when interop/debug-enabled? (interop/now-ms))
-                       result (-> (if valued?
-                                    ((:handler-fn meta) ctx value)
-                                    ((:handler-fn meta) ctx))
-                                  (maybe-validate-cofx! cofx-id meta))
-                       elapsed-ms (when interop/debug-enabled?
-                                    (- (interop/now-ms) t0))]
-                   ;; rf2-hhh92: per-cofx SUCCESS op. Emitted INSIDE the
-                   ;; scope binding so the cofx's source-coord /
-                   ;; trigger-handler / call-site ride the trace per Spec
-                   ;; 009 §:rf.trace/trigger-handler. Whole emit (tag-map
-                   ;; construction + emit!) rides `interop/debug-enabled?`
-                   ;; so production DCEs it. `:rf.cofx/value` is the
-                   ;; per-call injected value (redacted by
-                   ;; `re-frame.marks/project-cofx-run-tags` against the
-                   ;; cofx's marks at the trace chokepoint); omitted on the
-                   ;; no-value injection path.
-                   (when interop/debug-enabled?
-                     (trace/emit! :rf.cofx :rf.cofx/run
-                                  (cond-> {:rf.cofx/id cofx-id
-                                           :frame      frame-id}
-                                    valued?         (assoc :rf.cofx/value value)
-                                    (some? elapsed-ms)
-                                    (assoc :rf.cofx/elapsed-ms elapsed-ms))))
-                   result))
-               (do
-                 (trace/emit! :warning :rf.cofx/skipped-on-platform
-                              (cond-> {:rf.cofx/id                   cofx-id
-                                       :frame                        frame-id
-                                       :rf.cofx/platform             active-platform
-                                       :rf.cofx/registered-platforms (:platforms meta)
-                                       :recovery                     :skipped}
-                                valued? (assoc :rf.cofx/value value)))
-                 ctx)))
-           ;; No registered cofx — emit the `:rf.error/no-such-cofx`
-           ;; trace. When the cofx was reached via its macro form
-           ;; (`captured-cs` non-nil), override the parent scope's
-           ;; call-site; when reached via the fn form, `captured-cs`
-           ;; is nil and the parent's call-site rides through. Per
-           ;; rf2-ryri7.
-           (trace/with-call-site (or captured-cs
-                                     (some-> trace/*handler-scope* :call-site))
-             (let [event    (interceptor/get-coeffect ctx :event)
-                   ;; rf2-fxlgi — the in-flight cascade's frame, read from
-                   ;; the `:rf.frame/id` coeffect (same source as the
-                   ;; `:rf.cofx/run` / `:skipped-on-platform` siblings'
-                   ;; `frame-id`). `frame-id` itself is bound in the
-                   ;; cofx-found branch's `let`, out of scope here, so
-                   ;; re-read it locally.
-                   frame-id (interceptor/get-coeffect ctx :rf.frame/id)]
-               ;; rf2-fxlgi — stamp `:frame` so this dev-only misconfig
-               ;; diagnostic is frame-attributed like its siblings above,
-               ;; and so `re-frame.epoch.capture/capture-event!` (which
-               ;; buffers only frame-tagged traces) surfaces it on the
-               ;; emitting frame's epoch / Xray timeline. Consistency tail
-               ;; of the rf2-7d30s error-emit frame-stamp pass.
-               (let [event-id (when (vector? event) (first event))]
-                 ;; rf2-goum9x: an unknown cofx-id is a production-reachable
-                 ;; runtime error (Spec 009 §Error event catalogue) — fan it
-                 ;; out through the always-on error-emit listener so
-                 ;; load-order / optional-artefact mistakes are visible in
-                 ;; production, not only under dev traces. The recovery is
-                 ;; the framework's own no-op (the ctx flows through
-                 ;; unchanged). The late-bind hook is how cofx.cljc reaches
-                 ;; error-emit without a static require (load cycle).
-                 (when-let [dispatch-on-error!
-                            (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-                   (dispatch-on-error! :rf.error/no-such-cofx event event-id
-                                       frame-id nil 0 (interop/now-ms)))
-                 ;; Dev trace path; DCE'd in CLJS prod.
-                 (trace/emit-error! :rf.error/no-such-cofx
-                                    (cond-> {:rf.cofx/id        cofx-id
-                                             :rf.trace/event-id event-id
-                                             :recovery          :no-recovery}
-                                      frame-id (assoc :frame frame-id)
-                                      valued?  (assoc :rf.cofx/value value))))
-               ctx))))))))
-
-;; ---- standard cofx --------------------------------------------------------
-
-(reg-cofx :db
-  {:doc "Inject the frame's current `app-db` value under `:coeffects :db`. Pre-populated by the runtime before the interceptor chain runs; explicit `(inject-cofx :db)` is a no-op. Registered for symmetry with `:event` and so `(registrations :cofx)` enumerates the standard cofx."}
-  (fn [ctx]
-    ;; The runtime pre-populates :coeffects :db with the frame's current
-    ;; app-db value before invoking the chain — so this cofx is a no-op.
-    ;; Registered for symmetry with `:event`.
-    ctx))
-
-(reg-cofx :event
-  {:doc "Inject the dispatched event vector under `:coeffects :event`. Pre-populated by the runtime before the interceptor chain runs; explicit `(inject-cofx :event)` is a no-op. Registered for symmetry with `:db` and so `(registrations :cofx)` enumerates the standard cofx."}
-  (fn [ctx]
-    ;; The runtime pre-populates :coeffects :event with the dispatched
-    ;; event vector before invoking the chain — so this cofx is a no-op.
-    ;; Registered for symmetry with `:db`.
-    ctx))
-
-;; ---- EP-0010 compatibility time cofx --------------------------------------
+;; ---- standard registrations -----------------------------------------------
 ;;
-;; The initial recordable time coeffect (EP-0010 §Backwards Compatibility and
-;; Migration, reference-implementation step 7). It is the migration target for
-;; the v1-style `(inject-cofx :now)` source shape: handlers that need a
-;; wall-clock instant for a DURABLE write read it from the dispatch envelope's
-;; causal `(:rf/time-ms (:rf.cofx coeffects))` (the one host-clock read the
-;; router stamped at the causal boundary — Spec 002 §The World-Input Rule)
-;; rather than calling `interop/now-ms` / `(.now js/Date)` ambiently at the
-;; write site.
+;; The framework ships exactly ONE built-in coeffect registration:
+;; `:rf/time-ms` — recordable, provided, stamped at enqueue on every dispatch
+;; and reply envelope (EP-0010's stamping rules unchanged). It is the
+;; canonical durable wall-clock fact; the framework's own durable writers
+;; (resource freshness, work-ledger rows, mutation instances, epoch records)
+;; read it from the envelope. A handler takes delivery by declaring
+;; `:rf.cofx/requires [:rf/time-ms]` and reading `time-ms` flat.
 ;;
-;; Because the value is sourced from `:rf.cofx` — already captured in
-;; the replay record and projected/elided like other replayable event data —
-;; this cofx is RECORDABLE: a scripted / replayed / SSR-hydration dispatch that
-;; supplies an exact `:rf.cofx {:rf/time-ms …}` sees that exact value
-;; returned, with NO ambient clock read. That satisfies the durable-coeffect
-;; requirement (Spec 002 §Event Context And Coeffects: "a coeffect that can
-;; affect durable state MUST be recordable").
-;;
-;; `:rf.cofx` is a framework coeffect the runtime seeds into every
-;; event context (`re-frame.router/build-envelope`), so this cofx is a pure
-;; read of an already-present coeffect — no host call of its own. When
-;; `:rf.cofx` is absent (a handler invoked outside the dispatch path)
-;; the injected value is `nil`; a durable handler MUST get its time from a
-;; stamped envelope.
-;;
-;; UUID / random helpers are deferred per EP-0010 rider a — only the core time
-;; path ships in this initial slice.
+;; `:db` and `:event` are the fold's OWN arguments (Spec 002 §4) — staged by
+;; the runtime, NOT registered as cofx suppliers and never declarable. They
+;; carry no `reg-cofx` registration in the EP-0017 model (the former ctx→ctx
+;; `:db` / `:event` / `:app/now-ms` no-op cofx are retired with the ctx form).
 
-(reg-cofx :app/now-ms
-  {:doc "EP-0010 compatibility time coeffect. Injects the dispatch envelope's causal `(:rf/time-ms (:rf.cofx coeffects))` under `:coeffects :app/now-ms` — the recordable migration target for v1-style host-clock reads (`interop/now-ms` / `(.now js/Date)`) in durable handlers. Reads only the already-seeded `:rf.cofx` coeffect; performs no ambient clock read, so a scripted/replayed `:rf/time-ms` is returned exactly. nil when `:rf.cofx` is absent (a handler invoked outside the dispatch path)."}
-  (fn [ctx]
-    (let [cofx (get-in ctx [:coeffects :rf.cofx])]
-      (assoc-in ctx [:coeffects :app/now-ms] (:rf/time-ms cofx)))))
+(reg-cofx :rf/time-ms
+  {:recordable? true
+   :provided?   true
+   :doc "The framework's one provided recordable coeffect: wall-clock epoch
+        milliseconds, stamped onto every dispatch and reply envelope at
+        enqueue (EP-0010 / EP-0017). The canonical durable causal-time fact —
+        a handler that folds a timestamp into durable state declares
+        `:rf.cofx/requires [:rf/time-ms]` and reads `time-ms` flat. Always
+        present on the token (the enqueue stamp guarantees it)."})

@@ -13,6 +13,7 @@
             [re-frame.interceptor :as interceptor]
             [re-frame.error-emit :as error-emit]
             [re-frame.events :as events]
+            [re-frame.cofx :as cofx]
             [re-frame.fx :as fx]
             [re-frame.router.diagnostics :as diag]
             [re-frame.substrate.adapter :as adapter]
@@ -553,24 +554,39 @@
         ;; The live runtime-db projection: `{}` for a fresh frame, the
         ;; populated partition once a subsystem has written to it. Injected by
         ;; reference per Spec 002 §Event context.
-        runtime-db  (frame/frame-runtime-db-value frame)]
-    {:coeffects (cond-> {:db              db-value
-                         :event           event
-                         :rf.db/runtime   runtime-db
-                         :rf.frame/id     frame
-                         ;; EP-0017 (rf2-s9ss0t / rf2-alc1lf): the flat
-                         ;; recordable-coeffect map is a framework coeffect
-                         ;; alongside `:db` / `:event` / `:rf.db/runtime` /
-                         ;; `:rf.frame/id` (Spec 002 §Event Context And
-                         ;; Coeffects). `build-envelope` guarantees
-                         ;; `:rf/time-ms` on the envelope, so a durable handler
-                         ;; reads `(:rf/time-ms (:rf.cofx coeffects))` instead of
-                         ;; an ambient `interop/now-ms`. Filtered out of the
-                         ;; user-cofx trace projection by
-                         ;; `fx/framework-coeffect-keys`.
-                         :rf.cofx         (:rf.cofx envelope)}
-                  (:source envelope)   (assoc :source (:source envelope))
-                  (:trace-id envelope) (assoc :trace-id (:trace-id envelope)))
+        runtime-db  (frame/frame-runtime-db-value frame)
+        ;; EP-0017 §5 declared-only delivery: the handler's parsed
+        ;; `:rf.cofx/requires` (stored on the registration by
+        ;; `events/register-event!`). nil / empty for the overwhelming majority
+        ;; of handlers (no declarations) — the delivery step is then a no-op.
+        requires    (:rf.cofx/requires-parsed handler-meta)
+        base-cofx   (cond-> {:db              db-value
+                             :event           event
+                             :rf.db/runtime   runtime-db
+                             :rf.frame/id     frame
+                             ;; EP-0017 (rf2-s9ss0t / rf2-alc1lf): the flat
+                             ;; recordable-coeffect map (the envelope's
+                             ;; canonical complete record) is a framework
+                             ;; coeffect alongside `:db` / `:event` /
+                             ;; `:rf.db/runtime` / `:rf.frame/id`. Generic code
+                             ;; that wants the whole record reads it through the
+                             ;; context (Spec 002 §4); handler-declared leaves
+                             ;; arrive flat via the delivery step below.
+                             ;; Filtered out of the user-cofx trace projection
+                             ;; by `fx/framework-coeffect-keys`.
+                             :rf.cofx         (:rf.cofx envelope)}
+                      (:source envelope)   (assoc :source (:source envelope))
+                      (:trace-id envelope) (assoc :trace-id (:trace-id envelope)))]
+    {:coeffects (if (seq requires)
+                  ;; EP-0017 §5 step 4: deliver EXACTLY the declared facts,
+                  ;; flat. Recordable facts come from the token's `:rf.cofx`;
+                  ;; ambient facts run their suppliers now; a declared-absent
+                  ;; provided fact is `:rf.error/missing-required-cofx`; an
+                  ;; unregistered declared id is `:rf.error/unregistered-cofx`.
+                  ;; Undeclared leaves on the token are NOT staged.
+                  (cofx/deliver-declared-cofx
+                    base-cofx requires (:rf.cofx envelope) (first event) frame)
+                  base-cofx)
      :effects {}
      :rf/framework-authority? (events/framework-authority? handler-meta)
      :rf/fx-overrides fx-overrides}))

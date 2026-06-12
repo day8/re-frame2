@@ -150,8 +150,34 @@
   `contains?` check is the only always-on cost on the dispatch path — a
   single map lookup, no allocation unless the retired key is present.
 
-  Per Spec 002 §`:dispatched-at` is retired + EP-0010 disposition 5."
+  Per Spec 002 §`:dispatched-at` is retired + EP-0010 disposition 5.
+
+  EP-0017 (rf2-oa2dun): the `:rf.world/inputs` dispatch opt is RENAMED to
+  `:rf.cofx` (no alias, no coexistence window — EP-0007 rule 2). Supplying the
+  retired key gets the SAME standard retirement treatment — a hard error
+  `:rf.error/world-inputs-renamed` naming `:rf.cofx` — checked alongside
+  `:dispatched-at` here so it fires before the clock stamp / frame resolution.
+  Always-on (a correctness contract; fires in production too)."
   [opts event]
+  (when (contains? opts :rf.world/inputs)
+    (throw (ex-info ":rf.error/world-inputs-renamed"
+                    {:rf.error/id :rf.error/world-inputs-renamed
+                     :where       're-frame.router/build-envelope
+                     :event-id    (first event)
+                     :event       event
+                     :retired-key :rf.world/inputs
+                     :replacement :rf.cofx
+                     :recovery    :no-recovery
+                     :reason      (str "Dispatch opt `:rf.world/inputs` is "
+                                       "RENAMED to `:rf.cofx` in EP-0017 (no "
+                                       "alias, no coexistence window — EP-0007 "
+                                       "one-name-per-fact rule 2). The flat "
+                                       "recordable-coeffect map is supplied "
+                                       "under `:rf.cofx` (one fact per "
+                                       "owner-qualified key; the framework time "
+                                       "fact is `:rf/time-ms`). Rename the "
+                                       "dispatch opt to `:rf.cofx`; there is no "
+                                       "back-compat alias.")})))
   (when (contains? opts :dispatched-at)
     (throw (ex-info ":rf.error/dispatched-at-retired"
                     {:rf.error/id :rf.error/dispatched-at-retired
