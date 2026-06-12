@@ -1,6 +1,6 @@
 # EP-0017: Recordable Coeffects
 
-Status: accepted
+Status: final
 Type: standards-track
 
 > This EP unifies re-frame2's coeffect surface around one principle — **durable
@@ -41,6 +41,124 @@ Type: standards-track
 > settled here with its build gated on the first real generator consumer
 > (EP-0016 optimistic temp-ids the named candidate) — both tracked as the
 > separate slice-A action wave, not by this status flip.
+
+> **Graduated `accepted → final` 2026-06-13 (Mike, in-session; bead
+> `rf2-o2z6gs`).** The decisions are settled and the normative homes named in
+> the acceptance note above govern (where this EP and the spec differ, the spec
+> governs). Slice A (the six sequential hot-zone beads — spec amendment, runtime
+> rename + flat reshape, requires-parsing + declared-only delivery +
+> `inject-cofx` removal, migration audit, trace/tooling, guide) is **merged**;
+> the six-lens post-implementation review is complete. `final` asserts the
+> **decisions are settled**, not that the whole build is complete: Slice B (the
+> generation machinery) stays gated per disposition 11, and the review's open
+> errata are tracked as child beads — both recorded in the
+> [§Implementation errata](#implementation-errata) ledger below. One
+> determinism question surfaced by the review (`rf2-16ck78`) is **held for
+> operator ruling**; it is noted in the ledger and not resolved by this flip.
+
+## Implementation errata
+
+The EP decisions are final. Slice A shipped end-to-end and is recorded here
+against the dispositions; Slice B's contract is settled but its build stays
+gated; and the post-implementation review's open findings are tracked as child
+beads, not as reopened decisions — the EP-0010 / EP-0013 precedent, where a
+settled decision's later slice and its build-not-decision tails are recorded as
+errata rather than as open questions. Verified 2026-06-13 against the merged
+Slice A implementation, the six-lens review verdicts, and the open child beads
+of epic `rf2-d8mvke`.
+
+### Shipped (Slice A)
+
+- **The rename + flat reshape — SHIPPED.** `:rf.world/inputs` became the flat
+  `:rf.cofx` envelope field (fact-name → value, no grouping sub-maps) on every
+  dispatch and reply envelope; the runtime rename swept envelope/reply
+  construction, event-context assembly, and the resource / mutation /
+  work-ledger / machine / epoch reads. `:rf.world/inputs` supplied in dispatch
+  opts is the hard error `:rf.error/world-inputs-renamed` naming `:rf.cofx` (no
+  alias, no coexistence window).
+- **Value-returning graded `reg-cofx` — SHIPPED.** `reg-cofx` registers a
+  coeffect id with standard Spec 001 metadata and a value-returning supplier
+  (`(fn [] value)` / `(fn [arg] value)`), carrying its grade
+  (`:recordable?` / `:provided?`). The ctx→ctx handler shape is retired. The
+  framework ships exactly one built-in registration — `:rf/time-ms`
+  (recordable, provided, stamped at enqueue).
+- **`:rf.cofx/requires` declared-only delivery — SHIPPED.** The declaration key
+  is parsed on `reg-event-fx` / `reg-event-ctx` (and is a registration-time
+  error on `reg-event-db`); handlers receive `:db`, `:event`, plus exactly
+  their declared facts, flat — a leaf on the token but undeclared is not
+  staged. Ambient suppliers run at context assembly; provided facts must be on
+  the token (absent is `:rf.error/missing-required-cofx`). In Slice A every
+  requirable fact is provided or ambient — generators do not yet exist.
+- **`inject-cofx` removal — SHIPPED.** `inject-cofx` is removed from the
+  `re-frame.core` facade; calling it is the hard error
+  `:rf.error/inject-cofx-removed` naming `:rf.cofx/requires`. The typo-vs-missing
+  split shipped as the two distinct errors: `:rf.error/unregistered-cofx` (a
+  required id with no registration) versus `:rf.error/missing-required-cofx` (a
+  registered fact absent and un-ensurable).
+- **Trace / tooling — SHIPPED.** Xray's COEFFECTS lens shows declared
+  recordable leaves; Story and pair-MCP fixtures carry the `:rf.cofx` key
+  rename and the declared-diet display. (The `:rf.cofx/generated` trace op is
+  Slice B — it describes the generation step, which does not yet exist.)
+- **Guide ch07 rewrite — SHIPPED.** Chapter 07 was rewritten around the two
+  grades + `requires` (the `inject-cofx` section deleted, not revised), with
+  the supply-not-stub testing idiom carried into the testing chapter; the
+  surrounding chapters (04 / 09 / 13 / 16) took their context/fixture updates.
+- **Skills sweep + migration M-72 — SHIPPED.** The skills corpus was swept for
+  the old `inject-cofx` / `:rf.world/inputs` idiom and the migration guide
+  gained the M-72 entry covering the consumer-code rewrite (interceptor cofx
+  entries → `:rf.cofx/requires` metadata; ctx→ctx cofx handlers → value-returning
+  suppliers; `{:rf.world/keys [inputs]}` reads → declared flat leaves).
+
+### Deferred (Slice B — gated per disposition 11)
+
+- **Recordable generator machinery — DEFERRED (`rf2-ygpac8`, slice-B.7).**
+  Generation at processing-start, `:schema` validation (production hard error),
+  and the `:rf.cofx/generated` trace op. **Gated on the first real generator
+  consumer** — the named candidate is EP-0016 optimistic temp-ids. The gate is
+  the EP-0016 discipline applied to ourselves: a primitive with no demonstrated
+  site gets a settled contract and a named trigger, not a build.
+- **Mint policies — DEFERRED (`rf2-5spzo7`, slice-B.8).** `:live` (router
+  default), `:strict` (hard-wired for replay; the `:test` preset default), and
+  `:explicit-live` (declared-nondeterminism escape), wired to their normative
+  homes. Gated on slice-B.7.
+- **Machine consumer-attachment — DEFERRED (`rf2-mjmxgb`, slice-B.9).**
+  Consumer-attachment entry-map `requires`, the derived per-(state × event-type)
+  ensure-sets (incl. the `:always` closure), the inline-fn restriction, and the
+  lint. Gated on slice-B.7.
+- **Action-fact precision refinement — DEFERRED WITH TRIGGER (disposition
+  10).** Ensuring *action* facts post-selection (guards stay pre-selection) to
+  avoid recording action facts for transitions that don't fire — replay-sound
+  but adds a third sampling moment. Revisit if recorded-but-unconsumed action
+  facts become real record noise.
+
+### Post-graduation review (open errata)
+
+The six independent lens reviews (correctness, completeness, best-practice,
+test-coverage, skills, guide) filed **25 findings**, tracked as child beads of
+epic `rf2-d8mvke` and being actioned in waves. They are build-and-doc errata,
+not reopened decisions: residual old-shape vocabulary in shipped docs/skills,
+JVM-only contract-suite ports, facade docstring drift, a bare/unqualified
+routing cofx id, and similar tails.
+
+One determinism question is **held for operator ruling** rather than actioned:
+
+- **Boot/rehydrate localStorage reads registered AMBIENT but folded into
+  durable app-db — HELD (`rf2-16ck78`).** Three example-layer instances
+  (todomvc, realworld, realworld-resources) register a localStorage read as an
+  *ambient* coeffect and then fold its value straight into durable app-db on
+  `:*/initialise`. The A.4 migration audit ruled this an **acceptable boot
+  edge** (the host read happens once at boot, before any recorded epoch the
+  user would replay). The correctness and best-practice lenses argue it is a
+  **replay hole**: epoch-restore / replay refolds through the same ambient
+  supplier, re-running the live host read rather than re-presenting the value
+  actually folded — so a durable app-db produced purely by an ambient read at
+  the write site can diverge on replay, the exact failure EP-0017 §1 and
+  `spec/002-Frames.md` §The recordable-coeffect rule forbid. The
+  recommended fix is slice-A-legal (register the boot read as a *provided*
+  recordable fact and supply the host-read value on the boot dispatch token).
+  Both readings are defensible; the call is the operator's. The framework
+  delivery machinery (`cofx.cljc` / `router.cljc`) is sound — this is scoped to
+  the example-layer grade choice.
 
 ## Abstract
 
