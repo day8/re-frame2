@@ -131,7 +131,7 @@ A freshly-created frame's `app-db` is **always `{}`**. There is no `:db` config 
 ;; By the time reg-frame returns, :left's app-db is {:count 0 :history [0]}.
 ```
 
-Need to fire several init events? The single `:on-create` handler does it through its effect map — `:fx [[:dispatch [:counter/restore]] [:dispatch [:prefs/load]]]` — and run-to-completion guarantees those cascades fully settle before `reg-frame` returns. There's a symmetric `:on-destroy` slot for teardown effects, and `reg-frame` accepts a broader metadata grammar (`:interceptors`, `:on-error`, `:platform`, and the presets below) that downstream chapters introduce as each surface needs it.
+Need to fire several init events? The single `:on-create` handler does it through its effect map — `:fx [[:dispatch [:counter/restore]] [:dispatch [:prefs/load]]]` — and run-to-completion guarantees those cascades fully settle before `reg-frame` returns. There's a symmetric `:on-destroy` slot for teardown effects, and `reg-frame` accepts a broader metadata grammar (`:interceptors`, `:platform`, the frame-owned classification keys `:sensitive` / `:large` / `:observability`, and the presets below) that downstream chapters introduce as each surface needs it.
 
 ### Re-registering, resetting, destroying
 
