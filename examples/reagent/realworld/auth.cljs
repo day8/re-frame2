@@ -54,30 +54,44 @@
         (.setItem    ls "jwtToken" token)
         (.removeItem ls "jwtToken")))))
 
-;; EP-0017 (rf2-oa2dun): the saved JWT is read from localStorage at boot. This
-;; is a value-returning AMBIENT coeffect (EP-0017 §2): `reg-cofx` registers a
-;; supplier `(fn [] value)`; a handler takes delivery by declaring
-;; `:rf.cofx/requires [:auth.session/token]` and reading the value FLAT under
-;; that id. The supplier runs at context assembly; it is not recorded, and
-;; replay re-runs it. Tests / replay that need a deterministic token re-register
-;; the supplier (the visible, greppable seam — EP-0017 §10 ambient-stub idiom),
-;; never a monkey-patch.
+;; EP-0017 (rf2-16ck78): the saved JWT is read from localStorage at boot and
+;; `:auth/initialise` folds it into durable app-db ([:auth :token]). A durable
+;; write must be a function of prior frame-state plus the causal token — not of
+;; an ambient `localStorage` read at the write site (which replay/epoch-restore
+;; could not reproduce). So `:auth.session/token` is registered RECORDABLE +
+;; PROVIDED (EP-0017 §2, the `:rf/time-ms` shape): it carries NO generator — its
+;; value is STAMPED onto the boot dispatch token by its owner
+;; (`realworld.core/run`, reading the host once at the boundary), recorded with
+;; the token, and re-presented verbatim under replay / epoch-restore. This
+;; closes the determinism hole the ambient grade left open: replay re-folds the
+;; captured token, never a live re-read of localStorage.
+;;
+;; This is also why `ssr.cljc` may redact [:auth :token] from the hydration
+;; payload — the client re-derives the durable token slot through this RECORDED
+;; boot coeffect, not an ambient write-site read.
 (defn read-jwt-from-storage
-  "Host-boundary read of the saved JWT from localStorage (or nil). The
-   value-returning supplier for the `:auth.session/token` ambient coeffect.
-   nil when absent / unavailable (e.g. node, logged-out first run)."
+  "Host-boundary read of the saved JWT from localStorage (or nil). Called from
+   `realworld.core/run` so the value is STAMPED onto the boot dispatch token's
+   `:rf.cofx` as a recordable causal fact rather than being read ambiently in a
+   durable handler. nil when absent / unavailable (e.g. node, logged-out first
+   run)."
   []
   (some-> (.-localStorage js/globalThis)
           (.getItem "jwtToken")))
 
 (rf/reg-cofx :auth.session/token
-  {:doc "Ambient coeffect: the saved JWT (or nil) read from localStorage.
-         A handler that needs the token declares
-         `:rf.cofx/requires [:auth.session/token]` and reads it flat. The
-         supplier runs at context assembly and is never recorded (EP-0017 §2);
-         tests / replay re-register the supplier to stub it."}
-  (fn cofx-auth-session-token []
-    (read-jwt-from-storage)))
+  {:recordable? true
+   :provided?   true
+   :doc "Recordable, PROVIDED coeffect (EP-0017 §2): the saved JWT (or nil)
+         read from localStorage. It has NO generator — its value is stamped
+         onto the boot dispatch token by `realworld.core/run` (the host read
+         happens ONCE there), recorded with the token, and re-presented verbatim
+         under replay / epoch-restore. A handler that folds it into durable
+         app-db declares `:rf.cofx/requires [:auth.session/token]` and reads it
+         flat; absent from the token it is `:rf.error/missing-required-cofx`
+         (the boot dispatch always supplies it). Tests / replay supply the value
+         directly on the dispatch token —
+         `{:rf.cofx {:auth.session/token \"…\"}}` — never re-register a supplier."})
 
 ;; ============================================================================
 ;; SUPPORT EVENTS

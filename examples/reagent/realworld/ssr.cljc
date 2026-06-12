@@ -41,8 +41,12 @@
   ;; [:auth :token]; embedding it in server-rendered HTML would leak a
   ;; live credential into page source (view-source-visible, proxy-logged,
   ;; CDN-cacheable). Redact it at the payload boundary — the client
-  ;; re-derives the token from localStorage on hydrate via
-  ;; `:auth/initialise` (auth.cljs), so dropping it here costs nothing.
+  ;; re-establishes [:auth :token] on hydrate via `:auth/initialise`
+  ;; (auth.cljs), which folds the RECORDABLE+PROVIDED `:auth.session/token`
+  ;; coeffect the boot boundary stamps from localStorage (EP-0017, rf2-16ck78).
+  ;; The durable token slot is thus a function of a recorded boot coeffect, not
+  ;; an ambient write-site read, so dropping it from the payload costs nothing
+  ;; and stays replay-sound.
   (cond-> (select-keys app-db ssr-app-slice-keys)
     (contains? app-db :auth) (update :auth dissoc :token)))
 
