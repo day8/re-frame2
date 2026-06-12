@@ -132,6 +132,11 @@
             ;; this is the same framework-facade dependency, JVM + CLJS.
             [re-frame.core :as rf]
             [re-frame.story.config :as config]
+            ;; rf2-c6armm.12 — the absent-key realm-stamp decision + reserved
+            ;; `:rf.realm/id` key live here, shared by recorder / play-export /
+            ;; replay-target so the "stamp only a non-default realm" rule is ONE
+            ;; place, not three repeated inline predicates.
+            [re-frame.story.realm :as story-realm]
             [re-frame.story.predicates :as pred]
             [re-frame.story.review-dialog :as review-dialog]
             ;; rf2-qwm0a — listener surface lives in
@@ -205,33 +210,24 @@
 ;; frame.
 ;; ---------------------------------------------------------------------------
 
+;; The absent-key decision + the reserved stamp key live in the shared Story
+;; realm util (`re-frame.story.realm`, rf2-c6armm.12) so recorder / play-export /
+;; replay-target make the SAME decision in ONE place. The recorder re-exports
+;; the names its public surface + tests already reference.
+
 (def ^:const realm-stamp-key
   "The reserved app-value key a recording stamps its target frame's runtime
-  realm under (EP-0013). Matches the framework's reserved `:rf.realm/id`
-  spelling (Spec-Schemas §`:rf/realm`) so a stamped recording reads the way
-  the realm-targeted query forms (`rf/registrations {:realm …}`) spell it."
-  :rf.realm/id)
+  realm under (EP-0013) — `:rf.realm/id`. Re-export of
+  `re-frame.story.realm/realm-stamp-key`."
+  story-realm/realm-stamp-key)
 
-(defn realm-stamp
+(def realm-stamp
   "Return the realm id to STAMP on a recording whose target frame reports
   `frame-realm-id` (the value `rf/frame-realm` returned), or nil when nothing
-  should be stamped. Pure data → data.
-
-  The absent-key rule (EP-0013 disposition): a recording stamps `:rf.realm/id`
-  ONLY where the frame is in a NON-default realm. Returns nil for:
-
-    - `nil` — an unknown / destroyed frame (`rf/frame-realm` returns nil), or
-              no realm resolvable.
-    - `re-frame.realm/default-realm-id` (`:rf.realm/default`) — a single-realm
-              / default-realm frame. Absence IS the default, so we stamp
-              nothing and the recording replays unchanged (zero ceremony).
-
-  Returns the realm id verbatim for any other (constructed) realm so replay
-  can verify it targets the same realm the recording was captured in."
-  [frame-realm-id]
-  (when (and (some? frame-realm-id)
-             (not= frame-realm-id :rf.realm/default))
-    frame-realm-id))
+  should be stamped — the EP-0013 absent-key rule (nil / default-realm → nil;
+  any constructed realm → its id verbatim). Re-export of
+  `re-frame.story.realm/non-default-realm`."
+  story-realm/non-default-realm)
 
 (defn- frame-realm-stamp
   "Impure: read the live runtime realm `variant-id`'s frame lives in (via
@@ -245,14 +241,14 @@
          (catch #?(:clj Throwable :cljs :default) _ nil))))
 
 (defn assoc-realm
-  "Pure: stamp `realm-id` onto recorder `state` under `realm-stamp-key`, or
-  leave `state` UNTOUCHED when `realm-id` is nil (the default-realm absent-key
-  rule — EP-0013). The single helper both `start` and the impure
-  `start-recording!` thread through so the absent-key invariant lives in one
-  place: a default-realm recording's state map carries no `:rf.realm/id` key."
+  "Pure LOW-LEVEL stamper: assoc `realm-id` onto recorder `state` under
+  `realm-stamp-key`, or leave `state` UNTOUCHED when `realm-id` is nil. This is
+  the low-level layer (`start` calls it); `start-recording!` reduces the live
+  realm through `realm-stamp` (the absent-key predicate) BEFORE calling it, so
+  the default-realm reduction lives there, not here. Delegates to
+  `re-frame.story.realm/assoc-realm`."
   [state realm-id]
-  (cond-> state
-    (some? realm-id) (assoc realm-stamp-key realm-id)))
+  (story-realm/assoc-realm state realm-id))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: dispatch-only code-gen — `(reg-variant ... :script {...})` snippet

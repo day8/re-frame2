@@ -74,6 +74,9 @@
   build the snippet text. JVM-testable end-to-end."
   (:require [clojure.string :as str]
             [re-frame.story.play.runner :as runner]
+            ;; rf2-c6armm.12 — the shared absent-key realm-stamp util (the
+            ;; "stamp only a non-default realm under :rf.realm/id" rule).
+            [re-frame.story.realm       :as story-realm]
             [re-frame.story.predicates  :as pred]))
 
 ;; ---------------------------------------------------------------------------
@@ -390,15 +393,14 @@
                           [])
          script         (vec (concat dispatch-steps assert-steps))
          base           {:script    script
-                         :auto-run? (boolean auto-run?)}
-         ;; rf2-0io9uq (EP-0013): carry the realm stamp WHERE present, by the
-         ;; absent-key rule. A nil / default realm assocs nothing (zero
-         ;; ceremony), so a single-realm body round-trips unchanged.
-         realm-stamp    (when (and (some? realm) (not= realm :rf.realm/default))
-                          realm)]
-     (cond-> base
-       (and (string? name) (seq name)) (assoc :name name)
-       (some? realm-stamp)             (assoc :rf.realm/id realm-stamp)))))
+                         :auto-run? (boolean auto-run?)}]
+     ;; rf2-0io9uq (EP-0013): carry the realm stamp WHERE present, by the
+     ;; absent-key rule (rf2-c6armm.12: through the shared Story realm util — a
+     ;; nil / default realm assocs nothing, so a single-realm body round-trips
+     ;; unchanged; any constructed realm stamps `:rf.realm/id`).
+     (-> (cond-> base
+           (and (string? name) (seq name)) (assoc :name name))
+         (story-realm/stamp-realm realm)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure: render the play-script map as EDN
