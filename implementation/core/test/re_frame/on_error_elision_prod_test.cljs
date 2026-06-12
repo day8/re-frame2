@@ -195,7 +195,16 @@
       (let [r (first @seen)]
         (is (= :rf.error/frame-destroyed (:error r)))
         (is (= :gone/frame (:frame r)))
-        (is (= [:whatever] (:event r)))
+        ;; EP-0015 issue 1 (rf2-t55hxg.18) — the `:event` slot is projected
+        ;; against the record's frame, which is UNRESOLVABLE here. With no
+        ;; classification policy to consult the slot FAILS CLOSED to
+        ;; `:rf/redacted` (it must not leak the attempted event vector under
+        ;; an empty policy) — and the fail-closed posture holds in production
+        ;; (`goog.DEBUG=false`), not just dev. Mirrors the dev-mode
+        ;; counterpart `listener-fires-on-frame-destroyed-dispatch`. The
+        ;; structural `:event-id` keyword still survives for observability.
+        (is (= :rf/redacted (:event r))
+            ":event fails closed under an unresolvable frame (prod survival)")
         (is (= :whatever (:event-id r)))))))
 
 (deftest frame-destroyed-dispatch-sync-listener-survives-prod

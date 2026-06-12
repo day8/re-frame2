@@ -394,6 +394,14 @@
   (testing "a record whose :db-after is itself the :rf/redacted scalar —
             the projection MUST preserve the scalar (no walk, no warning,
             no marker)"
+    ;; EP-0015 issue 1 (rf2-t55hxg.18) — `projected-record` is an EGRESS
+    ;; projection: each payload slot is walked against the record's frame
+    ;; (`:test/main`). The frame must RESOLVE to a live frame for its
+    ;; (empty) classification policy to be consulted; an unresolvable frame
+    ;; FAILS CLOSED and redacts the whole slot. The frame is registered with
+    ;; an empty (no-declaration) policy here exactly as every sibling test
+    ;; in this file does, so the public `{:n 0}` slot walks through verbatim.
+    (rf/reg-frame :test/main {})
     (let [synthetic
           {:epoch-id      1
            :frame         :test/main
