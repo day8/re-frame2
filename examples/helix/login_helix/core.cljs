@@ -53,10 +53,18 @@
 ;; SCHEMAS
 ;; ============================================================================
 
+;; EP-0015 (Frame-Owned Egress Policy): the `:password` slot is classified
+;; `:sensitive?` (the declarative secret-data marking) and the managed-HTTP
+;; request below carries `:sensitive? true` to scrub the password off the wire.
+;; See examples/reagent/login for the full HONEST-SCOPE rationale: the slot
+;; mark on a machine EVENT-arg schema classifies the shape but does not itself
+;; redact the dispatched event vector; the per-request HTTP `:sensitive?` flag
+;; is the working, observable EP-0015 redaction (the password's real off-box
+;; egress path is the request body). Parity across reagent/login + uix.
 (def Credentials
   [:map
    [:email    [:re #".+@.+"]]
-   [:password [:string {:min 8}]]])
+   [:password {:sensitive? true} [:string {:min 8}]]])
 
 ;; Outer event-vector schema for the :auth.login/flow machine handler —
 ;; see examples/reagent/login for the full rationale. The :submit
@@ -179,10 +187,15 @@
     :issue-request
     (fn [{[_ creds] :event}]
       {:fx [[:rf.http/managed
+             ;; EP-0015 / Spec 014 §Privacy: `:sensitive? true` redacts the
+             ;; request body (carrying the `:password`) from every `:rf.http/*`
+             ;; trace event — the observable EP-0015 redaction (see
+             ;; examples/reagent/login for the full rationale).
              {:request    {:method :post
                            :url    "/api/login"
                            :body   creds
-                           :request-content-type :json}
+                           :request-content-type :json
+                           :sensitive? true}
               :decode     :json
               :on-success [:auth.login/flow [:auth.login/success]]
               :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
