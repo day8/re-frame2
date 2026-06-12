@@ -36,6 +36,7 @@
             [re-frame.app-value :as av]
             [re-frame.realm :as realm]
             [re-frame.registrar :as registrar]
+            [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as ts]))
 
@@ -300,6 +301,86 @@
       (is (nil? (registrar/lookup :event :cart/legacy))
           "the removed registration fails loudly on future lookup (unregistered)"))))
 
+(deftest reinstall-removed-id-fails-loud-on-dispatch
+  (testing "the EP-0013 §Hot Reload rule the structural lookup→nil proxy only
+            approximates: after reinstall! DROPS an event id (:removed), a real
+            DISPATCH against the dropped id FAILS LOUD — it fans
+            :rf.error/no-such-handler through the always-on error-emit listener
+            (the documented loud-failure path; a frameful dispatch to a
+            never-registered handler is recovered as a no-op, NOT silently run)
+            (rf2-q4x5zz)"
+    ;; A default-realm frame so the dispatch resolves a frame (the no-such-handler
+    ;; path is reached only AFTER the target frame is resolved — a frameless
+    ;; dispatch raises :rf.error/no-frame-context earlier).
+    (rf/reg-frame :q4x5zz/app {:doc "drop-then-dispatch"})
+    ;; v1: install an event id that mutates app-db, and prove it dispatches.
+    (rf/install! :rf.realm/default
+                 (rf/app {:id :q4x5zz/app :modules
+                          [(rf/module {:id :m
+                                       :events {:q4x5zz/ev {:handler (fn [db _] (assoc db :ran? true))}}})]}))
+    (rf/dispatch-sync [:q4x5zz/ev] {:frame :q4x5zz/app})
+    (is (true? (:ran? (rf/app-db-value :q4x5zz/app)))
+        "the installed handler ran while registered")
+    ;; v2: reinstall WITHOUT :q4x5zz/ev — it is :removed (unregistered).
+    (let [diff (rf/reinstall! :rf.realm/default
+                              (rf/app {:id :q4x5zz/app :modules
+                                       [(rf/module {:id :m
+                                                    :events {:q4x5zz/other {:handler (fn [db _] db)}}})]}))]
+      (is (= [[:event :q4x5zz/ev]] (:removed diff)) ":q4x5zz/ev is dropped"))
+    ;; Structural proxy (what the existing test asserts): the slot is gone.
+    (is (nil? (registrar/lookup :event :q4x5zz/ev))
+        "the dropped id is unregistered (the structural lookup→nil proxy)")
+    ;; ADVERSARIAL assertion: a real dispatch against the dropped id fails loud.
+    (let [seen (atom [])]
+      (rf/register-error-listener! :q4x5zz/recorder (fn [r] (swap! seen conj r)))
+      (try
+        (rf/dispatch-sync [:q4x5zz/ev] {:frame :q4x5zz/app})
+        (let [err (some (fn [r] (when (= :rf.error/no-such-handler (:error r)) r)) @seen)]
+          (is (some? err)
+              "dispatching the dropped id fans :rf.error/no-such-handler through the
+               always-on listener — the loud failure the §Hot Reload bullet names")
+          (is (= :q4x5zz/ev (:event-id err)) "the error names the dropped event id")
+          (is (= :q4x5zz/app (:frame err)) "the error names the target frame"))
+        ;; And the dropped handler did NOT silently run — the no-op recovery
+        ;; left app-db untouched (no stale handler firing).
+        (is (true? (:ran? (rf/app-db-value :q4x5zz/app)))
+            "app-db carries only the pre-removal write — the dropped handler did not run")
+        (finally (rf/unregister-error-listener! :q4x5zz/recorder))))))
+
+(deftest reinstall-changed-sub-invalidates-the-live-cache
+  (testing "the EP-0013 §Hot Reload behavioural claim the registrar-slot
+            assertion only approximates: a :changed sub reinstall INVALIDATES the
+            LIVE per-frame sub-cache (via the registrar's existing
+            replacement-hook surface), so a frame holding an ACTIVE subscription
+            recomputes against the NEW handler on the next deref — not just the
+            registrar slot rotating (rf2-s7dcu8).
+
+            Both handlers ignore db and return a constant, so the only way the
+            derefed value can change is cache invalidation + the swapped handler
+            — proving the live cache refreshed, not that app-db moved."
+    (rf/reg-frame :s7dcu8/app {:doc "live-sub-reload"})
+    ;; v1: a sub that yields a constant :v1.
+    (rf/install! :rf.realm/default
+                 (rf/app {:id :s7dcu8/app :modules
+                          [(rf/module {:id :m :subs {:s7dcu8/read {:handler (fn [_db _] :v1)}}})]}))
+    ;; Hold an ACTIVE subscription and deref it — this POPULATES the live cache.
+    (let [reaction (rf/subscribe :s7dcu8/app [:s7dcu8/read])]
+      (is (= :v1 @reaction) "the active subscription yields v1 (cache populated)")
+      ;; v2: the SAME sub id, a CHANGED handler yielding :v2 — :changed in the diff.
+      (let [diff (rf/reinstall! :rf.realm/default
+                                (rf/app {:id :s7dcu8/app :modules
+                                         [(rf/module {:id :m :subs {:s7dcu8/read {:handler (fn [_db _] :v2)}}})]}))]
+        (is (= [[:sub :s7dcu8/read]] (:changed diff))
+            ":s7dcu8/read is :changed (a different handler descriptor)"))
+      ;; Registrar slot rotated (the assertion the existing tests already make).
+      (is (= :v2 ((registrar/handler :sub :s7dcu8/read) nil nil))
+          "the registrar slot holds the new handler")
+      ;; THE LIVE CONSEQUENCE: a fresh subscribe recomputes against the new
+      ;; handler — the cached entry was invalidated by the replacement hook, so
+      ;; the reactive read returns v2, not the stale cached v1.
+      (is (= :v2 @(rf/subscribe :s7dcu8/app [:s7dcu8/read]))
+          "the live sub-cache was invalidated — the reactive read yields the new value"))))
+
 (deftest reinstall-one-arity-defaults-to-the-default-realm
   (testing "the 1-arity (reinstall! new-app) targets the default realm and
             defaults :reason to :hot-reload"
@@ -381,3 +462,105 @@
             "the metadata survives the round-trip")
         (is (= src (:source proj-d))
             "the source-coord envelope survives the round-trip")))))
+
+;; ---------------------------------------------------------------------------
+;; (6) KIND COVERAGE of the install! lowering seam (rf2-xmslkr)
+;; ---------------------------------------------------------------------------
+;;
+;; `core/install-descriptor!` special-cases :event/:sub/:fx/:cofx through their
+;; REAL registration logic (the event interceptor wrap, the sub input-signal
+;; parse, the fx/cofx slot stamp); every OTHER kind falls back to the FLAT
+;; registrar lowering (`descriptor->registration-metadata` → `registrar/register!`).
+;; These tests pin (a) all four wired kinds lower correctly through a single
+;; install!, (b) the unknown-realm→global fallback, and (c) CHARACTERIZE the
+;; flat-fallback gap for a non-wired kind that carries real registration logic
+;; (the audit's concern — the flat path seats a registrar slot WITHOUT running
+;; the subsystem's own registration, so the slot is malformed for the subsystem).
+
+(deftest install-lowers-the-four-wired-kinds-through-real-registration-logic
+  (testing "a single install! lowers :event/:sub/:fx/:cofx descriptors through
+            their real reg-* logic — each resolves through the registrar exactly
+            as a reg-* call would (rf2-xmslkr kind-coverage, the wired set)"
+    (let [ev-h   (fn [db _] (assoc db :ev? true))
+          sub-h  (fn [_db _] :sub-val)
+          fx-h   (fn [_] nil)
+          cofx-h (fn [coeffects] coeffects)]
+      (rf/install! (rf/app {:id :xms/wired :modules
+                            [(rf/module {:id :m
+                                         :events {:xms/ev   {:handler ev-h}}
+                                         :subs   {:xms/sub  {:handler sub-h}}
+                                         :fx     {:xms/fx   {:handler fx-h}}
+                                         :cofx   {:xms/cofx {:handler cofx-h}}})]}))
+      (is (identical? ev-h (registrar/handler :event :xms/ev))
+          ":event lowered through reg-event-db (resolvable handler)")
+      (is (identical? sub-h (registrar/handler :sub :xms/sub))
+          ":sub lowered through reg-sub")
+      (is (identical? fx-h (registrar/handler :fx :xms/fx))
+          ":fx lowered through reg-fx")
+      (is (identical? cofx-h (registrar/handler :cofx :xms/cofx))
+          ":cofx lowered through reg-cofx")
+      ;; The :event lowered through the REAL path carries the wrapped slots a
+      ;; reg-event-db produces (the interceptor chain), not just a flat handler —
+      ;; the distinction the wired path exists to provide.
+      (is (contains? (registrar/lookup :event :xms/ev) :interceptors)
+          ":event seated the kind-appropriate interceptor chain (real reg-* logic ran)"))))
+
+(deftest install-event-kind-tag-routes-through-reg-event-fx
+  (testing "a module event entry tagged {:event/kind :fx} lowers through
+            reg-event-fx (the install-descriptor! :event/kind read), so the
+            wired-kind seam honours the event sub-kind (rf2-xmslkr)"
+    (rf/install! (rf/app {:id :xms/evfx :modules
+                          [(rf/module {:id :m
+                                       :events {:xms/evfx {:event/kind :fx
+                                                           :handler (fn [_cofx _ev] {})}}})]}))
+    (is (some? (registrar/handler :event :xms/evfx))
+        "the :event/kind :fx entry is seated as a resolvable event handler")
+    (is (contains? (registrar/lookup :event :xms/evfx) :interceptors)
+        "it ran through reg-event-fx (interceptor chain seated), not the flat path")))
+
+(deftest install-into-an-unknown-realm-id-falls-back-to-the-global-registrar
+  (testing "seat-into-realm! documents 'a realm with no registry entry (unknown
+            id) falls back to the global atom rather than throwing — the
+            absence-is-default rule.' Installing into a NEVER-CONSTRUCTED realm
+            id seats into the DEFAULT/global registrar (rf2-xmslkr)"
+    ;; :xms/ghost was never `rf/realm`-constructed, so it has no registry entry.
+    (is (nil? (realm/realm :xms/ghost)) "the realm id was never constructed")
+    (let [h (fn [db _] db)]
+      (rf/install! :xms/ghost
+                   (rf/app {:id :xms/ghost-app :modules
+                            [(rf/module {:id :m :events {:xms/ghost-ev {:handler h}}})]}))
+      ;; The descriptor seated into the GLOBAL registrar (the default realm's
+      ;; atom), per the absence-is-default fallback — not into a phantom table.
+      (is (identical? h (registrar/handler :event :xms/ghost-ev))
+          "the unknown-realm install seated into the global/default registrar")
+      (is (= h (get-in @registrar/kind->id->metadata [:event :xms/ghost-ev :handler-fn]))
+          "it is the process-global atom, confirming the absence-is-default fallback"))))
+
+(deftest install-of-a-non-wired-kind-seats-a-malformed-slot-known-limitation
+  (testing "CHARACTERIZATION of the flat-fallback gap (rf2-xmslkr / follow-up
+            rf2-chc8vs): a CONSTRUCTED :frame descriptor is NOT among the
+            install-descriptor! wired kinds (:event/:sub/:fx/:cofx), so install!
+            falls back to the FLAT registrar lowering — it writes a :frame
+            registrar slot but NEVER runs reg-frame's real registration logic
+            (no frame container is created, no :on-create runs). The slot is
+            thus MALFORMED for the frame subsystem: it appears in the registrar
+            yet `frame/frame` finds no container, so the 'installed' frame is not
+            dispatchable.
+
+            EP-0013 §Implementation step 7 lists :frame among the FIRST
+            descriptor-format kinds, but its install lowering is unwired in this
+            slice (step 8 extends the format to routes/flows/resources/…). This
+            test PINS the current behaviour as a known limitation and is the
+            regression guard for the wiring (or the refuse-loudly posture per
+            issue 12) the follow-up bead lands."
+    (rf/install! (rf/app {:id :xms/frame-app :modules
+                          [(rf/module {:id :m :frames {:xms/frame {:doc "constructed frame"}}})]}))
+    ;; The registrar slot WAS written (flat fallback).
+    (is (some? (registrar/lookup :frame :xms/frame))
+        "the flat fallback wrote a :frame registrar slot")
+    ;; But NO frame container exists — reg-frame's real logic never ran.
+    (is (nil? (frame/frame :xms/frame))
+        "KNOWN LIMITATION: no frame container — the flat slot is malformed for
+         the frame subsystem (the install lowering for :frame is unwired)")
+    (is (not (contains? (frame/frame-ids) :xms/frame))
+        "the 'installed' frame is absent from the live frame registry")))
