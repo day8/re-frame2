@@ -51,8 +51,8 @@ implementation/
       events.cljc            reg-event-db / -fx / -ctx.
       subs.cljc              Sub cache with ref-counting + hot-reload eviction.
       interceptor.cljc       Interceptor chain runtime.
-      std_interceptors.cljc  path, unwrap, inject-cofx, ->interceptor primitive.
-      cofx.cljc              reg-cofx + standard cofx.
+      std_interceptors.cljc  path, unwrap, ->interceptor primitive.
+      cofx.cljc              reg-cofx supplier + declared-only delivery (:rf.cofx/requires).
       trace.cljc             Trace event emission + listener API.
       late_bind.cljc         Late-binding hook table for cross-artefact references.
       performance.cljc       Per-cascade duration capture + budget warnings (Spec 009).

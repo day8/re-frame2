@@ -47,16 +47,18 @@
 
   The `context` map carries:
     `:coeffects` — input data: `:db` (current app-db value), `:event`
-                   (the dispatched event vector), and any cofx injected
-                   via `inject-cofx`.
+                   (the dispatched event vector), and the facts the
+                   handler declared via `:rf.cofx/requires` (delivered
+                   flat).
     `:effects`   — output data the chain accumulates: `:db` (next
                    app-db value), `:fx` (the vector of `[fx-id args]`
                    pairs the runtime walks after the chain).
 
   See also: `->interceptor` (the macro form, `re-frame.core`),
   `get-coeffect`, `assoc-coeffect`, `get-effect`, `assoc-effect`,
-  `inject-cofx`, `path` / `unwrap` (the std interceptors v2 ships),
-  `reg-event-ctx` (full-context handler)."
+  `:rf.cofx/requires` (the declared-coeffect key), `path` / `unwrap`
+  (the std interceptors v2 ships), `reg-event-ctx` (full-context
+  handler)."
   [& {:keys [id before after source-coord] :as opts}]
   (cond-> (assoc opts :id (or id :unnamed))
     before       (assoc :before before)

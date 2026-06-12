@@ -195,10 +195,11 @@
   under `id`. See `re-frame.fx/reg-fx` and spec/API.md §Registration."}
        reg-fx          fx/reg-fx)
      (def ^{:doc "Fn-alias of the `reg-cofx` macro for HoF / programmatic
-  registration (no source-coord capture). Register a coeffect handler —
-  a source of input data injected into an event handler's `:coeffects`
-  via `inject-cofx`. See `re-frame.cofx/reg-cofx` and spec/API.md
-  §Registration."}
+  registration (no source-coord capture). Register a coeffect SUPPLIER —
+  a value-returning fn whose result is delivered FLAT into a declaring
+  handler's `:coeffects` map (the handler declares `:rf.cofx/requires
+  [id]`). See `re-frame.cofx/reg-cofx` (grades: `:recordable?` /
+  `:provided?`) and spec/API.md §Registration."}
        reg-cofx        cofx/reg-cofx)
      (def ^{:doc "Fn-alias of the `reg-frame` macro for HoF / programmatic
   registration (no source-coord capture). Atomically create + register
@@ -322,10 +323,12 @@
        `re-frame.fx/reg-fx` for the full signature.")
 
      (rm/defreg-macro reg-cofx cofx/reg-cofx
-       "Register a coeffect handler under `id` — a source of input
-       data injected into an event handler's `:coeffects` map via
-       `inject-cofx`. Captures source-coords (Spec 001) at this call
-       site. See `re-frame.cofx/reg-cofx` for the full signature.")
+       "Register a coeffect SUPPLIER under `id` — a value-returning fn
+       whose result is delivered FLAT into a declaring handler's
+       `:coeffects` map (the handler declares `:rf.cofx/requires [id]`).
+       Captures source-coords (Spec 001) at this call site. See
+       `re-frame.cofx/reg-cofx` for the grades (`:recordable?` /
+       `:provided?`) and full signature.")
 
      (rm/defreg-macro reg-frame frame/reg-frame
        "Register a frame. Captures source-coords (Spec 001) at this

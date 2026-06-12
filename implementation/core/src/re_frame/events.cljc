@@ -1073,16 +1073,24 @@
 
       (reg-event-ctx :id                  (fn [ctx] new-ctx))
       (reg-event-ctx :id {:doc \"...\"}     (fn [ctx] new-ctx))
+      (reg-event-ctx :id {:rf.cofx/requires [:rf/time-ms]}
+                                          (fn [ctx] new-ctx))
       (reg-event-ctx :id [icpt1 icpt2]    (fn [ctx] new-ctx))
       (reg-event-ctx :id {:doc \"...\" :interceptors [icpt1 icpt2]}
                                           (fn [ctx] new-ctx))
+
+  Coeffects are declared via `:rf.cofx/requires` on the metadata map, the
+  same as `reg-event-fx` (EP-0017 §4): each declared value arrives FLAT in
+  the context's `:coeffects` map under its id, and the whole recordable
+  envelope is reachable as `:rf.cofx` through the context (EP-0017 §5).
+  `inject-cofx` is removed.
 
   `[i1 i2]` ≡ `{:interceptors [i1 i2]}`; supplying a chain in **both**
   slots raises `:rf.error/interceptors-supplied-twice` (per Conventions
   §`:interceptors` in the metadata-map — the superset middle slot).
 
-  See also: `reg-event-db`, `reg-event-fx`, `->interceptor`,
-  `assoc-coeffect`, `assoc-effect`."
+  See also: `reg-event-db`, `reg-event-fx`, `reg-cofx` (register a
+  coeffect supplier), `->interceptor`, `assoc-coeffect`, `assoc-effect`."
   [id & args]
   (register-event! :ctx "reg-event-ctx" id args))
 

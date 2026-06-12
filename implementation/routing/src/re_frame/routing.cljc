@@ -183,9 +183,9 @@
 ;; counters are host-side TRANSIENT state (`re-frame.routing.nav-counters`),
 ;; so an epoch restore (which replaces the runtime-db partition wholesale)
 ;; cannot rewind them and recycle a token — the correctness fix the move
-;; buys. The four nav entry points below inject the cofx via
-;; `nav-counters-interceptors`. Registered in the façade so a `:reload`
-;; re-wires them on a fresh registrar.
+;; buys. The four nav entry points below DECLARE the cofx via
+;; `:rf.cofx/requires` (see the EP-0017 note below). Registered in the
+;; façade so a `:reload` re-wires them on a fresh registrar.
 (cofx/reg-cofx :rf.route/nav-counters
                nav-counters/nav-counters-cofx-meta
                nav-counters/nav-counters-cofx)

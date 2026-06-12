@@ -2,10 +2,13 @@
   "Standard interceptors. Per Spec 002 / API.md §Standard interceptors and
   Spec 001 §Hot-reload semantics M-21.
 
-  Ships THREE specific helpers plus the ->interceptor primitive:
-    inject-cofx — in re-frame.cofx (cofx-registry lookup)
+  Ships TWO specific helpers plus the ->interceptor primitive:
     path        — focus a handler on an app-db sub-slice (this ns)
     unwrap      — assert [id payload-map] event shape (this ns)
+
+  (Coeffects are no longer wired by a `inject-cofx` interceptor — they
+  are declared via `:rf.cofx/requires` on the handler and delivered flat;
+  EP-0017, no interceptor surface.)
 
   The principle: keep helpers that do specific, non-trivial work; drop
   those that are just (->interceptor :before f) or (->interceptor :after f)
