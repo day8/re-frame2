@@ -20,7 +20,6 @@
             ;; on the `re-frame.core` façade; the corpus `:add-marks` /
             ;; `:set-marks` ops drive the internal `re-frame.marks` helpers.
             [re-frame.marks :as marks]
-            [re-frame.cofx :as cofx]
             ;; rf2-wxe9t — the always-on error-emit substrate (Spec 009
             ;; §What IS available in production §Error observability)
             ;; is the fan-out path the conformance runner observes for
@@ -419,8 +418,9 @@
 
 (defn- collect-cofx-keys
   "Walk steps and pull every cofx-id referenced via [:cofx-key K]. Used
-  by realise-handlers to auto-wire (inject-cofx K) interceptors onto
-  events whose bodies read coeffects. Returns a set of K."
+  by realise-handlers to auto-wire the consuming event's
+  `:rf.cofx/requires` declaration (EP-0017 model — rf2-mrp8jg) for events
+  whose bodies read coeffects. Returns a set of K."
   [steps]
   (let [out (atom #{})]
     ((fn walk [form]
@@ -433,32 +433,26 @@
      steps)
     @out))
 
-(defn- realise-cofx-handler
-  "DSL → a cofx handler fn (ctx) → ctx. The body's :set steps
-  declare the value to inject; the runner places that value at
-  [:coeffects cofx-id] (canonical convention — the cofx-id is the
-  slot key per Spec 010 §Where schemas attach §On every reg-*).
+(defn- realise-cofx-supplier
+  "DSL → a value-returning cofx supplier `(fn [] value)` (EP-0017 model —
+  rf2-mrp8jg). The body's `:set` steps declare the value the supplier
+  returns directly; the runtime delivers it FLAT under the cofx-id when a
+  handler declares it via `:rf.cofx/requires` (the ctx→ctx `inject-cofx`
+  form that placed the value at [:coeffects cofx-id] is retired).
 
-  Per rf2-g25p, the body is realised against the inject-cofx ctx —
-  values pass through `eval-value` so reflection forms (e.g.
-  [:cofx-key K], [:fn :k a b]) resolve against the inbound coeffects
-  /event the same way they do in event handler bodies. Multiple :set
-  steps run in order; the final `:set` step wins (last-write semantics
-  matching the canonical single-injection convention)."
-  [cofx-id steps]
-  (fn [ctx]
-    (let [eval-value (requiring-resolve 're-frame.conformance/eval-value*)
-          dsl-ctx    {:db    (get-in ctx [:coeffects :db])
-                      :event (get-in ctx [:coeffects :event])
-                      :cofx  (:coeffects ctx)}]
-      (reduce (fn [c step]
+  Per rf2-g25p the `:set` value passes through `eval-value*` so reflection
+  forms (e.g. [:fn :k a b]) still resolve; multiple `:set` steps run in
+  order and the final step wins (single-injection convention)."
+  [steps]
+  (fn []
+    (let [eval-value (requiring-resolve 're-frame.conformance/eval-value*)]
+      (reduce (fn [v step]
                 (case (first step)
-                  :set  (let [[_ _path value] step
-                              v (eval-value value dsl-ctx)]
-                          (assoc-in c [:coeffects cofx-id] v))
-                  :noop c
-                  c))
-              ctx
+                  :set  (let [[_ _path value] step]
+                          (eval-value value {}))
+                  :noop v
+                  v))
+              nil
               steps))))
 
 ;; Forward-declared — realise-machine-handlers is defined below (alongside
@@ -474,11 +468,10 @@
         sub-registry   (get-in fixture [:fixture/registry :sub] {})
         cofx-bodies    (get handlers-map :cofx)
         cofx-registry  (get-in fixture [:fixture/registry :cofx] {})
-        ;; cofx that should auto-wire as inject-cofx interceptors on
-        ;; event handlers (per rf2-g25p — the runner's first-pass
-        ;; auto-injection convention). Stable lex order on cofx-id so
-        ;; the last-write-wins outcome is deterministic across JVM /
-        ;; CLJS / re-runs.
+        ;; cofx that should auto-wire onto a consuming event's
+        ;; `:rf.cofx/requires` declaration (EP-0017 model — rf2-mrp8jg).
+        ;; Stable lex order on cofx-id so the last-write-wins outcome is
+        ;; deterministic across JVM / CLJS / re-runs.
         cofx-by-key
         (->> cofx-registry
              (sort-by key)
@@ -486,44 +479,51 @@
              (reduce-kv (fn [acc k pairs]
                           (assoc acc k (mapv first pairs)))
                         {}))]
-    ;; cofx registrations — bodies + :schema metadata. Per rf2-7leq the
-    ;; schema validation runs in inject-cofx; here we register the
-    ;; handler-fn so inject-cofx can resolve it.
+    ;; cofx registrations — value-returning suppliers + metadata (EP-0017
+    ;; model). The supplier returns the coeffect VALUE; the runtime delivers
+    ;; it flat under the cofx-id when a handler declares it via
+    ;; `:rf.cofx/requires`. The `:schema` metadata still rides along (its
+    ;; validation step is slice-B-built; the only fixture exercising it,
+    ;; `schema-cofx-validates.edn`, is an intentional out-of-claim skip via
+    ;; `known-skipped-capabilities`).
     (let [all-cofx-ids (into #{} (concat (keys cofx-bodies) (keys cofx-registry)))]
       (doseq [cofx-id all-cofx-ids]
-        (let [body    (get cofx-bodies cofx-id [[:noop]])
-              meta    (get cofx-registry cofx-id {})
-              handler (realise-cofx-handler cofx-id body)]
-          (rf/reg-cofx cofx-id (assoc meta :handler-fn handler) handler))))
+        (let [body     (get cofx-bodies cofx-id [[:noop]])
+              meta     (get cofx-registry cofx-id {})
+              supplier (realise-cofx-supplier body)]
+          (rf/reg-cofx cofx-id meta supplier))))
+    ;; EP-0017 model (rf2-mrp8jg): a body that reads `[:cofx-key K]` declares
+    ;; the consumed coeffect ids via the `:rf.cofx/requires` registration-
+    ;; metadata key (the ctx→ctx `inject-cofx` interceptor wiring is retired).
+    ;; The runtime runs each declared supplier at context assembly and delivers
+    ;; its value flat under the cofx-id. `:rf.cofx/requires` is fx-only — a body
+    ;; that reads any cofx routes through `realise-event-handler` to an `:fx`
+    ;; handler (`needs-fx-handler?` flags `:cofx-key`), so the requires
+    ;; declaration only ever lands on a `reg-event-fx`.
     (doseq [[id steps] (get handlers-map :event)]
       (let [[kind handler] (conformance/realise-event-handler steps)
-            ;; Per Spec 010 §step 1 (rf2-jwm4): pull :schema / :doc from
-            ;; the fixture's :fixture/registry :event meta and pass it
-            ;; through to reg-event-* so validate-event! can find it.
-            event-meta (get event-registry id {})
             ;; Per rf2-g25p: scan the body for [:cofx-key K] references;
-            ;; for each K, auto-wire (inject-cofx C) for every C whose
-            ;; namespace matches K (the conformance-corpus convention
-            ;; for the schemas/cofx fixture). With no :schema to flag,
-            ;; non-schema'd cofx still wire so the handler can read them.
+            ;; for each K, require every C whose namespace matches K (the
+            ;; conformance-corpus convention for the schemas/cofx fixture).
             ks            (collect-cofx-keys steps)
             cofx-ids      (vec
                             (mapcat (fn [k]
                                       (or (get cofx-by-key k)
                                           (when (contains? cofx-registry k) [k])))
                                     ks))
-            interceptors  (mapv cofx/inject-cofx cofx-ids)]
+            ;; Per Spec 010 §step 1 (rf2-jwm4): pull :schema / :doc from the
+            ;; fixture's :fixture/registry :event meta and pass it through to
+            ;; reg-event-* so validate-event! can find it. EP-0017: merge the
+            ;; auto-wired `:rf.cofx/requires` declaration onto the same meta.
+            event-meta    (cond-> (get event-registry id {})
+                            (seq cofx-ids) (assoc :rf.cofx/requires cofx-ids))]
         (case kind
           :db (if (seq event-meta)
-                (rf/reg-event-db id event-meta interceptors handler)
-                (if (seq interceptors)
-                  (rf/reg-event-db id interceptors handler)
-                  (rf/reg-event-db id handler)))
+                (rf/reg-event-db id event-meta handler)
+                (rf/reg-event-db id handler))
           :fx (if (seq event-meta)
-                (rf/reg-event-fx id event-meta interceptors handler)
-                (if (seq interceptors)
-                  (rf/reg-event-fx id interceptors handler)
-                  (rf/reg-event-fx id handler))))))
+                (rf/reg-event-fx id event-meta handler)
+                (rf/reg-event-fx id handler)))))
     (doseq [[id steps] (get handlers-map :sub)]
       (let [{:keys [kind inputs body]} (conformance/realise-sub steps)
             ;; Per Spec 010 §step 6 (rf2-wcam): pull :schema from the
