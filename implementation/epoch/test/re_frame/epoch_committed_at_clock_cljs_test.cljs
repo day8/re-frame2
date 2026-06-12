@@ -9,7 +9,7 @@
   `committed-at-replay-stable-across-wall-clock-drift`,
   `committed-at-each-child-event-reads-its-own-token`, …) lives in
   `re-frame.epoch-test` — a `.clj` (JVM-ONLY) file — and SCRIPTS the
-  committing token's `:rf.world/inputs` `:time-ms` to an explicit sentinel
+  committing token's `:rf.cofx` `:rf/time-ms` to an explicit sentinel
   (pinning BOTH `now-ms` AND `epoch-now-ms` with `with-redefs`). That proves
   the causal-time THREADING (token `:time-ms` -> `:committed-at`, replayable,
   no ambient assembly-time read), but it deliberately bypasses the live
@@ -27,7 +27,7 @@
   (`resources_http_completed_at_clock_cljs_test.cljs`) was added.
 
   This suite drives the REAL router: it dispatches an UNSCRIPTED event (no
-  `:rf.world/inputs` supplied), lets the genuine `build-envelope` stamp the
+  `:rf.cofx` supplied), lets the genuine `build-envelope` stamp the
   causal `:time-ms` from the host clock, and asserts the resulting durable
   epoch record `:committed-at` is a wall-clock epoch value (within ~10s of
   `js/Date.now()`), NOT a small perf-clock origin-relative number. A clock
@@ -58,7 +58,7 @@
 (def ^:private wall-clock-floor 1e12)
 
 (deftest committed-at-unscripted-dispatch-is-wall-clock-epoch-cljs
-  (testing "rf2-1t30y7 — an UNSCRIPTED dispatch (no :rf.world/inputs) flows
+  (testing "rf2-1t30y7 — an UNSCRIPTED dispatch (no :rf.cofx) flows
             through the live router, which stamps the causal :time-ms from
             the host clock; the resulting epoch record :committed-at MUST be
             a wall-clock epoch ms (close to js/Date.now), NOT a perf-clock
@@ -72,7 +72,7 @@
 
     ;; Capture js/Date.now() bracketing the dispatch so the comparison band
     ;; is tight and robust to scheduling. The dispatch is intentionally
-    ;; UNSCRIPTED — no :rf.world/inputs — so build-envelope performs the live
+    ;; UNSCRIPTED — no :rf.cofx — so build-envelope performs the live
     ;; clock read that is the unit under test.
     (let [before (js/Date.now)]
       (rf/dispatch-sync [:clk/init])

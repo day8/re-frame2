@@ -348,19 +348,19 @@
   `:rf.error/machine-state-not-in-definition` or
   `:rf.error/machine-snapshot-version-mismatch` event.
 
-  Per EP-0010 (rf2-g0m4p5): the event handler's causal world-input token
-  (`world-inputs` — the router's `:rf.world/inputs` coeffect, Spec 002
-  §Event Context And Coeffects) is stamped onto the machine def under
-  `:rf/world-inputs` alongside `:rf/frame` / `:rf/platform` / `:rf/parent-id`,
+  Per EP-0010 / EP-0017 (rf2-g0m4p5 / rf2-alc1lf): the event handler's causal
+  recordable-coeffect token (`cofx` — the router's `:rf.cofx` coeffect, Spec
+  002 §Event Context And Coeffects) is stamped onto the machine def under
+  `:rf/cofx` alongside `:rf/frame` / `:rf/platform` / `:rf/parent-id`,
   so the transition engine's `callback-ctx` can surface it to guards /
-  actions / entry / exit under `:rf.world/inputs`. A durable machine
+  actions / entry / exit under `:rf.cofx`. A durable machine
   decision (time / random / UUID host fact) reads the causal token rather
   than an ambient clock, so the decision and any snapshot write replay
   deterministically. `nil` (the router always supplies the coeffect, but a
   REPL `reg-machine*` dispatch through a non-router path may not) leaves the
   slot absent — `callback-ctx` then surfaces no key and the pure-fn callers
   (conformance corpus) are unaffected."
-  [db runtime-db frame world-inputs event machine base-initial]
+  [db runtime-db frame cofx event machine base-initial]
   (let [machine-id    (first event)
         ;; EP-0002 — `frame` is the cascade-threaded envelope frame the
         ;; calling machine handler already asserted via
@@ -371,11 +371,12 @@
                                      :rf/frame     frame-id
                                      :rf/platform  platform
                                      :rf/parent-id machine-id)
-                        ;; EP-0010 (rf2-g0m4p5): thread the causal world-input
-                        ;; token onto the machine def so `callback-ctx` exposes
-                        ;; it as `:rf.world/inputs`. Stamp only when present so
-                        ;; the absent-token path stays clean for pure-fn callers.
-                        (some? world-inputs) (assoc :rf/world-inputs world-inputs))
+                        ;; EP-0010 / EP-0017 (rf2-g0m4p5 / rf2-alc1lf): thread
+                        ;; the causal recordable-coeffect token onto the machine
+                        ;; def so `callback-ctx` exposes it as `:rf.cofx`. Stamp
+                        ;; only when present so the absent-token path stays clean
+                        ;; for pure-fn callers.
+                        (some? cofx) (assoc :rf/cofx cofx))
         path          (paths/snapshot-path machine-id)
         existing-snap (get-in runtime-db path)
         snapshot      (cond
@@ -672,7 +673,7 @@
   (let [base-initial (delay (parallel/build-initial-snapshot
                               machine {:bootstrap-pending? false}))]
     (fn [{:keys [db] frame :rf.frame/id rt :rf.db/runtime
-          world-inputs :rf.world/inputs :as _cofx} event]
+          cofx :rf.cofx :as _cofx} event]
       ;; EP-0002 carried invariant: a machine handler is invoked inside an
       ;; event cascade, so the cofx ALWAYS carries the frame stamp under
       ;; `:rf.frame/id` (the HELD stamp). A nil stamp is an invariant
@@ -696,7 +697,7 @@
       ;; is still threaded for the spawn-`:on-error` parent lookup +
       ;; action-failure diagnostics.
       (let [runtime-db  (or rt {})
-            ctx         (prepare-machine-ctx db runtime-db frame world-inputs event machine base-initial)
+            ctx         (prepare-machine-ctx db runtime-db frame cofx event machine base-initial)
             intercepted (join/intercept-spawn-all-event
                           (:machine ctx) runtime-db (:path ctx) (:snapshot ctx)
                           (:machine-id ctx) (:inner-event ctx))]

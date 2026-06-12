@@ -1,18 +1,18 @@
 (ns re-frame.world-inputs-test
   "EP-0010 §Causal World Inputs core slice (rf2-s9ss0t).
 
-  Pins the `:rf.world/inputs` envelope + coeffect contract that makes the
+  Pins the `:rf.cofx` envelope + coeffect contract that makes the
   frame fold deterministic with respect to prior frame-state plus the
   causal token (Spec 002 §The World-Input Rule):
 
-    - the router STAMPS `:rf.world/inputs {:time-ms ...}` when the caller
+    - the router STAMPS `:rf.cofx {:rf/time-ms ...}` when the caller
       omits it (Spec 002 §Dispatch Envelope Stamping);
     - a caller-supplied map is PRESERVED verbatim — including extra slots
       (`:uuid`, `:random`, browser/storage facts) — and the router never
-      overwrites a supplied `:time-ms`;
-    - a CHILD dispatch (`:fx [[:dispatch ...]]`) gets its OWN map: `:time-ms`
+      overwrites a supplied `:rf/time-ms`;
+    - a CHILD dispatch (`:fx [[:dispatch ...]]`) gets its OWN map: `:rf/time-ms`
       is NOT inherited from the parent (each is a distinct causal token);
-    - the value is visible to handler bodies as the `:rf.world/inputs`
+    - the value is visible to handler bodies as the `:rf.cofx`
       coeffect alongside `:db` / `:event` / `:rf.db/runtime` / `:rf.frame/id`
       (Spec 002 §Event Context And Coeffects);
     - it is FILTERED out of the user-cofx trace projection exactly like the
@@ -86,127 +86,127 @@
 ;; ===========================================================================
 
 (deftest stamps-time-ms-when-absent
-  (testing "the router stamps :rf.world/inputs {:time-ms ...} when the caller omits it"
+  (testing "the router stamps :rf.cofx {:rf/time-ms ...} when the caller omits it"
     (rf/reg-frame :wi/stamp {:doc "ctx"})
     (let [env   (build-envelope [:noop] {:frame :wi/stamp})
-          world (:rf.world/inputs env)]
-      (is (map? world) ":rf.world/inputs is present on the envelope")
-      (is (number? (:time-ms world)) ":time-ms is a stamped epoch-ms number")
-      (is (= #{:time-ms} (set (keys world)))
-          "only the framework-required :time-ms is stamped — no other keys invented"))))
+          world (:rf.cofx env)]
+      (is (map? world) ":rf.cofx is present on the envelope")
+      (is (number? (:rf/time-ms world)) ":rf/time-ms is a stamped epoch-ms number")
+      (is (= #{:rf/time-ms} (set (keys world)))
+          "only the framework-required :rf/time-ms is stamped — no other keys invented"))))
 
 (deftest preserves-caller-supplied-time-ms
-  (testing "a caller-supplied :time-ms is preserved verbatim — the router does NOT overwrite it"
+  (testing "a caller-supplied :rf/time-ms is preserved verbatim — the router does NOT overwrite it"
     (rf/reg-frame :wi/supplied {:doc "ctx"})
     (let [env (build-envelope [:noop]
                               {:frame :wi/supplied
-                               :rf.world/inputs {:time-ms 1781078400123}})]
-      (is (= 1781078400123 (get-in env [:rf.world/inputs :time-ms]))
-          "the exact supplied :time-ms rides through (replay / SSR / fixtures)"))))
+                               :rf.cofx {:rf/time-ms 1781078400123}})]
+      (is (= 1781078400123 (get-in env [:rf.cofx :rf/time-ms]))
+          "the exact supplied :rf/time-ms rides through (replay / SSR / fixtures)"))))
 
 (deftest preserves-caller-supplied-extra-keys-and-fills-time-ms
-  (testing "extra world-input slots ride through; a missing :time-ms is filled, supplied keys untouched"
+  (testing "extra recordable-coeffect facts ride through (flat); a missing :rf/time-ms is filled, supplied facts untouched"
     (rf/reg-frame :wi/extra {:doc "ctx"})
     (let [uuid  #uuid "018ff2b4-9bbd-7a0a-a4df-cf2a91cbe86d"
           env   (build-envelope [:noop]
                                 {:frame :wi/extra
-                                 :rf.world/inputs
-                                 {:uuid   {:todo/id uuid}
-                                  :random {:todo/color :green}}})
-          world (:rf.world/inputs env)]
-      (is (= {:todo/id uuid} (:uuid world)) "supplied :uuid slot preserved")
-      (is (= {:todo/color :green} (:random world)) "supplied :random slot preserved")
-      (is (number? (:time-ms world))
-          "the framework-required :time-ms is filled in alongside the supplied keys"))))
+                                 :rf.cofx
+                                 {:todo/id    uuid
+                                  :todo/color :green}})
+          world (:rf.cofx env)]
+      (is (= uuid (:todo/id world)) "supplied :todo/id fact preserved")
+      (is (= :green (:todo/color world)) "supplied :todo/color fact preserved")
+      (is (number? (:rf/time-ms world))
+          "the framework-required :rf/time-ms is filled in alongside the supplied facts"))))
 
 ;; ===========================================================================
 ;; rf2-47lgee / rf2-nftz2s: PUBLIC-boundary validation of a caller-supplied
-;; :rf.world/inputs. A malformed causal token folds into durable writes (the
+;; :rf.cofx. A malformed causal token folds into durable writes (the
 ;; epoch record's :committed-at, resource :settled-at) and breaks the
 ;; deterministic fold, so build-envelope rejects it with a structured
-;; :rf.error/invalid-world-inputs BEFORE stamping — always-on, prod-survivable,
+;; :rf.error/invalid-cofx BEFORE stamping — always-on, prod-survivable,
 ;; and BEFORE the clock read (a dispatch that cannot proceed never reads the
 ;; clock). The pair-tool validated this on its own wire; this pins the central
 ;; core boundary that protects ordinary public dispatch.
 ;; ===========================================================================
 
 (deftest non-map-world-inputs-is-a-hard-error
-  (testing "a supplied non-map :rf.world/inputs is a hard error (not silently stamped)"
+  (testing "a supplied non-map :rf.cofx is a hard error (not silently stamped)"
     (rf/reg-frame :wi/bad-shape {:doc "ctx"})
     (testing "build-envelope throws even with the dev gate OFF (prod-survivable)"
       (with-redefs [interop/debug-enabled? false]
         (is (thrown? clojure.lang.ExceptionInfo
                      (build-envelope [:noop] {:frame :wi/bad-shape
-                                              :rf.world/inputs "now"}))
-            "a string :rf.world/inputs is rejected, not coerced/stamped")))
-    (testing "the error carries the structured :rf.error/invalid-world-inputs id"
+                                              :rf.cofx "now"}))
+            "a string :rf.cofx is rejected, not coerced/stamped")))
+    (testing "the error carries the structured :rf.error/invalid-cofx id"
       (let [ex   (try
                    (build-envelope [:noop] {:frame :wi/bad-shape
-                                            :rf.world/inputs [:not :a :map]})
+                                            :rf.cofx [:not :a :map]})
                    nil
                    (catch clojure.lang.ExceptionInfo e e))
             data (ex-data ex)]
         (is (some? ex) "an exception was thrown")
-        (is (= :rf.error/invalid-world-inputs (:rf.error/id data))
-            "the error category is :rf.error/invalid-world-inputs")
+        (is (= :rf.error/invalid-cofx (:rf.error/id data))
+            "the error category is :rf.error/invalid-cofx")
         (is (= [:not :a :map] (:supplied data)) "names the bad supplied value")
-        (is (re-find #":time-ms" (:reason data))
-            "the message explains :time-ms is the durable causal token")
+        (is (re-find #":rf/time-ms" (:reason data))
+            "the message explains :rf/time-ms is the durable causal token")
         (is (= :no-recovery (:recovery data)) "no recovery / no coercion")))))
 
 (deftest non-integer-time-ms-is-a-hard-error
-  (testing "a supplied :time-ms that is not an integer is a hard error"
+  (testing "a supplied :rf/time-ms that is not an integer is a hard error"
     (rf/reg-frame :wi/bad-time {:doc "ctx"})
-    (testing "build-envelope throws on a string :time-ms (even dev-gate OFF)"
+    (testing "build-envelope throws on a string :rf/time-ms (even dev-gate OFF)"
       (with-redefs [interop/debug-enabled? false]
         (is (thrown? clojure.lang.ExceptionInfo
                      (build-envelope [:noop] {:frame :wi/bad-time
-                                              :rf.world/inputs {:time-ms "now"}}))
-            "a string :time-ms is rejected (the schema requires :int)")))
-    (testing "nil :time-ms is also rejected (a present-but-nil causal time is malformed)"
+                                              :rf.cofx {:rf/time-ms "now"}}))
+            "a string :rf/time-ms is rejected (the schema requires :int)")))
+    (testing "nil :rf/time-ms is also rejected (a present-but-nil causal time is malformed)"
       (is (thrown? clojure.lang.ExceptionInfo
                    (build-envelope [:noop] {:frame :wi/bad-time
-                                            :rf.world/inputs {:time-ms nil}}))
-          "a nil :time-ms is not an integer — rejected"))
-    (testing "a fractional :time-ms is rejected (epoch ms is an integer)"
+                                            :rf.cofx {:rf/time-ms nil}}))
+          "a nil :rf/time-ms is not an integer — rejected"))
+    (testing "a fractional :rf/time-ms is rejected (epoch ms is an integer)"
       (is (thrown? clojure.lang.ExceptionInfo
                    (build-envelope [:noop] {:frame :wi/bad-time
-                                            :rf.world/inputs {:time-ms 1781078400.5}}))
-          "a double :time-ms is not an integer — rejected"))
-    (testing "the error names the bad :time-ms and the integer/epoch-ms contract"
+                                            :rf.cofx {:rf/time-ms 1781078400.5}}))
+          "a double :rf/time-ms is not an integer — rejected"))
+    (testing "the error names the bad :rf/time-ms and the integer/epoch-ms contract"
       (let [ex   (try
                    (build-envelope [:noop] {:frame :wi/bad-time
-                                            :rf.world/inputs {:time-ms "now"}})
+                                            :rf.cofx {:rf/time-ms "now"}})
                    nil
                    (catch clojure.lang.ExceptionInfo e e))
             data (ex-data ex)]
-        (is (= :rf.error/invalid-world-inputs (:rf.error/id data))
-            "the error category is :rf.error/invalid-world-inputs")
-        (is (= "now" (:time-ms data)) "names the bad :time-ms value")
+        (is (= :rf.error/invalid-cofx (:rf.error/id data))
+            "the error category is :rf.error/invalid-cofx")
+        (is (= "now" (:rf/time-ms data)) "names the bad :rf/time-ms value")
         (is (re-find #"INTEGER" (:reason data))
             "the message states the integer/epoch-ms contract")))))
 
 (deftest valid-world-inputs-shapes-pass
   (testing "the valid shapes the validator must NOT reject"
     (rf/reg-frame :wi/valid {:doc "ctx"})
-    (testing "nil :rf.world/inputs passes (the router stamps a fresh map)"
+    (testing "nil :rf.cofx passes (the router stamps a fresh map)"
       (is (number? (get-in (build-envelope [:noop] {:frame :wi/valid
-                                                    :rf.world/inputs nil})
-                           [:rf.world/inputs :time-ms]))
-          "a nil supplied value is filled with a stamped :time-ms"))
-    (testing "an integer :time-ms passes verbatim"
+                                                    :rf.cofx nil})
+                           [:rf.cofx :rf/time-ms]))
+          "a nil supplied value is filled with a stamped :rf/time-ms"))
+    (testing "an integer :rf/time-ms passes verbatim"
       (is (= 1781078400123
              (get-in (build-envelope [:noop] {:frame :wi/valid
-                                              :rf.world/inputs {:time-ms 1781078400123}})
-                     [:rf.world/inputs :time-ms]))
-          "a valid integer :time-ms rides through preserved"))
-    (testing "a map with NO :time-ms passes (the router fills it)"
-      (let [world (get (build-envelope [:noop]
-                                       {:frame :wi/valid
-                                        :rf.world/inputs {:uuid {:todo/id 1}}})
-                       :rf.world/inputs)]
-        (is (= {:todo/id 1} (:uuid world)) "the supplied :uuid rides through")
-        (is (number? (:time-ms world)) "the missing :time-ms is filled")))))
+                                              :rf.cofx {:rf/time-ms 1781078400123}})
+                     [:rf.cofx :rf/time-ms]))
+          "a valid integer :rf/time-ms rides through preserved"))
+    (testing "a map with NO :rf/time-ms passes (the router fills it)"
+      (let [cofx (get (build-envelope [:noop]
+                                      {:frame :wi/valid
+                                       :rf.cofx {:todo/id 1}})
+                      :rf.cofx)]
+        (is (= 1 (:todo/id cofx)) "the supplied fact rides through")
+        (is (number? (:rf/time-ms cofx)) "the missing :rf/time-ms is filled")))))
 
 (deftest invalid-world-inputs-rejected-before-clock-read
   ;; Mirrors retired-dispatched-at-rejected-before-world-input-clock-read: the
@@ -214,7 +214,7 @@
   ;; fails fast WITHOUT triggering the always-on epoch-now-ms read for a
   ;; dispatch that cannot proceed. Redefine epoch-now-ms to throw a distinct
   ;; marker; if the clock is read before validation, that marker surfaces.
-  (testing "a malformed :rf.world/inputs throws the validation error WITHOUT
+  (testing "a malformed :rf.cofx throws the validation error WITHOUT
             reading the world-input clock first"
     (rf/reg-frame :wi/order2 {:doc "ctx"})
     (with-redefs [interop/epoch-now-ms
@@ -222,14 +222,14 @@
                                          {::clock-read true})))]
       (let [ex   (try
                    (build-envelope [:noop] {:frame :wi/order2
-                                            :rf.world/inputs {:time-ms "now"}})
+                                            :rf.cofx {:rf/time-ms "now"}})
                    nil
                    (catch clojure.lang.ExceptionInfo e e))
             data (ex-data ex)]
         (is (some? ex) "an exception was thrown")
         (is (not (::clock-read data))
             "the world-input clock was NOT read before validation — failed fast")
-        (is (= :rf.error/invalid-world-inputs (:rf.error/id data))
+        (is (= :rf.error/invalid-cofx (:rf.error/id data))
             "the surfaced error is the validation error, proving it ran first")))))
 
 (deftest invalid-world-inputs-raised-through-full-dispatch
@@ -239,15 +239,15 @@
     (is (thrown? clojure.lang.ExceptionInfo
                  (rf/dispatch-sync [:wi/bad-noop]
                                    {:frame :wi/dispatch-bad
-                                    :rf.world/inputs {:time-ms "now"}}))
+                                    :rf.cofx {:rf/time-ms "now"}}))
         "dispatch-sync surfaces the malformed-token error synchronously")))
 
 ;; ===========================================================================
-;; Child dispatch gets its OWN world-input map (no :time-ms inheritance)
+;; Child dispatch gets its OWN world-input map (no :rf/time-ms inheritance)
 ;; ===========================================================================
 
 (deftest child-dispatch-gets-fresh-time-ms
-  (testing "a :fx [[:dispatch ...]] child gets its OWN :rf.world/inputs — :time-ms NOT inherited"
+  (testing "a :fx [[:dispatch ...]] child gets its OWN :rf.cofx — :rf/time-ms NOT inherited"
     (rf/reg-frame :wi/cascade {:doc "ctx"})
     (let [envelopes (atom [])]
       ;; A user fx-handler receives the parent dispatch envelope under
@@ -263,25 +263,25 @@
         (fn [_ _]
           {:fx [[:wi/capture-env]]}))
 
-      ;; Parent supplies an explicit :time-ms; the child must NOT inherit it.
+      ;; Parent supplies an explicit :rf/time-ms; the child must NOT inherit it.
       (rf/dispatch-sync [:wi/parent]
                         {:frame :wi/cascade
-                         :rf.world/inputs {:time-ms 1781078400000}})
+                         :rf.cofx {:rf/time-ms 1781078400000}})
 
       (let [[parent-env child-env] @envelopes
-            parent-t (get-in parent-env [:rf.world/inputs :time-ms])
-            child-t  (get-in child-env  [:rf.world/inputs :time-ms])]
+            parent-t (get-in parent-env [:rf.cofx :rf/time-ms])
+            child-t  (get-in child-env  [:rf.cofx :rf/time-ms])]
         (is (= [:wi/parent] (:event parent-env)) "first capture is the parent")
         (is (= [:wi/child]  (:event child-env))  "second capture is the child")
-        (is (= 1781078400000 parent-t) "parent carries the supplied :time-ms")
-        (is (number? child-t) "child has its own stamped :time-ms")
+        (is (= 1781078400000 parent-t) "parent carries the supplied :rf/time-ms")
+        (is (number? child-t) "child has its own stamped :rf/time-ms")
         (is (not= 1781078400000 child-t)
-            "child did NOT inherit the parent's :time-ms — distinct causal token (EP-0010)")))))
+            "child did NOT inherit the parent's :rf/time-ms — distinct causal token (EP-0010)")))))
 
 ;; ===========================================================================
 ;; rf2-irbjjq: a :dispatch-later child gets FRESH world-inputs stamped at
 ;; FIRE time (the causal boundary is when the deferred dispatch RUNS, not when
-;; it was enqueued) — :time-ms is NOT the parent's, NOT the enqueue-time clock,
+;; it was enqueued) — :rf/time-ms is NOT the parent's, NOT the enqueue-time clock,
 ;; while the inherited envelope fields (:frame / :trace-id / :origin) still
 ;; propagate from the parent.
 ;;
@@ -290,11 +290,11 @@
 ;; time-ms (above) covers the IMMEDIATE :dispatch child; the deferred path is
 ;; distinct because `:dispatch-later` wraps the router `dispatch!` in
 ;; `interop/set-timeout!` (re-frame.fx §reserved-fx-handlers), so the child's
-;; `build-envelope` — and thus its `:rf.world/inputs` stamp — happens inside
+;; `build-envelope` — and thus its `:rf.cofx` stamp — happens inside
 ;; the timer callback, an arbitrary wall-clock interval after the parent
-;; settled. `:rf.world/inputs` is deliberately ABSENT from
+;; settled. `:rf.cofx` is deliberately ABSENT from
 ;; `re-frame.fx/inheritable-envelope-keys`, so the deferred child is stamped
-;; a fresh `:time-ms` at fire from `interop/epoch-now-ms` rather than copying
+;; a fresh `:rf/time-ms` at fire from `interop/epoch-now-ms` rather than copying
 ;; the parent's — the mechanism the existing world-input tests pin only for
 ;; the synchronous case.
 ;;
@@ -302,13 +302,13 @@
 ;; redef) and capture the timer thunk via a `set-timeout!` redef so we fire it
 ;; AFTER advancing — adversarially separating the three candidate stamp times
 ;; (parent token / enqueue clock / fire clock). A regression that inherited
-;; the parent's :time-ms, or that stamped at enqueue time, or that added
-;; :rf.world/inputs to the inheritable set, fails loudly here.
+;; the parent's :rf/time-ms, or that stamped at enqueue time, or that added
+;; :rf.cofx to the inheritable set, fails loudly here.
 ;; ===========================================================================
 
 (deftest dispatch-later-child-gets-fresh-world-inputs-stamped-at-fire-time
   (testing "a :fx [[:dispatch-later …]] child is stamped FRESH world-inputs at
-            FIRE time — :time-ms is the fire-time clock, NOT the parent token,
+            FIRE time — :rf/time-ms is the fire-time clock, NOT the parent token,
             NOT the enqueue-time clock; inherited fields still propagate"
     (rf/reg-frame :wi/later {:doc "ctx"})
     (let [;; mutable wall clock — the value `epoch-now-ms` reads moves between
@@ -342,13 +342,13 @@
                     ;; test is at the deferred dispatch's `build-envelope`,
                     ;; which the inline drain reaches deterministically.
                     interop/next-tick   (fn [f] (f) nil)]
-        ;; Parent supplies an explicit token :time-ms and rides a distinctive
+        ;; Parent supplies an explicit token :rf/time-ms and rides a distinctive
         ;; :trace-id / :origin so we can assert inheritance onto the child.
         (rf/dispatch-sync [:wi.later/parent]
                           {:frame           :wi/later
                            :trace-id        :wi.later/T
                            :origin          :ui
-                           :rf.world/inputs {:time-ms 1781078400000}})
+                           :rf.cofx {:rf/time-ms 1781078400000}})
         ;; ENQUEUE happened at clock=1000; the child's envelope is NOT built yet
         ;; (it is deferred). Advance the wall clock, THEN fire the deferred
         ;; thunk so the child's build-envelope reads the ADVANCED clock.
@@ -359,18 +359,18 @@
         (@deferred))                   ; fire the deferred dispatch at clock=5000
 
       (let [child-env @captured-child
-            child-t   (get-in child-env [:rf.world/inputs :time-ms])]
+            child-t   (get-in child-env [:rf.cofx :rf/time-ms])]
         (is (some? child-env) "the deferred child ran when the thunk fired")
         (is (= [:wi.later/child] (:event child-env)) "captured the child event")
         ;; FRESH at FIRE — the three adversarial candidates are separated:
         (is (= 5000 child-t)
-            "child :time-ms is the FIRE-time clock (5000) — stamped when the
+            "child :rf/time-ms is the FIRE-time clock (5000) — stamped when the
              deferred dispatch RAN, not at enqueue")
         (is (not= 1781078400000 child-t)
-            "child did NOT inherit the parent token's :time-ms — distinct
+            "child did NOT inherit the parent token's :rf/time-ms — distinct
              causal token (EP-0010 §Dispatch Envelope Stamping)")
         (is (not= 1000 child-t)
-            "child :time-ms is NOT the enqueue-time clock — the stamp is read
+            "child :rf/time-ms is NOT the enqueue-time clock — the stamp is read
              at fire, inside the timer callback, not captured at schedule time")
         ;; INHERITED envelope fields still propagate from the parent.
         (is (= :wi/later (:frame child-env))
@@ -384,7 +384,7 @@
         ;; The deferred child's :source reflects its OWN immediate trigger
         ;; (the :dispatch-later fx), NOT inherited (rf2-ejtpd) — a foil that
         ;; confirms the inheritance set is exactly the trace-context keys, not
-        ;; "everything", so :rf.world/inputs being excluded is the same shape.
+        ;; "everything", so :rf.cofx being excluded is the same shape.
         (is (= :fx-dispatch-later (:source child-env))
             "the deferred child's :source is its immediate trigger
              (:fx-dispatch-later), stamped by the fx handler — not inherited")))))
@@ -394,24 +394,24 @@
 ;; ===========================================================================
 
 (deftest world-inputs-visible-as-coeffect
-  (testing "handlers read :rf.world/inputs from the coeffect map"
+  (testing "handlers read :rf.cofx from the coeffect map"
     (rf/reg-frame :wi/cofx {:doc "ctx"})
     (let [cofx (capture-coeffects :wi/cofx
-                                  {:rf.world/inputs {:time-ms 1781078400456}})]
-      (is (contains? cofx :rf.world/inputs)
-          ":rf.world/inputs is a framework coeffect in the initial context")
-      (is (= 1781078400456 (get-in cofx [:rf.world/inputs :time-ms]))
-          "the supplied :time-ms is what the handler reads"))))
+                                  {:rf.cofx {:rf/time-ms 1781078400456}})]
+      (is (contains? cofx :rf.cofx)
+          ":rf.cofx is a framework coeffect in the initial context")
+      (is (= 1781078400456 (get-in cofx [:rf.cofx :rf/time-ms]))
+          "the supplied :rf/time-ms is what the handler reads"))))
 
 (deftest world-inputs-filtered-from-user-cofx-projection
-  (testing "fx/user-injected-coeffects strips :rf.world/inputs like the other framework defaults"
-    (is (contains? fx/framework-coeffect-keys :rf.world/inputs)
-        ":rf.world/inputs is in the framework-coeffect-keys filter set")
+  (testing "fx/user-injected-coeffects strips :rf.cofx like the other framework defaults"
+    (is (contains? fx/framework-coeffect-keys :rf.cofx)
+        ":rf.cofx is in the framework-coeffect-keys filter set")
     (let [cofx {:db {} :event [:e] :rf.db/runtime {} :rf.frame/id :f
-                :rf.world/inputs {:time-ms 1781078400789}
+                :rf.cofx {:rf/time-ms 1781078400789}
                 :my/cofx 1}]
       (is (= {:my/cofx 1} (fx/user-injected-coeffects cofx))
-          ":rf.world/inputs does NOT appear in the user-cofx trace projection"))))
+          ":rf.cofx does NOT appear in the user-cofx trace projection"))))
 
 ;; ===========================================================================
 ;; :dispatched-at is retired
@@ -425,17 +425,17 @@
         (is (not (contains? (build-envelope [:noop] {:frame :wi/no-dispatched-at})
                             :dispatched-at))
             "no :dispatched-at key on the envelope")))
-    (testing "the durable causal-time fact is (:time-ms (:rf.world/inputs env)) instead"
+    (testing "the durable causal-time fact is (:rf/time-ms (:rf.cofx env)) instead"
       (let [env (build-envelope [:noop] {:frame :wi/no-dispatched-at})]
-        (is (number? (get-in env [:rf.world/inputs :time-ms]))
-            ":time-ms is the replacement for the retired :dispatched-at")))))
+        (is (number? (get-in env [:rf.cofx :rf/time-ms]))
+            ":rf/time-ms is the replacement for the retired :dispatched-at")))))
 
 (deftest dispatched-at-supplied-is-a-hard-error
   ;; EP-0010 disposition 5 (rf2-lj39cn): SUPPLYING the retired :dispatched-at
   ;; dispatch opt is the STANDARD RETIREMENT TREATMENT — a HARD ERROR naming
   ;; the replacement, not the soft generic unknown-opt warn. The error carries
   ;; the canonical-replacement category id and a message naming
-  ;; (:time-ms (:rf.world/inputs envelope)).
+  ;; (:rf/time-ms (:rf.cofx envelope)).
   (testing "EP-0010 disposition 5 / EP-0007 rule 2: supplying :dispatched-at throws"
     (rf/reg-frame :wi/retired-supply {:doc "ctx"})
     (testing "build-envelope throws on the retired key (always-on, even with the dev gate OFF)"
@@ -444,7 +444,7 @@
                      (build-envelope [:noop] {:frame :wi/retired-supply
                                               :dispatched-at 123}))
             "supplying :dispatched-at is a hard error, not a warn (prod-survivable)")))
-    (testing "the error names the canonical replacement (:time-ms / :rf.world/inputs)"
+    (testing "the error names the canonical replacement (:rf/time-ms / :rf.cofx)"
       (let [ex   (try
                    (build-envelope [:noop] {:frame :wi/retired-supply
                                             :dispatched-at 123})
@@ -455,10 +455,10 @@
         (is (= :rf.error/dispatched-at-retired (:rf.error/id data))
             "the error category is the retired-spelling :rf.error/* id")
         (is (= :dispatched-at (:retired-key data)) "names the retired key")
-        (is (re-find #":time-ms" (:reason data))
-            "the message references :time-ms as the replacement")
-        (is (re-find #":rf\.world/inputs" (:reason data))
-            "the message references :rf.world/inputs as the replacement carrier")
+        (is (re-find #":rf/time-ms" (:reason data))
+            "the message references :rf/time-ms as the replacement")
+        (is (re-find #":rf\.cofx" (:reason data))
+            "the message references :rf.cofx as the replacement carrier")
         (is (= :no-recovery (:recovery data)) "no back-compat alias / recovery")))
     (testing "the full dispatch path (not just build-envelope) raises it"
       (rf/reg-event-db :wi/retired-noop (fn [db _] db))
@@ -472,7 +472,7 @@
   ;; rf2-s2mizv finding #3: the retired-opt validation runs BEFORE the
   ;; world-input clock stamp, so an invalid dispatch fails fast WITHOUT first
   ;; triggering the always-on `epoch-now-ms` read + world-input map allocation.
-  ;; Pre-fix, `build-envelope` stamped `:rf.world/inputs {:time-ms …}` and only
+  ;; Pre-fix, `build-envelope` stamped `:rf.cofx {:rf/time-ms …}` and only
   ;; THEN rejected `:dispatched-at` — wasting a clock read on a dispatch that
   ;; cannot proceed. We assert ordering by redefining `epoch-now-ms` to throw a
   ;; DISTINCT marker: if the clock is read before the retirement check, that
@@ -497,43 +497,43 @@
              retirement check ran first")))))
 
 ;; ===========================================================================
-;; rf2-sppf0m: a handler READS :uuid / :random from the :rf.world/inputs
-;; coeffect and WRITES the supplied values into a durable app-db entity.
+;; rf2-sppf0m / rf2-alc1lf: a handler READS owner-qualified facts from the
+;; flat :rf.cofx coeffect and WRITES the supplied values into a durable app-db
+;; entity.
 ;;
 ;; This is the EP-0010 §Validation/Conformance bullet — "random/UUID values
 ;; supplied by fixtures become durable ids exactly as supplied" — executed
 ;; against an actual durable WRITE, not merely the envelope pass-through that
-;; `preserves-caller-supplied-extra-keys-and-fills-time-ms` (above) pins. The
-;; EP §Examples "Correct Generated Values From The Token" shows the shape: a
-;; `:todo/create` handler reads `(get-in inputs [:uuid :todo/id])` +
-;; `(get-in inputs [:random :todo/color])` and folds them into app-db so the
-;; replay log explains every durable value. The deferred `:rf.world/uuid` /
-;; `:rf.world/random` framework cofx (EP disposition 2 / rider a) are NOT
-;; involved here — the test scripts the slots directly, exactly as a fixture /
+;; `preserves-caller-supplied-extra-keys-and-fills-time-ms` (above) pins. Under
+;; EP-0017 the recordable coeffects are flat (one fact per owner-qualified key,
+;; no grouping sub-maps): a `:todo/create` handler reads `(:todo/id cofx)` +
+;; `(:todo/color cofx)` and folds them into app-db so the replay log explains
+;; every durable value. No framework generator vocabulary is involved (EP-0017
+;; §Non-Goals) — the test scripts the facts directly, exactly as a fixture /
 ;; replay / SSR-hydration dispatch would, and the handler reads them straight
-;; from the coeffect map.
+;; from the flat coeffect map.
 ;; ===========================================================================
 
 (deftest supplied-uuid-random-become-durable-ids-exactly
-  (testing "a handler reads :uuid / :random from the :rf.world/inputs coeffect
+  (testing "a handler reads owner-qualified facts from the flat :rf.cofx coeffect
             and the supplied values land in app-db EXACTLY as supplied"
     (rf/reg-frame :wi/todos {:doc "ctx"})
     ;; The durable handler: reads the causal token's scripted id + colour from
     ;; the world-input coeffect (NOT an ambient `random-uuid` / `rand-nth`) and
     ;; folds them into a durable app-db entity. `reg-event-fx` so we can read
-    ;; the `:rf.world/inputs` framework coeffect off the cofx map.
+    ;; the `:rf.cofx` framework coeffect off the cofx map.
     (rf/reg-event-fx :todo/create
-      (fn [{:keys [db rf.world/inputs]} [_ text]]
-        (let [id    (get-in inputs [:uuid :todo/id])
-              color (get-in inputs [:random :todo/color])]
+      (fn [{:keys [db] cofx :rf.cofx} [_ text]]
+        (let [id    (:todo/id cofx)
+              color (:todo/color cofx)]
           {:db (assoc-in db [:todos id]
                          {:todo/id id :todo/color color :todo/text text})})))
     (let [id    #uuid "018ff2b4-9bbd-7a0a-a4df-cf2a91cbe86d"
           color :green]
       (rf/dispatch-sync [:todo/create "buy milk"]
                         {:frame :wi/todos
-                         :rf.world/inputs {:uuid   {:todo/id id}
-                                           :random {:todo/color color}}})
+                         :rf.cofx {:todo/id    id
+                                   :todo/color color}})
       (let [entity (get-in (rf/app-db-value :wi/todos) [:todos id])]
         (is (some? entity)
             "the entity is keyed in app-db under the EXACT supplied uuid")
@@ -551,24 +551,24 @@
             diverged run-to-run (EP-0010 §Restore, Replay, And Hydration)"
     (rf/reg-frame :wi/replay {:doc "ctx"})
     (rf/reg-event-fx :todo/create-from-token
-      (fn [{:keys [db rf.world/inputs]} _]
-        (let [id    (get-in inputs [:uuid :todo/id])
-              color (get-in inputs [:random :todo/color])]
+      (fn [{:keys [db] cofx :rf.cofx} _]
+        (let [id    (:todo/id cofx)
+              color (:todo/color cofx)]
           {:db (assoc db :entity {:todo/id id :todo/color color})})))
     ;; The scripted causal token — the SAME map supplied on both runs, exactly
     ;; as a replay / restore would re-feed it.
-    (let [token {:uuid   {:todo/id #uuid "018ff2b4-9bbd-7a0a-a4df-cf2a91cbe86d"}
-                 :random {:todo/color :blue}}
+    (let [token {:todo/id    #uuid "018ff2b4-9bbd-7a0a-a4df-cf2a91cbe86d"
+                 :todo/color :blue}
           run!  (fn []
                   (rf/dispatch-sync [:todo/create-from-token]
-                                    {:frame :wi/replay :rf.world/inputs token})
+                                    {:frame :wi/replay :rf.cofx token})
                   (:entity (rf/app-db-value :wi/replay)))
           first-entity  (run!)
           second-entity (run!)]
       (is (= first-entity second-entity)
           "two runs of the same token produce IDENTICAL durable entities —
            replay-stable")
-      (is (= (get-in token [:uuid :todo/id]) (:todo/id second-entity))
+      (is (= (:todo/id token) (:todo/id second-entity))
           "the reproduced durable id is the token's id, not a fresh draw")
       ;; Contrast: an ambient generator (random-uuid / rand-nth) folded into a
       ;; durable write would have produced two DIFFERENT ids across the two
@@ -589,13 +589,13 @@
 ;; This is the positive half of the EP-0008 / EP-0010 causal-vs-diagnostic
 ;; split (§Validation/Conformance bullet: "ambient diagnostic timestamps may
 ;; differ without changing durable state"). The runtime records BOTH a durable
-;; CAUSAL time (the token's `:rf.world/inputs` `:time-ms` → the epoch record's
+;; CAUSAL time (the token's `:rf.cofx` `:rf/time-ms` → the epoch record's
 ;; `:committed-at`, read ONCE at the causal boundary from `epoch-now-ms`) AND
 ;; ambient DIAGNOSTIC times (the trace event `:time`, stamped from the elapsed
 ;; `interop/now-ms` at every emit). The bullet asserts the ambient ones are
 ;; free to vary run-to-run while the durable projection stays EQUAL.
 ;;
-;; We run the SAME scripted token (same supplied `:time-ms`) twice under two
+;; We run the SAME scripted token (same supplied `:rf/time-ms`) twice under two
 ;; DIFFERENT ambient clocks and assert:
 ;;   (a) the durable :committed-at is EQUAL across both runs (it folds the
 ;;       supplied token time, never the ambient clock), AND
@@ -612,7 +612,7 @@
             :committed-at EQUAL while the diagnostic trace :time DIFFERS"
     (rf/reg-frame :wi/split {:doc "ctx"})
     (rf/reg-event-db :wi/note (fn [db _] (update db :n (fnil inc 0))))
-    (let [token-time   1781078400123     ; the supplied causal token :time-ms
+    (let [token-time   1781078400123     ; the supplied causal token :rf/time-ms
           ;; capture the diagnostic trace :time of THIS frame's :wi/note event
           ;; per run — the trace `:time` is stamped from the ambient
           ;; `interop/now-ms` (re-frame.trace/build-event), the diagnostic
@@ -635,14 +635,14 @@
                            ;; Pin BOTH host clocks to the SAME per-run ambient
                            ;; value so the trace :time is deterministic within
                            ;; the run yet DIFFERENT between the two runs, while
-                           ;; the SUPPLIED token :time-ms rides through
-                           ;; unchanged (the router only fills :time-ms when
+                           ;; the SUPPLIED token :rf/time-ms rides through
+                           ;; unchanged (the router only fills :rf/time-ms when
                            ;; absent — see preserves-caller-supplied-time-ms).
                            (with-redefs [interop/now-ms       (constantly ambient-clock)
                                          interop/epoch-now-ms (constantly ambient-clock)]
                              (rf/dispatch-sync [:wi/note]
                                                {:frame :wi/split
-                                                :rf.world/inputs {:time-ms token-time}}))
+                                                :rf.cofx {:rf/time-ms token-time}}))
                            (rf/unregister-listener! ::split-probe)
                            (swap! trace-times conj @seen)
                            ;; the durable :committed-at of the just-settled epoch
@@ -651,9 +651,9 @@
           committed-2  (run! 9999999)]
       ;; (a) DURABLE side — equal across the two ambient clocks.
       (is (= token-time committed-1)
-          "run 1: durable :committed-at folds the supplied token :time-ms")
+          "run 1: durable :committed-at folds the supplied token :rf/time-ms")
       (is (= token-time committed-2)
-          "run 2: durable :committed-at folds the SAME supplied token :time-ms")
+          "run 2: durable :committed-at folds the SAME supplied token :rf/time-ms")
       (is (= committed-1 committed-2)
           "durable :committed-at is EQUAL across runs — wall-clock drift
            between the two commits did not change durable state")

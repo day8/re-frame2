@@ -113,13 +113,14 @@
     :source                 closed-enum trigger-kind / functional-origin
     :source-detail          per-source-kind detail payload
     :origin                 actor identity tag
-    :rf.world/inputs        EP-0010 causal world-input map (caller-supplied
-                            `:time-ms` / `:uuid` / `:random` / etc.; the
-                            router fills `:time-ms` when absent — rf2-s9ss0t)
+    :rf.cofx                EP-0017 flat recordable-coeffect map
+                            (caller-supplied `:rf/time-ms` + owner-qualified
+                            facts; the router fills `:rf/time-ms` when absent —
+                            rf2-s9ss0t / rf2-alc1lf)
     :rf.trace/call-site     macro-stamped invocation coord (dev-only)
     :rf.machine/internal?   machine-internal continuation flag (front-queue)"
   #{:frame :fx-overrides :interceptor-overrides :trace-id :source
-    :source-detail :origin :rf.world/inputs :rf.trace/call-site
+    :source-detail :origin :rf.cofx :rf.trace/call-site
     :rf.machine/internal?})
 
 (defn reject-retired-dispatch-opts!
@@ -135,11 +136,11 @@
   merely lists the known set (which would let the soft path become the
   de-facto spelling — the cg7llv deterrent precedent).
 
-  The durable causal-time fact is `(:time-ms (:rf.world/inputs envelope))`
+  The durable causal-time fact is `(:rf/time-ms (:rf.cofx envelope))`
   — stamped by the framework at the dispatch causal boundary, NOT supplied
   by the caller. (The diagnostic dispatch-time need is the trace event's own
-  ambient `:time` stamp, Spec 009.) The error names `:rf.world/inputs`'s
-  `:time-ms` as the replacement so the programmer rewrites rather than
+  ambient `:time` stamp, Spec 009.) The error names `:rf.cofx`'s
+  `:rf/time-ms` as the replacement so the programmer rewrites rather than
   retries.
 
   ALWAYS-ON — NOT gated on `interop/debug-enabled?`: a retirement hard error
@@ -158,15 +159,15 @@
                      :event-id    (first event)
                      :event       event
                      :retired-key :dispatched-at
-                     :replacement '(:time-ms (:rf.world/inputs envelope))
+                     :replacement '(:rf/time-ms (:rf.cofx envelope))
                      :reason      (str "Dispatch opt `:dispatched-at` is RETIRED "
                                        "(EP-0010 disposition 5 / EP-0007 "
                                        "one-name-per-fact). There is no "
                                        "caller-supplied dispatch-time field. "
                                        "The durable causal-time fact is "
-                                       "`(:time-ms (:rf.world/inputs envelope))` "
-                                       "— the framework stamps `:time-ms` into "
-                                       "`:rf.world/inputs` at the dispatch causal "
+                                       "`(:rf/time-ms (:rf.cofx envelope))` "
+                                       "— the framework stamps `:rf/time-ms` into "
+                                       "`:rf.cofx` at the dispatch causal "
                                        "boundary; durable code reads it from there. "
                                        "For a diagnostic dispatch-time, use the "
                                        "trace event's own ambient `:time` stamp "
@@ -174,81 +175,80 @@
                                        "is no back-compat alias.")
                      :recovery    :no-recovery}))))
 
-(defn validate-world-inputs!
-  "Throw `:rf.error/invalid-world-inputs` when a caller-supplied
-  `:rf.world/inputs` is structurally malformed at the PUBLIC dispatch
-  boundary (rf2-47lgee / rf2-nftz2s).
+(defn validate-cofx!
+  "Throw `:rf.error/invalid-cofx` when a caller-supplied `:rf.cofx` is
+  structurally malformed at the PUBLIC dispatch boundary (rf2-47lgee /
+  rf2-nftz2s / rf2-alc1lf).
 
-  EP-0010 makes `:rf.world/inputs` the durable causal token: its `:time-ms`
-  is the one host-clock fact durable writes fold (Spec 002 §The World-Input
-  Rule), and replay / restore / SSR-hydration feed it verbatim. So a
-  malformed token is not a harmless typo — a non-map supplied value, or a
-  non-integer `:time-ms`, propagates straight into durable-write code (the
-  epoch record's `:committed-at`, resource `:settled-at`, …) and makes the
-  fold dishonest. The pair-tool (`re-frame2-pair-mcp.tools.args/parse-world-
-  inputs`) already validates its own wire shape, but that does NOT protect
-  ordinary public `dispatch` / `dispatch-sync`; a single central validator
-  at the dispatch boundary is simpler to reason about than relying on every
-  caller / tool to validate (rf2-nftz2s §1).
+  EP-0017 makes `:rf.cofx` the durable causal token (the flat
+  recordable-coeffect map): its `:rf/time-ms` is the one host-clock fact
+  durable writes fold (Spec 002 §The World-Input Rule), and replay / restore
+  / SSR-hydration feed it verbatim. So a malformed token is not a harmless
+  typo — a non-map supplied value, or a non-integer `:rf/time-ms`, propagates
+  straight into durable-write code (the epoch record's `:committed-at`,
+  resource `:settled-at`, …) and makes the fold dishonest. The pair-tool
+  already validates its own wire shape, but that does NOT protect ordinary
+  public `dispatch` / `dispatch-sync`; a single central validator at the
+  dispatch boundary is simpler to reason about than relying on every caller /
+  tool to validate (rf2-nftz2s §1).
 
-  The contract MIRRORS `WorldInputs` (Spec-Schemas.md §:rf.world/inputs):
+  The contract MIRRORS the `:rf.cofx` schema (Spec-Schemas.md §:rf.cofx):
 
-    - a supplied `:rf.world/inputs` MUST be nil or a MAP (`nil` ⇒ the router
+    - a supplied `:rf.cofx` MUST be nil or a MAP (`nil` ⇒ the router
       stamps a fresh map — the ordinary live-dispatch path);
-    - a supplied `:time-ms` MUST be an integer (wall-clock epoch ms — the
-      schema's lone required-on-the-envelope key).
+    - a supplied `:rf/time-ms` MUST be an integer (wall-clock epoch ms — the
+      framework's lone provided-on-the-envelope fact).
 
-  Other slots (`:uuid` / `:random` / `:storage` / browser facts) ride
-  through unvalidated here — they are open, subsystem-qualified, and a
-  narrower spec / schema gate is the deeper check; this is the cheap
-  structural shape gate that stops the two shapes that corrupt the durable
-  fold.
+  Other facts (app-owned, subsystem-qualified) ride through unvalidated here
+  — they are open, owner-qualified, and a narrower spec / schema gate is the
+  deeper check; this is the cheap structural shape gate that stops the two
+  shapes that corrupt the durable fold.
 
   ALWAYS-ON — NOT gated on `interop/debug-enabled?`: like
   `reject-retired-dispatch-opts!`, a corrupt causal token is a correctness
   contract that must fail fast in `:advanced` + `goog.DEBUG=false`
-  production too (a non-integer `:time-ms` folded into a durable timestamp
+  production too (a non-integer `:rf/time-ms` folded into a durable timestamp
   is a production data-integrity bug, not a dev nicety). The cost is a
   `contains?` + a `map?` / `int?` check on the dispatch path — no allocation
-  unless the caller supplied a `:rf.world/inputs`.
+  unless the caller supplied a `:rf.cofx`.
 
   Checked at the causal boundary in `re-frame.router/build-envelope` BEFORE
-  `ensure-world-inputs` stamps `:time-ms`, so an invalid token fails fast
-  WITHOUT first reading the clock for a dispatch that cannot proceed (the
-  same fail-before-clock-read ordering as the retirement check). Per Spec
-  002 §The World-Input Rule + EP-0010 §Time."
+  `ensure-cofx` stamps `:rf/time-ms`, so an invalid token fails fast WITHOUT
+  first reading the clock for a dispatch that cannot proceed (the same
+  fail-before-clock-read ordering as the retirement check). Per Spec 002 §The
+  World-Input Rule + EP-0010 §Time + EP-0017 §The envelope field."
   [opts event]
-  (when (contains? opts :rf.world/inputs)
-    (let [supplied (:rf.world/inputs opts)]
+  (when (contains? opts :rf.cofx)
+    (let [supplied (:rf.cofx opts)]
       (when-not (or (nil? supplied) (map? supplied))
-        (throw (ex-info ":rf.error/invalid-world-inputs"
-                        {:rf.error/id :rf.error/invalid-world-inputs
+        (throw (ex-info ":rf.error/invalid-cofx"
+                        {:rf.error/id :rf.error/invalid-cofx
                          :where       're-frame.router/build-envelope
                          :event-id    (first event)
                          :event       event
                          :supplied    supplied
-                         :reason      (str ":rf.world/inputs must be nil or a MAP "
-                                           "of causal world facts (Spec 002 §The "
+                         :reason      (str ":rf.cofx must be nil or a MAP "
+                                           "of recordable coeffect facts (Spec 002 §The "
                                            "World-Input Rule), got "
                                            (pr-str supplied)
-                                           ". The map's `:time-ms` (wall-clock "
+                                           ". The map's `:rf/time-ms` (wall-clock "
                                            "epoch ms) is the durable causal token "
                                            "durable writes fold; a non-map value "
                                            "cannot carry it.")
                          :recovery    :no-recovery})))
       (when (and (map? supplied)
-                 (contains? supplied :time-ms)
-                 (not (int? (:time-ms supplied))))
-        (throw (ex-info ":rf.error/invalid-world-inputs"
-                        {:rf.error/id :rf.error/invalid-world-inputs
+                 (contains? supplied :rf/time-ms)
+                 (not (int? (:rf/time-ms supplied))))
+        (throw (ex-info ":rf.error/invalid-cofx"
+                        {:rf.error/id :rf.error/invalid-cofx
                          :where       're-frame.router/build-envelope
                          :event-id    (first event)
                          :event       event
-                         :time-ms     (:time-ms supplied)
-                         :reason      (str ":rf.world/inputs :time-ms must be an "
+                         :rf/time-ms  (:rf/time-ms supplied)
+                         :reason      (str ":rf.cofx :rf/time-ms must be an "
                                            "INTEGER (wall-clock epoch milliseconds "
-                                           "— Spec-Schemas.md §:rf.world/inputs), "
-                                           "got " (pr-str (:time-ms supplied))
+                                           "— Spec-Schemas.md §:rf.cofx), "
+                                           "got " (pr-str (:rf/time-ms supplied))
                                            ". This value becomes the durable "
                                            "causal time the frame fold reads "
                                            "(epoch `:committed-at`, resource "

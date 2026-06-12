@@ -301,7 +301,7 @@
   (rf2-3aizt1, decision #2): the canonical snapshot unit is the whole
   frame-state; `build-record` derives the `:db-*` app-db projections.
 
-  `committed-at` (rf2-bh56rc) is the destroying event's causal `:time-ms`
+  `committed-at` (rf2-bh56rc) is the destroying event's causal `:rf/time-ms`
   (the router-bound `frame/*cascade-time-ms*`, threaded through
   `destroy-frame!`), used for the `:halted-destroy` record's
   `:committed-at` so it is replayable per EP-0010 §Time rather than an

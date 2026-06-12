@@ -231,14 +231,14 @@
         ;; `(.now)`. Per spec/Managed-Effects.md §155/§231 a machine
         ;; completion that affects durable state (a spawned child's
         ;; `:on-done` mutating the parent's `:data`) MUST carry causal
-        ;; completion metadata. The router's `:rf.world/inputs` `:time-ms`
-        ;; (EP-0010 — the single causal-boundary clock read) is threaded
-        ;; onto the machine def under `:rf/world-inputs`
+        ;; completion metadata. The router's `:rf.cofx` `:rf/time-ms`
+        ;; (EP-0010 / EP-0017 — the single causal-boundary clock read) is
+        ;; threaded onto the machine def under `:rf/cofx`
         ;; (lifecycle-fx.registration); read it here so the done reply +
         ;; trace carry the causal time instead of silently losing it. nil
-        ;; when the trigger was unscripted (no world-input) — omitted, not
+        ;; when the trigger was unscripted (no recordable cofx) — omitted, not
         ;; nil-filled (Managed-Effects §The reply map).
-        completed-at (get-in machine [:rf/world-inputs :time-ms])
+        completed-at (get-in machine [:rf/cofx :rf/time-ms])
         reply-ctx   (cond-> {:actor-id          machine-id
                              :parent-id         parent-id
                              :work-bearing-path invoke-id
@@ -357,7 +357,7 @@
                                 :rf.reply/work-id     (:work/id done-summary)
                                 :rf.reply/work-status (:work/status done-summary)}
                          ;; (rf2-6mfkp3) the causal completion timestamp — the
-                         ;; router's `:rf.world/inputs` `:time-ms` threaded
+                         ;; router's `:rf.cofx` `:rf/time-ms` threaded
                          ;; into the reply (Managed-Effects §155/§231: a
                          ;; completion affecting durable state carries causal
                          ;; completion metadata). Additive + present-only so

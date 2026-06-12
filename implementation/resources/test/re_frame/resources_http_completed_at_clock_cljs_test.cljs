@@ -6,7 +6,7 @@
 
   WHY A NEW SUITE: every existing `:completed-at` test (e.g.
   `resources-managed-http-cljs-test`, `http-reply-lowering`) SCRIPTS the
-  reply token's `:completed-at` / `:rf.world/inputs` `:time-ms` with an
+  reply token's `:completed-at` / `:rf.cofx` `:rf/time-ms` with an
   explicit epoch value, bypassing the live `reply-ctx` clock read in
   `re-frame.http-transport`. So the wall-clock-vs-perf-clock bug (the
   transport boundary the router's fresh-token fix 427f260d3 / rf2-n1rh0f

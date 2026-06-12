@@ -235,14 +235,14 @@
   the parallel-region marker: present iff this is a region snapshot, so
   flat / compound machines surface neither key and their ctx is unchanged.
 
-  Per EP-0010 (rf2-g0m4p5): when the event handler's causal world-input
-  token (the router's `:rf.world/inputs` coeffect — Spec 002 §Event Context
-  And Coeffects) has been threaded onto the machine def under `:rf/world-inputs`
-  (stamped by `prepare-machine-ctx` alongside `:rf/frame` / `:rf/platform` /
-  `:rf/parent-id`, and propagated to region specs), surface it on the ctx
-  under the SAME `:rf.world/inputs` key. A durable guard / action that
+  Per EP-0010 / EP-0017 (rf2-g0m4p5 / rf2-alc1lf): when the event handler's
+  causal recordable-coeffect token (the router's `:rf.cofx` coeffect — Spec
+  002 §Event Context And Coeffects) has been threaded onto the machine def
+  under `:rf/cofx` (stamped by `prepare-machine-ctx` alongside `:rf/frame` /
+  `:rf/platform` / `:rf/parent-id`, and propagated to region specs), surface
+  it on the ctx under the SAME `:rf.cofx` key. A durable guard / action that
   decides on time / random / UUID host facts then reads
-  `(:time-ms (:rf.world/inputs ctx))` — the causal token — instead of an
+  `(:rf/time-ms (:rf.cofx ctx))` — the causal token — instead of an
   ambient `interop/now-ms`, so machine decisions and snapshot writes replay
   deterministically. Absent for pure-fn callers (conformance corpus / JVM
   fixtures) that drive the engine without a router coeffect — the key is
@@ -254,16 +254,16 @@
            :meta  (:meta snapshot)}
     (contains? snapshot :all-state) (assoc :all-state (:all-state snapshot)
                                            :tags      (:tags snapshot))
-    (contains? machine :rf/world-inputs) (assoc :rf.world/inputs
-                                                (:rf/world-inputs machine))))
+    (contains? machine :rf/cofx) (assoc :rf.cofx
+                                        (:rf/cofx machine))))
 
 (defn- call-guard
   "Invoke a resolved guard fn against a snapshot + event with the unified
   context-map contract — `(fn [{:keys [data event state meta]}] boolean)`.
   Per Spec 005 §Guards (rf2-grw4i / rf2-v0rrr); a parallel region's guard
   additionally receives `:tags` + `:all-state` (rf2-46ly6 / rf2-69d1n), and —
-  per EP-0010 (rf2-g0m4p5) — the causal `:rf.world/inputs` token when the
-  handler threaded it onto the machine def."
+  per EP-0010 / EP-0017 (rf2-g0m4p5 / rf2-alc1lf) — the causal `:rf.cofx`
+  token when the handler threaded it onto the machine def."
   [machine g snapshot event]
   (g (callback-ctx machine snapshot event)))
 
@@ -272,8 +272,8 @@
   context-map contract — `(fn [{:keys [data event state meta]}] effects)`.
   Per Spec 005 §Actions (rf2-grw4i / rf2-v0rrr); a parallel region's action
   additionally receives `:tags` + `:all-state` (rf2-46ly6 / rf2-69d1n), and —
-  per EP-0010 (rf2-g0m4p5) — the causal `:rf.world/inputs` token when the
-  handler threaded it onto the machine def."
+  per EP-0010 / EP-0017 (rf2-g0m4p5 / rf2-alc1lf) — the causal `:rf.cofx`
+  token when the handler threaded it onto the machine def."
   [machine f snapshot event]
   (f (callback-ctx machine snapshot event)))
 

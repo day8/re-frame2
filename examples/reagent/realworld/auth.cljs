@@ -60,7 +60,7 @@
 ;; plus the causal token — not of an ambient `localStorage` read at the write
 ;; site, which replay/restore could not reproduce. The host-boundary boot read
 ;; happens once, in `realworld.core/run`, and rides the boot dispatch token as
-;; `:rf.world/inputs {:storage {:jwt-token …}}`.
+;; the flat recordable coeffect `:rf.cofx {:auth.session/stored-token …}`.
 (defn read-jwt-from-storage
   "Host-boundary read of the saved JWT from localStorage (or nil). Called from
    `realworld.core/run` so the token rides the boot dispatch token as a causal
@@ -73,19 +73,19 @@
 (rf/reg-cofx :auth.session/token
   {:doc "Inject the saved JWT (or nil) into coeffects.
 
-         EP-0010 recordable storage coeffect (the `:app/now-ms` pattern,
-         EP-0010 §Backwards Compatibility): returns the captured
-         `(get-in cofx [:rf.world/inputs :storage :jwt-token])` value when the
-         boot token supplied one (replay / restore / test fixtures get the exact
+         EP-0010 / EP-0017 recordable storage coeffect (the `:app/now-ms`
+         pattern, EP-0010 §Backwards Compatibility): returns the captured
+         `(:auth.session/stored-token (:rf.cofx cofx))` value when the boot
+         token supplied one (replay / restore / test fixtures get the exact
          recorded value, no host re-read), falling back to a live
          `read-jwt-from-storage` host read only when none was supplied — i.e.
          when building a fresh live token at the boundary where reading the host
          IS correct."}
   (fn cofx-auth-session-token [ctx _]
-    (let [world (get-in ctx [:coeffects :rf.world/inputs])]
+    (let [cofx (get-in ctx [:coeffects :rf.cofx])]
       (rf/assoc-coeffect ctx :auth.session/token
-                         (if (contains? (:storage world) :jwt-token)
-                           (get-in world [:storage :jwt-token])
+                         (if (contains? cofx :auth.session/stored-token)
+                           (:auth.session/stored-token cofx)
                            (read-jwt-from-storage))))))
 
 ;; ============================================================================

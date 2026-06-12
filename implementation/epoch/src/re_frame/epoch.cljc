@@ -13,7 +13,7 @@
     :epoch-id       opaque, unique within a frame's history
     :frame          frame keyword
     :committed-at   the committing event's CAUSAL time — its envelope's
-                    `:rf.world/inputs` `:time-ms`, stamped at the router's
+                    `:rf.cofx` `:rf/time-ms`, stamped at the router's
                     causal boundary (rf2-bh56rc / EP-0010 §Time), NOT an
                     ambient assembly-time clock read; replayable
     :event-id       the event keyword that triggered the cascade
@@ -233,7 +233,7 @@
   canonical pin. `db-before` / `db-after` are the pre-cascade and
   destroy-time snapshots `destroy-frame!` captured before the frame was
   removed (both nil for an out-of-cascade destroy). `committed-at`
-  (rf2-bh56rc) is the destroying event's causal `:time-ms`, used for the
+  (rf2-bh56rc) is the destroying event's causal `:rf/time-ms`, used for the
   `:halted-destroy` record's replayable `:committed-at`."
   [frame-id db-before db-after committed-at]
   (listeners/on-frame-destroyed! frame-id db-before db-after committed-at))
@@ -281,7 +281,7 @@
 
   `committed-at` is the record's durable causal time — per EP-0010 §Time
   and Spec 002 §The World-Input Rule (rf2-bh56rc) the committing causal
-  token's `:rf.world/inputs` `:time-ms`, threaded down from the router's
+  token's `:rf.cofx` `:rf/time-ms`, threaded down from the router's
   per-event settle / depth-halt seam, NOT an ambient host-clock read at
   assembly time. This makes `:committed-at` replayable."
   [frame-id frame-state-before frame-state-after events committed-at outcome halt-reason trigger-event]
@@ -352,12 +352,12 @@
 
   `committed-at` is the record's durable causal time — per EP-0010 §Time
   (epoch record causal time) and Spec 002 §The World-Input Rule
-  (rf2-bh56rc) the committing causal token's `:rf.world/inputs` `:time-ms`,
+  (rf2-bh56rc) the committing causal token's `:rf.cofx` `:rf/time-ms`,
   read ONCE at the causal boundary (envelope construction) and threaded
   down here by the router's per-event settle seam (`settle-event-epoch!`),
   NOT an ambient host-clock read at assembly time. This makes the record's
   `:committed-at` replayable: the same event log replayed with the same
-  supplied `:time-ms` values yields records with equal `:committed-at`.
+  supplied `:rf/time-ms` values yields records with equal `:committed-at`.
 
   Arities:
     (settle! frame-id frame-state-before frame-state-after committed-at)
@@ -449,7 +449,7 @@
 
   `committed-at` is the record's durable causal time — per EP-0010 §Time
   and Spec 002 §The World-Input Rule (rf2-bh56rc) the halting causal
-  token's `:rf.world/inputs` `:time-ms`, threaded down from the router's
+  token's `:rf.cofx` `:rf/time-ms`, threaded down from the router's
   `handle-depth-exceeded!` seam, NOT an ambient host-clock read. The
   halting event never ran, but its envelope carries a `:time-ms` stamped
   at its dispatch (the causal boundary); using it keeps even this

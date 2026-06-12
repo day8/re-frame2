@@ -121,7 +121,7 @@
 
 (defn epoch-now-ms
   "Wall-clock epoch milliseconds. The canonical source for EP-0010 durable
-  causal time (`:rf.world/inputs` `:time-ms`, EP-0010 §Time — \"wall-clock
+  causal time (`:rf.cofx` `:rf/time-ms`, EP-0010 §Time — \"wall-clock
   epoch milliseconds\"). DISTINCT from `now-ms`: that is `performance.now()`
   (origin-relative, for elapsed measurement) on CLJS, which is NOT comparable
   with `js/Date`-based freshness checks. A durable timestamp folded from this

@@ -6,7 +6,7 @@
   ## What the EP promises (and what was missing)
 
   EP-0010's headline guarantee: a recorded epoch — a token log with
-  `:rf.world/inputs` (`:time-ms` / `:uuid` / `:random`) on each token —
+  `:rf.cofx` (`:time-ms` / `:uuid` / `:random`) on each token —
   replays DETERMINISTICALLY from its captured world-inputs, EQUAL durable
   state across two runs under DIFFERING host clock + RNG. Every durable
   causal-time / id fact folds the TOKEN's world inputs, never an ambient
@@ -32,7 +32,7 @@
   A token log spanning BOTH durable partitions:
 
     1. APP-DB entity create — a `:repl/create` handler reads `:uuid` /
-       `:random` / `:time-ms` from the token's `:rf.world/inputs` and folds
+       `:random` / `:time-ms` from the token's `:rf.cofx` and folds
        them into a durable app-db entity (the EP §Examples \"Correct
        Generated Values From The Token\" shape). Ambient `random-uuid` /
        `rand` would diverge run-to-run; reading the token does not.
@@ -103,7 +103,7 @@
 ;; The live managed-HTTP transport APPENDS its result to the runtime-supplied
 ;; `:on-success` event vector as the LAST arg (Spec 014 §Reply addressing).
 ;; To exercise the runtime's reply handlers against that EXACT shape WITHOUT
-;; a live Fetch — and so we can SCRIPT the reply token's `:rf.world/inputs`
+;; a live Fetch — and so we can SCRIPT the reply token's `:rf.cofx`
 ;; `:time-ms` exactly as a replay would re-feed it — the stub captures the
 ;; lowered args; the test replays the success reply explicitly.
 
@@ -125,7 +125,7 @@
 
 ;; ---- the durable handlers + resource the token log drives -----------------
 ;;
-;; Each handler reads its durable facts from the token's `:rf.world/inputs`
+;; Each handler reads its durable facts from the token's `:rf.cofx`
 ;; coeffect — NEVER an ambient `random-uuid` / `rand` / clock read. That is
 ;; the property under test: replay-determinism follows iff every durable
 ;; write folds the token, so the two runs (differing ambient clock/RNG)
@@ -134,17 +134,17 @@
 (defn- register-log! []
   ;; (1) APP-DB entity create from the token's generated values.
   (rf/reg-event-fx :repl/create
-    (fn [{:keys [db rf.world/inputs]} [_ text]]
-      (let [id    (get-in inputs [:uuid :todo/id])
-            color (get-in inputs [:random :todo/color])
-            at    (:time-ms inputs)]
+    (fn [{:keys [db] cofx :rf.cofx} [_ text]]
+      (let [id    (:todo/id cofx)
+            color (:todo/color cofx)
+            at    (:rf/time-ms cofx)]
         {:db (assoc-in db [:todos id]
                        {:todo/id id :todo/color color
                         :todo/text text :todo/created-at at})})))
   ;; (3) APP-DB mutation — a second durable write folding the token time.
   (rf/reg-event-fx :repl/touch
-    (fn [{:keys [db rf.world/inputs]} [_ id]]
-      {:db (assoc-in db [:todos id :todo/touched-at] (:time-ms inputs))}))
+    (fn [{:keys [db] cofx :rf.cofx} [_ id]]
+      {:db (assoc-in db [:todos id :todo/touched-at] (:rf/time-ms cofx))}))
   ;; (2) RESOURCE — loaded-at / stale-at fold the success-reply token time;
   ;;     work-ledger started-at / deadline-at fold the ensure token time.
   (rf/reg-resource :repl/article
@@ -158,12 +158,12 @@
 (defn- reply-success!
   "Dispatch the captured `:on-success` reply with the transport's success
   result appended as the LAST arg (the live transport shape), carrying a
-  SCRIPTED `:rf.world/inputs` `:time-ms` — exactly as a replay re-feeds the
+  SCRIPTED `:rf.cofx` `:rf/time-ms` — exactly as a replay re-feeds the
   reply token's causal completion time."
   [data time-ms]
   (rf/dispatch-sync (conj (:on-success @last-managed-args)
                           {:kind :success :value data})
-                    {:frame frame-id :rf.world/inputs {:time-ms time-ms}}))
+                    {:frame frame-id :rf.cofx {:rf/time-ms time-ms}}))
 
 ;; ---- the canonical scripted token log -------------------------------------
 ;;
@@ -183,7 +183,7 @@
 (defn- run-log!
   "Replay the whole token log through the LIVE router once, against the
   fresh runtime the caller has just reset. Every dispatch supplies its
-  `:rf.world/inputs` so the durable fold is token-sourced; the ambient
+  `:rf.cofx` so the durable fold is token-sourced; the ambient
   clock/RNG the caller pinned must NOT leak into any durable write.
   Returns the two-partition durable projection `{:rf.db/app :rf.db/runtime}`."
   []
@@ -191,31 +191,31 @@
   ;; (1) APP-DB create from token uuid/random/time-ms.
   (rf/dispatch-sync [:repl/create "buy milk"]
                     {:frame frame-id
-                     :rf.world/inputs {:uuid   {:todo/id todo-id}
-                                       :random {:todo/color :green}
-                                       :time-ms (:create-time log)}})
+                     :rf.cofx {:todo/id    todo-id
+                               :todo/color :green
+                               :rf/time-ms (:create-time log)}})
   ;; (2) RESOURCE ensure → success. The ensure token's :time-ms folds into the
   ;; work-ledger :started-at; the success reply token's :time-ms folds into the
   ;; durable :loaded-at / :stale-at.
   (rf/dispatch-sync [:rf.resource/ensure
                      {:resource :repl/article :scope :rf.scope/global
                       :params {:slug "w"} :owner [:lease :repl 1]}]
-                    {:frame frame-id :rf.world/inputs {:time-ms (:ensure-time log)}})
+                    {:frame frame-id :rf.cofx {:rf/time-ms (:ensure-time log)}})
   (reply-success! {:title "Welcome"} (:reply-time log))
   ;; (3) APP-DB mutation folding the touch token time.
   (rf/dispatch-sync [:repl/touch todo-id]
-                    {:frame frame-id :rf.world/inputs {:time-ms (:touch-time log)}})
+                    {:frame frame-id :rf.cofx {:rf/time-ms (:touch-time log)}})
   ;; (4) OWNER release — drop the lease so the invalidation below LEAVES the
   ;; entry stale rather than spawning a live (ambient-stamped) refetch. Keeps
   ;; the fixture a pure recorded-log replay.
   (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :repl 1]}]
-                    {:frame frame-id :rf.world/inputs {:time-ms (:release-time log)}})
+                    {:frame frame-id :rf.cofx {:rf/time-ms (:release-time log)}})
   ;; (5) TAG invalidation — durable :invalidated-at from the invalidation
   ;; token's :time-ms (the freshness-DECISION branch, rf2-95b0lc). Ownerless
   ;; ⇒ left stale, no refetch (Spec 016 §Invalidation 4).
   (rf/dispatch-sync [:rf.resource/invalidate-tags
                      {:scope :rf.scope/global :tags #{[:article "w"]}}]
-                    {:frame frame-id :rf.world/inputs {:time-ms (:invalidate-time log)}})
+                    {:frame frame-id :rf.cofx {:rf/time-ms (:invalidate-time log)}})
   {:rf.db/app     (rf/app-db-value frame-id)
    :rf.db/runtime (rf/runtime-db-value frame-id)})
 
@@ -252,7 +252,7 @@
   (testing "rf2-b7w7i0 — the SAME multi-event token log, replayed twice under
             WILDLY different ambient clocks AND RNG, yields EQUAL durable
             {:rf.db/app :rf.db/runtime} projections. Every durable causal-time
-            / id fact folds the token's :rf.world/inputs, so ambient drift
+            / id fact folds the token's :rf.cofx, so ambient drift
             (the very thing replay must be immune to) does not change durable
             state. Spans app-db (entity create + mutation) AND runtime-db
             (resource loaded-at/stale-at, work-ledger started-at, tag

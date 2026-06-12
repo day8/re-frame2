@@ -442,8 +442,8 @@
   `opts` carries `:frame`, `:middleware-ctx`, the three keys
   `dispatch-reply-via-late-bind!` consumes (`:origin-event`,
   `:explicit-on`, `:kind`), and the EP-0010 `:completed-at` causal
-  completion time threaded onto the reply dispatch's `:rf.world/inputs`
-  (rf2-n1rh0f). No-op when the router is absent / the reply is silenced
+  completion time threaded onto the reply dispatch's `:rf.cofx`
+  (rf2-n1rh0f / rf2-alc1lf). No-op when the router is absent / the reply is silenced
   (delegated to `dispatch-reply-via-late-bind!`)."
   [{:keys [frame middleware-ctx origin-event explicit-on reply-payload kind completed-at]}]
   (let [final-payload (if middleware-ctx

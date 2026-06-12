@@ -7,7 +7,7 @@
   `[<parent-id> [:rf.machine.timer/after-elapsed ...]]` dispatch back into
   the parent machine. That dispatch is a DISPATCH ENVELOPE in its own right
   — and per EP-0010 every dispatch envelope stamps or supplies its OWN
-  `:rf.world/inputs` at its OWN causal boundary. Timer/child tokens MUST
+  `:rf.cofx` at its OWN causal boundary. Timer/child tokens MUST
   NOT inherit a parent's `:time-ms`: the timer-fire envelope is a DISTINCT
   causal token, stamped fresh at FIRE time.
 
@@ -15,8 +15,8 @@
   `schedule-after-timer!` installs the host-clock callback via
   `interop/schedule-after!`; that callback calls the late-bound
   `:router/dispatch!` with `{:frame ... :source :after-timer}` and
-  DELIBERATELY supplies NO `:rf.world/inputs`. So the router (build-envelope)
-  stamps a fresh `{:time-ms (interop/epoch-now-ms)}` at fire time — the
+  DELIBERATELY supplies NO `:rf.cofx`. So the router (build-envelope)
+  stamps a fresh `{:rf/time-ms (interop/epoch-now-ms)}` at fire time — the
   timer-driven guard/action reads the FIRE-time token, not the scheduling-
   time parent token.
 
@@ -25,9 +25,9 @@
   `dispatch-sync`. NONE drive the REAL `:after` timer-fire boundary, where
   the token is router-STAMPED (not supplied). `after_test.clj` drives the
   `:after` semantics by dispatching the synthetic `after-elapsed` event by
-  HAND (no `:rf.world/inputs`), so it never exercises the stamping either. A
+  HAND (no `:rf.cofx`), so it never exercises the stamping either. A
   regression that made the timer callback INHERIT the parent/scheduling
-  token (e.g. by threading the entry dispatch's `:rf.world/inputs` through to
+  token (e.g. by threading the entry dispatch's `:rf.cofx` through to
   the `after-elapsed` dispatch opts) would pass every existing test. This
   test fails on exactly that regression.
 
@@ -73,7 +73,7 @@
 
 (deftest after-timer-fire-stamps-fresh-causal-token
   (testing "the :after timer's dispatched event carries a FRESH router-
-            stamped :rf.world/inputs :time-ms at FIRE time (not the parent
+            stamped :rf.cofx :time-ms at FIRE time (not the parent
             scheduling-time token) — driven through the REAL
             interop/schedule-after! fire boundary (rf2-hg39nf)"
     (let [;; The mutable host clock the router's epoch-now-ms reads. Starts
@@ -82,7 +82,7 @@
           ;; The timer-callback thunk captured by the stubbed schedule-after!.
           captured-thunk  (atom nil)
           ;; What the :after-transition guard + action actually observed off
-          ;; (:rf.world/inputs ctx) at fire time.
+          ;; (:rf.cofx ctx) at fire time.
           guard-saw       (atom ::unset)
           action-saw      (atom ::unset)
           ;; The machine: :loading bears an :after whose transition both
@@ -91,13 +91,13 @@
           m {:initial :idle
              :data    {}
              :guards  {:capture-fire-time
-                       (fn [{inputs :rf.world/inputs}]
-                         (reset! guard-saw (:time-ms inputs))
+                       (fn [{cofx :rf.cofx}]
+                         (reset! guard-saw (:rf/time-ms cofx))
                          true)}
              :actions {:stamp-fire-time
-                       (fn [{inputs :rf.world/inputs}]
-                         (reset! action-saw (:time-ms inputs))
-                         {:data {:fired-at (:time-ms inputs)}})}
+                       (fn [{cofx :rf.cofx}]
+                         (reset! action-saw (:rf/time-ms cofx))
+                         {:data {:fired-at (:rf/time-ms cofx)}})}
              :states  {:idle    {:on {:fetch :loading}}
                        :loading {:after {5000 {:target :timeout
                                                :guard  :capture-fire-time
@@ -119,7 +119,7 @@
         ;; would equal PARENT here — but we ADVANCE the clock before firing,
         ;; so a fresh stamp MUST diverge.
         (rf/dispatch-sync [:after-fresh/m [:fetch]]
-                          {:rf.world/inputs {:time-ms PARENT-TIME-MS}})
+                          {:rf.cofx {:rf/time-ms PARENT-TIME-MS}})
         (is (= :loading (:state (snapshot :after-fresh/m)))
             "entered the :after-bearing state")
         (is (some? @captured-thunk)
@@ -133,8 +133,8 @@
         ;; entry dispatch-sync has returned), so routing :router/dispatch!
         ;; through dispatch-sync! is legal and keeps the cascade inline +
         ;; deterministic on the JVM. The thunk calls dispatch! with
-        ;; {:frame ... :source :after-timer} and NO :rf.world/inputs, so the
-        ;; router stamps {:time-ms @clock} = CHILD afresh.
+        ;; {:frame ... :source :after-timer} and NO :rf.cofx, so the
+        ;; router stamps {:rf/time-ms @clock} = CHILD afresh.
         (try
           (late-bind/set-fn! :router/dispatch! router/dispatch-sync!)
           (@captured-thunk)
@@ -148,7 +148,7 @@
       ;; (5) THE CONTRACT: both callbacks saw the FRESH FIRE-TIME token —
       ;; CHILD — not the PARENT scheduling-time token. This is the
       ;; assertion that fails if the timer callback ever inherits the
-      ;; parent envelope's :rf.world/inputs.
+      ;; parent envelope's :rf.cofx.
       (is (= CHILD-TIME-MS @guard-saw)
           "the :after guard read the FRESH fire-time :time-ms (router-
            stamped at fire), NOT the parent scheduling-time token")

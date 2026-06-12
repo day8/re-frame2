@@ -85,9 +85,9 @@
             coexistence window. Its diagnostic dispatch-time need is the
             trace event `:time` stamp (Spec 009), not a second envelope
             field. The replacement causal-time fact is
-            `(:time-ms (:rf.world/inputs envelope))`, which — unlike the
+            `(:rf/time-ms (:rf.cofx envelope))`, which — unlike the
             dev-gated `:dispatch-id` — is stamped UNCONDITIONALLY because
-            world inputs are DURABLE causal data that durable writes
+            recordable coeffects are DURABLE causal data that durable writes
             fold, not a diagnostic."
     (rf/reg-frame :rf/default {})
     (testing ":dispatched-at is gone under BOTH gate states"
@@ -97,15 +97,15 @@
       (with-redefs [interop/debug-enabled? false]
         (is (not (contains? (build-envelope [:noop] {}) :dispatched-at))
             "no :dispatched-at with the dev gate OFF")))
-    (testing ":rf.world/inputs with :time-ms is stamped REGARDLESS of the gate"
+    (testing ":rf.cofx with :rf/time-ms is stamped REGARDLESS of the gate"
       (with-redefs [interop/debug-enabled? true]
-        (let [world (:rf.world/inputs (build-envelope [:noop] {}))]
-          (is (number? (:time-ms world))
-              ":time-ms present + numeric under the dev gate ON")))
+        (let [cofx (:rf.cofx (build-envelope [:noop] {}))]
+          (is (number? (:rf/time-ms cofx))
+              ":rf/time-ms present + numeric under the dev gate ON")))
       (with-redefs [interop/debug-enabled? false]
-        (let [world (:rf.world/inputs (build-envelope [:noop] {}))]
-          (is (number? (:time-ms world))
-              ":time-ms present + numeric under the prod gate OFF — durable, not dev-gated"))))))
+        (let [cofx (:rf.cofx (build-envelope [:noop] {}))]
+          (is (number? (:rf/time-ms cofx))
+              ":rf/time-ms present + numeric under the prod gate OFF — durable, not dev-gated"))))))
 
 (deftest always-on-error-emit-still-fires-when-debug-disabled
   (testing "Per Spec 009 §Error-emit + rf2-bacs4: the always-on

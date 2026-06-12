@@ -577,7 +577,7 @@
   failed restore leaks no resource success traces.
 
   Per rf2-wshzsp the restore's CAUSAL time — `restore-time-ms`, the restored
-  epoch's `:committed-at` (the committing token's `:rf.world/inputs` `:time-ms`,
+  epoch's `:committed-at` (the committing token's `:rf.cofx` `:rf/time-ms`,
   replay-stable per EP-0010 §Time) — is threaded through `:restore-time-ms` so
   the reconcile stamps a dangled-on-restore mutation instance's DURABLE
   `:settled-at` from that causal input rather than the live install clock
@@ -684,8 +684,8 @@
             ;; and a pre-restore reply cannot write stale data into a restored
             ;; entry.
             ;; rf2-wshzsp: thread the restored epoch's CAUSAL time
-            ;; (`:committed-at` = the committing token's `:rf.world/inputs`
-            ;; `:time-ms`) so the reconcile stamps a dangled-on-restore
+            ;; (`:committed-at` = the committing token's `:rf.cofx`
+            ;; `:rf/time-ms`) so the reconcile stamps a dangled-on-restore
             ;; mutation instance's durable `:settled-at` from a replay-stable
             ;; causal input, not the live install clock (EP-0010 §Restore/Replay).
             frame-state-target (reconcile-runtime-db-on-restore

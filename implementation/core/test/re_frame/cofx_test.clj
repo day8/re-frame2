@@ -412,15 +412,15 @@
 ;;
 ;; The initial recordable time coeffect (EP-0010 §Backwards Compatibility and
 ;; Migration, reference-implementation step 7): `:app/now-ms` injects the
-;; dispatch envelope's causal `(:time-ms (:rf.world/inputs cofx))` so a v1-style
+;; dispatch envelope's causal `(:rf/time-ms (:rf.cofx coeffects))` so a v1-style
 ;; host-clock read in a durable handler becomes a recordable coeffect. It reads
-;; ONLY the already-seeded `:rf.world/inputs` framework coeffect — no ambient
+;; ONLY the already-seeded `:rf.cofx` framework coeffect — no ambient
 ;; `(.now js/Date)` / `interop/now-ms` of its own — so a scripted / replayed
-;; `:time-ms` is returned exactly (Spec 002 §Event Context And Coeffects: a
+;; `:rf/time-ms` is returned exactly (Spec 002 §Event Context And Coeffects: a
 ;; coeffect that can affect durable state MUST be recordable).
 
 (deftest app-now-ms-reads-causal-time-ms-exactly
-  (testing ":app/now-ms returns the supplied :rf.world/inputs :time-ms VERBATIM
+  (testing ":app/now-ms returns the supplied :rf.cofx :rf/time-ms VERBATIM
             — a scripted past timestamp comes back exactly, proving no ambient
             clock read at the injection site (replay determinism)"
     (let [scripted 1781078400123      ;; a fixed past epoch-ms; an ambient
@@ -431,37 +431,37 @@
           (reset! seen now-ms)
           {}))
       (rf/dispatch-sync [:cofx-test/read-now]
-                        {:rf.world/inputs {:time-ms scripted}})
+                        {:rf.cofx {:rf/time-ms scripted}})
       (is (= scripted @seen)
-          "the handler saw the EXACT scripted :time-ms — sourced from the causal
+          "the handler saw the EXACT scripted :rf/time-ms — sourced from the causal
            token, not a live host-clock read (a replayed dispatch is stable)"))))
 
 (deftest app-now-ms-tracks-router-stamped-time-ms
   (testing "with no caller-supplied world inputs, :app/now-ms returns the SAME
-            value the router stamped on the envelope (:rf.world/inputs :time-ms)
+            value the router stamped on the envelope (:rf.cofx :rf/time-ms)
             — one causal read, surfaced through the cofx (not a second read)"
     (let [seen-now   (atom ::unset)
           seen-world (atom ::unset)]
       (rf/reg-event-fx :cofx-test/read-now-stamped
         [(rf/inject-cofx :app/now-ms)]
-        (fn [{:keys [app/now-ms rf.world/inputs]} _]
+        (fn [{:keys [app/now-ms] cofx :rf.cofx} _]
           (reset! seen-now now-ms)
-          (reset! seen-world (:time-ms inputs))
+          (reset! seen-world (:rf/time-ms cofx))
           {}))
       (rf/dispatch-sync [:cofx-test/read-now-stamped])
       (is (number? @seen-now)
           ":app/now-ms is a stamped epoch-ms number on the live path")
       (is (= @seen-world @seen-now)
-          ":app/now-ms equals the envelope's own :rf.world/inputs :time-ms —
+          ":app/now-ms equals the envelope's own :rf.cofx :rf/time-ms —
            it surfaces the single causal read, never re-reads the host"))))
 
 (deftest app-now-ms-nil-without-world-inputs
-  (testing ":app/now-ms injects nil when no :rf.world/inputs coeffect is present
+  (testing ":app/now-ms injects nil when no :rf.cofx coeffect is present
             (a handler invoked outside the dispatch path) — it never falls back
             to an ambient host read (durable time must come from a stamped
             envelope)"
     (let [seen   (atom ::unset)
-          ;; Drive the cofx directly with a context carrying NO :rf.world/inputs
+          ;; Drive the cofx directly with a context carrying NO :rf.cofx
           ;; coeffect — isolates the cofx body from the router's stamping so the
           ;; nil-source branch is exercised deterministically.
           cofx    (registrar/lookup :cofx :app/now-ms)
@@ -470,5 +470,5 @@
           result  (handler ctx)]
       (reset! seen (get-in result [:coeffects :app/now-ms]))
       (is (nil? @seen)
-          "no :rf.world/inputs → :app/now-ms is nil (no ambient (.now js/Date)
+          "no :rf.cofx → :app/now-ms is nil (no ambient (.now js/Date)
            fallback — durable time is causal-only)"))))

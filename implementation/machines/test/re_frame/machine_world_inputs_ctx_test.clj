@@ -4,7 +4,7 @@
 
   EP-0010 requires that durable machine decisions and snapshot writes
   depending on time / random / UUID-style host facts fold the CAUSAL
-  world-input token (the router's `:rf.world/inputs` coeffect, stamped at
+  world-input token (the router's `:rf.cofx` coeffect, stamped at
   the dispatch envelope's causal boundary — Spec 002 §The World-Input
   Rule) rather than reading an ambient clock (`interop/now-ms`). Folding
   the token is what makes the decision deterministic under restore /
@@ -17,14 +17,14 @@
   so a durable machine guard / action had no causal way to read host facts
   and fell back to ambient reads.
 
-  The fix threads the handler's `:rf.world/inputs` coeffect onto the
+  The fix threads the handler's `:rf.cofx` coeffect onto the
   machine def (`prepare-machine-ctx`, alongside `:rf/frame` /
   `:rf/platform` / `:rf/parent-id`, propagated to region specs) and
-  surfaces it on the callback ctx under the SAME `:rf.world/inputs` key.
+  surfaces it on the callback ctx under the SAME `:rf.cofx` key.
 
   Coverage:
     (a) a flat-machine GUARD reads exactly the scripted `:time-ms` from
-        `(:rf.world/inputs ctx)` — no ambient clock — and decides on it.
+        `(:rf.cofx ctx)` — no ambient clock — and decides on it.
     (b) a flat-machine ACTION reads exactly the scripted `:time-ms` and
         folds it into a `:data` write (a durable snapshot write).
     (c) an :entry action (on the initial-entry boot cascade) reads the
@@ -34,7 +34,7 @@
     (e) a non-time fact (random / UUID-style) supplied in the SAME token
         map is readable verbatim — the token carries arbitrary host facts.
     (f) the absent-token path: a pure `machine-transition` call (no router
-        coeffect) surfaces NO `:rf.world/inputs` ctx key — the key keys
+        coeffect) surfaces NO `:rf.cofx` ctx key — the key keys
         off presence, so pure-fn callers (conformance corpus) are
         unaffected."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -56,7 +56,7 @@
 ;; ---- (a) a flat-machine GUARD reads the scripted :time-ms -----------------
 
 (deftest guard-reads-causal-time-ms
-  (testing "a guard reads exactly the dispatch's :rf.world/inputs :time-ms —
+  (testing "a guard reads exactly the dispatch's :rf.cofx :time-ms —
             the causal token, not an ambient clock"
     (let [seen (atom nil)
           ;; The guard fires the transition iff the causal :time-ms equals
@@ -64,16 +64,16 @@
           m {:initial :idle
              :data    {}
              :guards  {:at-scripted-time?
-                       (fn [{inputs :rf.world/inputs}]
-                         (reset! seen (:time-ms inputs))
-                         (= SCRIPTED-TIME-MS (:time-ms inputs)))}
+                       (fn [{cofx :rf.cofx}]
+                         (reset! seen (:rf/time-ms cofx))
+                         (= SCRIPTED-TIME-MS (:rf/time-ms cofx)))}
              :states  {:idle {:on {:go {:target :done :guard :at-scripted-time?}}}
                        :done {}}}]
       (rf/reg-machine :world/guard m)
       (rf/dispatch-sync [:world/guard [:go]]
-                        {:rf.world/inputs {:time-ms SCRIPTED-TIME-MS}})
+                        {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
       (is (= SCRIPTED-TIME-MS @seen)
-          "the guard read the scripted :time-ms off (:rf.world/inputs ctx)")
+          "the guard read the scripted :time-ms off (:rf.cofx ctx)")
       (is (= :done (:state (snapshot :world/guard)))
           "the guard fired the transition on the causal :time-ms"))))
 
@@ -83,13 +83,13 @@
     (let [m {:initial :idle
              :data    {}
              :guards  {:at-scripted-time?
-                       (fn [{inputs :rf.world/inputs}]
-                         (= SCRIPTED-TIME-MS (:time-ms inputs)))}
+                       (fn [{cofx :rf.cofx}]
+                         (= SCRIPTED-TIME-MS (:rf/time-ms cofx)))}
              :states  {:idle {:on {:go {:target :done :guard :at-scripted-time?}}}
                        :done {}}}]
       (rf/reg-machine :world/guard-block m)
       (rf/dispatch-sync [:world/guard-block [:go]]
-                        {:rf.world/inputs {:time-ms (inc SCRIPTED-TIME-MS)}})
+                        {:rf.cofx {:rf/time-ms (inc SCRIPTED-TIME-MS)}})
       (is (= :idle (:state (snapshot :world/guard-block)))
           ":go blocked — the causal :time-ms did not match the guard's predicate"))))
 
@@ -101,13 +101,13 @@
     (let [m {:initial :idle
              :data    {}
              :actions {:stamp-time
-                       (fn [{inputs :rf.world/inputs}]
-                         {:data {:stamped-at (:time-ms inputs)}})}
+                       (fn [{cofx :rf.cofx}]
+                         {:data {:stamped-at (:rf/time-ms cofx)}})}
              :states  {:idle {:on {:go {:target :done :action :stamp-time}}}
                        :done {}}}]
       (rf/reg-machine :world/action m)
       (rf/dispatch-sync [:world/action [:go]]
-                        {:rf.world/inputs {:time-ms SCRIPTED-TIME-MS}})
+                        {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
       (is (= SCRIPTED-TIME-MS (:stamped-at (:data (snapshot :world/action))))
           "the action wrote the causal :time-ms into :data — folded from the
            token, not from an ambient clock"))))
@@ -120,14 +120,14 @@
     (let [m {:initial :ready
              :data    {}
              :actions {:stamp-birth
-                       (fn [{inputs :rf.world/inputs}]
-                         {:data {:born-at (:time-ms inputs)}})}
+                       (fn [{cofx :rf.cofx}]
+                         {:data {:born-at (:rf/time-ms cofx)}})}
              :states  {:ready {:entry :stamp-birth}}}]
       (rf/reg-machine :world/entry m)
       ;; First real dispatch boots the machine; the :entry cascade runs under
       ;; the same handler call and so reads this dispatch's causal token.
       (rf/dispatch-sync [:world/entry [:noop]]
-                        {:rf.world/inputs {:time-ms SCRIPTED-TIME-MS}})
+                        {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
       (is (= SCRIPTED-TIME-MS (:born-at (:data (snapshot :world/entry))))
           "the :entry action read the causal :time-ms on the boot cascade"))))
 
@@ -139,8 +139,8 @@
     (let [m {:type    :parallel
              :data    {}
              :guards  {:at-scripted-time?
-                       (fn [{inputs :rf.world/inputs}]
-                         (= SCRIPTED-TIME-MS (:time-ms inputs)))}
+                       (fn [{cofx :rf.cofx}]
+                         (= SCRIPTED-TIME-MS (:rf/time-ms cofx)))}
              :regions
              {:a {:initial :idle
                   :states  {:idle {:on {:go {:target :done
@@ -149,7 +149,7 @@
               :b {:initial :x :states {:x {}}}}}]
       (rf/reg-machine :world/region m)
       (rf/dispatch-sync [:world/region [:go]]
-                        {:rf.world/inputs {:time-ms SCRIPTED-TIME-MS}})
+                        {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
       (is (= :done (get-in (snapshot :world/region) [:state :a]))
           "the region guard fired on the causal :time-ms — the token reached
            the region callback ctx")))
@@ -157,8 +157,8 @@
     (let [m {:type    :parallel
              :data    {}
              :guards  {:at-scripted-time?
-                       (fn [{inputs :rf.world/inputs}]
-                         (= SCRIPTED-TIME-MS (:time-ms inputs)))}
+                       (fn [{cofx :rf.cofx}]
+                         (= SCRIPTED-TIME-MS (:rf/time-ms cofx)))}
              :regions
              {:a {:initial :idle
                   :states  {:idle {:on {:go {:target :done
@@ -167,7 +167,7 @@
               :b {:initial :x :states {:x {}}}}}]
       (rf/reg-machine :world/region-block m)
       (rf/dispatch-sync [:world/region-block [:go]]
-                        {:rf.world/inputs {:time-ms (inc SCRIPTED-TIME-MS)}})
+                        {:rf.cofx {:rf/time-ms (inc SCRIPTED-TIME-MS)}})
       (is (= :idle (get-in (snapshot :world/region-block) [:state :a]))
           "the region guard blocked — wrong causal :time-ms"))))
 
@@ -181,14 +181,14 @@
           m {:initial :idle
              :data    {}
              :actions {:stamp-facts
-                       (fn [{inputs :rf.world/inputs}]
-                         {:data {:seed (:rng-seed inputs)
-                                 :id   (:new-uuid inputs)}})}
+                       (fn [{cofx :rf.cofx}]
+                         {:data {:seed (:rng-seed cofx)
+                                 :id   (:new-uuid cofx)}})}
              :states  {:idle {:on {:go {:target :done :action :stamp-facts}}}
                        :done {}}}]
       (rf/reg-machine :world/facts m)
       (rf/dispatch-sync [:world/facts [:go]]
-                        {:rf.world/inputs {:time-ms  SCRIPTED-TIME-MS
+                        {:rf.cofx {:rf/time-ms  SCRIPTED-TIME-MS
                                            :rng-seed seed
                                            :new-uuid gen-uuid}})
       (let [d (:data (snapshot :world/facts))]
@@ -197,11 +197,11 @@
         (is (= gen-uuid (:id d))
             "the action read the causal uuid-style fact off the token")))))
 
-;; ---- (f) absent token — pure-fn caller surfaces no :rf.world/inputs key ----
+;; ---- (f) absent token — pure-fn caller surfaces no :rf.cofx key ----
 
 (deftest pure-fn-callback-ctx-has-no-world-inputs-key
   (testing "a pure machine-transition (no router coeffect, the conformance /
-            JVM-fixture path) surfaces NO :rf.world/inputs ctx key — the key
+            JVM-fixture path) surfaces NO :rf.cofx ctx key — the key
             is presence-gated, so pure-fn callers are unaffected"
     (let [captured (atom nil)
           m {:initial :idle
@@ -210,10 +210,10 @@
              :states  {:idle {:on {:go {:target :done :guard :capture}}}
                        :done {}}}]
       ;; Drive the PURE engine directly — no dispatch, no handler, so the
-      ;; machine def carries no :rf/world-inputs stamp.
+      ;; machine def carries no :rf/cofx stamp.
       (machines/machine-transition m {:state :idle :data {}} [:go])
       (is (some? @captured) "the guard ran")
-      (is (not (contains? @captured :rf.world/inputs))
-          "no :rf.world/inputs key when the engine is driven without a token")
+      (is (not (contains? @captured :rf.cofx))
+          "no :rf.cofx key when the engine is driven without a token")
       (is (= #{:data :event :state :meta} (set (keys @captured)))
           "the pure-fn guard ctx is exactly the four base keys"))))
