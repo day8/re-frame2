@@ -145,27 +145,31 @@
 ;; family-private elider.
 
 (defn- entry-classification
-  "Classify how `entry` (under `scoped-key`) may ride the wire, deferring to
-  the resource OWNER's coarse root-prop `:sensitive?` / `:large?` claim
-  (`classification/whole-entry-disposition`, EP-0015 §6 / issue 11). Returns
-  one of:
+  "Classify how `entry` (under `scoped-key`) may ride the wire against the SSR
+  `frame-id`, deferring to the resource OWNER's coarse root-prop `:sensitive?` /
+  `:large?` claim AND the named-scope-resolver derived-sensitivity inheritance
+  arm (`classification/whole-entry-disposition-for`, EP-0015 §6 / issue 11 +
+  EP-0016 wave rf2-fi6tda.1). Returns one of:
 
     :serialize  — ship the data (still PROJECTED through frame
                   classification — see `project-entry`);
     :redact     — ship the entry as METADATA ONLY (status / timestamps /
                   generation) with the data replaced by the redaction
-                  sentinel — a `:sensitive?` resource;
+                  sentinel — a `:sensitive?` resource, OR a resource whose
+                  `{:from-db <id>}` scope resolver derived a sensitive scope
+                  from a frame-sensitive `:db` input (automatic inheritance);
     :omit       — drop the entry's data wholesale (ship metadata only, no
                   data key at all) — a `:large?` resource whose payload is
                   too big to ride the hydration wire.
 
-  Sensitive wins over large when both are declared (the redaction sentinel
-  is the more conservative shape — it still announces an entry exists).
-  Per Spec 016 §Runtime-subsystem graduation clause 4 / EP-0015 §6."
-  [scoped-key _entry]
+  Sensitive (owner-declared OR derived) wins over large when both apply (the
+  redaction sentinel is the more conservative shape — it still announces an
+  entry exists). Per Spec 016 §Runtime-subsystem graduation clause 4 / EP-0015
+  §6 / Spec 015 §Derived sensitivity."
+  [frame-id scoped-key _entry]
   (let [resource-id (nth scoped-key 1)
         spec        (registry/resource-meta resource-id)]
-    (classification/whole-entry-disposition spec)))
+    (classification/whole-entry-disposition-for spec frame-id)))
 
 ;; ---- scoped-key privacy (Spec 016 clause 4, rf2-otms75) -------------------
 ;;
@@ -279,7 +283,13 @@
         ;; disposition (`whole-entry-disposition`) and the per-slot
         ;; `:data-schema` marks (`project-data` layer (a)) — EP-0015 §6.
         spec        (registry/resource-meta resource-id)
-        disposition (classification/whole-entry-disposition spec)
+        ;; frame-aware disposition: the OWNER's coarse `:sensitive?` / `:large?`
+        ;; claim, PLUS the named-scope-resolver derived-sensitivity inheritance
+        ;; arm — a `{:from-db <id>}` scope resolver reading a frame-sensitive
+        ;; `:db` input upgrades the entry to `:redact` even when the owner did
+        ;; not declare `:sensitive?` (EP-0016 wave rf2-fi6tda.1; Spec 015
+        ;; §Derived sensitivity).
+        disposition (classification/whole-entry-disposition-for spec frame-id)
         stale?      (entry-stale? entry clock-ms)
         ;; metadata-only entries refetch on the client if a live route owner
         ;; needs them; serialized stale entries also refetch (background);
@@ -378,7 +388,7 @@
             clock-ms (now-ms)
             wired    (into {}
                            (map (fn [[k entry]]
-                                  (let [disposition (entry-classification k entry)
+                                  (let [disposition (entry-classification frame-id k entry)
                                         wire-key    (project-scoped-key k disposition)]
                                     [wire-key (first (project-entry frame-id clock-ms k entry))])))
                            entries)]

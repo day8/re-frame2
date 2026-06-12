@@ -46,14 +46,24 @@
   declared-inputs form is the recommended path; the sugar is a marked
   convenience, not a peer.
 
-  NOTE — the automatic-inheritance propagation arm itself (mark a derived
-  scope sensitive because a declared `:db` input is frame-sensitive, even
-  when the owning resource was not declared `:sensitive?`) is NOT wired here:
-  it is deferred to the EP-0016 action wave, which owns this scope-resolver
-  mechanism (see Spec 015 §Derived sensitivity). The stored `:inputs` shape
-  is the dependency graph a future propagation pass reads; the primary scope
-  boundary holds independently via the resource-owned `:sensitive?` claim +
-  scoped-key redaction (Spec 016).
+  ## Derived-sensitivity propagation (EP-0016 wave, rf2-fi6tda.1)
+
+  The automatic-inheritance propagation arm IS wired (EP-0015 disposition 8's
+  fourth framework-known graph): a derived scope is treated as sensitive when
+  a declared `:db` input reads a frame-sensitive app-db path, EVEN when the
+  owning resource was not declared `:sensitive?` — defence-in-depth automatic
+  inheritance, consistent with the subs/flows `:rf.egress/output-sensitivity`
+  model (EP-0015 issue 9). The stored `:inputs` shape is the dependency graph
+  the propagation pass reads (`re-frame.resources.classification/`
+  `resolver-derived-sensitive?`); the CONSUMPTION side reads it at scoped-key /
+  entry classification (`whole-entry-disposition-for` → `:redact`). A resolver
+  declares its output's classification with the closed
+  `:rf.egress/output-sensitivity` enum (the SAME claim subs/flows honour —
+  `:rf.egress/inherit` default propagates, `:rf.egress/sensitive` force-marks,
+  `:rf.egress/public` declassifies). The primary scope boundary holds
+  INDEPENDENTLY of this arm via the resource-owned `:sensitive?` claim +
+  scoped-key redaction (Spec 016); the arm only ADDS the precision case where
+  the owning resource was not itself declared `:sensitive?`.
 
   ## The pure `resolve-resource-scope` helper
 
@@ -64,7 +74,8 @@
   pre-transition causal input) and pass it to `:rf.resource/clear-scope`
   concretely. Per Spec 016 §`clear-scope` resolves the concrete scope from
   the coeffect db (EP-0016 issue 7)."
-  (:require [re-frame.path :as path]
+  (:require [re-frame.marks :as marks]
+            [re-frame.path :as path]
             [re-frame.registrar :as registrar]
             [re-frame.resources.state :as state]
             [re-frame.source-coords :as source-coords]
@@ -190,6 +201,33 @@
                         " Per Conventions §Segment domain.")
                    {:scope-id scope-id :input input-name :descriptor descriptor})))))))
 
+(defn- coerce-resolver-output-sensitivity
+  "Validate a resolver's `:rf.egress/output-sensitivity` derived-output
+  declassification claim against the closed enum (the SAME claim subs/flows
+  honour — `re-frame.marks/output-sensitivity-values`, EP-0015 issue 9). Returns
+  the validated value, or `:rf.egress/inherit` (the default) when the key is
+  absent. FAIL-CLOSED: an unknown value THROWS
+  `:rf.error/invalid-resource-scope-spec` (the enum is closed — a typo is a loud
+  registration error, never a silent permissive fall-through). Per Spec 015
+  §Derived sensitivity / §Declassifying a derived output."
+  [scope-id v]
+  (cond
+    (nil? v)                                       :rf.egress/inherit
+    (contains? marks/output-sensitivity-values v)  v
+    :else
+    (throw (registration-error
+             :rf.error/invalid-resource-scope-spec
+             'rf/reg-resource-scope
+             (str "resource-scope " scope-id " declares an invalid "
+                  ":rf.egress/output-sensitivity " (pr-str v) " — it must be one "
+                  "of " (pr-str marks/output-sensitivity-values) ": "
+                  ":rf.egress/inherit (default — inherit from sensitive :db "
+                  "inputs), :rf.egress/sensitive (force-mark the derived scope "
+                  "sensitive), :rf.egress/public (declassify). Per Spec 015 "
+                  "§Derived sensitivity.")
+             {:scope-id scope-id :rf.egress/output-sensitivity v
+              :valid    marks/output-sensitivity-values}))))
+
 (defn- canonical-spec
   "Normalize a resolver registration argument into the canonical STORED
   spec map. Per Spec 016 §The `{:inputs … :resolve …}` grammar +
@@ -197,12 +235,21 @@
 
   - The map form `{:inputs {name [:db path]} :resolve (fn [inputs ctx] …)}`
     validates every declared input descriptor, requires a fn `:resolve`,
-    and stores `{:inputs <canonical> :resolve <fn> :whole-db? false :doc …}`.
+    and stores `{:inputs <canonical> :resolve <fn> :whole-db? false
+    :output-sensitivity <enum> :doc …}`.
   - The bare-fn sugar `(fn [db ctx] …)` lowers to an explicit whole-db
     dependency: a synthetic `:inputs {:db [:db []]}` (the root path),
     `:whole-db? true`, and the fn wrapped so it is called `(f db ctx)` —
     the resolver sees the whole db as its single input. Tooling reads
     `:whole-db?` to mark the cost on both axes (EP-0015 disposition 8).
+
+  Derived-sensitivity (EP-0016 wave, rf2-fi6tda.1): a resolver MAY declare
+  `:rf.egress/output-sensitivity` (the SAME closed enum subs/flows honour) to
+  classify its DERIVED scope — `:rf.egress/inherit` (default, propagate from
+  sensitive `:db` inputs), `:rf.egress/sensitive` (force-mark), or
+  `:rf.egress/public` (declassify). Validated fail-closed; stored verbatim as
+  `:output-sensitivity` so the consumption-side propagation pass
+  (`re-frame.resources.classification/resolver-derived-sensitive?`) reads it.
 
   Returns the canonical stored spec; throws a loud
   `:rf.error/invalid-resource-scope-spec` on a malformed argument."
@@ -210,10 +257,11 @@
   (cond
     ;; whole-db fn sugar — lower to an explicit whole-db input
     (fn? resolver)
-    {:inputs    {:db [:db []]}
-     :resolve   (fn [{:keys [db]} ctx] (resolver db ctx))
-     :whole-db? true
-     :doc       nil}
+    {:inputs             {:db [:db []]}
+     :resolve            (fn [{:keys [db]} ctx] (resolver db ctx))
+     :whole-db?          true
+     :output-sensitivity :rf.egress/inherit
+     :doc                nil}
 
     (map? resolver)
     (let [{:keys [inputs resolve doc]} resolver]
@@ -234,14 +282,16 @@
                       (pr-str inputs) ". `:inputs` is a map {name [:db path]}. "
                       "Per Spec 016 §The :inputs grammar.")
                  {:scope-id scope-id :inputs inputs})))
-      {:inputs    (reduce-kv
-                    (fn [acc input-name descriptor]
-                      (assoc acc input-name
-                             (validate-input-descriptor! scope-id input-name descriptor)))
-                    {} (or inputs {}))
-       :resolve   resolve
-       :whole-db? false
-       :doc       doc})
+      {:inputs             (reduce-kv
+                             (fn [acc input-name descriptor]
+                               (assoc acc input-name
+                                      (validate-input-descriptor! scope-id input-name descriptor)))
+                             {} (or inputs {}))
+       :resolve            resolve
+       :whole-db?          false
+       :output-sensitivity (coerce-resolver-output-sensitivity
+                             scope-id (:rf.egress/output-sensitivity resolver))
+       :doc                doc})
 
     :else
     (throw (registration-error
@@ -347,6 +397,21 @@
     (fn [acc input-name [_source rf-path]]
       (assoc acc input-name (path/get db rf-path)))
     {} (or inputs {})))
+
+(defn input-db-paths
+  "Return the vector of CONCRETE app-db paths a resolver's declared `:inputs`
+  read off the frame app-db — the `<rf-path>` of each `[:db <rf-path>]` source
+  (the only shipped source). This is the dependency graph the derived-
+  sensitivity propagation pass reads (EP-0016 wave, rf2-fi6tda.1): a path here
+  that overlaps a frame-sensitive declaration inherits sensitivity to the
+  derived scope. The whole-db fn sugar's synthetic `[:db []]` returns `[[]]`
+  (the root path overlaps every sensitive declaration — the documented whole-db
+  cost on the sensitivity axis). Pure; nil/empty `:inputs` → `[]`. Per Spec 015
+  §Derived sensitivity / Spec 016 §The `:inputs` grammar."
+  [inputs]
+  (into []
+        (keep (fn [[_input-name [_source rf-path]]] rf-path))
+        (or inputs {})))
 
 ;; ---- the pure resolve helper (Spec 016 §`clear-scope` … coeffect db) ------
 

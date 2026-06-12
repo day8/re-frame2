@@ -201,3 +201,41 @@
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-scope-not-registered"
           (scope/resolve-from-db-reference {:from-db :s/nope} {} 'test)))))
+
+;; ===========================================================================
+;; 7. Derived-sensitivity claim + input-path accessor (EP-0016 wave,
+;;    rf2-fi6tda.1) — the resolver MAY classify its derived scope with the
+;;    closed :rf.egress/output-sensitivity enum, and the declared :db input
+;;    paths are the dependency graph the propagation pass reads.
+;; ===========================================================================
+
+(deftest output-sensitivity-claim-stored-and-validated
+  (testing "a resolver with no claim defaults to :rf.egress/inherit"
+    (resources/reg-resource-scope :s/default session-spec)
+    (is (= :rf.egress/inherit (:output-sensitivity (resources/scope-resolver-meta :s/default)))))
+  (testing "an explicit claim is validated against the closed enum + stored verbatim"
+    (doseq [claim [:rf.egress/inherit :rf.egress/sensitive :rf.egress/public]]
+      (resources/reg-resource-scope :s/claim
+                                    (assoc session-spec :rf.egress/output-sensitivity claim))
+      (is (= claim (:output-sensitivity (resources/scope-resolver-meta :s/claim))))))
+  (testing "the whole-db fn sugar defaults to :rf.egress/inherit"
+    (resources/reg-resource-scope :s/sugar-claim (fn [_db _ctx] nil))
+    (is (= :rf.egress/inherit (:output-sensitivity (resources/scope-resolver-meta :s/sugar-claim)))))
+  (testing "an unknown :rf.egress/output-sensitivity value is rejected FAIL-CLOSED"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
+          (resources/reg-resource-scope :s/typo-claim
+                                        (assoc session-spec :rf.egress/output-sensitivity :rf.egress/publik))))))
+
+(deftest input-db-paths-extracts-the-dependency-graph
+  (testing "input-db-paths returns the concrete :db paths a resolver reads"
+    (is (= [[:auth :user :username]]
+           (scope/input-db-paths {:username [:db [:auth :user :username]]})))
+    (is (= #{[:auth :user :username] [:i18n :locale]}
+           (set (scope/input-db-paths {:username [:db [:auth :user :username]]
+                                       :locale   [:db [:i18n :locale]]})))))
+  (testing "nil / empty inputs → [] (no dependency)"
+    (is (= [] (scope/input-db-paths nil)))
+    (is (= [] (scope/input-db-paths {}))))
+  (testing "the whole-db sugar's synthetic [:db []] is the root path [[]]"
+    (is (= [[]] (scope/input-db-paths {:db [:db []]})))))
