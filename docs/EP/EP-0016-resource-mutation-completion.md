@@ -11,9 +11,19 @@ Type: standards-track
 > final-corrective pass), and it was dogfooded through the realworld example.
 > The normative amendment lives in its home —
 > [`spec/016-Resources.md`](../../spec/016-Resources.md). This EP is now the
-> **rationale record**; where it and the spec differ, the spec governs. The
-> action epic (`rf2-fi6tda`) stays open for the deferred derived-sensitivity
-> propagation arm (`rf2-fi6tda.1`).
+> **rationale record**; where it and the spec differ, the spec governs.
+>
+> **BUILD status (updated 2026-06-12):** complete. The deferred
+> derived-sensitivity propagation arm (`rf2-fi6tda.1`) shipped — the
+> named-scope-resolver sensitivity inheritance landed via PR #3993 (merged
+> 2026-06-12) — so the gate the original ruling held open is now resolved. The
+> action epic (`rf2-fi6tda`) is ready to close: all implementation slices, both
+> wave-end review passes (`rf2-tho0f9` correctness / `rf2-8xq7kp` clean repeat),
+> and all four propagation beads (`/skills` `rf2-hdwp7h`, `/examples`
+> `rf2-3gl52p`, `/tools` `rf2-f8s9g6`, `/docs/guide` `rf2-40o3nm`) are closed and
+> merged. The items this EP lists as deferred — optimistic rollback,
+> tag-addressed patching, and the GraphQL transport — remain intentional
+> future-EP non-goals, not outstanding action-epic work (see [§Non-Goals](#non-goals)).
 
 > This EP defines a narrow post-EP-0003 amendment to Spec 016:
 > mutation completion continuations, per-target scoped invalidation, named

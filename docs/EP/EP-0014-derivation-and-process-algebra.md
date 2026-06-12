@@ -11,9 +11,23 @@ Type: standards-track
 > final-corrective pass — the one P1 node-kind enum defect found and fixed),
 > and the normative contract lives in its home —
 > [`spec/Derivations.md`](../../spec/Derivations.md). This EP is now the
-> **rationale record**; where it and the spec differ, the spec governs. The
-> action epic (`rf2-k0meap`) stays open for the post-graduation consumer
-> propagation (skills / examples / docs-guide / the Xray graph panel).
+> **rationale record**; where it and the spec differ, the spec governs.
+>
+> **BUILD status (updated 2026-06-12):** complete. The post-graduation consumer
+> propagation has shipped — `/skills` (`rf2-1w4x3l`) and `/examples`
+> (`rf2-d9ol4m`, a considered no-op: the algebra is a view, not an authoring
+> surface) via PR #3971, `/docs/guide` (`rf2-mpa1t5`) via PR #3983, and the
+> Xray derivation-graph panel (`rf2-9ett2d`, plus the `rf2-yjarv6`
+> redact-keep-structure coverage test) via the `feat(xray): EP-0014
+> derivation-graph panel + off-box redaction` merge — all closed and on
+> `main`. The action epic (`rf2-k0meap`) is therefore complete for its ruled
+> slice scope and ready to close. The items that legitimately remain
+> outstanding are deferred-by-criterion, not pending work: the public
+> graph-accessor name + facade classification (graduation-gated on a third
+> consumer beyond Xray + conformance, [issue 1](#open-issues)), the executable
+> delta protocol (semantic-only by [issue 5](#open-issues)), and machine
+> selectors as a source form ([issue 4](#open-issues) keeps them ordinary
+> subscriptions).
 
 > This EP defines the common model behind subscriptions, runtime
 > subscriptions, flows, resources, route facts, and selected machine state:
