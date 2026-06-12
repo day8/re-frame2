@@ -12,7 +12,10 @@
 
     :epoch-id       opaque, unique within a frame's history
     :frame          frame keyword
-    :committed-at   timestamp
+    :committed-at   the committing event's CAUSAL time — its envelope's
+                    `:rf.world/inputs` `:time-ms`, stamped at the router's
+                    causal boundary (rf2-bh56rc / EP-0010 §Time), NOT an
+                    ambient assembly-time clock read; replayable
     :event-id       the event keyword that triggered the cascade
     :trigger-event  the full event vector
     :db-before      app-db snapshot before the cascade
