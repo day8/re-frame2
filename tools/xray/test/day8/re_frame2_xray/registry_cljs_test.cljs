@@ -201,6 +201,10 @@
    ;; surfaces. See `frame_switcher.cljs` for the full contract.
    :rf.xray/current-frame
    :rf.xray/available-frames
+   ;; rf2-3caq85 — the realm grouping of the pickable frames (EP-0013
+   ;; disposition 3): a `<optgroup>` per realm in a multi-realm process;
+   ;; collapses to one default-realm group (flat render) single-realm.
+   :rf.xray/available-frame-realm-groups
    ;; rf2-4vp5j — the dedicated VIEW-SCOPE frame slot (frame is a view
    ;; scope, not a filter): the resolved scope + its raw stored slot +
    ;; the raw target-frame slot it falls back to on a host seed.
@@ -291,6 +295,11 @@
    :rf.xray/derivation-graph-mode
    :rf.xray/derivation-graph-override
    :rf.xray/derivation-graph-tab-data
+   ;; rf2-wtg9z4 — Module-view tab (EP-0013 disposition 6): the projected
+   ;; (realm, frame) address space (`rf/realm-ids` × `rf/frame-realm`).
+   ;; The disposition-6 demand-trigger surface; the per-module provenance
+   ;; section is scaffolded behind the awaiting-seam caption.
+   :rf.xray/module-view
    ;; rf2-o5f5f.3 — Routes browse + Simulate-URL state lives under
    ;; the Static Routes panel (promoted from `:rf.xray.routing/*` per
    ;; the two-verbs-two-homes split). The Dynamic Routing lens narrows

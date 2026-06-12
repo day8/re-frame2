@@ -104,6 +104,12 @@ Registration ops (`:rf.flow/registered`, `:rf.route/registered`, `:rf.fx/reg-flo
 
 Cross-cutting, **not a stage**. An `:rf.error/*` / `:rf.warning/*` op renders **inline at its chronological point** in the flat list, visually emphasised so failures stand out while scanning (and error vs warning distinguishable) — the row's left edge rides the severity colour over the stage colour; exact treatment delegated to Figma (§8). It carries the failing op's context (the `:rf.error/*` operation id + ex-data). The same diagnostics also populate the Issues panel ([`021`](./021-Dynamic-Panel-Designs.md) §8).
 
+## §7a Realm stamp — where present (EP-0013 disposition 2 · rf2-7vqpwa)
+
+Cross-cutting, **not a stage**. When the focused arc spans **more than one runtime realm**, each row that carries an `:rf.realm/id` stamp surfaces a compact **realm chip** at the end of the target/detail column (`data-testid rf-xray-trace-row-<id>-realm`). The chip is rendered **only when the arc is multi-realm** — a single-realm (or unstamped) arc renders the rows **byte-identically** to the pre-EP panel (zero-ceremony extends to the tooling; the realm dimension is spelled only when it varies).
+
+The row's `:realm` is projected from `[:tags :rf.realm/id]` (`trace_helpers/realm-of`), and the feed carries `:multi-realm?` (`trace_helpers/multi-realm-feed?` — true when the rows span >1 distinct realm). **The framework's trace emit does not stamp `:rf.realm/id` yet** (the slot is reserved per EP-0013 disposition 2; the emit is a later core slice), so in a single-realm process every row's `:realm` is nil and the chip never renders — the surface is inert until the framework stamps it. The (realm, frame) address halves a tool reads are the public `rf/realm-ids` (installed realms) + `rf/frame-realm` (a frame's realm).
+
 ## §8 Visual encoding (delegated to Figma)
 
 Colour and visual styling are intentionally **not specified here** — to be designed in Figma. The design must, however, make these dimensions visually distinguishable:

@@ -397,45 +397,56 @@ dispatch `:rf.xray/select-frame`. Reaching the spine's `:rf.xray/
 set-frame` primitive directly bypasses the persistence + future
 instrumentation layers attached to the canonical event.
 
-### EP-0013 realm-awareness posture (considered, deferred — rf2-1koiq1)
+### EP-0013 realm-awareness (shipped — rf2-3caq85 · rf2-7vqpwa · rf2-wtg9z4)
 
 EP-0013 (app values and runtime realms) makes the *realm* the owner of
 the registrar/adapter/frame-registry; a frame belongs to exactly one
-realm, and the `(realm, frame)` pair is the full address. The
-`rf2-1koiq1` propagation considered how Xray adopts this and concluded:
-**no Xray code changes today, by the EP's own zero-ceremony rule.** The
-considered scope, recorded so a later slice does not re-derive it:
+realm, and the `(realm, frame)` pair is the full address. The public
+realm address API (`rf/realm-ids` — the installed realms; `rf/frame-realm`
+— a frame's realm; PR #4038) landed, so the `rf2-1koiq1`-deferred posture
+is now implemented. **Zero-ceremony extends to the tooling: a single-realm
+process renders byte-identically to the pre-EP picker / trace rows; the
+realm dimension is spelled only when more than one realm is present.**
 
-- **Frames panel — group by realm in multi-realm processes only.**
-  EP-0013 disposition 3: the frame switcher (`frame_switcher.cljs`,
-  `:rf.xray/available-frames`, `distinct-frames`) would render an
-  `<optgroup>` per realm when more than one realm is present; the
-  single-realm render stays byte-identical (zero-ceremony extends to
-  tooling). Tracked: **rf2-3caq85**.
-- **Trace/causality rows — show `:rf.realm/id` where present.** EP-0013
-  disposition 2: the trace rows (`panels/trace.cljs`, which already read
-  a `:frame` stamp) render the realm stamp *where the trace event carries
-  it*, and omit it otherwise. Tracked: **rf2-7vqpwa**.
-- **Module-view — the disposition-6 demand trigger.** EP-0013 keeps
-  descriptor provenance metadata internal *until* an Xray module-view
-  demands it; that view (inspecting app-value modules: ownership,
-  capability requirements, EP-0015 classification, and provenance) is its
-  own design slice, not in-scope here. Tracked: **rf2-wtg9z4**.
-
-All three are **blocked on observability**, not on UI work: Xray consumes
-the Spec 009 trace stream and enumerates frames from trace cascades. The
-public frame→realm read (`re-frame.core/frame-realm`) and realm
-enumeration (`re-frame.core/realm-ids`) have since shipped (EP-0013), so
-Xray *could* resolve a frame's realm out-of-band — but the **trace
-stream still carries no `:rf.realm/id`** stamp, and Xray's realm grouping
-/ per-row stamping are trace-driven. Until the framework stamps
-`:rf.realm/id` on the observability surfaces (the EP-0010/0011/0016 record
-shapes reserve the slot now per disposition 2; the emit is a later core
-slice), every trace-enumerated frame reads as the default realm — so
-realm grouping/stamping would be speculative UI for constant data. The
-single-realm UX is therefore correct as-is, and the deferred beads carry
-the standing rule (update `tools/xray/spec/*` same-PR) for when the
-observability lands.
+- **Frames panel — groups by realm in multi-realm processes only**
+  (disposition 3, rf2-3caq85). `frame_switcher.cljs` adds
+  `:rf.xray/available-frame-realm-groups` (the pickable frames grouped by
+  `rf/frame-realm`) and the pure `group-frames-by-realm` /
+  `multi-realm?` helpers. When the result spans >1 realm the picker
+  renders an `<optgroup>` per realm (`data-testid
+  rf-xray-ribbon-frame-realm-group-<realm>`); when it collapses to one
+  realm the picker renders the FLAT option list, byte-identical to the
+  pre-bead render. A frame whose realm is unknown buckets to
+  `:rf.realm/default` (absence = default realm, the EP-0013 D1 rule).
+- **Trace rows — surface `:rf.realm/id` where present** (disposition 2,
+  rf2-7vqpwa). `trace_helpers.cljc` projects the row's `:realm` from
+  `[:tags :rf.realm/id]` (`realm-of`), and the feed carries
+  `:multi-realm?` (`multi-realm-feed?`). `panels/trace.cljs` renders a
+  compact realm chip (`data-testid rf-xray-trace-row-<id>-realm`) at the
+  end of the target column ONLY when the arc spans >1 realm AND the row
+  carries a stamp — a single-realm (or unstamped) arc renders unchanged.
+  The framework's trace emit does not stamp `:rf.realm/id` yet (the slot
+  is reserved per disposition 2; the emit is a later core slice), so in a
+  single-realm process every row's `:realm` is nil and the surface is
+  inert — exactly the zero-ceremony posture.
+- **Module-view — the disposition-6 demand-trigger tab** (rf2-wtg9z4).
+  A new Dynamic L4 tab (`panels/module_view.cljs`, label **Modules**,
+  order 9, registered via `reg-l4-tab!` — an L4-only tab, no `mount-*!`
+  facade, so it is NOT in `panel-enum`). It renders the **(realm, frame)
+  address space** of the running process — `rf/realm-ids` × `rf/frame-realm`
+  — as a REALMS section (every installed realm + its frames). The MODULES
+  section (per-module ownership / capability requirements / EP-0015
+  classification / descriptor provenance) is **scaffolded behind an
+  awaiting-seam caption**: those facts live on a *constructed* app value's
+  `:modules` map (`rf/app` / `rf/module`), and a running realm exposes no
+  public read of its installed app value (`re-frame.realm/installed-app`
+  is internal; the internal registrar projection carries no module
+  structure). Per the rf2-wtg9z4 brief this slice does **not** expand core
+  scope to invent the seam — the demand trigger files a follow-up bead
+  (rf2-imquoq) for the public realm→installed-app provenance read surface,
+  and the row
+  shapes already carry the `:owns` / `:requires` / `:classification` slots
+  so the fill-in is a no-reshape change when the seam graduates.
 
 ## The default landing view
 

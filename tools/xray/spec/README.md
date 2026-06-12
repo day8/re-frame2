@@ -128,6 +128,19 @@ main read**.
   per-frame, fail-closed, via `rf/elide-wire-value`; redact value, keep
   edge): on-box rendering is raw (Security.md permits on-box), off-box
   egress projects through the frame's elision policy. Read-only.
+- **[026-Module-View-Panel.md](026-Module-View-Panel.md)** — The
+  Module-view tab: the Xray-side consumer contract for EP-0013 app values +
+  runtime realms (framework
+  [`spec/Runtime-Subsystems.md`](../../../spec/Runtime-Subsystems.md) §Runtime
+  realms). Renders the **(realm, frame) address space** of the running
+  process — `rf/realm-ids` × `rf/frame-realm` (disposition 3) — as a REALMS
+  section (every installed realm + its frames), zero-ceremony (single-realm
+  implicit). The **disposition-6 demand trigger** for per-module ownership /
+  capability / EP-0015 classification / descriptor provenance: that section
+  is **scaffolded** behind an awaiting-seam caption (a running realm exposes
+  no public read of its installed app value — the demand files a follow-up
+  for the realm→installed-app provenance seam rather than expanding core).
+  An L4-only Dynamic tab (not in `panel-enum`). Read-only.
 
 ### Reference
 
