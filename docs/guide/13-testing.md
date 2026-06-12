@@ -378,7 +378,7 @@ Runs on the JVM:
 - `dispatch-sync` and the entire dispatch pipeline — router, drain, interceptors
 - every `reg-event-*` handler invocation
 - override application — `:fx-overrides`, `:interceptor-overrides`, `:interceptors`
-- cofx injection
+- cofx resolution and coeffect context assembly
 - `machine-transition` (a pure function)
 - `compute-sub` (sub computation against an `app-db` value)
 - public registrar queries — `registrations`, `frame-meta`, `sub-topology`, and friends

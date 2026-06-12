@@ -87,6 +87,27 @@ There's no automated rewrite for the cache-key habit — it's a judgement call a
   (fn [] (.now js/Date)))
 ```
 
+- **Custom cofx handlers lose the ctx wrapper.** This is the single mechanical rewrite that touches *every* `reg-cofx` a v1 app wrote, ambient or recordable. A v1 cofx handler took the interceptor context and threaded a value into it — `(fn [ctx arg] (assoc-in ctx [:coeffects :id] v))` (or `(fn [ctx] …)` for the no-arg case). v2 retires that ctx→ctx shape: a supplier is a plain **value-returning** function — `(fn [arg] v)` (or `(fn [] v)`) — and the runtime is what places the returned value into the coeffects map under the cofx's id ([chapter 07](07-effects-and-coeffects.md#reg-cofx--registering-a-supplier)). The matching consumer change is the same one as for `:now`: a v1 `[(rf/inject-cofx :viewport "main")]` interceptor entry becomes `:rf.cofx/requires [[:viewport "main"]]` registration metadata. Before and after for a generic ambient custom cofx:
+
+```clojure
+;; v1 — ctx→ctx handler, injected positionally
+(rf/reg-cofx :viewport
+  (fn [ctx] (assoc-in ctx [:coeffects :viewport] (.-innerWidth js/window))))
+(rf/reg-event-fx :layout/measure
+  [(rf/inject-cofx :viewport)]
+  (fn [{:keys [db viewport]} _] ...))
+
+;; v2 — value-returning supplier, declared via :rf.cofx/requires
+(rf/reg-cofx :viewport
+  {:doc "Ambient viewport width."}
+  (fn [] (.-innerWidth js/window)))           ;; just the value; no ctx, no assoc-in
+(rf/reg-event-fx :layout/measure
+  {:rf.cofx/requires [:viewport]}             ;; declaration metadata, not an interceptor
+  (fn [{:keys [db viewport]} _] ...))
+```
+
+  An ambient cofx like this stays ambient — no `:recordable?` — and the grade only changes the picture when the value feeds a durable write (the bullet above). The signature change itself is unconditional: it applies whether or not the fact is recordable, and whether the supplier takes call-site arguments (`(fn [k] v)`, declared `[[:viewport k]]`) or none.
+
 A cofx that only measures a *diagnostic* or transient fact (a viewport width, a non-durable display preference) stays **ambient** — register it without `:recordable?` and it simply re-runs on replay; the rule bites only when the value feeds a durable write. The skill flags ambient durable reads for review rather than rewriting blind, because "does this read decide durable state?" is a judgement about your code's intent.
 
 When a failure matches none of the above, the skill surfaces it for human review rather than guessing. That's the cardinal rule again, and it's what keeps an automated migration trustworthy: it does the things it's sure of and asks about the rest.
