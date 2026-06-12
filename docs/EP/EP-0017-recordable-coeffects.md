@@ -112,11 +112,14 @@ of epic `rf2-d8mvke`.
 ### Deferred (Slice B — gated per disposition 11)
 
 - **Recordable generator machinery — DEFERRED (`rf2-ygpac8`, slice-B.7).**
-  Generation at processing-start, `:schema` validation (production hard error),
-  and the `:rf.cofx/generated` trace op. **Gated on the first real generator
-  consumer** — the named candidate is EP-0016 optimistic temp-ids. The gate is
-  the EP-0016 discipline applied to ourselves: a primitive with no demonstrated
-  site gets a settled contract and a named trigger, not a build.
+  Generation at processing-start, the full **per-leaf
+  `:rf.error/cofx-value-invalid` validation** (structural-EDN-always **and**
+  `:schema`-when-declared, production hard error — see the §5 step-3 slice-A
+  reality note), and the `:rf.cofx/generated` trace op. **Gated on the first
+  real generator consumer** — the named candidate is EP-0016 optimistic
+  temp-ids. The gate is the EP-0016 discipline applied to ourselves: a
+  primitive with no demonstrated site gets a settled contract and a named
+  trigger, not a build.
 - **Mint policies — DEFERRED (`rf2-5spzo7`, slice-B.8).** `:live` (router
   default), `:strict` (hard-wired for replay; the `:test` preset default), and
   `:explicit-live` (declared-nondeterminism escape), wired to their normative
@@ -452,12 +455,30 @@ When the runtime processes an event:
 2. Ensure the envelope has `:rf.cofx` with `:rf/time-ms` (stamped at enqueue;
    EP-0010 unchanged).
 3. For each declared **recordable** id, in declaration order:
-   - present on the token → validate: structural EDN always, `:schema` when
-     the registration declares one. Failure is
-     `:rf.error/cofx-value-invalid` — a hard error in dev **and production**
-     (causal-token contract validation, the `:dispatched-at` precedent:
-     folding an out-of-contract value into the ledger is corrupt durable
-     state).
+   - present on the token → **deliver** the value. Per-leaf validation
+     (structural EDN + `:schema`) is **Slice B** — see the deferral note
+     below. Failure of that future check is `:rf.error/cofx-value-invalid` —
+     a hard error in dev **and production** (causal-token contract
+     validation, the `:dispatched-at` precedent: folding an out-of-contract
+     value into the ledger is corrupt durable state).
+
+     > **Slice-A reality — per-leaf validation is Slice B.** As shipped,
+     > `deliver-declared-cofx` (`implementation/core/src/re_frame/cofx.cljc`)
+     > delivers a token-present recordable leaf without a per-leaf structural
+     > EDN check, and the boundary guard `diag/validate-cofx!`
+     > (`router/diagnostics.cljc`) validates only the envelope **map shape**
+     > plus `:rf/time-ms` int-ness — it does not structurally EDN-check each
+     > recordable leaf. The entire per-leaf `:rf.error/cofx-value-invalid`
+     > path (structural-EDN-always **and** `:schema`-when-declared) is
+     > **Slice B**, gated with the generator machinery (slice-B.7) — the only
+     > slice-B step that produces un-boundary-checked recordable values. In
+     > Slice A every requirable fact is provided or ambient, supplied
+     > recordable maps pass through the boundary shape gate, and no generator
+     > mints an un-checked value, so there is nothing for the per-leaf check
+     > to catch yet. (The `:schema` half was already listed as deferred under
+     > *Deferred (Slice B) → Recordable generator machinery*; this note adds
+     > the structural-EDN half so the whole `:rf.error/cofx-value-invalid`
+     > path reads as one slice-B unit.)
    - absent, generator-backed → consult the mint policy (§6): `:live` /
      `:explicit-live` run the generator and write the result into the
      envelope's `:rf.cofx`; `:strict` fails with
