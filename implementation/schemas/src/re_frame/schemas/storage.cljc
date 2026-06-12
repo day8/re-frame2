@@ -25,6 +25,7 @@
   (:require [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.path :as path]
             [re-frame.privacy :as privacy]
             [re-frame.schemas.validator :as validator]
             [re-frame.schemas.walker :as walker]
@@ -121,10 +122,15 @@
   keyword, string, number, nil, map, set — are rejected: they break the
   `(get-in db path)` the validation hot path runs.
 
-  `sequential?` (not `vector?`) is deliberate — `get-in`/`assoc-in`
-  accept any sequential `ks`, and the bead's suggested direction permits
-  non-vector seqs; the only hard requirement is sequential-ness so the
-  validation walk's `get-in` cannot throw."
+  `sequential?` (not `vector?`) is deliberate — APIs MAY accept any
+  sequential collection for migration ergonomics (Conventions §The
+  `:rf/path` algebra §Path shape). The only hard requirement at the
+  acceptance boundary is sequential-ness so the validation walk's
+  `get-in` cannot throw; the accepted seq is then NORMALIZED to its
+  canonical vector form (`re-frame.path/normalize`) before it becomes a
+  stored declaration / digest path key, so a list path and the equivalent
+  vector path are ONE identity (EP-0012 §Path shape — \"all stored
+  declarations MUST normalize to a vector\")."
   [path]
   (sequential? path))
 
@@ -587,6 +593,17 @@
    (assert-app-schema-path! path (best-effort-frame opts-or-frame-id))
    (let [opts         (coerce-opts opts-or-frame-id)
          frame-id     (resolve-frame opts)
+         ;; EP-0012 §Path shape (rf2-94o54l.2): a `reg-app-schema` path is
+         ;; accepted as any sequential collection but NORMALIZED to its
+         ;; canonical vector form before it becomes the stored key / digest
+         ;; path key, so a list path `(list :a :b)` and the equivalent
+         ;; vector `[:a :b]` are ONE identity — the side-table key, the
+         ;; `schema-meta` `:path`, the prior-schema lookup, and the digest
+         ;; line all derive from the same canonical vector. `normalize`
+         ;; (not `normalize-concrete`) — a `reg-app-schema` path validates
+         ;; SHAPE only (Spec 010 permits any get-in segment), so we coerce
+         ;; the container without narrowing the segment domain.
+         path         (path/normalize path)
          ;; The per-frame schema-metadata map (the {path → schema-meta}
          ;; entry value) — `:schema` + `:path` + `:frame` + source-coords.
          ;; Named `schema-meta` to match the slice vocabulary
@@ -721,7 +738,12 @@
   Per Spec 010 §Schemas as a tooling and agent surface."
   ([path] (app-schema-at path {}))
   ([path opts-or-frame-id]
-   (let [frame-id (coerce->frame-id opts-or-frame-id)]
+   ;; EP-0012 §Path shape (rf2-94o54l.2): normalize the lookup path to its
+   ;; canonical vector so a `(list :a :b)` read finds the entry stored under
+   ;; the equivalent `[:a :b]` key (registration normalizes the same way) —
+   ;; storage and lookup AGREE on one canonical-vector identity.
+   (let [frame-id (coerce->frame-id opts-or-frame-id)
+         path     (path/normalize path)]
      (when-let [m (get-in @schemas-by-frame [frame-id path])]
        (:schema m)))))
 
@@ -744,7 +766,11 @@
                                       ;; (keyword sugar also accepted)"
   ([path] (app-schema-meta-at path {}))
   ([path opts-or-frame-id]
-   (let [frame-id (coerce->frame-id opts-or-frame-id)]
+   ;; EP-0012 §Path shape (rf2-94o54l.2): normalize the lookup path so a
+   ;; non-vector seq read resolves to the canonically-stored vector entry
+   ;; (registration normalizes the key the same way).
+   (let [frame-id (coerce->frame-id opts-or-frame-id)
+         path     (path/normalize path)]
      (get-in @schemas-by-frame [frame-id path]))))
 
 (defn app-schemas

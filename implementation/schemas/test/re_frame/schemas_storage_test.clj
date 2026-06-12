@@ -261,6 +261,48 @@
     (is (= :string (rf/app-schema-at (list :a :b)))
         "non-vector seq path registers (get-in accepts any sequential ks)")))
 
+(deftest reg-app-schema-normalizes-seq-path-to-canonical-vector
+  (testing "rf2-94o54l.2 / EP-0012 §Path shape — a list path and the
+            equivalent vector path are ONE canonical-vector identity:
+            the entry is STORED under the canonical vector key, looked up
+            by EITHER spelling, and re-registering via the other spelling
+            overwrites the SAME slot (not a parallel list-keyed entry)"
+    ;; Register via a non-vector seq; the stored key is the canonical vector.
+    (rf/reg-app-schema (list :a :b) :string)
+    (let [frame-keys (keys (get (schemas/snapshot-schemas-by-frame) :rf/default))]
+      (is (every? vector? frame-keys)
+          "every stored schemas-by-frame key is a canonical vector")
+      (is (contains? (set frame-keys) [:a :b])
+          "the stored key is the canonical VECTOR, not the supplied list"))
+    ;; The vector-spelling lookup finds the list-registered entry.
+    (is (= :string (rf/app-schema-at [:a :b]))
+        "vector lookup resolves the list-registered entry — one identity")
+    ;; The stored meta :path is itself the canonical vector.
+    (is (= [:a :b] (:path (rf/app-schema-meta-at (list :a :b))))
+        "schema-meta :path is the canonical vector, regardless of read spelling")
+    ;; reg-app-schema returns the normalized canonical-vector path.
+    (is (= [:c :d] (rf/reg-app-schema (list :c :d) :int))
+        "reg-app-schema returns the canonical vector form of a seq path")
+    ;; Re-registering via the vector spelling overwrites the SAME slot
+    ;; (no parallel list-keyed entry survives).
+    (rf/reg-app-schema [:a :b] :int)
+    (is (= :int (rf/app-schema-at (list :a :b)))
+        "re-register via the vector spelling hits the same canonical slot")
+    (is (= 1 (count (filter #(= [:a :b] %)
+                            (keys (get (schemas/snapshot-schemas-by-frame) :rf/default)))))
+        "exactly ONE entry for the path — no list-vs-vector key split")))
+
+(deftest app-schemas-digest-list-path-equals-vector-path
+  (testing "rf2-94o54l.2 / EP-0012 §Digest path keys — a frame populated
+            via a list path digests identically to one populated via the
+            equivalent vector path (digest keys derive from the canonical
+            vector, not the raw container shape)"
+    (rf/reg-app-schema (list :a :b) :string {:frame :seq-frame})
+    (rf/reg-app-schema [:a :b] :string {:frame :vec-frame})
+    (is (= (rf/app-schemas-digest :vec-frame)
+           (rf/app-schemas-digest :seq-frame))
+        "list-keyed and vector-keyed frames produce byte-identical digests")))
+
 (deftest reg-app-schemas-rejects-batch-with-bad-path-atomically
   (testing "rf2-sk0ql — a bulk batch containing a non-sequential path key
             is rejected ATOMICALLY: the whole call throws and NO entry
