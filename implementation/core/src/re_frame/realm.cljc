@@ -214,6 +214,23 @@
   [id]
   (get @realms id))
 
+(defn realm-ids
+  "Return the set of installed realm ids — the keys of the process `realms`
+  registry. Always includes `default-realm-id` (the process default realm,
+  seeded at ns-load and never disposed); a single-realm app returns exactly
+  `#{:rf.realm/default}`. Constructed realms (`construct-realm`) join the set
+  and disposed realms (`dispose-realm!`) drop out of it, so this is the live
+  enumeration of which realms exist right now.
+
+  The realm-side half of the (realm, frame) addressing model: a tool reads the
+  installed realms here and a frame's realm via `re-frame.frame/frame-realm`,
+  the two together being the full address (EP-0013 disposition 3). PUBLIC
+  (`rf/realm-ids`) — the realm-targeted query surface needs a public way to
+  enumerate realms (the stage-8 `{:realm …}` query forms take a realm id but
+  nothing public told a tool WHICH ids exist)."
+  []
+  (set (keys @realms)))
+
 (defn realm-id
   "Return a realm's id. Accepts the realm map or, for ergonomic call sites,
   a realm-id keyword (returned unchanged). Returns `default-realm-id` for nil
