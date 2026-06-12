@@ -1,6 +1,8 @@
 # O-18. Security + operational logging sweep on the observability interceptor surface
 
-> **Type B** (semantic flag — every hit needs operator judgement). The agent sweeps the codebase for hand-rolled observability interceptors (audit logging, telemetry forwarders, error projectors, post-event recorders) registered against the v1 surfaces ([M-13](README.md#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error) `reg-event-error-handler`, [M-17](README.md#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors) `reg-global-interceptor`, [M-19](README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in) `add-post-event-callback`, bespoke `reg-event-fx` wrappers that emit telemetry from inside handler bodies, ajax-cljs response-side `:interceptors`), classifies each by **whether the payload it ships off-box may carry sensitive data** and **whether the slot it walks may carry oversize values**, and produces a per-site rewrite proposal that lands the interceptor on the canonical v2 surface ([`register-listener!`](../../spec/009-Instrumentation.md#the-listener-api), `register-epoch-listener!`, or per-frame `:interceptors`) with the framework's sensitive / large defense composed by default.
+> **Type B** (semantic flag — every hit needs operator judgement). The agent sweeps the codebase for hand-rolled observability interceptors (audit logging, telemetry forwarders, error projectors, post-event recorders) registered against the v1 surfaces ([M-13](README.md#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error) `reg-event-error-handler`, [M-17](README.md#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors) `reg-global-interceptor`, [M-19](README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in) `add-post-event-callback`, bespoke `reg-event-fx` wrappers that emit telemetry from inside handler bodies, ajax-cljs response-side `:interceptors`), classifies each by **whether it must survive into production** (a hosted-monitor forwarder MUST; a dev-only console panel must not), **whether the payload it ships off-box may carry sensitive data**, and **whether the slot it walks may carry oversize values**, and produces a per-site rewrite proposal that lands the interceptor on the canonical v2 surface — **frame `:observability` sinks** ([`reg-observability-sink!`](../../spec/015-Data-Classification.md#frame-owned-observability-sink-policy), the default for any forwarder that must keep firing in production), or `register-event-listener!` / `register-error-listener!` for an intentionally corpus-wide hook, or the dev-only [`register-listener!`](../../spec/009-Instrumentation.md#the-listener-api) / `register-epoch-listener!` for an observer that is *meant* to elide in production, or per-frame `:interceptors` for behaviour-modifiers — with the framework's sensitive / large defense composed by default.
+
+> **The production-survivability fork comes first (rf2-ntv9i9.6).** Before privacy or size, classify each forwarder by whether it must run in a production build, because that decides the *surface*, and the surface decides everything below it. The default for a hosted-monitor forwarder (Sentry / Datadog / Rollbar / custom telemetry endpoint) is a **frame `:observability` sink** — the runtime hands the sink an already-projected record (the owning frame's classification composed with the entry's egress profile), so the redaction + size-cap this rule's §2–§3 build by hand are framework-managed for you. Drop to the raw `register-event-listener!` / `register-error-listener!` substrates only for an intentionally **corpus-wide** hook (one fan-out across every frame rather than per-frame policy). `register-listener!` (Shape A below) and `register-epoch-listener!` (Shape B) ride the **dev-only trace surface** — they DCE out under `:advanced` + `goog.DEBUG=false` (and `-Dre-frame.debug=false` JVM-side), so a forwarder ported there ships **nothing in production**. Use those two *only* when the observer is genuinely dev-loop-only. The entry-point hierarchy is pinned in [009 §Use case × surface routing](../../spec/009-Instrumentation.md#use-case--surface-routing) (which forwards to the guide §16 consumer-facing walkthrough); the §2–§4 redaction/size machinery below applies to whichever surface a site lands on (frame sinks compose it for you; raw-listener ports apply it by hand).
 
 > **Cross-references.** Required-rule [M-13](README.md#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error) drops `reg-event-error-handler`; this rule covers the broader sweep that catches observers M-13 misses. Required-rule [M-17](README.md#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors) drops `reg-global-interceptor`; this rule sweeps the audit-shaped subset of M-17 hits to the trace surface rather than the per-frame `:interceptors` vector. The [API.md §wire-elision walker](../../spec/API.md#elide-wire-value-the-wire-boundary-walker) is the framework primitive every off-box forwarder this rule produces routes through; [Security.md §Privacy / secret handling](../../spec/Security.md#privacy--secret-handling) is the threat-model context.
 
@@ -185,9 +187,47 @@ The framework already drops `:sensitive? true` events on the off-box-forwarder d
 
 ## 4. Reference mediation interceptor
 
-The canonical "redact + size-cap + forward + drop-count" body — the agent ports every classified-as-observer hit to one of these two shapes depending on what the v1 site did:
+The canonical "redact + size-cap + forward + drop-count" body — the agent ports every classified-as-observer hit to one of these shapes, picked **first** by the production-survivability fork (§Why this is its own rule) and then by what the v1 site did:
 
-### Shape A — `register-listener!` for cross-frame observers (the M-13 / M-17 cross-frame-observer replacement)
+- **Shape 0 — frame `:observability` sink.** The default for a hosted-monitor forwarder that must keep firing in production. The framework projects the record for you; you write no `redact-sensitive` / `cap-or-elide` by hand.
+- **Shape A — `register-listener!`** (dev-only trace surface) for a cross-frame observer that is *meant* to elide in production (a dev panel, a local audit log shared between operators). DCEs out of a production bundle — never use it for a hosted monitor.
+- **Shape B — `register-epoch-listener!`** (dev-only) for assembled-per-cascade observers.
+- **Shape C — per-frame `:interceptors`** for behaviour-modifiers (not observers).
+
+For an intentionally **corpus-wide** production forwarder (one fan-out across every frame, not per-frame policy), use `register-event-listener!` / `register-error-listener!` instead of Shape 0 — same projection contract, no frame-scoping. Shapes A and B's hand-rolled `redact-sensitive` / `cap-or-elide` helpers are *not* needed there: those substrates apply off-box elision before fan-out, exactly like the frame sink.
+
+### Shape 0 — frame `:observability` sink (the default for a production-survivable off-box forwarder)
+
+A forwarder classified "observer (off-box egress)" that must run in production lands here, not on Shape A. Declare a sink under the frame's `:observability` policy and register its fn; the runtime delivers an **already-projected** record (the owning frame's `:sensitive` / `:large` classification composed with the entry's egress profile), so the §2 sensitive redaction and the §3 size-cap are framework-managed — you do not re-walk:
+
+```clojure
+(ns my-app.observability
+  (:require [re-frame.core :as rf]
+            [sentry.core :as sentry]
+            [datadog.core :as datadog]))
+
+;; 1. Declare the policy on the frame (classification lives here too).
+(rf/reg-frame :app/main
+  {:observability {:handled-events [{:sink :my-app.sinks/datadog
+                                     :rf.egress/profile :rf.egress/off-box-observability}]
+                   :errors         [{:sink :my-app.sinks/sentry
+                                     :rf.egress/profile :rf.egress/off-box-observability}]}
+   :sensitive     {:app-db [[:auth :token]]}})   ;; redaction declared once, at the owner
+
+;; 2. Register the concrete sink fns. The record is ALREADY projected —
+;;    no redact-sensitive, no cap-or-elide; sensitive paths arrive :rf/redacted.
+(rf/reg-observability-sink! :my-app.sinks/datadog
+  (fn [record] (datadog/track-event! record)))
+
+(rf/reg-observability-sink! :my-app.sinks/sentry
+  (fn [record] (sentry/capture! record)))
+```
+
+This is the v2-canonical target for the **majority** of "observer (off-box egress)" hits — anything that worked in v1 by hooking the dispatch envelope to ship telemetry to a hosted backend. The privacy + oversize machinery §2–§3 build by hand exists for the cases that *can't* use Shape 0 (Shapes A/B's dev surface, and bespoke pre-projection transforms); the frame sink composes that machinery for you. Where the v1 site's payload walked sensitive keys, propose the `:sensitive {:app-db …}` / registration `:sensitive` declarations (per the §"Schema-declaration follow-on") so the projection covers them — the declaration is strictly better than a per-site explicit drop, exactly as §2 already notes for the schema path.
+
+### Shape A — `register-listener!` for *dev-only* cross-frame observers (the M-13 / M-17 cross-frame-observer replacement)
+
+> **Dev-only surface — elides in production.** Port a hit here only when the observer is genuinely dev-loop-only (a dev panel, a console audit log). A hosted-monitor forwarder ported to Shape A ships **nothing** under `:advanced` + `goog.DEBUG=false` — that site belongs on Shape 0 (or the corpus-wide `register-event-listener!` / `register-error-listener!`) above.
 
 ```clojure
 (ns my-app.observability
@@ -266,7 +306,7 @@ The canonical "redact + size-cap + forward + drop-count" body — the agent port
   (fn [db _] (:audit/counters db)))
 ```
 
-This is the **structural rewrite target** for every "observer-shaped `reg-event-error-handler` / `reg-global-interceptor` / `add-post-event-callback` / handler-body telemetry" hit from §1. The framework defaults compose (the `:sensitive?` guard, the off-box-include defaults on the walker); the floor checklist composes (`redact-sensitive-floor`); the size cap composes (`cap-or-elide`); the dropped-count signal composes (the `[:audit/dropped-counter-inc ...]` dispatch). The body is the **minimum baseline** — every observability site lands here or better; the agent surfaces the diff between the v1 site's body and this shape and asks the operator to confirm any deviations (a destination-specific SDK call, a custom batching layer, an alternative redaction policy).
+This is the **structural rewrite target** for every *dev-only* "observer-shaped `reg-event-error-handler` / `reg-global-interceptor` / `add-post-event-callback` / handler-body telemetry" hit from §1 — the ones meant to elide in production. (Production-survivable off-box forwarders land on Shape 0's frame sink, or the corpus-wide `register-event-listener!` / `register-error-listener!`, where the framework composes this same redaction + size-cap for you.) On the dev surface the framework defaults compose (the `:sensitive?` guard, the off-box-include defaults on the walker); the floor checklist composes (`redact-sensitive-floor`); the size cap composes (`cap-or-elide`); the dropped-count signal composes (the `[:audit/dropped-counter-inc ...]` dispatch). The body is the **minimum baseline** — every dev-surface observability site lands here or better; the agent surfaces the diff between the v1 site's body and this shape and asks the operator to confirm any deviations (a destination-specific SDK call, a custom batching layer, an alternative redaction policy).
 
 ### Shape B — `register-epoch-listener!` for assembled-epoch observers
 
@@ -310,8 +350,8 @@ For every observability site the agent rewrites, the report lists the sensitive 
 When the agent applies this rule:
 
 - The migration report lists every observability site found, classified per §1 (observer-off-box / observer-local / behaviour-modifying / misclassified-handler-body) with file/line.
-- Each rewrite shows: the v1 site, the v2 target shape (A / B / C), the framework defaults composed (sensitive guard, walker defaults), the floor-checklist drops applied, the dropped-count signal added.
+- Each rewrite shows: the v1 site, the production-survivability classification (must-survive vs dev-only), the v2 target shape (0 / A / B / C), the framework defaults composed (sensitive guard, walker defaults — or the frame-sink projection for Shape 0), the floor-checklist drops applied, the dropped-count signal added.
 - The "schema-annotation follow-ons" section lists every sensitive-key + schema-slot pair the agent found, with a per-slot proposal of `{:sensitive? true}` and the rationale (which observability site walked it).
 - The "size-cap configuration" section lists each listener's chosen `threshold-bytes` and the rationale (Sentry budget, log-file size, dashboard payload limit) — operator confirmation per listener.
 - Any hit the agent could not classify ("the body does too much / does both observer and behaviour-modifying work") is listed as an escalation, with the recommended path (split the body, port halves to different surfaces).
-- The "framework defaults" section reminds the operator that the always-on substrate (`:on-error`, event-emit listener, error-emit listener — per [009 §What IS available in production](../../spec/009-Instrumentation.md#what-is-available-in-production)) survives production builds; observability sites that need a production-survivable path go through those substrates, not through `register-listener!` (which elides on `:advanced + goog.DEBUG=false`).
+- The "framework defaults" section reminds the operator that the production-survivable observability surfaces are the frame `:observability` sinks (`reg-observability-sink!` — the default) and the corpus-wide always-on event-emit / error-emit listeners beneath them (per [009 §What IS available in production](../../spec/009-Instrumentation.md#what-is-available-in-production) and the entry-point hierarchy in [009 §Use case × surface routing](../../spec/009-Instrumentation.md#use-case--surface-routing)). Observability sites that need a production-survivable path go through those surfaces, not through `register-listener!` / `register-epoch-listener!` (which elide on `:advanced + goog.DEBUG=false`). (There is **no** app-steering `:on-error` recovery policy — that earlier draft surface was removed; recovery is framework-owned. See [M-13](README.md#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error).)
