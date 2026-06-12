@@ -36,6 +36,8 @@ Optional opts: `:init-fn` (zero-arg fn run after adapter install, before the tes
 
 Do **not** call `(registrar/clear-all!)` from a fixture — under CLJS, framework registrations cannot be reloaded and will be gone for the rest of the run.
 
+> **Forward note — the per-realm hermetic fixture.** `make-reset-runtime-fixture` snapshots and restores the *shared* registrar around each test because today every frame draws behaviour from one process-wide table — this fixture is that compatibility era's hermetic-isolation tool, and it is what to use now. The forward direction (EP-0013) makes the registrar a **realm** (see [`fundamentals/frames.md` §Realms](../fundamentals/frames.md)): a test would install exactly the program and capabilities it needs into a *fresh realm*, so isolation falls out of constructing a throwaway container rather than snapshot/restore over a global. That is a concept, **not a callable API yet** — `rf/realm` / `rf/install!` are reserved vocabulary graduating internal-first. Keep reaching for `make-reset-runtime-fixture`; the per-realm shape is the payoff once those constructors land.
+
 ## Driving events: `dispatch-sync` and `dispatch-sequence`
 
 `rf/dispatch-sync` drains to fixed point synchronously — by the time it returns, the handler has run, fx have fired, and the queue is empty. Use it instead of `rf/dispatch` in tests; `dispatch` is async and the test would assert before the handler ran.
