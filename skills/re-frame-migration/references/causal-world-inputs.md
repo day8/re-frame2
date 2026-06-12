@@ -1,8 +1,10 @@
 # causal-world-inputs
 
-**The rule (EP-0010, `final`):** if a host fact can affect a *durable write*, the transition MUST read that fact from a **causal token** (the dispatch / reply / restore envelope) or from a **recordable coeffect** captured in that token — never by reading the host *ambiently* at the durable-write site. This is a **semantic tightening**, not an API break: handlers that don't touch the host need no change. It is the one v2 rule the v1 *"stub the clock in tests"* habit does not satisfy — stubbing reduces flakes but the event log still can't explain why a state value has the timestamps, ids, locations, and random choices it has.
+**The rule (EP-0010 recording semantics + EP-0017 authoring surface):** if a host fact can affect a *durable write*, the transition MUST read that fact from a **causal token** (the dispatch / reply / restore envelope's `:rf.cofx` map) or from a **declared recordable coeffect** captured in that token — never by reading the host *ambiently* at the durable-write site. The whole discipline in one sentence: **durable state folds facts, never reads.** It is the one v2 rule the v1 *"stub the clock in tests"* habit does not satisfy — stubbing reduces flakes but the event log still can't explain why a state value has the timestamps, ids, locations, and random choices it has.
 
-Normative home: [`spec/002-Frames.md` §Causal world inputs](../../../spec/002-Frames.md#causal-world-inputs) (the `:rf.world/inputs` envelope field + the framework coeffect) and [`spec/Spec-Schemas.md`](../../../spec/Spec-Schemas.md) (`:rf.world/inputs`). The full rationale and the worked before→after examples are in [`docs/EP/EP-0010-causal-world-inputs.md`](../../../docs/EP/EP-0010-causal-world-inputs.md).
+> **EP-0017 changed the authoring surface, not the rule.** The recorded map was renamed `:rf.world/inputs` → **`:rf.cofx`** (flat, one fact per owner-qualified key); `reg-cofx` is now **value-returning**; coeffect delivery is the **`:rf.cofx/requires`** registration declaration; and **`inject-cofx` is removed**. A migrating app touches all four — see [M-72](../../../migration/from-re-frame-v1/README.md#m-72-inject-cofx-removed--rfworldinputs--rfcofx-rename) for the mechanical reshape; this reference owns the **durable-read judgment** (which bucket each host read falls into).
+
+Normative home: [`spec/002-Frames.md` §Recordable coeffects](../../../spec/002-Frames.md#recordable-coeffects) (the `:rf.cofx` envelope field + the satisfaction algorithm), [`spec/001-Registration.md` §Coeffects](../../../spec/001-Registration.md) (the `reg-cofx` grades + `:rf.cofx/requires`), and [`spec/Spec-Schemas.md`](../../../spec/Spec-Schemas.md) (`:rf.cofx`). The recording rationale is in [`docs/EP/EP-0010-causal-world-inputs.md`](../../../docs/EP/EP-0010-causal-world-inputs.md); the authoring surface in [`docs/EP/EP-0017-recordable-coeffects.md`](../../../docs/EP/EP-0017-recordable-coeffects.md).
 
 > **Why this matters for a migration.** Most of this skill's rules are loud-or-mechanical. This one is **silent**: an ambient host read in a handler *compiles clean, boots fine, and passes its own live-session tests* — it only betrays itself under replay, restore, SSR hydration, or a fixture re-run, where the same token now folds a different value. So it does not surface on the Phase-4 boot smoke-test the way a dropped dispatch does. Treat it as a **structural up-front grep** (below), and surface durable ambient reads as a report line even when the app runs correctly today.
 
@@ -27,67 +29,64 @@ rg -n 'js/Date\.now|\(\.now js/Date\)|interop/now-ms|\(now-ms\)|\(js/Date\.\)|\(
 rg -n 'random-uuid|\brand\b|rand-int|rand-nth|crypto\.getRandomValues|\(\.getRandomValues js/crypto\)|js/Math\.random|\(\.random js/Math\)|crypto\.randomUUID|\(\.randomUUID js/crypto\)' src
 # Browser + storage facts
 rg -n 'js/location|js/navigator|localStorage|sessionStorage|matchMedia' src
-# v1 ambient time coeffect
-rg -n 'inject-cofx\s+:now|:now\b' src
+# v1 ambient time coeffect + the removed inject-cofx delivery idiom + the
+# renamed envelope field / ctx→ctx reg-cofx shape (all EP-0017 targets, M-72)
+rg -n 'inject-cofx|:rf.world/inputs|:rf.world/keys|:now\b' src
 ```
 
 > **Keep these aligned with the framework's own check.** `scripts/check_ambient_durable_reads.py` is the authoritative ambient-durable-read detector for the re-frame2 codebase; its clock/random pattern list (`now-ms` / `js/Date.now` / `.now js/Date` / `random-uuid` / `getRandomValues`) is the canonical core. The extra raw-JS forms above (`(js/Date.)` + `.getTime`, `js/Math.random` / `.random js/Math`, `crypto.randomUUID` / `.randomUUID js/crypto`) are the ones a **v1 consumer app** commonly uses that the framework code does not — a migration grep that only covers the framework's set under-reports and can falsely conclude EP-0010 is clean. Include both.
 
 For each hit: if the value flows into a durable write → it migrates (below). If it's diagnostic or host-transient → leave it, and note in the report *why* it's allowed to stay ambient.
 
-## Route time → the envelope, or a compatibility cofx
+## Route time → declare `:rf/time-ms`
 
-The dispatch envelope carries `:rf.world/inputs`, a plain-EDN map whose one required key is `:time-ms` (wall-clock epoch millis). The router stamps it once at the causal boundary when the caller omits it; tests, replay, and SSR supply it. Handlers read it as a framework coeffect:
+The dispatch envelope carries `:rf.cofx`, a flat plain-EDN map; the framework's one built-in fact is **`:rf/time-ms`** (wall-clock epoch millis), stamped once at enqueue when the caller omits it; tests, replay, and SSR supply it. A handler takes delivery by **declaring** it and reads it flat:
 
 ```clojure
 (rf/reg-event-fx
   :article/load-succeeded
-  (fn [{:keys [db] :rf.world/keys [inputs]} [_ {:keys [id article]}]]
+  {:rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db rf/time-ms]} [_ {:keys [id article]}]]
     {:db (assoc-in db [:articles id]
                    {:body article
-                    :loaded-at (:time-ms inputs)})}))   ;; was (interop/now-ms)
+                    :loaded-at time-ms})}))   ;; was (interop/now-ms)
 ```
 
-Two migration paths:
+The migration path: replace `(interop/now-ms)` / `js/Date.now` / `(.now js/Date)` at a durable write with a `:rf.cofx/requires [:rf/time-ms]` declaration + a flat `rf/time-ms` read.
 
-1. **Direct (preferred for new/edited handlers):** replace `(interop/now-ms)` / `js/Date.now` / `(.now js/Date)` at the durable write with `(:time-ms (:rf.world/inputs cofx))` (or the `:rf.world/keys [inputs]` destructure).
-2. **Compatibility cofx (keeps a v1 `inject-cofx :now`-style call site stable):** a v1 app that injects an ambient `:now` cofx can keep its custom cofx **name** while moving its **source** from the host to the envelope. The cofx reads `:rf.world/inputs` and so becomes replay-correct without rewriting every consumer:
+> **No compatibility-cofx shortcut anymore.** EP-0017 removed `inject-cofx` and made `reg-cofx` value-returning, so the v1 trick of wrapping a `:now` cofx that reads the envelope is gone — and unnecessary. A pervasive v1 `:now` cofx migrates by deleting the cofx and declaring `:rf/time-ms` on the consumers. If a consumer-side keyword churn is genuinely undesirable, an **ambient** wrapper supplier may re-expose the time under an app id — but it cannot read another coeffect (suppliers take only their own arg), so it would re-read the host and **break replay** for any durable consumer; do **not** use a wrapper for durable time. Declare `:rf/time-ms` directly.
 
-   ```clojure
-   (rf/reg-cofx
-     :app/now-ms
-     (fn [ctx]
-       (let [world (get-in ctx [:coeffects :rf.world/inputs])]
-         (assoc-in ctx [:coeffects :app/now-ms] (:time-ms world)))))
-   ```
+`:rf/time-ms` is the durable time contract. The old dev-only `:dispatched-at` envelope field is **gone** — durable code declares `:rf/time-ms`.
 
-   Handlers still `(inject-cofx :app/now-ms)` and read `:app/now-ms`; the value now comes from the causal token, so replay returns the captured time instead of re-reading the host. This is the smallest-diff route for an app with a pervasive `:now` cofx.
+## UUID / random / browser / storage → event payloads or recordable facts
 
-`:rf.world/inputs` is the durable time contract. The old dev-only `:dispatched-at` envelope field is **not** a durable surface — durable code reads `:rf.world/inputs`.
+These follow the same boundary. If the generated or read value becomes durable, it must be a recorded fact. The `:rf.cofx` map is **flat** (one fact per owner-qualified key — no `:uuid {…}` / `:random […]` grouping sub-maps), and app-owned **recordable generators** are slice B, so in slice A the realistic routes are the **event payload** (preferred — the caller pins the id) or a **provided** recordable fact stamped by a boundary.
 
-## UUID / random / browser / storage → recordable inputs or event payloads
+- **Generated identity (UUID).** A durable entity id minted with `random-uuid` inside a handler is a world fact. The minting ladder's preferred rung is the **event payload** — the caller pins the id and the view can render it optimistically:
 
-These follow the same boundary. If the generated or read value becomes durable, it is a world input.
+  ```clojure
+  (rf/dispatch [:todo/create {:todo/id (random-uuid) :text text}])  ;; minted at the call site
+  ;; handler: read (:todo/id payload) — never (random-uuid) in the fold.
+  ```
 
-- **Generated identity (UUID).** A durable entity id minted with `random-uuid` inside a handler is a world input. Supply it on the token under a domain slot, or carry it in the event payload from the call site:
+  When the id is genuinely fold-internal (no call site owns it), it rides a recordable fact: declare `:rf.cofx/requires [:my/entity-id]` and (slice B) register an app-owned recordable generator, or supply the value in the `:rf.cofx` dispatch opt:
 
   ```clojure
   (rf/dispatch [:todo/create {:text text}]
-               {:rf.world/inputs
-                {:time-ms 1781078400123
-                 :uuid    {:todo/id #uuid "018ff2b4-9bbd-7a0a-a4df-cf2a91cbe86d"}}})
-  ;; handler: (get-in inputs [:uuid :todo/id])  — not (random-uuid)
+               {:rf.cofx {:rf/time-ms 1781078400123
+                          :todo/id    #uuid "018ff2b4-9bbd-7a0a-a4df-cf2a91cbe86d"}})
+  ;; handler: {:rf.cofx/requires [:todo/id]} → read `todo/id` flat — not (random-uuid)
   ```
 
-- **Random choices.** Record the **chosen value**, not a seed (host RNG algorithms and collection ordering are not portable). A seed is acceptable only when the algorithm and input order are named and stable. **Crypto-grade randomness — session tokens, keys, nonces — is excluded entirely:** it must NOT flow through recordable world inputs (a recorded choice would *be* the secret, durably embedded in epoch history / replay fixtures). Secrets are generated in effects on the host side; only derived or server-issued facts become durable.
+- **Random choices.** Record the **chosen value**, not a seed (host RNG algorithms and collection ordering are not portable). A seed is acceptable only when the algorithm and input order are named and stable. **Crypto-grade randomness — session tokens, keys, nonces — is excluded entirely:** it must NOT flow through recordable coeffects (a recorded choice would *be* the secret, durably embedded in epoch history / replay fixtures). Secrets are generated in effects on the host side; only derived or server-issued facts become durable.
 
-- **Browser + storage facts.** A handler reading `js/location` / `navigator` / `localStorage` while writing durable state is the violation. The host adapter reads the browser **at the boundary** and dispatches a causal token carrying normalized EDN (strings/booleans/numbers/keywords — never the live host object):
+- **Browser + storage facts.** A handler reading `js/location` / `navigator` / `localStorage` while writing durable state is the violation. The host adapter reads the browser **at the boundary** and dispatches a causal token carrying normalized EDN (strings/booleans/numbers/keywords — never the live host object) — either on the event payload, or as a recordable fact in `:rf.cofx`:
 
   ```clojure
   (rf/dispatch [:route/location-changed
                 {:location {:path "/articles/welcome" :query "?preview=true"}}]
                {:source :router
-                :rf.world/inputs {:time-ms 1781078400123}})
+                :rf.cofx {:rf/time-ms 1781078400123}})
   ```
 
   The same pattern covers `visibilitychange`, `online`, `storage`, and media-query changes — and `localStorage` reads that seed boot state arrive on the boot / restore token.

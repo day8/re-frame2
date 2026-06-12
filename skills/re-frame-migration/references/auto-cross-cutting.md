@@ -186,7 +186,7 @@ If the interceptor list becomes empty after dropping `debug`/`trim-v`, drop the 
 v2's `reg-event-db` / `reg-event-fx` / `reg-event-ctx` require the interceptors slot (the 2nd arg, between id and handler) to be a **vector**. A **bare** (non-vector) interceptor in that slot now **throws `:rf.error/reg-event-bare-interceptor` at registration / ns-load** (the registration guard landed; it was silently dropped before). v1 tolerated the bare form (it wrapped/flattened a single interceptor), so a v1 app carries it pervasively. Wrap each in a vector:
 
 ```clojure
-;; SEARCH — bare interceptor (Var, inline ->interceptor, inject-cofx, path, …)
+;; SEARCH — bare interceptor (Var, inline ->interceptor, path, …)
 (rf/reg-event-db :save-progress mw/with-progress-completion
  <handler>)
 
