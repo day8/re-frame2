@@ -4,7 +4,7 @@
             [re-frame.core :as rf]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [todomvc.db]
+            [todomvc.db :as db]
             [todomvc.events]
             [todomvc.subs]
             [todomvc.views :as views]))
@@ -65,7 +65,14 @@
   (rf/init! reagent-adapter/adapter)
   (rf/reg-frame app-frame {:doc "TodoMVC demo frame." :url-bound? true})
   (rf/with-frame app-frame
-    (rf/dispatch-sync [:todo/initialise])
+    ;; EP-0010 (rf2-lk86xl): read the saved todos from localStorage HERE, at the
+    ;; host/boot boundary, and ride them on the boot token as a causal world
+    ;; input — never as an ambient `localStorage` read in the `:todo/initialise`
+    ;; durable handler. The router preserves this supplied `:rf.world/inputs` and
+    ;; only fills the framework-required `:time-ms`; the recordable
+    ;; `:todo.storage/todos` cofx (db.cljs) returns this captured value exactly.
+    (rf/dispatch-sync [:todo/initialise]
+                      {:rf.world/inputs {:storage {:todos (db/read-todos-from-storage)}}})
     (rf/dispatch-sync [:rf.route/handle-url-change (current-path)]))
   (.removeEventListener js/window "hashchange" on-hashchange)
   (.addEventListener js/window "hashchange" on-hashchange)

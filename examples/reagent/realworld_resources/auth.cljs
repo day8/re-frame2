@@ -71,12 +71,39 @@
         (.setItem ls "jwtToken" token)
         (.removeItem ls "jwtToken")))))
 
+;; EP-0010 (causal world inputs, rf2-lk86xl): the saved JWT is a STORAGE world
+;; fact that `:auth/initialise` folds into durable app-db (and that drives
+;; session restore). A durable write must be a function of prior frame-state
+;; plus the causal token — not of an ambient `localStorage` read at the write
+;; site, which replay/restore could not reproduce. The host-boundary boot read
+;; happens once, in `realworld-resources.core/run`, and rides the boot dispatch
+;; token as `:rf.world/inputs {:storage {:jwt-token …}}`.
+(defn read-jwt-from-storage
+  "Host-boundary read of the saved JWT from localStorage (or nil). Called from
+   `realworld-resources.core/run` so the token rides the boot dispatch token as
+   a causal world input rather than being read ambiently in the durable
+   initialise handler. nil when absent / unavailable."
+  []
+  (some-> (.-localStorage js/globalThis)
+          (.getItem "jwtToken")))
+
 (rf/reg-cofx :realworld-resources.session/token
-  {:doc "Inject the saved token (or nil) from localStorage into coeffects."}
+  {:doc "Inject the saved JWT (or nil) into coeffects.
+
+         EP-0010 recordable storage coeffect (the `:app/now-ms` pattern,
+         EP-0010 §Backwards Compatibility): returns the captured
+         `(get-in cofx [:rf.world/inputs :storage :jwt-token])` value when the
+         boot token supplied one (replay / restore / test fixtures get the exact
+         recorded value, no host re-read), falling back to a live
+         `read-jwt-from-storage` host read only when none was supplied — i.e.
+         when building a fresh live token at the boundary where reading the host
+         IS correct."}
   (fn [ctx _]
-    (rf/assoc-coeffect ctx :realworld-resources.session/token
-                       (some-> (.-localStorage js/globalThis)
-                               (.getItem "jwtToken")))))
+    (let [world (get-in ctx [:coeffects :rf.world/inputs])]
+      (rf/assoc-coeffect ctx :realworld-resources.session/token
+                         (if (contains? (:storage world) :jwt-token)
+                           (get-in world [:storage :jwt-token])
+                           (read-jwt-from-storage))))))
 
 ;; ============================================================================
 ;; SESSION SUPPORT EVENTS
