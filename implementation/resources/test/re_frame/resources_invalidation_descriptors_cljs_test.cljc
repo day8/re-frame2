@@ -589,3 +589,64 @@
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"mutation-invalid-invalidation"
           (mstate/normalize-invalidation-descriptors {:scope :rf.scope/global} 'test)))))
+
+;; ===========================================================================
+;; rf2-fi6tda.4 finding 3 — pin the per-pass :rf.resource/invalidated EP fields
+;; ===========================================================================
+
+(deftest invalidated-trace-pins-ep0016-diagnostic-fields
+  ;; rf2-fi6tda.4 finding 3: capture a REAL invalidation pass and assert the
+  ;; EP-0016 diagnostic fields a behavior test would not pin — :matched,
+  ;; :refetched, :left-stale, :exempt (the populate Rider-1 spare), and
+  ;; :any-tag-match-other-scope?. Active (refetch), ownerless (left-stale),
+  ;; populated-exempt, and same-tag-other-scope entries are all exercised in
+  ;; one pass so each field carries a non-trivial value.
+  (reg-article-resource!)
+  (rf/reg-resource :r/article-list
+    {:scope :rf.scope/global
+     :params-schema [:map]
+     :request (fn [_p _] {:request {:method :get :url "/articles"}})
+     :tags (fn [_p _] #{[:article-list]})})
+  (rf/dispatch-sync [:t/login "jake"])
+  ;; ACTIVE-owner list entry (global) → REFETCH on invalidation
+  (own-loaded! {:resource :r/article-list :scope :rf.scope/global :params {} :owner [:v :list]})
+  ;; OWNERLESS article detail (global) under tag [:article w] → left-stale,
+  ;; BUT this same mutation POPULATES it → EXEMPT (Rider 1 spares it)
+  (ownerless-stale-load! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :w]})
+  ;; a SAME-TAG entry in ANOTHER scope ([:article-list] on jake's feed) so
+  ;; :any-tag-match-other-scope? is observable — the global descriptor's
+  ;; [:article-list] tag also lives on jake's session feed.
+  (reg-feed-resource!) ;; r/feed carries #{[:feed] [:article-list]}
+  (ownerless-stale-load! {:resource :r/feed :scope {:from-db :t/session} :params {} :owner [:v :feed]})
+  (rf/reg-mutation :m/favorite
+    {:scope :rf.scope/global
+     :params-schema [:map [:slug :string]]
+     :request (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}})
+     ;; populate the detail key authoritatively…
+     :populates (fn [{:keys [slug]} result]
+                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})
+     ;; …then a GLOBAL descriptor invalidating BOTH [:article w] (matches the
+     ;; populated-exempt detail) AND [:article-list] (matches the active list
+     ;; here AND jake's feed in ANOTHER scope).
+     :invalidates (fn [{:keys [slug]} _r]
+                    [{:scope :rf.scope/global :tags #{[:article slug] [:article-list]}}])})
+  (let [invs (record-invalidations!
+               #(do (rf/dispatch-sync [:rf.mutation/execute
+                                       {:mutation :m/favorite :params {:slug "w"} :instance :iv1}])
+                    (reply-success! @last-managed-args {:slug "w" :favorited true})))
+        ;; one pass (one descriptor) → one :rf.resource/invalidated row
+        row (:tags (first invs))]
+    (testing "exactly one invalidation pass row"
+      (is (= 1 (count invs))))
+    (testing ":matched names the global list key (NOT the exempt detail key)"
+      (let [list-key (state/scoped-resource-key :rf.scope/global :r/article-list {})]
+        (is (= [list-key] (:matched row)) "the populate-exempt detail is excluded from :matched")))
+    (testing ":refetched / :left-stale reflect the active-owner decision"
+      (is (= 1 (:refetched row)) "the active-owner list refetched")
+      (is (= 0 (:left-stale row)) "no ownerless matched key (the detail was exempt)"))
+    (testing ":exempt names the populated detail key the Rider-1 spare kept fresh"
+      (is (= [global-key] (:exempt row))))
+    (testing ":any-tag-match-other-scope? is true ([:article-list] lives on
+              jake's session feed too — distinguishes 'no match HERE' from
+              'no resource provides this tag in any scope')"
+      (is (true? (:any-tag-match-other-scope? row))))))

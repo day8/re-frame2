@@ -131,6 +131,14 @@
   - **`:populates`** — `(fn [params result] -> {target value})` — controlled
     resource-entry seeds applied on success (an AUTHORITATIVE load, Rider 1);
     each KEY is the same map-form exact target;
+  - **`:removes`** — `(fn [params result] -> [target …])` — controlled
+    resource-entry REMOVALS applied on success (a delete write that drops the
+    cached entry — EP-0016 Rider 2; accepted replies apply patches, populates,
+    invalidates, AND removes); each element is the same map-form exact target
+    `{:resource :params :scope}`. A removed key's in-flight attempt is
+    best-effort aborted + its work row settled `:cancelled` (as
+    `:rf.resource/remove` does), and the key flows into the reply
+    `:affected-keys`;
   - **`:scope`** — the cache scope the invalidation / patch defaults to
     (same scope rules as resources; OPTIONAL — defaults from the execute
     payload, else `:rf.scope/global`);
@@ -177,8 +185,9 @@
 
 (defn mutation-meta
   "Return the registered mutation's spec map (`:request`, `:params-schema`,
-  `:invalidates`, `:patches`, `:populates`, `:scope`, `:invalidate-timing`,
-  `:transport`, `:doc`, source coords) for `mutation-id`, or nil if no
+  `:invalidates`, `:patches`, `:populates`, `:removes`, `:scope`,
+  `:invalidate-timing`, `:transport`, `:doc`, source coords) for `mutation-id`,
+  or nil if no
   mutation is registered under that id. The introspection counterpart of
   `resource-meta`. Per EP-0003 §Mutations / Xray."
   [mutation-id]

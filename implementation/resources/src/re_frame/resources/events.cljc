@@ -594,6 +594,52 @@
 
 ;; ---- invalidate-tags — exact tag invalidation -----------------------------
 
+(defn match-invalidation-keys
+  "The PURE invalidation-match predicate, extracted so BOTH the invalidation
+  engine (`invalidate-tags-handler`) AND the mutation-settlement reply
+  (`re-frame.resources.mutation-events`, which must report the keys an
+  `:invalidates` descriptor WILL mark stale BEFORE the dispatched
+  `:rf.resource/invalidate-tags` runs — rf2-fi6tda.2) agree on the exact same
+  match set.
+
+  `entries` is the cache `:entries` map `{<key-id> <entry>}` (keyed on the
+  CEDN-1 byte `key-id`, rf2-9e0tyq); `cscope` is the canonical concrete scope
+  (nil iff `cross-scope?`); `tag-set` is the requested tag set; `exempt-ids`
+  is the set of byte `key-id`s a same-mutation `:populates` kept authoritative
+  (Rider 1 — excluded from the match). Returns a map with:
+
+  - `:matched`    — vector of MATCHED scoped-key VECTORS (`:resource/key`),
+                    tags-intersect AND in-scope AND not-exempt;
+  - `:matched-ids`— the matched byte `key-id`s (the stale-mark write set);
+  - `:exempt-hit` — the EXEMPT keys that WOULD have matched (Rider 1 trace);
+  - `:other-scope-hit?` — whether the tags match an entry in ANOTHER scope
+                    (\"no match HERE\" vs \"no resource provides this tag in
+                    any scope\" — only meaningful for a scoped invalidation).
+
+  Per Spec 016 §Invalidation / §Populate is an authoritative load."
+  [entries cscope cross-scope? tag-set exempt-ids]
+  (let [tags-hit? (fn [entry] (seq (set/intersection (set (:tags entry)) tag-set)))
+        sk-of     (fn [entry] (:resource/key entry))
+        in-scope? (fn [entry] (or cross-scope? (= cscope (first (sk-of entry)))))
+        matched   (into {}
+                        (filter (fn [[k-id entry]] (and (not (contains? exempt-ids k-id))
+                                                        (in-scope? entry) (tags-hit? entry))))
+                        entries)
+        exempt-hit (into []
+                         (comp (filter (fn [[k-id entry]] (and (contains? exempt-ids k-id)
+                                                               (in-scope? entry) (tags-hit? entry))))
+                               (map (fn [[_k-id entry]] (sk-of entry))))
+                         entries)
+        other-scope-hit?
+        (and (not cross-scope?)
+             (boolean
+               (some (fn [[_k-id entry]] (and (not= cscope (first (sk-of entry))) (tags-hit? entry)))
+                     entries)))]
+    {:matched     (mapv (fn [[_k-id entry]] (sk-of entry)) matched)
+     :matched-ids (set (keys matched))
+     :exempt-hit  exempt-hit
+     :other-scope-hit? other-scope-hit?}))
+
 (defn invalidate-tags-handler
   "`:rf.resource/invalidate-tags` — exact tag invalidation (Spec 016
   §Invalidation). Payload: `{:scope :tags :cause :cross-scope?}`.
@@ -729,50 +775,32 @@
         ;; trace's `:resource-key` use the right form: byte for the db write,
         ;; vector for the trace/refetch).
         exempt     (into #{} (map state/key-id) exempt-keys)
-        tags-hit?  (fn [entry] (seq (set/intersection (set (:tags entry)) tag-set)))
-        sk-of      (fn [entry] (:resource/key entry))
-        in-scope?  (fn [entry] (or cross-scope? (= cscope (first (sk-of entry)))))
-        ;; matched: tags intersect AND (cross-scope OR scope matches) AND NOT
-        ;; exempt (a populated key the same mutation kept authoritative).
-        ;; Keyed on the byte key-id.
-        matched    (into {}
-                         (filter (fn [[k-id entry]] (and (not (contains? exempt k-id))
-                                                         (in-scope? entry) (tags-hit? entry))))
-                         entries)
-        ;; the exempt keys that WOULD have matched (for the trace — what the
-        ;; populate spared from this same-mutation refetch). The trace names
-        ;; them by the scoped-key VECTOR.
-        exempt-hit (into []
-                         (comp (filter (fn [[k-id entry]] (and (contains? exempt k-id)
-                                                               (in-scope? entry) (tags-hit? entry))))
-                               (map (fn [[_k-id entry]] (sk-of entry))))
-                         entries)
-        ;; tag matches that fell OUTSIDE the requested scope (the
-        ;; "no match HERE, but the tag exists in another scope" signal — only
-        ;; meaningful for a scoped invalidation)
-        other-scope-hit?
-        (and (not cross-scope?)
-             (boolean
-               (some (fn [[_k-id entry]] (and (not= cscope (first (sk-of entry))) (tags-hit? entry)))
-                     entries)))
+        ;; the SHARED pure match (rf2-fi6tda.2): exactly the set the
+        ;; mutation-settlement reply pre-computes for `:affected-keys`. Keyed
+        ;; on the byte key-id; `:matched` are scoped-key VECTORS.
+        {matched-ids :matched-ids
+         exempt-hit  :exempt-hit
+         other-scope-hit? :other-scope-hit?}
+        (match-invalidation-keys entries cscope cross-scope? tag-set exempt)
         ;; mark each matched entry stale (durable :invalidated-at fact). Keyed
         ;; on the byte key-id — write straight to the entries-path slot.
-        rdb'       (reduce-kv
-                     (fn [db k-id entry]
-                       (assoc-in db (state/entry-path-by-id k-id)
-                                 (assoc entry :invalidated-at invalidated-at)))
-                     runtime-db matched)
+        rdb'       (reduce
+                     (fn [db k-id]
+                       (update-in db (state/entry-path-by-id k-id)
+                                  (fn [e] (when e (assoc e :invalidated-at invalidated-at)))))
+                     runtime-db matched-ids)
         ;; per-entry decision: active-owner entries refetch (Spec 016
         ;; §Invalidation 3); ownerless entries are left stale / GC-eligible
         ;; (§Invalidation 4). Collected once for both the dispatches and the
         ;; per-entry trace detail. `:resource-key` is the scoped-key VECTOR.
-        decisions  (mapv (fn [[_k-id entry]]
-                           {:resource-key (sk-of entry)
-                            :active? (boolean (seq (:active-owners entry)))
-                            :decision (if (seq (:active-owners entry))
-                                        :refetch :left-stale)
-                            :tags (vec (:tags entry))})
-                         matched)
+        decisions  (mapv (fn [k-id]
+                           (let [entry (get entries k-id)]
+                             {:resource-key (:resource/key entry)
+                              :active? (boolean (seq (:active-owners entry)))
+                              :decision (if (seq (:active-owners entry))
+                                          :refetch :left-stale)
+                              :tags (vec (:tags entry))}))
+                         matched-ids)
         refetches  (into []
                          (comp
                            (filter :active?)

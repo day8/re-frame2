@@ -1353,3 +1353,185 @@
     (testing "AND the continuation fired for the accepted error reply"
       (is (= 1 (count @replied)))
       (is (= :error (:status (second (first @replied))))))))
+
+;; ===========================================================================
+;; 15. rf2-fi6tda.2 — invalidated/stale keys flow into :affected-keys
+;; ===========================================================================
+;;
+;; Spec 016 §Mutation completion continuations: `:affected-keys` are the keys
+;; POPULATED, PATCHED, REMOVED, OR MARKED STALE by the accepted reply. The
+;; success path previously unioned only patched + populated keys, and the
+;; failure invalidation recorded an EMPTY set — the keys an invalidation pass
+;; stales were dropped. These pin the fix (the runtime pre-computes the stale
+;; keys through the SAME shared match the dispatched invalidate-tags uses).
+
+(deftest invalidation-only-success-includes-stale-keys-in-affected-keys
+  (reg-capture-continuation!)
+  (rf/reg-resource :r/article (article-resource-spec))
+  (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
+    ;; an ownerless loaded article entry the mutation will INVALIDATE (no
+    ;; populate / patch — invalidation is the ONLY cache consequence).
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :r/article :scope :rf.scope/global :params {:slug "w"}
+                        :owner [:v :a]}])
+    (reply-success! @last-managed-args {:title "old"})
+    (rf/dispatch-sync [:rf.resource/release-owner
+                       {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :a]}])
+    (reset! last-managed-args nil)
+    ;; a mutation that ONLY invalidates the article tag (no populate / patch)
+    (rf/reg-mutation :m/touch
+                     {:params-schema [:map [:slug :string]]
+                      :request     (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/touch")}})
+                      :invalidates (fn [{:keys [slug]} _r] #{[:article slug]})})
+    (rf/dispatch-sync [:rf.mutation/execute
+                       {:mutation :m/touch :params {:slug "w"} :instance :iv1
+                        :reply-to [:test/save-replied]}])
+    (reply-success! @last-managed-args {:ok true})
+    (testing "rf2-fi6tda.2 — the stale-marked key is in the reply :affected-keys
+              even though nothing was populated/patched"
+      (let [reply (second (first @replied))]
+        (is (= 1 (count @replied)))
+        (is (contains? (:affected-keys reply) rkey)
+            "the invalidated key flows into :affected-keys (was dropped before)")))
+    (testing "and the instance :affected-keys records it too"
+      (is (= #{rkey} (set (:affected-keys (instance :iv1))))))))
+
+(deftest after-failure-invalidation-includes-stale-keys-in-affected-keys
+  (reg-capture-continuation!)
+  (rf/reg-resource :r/article (article-resource-spec))
+  (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :a]}])
+    (reply-success! @last-managed-args {:title "x"})
+    (rf/dispatch-sync [:rf.resource/release-owner
+                       {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :a]}])
+    (reset! last-managed-args nil)
+    (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :after-failure}))
+    (rf/dispatch-sync [:rf.mutation/execute
+                       {:mutation :m/save :params {:slug "w"} :instance :afk1
+                        :reply-to [:test/save-replied]}])
+    (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
+    (testing "rf2-fi6tda.2 — an :after-failure invalidation's stale key is in
+              :affected-keys (the failure path previously recorded #{})"
+      (let [reply (second (first @replied))]
+        (is (= :error (:status reply)))
+        (is (contains? (:affected-keys reply) rkey))))
+    (testing "and the failed instance records the affected key"
+      (is (= #{rkey} (set (:affected-keys (instance :afk1))))))))
+
+;; ===========================================================================
+;; 16. rf2-fi6tda.3 finding 1 — mutation :removes drops exact entries
+;; ===========================================================================
+
+(deftest mutation-removes-drops-the-exact-entry-and-reports-it
+  ;; Spec 016 §Map-form exact resource targets — accepted replies apply
+  ;; patches, populates, invalidates, AND removes. A delete write drops the
+  ;; cached entry (mirroring :rf.resource/remove) and reports the removed key.
+  (reg-capture-continuation!)
+  (rf/reg-resource :r/article (article-resource-spec))
+  (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
+    ;; seed a loaded entry the delete mutation will remove
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :r/article :scope :rf.scope/global :params {:slug "w"}}])
+    (reply-success! @last-managed-args {:title "doomed"})
+    (is (some? (entry rkey)) "entry seeded")
+    (reset! last-managed-args nil)
+    (rf/reg-mutation :m/delete
+                     {:params-schema [:map [:slug :string]]
+                      :request (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}})
+                      :removes (fn [{:keys [slug]} _result]
+                                 [{:resource :r/article :params {:slug slug} :scope :rf.scope/global}])})
+    (rf/dispatch-sync [:rf.mutation/execute
+                       {:mutation :m/delete :params {:slug "w"} :instance :del1
+                        :reply-to [:test/save-replied]}])
+    (reply-success! @last-managed-args {:deleted true})
+    (testing "the exact entry was REMOVED from the cache"
+      (is (nil? (entry rkey)) "the entry is gone (dissoc'd by key-id)"))
+    (testing "the removed key is on the instance patch-summary :removed + :affected-keys"
+      (is (= [rkey] (:removed (:patch-summary (instance :del1)))))
+      (is (= #{rkey} (set (:affected-keys (instance :del1))))))
+    (testing "the removed key is in the reply :affected-keys"
+      (is (contains? (:affected-keys (second (first @replied))) rkey)))))
+
+(deftest mutation-removes-accepts-single-map-form-target
+  ;; the :removes fn may return a SINGLE map-form target (sugar) — not only a
+  ;; collection. A remove of a key with no entry is a harmless no-op.
+  (rf/reg-resource :r/article (article-resource-spec))
+  (let [rkey (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :r/article :scope :rf.scope/global :params {:slug "w"}}])
+    (reply-success! @last-managed-args {:title "x"})
+    (reset! last-managed-args nil)
+    (rf/reg-mutation :m/del-one
+                     {:params-schema [:map [:slug :string]]
+                      :request (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}})
+                      :removes (fn [{:keys [slug]} _r]
+                                 {:resource :r/article :params {:slug slug} :scope :rf.scope/global})})
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/del-one :params {:slug "w"} :instance :do1}])
+    (reply-success! @last-managed-args {:deleted true})
+    (testing "a single map-form target removes the entry"
+      (is (nil? (entry rkey))))
+    (testing "removing a key with no entry is a no-op (no throw, empty :removed)"
+      (rf/reg-mutation :m/del-missing
+                       {:params-schema [:map [:slug :string]]
+                        :request (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug)}})
+                        :removes (fn [{:keys [slug]} _r]
+                                   {:resource :r/article :params {:slug slug} :scope :rf.scope/global})})
+      (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/del-missing :params {:slug "gone"} :instance :dm1}])
+      (reply-success! @last-managed-args {:deleted true})
+      (is (= [] (:removed (:patch-summary (instance :dm1))))))))
+
+;; ===========================================================================
+;; 17. rf2-fi6tda.4 finding 1 — pin the runtime :rf.mutation/replied trace
+;; ===========================================================================
+
+(deftest replied-trace-emitted-on-accepted-reply-with-full-shape
+  ;; The accepted :reply-to continuation emits exactly one :rf.mutation/replied
+  ;; row carrying :target, :work/id, :mutation, :instance, :status, :cause —
+  ;; pinned via a REAL trace listener over the runtime (not a synthetic row).
+  (reg-capture-continuation!)
+  (rf/reg-resource :r/article (article-resource-spec))
+  (let [traces (record-mutation-traces!
+                 (fn []
+                   (rf/reg-mutation :m/save (save-article-spec))
+                   (rf/dispatch-sync [:rf.mutation/execute
+                                      {:mutation :m/save :params {:slug "w"} :instance :rt1
+                                       :reply-to [:test/save-replied]}])
+                   (reply-success! @last-managed-args {:ok true})))
+        replied-rows (filter #(= :rf.mutation/replied (:operation %)) traces)]
+    (testing "exactly one :rf.mutation/replied row for the accepted reply"
+      (is (= 1 (count replied-rows))))
+    (testing "the row carries the full continuation evidence shape"
+      (let [row (:tags (first replied-rows))]
+        ;; :target is the normalized reply-target descriptor (the :reply-to
+        ;; vector lowered to {:event … :delivery :append} by re-frame.reply).
+        (is (= [:test/save-replied] (:event (:target row))))
+        (is (= :append (:delivery (:target row))))
+        (is (some? (:work/id row)))
+        (is (= :m/save (:mutation row)))
+        (is (= :rt1 (:instance row)))
+        (is (= :ok (:status row)))
+        (is (= [:mutation :m/save :rt1] (:cause row)))))))
+
+(deftest replied-trace-not-emitted-for-stale-suppressed-reply
+  ;; the trace fires only for an accepted terminal reply, never for a
+  ;; stale/suppressed one (the delivery rule, pinned at the trace boundary).
+  (reg-capture-continuation!)
+  (let [traces (record-mutation-traces!
+                 (fn []
+                   (rf/reg-mutation :m/save (save-article-spec))
+                   ;; two executes under the SAME instance → gen-1 reply is stale
+                   (rf/dispatch-sync [:rf.mutation/execute
+                                      {:mutation :m/save :params {:slug "w"} :instance :si
+                                       :reply-to [:test/save-replied]}])
+                   (let [gen1 @last-managed-args]
+                     (rf/dispatch-sync [:rf.mutation/execute
+                                        {:mutation :m/save :params {:slug "w"} :instance :si
+                                         :reply-to [:test/save-replied]}])
+                     (reply-success! gen1 {:stale true}))))
+        replied-rows (filter #(= :rf.mutation/replied (:operation %)) traces)
+        stale-rows   (filter #(= :rf.mutation/stale-suppressed (:operation %)) traces)]
+    (testing "no :rf.mutation/replied row for the stale reply"
+      (is (= 0 (count replied-rows))))
+    (testing "the stale reply WAS recorded as stale-suppressed"
+      (is (= 1 (count stale-rows))))))
