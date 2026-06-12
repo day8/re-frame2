@@ -479,9 +479,10 @@ Watching the instance from a view is right for *rendering* — the button reads 
 (rf/reg-event-fx :settings/save-replied
   (fn [{:keys [db]} [_ {:keys [status value error]}]]
     (case status
-      :ok    {:db (assoc db :auth/user (:user value))
-              :fx [[:dispatch [:toast/show "Settings saved"]]]}
-      :error {:db (assoc db :settings/error error)})))
+      :ok        {:db (assoc db :auth/user (:user value))
+                  :fx [[:dispatch [:toast/show "Settings saved"]]]}
+      :error     {:db (assoc db :settings/error error)}
+      :cancelled {:db (assoc db :settings/saving? false)})))   ;; accepted cancellation also lands here
 ```
 
 No view watcher. The accepted reply becomes the next causal event — folded through the interceptor chain, the trace tape, and replay like any other event. (It is **not** a callback: a callback that returned effects would mint effects outside the event tape, outside replay, outside frame causality. The continuation is a *causal event target*.)
@@ -585,7 +586,17 @@ A descriptor `:scope` may be `:rf.scope/same` (the default — the mutation's re
 
 A `{:from-db …}` reference that resolves **nil** is **fail-closed**: that descriptor produces no invalidation — never an implicit global blast. Xray's mutation-invalidation surface shows the per-descriptor resolved scope and lists any fail-closed `:unresolved` references.
 
-Deliberate broad invalidation (admin tooling, cache-poisoning response, a migration — "invalidate this tag in *every* scope currently holding it") stays available as an explicit audited escape (`:cross-scope? true`), is privacy-relevant in traces, and must never be the default reading of a bare tag.
+Deliberate broad invalidation (admin tooling, cache-poisoning response, a migration — "invalidate this tag in *every* scope currently holding it") stays available as an explicit audited escape — but it answers a *different* question from a descriptor: a descriptor names scopes the call site already knows, while `:cross-scope?` targets scopes it **cannot** enumerate but the cache can. So **prefer descriptors whenever the scopes are enumerable**; reach for `:cross-scope?` only when they genuinely aren't. The escape is `:cross-scope? true`, and because it can stale or refetch data across users, tenants, story frames, and SSR requests, the runtime **requires** `:cause` evidence (a cross-scope invalidation with no `:cause` is rejected) and records it as a privacy-relevant trace event:
+
+```clojure
+;; A migration invalidates a tag wherever it lives — scopes unenumerable at the call site.
+{:fx [[:dispatch [:rf.resource/invalidate-tags
+                  {:tags         #{[:article-list]}
+                   :cross-scope? true
+                   :cause        [:migration :article-schema-v2]}]]]}   ;; :cause is required
+```
+
+It must never be the default reading of a bare tag.
 
 ### Map-form exact targets
 
@@ -626,7 +637,9 @@ Resources and mutations lower through Spec 014 managed HTTP. A resource's `:requ
                  token (assoc-in [:request :headers "Authorization"] (str "Token " token)))))})
 
 (rf/reg-resource :realworld/current-user
-  {:request (fn [_params _ctx] {:request {:method :get :url "/user"} :decode :json})})
+  {:params-schema [:map]
+   :scope         {:from-db :realworld/session}   ;; /user is session-dependent — never global
+   :request       (fn [_params _ctx] {:request {:method :get :url "/user"} :decode :json})})
 ```
 
 Registered once per frame, the interceptor decorates *every* managed request the frame issues — resource reads, mutations, and plain managed calls alike — so `:realworld/current-user` needs no per-resource opt-in. It reads the token from `(:frame ctx)` (carried-frame-correct, not an ambient db) and returns `ctx` unchanged when there's no token. Two riders: default retry policy should be **read-focused** (retrying writes can duplicate side effects, so mutation retry defaults stay conservative), and traces should report *that* an auth interceptor applied, never the bearer token value.
