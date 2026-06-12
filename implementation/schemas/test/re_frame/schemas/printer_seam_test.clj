@@ -98,10 +98,11 @@
     ;; Restoring the default brings the digest back — the printer
     ;; surface is purely a contract over the serialisation step.
     (schemas/set-schema-printer! nil)
-    (is (= "sha256:5d955f1275ab1ae7"
+    (is (= "sha256:e7939756d704eaab"
            (schemas/app-schemas-digest))
         "set-schema-printer! nil restores the default — the digest matches
-         the rf2-xssfv `single-prim` literal byte-for-byte")))
+         the rf2-xssfv `single-prim` literal byte-for-byte (the path key is
+         CEDN-1 `canonical-bytes`, not pr-str — rf2-ujmc3u)")))
 
 (deftest set-schema-fns!-installs-printer
   (testing "`(set-schema-fns! {:print fn})` swaps the printer atom

@@ -26,6 +26,13 @@
 ;;   :canonical-distinct   {:a A :b B}            ;; A and B are DISTINCT facts
 ;;   :path-instantiate     {:path P :bindings M :expect CONCRETE}
 ;;                         {:path P :bindings M :expect-error :rf.error/...}
+;;   :path-get             {:value V :path P [:not-found NF] :expect FOCUS}
+;;   :path-lookup          {:value V :path P :expect {:present? .. [:value ..]}}
+;;   :path-put             {:value V :path P :x X :expect V'}
+;;   :path-over            {:value V :path P :fn (:inc|:wrap-vec) :expect V'}
+;;   :path-compose         {:p P :q Q :expect CANONICAL-VECTOR}
+;;   :path-prefix          {:p P :q Q :expect bool}
+;;   :path-overlap         {:p P :q Q :expect bool}
 
 {:fixture/id           :identity/cedn1-path-algebra-golden
  :fixture/spec-version "1.0"
@@ -94,4 +101,53 @@
   ;; an UNBOUND param fails closed with the missing-param error.
   {:call :path-instantiate
    :path [:a [:rf.path/param :x]] :bindings {}
-   :expect-error :rf.error/missing-path-param}]}
+   :expect-error :rf.error/missing-path-param}
+
+  ;; --- the `:rf/path` algebra LAWS (rf2-du585y): the frozen get/put/over/
+  ;;     compose/prefix/overlap laws become a non-Clojure conformance target
+  ;;     so a port implementing only CEDN bytes + template instantiation no
+  ;;     longer passes EP-0012 conformance. (Conventions §Path laws.)
+
+  ;; root path [] focuses the whole value (the law raw assoc-in violates).
+  {:call :path-get    :value {:a 1} :path [] :expect {:a 1}}
+  {:call :path-lookup :value {:a 1} :path [] :expect {:present? true :value {:a 1}}}
+  {:call :path-put    :value {:a 1} :path [] :x {:b 2} :expect {:b 2}}
+  {:call :path-over   :value {:a 1} :path [] :fn :wrap-vec :expect [:wrapped {:a 1}]}
+  {:call :path-overlap :p [] :q [:anything :deep 3] :expect true}
+
+  ;; get / lookup on a nested path; a missing focus is nil (or :not-found).
+  {:call :path-get    :value {:cart {:items {42 {:qty 2}}}} :path [:cart :items 42 :qty] :expect 2}
+  {:call :path-get    :value {:cart {:items {}}} :path [:cart :items 99] :expect nil}
+  {:call :path-get    :value {} :path [:missing] :not-found :nf :expect :nf}
+
+  ;; PRESENT-nil vs MISSING — the distinction canonical identity preserves.
+  {:call :path-lookup :value {}          :path [:page] :expect {:present? false}}
+  {:call :path-lookup :value {:page nil} :path [:page] :expect {:present? true :value nil}}
+
+  ;; put installs the focus; present-nil is stored (not dissoc'd) so put-lookup
+  ;; holds at x = nil.
+  {:call :path-put    :value {:a 1} :path [:b :c] :x 9 :expect {:a 1 :b {:c 9}}}
+  {:call :path-lookup :value {:page 1} :path [:page] :expect {:present? true :value 1}}
+
+  ;; over: increment a numeric focus; nil-on-missing get semantics.
+  {:call :path-over   :value {:n 1}  :path [:n]      :fn :inc :expect {:n 2}}
+  {:call :path-over   :value {}      :path [:missing] :fn :inc :expect {:missing 1}}
+
+  ;; compose units + the canonical-vector result.
+  {:call :path-compose :p [:a :b] :q []      :expect [:a :b]}
+  {:call :path-compose :p []      :q [:a :b] :expect [:a :b]}
+  {:call :path-compose :p [:cart :items] :q [42 :qty] :expect [:cart :items 42 :qty]}
+
+  ;; prefix? / overlap? (symmetric; siblings are disjoint).
+  {:call :path-prefix  :p [:cart] :q [:cart :items 42] :expect true}
+  {:call :path-prefix  :p [:cart :items 42] :q [:cart] :expect false}
+  {:call :path-overlap :p [:cart :items] :q [:cart :items 42 :qty] :expect true}
+  {:call :path-overlap :p [:cart :items 42] :q [:cart :items 43] :expect false}
+
+  ;; vector-index container policy: an in-range integer index updates the
+  ;; vector in place; an out-of-range / non-integer segment replaces it with a
+  ;; fresh map (put stays total).
+  {:call :path-put    :value [10 20 30] :path [1] :x 99 :expect [10 99 30]}
+  {:call :path-get    :value [10 20 30] :path [1] :expect 20}
+  {:call :path-put    :value [10 20]    :path [5] :x 99 :expect {5 99}}
+  {:call :path-put    :value [10 20]    :path [:k] :x 99 :expect {:k 99}}]}

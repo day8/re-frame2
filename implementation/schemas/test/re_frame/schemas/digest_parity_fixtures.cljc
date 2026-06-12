@@ -22,7 +22,16 @@
   Wire-form review: every entry is `\"sha256:\" + 16 lowercase hex
   chars` per Spec 010 §Digest algorithm. The 16-hex prefix is the
   first 64 bits of the SHA-256 over the canonical concatenation
-  (line-sorted `<path-string> <sha256-hex>\\n`)."
+  (line-sorted `<path-key> <sha256-hex>\\n`).
+
+  rf2-ujmc3u: the `<path-key>` is now the CEDN-1 `canonical-bytes` token
+  stream of the path vector (`v[k::n]`), NOT `pr-str` of the vector
+  (`[:n]`) — Conventions §Canonical EDN identity lists schema digest path
+  keys among the canonical-identity surfaces, and `pr-str` is host-divergent
+  for the non-keyword segments a concrete path may carry. The literals below
+  were repinned when the path-key encoding moved to `canonical-bytes`; the
+  empty-set literal (`sha256:e3b0c44298fc1c14`) is unchanged because the
+  empty schema set emits no path-key line."
   (:require [re-frame.schemas.digest]))
 
 ;; ---- the parity test entry point ------------------------------------------
@@ -71,14 +80,14 @@
 (def single-prim
   {:label     "single-prim"
    :input     {[:n] :int}
-   :expected  "sha256:5d955f1275ab1ae7"
+   :expected  "sha256:e7939756d704eaab"
    :rationale "One path, keyword primitive schema. Smallest non-empty
               fixture — tests the single-line code path."})
 
 (def single-vector
   {:label     "single-vector"
    :input     {[:user] [:map [:id :uuid]]}
-   :expected  "sha256:7217a35f9e8d1b08"
+   :expected  "sha256:a29be3b0c0ab2dfc"
    :rationale "One path, vector Malli schema. Pins the bare-`[:map ...]`
               canonical form."})
 
@@ -86,7 +95,7 @@
   {:label     "multi-schema"
    :input     {[:user]  [:map [:id :uuid]]
                [:todos] [:vector :string]}
-   :expected  "sha256:d2ffa3677b377e60"
+   :expected  "sha256:290741855e4a96e7"
    :rationale "Two paths, vector schemas. Exercises the lexicographic
               line-sort (Spec 010 §Digest algorithm step 4)."})
 
@@ -95,7 +104,7 @@
    :input     {[:app :settings :theme] [:enum :light :dark]
                [:app :user :name]      :string
                [:app :user :age]       [:int {:min 0 :max 150}]}
-   :expected  "sha256:09ec6b6ec7e9e058"
+   :expected  "sha256:65d46c3f0b855ab3"
    :rationale "Three paths into a nested app-db shape. Exercises long
               paths and a schema-props map (`{:min 0 :max 150}`) that
               the canonical-form's sort-by-pr-str map-key ordering
@@ -104,7 +113,7 @@
 (def with-props
   {:label     "with-props"
    :input     {[:user] [:map {:closed true :title "User"} [:id :uuid] [:name :string]]}
-   :expected  "sha256:414f163e837264ca"
+   :expected  "sha256:52ac732d3b0b99ae"
    :rationale "Malli `[:map {props} & children]` shape. Exercises the
               inner-map sort over `{:closed true :title \"User\"}` —
               insertion-order independence is pinned by the
@@ -113,7 +122,7 @@
 (def primitive-bool
   {:label     "primitive-bool"
    :input     {[:flag] :boolean}
-   :expected  "sha256:9ceab11cd54a81ef"
+   :expected  "sha256:21f4bbee07588695"
    :rationale "Distinct primitive keyword (`:boolean`) — confirms the
               digest moves on a primitive-type change, locking the
               `not= digest` invariant for the keyword-primitive

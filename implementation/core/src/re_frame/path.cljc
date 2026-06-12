@@ -57,7 +57,8 @@
   Pure namespace — no runtime state, no trace, no host coupling. `.cljc`
   so the JVM test sweep exercises the algebra without the CLJS runtime."
   (:refer-clojure :exclude [get])
-  (:require [clojure.core :as core])
+  (:require [clojure.core :as core]
+            [re-frame.identity :as identity])
   #?(:clj (:import [java.util UUID Date]
                    [java.time Instant])))
 
@@ -128,14 +129,23 @@
   that needs a NARROWER domain composes its own predicate ON TOP of this
   one (e.g. `(and (segment? x) (not (nil? x)))`), so the shared upper bound
   stays the single definition and no consumer re-enumerates the host-type
-  discrimination."
+  discrimination.
+
+  rf2-ujmc3u: an INTEGER segment must be inside the CEDN-1 safe-integer
+  range — the shared path vocabulary MUST NOT be wider than canonical EDN
+  identity, or a consumer keying off `segment?` could admit an integer
+  (`9007199254740992`) that cannot be portably compared, printed, routed,
+  or digested under EP-0012. The range predicate is the SAME
+  `re-frame.identity/safe-segment-integer?` the CEDN-1 encoder enforces, so
+  `segment?` and `canonical-bytes` agree on \"portable integer\" rather than
+  each re-defining it (an out-of-range integer is rejected by BOTH)."
   [seg]
   (or (nil? seg)
       (keyword? seg)
       (string? seg)
       (symbol? seg)
       (boolean? seg)
-      (integer? seg)
+      (identity/safe-segment-integer? seg)
       #?(:clj  (or (instance? UUID seg)
                    (instance? Instant seg)
                    (instance? Date seg))

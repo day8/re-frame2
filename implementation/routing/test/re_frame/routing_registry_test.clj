@@ -164,8 +164,12 @@
         (is (some? ex)
             (str "a " (name label) " path-param value must fail closed, never "
                  "host-stringify into a URL"))
+        ;; rf2-du585y: assert the STRUCTURED :rf.error/id (Spec 009 §the
+        ;; stable discriminator) as the primary check; the message is secondary.
+        (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
+            (str "the structured :rf.error/id for a " (name label) " path value"))
         (is (= ":rf.error/route-url-non-edn-value" (ex-message ex))
-            (str "the structured error id for a " (name label) " path value"))
+            (str "the message string (secondary) for a " (name label) " path value"))
         (let [data (ex-data ex)]
           (is (= :route/item (:route-id data)) "ex-data names the route-id")
           (is (= :params (:slot data)) "ex-data names the offending slot")
@@ -184,8 +188,10 @@
       (let [ex (route-url-throws-non-edn? :route/search {} {:q v})]
         (is (some? ex)
             (str "a " (name label) " query value must fail closed"))
+        (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
+            (str "the structured :rf.error/id for a " (name label) " query value"))
         (is (= ":rf.error/route-url-non-edn-value" (ex-message ex))
-            (str "the structured error id for a " (name label) " query value"))
+            (str "the message string (secondary) for a " (name label) " query value"))
         (let [data (ex-data ex)]
           (is (= :route/search (:route-id data)) "ex-data names the route-id")
           (is (= :query (:slot data)) "ex-data names the :query slot")
@@ -197,7 +203,9 @@
     (rf/reg-route :route/doc {:path "/docs{/:section}?"})
     (let [ex (route-url-throws-non-edn? :route/doc {:section (fn [_])} {})]
       (is (some? ex) "a fn in an entered optional group fails closed")
-      (is (= ":rf.error/route-url-non-edn-value" (ex-message ex)))
+      (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
+          "structured :rf.error/id (primary)")
+      (is (= ":rf.error/route-url-non-edn-value" (ex-message ex)) "message (secondary)")
       (is (= :section (:param (ex-data ex)))))))
 
 (deftest route-url-admitted-scalars-still-emit-rf2-94o54l

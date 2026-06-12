@@ -27,6 +27,7 @@
       have shifted under them."
   (:require #?@(:cljs [[goog.crypt :as gcrypt]
                        [goog.crypt.Sha256]])
+            [re-frame.identity :as identity]
             [re-frame.path :as path]
             [re-frame.schemas.storage :as storage]
             [re-frame.schemas.validator :as validator])
@@ -69,23 +70,29 @@
 
 (defn- digest-line
   "Per Spec 010 §Digest algorithm step 3 — emit one line per
-  `(path, schema-value)` of the form `<path-string> <hex-of-sha256>\\n`.
+  `(path, schema-value)` of the form `<path-key-bytes> <hex-of-sha256>\\n`.
   The per-schema serialisation routes through the registered
   `schema-print` companion (rf2-wla45) so non-Malli ports compute
   digests against their own canonical bytes.
 
-  EP-0012 §Path shape (rf2-94o54l.2): the path key is NORMALIZED to its
-  canonical vector form (`re-frame.path/normalize`) before `pr-str`, so a
-  list path and the equivalent vector path emit byte-identical digest
-  lines — the digest path keys participate in the one canonical-vector
-  identity every other path consumer inherits, not the raw container shape.
-  `app-schemas` already returns canonically-keyed entries (storage
-  normalizes at registration), so this normalize is the defensive
-  belt-and-braces guaranteeing byte identity for ANY directly-fed
-  `path->schema` map (e.g. the parity fixtures). A canonical vector
-  normalizes to itself, so every pinned digest literal is unchanged."
+  EP-0012 §Path shape + §Canonical EDN identity (rf2-94o54l.2 + rf2-ujmc3u):
+  the path key is encoded through the shared CEDN-1
+  `re-frame.identity/canonical-bytes`, NOT `pr-str`. Conventions §Canonical
+  EDN identity lists \"schema digest path keys\" among the canonical-identity
+  surfaces — `pr-str` is host-divergent for the non-keyword segments a
+  schema path may admit (UUIDs, instants, nil, integers) and is explicitly
+  not a valid identity contract, whereas `canonical-bytes` is the one
+  cross-host identity the whole framework keys off. The path is first
+  NORMALIZED to its canonical concrete vector (`re-frame.path/normalize-
+  concrete`) so a list path and the equivalent vector path emit
+  byte-identical digest lines, and a non-portable segment fails closed here
+  too (it could never have been registered — storage normalizes through the
+  same concrete boundary — but the directly-fed parity fixtures route
+  through here as well). `canonical-bytes` over a canonical keyword vector
+  is a deterministic UTF-8 token stream (`v[k::a k::b]`), so the digest is
+  cross-host byte-stable for every admitted segment kind."
   [path schema-value]
-  (str (pr-str (path/normalize path))
+  (str (identity/canonical-bytes (path/normalize-concrete path))
        " "
        (sha256-hex (validator/run-printer schema-value))
        "\n"))
