@@ -71,6 +71,49 @@
 ;; key (the per-frame tier).
 (def ^:dynamic *fx-overrides* nil)
 
+;; ---- EP-0010 causal world-input stamping (rf2-s9ss0t) ---------------------
+;;
+;; The CAUSAL BOUNDARY: `build-envelope` ensures every dispatch carries an
+;; `:rf.world/inputs` map bearing `:time-ms` — the one host-clock read whose
+;; value durable writes may fold (Spec 002 §The World-Input Rule). This is the
+;; ONLY place the clock is read for the causal token; it is NOT re-read inside
+;; the handler, flow transform, resource reducer, work-ledger writer, or commit.
+;;
+;; `ensure-world-inputs` owns the shape contract so `build-envelope`'s let does
+;; not inline it:
+;;
+;;   - caller-supplied wins — a test / replay / SSR-hydration / tool dispatch
+;;     that supplies `:rf.world/inputs` has its map PRESERVED verbatim (extra
+;;     `:uuid` / `:random` / browser/storage slots ride through). The router
+;;     fills ONLY the framework-required `:time-ms` when absent, never
+;;     overwriting a supplied one (EP-0010 §Restore, Replay, And Hydration).
+;;   - `:time-ms` is WALL-CLOCK EPOCH ms (rf2-n1rh0f / EP-0010 §Time), read from
+;;     `interop/epoch-now-ms` (`js/Date.now()` / `System/currentTimeMillis`) —
+;;     NOT `interop/now-ms` (CLJS `performance.now()` is origin-relative, so a
+;;     durable timestamp folded from it would be incomparable with `js/Date`-
+;;     based freshness checks: resource `:stale-at`, invalidation, etc.).
+;;
+;; Unlike `:dispatch-id` / the retired `:dispatched-at`, this is NOT dev-gated:
+;; world inputs are DURABLE causal data, not a diagnostic, so `:time-ms` must be
+;; present in production too. The cost is one `epoch-now-ms` read + a small map
+;; on the dispatch path — the price of a deterministic fold.
+;;
+;; Child dispatches (`:dispatch` / `:dispatch-later` fx) get their OWN map —
+;; `:rf.world/inputs` is deliberately NOT in
+;; `re-frame.fx/inheritable-envelope-keys`, so each child re-enters here and is
+;; stamped fresh as a distinct causal token (no `:time-ms` inheritance — Spec
+;; 002 §Dispatch Envelope Stamping).
+
+(defn- ensure-world-inputs
+  "Return the caller-supplied `:rf.world/inputs` map with the framework-required
+  `:time-ms` filled from `interop/epoch-now-ms` iff absent. A supplied `:time-ms`
+  (and every other supplied slot) is preserved verbatim. See the section comment
+  above for the full causal-boundary contract."
+  [supplied]
+  (if (contains? supplied :time-ms)
+    supplied
+    (assoc supplied :time-ms (interop/epoch-now-ms))))
+
 (defn- build-envelope
   "Build the dispatch envelope per Spec 002 §Routing: the dispatch envelope.
   The envelope carries:
@@ -164,55 +207,25 @@
         ;; referenced syntactically.
         call-site          (when interop/debug-enabled?
                              (:rf.trace/call-site opts))
-        ;; EP-0010 §Dispatch Envelope Stamping (rf2-s9ss0t): the router
-        ;; ensures `:rf.world/inputs` exists and carries `:time-ms`. This
-        ;; is the CAUSAL BOUNDARY — the one `now-ms` read whose value
-        ;; durable writes may fold. It happens HERE, at envelope
-        ;; construction, and is NOT re-read inside the handler, flow
-        ;; transform, resource reducer, work-ledger writer, or commit
-        ;; path (Spec 002 §The World-Input Rule).
-        ;;
-        ;; Caller-supplied wins: a test / replay / SSR-hydration / tool
-        ;; dispatch that supplies `:rf.world/inputs` has its map PRESERVED
-        ;; verbatim — the router fills ONLY the framework-required
-        ;; `:time-ms` when absent, never overwriting a supplied one. This
-        ;; is how fixtures script exact world facts (Spec 002 §Dispatch
-        ;; Envelope Stamping; EP-0010 §Restore, Replay, And Hydration).
-        ;;
-        ;; Child dispatches (`:dispatch` / `:dispatch-later` fx) get their
-        ;; OWN map — `:rf.world/inputs` is deliberately NOT in
-        ;; `re-frame.fx/inheritable-envelope-keys`, so each child is
-        ;; stamped fresh here as a distinct causal token (no `:time-ms`
-        ;; inheritance — Spec 002 §Dispatch Envelope Stamping).
-        ;;
-        ;; Unlike `:dispatch-id` / the retired `:dispatched-at`, this is
-        ;; NOT dev-gated: world inputs are DURABLE causal data, not a
-        ;; diagnostic, so `:time-ms` must be present in production too
-        ;; (durable writes depend on it). The cost is one `epoch-now-ms` read
-        ;; + a small map on the dispatch path — the price of a deterministic
-        ;; fold.
-        ;;
-        ;; rf2-n1rh0f: `:time-ms` is WALL-CLOCK EPOCH ms (EP-0010 §Time), so
-        ;; it is read from `interop/epoch-now-ms`, NOT `interop/now-ms`. On
-        ;; CLJS `now-ms` is `performance.now()` (origin-relative, for elapsed
-        ;; measurement) — a durable timestamp folded from it would be
-        ;; incomparable with `js/Date`-based freshness checks (resource
-        ;; `:stale-at`, invalidation, etc.). `epoch-now-ms` is `js/Date.now()`
-        ;; / `System/currentTimeMillis`, wall-clock-meaningful on both hosts.
-        supplied-world     (:rf.world/inputs opts)
-        world-inputs       (if (contains? supplied-world :time-ms)
-                             supplied-world
-                             (assoc supplied-world :time-ms (interop/epoch-now-ms)))
         ;; EP-0010 disposition 5 (rf2-lj39cn): the RETIRED `:dispatched-at`
         ;; dispatch opt gets the STANDARD RETIREMENT TREATMENT — a HARD
         ;; ERROR naming the replacement, NOT the generic warn-on-unknown-opt
-        ;; below. Checked FIRST so a caller still passing `:dispatched-at`
-        ;; gets the specific, actionable retirement error (naming
-        ;; `(:time-ms (:rf.world/inputs envelope))`) rather than a vague
-        ;; "key outside the known set" warning. Always-on (not dev-gated):
-        ;; a retirement hard error is a correctness contract that must fire
-        ;; in production too — see `reject-retired-dispatch-opts!`.
+        ;; below. Checked FIRST — BEFORE the world-input clock stamp below —
+        ;; so a caller still passing `:dispatched-at` fails fast with the
+        ;; specific, actionable retirement error (naming
+        ;; `(:time-ms (:rf.world/inputs envelope))`) WITHOUT first triggering
+        ;; the `epoch-now-ms` clock read / map allocation for a dispatch that
+        ;; cannot proceed. Always-on (not dev-gated): a retirement hard error
+        ;; is a correctness contract that must fire in production too — see
+        ;; `reject-retired-dispatch-opts!`.
         _                  (diag/reject-retired-dispatch-opts! opts event)
+        ;; EP-0010 §Dispatch Envelope Stamping (rf2-s9ss0t): the CAUSAL
+        ;; BOUNDARY — ensure `:rf.world/inputs` carries `:time-ms`, the one
+        ;; host-clock read durable writes fold. `ensure-world-inputs` owns the
+        ;; preserve-supplied / fill-missing-`:time-ms` shape contract (see the
+        ;; section comment on the helper above). Stamped AFTER the retirement
+        ;; check so an invalid dispatch never reads the clock.
+        world-inputs       (ensure-world-inputs (:rf.world/inputs opts))
         ;; Per rf2-jbzhj: surface unrecognised opts keys (typically a typo'd
         ;; opt like `:fram` for `:frame`) rather than silently swallowing
         ;; them. Emitted HERE — BEFORE the frame resolution below — so a
