@@ -34,45 +34,105 @@ Type: standards-track
 > inputs and registered in `spec/Spec-Schemas.md` (`:rf.world/inputs`).
 > Finalizing the *decisions* does not, on its own, assert the *implementation*
 > is gap-free (EP-0005 pattern); the [Implementation errata](#implementation-errata)
-> ledger below tracks the remaining wave steps to their close.
+> ledger below records the wave's build steps — now all shipped and closed, with
+> the `:rf.world/uuid` / `:rf.world/random` coeffects explicitly deferred behind
+> the optimistic-mutations EP.
 
 ## Implementation errata
 
-The EP decisions are final and the **core slice** (envelope field, coeffect,
-stamping, trace filter, `:dispatched-at` retirement, spec graduation into 002 +
-Spec-Schemas) has shipped under `rf2-s9ss0t`. The items below are the remaining
-build steps of the EP-0010 action wave; they are **open errata**, not reopened
-rulings — each carries out a settled decision, none changes a contract.
+The EP decisions are final, and the EP-0010 action wave is **complete**. The
+**core slice** (envelope field, coeffect, stamping, trace filter,
+`:dispatched-at` retirement, spec graduation into 002 + Spec-Schemas) shipped
+under `rf2-s9ss0t`, and the five follow-on build steps below have since shipped
+and merged. Each carried out a settled decision; none changed a contract. This
+ledger now records the wave as closed, not as open errata. The single explicit
+deferral (`:rf.world/uuid` / `:rf.world/random` recordable coeffects, disposition
+2's rider) remains deferred behind the optimistic-mutations EP and is recorded as
+such below.
 
-### Open errata — remaining EP-0010 wave steps
+### Shipped — EP-0010 wave steps
 
-- **Causal-token coverage across all dispatch sites.** Extend `:dispatch` /
-  `:dispatch-later`, machine timers, routing, HTTP replies, SSR hydration, and
-  tool dispatch helpers so every causal token carries its own world inputs
-  (Reference Implementation step 4). The core stamping path is in place; the
-  per-substrate audit/coverage is the follow-on.
-- **Resource / mutation / work-ledger timestamps + reply completion.** Convert
-  the resource event reducers, mutation reducers, and work-ledger writers from
-  ambient `interop/now-ms` reads to token/reply world inputs, and carry
-  completion facts (`:completed-at`) on reply tokens (steps 5–6;
-  [§Resources, Mutations, And Work-Ledger Timestamps](#resources-mutations-and-work-ledger-timestamps)).
-  Scheduled **behind** this wave so each EP-0011 reply slice is born causally
-  correct (Mike, 2026-06-11).
-- **Recordable-coeffect guidance + time helper.** Add the recordable-coeffect
-  doctrine and the initial compatibility time cofx
-  (`:app/now-ms` reading `:rf.world/inputs`) plus UUID/random helpers when a
-  consumer needs them (step 7; disposition 2 — core time path first,
-  `:rf.world/uuid` follows the optimistic-mutations EP).
-- **Replay fixtures + lint/conformance.** Add replay fixtures that supply
-  times, UUIDs, random choices, browser facts, and reply completion metadata,
-  and the lint/conformance guards for ambient durable-world reads with the
-  diagnostic/host-transient allowlists (steps 8–9;
-  [§Validation / Conformance](#validation--conformance)).
-- **Docs + guide update.** Update the migration docs and the guide's
-  event/coeffect + testing material to teach causal world inputs instead of
-  ambient clock stubbing (step 10; [§Guide Impact](#guide-impact)).
-- **Review series.** The EP-0010 review beads `rf2-cc25b9`, `rf2-h273u8`, and
-  `rf2-bkp3ik` track the cross-cutting review of the wave's output.
+All five build steps of the EP-0010 action wave shipped. Verified
+2026-06-12 against the merged implementation, tests, docs, and `git log`; the
+closing bead-ids / commits are cited per step.
+
+- **Causal-token coverage across all dispatch sites — SHIPPED.** Reference
+  Implementation step 4. Every causal token stamps or supplies its own
+  `:rf.world/inputs`: the core router stamps `:dispatch` / `:dispatch-later`
+  fresh per child (`re-frame.router/build-envelope`, not inherited via
+  `inheritable-envelope-keys`); machine `:after` timers dispatch without world
+  inputs so the router stamps fresh at fire time (`rf2-hg39nf` adversarial
+  fresh-token regression); routing dispatches carry `:source :router`; HTTP
+  replies thread `:completed-at` as `:rf.world/inputs :time-ms`
+  (`re-frame.http-encoding/dispatch-reply-via-late-bind!`); SSR hydration is a
+  normal router-stamped event; and the tool dispatch helpers carry it too
+  (pair-mcp `dispatch` accepts `:rf.world/inputs`, `rf2-q6s1nb`; story strips
+  the volatile `:time-ms` for canonical fingerprints, `rf2-jt854w`; Xray
+  surfaces it in the Event lens, `rf2-9fyn40`). Machine callback contexts thread
+  it (`rf2-g0m4p5`).
+- **Resource / mutation / work-ledger timestamps + reply completion — SHIPPED.**
+  Steps 5–6
+  ([§Resources, Mutations, And Work-Ledger Timestamps](#resources-mutations-and-work-ledger-timestamps)).
+  `:started-at`, `:deadline-at`, and `:invalidated-at` are durable runtime-db
+  facts read from the triggering token's `:time-ms`
+  (`rf2-258p1z`, `rf2-uuzj88`, `rf2-dsyqmz`); `:completed-at`, `:loaded-at`,
+  `:stale-at`, and mutation `:settled-at` come from the reply token's causal
+  completion time (`rf2-n1rh0f`, `rf2-40dqi6`, `rf2-r65m41`); restore reconciles
+  `:settled-at` from the causal token (`rf2-wshzsp`); the `:committed-at` epoch
+  stamp comes from the causal token's `:time-ms` (`rf2-bh56rc`), with the
+  pair-tool / wall-clock source pinned (`rf2-czwwf4`, `rf2-2elcw3`, `rf2-1t30y7`).
+  The conversion is complete: no ambient `interop/now-ms` read survives in a
+  durable resource/mutation/work-ledger reducer write site (the lint guard below
+  enforces this; subscription/SSR freshness reads are on-read view-layer
+  projections, explicitly allowed).
+- **Recordable-coeffect guidance + time helper — SHIPPED.** Step 7,
+  disposition 2 (core time path first). The compatibility `:app/now-ms` cofx
+  reads only the already-seeded `:rf.world/inputs` coeffect
+  (`(:time-ms (:rf.world/inputs cofx))`) and performs no ambient clock read, so
+  a scripted/replayed `:time-ms` is returned exactly
+  (`re-frame.cofx`, pinned by `cofx_test.clj`). The recordable-coeffect doctrine
+  is normative in [§Event Context And Coeffects](#event-context-and-coeffects).
+- **Replay fixtures + lint/conformance — SHIPPED.** Steps 8–9
+  ([§Validation / Conformance](#validation--conformance)). An end-to-end
+  replay-determinism fixture
+  (`implementation/resources/test/re_frame/replay_determinism_e2e_cljs_test.cljc`)
+  supplies scripted `:rf.world/inputs` (`:time-ms`, `:uuid`, `:random`) and
+  asserts equal durable projections across two runs under differing ambient
+  clocks and RNG. The static lint guard `scripts/check_ambient_durable_reads.py`
+  flags ambient durable-world reads (`interop/now-ms`, `js/Date.now`, `rand`,
+  `random-uuid`, `js/location`, …) inside enumerated durable-write namespaces,
+  with the diagnostic / host-transient / effect-interpreter allowlists and a
+  self-test of planted-violation + sanctioned-pattern fixtures; it is wired into
+  the PR spine in `.github/workflows/test.yml` (`rf2-f2t151`).
+- **Docs + guide update — SHIPPED.** Step 10 ([§Guide Impact](#guide-impact)).
+  The guide teaches causal world inputs instead of ambient clock stubbing across
+  the event/coeffect chapter (`docs/guide/07-effects-and-coeffects.md` —
+  §Causal world inputs, §Testing is just supplying the inputs, §Why handlers
+  never read the clock), the testing chapter
+  (`docs/guide/13-testing.md` §Freezing the clock with world inputs), and the v1
+  migration chapter (`docs/guide/25-from-re-frame-v1.md` §Ambient world reads in
+  durable handlers) (`rf2-nj416f`, `rf2-q2vbuf`; comment + skills passes
+  `rf2-kpg1fh`, `rf2-d4q7xc`). The spec graduation that anchors them is normative
+  in `spec/002-Frames.md` §Causal world inputs and `spec/Spec-Schemas.md`
+  (`:rf.world/inputs` / `WorldInputs`).
+
+### Deferred — recordable UUID / random coeffects
+
+- **`:rf.world/uuid` / `:rf.world/random` recordable coeffects — DEFERRED.**
+  Disposition 2's rider scheduled these *behind* the optimistic-mutations
+  follow-on EP (temp ids for optimistic inserts — the managed-HTTP RealWorld
+  example's optimistic comment flow is the visible in-repo case). The envelope
+  already carries the `:uuid` / `:random` slots (a caller or fixture may supply
+  them today, and the replay-determinism fixture above exercises both), but no
+  framework `reg-cofx` for them ships yet — by design, not as a gap. This item
+  graduates with that EP.
+
+### Review series — closed clean
+
+The cross-cutting review beads `rf2-cc25b9` (correctness + completeness),
+`rf2-h273u8` (independent second review), and `rf2-bkp3ik` (testing-rigour +
+coverage audit) are all closed, as is the mandatory final review `rf2-czc9zn`
+(graduation-ready) and the best-practice pass `rf2-s2mizv` (PR #4020).
 
 ## Abstract
 
