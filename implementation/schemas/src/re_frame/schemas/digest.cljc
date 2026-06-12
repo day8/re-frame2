@@ -27,6 +27,7 @@
       have shifted under them."
   (:require #?@(:cljs [[goog.crypt :as gcrypt]
                        [goog.crypt.Sha256]])
+            [re-frame.path :as path]
             [re-frame.schemas.storage :as storage]
             [re-frame.schemas.validator :as validator])
   #?(:clj (:import [java.security MessageDigest]
@@ -71,9 +72,20 @@
   `(path, schema-value)` of the form `<path-string> <hex-of-sha256>\\n`.
   The per-schema serialisation routes through the registered
   `schema-print` companion (rf2-wla45) so non-Malli ports compute
-  digests against their own canonical bytes."
+  digests against their own canonical bytes.
+
+  EP-0012 §Path shape (rf2-94o54l.2): the path key is NORMALIZED to its
+  canonical vector form (`re-frame.path/normalize`) before `pr-str`, so a
+  list path and the equivalent vector path emit byte-identical digest
+  lines — the digest path keys participate in the one canonical-vector
+  identity every other path consumer inherits, not the raw container shape.
+  `app-schemas` already returns canonically-keyed entries (storage
+  normalizes at registration), so this normalize is the defensive
+  belt-and-braces guaranteeing byte identity for ANY directly-fed
+  `path->schema` map (e.g. the parity fixtures). A canonical vector
+  normalizes to itself, so every pinned digest literal is unchanged."
   [path schema-value]
-  (str (pr-str path)
+  (str (pr-str (path/normalize path))
        " "
        (sha256-hex (validator/run-printer schema-value))
        "\n"))
