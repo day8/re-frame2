@@ -230,9 +230,18 @@
   cache key must be (a mutation is not cached by params) — but the
   `:invalidates` / `:patches` fns close over the canonical params and the
   instance row stores them (serializable, for Xray / SSR), so the same
-  EDN discipline applies."
+  EDN discipline applies.
+
+  `nil` vs missing is schema-defined (rf2-hgy5kf): a caller threads
+  `state/missing-params` for an ABSENT `:params` slot (lowered to the
+  documented `{}` default via `state/default-omitted-params`), while a PRESENT
+  explicit `nil` passes THROUGH to `:params-schema` validation +
+  canonicalization — the schema, not a blanket `(or params {})`, decides
+  whether nil conforms. The two registrars apply the SAME presence-aware
+  policy so a validation boundary never performs an accidental API default
+  (EP-0012 §canonical-forms)."
   [mutation-id spec params where]
-  (let [params (or params {})
+  (let [params (state/default-omitted-params params)
         schema (:params-schema spec)]
     (state/reject-non-edn! params where :params mutation-id)
     (when schema

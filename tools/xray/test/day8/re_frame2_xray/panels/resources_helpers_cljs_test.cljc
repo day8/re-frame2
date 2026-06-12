@@ -33,7 +33,14 @@
     9. **filters** — instance / work / history filter axes; bounded
        history."
   (:require [clojure.test :refer [deftest is testing]]
-            [day8.re-frame2-xray.panels.resources-helpers :as h]))
+            [day8.re-frame2-xray.panels.resources-helpers :as h]
+            ;; rf2-hgy5kf — the live `:entries` / `:rf.runtime/work-ledger` maps
+            ;; are keyed on the CEDN-1 byte `key-id` STRING (rf2-9e0tyq), with the
+            ;; kind-preserving scoped-key VECTOR carried on the entry's
+            ;; `:resource/key`. The fixtures below model that runtime shape via
+            ;; `state/key-id` rather than the dead vector-keyed shape.
+            [re-frame.resources.state :as state]
+            [re-frame.resources.work-ledger :as work-ledger]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
@@ -266,19 +273,32 @@
 
 (def ^:private now 1000000)
 
+(defn- byte-keyed
+  "rf2-9e0tyq / rf2-hgy5kf — build the LIVE-shape `:entries` map: keyed on the
+  CEDN-1 byte `state/key-id` of each scoped-key VECTOR, with the
+  kind-preserving vector stamped on the entry's `:resource/key` (exactly as
+  `state/empty-entry` / the runtime write it). Input is the author-friendly
+  `{<scoped-key-vector> <entry>}` map."
+  [vector-keyed]
+  (into {}
+        (map (fn [[scoped-key entry]]
+               [(state/key-id scoped-key) (assoc entry :resource/key scoped-key)]))
+        vector-keyed))
+
 (def ^:private entries
-  {[session-scope :article/by-slug {:slug "welcome"}]
-   {:resource/id :article/by-slug :status :loaded
-    :data {:title "Welcome"} :generation 4 :attempt 2
-    :loaded-at (- now 1000) :stale-at (+ now 50000)
-    :active-owners #{[:route :route/article "nav-1"]}
-    :tags #{[:article "welcome"]} :request-id [:w 4]}
-   [session-scope :article/by-slug {:slug "old"}]
-   {:resource/id :article/by-slug :status :loaded
-    :data {:title "Old"} :generation 2
-    :loaded-at (- now 99999) :stale-at (- now 1)   ; past stale-at → stale
-    :active-owners #{}                              ; no owner → gc-eligible
-    :tags #{[:article "old"]}}})
+  (byte-keyed
+    {[session-scope :article/by-slug {:slug "welcome"}]
+     {:resource/id :article/by-slug :status :loaded
+      :data {:title "Welcome"} :generation 4 :attempt 2
+      :loaded-at (- now 1000) :stale-at (+ now 50000)
+      :active-owners #{[:route :route/article "nav-1"]}
+      :tags #{[:article "welcome"]} :request-id [:w 4]}
+     [session-scope :article/by-slug {:slug "old"}]
+     {:resource/id :article/by-slug :status :loaded
+      :data {:title "Old"} :generation 2
+      :loaded-at (- now 99999) :stale-at (- now 1)   ; past stale-at → stale
+      :active-owners #{}                              ; no owner → gc-eligible
+      :tags #{[:article "old"]}}}))
 
 (deftest project-instances-test
   (let [rows (h/project-instances entries now)]
@@ -305,18 +325,27 @@
 
 ;; ---- (5) project-work-ledger -------------------------------------------
 
+(defn- byte-keyed-ledger
+  "rf2-9e0tyq / rf2-hgy5kf — build the LIVE-shape `:rf.runtime/work-ledger`
+  map: keyed on the CEDN-1 byte `work-ledger/work-id-id` of each record's
+  `:work/id` VECTOR (exactly as `work-ledger/put-record` writes it). Input is
+  the author-friendly seq of records (each carrying its own `:work/id`)."
+  [records]
+  (into {}
+        (map (fn [record] [(work-ledger/work-id-id (:work/id record)) record]))
+        records))
+
 (def ^:private ledger
-  {[:rf.work/resource [session-scope :article/by-slug {:slug "welcome"}] 4]
-   {:work/id [:rf.work/resource [session-scope :article/by-slug {:slug "welcome"}] 4]
-    :work/kind :resource :resource/key [session-scope :article/by-slug {:slug "welcome"}]
-    :generation 4 :transport :rf.http/managed :status :running
-    :owners #{[:route :route/article "nav-1"]}
-    :causes [[:route-entry :route/article "nav-1"]]
-    :cancellable? true :started-at 100 :deadline-at 5100}
-   [:rf.work/resource [session-scope :article/by-slug {:slug "old"}] 1]
-   {:work/id [:rf.work/resource [session-scope :article/by-slug {:slug "old"}] 1]
-    :work/kind :resource :resource/key [session-scope :article/by-slug {:slug "old"}]
-    :generation 1 :status :completed :outcome {:ok true}}})
+  (byte-keyed-ledger
+    [{:work/id [:rf.work/resource [session-scope :article/by-slug {:slug "welcome"}] 4]
+      :work/kind :resource :resource/key [session-scope :article/by-slug {:slug "welcome"}]
+      :generation 4 :transport :rf.http/managed :status :running
+      :owners #{[:route :route/article "nav-1"]}
+      :causes [[:route-entry :route/article "nav-1"]]
+      :cancellable? true :started-at 100 :deadline-at 5100}
+     {:work/id [:rf.work/resource [session-scope :article/by-slug {:slug "old"}] 1]
+      :work/kind :resource :resource/key [session-scope :article/by-slug {:slug "old"}]
+      :generation 1 :status :completed :outcome {:ok true}}]))
 
 (deftest project-work-ledger-test
   (let [rows (h/project-work-ledger ledger)]
@@ -324,6 +353,15 @@
       (is (= 2 (count rows)))
       (is (= [:running :completed] (mapv :status rows)))
       (is (= [false true] (mapv :terminal? rows))))
+    (testing "the displayed :work-id is the KIND-PRESERVING :work/id VECTOR
+              (rf2-hgy5kf), NOT the opaque byte map-key — read from the record"
+      ;; the live ledger map IS byte-keyed (string keys); the row must still
+      ;; surface the kind-preserving work-id from the record's `:work/id`.
+      (is (every? string? (keys ledger)))
+      (let [r (first rows)]
+        (is (vector? (:work-id r)))
+        (is (= [:rf.work/resource [session-scope :article/by-slug {:slug "welcome"}] 4]
+               (:work-id r)))))
     (testing "host handles are structurally absent — only serializable facts"
       (let [r (first rows)]
         (is (= :resource (:kind r)))
@@ -672,9 +710,10 @@
     (let [prefix     (apply str (repeat 200 "x"))
           params-a   {:q (str prefix "-AAA")}
           params-b   {:q (str prefix "-BBB")}
-          entries*   {[session-scope :search/run params-a]
-                      {:resource/id :search/run :status :loaded :data {}
-                       :active-owners #{} :generation 1}}
+          entries*   (byte-keyed
+                       {[session-scope :search/run params-a]
+                        {:resource/id :search/run :status :loaded :data {}
+                         :active-owners #{} :generation 1}})
           rows       (h/project-instances entries* now)]
       ;; sanity: the two params DO summarize to the same truncated preview
       (is (= (:preview (h/summarize params-a)) (:preview (h/summarize params-b)))
@@ -703,9 +742,10 @@
     (let [scope-1   :rf/redacted                  ; an upstream-redacted scope
           scope-2   [:rf.scope/session {:tenant "t-1"}]
           scope-3   [:rf.scope/session {:tenant "t-9"}]
-          entries*  {[scope-2 :doc/get {:id 1}]
-                     {:resource/id :doc/get :status :loaded :data {}
-                      :active-owners #{} :generation 1}}
+          entries*  (byte-keyed
+                      {[scope-2 :doc/get {:id 1}]
+                       {:resource/id :doc/get :status :loaded :data {}
+                        :active-owners #{} :generation 1}})
           rows      (h/project-instances entries* now)]
       ;; A sub reading the SAME canonical scope as the entry → NO mismatch,
       ;; even though scope-2 summarizes to a redaction-aware preview.
@@ -740,10 +780,26 @@
       (is (= 1 (count (h/filter-instance-rows instance-rows {:tag [:article "welcome"]}))))
       (is (= 1 (count (h/filter-instance-rows instance-rows
                         {:owner [:route :route/article "nav-1"]})))))
-    (testing "select-raw-entries key-axis filter (scope/resource-id/params)"
+    (testing "select-raw-entries key-axis filter (scope/resource-id/params)
+              over BYTE-KEYED entries (rf2-hgy5kf) — matches each entry's
+              `:resource/key` stamp, NOT the opaque byte map-key. The old
+              map-key-matching impl returned ZERO matches for live byte-keyed
+              data (the byte map-key is a string, never `[scope rid params]`)."
+      ;; the live `:entries` map IS byte-keyed (string keys), the exact shape
+      ;; the old `scoped-key-matches?` could never match.
+      (is (every? string? (keys entries)))
       (is (= 2 (count (h/select-raw-entries entries {:resource-id :article/by-slug}))))
       (is (= 1 (count (h/select-raw-entries entries {:params {:slug "welcome"}}))))
-      (is (= 2 (count (h/select-raw-entries entries {:scope session-scope})))))
+      (is (= 2 (count (h/select-raw-entries entries {:scope session-scope}))))
+      ;; the selected map preserves the byte map-keys (the row identity) and
+      ;; the selected entry carries the matching `:resource/key`.
+      (let [sel (h/select-raw-entries entries {:params {:slug "welcome"}})]
+        (is (every? string? (keys sel)))
+        (is (= [session-scope :article/by-slug {:slug "welcome"}]
+               (:resource/key (first (vals sel))))))
+      ;; a params axis that matches NO entry is empty (no false-match on the
+      ;; opaque byte key).
+      (is (empty? (h/select-raw-entries entries {:params {:slug "nope"}}))))
     (testing "work filter axes incl. nav-token (matches an owner carrying it)"
       (is (= 1 (count (h/filter-work-rows work-rows {:status :running}))))
       (is (= 1 (count (h/filter-work-rows work-rows {:nav-token "nav-1"})))))

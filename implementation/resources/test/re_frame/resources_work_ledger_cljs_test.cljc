@@ -152,6 +152,33 @@
         (is (not (contains? r :promise)))
         (is (not (contains? r :abort-fn)))))))
 
+(deftest work-record-byte-keyed-address-is-canonical
+  ;; rf2-hgy5kf (EP-0012) — the work record lives at ONE address: the
+  ;; byte-keyed `work-ledger/record-path` (`[:rf.runtime/work-ledger
+  ;; (work-id-id work-id)]`). The stale `[work-ledger-key work-id]` VECTOR
+  ;; address (the removed `state/work-record-path` shape) holds NOTHING — a
+  ;; test reading through it would silently miss the live row, making any
+  ;; `(when rec …)` assertion vacuous. This pins the one home so the drift
+  ;; cannot reappear.
+  (rf/reg-resource :wlbk/article (article-spec))
+  (let [scoped-key (state/scoped-resource-key :rf.scope/global :wlbk/article {:slug "w"})]
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource :wlbk/article :scope :rf.scope/global
+                        :params {:slug "w"} :owner [:route :r 1]}])
+    (let [wid (:current-work (entry scoped-key))
+          rdb (runtime-db)]
+      (testing "the byte-keyed work-ledger API reads the live row"
+        (is (some? (work-ledger/get-record rdb wid)))
+        (is (= :running (:status (work-ledger/get-record rdb wid)))))
+      (testing "the row is stored under the CEDN-1 byte work-id-id, NOT the
+                work-id vector"
+        (is (contains? (:rf.runtime/work-ledger rdb) (work-ledger/work-id-id wid)))
+        (is (not (contains? (:rf.runtime/work-ledger rdb) wid)))
+        (is (string? (work-ledger/work-id-id wid))))
+      (testing "the removed stale [work-ledger-key work-id] vector address
+                holds nothing (the dead shape EP-0012 eliminates)"
+        (is (nil? (get-in rdb [state/work-ledger-key wid])))))))
+
 (deftest work-record-started-at-deadline-at-from-token-time-ms
   ;; rf2-uuzj88 / EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
   ;; the durable work-ledger `:started-at` is the TRIGGERING TOKEN'S
