@@ -63,7 +63,12 @@
   JVM-portable (`.cljc`) so the projection + redaction contracts are pinned
   by the JVM test corpus without a CLJS runtime."
   (:require [clojure.string :as str]
-            [re-frame.core :as rf]))
+            [re-frame.core :as rf]
+            ;; Xray is a bundle-isolated dev tool (nothing in implementation/
+            ;; `:require`s here), so it may reach the core CEDN-1 identity
+            ;; primitive directly to mint the STABLE opaque handles the live
+            ;; resource scoped-key egress projection uses (rf2-k0meap.1).
+            [re-frame.identity :as identity]))
 
 ;; ---------------------------------------------------------------------------
 ;; Superkind classification (the contract axis).
@@ -238,6 +243,166 @@
 ;; redaction ruling says is BORN HERE.
 ;; ===========================================================================
 
+;; ---------------------------------------------------------------------------
+;; LIVE RESOURCE IDENTITY redaction (rf2-k0meap.1).
+;;
+;; The `rf/elide-wire-value` value-field walk above redacts a sensitive
+;; VALUE sitting at a node's `:value` / `:params` / `:query` / `:state`
+;; summary — it matches by the FRAME's declared `:sensitive` `:app-db`
+;; PATH. But a LIVE resource node carries its sensitive scope/params in a
+;; place that walk can NEVER reach: the concrete SCOPED KEY
+;; `[cache-scope resource-id canonical-params]` is the node's IDENTITY —
+;; it is the node KEY (`[:resource <scoped-key>]`), the node's `:id`, it is
+;; embedded in the `:output` runtime path, in the `:work-ledger :record
+;; :resource/key`, and a route-owned activation surfaces it as the `:to`
+;; end of a `:param` edge. These are STRUCTURE positions, not value-bearing
+;; leaves — and the param/scope they carry are exactly the "sensitive
+;; params/scopes" [Derivations.md] §Redaction metadata names as
+;; egress-bearing.
+;;
+;; A value-path walk is structurally blind to identity-embedded secrets, so
+;; egress must project the scoped-key's secret-bearing components into
+;; STABLE OPAQUE HANDLES: the same scoped key always maps to the same
+;; projected key (graph CONNECTIVITY survives — a redacted param is still an
+;; edge), but the raw scope/params never cross the wire. We mint the handle
+;; from the core CEDN-1 identity primitive (`identity/canonical-bytes`) so
+;; it is deterministic for a given value; a value outside the CEDN-1 domain
+;; (or any error) FAILS CLOSED to the `:rf/redacted` sentinel rather than
+;; risk shipping a host-stringified secret. The middle `resource-id` (a
+;; registration keyword, never sensitive) is PRESERVED so a tool still sees
+;; WHICH resource the node is.
+
+(defn scoped-resource-key?
+  "True when `v` is a live resource SCOPED KEY — a 3-tuple
+  `[cache-scope resource-id canonical-params]` (the resource's concrete
+  live fact identity, [Derivations.md] §Fact identity): the MIDDLE element
+  is the registration `resource-id` keyword and the LAST is the
+  canonical-params MAP (resource params are validated by a `[:map …]`
+  `:params-schema`, so the concrete params are always a map). Requiring the
+  params map is what keeps this from misfiring on an unrelated 3-vector —
+  e.g. the `:output` runtime path `[:rf.runtime/resources :entries …]` has
+  a non-map last element. A static resource node's `:id` is a bare keyword
+  (not this shape), so only LIVE resource identities match. Already-projected
+  handles re-match (the projected scoped key keeps the 3-tuple-with-map-tail
+  shape), so re-projection is well-defined."
+  [v]
+  (and (vector? v)
+       (= 3 (count v))
+       (keyword? (nth v 1))
+       (map? (nth v 2))))
+
+(defn- opaque-handle
+  "A STABLE, ONE-WAY opaque handle for one secret-bearing scoped-key
+  component. Deterministic from the value (same value ⇒ same handle, so
+  graph connectivity survives) but IRREVERSIBLE — it is a HASH of the value's
+  CEDN-1 canonical token, NOT the token itself (the token PRESERVES the raw
+  value, which would defeat redaction). FAILS CLOSED to the `:rf/redacted`
+  sentinel for any value outside the CEDN-1 identity domain or on any error
+  (never host-stringify a secret onto the wire). Idempotent: hashing an
+  already-`[:rf.resource/opaque …]` handle yields a stable handle-of-handle."
+  [v]
+  (try
+    ;; `canonical-bytes` is the deterministic CEDN-1 token (stable for a given
+    ;; value, cross-spelling-invariant); `hash` makes it one-way so the raw
+    ;; scope/params cannot be read back off the wire. Render unsigned hex so
+    ;; the handle is a compact, non-reversible, value-stable token.
+    (let [token  (identity/canonical-bytes v)
+          digest #?(:clj  (Integer/toHexString (hash token))
+                    :cljs (.toString (bit-and (hash token) 0xffffffff) 16))]
+      [:rf.resource/opaque digest])
+    (catch #?(:clj Throwable :cljs :default) _
+      :rf/redacted)))
+
+(defn- project-scoped-key
+  "Project a live resource scoped key `[scope resource-id params]` into its
+  egress form `[<scope-handle> resource-id <params-handle>]` — the scope and
+  params replaced by stable opaque handles, the registration `resource-id`
+  preserved. Idempotent: a component already shaped `[:rf.resource/opaque …]`
+  / `:rf/redacted` re-projects to itself (the handle of a handle is stable,
+  and `:rf/redacted` is a non-secret scalar)."
+  [[scope resource-id params]]
+  [(opaque-handle scope) resource-id (opaque-handle params)])
+
+(defn- redact-resource-identity-in-path
+  "Replace any live resource scoped key embedded in `path` (e.g. the
+  `:output` runtime path `[:runtime [:rf.runtime/resources :entries
+  <scoped-key>]]`) with its projected form, so the secret-bearing scoped key
+  never egresses through a structure position. Walks the path vector and
+  projects any element that IS a scoped key."
+  [path]
+  (if (sequential? path)
+    (mapv (fn [el]
+            (cond
+              (scoped-resource-key? el) (project-scoped-key el)
+              (sequential? el)          (redact-resource-identity-in-path el)
+              :else                     el))
+          path)
+    path))
+
+(defn- redact-resource-inputs
+  "Project the live resource node's realized `:inputs`
+  `[[:scope <scope>] [:param <params>]]` — opaque the `[:scope …]` /
+  `[:param …]` payloads (the realized scope + params edges carry the same
+  sensitive identity). Other input shapes ride through untouched."
+  [inputs]
+  (if (sequential? inputs)
+    (mapv (fn [in]
+            (if (and (vector? in) (= 2 (count in))
+                     (#{:scope :param} (first in)))
+              [(first in) (opaque-handle (second in))]
+              in))
+          inputs)
+    inputs))
+
+(defn- redact-resource-node-identity
+  "Project ONE live resource node's secret-bearing identity fields:
+  `:id` (the scoped key), `:output` (the scoped key embedded in the runtime
+  path), the realized `:inputs` `[:scope …]` / `[:param …]` payloads, and
+  `:work-ledger :record :resource/key` (the scoped key on the work-ledger
+  summary). Structure / classification fields are untouched."
+  [node]
+  (cond-> node
+    (scoped-resource-key? (:id node))
+    (update :id project-scoped-key)
+
+    (contains? node :output)
+    (update :output redact-resource-identity-in-path)
+
+    (contains? node :inputs)
+    (update :inputs redact-resource-inputs)
+
+    (scoped-resource-key? (get-in node [:work-ledger :record :resource/key]))
+    (update-in [:work-ledger :record :resource/key] project-scoped-key)))
+
+(defn- resource-node-key?
+  "True when `node-key` is a LIVE resource node id `[:resource <scoped-key>]`
+  whose scoped key embeds a secret-bearing scope/params. A static resource
+  node is `[:resource <bare-keyword>]`, which does NOT match."
+  [node-key]
+  (and (vector? node-key)
+       (= :resource (first node-key))
+       (scoped-resource-key? (second node-key))))
+
+(defn- project-resource-node-key
+  "Project a live resource node KEY `[:resource <scoped-key>]` to
+  `[:resource <projected-scoped-key>]`; other node keys ride through."
+  [node-key]
+  (if (resource-node-key? node-key)
+    [:resource (project-scoped-key (second node-key))]
+    node-key))
+
+(defn- redact-resource-edge-endpoints
+  "Remap any `:from` / `:to` edge endpoint that names a live resource node
+  key to the projected key, so an edge naming a redacted resource node still
+  CONNECTS to it (structure preserved — the same projection applied to keys
+  applies to endpoints, so the remap stays consistent)."
+  [edges]
+  (mapv (fn [edge]
+          (cond-> edge
+            (resource-node-key? (:from edge)) (update :from project-resource-node-key)
+            (resource-node-key? (:to edge))   (update :to project-resource-node-key)))
+        edges))
+
 (defn redact-graph-for-egress
   "Project a `DerivationGraph` through the FRAME's egress policy for the
   wire boundary where a tool ships the graph OFF-BOX (rf2-yjarv6;
@@ -261,14 +426,28 @@
     value is replaced by the sentinel; a large-declared value by the
     `:rf.size/large-elided` marker.
 
-  STRUCTURE IS PRESERVED (the headline guarantee): the node KEYS (the
-  canonical family-tagged node ids) and the `:edges` vector ride through
-  UNTOUCHED — a redacted param is still an `:input` / `:param` edge, the
-  node is still present and still classified by its `:kind` superkind. Only
-  the value-bearing leaf fields inside node bodies are redacted. The
-  storage / evaluation / lifecycle classifications, `:source-form`,
-  `:refinement`, `:inputs` topology, and `:output` address are structure,
-  not values, and are never walked.
+  STRUCTURE IS PRESERVED (the headline guarantee): a redacted value / param
+  is still an `:input` / `:param` edge, the node is still present and still
+  classified by its `:kind` superkind. The storage / evaluation / lifecycle
+  classifications, `:source-form`, and `:refinement` are structure, not
+  values, and are never touched.
+
+  LIVE RESOURCE IDENTITY redaction (rf2-k0meap.1). A live resource node
+  carries its sensitive scope/params NOT in a value-bearing field but in its
+  IDENTITY — the concrete scoped key `[cache-scope resource-id
+  canonical-params]` that is the node KEY (`[:resource <scoped-key>]`), the
+  node's `:id`, and is embedded in the `:output` runtime path, the realized
+  `:inputs` `[:scope …]` / `[:param …]` edges, and the `:work-ledger :record
+  :resource/key`. The `rf/elide-wire-value` value-path walk is structurally
+  BLIND to these identity-embedded secrets. So this projection ALSO replaces
+  each scoped key's secret-bearing scope + params with STABLE OPAQUE HANDLES
+  (`identity/canonical-bytes`-derived, fail-closed to `:rf/redacted` outside
+  the CEDN-1 domain), preserving the registration `resource-id` so a tool
+  still sees WHICH resource the node is. The SAME projection is applied to
+  the `:nodes` keys AND every edge endpoint that names a resource node, so
+  the remap stays CONSISTENT — a redacted resource node is still a node, and
+  the edges naming it still connect (connectivity survives, the raw
+  scope/params never cross the wire).
 
   `frame-id` is the frame whose elision policy governs egress (the observed
   app's frame — typically the graph's `:frame` for a live graph). `opts`
@@ -288,10 +467,11 @@
   frame's marks. This is the silent-leak this contract abolishes — a graph
   egressing under no reachable policy redacts, never ships raw.
 
-  Returns the graph with redacted node value fields; `:mode` / `:frame` /
-  `:nodes` keys / `:edges` unchanged. Idempotent over `:rf/redacted`
-  (re-walking an already-redacted value is a no-op — the sentinel is a
-  non-matchable scalar)."
+  Returns the graph with redacted node value fields + projected live
+  resource identities; `:mode` / `:frame` unchanged. Idempotent over
+  `:rf/redacted` (re-walking an already-redacted value is a no-op — the
+  sentinel is a non-matchable scalar) and over the opaque resource handle
+  (re-projecting a `[:rf.resource/opaque …]` handle is stable)."
   ([graph frame-id] (redact-graph-for-egress graph frame-id nil))
   ([graph frame-id opts]
    ;; A reachable (live) frame governs egress under its own policy; an
@@ -300,14 +480,28 @@
          walk-opts  (if reachable? (assoc opts :frame frame-id) opts)
          redact-node
          (fn [node]
-           (reduce
-            (fn [n k]
-              (if (contains? n k)
-                (assoc n k (rf/elide-wire-value (get n k) walk-opts))
-                n))
-            node
-            value-bearing-node-keys))]
-     (update graph :nodes update-vals redact-node))))
+           (-> (reduce
+                (fn [n k]
+                  (if (contains? n k)
+                    (assoc n k (rf/elide-wire-value (get n k) walk-opts))
+                    n))
+                node
+                value-bearing-node-keys)
+               ;; the live resource scoped-key identity walk (rf2-k0meap.1) —
+               ;; the secrets the value-path walk above cannot reach.
+               redact-resource-node-identity))]
+     (-> graph
+         ;; remap node KEYS so a live resource scoped key no longer carries
+         ;; raw scope/params in the node id (and the edge endpoints below
+         ;; stay consistent with the remapped keys).
+         (update :nodes (fn [nodes]
+                          (into {}
+                                (map (fn [[k node]]
+                                       [(project-resource-node-key k)
+                                        (redact-node node)]))
+                                nodes)))
+         (update :edges (fn [edges]
+                          (redact-resource-edge-endpoints (or edges []))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Header summary (counts + family/role tallies for the panel header).

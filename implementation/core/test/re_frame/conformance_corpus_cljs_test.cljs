@@ -102,7 +102,16 @@
             ;; test-support require. Fixtures use them by id via
             ;; :fx-overrides; opt in here so they register before any
             ;; fixture runs.
-            [re-frame.http-test-support])
+            [re-frame.http-test-support]
+            ;; EP-0014 (rf2-k0meap.3) — the `:derivation-graph` call op pins
+            ;; the cross-family derivation/process graph (lowering /
+            ;; classification / edge roles / parametric markers / refinement)
+            ;; in the host-agnostic corpus. The composer + the loaded tooling
+            ;; siblings it composes over (subs is in-core; machines is loaded
+            ;; above) build the contributor map for the assertion.
+            [re-frame.derivation.graph :as dgraph]
+            [re-frame.subs.tooling :as subs-tooling]
+            [re-frame.machines.tooling :as machines-tooling])
   ;; Compile-time fixture inlining (see conformance_fixtures.clj). The
   ;; macro ns is .clj — shadow-cljs picks it up via :require-macros
   ;; (a CLJS-only form; cannot live in the top-level :require above).
@@ -180,7 +189,11 @@
     ;; `:fixture/app-marks`). Matches the JVM runner's claim so
     ;; `data-classification-flow-output-inherits-from-input.edn` (Spec 015:568)
     ;; runs on CLJS too.
-    :data-classification/marks})
+    :data-classification/marks
+    ;; EP-0014 (rf2-k0meap.3) — the cross-family derivation/process graph
+    ;; (lowering / classification / edge roles / parametric markers /
+    ;; :machine-selector refinement) via the `:derivation-graph` call op.
+    :derivation/algebra-graph})
 
 (def claimed-spec-versions
   "Fixture spec versions this CLJS build claims to conform against."
@@ -1091,6 +1104,49 @@
                     (str "ssr-apply-policy " (pr-str (:opts call))
                          "\n    expected: " (pr-str (:expect call))
                          "\n    actual:   " (pr-str result)))}))
+
+    ;; EP-0014 (rf2-k0meap.3) — `:derivation-graph`. Compose the cross-family
+    ;; derivation/process graph over the loaded contributors (subs + machines)
+    ;; and assert NORMALIZED node + edge shapes: each `:expect-node` is a
+    ;; SUBMAP matched against the composed node at `:id` (lowering +
+    ;; storage/evaluation/lifecycle classification + `:refinement`); each
+    ;; `:expect-edge` must be PRESENT (membership) and each `:expect-absent-edge`
+    ;; must be ABSENT. `:mode :static` (default) or `:live` (with `:frame`).
+    ;; Mirror of the JVM runner.
+    :derivation-graph
+    (let [contributors  {:subs     {:static-fn  subs-tooling/sub-algebra-view
+                                    :live-fn    subs-tooling/sub-cache-algebra-view
+                                    :live-shape :map}
+                         :machines {:static-fn        machines-tooling/machine-algebra-view
+                                    :live-fn          machines-tooling/machine-instance-algebra-view
+                                    :live-shape       :map
+                                    :selector-targets machines-tooling/machine-selector-targets}}
+          graph         (if (= :live (:mode call))
+                          (dgraph/live-derivation-graph (:frame call) contributors)
+                          (dgraph/derivation-graph contributors))
+          nodes         (:nodes graph)
+          edges         (set (:edges graph))
+          submap?       (fn [sub m] (every? (fn [[k v]] (= v (get m k))) sub))
+          node-fails    (keep (fn [{:keys [id] :as expect-node}]
+                                (let [node (get nodes id)
+                                      want (dissoc expect-node :id)]
+                                  (when-not (and node (submap? want node))
+                                    (str "node " id " expected superset of " want
+                                         " got " (select-keys (or node {}) (keys want))))))
+                              (:expect-nodes call))
+          edge-fails    (keep (fn [edge]
+                                (when-not (contains? edges edge)
+                                  (str "missing edge " edge)))
+                              (:expect-edges call))
+          absent-fails  (keep (fn [edge]
+                                (when (contains? edges edge)
+                                  (str "edge should be ABSENT but present: " edge)))
+                              (:expect-absent-edges call))
+          fails         (concat node-fails edge-fails absent-fails)]
+      {:passed? (empty? fails)
+       :detail  (when (seq fails)
+                  (str "derivation-graph (" (or (:mode call) :static) "):\n    "
+                       (str/join "\n    " fails)))})
 
     {:passed? false :detail (str "unknown :call form: " (:call call))}))
 

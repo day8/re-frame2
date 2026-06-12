@@ -201,7 +201,15 @@
                  the concrete query vector for a LIVE cache-entry node
                  (`[:sub [:cart/total …args]]`). Wrapping unconditionally
                  keeps every subscription node id uniformly tagged.
-    :flows     → `[:flow <flow-id>]`.
+    :flows     → `[:flow <frame-id> <flow-id>]` — flows are FRAME-SCOPED
+                 (the SAME `flow-id` may register against two frames with
+                 different `:inputs` / `:output` / `:path`), so the node id
+                 carries the owning frame to keep the per-frame flow facts
+                 distinct (Derivations §Flows expose algebra views — the
+                 view preserves `{frame-id {flow-id node}}`; rf2-k0meap.2).
+                 The frame is read off the node's `:owner` `[:frame
+                 <frame-id>]` (the lifecycle owner the flow view stamps);
+                 absent an `:owner` the id degrades to `[:flow <flow-id>]`.
     :resources → `[:resource <resource-id-or-scoped-key>]`.
     :machines  → `[:machine <machine-or-actor-id>]`.
     :routes    → the route fact id `:rf/route` (every route materializes
@@ -215,7 +223,16 @@
       ;; [:sub [<id> …args]]. Both forms are valid sub node ids in their
       ;; respective graphs.
       :subs      [:sub id]
-      :flows     [:flow id]
+      ;; FRAME-SCOPED flow id (rf2-k0meap.2): the flow view preserves the
+      ;; frame dimension (`{frame-id {flow-id node}}`), so a reused flow-id
+      ;; across two frames must NOT collapse onto one node slot. Read the
+      ;; owning frame off the node's `:owner` `[:frame <frame-id>]`; key the
+      ;; node `[:flow <frame-id> <flow-id>]`. A node without an `:owner`
+      ;; (a hand-built fixture) degrades to the legacy `[:flow <flow-id>]`.
+      :flows     (let [owner (:owner node)]
+                   (if (and (vector? owner) (= :frame (first owner)))
+                     [:flow (second owner) id]
+                     [:flow id]))
       :resources [:resource id]
       :machines  [:machine id]
       :routes    id
@@ -397,12 +414,78 @@
              :when     (contains? machine-node-set m-id)]
          {:from m-id :to sub-id :role :selector})))))
 
+(defn- selector-target-ids
+  "The SET of `[:sub …]` node ids that are machine selectors (the `:to`
+  end of every `:selector` edge). Drives the `:machine-selector`
+  refinement enrichment (rf2-k0meap.2)."
+  [selector-edges]
+  (into #{} (map :to) selector-edges))
+
+(defn- realized-route-owner
+  "The live route node's realized owner `[:route route-id nav-token]`, or
+  nil. The live route slice carries `:owner` when both the matched route id
+  and the nav-token are known (`route-slice-algebra-view`); a static route
+  node carries no `:owner`."
+  [node]
+  (let [owner (:owner node)]
+    (when (and (vector? owner) (= :route (first owner)))
+      owner)))
+
+(defn- live-route-resource-edges
+  "REALIZED route-owned resource owner edges (rf2-k0meap.1; [Derivations.md]
+  §Route-owned resource activation edges — \"The realized resource owner
+  edge (`[:route route-id nav-token]` → the concrete scoped key) is LIVE
+  state, surfaced by the live view\"; EP-0014 §Validation / Conformance —
+  the live graph reports route owners + realized parametric edges).
+
+  Where the STATIC graph marks a route's resource target `:parametric` (the
+  concrete scoped key requires a live match + scope resolution, so the
+  don't-execute rule withholds it), the LIVE graph RESOLVES that into a
+  concrete edge once navigation has committed and a scoped resource entry
+  is owned by the route. We read each live resource node's lifecycle owner
+  set (`:lifecycle :owners`, a set the resource cache view surfaces from the
+  entry's `:active-owners`): an owner shaped `[:route route-id nav-token]`
+  is a route-owned activation. We connect the matching LIVE route node (the
+  `:rf/route` slice whose realized `:owner` equals that owner) to the
+  concrete `[:resource <scoped-key>]` node, `:role :param`, carrying the
+  realized owner under `:owner` so a tool can show WHICH route lease keeps
+  the entry alive — preserving the static edge's `:param` role while
+  reporting the concrete scoped key the static edge could only mark
+  parametric.
+
+  Live-only: returns `[]` in `:static` mode (a static graph has no realized
+  owners) and `[]` when no live route node carries a matching realized
+  owner (an orphaned scope owner — e.g. a `:rf.scope/global` activation —
+  is not a route edge)."
+  [mode nodes]
+  (if (not= :live mode)
+    []
+    (let [route-owners (into {}
+                             (keep (fn [[node-id node]]
+                                     (when-let [owner (realized-route-owner node)]
+                                       [owner node-id])))
+                             nodes)]
+      (if (empty? route-owners)
+        []
+        (vec
+         (for [[node-id node] nodes
+               :when     (and (vector? node-id) (= :resource (first node-id)))
+               owner     (get-in node [:lifecycle :owners])
+               :when     (and (vector? owner) (= :route (first owner)))
+               :let      [route-node-id (get route-owners owner)]
+               :when     route-node-id]
+           {:from  route-node-id
+            :to    node-id
+            :role  :param
+            :owner owner}))))))
+
 (defn- graph-edges
   "Every edge across the assembled `nodes` map, in `mode` (`:static` /
   `:live`). Composes the per-node `:input` edges, the route `:param`
-  resource-activation edges, and the machine→selector `:selector` edges,
-  de-duplicated. `selector-targets` is the optional machine-selector target
-  extractor (nil when machines is absent)."
+  resource-activation edges, the REALIZED live route-owned resource edges
+  (`:live` only — rf2-k0meap.1), and the machine→selector `:selector`
+  edges, de-duplicated. `selector-targets` is the optional machine-selector
+  target extractor (nil when machines is absent)."
   [mode nodes selector-targets]
   (let [machine-ids (->> nodes keys (filter #(and (vector? %) (= :machine (first %)))) vec)
         subs-ids    (->> nodes keys (filter #(and (vector? %) (= :sub (first %)))) vec)
@@ -415,8 +498,9 @@
                              (into (resource-activation-edges node-id node)))))
                      []
                      nodes)
+        live-route  (live-route-resource-edges mode nodes)
         selector    (machine-selector-edges machine-ids subs-ids selector-targets)]
-    (->> (concat per-node selector)
+    (->> (concat per-node live-route selector)
          distinct
          vec)))
 
@@ -424,16 +508,45 @@
 ;; The DerivationGraph assembly.
 ;; ---------------------------------------------------------------------------
 
+(defn- mark-machine-selectors
+  "Stamp `:refinement :machine-selector` on every subscription node that is
+  the `:to` end of a `:selector` edge (rf2-k0meap.2; [Derivations.md]
+  §Machines: \"A graph tool labels such a subscription node with the
+  `:machine-selector` refinement\"; EP-0014 §Examples — the selector
+  algebra carries that refinement).
+
+  A machine selector REMAINS an ordinary `:derivation` subscription (EP-0014
+  issue-4: machines are not a second subscription system) — its `:kind`
+  superkind is untouched. The `:refinement` axis is COLOUR, not contract: it
+  lets a tool render the selector distinctly and connect it to its machine
+  process. We derive the selector set from the SAME `:selector` edges the
+  composer already emits (the precise machine-selector-targets extractor),
+  so a node is refined `:machine-selector` iff a machine actually draws a
+  `:selector` edge to it — never the cross product."
+  [nodes selector-edges]
+  (let [selector-ids (selector-target-ids selector-edges)]
+    (if (empty? selector-ids)
+      nodes
+      (reduce
+       (fn [acc node-id]
+         (update acc node-id assoc :refinement :machine-selector))
+       nodes
+       selector-ids))))
+
 (defn- assemble
   "Assemble a `DerivationGraph` from a `{node-id node}` map + a `:mode`.
   Computes the edge set (the optional machine-selector target extractor
-  threads through `selector-targets`)."
+  threads through `selector-targets`), then enriches selector subscription
+  nodes with the `:machine-selector` refinement (rf2-k0meap.2)."
   [mode nodes selector-targets extra]
-  (merge
-   {:mode  mode
-    :nodes nodes
-    :edges (graph-edges mode nodes selector-targets)}
-   extra))
+  (let [edges          (graph-edges mode nodes selector-targets)
+        selector-edges (filter #(= :selector (:role %)) edges)
+        nodes          (mark-machine-selectors nodes selector-edges)]
+    (merge
+     {:mode  mode
+      :nodes nodes
+      :edges edges}
+     extra)))
 
 (defn derivation-graph
   "Return the STATIC `DerivationGraph` — the full registration-derived
@@ -457,9 +570,10 @@
   - `:edges` — explicit `{:from :to :role}` records: `:input` edges from a
                node's `[:sub …]` declared inputs, `:param` edges from a
                route's `:resource-edges`, and `:selector` edges from each
-               machine `:process` to its selector subscriptions. A
-               `:parametric` input set contributes NO static edge (the
-               don't-execute rule).
+               machine `:process` to its selector subscriptions (whose sub
+               nodes are enriched with `:refinement :machine-selector`,
+               rf2-k0meap.2). A `:parametric` input set contributes NO
+               static edge (the don't-execute rule).
 
   `contributors` (optional) is the `{family contributor}` map; it defaults
   to `default-contributors` (JVM: every artefact on the classpath; CLJS:
@@ -499,8 +613,15 @@
                scoped resource keys, actor ids, the route slice).
   - `:edges` — the REALIZED edges: a live sub-cache node's concrete
                `[:sub q]` inputs become `:input` edges (the edges the
-               static graph could not enumerate for a parametric sub), plus
-               the same `:selector` edges.
+               static graph could not enumerate for a parametric sub); the
+               REALIZED route-owned resource edges (a live route node's
+               `[:route route-id nav-token]` owner → the concrete
+               `[:resource <scoped-key>]` node it keeps alive, `:role
+               :param`, carrying the realized `:owner` — the live resolution
+               of the static graph's `:parametric` route-resource marker,
+               rf2-k0meap.1); plus the same `:selector` edges. Selector
+               subscription nodes are enriched with `:refinement
+               :machine-selector` (rf2-k0meap.2).
 
   `contributors` defaults to `default-contributors`. The live projections
   are dev-gated (gated on `interop/debug-enabled?` inside each sibling) —
