@@ -289,21 +289,23 @@
            timers/cancel-timers-meta
            timers/cancel-timers-handler)
 
-;; The interceptor injected into the load-causing events (ensure / refetch)
-;; so their handlers read the host-side generation high-water snapshot under
-;; `:coeffects :rf.resource/generation` and mint the next monotone
-;; generation purely.
-(def ^:private generation-interceptors
-  [(cofx/inject-cofx :rf.resource/generation)])
+;; EP-0017: the load-causing events (ensure / refetch / mutation execute)
+;; DECLARE the host-side generation high-water cofx via `:rf.cofx/requires`
+;; (replacing the retired `(inject-cofx :rf.resource/generation)` interceptor).
+;; Their handlers read the snapshot FLAT under `:coeffects
+;; :rf.resource/generation` and mint the next monotone generation purely; the
+;; supplier is ambient (a host-cache read, never recorded — the WRITE rides the
+;; `:rf.resource/commit-generation` fx).
+(def ^:private generation-meta
+  (assoc framework-authority-meta
+         :rf.cofx/requires [:rf.resource/generation]))
 
 ;; Public resource events (map payloads). Per Spec 016 §Events.
 (events/reg-event-fx :rf.resource/ensure
-                     framework-authority-meta
-                     generation-interceptors
+                     generation-meta
                      resource-events/ensure-handler)
 (events/reg-event-fx :rf.resource/refetch
-                     framework-authority-meta
-                     generation-interceptors
+                     generation-meta
                      resource-events/refetch-handler)
 (events/reg-event-fx :rf.resource/invalidate-tags
                      framework-authority-meta
@@ -371,8 +373,7 @@
 ;; the verification payload (instance id + work-id + generation). User code
 ;; MUST NOT dispatch the internal replies.
 (events/reg-event-fx :rf.mutation/execute
-                     framework-authority-meta
-                     generation-interceptors
+                     generation-meta
                      mutation-events/execute-handler)
 (events/reg-event-fx :rf.mutation/clear
                      framework-authority-meta

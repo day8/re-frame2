@@ -1,29 +1,18 @@
 (ns re-frame.cofx-test
-  "Edge-case coverage for the cofx subsystem (rf2-mq9o, rf2-gey3d).
+  "EP-0017 slice-A.3: value-returning `reg-cofx`, `:rf.cofx/requires`
+  declared-only delivery, the cofx error family, and `inject-cofx` removal.
+  Per Spec 001 §`reg-cofx` / §The declaration key, Spec 002 §Satisfaction
+  algorithm, and Spec 009 §Error catalogue.
 
-  Per Spec 002 §Effects and coeffects and Spec 009 §Error contract.
-  Pre-rf2-mq9o the inject-cofx interceptor used `println` to warn on
-  a missing cofx-id. This file pins the structured-trace replacement:
-
-    1. inject-cofx against an unregistered cofx-id emits
-       :rf.error/no-such-cofx (not println) and leaves the ctx
-       unchanged so sibling interceptors continue.
-    2. The 1-arity form carries :cofx-id and :event-id; no :cofx-value.
-    3. The 2-arity form additionally carries :cofx-value.
-    4. :platforms gating skips with :rf.cofx/skipped-on-platform
-       (rf2-gey3d — Spec 011 §634-642 contract; mirrors reg-fx's gate).
-
-  EP-0002 (rf2-9wa0lf): the carried-invariant frame contract means a
-  bare `(rf/dispatch-sync [...])` under NO established scope now raises
-  `:rf.error/no-frame-context` — there is no `:rf/default` floor. These
-  cofx tests establish an explicit frame scope (the fixture registers an
+  These tests establish an explicit frame scope (the fixture registers an
   ordinary `:rf/default` frame and binds `*current-frame*` to it for the
   body — equivalent to wrapping every body in `(with-frame :rf/default …)`),
   so the ambient `dispatch-sync` calls resolve their target through scope
-  rather than a synthesised default. `frameless-dispatch-raises-no-frame-
-  context` pins the new failure mode directly."
+  rather than a synthesised default (EP-0002 carried-invariant contract — no
+  `:rf/default` floor)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.cofx :as cofx]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -36,22 +25,13 @@
   (flows/reset-flows!)
   (schemas/clear-schemas-by-frame!)
   (rf/init! plain-atom/adapter)
-  ;; Framework registrations live at namespace-load time; clear-all!
-  ;; wiped them. Reload so :rf/route, :rf.route/* subs and the framework
-  ;; fx (e.g. :rf.fx/reg-flow) survive between tests.
+  ;; Framework registrations live at namespace-load time; clear-all! wiped
+  ;; them. Reload so :rf/route, :rf.route/* subs and the framework fx survive
+  ;; between tests, plus the standard cofx (`:rf/time-ms`).
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
-  ;; rf2-2941zx — re-register the standard cofx (`:db` / `:event`) plus the
-  ;; EP-0010 `:app/now-ms` compatibility time cofx, wiped by `clear-all!`.
-  ;; The `:app/now-ms` injection test below resolves it from the registry.
   (require 're-frame.cofx     :reload)
-  ;; EP-0002: establish an explicit frame scope for the body. `init!` no
-  ;; longer creates `:rf/default`; register it as an ordinary frame and
-  ;; pin `*current-frame*` so the ambient `dispatch-sync` calls below
-  ;; carry a scope stamp (the carried-invariant contract — no synthesised
-  ;; default floor). This is the fixture-level equivalent of wrapping each
-  ;; body in `(rf/with-frame :rf/default …)`.
   (frame/ensure-default-frame!)
   (binding [frame/*current-frame* :rf/default]
     (test-fn)))
@@ -59,416 +39,367 @@
 (use-fixtures :each reset-runtime)
 
 (defn- collect-traces!
-  "Register a trace listener under `id`, returning the atom that
-  accumulates events. Tests must (rf/unregister-listener! id) to detach."
+  "Register a trace listener under `id`, returning the atom that accumulates
+  events. Tests must (rf/unregister-listener! id) to detach."
   [id]
   (let [acc (atom [])]
     (rf/register-listener! id (fn [ev] (swap! acc conj ev)))
     acc))
 
-;; ---- Missing cofx-id → :rf.error/no-such-cofx -----------------------------
-;;
-;; Per Spec 009 §Error contract, an `inject-cofx` interceptor referencing
-;; an unregistered cofx-id emits :rf.error/no-such-cofx with :recovery
-;; :no-recovery, and the ctx flows through unchanged so sibling
-;; interceptors (and the handler) still run.
+;; ===========================================================================
+;; 1. Value-returning reg-cofx + ambient delivery
+;; ===========================================================================
 
-(deftest unknown-cofx-id-emits-structured-trace-1-arity
-  (testing "the 1-arity inject-cofx form emits :rf.error/no-such-cofx
-            with :cofx-id and :event-id and leaves ctx unchanged"
-    (let [traces (collect-traces! ::no-cofx-1)
-          fired? (atom false)]
-      (rf/reg-event-fx :cofx-test/run-no-cofx
-        [(rf/inject-cofx :cofx-test/never-registered)]
-        (fn [_ _]
-          (reset! fired? true)
+(deftest ambient-supplier-delivers-value-flat
+  (testing "a value-returning ambient supplier delivers its value FLAT under
+            its id into the declaring handler's coeffects (EP-0017 §2/§5)"
+    (let [seen (atom ::unset)]
+      (rf/reg-cofx :cofx-test/locale
+        {:doc "Ambient supplier."}
+        (fn [] "en-AU"))
+      (rf/reg-event-fx :cofx-test/read-locale
+        {:rf.cofx/requires [:cofx-test/locale]}
+        (fn [{:keys [cofx-test/locale]} _]
+          (reset! seen locale)
           {}))
-      (rf/dispatch-sync [:cofx-test/run-no-cofx])
-      (rf/unregister-listener! ::no-cofx-1)
+      (rf/dispatch-sync [:cofx-test/read-locale])
+      (is (= "en-AU" @seen)
+          "the ambient supplier's return value arrived flat under its id"))))
 
-      (is (true? @fired?)
-          "the event handler still fired — the unknown cofx did not halt the chain")
+(deftest parameterized-supplier-receives-arg
+  (testing "a `[id arg]` declaration delivers under the bare id, passing the
+            arg to the supplier's 1-arity (EP-0017 §2/§4)"
+    (let [seen (atom ::unset)]
+      (rf/reg-cofx :cofx-test/echo
+        (fn [arg] (str "echo:" arg)))
+      (rf/reg-event-fx :cofx-test/read-echo
+        {:rf.cofx/requires [[:cofx-test/echo "hi"]]}
+        (fn [{:keys [cofx-test/echo]} _]
+          (reset! seen echo)
+          {}))
+      (rf/dispatch-sync [:cofx-test/read-echo])
+      (is (= "echo:hi" @seen)
+          "the parameterized supplier received the declared arg, delivered under the bare id"))))
 
-      (let [missing (filter #(= :rf.error/no-such-cofx (:operation %)) @traces)]
-        (is (= 1 (count missing))
-            "exactly one :rf.error/no-such-cofx trace was emitted")
-        (let [t (first missing)]
-          (is (= :error (:op-type t))
-              ":op-type is :error per Spec 009 §Error contract")
-          (is (= :rf.error/no-such-cofx (get-in t [:tags :category]))
-              ":tags :category mirrors :operation per Spec 009 §Core fields")
-          (is (= :cofx-test/never-registered (get-in t [:tags :rf.cofx/id]))
-              ":rf.cofx/id identifies the offending cofx")
-          (is (= :cofx-test/run-no-cofx (get-in t [:tags :rf.trace/event-id]))
-              ":rf.trace/event-id carries the event-id whose interceptor chain missed")
-          (is (= :no-recovery (:recovery t))
-              ":recovery is :no-recovery per Spec 009 §Recovery table")
-          (is (not (contains? (:tags t) :rf.cofx/value))
-              "1-arity form: no :rf.cofx/value in the tags"))))))
+;; ===========================================================================
+;; 2. Declared-only delivery (ADVERSARIAL — undeclared NOT delivered)
+;; ===========================================================================
 
-(deftest unknown-cofx-id-emits-structured-trace-2-arity
-  (testing "the 2-arity inject-cofx form additionally carries :cofx-value"
-    (let [traces (collect-traces! ::no-cofx-2)]
-      (rf/reg-event-fx :cofx-test/run-no-cofx-2
-        [(rf/inject-cofx :cofx-test/also-missing {:k :payload})]
+(deftest undeclared-leaf-on-token-is-not-delivered
+  (testing "ADVERSARIAL: a recordable leaf present on the token but UNDECLARED
+            by the handler is NOT staged into its coeffects (EP-0017 §5 —
+            declared-only delivery; no silent green-in-test coupling)"
+    (let [seen-time (atom ::unset)
+          seen-undeclared (atom ::unset)]
+      (rf/reg-event-fx :cofx-test/declares-only-time
+        {:rf.cofx/requires [:rf/time-ms]}
+        (fn [{:keys [rf/time-ms] :as cofx} _]
+          (reset! seen-time time-ms)
+          ;; `:app/extra` rode the token but was not declared — it must NOT
+          ;; appear as a flat coeffect leaf.
+          (reset! seen-undeclared (contains? cofx :app/extra))
+          {}))
+      (rf/dispatch-sync [:cofx-test/declares-only-time]
+                        {:rf.cofx {:rf/time-ms 1781078400123
+                                   :app/extra  :should-not-be-delivered}})
+      (is (= 1781078400123 @seen-time)
+          "the DECLARED :rf/time-ms was delivered flat")
+      (is (false? @seen-undeclared)
+          "the UNDECLARED :app/extra leaf was NOT staged as a flat coeffect"))))
+
+(deftest no-declaration-stages-no-cofx-leaves
+  (testing "ADVERSARIAL: a handler with NO `:rf.cofx/requires` receives only
+            :db / :event / framework keys — no recordable leaf is staged flat,
+            even one present on the token"
+    (let [had-time? (atom ::unset)]
+      (rf/reg-event-fx :cofx-test/declares-nothing
+        (fn [{:keys [rf/time-ms] :as cofx} _]
+          (reset! had-time? (contains? cofx :rf/time-ms))
+          (is (nil? time-ms)
+              "an undeclared :rf/time-ms is not delivered flat")
+          {}))
+      (rf/dispatch-sync [:cofx-test/declares-nothing]
+                        {:rf.cofx {:rf/time-ms 1781078400123}})
+      (is (false? @had-time?)
+          "nothing implicit — :rf/time-ms is delivered ONLY on declaration"))))
+
+;; ===========================================================================
+;; 3. Recordable / provided facts + supplied-value-wins
+;; ===========================================================================
+
+(deftest provided-recordable-delivered-from-token-verbatim
+  (testing "a declared PROVIDED recordable fact present on the token is
+            delivered verbatim — a scripted value comes back exactly (no host
+            read; replay-stable). EP-0017 §5"
+    (let [seen (atom ::unset)]
+      (rf/reg-cofx :cofx-test/boot-token
+        {:recordable? true :provided? true
+         :doc "Provided boundary fact."})
+      (rf/reg-event-fx :cofx-test/read-boot
+        {:rf.cofx/requires [:cofx-test/boot-token]}
+        (fn [{:keys [cofx-test/boot-token]} _]
+          (reset! seen boot-token)
+          {}))
+      (rf/dispatch-sync [:cofx-test/read-boot]
+                        {:rf.cofx {:cofx-test/boot-token "abc.jwt.xyz"}})
+      (is (= "abc.jwt.xyz" @seen)
+          "the supplied recordable value was delivered verbatim from the token"))))
+
+(deftest rf-time-ms-is-provided-recordable-and-always-present
+  (testing ":rf/time-ms is the framework's one provided recordable
+            registration; declaring it delivers the router-stamped value flat
+            (EP-0017 §2)"
+    (let [seen (atom ::unset)]
+      (rf/reg-event-fx :cofx-test/read-time
+        {:rf.cofx/requires [:rf/time-ms]}
+        (fn [{:keys [rf/time-ms]} _]
+          (reset! seen time-ms)
+          {}))
+      (rf/dispatch-sync [:cofx-test/read-time])
+      (is (number? @seen)
+          ":rf/time-ms delivered the stamped epoch-ms (always present — the enqueue stamp guarantees it)")
+      (let [reg (registrar/lookup :cofx :rf/time-ms)]
+        (is (true? (:recordable? reg)) ":rf/time-ms is recordable")
+        (is (true? (:provided? reg)) ":rf/time-ms is provided")))))
+
+;; ===========================================================================
+;; 4. Strict-replay missing-required fails loudly (ADVERSARIAL)
+;; ===========================================================================
+
+(deftest missing-required-provided-fact-fails-loudly
+  (testing "ADVERSARIAL: a declared PROVIDED recordable fact ABSENT from the
+            token is `:rf.error/missing-required-cofx` in every mode — the
+            cascade halts before the handler runs (strict-replay loud failure;
+            EP-0017 §5)"
+    (let [traces (collect-traces! ::missing)
+          fired? (atom false)]
+      (rf/reg-cofx :cofx-test/required-boundary
+        {:recordable? true :provided? true})
+      (rf/reg-event-fx :cofx-test/needs-boundary
+        {:rf.cofx/requires [:cofx-test/required-boundary]}
+        (fn [_ _] (reset! fired? true) {}))
+      ;; Dispatch WITHOUT supplying the provided fact on the token.
+      (let [ex (try (rf/dispatch-sync [:cofx-test/needs-boundary]) nil
+                    (catch clojure.lang.ExceptionInfo e e))]
+        (rf/unregister-listener! ::missing)
+        (is (false? @fired?)
+            "the handler never ran — missing-required halts the cascade")
+        (is (some? ex)
+            "the dispatch threw rather than silently re-reading the host")
+        (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data ex)))
+            "the throw carries :rf.error/missing-required-cofx")
+        (let [errs (filter #(= :rf.error/missing-required-cofx (:operation %)) @traces)]
+          (is (= 1 (count errs)) "exactly one missing-required-cofx error trace")
+          (is (= :cofx-test/required-boundary
+                 (get-in (first errs) [:tags :rf.cofx/id]))
+              ":rf.cofx/id names the absent fact"))))))
+
+;; ===========================================================================
+;; 5. typo→unregistered vs declared-absent→missing-required SPLIT (ADVERSARIAL)
+;; ===========================================================================
+
+(deftest typo-yields-unregistered-not-missing
+  (testing "ADVERSARIAL: a declared id with NO `reg-cofx` registration (the
+            typo case) is `:rf.error/unregistered-cofx` — DISTINCT from
+            `:rf.error/missing-required-cofx` (a registered-but-absent provided
+            fact). The two-error split is the EP-0017 §7 contract."
+    (let [traces (collect-traces! ::typo)]
+      ;; :cofx-test/typpo is NOT registered anywhere — a typo.
+      (rf/reg-event-fx :cofx-test/has-typo
+        {:rf.cofx/requires [:cofx-test/typpo]}
         (fn [_ _] {}))
-      (rf/dispatch-sync [:cofx-test/run-no-cofx-2])
-      (rf/unregister-listener! ::no-cofx-2)
+      (let [ex (try (rf/dispatch-sync [:cofx-test/has-typo]) nil
+                    (catch clojure.lang.ExceptionInfo e e))]
+        (rf/unregister-listener! ::typo)
+        (is (= :rf.error/unregistered-cofx (:rf.error/id (ex-data ex)))
+            "an unregistered (typo'd) id is :rf.error/unregistered-cofx, NOT missing-required")
+        (let [errs (filter #(= :rf.error/unregistered-cofx (:operation %)) @traces)]
+          (is (= 1 (count errs)) "exactly one unregistered-cofx trace")
+          (is (= :cofx-test/typpo (get-in (first errs) [:tags :rf.cofx/id]))
+              ":rf.cofx/id names the unregistered id")
+          (is (= :cofx-test/has-typo (get-in (first errs) [:tags :failing-id]))
+              ":failing-id names the declaring handler"))))))
 
-      (let [missing (filter #(= :rf.error/no-such-cofx (:operation %)) @traces)]
-        (is (= 1 (count missing))
-            "exactly one :rf.error/no-such-cofx trace was emitted")
-        (let [t (first missing)]
-          (is (= :cofx-test/also-missing (get-in t [:tags :rf.cofx/id])))
-          (is (= {:k :payload} (get-in t [:tags :rf.cofx/value]))
-              "2-arity form: :rf.cofx/value carries the value arg")
-          (is (= :cofx-test/run-no-cofx-2 (get-in t [:tags :rf.trace/event-id]))))))))
+(deftest registered-absent-vs-unregistered-are-different-errors
+  (testing "the split is real: a REGISTERED-but-absent provided fact →
+            missing-required; an UNREGISTERED id → unregistered-cofx — never
+            conflated"
+    (rf/reg-cofx :cofx-test/registered-provided {:recordable? true :provided? true})
+    (rf/reg-event-fx :cofx-test/absent-registered
+      {:rf.cofx/requires [:cofx-test/registered-provided]}
+      (fn [_ _] {}))
+    (rf/reg-event-fx :cofx-test/absent-unregistered
+      {:rf.cofx/requires [:cofx-test/never-reg]}
+      (fn [_ _] {}))
+    (let [missing-id   (-> (try (rf/dispatch-sync [:cofx-test/absent-registered]) nil
+                                (catch clojure.lang.ExceptionInfo e e))
+                           ex-data :rf.error/id)
+          unregistered (-> (try (rf/dispatch-sync [:cofx-test/absent-unregistered]) nil
+                                (catch clojure.lang.ExceptionInfo e e))
+                           ex-data :rf.error/id)]
+      (is (= :rf.error/missing-required-cofx missing-id))
+      (is (= :rf.error/unregistered-cofx unregistered))
+      (is (not= missing-id unregistered)
+          "the two failure modes are distinct error categories"))))
 
-(deftest unknown-cofx-id-does-not-println
-  (testing "the missing-cofx path no longer writes to *out* — the trace is the
-            sole diagnostic surface (the println pre-rf2-mq9o is gone)"
-    (let [out (java.io.StringWriter.)]
-      (rf/reg-event-fx :cofx-test/silent-no-cofx
-        [(rf/inject-cofx :cofx-test/silent-missing)]
-        (fn [_ _] {}))
-      (binding [*out* out]
-        (rf/dispatch-sync [:cofx-test/silent-no-cofx]))
-      (is (not (clojure.string/includes? (str out) "re-frame2: no cofx registered"))
-          "no stray println of the legacy `re-frame2: no cofx registered` warning"))))
+;; ===========================================================================
+;; 6. reg-event-db rejects :rf.cofx/requires + malformed / collision
+;; ===========================================================================
 
-;; ---- EP-0002: frameless dispatch raises :rf.error/no-frame-context --------
-;;
-;; Per Spec 002 §Frame target resolution — the carried invariant: a cofx-
-;; driven dispatch issued under NO established scope (the fixture's
-;; `*current-frame*` binding explicitly removed) carries no frame stamp,
-;; so the runtime raises `:rf.error/no-frame-context` at envelope-build
-;; time rather than synthesising `:rf/default`. The handler never runs.
+(deftest db-handler-requires-is-registration-error
+  (testing "`:rf.cofx/requires` on `reg-event-db` is a registration-time
+            `:rf.error/cofx-request-invalid` (a db handler cannot take
+            delivery; EP-0017 §4)"
+    (let [ex (try
+               (rf/reg-event-db :cofx-test/db-with-requires
+                 {:rf.cofx/requires [:rf/time-ms]}
+                 (fn [db _] db))
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "reg-event-db with :rf.cofx/requires threw at registration")
+      (is (= :rf.error/cofx-request-invalid (:rf.error/id (ex-data ex)))))))
+
+(deftest malformed-requires-is-cofx-request-invalid
+  (testing "a non-vector / non-id `:rf.cofx/requires` is
+            `:rf.error/cofx-request-invalid` at registration"
+    (is (= :rf.error/cofx-request-invalid
+           (-> (try (rf/reg-event-fx :cofx-test/bad-requires-1
+                      {:rf.cofx/requires :not-a-vector}
+                      (fn [_ _] {}))
+                    nil (catch clojure.lang.ExceptionInfo e e))
+               ex-data :rf.error/id)))
+    (is (= :rf.error/cofx-request-invalid
+           (-> (try (rf/reg-event-fx :cofx-test/bad-requires-2
+                      {:rf.cofx/requires [42]}
+                      (fn [_ _] {}))
+                    nil (catch clojure.lang.ExceptionInfo e e))
+               ex-data :rf.error/id)))))
+
+(deftest duplicate-requires-is-name-collision
+  (testing "declaring the same id twice in one consumer scope is
+            `:rf.error/cofx-name-collision` (EP-0017 §4)"
+    (is (= :rf.error/cofx-name-collision
+           (-> (try (rf/reg-event-fx :cofx-test/dup-requires
+                      {:rf.cofx/requires [:rf/time-ms :rf/time-ms]}
+                      (fn [_ _] {}))
+                    nil (catch clojure.lang.ExceptionInfo e e))
+               ex-data :rf.error/id)))))
+
+(deftest reg-cofx-colliding-with-fold-arg-is-collision
+  (testing "a `reg-cofx` id colliding with a fold argument key (`:db` /
+            `:event`) is `:rf.error/cofx-name-collision` (EP-0017 §8)"
+    (is (= :rf.error/cofx-name-collision
+           (-> (try (rf/reg-cofx :db (fn [] :nope))
+                    nil (catch clojure.lang.ExceptionInfo e e))
+               ex-data :rf.error/id)))
+    (is (= :rf.error/cofx-name-collision
+           (-> (try (rf/reg-cofx :event (fn [] :nope))
+                    nil (catch clojure.lang.ExceptionInfo e e))
+               ex-data :rf.error/id)))))
+
+;; ===========================================================================
+;; 7. inject-cofx is REMOVED — hard error :rf.error/inject-cofx-removed
+;; ===========================================================================
+
+(deftest inject-cofx-call-is-hard-error
+  (testing "calling `inject-cofx` (fn form) is the hard error
+            `:rf.error/inject-cofx-removed` naming the replacement (EP-0017 §8)"
+    (let [ex (try (rf/inject-cofx* :anything) nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "inject-cofx* threw")
+      (is (= :rf.error/inject-cofx-removed (:rf.error/id (ex-data ex))))
+      (is (= :anything (:rf.cofx/id (ex-data ex)))
+          "the offending id rides the error payload")
+      (is (re-find #":rf.cofx/requires" (:reason (ex-data ex)))
+          "the reason names :rf.cofx/requires as the replacement"))))
+
+(deftest cofx-inject-cofx-fn-throws
+  (testing "the underlying `re-frame.cofx/inject-cofx` stub throws the same
+            removal error regardless of arity"
+    (is (= :rf.error/inject-cofx-removed
+           (-> (try (cofx/inject-cofx :x) nil (catch clojure.lang.ExceptionInfo e e))
+               ex-data :rf.error/id)))
+    (is (= :rf.error/inject-cofx-removed
+           (-> (try (cofx/inject-cofx :x :v) nil (catch clojure.lang.ExceptionInfo e e))
+               ex-data :rf.error/id)))))
+
+;; ===========================================================================
+;; 8. :rf.world/inputs dispatch opt is renamed (hard error)
+;; ===========================================================================
+
+(deftest world-inputs-dispatch-opt-renamed
+  (testing "supplying the retired `:rf.world/inputs` dispatch opt is the hard
+            error `:rf.error/world-inputs-renamed` naming `:rf.cofx` (EP-0017 §3)"
+    (rf/reg-event-fx :cofx-test/wi-renamed (fn [_ _] {}))
+    (let [ex (try (rf/dispatch-sync [:cofx-test/wi-renamed]
+                                    {:rf.world/inputs {:rf/time-ms 1}})
+                  nil (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex) "the dispatch threw")
+      (is (= :rf.error/world-inputs-renamed (:rf.error/id (ex-data ex))))
+      (is (= :rf.cofx (:replacement (ex-data ex)))
+          "the error names :rf.cofx as the replacement"))))
+
+;; ===========================================================================
+;; 9. :platforms gating on ambient suppliers (preserved from the prior model)
+;; ===========================================================================
+
+(deftest platforms-gating-skips-client-only-ambient-on-jvm
+  (testing ":platforms #{:client} ambient supplier is skipped on JVM (:server)
+            — emits :rf.cofx/skipped-on-platform and delivers nothing; the
+            event still runs (Spec 011 §634-642)"
+    (let [traces       (collect-traces! ::plat)
+          cofx-fired?  (atom false)
+          event-fired? (atom false)
+          seen         (atom ::unset)]
+      (rf/reg-cofx :cofx-test/browser-locale
+        {:platforms #{:client}}
+        (fn [] (reset! cofx-fired? true) "en-US"))
+      (rf/reg-event-fx :cofx-test/read-browser-locale
+        {:rf.cofx/requires [:cofx-test/browser-locale]}
+        (fn [{:keys [cofx-test/browser-locale] :as cofx} _]
+          (reset! event-fired? true)
+          (reset! seen (contains? cofx :cofx-test/browser-locale))
+          {}))
+      (rf/dispatch-sync [:cofx-test/read-browser-locale])
+      (rf/unregister-listener! ::plat)
+      (is (false? @cofx-fired?) "the client-only supplier did NOT run on :server")
+      (is (true? @event-fired?) "the event still ran — only the supplier was skipped")
+      (is (false? @seen) "the skipped fact was NOT delivered flat")
+      (let [skips (filter #(= :rf.cofx/skipped-on-platform (:operation %)) @traces)]
+        (is (= 1 (count skips)) "exactly one skipped-on-platform trace")
+        (is (= :cofx-test/browser-locale (get-in (first skips) [:tags :rf.cofx/id])))))))
+
+;; ===========================================================================
+;; 10. handler-meta surfaces :rf.cofx/requires as authored (reflection)
+;; ===========================================================================
+
+(deftest handler-meta-surfaces-requires
+  (testing "`:rf.cofx/requires` surfaces in handler-meta exactly as authored
+            (Spec 009 §9 — the complete consumption record)"
+    (rf/reg-event-fx :cofx-test/reflective
+      {:rf.cofx/requires [:rf/time-ms]}
+      (fn [_ _] {}))
+    (let [meta (registrar/lookup :event :cofx-test/reflective)]
+      (is (= [:rf/time-ms] (:rf.cofx/requires meta))
+          "the raw declaration is retained for reflection")
+      (is (= [{:id :rf/time-ms :arg :re-frame.cofx/no-arg}]
+             (:rf.cofx/requires-parsed meta))
+          "the parsed entry vector drives delivery"))))
+
+;; ===========================================================================
+;; 11. EP-0002 frameless dispatch still raises no-frame-context
+;; ===========================================================================
 
 (deftest frameless-dispatch-raises-no-frame-context
   (testing "a bare dispatch-sync outside any frame scope raises
-            :rf.error/no-frame-context (no :rf/default floor) — the cofx
-            handler never runs"
+            :rf.error/no-frame-context (no :rf/default floor); the handler
+            never runs"
     (let [fired? (atom false)]
       (rf/reg-event-fx :cofx-test/frameless
-        [(rf/inject-cofx :cofx-test/whatever)]
+        {:rf.cofx/requires [:rf/time-ms]}
         (fn [_ _] (reset! fired? true) {}))
-      ;; Strip the fixture's scope binding to reproduce a top-of-stack
-      ;; bare dispatch (the canonical async-callback / REPL shape).
       (binding [frame/*current-frame* nil]
-        (let [ex (try
-                   (rf/dispatch-sync [:cofx-test/frameless])
-                   nil
-                   (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? ex)
-              "frameless dispatch-sync threw rather than silently routing")
-          (is (= :rf.error/no-frame-context (:rf.error/id (ex-data ex)))
-              "the throw carries the :rf.error/no-frame-context id")
-          (is (= :dispatch (:operation (ex-data ex)))
-              ":operation tags the dispatch surface")))
-      (is (false? @fired?)
-          "the cofx-bearing handler never ran — no enqueue under no scope"))))
-
-;; ---- :platforms gating (rf2-gey3d) ----------------------------------------
-;;
-;; Per Spec 011 §634-642 the `:platforms` metadata gates BOTH `reg-fx`
-;; AND `reg-cofx`. A cofx registered with `:platforms #{:client}` must
-;; no-op when injected on a server-side frame; the runtime emits a
-;; `:rf.cofx/skipped-on-platform` trace event (warning, :recovery
-;; :skipped) mirroring `:rf.fx/skipped-on-platform` (fx_test.clj
-;; §platforms-gating-skips-client-only-fx-on-jvm).
-;;
-;; The default platform on JVM is `:server` (re-frame.interop/active-platform,
-;; settable via `re-frame.core/init-platform`); a cofx with
-;; `:platforms #{:client}` is therefore silently inert under JVM tests —
-;; exactly the SSR contract for request-cofx like browser locale,
-;; localStorage, navigator-info that don't make sense server-side.
-
-(deftest platforms-gating-skips-client-only-cofx-on-jvm
-  (testing ":platforms #{:client} cofx is skipped on JVM (:server) and emits a trace"
-    (let [traces       (collect-traces! ::cofx-plat)
-          cofx-fired?  (atom false)
-          event-fired? (atom false)]
-      (rf/reg-cofx :cofx-test/browser-locale
-        {:platforms #{:client}}
-        (fn [ctx]
-          (reset! cofx-fired? true)
-          (assoc-in ctx [:coeffects :cofx-test/browser-locale] "en-US")))
-      (rf/reg-event-fx :cofx-test/read-locale
-        [(rf/inject-cofx :cofx-test/browser-locale)]
-        (fn [_ _]
-          (reset! event-fired? true)
-          {}))
-      (rf/dispatch-sync [:cofx-test/read-locale])
-      (rf/unregister-listener! ::cofx-plat)
-
-      (is (false? @cofx-fired?)
-          "the client-only cofx handler did NOT run on the JVM (:server)")
-      (is (true? @event-fired?)
-          "the event handler still ran — only the injection was skipped, not the dispatch")
-
-      (let [skip-traces (filter #(= :rf.cofx/skipped-on-platform (:operation %))
-                                @traces)]
-        (is (= 1 (count skip-traces))
-            "exactly one :rf.cofx/skipped-on-platform trace was emitted")
-        (let [t (first skip-traces)]
-          (is (= :warning (:op-type t))
-              ":op-type is :warning per Spec 009 §Error contract (the trace rides the same envelope as :rf.fx/skipped-on-platform)")
-          (is (= :skipped (:recovery t))
-              ":recovery is :skipped — the runtime declined to act")
-          (is (= :cofx-test/browser-locale (get-in t [:tags :rf.cofx/id])))
-          (is (= :server (get-in t [:tags :rf.cofx/platform]))
-              ":rf.cofx/platform carries the active platform that excluded the cofx")
-          (is (= #{:client} (get-in t [:tags :rf.cofx/registered-platforms]))
-              ":rf.cofx/registered-platforms surfaces the cofx's declared set"))))))
-
-(deftest platforms-matching-cofx-runs-normally
-  (testing ":platforms #{:server} cofx runs on JVM (:server) — no skipped-on-platform trace"
-    (let [traces (collect-traces! ::cofx-plat-match)
-          fired? (atom false)]
-      (rf/reg-cofx :cofx-test/server-time
-        {:platforms #{:server}}
-        (fn [ctx]
-          (reset! fired? true)
-          (assoc-in ctx [:coeffects :cofx-test/server-time] "2026-05-13T00:00:00Z")))
-      (rf/reg-event-fx :cofx-test/read-server-time
-        [(rf/inject-cofx :cofx-test/server-time)]
-        (fn [{:keys [cofx-test/server-time]} _]
-          (is (= "2026-05-13T00:00:00Z" server-time)
-              "the cofx-injected value flows through to the handler")
-          {}))
-      (rf/dispatch-sync [:cofx-test/read-server-time])
-      (rf/unregister-listener! ::cofx-plat-match)
-
-      (is (true? @fired?)
-          "the matching-platform cofx handler ran")
-      (let [skips (filter #(= :rf.cofx/skipped-on-platform (:operation %)) @traces)]
-        (is (empty? skips)
-            "no :rf.cofx/skipped-on-platform trace when the platform matches")))))
-
-(deftest platforms-absent-cofx-runs-unconditionally
-  (testing "absent :platforms key defaults to #{:client :server} — universal (current behaviour preserved)"
-    (let [traces (collect-traces! ::cofx-plat-absent)
-          fired? (atom false)]
-      (rf/reg-cofx :cofx-test/universal
-        ;; no :platforms — default is #{:client :server}
-        {:doc "Universal cofx with no :platforms key."}
-        (fn [ctx]
-          (reset! fired? true)
-          (assoc-in ctx [:coeffects :cofx-test/universal] :ran)))
-      (rf/reg-event-fx :cofx-test/read-universal
-        [(rf/inject-cofx :cofx-test/universal)]
-        (fn [{:keys [cofx-test/universal]} _]
-          (is (= :ran universal)
-              "the universal cofx was injected on JVM (:server)")
-          {}))
-      (rf/dispatch-sync [:cofx-test/read-universal])
-      (rf/unregister-listener! ::cofx-plat-absent)
-
-      (is (true? @fired?)
-          "the universal cofx ran on the JVM (:server)")
-      (let [skips (filter #(= :rf.cofx/skipped-on-platform (:operation %)) @traces)]
-        (is (empty? skips)
-            "no :rf.cofx/skipped-on-platform trace when :platforms is absent")))))
-
-(deftest platforms-gating-honours-frame-config-platform
-  (testing "a per-frame :platform :server override gates a :platforms #{:client} cofx
-            on a frame that would otherwise inherit the host's :client default
-            — mirrors fx.cljc's :ssr-server preset path"
-    (let [traces (collect-traces! ::cofx-plat-frame)
-          fired? (atom false)]
-      ;; Register a dedicated SSR frame with :platform :server in its config.
-      ;; This mirrors the `:ssr-server` preset (frame.cljc §preset-expansion)
-      ;; which sets `:platform :server` regardless of the host's
-      ;; active-platform marker (`re-frame.interop/active-platform`,
-      ;; settable via `re-frame.core/init-platform`).
-      (rf/reg-frame :cofx-test/ssr-frame
-        {:preset :ssr-server})
-      (rf/reg-cofx :cofx-test/local-storage
-        {:platforms #{:client}}
-        (fn [ctx]
-          (reset! fired? true)
-          (assoc-in ctx [:coeffects :cofx-test/local-storage] {:token "abc"})))
-      (rf/reg-event-fx :cofx-test/read-ls
-        [(rf/inject-cofx :cofx-test/local-storage)]
-        (fn [_ _] {}))
-      (rf/dispatch-sync [:cofx-test/read-ls] {:frame :cofx-test/ssr-frame})
-      (rf/unregister-listener! ::cofx-plat-frame)
-
-      (is (false? @fired?)
-          "the client-only cofx did NOT run under the :ssr-server frame")
-      (let [skips (filter #(= :rf.cofx/skipped-on-platform (:operation %))
-                          @traces)]
-        (is (= 1 (count skips))
-            "exactly one :rf.cofx/skipped-on-platform trace was emitted")
-        (let [t (first skips)]
-          (is (= :cofx-test/ssr-frame (get-in t [:tags :frame]))
-              ":frame carries the dispatching frame id")
-          (is (= :server (get-in t [:tags :rf.cofx/platform]))
-              ":rf.cofx/platform is :server — the per-frame override took effect"))))))
-
-(deftest platforms-gating-carries-value-on-2-arity
-  (testing "the 2-arity inject-cofx form surfaces :cofx-value on the skip trace
-            so consumers can see what was being injected when skipped"
-    (let [traces (collect-traces! ::cofx-plat-valued)]
-      (rf/reg-cofx :cofx-test/valued-client-cofx
-        {:platforms #{:client}}
-        (fn [ctx v]
-          (assoc-in ctx [:coeffects :cofx-test/valued-client-cofx] v)))
-      (rf/reg-event-fx :cofx-test/read-valued
-        [(rf/inject-cofx :cofx-test/valued-client-cofx {:key :payload})]
-        (fn [_ _] {}))
-      (rf/dispatch-sync [:cofx-test/read-valued])
-      (rf/unregister-listener! ::cofx-plat-valued)
-
-      (let [skips (filter #(= :rf.cofx/skipped-on-platform (:operation %))
-                          @traces)]
-        (is (= 1 (count skips)))
-        (let [t (first skips)]
-          (is (= {:key :payload} (get-in t [:tags :rf.cofx/value]))
-              "2-arity form: :rf.cofx/value carries the value arg on the skip trace"))))))
-
-;; ---- :rf.cofx/run success emit + per-op timing (rf2-hhh92) -----------------
-;;
-;; Per Spec 009 §:op-type vocabulary, a cofx whose handler runs to success
-;; emits one `:rf.cofx/run` op carrying `:rf.cofx/id`, `:rf.cofx/value`
-;; (the per-call injected value; absent on the no-value path), and
-;; `:rf.cofx/elapsed-ms` (the dev-only wall-clock of the handler invoke).
-;; The emit rides INSIDE the cofx handler's scope binding so its
-;; source-coord / trigger-handler ride the trace.
-
-(deftest cofx-success-emits-rf-cofx-run
-  (testing "a successful cofx injection emits exactly one :rf.cofx/run op
-            carrying :rf.cofx/id, :rf.cofx/value, and :rf.cofx/elapsed-ms"
-    (let [traces (collect-traces! ::cofx-run)]
-      (rf/reg-cofx :cofx-test/server-clock
-        {:platforms #{:server}}
-        (fn [ctx v]
-          (assoc-in ctx [:coeffects :cofx-test/server-clock] v)))
-      (rf/reg-event-fx :cofx-test/read-clock
-        [(rf/inject-cofx :cofx-test/server-clock {:tz "UTC"})]
-        (fn [_ _] {}))
-      (rf/dispatch-sync [:cofx-test/read-clock])
-      (rf/unregister-listener! ::cofx-run)
-
-      (let [runs (filter #(= :rf.cofx/run (:operation %)) @traces)]
-        (is (= 1 (count runs))
-            "exactly one :rf.cofx/run trace per successful cofx injection")
-        (let [t (first runs)]
-          (is (= :rf.cofx (:op-type t))
-              ":op-type is :rf.cofx — the cofx family discriminator")
-          (is (= :cofx-test/server-clock (get-in t [:tags :rf.cofx/id]))
-              ":rf.cofx/id identifies the cofx that ran")
-          (is (= {:tz "UTC"} (get-in t [:tags :rf.cofx/value]))
-              ":rf.cofx/value carries the per-call injected value")
-          (is (number? (get-in t [:tags :rf.cofx/elapsed-ms]))
-              ":rf.cofx/elapsed-ms carries the dev-only handler wall-clock")
-          (is (>= (get-in t [:tags :rf.cofx/elapsed-ms]) 0)
-              ":rf.cofx/elapsed-ms is non-negative"))))))
-
-(deftest cofx-no-value-run-omits-value
-  (testing "the no-value (1-arity) cofx injection emits :rf.cofx/run WITHOUT
-            a :rf.cofx/value slot (parity with the skip / error branches)"
-    (let [traces (collect-traces! ::cofx-run-no-value)]
-      (rf/reg-cofx :cofx-test/no-value-cofx
-        {:platforms #{:server}}
-        (fn [ctx]
-          (assoc-in ctx [:coeffects :cofx-test/no-value-cofx] :ran)))
-      (rf/reg-event-fx :cofx-test/read-no-value
-        [(rf/inject-cofx :cofx-test/no-value-cofx)]
-        (fn [_ _] {}))
-      (rf/dispatch-sync [:cofx-test/read-no-value])
-      (rf/unregister-listener! ::cofx-run-no-value)
-
-      (let [runs (filter #(= :rf.cofx/run (:operation %)) @traces)]
-        (is (= 1 (count runs)))
-        (let [t (first runs)]
-          (is (= :cofx-test/no-value-cofx (get-in t [:tags :rf.cofx/id])))
-          (is (not (contains? (:tags t) :rf.cofx/value))
-              "no-value injection: no :rf.cofx/value slot on :rf.cofx/run")
-          (is (number? (get-in t [:tags :rf.cofx/elapsed-ms]))
-              ":rf.cofx/elapsed-ms is still present on the no-value path"))))))
-
-(deftest skipped-cofx-emits-no-rf-cofx-run
-  (testing "a platform-skipped cofx emits :rf.cofx/skipped-on-platform but
-            NOT :rf.cofx/run — the handler never ran"
-    (let [traces (collect-traces! ::cofx-run-skipped)]
-      (rf/reg-cofx :cofx-test/client-only-run
-        {:platforms #{:client}}
-        (fn [ctx v]
-          (assoc-in ctx [:coeffects :cofx-test/client-only-run] v)))
-      (rf/reg-event-fx :cofx-test/read-client-only
-        [(rf/inject-cofx :cofx-test/client-only-run {:k :v})]
-        (fn [_ _] {}))
-      (rf/dispatch-sync [:cofx-test/read-client-only])
-      (rf/unregister-listener! ::cofx-run-skipped)
-
-      (is (empty? (filter #(= :rf.cofx/run (:operation %)) @traces))
-          "no :rf.cofx/run when the cofx was platform-skipped")
-      (is (= 1 (count (filter #(= :rf.cofx/skipped-on-platform (:operation %))
-                              @traces)))
-          "the skip trace fired instead"))))
-
-;; ---- EP-0010 :app/now-ms compatibility time cofx (rf2-2941zx) --------------
-;;
-;; The initial recordable time coeffect (EP-0010 §Backwards Compatibility and
-;; Migration, reference-implementation step 7): `:app/now-ms` injects the
-;; dispatch envelope's causal `(:rf/time-ms (:rf.cofx coeffects))` so a v1-style
-;; host-clock read in a durable handler becomes a recordable coeffect. It reads
-;; ONLY the already-seeded `:rf.cofx` framework coeffect — no ambient
-;; `(.now js/Date)` / `interop/now-ms` of its own — so a scripted / replayed
-;; `:rf/time-ms` is returned exactly (Spec 002 §Event Context And Coeffects: a
-;; coeffect that can affect durable state MUST be recordable).
-
-(deftest app-now-ms-reads-causal-time-ms-exactly
-  (testing ":app/now-ms returns the supplied :rf.cofx :rf/time-ms VERBATIM
-            — a scripted past timestamp comes back exactly, proving no ambient
-            clock read at the injection site (replay determinism)"
-    (let [scripted 1781078400123      ;; a fixed past epoch-ms; an ambient
-          seen     (atom ::unset)]    ;; (.now js/Date) read would never equal it
-      (rf/reg-event-fx :cofx-test/read-now
-        [(rf/inject-cofx :app/now-ms)]
-        (fn [{:keys [app/now-ms]} _]
-          (reset! seen now-ms)
-          {}))
-      (rf/dispatch-sync [:cofx-test/read-now]
-                        {:rf.cofx {:rf/time-ms scripted}})
-      (is (= scripted @seen)
-          "the handler saw the EXACT scripted :rf/time-ms — sourced from the causal
-           token, not a live host-clock read (a replayed dispatch is stable)"))))
-
-(deftest app-now-ms-tracks-router-stamped-time-ms
-  (testing "with no caller-supplied world inputs, :app/now-ms returns the SAME
-            value the router stamped on the envelope (:rf.cofx :rf/time-ms)
-            — one causal read, surfaced through the cofx (not a second read)"
-    (let [seen-now   (atom ::unset)
-          seen-world (atom ::unset)]
-      (rf/reg-event-fx :cofx-test/read-now-stamped
-        [(rf/inject-cofx :app/now-ms)]
-        (fn [{:keys [app/now-ms] cofx :rf.cofx} _]
-          (reset! seen-now now-ms)
-          (reset! seen-world (:rf/time-ms cofx))
-          {}))
-      (rf/dispatch-sync [:cofx-test/read-now-stamped])
-      (is (number? @seen-now)
-          ":app/now-ms is a stamped epoch-ms number on the live path")
-      (is (= @seen-world @seen-now)
-          ":app/now-ms equals the envelope's own :rf.cofx :rf/time-ms —
-           it surfaces the single causal read, never re-reads the host"))))
-
-(deftest app-now-ms-nil-without-world-inputs
-  (testing ":app/now-ms injects nil when no :rf.cofx coeffect is present
-            (a handler invoked outside the dispatch path) — it never falls back
-            to an ambient host read (durable time must come from a stamped
-            envelope)"
-    (let [seen   (atom ::unset)
-          ;; Drive the cofx directly with a context carrying NO :rf.cofx
-          ;; coeffect — isolates the cofx body from the router's stamping so the
-          ;; nil-source branch is exercised deterministically.
-          cofx    (registrar/lookup :cofx :app/now-ms)
-          handler (:handler-fn cofx)
-          ctx     {:coeffects {:event [:cofx-test/no-world]}}
-          result  (handler ctx)]
-      (reset! seen (get-in result [:coeffects :app/now-ms]))
-      (is (nil? @seen)
-          "no :rf.cofx → :app/now-ms is nil (no ambient (.now js/Date)
-           fallback — durable time is causal-only)"))))
+        (let [ex (try (rf/dispatch-sync [:cofx-test/frameless]) nil
+                      (catch clojure.lang.ExceptionInfo e e))]
+          (is (= :rf.error/no-frame-context (:rf.error/id (ex-data ex))))))
+      (is (false? @fired?) "the handler never ran"))))

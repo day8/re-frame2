@@ -84,12 +84,12 @@
           ":frame is absent regardless of envelope keys"))))
 
 (deftest user-injected-cofx-do-not-mask-the-absence-of-frame
-  (testing "a user inject-cofx adds its own key but :frame stays gone"
+  (testing "a declared cofx adds its own key but :frame stays gone"
     (rf/reg-frame :ck/user {:doc "ctx"})
-    (rf/reg-cofx :ck/now (fn [ctx] (assoc-in ctx [:coeffects :ck/now] 42)))
+    (rf/reg-cofx :ck/now (fn [] 42))
     (let [captured (atom nil)]
       (rf/reg-event-ctx :capture
-        [(rf/inject-cofx :ck/now)]
+        {:rf.cofx/requires [:ck/now]}
         (fn [ctx] (reset! captured (:coeffects ctx)) ctx))
       (rf/dispatch-sync [:capture] {:frame :ck/user})
       (let [cofx @captured]

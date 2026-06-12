@@ -154,22 +154,17 @@ next monotone nav-token / pending-nav id without reaching the host atom
 `:rf.route/commit-nav-counter` fx. Per Spec 012 §Navigation tokens."})
 
 (defn nav-counters-cofx
-  "Handler fn for the `:rf.route/nav-counters` cofx. Reads the in-flight
-  cascade's frame from the `:rf.frame/id` coeffect (the same source the
-  `:nav-token` cofx and the error-emit frame-stamp pass use) and injects
-  the frame's host-side counter snapshot under `:coeffects
-  :rf.route/nav-counters`. Pure with respect to the handler — it only
-  reads the host cache (the write is a separate fx).
-
-  1-arity is the canonical form. 2-arity accepts an explicit snapshot
-  override — useful in tests that assert the threading shape without
-  standing up a host cache entry."
-  ([ctx]
-   (let [frame-id (get-in ctx [:coeffects :rf.frame/id])]
-     (assoc-in ctx [:coeffects :rf.route/nav-counters]
-               (counter-snapshot frame-id))))
-  ([ctx snapshot]
-   (assoc-in ctx [:coeffects :rf.route/nav-counters] snapshot)))
+  "Value-returning AMBIENT supplier for the `:rf.route/nav-counters` cofx
+  (EP-0017 §2). Reads the in-flight cascade's frame
+  (`frame/*current-frame*`, bound by the router during processing) and
+  returns the frame's host-side counter snapshot. Pure with respect to the
+  fold — it only READS the host cache (the write is the separate
+  `:rf.route/commit-nav-counter` fx); never recorded, replay re-runs it. The
+  nav entry-point handlers declare `:rf.cofx/requires [:rf.route/nav-counters]`
+  and read the snapshot flat. Tests that assert the threading shape
+  re-register the supplier (the visible seam)."
+  []
+  (counter-snapshot frame/*current-frame*))
 
 ;; ---- the :rf.route/commit-nav-counter fx ---------------------------------
 

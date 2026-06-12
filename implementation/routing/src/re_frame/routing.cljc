@@ -193,21 +193,24 @@
            nav-counters/commit-nav-counter-meta
            nav-counters/commit-nav-counter-handler)
 
-;; The interceptor vector injected into every nav entry point so its
-;; handler reads the host-side counter snapshot under
-;; `:coeffects :rf.route/nav-counters`.
-(def ^:private nav-counters-interceptors
-  [(cofx/inject-cofx :rf.route/nav-counters)])
+;; EP-0017: every nav entry point DECLARES the host-side counter cofx via
+;; `:rf.cofx/requires` (replacing the retired
+;; `(inject-cofx :rf.route/nav-counters)` interceptor); its handler reads the
+;; snapshot FLAT under `:coeffects :rf.route/nav-counters`. The supplier is
+;; ambient (a host-cache read, never recorded — the WRITE rides the
+;; `:rf.route/commit-nav-counter` fx).
+(def ^:private nav-counters-meta
+  (assoc framework-authority-meta
+         :rf.cofx/requires [:rf.route/nav-counters]))
 
 ;; :rf/url-requested + :rf.route/continue + :rf.route/cancel +
 ;; :rf.route/navigation-blocked — Spec 012 §Navigation blocking —
 ;; pending-nav protocol. `:rf/url-requested` runs the leave guard (which
-;; mints a pending-nav id on a block), so it injects the nav-counters cofx;
+;; mints a pending-nav id on a block), so it declares the nav-counters cofx;
 ;; `:rf.route/continue` / `:rf.route/cancel` / `:rf.route/navigation-blocked`
 ;; never allocate a counter, so they don't.
 (events/reg-event-fx :rf/url-requested
-                     framework-authority-meta
-                     nav-counters-interceptors
+                     nav-counters-meta
                      can-leave/url-requested-handler)
 (events/reg-event-fx :rf.route/navigation-blocked
                      framework-authority-meta
@@ -219,23 +222,20 @@
                      framework-authority-meta
                      can-leave/cancel-handler)
 
-;; :rf.route/navigate — Spec 012 §Navigation is an event. Injects the
+;; :rf.route/navigate — Spec 012 §Navigation is an event. Declares the
 ;; nav-counters cofx (mints the nav-token + any block's pending-nav id).
 (events/reg-event-fx :rf.route/navigate
-                     framework-authority-meta
-                     nav-counters-interceptors
+                     nav-counters-meta
                      navigate/navigate-handler)
 
 ;; :rf.route/transitioned + :rf.route/handle-url-change — Spec 012 §URL
-;; changes are events. Both inject the nav-counters cofx (mint the
+;; changes are events. Both declare the nav-counters cofx (mint the
 ;; nav-token on commit + any block's pending-nav id).
 (events/reg-event-fx :rf.route/transitioned
-                     framework-authority-meta
-                     nav-counters-interceptors
+                     nav-counters-meta
                      url-change/transitioned-handler)
 (events/reg-event-fx :rf.route/handle-url-change
-                     framework-authority-meta
-                     nav-counters-interceptors
+                     nav-counters-meta
                      url-change/handle-url-change-handler)
 
 ;; :nav-token cofx — Spec 012 §Navigation tokens — stale-result

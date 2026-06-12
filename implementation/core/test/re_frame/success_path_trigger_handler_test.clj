@@ -334,18 +334,18 @@
    `*current-trigger-handler*` around the body, overriding the
    enclosing event handler's binding"
     (rf/reg-cofx :rf2-npm2p/instrumented-cofx
-                 (fn [ctx]
+                 (fn []
                    ;; Emit a custom trace from inside the cofx body —
                    ;; this is exactly what an instrumented cofx
                    ;; (http issuance, persistence read, etc.) does to
                    ;; surface its work into the trace stream. The
-                   ;; binding established by `cofx.cljc`'s `:before`
-                   ;; phase MUST cause this emit to carry the cofx's
-                   ;; coord (not the enclosing event handler's).
+                   ;; handler-scope established around the supplier run
+                   ;; MUST cause this emit to carry the cofx's coord (not
+                   ;; the enclosing event handler's).
                    (trace/emit! :rf2-npm2p/probe :rf2-npm2p/probe {:from :cofx})
-                   ctx))
+                   :ok))
     (rf/reg-event-fx :rf2-npm2p/uses-cofx
-                     [(rf/inject-cofx :rf2-npm2p/instrumented-cofx)]
+                     {:rf.cofx/requires [:rf2-npm2p/instrumented-cofx]}
                      (fn [_cofx _event] {}))
     (let [evs     (record-traces
                     (fn [] (rf/dispatch-sync [:rf2-npm2p/uses-cofx])))
@@ -357,11 +357,11 @@
   (testing ":rf.trace/trigger-handler on a cofx-body trace is a
    top-level field, NOT nested under :tags"
     (rf/reg-cofx :rf2-npm2p/top-level-cofx
-                 (fn [ctx]
+                 (fn []
                    (trace/emit! :rf2-npm2p/probe :rf2-npm2p/probe {})
-                   ctx))
+                   :ok))
     (rf/reg-event-fx :rf2-npm2p/use-top-level-cofx
-                     [(rf/inject-cofx :rf2-npm2p/top-level-cofx)]
+                     {:rf.cofx/requires [:rf2-npm2p/top-level-cofx]}
                      (fn [_ _] {}))
     (let [evs     (record-traces
                     (fn [] (rf/dispatch-sync [:rf2-npm2p/use-top-level-cofx])))
@@ -376,11 +376,11 @@
   (testing "the :source-coord under :rf.trace/trigger-handler on a
    cofx-body trace equals what the registrar holds on the cofx's slot"
     (rf/reg-cofx :rf2-npm2p/coord-cofx
-                 (fn [ctx]
+                 (fn []
                    (trace/emit! :rf2-npm2p/probe :rf2-npm2p/probe {})
-                   ctx))
+                   :ok))
     (rf/reg-event-fx :rf2-npm2p/use-coord-cofx
-                     [(rf/inject-cofx :rf2-npm2p/coord-cofx)]
+                     {:rf.cofx/requires [:rf2-npm2p/coord-cofx]}
                      (fn [_ _] {}))
     (let [cofx-meta (rf/handler-meta :cofx :rf2-npm2p/coord-cofx)
           evs       (record-traces
@@ -400,11 +400,11 @@
    poison-data, mirroring the fx + sub programmatic paths."
     (let [reg-fn (requiring-resolve 're-frame.cofx/reg-cofx)]
       (reg-fn :rf2-npm2p/prog-cofx
-              (fn [ctx]
+              (fn []
                 (trace/emit! :rf2-npm2p/probe :rf2-npm2p/probe {})
-                ctx)))
+                :ok)))
     (rf/reg-event-fx :rf2-npm2p/use-prog-cofx
-                     [(rf/inject-cofx :rf2-npm2p/prog-cofx)]
+                     {:rf.cofx/requires [:rf2-npm2p/prog-cofx]}
                      (fn [_ _] {}))
     (let [evs     (record-traces
                     (fn [] (rf/dispatch-sync [:rf2-npm2p/use-prog-cofx])))

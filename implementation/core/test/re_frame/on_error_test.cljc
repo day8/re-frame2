@@ -415,22 +415,22 @@
         (is (true? @fired)
             "fell back to the registered fx (:replaced-with-default recovery)")))))
 
-(deftest listener-fires-on-no-such-cofx
-  (testing "Per rf2-goum9x: an `inject-cofx` referencing an unregistered
-            cofx-id fans `:rf.error/no-such-cofx` through the always-on
-            listener (previously dev-trace-only). The injection is a
-            no-op; the interceptor chain continues."
+(deftest listener-fires-on-unregistered-cofx
+  (testing "EP-0017 (succeeds rf2-goum9x): a `:rf.cofx/requires` declaration
+            referencing an UNREGISTERED cofx-id (the typo case) fans
+            `:rf.error/unregistered-cofx` through the always-on listener. Per
+            EP-0017 §7 the dispatch is rejected (no-recovery) — typos die loudly
+            rather than silently re-reading the host."
     (let [seen (atom [])]
       (rf/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :goum9x/run-unknown-cofx
-                       [(rf/inject-cofx :goum9x/never-registered-cofx)]
-                       (fn [db _] db))
-      (rf/dispatch-sync [:goum9x/run-unknown-cofx])
-      (let [r (some (fn [x] (when (= :rf.error/no-such-cofx (:error x)) x)) @seen)]
-        (is (some? r) "listener received :rf.error/no-such-cofx")
-        (is (= :goum9x/run-unknown-cofx (:event-id r))
-            "the event that ran the offending interceptor chain rides :event-id")
+      (rf/reg-event-fx :goum9x/run-unknown-cofx
+                       {:rf.cofx/requires [:goum9x/never-registered-cofx]}
+                       (fn [_ _] {}))
+      (try (rf/dispatch-sync [:goum9x/run-unknown-cofx])
+           (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
+      (let [r (some (fn [x] (when (= :rf.error/unregistered-cofx (:error x)) x)) @seen)]
+        (is (some? r) "listener received :rf.error/unregistered-cofx")
         (is (= :rf/default (:frame r)))))))
 
 ;; ============================================================================

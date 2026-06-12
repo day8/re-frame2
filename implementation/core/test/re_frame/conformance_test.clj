@@ -143,7 +143,14 @@
     :schemas/runtime
     :schemas/event-payload                            ;; rf2-jwm4
     :schemas/sub-return                               ;; rf2-wcam
-    :schemas/cofx                                     ;; rf2-7leq
+    ;; :schemas/cofx — UNCLAIMED in EP-0017 slice A.3 (rf2-oa2dun). The
+    ;; cofx `:schema` validation step is SLICE-B-built (per Spec 009
+    ;; §`:rf.error/cofx-value-invalid` — "the `:schema` validation step is
+    ;; slice-B-built; the structural EDN check is slice A"). The old
+    ;; `inject-cofx`-time validation path is retired with `inject-cofx`. The
+    ;; `schema-cofx-validates.edn` fixture is reported as an intentional
+    ;; out-of-claim skip until slice B wires recordable-value `:schema`
+    ;; validation. See `known-skipped-capabilities`.
     :routing/ranking
     :routing/fragment
     :routing/blocking
@@ -244,7 +251,14 @@
   ;; failure.
   #{:ssr/suspense-boundary
     :ssr/hydration-payload
-    :ssr/chunked-response})
+    :ssr/chunked-response
+    ;; EP-0017 slice A.3 (rf2-oa2dun): cofx `:schema` validation is
+    ;; slice-B-deferred (the structural EDN check is slice A; the `:schema`
+    ;; step is slice B per Spec 009 §`:rf.error/cofx-value-invalid`). The
+    ;; `schema-cofx-validates.edn` fixture is an intentional out-of-claim skip
+    ;; until slice B; the old `inject-cofx`-time validation it pinned is
+    ;; retired with `inject-cofx`.
+    :schemas/cofx})
 
 ;; ---- fixture loader -------------------------------------------------------
 

@@ -406,27 +406,26 @@
 
 ;; ---- rf2-ts1a: call-site source-coord macros ------------------------------
 ;;
-;; The `dispatch` / `dispatch-sync` / `subscribe` / `inject-cofx` macros stamp
-;; an `:rf.trace/call-site` map at compile time (per Q3=B dev-only elision).
+;; The `dispatch` / `dispatch-sync` / `subscribe` macros stamp an
+;; `:rf.trace/call-site` map at compile time (per Q3=B dev-only elision).
 ;; Under `:advanced` + `goog.DEBUG=false`, the macro's
 ;; `(if interop/debug-enabled? <stamp-branch> <no-stamp-branch>)` expansion
 ;; folds away — the stamp branch DCE's and the literal map vanishes from
 ;; the bundle. The keyword `:rf.trace/call-site`'s string fragment must
-;; NOT appear in the production bundle.
+;; NOT appear in the production bundle. (`inject-cofx` is removed in EP-0017
+;; and no longer stamps a call-site.)
 
 (defn ^:export touch-call-site-macros! []
   ;; Each macro form below emits a literal `:rf.trace/call-site` map
   ;; under DEBUG=true. The stamp-branches must DCE under DEBUG=false.
   (rf/reg-event-db :probe/cs-event (fn [db _ev] db))
   (rf/reg-sub      :probe/cs-sub   (fn [db _q] db))
-  (rf/reg-cofx     :probe/cs-cofx  (fn [ctx] ctx))
+  (rf/reg-cofx     :probe/cs-cofx  (fn [] :ok))
   ;; dispatch + dispatch-sync macros
   (rf/dispatch [:probe/cs-event])
   (rf/dispatch-sync [:probe/cs-event])
   ;; subscribe macro
-  (let [_r (rf/subscribe [:probe/cs-sub])] nil)
-  ;; inject-cofx macro (interceptor construction site)
-  (let [_i (rf/inject-cofx :probe/cs-cofx)] nil))
+  (let [_r (rf/subscribe [:probe/cs-sub])] nil))
 
 ;; ---- rf2-cry25: reg-view-injected dispatch/subscribe call-site -----------
 ;;
