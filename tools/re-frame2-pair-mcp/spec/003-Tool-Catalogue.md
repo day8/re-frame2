@@ -105,8 +105,13 @@ substituted with
 
 The substitution is at the elided slot — small siblings ride
 verbatim. Agents drill into the slot via `get-path` using the
-handle's path, or pass `elision false` to bypass the walker
-and receive the raw value. Markers fire BEFORE the
+handle's path, or pass `elision false` to opt large content back
+in and receive the un-elided value. Note `elision false` only
+governs the LARGE-slot toggle — it does NOT reveal
+declared-`:sensitive?` slots, which still redact to `:rf/redacted`
+unless the caller also passes `include-sensitive true` under the
+`--allow-sensitive-reads` gate (EP-0015 fail-closed, rf2-t55hxg.13).
+Markers fire BEFORE the
 path-slicing / diff-encode / dedup / wire-cap pipeline, so
 cap measures post-elision bytes — a single declared-large
 slot can no longer blow the cap on its own.
@@ -652,9 +657,13 @@ off-box read surfaces above — and `dispatch-dry-run`'s egress slots
    racing ahead.
 
 Operators who need raw state for offline debug opt in at server launch
-by passing `--allow-sensitive-reads`. The per-call args then win again
-(`:include-sensitive true` / `:elision false` pass through to the
-walker unchanged).
+by passing `--allow-sensitive-reads`. The per-call args then win again,
+but the two axes are independent and the walker FAILS CLOSED (EP-0015,
+rf2-t55hxg.13): `:elision false` opts large content back in but does NOT,
+on its own, reveal declared-`:sensitive?` slots — those still redact to
+`:rf/redacted` unless the caller also passes `:include-sensitive true`.
+Only the deliberate full-raw combination (`:elision false` AND
+`:include-sensitive true`) passes a value through the walker untouched.
 
 Symmetric with story-mcp's `--allow-sensitive-reads` (rf2-uaymx /
 rf2-g9fje). The same canonical flag name across MCP servers (rf2-2x3ql)
@@ -1250,9 +1259,15 @@ minting a new confirmation gate:
   redact to `:rf/redacted`. The per-call `elision false` /
   `include-sensitive true` knobs are forced safe.
 - **Gate ON (`--allow-sensitive-reads`)**: the per-call `elision` /
-  `include-sensitive` knobs win again — `elision false` ships the raw
-  simulation details for debugging; `include-sensitive true` passes
-  declared-sensitive slots through verbatim.
+  `include-sensitive` knobs win again, but the two axes are
+  independent and the walker FAILS CLOSED (EP-0015, rf2-t55hxg.13).
+  `elision false` opts large content back IN (`:rf.size/include-large?
+  true`) but, on its own, does NOT reveal sensitive slots — a
+  declared-`:sensitive?` slot still redacts to `:rf/redacted`. Revealing
+  sensitive data requires the explicit per-call `include-sensitive true`
+  opt-in. Only the deliberate full-raw combination — `elision false` AND
+  `include-sensitive true` — ships the raw simulation details verbatim
+  (the trusted-local `:rf.egress/local-raw` boundary).
 - `:cascade-summary` is a depth-bounded projection (path lists +
   counts, not verbatim values) so it rides through unwalked, the same
   as `dispatch` / `replace-app-db` / `restore-epoch` (rf2-6yqdl).
@@ -1946,7 +1961,11 @@ When `elision` is enabled (default), a declared / schema-`:large?`
 path or an over-threshold leaf returns a `:rf.size/large-elided`
 marker (with a `:handle [:rf.elision/at <path>]` fetch handle) in
 place of the raw bytes. Drill into a non-elided child by re-calling
-with a deeper `path`. Pass `elision false` to bypass the walker.
+with a deeper `path`. Pass `elision false` to opt large content back
+in. Note `elision false` governs only the LARGE-slot toggle — it does
+NOT reveal declared-`:sensitive?` slots, which still redact to
+`:rf/redacted` unless the caller also passes `include-sensitive true`
+under `--allow-sensitive-reads` (EP-0015 fail-closed, rf2-t55hxg.13).
 
 `get-path` is the read-by-path surface for when `snapshot`'s
 `:summary` mode tells the agent which key carries the answer.
@@ -1999,7 +2018,11 @@ the value is run through `re-frame.core/elide-wire-value` server-side —
 declared-sensitive values redact to `:rf/redacted`, declared-large
 values elide to `:rf.size/large-elided`. `elision false` /
 `include-sensitive true` (honoured only under `--allow-sensitive-reads`)
-opt back in to the raw value.
+opt back in along independent axes, and the walker FAILS CLOSED
+(EP-0015, rf2-t55hxg.13): `elision false` opts large content in but does
+NOT reveal sensitive values; `include-sensitive true` is required to
+pass declared-sensitive values through. Only both together ship the
+fully raw value (the walker is skipped entirely).
 
 Success: `{:ok? true :query-v <v> :frame <id> :value <elided-value>
 :elision <bool>}`. The structured failures (`:not-a-sub-vector` /

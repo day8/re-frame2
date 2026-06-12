@@ -264,6 +264,15 @@
         ;; `include-large?` polarity directly. MCP `elision` true =
         ;; emit markers = `:include-large?` false; hence `(not elision?)`.
         elision-opts (elision/elision-opts-edn (not elision?) incl?)
+        ;; rf2-t55hxg.13 — fail-CLOSED: the size walker over the app-db-
+        ;; rooted `:db-state-after-simulation` slot runs UNLESS the caller
+        ;; opted into BOTH raw axes (`:elision false` AND `:include-sensitive
+        ;; true`). A bare `:elision false` still walks so a declared-
+        ;; sensitive db slot redacts to `:rf/redacted` while large content
+        ;; passes. Pre-fix the walker gated on `elision?` alone, so a gate-
+        ;; ON `:elision false` leaked sensitive db state off-box. (The fx-
+        ;; args fail-close at stage 1 is independent and unaffected.)
+        walk?        (elision/walk-required? (not elision?) incl?)
         frame-edn    (if frame
                        (pr-str frame)
                        (ef/emit (ef/rt-call 'current-frame)))
@@ -303,7 +312,7 @@
             ;;      via --allow-sensitive-reads + :elision false) the db slot
             ;;      rides raw — but stage 1 still fail-closes the fx args.
             redact-src   (redact-fx-args-src (not incl-fx-args?))
-            form (if elision?
+            form (if walk?
                    (ef/emit
                      (ef/rt-let
                        ['env      (ef/rt-call 'dispatch-dry-run event-vec opts-form)

@@ -85,6 +85,18 @@
         ;; MCP arg `elision` true = emit markers = `:include-large?` false,
         ;; hence the local `(not elision?)`.
         elision-opts-form (elision/elision-opts-edn (not elision?) incl?)
+        ;; rf2-t55hxg.13 — fail-CLOSED: the per-slot walker over the app-db-
+        ;; rooted `:app-db` / `:sub-cache` slices runs UNLESS the caller
+        ;; opted into BOTH raw axes (`:elision false` ⇒ `include-large?
+        ;; true` AND `:include-sensitive true` ⇒ `incl?`). Pre-fix these
+        ;; slices walked only on `elision?`, so a gate-ON `:elision false`
+        ;; caller who left `:include-sensitive` at its default shipped raw
+        ;; `:app-db` / `:sub-cache` slices — a frame-declared-sensitive slot
+        ;; leaked off-box. A bare `:elision false` now still walks (large
+        ;; passes, sensitive redacts to `:rf/redacted`). The `:epochs`
+        ;; projection + `:machines` redaction already gate on the sensitive
+        ;; axis (`incl?`) and are unaffected.
+        walk-slices?      (elision/walk-required? (not elision?) incl?)
         ;; rf2-8fin7.1 — the `:epochs` slice ships whole `:rf/epoch-record`s
         ;; (each carrying `:db-before` / `:db-after` app-db snapshots),
         ;; NOT bare app-db slices, so it MUST route through
@@ -119,27 +131,27 @@
         ;; (the operator's deliberate opt-in to runtime-db diagnostics).
         redact-runtime-db? (not incl?)
         ;; The whole `walked` reduction is needed when ANY transform fires:
-        ;; `:app-db`/`:sub-cache` elision (`elision?`), `:epochs` projection
-        ;; (`project-epochs?`), OR `:machines` runtime-db redaction
-        ;; (`redact-runtime-db?`). When none fire (gate ON + `:elision false`
-        ;; + `:include-sensitive true`) the snapshot passes through verbatim
-        ;; — the full raw-egress opt-in.
-        walk-snapshot?    (or elision? project-epochs? redact-runtime-db?)
+        ;; `:app-db`/`:sub-cache` elision (`walk-slices?`), `:epochs`
+        ;; projection (`project-epochs?`), OR `:machines` runtime-db
+        ;; redaction (`redact-runtime-db?`). When none fire (gate ON +
+        ;; `:elision false` + `:include-sensitive true` — the full raw-egress
+        ;; opt-in) the snapshot passes through verbatim.
+        walk-snapshot?    (or walk-slices? project-epochs? redact-runtime-db?)
         ;; Source fragment that applies the active per-slot transforms to
-        ;; one frame's slice map `fmap`. `elision?` wraps `:app-db` /
+        ;; one frame's slice map `fmap`. `walk-slices?` wraps `:app-db` /
         ;; `:sub-cache` through `elide-wire-value`; `project-epochs?` maps
         ;; the `:epochs` vector through `projected-record`;
         ;; `redact-runtime-db?` substitutes the `:machines` runtime-db slice
         ;; with the `:rf/redacted` sentinel. Emitted as a threaded `let` so a
         ;; frame can carry all transforms. The `opts` / `f`
-        ;; (`elide-wire-value`) bindings are emitted ONLY in the `elision?`
-        ;; branch — `:epochs` projection + `:machines` redaction never touch
-        ;; the per-slot walker, so a gate-ON `:elision false` read emits NO
-        ;; `elide-wire-value` (the
-        ;; `:raw-state/snapshot-opt-in-honours-elision-false` conformance
-        ;; contract) while still projecting `:epochs`.
+        ;; (`elide-wire-value`) bindings are emitted ONLY in the
+        ;; `walk-slices?` branch — `:epochs` projection + `:machines`
+        ;; redaction never touch the per-slot walker. Per rf2-t55hxg.13 a
+        ;; gate-ON `:elision false` read STILL walks the slices (sensitive
+        ;; redacts, large passes); only a full-raw opt-in (`:elision false`
+        ;; AND `:include-sensitive true`) emits NO `elide-wire-value`.
         slice-walk-src    (str "(let ["
-                               (if elision?
+                               (if walk-slices?
                                  (str " opts (merge {:frame fid} " elision-opts-form ")"
                                       " f    (fn [v] (re-frame.core/elide-wire-value v opts))"
                                       " fmap (if (contains? fmap :app-db)"

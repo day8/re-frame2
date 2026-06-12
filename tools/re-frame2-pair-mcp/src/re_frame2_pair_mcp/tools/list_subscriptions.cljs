@@ -125,13 +125,18 @@
                         (pr-str frame)
                         (ef/emit (ef/rt-call 'current-frame)))
         elision-opts  (elision/elision-opts-edn (not elision?) incl-sensitive?)
+        ;; rf2-t55hxg.13 — fail-CLOSED: walk UNLESS the caller opted into
+        ;; both raw axes (`:elision false` AND `:include-sensitive true`).
+        ;; A bare `:elision false` still walks so a declared-sensitive sub
+        ;; `:value` redacts to `:rf/redacted` while large content passes.
+        walk?         (elision/walk-required? (not elision?) incl-sensitive?)
         base-call     (ef/emit (ef/rt-call 'sub-cache-info opts))
-        ;; rf2-f1ose — when values ride the wire AND the gate forces
-        ;; elision, map each `:subs` entry's `:value` through
+        ;; rf2-f1ose — when values ride the wire AND the walker is
+        ;; required, map each `:subs` entry's `:value` through
         ;; `elide-wire-value` server-side before the result ships. The
         ;; query-vectors-only shape (`:include-values false`) carries no
         ;; `:value` slots, so the wrap is skipped entirely there.
-        form     (if (and incl-vals? elision?)
+        form     (if (and incl-vals? walk?)
                    (ef/emit
                      (ef/rt-let
                        ['res (ef/rt-raw base-call)]

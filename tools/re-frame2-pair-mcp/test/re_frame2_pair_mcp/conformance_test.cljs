@@ -808,11 +808,39 @@
     {:isError? false
      :edn-submap {:ok? true :dry-run? true :elision true}}}
 
-   {:fixture/id    :dispatch-dry-run/gate-on-honours-opt-out
-    :fixture/doc   "dispatch-dry-run with --allow-sensitive-reads ON + caller :elision false ships the raw simulation details — NO walker wrap for the db slot (rf2-z7roa). With :include-fx-args unset the fx args still fail closed (rf2-6to9xj), so the form still touches :would-fire-effects (assoc :rf/redacted), but never elide-wire-value."
+   ;; rf2-t55hxg.13 — fail-CLOSED. Gate ON + a BARE `:elision false` (no
+   ;; `:include-sensitive true`) MUST still walk the app-db-rooted
+   ;; `:db-state-after-simulation` slot: large content passes
+   ;; (`include-large? true`) but a declared-sensitive db slot redacts.
+   ;; Pre-fix this asserted no walker wrap — that was the sensitive bypass.
+   {:fixture/id    :dispatch-dry-run/gate-on-bare-elision-false-still-walks
+    :fixture/doc   "dispatch-dry-run ON + :elision false (no sensitive opt-in) ⇒ form STILL runs :db-state-after-simulation through elide-wire-value with :rf.size/include-sensitive? false, :rf.size/include-large? true (rf2-t55hxg.13)."
     :fixture/tool  "dispatch-dry-run"
     :fixture/allow-raw-state? true
     :fixture/args  {:event "[:cart/checkout]" :elision false}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["configure-raw-state!"      nil]
+     ["dispatch-dry-run"          {:value {:ok? true :dry-run? true :db-state-after-simulation {:user {:token :rf/redacted}}}
+                                   :elided-count 0}]
+     [:default                    nil]]
+    :fixture/eval-form-must-contain
+    ["re-frame.core/elide-wire-value"
+     ":rf.size/include-sensitive? false"
+     ":rf.size/include-large? true"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :elision false}}}
+
+   ;; rf2-t55hxg.13 — the deliberate full-raw opt-in (`:elision false` AND
+   ;; `:include-sensitive true`) is the ONLY combination that skips the db
+   ;; walker. With `:include-fx-args` unset the fx args still fail closed
+   ;; (rf2-6to9xj), so the form still touches `:would-fire-effects`.
+   {:fixture/id    :dispatch-dry-run/gate-on-full-raw-opt-out
+    :fixture/doc   "dispatch-dry-run ON + :elision false + :include-sensitive true ships the raw simulation details — NO walker wrap for the db slot (rf2-z7roa / rf2-t55hxg.13)."
+    :fixture/tool  "dispatch-dry-run"
+    :fixture/allow-raw-state? true
+    :fixture/args  {:event "[:cart/checkout]" :elision false :include-sensitive true}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
      ["configure-raw-state!"      nil]
@@ -1356,11 +1384,35 @@
     :fixture/expect
     {:isError? false}}
 
-   {:fixture/id    :raw-state/snapshot-opt-in-honours-elision-false
-    :fixture/doc   "Gate ON + caller passes :elision false ⇒ form must NOT call elide-wire-value (raw values ride)."
+   ;; rf2-t55hxg.13 — fail-CLOSED. A BARE `:elision false` (no
+   ;; `:include-sensitive true`) MUST still walk: large content passes
+   ;; (`include-large? true`) but a declared-sensitive `:app-db` /
+   ;; `:sub-cache` slot redacts to `:rf/redacted`. Pre-fix this fixture
+   ;; asserted the walker was skipped — that was the sensitive bypass.
+   {:fixture/id    :raw-state/snapshot-bare-elision-false-still-walks
+    :fixture/doc   "Gate ON + :elision false (no sensitive opt-in) ⇒ form must STILL call elide-wire-value with include-sensitive? false (sensitive redacts, large passes)."
     :fixture/tool  "snapshot"
     :fixture/allow-raw-state? true
     :fixture/args  {:frames "all" :elision false}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     [:default                    {:value {:rf/default {:app-db {:k :v}}}
+                                   :elided-count 0}]]
+    :fixture/eval-form-must-contain
+    ["re-frame.core/elide-wire-value"
+     ":rf.size/include-sensitive? false"
+     ":rf.size/include-large? true"]
+    :fixture/expect
+    {:isError? false}}
+
+   ;; rf2-t55hxg.13 — the ONLY combination that skips the walker is the
+   ;; deliberate full-raw local opt-in: `:elision false` AND
+   ;; `:include-sensitive true` (the operator's `:rf.egress/local-raw` act).
+   {:fixture/id    :raw-state/snapshot-full-raw-opt-in-skips-walker
+    :fixture/doc   "Gate ON + :elision false + :include-sensitive true ⇒ full-raw opt-in, form must NOT call elide-wire-value over the slices."
+    :fixture/tool  "snapshot"
+    :fixture/allow-raw-state? true
+    :fixture/args  {:frames "all" :elision false :include-sensitive true}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
      [:default                    {:value {:rf/default {:app-db {:k :v}}}

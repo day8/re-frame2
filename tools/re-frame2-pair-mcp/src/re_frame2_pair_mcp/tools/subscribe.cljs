@@ -371,10 +371,22 @@
         ;; (fail-closed) epoch records rather than raw fx-arg payloads.
         project-epoch? (and epoch? (not incl?))
         ;; The trace-event walker (`:cascades` / `:frameless` `:events`)
-        ;; rides the `elision?` toggle as before. The `:epoch` topic's
-        ;; `:events` are NOT trace events — they take `projected-record`,
-        ;; never the walker — so the walker arm is suppressed for it.
-        walk-trace?    (and elision? (not epoch?))
+        ;; covers tree-shaped slots rooted at the frame's app-db. The
+        ;; `:epoch` topic's `:events` are NOT trace events — they take
+        ;; `projected-record`, never the walker — so the walker arm is
+        ;; suppressed for it.
+        ;;
+        ;; rf2-t55hxg.13 — fail-CLOSED: the trace walker fires UNLESS the
+        ;; caller opted into BOTH raw axes (`:elision false` ⇒
+        ;; `include-large? true` AND `:include-sensitive true` ⇒ `incl?`).
+        ;; Pre-fix it gated on `elision?` alone, so a gate-ON `:elision
+        ;; false` caller who left `:include-sensitive` at its default
+        ;; shipped raw trace-event slots — a declared-sensitive frame slot
+        ;; inside a cascade leaked off-box. A bare `:elision false` now
+        ;; still walks (large passes via `elision-opts-edn`, sensitive
+        ;; redacts to `:rf/redacted`).
+        walk-trace?    (and (not epoch?)
+                            (elision/walk-required? (not elision?) incl?))
         drain-call     (ef/rt-call 'drain-subscription! sub-id)]
     (cond
       ;; Nothing to project: gate-ON + `:elision false` on a non-epoch

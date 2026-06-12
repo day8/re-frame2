@@ -99,7 +99,8 @@
             [re-frame.elision :as elision]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
-            [re-frame.path :as path]))
+            [re-frame.path :as path]
+            [re-frame.projection :as projection]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -281,9 +282,10 @@
 ;;
 ;; `:observability {:handled-events [<entry>...] :errors [<entry>...]}`.
 ;; Each entry is a map naming a `:sink` (a keyword sink id) and optionally
-;; an `:rf.egress/profile` and an `:opts` map. This slice validates the
-;; SHAPE; routing records through the sinks is the EP-0015 observability
-;; slice. An unknown top-level `:observability` key fails loudly.
+;; an `:rf.egress/profile` (a member of the closed EP-0015 §10 profile
+;; enum) and an `:opts` map. This slice validates the SHAPE; routing
+;; records through the sinks is the EP-0015 observability slice. An unknown
+;; top-level `:observability` key fails loudly.
 
 (def ^:private observability-keys #{:handled-events :errors})
 
@@ -300,7 +302,39 @@
              frame-id
              (str ":observability " stream " entries must carry a :sink "
                   "keyword id")
-             {:bad-key [:observability stream :sink] :bad-entry entry}))))
+             {:bad-key [:observability stream :sink] :bad-entry entry})))
+  ;; rf2-t55hxg.13 — `:rf.egress/profile`, when present, must name a member
+  ;; of the closed EP-0015 §10 profile enum (`re-frame.projection/profiles`).
+  ;; `projection.cljc`'s `resolve-elision-opts` already throws on an unknown
+  ;; profile at egress time, but that is far downstream of registration — a
+  ;; typo'd profile would install silently and only blow up when the sink
+  ;; first fires. Validate at reg-frame so the enum is closed at the seam
+  ;; that owns the policy (fail-closed, parity with the carrier/key grammar).
+  (when (contains? entry :rf.egress/profile)
+    (let [profile (:rf.egress/profile entry)]
+      (when-not (contains? projection/profiles profile)
+        (throw (classification-error
+                 frame-id
+                 (str ":observability " stream " entry has unknown "
+                      ":rf.egress/profile " profile "; valid profiles are "
+                      projection/profiles)
+                 {:bad-key [:observability stream :rf.egress/profile]
+                  :bad-value profile
+                  :valid    projection/profiles
+                  :bad-entry entry})))))
+  ;; `:opts`, when present, must be a map (the sink's keyword-keyed option
+  ;; bag). A non-map `:opts` is a malformed entry — fail loudly at
+  ;; registration rather than handing junk to the sink at fire time.
+  (when (contains? entry :opts)
+    (let [opts (:opts entry)]
+      (when-not (or (nil? opts) (map? opts))
+        (throw (classification-error
+                 frame-id
+                 (str ":observability " stream " entry :opts, when present, "
+                      "must be a map")
+                 {:bad-key [:observability stream :opts]
+                  :bad-value opts
+                  :bad-entry entry}))))))
 
 (defn- validate-observability!
   [frame-id observability]

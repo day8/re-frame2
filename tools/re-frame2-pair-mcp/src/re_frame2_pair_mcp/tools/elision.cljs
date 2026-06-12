@@ -100,6 +100,46 @@
 ;; consumer — it expresses "which boundary is this", not "which booleans".
 ;; ---------------------------------------------------------------------------
 
+(defn walk-required?
+  "Decide whether an AI-facing read surface MUST run the per-slot egress
+  walker (`re-frame.core/elide-wire-value`) over an app-db-rooted value
+  before it crosses the off-box MCP wire (EP-0015, rf2-t55hxg.13).
+
+  The walker is the ONLY thing on the direct-read surfaces that redacts a
+  frame-declared-sensitive slot to `:rf/redacted`. Pre-rf2-t55hxg.13 every
+  call site gated the walker on `elision?` alone — the *large-slot* toggle
+  — so a caller under the trusted-local `--allow-sensitive-reads` gate
+  could pass `:elision false` WITHOUT the per-call `:include-sensitive
+  true` opt-in and still pull raw sensitive values off-box. That collapsed
+  EP-0015's two-key sensitive opt-in (`spec/015-Data-Classification.md`,
+  `spec/Tool-Pair.md`): the large toggle silently doubled as a sensitive
+  bypass.
+
+  Fail-CLOSED invariant: the walker runs UNLESS the caller has explicitly
+  opted into BOTH raw axes — large content (`:elision false`, so
+  `include-large?` is `false`) AND sensitive content (`:include-sensitive
+  true`, so `include-sensitive?` is `true`). Only that deliberate
+  full-raw opt-in (the `:rf.egress/local-raw` boundary) skips the walker;
+  every other combination — including a bare `:elision false` — still
+  walks, where `elision-opts-edn` overlays `:rf.size/include-large? true`
+  (large passes) while keeping `:rf.size/include-sensitive? false`
+  (sensitive redacts). When in doubt, redact.
+
+  `include-large?` and `include-sensitive?` are the SAME walker-aligned
+  booleans `elision-opts-edn` consumes (`include-large? = (not elision?)`):
+
+  | include-large? | include-sensitive? | walk? | meaning                           |
+  |----------------|--------------------|-------|-----------------------------------|
+  | false          | false              | YES   | off-box default — both redact     |
+  | true           | false              | YES   | `:elision false`, sensitive redacts |
+  | false          | true               | YES   | sensitive passes, large elides    |
+  | true           | true               | NO    | deliberate full-raw local opt-in  |
+
+  Gate OFF forces `include-large? false` + `include-sensitive? false`, so
+  this always returns `true` there — the published-build floor."
+  [include-large? include-sensitive?]
+  (not (and include-large? include-sensitive?)))
+
 (defn posture->profile
   "Resolve the off-box egress POSTURE of a direct-read tool surface to a
   named `:rf.egress/*` profile (EP-0015 §10, rf2-qus09h).

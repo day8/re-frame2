@@ -293,8 +293,15 @@
                            "gate-on + include-sensitive true ⇒ declared-sensitive sub values pass raw")
                        (done)))))))))
 
-(deftest list-subscriptions-gate-on-elision-false-ships-bare
-  (testing "gate ON + include-values + elision false: NO walker wrap — raw values ship"
+(deftest list-subscriptions-gate-on-elision-false-still-redacts-sensitive
+  ;; rf2-t55hxg.13 — fail-CLOSED. Pre-fix this asserted that gate-ON +
+  ;; `:elision false` bypassed the walker entirely (raw value egress),
+  ;; which let a caller pull declared-sensitive sub values off-box WITHOUT
+  ;; the per-call `:include-sensitive true` opt-in — collapsing EP-0015's
+  ;; two-key sensitive gate. The contract is now: a BARE `:elision false`
+  ;; (no sensitive opt-in) STILL walks — large content passes
+  ;; (`include-large? true`) but a declared-sensitive value redacts.
+  (testing "gate ON + include-values + elision false (no sensitive opt-in): STILL walks, sensitive redacts"
     (async done
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
@@ -303,8 +310,29 @@
                        nil (tu/args->js {:include-values true :elision false}))))
             (.then (fn [_]
                      (let [form (slice-form forms)]
+                       (is (str/includes? form "re-frame.core/elide-wire-value")
+                           "bare :elision false MUST still walk — no sensitive bypass")
+                       (is (str/includes? form ":rf.size/include-sensitive? false")
+                           "sensitive sub values redact (the caller didn't opt in)")
+                       (is (str/includes? form ":rf.size/include-large? true")
+                           ":elision false overlays include-large? true — large content passes")
+                       (done)))))))))
+
+(deftest list-subscriptions-gate-on-full-raw-opt-in-ships-bare
+  ;; rf2-t55hxg.13 — the ONLY combination that skips the walker is the
+  ;; deliberate full-raw local opt-in: `:elision false` AND
+  ;; `:include-sensitive true` (the operator's `:rf.egress/local-raw` act).
+  (testing "gate ON + include-values + elision false + include-sensitive true: full-raw opt-in skips the walker"
+    (async done
+      (raw-state/set-allow-raw-state! true)
+      (let [forms (atom [])]
+        (-> (with-capture! forms sub-cache-canned
+              (fn [] (ls/list-subscriptions-tool
+                       nil (tu/args->js {:include-values true :elision false :include-sensitive true}))))
+            (.then (fn [_]
+                     (let [form (slice-form forms)]
                        (is (not (str/includes? form "re-frame.core/elide-wire-value"))
-                           "gate-on + elision false bypasses the walker — raw value egress")
+                           "full-raw opt-in (elision false + include-sensitive true) ships raw")
                        (done)))))))))
 
 ;; ===========================================================================
@@ -418,24 +446,53 @@
                        (done)))))))))
 
 (deftest snapshot-epochs-projection-independent-of-elision-toggle
-  (testing "gate ON + elision false (no :app-db/:sub-cache walk) STILL projects :epochs"
+  (testing "gate ON + elision false STILL projects :epochs AND still walks :app-db/:sub-cache (rf2-t55hxg.13)"
     ;; The :epochs projection is gated by include-sensitive (incl?), NOT by
-    ;; the :app-db/:sub-cache large-elision toggle (elision?). Turning
-    ;; elision off must not re-open the epoch leak.
+    ;; the large-elision toggle (elision?). Turning elision off must not
+    ;; re-open the epoch leak.
+    ;;
+    ;; rf2-t55hxg.13 — and a BARE `:elision false` (no sensitive opt-in)
+    ;; must ALSO keep walking the `:app-db` / `:sub-cache` slices
+    ;; (fail-closed): large content passes but a declared-sensitive slot
+    ;; redacts. Pre-fix `:elision false` suppressed the per-slot walker,
+    ;; leaking sensitive `:app-db` / `:sub-cache` slots off-box.
     (async done
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
         (-> (with-capture! forms snapshot-canned
               (fn [] (snap/snapshot-tool nil (tu/args->js {:frames "[:rf/default]"
-                                                           :include "[:epochs]"
+                                                           :include "[:app-db :sub-cache :epochs]"
                                                            :mode "full"
                                                            :elision false}))))
             (.then (fn [_]
                      (let [form (slice-form forms)]
                        (is (str/includes? form "mapv re-frame.core/projected-record")
                            "elision false (incl? still false) MUST still project :epochs")
+                       (is (str/includes? form "re-frame.core/elide-wire-value")
+                           "bare :elision false MUST still walk :app-db/:sub-cache — no sensitive bypass")
+                       (is (str/includes? form ":rf.size/include-sensitive? false")
+                           "sensitive :app-db/:sub-cache slots redact (caller didn't opt in)")
+                       (is (str/includes? form ":rf.size/include-large? true")
+                           ":elision false overlays include-large? true — large content passes")
+                       (done)))))))))
+
+(deftest snapshot-full-raw-opt-in-skips-slice-walker
+  (testing "gate ON + elision false + include-sensitive true: full-raw opt-in skips the :app-db/:sub-cache walker"
+    ;; rf2-t55hxg.13 — the ONLY combination that skips the per-slot walker
+    ;; is the deliberate full-raw local opt-in.
+    (async done
+      (raw-state/set-allow-raw-state! true)
+      (let [forms (atom [])]
+        (-> (with-capture! forms snapshot-canned
+              (fn [] (snap/snapshot-tool nil (tu/args->js {:frames "[:rf/default]"
+                                                           :include "[:app-db :sub-cache]"
+                                                           :mode "full"
+                                                           :elision false
+                                                           :include-sensitive true}))))
+            (.then (fn [_]
+                     (let [form (slice-form forms)]
                        (is (not (str/includes? form "re-frame.core/elide-wire-value"))
-                           "elision false means no :app-db/:sub-cache walk — only the epoch projection")
+                           "full-raw opt-in (elision false + include-sensitive true) ships :app-db/:sub-cache raw")
                        (done)))))))))
 
 ;; ===========================================================================
