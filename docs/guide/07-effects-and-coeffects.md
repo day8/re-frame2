@@ -317,35 +317,35 @@ Sooner or later you'll write a handler that needs a *subscription's* current val
 
 This breaks the same purity property coeffects exist to protect, for the same reason reading the ambient clock does: the handler's output now depends on whatever `:user/current` computes at drain time, the test framework can't fix it for one handler without globally re-registering the sub, and a recorded epoch won't carry the sub's value, only its id, so replay goes brittle.
 
-The fix is the move you already know — wrap the impure read as a cofx and inject it:
+The fix is the move you already know — wrap the impure read as a cofx and declare it:
 
 ```clojure
 (rf/reg-cofx :user/current
-  (fn [ctx]
-    (assoc-in ctx [:coeffects :user/current] (rf/subscribe-once [:user/current]))))
+  {:doc "The current logged-in user, derived from a subscription."}
+  (fn [] (rf/subscribe-once [:user/current])))
 
 (rf/reg-event-fx :order/place
-  [(rf/inject-cofx :user/current)]
+  {:rf.cofx/requires [:user/current]}
   (fn [{:keys [db user/current]} [_ order]]
     {:db (assoc-in db [:orders (:id order)] (assoc order :placed-by current))}))
 ```
 
-`rf/subscribe-once` is the right primitive: it materialises the reaction, derefs it, and unsubscribes in one call, so the cofx leaves no live reaction dangling (`@(rf/subscribe ...)` would also give the right value but leak the reaction until GC). When the sub takes arguments, use the binary form and let the call site pick the query.
+`rf/subscribe-once` is the right primitive: it materialises the reaction, derefs it, and unsubscribes in one call, so the supplier leaves no live reaction dangling (`@(rf/subscribe ...)` would also give the right value but leak the reaction until GC). When the sub takes arguments, register a binary supplier and declare it with `[id arg]` so the call site picks the query. (A sub's value is ambient by default — fine, since you're reading it to *branch on*, not to fold into durable state; if a sub's value did decide a durable write, you'd register the supplier `:recordable?` so the value is captured into the record.)
 
-You'll reach for this often enough that "wrap as cofx" becomes muscle memory — and you may notice re-frame2 deliberately ships *no* `cofx-from-sub` shortcut to collapse those five lines into a helper. That's on purpose. The five lines aren't friction to be papered over; they're the surface area that says *"this is a coeffect, register it like one."* A helper would whisper that subscribing-inside-handlers is the rule and the cofx is the workaround. It's the reverse. The cofx is the rule, and the wrap is the price of admission for any handler reading anything beyond `:db`, `:event`, and `:rf.world/inputs`. Sub-values aren't special; they pay the same toll as any other world fact.
+You'll reach for this often enough that "wrap as cofx" becomes muscle memory — and you may notice re-frame2 deliberately ships *no* `cofx-from-sub` shortcut to collapse those lines into a helper. That's on purpose. They aren't friction to be papered over; they're the surface area that says *"this is a coeffect, register it like one and declare it."* A helper would whisper that subscribing-inside-handlers is the rule and the cofx is the workaround. It's the reverse. The cofx is the rule, and the wrap is the price of admission for any handler reading anything beyond `:db` and `:event`. Sub-values aren't special; they pay the same toll as any other world fact.
 
 ## One firm rule: coeffects must be synchronous
 
 Before you go off and write your own, one hard line: **a cofx handler MUST resolve synchronously.** No Promise, no `core.async` channel, no callback that fills the coeffect later. The value has to be in hand by the time the cofx fn returns.
 
-The reason is the shape of the cascade. `inject-cofx` runs as a `:before` *before* the handler, and the handler then runs as a pure function of `[coeffects event]` — every key it destructures is assumed materialised. An async cofx breaks that two ways: either the runtime blocks the whole drain loop waiting on the promise (which defeats async and stalls everything), or the handler runs against an unresolved placeholder (which is just a bug). Neither is acceptable, so the runtime doesn't try.
+The reason is the shape of the cascade. A cofx supplier runs *before* the handler, during context assembly, and the handler then runs as a pure function of `[coeffects event]` — every key it destructures is assumed materialised. An async cofx breaks that two ways: either the runtime blocks the whole drain loop waiting on the promise (which defeats async and stalls everything), or the handler runs against an unresolved placeholder (which is just a bug). Neither is acceptable, so the runtime doesn't try.
 
 If the world can only hand you the data asynchronously — a fetch, a websocket round-trip — that work belongs on the *output* side, as a managed effect with a follow-on event. The interaction dispatches an event; the handler returns an effect that includes the async work; the effect runs it and dispatches a follow-on event when the result lands; the follow-on arrives synchronously like any other event and reads the now-materialised value. The cascade stays pure end to end:
 
 ```clojure
 ;; ❌ Async cofx — `profile` is a Promise, the handler is broken
 (rf/reg-cofx :user/profile
-  (fn [ctx] (assoc-in ctx [:coeffects :user/profile] (js/fetch "/api/me"))))
+  (fn [] (js/fetch "/api/me")))
 
 ;; ✅ Dispatch event → managed effect → reply event
 (rf/reg-event-fx :profile/show
@@ -361,7 +361,7 @@ If the world can only hand you the data asynchronously — a fetch, a websocket 
 
 The completion comes back as an *event* — that's the general async model. `:rf.http/managed` is the shipped HTTP surface, so here you write its public `:on-success` / `:on-failure` sugar and read the reply it appends: `{:kind :success :value v}` on success ([chapter 10](10-http.md#failures-are-a-closed-set-and-thats-the-gift) is the full tour). That sugar lowers internally onto the framework-wide **uniform reply envelope** — the one shape every managed async surface completes through ([chapter 10's note](10-http.md#on-success--on-failure--co-located-rfreply-are-lowering-sugar)). HTTP doesn't take a bare `:rf/reply-to`; surfaces that ship no sugar accept that key directly and complete with a `{:status …}` reply map, but the move is the same — the impure work goes out as a managed effect and the answer arrives back as an event.
 
-The rule of thumb, then: **cofx for values the world hands back instantly** — a `localStorage.getItem`, a sub's current value, a transient host measurement. **The clock and generated ids ride world inputs and the event, not a cofx.** **Managed effects for values the world has to go fetch.** If you catch yourself wanting `await` inside a `reg-cofx`, that's the tell: it was never a coeffect. It's an event chain, and [chapter 10](10-http.md) is where it goes.
+The rule of thumb, then: **cofx for values the world hands back instantly** — a `localStorage.getItem`, a sub's current value, a transient host measurement. **The clock is the recorded `:rf/time-ms` coeffect; generated ids ride the event (or, fold-internal, a recordable cofx).** **Managed effects for values the world has to go fetch.** If you catch yourself wanting `await` inside a `reg-cofx`, that's the tell: it was never a coeffect. It's an event chain, and [chapter 10](10-http.md) is where it goes.
 
 ## The whole trade, said once more
 

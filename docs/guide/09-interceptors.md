@@ -31,19 +31,21 @@ The interceptor and the handler communicate through a single Clojure map, thread
 
 | Key | What's in it | Who fills it |
 |---|---|---|
-| `:coeffects` | The handler's **inputs**: the event vector, the current `app-db`, the recorded `:rf.world/inputs` (the clock and other world facts — [chapter 07](07-effects-and-coeffects.md#causal-world-inputs--where-the-clock-and-fresh-ids-come-from)), plus any cofx values you injected (a `localStorage` read, a subscription's value…). | The runtime stages the built-ins; cofx interceptors inject the rest, on the way in. |
+| `:coeffects` | The handler's **inputs**: the event vector, the current `app-db`, plus exactly the coeffects the handler *declared* with `:rf.cofx/requires` — the clock (`:rf/time-ms`) and any other world facts ([chapter 07](07-effects-and-coeffects.md#recordable-coeffects--where-the-clock-and-fresh-ids-come-from)), each delivered flat under its own id. | The runtime assembles the whole map before the chain runs — `:db`/`:event` plus the declared facts. |
 | `:effects` | The handler's **outputs**: the new `:db`, the `:fx` vector. | The handler itself, then modified by `:after` interceptors on the way out. |
 
 This is the same `:coeffects` / `:effects` pair from [chapter 07](07-effects-and-coeffects.md) — coeffects are what the handler reads, effects are what it writes. Interceptors live in the gap between them. A typical context map, caught mid-pipeline, looks like this:
 
 ```clojure
-{:coeffects {:event           [:cart.item/add {:sku "abc-123" :qty 2}]
-             :db              {:cart {:items [...]} :auth {...}}
-             :rf.world/inputs {:time-ms 1747008000000}  ;; recorded world inputs, staged by the runtime
-             :cart/total      42.00}                    ;; injected by an inject-cofx interceptor
+{:coeffects {:event       [:cart.item/add {:sku "abc-123" :qty 2}]
+             :db          {:cart {:items [...]} :auth {...}}
+             :rf/time-ms  1747008000000   ;; declared recordable coeffect, delivered flat
+             :cart/total  42.00}          ;; declared cofx — a sub's current value
  :effects   {:db    {:cart {:items [... new-item]} :auth {...}}
              :fx    [[:rf.http/managed {...}]]}}
 ```
+
+Note the flat shape: every declared fact sits beside `:db` under its own owner-qualified id, not in a nested coeffects sub-map. A handler receives *exactly* what it declared in `:rf.cofx/requires` — nothing it didn't ask for is staged.
 
 An interceptor's `:before` runs before the handler, so it sees only `:coeffects` — the outputs don't exist yet. Its `:after` runs after the handler, so it sees both — `:effects` is now filled in. That's the entire mental model: `:before` reads inputs, `:after` reads inputs *and* outputs, and an interceptor's whole power is what it chooses to do in that gap.
 
@@ -66,7 +68,7 @@ Both `:before` and `:after` receive the context map and return a (possibly modif
 
 `:id` is conventionally a namespaced keyword, and it earns its keep two ways: trace events name your interceptor by its id, and per-frame `:interceptor-overrides` substitute by id (a test frame can do `{:interceptor-overrides {:my-app/logger nil}}` to silence the logger just for that frame). An anonymous interceptor with no `:id` works fine but can't be overridden and can't be found by tooling — so give it one unless you have a reason not to.
 
-The whole construct is data. You can `pprint` it. You can compose it. You can stash interceptors in a registry and look them up. v1 shipped a fistful of one-shape helpers — `debug`, `trim-v`, `enrich`, `after`, `on-changes` — that each wrapped `->interceptor` for one specific pattern; v2 drops them on principle. The principle: keep helpers that do non-trivial work (`path`, `unwrap`, `inject-cofx`); drop the ones that are just `(->interceptor :before f)` wearing a different name. Custom `:before` / `:after` work is three lines of `->interceptor` directly — there's nothing to abstract.
+The whole construct is data. You can `pprint` it. You can compose it. You can stash interceptors in a registry and look them up. v1 shipped a fistful of one-shape helpers — `debug`, `trim-v`, `enrich`, `after`, `on-changes` — that each wrapped `->interceptor` for one specific pattern; v2 drops them on principle. The principle: keep helpers that do non-trivial work (`path`, `unwrap`); drop the ones that are just `(->interceptor :before f)` wearing a different name. (v1's `inject-cofx` was a third such helper — gone too, because coeffect delivery is now declared with `:rf.cofx/requires`, not wired as an interceptor; see [chapter 07](07-effects-and-coeffects.md#reg-cofx--registering-a-supplier).) Custom `:before` / `:after` work is three lines of `->interceptor` directly — there's nothing to abstract.
 
 ## The one rule: forward in order, backward in reverse
 
@@ -234,9 +236,9 @@ The per-frame chain is **prepended** to the per-handler chain. An event with thr
 
 ## What an interceptor may do, and what it must not
 
-The three framework helpers re-frame2 keeps — `path`, `unwrap`, `inject-cofx` — are a good catalogue of the legitimate moves.
+The two framework helpers re-frame2 keeps — `path`, `unwrap` — are a good catalogue of the legitimate moves.
 
-**Add a coeffect.** [`inject-cofx`](07-effects-and-coeffects.md) is the canonical shape: a `:before` that runs a registered cofx fn and merges its result into `:coeffects`. The handler then reads the new value from its coeffects map. (Remember `reg-event-db` only sees `db` and the event vector, not injected cofx values — use `reg-event-fx` for any handler that needs them. [Chapter 07](07-effects-and-coeffects.md) is the cofx deep-dive; this just locates it inside the interceptor model.)
+**Add a coeffect.** This one is *not* an interceptor in re-frame2 — coeffect delivery is the runtime's context-assembly job, declared with [`:rf.cofx/requires`](07-effects-and-coeffects.md#reg-cofx--registering-a-supplier) registration metadata, not a `:before` you wire into the chain. The runtime resolves a handler's declared facts (the clock, a `localStorage` read, a sub's value), assembles them into `:coeffects` *before* the chain runs, and the handler reads them flat. This is a deliberate change from re-frame v1's `inject-cofx` interceptor: a declaration states a fact about the handler, every interceptor then observes the complete input, and v1's ordering wart (an early interceptor blind to a later injection) becomes unexpressible. (Remember `reg-event-db` only sees `db` and the event vector — use `reg-event-fx` for any handler that declares coeffects. [Chapter 07](07-effects-and-coeffects.md) is the cofx deep-dive; this just locates it relative to the interceptor model.) Interceptors that *modify* an already-assembled `:coeffects` map remain legal as ordinary transformations.
 
 **Modify an effect.** An `:after` that walks `[:effects :db]` and transforms it lets you write handler-agnostic state-shape policy — the `undoable` example above is exactly this, an `:after` that conditionally writes to `[:effects :db :drawer :undo]` after every change.
 
