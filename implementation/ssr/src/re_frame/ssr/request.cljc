@@ -4,9 +4,10 @@
   for request context and §Per-request frame teardown contract (rf2-fcj33).
 
   The `:rf.server/request` cofx surfaces the active HTTP request map to
-  event handlers via `(rf/inject-cofx :rf.server/request)`. Use cases:
-  reading the URL inside `:rf/server-init`, pulling a session cookie in
-  `:auth/check-session`, branching on `:request-method`, etc.
+  event handlers that declare `:rf.cofx/requires [:rf.server/request]`
+  (EP-0017 — `inject-cofx` is removed). Use cases: reading the URL inside
+  `:rf/server-init`, pulling a session cookie in `:auth/check-session`,
+  branching on `:request-method`, etc.
 
   The mechanism is a per-frame slot — NOT a single dynamic var — so two
   simultaneous per-request frames (the common SSR shape under concurrent
