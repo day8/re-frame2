@@ -506,3 +506,77 @@
             "inline-definition :data-schema :sensitive? slot bridged under the instance id")
         (is (= #{[:data :blob]} (set (:large inst-marks)))
             "inline-definition :data-schema :large? slot bridged under the instance id")))))
+
+;; ---- (6) NEGATIVE: a top-level machine :sensitive / :large key is NOT a -----
+;;          classification route (EP-0015 issue 12, RULED 2026-06-11 /
+;;          rf2-0k5ubx 2026-06-09; rf2-t55hxg.3)
+;;
+;; The schema-first machine surface STANDS — machine `:data` sensitivity is
+;; declared by `:sensitive?` / `:large?` Malli PROPS on the `:data-schema`
+;; slots (every positive test above). A considered proposal to add TOP-LEVEL
+;; machine `:sensitive` / `:large` keys (the spelling frames DO take) was
+;; explicitly REJECTED — `reg-machine` carries no such key. The positive
+;; surface is pinned exhaustively above; this is the missing NEGATIVE guard
+;; the rf2-edbj53 testing-coverage audit named (rf2-t55hxg.3): a future
+;; refactor that silently started honouring a top-level machine `:sensitive`
+;; key would otherwise pass unnoticed.
+;;
+;; ACTUAL ruled behaviour (confirmed against `validate-machine!` +
+;; `reg-machine`): the validator walks only the grammar keys (`:states` /
+;; `:initial` / `:guards` / `:actions` / `:on` / `:after` / `:always` /
+;; `:spawn` / …), so a top-level `:sensitive` / `:large` key is NOT rejected —
+;; it is IGNORED. And `reg-event-fx`'s mark-stashing is SKIPPED for a machine
+;; registration (`:rf/machine?` meta, rf2-qpibk0), so the top-level key feeds
+;; NO marks entry. The disposition is therefore "provably a no-op": a token
+;; written into `:data` under such a spec rides RAW at snapshot egress because
+;; no schema prop classified it. We pin BOTH halves.
+
+(deftest top-level-machine-sensitive-key-is-not-honoured
+  (testing "a TOP-LEVEL :sensitive / :large key on a reg-machine spec is NOT a
+            classification route (EP-0015 issue 12 / rf2-0k5ubx): registration
+            does not throw, NO marks entry is registered, and a token written
+            into :data under such a spec rides RAW at snapshot egress — the
+            schema-first surface is the ONLY machine :data route"
+    (let [neg-id :rf.machine-redaction/top-level-sensitive
+          ;; The spec carries the frame-shaped TOP-LEVEL :sensitive / :large
+          ;; keys (the rejected proposal) AND a benign grammar. It must
+          ;; register cleanly and the top-level keys must be inert.
+          registered?
+          (try
+            (rf/reg-machine neg-id
+              {:sensitive [[:data :token]]    ;; NOT a route — the rejected spelling
+               :large     [[:data :blob]]      ;; NOT a route
+               :initial   :anon
+               :data      {:token nil :blob nil}
+               :states    {:anon {} :authed {}}})
+            true
+            (catch clojure.lang.ExceptionInfo _ false)
+            (catch Throwable _ false))]
+      ;; (a) Registration ACCEPTS the spec — the top-level key is ignored,
+      ;; not rejected (the validator only knows the grammar keys).
+      (is (true? registered?)
+          "reg-machine does not throw on a top-level :sensitive / :large key
+           — the key is ignored, never honoured as a classification route")
+      ;; (b) NO marks entry is registered for the top-level key — it fed
+      ;; nothing into the marks table (reg-event-fx's mark-stash is skipped
+      ;; for machines; the top-level key is not a :data-schema prop).
+      (is (nil? (marks/marks-for :event neg-id))
+          "the top-level :sensitive / :large key registers NO marks — only
+           a :data-schema :sensitive? / :large? prop is a machine :data route")
+      ;; (c) Provably a no-op at egress: a snapshot-updated trace carrying a
+      ;; live token in :data rides RAW — nothing classified it, so the token
+      ;; is NOT redacted. (Contrast `snapshot-slot-redacted-in-egress`, where
+      ;; a :data-schema :sensitive? prop DOES redact the same slot.)
+      (let [ev   {:operation :rf.machine/snapshot-updated
+                  :tags      {:machine-id neg-id
+                              :frame      :rf/default
+                              :snapshot   {:state :authed
+                                           :data  {:token "rides-raw-jwt"
+                                                   :blob  "rides-raw-blob"}}}}
+            out  (marks/project-trace-event ev)
+            tags (:tags out)]
+        (is (= "rides-raw-jwt" (get-in tags [:snapshot :data :token]))
+            "the token rides RAW — a top-level machine :sensitive key did NOT
+             classify it (the schema-first surface is the only route)")
+        (is (= "rides-raw-blob" (get-in tags [:snapshot :data :blob]))
+            "the blob rides RAW — a top-level machine :large key is inert")))))

@@ -45,6 +45,18 @@
             ;; `:path-instantiate` call ops). Both are pure `.cljc` namespaces.
             [re-frame.identity :as identity]
             [re-frame.path :as path]
+            ;; EP-0015 (rf2-t55hxg.2) — the host-agnostic data-classification
+            ;; corpus drives the centralised egress projector via three pure
+            ;; `:call` ops. `re-frame.projection/project-egress` is the
+            ;; canonical off-box projector (issue 4 / fail-closed); the HTTP
+            ;; header carrier denylist (`re-frame.http-privacy-headers`,
+            ;; Spec 014 §Privacy / EP-0015 §3) and the SSR hydration-payload
+            ;; allowlist (`re-frame.ssr.payload-policy`, Spec 011 §14) are the
+            ;; two boundary-specific pure projectors the §Tests table names.
+            ;; All three are pure functions — Mode-B call ops, no frame loop.
+            [re-frame.projection :as projection]
+            [re-frame.http-privacy-headers :as http-privacy-headers]
+            [re-frame.ssr.payload-policy :as ssr-payload-policy]
             [re-frame.subs :as subs]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.trace :as trace]
@@ -1162,6 +1174,85 @@
         {:passed? (= (:expect call) (:ok result))
          :detail  (when (not= (:expect call) (:ok result))
                     (str "path-instantiate " (pr-str (:path call))
+                         "\n    expected: " (pr-str (:expect call))
+                         "\n    actual:   " (pr-str result)))}))
+
+    ;; EP-0015 (rf2-t55hxg.2) — `:project-egress`. Pin the centralised
+    ;; egress projector's observable contract host-agnostically (Spec 015
+    ;; §Tests). The call carries the record/value under `:value`, the
+    ;; resolved profile under `:rf.egress/profile`, and an optional `:frame`
+    ;; (a frame the FIXTURE registered via `:fixture/frames` /
+    ;; `:fixture/app-marks` so its classification is in place). `:expect` is
+    ;; the literal projected result. Used by the off-box-omits-event-args
+    ;; (issue 4) and fail-closed-no-frame (no `:rf/default` synthesis)
+    ;; fixtures. Pure — `project-egress` reads only the frame's installed
+    ;; classification registry.
+    ;;
+    ;; When the call OMITS `:frame`, bind `*current-frame*` to nil so the
+    ;; projection is GENUINELY frameless — the fail-closed posture (no
+    ;; `:rf/default` synthesis; the delegated walker redacts the whole tree).
+    ;; Otherwise the runner's ambient scope frame would leak in and the
+    ;; frameless contract would not be exercised. A call WITH `:frame`
+    ;; resolves against that registered frame's installed classification.
+    :project-egress
+    (let [has-frame? (contains? call :frame)
+          opts       (cond-> {:rf.egress/profile (:rf.egress/profile call)}
+                       has-frame? (assoc :frame (:frame call)))
+          run        (fn [] (projection/project-egress (:value call) opts))
+          actual     (try (if has-frame?
+                            (run)
+                            (binding [frame/*current-frame* nil] (run)))
+                          (catch Throwable e (str "<error: " (.getMessage e) ">")))
+          expect     (:expect call)]
+      {:passed? (= expect actual)
+       :detail  (when (not= expect actual)
+                  (str "project-egress " (pr-str (:value call))
+                       " under " (:rf.egress/profile call)
+                       "\n    expected: " (pr-str expect)
+                       "\n    actual:   " (pr-str actual)))})
+
+    ;; EP-0015 (rf2-t55hxg.2) — `:redact-headers`. Pin the HTTP header
+    ;; carrier denylist (Spec 014 §Privacy / EP-0015 §3): a frame-local
+    ;; carrier name redacts IN ADDITION to the immutable built-in defaults,
+    ;; and no frame can remove a default. The call carries the headers map
+    ;; under `:headers` and the frame's lower-cased carrier extension set
+    ;; under `:frame-extras` (or omits it for defaults-only). `:expect` is
+    ;; the literal redacted headers map. Pure — `redact-headers` is a leaf fn.
+    :redact-headers
+    (let [actual (try (http-privacy-headers/redact-headers
+                        (:headers call) (:frame-extras call))
+                      (catch Throwable e (str "<error: " (.getMessage e) ">")))
+          expect (:expect call)]
+      {:passed? (= expect actual)
+       :detail  (when (not= expect actual)
+                  (str "redact-headers " (pr-str (:headers call))
+                       " extras " (pr-str (:frame-extras call))
+                       "\n    expected: " (pr-str expect)
+                       "\n    actual:   " (pr-str actual)))})
+
+    ;; EP-0015 (rf2-t55hxg.2) — `:ssr-apply-policy`. Pin the SSR hydration-
+    ;; payload allowlist-first projection (Spec 011 §14): an allowlist
+    ;; `:payload [<kws>]` ships ONLY the listed top-level app-db keys; an
+    ;; unlisted key does not cross even if unclassified. The call carries
+    ;; the source app-db under `:app-db` and the policy opts under `:opts`;
+    ;; `:expect` is the projected slice, OR `:expect-error` is the
+    ;; `:rf.error/id` the fail-closed validator throws on a missing /
+    ;; malformed policy. Pure — `apply-policy` is a leaf fn.
+    :ssr-apply-policy
+    (let [want-error (:expect-error call)
+          result     (try {:ok (ssr-payload-policy/apply-policy
+                                  (:app-db call) (:opts call))}
+                          (catch clojure.lang.ExceptionInfo e
+                            {:err (:rf.error/id (ex-data e))})
+                          (catch Throwable e {:err (.getMessage e)}))]
+      (if want-error
+        {:passed? (= want-error (:err result))
+         :detail  (when (not= want-error (:err result))
+                    (str "ssr-apply-policy expected error " want-error
+                         " got " (pr-str result)))}
+        {:passed? (= (:expect call) (:ok result))
+         :detail  (when (not= (:expect call) (:ok result))
+                    (str "ssr-apply-policy " (pr-str (:opts call))
                          "\n    expected: " (pr-str (:expect call))
                          "\n    actual:   " (pr-str result)))}))
 

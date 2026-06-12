@@ -1,0 +1,66 @@
+;; Conformance fixture: data-classification/frame-large-app-db-elides
+;;
+;; Per Spec 015 §Tests (the `frame-large-app-db-elides.edn` row) and §10
+;; (the `:rf.size/*` elision axis) — a frame declaring
+;; `:large {:app-db [[:docs :csv-upload]]}` projects a `:rf.size/large-elided`
+;; marker at the marked path (carrying `:path` / `:bytes` / `:type` / `:reason`
+;; / `:handle` — never the bulk value, never a path/size leak that would defeat
+;; the elision). An unmarked sibling rides verbatim.
+;;
+;; Like the sibling sensitive fixture, the OBSERVABLE seam is the t1
+;; `:rf.event/db-pending` trace event: the full pending app-db is walked by
+;; `re-frame.elision/elide-wire-value` (`re-frame.marks/project-db-tags`), and
+;; the large-marked path elides to the structured marker before any listener
+;; observes it. The committed app-db carries the RAW bulk value.
+;;
+;; The marker is fully deterministic for a fixed small value (the test value
+;; `"xy"` is small, but DECLARED large, so the marker fires regardless of the
+;; 16384-byte auto-detect threshold). `:bytes` is the printed-representation
+;; byte-count (`(count (pr-str "xy"))` = 4 — `pr-str` wraps the string in
+;; quotes; identical on JVM `.getBytes UTF-8` and CLJS `count`). `:reason
+;; :marks` reflects the `add-marks` declaration source.
+;;
+;; Harness note: `:fixture/app-marks` declares the large path. Capability
+;; `:data-classification/marks`.
+
+{:fixture/id           :data-classification/frame-large-app-db-elides
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/trace
+                         :data-classification/marks}
+ :fixture/doc          "A frame with :large {:app-db [[:docs :csv-upload]]}, after an event writes a value to that path, projects a :rf.size/large-elided marker at the marked path in the t1 :rf.event/db-pending trace event; the marker carries :path / :bytes / :type / :reason / :handle (never the bulk value). An unmarked sibling rides egress verbatim."
+
+ :fixture/registry
+ {:event {:dc/upload {:doc "Writes a (declared-large) value + an unmarked sibling into app-db."}}}
+
+ :fixture/handlers
+ {:event {:dc/upload [[:set [:docs :csv-upload] "xy"]
+                      [:set [:docs :title]      "Q3"]]}}
+
+ ;; Declare [:docs :csv-upload] large BEFORE the event writes it.
+ :fixture/app-marks
+ [{:add-marks {[:docs :csv-upload] :large}}]
+
+ :fixture/frame-config
+ {:on-create [:dc/upload]}
+
+ :fixture/dispatches
+ [[:dc/upload]]
+
+ :fixture/expect
+ ;; The committed app-db is the RAW bulk value — elision is trace-egress only.
+ {:final-app-db {:docs {:csv-upload "xy" :title "Q3"}}
+
+  ;; The load-bearing assertion: the t1 pending-db snapshot elides the
+  ;; large-marked path to the structured marker and leaves the unmarked
+  ;; sibling raw. The marker shape is asserted literally (deterministic).
+  :trace-emissions
+  [{:operation :rf.event/db-pending
+    :tags      {:rf.event/db
+                {:docs {:csv-upload {:rf.size/large-elided
+                                     {:path   [:docs :csv-upload]
+                                      :bytes  4
+                                      :type   :string
+                                      :reason :marks
+                                      :hint   nil
+                                      :handle [:rf.elision/at [:docs :csv-upload]]}}
+                        :title "Q3"}}}}]}}

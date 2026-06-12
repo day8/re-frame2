@@ -1,0 +1,52 @@
+;; Conformance fixture: data-classification/machine-no-top-level-sensitive-key
+;;
+;; Per Spec 015 §Machine-owned durable classification, EP-0015 issue 12
+;; (RULED 2026-06-11), and the rf2-0k5ubx (2026-06-09) ruling that explicitly
+;; REJECTED top-level machine `:sensitive` / `:large` keys — a `reg-machine`
+;; spec carries NO top-level `:sensitive` / `:large` key. Machine `:data`
+;; sensitivity is declared ONLY by `:sensitive?` / `:large?` Malli props on the
+;; `:data-schema` slots (the `data-classification-machine-data-schema-prop-
+;; redacts.edn` fixture pins that positive surface).
+;;
+;; This fixture pins the NEGATIVE half host-agnostically: a machine spec that
+;; carries a frame-shaped TOP-LEVEL `:sensitive` / `:large` key validates
+;; SILENTLY — the key is IGNORED, not honoured as a classification route. The
+;; ruled behaviour is "ignore + no-op" (not "reject"): the registration-time
+;; validator (`validate-machine!`) walks only the grammar keys, so a top-level
+;; `:sensitive` / `:large` key is inert. A control `:reg-machine` call (no
+;; `:expect-error`) passes iff the validator does not throw, which is exactly
+;; the ignore-don't-reject disposition.
+;;
+;; The PROVABLY-A-NO-OP egress half (a token written into `:data` under such a
+;; spec rides RAW because no schema prop classified it) is pinned by the
+;; per-artefact unit test `re-frame.machine-data-schema-redaction-test/
+;; top-level-machine-sensitive-key-is-not-honoured` (rf2-t55hxg.3), the
+;; runtime-egress counterpart to this registration-time corpus pin.
+;;
+;; Mode-B `:reg-machine` (registration-validation). Capabilities
+;; `:fsm/flat` + `:fsm/registration-validation`.
+
+{:fixture/id           :data-classification/machine-no-top-level-sensitive-key
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/registration-validation}
+ :fixture/doc          "A reg-machine spec carrying a frame-shaped TOP-LEVEL :sensitive / :large key validates SILENTLY — the key is ignored, not a classification route (EP-0015 issue 12 / rf2-0k5ubx). The schema-first :data-schema :sensitive? / :large? prop is the ONLY machine :data classification route; reg-machine carries no top-level :sensitive / :large key. (The provably-a-no-op egress half is pinned by the machines per-artefact unit test.)"
+
+ :fixture/calls
+ [;; A machine spec with frame-shaped top-level :sensitive / :large keys —
+    ;; the rf2-0k5ubx-rejected proposal. It validates SILENTLY: the keys are
+    ;; ignored (no :expect-error ⇒ the validator must not throw).
+  {:call       :reg-machine
+   :definition {:sensitive [[:data :token]]
+                :large     [[:data :blob]]
+                :initial   :anon
+                :data      {:token nil :blob nil}
+                :states    {:anon   {:on {:login :authed}}
+                            :authed {}}}}
+
+  ;; Control: the SAME machine WITHOUT the top-level keys also validates
+    ;; silently — confirming the keys were inert, not load-bearing grammar.
+  {:call       :reg-machine
+   :definition {:initial :anon
+                :data    {:token nil :blob nil}
+                :states  {:anon   {:on {:login :authed}}
+                          :authed {}}}}]}

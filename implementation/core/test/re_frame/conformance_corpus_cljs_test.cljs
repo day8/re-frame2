@@ -74,6 +74,13 @@
             ;; `:path-instantiate` call ops. Mirror of the JVM runner.
             [re-frame.identity :as identity]
             [re-frame.path :as path]
+            ;; EP-0015 (rf2-t55hxg.2) — the three pure data-classification
+            ;; `:call` ops mirror the JVM runner: the centralised egress
+            ;; projector (`project-egress`), the HTTP header carrier denylist,
+            ;; and the SSR hydration-payload allowlist. All pure fns.
+            [re-frame.projection :as projection]
+            [re-frame.http-privacy-headers :as http-privacy-headers]
+            [re-frame.ssr.payload-policy :as ssr-payload-policy]
             [re-frame.routing :as routing]
             ;; rf2-dbiv8 — the test-only `:rf.test/simulate-http-resolution`
             ;; fixture event moved out of the `re-frame.routing` production
@@ -994,6 +1001,64 @@
         {:passed? (= (:expect call) (:ok result))
          :detail  (when (not= (:expect call) (:ok result))
                     (str "path-instantiate " (pr-str (:path call))
+                         "\n    expected: " (pr-str (:expect call))
+                         "\n    actual:   " (pr-str result)))}))
+
+    ;; EP-0015 (rf2-t55hxg.2) — `:project-egress`. Mirror of the JVM runner:
+    ;; pin the centralised egress projector's observable contract (Spec 015
+    ;; §Tests — off-box-omits-event-args / fail-closed-no-frame). When the
+    ;; call OMITS `:frame`, bind `*current-frame*` to nil so the projection
+    ;; is genuinely frameless (the fail-closed posture); otherwise the
+    ;; runner's ambient scope frame would leak in.
+    :project-egress
+    (let [has-frame? (contains? call :frame)
+          opts       (cond-> {:rf.egress/profile (:rf.egress/profile call)}
+                       has-frame? (assoc :frame (:frame call)))
+          run        (fn [] (projection/project-egress (:value call) opts))
+          actual     (try (if has-frame?
+                            (run)
+                            (binding [frame/*current-frame* nil] (run)))
+                          (catch :default e (str "<error: " (ex-message e) ">")))
+          expect     (:expect call)]
+      {:passed? (= expect actual)
+       :detail  (when (not= expect actual)
+                  (str "project-egress " (pr-str (:value call))
+                       " under " (:rf.egress/profile call)
+                       "\n    expected: " (pr-str expect)
+                       "\n    actual:   " (pr-str actual)))})
+
+    ;; EP-0015 (rf2-t55hxg.2) — `:redact-headers`. Mirror of the JVM
+    ;; runner: pin the HTTP header carrier denylist (Spec 014 §Privacy /
+    ;; EP-0015 §3 — frame-local carrier extends the immutable defaults).
+    :redact-headers
+    (let [actual (try (http-privacy-headers/redact-headers
+                        (:headers call) (:frame-extras call))
+                      (catch :default e (str "<error: " (ex-message e) ">")))
+          expect (:expect call)]
+      {:passed? (= expect actual)
+       :detail  (when (not= expect actual)
+                  (str "redact-headers " (pr-str (:headers call))
+                       " extras " (pr-str (:frame-extras call))
+                       "\n    expected: " (pr-str expect)
+                       "\n    actual:   " (pr-str actual)))})
+
+    ;; EP-0015 (rf2-t55hxg.2) — `:ssr-apply-policy`. Mirror of the JVM
+    ;; runner: pin the SSR hydration-payload allowlist-first projection
+    ;; (Spec 011 §14 — only the allowlisted slice crosses; fail-closed).
+    :ssr-apply-policy
+    (let [want-error (:expect-error call)
+          result     (try {:ok (ssr-payload-policy/apply-policy
+                                  (:app-db call) (:opts call))}
+                          (catch :default e
+                            {:err (or (:rf.error/id (ex-data e)) (ex-message e))}))]
+      (if want-error
+        {:passed? (= want-error (:err result))
+         :detail  (when (not= want-error (:err result))
+                    (str "ssr-apply-policy expected error " want-error
+                         " got " (pr-str result)))}
+        {:passed? (= (:expect call) (:ok result))
+         :detail  (when (not= (:expect call) (:ok result))
+                    (str "ssr-apply-policy " (pr-str (:opts call))
                          "\n    expected: " (pr-str (:expect call))
                          "\n    actual:   " (pr-str result)))}))
 

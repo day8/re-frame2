@@ -1,0 +1,52 @@
+;; Conformance fixture: data-classification/event-arg-sensitive-path-redacts
+;;
+;; Per Spec 015 §Tests (the `event-arg-sensitive-path-redacts.edn` row) and
+;; §1 (Event handlers — registration-owned `:sensitive` payload classification)
+;; — a `reg-event-*` registered with a `:sensitive [[:password]]` metadata key,
+;; dispatched with `{:password "secret"}`, projects `[:event-id {:password
+;; :rf/redacted}]` at trace egress. The sensitive event-arg path is declared on
+;; the HANDLER's registration (EP-0015 §7 — the registration owns the payload
+;; shape, replacing the removed positional `redact-interceptor`).
+;;
+;; The OBSERVABLE seam is the `:rf.event/db-changed` trace event, whose
+;; `:rf.event/v` slot carries the dispatched `[event-id arg-map]` vector. The
+;; trace-egress projection (`re-frame.marks/project-event-tags` against the
+;; handler's registered marks) substitutes `:rf/redacted` at the declared
+;; payload path while leaving an unmarked sibling (`:user`) raw. The HANDLER
+;; BODY sees the unredacted payload (Spec 015 §Out of scope — mid-handler
+;; protection); only the trace surface redacts.
+;;
+;; Harness note: the conformance runner threads `:fixture/registry :event`
+;; metadata through to `reg-event-*` (rf2-jwm4), so the `:sensitive` key
+;; declared there reaches `register-marks!`. Capability
+;; `:data-classification/marks`.
+
+{:fixture/id           :data-classification/event-arg-sensitive-path-redacts
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/trace
+                         :data-classification/marks}
+ :fixture/doc          "A reg-event-* with a :sensitive [[:password]] metadata key, dispatched with {:password \"secret\"}, projects [event-id {:password :rf/redacted}] in the :rf.event/db-changed trace event's :rf.event/v slot; an unmarked sibling (:user) rides verbatim. The handler body sees the unredacted payload — only the trace surface redacts (EP-0015 §1 / §7)."
+
+ :fixture/registry
+ {:event {:dc/auth {:doc       "Path-sensitive event handler; declares its sensitive payload path on the registration."
+                    :sensitive [[:password]]}}}
+
+ :fixture/handlers
+ ;; The handler reads the (unredacted) :user from the payload and stores it,
+ ;; proving the body sees the real value; the :password is never written.
+ {:event {:dc/auth [[:set [:logged-in-user] [:get-event-arg 1 :user]]]}}
+
+ :fixture/frame-config {}
+
+ :fixture/dispatches
+ [[:dc/auth {:password "secret" :user "ada"}]]
+
+ :fixture/expect
+ ;; The handler wrote the unredacted :user — the body saw the real payload.
+ {:final-app-db {:logged-in-user "ada"}
+
+  ;; The load-bearing assertion: the :rf.event/db-changed trace's :rf.event/v
+  ;; redacts the declared :password path and leaves the unmarked :user raw.
+  :trace-emissions
+  [{:operation :rf.event/db-changed
+    :tags      {:rf.event/v [:dc/auth {:password :rf/redacted :user "ada"}]}}]}}
