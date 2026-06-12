@@ -70,6 +70,23 @@ Inside that tree, every bare `dispatch` / `subscribe` you already wrote works un
 
 There's no automated rewrite for the cache-key habit — it's a judgement call about your own keying scheme — so the skill flags hand-built cache keys for review rather than guessing your intent.
 
+**Ambient world reads in durable handlers.** This is the one category v2's *fold model* tightens, and a v1 codebase trips it everywhere. v1 let a handler reach straight into the world for a fact and write the result into state: `(js/Date.)` for a `:created-at`, `(random-uuid)` for an id, an `inject-cofx :now`, a boot handler reading `localStorage` to seed session state. v2 says: **a fact that decides a durable write must be a fact the ledger recorded**, or replay, time-travel, and SSR hydration all lie ([chapter 07 — causal world inputs](07-effects-and-coeffects.md#causal-world-inputs--where-the-clock-and-fresh-ids-come-from)). The mapping is mechanical:
+
+- **Durable clock reads** — `js/Date.now`, `(.now js/Date)`, an `interop/now-ms` — become `(:time-ms (:rf.world/inputs cofx))`. The runtime stamps `:time-ms` on every dispatch and records it.
+- **Generated ids** — `random-uuid` / host UUID calls feeding durable state — move to the event payload (mint at the dispatch site, `[:todo/add {:id (random-uuid)}]`) or to `:rf.world/inputs` under `:uuid` for ids minted inside the fold.
+- **Random choices** — `rand` / `rand-int` / `rand-nth` whose result is written durably — become supplied choices under `:rf.world/inputs` `:random` (recorded *choices*, not seeds).
+- **Durable storage / location reads** — `localStorage` / `sessionStorage` / `js/location` / `navigator` reads that initialise durable state — become router/host events, recordable coeffects, or `:rf.world/inputs` `:storage` rather than ambient reads at the write site.
+- **Ambient `:now` cofx** — a v1 `inject-cofx :now` stays a *recognizable* source form, but if its value affects durable state it must become recordable. The clean migration is a thin compatibility cofx that reads the recorded world input instead of the host, keeping your call sites unchanged:
+
+```clojure
+(rf/reg-cofx :app/now-ms
+  (fn [ctx]
+    (assoc-in ctx [:coeffects :app/now-ms]
+              (:time-ms (get-in ctx [:coeffects :rf.world/inputs])))))
+```
+
+A cofx that only measures a *diagnostic* or transient fact (a viewport width, a non-durable display preference) may stay ambient and unrecorded — the rule bites only when the value feeds a durable write. The skill flags ambient durable reads for review rather than rewriting blind, because "does this read decide durable state?" is a judgement about your code's intent.
+
 When a failure matches none of the above, the skill surfaces it for human review rather than guessing. That's the cardinal rule again, and it's what keeps an automated migration trustworthy: it does the things it's sure of and asks about the rest.
 
 ## The two changes worth understanding in depth

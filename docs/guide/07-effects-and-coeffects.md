@@ -142,7 +142,7 @@ The fresh **UUID** is the same story — a generated id is a durable fact, so it
 
 ### `reg-cofx` and `inject-cofx` — the registry pair
 
-World inputs cover the clock and generated ids. *Everything else* the world hands you — a `localStorage` read, a subscription's current value, a host-transient measurement — still arrives through the general coeffect machinery, and that's what `reg-cofx` / `inject-cofx` are for. Quarantine each impurity inside a named, registered cofx:
+World inputs cover the clock and generated ids. *Everything else* the world hands you instantly — a `localStorage` read, a subscription's current value, a host-transient measurement — still arrives through the general coeffect machinery, and that's what `reg-cofx` / `inject-cofx` are for. Quarantine each impurity inside a named, registered cofx:
 
 ```clojure
 (rf/reg-cofx :local-store
@@ -150,15 +150,18 @@ World inputs cover the clock and generated ids. *Everything else* the world hand
     (assoc-in ctx [:coeffects :local-store]
               (some-> (.-localStorage js/globalThis) (.getItem storage-key)))))
 
-(rf/reg-event-fx :prefs/load
-  [(rf/inject-cofx :local-store "user-prefs")]
-  (fn [{:keys [local-store]} _]
-    {:db (-> (or local-store {}) (parse-prefs))}))
+(rf/reg-event-fx :prefs/apply-theme
+  [(rf/inject-cofx :local-store "ui-theme")]
+  (fn [{:keys [db local-store]} _]
+    ;; A display preference — diagnostic/transient, not a fact replay must reproduce.
+    {:db (assoc db :ui/theme (or local-store "system"))}))
 ```
 
 The handler is pure again. The impure read lives inside a named cofx handler, addressable by id. Two things to read carefully here.
 
-A **cofx handler** is a function from context to context. It receives the full context map (the same one interceptors thread, [chapter 09](09-interceptors.md)) and returns it with the value `assoc-in`'d under `[:coeffects <id>]`. The convention is to inject under the same keyword you registered with — cofx id and coeffect key match. There are two arities: the **unary** `(fn [ctx] ...)` for parameterless cofxes, and the **binary** `(fn [ctx value] ...)` for cofxes parameterised at the call site. The `:local-store` cofx above is the classic binary one — it takes the storage key to read at the call site (`(rf/inject-cofx :local-store "user-prefs")`). One `:local-store` handler serves every event that needs a different key — the *what* stays generic, the *which* lives at the call site.
+> **One caveat that decides which mechanism you reach for.** A plain `reg-cofx` read is *ambient and unrecorded* — the ledger never wrote it down, so replay re-runs the cofx against whatever the host says at replay time. That's exactly right for a **non-durable / diagnostic** fact like the display theme above: if replay re-reads it, nothing important drifts. It is **wrong** for a storage value that feeds a *durable* write — a session token or saved document you `assoc` into `:db` and expect to reproduce. A durable storage read has to enter the fold as **recordable** data: capture it as a causal world input (`:storage` under `:rf.world/inputs`), ride it in on the event payload, or use a cofx whose value is captured into the replay record rather than re-read from the host. The rule is the same one the clock follows — *durable writes have no ambients* ([§Why handlers never read the clock](#why-handlers-never-read-the-clock)). `reg-cofx` stays the tool for the instant, non-durable reads; the recordable path is for storage that decides durable state.
+
+A **cofx handler** is a function from context to context. It receives the full context map (the same one interceptors thread, [chapter 09](09-interceptors.md)) and returns it with the value `assoc-in`'d under `[:coeffects <id>]`. The convention is to inject under the same keyword you registered with — cofx id and coeffect key match. There are two arities: the **unary** `(fn [ctx] ...)` for parameterless cofxes, and the **binary** `(fn [ctx value] ...)` for cofxes parameterised at the call site. The `:local-store` cofx above is the classic binary one — it takes the storage key to read at the call site (`(rf/inject-cofx :local-store "ui-theme")`). One `:local-store` handler serves every event that needs a different key — the *what* stays generic, the *which* lives at the call site.
 
 `inject-cofx` is the use-site. It's the small interceptor that, on the way in, looks up the registered cofx fn, calls it (with the second value too, if you called it binary), and lets the now-enriched context flow on toward the handler. List several to compose them — they run in declaration order, and by the time the handler runs, every key is present in its coeffects map. It's a `:before`-only interceptor: a cofx is an input, so there's nothing to do on the way out.
 
@@ -340,15 +343,15 @@ If the world can only hand you the data asynchronously — a fetch, a websocket 
 (rf/reg-event-fx :profile/show
   (fn [_ _]
     {:fx [[:rf.http/managed
-           {:request     {:url "/api/me"}
-            :rf/reply-to [:profile/replied]}]]}))
+           {:request    {:url "/api/me"}
+            :on-success [:profile/replied]}]]}))
 
 (rf/reg-event-fx :profile/replied
-  (fn [{:keys [db]} [_ {:keys [status value]}]]
-    (if (= :ok status) {:db (assoc db :profile value)} {})))
+  (fn [{:keys [db]} [_ {:keys [kind value]}]]
+    (if (= :success kind) {:db (assoc db :profile value)} {})))
 ```
 
-The completion comes back as an *event* carrying the **uniform reply envelope** — a reply map with a closed `:status` ([chapter 10](10-http.md#failures-are-a-closed-set-and-thats-the-gift) is the full tour), the one shape every managed async surface replies through. (The familiar `:on-success` / `:on-failure` vectors are compatibility *sugar* that lowers onto this same envelope — see [chapter 10's note on default reply addressing](10-http.md#default-reply-addressing--the-co-located-handler) — so either spelling is fine; the envelope is the general model.)
+The completion comes back as an *event* — that's the general async model. `:rf.http/managed` is the shipped HTTP surface, so here you write its public `:on-success` / `:on-failure` sugar and read the reply it appends: `{:kind :success :value v}` on success ([chapter 10](10-http.md#failures-are-a-closed-set-and-thats-the-gift) is the full tour). That sugar lowers internally onto the framework-wide **uniform reply envelope** — the one shape every managed async surface completes through ([chapter 10's note](10-http.md#on-success--on-failure--co-located-rfreply-are-lowering-sugar)). HTTP doesn't take a bare `:rf/reply-to`; surfaces that ship no sugar accept that key directly and complete with a `{:status …}` reply map, but the move is the same — the impure work goes out as a managed effect and the answer arrives back as an event.
 
 The rule of thumb, then: **cofx for values the world hands back instantly** — a `localStorage.getItem`, a sub's current value, a transient host measurement. **The clock and generated ids ride world inputs and the event, not a cofx.** **Managed effects for values the world has to go fetch.** If you catch yourself wanting `await` inside a `reg-cofx`, that's the tell: it was never a coeffect. It's an event chain, and [chapter 10](10-http.md) is where it goes.
 

@@ -64,11 +64,13 @@ That co-location — request and reply living in one handler — is the reason `
 >
 > That "reply is an event" idea is not an HTTP convenience — it's a single, framework-wide contract called the **uniform reply envelope**, and *every* managed async surface completes through it: HTTP, [resources and mutations](27-resources.md), [state-machine async work](12-machines.md), and [route loaders](19-routing.md). Learn the envelope once and you have learned how async completion works everywhere in the framework. The normative home of this contract is [`spec/Managed-Effects.md` §The uniform reply envelope](../../spec/Managed-Effects.md#the-uniform-reply-envelope); the rest of this box is the guided tour.
 >
-> The envelope has two pieces: a **reply target** (where the completion is dispatched) and a **reply map** (what it carries). The public reply-target key is **`:rf/reply-to`**, and its short form is just an event-vector prefix:
+> The envelope has two pieces: a **reply target** (where the completion is dispatched) and a **reply map** (what it carries). The canonical public reply-target key is **`:rf/reply-to`**, and its short form is just an event-vector prefix. A surface that doesn't ship dedicated sugar accepts it directly:
 >
 > ```clojure
-> {:rf.http/managed
->  {:request    {:url "/api/articles/42"}
+> ;; A managed async surface that takes :rf/reply-to directly (not :rf.http/managed —
+> ;; HTTP ships its own sugar; see the lowering note below).
+> {:rf.some/managed-async
+>  {:work        {...}
 >   :rf/reply-to [:article/load-replied {:id 42}]}}
 > ```
 >
@@ -111,7 +113,7 @@ That co-location — request and reply living in one handler — is the reason `
 >
 > #### `:on-success` / `:on-failure` / co-located `:rf/reply` are lowering sugar
 >
-> So where do the `:on-success` / `:on-failure` vectors and the default co-located `:rf/reply` shape — the forms the rest of this chapter uses — fit? They are **compatibility sugar that lowers onto the uniform envelope**, not a second, parallel async model. `:on-success [:counter/loaded]` is a familiar spelling that the HTTP fx rewrites into a `:rf/reply-to` target completed with a `:status :ok` reply map; `:on-failure` is the `:status :error`/`:cancelled` path; and the default co-located `:rf/reply` branch is the same target pointed back at the originating handler. They're convenient and they migrate cleanly from re-frame v1 ([chapter 25](25-from-re-frame-v1.md)), so they're staying — but the *general* async model, the one resources, mutations, routing, and machines all share, is the `:rf/reply-to` envelope above. When you reach a surface that doesn't ship the HTTP sugar, the envelope is what you'll be writing directly.
+> So where do the `:on-success` / `:on-failure` vectors and the default co-located `:rf/reply` shape — the forms the rest of this chapter uses — fit? They are **compatibility sugar that lowers onto the uniform envelope**, not a second, parallel async model. **`:rf.http/managed` does not accept a bare `:rf/reply-to` key** — its *public* reply surface is exactly this sugar, and the sugar lowers internally to the envelope. `:on-success [:counter/loaded]` is a familiar spelling that the HTTP fx rewrites into an internal envelope target completed with a `:status :ok` reply map; `:on-failure` is the `:status :error`/`:cancelled` path; and the default co-located `:rf/reply` branch is the same target pointed back at the originating handler. They're convenient and they migrate cleanly from re-frame v1 ([chapter 25](25-from-re-frame-v1.md)), so they're staying — and on HTTP they're what you write. But the *general* async model, the one resources, mutations, routing, and machines all share, is the `:rf/reply-to` envelope above; a surface that doesn't ship HTTP's sugar accepts `:rf/reply-to` directly, and that's what you'll write there.
 >
 > <details markdown="1">
 > <summary>For the categorically curious</summary>
@@ -285,7 +287,7 @@ Remember the five-letters-five-requests problem from the top of the chapter? Thi
               :decode     CounterResponse}]]})))
 ```
 
-When two in-flight requests share an id, the new one wins and the old one aborts with `:reason :request-id-superseded`. A manual `:rf.http/managed-abort` aborts whoever currently holds the id, with `:reason :user`. Either way the aborted request comes back through the reply path with `:kind :rf.http/aborted`, so you can clean up state (clear the spinner, mostly) and otherwise ignore the corpse. For search-as-you-type, give every keystroke's request the same `:request-id`, and the framework guarantees the only reply you act on is the latest one. The race is gone, and you didn't write a single line of race-handling code.
+The two ways an id-held request ends are *not* the same, and the difference is the correctness boundary from the envelope box above. **Supersession** — issuing a new request with the same id while the old one is in flight — *suppresses* the old request's app reply: the prior `:on-failure` (or co-located `:rf/reply`) is **not dispatched**, your reducer never sees the superseded request at all, and the only evidence is a trace row (`:rf.http/aborted` with `:reason :request-id-superseded`) for tooling. That suppression is what keeps state correct — a stale answer can't overwrite the fresh one because it's never delivered. A **manual** `:rf.http/managed-abort`, by contrast, aborts whoever currently holds the id and *does* dispatch the failure reply with `:kind :rf.http/aborted` and `:reason :user`, so a deliberate user-cancel reaches your handler and you can clean up state (clear the spinner, mostly). For search-as-you-type you rely on supersession: give every keystroke's request the same `:request-id`, and the framework guarantees the only reply you act on is the latest one — the older ones are suppressed, not delivered. The race is gone, and you didn't write a single line of race-handling code.
 
 There's an alternative for when you already own an `AbortController`: `:abort-signal (.-signal my-controller)` threads your signal straight through to the transport (CLJS-only; it's a Fetch feature). The two mechanisms are mutually exclusive — pick one and stick with it for a given request.
 
