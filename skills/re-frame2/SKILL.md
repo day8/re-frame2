@@ -99,6 +99,7 @@ Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing �
 |---|---|
 | HTTP request with request/response lifecycle | `patterns/remote-data.md` |
 | Cached server-state shared across views, with invalidation (TanStack-Query-shaped) | `patterns/resources.md` |
+| Workflow after a write succeeds (navigate / toast / fold errors — mutation `:reply-to`), mixed-scope invalidation, or a reusable session/tenant scope (`reg-resource-scope`) | `patterns/resources.md` |
 | HTTP with status-aware retries / error projection / batching | `patterns/managed-http.md` |
 | Form input with validation and submit | `patterns/forms.md` |
 | Long-running browser-side work | `patterns/long-running-work.md` |
