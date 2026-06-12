@@ -12,7 +12,7 @@ The prompt mentions: an SSR app handling a form POST, progressive enhancement, "
 
 1. **The HTML form** renders `method="POST" action="/<route>"` + a hidden CSRF token. The standard Pattern-Forms slice (server-rendered from `app-db`) drives field values.
 2. **The host adapter receives the POST**, parses the body (form-urlencoded or multipart), binds it under `:form-params`, and creates a per-request frame.
-3. **`:rf/server-init` routes** via `(inject-cofx :rf.server/request)` — on GET dispatch the page loader (Pattern-SSR-Loaders); on POST dispatch the domain event with `form-params`.
+3. **`:rf/server-init` routes** by declaring `:rf.cofx/requires [:rf.server/request]` — on GET dispatch the page loader (Pattern-SSR-Loaders); on POST dispatch the domain event with `form-params`.
 4. **The domain handler validates** `form-params` against the registered schema. On failure → write structured errors into the form slice's `:errors`, let the drain settle, re-render the page with inline errors. On success → run the side effect, then `:rf.server/redirect` (303) or a success re-render.
 5. **The drain settles**, the SSR emitter runs (or is short-circuited by the redirect), the host materialises `[:rf/response]`.
 6. **Once JS hydrates**, the form's `:on-submit` calls `(.preventDefault e)` and dispatches the *same* event. Only the dispatch site differs.
@@ -44,8 +44,8 @@ The view runs on both platforms; the `action` attribute is what makes it work JS
 ```clojure
 (rf/reg-event-fx :rf/server-init
   {:doc "Per-request boot. GET → page loader; POST → form action."
-   :platforms #{:server}}
-  [(rf/inject-cofx :rf.server/request)]
+   :platforms #{:server}
+   :rf.cofx/requires [:rf.server/request]}
   (fn [{:keys [rf.server/request]} _]
     (let [{:keys [request-method form-params]} request
           route (match-route (:uri request))]            ;; app-supplied route matcher
@@ -55,9 +55,9 @@ The view runs on both platforms; the `action` attribute is what makes it work JS
 
 (rf/reg-event-fx :cart/add-item
   {:doc    "Add an item to the cart. Same handler tree both platforms."
-   :schema [:cat [:= :cart/add-item] AddToCartForm]}     ;; server-side schema check, never skipped
-  [(rf/inject-cofx :rf.server/request)
-   (rf/inject-cofx :app.csrf/active-token)]              ;; app-owned cofx — see §CSRF
+   :schema [:cat [:= :cart/add-item] AddToCartForm]      ;; server-side schema check, never skipped
+   :rf.cofx/requires [:rf.server/request
+                      :app.csrf/active-token]}            ;; app-owned cofx — see §CSRF
   (fn [{:keys [db app.csrf/active-token]} [_ form-params]]
     (if (not= (:csrf-token form-params) active-token)    ;; CSRF first — fail loud
       {:db (assoc-in db [:cart :add-form :errors :_form] ["Session expired. Refresh and retry."])

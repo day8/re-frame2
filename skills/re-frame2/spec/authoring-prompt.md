@@ -30,7 +30,7 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > │   ├── fundamentals/
 > │   │   ├── events.md            (reg-event-{db,fx,ctx})
 > │   │   ├── fx.md                (reg-fx, :fx vector shape)
-> │   │   ├── cofx.md              (reg-cofx, inject-cofx)
+> │   │   ├── cofx.md              (reg-cofx value-returning, :rf.cofx/requires)
 > │   │   ├── subs.md              (reg-sub, layered subs, dynamic args, machine subs)
 > │   │   ├── flows.md             (reg-flow, materialised computed state, flow-vs-sub)
 > │   │   ├── schemas.md           (reg-app-schema, boundary validation)

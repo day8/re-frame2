@@ -100,8 +100,8 @@ The SSR request wires it from `:rf/server-init`, reading request-derived values 
 
 ```clojure
 (rf/reg-event-fx :rf/server-init
-  {:platforms #{:server}}
-  [(rf/inject-cofx :rf.server/request)]
+  {:platforms #{:server}
+   :rf.cofx/requires [:rf.server/request]}
   (fn [{:keys [rf.server/request]} _]
     (let [{:keys [product-id]} (match-route (:url request))    ;; app-supplied route matcher
           auth-token (-> request :session :token)]
