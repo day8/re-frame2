@@ -9,17 +9,18 @@
     1. The host adapter (rf2-ny6v7 ships the Ring adapter) populates
        the per-frame request slot via `re-frame.ssr/set-request!`
        before kicking off the drain.
-    2. Event handlers use `(rf/inject-cofx :rf.server/request)` and
-       read the request map under `:rf.server/request` in their
-       coeffects.
+    2. Event handlers declare `:rf.cofx/requires [:rf.server/request]` and
+       read the request map FLAT under `:rf.server/request` in their
+       coeffects (EP-0017 — `inject-cofx` is removed; the ambient supplier
+       reads the active frame's slot).
     3. After the response is materialised, the host adapter calls
        `clear-request!` (typically as part of frame teardown).
 
   This test pins the cofx-registration, the read path, the platforms
   gating (client-side dispatches silently no-op), the frame-isolation
   invariant (two simultaneous per-request frames don't leak), and the
-  explicit-value override surface (2-arity form for tests/harnesses
-  that drive the drain without a host adapter)."
+  set-request! seam tests/harnesses use to drive the drain without a host
+  adapter."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
@@ -58,10 +59,10 @@
 ;;
 ;; The canonical pattern: host adapter writes the request to the per-
 ;; frame slot before drain; a server-side event handler reads it via
-;; (inject-cofx :rf.server/request).
+;; :rf.cofx/requires [:rf.server/request].
 
 (deftest cofx-reads-populated-request
-  (testing "(set-request! frame req) → (inject-cofx :rf.server/request) → handler reads req"
+  (testing "(set-request! frame req) → :rf.cofx/requires [:rf.server/request] → handler reads req"
     (let [server-frame (rf/make-frame
                          {:doc      "SSR request frame"
                           :platform :server})
@@ -77,7 +78,7 @@
       (ssr/set-request! server-frame request)
       ;; A server-side handler reads it via the cofx.
       (rf/reg-event-fx :req-test/read
-        [(rf/inject-cofx :rf.server/request)]
+        {:rf.cofx/requires [:rf.server/request]}
         (fn [{:keys [rf.server/request]} _]
           (reset! observed request)
           {}))
@@ -107,7 +108,7 @@
     (let [server-frame (rf/make-frame {:platform :server})
           observed     (atom :unset)]
       (rf/reg-event-fx :req-test/read-empty
-        [(rf/inject-cofx :rf.server/request)]
+        {:rf.cofx/requires [:rf.server/request]}
         (fn [{:keys [rf.server/request] :as ctx} _]
           (reset! observed
                   ;; Distinguish between "key absent" and "key present
@@ -136,7 +137,7 @@
           traces       (collect-traces! ::req-client)
           observed     (atom :unset)]
       (rf/reg-event-fx :req-test/read-on-client
-        [(rf/inject-cofx :rf.server/request)]
+        {:rf.cofx/requires [:rf.server/request]}
         (fn [{:keys [rf.server/request] :as ctx} _]
           (reset! observed
                   (if (contains? ctx :rf.server/request)
@@ -182,7 +183,7 @@
       (ssr/set-request! frame-b request-b)
 
       (rf/reg-event-fx :req-test/read-isolated
-        [(rf/inject-cofx :rf.server/request)]
+        {:rf.cofx/requires [:rf.server/request]}
         ;; The running frame's stamp reaches the event context under
         ;; :rf.frame/id (rf2-1m6rf1 — the bare :frame coeffect is retired).
         (fn [{:keys [rf.server/request] frame :rf.frame/id} _]
@@ -215,7 +216,7 @@
       ;; The cofx now injects nil.
       (let [observed (atom :unset)]
         (rf/reg-event-fx :req-test/read-after-clear
-          [(rf/inject-cofx :rf.server/request)]
+          {:rf.cofx/requires [:rf.server/request]}
           (fn [{:keys [rf.server/request]} _]
             (reset! observed request)
             {}))
@@ -223,29 +224,30 @@
         (is (nil? @observed)
             "the cofx injects nil after clear-request!")))))
 
-;; ---- explicit-value override (2-arity inject-cofx) -------------------------
+;; ---- explicit-value seam (set-request! before drain) ----------------------
 ;;
-;; Tests and conformance harnesses that drive the drain without a host
-;; adapter can supply the request inline. The 2-arity form bypasses the
-;; slot lookup.
+;; EP-0017 (rf2-oa2dun): the 2-arity `(inject-cofx :rf.server/request {...})`
+;; explicit-value override is RETIRED with `inject-cofx`. Tests and conformance
+;; harnesses that drive the drain without a host adapter use the SAME seam the
+;; host uses — `re-frame.ssr/set-request!` for the target frame — and the
+;; declared ambient supplier reads it.
 
-(deftest cofx-2-arity-injects-explicit-value
-  (testing "(inject-cofx :rf.server/request {...}) injects the explicit value
-            even when no host adapter has populated the slot"
+(deftest set-request-is-the-test-seam
+  (testing "set-request! supplies the request for a harness-driven drain; the
+            declared cofx reads it (replacing the retired 2-arity override)"
     (let [server-frame (rf/make-frame {:platform :server})
           explicit     {:uri "/explicit" :headers {"x-test" "1"}}
           observed     (atom :unset)]
-      ;; No set-request! call — the slot is empty.
-      (is (nil? (ssr/get-request server-frame)))
+      (ssr/set-request! server-frame explicit)
       (rf/reg-event-fx :req-test/read-explicit
-        [(rf/inject-cofx :rf.server/request explicit)]
+        {:rf.cofx/requires [:rf.server/request]}
         (fn [{:keys [rf.server/request]} _]
           (reset! observed request)
           {}))
       (rf/dispatch-sync [:req-test/read-explicit] {:frame server-frame})
 
       (is (= explicit @observed)
-          "the 2-arity form injects the explicit value, bypassing the slot"))))
+          "the declared cofx delivered the set-request! value"))))
 
 ;; ---- :ssr-server preset frames --------------------------------------------
 ;;
@@ -260,7 +262,7 @@
           observed     (atom :unset)]
       (ssr/set-request! server-frame request)
       (rf/reg-event-fx :req-test/read-preset
-        [(rf/inject-cofx :rf.server/request)]
+        {:rf.cofx/requires [:rf.server/request]}
         (fn [{:keys [rf.server/request]} _]
           (reset! observed request)
           {}))

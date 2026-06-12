@@ -177,8 +177,8 @@
         (rf/dispatch (conj on-success articles) {:frame frame}))))
 
   (rf/reg-event-fx :rf/server-init
-    {:platforms #{:server}}
-    [(rf/inject-cofx :rf.server/request)]
+    {:platforms        #{:server}
+     :rf.cofx/requires [:rf.server/request]}
     (fn [{:keys [db rf.server/request]} _]
       {:db (assoc db :request request)
        :fx [[:http/get {:url        "/api/articles"
@@ -778,8 +778,8 @@
   (testing "the Ring request map flows through to handlers via :rf.server/request"
     (let [captured (atom ::not-captured)]
       (rf/reg-event-fx :init/capture-request-cofx
-        {:platforms #{:server}}
-        [(rf/inject-cofx :rf.server/request)]
+        {:platforms        #{:server}
+         :rf.cofx/requires [:rf.server/request]}
         (fn [{:keys [rf.server/request]} _]
           (reset! captured request)
           {}))
@@ -825,8 +825,8 @@
   (testing "two sequential requests carry independent request data — no slot bleed"
     (let [observed (atom [])]
       (rf/reg-event-fx :init/observe-request
-        {:platforms #{:server}}
-        [(rf/inject-cofx :rf.server/request)]
+        {:platforms        #{:server}
+         :rf.cofx/requires [:rf.server/request]}
         (fn [{:keys [rf.server/request]} _]
           (swap! observed conj (:uri request))
           {}))
