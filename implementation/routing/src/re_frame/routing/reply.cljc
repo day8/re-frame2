@@ -12,7 +12,7 @@
   and gated by the data-only suppression map `{:route/nav-token
   nav-token}`, validated against the live `[:rf.runtime/routing :current
   :nav-token]` before the app reply target runs. The PUBLIC routing API
-  (the `:nav-token` cofx, `:rf.route/with-nav-token`, `:on-match` /
+  (the `:rf.route/nav-token` cofx, `:rf.route/with-nav-token`, `:on-match` /
   loaders) is PRESERVED — this is internal lowering only.
 
   Two concerns, both consuming the shared `re-frame.reply` substrate:
