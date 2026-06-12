@@ -459,8 +459,44 @@ Question: **Where is my server state — what owns it, and is it stale?**
 - **WORK LEDGER** — live fetch attempts (running · cancellable ·
  deadline); host handles are inaccessible by design.
 - **ROUTE / RESOURCE GRAPH** — blocking activations are the SSR wait
- points; plus lifecycle timeline, invalidation graph, cache growth.
+ points; plus the lifecycle timeline (the ordered `:rf.resource/*` rows)
+ and cache growth.
+- **SCOPE RESOLUTION TIMELINE** (EP-0016 D3) — the
+ `:rf.resource/scope-resolved` rows: which named `reg-resource-scope`
+ resolver ran, its declared input names, the resolved scope (summarized —
+ a scope carries PII), and the **fail-closed nil evidence**
+ (`:resolved-nil?` — the scope-requiring site got nil and produced NO
+ global fallback). This is where you read the named scope resolver
+ resolution timeline.
+- **MUTATION CONTINUATIONS + SCOPED INVALIDATION** (EP-0016 D1/D2) — the
+ surface that makes the doctrine "`:reply-to` is for workflow;
+ populate/patch/invalidate are for cache" visible:
+ - **`:reply-to` continuation evidence** off the `:rf.mutation/replied`
+   trace (mutation phase 6, after cache consequences + instance
+   settlement) — the mutation id, instance, work id, accepted reply
+   `:status`, and the call-site `:reply-to` event **target**. A row is
+   positive evidence the accepted reply continued into app workflow.
+ - **Descriptor-level invalidation evidence** off the mutation settlement
+   op (`:rf.mutation/succeeded` / `:rf.mutation/failed`, the
+   `:invalidation` facet): the descriptor count, each descriptor's
+   **resolved scope** + tags + `:cross-scope?` + `:refetch-populated?`,
+   the **fail-closed `:unresolved`** `{:from-db …}` ids (resolved nil →
+   NO invalidation, never an implicit global blast), and the
+   `:populate-exempt` keys (populated keys spared from this mutation's
+   own refetch). The per-PASS decision summary stays on
+   `:rf.resource/invalidated` (matched / refetched / left-stale).
 - **SCOPE AUDIT** — every `:rf.scope/global` use + lints.
+
+**The stale/suppressed absence rule.** A `:reply-to` row appears *only*
+for an accepted terminal reply — a **stale or superseded** reply (a
+re-execute under the same instance won, or `[:rf.mutation/clear …]` fired)
+**never** fires the continuation; it surfaces as a `:rf.mutation/stale-suppressed`
+trace instead. The same absence-is-evidence rule holds read-side: a fresh
+read that an `ensure` skips, or an entry the runtime suppresses on a
+superseded reply, shows as `:rf.resource/cache-hit` /
+`:rf.resource/stale-suppressed`, not a fetch. So "my `:reply-to` didn't
+fire" / "my read didn't refetch" is answered by the *presence of the
+suppression op*, not a missing row.
 
 **Read-only** — opening this panel pins nothing: it dispatches no
 `:rf.resource/ensure`, attaches no owner, refetches nothing, extends no
@@ -475,9 +511,12 @@ publishes — so it renders cleanly even when the host wired no resources
 snapshots).
 
 **Open when:** "where's my server state?", "what's in flight?", "is this
-resource stale?", "what owns this cache entry?"
+resource stale?", "what owns this cache entry?", "did my mutation's
+`:reply-to` continuation fire?", "which scopes did this write invalidate?",
+"why didn't this read refetch?"
 
-Spec: [`spec/016-Resources.md` §Xray and AI tooling](../../../spec/016-Resources.md);
+Spec: [`spec/016-Resources.md` §Xray and AI tooling](../../../spec/016-Resources.md)
++ [`024-Resources-Panel.md`](../../../tools/xray/spec/024-Resources-Panel.md);
 implementation at
 [`panels/resources.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/resources.cljs)
 + [`panels/resources_helpers.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/resources_helpers.cljc).

@@ -4,7 +4,7 @@
 
 A `Skill` that helps `Claude Code` (and any Claude Agent SDK harness) **author re-frame2 ClojureScript applications**. Companion to [`re-frame2-pair`](../re-frame2-pair/) (which targets running apps) and [`re-frame2-setup`](../re-frame2-setup/) (which bootstraps new projects from scratch).
 
-This skill carries the recipes, decision rules, and canonical declarations Claude needs to write idiomatic re-frame2 code on the first attempt — events, subscriptions, effects, frames, state machines, schemas, stories, routing, and the canonical patterns (RemoteData, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection).
+This skill carries the recipes, decision rules, and canonical declarations Claude needs to write idiomatic re-frame2 code on the first attempt — events, subscriptions, effects, frames, state machines, schemas, stories, routing, and the canonical patterns (RemoteData, Resources, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection, ReusableComponents, StatefulComponents, FormAction, SSR-Loaders).
 
 ## Scope
 
@@ -31,11 +31,11 @@ skills/re-frame2/
 │   ├── state-machines/               reg-machine, regions, tags, spawn, history, cancellation.
 │   ├── tooling/                      stories, routing, story-recorder, story-mcp-loop, xray.
 │   └── cross-cutting/                testing, api-cheatsheet, privacy-and-elision, production-observability, ssr-authoring.
-├── patterns/                         One leaf per canonical pattern (9 leaves).
+├── patterns/                         One leaf per canonical pattern (14 leaves).
 └── decision-trees/                   pick-a-pattern, slice-or-machine.
 ```
 
-The leaves cover fundamentals, state-machines, tooling, cross-cutting, project-structure, the nine canonical patterns, and the two decision trees. Footers pin each leaf to the implementation it derives from, re-verified after refactors.
+The leaves cover fundamentals, state-machines, tooling, cross-cutting, project-structure, the fourteen canonical patterns, and the two decision trees. Footers pin each leaf to the implementation it derives from, re-verified after refactors.
 
 ## Install
 
@@ -72,7 +72,7 @@ The skill's `description` triggers on natural-language references to re-frame2 s
 
 ## Status
 
-**Alpha.** All scaffolding and leaves are populated: `references/fundamentals/` (including the Flows leaf), `references/state-machines/`, `references/tooling/`, `references/cross-cutting/`, the nine canonical patterns under `patterns/`, and both decision trees (`pick-a-pattern`, `slice-or-machine`). The loading map is reconciled and the derived-from-implementation footers are pinned at main `89bd9c3`. All worked examples the leaves cite — including `examples/reagent/{websocket,long_running_work,flows}/` — have shipped, and the evals harness has landed under `evals/` (`README.md` + `evals.json`) as a **repo-maintenance artifact** (it is deliberately not in the published package — see [`evals/README.md` §Repo-maintenance artifact](evals/README.md), and `package.json`'s `files` list omits it; run the harness from a monorepo clone). No in-flight items remain.
+**Alpha.** All scaffolding and leaves are populated: `references/fundamentals/` (including the Flows leaf), `references/state-machines/`, `references/tooling/`, `references/cross-cutting/`, the fourteen canonical patterns under `patterns/`, and both decision trees (`pick-a-pattern`, `slice-or-machine`). The loading map is reconciled and the derived-from-implementation footers are pinned at main `89bd9c3`. All worked examples the leaves cite — including `examples/reagent/{websocket,long_running_work,flows}/` — have shipped, and the evals harness has landed under `evals/` (`README.md` + `evals.json`) as a **repo-maintenance artifact** (it is deliberately not in the published package — see [`evals/README.md` §Repo-maintenance artifact](evals/README.md), and `package.json`'s `files` list omits it; run the harness from a monorepo clone). No in-flight items remain.
 
 ## License
 

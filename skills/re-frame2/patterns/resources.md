@@ -232,9 +232,17 @@ A descriptor `:scope` may be: `:rf.scope/same` (the mutation's resolved scope �
 
 The fail-closed lattice: a bare `invalidate-tags` with **no scope** is a loud error (`:rf.error/resource-invalidate-scope-required`); **descriptors** are the precise path; **`:cross-scope? true`** is the *only* scope-agnostic opt-out — the explicit, audited escape for "invalidate this tag in *every* scope holding it" (admin tooling, cache-poisoning response), which MUST carry `:cause` and is lintable in Xray as a privacy-relevant broad operation. Reach for a descriptor, not `:cross-scope?`, whenever you can name the scopes.
 
-### Map-form exact targets — populate / patch
+### Map-form exact targets — populate / patch / removes
 
-Exact cache targets (`:populates`, `:patches`, removes) use **one canonical map form** — `{:resource … :params … :scope …}`. Populate is an **authoritative load**: a key seeded from an accepted reply becomes loaded/fresh exactly as if a GET had returned it (store the resource's full decoded shape, not a sub-projection), and is **exempt from immediate refetch by that same mutation's invalidation pass** — opt back in with `:refetch-populated? true` on the descriptor when the reply is partial relative to the full GET.
+Exact cache targets (`:populates`, `:patches`, `:removes`) name a single entry with **one canonical map form** — `{:resource … :params … :scope …}` (the `:scope` defaults to `:rf.scope/same`, the mutation's resolved scope, when omitted). It is the only **public input** form; the tuple `[scope resource-id params]` is the *internal storage* key shape, never written by hand. The three arms differ only in what the target maps to:
+
+| Arm | Callback shape | The target maps to | Effect |
+|---|---|---|---|
+| **`:populates`** | `(fn [params result] -> {target value})` | the **value** to seed | seed/replace the entry as an authoritative load (below) |
+| **`:patches`** | `(fn [params result] -> {target patch-fn})` | a **`patch-fn`** `(fn [old-data result] -> new-data)` | transform the entry's existing `:data` (no-op on an entry with no data) |
+| **`:removes`** | `(fn [params result] -> [target …])` (or a single `target`) | — (no value) | dissoc the entry from the cache |
+
+Populate is an **authoritative load**: a key seeded from an accepted reply becomes loaded/fresh exactly as if a GET had returned it (store the resource's full decoded shape, not a sub-projection), and is **exempt from immediate refetch by that same mutation's invalidation pass** — opt back in with `:refetch-populated? true` on the descriptor when the reply is partial relative to the full GET. A target whose `{:from-db …}` scope resolves nil is **fail-closed** (dropped, never a partial/wrong-scope write).
 
 ```clojure
 (rf/reg-mutation :article/favorite
@@ -242,17 +250,26 @@ Exact cache targets (`:populates`, `:patches`, removes) use **one canonical map 
    :request (fn [{:keys [slug]} _ctx]
               {:request {:method :post :url (str "/api/articles/" slug "/favorite")}
                :decode  :app/article})
+   ;; {target value} — the KEY is the map-form target; the VAL is the seeded value.
    :populates (fn [{:keys [slug]} result]                    ;; (params result)
-                [{:target {:resource :article/by-slug
-                           :params   {:slug slug}
-                           :scope    :rf.scope/global}        ;; ← map form, scoped
-                  :value  result}])                          ;; stored = full resource shape
+                {{:resource :article/by-slug
+                  :params   {:slug slug}
+                  :scope    :rf.scope/global} result})        ;; stored = full resource shape
    :invalidates (fn [{:keys [slug]} _result]
                   [{:scope :rf.scope/global :tags #{[:article-list] [:article slug]}}
                    {:scope {:from-db :session} :tags #{[:feed]}}])})
+
+;; :patches — {target patch-fn}; the patch-fn reshapes the entry's existing :data.
+;; :patches (fn [{:keys [slug]} result]
+;;            {{:resource :article/by-slug :params {:slug slug} :scope :rf.scope/global}
+;;             (fn [old-data _result] (update old-data :favorites-count inc))})
+
+;; :removes — a target, or a collection of targets, to dissoc from the cache.
+;; :removes (fn [{:keys [slug]} _result]
+;;            [{:resource :article/by-slug :params {:slug slug} :scope :rf.scope/global}])
 ```
 
-`:populates` / `:invalidates` both receive `(params result)` — the one canonical mutation-consequence signature. Derive a db-relative scope through a **named resolver reference** (`{:from-db …}`), never by threading `db`/`ctx` into the callback. (The tuple `[scope resource-id params]` is the *internal/storage* key shape; the map is the only public *input* form.)
+`:populates` / `:patches` / `:removes` / `:invalidates` all receive `(params result)` — the one canonical mutation-consequence signature. Derive a db-relative scope through a **named resolver reference** (`{:from-db …}`), never by threading `db`/`ctx` into the callback.
 
 ### Request decoration — auth headers, retry (the managed-HTTP seam)
 
