@@ -122,6 +122,117 @@
       (is (= ":rf.error/no-such-route" (ex-message ex))
           ":rf.error/no-such-route is the structured error for an unregistered id"))))
 
+;; ---- rf2-94o54l.1/.3: route-url fails closed on host-stringified values --
+;;
+;; EP-0012 §Canonical EDN identity (docs/EP/EP-0012 §893-896; Conventions
+;; §584-592): "If a route param value cannot be represented as canonical EDN
+;; after schema coercion, route matching or URL printing MUST fail closed at
+;; the relevant boundary. It MUST NOT use host `str`, JS object stringification,
+;; or object identity to invent a cache or route identity."
+;;
+;; Before this fix the query KEY side was CEDN-guarded (the canonical-order
+;; sort runs each key through `identity/canonical-bytes`), but path-param
+;; values and query VALUES went straight to `url/url-encode`'s host `(str v)`.
+;; A function / atom / arbitrary host object / non-portable number would have
+;; been host-stringified into a fabricated URL identity; a host `Date` /
+;; instant would have been host-stringified into a HOST-DIVERGENT, un-round-
+;; trippable segment. `route-url` now fails closed with
+;; `:rf.error/route-url-non-edn-value` BEFORE any URL string is returned.
+
+(defn- route-url-throws-non-edn?
+  "Call `route-url` and return the thrown ExceptionInfo (or nil). A helper
+  so each adversarial value reads as one assertion."
+  [route-id path-params query-params]
+  (try
+    (routing/route-url route-id path-params query-params)
+    nil
+    (catch clojure.lang.ExceptionInfo e e)))
+
+(deftest route-url-path-param-host-value-fails-closed-rf2-94o54l
+  (testing "a HOST value (fn / atom / arbitrary host object / non-portable
+            number / instant) in a REQUIRED path param fails closed with
+            :rf.error/route-url-non-edn-value BEFORE any URL string is built"
+    (rf/reg-route :route/item {:path "/items/:id"})
+    (doseq [[label v] [[:function    (fn [_])]
+                       [:atom        (atom 1)]
+                       [:host-object (Object.)]
+                       [:float       1.5]
+                       [:ratio       2/3]
+                       [:instant     (java.time.Instant/now)]
+                       [:host-date   (java.util.Date.)]]]
+      (let [ex (route-url-throws-non-edn? :route/item {:id v} {})]
+        (is (some? ex)
+            (str "a " (name label) " path-param value must fail closed, never "
+                 "host-stringify into a URL"))
+        (is (= ":rf.error/route-url-non-edn-value" (ex-message ex))
+            (str "the structured error id for a " (name label) " path value"))
+        (let [data (ex-data ex)]
+          (is (= :route/item (:route-id data)) "ex-data names the route-id")
+          (is (= :params (:slot data)) "ex-data names the offending slot")
+          (is (= :id (:param data)) "ex-data names the offending param"))))))
+
+(deftest route-url-query-value-host-value-fails-closed-rf2-94o54l
+  (testing "a HOST value in a (non-nil) QUERY value fails closed the same way
+            the path side and the query-KEY side do"
+    (rf/reg-route :route/search {:path "/search"})
+    (doseq [[label v] [[:function    (fn [_])]
+                       [:atom        (atom 1)]
+                       [:host-object (Object.)]
+                       [:float       1.5]
+                       [:instant     (java.time.Instant/now)]
+                       [:host-date   (java.util.Date.)]]]
+      (let [ex (route-url-throws-non-edn? :route/search {} {:q v})]
+        (is (some? ex)
+            (str "a " (name label) " query value must fail closed"))
+        (is (= ":rf.error/route-url-non-edn-value" (ex-message ex))
+            (str "the structured error id for a " (name label) " query value"))
+        (let [data (ex-data ex)]
+          (is (= :route/search (:route-id data)) "ex-data names the route-id")
+          (is (= :query (:slot data)) "ex-data names the :query slot")
+          (is (= :q (:param data)) "ex-data names the offending query key"))))))
+
+(deftest route-url-optional-group-host-value-fails-closed-rf2-94o54l
+  (testing "a host value in an OPTIONAL-GROUP inner path param also fails
+            closed (the group is entered because the param is present)"
+    (rf/reg-route :route/doc {:path "/docs{/:section}?"})
+    (let [ex (route-url-throws-non-edn? :route/doc {:section (fn [_])} {})]
+      (is (some? ex) "a fn in an entered optional group fails closed")
+      (is (= ":rf.error/route-url-non-edn-value" (ex-message ex)))
+      (is (= :section (:param (ex-data ex)))))))
+
+(deftest route-url-admitted-scalars-still-emit-rf2-94o54l
+  (testing "the guard ADMITS portable URL scalars — strings, keywords,
+            booleans, portable integers, UUIDs — so the happy path is
+            unaffected (the guard is a host-value gate, not a string-only gate)"
+    (rf/reg-route :route/scalar {:path "/s/:v"})
+    (is (= "/s/hello"  (routing/route-url :route/scalar {:v "hello"})))
+    (is (= "/s/%3Akw"  (routing/route-url :route/scalar {:v :kw}))
+        "a keyword is admitted and host-stably stringifies (the leading `:`
+         percent-encodes to %3A — admitted, not rejected)")
+    (is (= "/s/false"  (routing/route-url :route/scalar {:v false}))
+        "a present-but-falsy boolean round-trips (existing contract)")
+    (is (= "/s/0"      (routing/route-url :route/scalar {:v 0}))
+        "a present-but-falsy integer round-trips (existing contract)")
+    (let [uuid (java.util.UUID/fromString "550e8400-e29b-41d4-a716-446655440000")]
+      (is (= "/s/550e8400-e29b-41d4-a716-446655440000"
+             (routing/route-url :route/scalar {:v uuid}))
+          "a UUID host-stringifies to its canonical, host-stable, round-trippable form"))
+    (is (= "/s/a?x=1" (routing/route-url :route/scalar {:v "a"} {:x 1}))
+        "a portable-integer QUERY value is admitted")))
+
+(deftest route-url-host-value-throws-before-url-built-rf2-94o54l
+  (testing "the failure happens BEFORE any URL string escapes — the structured
+            error is raised, not a half-built or host-stringified URL string"
+    (rf/reg-route :route/order {:path "/orders/:id" :query [:map [:note :string]]})
+    ;; both a bad path value AND a bad query value present: the path guard
+    ;; (which runs during the pattern walk, before path-out is assembled)
+    ;; fires first, so no URL fragment is ever produced.
+    (let [ex (route-url-throws-non-edn? :route/order
+                                        {:id (atom :x)}
+                                        {:note "ok"})]
+      (is (= ":rf.error/route-url-non-edn-value" (ex-message ex))
+          "a structured error, never a string return value"))))
+
 ;; ---- rf2-u1na: match-url malformed-input edge cases ----------------------
 ;;
 ;; Per test-coverage-review-2026-05-12 P3-13. Hardening for the URL parser.
