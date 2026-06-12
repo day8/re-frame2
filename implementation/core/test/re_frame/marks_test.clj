@@ -894,11 +894,15 @@
     (is (= :rf/redacted (get-in projected [:tags :rf.event/coeffects :auth/jwt])))))
 
 (deftest cofx-run-value-redacted-by-marks-chokepoint
-  ;; rf2-hhh92: the per-cofx success op `:rf.cofx/run` carries the
-  ;; per-call injected value under `:rf.cofx/value`; the marks chokepoint
-  ;; (`project-cofx-run-tags`, wired into `project-trace-event`) redacts
-  ;; it against the cofx's declared marks — mirroring `:rf.fx/handled`'s
-  ;; `:rf.fx/args` redaction for the standalone-value op.
+  ;; rf2-hhh92 / rf2-sepqgg: the per-cofx success op `:rf.cofx/run` carries
+  ;; the supplier's PRODUCED value (the coeffect that egresses) under
+  ;; `:rf.cofx/value`; the marks chokepoint (`project-cofx-run-tags`, wired
+  ;; into `project-trace-event`) redacts it against the cofx's declared
+  ;; marks — mirroring `:rf.fx/handled`'s `:rf.fx/args` redaction for the
+  ;; standalone-value op. This is the chokepoint-primitive proof; the
+  ;; end-to-end proof (a real ambient supplier producing a sensitive value,
+  ;; redacted before any listener sees the run op) lives in
+  ;; `re-frame.cofx-test/cofx-run-sensitive-produced-value-is-redacted-end-to-end`.
   (rf/reg-cofx :auth/jwt2
     {:sensitive [[:token]]}
     (fn [v] v))

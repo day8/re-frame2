@@ -130,18 +130,16 @@
 (defn- error-record
   "Build the per-stage error record stamped into the context by
   `record-error`. Carries `:phase` (`:before` / `:after`), `:id` (the
-  interceptor's `:id`), and the raw `:exception`. Per rf2-mszrz the
-  record ALSO carries `:rf/cofx-id` when the throwing interceptor is an
-  `inject-cofx` injector (it stamps `:rf/cofx-id` on itself, per
-  `re-frame.cofx/inject-cofx`): the injector's own `:id` collapses to
-  `(name cofx-id)` (losing the namespace), so the fully-qualified cofx
-  id rides this slot. The router's `emit-pipeline-exception!`
-  classification reads `:rf/cofx-id` to (a) recognise a coeffect-
-  injection throw and (b) attribute it to the true cofx id rather than
-  the bare interceptor `:id`. The slot is absent for non-cofx
-  interceptors so the singleton-vs-vector equality invariant
-  (`:rf/interceptor-error` ≡ first of `:rf/interceptor-errors`) is
-  preserved for the common case.
+  interceptor's `:id`), and the raw `:exception`. The router's
+  `classify-pipeline-exception` reads `:id` to attribute the throw to the
+  event handler (a handler-wrapping `:id`) or a user interceptor.
+
+  EP-0017 removed `inject-cofx` — the only mechanism that stamped
+  `:rf/cofx-id` on an interceptor — and moved coeffect-supplier-throw
+  handling to context assembly (`re-frame.cofx`, BEFORE the chain runs).
+  No interceptor carries `:rf/cofx-id` anymore, so the old conditional
+  copy of it onto this record was permanently dead and has been removed
+  (rf2-oky3gt).
 
   Per rf2-siheh the record carries the throwing interceptor's
   `:source-coord` when one was captured (the `->interceptor` macro
@@ -149,12 +147,12 @@
   `:rf.error/interceptor-exception` trace so the Xray Epoch INTERCEPTOR
   row renders a jump-to-source chip (parity with EVENT HANDLER /
   SUBSCRIPTIONS / VIEWS). Absent on the fn-path / framework interceptors
-  (`path`, `unwrap`, cofx injectors) — they have no user definition site
-  to jump to; the slot's absence preserves the equality invariant for
-  the common case."
+  (`path`, `unwrap`) — they have no user definition site to jump to; the
+  slot's absence preserves the singleton-vs-vector equality invariant
+  (`:rf/interceptor-error` ≡ first of `:rf/interceptor-errors`) for the
+  common case."
   [phase interceptor exception]
   (cond-> {:phase phase :id (:id interceptor) :exception exception}
-    (:rf/cofx-id interceptor)   (assoc :rf/cofx-id (:rf/cofx-id interceptor))
     (:source-coord interceptor) (assoc :source-coord (:source-coord interceptor))))
 
 (defn- invoke-before [context interceptor]
@@ -233,26 +231,24 @@
   whose ctx-delta should NOT be captured for the Xray AFTER INTERCEPTORS
   surface — they are not user-meaningful interceptors. Mirrors the
   filter the Xray panel applies on the registration-time list (`:rf/
-  default? true` plus the well-known auto-wrapper ids).
+  default? true`, the substrate-side marker).
 
-  - `:rf/default?` is the substrate-side marker.
-  - `:rf/cofx-id` flags `inject-cofx` interceptors (rf2-9dk9y) —
-    their COEFFECTS contribution is rendered separately.
+  EP-0017 removed `inject-cofx`; no interceptor carries `:rf/cofx-id`
+  anymore (coeffect delivery moved to context assembly), so the old
+  `:rf/cofx-id` skip-clause was permanently dead and has been removed
+  (rf2-oky3gt) — the predicate is now the `:rf/default?` check alone.
 
-  Pure predicate; no allocation when the interceptor carries neither
-  flag."
+  Pure predicate; no allocation when the interceptor carries no flag."
   [interceptor]
-  (or (true? (:rf/default? interceptor))
-      (some? (:rf/cofx-id interceptor))))
+  (true? (:rf/default? interceptor)))
 
 (defn- invoke-after [context interceptor]
   (if-let [f (:after interceptor)]
     (let [;; Dev-only ctx-delta capture per rf2-9dk9y. The snapshot ride
           ;; the same `interop/debug-enabled?` gate as the trace surface
           ;; so production CLJS bundles DCE the capture. Framework
-          ;; defaults (`:rf/default?`, `:rf/cofx-id`) are skipped — they
-          ;; are not user-meaningful interceptors on the AFTER
-          ;; INTERCEPTORS surface.
+          ;; defaults (`:rf/default?`) are skipped — they are not
+          ;; user-meaningful interceptors on the AFTER INTERCEPTORS surface.
           capture? (and interop/debug-enabled?
                         (not (framework-default-interceptor? interceptor)))
           before   (when capture? context)]

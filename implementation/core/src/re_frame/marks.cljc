@@ -1105,10 +1105,12 @@
 
 (defn- project-cofx-run-tags
   "Walk the `:rf.cofx/run` op shape (rf2-hhh92): `:rf.cofx/id` carries the
-  cofx keyword and `:rf.cofx/value` carries the per-call injected value.
-  Redact the value against the cofx's registered marks — mirrors
-  `project-fx-tags` for the standalone-value op (the cofx success emit
-  does not ride under `:rf.event/coeffects`)."
+  cofx keyword and `:rf.cofx/value` carries the supplier's PRODUCED value —
+  the coeffect that egresses into `:coeffects` (rf2-sepqgg; the
+  requirement-arg rides the distinct `:rf.cofx/arg`, which this chokepoint
+  does not redact). Redact the produced value against the cofx's registered
+  marks — mirrors `project-fx-tags` for the standalone-value op (the cofx
+  success emit does not ride under `:rf.event/coeffects`)."
   [tags]
   (let [cofx-id (:rf.cofx/id tags)
         marks   (cofx-marks cofx-id)]

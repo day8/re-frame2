@@ -612,36 +612,34 @@
   component (per rf2-mszrz). Returns
   `{:operation <:rf.error/*> :failing-id <kw> :reason <string>}` — the
   category and attribution the exception emit fans out under. The chain
-  runner records `{:phase :id :exception (:rf/cofx-id)}`; this fn reads
-  that captured identity rather than blanket-attributing every
-  `:before`-chain throw to the event handler:
+  runner records `{:phase :id}`; this fn reads that captured identity
+  rather than blanket-attributing every `:before`-chain throw to the event
+  handler:
 
-    - a coeffect-injection throw (the throwing interceptor carries
-      `:rf/cofx-id`, stamped by `inject-cofx`) → `:rf.error/coeffect-exception`,
-      `:failing-id` = the fully-qualified cofx id;
-    - a user interceptor `:before` / `:after` throw (any `:id` that is
-      neither a handler-wrapper nor a cofx injector) →
-      `:rf.error/interceptor-exception`, `:failing-id` = the interceptor
-      `:id` (the `:phase` slot, carried on the trace tags, distinguishes
-      `:before` from `:after`);
+    - a user interceptor `:before` / `:after` throw (any `:id` that is not
+      a handler-wrapper) → `:rf.error/interceptor-exception`,
+      `:failing-id` = the interceptor `:id` (the `:phase` slot, carried on
+      the trace tags, distinguishes `:before` from `:after`);
     - the event HANDLER itself throwing (the terminal `:before`, `:id` in
       `handler-wrapping-interceptor-ids`) → `:rf.error/handler-exception`,
       `:failing-id` = the event id.
 
+  Coeffect-supplier throws do NOT reach here: EP-0017 moved coeffect
+  delivery to context assembly (BEFORE the interceptor chain runs), so a
+  supplier throw is captured and emitted as `:rf.error/coeffect-exception`
+  by `re-frame.cofx/emit-coeffect-exception!` directly. The retired
+  `inject-cofx` was the only mechanism that stamped `:rf/cofx-id` on an
+  interceptor; with it gone, the old `:rf/cofx-id`-keyed branch here was
+  permanently unreachable dead code (rf2-oky3gt) and has been removed.
+
   Mirrors the existing distinct-by-component precedent the runtime
   already follows for `:rf.error/flow-eval-exception` (flow transform)
   and `:rf.error/fx-handler-exception` (post-commit fx walk) — the
-  `:before` chain was the one site that conflated three components into
-  `handler-exception`."
+  `:before` chain was the one site that conflated handler-vs-interceptor
+  into `handler-exception`."
   [error event-id]
-  (let [cofx-id (:rf/cofx-id error)
-        id      (:id error)]
+  (let [id (:id error)]
     (cond
-      cofx-id
-      {:operation  :rf.error/coeffect-exception
-       :failing-id cofx-id
-       :reason     (str "Coeffect injection for `" cofx-id "` threw.")}
-
       (contains? handler-wrapping-interceptor-ids id)
       {:operation  :rf.error/handler-exception
        :failing-id event-id
