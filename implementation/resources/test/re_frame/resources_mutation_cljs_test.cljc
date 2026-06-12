@@ -1330,6 +1330,77 @@
     (is (= 0 (count @replied)))
     (is (= :success (:status (instance :nc1))))))
 
+;; ===========================================================================
+;; rf2-ru73k6 F2 — the :rf.mutation/replied trace lands AFTER settlement
+;; ===========================================================================
+
+(defn- ops-of
+  "The ordered vector of `:operation` keywords from captured trace events."
+  [rows]
+  (mapv :operation rows))
+
+(defn- index-of
+  "Portable (JVM + CLJS) first-index of `x` in vector `v`, or -1 if absent."
+  [v x]
+  (or (first (keep-indexed (fn [i e] (when (= e x) i)) v)) -1))
+
+(deftest replied-trace-lands-after-succeeded-in-phase-order
+  ;; The adversarial phase-order pin: `:rf.mutation/replied` is emitted from
+  ;; the settlement boundary AFTER `:rf.mutation/succeeded`, so its stream
+  ;; position truthfully reflects phase 6 (continuation runs after cache
+  ;; consequences + instance settlement). Pre-fix it was emitted while BUILDING
+  ;; the dispatch effect (inside continuation-fx), so the row could appear
+  ;; BEFORE succeeded — misleading evidence of the phase order.
+  (reg-capture-continuation!)
+  (rf/reg-mutation :m/save (save-article-spec))
+  (let [rows (record-mutation-traces!
+               (fn []
+                 (rf/dispatch-sync [:rf.mutation/execute
+                                    {:mutation :m/save :params {:slug "w"} :instance :po1
+                                     :reply-to [:test/save-replied]}])
+                 (reply-success! @last-managed-args {:title "new"})))
+        ops (ops-of rows)
+        succ-idx (index-of ops :rf.mutation/succeeded)
+        repl-idx (index-of ops :rf.mutation/replied)]
+    (testing "BOTH the settlement and the replied trace rows were emitted"
+      (is (not= -1 succ-idx) ":rf.mutation/succeeded emitted")
+      (is (not= -1 repl-idx) ":rf.mutation/replied emitted"))
+    (testing "the :rf.mutation/replied row follows :rf.mutation/succeeded
+              (post-settlement evidence, not pre-settlement)"
+      (is (< succ-idx repl-idx)
+          (str "expected succeeded before replied; got ops " (pr-str ops))))
+    (testing "the continuation still actually fired (the row corresponds to a
+              real dispatched continuation, not a phantom)"
+      (is (= 1 (count @replied))))))
+
+(deftest stale-reply-emits-no-replied-trace-row
+  ;; The replied row corresponds to the ACTUAL continuation-dispatch boundary:
+  ;; a superseded reply dispatches no continuation, so it emits NO
+  ;; :rf.mutation/replied row (it surfaces as stale-suppressed instead). The
+  ;; CURRENT reply emits exactly one, after its settlement.
+  (reg-capture-continuation!)
+  (rf/reg-mutation :m/save (save-article-spec))
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance :sr
+                      :reply-to [:test/save-replied]}])
+  (let [gen1-args @last-managed-args]
+    (rf/dispatch-sync [:rf.mutation/execute
+                       {:mutation :m/save :params {:slug "w"} :instance :sr
+                        :reply-to [:test/save-replied]}])
+    (testing "the STALE gen-1 reply emits NO :rf.mutation/replied row"
+      (let [rows (record-mutation-traces! #(reply-success! gen1-args {:stale "x"}))]
+        (is (zero? (count (filter #(= :rf.mutation/replied (:operation %)) rows)))
+            "no replied row for the superseded reply")))
+    (testing "the CURRENT gen-2 reply emits exactly one :rf.mutation/replied row
+              (after its succeeded settlement)"
+      (let [rows (record-mutation-traces! #(reply-success! @last-managed-args {:fresh "x"}))
+            replied-rows (filter #(= :rf.mutation/replied (:operation %)) rows)]
+        (is (= 1 (count replied-rows)))
+        (let [ops (ops-of rows)]
+          (is (< (index-of ops :rf.mutation/succeeded)
+                 (index-of ops :rf.mutation/replied))
+              "the live reply's replied row follows its succeeded row"))))))
+
 (deftest reply-to-fires-after-failure-invalidation
   ;; phase-6 ordering on the failure path: the continuation composes AFTER the
   ;; optional failure-time invalidation (it is dispatched last).

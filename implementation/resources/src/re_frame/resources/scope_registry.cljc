@@ -418,28 +418,48 @@
 
 ;; ---- the pure resolve helper (Spec 016 §`clear-scope` … coeffect db) ------
 
+(defn resolve-scope*-pure
+  "PURE: resolve resolver `spec` against `db`, returning a canonical scope
+  value or nil — WITHOUT emitting any observability state (rf2-ru73k6 F3).
+  Evaluates the declared `:inputs` off `db`, calls `:resolve` with
+  `(inputs nil)` (the `ctx` arg is reserved, literal nil in this slice), then
+  routes a non-nil result through the SHARED concrete-scope canonicalization
+  path (`state/canonicalize-scope` — rejects a misspelled `:rf.scope/*`
+  keyword fail-closed, rejects a host/opaque value, normalizes the
+  `[:rf.scope/global]` singleton spelling). A nil result passes through as nil
+  (the fail-closed unresolved condition the use site interprets).
+
+  This is the resolver EVALUATOR. Passive reads advertised as pure — the
+  `resolve-resource-scope` helper and subscription key resolution — call this
+  directly so a read does not mutate the trace bus. The traced
+  `resolve-scope*` wrapper layers the `:rf.resource/scope-resolved` evidence
+  on for CAUSAL boundaries (events / routes / mutations)."
+  [scope-id spec db where]
+  (let [in-vals (eval-inputs (:inputs spec) db)
+        raw     ((:resolve spec) in-vals nil)]
+    (when (some? raw)
+      (state/canonicalize-scope raw where scope-id))))
+
 (defn resolve-scope*
-  "Internal: resolve resolver `spec` against `db`, returning a canonical
-  scope value or nil. Evaluates the declared `:inputs` off `db`, calls
-  `:resolve` with `(inputs nil)` (the `ctx` arg is reserved, literal nil in
-  this slice), then routes a non-nil result through the SHARED concrete-scope
-  canonicalization path (`state/canonicalize-scope` — rejects a misspelled
-  `:rf.scope/*` keyword fail-closed, rejects a host/opaque value, normalizes
-  the `[:rf.scope/global]` singleton spelling). A nil result passes through
-  as nil (the fail-closed unresolved condition the use site interprets).
+  "Resolve resolver `spec` against `db` AND emit the dev-time
+  `:rf.resource/scope-resolved` trace evidence — the TRACED wrapper over the
+  pure `resolve-scope*-pure` evaluator, for use at CAUSAL resolution
+  boundaries (resource events, route entry, mutation settle). Returns the same
+  canonical scope value (or nil) the pure evaluator does.
 
   Emits `:rf.resource/scope-resolved` carrying the resolver id, the declared
   input NAMES, the resolved input VALUES, and the resolved scope (or
   `:resolved-nil? true`) — the values flow through the trace pipeline's
   egress/marks projection (Spec 015 / EP-0015) for off-box safety. Tooling
   reads the declared inputs to avoid unnecessary whole-db re-resolution and
-  to mark the whole-db-sugar cost (EP-0015 disposition 8)."
+  to mark the whole-db-sugar cost (EP-0015 disposition 8). PASSIVE reads
+  advertised as pure (`resolve-resource-scope`, subscription resolution) MUST
+  call `resolve-scope*-pure` instead — they do not emit observability state
+  during a read (rf2-ru73k6 F3)."
   [scope-id spec db where]
   (let [inputs   (:inputs spec)
         in-vals  (eval-inputs inputs db)
-        raw      ((:resolve spec) in-vals nil)
-        resolved (when (some? raw)
-                   (state/canonicalize-scope raw where scope-id))]
+        resolved (resolve-scope*-pure scope-id spec db where)]
     (trace/emit! :rf.event :rf.resource/scope-resolved
                  {:resource-id   scope-id
                   :kind          :resource-scope
@@ -453,13 +473,15 @@
 (defn resolve-resource-scope
   "Resolver helper: resolve the named resource-scope resolver `scope-id`
   against the supplied `db` value, returning a canonical concrete scope or
-  nil. A plain function over the resolver registry — NOT an effect, no
-  resolution-timing ambiguity, no app-state / dispatch side effects. It is
-  NOT a pure data helper, though: like every resolution site it emits
-  `:rf.resource/scope-resolved` dev-time trace evidence (via `resolve-scope*`)
-  — the inputs / resolved scope / fail-closed `:resolved-nil?` row tooling
-  reads. Per Spec 016 §`clear-scope` resolves the concrete scope from the
-  coeffect db (EP-0016 issue 7).
+  nil. A PURE function over the resolver registry — NOT an effect, no
+  resolution-timing ambiguity, no app-state / dispatch side effects, and
+  (rf2-ru73k6 F3) NO observability side effect either: it routes through the
+  trace-free `resolve-scope*-pure` evaluator, so a passive read advertised as
+  pure does NOT emit `:rf.resource/scope-resolved` into the trace bus. The
+  CAUSAL resolution boundaries that DO carry trace evidence (a resource
+  event's `{:from-db …}` scope, route entry, mutation settle) run the traced
+  `resolve-scope*` wrapper instead. Per Spec 016 §`clear-scope` resolves the
+  concrete scope from the coeffect db (EP-0016 issue 7).
 
   Canonical use is the logout/account-switch idiom: resolve the concrete old
   scope from the handler's COEFFECT db (pre-transition by definition — the
@@ -479,7 +501,7 @@
   interprets it — never an implicit global)."
   [db scope-id]
   (let [spec (require-scope-resolver! scope-id 'rf/resolve-resource-scope)]
-    (resolve-scope* scope-id spec db 'rf/resolve-resource-scope)))
+    (resolve-scope*-pure scope-id spec db 'rf/resolve-resource-scope)))
 
 ;; ---- {:from-db <id>} reference resolution --------------------------------
 
@@ -506,3 +528,19 @@
   (let [scope-id (:from-db reference)
         spec     (require-scope-resolver! scope-id where)]
     (resolve-scope* scope-id spec db where)))
+
+(defn resolve-from-db-reference-pure
+  "PURE: resolve a `{:from-db <resolver-id>}` reference against `db` WITHOUT
+  emitting `:rf.resource/scope-resolved` trace evidence — the trace-free
+  counterpart of `resolve-from-db-reference`, for PASSIVE reads advertised as
+  pure (rf2-ru73k6 F3): subscription key resolution re-keys a sub on every
+  frame-state change, so a traced resolve would flood the trace bus with a row
+  per re-render of a passive read. Routes through `resolve-scope*-pure`. The
+  CAUSAL `{:from-db …}` resolution sites (resource events, route entry,
+  mutation settle) call the traced `resolve-from-db-reference` instead — they
+  are the inspectable causal evidence. Same return contract: the resolved
+  canonical scope, or nil (the fail-closed unresolved condition)."
+  [reference db where]
+  (let [scope-id (:from-db reference)
+        spec     (require-scope-resolver! scope-id where)]
+    (resolve-scope*-pure scope-id spec db where)))

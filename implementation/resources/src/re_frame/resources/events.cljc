@@ -752,7 +752,13 @@
         ;; spans resources); nil when scope-agnostic cross-scope.
         cscope     (when (some? scope)
                      (state/canonicalize-scope scope 'rf.resource/invalidate-tags nil))
-        tag-set    (set tags)
+        ;; rf2-ru73k6 F1 — the SAME shared tag-input normalizer the mutation
+        ;; `:invalidates` bare shorthand uses: a LONE vector tag written
+        ;; directly (`:tags [:article slug]`) is the ONE tag `#{[:article
+        ;; slug]}`, not the scalar set `#{:article slug}` (which would silently
+        ;; match nothing). A tag-set (`#{[:article slug]}` / `[[:article slug]]`)
+        ;; lowers unchanged.
+        tag-set    (state/normalize-tag-set tags)
         ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps: the
         ;; durable `:invalidated-at` written by an invalidation event is that
         ;; EVENT'S `:time-ms` (the causal world input the router stamped once

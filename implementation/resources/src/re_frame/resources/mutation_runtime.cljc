@@ -646,9 +646,14 @@
   A nil / empty raw result yields an empty vector (the mutation invalidates
   nothing). The disambiguation: a MAP is a single descriptor; a sequential /
   set collection whose first element is a MAP is a descriptor vector; any
-  other non-empty collection is the bare tag-set (its elements are tags). A
-  malformed result fails CLOSED (`:rf.error/mutation-invalid-invalidation`)
-  rather than silently invalidating nothing. The descriptor `:scope` values
+  other non-empty collection is the bare tag-set (its elements are tags). The
+  bare tag-set is lowered through `state/normalize-tag-set`, so a LONE vector
+  tag written directly (`[:article slug]` — a vector whose head is a scalar
+  marker, not a collection) is the ONE tag `#{[:article slug]}`, NOT a scalar
+  set of its elements `#{:article slug}` (which would silently match nothing —
+  rf2-ru73k6 F1). A malformed result fails CLOSED
+  (`:rf.error/mutation-invalid-invalidation`) rather than silently invalidating
+  nothing. The descriptor `:scope` values
   are left UNRESOLVED here (the `:rf.scope/same` marker, a `{:from-db …}`
   reference, a concrete scope) — the events layer resolves each at settle
   time against the mutation scope / app-db."
@@ -665,10 +670,16 @@
     (and (coll? raw) (map? (first raw)))
     (mapv #(normalize-one-descriptor % raw where) raw)
 
-    ;; the bare tag-set shorthand: a collection of TAGS at :rf.scope/same
+    ;; the bare tag-set shorthand: a collection of TAGS at :rf.scope/same.
+    ;; rf2-ru73k6 F1 — `state/normalize-tag-set` treats a LONE vector tag
+    ;; (`[:article slug]`) as the ONE tag `#{[:article slug]}` rather than
+    ;; silently splitting it into `#{:article slug}` (a scalar set that matches
+    ;; nothing); a tag-set (`#{[:article slug]}` / `[[:article slug]]`) lowers
+    ;; unchanged. The SAME normalizer the direct `:rf.resource/invalidate-tags`
+    ;; `:tags` uses, so a lone vector tag has one meaning across the cache.
     (coll? raw)
     [{:scope              same-scope-marker
-      :tags               (set raw)
+      :tags               (state/normalize-tag-set raw)
       :cross-scope?       false
       :refetch-populated? false}]
 

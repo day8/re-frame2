@@ -591,6 +591,78 @@
           (mstate/normalize-invalidation-descriptors {:scope :rf.scope/global} 'test)))))
 
 ;; ===========================================================================
+;; rf2-ru73k6 F1 — a LONE vector tag is ONE tag, not a scalar tag-set
+;; ===========================================================================
+
+(deftest lone-vector-tag-normalizes-to-one-tag
+  ;; A naive `(set raw)` on a lone vector tag `[:article "w"]` would split it
+  ;; into the scalar set `#{:article "w"}` — a tag-set that names nothing and
+  ;; silently matches nothing. The shared `state/normalize-tag-set` (and the
+  ;; mutation `:invalidates` bare shorthand that uses it) MUST treat a lone
+  ;; vector tag as the ONE tag `#{[:article "w"]}`.
+  (testing "the shared normalizer wraps a lone vector tag as one tag"
+    (is (= #{[:article "w"]} (state/normalize-tag-set [:article "w"])))
+    (is (= #{[:article-list]} (state/normalize-tag-set [:article-list]))
+        "a single-element marker tag is still one tag, not #{:article-list}"))
+  (testing "an existing tag-SET form lowers UNCHANGED (no regression)"
+    (is (= #{[:article "w"]} (state/normalize-tag-set #{[:article "w"]})))
+    (is (= #{[:article "w"]} (state/normalize-tag-set [[:article "w"]]))
+        "a vector wrapping one tag is the set of that tag")
+    (is (= #{[:article "w"] [:article-list]}
+           (state/normalize-tag-set #{[:article "w"] [:article-list]}))))
+  (testing "the mutation :invalidates bare shorthand lowers a lone vector tag
+            to one :rf.scope/same descriptor carrying the one tag"
+    (let [[d & more] (mstate/normalize-invalidation-descriptors [:article "w"] 'test)]
+      (is (nil? more))
+      (is (= :rf.scope/same (:scope d)))
+      (is (= #{[:article "w"]} (:tags d))
+          "the lone tag is the single tag, NOT #{:article \"w\"}"))))
+
+(deftest lone-vector-tag-matches-the-right-resource-end-to-end
+  ;; The adversarial end-to-end: a mutation whose :invalidates returns a LONE
+  ;; vector tag `[:article slug]` must invalidate the entry carrying that tag.
+  ;; Pre-fix, `(set raw)` made it `#{:article "w"}`, matching NOTHING — the
+  ;; ownerless article stayed fresh (a silent no-op the author never sees).
+  (reg-article-resource!)
+  (rf/reg-mutation :m/save
+    {:scope :rf.scope/global
+     :params-schema [:map [:slug :string]]
+     :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
+     ;; a LONE vector tag written directly (not wrapped in a set) — the natural
+     ;; single-tag shorthand the bead flags as silently failing.
+     :invalidates (fn [{:keys [slug]} _result] [:article slug])})
+  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
+                                          :params {:slug "w"} :owner [:v :a]}])
+  (reply-success! @last-managed-args {:title "old"})
+  (rf/dispatch-sync [:rf.resource/release-owner {:resource :r/article :scope :rf.scope/global
+                                                 :params {:slug "w"} :owner [:v :a]}])
+  (reset! last-managed-args nil)
+  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :lv1}])
+  (reply-success! @last-managed-args {:title "new"})
+  (testing "the lone vector tag matched + invalidated the [:article \"w\"] entry"
+    (is (some? (:invalidated-at (entry global-key)))
+        "the article carrying tag [:article \"w\"] was marked stale")))
+
+(deftest lone-vector-tag-direct-invalidate-tags-event-matches
+  ;; The SAME tag semantics on the DIRECT :rf.resource/invalidate-tags event:
+  ;; a lone vector `:tags [:article "w"]` invalidates the [:article "w"] entry
+  ;; (events.cljc routes through the same shared state/normalize-tag-set).
+  (reg-article-resource!)
+  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
+                                          :params {:slug "w"} :owner [:v :a]}])
+  (reply-success! @last-managed-args {:title "old"})
+  (rf/dispatch-sync [:rf.resource/release-owner {:resource :r/article :scope :rf.scope/global
+                                                 :params {:slug "w"} :owner [:v :a]}])
+  (reset! last-managed-args nil)
+  ;; a lone vector tag on the public event :tags
+  (rf/dispatch-sync [:rf.resource/invalidate-tags
+                     {:scope :rf.scope/global :tags [:article "w"]
+                      :cause [:manual :t/inv]}])
+  (testing "the direct event's lone vector :tags matched the [:article \"w\"] entry"
+    (is (some? (:invalidated-at (entry global-key)))
+        "the article was marked stale by the lone-vector :tags")))
+
+;; ===========================================================================
 ;; rf2-fi6tda.4 finding 3 — pin the per-pass :rf.resource/invalidated EP fields
 ;; ===========================================================================
 

@@ -224,9 +224,14 @@ stacked sections:
      `:rf.mutation/replied` trace (mutation phase 6, after cache
      consequences + instance settlement): the mutation id, instance, work
      id, the accepted reply `:status`, and the call-site `:reply-to` event
-     **target**. A row here is positive evidence the accepted reply
-     continued into app workflow; a stale/superseded reply never fires one
-     (it appears as `:rf.mutation/stale-suppressed` instead).
+     **target**. The runtime emits this row from the settlement boundary
+     **after** the `:rf.mutation/succeeded` / `:rf.mutation/failed`
+     settlement trace (rf2-ru73k6 F2), so the row's stream position
+     truthfully follows settlement — it is post-settlement evidence, not a
+     row built while the continuation effect is still being assembled. A
+     row here is positive evidence the accepted reply continued into app
+     workflow; a stale/superseded reply never fires one (it appears as
+     `:rf.mutation/stale-suppressed` instead).
 7. **Cache growth** — per-resource aggregate of entry count, owned
    count, and GC-eligible count, plus the totals + live-work count.
    Surfaces unbounded list-param growth (many entries, few owners).

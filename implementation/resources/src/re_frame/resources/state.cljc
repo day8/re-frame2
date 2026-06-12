@@ -87,6 +87,45 @@
   []
   [resources-key :owner-index])
 
+;; ---- tag-set input normalization (Spec 016 §Invalidation) -----------------
+;;
+;; A resource TAG is itself a VECTOR — `[:article slug]`, `[:article-list]`,
+;; `[:feed]` — a structured name for a remote FACT. A tag-SET is a set / seq of
+;; those tag vectors. The two public surfaces that accept a tag-set input — the
+;; mutation `:invalidates` bare shorthand (mutation-runtime) and the direct
+;; `:rf.resource/invalidate-tags` event `:tags` (events) — both must lower an
+;; author's bare input to the canonical `#{<tag> …}` set, and BOTH must treat a
+;; LONE vector tag the same way. A naive `(set raw)` splits a lone `[:article
+;; slug]` into `#{:article slug}` — a scalar tag-set that matches NOTHING (a
+;; silent no-op). This one shared normalizer is the single tag-input contract.
+
+(defn lone-tag?
+  "True iff `raw` is a SINGLE tag written directly (a vector whose first
+  element is NOT itself a collection — `[:article slug]`, `[:article-list]`),
+  rather than a tag-SET (a set / seq whose elements are tag vectors). A tag's
+  components are scalars (a keyword namespace marker + scalar ids), so a vector
+  whose head is a scalar is one tag; a collection whose head is itself a
+  collection is a set of tags. An empty vector is NOT a lone tag (it carries no
+  marker). Per Spec 016 §Invalidation — a tag is a vector."
+  [raw]
+  (and (vector? raw)
+       (seq raw)
+       (not (coll? (first raw)))))
+
+(defn normalize-tag-set
+  "PURE: lower an author's bare tag-set input to the canonical `#{<tag> …}`
+  set. Accepts a set / sequential collection of TAGS (each tag a vector) — the
+  ordinary form — OR a LONE tag vector written directly (`[:article slug]`),
+  which is treated as the ONE tag `#{[:article slug]}` rather than silently
+  split into `#{:article slug}` (a scalar set that matches nothing). Both the
+  mutation `:invalidates` bare shorthand and the direct
+  `:rf.resource/invalidate-tags` `:tags` route through here, so a lone vector
+  tag has ONE meaning across the cache. Per Spec 016 §Invalidation."
+  [raw]
+  (if (lone-tag? raw)
+    #{raw}
+    (set raw)))
+
 (defn entry-path
   "Runtime-db-relative path to a single cache entry. Accepts the scoped
   resource key VECTOR `[cache-scope resource-id canonical-params]` and keys
