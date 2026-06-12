@@ -46,7 +46,8 @@
             [re-frame.ssr.boot :as boot]
             [re-frame.ssr.error-listener :as error-listener]
             [re-frame.ssr.error-projector :as error-projector]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.ssr.test-fixture :as tf]
+            [re-frame.subs :as subs]))
 
 (use-fixtures :each
   (fn [t]
@@ -78,6 +79,34 @@
       ::acceptance-recorder
       (fn [record] (swap! seen conj (:error record))))
     seen))
+
+(defn- capture-records!
+  "Like `capture-always-on!` but records the WHOLE record (not just the
+  `:error` slot) so a consumer can assert the union shape's `:frame` /
+  `:where` / `:failing-id` / `:recovery` slots. Returns the seen-records
+  atom."
+  []
+  (let [seen (atom [])]
+    (rf/register-error-listener!
+      ::record-recorder
+      (fn [record] (swap! seen conj record)))
+    seen))
+
+(defn- register-hydration-handlers!
+  "Register the minimal subs that let a frameful `:rf/hydrate` rejection
+  be observed fail-closed through the REAL router (mirrors the baseline
+  handlers in `ssr_hydration_test`): `:count` / `:title` read app-db,
+  `:hydrated?` reads the durable runtime-db hydration metadata slot. The
+  `tf/reset-runtime` fixture clears registrations before each test, so
+  this runs inside the test body."
+  []
+  (rf/reg-event-db ::inc       (fn [db _ev]   (update db :count (fnil inc 0))))
+  (rf/reg-event-db ::set-title (fn [db [_ t]] (assoc db :title t)))
+  (rf/reg-sub :count (fn [db _] (or (:count db) 0)))
+  (rf/reg-sub :title (fn [db _] (or (:title db) "untitled")))
+  ;; EP-0001 (rf2-vzld77): hydration metadata is durable runtime-db state.
+  (subs/reg-runtime-sub :hydrated?
+    (fn [rt _] (boolean (get-in rt [:rf.runtime/ssr :hydration])))))
 
 ;; ===========================================================================
 ;; (A) EXERCISE — each promoted category fans out through
@@ -180,6 +209,84 @@
           (is (empty? @error-listener/pending-error-traces)
               "a frameless record is not buffered for any frame's
                projection — no status moved"))))))
+
+(deftest malformed-hydration-payload-frameful-reaches-listener-under-debug-off
+  (testing "rf2-hguive: the FRAMEFUL `:rf/hydrate` shape-guard emit
+            (the frame EXISTS) rides the always-on
+            `register-error-listener!` axis under `debug-enabled? = false`
+            — the production posture where the dev trace surface is elided.
+            Driven END-TO-END through the REAL router against a client
+            frame: a malformed payload is REJECTED (app-db + runtime-db
+            unchanged), AND exactly one `:rf.error/malformed-hydration-payload`
+            record reaches the off-box listener carrying the frame context
+            (`:frame <client-frame>`, `:where 'rf.ssr/hydrate`,
+            `:failing-id :rf/hydrate`, `:recovery :no-recovery`). This pins
+            the frameful site the bead names — before this only the
+            PRE-FRAME frameless sibling (above) was pinned on the always-on
+            axis under debug-off, so the frameful site could silently
+            regress to dev-trace-only while the fail-closed-state tests in
+            `ssr_hydration_test` still passed.
+
+            ADVERSARIAL: the assertion is NOT merely 'the rejection
+            happened' (covered elsewhere) — it is that the always-on record
+            SURVIVES production elision (`debug-enabled? false`) AND carries
+            the frame so an off-box shipper can attribute the corrupt
+            payload to the right frame. Two malformed shapes are
+            parametrised — a non-map app-db slice and a non-map runtime-db
+            slice — so both fail-closed branches of the guard are pinned on
+            the always-on axis, not just one."
+    (doseq [bad-payload [{:rf/app-db "slice-is-a-string"}
+                         {:rf/app-db   {:count 99 :title "would-replace"}
+                          :rf/runtime-db [:runtime :is :a :vector]}]]
+      (let [seen-records (capture-records!)]
+        (register-hydration-handlers!)
+        (let [client-frame (rf/make-frame {:doc "ep0008-hguive client frame"
+                                           :platform :client})]
+          ;; Seed a recognisable pre-hydration client slice so we can prove
+          ;; the rejection left both partitions untouched (fail-closed).
+          (rf/dispatch-sync [::set-title "pre-hydration"] {:frame client-frame})
+          (rf/dispatch-sync [::inc]                       {:frame client-frame}) ;; 0 → 1
+          (with-redefs [interop/debug-enabled? false]
+            (rf/dispatch-sync [:rf/hydrate bad-payload] {:frame client-frame}))
+
+          ;; (A) the FRAMEFUL always-on record reached the off-box listener
+          ;;     under debug-off, carrying the frame context.
+          (let [recs (filter #(= :rf.error/malformed-hydration-payload (:error %))
+                             @seen-records)
+                rec  (first recs)]
+            (is (= 1 (count recs))
+                (str (pr-str bad-payload)
+                     ": exactly ONE frameful malformed-hydration record fanned
+                      out on the always-on axis (no duplicate)"))
+            (is (some? rec)
+                (str (pr-str bad-payload)
+                     ": the frameful malformed-payload record reached the
+                      listener under debug-off (dev trace elided)"))
+            (is (= client-frame (:frame rec))
+                (str (pr-str bad-payload)
+                     ": the always-on record carries the REJECTING client
+                      frame (not nil — this is the frameful site, the
+                      frameless pre-frame parse is the sibling)"))
+            (is (= 'rf.ssr/hydrate (:where rec))
+                (str (pr-str bad-payload) ": :where is the hydrate handler"))
+            (is (= :rf/hydrate (:failing-id rec))
+                (str (pr-str bad-payload) ": :failing-id is the :rf/hydrate event"))
+            (is (= :no-recovery (:recovery rec))
+                (str (pr-str bad-payload)
+                     ": :recovery is :no-recovery (fail-closed boundary)"))
+            (is (string? (:reason rec))
+                (str (pr-str bad-payload) ": a human-readable :reason rides along")))
+
+          ;; (B) FAIL-CLOSED — the existing client state survives the
+          ;;     malformed payload (the rejection the always-on record reports
+          ;;     is real, not a phantom emit on an applied hydration).
+          (is (= "pre-hydration" (rf/subscribe-once client-frame [:title]))
+              (str (pr-str bad-payload) ": :title unchanged (fail closed)"))
+          (is (= 1 (rf/subscribe-once client-frame [:count]))
+              (str (pr-str bad-payload) ": :count unchanged (fail closed)"))
+          (is (false? (rf/subscribe-once client-frame [:hydrated?]))
+              (str (pr-str bad-payload)
+                   ": no hydration metadata stashed (rejected, not applied)")))))))
 
 ;; ===========================================================================
 ;; (B) WIRE-UNCHANGED for the NON-PROJECTING categories driven through the
