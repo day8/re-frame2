@@ -36,7 +36,7 @@ The **metadata map** is open (consumers tolerate unknown keys; new keys are adde
 
 | Key | Type | Required? | Meaning |
 |---|---|---|---|
-| `:doc` | string | SHOULD (dev-warned) | One-sentence description of what this registration does. Surfaced in tooling, agent inspection, error messages. Absent on a `reg-*` call, the dev-build runtime emits `:rf.warning/missing-doc` once per `(kind, id)` pair (per [§`:doc` is dev-warned when absent](#doc-is-dev-warned-when-absent), below). The key is **not** structurally required — the registration succeeds without it; the warning is the nudge, not a gate. Production builds elide the check entirely. |
+| `:doc` | string | SHOULD (dev-warned) | One-sentence description of what this registration does. Surfaced in tooling, agent inspection, error messages. Absent on a `reg-*` call, the dev-build runtime emits `:rf.warning/missing-doc` once per `(kind, id)` pair (per [§`:doc` is dev-warned when absent](#doc-is-dev-warned-when-absent), below). The key is **not** structurally required — the registration succeeds without it; the warning is the nudge, not a gate. **Pure documentation** — production builds elide both the warning check AND the key itself: `:doc` is stripped from public `(rf/handler-meta …)` and DCE'd from the bundle under `:advanced` + `goog.DEBUG=false` (rf2-9wwkcm, per [§Production elision contract](#production-elision-contract)). |
 | `:schema` | schema | optional | Shape description for the registration's input or output. In dynamic hosts, a Malli/Pydantic/Zod schema; in static hosts, the host's type system. (See [010](010-Schemas.md) for CLJS-specific Malli usage.) |
 | `:ns` | symbol | auto-supplied | Source namespace where the registration occurred. Captured by the macro at compile time (CLJS reference). |
 | `:line` | integer | auto-supplied | Source line. |
@@ -166,7 +166,7 @@ The same compile-time `(meta &form)` capture extends beyond `reg-*` registration
 
 ### Production elision contract
 
-Source-coord capture has TWO sinks; each obeys a different production-elision policy. The split lets dev tooling (Xray Open-in-editor, re-frame-pair, IDE jump-to-source) read coords from `(rf/handler-meta ...)` in dev while keeping the public registry-meta surface cheap in production AND retaining source-line info on the always-on error-emit substrate for off-box observability (Sentry, Honeybadger, Rollbar).
+Source-coord capture has TWO sinks; each obeys a different production-elision policy. The split lets dev tooling (Xray Open-in-editor, re-frame-pair, IDE jump-to-source) read coords from `(rf/handler-meta ...)` in dev while keeping the public registry-meta surface cheap in production AND retaining source-line info on the always-on error-emit substrate for off-box observability (Sentry, Honeybadger, Rollbar). A THIRD policy (rf2-9wwkcm) strips the one *user-supplied* pure-documentation key — `:doc` — from the public registry-meta in production. The general rule and the full elidable-vs-retained classification are in §Registration-metadata elision classification below.
 
 1. **Public registry-meta — STRIPPED in production.** Under `:advanced` + `goog.DEBUG=false` (and JVM SSR with `-Dre-frame.debug=false`), `(rf/handler-meta kind id)` MUST NOT carry `:ns` / `:file` / `:line` / `:column` coord-keys. Xray Open-in-editor and re-frame-pair are dev-only tools shipped via preloads; they do not reach the registry in production bundles. The CLJS reference achieves this via [[re-frame.source-coords/merge-coords]] returning `user-meta` unchanged when `interop/debug-enabled?` is false. Additionally, the macro-emitted coords-form literal omits `:column` in the production branch — the Closure compiler folds `(if interop/debug-enabled? <dev-coords> <prod-coords>)` and the dev shape (with `:column`) DCEs from the bundle.
 
@@ -174,12 +174,33 @@ Source-coord capture has TWO sinks; each obeys a different production-elision po
 
    The parallel registry is a separate channel by construction so that Policy A (strip from public meta) does not conflict with Policy B (retain for error-emit). Programmatic registrations (HoF, runtime registration via the fn aliases that bypass the macro path) leave `*pending-coords*` unbound; the parallel registry has no entry for those `(kind, id)` pairs and the error-emit substrate's `:source-coord` slot is ABSENT (not nil) for them.
 
+3. **Pure-documentation metadata — STRIPPED in production** (rf2-9wwkcm). Beyond the framework-injected source coords, one *user-supplied* key is pure dev/authoring documentation with zero production runtime use AND zero production observability use: **`:doc`**. Under `:advanced` + `goog.DEBUG=false` (and JVM SSR with `-Dre-frame.debug=false`), `(rf/handler-meta kind id)` MUST NOT carry `:doc`. The CLJS reference strips it at the single `registrar/register!` chokepoint (`strip-pure-documentation`, gated on `interop/debug-enabled?`) so the strip covers every `reg-*` surface uniformly. To additionally DCE the `:doc` STRING bytes from the bundle — a runtime strip cannot, because the call-site map literal `{:doc "…"}` is constructed before reaching `register!` — the `reg-*` macros (`defreg-macro` / `defreg-event-macro`) rewrite any **literal** doc-bearing metadata-map argument into an `(if interop/debug-enabled? <full-map> <stripped-map>)` form: the outermost gate Closure constant-folds, DCEing the dev arm (with its `:doc` literal). Non-literal opts (a symbol, a computed `merge`) still have `:doc` stripped from the stored handler-meta but their bytes are outside the macro's reach. The `:rf.warning/missing-doc` dev nudge (below) is itself dev-gated and reads `:doc` before the strip can hide it.
+
+### Registration-metadata elision classification
+
+A registration-metadata key is **elidable** in production iff it has ZERO production runtime use AND zero production observability use (pure dev/authoring documentation). Everything else is **load-bearing** and MUST be retained. Stripping a load-bearing key is a correctness bug — this table is the normative guard so nobody widens the elidable set by reflex:
+
+| Key(s) | Class | Why |
+|---|---|---|
+| `:doc` | **Elidable** | Pure documentation — surfaced in dev tooling / agent inspection only; never read at runtime, never shipped to off-box observability. |
+| `:ns` / `:file` / `:line` / `:column` (auto-captured source coords) | **Elidable from public meta** (Policy A) — but RETAINED on the always-on error-coord registry (Policy B) | Public-meta coords serve dev jump-to-source; the error-emit channel keeps `:ns`/`:file`/`:line` for Sentry-style shippers. |
+| `:sensitive?` / `:large?` | **Retained** | Drive production redaction / egress projection (Spec 015 / [EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md)). Production-critical. |
+| `:tags` | **Retained** | Runtime: machine `:tags` → `:fsm/tags` containment subs; resource `:tags` → invalidation. |
+| `:interceptors` | **Retained** | Runtime behaviour (the effective chain the registrar holds). |
+| `:schema` / `:data-schema` | **Retained** | Validation against a schema is itself dev-gated (already elided per [010 §Production builds](010-Schemas.md)), so the schema looks elidable — but the `:sensitive?` / `:large?` redaction marks are **precomputed FROM the schema at registration time** (the schema→marks bridge writes plain declarations into the elision / marks side-tables; the redaction path reads those declarations, NOT the schema VALUE, at egress). Because the marks are precomputed, the schema is NOT load-bearing at egress — but it remains a dev introspection surface and eliding it is out of scope here; it stays retained. |
+| resource/mutation runtime keys (`:request`, `:transport`, `:scope`, `:params-schema`, `:stale-after-ms`, `:gc-after-ms`, `:invalidates`, `:populates`, `:patches`) | **Retained** | Runtime behaviour of the Resources artefact (Spec 016). |
+| `:rf/id` + the handler fn | **Retained** | They ARE the registration. |
+
+The elidable set in the CLJS reference is `re-frame.registrar/pure-documentation-keys` — exactly `#{:doc}`, fixed-and-additive by Spec change. The elision probe (`scripts/check-elision.cjs`, the `rf2-9wwkcm-doc-elision-sentinel`) pins the `:doc` string's production absence.
+
 | Sink | Dev (`debug-enabled? true`) | Prod (`debug-enabled? false`) |
 |---|---|---|
-| `(rf/handler-meta kind id)` `:ns`/`:file`/`:line`/`:column` | Present (full coord-map) | Absent (stripped — public meta carries only user-supplied keys) |
+| `(rf/handler-meta kind id)` `:ns`/`:file`/`:line`/`:column` | Present (full coord-map) | Absent (stripped — Policy A) |
+| `(rf/handler-meta kind id)` `:doc` | Present (retained for tooling / agent inspection) | Absent (stripped — pure documentation, rf2-9wwkcm) |
+| `(rf/handler-meta kind id)` load-bearing keys (`:sensitive?`/`:large?`/`:tags`/`:interceptors`/`:schema`/resource-mutation/`:rf/id`) | Present | Present (RETAINED) |
 | Tight error-record `:source-coord` (Sentry shippers) | Present `{:ns :file :line :column}` | Present `{:ns :file :line}` (no `:column`) |
 
-This contract is JS-cross-compile-language-agnostic in spirit: ports MAY choose to keep coords on the public meta in production if their host's bundle-elision story differs (TypeScript / squint paths have different DCE characteristics). The minimum bar is "source-line info survives to error-emit listeners under the host's production-build mode" — the public-meta strip is a CLJS-specific optimisation.
+This contract is JS-cross-compile-language-agnostic in spirit: ports MAY choose to keep coords / `:doc` on the public meta in production if their host's bundle-elision story differs (TypeScript / squint paths have different DCE characteristics). The minimum bar is "source-line info survives to error-emit listeners under the host's production-build mode" — the public-meta strip (coords AND `:doc`) is a CLJS-specific optimisation.
 
 ## The query API
 

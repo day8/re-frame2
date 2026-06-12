@@ -50,9 +50,13 @@
                        (fn [db _] db))
       (let [meta (rf/handler-meta :event :rf2-3un2g/prod-elide-event)]
         (is (some? meta))
-        (is (= "stripped" (:doc meta))
-            "user-supplied :doc is preserved — only auto-captured
-             coord-keys are stripped")
+        ;; rf2-9wwkcm: `:doc` is now ALSO stripped from public registry-meta
+        ;; in prod (it is pure-documentation — zero production runtime /
+        ;; observability use). This supersedes the prior "doc preserved"
+        ;; assertion (the coord-keys were never the only strip — the
+        ;; classification widened to include the pure-documentation key).
+        (is (not (contains? meta :doc))
+            "pure-documentation :doc absent from registry-meta in prod (rf2-9wwkcm)")
         (is (not (contains? meta :ns))     ":ns absent from registry-meta in prod")
         (is (not (contains? meta :file))   ":file absent from registry-meta in prod")
         (is (not (contains? meta :line))   ":line absent from registry-meta in prod")

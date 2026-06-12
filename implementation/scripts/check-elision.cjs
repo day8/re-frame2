@@ -423,7 +423,35 @@ const DEV_ONLY_SENTINELS = [
   { source: 're-frame.events/merge-form-source (rf.handler/source slot keyword)',
     sentinel: 'rf.handler/source' },
   { source: 're-frame.core/reg-event-db macro (form-source pr-str literal)',
-    sentinel: ':probe/cs-event (fn [db _ev]' }
+    sentinel: ':probe/cs-event (fn [db _ev]' },
+  // re-frame.core/reg-* macros — pure-documentation registration metadata
+  // (`:doc`) elision (Spec 001 §Production elision contract, rf2-9wwkcm).
+  // `:doc` is the one PURE-documentation registration-metadata key: zero
+  // production runtime use, zero production observability use. Two mechanisms
+  // pin its production absence:
+  //   1. `re-frame.registrar/register!` strips the pure-documentation keys
+  //      (`strip-pure-documentation`) from the STORED metadata under
+  //      :advanced + goog.DEBUG=false, so `(rf/handler-meta kind id)` carries
+  //      no `:doc` in production. (Asserted by the JVM/CLJS unit tests, not a
+  //      bundle grep — a runtime strip cannot DCE a user-authored call-site
+  //      string.)
+  //   2. The reg-* macros (`defreg-macro` / `defreg-event-macro` via
+  //      `gate-doc-args`) rewrite a LITERAL doc-bearing metadata-map argument
+  //      into `(if interop/debug-enabled? <full-map> <stripped-map>)` — the
+  //      outermost gate Closure constant-folds, DCEing the dev arm (with its
+  //      `:doc` string literal) under :advanced + goog.DEBUG=false. THIS is
+  //      what the bundle grep below asserts.
+  //
+  // The elision-probe's `touch-doc-metadata!` registers
+  //   (rf/reg-event-db :probe/doc-event
+  //     {:doc "rf2-9wwkcm-doc-elision-sentinel: …"} (fn [db _ev] db))
+  // Under DEBUG=true the literal-map gate's dev arm keeps the `:doc` string
+  // (it also rides the form-source `pr-str`), so the sentinel lands in the
+  // control bundle; under DEBUG=false BOTH the literal-map gate's dev arm and
+  // the form-source gate DCE the string entirely. The sentinel is distinctive
+  // enough that a global grep is unambiguous.
+  { source: 're-frame.core/reg-* macros (:doc pure-documentation metadata literal)',
+    sentinel: 'rf2-9wwkcm-doc-elision-sentinel' }
   // Note (rf2-d3k3): re-frame.views/maybe-warn-plain-fn-under-non-
   // default-frame! emits :rf.warning/plain-fn-under-non-default-frame-
   // once gated on interop/debug-enabled?. We do NOT add a sentinel

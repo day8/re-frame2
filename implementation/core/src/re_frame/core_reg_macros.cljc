@@ -65,6 +65,88 @@
                   ~(source-coords/prod-coords-form form-meta file ns-sym))]
         ~body-form)))
 
+;; ---- pure-documentation (:doc) literal-map elision (rf2-9wwkcm) ----------
+;;
+;; Per Spec 001 §Production elision contract, `:doc` is the one PURE-
+;; documentation registration-metadata key. `re-frame.registrar/register!`
+;; strips it from the STORED metadata in production so `(rf/handler-meta
+;; …)` carries no `:doc` there — but that runtime strip alone does NOT DCE
+;; the user-authored `:doc` STRING bytes from the bundle: the call-site map
+;; literal `{:doc "…"}` is constructed and passed to `register!`, so Closure
+;; cannot prove the string dead.
+;;
+;; To DCE the string, the reg-* macro rewrites a LITERAL metadata-map
+;; argument carrying a pure-documentation key into an
+;; `(if interop/debug-enabled? <full-map> <stripped-map>)` form — the
+;; OUTERMOST gate Closure constant-folds under `:advanced` + `goog.DEBUG=
+;; false`, DCEing the dev arm (with the `:doc` string literal) entirely. In
+;; dev the full map (with `:doc`) is retained for tooling / agent
+;; inspection. This is the metadata-map analogue of the source-coords /
+;; form-source elision gates already emitted by these macros.
+;;
+;; Only LITERAL maps are gated (the overwhelming-majority authoring shape).
+;; A non-literal opts argument (a symbol, a computed map, a `merge` call)
+;; passes through unchanged — its `:doc` (if any) is still stripped from the
+;; stored handler-meta by the runtime `register!` strip, but its string bytes
+;; are outside the macro's reach. The reg-event grammar's positional middle
+;; slot may be a metadata-map OR an interceptor-vector (never a string), so
+;; gating EVERY literal-map argument is safe — an interceptor-vector is not a
+;; map, and a literal map that happens not to carry `:doc` is left untouched.
+
+#?(:clj
+   (def ^:private pure-documentation-keys
+     "Mirror of `re-frame.registrar/pure-documentation-keys` for the
+     compile-time literal-map gate. Kept in this ns (rather than requiring
+     the runtime registrar ns into the macro-defining ns) so the JVM-side
+     macro layer stays free of a runtime-ns dependency at expansion time;
+     `re-frame.registrar` is the normative owner of the set (Spec 001
+     §Production elision contract). A drift between the two would be caught
+     by the elision probe (string survives) — but the set is `#{:doc}` and
+     fixed-and-additive by Spec change."
+     #{:doc}))
+
+#?(:clj
+   (defn ^:private doc-bearing-literal-map?
+     "True when `x` is a literal map form carrying at least one pure-
+     documentation key (`:doc`). Literal maps read as `clojure.lang.IPersistentMap`;
+     a `(hash-map …)` / `(merge …)` call reads as a list and is NOT gated
+     (its `:doc`, if any, rides the runtime `register!` strip for handler-meta
+     absence but is outside the macro's string-DCE reach)."
+     [x]
+     (and (map? x)
+          (some #(contains? x %) pure-documentation-keys))))
+
+#?(:clj
+   (defn gate-doc-arg
+     "Rewrite a single reg-* macro argument `arg` for pure-documentation
+     elision (rf2-9wwkcm). When `arg` is a LITERAL metadata-map carrying a
+     pure-documentation key (`:doc`), return an
+     `(if re-frame.interop/debug-enabled? <arg> <arg-without-doc-keys>)`
+     form so Closure constant-folds the gate under `:advanced` +
+     `goog.DEBUG=false` and DCEs the dev arm (with its `:doc` string
+     literal). Any other arg (an interceptor-vector, a non-doc-bearing map,
+     a handler fn, an id keyword, a non-literal opts expr) is returned
+     unchanged.
+
+     The stripped map is computed at expansion time via `apply dissoc`, so
+     the prod arm carries a literal map with the documentation keys already
+     gone — no runtime work, and the dev `:doc` string never reaches the
+     prod arm's reachability graph."
+     [arg]
+     (if (doc-bearing-literal-map? arg)
+       `(if re-frame.interop/debug-enabled?
+          ~arg
+          ~(apply dissoc arg pure-documentation-keys))
+       arg)))
+
+#?(:clj
+   (defn gate-doc-args
+     "Map `gate-doc-arg` across a reg-* macro's argument seq, gating every
+     literal doc-bearing metadata-map for production elision (rf2-9wwkcm).
+     Returns the rewritten arg seq the macro splices into its delegate call."
+     [args]
+     (map gate-doc-arg args)))
+
 ;; ---- defreg-macro --------------------------------------------------------
 ;;
 ;; `defreg-macro` (rf2-bd6zl) is a macro-defining macro that emits a
@@ -112,9 +194,11 @@
           ~docstring
           ~(or attr-map {})
           [~'& args#]
+          ;; rf2-9wwkcm: gate any literal doc-bearing metadata-map arg so its
+          ;; `:doc` string DCEs under :advanced + goog.DEBUG=false.
           (with-coords-form (meta ~'&form) ~'*file*
                             (symbol (str (ns-name ~'*ns*)))
-                            (list* '~qualified args#))))))
+                            (list* '~qualified (gate-doc-args args#)))))))
 
 ;; ---- defreg-event-macro --------------------------------------------------
 ;;
@@ -177,10 +261,15 @@
           ~docstring
           ~(or attr-map {})
           [~'& args#]
+          ;; rf2-9wwkcm: gate any literal doc-bearing metadata-map arg so its
+          ;; `:doc` string DCEs under :advanced + goog.DEBUG=false. (The
+          ;; form-source `pr-str` captured by `with-form-source-form` already
+          ;; DCEs its own `:doc` bytes via the form-source debug-gate; this
+          ;; gates the runtime call-site map literal too.)
           (with-form-source-form ~'&form
             (with-coords-form (meta ~'&form) ~'*file*
                               (symbol (str (ns-name ~'*ns*)))
-                              (list* '~qualified args#)))))))
+                              (list* '~qualified (gate-doc-args args#))))))))
 
 ;; ---- reg-machine expansion (co-located per-element source) ---------------
 ;;
