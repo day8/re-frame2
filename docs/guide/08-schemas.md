@@ -110,7 +110,7 @@ The other everyday surface. Every `reg-event-*` accepts an optional metadata map
 
 `[:cat ...]` means "a sequence of exactly these, in order." First element is the event id itself, pinned by `[:= :form.login/edit-field]`; second is the field keyword; third is the string value. Dispatch `[:form.login/edit-field :email "user@host"]` and it passes. Dispatch `[:form.login/edit-field "email" 42]` and it fails fast with `:where :event`, the handler is *not invoked*, and the cascade halts at this event (other events already in the queue keep draining).
 
-`:schema` works across the whole `reg-*` family — `reg-sub` validates the return value, `reg-fx` the fx args, `reg-cofx` the injected value — always the same shape, a Malli schema in the metadata map. The failure-handling rule per surface is worth pinning, because the responses differ sensibly: **event-vector and cofx failures skip the handler; `app-db` failures roll back; fx-args failures skip the one offending fx; sub-return failures default the sub to `nil`.** Each does the least-destructive thing that still refuses to propagate bad data.
+`:schema` works across the whole `reg-*` family — `reg-sub` validates the return value, `reg-fx` the fx args, `reg-cofx` the supplied or replayed coeffect value — always the same shape, a Malli schema in the metadata map. The failure-handling rule per surface is worth pinning, because the responses differ sensibly: **event-vector and cofx failures skip the handler; `app-db` failures roll back; fx-args failures skip the one offending fx; sub-return failures default the sub to `nil`.** Each does the least-destructive thing that still refuses to propagate bad data.
 
 ## The off-switch: dev vs production
 
