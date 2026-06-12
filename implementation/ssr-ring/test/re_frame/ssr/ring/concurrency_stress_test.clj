@@ -148,8 +148,8 @@
   ;; ns-load and re-installed by the test-fixture's `:reload`; we
   ;; only register the handler that consumes it.
   (rf/reg-event-fx :rf.test.ozhy9/init
-    {:platforms #{:server}}
-    [(rf/inject-cofx :rf.server/request)]
+    {:platforms        #{:server}
+     :rf.cofx/requires [:rf.server/request]}
     (fn [{request :rf.server/request} _]
       (let [uri    (or (:uri request) "/")
             ;; Strip the `/req/` prefix to extract the per-request token.

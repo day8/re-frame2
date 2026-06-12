@@ -304,8 +304,8 @@
     ;; cofx and routes a URL-change to it. A `/missing/*` URI matches no
     ;; route → drain-time 404; a `/` URI matches :route/home → 200.
     (rf/reg-event-fx :init/route-from-uri
-      {:platforms #{:server}}
-      [(rf/inject-cofx :rf.server/request)]
+      {:platforms        #{:server}
+       :rf.cofx/requires [:rf.server/request]}
       (fn [{request :rf.server/request} _]
         {:fx [[:dispatch [:rf.route/handle-url-change (or (:uri request) "/")]]]}))
     (rf/reg-view* :pages/concurrent-root

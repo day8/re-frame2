@@ -190,10 +190,11 @@
   Required opts:
 
     :on-create   — the event vector dispatched at frame creation. Read
-                   the Ring request map from handlers via
-                   `(rf/inject-cofx :rf.server/request)` — Spec 011 §Request
-                   storage substrate (rf2-afxhv) names the cofx as the
-                   canonical read surface.
+                   the Ring request map from handlers by declaring
+                   `:rf.cofx/requires [:rf.server/request]` on the
+                   registration (EP-0017 — `inject-cofx` is removed) — Spec
+                   011 §Request storage substrate (rf2-afxhv) names the cofx
+                   as the canonical read surface.
     :root-view   — either a hiccup vector (e.g. `[:app/root]`) OR a
                    0-arity fn returning hiccup. Rendered against the
                    per-request frame after the drain settles.
