@@ -3010,15 +3010,18 @@ so the gate is not blinded by them:
 
 - **wall-clock timestamps** — `:committed-at` (epoch record), `:time`
   (trace event), `:elapsed-ms` (run / assertion record), and the
-  framework-stamped `:time-ms` nested inside the `:rf.world/inputs` causal
-  map that rides a `:rf.event/dispatched` trace event's `:tags` (rf2-jt854w —
-  EP-0010 dev-stamps the envelope's world-input map onto the enqueue trace).
-  The `:rf.world/inputs` map itself is **semantic** (caller-supplied `:uuid` /
-  `:random` / browser-or-storage facts are the deterministic causal token a
-  scripted / replayed run pins, and a real difference in them MUST perturb the
-  hash), but its framework-filled `:time-ms` is epoch-ms wall-clock filled
-  fresh per dispatch, so two semantically-equal fresh-frame replays stamp
-  different values — it is stripped one level deeper, like `:committed-at`;
+  framework-stamped `:rf/time-ms` nested inside the flat `:rf.cofx`
+  recordable-coeffect map that rides a `:rf.event/dispatched` trace event's
+  `:tags` (rf2-jt854w — EP-0010 dev-stamps the envelope's recordable-coeffect
+  map onto the enqueue trace; EP-0017 / rf2-alc1lf renamed the field from the
+  nested `:rf.world/inputs` to the flat `:rf.cofx` map and the framework time
+  fact from `:time-ms` to `:rf/time-ms`). The `:rf.cofx` map itself is
+  **semantic** (caller-supplied owner-qualified facts — `:uuid` / `:random` /
+  browser-or-storage facts — are the deterministic causal token a scripted /
+  replayed run pins, and a real difference in them MUST perturb the hash), but
+  its framework-filled `:rf/time-ms` is epoch-ms wall-clock filled fresh per
+  dispatch, so two semantically-equal fresh-frame replays stamp different
+  values — it is stripped one level deeper, like `:committed-at`;
 
 - **elapsed durations** — `:elapsed-ms`, and the dev-only handler
   wall-clock trace tags `:rf.event/elapsed-ms` (event run),
@@ -3043,7 +3046,7 @@ The strip is split by SAFETY: reserved / framework-specific keys
 volatile set) are stripped **recursively** by the projection; the
 genuinely-common keys a trace event / epoch record also carries (`:id`,
 `:time`, `:frame`, the volatile `:tags` keys, and the nested
-`[:tags :rf.world/inputs] :time-ms`) are stripped
+`[:tags :rf.cofx] :rf/time-ms`) are stripped
 **structurally** — only on their trace-event (`:operation` + `:op-type`) or
 epoch-record (`:epoch-id` + a record slot) carrier — so an app-db value
 that legitimately keys on `:id` / `:time` / `:frame` survives and a real
