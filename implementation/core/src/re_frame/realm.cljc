@@ -495,8 +495,15 @@
   This is the realm-side read seam over the D2-reserved `:app` slot: the
   reader's contract — \"give me the realm's installed app value\" — is stable
   across the stage-6/7 graduation; only its internals change (read the stored
-  slot, else project). INTERNAL — no public installed-app read surface ships
-  in stage 5 (EP-0013 issue 1)."
+  slot, else project).
+
+  PUBLICLY RE-EXPORTED as `rf/installed-app` (EP-0013 disposition 6, rf2-imquoq):
+  the realm→installed-app read seam graduated from internal WHEN the Xray
+  Module-view demanded the per-module provenance an `install!`-seated `:app`
+  carries (`:modules` + `:owns` / `:requires` / `:owner`-stamped descriptors).
+  A STATIC read of the install-time value — it does NOT route live dispatch
+  through a non-default realm (the deferred runtime-routing slice). This var stays
+  the canonical implementation; the facade `def` re-exports it unchanged."
   ([] (installed-app default-realm-id))
   ([realm-or-id]
    (let [rid (realm-id realm-or-id)]
