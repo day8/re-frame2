@@ -421,51 +421,66 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest reinstall-removing-a-sugar-registered-step8-kind-refuses-loudly
-  (testing "rf2-cquy9u: a step-8 DEFERRED kind (:mutation/:resource/:route/
-            :flow/…) registered through its OWN sugar reaches the realm's
-            registrar and is projected into reinstall!'s old-app, so a reinstall!
-            that OMITS it lands it in :removed. PRE-FIX the :removed path called
-            registrar/unregister! UNCONDITIONALLY — silently dropping the slot
-            and skipping the subsystem teardown (in-flight abort, routing
-            :current, flow owner-rebind), the silent-orphan window the :frame fix
-            closed, reopened on the removal path. The fix REFUSES LOUDLY with
+  (testing "rf2-cquy9u / rf2-c6armm.9 #1: a step-8 DEFERRED kind registered
+            through its OWN sugar reaches the realm's registrar and is projected
+            into reinstall!'s old-app, so a reinstall! that OMITS it lands it in
+            :removed. PRE-FIX the :removed path called registrar/unregister!
+            UNCONDITIONALLY — silently dropping the slot and skipping the
+            subsystem teardown (in-flight abort, routing :current, flow
+            owner-rebind), the silent-orphan window the :frame fix closed,
+            reopened on the removal path. The fix REFUSES LOUDLY with
             :rf.error/unsupported-descriptor-kind — symmetric with the add/changed
             path's throw — BEFORE any mutation, enumerating the blocking [kind id]
-            and naming the deferred set + the clear-* recovery."
-    ;; Simulate the sugar registration (reg-mutation lives in the resources
-    ;; artefact, off core's test classpath): seat a :mutation slot directly into
-    ;; the default realm's registrar (which IS the global atom), exactly as the
-    ;; sugar's registrar/register! :mutation would. The projection picks it up.
-    (registrar/register! :mutation :cquy9u/save {:handler-fn (fn [& _] nil)})
-    (is (some? (registrar/lookup :mutation :cquy9u/save))
-        "the sugar-registered :mutation slot is in the registrar")
-    ;; reinstall! a new app that OMITS :cquy9u/save → it lands in :removed.
-    ;; Re-declare nothing else mutation/frame-shaped so this refusal (not the
-    ;; :frame refusal) is the one that fires.
-    (let [ed (try (rf/reinstall! :rf.realm/default
-                                 (rf/app {:id :cquy9u/app :modules
-                                          [(rf/module {:id :m
-                                                       :events {:cquy9u/ev {:handler (fn [db _] db)}}})]}))
-                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
-                    (ex-data e)))]
-      (is (= :rf.error/unsupported-descriptor-kind (:error/id ed))
-          "removing a sugar-registered step-8 kind refuses loudly, not silently")
-      (is (some #{[:mutation :cquy9u/save]} (:removed ed))
-          "the diagnostic enumerates exactly the blocking removed [kind id]")
-      (is (contains? (:deferred ed) :mutation)
-          "the refusal names the deferred set")
-      (is (= :clear-through-reg-*-sugar (:recovery ed))
-          "the error names the recovery: clear through the kind's own clear-* sugar"))
-    ;; The refusal was BEFORE any mutation — the :mutation slot is UNTOUCHED (the
-    ;; orphan the bug produced: pre-fix it would be nil here) and the new :added
-    ;; event was NOT seated.
-    (is (some? (registrar/lookup :mutation :cquy9u/save))
-        "the sugar-registered slot survives the refused reinstall — NOT silently unregistered")
-    (is (nil? (registrar/lookup :event :cquy9u/ev))
-        "the refused reinstall seated nothing — it failed before any mutation")
-    ;; Cleanup: drop the directly-seeded slot (the runtime-reset fixture
-    ;; snapshots the registrar, but be explicit since this test seeds it raw).
-    (registrar/unregister! :mutation :cquy9u/save)))
+            and naming the deferred set + the clear-* recovery.
+
+            PARAMETERIZED over the FULL step-8 deferred-kind set (core.cljc:1753)
+            — :route :flow :resource :mutation :resource-scope :view :head
+            :error-projector — not just :mutation: drift in the deferred set or
+            the removal filter could silently unregister routes/resources/flows/
+            views/etc. while a :mutation-only test still passed (rf2-c6armm.9 #1)."
+    ;; Simulate the sugar registration (the reg-route / reg-flow / reg-resource /
+    ;; reg-mutation / … sugar lives in feature artefacts off core's test
+    ;; classpath): seat ONE slot of the deferred kind directly into the default
+    ;; realm's registrar (which IS the global atom), exactly as that kind's sugar
+    ;; registrar/register! <kind> would. The projection picks it up.
+    (doseq [kind [:route :flow :resource :mutation
+                  :resource-scope :view :head :error-projector]]
+      (let [slot-id (keyword "cquy9u" (str (name kind) "-save"))
+            ev-id   (keyword "cquy9u" (str (name kind) "-ev"))]
+        (registrar/register! kind slot-id {:handler-fn (fn [& _] nil)})
+        (is (some? (registrar/lookup kind slot-id))
+            (str "the sugar-registered " kind " slot is in the registrar"))
+        ;; reinstall! a new app that OMITS the slot → it lands in :removed.
+        ;; Re-declare nothing else of a deferred/frame kind so THIS refusal (not a
+        ;; sibling slot's, nor the :frame refusal) is the one whose :removed we
+        ;; assert below — every previously-seeded slot survived its own refusal so
+        ;; it would ALSO be :removed, so we assert membership, not equality.
+        (let [ed (try (rf/reinstall! :rf.realm/default
+                                     (rf/app {:id :cquy9u/app :modules
+                                              [(rf/module {:id :m
+                                                           :events {ev-id {:handler (fn [db _] db)}}})]}))
+                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                        (ex-data e)))]
+          (is (= :rf.error/unsupported-descriptor-kind (:error/id ed))
+              (str "removing a sugar-registered " kind " refuses loudly, not silently"))
+          (is (some #{[kind slot-id]} (:removed ed))
+              (str "the diagnostic enumerates the blocking removed [" kind " " slot-id "]"))
+          (is (contains? (:deferred ed) kind)
+              (str "the refusal names " kind " in the deferred set"))
+          (is (= :clear-through-reg-*-sugar (:recovery ed))
+              "the error names the recovery: clear through the kind's own clear-* sugar"))
+        ;; The refusal was BEFORE any mutation — the slot is UNTOUCHED (the orphan
+        ;; the bug produced: pre-fix it would be nil here) and the new :added
+        ;; event was NOT seated.
+        (is (some? (registrar/lookup kind slot-id))
+            (str "the sugar-registered " kind " slot survives the refused reinstall — NOT silently unregistered"))
+        (is (nil? (registrar/lookup :event ev-id))
+            (str "the refused " kind " reinstall seated nothing — it failed before any mutation"))))
+    ;; Cleanup: drop the directly-seeded slots (the runtime-reset fixture
+    ;; snapshots the registrar, but be explicit since this test seeds them raw).
+    (doseq [kind [:route :flow :resource :mutation
+                  :resource-scope :view :head :error-projector]]
+      (registrar/unregister! kind (keyword "cquy9u" (str (name kind) "-save"))))))
 
 (deftest reinstall-not-omitting-the-step8-kind-leaves-it-untouched
   (testing "rf2-cquy9u: the refusal is targeted at REMOVAL only — a reinstall!
