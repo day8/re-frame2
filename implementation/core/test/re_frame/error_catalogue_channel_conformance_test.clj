@@ -278,15 +278,17 @@
   the remainder are feature-artefact diagnostics surfaced by the wider
   scan and awaiting the same triage."
   #{;; --- the original rf2-r8oiw7 audit set (ruled: stay diagnostic) ---
-    ;; epoch callback isolation — :rf.epoch.cb op-type, time-axis tooling
-    :rf.epoch.cb/listener-exception
-    ;; epoch redaction fallback — DCE'd dev advisory
-    :rf.warning/epoch-redact-fn-exception
-    ;; resources dev advisories owned by the time-axis / resource family
-    :rf.warning/resource-sub-scope-mismatch
+    ;; rf2-hhutya folded FOUR of the original rf2-r8oiw7 rows into the Spec
+    ;; 009 catalogue (as DIAGNOSTIC rows — they fail the EP-0008 promotion
+    ;; criterion and correctly stay diagnostic): `:rf.epoch.cb/listener-
+    ;; exception`, `:rf.warning/epoch-redact-fn-exception`,
+    ;; `:rf.warning/resource-sub-scope-mismatch`,
+    ;; `:rf.warning/on-spawn-return-ignored`. Now catalogued → dropped from
+    ;; the allow-list (the `allow-list-stays-honest` test fails on a listed
+    ;; entry that became catalogued). The remaining original-set members
+    ;; below are NOT yet catalogued.
+    ;; resources clock-skew advisory — owned by the time-axis / resource family
     :rf.resource/hydrate-clock-skew
-    ;; machines DCE'd dev teaching advisory
-    :rf.warning/on-spawn-return-ignored
     ;; (`:rf.resource/restore-clock-skew` + `:rf.route/navigation-blocked`
     ;;  from the audit are NOT in this scan's set: the former is built as a
     ;;  deferred-trace record literal, the latter is emitted with op-type
@@ -307,7 +309,9 @@
     :rf.error/hydration-frame-id-mismatch
     :rf.error/suspense-boundary-duplicate-id
     :rf.ssr/suspense-boundary-failed
-    :rf.error/ssr-ring-error-view-failed
+    ;; (`:rf.error/ssr-ring-error-view-failed` was PROMOTED + catalogued by
+    ;;  rf2-hhutya → dropped from the allow-list; the coverage check now
+    ;;  governs it via its always-on catalogue row.)
     :rf.error/ssr-ring-on-error-failed
     :rf.ssr/csp-allowlist-violation
     :rf.ssr/destroy-frame-failed

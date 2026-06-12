@@ -237,6 +237,76 @@
                     time nil)))
   nil)
 
+;; ---- general non-event always-on record (EP-0008 union shape) -------------
+;;
+;; `dispatch-on-error!` (above) is the EVENT-centric always-on path: it takes
+;; the positional `[error-kw event event-id frame-id exception elapsed-ms
+;; time]` shape, elides the `:event` wire-value, resolves a kind-aware
+;; `:source-coord`, and ALSO routes to the EP-0015 frame-owned observability
+;; sink. That shape is right for handler / interceptor / cofx / sub / fx /
+;; flow categories — failures of a DISPATCHED EVENT or a SUBSCRIBE.
+;;
+;; But not every always-on `:rf.error/*` is an event failure. The
+;; frame-teardown report (rf2-ini4wr) was the FIRST non-event always-on
+;; record — a destroy-time fact with a `:hook-failures` vector, no event, no
+;; `:event-id`. The EP-0008 SSR promotion (rf2-hhutya) adds six more:
+;; render-time / writer-phase / head-resolution / projector-fallback /
+;; hydration-parse failures, each carrying its OWN flat category keys
+;; (`:exception` / `:phase` / `:reason` / `:projector-id` / …) and either a
+;; `:frame` (the server frame) or `nil` (the pre-frame hydration-parse
+;; FRAMELESS case, per the EP-0002 resolution-6 `:rf.error/no-frame-context`
+;; precedent — a frameless always-on record IS supported).
+;;
+;; `dispatch-error-record!` is the GENERAL always-on emit these share: it
+;; takes a PRE-BUILT union record and fans it out unchanged. The union shape
+;; (settled jointly with the teardown report, NOT a second ad-hoc shape):
+;;
+;;     {:error <kw>          ;; the :rf.error/* category (REQUIRED)
+;;      :frame <id-or-nil>   ;; the owning frame, or nil (frameless)
+;;      :time  <millis>      ;; when (REQUIRED)
+;;      …flat category keys… ;; :exception / :phase / :reason / :recovery /
+;;                           ;; :hook-failures / :projector-id / :where / …}
+;;
+;; The SSR error-emit-projection-listener consumes these generically (every
+;; non-`:error` slot rides onto its synthesised `:tags`), so a custom
+;; projector reading `(get-in event [:tags :exception])` sees the same keys
+;; on this path as on the trace path. Designed compatibly with the EP-0015
+;; §9 frame-owned observability sink routing these will eventually flow
+;; through (the sink projects the flat record under the frame's
+;; classification + the sink's egress profile).
+;;
+;; Always-on (NOT `interop/debug-enabled?`-gated): it fires in CLJS
+;; production builds where the dev trace surface is DCE'd. The caller keeps
+;; its existing `trace/emit-error!` for dev richness; this is the
+;; production-survivable sibling.
+
+(defn dispatch-error-record!
+  "Fan a PRE-BUILT always-on error record out through the corpus-wide
+  error-emit listener registry (surface #4). The general, non-event
+  counterpart of [[dispatch-on-error!]] — for `:rf.error/*` categories that
+  are NOT a dispatched-event / subscribe failure and so do not fit the
+  event-centric positional shape (the frame-teardown report, the EP-0008
+  promoted SSR categories). Always-on (NOT gated by
+  `re-frame.interop/debug-enabled?`) — fires in CLJS production builds where
+  the dev trace surface is elided.
+
+  `record` is the union shape (see §General non-event always-on record):
+  `{:error <kw> :frame <id-or-nil> :time <millis> …flat category keys…}`.
+  The caller builds the record (it owns the category-specific slots), keeps
+  identifiers tight, and carries no raw app-db slice — this record is
+  production-surviving and is NOT privacy-gated like the dev trace.
+
+  Reached by other artefacts (the SSR / ssr-ring host layers) through the
+  published `:error-emit/dispatch-error-record` late-bind hook — symmetric
+  with how `frame.cljc` reaches the frameless `:rf.error/no-frame-context`
+  emit and how `frame`/`ssr` reach the teardown report (a static
+  `<artefact>` → `error-emit` require would close a load cycle, or the
+  artefact simply ships above core's require graph). Returns nil."
+  [record]
+  ;; Corpus-wide listeners fan out (the ADVANCED integration registry).
+  ((:fan-out registry) record)
+  nil)
+
 ;; ---- frame-teardown report (EP-0008 promotion criterion) ------------------
 ;;
 ;; The frame-destroy teardown recipe runs many optional cleanup hooks. A
@@ -282,18 +352,22 @@
   report)."
   [frame-id hook-failures time]
   (when (seq hook-failures)
-    (let [record {:error          :rf.error/frame-teardown-failed
-                  :frame          frame-id
-                  :hook-failures  (vec hook-failures)
-                  :recovery       :ignored
-                  :reason         (str (count hook-failures)
-                                       " frame-teardown cleanup hook(s) threw"
-                                       " during destroy; teardown continued"
-                                       " best-effort (skipped cleanup may have"
-                                       " leaked resources)")
-                  :time           time}]
-      ;; Corpus-wide listeners fan out.
-      ((:fan-out registry) record)))
+    ;; The bounded report is itself a non-event union record — fan it out
+    ;; through the shared general helper so the teardown report and the
+    ;; EP-0008 SSR promotions ride ONE fan-out path / ONE record shape, not
+    ;; two ad-hoc ones (rf2-hhutya / rf2-ini4wr — settle one union shape
+    ;; jointly).
+    (dispatch-error-record!
+      {:error          :rf.error/frame-teardown-failed
+       :frame          frame-id
+       :hook-failures  (vec hook-failures)
+       :recovery       :ignored
+       :reason         (str (count hook-failures)
+                            " frame-teardown cleanup hook(s) threw"
+                            " during destroy; teardown continued"
+                            " best-effort (skipped cleanup may have"
+                            " leaked resources)")
+       :time           time}))
   nil)
 
 ;; ---- late-bind hook registration ------------------------------------------
@@ -314,6 +388,16 @@
 ;; (`error-emit` → `elision` → `frame`). Per EP-0008 / rf2-ini4wr.
 (late-bind/set-fn! :error-emit/dispatch-frame-teardown-report
                    dispatch-frame-teardown-report!)
+
+;; The general non-event always-on record helper (rf2-hhutya). The EP-0008
+;; SSR error-emit promotions (`:rf.error/ssr-render-failed`,
+;; `:rf.error/ssr-streaming-writer-failed`, `:rf.error/malformed-hydration-
+;; payload` — incl. the pre-frame FRAMELESS parse path, `:rf.error/ssr-head-
+;; resolution-failed`, `:rf.error/sanitised-on-projection`,
+;; `:rf.error/ssr-ring-error-view-failed`) reach the always-on axis through
+;; this hook from the SSR / ssr-ring host layers (which ship above core's
+;; require graph; the hook keeps them addressable without a static require).
+(late-bind/set-fn! :error-emit/dispatch-error-record dispatch-error-record!)
 
 ;; The corpus-wide listener registry's register / unregister surfaces are
 ;; published through late-bind so `frame.cljc` can install a TRANSIENT

@@ -86,16 +86,41 @@
     ;; the bounded single-report idiom (Spec 009 §Channel-promotion
     ;; catalogue rows). Exercised through its own report path below.
     :rf.error/frame-teardown-failed
-    :rf.error/on-destroy-handler-exception})
+    :rf.error/on-destroy-handler-exception
+    ;; EP-0008 (rf2-hhutya): the seven promoted SSR error categories. These
+    ;; ride the GENERAL non-event always-on helper
+    ;; `error-emit/dispatch-error-record!` (the union-record sibling of the
+    ;; teardown report), NOT the event-centric `dispatch-on-error!` — an SSR
+    ;; render / writer / head / projector / hydration-parse failure is not a
+    ;; dispatched-event failure. (`:rf.error/malformed-hydration-payload`
+    ;; covers BOTH the hydrate-handler path AND the pre-frame FRAMELESS
+    ;; parse sub-path — one catalogue category, two emit sites.) Driven
+    ;; through `dispatch-error-record!` below.
+    :rf.error/ssr-render-failed
+    :rf.error/ssr-streaming-writer-failed
+    :rf.error/malformed-hydration-payload
+    :rf.error/ssr-head-resolution-failed
+    :rf.error/sanitised-on-projection
+    :rf.error/ssr-ring-error-view-failed})
 
-;; The frame-teardown report is the ONE always-on category that does NOT
-;; ride `dispatch-on-error!` (the per-event axis) — it rides the bounded
-;; `dispatch-frame-teardown-report!` sibling instead (Spec 009: one record
-;; per destroy carrying a `:hook-failures` vector, NOT one per item). The
-;; data-driven loop below routes it to the report fn; every other category
-;; goes through `dispatch-on-error!`.
+;; The frame-teardown report is the ONE always-on category that rides the
+;; bounded `dispatch-frame-teardown-report!` sibling (Spec 009: one record
+;; per destroy carrying a `:hook-failures` vector, NOT one per item).
 (def ^:private report-categories
   #{:rf.error/frame-teardown-failed})
+
+;; EP-0008 (rf2-hhutya): the promoted SSR categories ride the GENERAL
+;; non-event always-on helper `dispatch-error-record!` (the union-record
+;; path the teardown report also rides under the hood). The data-driven
+;; loop routes them to that fn with a minimal union record; every remaining
+;; category goes through the event-centric `dispatch-on-error!`.
+(def ^:private record-categories
+  #{:rf.error/ssr-render-failed
+    :rf.error/ssr-streaming-writer-failed
+    :rf.error/malformed-hydration-payload
+    :rf.error/ssr-head-resolution-failed
+    :rf.error/sanitised-on-projection
+    :rf.error/ssr-ring-error-view-failed})
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture — fresh registrar + plain-atom adapter per test; the always-on
@@ -120,7 +145,8 @@
   per-site integration tests pin payload shapes); this drives the category
   through the axis so the listener fan-out can be asserted."
   [cat]
-  (if (contains? report-categories cat)
+  (cond
+    (contains? report-categories cat)
     ;; The bounded teardown report — a non-empty :hook-failures vector so
     ;; the report fn does not short-circuit (it no-ops on empty).
     (error-emit/dispatch-frame-teardown-report!
@@ -129,6 +155,21 @@
         :exception (ex-info "teardown hook threw" {})
         :where :safe-call-hook!}]
       0)
+
+    (contains? record-categories cat)
+    ;; EP-0008 (rf2-hhutya): the general non-event union-record helper. A
+    ;; minimal union record `{:error :frame :time + flat keys}` — the exact
+    ;; per-site payloads (`:exception` / `:phase` / `:reason` / …) are
+    ;; pinned by the per-site SSR integration tests; here we just drive the
+    ;; category THROUGH the axis so the listener fan-out can be asserted.
+    (error-emit/dispatch-error-record!
+      {:error     cat
+       :frame     :conformance/frame
+       :time      0
+       :exception (ex-info "conformance" {})
+       :recovery  :no-recovery})
+
+    :else
     ;; The per-event always-on axis. Arity:
     ;; [error-kw event event-id frame-id exception elapsed-ms time].
     (error-emit/dispatch-on-error!

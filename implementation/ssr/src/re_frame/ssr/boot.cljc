@@ -64,6 +64,7 @@
   `ssr/read-server-payload`."
   (:require [re-frame.frame :as frame]
             [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.router :as router]
             [re-frame.ssr.hydrate :as hydrate]
             [re-frame.trace :as trace]
@@ -74,6 +75,34 @@
             #?(:cljs [cljs.reader :as reader])))
 
 #?(:clj (set! *warn-on-reflection* true))
+
+(defn dispatch-malformed-hydration-frameless!
+  "EP-0008 (rf2-hhutya): surface the PRE-FRAME hydration-parse failure as a
+  FRAMELESS always-on `:rf.error/malformed-hydration-payload` record. The
+  `read-server-payload` DOM read runs BEFORE `hydrate!` resolves the target
+  frame, so there is no `:frame` to carry (`:frame nil`) — exactly the
+  EP-0002 resolution-6 `:rf.error/no-frame-context` precedent that
+  established frameless always-on emission. Corrupt hydration INPUT is a
+  fail-closed boundary event, not a dev teaching diagnostic: an off-box
+  shipper on a `goog.DEBUG=false` client build (dev trace elided) must still
+  see it. Reaches the always-on axis via the `:error-emit/dispatch-error-
+  record` late-bind hook; UNGATED. Extracted as a `.cljc` helper (not inline
+  in the CLJS-only `read-server-payload`) so the JVM test runner can
+  exercise the frameless record shape without a DOM. No-op when the
+  `error-emit` producer hasn't loaded. Returns nil."
+  [where element-id reason]
+  (when-let [dispatch-error-record!
+             (late-bind/get-fn :error-emit/dispatch-error-record)]
+    (dispatch-error-record!
+      {:error      :rf.error/malformed-hydration-payload
+       :frame      nil
+       :time       (interop/now-ms)
+       :where      where
+       :failing-id :rf/hydrate
+       :element-id element-id
+       :reason     reason
+       :recovery   :no-recovery}))
+  nil)
 
 #?(:cljs
    (defn read-server-payload
@@ -115,16 +144,24 @@
         (try
           (reader/read-string (.-textContent el))
           (catch :default e
-            (when interop/debug-enabled?
-              (trace/emit-error! :rf.error/malformed-hydration-payload
-                                 {:where      'rf.ssr/read-server-payload
-                                  :failing-id :rf/hydrate
-                                  :element-id element-id
-                                  :reason     (str "the __rf_payload hydration script "
-                                                   "did not parse as EDN; treating the "
-                                                   "page as client-only (no hydration). "
-                                                   (ex-message e))
-                                  :recovery   :no-recovery}))
+            (let [reason (str "the __rf_payload hydration script "
+                              "did not parse as EDN; treating the "
+                              "page as client-only (no hydration). "
+                              (ex-message e))]
+              (when interop/debug-enabled?
+                (trace/emit-error! :rf.error/malformed-hydration-payload
+                                   {:where      'rf.ssr/read-server-payload
+                                    :failing-id :rf/hydrate
+                                    :element-id element-id
+                                    :reason     reason
+                                    :recovery   :no-recovery}))
+              ;; EP-0008 (rf2-hhutya): the PRE-FRAME parse failure ALSO rides
+              ;; the always-on axis as a FRAMELESS record (`:frame nil`) so a
+              ;; goog.DEBUG=false client build (dev trace elided) still ships
+              ;; the rejected payload. See the extracted helper for the
+              ;; frameless-precedent rationale. UNGATED.
+              (dispatch-malformed-hydration-frameless!
+                'rf.ssr/read-server-payload element-id reason))
             nil))))))
 
 (defn- validate-payload-frame-id!

@@ -47,6 +47,7 @@
   (`:replace-app-db`) when it lands."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.html-helpers :as html]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
@@ -457,15 +458,28 @@
       ;; ride in `:tags`. `:boundary-id` is omitted entirely (not nil)
       ;; outside a continuation phase so the tag's presence is itself the
       ;; "failed inside a boundary drain" signal.
-      (let [[ph boundary-id] @phase]
-        (trace/emit-error! :rf.error/ssr-streaming-writer-failed
-                           (cond-> {:frame      frame-id
-                                    :exception  (.getMessage t)
-                                    :ex-class   (.getName (class t))
-                                    :phase      ph
-                                    :committed? true
-                                    :recovery   :truncate-and-close}
-                             (some? boundary-id) (assoc :boundary-id boundary-id)))))
+      (let [[ph boundary-id] @phase
+            tags (cond-> {:frame      frame-id
+                          :exception  (.getMessage t)
+                          :ex-class   (.getName (class t))
+                          :phase      ph
+                          :committed? true
+                          :recovery   :truncate-and-close}
+                   (some? boundary-id) (assoc :boundary-id boundary-id))]
+        (trace/emit-error! :rf.error/ssr-streaming-writer-failed tags)
+        ;; EP-0008 (rf2-hhutya): ALSO ride the always-on axis. NON-
+        ;; PROJECTING — this fires on the daemon writer thread POST-head-
+        ;; commit (`:committed? true`); the chunked 200 is already on the
+        ;; wire and the status can no longer change, so this is pure off-box
+        ;; telemetry (the always-on `error-emit-projection-listener` never
+        ;; stamps a status from it — there is no response accumulator left to
+        ;; stamp). An off-box shipper on a `-Dre-frame.debug=false` host must
+        ;; still see a writer-phase failure (broken client pipe vs bad final
+        ;; payload). Union record: the trace `tags` ARE the flat category
+        ;; keys, so promote them onto the union shape verbatim.
+        (lifecycle/emit-always-on-error!
+          (assoc tags :error :rf.error/ssr-streaming-writer-failed
+                      :time  (interop/now-ms)))))
     (finally
       (try (.close out) (catch Throwable _ nil))))))
 

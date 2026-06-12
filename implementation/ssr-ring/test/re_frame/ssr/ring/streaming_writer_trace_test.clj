@@ -43,7 +43,9 @@
   (:require [clojure.set]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as error-emit]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.ssr.ring :as ssr-ring]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
             [re-frame.ssr.ring.pipeline :as pipeline]
@@ -308,3 +310,52 @@
             ":boundary-id names the specific continuation that was draining")
         (is (true? (-> ev :tags :committed?))
             ":committed? true — the continuation phase is post-head-commit")))))
+
+;; ===========================================================================
+;; EP-0008 (rf2-hhutya) — the writer-failed record reaches the ALWAYS-ON
+;; register-error-listener! axis under production hardening (debug-off),
+;; WITHOUT touching the wire (the chunked 200 is already committed —
+;; NON-PROJECTING). The dev-trace pin above runs debug-ON; this is its
+;; production-survivable counterpart.
+;; ===========================================================================
+
+(deftest hhutya-writer-failed-reaches-always-on-listener-under-debug-off
+  (testing "rf2-hhutya: when run-streaming-writer!'s catch arm absorbs a
+            post-commit write throw under `interop/debug-enabled? = false`,
+            it ALSO fans :rf.error/ssr-streaming-writer-failed out on the
+            always-on register-error-listener! axis (alongside the dev
+            trace, which is elided under debug-off). NON-PROJECTING: the
+            chunked 200 is already on the wire, so there is no status to
+            flip — pure off-box telemetry."
+    (error-emit/clear-error-listeners!)
+    (let [pipe-in  (PipedInputStream. 1024)
+          pipe-out (PipedOutputStream. pipe-in)
+          _        (.close pipe-in) ;; pre-broken pipe — every write throws
+          seen     (atom [])]
+      (rf/register-error-listener!
+        ::hhutya-writer-recorder
+        (fn [record] (swap! seen conj record)))
+      (with-redefs [interop/debug-enabled? false]
+        (@#'streaming/run-streaming-writer!
+          pipe-out :no-such-frame
+          {:hiccup [:div] :head-html "" :html-attrs nil :body-attrs nil
+           :shell-html "<div></div>" :continuations []}
+          {:root-view [:div]}))
+      (error-emit/clear-error-listeners!)
+      (let [hits (filterv #(= :rf.error/ssr-streaming-writer-failed (:error %))
+                          @seen)]
+        (is (= 1 (count hits))
+            "exactly one writer-failed record fanned out on the always-on
+             axis under debug-off (the dev trace is elided there)")
+        (when (seq hits)
+          (let [rec (first hits)]
+            (is (= :no-such-frame (:frame rec))
+                "the always-on record carries the failing frame on its flat
+                 :frame slot (union shape)")
+            (is (some? (:phase rec))
+                "the flat :phase slot rides through (which chunk was in flight)")
+            (is (= :truncate-and-close (:recovery rec))
+                "the flat :recovery slot rides through — NON-PROJECTING,
+                 post-commit truncate-and-close (no status to change)")
+            (is (true? (:committed? rec))
+                ":committed? true — post-head-commit, the wire is unchanged")))))))

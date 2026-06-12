@@ -41,11 +41,34 @@
   forgot to destructure ended up with the request riding the unused-arg
   slot). Pre-alpha: one canonical surface, no fallback."
   (:require [re-frame.core :as rf]
+            [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.ssr.payload-policy :as payload-policy]
             [re-frame.ssr.ring.trust :as trust]
             [re-frame.trace :as trace]))
 
 (set! *warn-on-reflection* true)
+
+;; ---- always-on error-emit helper (EP-0008 rf2-hhutya) ---------------------
+;;
+;; The promoted SSR error categories ride the always-on error-emit axis
+;; (surface #4) ALONGSIDE the dev-gated `trace/emit-error!`. The Ring host
+;; adapter ships above core's require graph, so it reaches
+;; `error-emit/dispatch-error-record!` through the published
+;; `:error-emit/dispatch-error-record` late-bind hook. UNGATED — fires on a
+;; `-Dre-frame.debug=false` JVM SSR host so off-box shippers see the
+;; structured record the dev trace surface would have elided.
+
+(defn emit-always-on-error!
+  "Fan a PRE-BUILT always-on SSR error record out through the corpus-wide
+  error-emit registry via the `:error-emit/dispatch-error-record` late-bind
+  hook. `record` is the union shape `{:error <kw> :frame <id-or-nil> :time
+  <ms> + flat category keys}`. No-op when the producer hasn't loaded.
+  Returns nil."
+  [record]
+  (when-let [dispatch-error-record! (late-bind/get-fn :error-emit/dispatch-error-record)]
+    (dispatch-error-record! record))
+  nil)
 
 (def ^:const default-on-error-body
   "The literal body emitted by `default-on-error` when no template is
@@ -244,6 +267,21 @@
                          {:frame     frame-id
                           :exception t
                           :recovery  :no-recovery})
+      ;; EP-0008 (rf2-hhutya): ALSO ride the always-on axis. This EXECUTES
+      ;; the resolved Spec 011 §`resolve-head` emits …-failed Option-B
+      ;; ruling ("the always-on error-emit substrate carries the trace to
+      ;; user observability stacks") that the impl had drifted from (it
+      ;; emitted only via the dev-gated trace bus). NON-PROJECTING: a head
+      ;; fn that throws degrades to an empty `<head>` and ships a 200 — the
+      ;; always-on `error-emit-projection-listener` skips this category
+      ;; (`non-projection-eligible-error?`, rf2-lia3i), so promotion ships
+      ;; the off-box record WITHOUT flipping the degraded-200 wire outcome.
+      (emit-always-on-error!
+        {:error     :rf.error/ssr-head-resolution-failed
+         :frame     frame-id
+         :time      (interop/now-ms)
+         :exception t
+         :recovery  :no-recovery})
       {:head-html "" :html-attrs nil :body-attrs nil})))
 
 (defn render-document-hash

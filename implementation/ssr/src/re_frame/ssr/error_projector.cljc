@@ -28,9 +28,42 @@
 
   Per the rf2-gxgo7 split of re-frame.ssr."
   (:require [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace]))
+
+;; ---- always-on error-emit helper (EP-0008 rf2-hhutya) ---------------------
+;;
+;; `:rf.error/sanitised-on-projection` fires when the active projector
+;; itself throws or returns a non-conforming shape and the runtime falls
+;; back to the locked generic-500. It rides the always-on error-emit axis
+;; (surface #4) ALONGSIDE the dev-gated `trace/emit-error!` so off-box
+;; shippers see when the public boundary fell back — making the Spec
+;; 009:1906/§sanitised-on-projection promise ("monitor dashboards see when
+;; the public boundary fell back to the generic-500 shape") TRUE under
+;; `-Dre-frame.debug=false`, where it is currently undeliverable.
+;;
+;; RE-ENTRY GUARD (rf2-hhutya RULED): this emit is the FALLBACK path itself.
+;; It MUST be one-shot and MUST never re-enter projection. Two facts close
+;; that by construction: (1) `error-emit-projection-listener` (the always-on
+;; status-projection buffering listener) explicitly SKIPS
+;; `:rf.error/sanitised-on-projection` (its recursion guard), so the fanned
+;; record is never buffered for projection — it ships to off-box shippers
+;; only; and (2) `project-error` fires the sanitisation trace AT MOST ONCE
+;; per call (the catch arm and the non-conforming-shape arm are mutually
+;; exclusive). So the always-on record cannot drive a second projection of
+;; the same frame. NON-PROJECTING by design.
+
+(defn- emit-always-on-error!
+  "Fan a PRE-BUILT always-on SSR error record out through the corpus-wide
+  error-emit registry via the `:error-emit/dispatch-error-record` late-bind
+  hook. No-op when the producer hasn't loaded. Returns nil."
+  [record]
+  (when-let [dispatch-error-record! (late-bind/get-fn :error-emit/dispatch-error-record)]
+    (dispatch-error-record! record))
+  nil)
 
 (def public-error-keys
   "The four locked keys on the :rf/public-error shape per Spec 011
@@ -175,6 +208,19 @@
                                                       :cljs (.-message e))
                                 :reason            "Error projector threw — using fallback."
                                 :recovery          :warned-and-replaced})
+            ;; EP-0008 (rf2-hhutya): ALSO ride the always-on axis — NON-
+            ;; PROJECTING + one-shot (the projection listener skips this
+            ;; category, so no re-entry; see §always-on error-emit helper).
+            (emit-always-on-error!
+              {:error :rf.error/sanitised-on-projection
+               :frame frame-id
+               :time  (interop/now-ms)
+               :projector-id      projector-id
+               :exception         e
+               :exception-message #?(:clj  (.getMessage e)
+                                     :cljs (.-message e))
+               :reason            "Error projector threw — using fallback."
+               :recovery          :warned-and-replaced})
             ::threw))
         public-error
         (cond
@@ -195,6 +241,18 @@
                                 :returned          result
                                 :reason            "Error projector returned a non-conforming shape — using fallback."
                                 :recovery          :warned-and-replaced})
+            ;; EP-0008 (rf2-hhutya): ALSO ride the always-on axis — NON-
+            ;; PROJECTING + one-shot (the non-conforming-shape arm and the
+            ;; catch arm above are mutually exclusive, so at most one emit
+            ;; per call; the projection listener skips this category).
+            (emit-always-on-error!
+              {:error :rf.error/sanitised-on-projection
+               :frame frame-id
+               :time  (interop/now-ms)
+               :projector-id      projector-id
+               :returned          result
+               :reason            "Error projector returned a non-conforming shape — using fallback."
+               :recovery          :warned-and-replaced})
             fallback-public-error))]
     (cond-> public-error
       dev-detail? (assoc :details trace-event))))
