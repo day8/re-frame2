@@ -114,9 +114,21 @@ A word of restraint, straight from the design: flows are a *convenience for a na
 
 ### The rules a flow's `:path` must obey
 
-A flow's `:inputs` and `:path` are ordinary [app-db paths](02-app-db.md#paths-are-ordinary-data) — plain vectors of segments, the same idea you use with `get-in`. A few rules apply specifically to a flow's *output* `:path`, and the runtime enforces them so a misshapen flow fails loudly at registration rather than corrupting state at runtime:
+A flow's `:inputs` and `:path` are plain vectors of segments, the same idea you use with `get-in` ([app-db paths](02-app-db.md#paths-are-ordinary-data)). The two sides differ in one important way — which partition they address:
 
-- **The output is a concrete app-db path.** A flow always writes a real, fully-specified place in *app-db* — never runtime-db (that partition is the runtime's to write), and never a template with a variable in it. Inputs may read across either partition (a flow can derive from the current route or a machine snapshot by reading their runtime-db paths), but the write side is app-db, concrete, always.
+- **The `:path` (output) is always an app-db path**, bare, with no partition marker. A flow always materialises into your app-db.
+- **An `:inputs` path is *binary*: bare means app-db; a path whose first segment is `:rf.db/runtime` reads runtime-db.** A bare input (any leading segment other than `:rf.db/runtime`) reads app-db verbatim — the common case. To derive from a runtime-managed slice — the current route, a machine snapshot — prefix the input with `:rf.db/runtime`; the runtime strips that marker and reads the runtime-db partition. There is no `[:rf.db/app …]` form: bare *is* app-db.
+
+```clojure
+[:cart :items]                                       ;; bare → reads app-db
+[:rf.db/runtime :rf.runtime/routing :current :id]    ;; :rf.db/runtime-rooted → reads runtime-db
+```
+
+A common slip is to write a runtime input *without* the marker — `[:rf.runtime/routing :current :id]` — expecting it to read the route. It does not: with no `:rf.db/runtime` prefix it's a bare **app-db** read of a key that almost certainly isn't there, so the flow sees the wrong partition. Reach for runtime-db inputs only with the explicit `[:rf.db/runtime …]` prefix.
+
+A few more rules apply specifically to a flow's *output* `:path`, and the runtime enforces them so a misshapen flow fails loudly at registration rather than corrupting state at runtime:
+
+- **The output is a concrete app-db path.** A flow always writes a real, fully-specified place in *app-db* — never runtime-db (that partition is the runtime's to write), and never a template with a variable in it. Inputs may read across either partition (a flow can derive from the current route or a machine snapshot via a `:rf.db/runtime`-rooted input, as above), but the write side is app-db, concrete, always.
 - **The root path `[]` is not a valid output.** A flow materialises *a value at a leaf*, not the whole database. Declaring `:path []` would mean "this flow owns all of app-db," which is never what you want — it would clobber every other key on each recompute. Pick the specific path the derived value lives at.
 - **`nil` segments are not allowed in the output path.** A flow's output path is fully concrete; a `nil` segment is the symptom of a path that wasn't actually computed (a missing template binding, an un-filled variable), so the framework rejects it rather than writing to a `nil`-keyed slot you didn't mean.
 - **Sibling flows must not overlap by prefix.** No two flows in the same frame may write output paths where one is a prefix of the other (identical paths included). `[:cart :total]` and `[:cart :tax]` are fine — they're disjoint leaves under a shared parent. But `[:cart]` and `[:cart :total]` overlap — one write would subsume the other — and `reg-flow` throws `:rf.error/flow-path-overlap` at registration, naming the colliding pair. Each flow owns its own slice of app-db outright; two flows fighting over one slot is a bug the framework won't let you ship.

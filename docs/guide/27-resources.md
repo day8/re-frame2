@@ -88,7 +88,7 @@ This **scoped resource key** is the cache key, the request-correlation token, an
 - **Scope is canonicalized the same way.** `{:tenant-id "acme" :user-id "u-42"}` and `{:user-id "u-42" :tenant-id "acme"}` are the *same* scope, never two leaking caches.
 - **The correlation id carries the full scoped key.** The same params in two different user scopes can never supersede each other's results.
 
-There's no `:cache-key` escape hatch in v1 — canonical params *are* the identity. (Projections like "just the title" are ordinary subscriptions layered over `[:rf.resource/data ...]`, not a TanStack-style `:select` key. That's a structural advantage of the subscription graph, not a missing feature.)
+There's no `:cache-key` escape hatch in v1 — the **scoped key** *is* the identity, and params are canonicalized *within* that key. Two reads collapse to one cache entry only when their whole scoped key matches: same resource id, same canonical scope, *and* same canonical params. Equal params under different scopes are different entries — scope is the leak boundary (next section). (Projections like "just the title" are ordinary subscriptions layered over `[:rf.resource/data ...]`, not a TanStack-style `:select` key. That's a structural advantage of the subscription graph, not a missing feature.)
 
 ## Scope — the leak boundary that fails closed
 
