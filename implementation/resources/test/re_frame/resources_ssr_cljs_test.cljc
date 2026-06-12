@@ -42,6 +42,11 @@
    [re-frame.resources]
    [re-frame.resources.ssr :as ssr]
    [re-frame.resources.state :as state]
+   [re-frame.resources.work-ledger :as work-ledger]
+   ;; production HTTP fx surface (so the transport feature probe resolves on the
+   ;; real-path integration drain test); the fetch + abort are overridden by
+   ;; capturing no-ops in `capturing-transport-fixture` so no real request fires.
+   [re-frame.http-managed]
    ;; SSR artefact — the :rf/hydrate handler that consults the reconcile hook.
    [re-frame.ssr]
    ;; the consumer of :ssr/extend-runtime-db-projection (project-runtime-db).
@@ -51,10 +56,34 @@
    #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
        :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
 
+;; ---- capturing transport (decouples the real-path drain test from HTTP) ----
+;;
+;; The §2c integration drain test enqueues a blocking resource through the REAL
+;; `:rf.resource/ensure` event path (which writes the entry `:loading`, a
+;; `:running` work-ledger row, AND a host-handle side-table slot) and settles it
+;; through the REAL `:rf.resource.internal/succeeded` reply — so the work-ledger
+;; row + host handle move together with the entry, exactly as the runtime does
+;; it. Overriding the managed-HTTP fxs with capturing no-ops keeps the writes
+;; deterministic and stops any real fetch / abort from firing (mirrors the
+;; work-ledger suite's fixture).
+
+(def ^:private aborts (atom []))
+
+(defn- capturing-transport-fixture
+  "Override the real `:rf.http/managed` + `:rf.http/managed-abort` fxs with
+  capturing no-ops so the real-path ensure writes are deterministic and no
+  real fetch / abort fires. Composed INSIDE the reset-runtime fixture."
+  [f]
+  (reset! aborts [])
+  (rf/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (rf/reg-fx :rf.http/managed-abort (fn [_ctx request-id] (swap! aborts conj request-id) nil))
+  (f))
+
 (use-fixtures :each
   (core-test-support/make-reset-runtime-fixture
     #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter})))
+       :cljs {:adapter reagent-adapter/adapter}))
+  capturing-transport-fixture)
 
 ;; ---- helpers --------------------------------------------------------------
 
@@ -469,6 +498,162 @@
     (is (some? (late-bind/get-fn :resources/drain-blocking-ssr!)))
     (is (= ssr/drain-blocking-resources!
            (late-bind/get-fn :resources/drain-blocking-ssr!)))))
+
+;; ===========================================================================
+;; 2c. SSR blocking drain ↔ WORK-LEDGER TERMINAL completion (rf2-jnrotz,
+;;     EP-0011 §SSR, Preload, Hydration, And Restore / validation item
+;;     "SSR preload: blocking route resources settle through ledger terminal
+;;     statuses")
+;; ===========================================================================
+;;
+;; The §2b drain-loop tests above drive the loop with a pump that DIRECTLY
+;; flips the entry `:status` (or settles it via `settle-blocking-timeout`) — they
+;; prove the drain releases when the ENTRY settles, but they never exercise the
+;; real resource/work-ledger path, so they do NOT pin the drain to the WORK
+;; LEDGER reaching a terminal state. EP-0011 §SSR is explicit: "SSR waits for
+;; ledger rows associated with the current route/nav-token to become terminal"
+;; and "blocking route resources settle through ledger terminal statuses".
+;;
+;; These tests enqueue a blocking resource through the REAL `:rf.resource/ensure`
+;; event (which writes the entry `:loading`, a `:running` work-ledger row, AND a
+;; host-handle side-table slot) and settle it through the REAL
+;; `:rf.resource.internal/succeeded` reply (which moves the entry `:loaded`, the
+;; ledger row terminal `:completed`, prunes terminal rows, and clears the host
+;; handle — `succeeded-handler`). The pump fires the real reply, so when the
+;; drain releases, the JOINED facts are asserted: the work-ledger row is
+;; TERMINAL and the host handle is CLEARED. The adversarial inverse pins the
+;; join the other way — a row that stays NON-terminal (entry never settles)
+;; keeps the drain blocked until the deadline, never releasing on a partial /
+;; wall-clock signal.
+
+(defn- ledger-row
+  "The work-ledger record for `work-id` in `frame-id`'s live runtime-db, or nil."
+  [frame-id work-id]
+  (work-ledger/get-record (frame/frame-runtime-db-value frame-id) work-id))
+
+(deftest drain-releases-only-when-work-ledger-row-terminal-real-path
+  (reg! :article/by-slug)
+  (testing "rf2-jnrotz — a blocking resource enqueued through the REAL resource
+            path settles the ENTRY and the WORK-LEDGER ROW together; when the
+            SSR drain releases, the associated ledger row is TERMINAL and the
+            host handle is cleared (EP-0011 §SSR: SSR waits for ledger rows to
+            become terminal)"
+    (let [fid :ssr/drain-ledger-terminal]
+      (rf/reg-frame fid {:doc "ssr ledger-terminal drain frame" :platform :server})
+      ;; REAL ensure: writes the entry :loading + a :running ledger row + a host
+      ;; handle, then publishes the blocking slot the drain reads.
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource :article/by-slug :scope :rf.scope/global
+                          :params {:slug "x"} :owner [:ssr "req-1" "nav-1"]
+                          :cause [:route-entry :route/article "nav-1"]}]
+                        {:frame fid})
+      (let [wid (get-in (frame/frame-runtime-db-value fid) (conj (state/entry-path gkey) :current-work))]
+        (testing "the real ensure path armed the joined work facts before the drain"
+          (is (some? wid) "the entry points at a current work id")
+          (is (= :running (:status (ledger-row fid wid)))
+              "the work-ledger row is NON-terminal (:running) while in flight")
+          (is (some? (work-ledger/get-handle fid wid))
+              "a host handle exists for the in-flight attempt")
+          (is (= :loading (get-in (frame/frame-runtime-db-value fid)
+                                  (conj (state/entry-path gkey) :status)))
+              "the entry is :loading (not yet settled)"))
+        ;; publish the nav-token blocking slot the drain reads (mirrors what the
+        ;; route slice writes on entry).
+        (frame/swap-runtime-db! fid with-blocking-slot "nav-1" #{gkey})
+        ;; the pump fires the REAL reply on the 2nd tick — settling the entry
+        ;; :loaded AND the ledger row terminal :completed + clearing the handle
+        ;; through `succeeded-handler`, exactly as a real transport reply would.
+        (let [ticks (atom 0)
+              pump! (fn [_]
+                      (when (= 2 (swap! ticks inc))
+                        (rf/dispatch-sync
+                          [:rf.resource.internal/succeeded
+                           {:resource-key gkey :work/id wid :generation 1
+                            :rf.frame/id fid :data {:title "X"}}]
+                          {:frame fid})))
+              res   (ssr/drain-blocking-resources! fid {:pump! pump! :deadline-ms 60000})]
+          (testing "the drain releases (the blocking entry settled in time)"
+            (is (true? (:settled? res)))
+            (is (nil? (:route-blocking-failure res)) "no timeout — settled in time"))
+          (testing "the JOIN: when the drain released, the entry is :loaded AND
+                    the work-ledger row is TERMINAL (the EP-0011 §SSR contract)"
+            (is (= :loaded (get-in (frame/frame-runtime-db-value fid)
+                                   (conj (state/entry-path gkey) :status)))
+                "the blocking entry settled :loaded")
+            (let [row (ledger-row fid wid)]
+              ;; the row is terminal (:completed) — or pruned to nil if the
+              ;; bounded per-key tail dropped it; either way it is NOT live /
+              ;; non-terminal. The load-bearing assertion is that NO non-terminal
+              ;; row for the work survives once the drain releases.
+              (is (or (nil? row) (work-ledger/terminal? (:status row)))
+                  "the associated work-ledger row is terminal (or pruned), never non-terminal"))
+            (is (not (contains? work-ledger/non-terminal-statuses
+                                (:status (ledger-row fid wid))))
+                "no NON-terminal ledger row survives the released drain"))
+          (testing "the host handle is cleared (no live host work behind a
+                    released SSR render)"
+            (is (nil? (work-ledger/get-handle fid wid)))))
+        (frame/destroy-frame! fid)))))
+
+(deftest drain-blocks-while-work-ledger-row-non-terminal-real-path
+  (reg! :article/by-slug)
+  (testing "rf2-jnrotz ADVERSARIAL: while the work-ledger row stays NON-terminal
+            (the real reply never lands, so the entry stays :loading), the SSR
+            drain MUST NOT release — it blocks until the render deadline, then
+            settles the entry to a first-load failure (it never releases on a
+            partial / wall-clock signal while the row is non-terminal)"
+    (let [fid :ssr/drain-ledger-nonterminal]
+      (rf/reg-frame fid {:doc "ssr ledger-nonterminal drain frame" :platform :server})
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource :article/by-slug :scope :rf.scope/global
+                          :params {:slug "x"} :owner [:ssr "req-2" "nav-2"]}]
+                        {:frame fid})
+      (frame/swap-runtime-db! fid with-blocking-slot "nav-2" #{gkey})
+      (let [wid (get-in (frame/frame-runtime-db-value fid) (conj (state/entry-path gkey) :current-work))
+            ;; deterministic clock that jumps past the deadline; pump! is a no-op
+            ;; (the real reply never lands → the ledger row stays :running).
+            clk (atom 0)
+            clock-fn (fn [] (let [v @clk] (swap! clk + 100) v))]
+        (is (= :running (:status (ledger-row fid wid)))
+            "the row is NON-terminal at drain entry")
+        (let [res (ssr/drain-blocking-resources!
+                    fid {:pump! (fn [_] nil) :deadline-ms 50 :clock-fn clock-fn})]
+          (testing "the drain did NOT release early — it reported a timeout"
+            (is (false? (:settled? res)))
+            (is (= #{gkey} (:timed-out res)))
+            (is (= :rf.error/resource-ssr-blocking-timeout
+                   (:rf.error/id (:route-blocking-failure res)))))
+          (testing "the never-settling blocking entry is settled to a structured
+                    first-load :error in the frame (not left hung :loading)"
+            (is (= :error (get-in (frame/frame-runtime-db-value fid)
+                                  (conj (state/entry-path gkey) :status)))))))
+      (frame/destroy-frame! fid))))
+
+(deftest hydration-projection-ships-no-work-ledger-rows
+  (reg! :article/by-slug)
+  (testing "rf2-jnrotz — the SSR hydration projection rides ONLY the durable
+            resource :entries; the work-ledger subtree (host work facts) NEVER
+            rides the hydration wire (EP-0011 §SSR: hydration serializes the
+            allowed resource projection, not host work)"
+    (let [fid :ssr/drain-no-ledger-on-wire]
+      (rf/reg-frame fid {:doc "ssr no-ledger-on-wire frame" :platform :server})
+      ;; real ensure → a live :running work-ledger row exists in the frame's
+      ;; runtime-db alongside the resource entry.
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource :article/by-slug :scope :rf.scope/global
+                          :params {:slug "x"} :owner [:ssr "req-3" "nav-3"]}]
+                        {:frame fid})
+      (let [rdb (frame/frame-runtime-db-value fid)]
+        (is (seq (get rdb state/work-ledger-key))
+            "the live runtime-db carries a work-ledger row before projection")
+        (let [proj (payload-policy/project-runtime-db rdb)]
+          (is (contains? proj state/resources-key)
+              "the resource :entries slice rides the wire")
+          (is (not (contains? proj state/work-ledger-key))
+              "the :rf.runtime/work-ledger subtree does NOT ride the hydration wire")
+          (is (= #{:entries} (set (keys (get proj state/resources-key))))
+              "only :entries rides — no indexes, no work rows")))
+      (frame/destroy-frame! fid))))
 
 ;; ===========================================================================
 ;; 3. CLIENT hydration reconcile
