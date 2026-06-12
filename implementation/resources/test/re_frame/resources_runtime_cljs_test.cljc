@@ -194,28 +194,44 @@
     (is (= (state/canonicalize {:a 1 :b 2})
            (state/canonicalize {:b 2 :a 1})))))
 
-;; rf2-o84qq2 (EP-0012 final-review, DEFERRED with this pin): the scoped
-;; resource key is the CEDN-1 canonical VECTOR `[scope rid params]` used
-;; DIRECTLY as a Clojure map key in the `:entries` cache. Clojure map keys
-;; compare by `=` + hash, and `(= [1 2 3] '(1 2 3))` is TRUE — so a
-;; vector-params key and a list-params key, though they carry DISTINCT
-;; authoritative CEDN-1 identities (the test above), still COLLAPSE to one
-;; entry at the map-keying layer. The map-key `=` is COARSER than the
+;; rf2-o84qq2 (EP-0012 final-review, DEFERRED — full fix planned in
+;; rf2-9e0tyq): the scoped resource key is the CEDN-1 canonical VECTOR
+;; `[scope rid params]` used DIRECTLY as a Clojure map key in the `:entries`
+;; cache. Clojure map keys compare by `=` + hash, and `(= [1 2 3] '(1 2 3))`
+;; is TRUE — so a vector-params key and a list-params key, though they carry
+;; DISTINCT authoritative CEDN-1 identities (the test above), still COLLAPSE
+;; to one entry at the map-keying layer. The map-key `=` is COARSER than the
 ;; CEDN-1 byte identity for the list-vs-vector edge.
 ;;
 ;; This pins the KNOWN, deliberately-deferred limitation so it cannot
-;; silently shift. A correct fix (keying `:entries` on `canonical-bytes`
-;; rather than the canonical EDN value under `=`) is a cross-cutting
-;; re-keying refactor — the scoped vector is destructured as `[scope rid
-;; params]` and used as a `get-in`/`assoc-in` path component across events,
-;; the reverse tag/owner indexes, mutation descriptors, SSR projection,
-;; tooling, and the subs layer — far beyond a surgical change, and the edge
-;; is extremely narrow (a LIST as a resource params value; params are
+;; silently shift, and pins its EXACT NARROWNESS so a future canonical-bytes
+;; re-keying (rf2-9e0tyq) has concrete invariants to flip:
+;;
+;;   1. the collapse is confined to SEQUENTIAL vector-vs-list — the SOLE
+;;      `=`-vs-CEDN-1 divergence in the EDN domain. Every OTHER kind that can
+;;      appear in params (strings / keywords / numbers / maps / sets / uuids)
+;;      is `=`-distinct iff CEDN-1-distinct, so the cache keys them CORRECTLY
+;;      today (asserted below). A future fix must keep those correct.
+;;   2. the SAME single-collapse propagates IDENTICALLY into the embedded
+;;      work-id `[:rf.work/resource <scoped-key> <generation>]` (asserted
+;;      below) — the work-id is the second carrier of the scoped key (also a
+;;      runtime-db map key and the stale-suppression `=` basis), so the two
+;;      carriers move together and the full fix must re-key BOTH.
+;;
+;; The correct fix (keying `:entries` + the work-id on `canonical-bytes`
+;; rather than the canonical EDN value under `=`) is a cross-cutting re-keying
+;; refactor — the scoped vector is destructured as `[scope rid params]` and
+;; used as a `get-in`/`assoc-in` path component across events, the reverse
+;; tag/owner indexes, mutation descriptors, the work-ledger work-id, the SSR
+;; hydration wire, tooling, and the subs layer — far beyond a surgical change,
+;; and a deftype key would silently break the (untested-here) SSR/epoch/trace
+;; serialization wire (see rf2-9e0tyq for the full blast-radius analysis). The
+;; edge is extremely narrow (a LIST as a resource params value; params are
 ;; typically Malli `:map`s of scalars/vectors, never lists). The competing
 ;; "normalize list→vector" fix is REJECTED: it would re-erase the CEDN-1
 ;; list-vs-vector kind distinction rf2-wgutc2 deliberately introduced (the
-;; test above). Deferred per the rf2-o84qq2 triage; this pin is the target a
-;; future canonical-bytes re-keying would flip.
+;; test above). Deferred per the rf2-o84qq2 triage → rf2-9e0tyq plan; this
+;; pin is the target that re-keying would flip from collapse to distinctness.
 (deftest scoped-key-map-collapse-is-a-known-deferred-edge-rf2-o84qq2
   (testing "list-vs-vector params keys carry DISTINCT CEDN-1 identities..."
     (let [kv (state/scoped-resource-key :rf.scope/global :r/x {:xs [1 2 3]})
@@ -231,7 +247,40 @@
         (is (= 1 (count (-> {} (assoc kv :v) (assoc kl :l))))
             "both keys map to ONE entry — the coarser-than-CEDN-1 collapse")
         (is (= :l (get (-> {} (assoc kv :v) (assoc kl :l)) kv))
-            "the second write wins under =, confirming the single-slot collapse")))))
+            "the second write wins under =, confirming the single-slot collapse"))
+      ;; The SAME single-collapse rides into the embedded work-id (carrier 2),
+      ;; so the full re-keying must move both carriers together (rf2-9e0tyq).
+      (testing "...and propagates identically into the embedded work-id
+                `[:rf.work/resource <scoped-key> <generation>]`"
+        (let [wv (work-ledger/resource-work-id kv 1)
+              wl (work-ledger/resource-work-id kl 1)]
+          (is (= wv wl)
+              "the vector- and list-params work-ids collapse under = too")
+          (is (= 1 (count (-> {} (assoc wv :v) (assoc wl :l))))
+              "both work-ids map to ONE work-ledger slot — same coarse collapse")))))
+  ;; Pin the EXACT NARROWNESS: the collapse is ONLY sequential vector-vs-list.
+  ;; Every other CEDN-distinct params kind is ALSO `=`-distinct, so the cache
+  ;; keys them correctly TODAY — the deferred edge does not leak beyond seqs.
+  (testing "the edge is CONFINED to vector-vs-list — every other CEDN-distinct
+            params kind is also =-distinct, so the cache keys it correctly"
+    (let [k (fn [params] (state/scoped-resource-key :rf.scope/global :r/x params))]
+      ;; string "1" vs integer 1 vs keyword :1 — distinct CEDN-1 AND distinct =
+      (is (= 3 (count (-> {}
+                          (assoc (k {:v "1"}) :s)
+                          (assoc (k {:v 1})   :i)
+                          (assoc (k {:v :a})  :k))))
+          "string / integer / keyword params keep distinct cache entries")
+      ;; a set vs a vector with the same elements — distinct CEDN-1 AND `=`
+      (is (= 2 (count (-> {}
+                          (assoc (k {:v #{1 2}}) :set)
+                          (assoc (k {:v [1 2]}) :vec))))
+          "set-params and vector-params keep distinct cache entries")
+      ;; map insertion-order independence still collapses to ONE (correct: the
+      ;; canonical rule reorders, so these are the SAME identity, not the edge)
+      (is (= 1 (count (-> {}
+                          (assoc (k {:a 1 :b 2}) :ab)
+                          (assoc (k {:b 2 :a 1}) :ba))))
+          "key-order-only-different maps are ONE entry (canonical, not the edge)"))))
 
 ;; ===========================================================================
 ;; 2. Fail-closed scope policy (no global fallthrough)

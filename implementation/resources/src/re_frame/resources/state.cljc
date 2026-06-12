@@ -372,7 +372,20 @@
   (`canonicalize`), so key order in either map never affects identity, and
   the scope is part of the key (the same params in different scopes can't
   supersede each other). Per Spec 016 §Resource identity. Assumes scope +
-  params are already validated serializable EDN (`reject-non-edn!`)."
+  params are already validated serializable EDN (`reject-non-edn!`).
+
+  KNOWN DEFERRED EDGE (rf2-o84qq2; full fix planned in rf2-9e0tyq): the
+  returned vector is used DIRECTLY as a Clojure map key (in `:entries` and,
+  embedded, in the work-ledger work-id), so it compares by `=` + hash. The
+  SOLE place `=` is COARSER than the authoritative CEDN-1 byte identity is
+  SEQUENTIAL vector-vs-list — `(= [1 2 3] '(1 2 3))` is TRUE while their
+  `canonical-bytes` differ (`v[…]` vs `l(…)`). So a LIST as a params/scope
+  VALUE collapses with the vector spelling at the map-keying layer even
+  though `canonicalize` preserves the kind. The edge is extremely narrow
+  (params are Malli `:map`s of scalars/vectors, never lists); pinned in
+  `resources_runtime_cljs_test` so it cannot silently shift. The fix is a
+  cross-cutting re-keying onto `canonical-bytes` (rf2-9e0tyq), NOT a
+  list→vector normalize (that would re-erase the kind rf2-wgutc2 added)."
   [scope resource-id params]
   [(canonicalize scope) resource-id (canonicalize params)])
 
