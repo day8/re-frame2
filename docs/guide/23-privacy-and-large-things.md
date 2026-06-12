@@ -77,7 +77,7 @@ That's the declaration. No companion interceptor, no per-tool plumbing — the p
 
 - Frame classification is installed **atomically as part of frame creation**, before `:on-create` runs. The frame is never live for a moment without its policy.
 - Re-registering a frame **replaces** its classification wholesale — the declaration *is* the frame's policy, so there's no additive-merge surprise to reason about.
-- `:sensitive :app-db` and `:large :app-db` entries are ordinary `:rf/path` values — the same path vocabulary you use everywhere else (chapter 12's path optics), not a fourth ad-hoc notation.
+- `:sensitive :app-db` and `:large :app-db` entries are ordinary `:rf/path` values — the same path vocabulary you use everywhere else ([the path primer in chapter 02](02-app-db.md#paths-are-ordinary-data)), not a fourth ad-hoc notation.
 - **Sensitive wins over large.** A path declared both sensitive and large redacts as sensitive and emits *no* large marker — because the large marker itself carries `:path` and `:bytes`, and for a secret slot even "there's a 5MB blob here" is too much to leak.
 - Malformed paths, unknown classification keys, and non-string HTTP carrier names **fail loudly at frame registration** — fail-fast, not silent-ignore. A typo in a sensitive path is a bug you want to hear about at boot, not discover in a leaked log.
 
