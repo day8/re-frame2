@@ -474,8 +474,29 @@
   ;; carries `:url-bound? true` so it owns the browser URL (Spec 012
   ;; §Multi-frame routing). The boot dispatch runs under `with-frame` and the
   ;; render is wrapped in a `frame-provider` below.
+  ;; EP-0015 (frame-owned egress policy): durable, frame-wide sensitive facts
+  ;; are declared on the frame. The JWT lives at [:auth :token] in app-db, so
+  ;; that path is declared `:sensitive`. Classification is declarative and
+  ;; local to the owner; projection happens at the trust boundary, so any
+  ;; off-box egress — Xray/observability capture, an off-box tool, an SSR
+  ;; hydration payload — sees the token redacted while on-box rendering (the
+  ;; navbar, the live header the request actually sends) keeps the raw value.
+  ;;
+  ;; The outbound `Authorization` Bearer header is NOT declared here: it is
+  ;; already on the framework's immutable built-in HTTP carrier denylist
+  ;; (Spec 014 §Privacy — alongside Cookie / X-API-Key / …), so it is redacted
+  ;; off-box with no frame config. The `:sensitive :http :headers` extension is
+  ;; for APP-SPECIFIC carriers (e.g. an "X-Tenant-Key"); this app sends none,
+  ;; so it declares no HTTP carriers — over-declaring a built-in would only
+  ;; teach a redundant ritual.
+  ;;
+  ;; We also do NOT classify [:auth :login-form] / [:auth :register-form]: the
+  ;; password draft is transient form state, owned by its registration, not a
+  ;; durable frame fact (and is never sent off-box from app-db). This is the
+  ;; canonical issue-5 case from the EP, surfaced only where the data is real.
   (rf/reg-frame :rf/default {:doc          "Realworld demo frame."
                              :url-bound?   true
+                             :sensitive    {:app-db [[:auth :token]]}
                              :interceptors [routing/auth-guard]
                              :fx-overrides {:rf.http/managed :realworld.demo/http-stub}})
   ;; Register the Bearer-auth interceptor at app boot. Order matters:

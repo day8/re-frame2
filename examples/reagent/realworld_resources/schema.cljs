@@ -29,9 +29,16 @@
 (def User
   "The authenticated user. Returned by /users/login, /users (register),
    /user (current user), and PUT /user (settings update)."
+  ;; EP-0015 (issue 5 / disposition 5): the JWT is owner-classified at the
+  ;; slot that introduces it, via the EP-0005 per-slot `:sensitive?` malli
+  ;; property — `UserResponse` is the `:decode` schema for the login / register
+  ;; / restore / settings replies, so this redacts the token out of any off-box
+  ;; capture of the response body (complementing the frame `:sensitive` config
+  ;; in core.cljs, which redacts the same fact once it lands at [:auth :token]
+  ;; / the Bearer header).
   [:map
    [:email    :string]
-   [:token    :string]
+   [:token    {:sensitive? true} :string]
    [:username :string]
    [:bio      [:maybe :string]]
    [:image    [:maybe :string]]])
