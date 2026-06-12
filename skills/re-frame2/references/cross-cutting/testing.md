@@ -38,6 +38,25 @@ Do **not** call `(registrar/clear-all!)` from a fixture — under CLJS, framewor
 
 > **The shared-registrar fixture vs. the per-realm fixture (EP-0013 shipped).** `make-reset-runtime-fixture` snapshots and restores the *shared* default-realm registrar around each test — the right tool for the common single-realm case, where every frame draws behaviour from one process-wide table. It stays the default and is what to use now. EP-0013 also shipped the **realm** surface (see [`fundamentals/frames.md` §Realms](../fundamentals/frames.md)): a hermetic test can instead construct a *fresh realm* with `rf/realm`, compose its program from `rf/module` / `rf/app` values, and `rf/install!` exactly the program + capabilities it needs — isolation then falls out of standing up a throwaway container (its own registrar atom) rather than snapshot/restore over a global, with `rf/dispose-realm!` for teardown. One constraint to know: a hermetic realm isolates the **registrar / query surface** (handlers, subs, capability checks) — assert over what `rf/install!` seated and what the realm-targeted queries return. Live **frame** dispatch/subscribe still route through the default realm (realm-aware frames are a later EP-0013 slice, and `:frame` descriptors can only be installed into the default realm), so for end-to-end dispatch/subscribe through a live frame keep using `make-reset-runtime-fixture` + the default realm. Reach for the per-realm shape when a test genuinely needs registrar isolation (multi-tenant / parallel-app / two-adapter scenarios) or wants to install a precise app value; reach for `make-reset-runtime-fixture` for ordinary single-realm tests. Either way, never `rf/runtime`.
 
+### Testing app values and realms (the install/reinstall cleanup hazard)
+
+`make-reset-runtime-fixture` snapshot/restores the **registrar**, but a realm's *seated app value* (what `rf/install!` / `rf/reinstall!` stored at the realm boundary) is **not** registrar state — the fixture does not reset it. So a default-realm `rf/install!` in one test **leaks** into the next: a sibling test that diffs or reinstalls sees the stale app value. The guidance:
+
+- **Prefer a fresh realm per test.** Construct one with `rf/realm`, install into it, and tear it down in a `try/finally`:
+
+  ```clojure
+  (deftest install-isolated
+    (let [r (rf/realm {:id :test/realm-1 :adapter plain-atom/adapter})]
+      (try
+        (rf/install! r (rf/app {:id :test/app :modules [my-module]}))
+        ;; assert over realm-targeted queries
+        (is (contains? (rf/handler-ids {:realm r :kind :event}) :cart/add))
+        (finally (rf/dispose-realm! r)))))
+  ```
+
+- **Use realm-targeted queries** (`{:realm r …}`) to assert — they read only that realm, so the assertion can't accidentally pass off a default-realm registration.
+- **Avoid default-realm `rf/install!` / `rf/reinstall!` in ordinary tests** unless you explicitly bracket the cleanup — `make-reset-runtime-fixture` will not undo the seated app value for you. If a test genuinely must seat into the default realm, add its own teardown that clears the seated value before and after.
+
 ## Driving events: `dispatch-sync` and `dispatch-sequence`
 
 `rf/dispatch-sync` drains to fixed point synchronously — by the time it returns, the handler has run, fx have fired, and the queue is empty. Use it instead of `rf/dispatch` in tests; `dispatch` is async and the test would assert before the handler ran.

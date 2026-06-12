@@ -59,12 +59,32 @@ The `reg-event-*` metadata-map is the one **superset** middle slot — reflectio
 | `rf/machine-transition` | `(machine snapshot event)` → `[snapshot' fx]` pure |
 | `rf/make-machine-handler` | `(machine)` → event-fx handler |
 
+## App values and realms (EP-0013, `re-frame.core`)
+
+The **advanced** composition surface: a single-realm app never spells a realm (every app boots into the implicit **default realm**). Reach for these only to compose modules into an app value, inspect a program before install, or run a second program in-process.
+
+| Surface | Shape |
+|---|---|
+| `rf/module` | `({:id … :owns {…} :requires #{…} :events {…} :subs {…} …})` → **module value** — inert, no registrar side effect |
+| `rf/app` | `({:id … :modules [m1 m2 …]})` → **app value** by deterministic composition; same-(kind,id) collision throws `:rf.error/app-composition-collision` |
+| `rf/app-registrations` | `(app kind)` / `({:app a :kind k})` → `{id descriptor}` for a kind — static coverage view, no install |
+| `rf/app-requires` | `(app)` → set of `:rf.capability/*` an app value declares (union of its modules' `:requires`) |
+| `rf/app-owns` | `(app path)` → the module id that owns app-db `path`, or `nil` |
+| `rf/install!` | `(app)` (default realm) / `(realm app)` → seat an app value into a realm; capability-checks first (`:rf.error/missing-capability` before any mutation), returns the realm |
+| `rf/reinstall!` | `(new-app)` / `(realm new-app opts)` → hot-reload by diffing; returns `{:realm :reason :added :changed :removed}` |
+| `rf/realm` | `({:id … :adapter? … :capabilities? {…}})` → construct + register a **hermetic** realm (its own registrar atom); duplicate `:id` throws `:rf.error/realm-id-conflict`. Composes: `(-> (rf/realm {:id …}) (rf/install! app))` |
+| `rf/dispose-realm!` | `(realm-or-id)` → drop a constructed realm (release its registrar for GC). Default realm is a no-op |
+| `rf/realm-ids` | `()` → set of installed realm ids; always includes the default (`#{:rf.realm/default}` for a single-realm app) |
+| `rf/frame-realm` | `(frame-id)` → the realm id a frame belongs to (default realm in a single-realm app); the frame-side half of the (realm, frame) address |
+
+The realm-targeted **map-shaped** registrar queries read only the named realm: `(rf/registrations {:realm r :kind k})`, `(rf/handler-meta {:realm r :kind k :id id})`, `(rf/handler-ids {:realm r :kind k})`. The keyword arities (`(rf/registrations :event)`) are byte-identical to the default-realm map form — a single-realm caller never spells a realm.
+
 ## Routing — `day8/re-frame2-routing`
 
 | Surface | Shape |
 |---|---|
-| `rf/match-url` | `(url)` → `{:route-id :params :query ...}` or `nil` |
-| `rf/route-url` | `(route-id path-params)` / `(... query-params)` → `"/url"` |
+| `rf/match-url` | `(url)` → `{:route-id :params :query :fragment ...}` or `nil` |
+| `rf/route-url` | `(route-id path-params)` / `(... query-params)` / `(... query-params fragment)` → `"/url"` — 4-arity appends `#fragment` (nil/empty omitted, percent-encoded) |
 
 ## HTTP — `day8/re-frame2-http`
 

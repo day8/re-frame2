@@ -502,9 +502,12 @@ node-and-edge graph over the frame fold.
  and classifies off its superkind.
 - **Per-panel static ↔ live toggle** (its OWN toggle, in the panel
  header — distinct from the L1 Dynamic/Static mode pill). **Static**: the
- registration-derived graph (process-global); a parametric sub shows the
- `:parametric` marker and contributes **no** edge — the **don't-execute
- rule** (static inspection never invokes param/scope functions).
+ registration-derived graph for the picked frame's **realm** (the
+ registrar is realm-owned, EP-0013 — in a single-realm app that is the
+ default realm, so it reads as "what's registered"; a sibling realm has
+ its own); a parametric sub shows the `:parametric` marker and contributes
+ **no** edge — the **don't-execute rule** (static inspection never invokes
+ param/scope functions).
  **Live**: the graph realized in the observed frame — concrete
  subscription query vectors with realized edges, active resource keys,
  live machine instances, the materialized route slice with its nav-token
