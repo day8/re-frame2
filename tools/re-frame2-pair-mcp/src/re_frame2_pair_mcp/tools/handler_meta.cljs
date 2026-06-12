@@ -5,6 +5,22 @@
   Direct introspection on the registrar — `where is `:user/login`
   registered?` answered without a wide-authority `eval-cljs` round-trip.
 
+  ## Realm-targeting (EP-0013, optional)
+
+  Both tools accept an OPTIONAL `:realm` arg — a realm-id keyword. When
+  ABSENT (the overwhelming common case) the tools resolve through the
+  DEFAULT realm exactly as before — byte-identical (absence = the default
+  realm, the EP-0013 issue-2 documented rule). When PRESENT, the eval form
+  routes through the public MAP-SHAPED realm-targeted query forms that
+  EP-0013 stage 8 shipped — `(rf/handler-meta {:realm r :kind k :id id})` /
+  `(rf/registrations {:realm r :kind k})` (open-issue 11: map-shaped is the
+  ruled public form, unambiguous against the keyword arities) — so the tool
+  reads ONLY that realm's registrar. This is the realm-aware seam the bead
+  asks for: it's free (a shipped public surface), additive, and degrades to
+  the default-realm path. Discovering WHICH realms exist / a frame's realm /
+  the realm-scoped operating-frame ladder are deferred (no public realm
+  enumeration or frame→realm read ships yet) — see the rf2-1koiq1 follow-ups.
+
   ## handler-meta
 
   Returns `(rf/handler-meta kind id)` for the requested
@@ -123,6 +139,28 @@
   (str/join ", " (sort (map name supported-kinds))))
 
 ;; ---------------------------------------------------------------------------
+;; Realm targeting (EP-0013, rf2-1koiq1).
+;;
+;; The OPTIONAL `:realm` arg is a realm-id keyword. ABSENT ⇒ nil ⇒ the
+;; default realm (the byte-identical existing path). PRESENT ⇒ the realm-id
+;; keyword threaded into the public map-shaped query form. A blank/missing
+;; value parses to nil (absence = default realm — no error, since `:realm`
+;; is optional); a non-blank but unreadable value returns `[:err …]` so the
+;; tool surfaces a structured `:invalid-realm-edn` rather than silently
+;; ignoring a typo'd realm.
+;; ---------------------------------------------------------------------------
+
+(defn- parse-realm
+  "Coerce the OPTIONAL `:realm` MCP arg (a realm-id keyword string) to a
+  CLJS value. Returns `[:ok kw-or-nil]` — an absent/blank value is
+  `[:ok nil]` (absence = default realm) — or `[:err :invalid-realm-edn]`
+  when a non-blank value won't read as EDN."
+  [s]
+  (if (or (nil? s) (and (string? s) (str/blank? s)))
+    [:ok nil]
+    (args/read-edn-arg s :missing-realm :invalid-realm-edn)))
+
+;; ---------------------------------------------------------------------------
 ;; Tool — handler-meta.
 ;;
 ;; Eval-form composition: for the ten registrar kinds we route through
@@ -134,10 +172,28 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- registrar-form
-  "Build the eval form that calls `re-frame2-pair.runtime/registrar-describe`
-  for a registrar kind."
-  [kind id]
-  (ef/emit (ef/rt-call 'registrar-describe kind id)))
+  "Build the eval form for a registrar `(kind, id)` lookup.
+
+  DEFAULT realm (`realm` is nil): route through
+  `re-frame2-pair.runtime/registrar-describe` — the existing path, which
+  carries the `:not-registered` envelope on a miss and the
+  `:handler-fn-hash` augmentation. Byte-identical to before.
+
+  EXPLICIT realm (EP-0013): route through the public map-shaped form
+  `(re-frame.core/handler-meta {:realm r :kind k :id id})` so the read hits
+  ONLY that realm's registrar (open-issue 11). Wrap the result to match
+  `registrar-describe`'s shape — drop the unserialisable `:handler-fn`
+  Function ref (rf2-l7vnd) and emit the `{:ok? false :reason
+  :not-registered …}` envelope on a miss — so the tool's response is
+  uniform across the default and realm-targeted paths."
+  [realm kind id]
+  (if (nil? realm)
+    (ef/emit (ef/rt-call 'registrar-describe kind id))
+    (let [q (ef/emit (ef/rt-call* 're-frame.core/handler-meta
+                                  {:realm realm :kind kind :id id}))]
+      (str "(if-let [m " q "] (dissoc m :handler-fn) "
+           "{:ok? false :reason :not-registered :kind " (pr-str kind)
+           " :id " (pr-str id) "})"))))
 
 (defn- machine-form
   "Build the eval form that wraps `re-frame.core/machine-meta` with the
@@ -160,11 +216,13 @@
          "  {:ok? false :reason :not-registered :kind :machine :id " id-edn "})")))
 
 (defn handler-meta-tool [conn args]
-  (let [build-id (wire/arg-build conn args)
-        kind-str (wire/arg args :kind)
-        id-str   (wire/arg args :id)
-        kind     (parse-kind kind-str)
-        [id-tag id-val] (parse-id id-str)]
+  (let [build-id   (wire/arg-build conn args)
+        kind-str   (wire/arg args :kind)
+        id-str     (wire/arg args :id)
+        realm-str  (wire/arg args :realm)
+        kind       (parse-kind kind-str)
+        [id-tag id-val]       (parse-id id-str)
+        [realm-tag realm-val] (parse-realm realm-str)]
     (cond
       (nil? kind)
       (js/Promise.resolve
@@ -181,6 +239,27 @@
                         :hint   (str "id must be an EDN-readable keyword, e.g. \":user/login\". "
                                      "For composite-key subs, pass the vector form.")}))
 
+      (= :err realm-tag)
+      (js/Promise.resolve
+        (wire/err-text {:ok?    false
+                        :reason realm-val
+                        :realm  realm-str
+                        :hint   "realm must be an EDN-readable keyword, e.g. \":shop/realm\"."}))
+
+      ;; The :machine kind derives its specs from the DEFAULT realm's :event
+      ;; handlers (rf/machine-meta inspects the default-realm registrar), so a
+      ;; realm-targeted machine lookup has no meaning yet — refuse loudly
+      ;; rather than silently ignore the :realm (the no-silent-swallow rule).
+      (and (some? realm-val) (= :machine kind))
+      (js/Promise.resolve
+        (wire/err-text {:ok?    false
+                        :reason :realm-unsupported-for-machine
+                        :realm  realm-val
+                        :kind   kind
+                        :hint   (str "machine specs derive from the default realm; "
+                                     "drop :realm to query machines, or use a registrar "
+                                     "kind (event/sub/…) for realm-targeted reads.")}))
+
       :else
       ;; rf2-qobqy: wrap the runtime form in the typed result codec so
       ;; an unserializable meta map (a `#object[Function]` slot that
@@ -193,8 +272,12 @@
       ;; miss / unserializable) each resolve cleanly.
       (let [inner-form (if (= :machine kind)
                          (machine-form id-val)
-                         (registrar-form kind id-val))
-            wrapped    (renv/wrap-form inner-form)]
+                         (registrar-form realm-val kind id-val))
+            wrapped    (renv/wrap-form inner-form)
+            ;; Stamp the resolved realm onto the result ONLY when one was
+            ;; requested — the default-realm response stays byte-identical
+            ;; (no spurious :realm key for the common single-realm case).
+            stamp-realm (fn [m] (cond-> m (some? realm-val) (assoc :realm realm-val)))]
         (probe/eval-after-runtime!
           conn build-id wrapped :handler-meta-failed
           (fn [v]
@@ -210,21 +293,22 @@
                       ;;     pass through, stamped with kind/id.
                       ;;   - genuine non-map (should not happen against a
                       ;;     healthy runtime): surface :unexpected-shape.
-                      (cond
-                        (not (map? meta-map))
-                        {:ok? false :reason :unexpected-shape
-                         :kind kind :id id-val :value meta-map}
+                      (stamp-realm
+                        (cond
+                          (not (map? meta-map))
+                          {:ok? false :reason :unexpected-shape
+                           :kind kind :id id-val :value meta-map}
 
-                        (false? (:ok? meta-map))
-                        (assoc meta-map :kind kind :id id-val)
+                          (false? (:ok? meta-map))
+                          (assoc meta-map :kind kind :id id-val)
 
-                        :else
-                        (assoc meta-map :ok? true :kind kind :id id-val))))
+                          :else
+                          (assoc meta-map :ok? true :kind kind :id id-val)))))
                   ;; An :unserializable / :eval-error envelope from the
                   ;; codec carries no kind/id; stamp them so the agent
                   ;; sees what it asked for.
                   result (if (renv/error? result)
-                           (assoc result :kind kind :id id-val)
+                           (stamp-realm (assoc result :kind kind :id id-val))
                            result)]
               (if (renv/error? result)
                 (wire/err-text result)
@@ -235,20 +319,33 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- list-form
-  "Build the eval form returning the sorted id vector for a kind. For
-  the ten registrar kinds we route through
-  `re-frame2-pair.runtime/registrar-list`; for `:machine` we wrap
+  "Build the eval form returning the sorted id vector for a kind.
+
+  DEFAULT realm (`realm` is nil): the ten registrar kinds route through
+  `re-frame2-pair.runtime/registrar-list`; `:machine` wraps
   `re-frame.core/machines` (Spec 005 §Querying machines — every event
-  handler with `:rf/machine? true`)."
-  [kind]
-  (if (= :machine kind)
-    "(vec (sort (re-frame.core/machines)))"
-    (ef/emit (ef/rt-call 'registrar-list kind))))
+  handler with `:rf/machine? true`). Byte-identical to before.
+
+  EXPLICIT realm (EP-0013): route through the public map-shaped form
+  `(re-frame.core/registrations {:realm r :kind k})` and lift the sorted
+  id vector off it, so the enumeration covers ONLY that realm's registrar
+  (open-issue 11). `:machine` is rejected before reaching here when a realm
+  is supplied (machines derive from the default realm)."
+  [realm kind]
+  (cond
+    (= :machine kind) "(vec (sort (re-frame.core/machines)))"
+    (nil? realm)      (ef/emit (ef/rt-call 'registrar-list kind))
+    :else             (str "(->> "
+                           (ef/emit (ef/rt-call* 're-frame.core/registrations
+                                                 {:realm realm :kind kind}))
+                           " keys sort vec)")))
 
 (defn list-handlers-tool [conn args]
-  (let [build-id (wire/arg-build conn args)
-        kind-str (wire/arg args :kind)
-        kind     (parse-kind kind-str)]
+  (let [build-id  (wire/arg-build conn args)
+        kind-str  (wire/arg args :kind)
+        realm-str (wire/arg args :realm)
+        kind      (parse-kind kind-str)
+        [realm-tag realm-val] (parse-realm realm-str)]
     (cond
       (nil? kind)
       (js/Promise.resolve
@@ -257,13 +354,31 @@
                         :kind   kind-str
                         :hint   (str "kind must be one of: " (kinds-hint))}))
 
+      (= :err realm-tag)
+      (js/Promise.resolve
+        (wire/err-text {:ok?    false
+                        :reason realm-val
+                        :realm  realm-str
+                        :hint   "realm must be an EDN-readable keyword, e.g. \":shop/realm\"."}))
+
+      (and (some? realm-val) (= :machine kind))
+      (js/Promise.resolve
+        (wire/err-text {:ok?    false
+                        :reason :realm-unsupported-for-machine
+                        :realm  realm-val
+                        :kind   kind
+                        :hint   (str "machine specs derive from the default realm; "
+                                     "drop :realm to list machines, or use a registrar "
+                                     "kind (event/sub/…) for realm-targeted enumeration.")}))
+
       :else
-      (let [form (list-form kind)]
+      (let [form (list-form realm-val kind)]
         (probe/eval-after-runtime!
           conn build-id form :list-handlers-failed
           (fn [v]
             (wire/ok-text
-              {:ok?   true
-               :kind  kind
-               :ids   (vec v)
-               :count (count v)})))))))
+              (cond-> {:ok?   true
+                       :kind  kind
+                       :ids   (vec v)
+                       :count (count v)}
+                (some? realm-val) (assoc :realm realm-val)))))))))
