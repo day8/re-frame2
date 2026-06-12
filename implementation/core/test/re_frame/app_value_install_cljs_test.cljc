@@ -536,31 +536,72 @@
       (is (= h (get-in @registrar/kind->id->metadata [:event :xms/ghost-ev :handler-fn]))
           "it is the process-global atom, confirming the absence-is-default fallback"))))
 
-(deftest install-of-a-non-wired-kind-seats-a-malformed-slot-known-limitation
-  (testing "CHARACTERIZATION of the flat-fallback gap (rf2-xmslkr / follow-up
-            rf2-chc8vs): a CONSTRUCTED :frame descriptor is NOT among the
-            install-descriptor! wired kinds (:event/:sub/:fx/:cofx), so install!
-            falls back to the FLAT registrar lowering — it writes a :frame
-            registrar slot but NEVER runs reg-frame's real registration logic
-            (no frame container is created, no :on-create runs). The slot is
-            thus MALFORMED for the frame subsystem: it appears in the registrar
-            yet `frame/frame` finds no container, so the 'installed' frame is not
-            dispatchable.
-
-            EP-0013 §Implementation step 7 lists :frame among the FIRST
-            descriptor-format kinds, but its install lowering is unwired in this
-            slice (step 8 extends the format to routes/flows/resources/…). This
-            test PINS the current behaviour as a known limitation and is the
-            regression guard for the wiring (or the refuse-loudly posture per
-            issue 12) the follow-up bead lands."
+(deftest install-wires-the-frame-kind-through-reg-frame
+  (testing "rf2-chc8vs: :frame is an EP-0013 step-7 FIRST-format kind, so a
+            CONSTRUCTED :frame descriptor is now lowered through reg-frame's REAL
+            registration logic — install! creates a real frame CONTAINER (not the
+            malformed flat registrar slot the prior slice left). The frame
+            appears in `frame-ids`, `frame/frame` resolves a live container, and
+            it is dispatchable. This FLIPS the rf2-xmslkr characterization test
+            that pinned `frame/frame -> nil` as a known limitation."
     (rf/install! (rf/app {:id :xms/frame-app :modules
                           [(rf/module {:id :m :frames {:xms/frame {:doc "constructed frame"}}})]}))
-    ;; The registrar slot WAS written (flat fallback).
+    ;; The registrar slot is written (reg-frame's first step) — the frame kind is
+    ;; a registrar kind, so the (kind,id) table carries the config.
     (is (some? (registrar/lookup :frame :xms/frame))
-        "the flat fallback wrote a :frame registrar slot")
-    ;; But NO frame container exists — reg-frame's real logic never ran.
-    (is (nil? (frame/frame :xms/frame))
-        "KNOWN LIMITATION: no frame container — the flat slot is malformed for
-         the frame subsystem (the install lowering for :frame is unwired)")
-    (is (not (contains? (frame/frame-ids) :xms/frame))
-        "the 'installed' frame is absent from the live frame registry")))
+        "reg-frame wrote the :frame registrar slot")
+    ;; And — the rf2-chc8vs fix — a REAL frame container now exists: reg-frame's
+    ;; full registration logic ran (container create + :on-create + classify).
+    (is (some? (frame/frame :xms/frame))
+        "a real frame container exists — reg-frame's registration logic ran")
+    (is (contains? (frame/frame-ids) :xms/frame)
+        "the installed frame appears in the live frame registry")
+    ;; The seated config round-trips (the :doc the module carried).
+    (is (= "constructed frame" (:doc (frame/frame-meta :xms/frame)))
+        "the constructed frame's config was seated through reg-frame")
+    ;; End-to-end: the installed frame is dispatchable / subscribable, proving it
+    ;; is a real frame and not a malformed slot.
+    (rf/install! (rf/app {:id :xms/frame-prog :modules
+                          [(rf/module {:id :m2
+                                       :events {:xms/frame-set {:handler (fn [db [_ v]] (assoc db :n v))}}
+                                       :subs   {:xms/frame-read {:handler (fn [db _] (:n db))}}})]}))
+    (rf/dispatch-sync [:xms/frame-set 7] {:frame :xms/frame})
+    (is (= {:n 7} (rf/app-db-value :xms/frame))
+        "the install!-seated frame dispatches an installed event handler")
+    (is (= 7 @(rf/subscribe :xms/frame [:xms/frame-read]))
+        "the install!-seated frame resolves an installed subscription")))
+
+(deftest install-of-a-step8-deferred-kind-refuses-loudly
+  (testing "rf2-chc8vs: a CONSTRUCTED descriptor of an EP-0013 step-8 DEFERRED
+            kind (:route/:flow/:resource/:mutation/:view/:head/:error-projector/
+            :resource-scope) — each carries real registration logic the flat
+            lowering bypasses — REFUSES LOUDLY at install!: a diagnosable
+            :rf.error/unsupported-descriptor-kind naming the kind + the wired set
+            + that it is a later slice, rather than silently seating a malformed
+            flat slot (fail-closed per EP-0013 issue-12 + no-silent-swallow)."
+    (doseq [[section kind] [[:routes :route]
+                            [:flows :flow]
+                            [:resources :resource]
+                            [:mutations :mutation]
+                            [:resource-scopes :resource-scope]
+                            [:views :view]
+                            [:heads :head]
+                            [:error-projectors :error-projector]]]
+      (let [a  (rf/app {:id :xms/deferred-app :modules
+                        [(rf/module (assoc {:id :m}
+                                           section {:xms/deferred {:handler (fn [& _] nil)}}))]})
+            ed (try (rf/install! a)
+                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                      (ex-data e)))]
+        (is (= :rf.error/unsupported-descriptor-kind (:error/id ed))
+            (str "install! of a " kind " descriptor refuses loudly"))
+        (is (= kind (:kind ed))
+            (str "the refusal names the unsupported kind " kind))
+        (is (contains? (:deferred ed) kind)
+            "the refusal enumerates the deferred set")
+        (is (contains? (:wired ed) :frame)
+            "the refusal enumerates the wired set (now including :frame)")
+        ;; Atomic: the refusal threw before recording an :app, and rolled back any
+        ;; seating — no descriptor of the refused kind leaked into the registrar.
+        (is (nil? (registrar/lookup kind :xms/deferred))
+            (str "no malformed " kind " slot was seated — the refusal was loud, not silent"))))))
