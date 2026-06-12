@@ -102,7 +102,7 @@ The registrar is a `(kind, id) → metadata` map. The `kind` keyword identifies 
 | `:event` | Every event handler regardless of arity | `reg-event-db`, `reg-event-fx`, `reg-event-ctx` |
 | `:sub` | All subscriptions | `reg-sub` |
 | `:fx` | Registered effect handlers | `reg-fx` |
-| `:cofx` | Coeffect handlers | `reg-cofx` |
+| `:cofx` | Coeffect suppliers (value-returning, graded ambient / recordable — §Coeffects) | `reg-cofx` |
 | `:view` | Registered views | `reg-view` |
 | `:frame` | Registered frames | `reg-frame` (also `make-frame`) |
 | `:route` | Routes | `reg-route` (Spec 012) |
@@ -264,7 +264,7 @@ The kinds are listed in the order they appear in [§Registry model — the canon
 | `:event` (machine handler — same `:event` kind, registered via `reg-machine`) | Replace the machine's `:event` slot — i.e. the whole `make-machine-handler` body, including its captured `:guards` / `:actions` maps. Machine guards and actions are **not** registry kinds (per §Registry model); they replace only as part of the enclosing `:event` slot. | **Active instances are not affected** — they continue running with the spec captured at spawn time. The next `[:rf.machine/spawn ...]` (or `:spawn`) creates instances against the new spec. Microsteps in-flight on existing instances finish against their captured guards/actions. | None for the spec; active instance snapshots remain at `[:rf.runtime/machines :snapshots <id>]` (in runtime-db) | `:rf.registry/handler-replaced` (with `:tags {:active-instances <count>}` for visibility) |
 | `:sub` | Replace the sub body and `:<-` chain. Dispose the cache slot for this query in every frame. | Subscribers reading the old reaction get the old value once more; next deref recomputes through the new body | Cache slot is disposed; sub-cache reference counting carries new readers | `:rf.registry/handler-replaced` + `:sub/disposed` per cleared cache slot |
 | `:fx` | Replace the fx handler fn | `:fx` walks already in `do-fx` finish against the old fn (rule 1); subsequent walks see the new fn | None | `:rf.registry/handler-replaced` |
-| `:cofx` | Replace the cofx handler fn | Cofx already injected into an interceptor chain are bound to the old fn for that event; subsequent events see the new fn | None | `:rf.registry/handler-replaced` |
+| `:cofx` | Replace the cofx supplier fn (and its grade metadata) | A supplier already consulted during an in-flight context assembly is bound to the old fn for that event; subsequent events resolve the new supplier | None | `:rf.registry/handler-replaced` |
 | `:view` | Replace the view fn | Currently-rendering views finish against the old fn; the substrate's next render cycle picks up the new fn | None | `:rf.registry/handler-replaced` |
 | `:frame` | Surgical update of the frame's metadata; live `app-db`, sub-cache, queue all preserved | Per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update) | None disposed | `:rf.registry/handler-replaced` (frame metadata semantics owned by 002) |
 | `:route` | Replace the route handler fn / pattern | Currently-handling navigation finishes against the old route handler; next navigation resolves the new one | None | `:rf.registry/handler-replaced` |
@@ -321,7 +321,7 @@ A pointer-only summary of the registration functions and the per-Spec docs that 
 | Event handler | `reg-event-db`, `reg-event-fx`, `reg-event-ctx` | [002-Frames.md](002-Frames.md) |
 | Subscription | `reg-sub` | [006-ReactiveSubstrate.md](006-ReactiveSubstrate.md) |
 | Effect | `reg-fx` | [002-Frames.md](002-Frames.md), [011-SSR.md](011-SSR.md) (for `:platforms`) |
-| Cofx | `reg-cofx` | [002-Frames.md](002-Frames.md) |
+| Cofx | `reg-cofx` | [001 §Coeffects](#coeffects--reg-cofx-value-returning-graded) (registrar contract + grades + `:rf.cofx/requires`); [002 §Recordable coeffects](002-Frames.md#recordable-coeffects) (envelope + delivery) |
 | View | `reg-view` (defn-shape macro) / `reg-view*` (plain fn) | [004-Views.md](004-Views.md) |
 | Frame | `reg-frame` | [002-Frames.md](002-Frames.md) |
 | App-db schema (not a registrar kind — schemas live in the schemas artefact's per-frame side-table, rf2-cq1ak) | `reg-app-schema` | [010-Schemas.md](010-Schemas.md) |
@@ -339,6 +339,87 @@ Per [010-Schemas.md](010-Schemas.md): in dynamic hosts, the `:schema` metadata k
 In static hosts, the type system handles shape correctness instead of `:schema`. The metadata-map shape is the same; the `:schema` key may be omitted, or used as documentation for runtime inspection without runtime validation.
 
 The exact validation timing rules and dev-vs-prod elision live in Spec 010.
+
+## Coeffects — `reg-cofx` value-returning, graded
+
+A **coeffect** is a fact a causal run consumed from outside the event — the recorded wall-clock time, a localStorage read, an app-registered random draw. `reg-cofx` registers a coeffect id with standard metadata (§The metadata map) and a **value-returning supplier**; handlers and machine callbacks declare what they consume with `:rf.cofx/requires` (below). This contract is graduated from [EP-0017](../docs/EP/EP-0017-recordable-coeffects.md); the envelope field (`:rf.cofx`), the delivery semantics, and the satisfaction algorithm are owned by [002 §Recordable coeffects](002-Frames.md#recordable-coeffects). The discipline in one sentence: **durable state folds facts, never reads.**
+
+### The two grades
+
+Every coeffect id carries a **grade**, declared in the registration metadata:
+
+- **Ambient** (the default) — its supplier runs at context assembly, the value is delivered to declaring handlers and **never recorded**; replay re-runs the supplier. Permitted only where no durable write depends on the value (display preferences, diagnostics, host-transient measurements).
+- **Recordable** (`:recordable? true`) — the fact is **ensured onto the causal token** before the fold consumes it, recorded with the token, and re-presented verbatim by replay. Required for any fact that can affect durable frame-state.
+
+The grade is a property of the registration, not a namespace — there is one registry, one coeffect id-namespace.
+
+### The registrar contract
+
+`reg-cofx` takes a **value-returning supplier** — `(fn [] value)` or `(fn [arg] value)` for call-site-parameterized ids. The v1 ctx→ctx handler shape is **retired** with `inject-cofx` (below).
+
+```clojure
+;; ambient (default grade) — a display preference; never feeds durable state
+(rf/reg-cofx :ui/local-theme
+  {:doc "Ambient localStorage read for the display theme."}
+  (fn [storage-key]
+    (some-> (.-localStorage js/globalThis) (.getItem storage-key))))
+
+;; recordable, generator-backed — an app-owned replayable supplier (the generator
+;; RUNS in slice B; the registration + grade are slice A)
+(rf/reg-cofx :counter/delta
+  {:recordable? true
+   :doc    "Replayable d6 roll."
+   :schema [:int {:min 1 :max 6}]}
+  (fn [] (inc (rand-int 6))))
+
+;; recordable, PROVIDED — stamped by a subsystem/boundary; no generator
+(rf/reg-cofx :rf.route/location
+  {:recordable? true
+   :provided?   true
+   :doc "The location fact the routing subsystem stamps on its dispatches."
+   :schema :rf.route/location-schema})
+```
+
+Registration contract:
+
+- A **recordable** supplier's value MUST be EDN (structurally checked — it is going into the record). Host objects are never recordable values.
+- `:provided? true` registers a recordable fact with **no generator**: the value is stamped onto the token by its owner (framework, subsystem, or dispatch boundary). Provided registrations exist so boundary facts get docs, `:schema`, and ownership — and so a typo'd requirement is distinguishable from a missing value (`:rf.error/unregistered-cofx` vs `:rf.error/missing-required-cofx`).
+- The framework ships exactly **one** built-in registration: **`:rf/time-ms`** — recordable, provided, stamped at enqueue on every dispatch and reply envelope ([002 §Envelope stamping](002-Frames.md#envelope-stamping-rftime-ms)). It is the canonical durable wall-clock fact; the framework's own durable writers read it from the envelope.
+- The optional `:schema` validates supplied and replayed values (the validation step is slice-B-built; the registration metadata is slice A).
+- Fact names are **owner-qualified**: `:rf/*` framework, subsystem roots (`:rf.route/*`, …) for subsystem facts, app namespaces for app facts. Application ids MUST NOT use `rf.`-prefixed namespaces — per [Conventions §Recordable-coeffect fact naming](Conventions.md#recordable-coeffect-fact-naming-rfcofx).
+
+`reg-cofx` returns its primary id (§Return value). The per-kind metadata schema is [`:rf/cofx-meta`](Spec-Schemas.md#rfcofx-meta) in [Spec-Schemas](Spec-Schemas.md).
+
+### `:rf.cofx/requires` — the declaration key
+
+`:rf.cofx/requires` is a standard registration-metadata key (the middle slot) on `reg-event-fx` and `reg-event-ctx`, and on machine named guard/action entries ([005 §Causal host facts](005-StateMachines.md#causal-host-facts--rfcofx-ep-0017)). Its value is a vector of registered coeffect ids; a parameterized id appears as `[id arg]` (mirroring the binary supplier arity).
+
+```clojure
+(rf/reg-event-fx :counter/inc
+  {:doc "Increment by a replayable random delta."
+   :rf.cofx/requires [:rf/time-ms :counter/delta]}
+  (fn [{:keys [db counter/delta rf/time-ms]} _event]
+    {:db (-> db
+             (update :count + delta)
+             (assoc :last-updated-at time-ms))}))
+```
+
+A requirement means **ensure + deliver**; the full satisfaction algorithm (present/validate, absent+generator, absent+provided, ambient) is owned by [002 §Declaration and delivery](002-Frames.md#declaration-and-delivery--rfcofxrequires). The registration-time rules this Spec owns:
+
+- On `reg-event-db`, `:rf.cofx/requires` is a **registration-time error** (`:rf.error/cofx-request-invalid`): a db handler receives only the db and cannot take delivery. Needing the world is what graduates a handler to the fx form.
+- A required id with **no registration at all** is `:rf.error/unregistered-cofx` — at registration where statically checkable, else at first processing. Typos die before dispatch semantics apply.
+- `[id arg]` delivers under the bare `id`; declaring the same id twice (any args) in one consumer scope is `:rf.error/cofx-name-collision`.
+- A malformed `:rf.cofx/requires` (a non-vector, or a vector carrying a non-id entry) is `:rf.error/cofx-request-invalid` at registration.
+
+`:rf.cofx/requires` and the cofx registrations surface in `(rf/handler-meta …)` exactly as authored (the registry MAY additionally expose an effective form), so tools can answer exhaustively which handlers consume which facts, in both grades. The schema for the declaration value is [`:rf.cofx/requires`](Spec-Schemas.md#rfcofxrequires) in [Spec-Schemas](Spec-Schemas.md).
+
+### `inject-cofx` is removed
+
+`inject-cofx` (and `inject-cofx*`) — the v1 ctx→ctx delivery idiom that ran a coeffect-injecting function as a positional interceptor at handler time — is **removed**, with **no alias and no coexistence window** (EP-0007 rule 2). `:rf.cofx/requires` is the one declaration surface; the registration's grade decides replay semantics; delivery is context assembly, not a chain member ([002 §Coeffects are context assembly](002-Frames.md#declaration-and-delivery--rfcofxrequires)). Calling `inject-cofx` is a **hard error** `:rf.error/inject-cofx-removed` naming `:rf.cofx/requires` as the replacement (it fires in production too — a correctness contract, not a dev diagnostic). The removal dissolves v1's coeffect-ordering wart (an early interceptor blind to a later injection) and the supplied-vs-injected double-delivery class structurally.
+
+### Collisions
+
+A coeffect id registration colliding with another registered coeffect id (one registry, one id-namespace), with the fold's argument keys (`:db`, `:event`), or an application id under an `rf.`-prefixed namespace is a hard registration-time error `:rf.error/cofx-name-collision`. No per-handler or dispatch-time collision rules are needed: the requires-vs-inject double-delivery is unexpressible (`inject-cofx` is removed) and an undeclared supplied leaf is never staged (declared-only delivery).
 
 ## `:doc` is dev-warned when absent
 
@@ -373,6 +454,7 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 | Re-registration is non-destructive to in-flight work; cached values invalidate on relevant re-registration; active machine instances continue with their captured spec; dispatch is not paused | [§The hot-reload contract](#the-hot-reload-contract) |
 | Re-registration with a *different* fn is silent last-write-wins by default; the runtime can warn at registration time via `:rf.warning/registration-collision` (recommended on in dev) | [§Re-registration of a different function — collision warning](#re-registration-of-a-different-function--collision-warning) |
 | Machine guards and actions are NOT registry kinds — they are machine-local declarations inside each `make-machine-handler` spec's `:guards` / `:actions` maps; hot-reload flows through the enclosing machine's `:event` slot | [§Canonical ownership boundaries](#canonical-ownership-boundaries), [§Registry model — the canonical `kind` keyword set](#registry-model--the-canonical-kind-keyword-set) |
+| `reg-cofx` is a value-returning supplier (`(fn [] v)` / `(fn [arg] v)`), graded ambient (default) or recordable (`:recordable? true`, optionally `:provided? true`); `:rf.cofx/requires` declares a handler's consumed coeffects; `inject-cofx` is removed (hard error `:rf.error/inject-cofx-removed`) — EP-0017 slice A | [§Coeffects](#coeffects--reg-cofx-value-returning-graded), [002 §Recordable coeffects](002-Frames.md#recordable-coeffects) |
 | Per-kind metadata schemas — the metadata map is open, but each kind has a documented set of keys it cares about; the catalogue ships per-kind narrowed schemas (`:rf/event-handler-meta`, `:rf/sub-meta`, `:rf/fx-meta`, `:rf/cofx-meta`, `:rf/view-meta`, `:rf/machine-meta`, `:rf/flow-meta`, `:rf/app-schema-meta`, `:rf/head-meta`, `:rf/error-projector-meta`, and the route-shaped `:rf/route-metadata`), each `:merge`-composed with the base `:rf/registration-metadata` open shape | [Spec-Schemas §Per-kind refinements](Spec-Schemas.md#per-kind-refinements) |
 
 ## Cross-references
