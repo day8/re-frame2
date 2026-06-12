@@ -72,15 +72,16 @@
    (config/reset-suppressed-count! variant-id)
    nil))
 
-;; ---- retroactive scrub on set-show-sensitive! false (rf2-lqmje) ---------
+;; ---- retroactive scrub on egress-profile narrowing (rf2-lqmje) ----------
 ;;
-;; Per Spec 009 §Privacy §Retroactive-scrub on `set-show-sensitive!`
-;; false: toggling the flag from true → false clears every per-variant
-;; trace buffer. Each Story trace listener only gates at ingest via
-;; `config/suppress-sensitive?`, so without this hook a sensitive
-;; cascade emitted while the flag was true would remain visible in
-;; every variant's downstream surface after the user expected privacy
-;; to be restored.
+;; Per Spec 009 §Privacy §Retroactive-scrub (EP-0015 rf2-3t26eh):
+;; narrowing the local-render egress profile from a sensitive-revealing
+;; boundary (`:rf.egress/local-raw`) back to the redacting default clears
+;; every per-variant trace buffer. Each Story trace listener only gates at
+;; ingest via `config/suppress-sensitive?`, so without this hook a
+;; sensitive cascade buffered while the raw profile was active would
+;; remain visible in every variant's downstream surface after the user
+;; expected privacy to be restored.
 ;;
 ;; The clear cascades through `clear-buffer!` (zero-arg form):
 ;;   - resets every per-variant ratom to `[]` (consumers re-render empty),
@@ -135,9 +136,9 @@
   into the per-variant buffer. Idempotent (re-registering replaces).
   Returns the listener id.
 
-  Per Spec 009 §Privacy + rf2-bclgj: events whose `:sensitive?` flag
-  is true are dropped from the buffer when the global
-  `:rf.privacy/show-sensitive?` flag is false (the default). The
+  Per Spec 009 §Privacy + EP-0015 rf2-3t26eh: events whose `:sensitive?`
+  flag is true are dropped from the buffer when Story's local-render
+  egress profile redacts (`:rf.egress/local-redacted` — the default). The
   suppressed-events counter bumps for the variant so downstream
   consumers can advertise that the buffer is shorter than the
   runtime's actual emit count."

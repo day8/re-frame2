@@ -67,9 +67,10 @@
   buffered, so the secret never reaches the recorder atom. The
   suppressed-events counter is bumped (`config/note-suppressed!`) so the
   UI's REDACTED hint reflects the scrubbed rows, exactly as the dispatch
-  rail does. Hosts debugging redaction policy flip
-  `:rf.privacy/show-sensitive?` true via `story/configure!` for the
-  verbatim opt-in path — the SAME flag the dispatch rail honours.
+  rail does. Hosts debugging redaction policy opt into the trusted-local
+  boundary via `(story/configure! {:rf.story/egress-profile
+  :rf.egress/local-raw})` for the verbatim path (EP-0015 rf2-3t26eh) —
+  the SAME profile the dispatch rail honours.
 
   `<select>` is NOT treated as sensitive (a choice from visible options
   is not a typed secret); only typed `<input>` fields are scrubbed."
@@ -301,14 +302,15 @@
 (defn- capture-value
   "Read the value to RECORD for `el` (rf2-0qoi0). For a non-sensitive
   field, the verbatim `.value`. For a SENSITIVE field, the redacted
-  placeholder — UNLESS `:rf.privacy/show-sensitive?` is set (the host's
-  explicit verbatim opt-in, same flag the dispatch rail honours), in
+  placeholder — UNLESS Story's local-render egress profile reveals
+  sensitive values (the trusted-local `:rf.egress/local-raw` opt-in, the
+  same posture the dispatch rail honours per EP-0015 rf2-3t26eh), in
   which case the verbatim value flows through. Bumps the suppressed
   counter for the recording's variant when it redacts, so the UI's
   REDACTED hint stays accurate."
   [el]
   (let [v (target-value el)]
-    (if (and (sensitive-element? el) (not (config/get-show-sensitive)))
+    (if (and (sensitive-element? el) (not (config/include-sensitive?)))
       (do (config/note-suppressed! (recorder/recording-variant))
           redacted-type-text)
       v)))

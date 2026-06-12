@@ -68,7 +68,7 @@
       (recorder/clear!)
       (dom/set-enabled! true)
       (dom/set-debounce-ms! 0)
-      (config/set-show-sensitive! false)
+      (config/set-egress-profile! config/default-egress-profile)
       (config/reset-suppressed-count!)
       (let [_ (mount-root!)]
         (dom/install! @test-root)
@@ -78,7 +78,7 @@
             (dom/remove!)
             (unmount-root!)
             (recorder/clear!)
-            (config/set-show-sensitive! false)
+            (config/set-egress-profile! config/default-egress-profile)
             (config/reset-suppressed-count!)
             (dom/set-debounce-ms! 250)))))))
 
@@ -348,11 +348,11 @@
                (:text (first (filterv #(= :dom/type (:kind %))
                                       (recorder/recorded-entries))))))))))
 
-(deftest show-sensitive-flag-opts-into-verbatim-capture
+(deftest local-raw-profile-opts-into-verbatim-capture
   (when (dom-available?)
-    (testing ":rf.privacy/show-sensitive? true → the DOM rail captures the
-              verbatim password (host opt-in, mirrors the dispatch rail)"
-      (config/set-show-sensitive! true)
+    (testing ":rf.egress/local-raw → the DOM rail captures the verbatim
+              password (host opt-in, mirrors the dispatch rail; EP-0015 rf2-3t26eh)"
+      (config/set-egress-profile! :rf.egress/local-raw)
       (recorder/start-recording! :story.login/flow)
       (let [pw (mk-input! {:type "password" :id "pw"})]
         (set! (.-value pw) "hunter2-secret")

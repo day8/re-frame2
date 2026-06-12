@@ -767,7 +767,7 @@
                                  :rf.story/global-decorators  []
                                  :rf.story/editor             :vscode
                                  :rf.story/project-root       nil
-                                 :rf.privacy/show-sensitive?  false})))))
+                                 :rf.story/egress-profile     :rf.egress/local-redacted})))))
 
 (deftest configure-bang-error-lists-every-unknown
   (testing "multiple unknown keys all surface in :unknown so the author

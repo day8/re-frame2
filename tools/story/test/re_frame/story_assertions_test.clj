@@ -611,10 +611,12 @@
 ;; events in tape order":
 ;;
 ;;   1. PRIVACY: the `:trigger-event` of an epoch flagged
-;;      `:rf.epoch/sensitive?` is DROPPED while `:rf.privacy/show-sensitive?`
-;;      is off, so a sensitive event vector never lands raw on an assertion
-;;      record's `:actual` (which serialises into the test-mode pane, MCP
-;;      `read-assertions`, and JSON-log egress). With the flag ON, sensitive
+;;      `:rf.epoch/sensitive?` is DROPPED while Story's local-render egress
+;;      profile redacts (`:rf.egress/local-redacted` — the default, EP-0015
+;;      rf2-3t26eh), so a sensitive event vector never lands raw on an
+;;      assertion record's `:actual` (which serialises into the test-mode
+;;      pane, MCP `read-assertions`, and JSON-log egress). Under the
+;;      trusted-local `:rf.egress/local-raw` profile, sensitive
 ;;      trigger-events pass through.
 ;;   2. ASSERTION-EVENT EXCLUSION: an `[:assert …]` checkpoint dispatches its
 ;;      wrapped `:rf.assert/*` atom, committing an epoch whose `:trigger-event`
@@ -625,19 +627,19 @@
 ;; Both are PURE projection branches over the tape, so the tests inject a
 ;; synthetic tape through the private `frame-tape` var (the established
 ;; `@#'` / `with-redefs` idiom in this file) — deterministic, host-free, no
-;; live dispatch needed. `set-show-sensitive!` is restored in a `finally`
-;; so the flag cannot poison a sibling test (the fixture does not reset it).
+;; live dispatch needed. The egress profile is restored in a `finally`
+;; so it cannot poison a sibling test (the fixture does not reset it).
 ;; ===========================================================================
 
-(defn- with-show-sensitive
-  "Run `thunk` with the `:rf.privacy/show-sensitive?` flag bound to `flag`,
+(defn- with-egress-profile
+  "Run `thunk` with Story's local-render egress profile bound to `profile`,
   restoring the prior value afterwards (the assertions fixture does not
-  reset the flag, so a `set-show-sensitive!` must be unwound by hand)."
-  [flag thunk]
-  (let [prev (config/get-show-sensitive)]
-    (config/set-show-sensitive! flag)
+  reset it, so a `set-egress-profile!` must be unwound by hand)."
+  [profile thunk]
+  (let [prev (config/get-egress-profile)]
+    (config/set-egress-profile! profile)
     (try (thunk)
-         (finally (config/set-show-sensitive! prev)))))
+         (finally (config/set-egress-profile! prev)))))
 
 (defn- with-tape
   "Run `thunk` with the private `frame-tape` projection redefed to return
@@ -646,9 +648,9 @@
   [tape thunk]
   (with-redefs-fn {#'assertions/frame-tape (constantly tape)} thunk))
 
-(deftest dispatched-events-drops-sensitive-trigger-when-flag-off
+(deftest dispatched-events-drops-sensitive-trigger-when-redacting
   (testing "an epoch flagged :rf.epoch/sensitive? has its :trigger-event
-            DROPPED while show-sensitive? is off (Spec 009 §Privacy) — a
+            DROPPED while the profile redacts (Spec 009 §Privacy) — a
             sensitive event vector must not reach an assertion record's
             :actual"
     ;; A two-epoch tape: one ordinary, one carrying a sensitive payload.
@@ -657,7 +659,7 @@
                  :rf.epoch/sensitive? true}]]
       (with-tape tape
         (fn []
-          (with-show-sensitive false
+          (with-egress-profile :rf.egress/local-redacted
             (fn []
               (let [events (assertions/dispatched-events :any-frame)]
                 (is (= [[:auth/login]] events)
@@ -667,20 +669,20 @@
                     "the sensitive payload [:auth/submit {:password …}] never
                      appears in the projection")))))))))
 
-(deftest dispatched-events-keeps-sensitive-trigger-when-flag-on
-  (testing "with show-sensitive? ON the sensitive epoch's :trigger-event
+(deftest dispatched-events-keeps-sensitive-trigger-under-local-raw
+  (testing "under :rf.egress/local-raw the sensitive epoch's :trigger-event
             PASSES THROUGH — the operator opted in (Spec 009 §Privacy)"
     (let [tape [{:trigger-event [:auth/login]}
                 {:trigger-event [:auth/submit {:password "hunter2"}]
                  :rf.epoch/sensitive? true}]]
       (with-tape tape
         (fn []
-          (with-show-sensitive true
+          (with-egress-profile :rf.egress/local-raw
             (fn []
               (let [events (assertions/dispatched-events :any-frame)]
                 (is (= [[:auth/login] [:auth/submit {:password "hunter2"}]] events)
-                    "both trigger-events project when the flag is on — the drop
-                     is gated on the flag, not unconditional")))))))))
+                    "both trigger-events project under the raw profile — the drop
+                     is gated on the profile, not unconditional")))))))))
 
 (deftest dispatched-events-excludes-assertion-trigger-events
   (testing "an :rf.assert/* trigger-event is EXCLUDED — a verdict the runner
@@ -694,7 +696,7 @@
                 {:trigger-event [:rf.assert/dispatched? [:cart/add-item]]}]]
       (with-tape tape
         (fn []
-          (with-show-sensitive false
+          (with-egress-profile :rf.egress/local-redacted
             (fn []
               (let [events (assertions/dispatched-events :any-frame)]
                 (is (= [[:cart/add-item {:sku "A"}] [:cart/checkout]] events)

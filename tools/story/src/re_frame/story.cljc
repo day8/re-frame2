@@ -788,10 +788,7 @@
 
   Every key lives under the `:rf.story/*` reserved sub-namespace per
   spec/Conventions.md §Reserved namespaces — the `:rf.<tool>/*`
-  convention introduced by Xray's rename (rf2-xea9u). Cross-tool keys
-  (read by more than one re-frame2 tool from the same atom) live under
-  their own reservation — `:rf.privacy/show-sensitive?` is read by
-  Story AND Xray.
+  convention introduced by Xray's rename (rf2-xea9u).
 
   `{:rf.story/global-args {...}}` — replace the global args map.
 
@@ -835,14 +832,22 @@
   pointed at a different root call `xray-config/configure!` directly
   AFTER `story/configure!`. Symmetric to shop's rf2-6jyf6.
 
-  `{:rf.privacy/show-sensitive? <bool>}` — privacy gate for
-  `:sensitive? true` trace events per Spec 009 §Privacy (rf2-bclgj).
-  Cross-tool key (Xray reads the same slot). Defaults to `false` —
-  Story's per-variant trace-buffer listener (consumed by the
-  schema-validation panel), the recorder, and the play-assertion
-  listeners drop sensitive events and surface a `[● REDACTED]` hint
-  where they render. Set to `true` while debugging redaction policy
-  to see the raw cascade.
+  `{:rf.story/egress-profile <kw>}` — Story's on-box dev-UI egress
+  profile per EP-0015 (frame-owned egress policy, rf2-3t26eh). One of
+  the six ruled `:rf.egress/*` profiles; in practice the two on-box
+  members: `:rf.egress/local-redacted` (default — suppress sensitive
+  display, FAIL-CLOSED) or `:rf.egress/local-raw` (the trusted-local
+  opt-in — show path-marked-sensitive values verbatim on your own
+  machine). EP-0015 issue 7 retired the process-global
+  `:rf.privacy/show-sensitive?` boolean in favour of this named-boundary
+  choice: there is no single on/off toggle, the question is *which
+  boundary is this?* Story's value-bearing surfaces (the recorder, the
+  per-variant trace-buffer listener consumed by the schema-validation
+  panel, the play-assertion listeners) project through the centralized
+  `re-frame.core/project-egress` walker under this profile and surface a
+  `[● REDACTED]` hint where they redact. An unknown profile keyword
+  raises `:rf.error/unknown-egress-profile`. `nil` resets to the
+  redacting default.
 
   Unrecognised keys raise `:rf.error/unknown-story-config-key` per
   rf2-xwr1d. Pre-alpha posture: a typo (`:rf.story/edtior`) should
@@ -850,18 +855,17 @@
   author chasing 'why isn't my editor preference taking effect?'
   across a session. The known-keys set is closed and small —
   `:rf.story/global-args`, `:rf.story/global-decorators`,
-  `:rf.story/editor`, `:rf.story/project-root`, plus the cross-tool
-  `:rf.privacy/show-sensitive?` — if you need an additional key
-  the framework hasn't shipped, extend this set in the same patch
-  that ships the consumer."
-  [{:rf.story/keys [global-args global-decorators editor project-root]
-    show-sensitive? :rf.privacy/show-sensitive?
+  `:rf.story/editor`, `:rf.story/project-root`, `:rf.story/egress-profile`
+  — if you need an additional key the framework hasn't shipped, extend
+  this set in the same patch that ships the consumer."
+  [{:rf.story/keys [global-args global-decorators editor project-root
+                    egress-profile]
     :as opts}]
   (let [known-keys #{:rf.story/global-args
                      :rf.story/global-decorators
                      :rf.story/editor
                      :rf.story/project-root
-                     :rf.privacy/show-sensitive?}
+                     :rf.story/egress-profile}
         unknown    (remove known-keys (keys opts))]
     (when (seq unknown)
       (throw (ex-info ":rf.error/unknown-story-config-key"
@@ -885,8 +889,20 @@
     ;; Xray-as-RHS source-coord chips share the same on-disk root.
     ;; Feature-detect-safe (no-op when Xray is not on the classpath).
     #?(:cljs (xray-preset/propagate-project-root!)))
-  (when (contains? opts :rf.privacy/show-sensitive?)
-    (config/set-show-sensitive! show-sensitive?))
+  (when (contains? opts :rf.story/egress-profile)
+    ;; EP-0015 (rf2-3t26eh): the named-boundary enum is CLOSED. An unknown
+    ;; non-nil profile fails loudly at boot — mirroring `project-egress`'s
+    ;; own `:rf.error/unknown-egress-profile` — rather than silently
+    ;; coercing to the default. `nil` resets to the redacting default.
+    (when (and (some? egress-profile)
+               (not (config/known-egress-profile? egress-profile)))
+      (throw (ex-info ":rf.error/unknown-egress-profile"
+                      {:rf.error/id :rf.error/unknown-egress-profile
+                       :where       'rf.story/configure!
+                       :recovery    :use-a-known-profile
+                       :profile     egress-profile
+                       :valid       config/egress-profiles})))
+    (config/set-egress-profile! egress-profile))
   nil)
 
 ;; ---- registry reset (test fixtures) -------------------------------------
@@ -899,7 +915,7 @@
   - resets every leakable process-global config atom via
     `re-frame.story.config/reset-all!` (rf2-6ez1u) — `global-args`
     (Layer 1 of args resolution), `global-decorators`, `editor`,
-    `project-root`, `show-sensitive?`, and `suppressed-counters` — so
+    `project-root`, `egress-profile`, and `suppressed-counters` — so
     a `configure!` (or any config mutation) in one test cannot leak
     into the next and silently perturb a later variant's effective
     args. (Subsumes the earlier rf2-835ey global-decorators-only

@@ -131,11 +131,11 @@
   preserved onto the record so a cofx failure is distinguishable from a
   handler failure.
 
-  Per Spec 009 §Privacy + rf2-bclgj: pipeline-exception trace events
-  whose `:sensitive?` flag is true are dropped from the capture set
-  when the global `:rf.privacy/show-sensitive?` flag is false (the
-  default). A counter bump is recorded so the UI's redaction hint
-  can surface 'N sensitive events suppressed'."
+  Per Spec 009 §Privacy + EP-0015 rf2-3t26eh: pipeline-exception trace
+  events whose `:sensitive?` flag is true are dropped from the capture
+  set when Story's local-render egress profile redacts
+  (`:rf.egress/local-redacted` — the default). A counter bump is recorded
+  so the UI's redaction hint can surface 'N sensitive events suppressed'."
   [variant-id phase body-fn]
   (let [collected (atom [])
         listener  (fn [ev]

@@ -117,9 +117,11 @@
 ;; (Spec 009 §Privacy) before they reached the accumulator. The tape
 ;; projections preserve that posture for the only fact that carries a
 ;; payload — dispatched event vectors: `dispatched-events` drops the
-;; `:trigger-event` of any epoch flagged `:rf.epoch/sensitive?` while the
-;; `:rf.privacy/show-sensitive?` flag is off, so a sensitive event vector
-;; never lands raw on an assertion record's `:actual`. Warning records
+;; `:trigger-event` of any epoch flagged `:rf.epoch/sensitive?` while
+;; Story's local-render egress profile redacts (the
+;; `:rf.egress/local-redacted` default, EP-0015 rf2-3t26eh), so a
+;; sensitive event vector never lands raw on an assertion record's
+;; `:actual`. Warning records
 ;; carry only `:operation` / `:category` metadata (no payload), so the
 ;; `:warnings` projection — which agrees with the run-result slot — counts
 ;; them without a payload-leak risk.
@@ -148,12 +150,14 @@
   verdict is not behaviour-under-test (mirrors the retired listener's
   `assertion-event?` skip + `evidence/narrative`'s span-attribution rule).
 
-  Privacy (Spec 009 §Privacy): the `:trigger-event` of an epoch flagged
-  `:rf.epoch/sensitive?` is dropped while `:rf.privacy/show-sensitive?` is
-  off, so a sensitive event vector never reaches an assertion record's
-  `:actual`. With the flag on, sensitive trigger-events pass through."
+  Privacy (Spec 009 §Privacy + EP-0015 rf2-3t26eh): the `:trigger-event`
+  of an epoch flagged `:rf.epoch/sensitive?` is dropped while Story's
+  local-render egress profile redacts (`:rf.egress/local-redacted` — the
+  default), so a sensitive event vector never reaches an assertion
+  record's `:actual`. Under the trusted-local `:rf.egress/local-raw`
+  profile, sensitive trigger-events pass through."
   [frame-id]
-  (let [show? (config/get-show-sensitive)]
+  (let [show? (config/include-sensitive?)]
     (into []
           (comp (remove (fn [{:keys [rf.epoch/sensitive?]}]
                           (and sensitive? (not show?))))
