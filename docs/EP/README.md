@@ -1,12 +1,8 @@
 # Enhancement Proposals (EPs)
 
-Design proposals for re-frame2.
+Design proposals for re-frame2 which follow the Python Enhancement Proposal model. The project goal is to drive the coding work using detailed specifications (which are just really good prompts), and these EPs are an example of such prompts.
 
-EPs follow the Python Enhancement Proposal model: **durable, numbered design records** — never deleted, numbers never reused — that carry a decision from proposal through ruling into its named normative home, then remain as the record of why (including when the answer was no). Standards-track EPs graduate into [`spec/`](https://github.com/day8/re-frame2/tree/main/spec); where a final standards-track EP and the spec differ, the spec governs. Process EPs graduate into the normative home they name, which may be the active EP itself. The process itself is defined in [EP-0009](EP-0009-the-ep-process.md).
-
-In brief: an EP is warranted for **feature-level or public-contract decisions with unresolved alternatives** (type: standards-track → `final`) or **process/convention rules worth a durable rationale record** (type: process → `active`); settled mechanical material goes straight to `spec/` + beads. Status lifecycle: **proposal** → **accepted** → **final**/**active**, with **rejected** / **withdrawn** / **deferred** / **superseded-by EP-NNNN** as kept terminal states. A final EP may carry an **implementation-errata ledger** (the EP-0005 pattern): decisions-final does not assert build-complete. Each new EP carries a stable number, `Status:` + `Type:` lines, and standard sections; dependencies live in `Relationships`.
-
-`final` asserts the **decisions** are settled — it does **not**, on its own, assert the implementation is build-complete. In brief, a final EP whose build outlives its decision-freeze carries an implementation-errata ledger; the governing rule lives in [EP-0009](EP-0009-the-ep-process.md#statuses). This README is only the index and summary.
+The EP process itself — types, status lifecycle, durability rules, and the EP-worthiness bar — is normative in [EP-0009](EP-0009-the-ep-process.md). This README is only the index and summary.
 
 ## Authoring a new EP
 
@@ -14,8 +10,8 @@ Copy [`EP-template.md`](EP-template.md) to `EP-NNNN-<slug>.md`, fill it in, and 
 
 ## Index
 
-| EP       | Title | Status | Summary |
-|----------|-------|--------|---------|
+| EP            | Title | Status | Summary |
+|---------------|-------|--------|---------|
 | [EP-0001](EP-0001-frame-partitions.md) | Frame App/Runtime Partitions | final | A frame owns two durable partitions — user-owned **app-db** (`:db`) and framework-owned **runtime-db** (`:rf.db/runtime`) — committed coherently by one cascade, removing the footgun where a fresh `:db` return clobbers runtime state. |
 | [EP-0002](EP-0002-frame-target-resolution.md) | Explicit Frame Target Resolution | final | Remove the ambient `:rf/default` fallback; frame-scoped operations resolve their target from explicit frame context, and missing context fails instead of touching the wrong frame. |
 | [EP-0003](EP-0003-resource-queries.md) | Resource Queries | final | An optional `day8/re-frame2-resources` artefact for declarative server-state — the re-frame2 answer to TanStack Query / RTK Query / SWR — with resource identity, caching, invalidation, a frame work-ledger substrate, lifecycle/GC, and route + SSR preload. HTTP-only scope graduated to the normative [`spec/016-Resources.md`](../../spec/016-Resources.md); GraphQL deferred. |
