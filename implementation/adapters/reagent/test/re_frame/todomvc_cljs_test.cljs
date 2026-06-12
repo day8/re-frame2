@@ -13,7 +13,8 @@
 
    COLD-BOOT ID-ALLOCATION REGRESSION (rf2-mzqd4.1)
    ------------------------------------------------
-   `:todo/initialise` injects the `:todo.storage/todos` cofx, which reads
+   `:todo/initialise` declares the `:todo.storage/todos` cofx (EP-0017
+   `:rf.cofx/requires`), whose ambient supplier reads
    `js/globalThis.localStorage` via `some->`. Node has no localStorage, so
    the cofx exercises the EMPTY-localStorage / first-run path: `some->`
    short-circuits to nil. Before the fix, that nil clobbered default-db's

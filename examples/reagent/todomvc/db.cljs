@@ -60,17 +60,13 @@
       (sorted-map)))
 
 (rf/reg-cofx :todo.storage/todos
-  {:recordable? true
-   :provided?   true
-   :doc "PROVIDED recordable coeffect (EP-0017 §2): the saved TodoMVC items,
-         stamped onto the boot dispatch token by `todomvc.core/run`
-         (`{:rf.cofx {:todo.storage/todos (read-todos-from-storage)}}`). The
-         host read happens ONCE, at the boundary, and rides the token as a
-         recordable fact — replay / restore / test fixtures supply the exact
-         recorded value, no host re-read. A handler that folds it into durable
-         app-db declares `:rf.cofx/requires [:todo.storage/todos]` and reads it
-         flat. The boundary read (`read-todos-from-storage`) always yields a
-         sorted-map (never nil) so the allocate-next-id invariant holds; the
-         value is delivered verbatim from the token. There is no generator —
-         this is a provided fact, so absence from the token is
-         `:rf.error/missing-required-cofx`."})
+  {:doc "Ambient value-returning coeffect (EP-0017 §2): the saved TodoMVC items,
+         read from localStorage as a sorted-map. The supplier runs at context
+         assembly; a handler that folds them into durable app-db declares
+         `:rf.cofx/requires [:todo.storage/todos]` and reads them flat. Always a
+         sorted-map (never nil) so the allocate-next-id invariant holds. The
+         supplier is never recorded; replay re-runs it. Tests / replay that need
+         a deterministic snapshot re-register the supplier (the visible seam —
+         EP-0017 §10)."}
+  (fn cofx-todo-storage-todos []
+    (read-todos-from-storage)))

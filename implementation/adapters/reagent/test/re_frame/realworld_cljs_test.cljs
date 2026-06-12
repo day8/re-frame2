@@ -133,23 +133,18 @@
     (is (nil? (rf/compute-sub [:auth/user] (rf/frame-state-value f))))))
 
 (defn- session-token-cofx-shape-test []
-  ;; Cofx-shape contract — the :auth.session/token cofx must assoc its
-  ;; injected value into `(:coeffects ctx)` (not the top of ctx). If
-  ;; the shape regresses, the value lands at ctx[<cofx-id>] and the
-  ;; handler's destructure binds nil — silently.
-  ;;
-  ;; Call the registered cofx handler directly with a known empty input
-  ;; ctx and assert the value lands at the conventional path. The cofx
-  ;; reads from `js/globalThis.localStorage`; node-side that is absent
-  ;; so the value is nil — but the SHAPE is what matters here:
-  ;; `:coeffects` must be present and contain the key.
+  ;; EP-0017 cofx contract — the :auth.session/token cofx is a value-returning
+  ;; AMBIENT supplier `(fn [] value)` (no ctx, no assoc). It reads the saved JWT
+  ;; from `js/globalThis.localStorage`; node-side that is absent so the value is
+  ;; nil. The contract under test: the registered supplier is a zero-arg fn that
+  ;; returns the value directly (a declaring handler then receives it FLAT under
+  ;; `:auth.session/token` via `:rf.cofx/requires`).
   (let [cofx-meta (registrar/handler-meta :cofx :auth.session/token)
-        handler   (:handler-fn cofx-meta)
-        result    (handler {:coeffects {}} nil)]
-    (is (contains? (:coeffects result) :auth.session/token)
-        "cofx body must assoc its injected value under [:coeffects :auth.session/token]")
-    (is (nil? (get result :auth.session/token))
-        "the misshapen-cofx witness — the value must NOT land at top of ctx")))
+        supplier  (:handler-fn cofx-meta)]
+    (is (fn? supplier)
+        "the cofx registers a value-returning supplier fn")
+    (is (nil? (supplier))
+        "node-side (no localStorage) the supplier returns nil — the value, not a ctx")))
 
 (defn- login-failure-test []
   (reg-canned-failure! :realworld.test/login-failure
