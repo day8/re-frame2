@@ -369,8 +369,14 @@
         (is (= 5100 (:deadline-at r)))
         ;; resource-key scope/params summarized
         (is (= "vector" (get-in r [:resource-key :scope :type])))
-        ;; one identity per record — stale-key = work-id (Spec 016)
-        (is (= (:work-id r) (:stale-key r)))))
+        ;; rf2-r1zjd0 / EP-0016 — SINGLE attempt identity: the row exposes
+        ;; exactly :work-id (= the record's :work/id); the retired :stale-key
+        ;; synonym MUST NOT be present (Spec 016 §Ledger row retention,
+        ;; spec/Managed-Effects.md — one work id, no stale-key synonym).
+        (is (= [:rf.work/resource [session-scope :article/by-slug {:slug "welcome"}] 4]
+               (:work-id r)))
+        (is (not (contains? r :stale-key))
+            "no second work-identity synonym in the projection")))
     (testing "causes summarized (may carry data)"
       (is (vector? (:causes (first rows)))))))
 

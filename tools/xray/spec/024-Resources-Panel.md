@@ -159,10 +159,11 @@ stacked sections:
    current work id, active owners, owner count, tags, GC eligibility.
    `:stale?` / `:has-data?` are **derived** here (Spec 016 §Status
    semantics — never stored facts).
-3. **Work ledger** (per frame) — per work record: work id, kind, linked
+3. **Work ledger** (per frame) — per work record: work id (the single
+   attempt identity — one durable `:work/id` per record, no separate
+   stale-suppression synonym; Spec 016 §Ledger row retention), kind, linked
    resource key, generation, status (+ terminal flag), owners, causes
-   (summarized), stale-key (= work id — one identity per record, Spec 016
-   §Ledger row retention), cancellable?, deadline, attempt, transport,
+   (summarized), cancellable?, deadline, attempt, transport,
    outcome. **Raw host handles** (AbortControllers, timeout handles,
    promises) are structurally inaccessible — they live in side tables
    outside durable frame-state. Non-terminal (live) rows lead; the

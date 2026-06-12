@@ -644,7 +644,6 @@
        :terminal?    false
        :owners       [<owner> …]
        :causes       [<cause> …]            ; causes are summarized (may carry data)
-       :stale-key    <work-id>             ; one identity per record (= :work/id)
        :cancellable? true
        :deadline-at  1780752005100
        :attempt      2
@@ -657,8 +656,8 @@
         ;; on the opaque CEDN-1 byte `work-id-id` STRING; the kind-preserving
         ;; work-id VECTOR is carried on the record as `:work/id`. Read it from
         ;; there (fall back to the map key for a legacy record that lacks the
-        ;; stamp) so the displayed `:work-id` / `:stale-key` is the
-        ;; kind-preserving identity, NOT the byte string.
+        ;; stamp) so the displayed `:work-id` is the kind-preserving identity,
+        ;; NOT the byte string.
         work-id (or (:work/id record) map-key)]
     {:work-id      work-id
      :kind         (or (:work/kind record) (:kind record))
@@ -669,7 +668,6 @@
      :terminal?    (contains? terminal-work-statuses (:status record))
      :owners       (vec (:owners record))
      :causes       (mapv summarize (:causes record))
-     :stale-key    work-id
      :cancellable? (boolean (:cancellable? record))
      :deadline-at  (or (:deadline-at record) (:deadline record))
      :attempt      (or (:attempt record) (:retry-attempt record))
