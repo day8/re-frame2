@@ -34,7 +34,34 @@
   `re-frame.interop/debug-enabled?` (per Spec 009 §Production builds) so
   that the late-bind lookup, the call into trace/emit!, and the small
   metadata map allocation all disappear from `:advanced` production
-  bundles where `goog.DEBUG` is `false`."
+  bundles where `goog.DEBUG` is `false`.
+
+  ## Pure-documentation metadata elision (rf2-9wwkcm)
+
+  Per Spec 001 §Production elision contract, a registration-metadata key
+  is **elidable** in production iff it has ZERO production runtime use AND
+  zero production observability use — i.e. it is pure dev/authoring
+  documentation. `:doc` is the one such key across every `reg-*` surface;
+  every other standard key is load-bearing in production
+  (`:sensitive?` / `:large?` drive redaction / egress projection;
+  `:tags` / `:interceptors` / the resource-mutation runtime keys drive
+  runtime behaviour; `:rf/id` + the handler fn ARE the registration).
+
+  `register!` is the single chokepoint every `reg-*` surface funnels
+  through, so the strip lives here: under `:advanced` + `goog.DEBUG=false`
+  (`interop/debug-enabled?` constant-folds to `false`) `strip-pure-
+  documentation` drops the pure-documentation keys from the metadata
+  before it is stored, so `(rf/handler-meta kind id)` carries no `:doc`
+  in production — consistent with the source-coords already being absent
+  there (Spec 001 §Production elision contract, Policy A). The outermost
+  `interop/debug-enabled?` gate lets Closure constant-fold the strip away
+  in dev and the dev `:doc` retention away in prod.
+
+  The DCE of the dev-only `:doc` STRING bytes from the bundle rides the
+  same `re-frame.events/merge-form-source` gate that already elides the
+  whole `(reg-event-X :id {:doc \"…\"} …)` form-source under
+  `goog.DEBUG=false` (the elision-probe `:probe/cs-event` sentinel
+  covers it); the strip here pins the *handler-meta* absence."
   (:require [re-frame.interop       :as interop]
             [re-frame.late-bind     :as late-bind]
             [re-frame.source-coords :as source-coords]))
@@ -320,6 +347,52 @@
                          (source-coords new-meta) (assoc :source-coords
                                                          (source-coords new-meta))))))))
 
+;; ---- pure-documentation metadata elision (rf2-9wwkcm) ----------------------
+
+(def pure-documentation-keys
+  "The registration-metadata keys that are PURE documentation — zero
+  production runtime use AND zero production observability use — so they
+  are safe to strip from the stored metadata in `:advanced` +
+  `goog.DEBUG=false` builds (per Spec 001 §Production elision contract).
+
+  Closed set: `:doc` only. Every other standard key is load-bearing in
+  production and MUST be retained — `:sensitive?` / `:large?` drive
+  redaction / egress projection (Spec 015 / EP-0015); `:tags` /
+  `:interceptors` / the resource-mutation runtime keys drive runtime
+  behaviour; `:schema` / `:data-schema` are the SOURCE the `:sensitive?` /
+  `:large?` marks are PRECOMPUTED from at registration time (the marks are
+  stored as plain declarations, not derived from the schema VALUE at
+  egress — see `re-frame.marks` / `re-frame.elision` boot population), and
+  remain a dev introspection surface, so they are retained. `:rf/id` and
+  the handler fn ARE the registration.
+
+  Adding a key here is a Spec change (Spec 001 §Production elision
+  contract — the elidable-vs-retained classification table)."
+  #{:doc})
+
+(defn strip-pure-documentation
+  "Drop the pure-documentation keys (`pure-documentation-keys`) from a
+  registration `metadata` map in production builds (`interop/debug-enabled?`
+  false). Returns `metadata` unchanged in dev. Per Spec 001 §Production
+  elision contract (rf2-9wwkcm).
+
+  The `interop/debug-enabled?` gate is the OUTERMOST form so Closure
+  constant-folds it under `:advanced` + `goog.DEBUG=false`: the dev arm
+  (the unchanged map) DCEs in production, and the `apply dissoc` strip
+  DCEs in dev — zero runtime cost either way. A non-map `metadata` (no
+  documentation keys to carry) passes through untouched."
+  [metadata]
+  (if (or (not interop/debug-enabled?)
+          (not (map? metadata)))
+    ;; Production OR a non-map metadata: strip the pure-documentation keys.
+    ;; (A non-map metadata cannot carry them, so `dissoc`/`apply dissoc`
+    ;; would be a no-op anyway — short-circuit to avoid touching it.)
+    (if (map? metadata)
+      (apply dissoc metadata pure-documentation-keys)
+      metadata)
+    ;; Dev: retain documentation for tooling / agent inspection.
+    metadata))
+
 (defn register!
   "Register an id under kind with the given metadata. Re-registering the
   same id replaces the slot atomically (per Spec 001 §Hot-reload semantics
@@ -354,11 +427,19 @@
   ;; itself guards against nil.
   (when-let [pc source-coords/*pending-coords*]
     (source-coords/remember-error-coords! kind id pc))
-  ;; 2-level lookup as paired `get`s rather than `(get-in ... [kind id])` —
-  ;; `get-in` allocates a path vector per call (rf2-mqv4m). Target the ACTIVE
-  ;; registrar (EP-0013 stage 9): the global atom on the default path, the
-  ;; bound realm's own atom while install!/reinstall! seats an explicit realm.
-  (let [reg      (active-registrar)
+  ;; Pure-documentation metadata elision (rf2-9wwkcm). Under `:advanced` +
+  ;; `goog.DEBUG=false` strip the pure-documentation keys (`:doc`) BEFORE the
+  ;; metadata is stored, so `(rf/handler-meta kind id)` carries no `:doc` in
+  ;; production — consistent with source-coords already being absent there
+  ;; (Spec 001 §Production elision contract). The `interop/debug-enabled?`
+  ;; gate inside `strip-pure-documentation` is the OUTERMOST form, so Closure
+  ;; constant-folds the strip away in dev and the dev `:doc` retention away
+  ;; in prod. NOTE: the dev-only `:rf.warning/missing-doc` check below reads
+  ;; `(:doc metadata)` — it is itself gated on `interop/debug-enabled?`, so it
+  ;; only fires in dev where `:doc` is still present; the strip never hides a
+  ;; missing-doc warning.
+  (let [metadata (strip-pure-documentation metadata)
+        reg      (active-registrar)
         previous (-> @reg (get kind) (get id))]
     (swap! reg assoc-in [kind id] metadata)
     (cond

@@ -503,6 +503,35 @@
       (finally
         (late-bind/set-fn! hook-key original)))))
 
+;; ---- rf2-9wwkcm: pure-documentation registration metadata (:doc) ----------
+;;
+;; Per Spec 001 §Production elision contract, `:doc` is the one PURE-
+;; documentation registration-metadata key — zero production runtime use,
+;; zero production observability use. `re-frame.registrar/register!` strips
+;; the pure-documentation keys (`strip-pure-documentation`) from the stored
+;; metadata under `:advanced` + `goog.DEBUG=false`, so `(rf/handler-meta
+;; kind id)` carries no `:doc` in production.
+;;
+;; The DCE of the dev-only `:doc` STRING bytes from the bundle rides the
+;; existing `re-frame.events/merge-form-source` gate: a `reg-event-db` call
+;; with a `:doc` carries the WHOLE form (including the `:doc` string) into
+;; `:rf.handler/source` under `(if interop/debug-enabled? ~src-string nil)`,
+;; so under `goog.DEBUG=false` the macro-emitted gate DCEs the form-source
+;; literal — including its `:doc "…"` bytes — entirely. The distinctive
+;; sentinel below is minted ONLY inside a `reg-event-db` form-source so the
+;; control build (DEBUG=true) contains it (via the captured form-source) and
+;; the production build (DEBUG=false) must DCE it.
+
+(defn ^:export touch-doc-metadata! []
+  ;; The `:doc` value carries a distinctive byte sequence
+  ;; (`rf2-9wwkcm-doc-elision-sentinel`) so a global grep is unambiguous.
+  ;; Under DEBUG=true the reg-event-db macro captures the whole form's
+  ;; `pr-str` into `:rf.handler/source`, so the sentinel lands in the
+  ;; control bundle; under DEBUG=false the form-source gate DCEs it.
+  (rf/reg-event-db :probe/doc-event
+    {:doc "rf2-9wwkcm-doc-elision-sentinel: pure-documentation metadata"}
+    (fn [db _ev] db)))
+
 ;; ---- entry point ----------------------------------------------------------
 
 (defn ^:export run []
@@ -516,6 +545,7 @@
   (touch-call-site-macros!)
   (touch-reg-view-injection!)
   (touch-teardown!)
+  (touch-doc-metadata!)
   ;; Reference trace/emit! directly through the trace ns alias so its
   ;; body, not just the public re-frame.core re-export, is reachable.
   (trace/emit! :event :rf.probe/direct-touch {:source :probe}))
