@@ -70,14 +70,7 @@
       (is (some? miss))
       (is (not (contains? miss :rf.trace/call-site))))))
 
-(deftest cljs-inject-cofx-macro-stamps-call-site
-  (testing "CLJS: inject-cofx macro stamps :rf.trace/call-site on :rf.error/no-such-cofx"
-    (rf/reg-event-fx :rf2-ts1a/uses-missing-cofx-cljs
-                     [(rf/inject-cofx :rf2-ts1a/no-such-cofx-cljs)]
-                     (fn [_cofx _event] {}))
-    (let [evs (record-traces
-               (fn []
-                 (rf/dispatch-sync [:rf2-ts1a/uses-missing-cofx-cljs])))
-          [miss] (errors-of evs :rf.error/no-such-cofx)]
-      (is (some? miss))
-      (is (some? (:rf.trace/call-site miss))))))
+;; The former `cljs-inject-cofx-macro-stamps-call-site` deftest is retired with
+;; `inject-cofx` (EP-0017 slice A.3): it no longer builds an interceptor or
+;; emits `:rf.error/no-such-cofx`. The dispatch / subscribe call-site stamping
+;; (above) is unaffected.

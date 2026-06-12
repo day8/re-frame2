@@ -131,62 +131,21 @@
       (is (not (contains? miss :rf.trace/call-site))
           ":rf.trace/call-site omitted on the fn-form path"))))
 
-;; ---- inject-cofx / inject-cofx* -------------------------------------------
+;; ---- inject-cofx (removed in EP-0017 slice A.3) ---------------------------
+;;
+;; `inject-cofx` is removed (no alias) — it no longer builds an interceptor or
+;; emits `:rf.error/no-such-cofx`, so the former call-site-stamping deftests
+;; (`inject-cofx-macro-stamps-call-site`, the two `inject-cofx*` variants) are
+;; retired. `inject-cofx` survives only as a throwing stub macro/fn; its
+;; removal hard error (`:rf.error/inject-cofx-removed`) is pinned in
+;; `re-frame.cofx-test`. The dispatch / subscribe call-site stamping (above)
+;; is unaffected.
 
 (deftest inject-cofx-public-var-is-macro
   #?(:clj
-     (testing "rf/inject-cofx in CLJ is a macro var (not clobbered by runtime alias)"
+     (testing "rf/inject-cofx in CLJ remains a (throwing-stub) macro var,
+               not clobbered by the runtime alias"
        (is (true? (:macro (meta #'re-frame.core/inject-cofx)))))))
-
-(deftest inject-cofx-macro-stamps-call-site
-  (testing ":rf.error/no-such-cofx carries the call site of inject-cofx (macro form)"
-    (rf/reg-event-fx :rf2-ts1a/uses-missing-cofx
-                     [(rf/inject-cofx :rf2-ts1a/no-such-cofx)]
-                     (fn [_cofx _event] {}))
-    (let [evs (record-traces
-               (fn []
-                 (rf/dispatch-sync [:rf2-ts1a/uses-missing-cofx])))
-          [miss] (errors-of evs :rf.error/no-such-cofx)]
-      (is (some? miss))
-      (assert-call-site-shape miss))))
-
-(deftest inject-cofx-star-fn-omits-its-own-call-site
-  (testing "the fn-form `inject-cofx*` does NOT stamp its own call-site;
-   when the enclosing dispatch uses the fn-form too, no call-site rides
-   on the resulting :rf.error/no-such-cofx event"
-    (rf/reg-event-fx :rf2-ts1a/uses-missing-cofx-fn
-                     [(rf/inject-cofx* :rf2-ts1a/no-such-cofx-fn)]
-                     (fn [_cofx _event] {}))
-    (let [evs (record-traces
-               (fn []
-                 ;; Both the inject-cofx and the dispatch-sync are fn-form
-                 ;; — neither stamps a call-site, so the error event
-                 ;; should carry none.
-                 (rf/dispatch-sync* [:rf2-ts1a/uses-missing-cofx-fn])))
-          [miss] (errors-of evs :rf.error/no-such-cofx)]
-      (is (some? miss))
-      (is (not (contains? miss :rf.trace/call-site))
-          ":rf.trace/call-site omitted on the all-fn-form path"))))
-
-(deftest inject-cofx-star-fn-inherits-dispatchs-call-site
-  (testing "when inject-cofx* (fn-form) is reached from a macro-form
-   dispatch-sync, the error carries the dispatch's call-site — the
-   interceptor closure didn't capture one of its own, so the
-   ambient binding wins"
-    (rf/reg-event-fx :rf2-ts1a/uses-missing-cofx-mixed
-                     [(rf/inject-cofx* :rf2-ts1a/no-such-cofx-mixed)]
-                     (fn [_cofx _event] {}))
-    (let [evs (record-traces
-               (fn []
-                 (rf/dispatch-sync [:rf2-ts1a/uses-missing-cofx-mixed])))
-          [miss] (errors-of evs :rf.error/no-such-cofx)]
-      (is (some? miss))
-      ;; The dispatch-sync macro stamped its own call-site onto the
-      ;; envelope; process-event! bound it; the no-such-cofx emit
-      ;; inside the inject-cofx*'s :before body picks it up because
-      ;; the interceptor didn't pin its own call-site.
-      (is (some? (:rf.trace/call-site miss))
-          ":rf.trace/call-site present (dispatch's call-site)"))))
 
 ;; ---- dispatch-sync / dispatch-sync* --------------------------------------
 

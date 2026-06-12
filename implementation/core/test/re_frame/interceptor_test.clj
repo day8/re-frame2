@@ -326,69 +326,44 @@
                           @traces))
           "no bad-shape trace on the canonical [id payload-map] event"))))
 
-;; ---- inject-cofx ----------------------------------------------------------
+;; ---- cofx delivery (EP-0017: declared-only, value-returning) --------------
+;;
+;; `inject-cofx` is removed (EP-0017 slice A.3). Coeffect delivery is context
+;; assembly, not a chain member: a handler declares `:rf.cofx/requires` and the
+;; value-returning supplier's result arrives flat. The full cofx behaviour /
+;; error family is pinned in `re-frame.cofx-test`; here we keep a thin
+;; smoke that the delivery threads into a handler alongside the standard
+;; `:db` / `:event` coeffects.
 
-(deftest inject-cofx-interceptor
-  (testing "registered cofx is injected into :coeffects under its keyword id"
-    (rf/reg-cofx :now (fn [ctx] (assoc-in ctx [:coeffects :now] 1234567890)))
+(deftest cofx-declared-delivery
+  (testing "a declared value-returning cofx is delivered flat under its id,
+            alongside the standard :db / :event coeffects (EP-0017 §5)"
+    (rf/reg-cofx :now (fn [] 1234567890))
     (let [seen-cofx (atom nil)]
       (rf/reg-event-fx :cofx-test/read-now
-                       [(rf/inject-cofx :now)]
+                       {:rf.cofx/requires [:now]}
                        (fn [cofx _event]
                          (reset! seen-cofx cofx)
                          {}))
       (rf/dispatch-sync [:cofx-test/read-now])
       (is (= 1234567890 (:now @seen-cofx))
-          "the :now value injected by the cofx is visible to the handler")
+          "the :now value the supplier returned is delivered flat to the handler")
       (is (contains? @seen-cofx :db)
-          "standard cofx (e.g. :db) are still present alongside :now")
+          "standard :db coeffect is present alongside the declared :now")
       (is (contains? @seen-cofx :event)
-          "standard :event cofx is present")))
+          "standard :event coeffect is present")))
 
-  (testing "(inject-cofx :id value) passes the value as a second arg"
-    (rf/reg-cofx :greeting
-                 (fn [ctx greeting]
-                   (assoc-in ctx [:coeffects :greeting] greeting)))
+  (testing "a `[id arg]` declaration passes the arg to the supplier's 1-arity"
+    (rf/reg-cofx :greeting (fn [greeting] greeting))
     (let [seen (atom nil)]
       (rf/reg-event-fx :cofx-test/use-greeting
-                       [(rf/inject-cofx :greeting "hello")]
+                       {:rf.cofx/requires [[:greeting "hello"]]}
                        (fn [cofx _]
                          (reset! seen (:greeting cofx))
                          {}))
       (rf/dispatch-sync [:cofx-test/use-greeting])
       (is (= "hello" @seen)
-          "the value-arity inject-cofx threads the value into the cofx fn")))
-
-  (testing "a registered cofx that throws surfaces as
-            :rf.error/coeffect-exception attributed to the cofx (rf2-mszrz)"
-    ;; Per re-frame.interceptor/invoke-before, an exception from a :before
-    ;; stage is captured into :rf/interceptor-error and the chain keeps
-    ;; running so :after stages can clean up. The router's
-    ;; emit-pipeline-exception! reads the captured component identity (the
-    ;; inject-cofx interceptor stamps :rf/cofx-id) and emits the
-    ;; component-attributed category — NOT a blanket handler-exception.
-    (rf/reg-cofx :boom
-                 (fn [_ctx]
-                   (throw (ex-info "cofx blew up" {:why :testing}))))
-    (rf/reg-event-fx :cofx-test/explode
-                     [(rf/inject-cofx :boom)]
-                     (fn [_ _] {}))
-    (let [traces (atom [])]
-      (rf/register-listener! ::cofx-throw (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:cofx-test/explode])
-      (rf/unregister-listener! ::cofx-throw)
-      (let [errs (filterv #(= :rf.error/coeffect-exception (:operation %)) @traces)]
-        (is (= 1 (count errs))
-            "exactly one :rf.error/coeffect-exception trace")
-        (let [ev (first errs)]
-          (is (= :before (get-in ev [:tags :phase]))
-              "the cofx injection threw in its :before phase")
-          (is (= :boom (get-in ev [:tags :failing-id]))
-              ":failing-id is the fully-qualified cofx id, not the event id")
-          (is (nil? (get-in ev [:tags :handler-id]))
-              "no :handler-id — the handler never ran")))
-      (is (empty? (filterv #(= :rf.error/handler-exception (:operation %)) @traces))
-          "the cofx throw does NOT collapse into :rf.error/handler-exception"))))
+          "the parameterized declaration threads the arg into the supplier"))))
 
 ;; ---- ->interceptor primitive ----------------------------------------------
 
@@ -752,23 +727,10 @@
                              (:operation %)) errs))
           "no coeffect / interceptor category for a pure handler throw")))
 
-  (testing "coeffect INJECTION throw → :rf.error/coeffect-exception (failing-id = cofx id)"
-    (rf/reg-cofx :mszrz/boom-cofx
-                 (fn [_ctx] (throw (ex-info "cofx blew up" {}))))
-    (rf/reg-event-fx :mszrz/cofx-boom
-                     [(rf/inject-cofx :mszrz/boom-cofx)]
-                     (fn [_ _] {}))
-    (let [errs (capture-error-traces [:mszrz/cofx-boom])
-          cx   (filterv #(= :rf.error/coeffect-exception (:operation %)) errs)]
-      (is (= 1 (count cx)) "exactly one coeffect-exception")
-      (let [ev (first cx)]
-        (is (= :mszrz/boom-cofx (get-in ev [:tags :failing-id]))
-            ":failing-id is the fully-qualified cofx id (NOT collapsed to (name id))")
-        (is (= :before (get-in ev [:tags :phase])))
-        (is (nil? (get-in ev [:tags :handler-id]))
-            "no :handler-id — the handler never ran"))
-      (is (empty? (filterv #(= :rf.error/handler-exception (:operation %)) errs))
-          "a cofx throw does NOT report as handler-exception")))
+  ;; The former "coeffect INJECTION throw → :rf.error/coeffect-exception"
+  ;; sub-test is retired with `inject-cofx` (EP-0017 slice A.3): coeffect
+  ;; delivery is now context assembly, not a `:before` chain member, so a
+  ;; throwing supplier no longer rides the interceptor classification path.
 
   (testing "user interceptor :BEFORE throw → :rf.error/interceptor-exception (failing-id = interceptor, phase :before)"
     (rf/reg-event-db :mszrz/before-boom

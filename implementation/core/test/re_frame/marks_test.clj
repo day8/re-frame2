@@ -215,7 +215,7 @@
 (deftest reg-cofx-stashes-marks-whole-value
   (rf/reg-cofx :auth/jwt
     {:sensitive [[]]}
-    (fn [ctx] ctx))
+    (fn [] "jwt"))
   (is (= [[]] (:sensitive (marks/marks-for :cofx :auth/jwt)))))
 
 ;; ---- malformed :sensitive / :large rejection (rf2-y7l5t5) ----------------
@@ -877,9 +877,9 @@
 (deftest cofx-injected-value-redacted-in-coeffects
   (rf/reg-cofx :auth/jwt
     {:sensitive [[]]}
-    (fn [ctx] (assoc-in ctx [:coeffects :auth/jwt] "real-jwt")))
+    (fn [] "real-jwt"))
   (rf/reg-event-fx :uses-jwt
-    [(rf/inject-cofx :auth/jwt)]
+    {:rf.cofx/requires [:auth/jwt]}
     (fn [_ _] {}))
   ;; Cofx mark stashed
   (is (= [[]] (:sensitive (marks/marks-for :cofx :auth/jwt))))
@@ -901,7 +901,7 @@
   ;; `:rf.fx/args` redaction for the standalone-value op.
   (rf/reg-cofx :auth/jwt2
     {:sensitive [[:token]]}
-    (fn [ctx v] (assoc-in ctx [:coeffects :auth/jwt2] v)))
+    (fn [v] v))
   (is (= [[:token]] (:sensitive (marks/marks-for :cofx :auth/jwt2))))
   (let [projected (marks/project-trace-event
                     {:operation :rf.cofx/run
@@ -920,7 +920,7 @@
 (deftest cofx-run-value-untouched-without-marks
   ;; A cofx with no declared marks: the value passes through unredacted.
   (rf/reg-cofx :plain/cofx
-    (fn [ctx v] (assoc-in ctx [:coeffects :plain/cofx] v)))
+    (fn [v] v))
   (let [projected (marks/project-trace-event
                     {:operation :rf.cofx/run
                      :op-type   :rf.cofx

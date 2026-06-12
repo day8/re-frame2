@@ -1482,15 +1482,10 @@
    :rf.event/coeffects on :rf.event/run-end; the framework defaults
    (:db :event :frame) are filtered out at the substrate"
     (rf/reg-fx :fx-test/cofx-sink (fn [_ _] :ok))
-    (rf/reg-cofx :fx-test/now
-      (fn [ctx]
-        (assoc-in ctx [:coeffects :fx-test/now] "2026-05-18T19:00:00Z")))
-    (rf/reg-cofx :fx-test/locale
-      (fn [ctx]
-        (assoc-in ctx [:coeffects :fx-test/locale] :en-AU)))
+    (rf/reg-cofx :fx-test/now    (fn [] "2026-05-18T19:00:00Z"))
+    (rf/reg-cofx :fx-test/locale (fn [] :en-AU))
     (rf/reg-event-fx :fx-test/uses-user-cofx
-      [(rf/inject-cofx :fx-test/now)
-       (rf/inject-cofx :fx-test/locale)]
+      {:rf.cofx/requires [:fx-test/now :fx-test/locale]}
       (fn [_ _] {:db {:k 1}
                  :fx [[:fx-test/cofx-sink :go]]}))
     (let [acc (collect-traces! ::user-cofx)]
@@ -1519,11 +1514,9 @@
    stamping (do-fx was short-circuited when the handler returned no :fx,
    so the COEFFECTS section was empty for textbook handlers like
    :counter/inc — the cofx never reached the Xray Event lens)"
-    (rf/reg-cofx :fx-test/now
-      (fn [ctx]
-        (assoc-in ctx [:coeffects :fx-test/now] "2026-05-18T19:00:00Z")))
+    (rf/reg-cofx :fx-test/now (fn [] "2026-05-18T19:00:00Z"))
     (rf/reg-event-fx :fx-test/db-only-with-cofx
-      [(rf/inject-cofx :fx-test/now)]
+      {:rf.cofx/requires [:fx-test/now]}
       (fn [{:keys [fx-test/now]} _]
         {:db {:stamped-at now}}))
     (let [acc (collect-traces! ::db-only-cofx)]

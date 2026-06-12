@@ -825,18 +825,17 @@ it to mint the next monotone generation without reaching the host atom
 `:rf.resource/commit-generation` fx. Per Spec 016 §Restore and replay."})
 
 (defn generation-cofx
-  "Handler fn for the `:rf.resource/generation` cofx. Reads the in-flight
-  cascade's frame from the `:rf.frame/id` coeffect and injects the frame's
-  host-side generation snapshot under `:coeffects :rf.resource/generation`.
-  Pure with respect to the handler — it only reads the host cache (the
-  write is a separate fx). 2-arity accepts an explicit snapshot override
-  for tests."
-  ([ctx]
-   (let [frame-id (get-in ctx [:coeffects :rf.frame/id])]
-     (assoc-in ctx [:coeffects :rf.resource/generation]
-               (generation-snapshot frame-id))))
-  ([ctx snapshot]
-   (assoc-in ctx [:coeffects :rf.resource/generation] snapshot)))
+  "Value-returning AMBIENT supplier for the `:rf.resource/generation` cofx
+  (EP-0017 §2). Reads the in-flight cascade's frame
+  (`frame/*current-frame*`, bound by the router during processing) and
+  returns the frame's host-side generation high-water snapshot. Pure with
+  respect to the fold — it only READS the host cache (the write is the
+  separate `:rf.resource/commit-generation` fx); never recorded, replay
+  re-runs it. The ensure/refetch handlers declare
+  `:rf.cofx/requires [:rf.resource/generation]` and read it flat. Tests that
+  need a deterministic snapshot re-register the supplier (the visible seam)."
+  []
+  (generation-snapshot frame/*current-frame*))
 
 (def commit-generation-meta
   "Metadata for the `:rf.resource/commit-generation` fx registration. The

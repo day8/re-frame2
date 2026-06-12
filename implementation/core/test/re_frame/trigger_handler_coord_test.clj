@@ -142,16 +142,12 @@
           [exc] (errors-of evs :rf.error/sub-exception)]
       (assert-trigger-shape exc :sub :rf2-3nn8/throwing-sub))))
 
-(deftest no-such-cofx-carries-enclosing-event-trigger-handler
-  (testing ":rf.error/no-such-cofx — emitted during the event handler chain
-   while no specific cofx is bound (the cofx-id doesn't exist), the
-   enclosing event's coord is what we carry"
-    (rf/reg-event-fx :rf2-3nn8/uses-missing-cofx
-                     [(rf/inject-cofx :rf2-3nn8/no-such-cofx)]
-                     (fn [_cofx _event] {}))
-    (let [evs (record-traces #(rf/dispatch-sync [:rf2-3nn8/uses-missing-cofx]))
-          [miss] (errors-of evs :rf.error/no-such-cofx)]
-      (assert-trigger-shape miss :event :rf2-3nn8/uses-missing-cofx))))
+;; The former `no-such-cofx-carries-enclosing-event-trigger-handler` deftest is
+;; retired with `inject-cofx` (EP-0017 slice A.3) — `:rf.error/no-such-cofx` no
+;; longer fires. Its successor `:rf.error/unregistered-cofx` (a declared typo'd
+;; id) is registration / context-assembly-time, outside the in-chain
+;; trigger-handler scope this file pins; its coverage lives in
+;; `re-frame.cofx-test`.
 
 (deftest no-such-fx-carries-enclosing-event-trigger-handler
   (testing ":rf.error/no-such-fx fires from the fx walker while the event

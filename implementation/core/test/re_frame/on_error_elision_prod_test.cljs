@@ -387,20 +387,21 @@
         (is (= :rf/default (:frame r))
             ":frame names the frame the override was rejected in")))))
 
-(deftest no-such-cofx-listener-survives-prod
-  (testing "Per rf2-goum9x: an `inject-cofx` to an unregistered cofx-id
-            fans `:rf.error/no-such-cofx` through the always-on listener
-            under `goog.DEBUG=false`."
+(deftest unregistered-cofx-listener-survives-prod
+  (testing "EP-0017 (succeeds rf2-goum9x): a `:rf.cofx/requires` declaring an
+            UNREGISTERED cofx-id fans `:rf.error/unregistered-cofx` through the
+            always-on listener under `goog.DEBUG=false` (the typo case is a
+            production-survivable correctness contract)."
     (let [seen (atom [])]
       (rf/register-error-listener! :prod/recorder
                                    (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :goum9x/prod-unknown-cofx
-                       [(rf/inject-cofx :goum9x/prod-no-cofx)]
-                       (fn [db _] db))
-      (rf/dispatch-sync [:goum9x/prod-unknown-cofx])
-      (let [r (some (fn [x] (when (= :rf.error/no-such-cofx (:error x)) x)) @seen)]
-        (is (some? r) "listener received :rf.error/no-such-cofx under prod")
-        (is (= :goum9x/prod-unknown-cofx (:event-id r)))
+      (rf/reg-event-fx :goum9x/prod-unknown-cofx
+                       {:rf.cofx/requires [:goum9x/prod-no-cofx]}
+                       (fn [_ _] {}))
+      (try (rf/dispatch-sync [:goum9x/prod-unknown-cofx])
+           (catch :default _ nil))
+      (let [r (some (fn [x] (when (= :rf.error/unregistered-cofx (:error x)) x)) @seen)]
+        (is (some? r) "listener received :rf.error/unregistered-cofx under prod")
         (is (= :rf/default (:frame r)))))))
 
 ;; (removed) sensitive-handler-error-record-redacted-under-prod
