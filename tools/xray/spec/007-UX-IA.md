@@ -423,16 +423,19 @@ considered scope, recorded so a later slice does not re-derive it:
   own design slice, not in-scope here. Tracked: **rf2-wtg9z4**.
 
 All three are **blocked on observability**, not on UI work: Xray consumes
-the Spec 009 trace stream and enumerates frames from trace cascades. Today
-the trace stream carries no `:rf.realm/id`, the frame's `:realm` slot is
-internal, and `re-frame.core` exposes neither a public frame→realm read
-nor a realm enumeration. Until the framework stamps `:rf.realm/id` on the
-observability surfaces (the EP-0010/0011/0016 record shapes reserve the
-slot now per disposition 2; the emit is a later core slice), every frame
-is the default realm — so realm grouping/stamping would be speculative UI
-for constant data. The single-realm UX is therefore correct as-is, and the
-deferred beads carry the standing rule (update `tools/xray/spec/*`
-same-PR) for when the observability lands.
+the Spec 009 trace stream and enumerates frames from trace cascades. The
+public frame→realm read (`re-frame.core/frame-realm`) and realm
+enumeration (`re-frame.core/realm-ids`) have since shipped (EP-0013), so
+Xray *could* resolve a frame's realm out-of-band — but the **trace
+stream still carries no `:rf.realm/id`** stamp, and Xray's realm grouping
+/ per-row stamping are trace-driven. Until the framework stamps
+`:rf.realm/id` on the observability surfaces (the EP-0010/0011/0016 record
+shapes reserve the slot now per disposition 2; the emit is a later core
+slice), every trace-enumerated frame reads as the default realm — so
+realm grouping/stamping would be speculative UI for constant data. The
+single-realm UX is therefore correct as-is, and the deferred beads carry
+the standing rule (update `tools/xray/spec/*` same-PR) for when the
+observability lands.
 
 ## The default landing view
 

@@ -126,8 +126,11 @@ the `Cmd/Ctrl+Shift+M` chord:
 - **Static** — event-INDEPENDENT browse of what's *registered*. A
  3-layer chrome (no L2 spine — Static has no event focus). Every tab is
  a registry catalogue: every machine, every route, every schema, every
- flow, every interceptor known to the picked frame. This is "what
- exists?", not "what just happened?". 5 tabs.
+ flow, every interceptor in the picked frame's **realm** (the registrar is
+ realm-owned, not frame-owned — Spec 002 §Frames reference realms; in the
+ common single-realm app the realm is the default realm, so this reads as
+ "the picked frame's registrations"). This is "what exists?", not "what
+ just happened?". 5 tabs.
 
 Same design language, different temperature (per spec/007-UX-IA.md
 §Static mode). When the user wants to inspect a *single dispatch*, that's
@@ -316,10 +319,26 @@ So "where are the errors?" routes to the **Epoch tab** (this epoch) + the
 ### Static mode — 5 registry-browse tabs
 
 In Static mode the L3 tab bar holds **5 catalogue lenses** over what's
-*registered* in the picked frame (mnemonics mode-scoped — `m` opens the
-Static Machines browse, not the Dynamic instance-inspector). Order set by
+*registered* in the picked frame's **realm** (mnemonics mode-scoped — `m`
+opens the Static Machines browse, not the Dynamic instance-inspector).
+Handlers are realm-owned, not frame-owned (Spec 002 §Frames reference
+realms): a frame draws its registrations from its realm's registrar, so a
+multi-realm process shows different catalogues for two frames in different
+realms. In the common single-realm app every frame is in the default
+realm, so this is just "what's registered". Order set by
 spec/007-UX-IA.md §Static mode: **Machines · Routes · Schemas · Flows ·
 Interceptors**.
+
+> **Realm-awareness limitation (EP-0013).** The public realm reads
+> `rf/realm-ids` (enumerate installed realms) and `rf/frame-realm` (a
+> frame's owning realm) have shipped, but Xray's *trace-driven* realm
+> grouping and per-row realm stamping are **deferred** — they wait on the
+> framework stamping `:rf.realm/id` onto the Spec 009 observability
+> surfaces (a later core slice). Until then Xray enumerates frames from
+> trace cascades that carry no realm stamp, so every frame reads as the
+> default realm. The single-realm UX is correct as-is; multi-realm Xray
+> grouping is the deferred slice (`tools/xray/spec/007-UX-IA.md`
+> §EP-0013 realm-awareness posture).
 
 | Tab | Mnem | One-line purpose | When you'd open it |
 |---|---|---|---|
