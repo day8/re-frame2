@@ -493,6 +493,18 @@
         ;; instance falls through to the generated id (serializable by
         ;; construction).
         _          (mstate/validate-instance-id! instance where)
+        ;; rf2-6kdcs9 — the call-site `:reply-to` continuation (EP-0016 D1) is
+        ;; a TRANSPORT-PAYLOAD-only app target (NOT a durable ledger row fact),
+        ;; but it MUST still be data-only: it rides the internal reply payload
+        ;; across the transport boundary and is later dispatched. Run it through
+        ;; the shared `re-frame.reply/durable-target` HERE, at issuance — BEFORE
+        ;; any runtime-db / work-ledger write, transport lower, or trace — so a
+        ;; malformed target (missing / non-vector `:event`) or a host handle
+        ;; smuggled into a public slot FAILS LOUD now rather than silently
+        ;; mis-delivering (or stranding a non-serializable value on the wire)
+        ;; at completion. A nil target stays nil (no continuation). The
+        ;; data-only-validated target rides the `:reply-payload` below.
+        reply-to'  (when (some? reply-to) (reply/durable-target reply-to))
         generation (state/next-generation gen-snapshot)
         instance-id (mint-instance-id mutation instance generation)
         ;; the work-id reuses the resource work-id shape, but keyed by the
@@ -574,7 +586,9 @@
                                               :work/id     work-id
                                               :scope       cscope
                                               :generation  generation}
-                                       (some? reply-to) (assoc :reply-to reply-to))
+                                       ;; the data-only-validated (rf2-6kdcs9)
+                                       ;; call-site target rides the payload.
+                                       (some? reply-to') (assoc :reply-to reply-to'))
                       :work-id      work-id
                       :resource-key [:rf.mutation instance-id]
                       :scope        cscope

@@ -120,6 +120,18 @@
   [target]
   (map? target))
 
+(defn- event-vector?
+  "True when `event` is a valid event-vector prefix: a NON-EMPTY vector whose
+  head (the event id) is a keyword. Managed-Effects §The reply target requires
+  `:event` to be an event-vector prefix `[:event-id arg ...]`; a bare keyword,
+  an empty vector, a non-vector, or a vector whose head is not a keyword is NOT
+  a dispatchable event prefix and must fail closed rather than travel on to
+  `complete` and become a bogus dispatch shape."
+  [event]
+  (and (vector? event)
+       (seq event)
+       (keyword? (first event))))
+
 (defn normalize-target
   "Normalize a reply target to the canonical descriptor map.
 
@@ -131,16 +143,35 @@
   Returns `{:event <vector> :delivery <kw> ...}` with `:delivery` defaulted
   to `:append`. Idempotent: normalizing an already-normalized target is the
   identity (it preserves any accumulated `::post` transform and the gate
-  fields). A nil/blank target yields nil (no continuation)."
+  fields). A nil/blank target yields nil (no continuation).
+
+  FAILS CLOSED on a malformed target (Managed-Effects §The reply target —
+  `:event` is REQUIRED and is an event-vector prefix). A descriptor missing
+  `:event`, carrying a non-vector / empty-vector / non-keyword-headed `:event`,
+  or a non-vector/non-map target throws `ex-info`
+  `:rf.reply/invalid-target` rather than letting a bogus `{}` / `{:event nil}` /
+  `{:event :x}` travel on to `complete` (which would `(vec event)` it into a
+  garbage dispatch shape). Validating here means EVERY downstream consumer
+  (`complete`, `map-target`, `durable-target`, `target->short-form`) inherits
+  the guarantee — the target is either nil or a well-formed descriptor."
   [target]
   (cond
     (nil? target) nil
 
     (vector? target)
-    {:event target :delivery :append}
+    (if (event-vector? target)
+      {:event target :delivery :append}
+      (throw (ex-info "Invalid :rf/reply-to target — an event-vector prefix must be a non-empty vector whose head is a keyword event id."
+                      {:rf.error/kind :rf.reply/invalid-target
+                       :target        target})))
 
     (descriptor? target)
     (let [{:keys [event delivery]} target]
+      (when-not (event-vector? event)
+        (throw (ex-info "Invalid :rf/reply-to target — the descriptor's :event must be an event-vector prefix [:event-id arg ...] (a non-empty vector with a keyword head)."
+                        {:rf.error/kind :rf.reply/invalid-target
+                         :target        target
+                         :event         event})))
       (cond-> target
         (nil? delivery) (assoc :delivery :append)
         true            (assoc :event event)))
@@ -232,12 +263,19 @@
   id, status classification, cancellation, stale checks, or tracing (none
   of those live on the target). This is the role `Cmd.map` plays in Elm's
   command algebra: relocating or wrapping a continuation is a pure data
-  transform."
+  transform.
+
+  A nil target stays nil (no continuation to relocate) — mapping the absence
+  of a continuation is still the absence of a continuation, NOT a bogus
+  descriptor carrying only the private `::post` accumulator and no `:event`.
+  This preserves the no-continuation semantics through a relocation: a family
+  that maps a missing target gets nil back, and `complete` on it yields nil
+  (no delivery)."
   [f target]
-  (let [d        (normalize-target target)
-        existing (get d post-key)
-        composed (if existing (comp f existing) f)]
-    (assoc d post-key composed)))
+  (when-let [d (normalize-target target)]
+    (let [existing (get d post-key)
+          composed (if existing (comp f existing) f)]
+      (assoc d post-key composed))))
 
 ;; ---------------------------------------------------------------------------
 ;; Stale-delivery authority — the framework/tool capability (Managed-Effects
@@ -283,20 +321,38 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- host-handle?
-  "Best-effort detector for a host resource that MUST NOT appear in a
-  data-only reply map: a fn (callback), or a known host object (Promise,
-  AbortController, AbortSignal, a DOM node, a JS Date / RegExp). Plain EDN
-  data — maps, vectors, sets, keywords, strings, numbers, booleans, nil,
-  symbols, instants represented as longs — passes."
+  "Detector for a host resource that MUST NOT appear in a data-only reply map
+  or a durable reply target (Managed-Effects §The reply map / §The reply
+  target: the data-only invariant). The CLOSED host-handle set is:
+
+    - a fn (a callback — every family error rides data, never a thunk);
+    - on CLJS: a `Promise`, `AbortController`, `AbortSignal`, a DOM node
+      (anything exposing a numeric `nodeType`), a `js/Date`, a `js/RegExp`;
+    - on the JVM: a `java.util.concurrent.Future`, a `java.lang.Thread`, a
+      `java.util.Date`, a `java.util.regex.Pattern`.
+
+  The `Date` / `RegExp` (and their JVM counterparts) belong to the closed set
+  because they are NON-EDN host objects: they neither round-trip through the
+  EDN reader nor compare by value, so they cannot ride durable reply data (SSR
+  / hydration / epoch snapshots / replay) safely — a durable timestamp is an
+  epoch-millisecond long under EP-0010, never a host `Date`. Plain EDN data —
+  maps, vectors, sets, keywords, strings, numbers, booleans, nil, symbols,
+  instants represented as longs — passes. (This detector and its documented
+  contract are now ALIGNED — the predicate enforces exactly the set the
+  docstring names, on both runtimes.)"
   [v]
   (or (fn? v)
-      #?(:cljs (or (instance? js/Promise v)
+      #?(:cljs (or (and (exists? js/Promise) (instance? js/Promise v))
                    (and (exists? js/AbortController) (instance? js/AbortController v))
                    (and (exists? js/AbortSignal) (instance? js/AbortSignal v))
+                   (instance? js/Date v)
+                   (instance? js/RegExp v)
                    ;; A DOM node exposes a numeric nodeType.
                    (and (object? v) (number? (.-nodeType v))))
          :clj  (or (instance? java.util.concurrent.Future v)
-                   (instance? java.lang.Thread v)))))
+                   (instance? java.lang.Thread v)
+                   (instance? java.util.Date v)
+                   (instance? java.util.regex.Pattern v)))))
 
 (defn- walk-find-host-handle
   "Walk `v` (maps / vectors / sets) and return the path to the first host
@@ -409,10 +465,16 @@
              (and (contains? reply :status) (not (contains? statuses status)))
              (conj (problem :rf.reply/invalid-status [:status] status))
 
-             ;; :ok — value present, error absent.
+             ;; :ok — value present, error ABSENT. The contract says `:error`
+             ;; is *absent* for `:ok` (Managed-Effects §Status taxonomy + the
+             ;; "omit optional fields when absent" rule), so a PRESENT `:error`
+             ;; key — including a nil placeholder — is rejected. Checking
+             ;; `contains?` (not `some?`) closes the `{:status :ok :error nil}`
+             ;; gap: a nil sentinel is still a present-but-absent-meaning slot
+             ;; the family should have omitted.
              (and (= status :ok) (not (contains? reply :value)))
              (conj (problem :rf.reply/ok-missing-value [:value] nil))
-             (and (= status :ok) (some? error))
+             (and (= status :ok) (contains? reply :error))
              (conj (problem :rf.reply/ok-has-error [:error] error))
 
              ;; :partial — both value and error present; :error is a family
