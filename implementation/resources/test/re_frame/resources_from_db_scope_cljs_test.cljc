@@ -390,3 +390,56 @@
       (is (some? row))
       (is (true? (:resolved-nil? row)))
       (is (nil? (:scope row))))))
+
+;; ===========================================================================
+;; rf2-ru73k6 F3 — passive reads advertised as pure emit NO scope-resolved
+;; trace, while causal boundaries still do
+;; ===========================================================================
+
+(deftest pure-resolve-resource-scope-emits-no-trace
+  ;; `rf/resolve-resource-scope` is advertised PURE (the logout/account-switch
+  ;; idiom resolves the old scope from the cofx db). A pure read must not
+  ;; mutate observability state, so it emits NO :rf.resource/scope-resolved
+  ;; row — pre-fix it routed through the traced resolver core.
+  (rf/dispatch-sync [:t/login "jake"])
+  (testing "the helper still resolves the concrete scope correctly"
+    (let [rows (record-scope-resolved!
+                 (fn []
+                   (is (= [:rf.scope/session {:username "jake"}]
+                          (rf/resolve-resource-scope {:auth {:user {:username "jake"}}}
+                                                     :t/session)))
+                   ;; and a nil-resolving db still fails closed to nil
+                   (is (nil? (rf/resolve-resource-scope {} :t/session)))))]
+      (testing "but emits NO :rf.resource/scope-resolved trace (a pure read)"
+        (is (zero? (count (filter #(= :t/session (:resource-id (:tags %))) rows)))
+            (str "expected no scope-resolved rows from the pure helper; got "
+                 (pr-str (mapv :tags rows))))))))
+
+(deftest pure-subscription-key-resolution-emits-no-trace
+  ;; Subscription key resolution (`resolve-scoped-key` → `resolve-scope-for-sub`
+  ;; → the sub-side {:from-db …} resolution) is a PASSIVE read advertised pure;
+  ;; a sub re-keys on every frame-state change, so it MUST resolve trace-free
+  ;; (never flood the trace bus with a row per re-render).
+  (rf/dispatch-sync [:t/login "jake"])
+  (testing "resolving a {:from-db} sub key emits NO scope-resolved row"
+    (let [rows (record-scope-resolved!
+                 (fn []
+                   (is (= (session-key "jake" 1)
+                          (r-subs/resolve-scoped-key {:resource :t/feed :params {:page 1}}
+                                                     {:auth {:user {:username "jake"}}})))))]
+      (is (zero? (count (filter #(= :t/session (:resource-id (:tags %))) rows)))
+          (str "expected no scope-resolved rows from sub resolution; got "
+               (pr-str (mapv :tags rows)))))))
+
+(deftest causal-boundary-resolution-still-emits-trace
+  ;; The other half of the split: the CAUSAL boundaries keep their inspectable
+  ;; evidence. An event ensure with a {:from-db} scope DOES emit a
+  ;; scope-resolved row (so the split is surgical, not a blanket removal).
+  (rf/dispatch-sync [:t/login "jake"])
+  (let [rows (record-scope-resolved!
+               (fn []
+                 (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
+                                                         :owner [:lease :c 1]}])))]
+    (testing "the causal event-ensure resolution STILL emits a scope-resolved row"
+      (is (pos? (count (filter #(= :t/session (:resource-id (:tags %))) rows)))
+          "the traced causal boundary kept its evidence"))))

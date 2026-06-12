@@ -558,23 +558,39 @@
          :cause         [:mutation mutation-id instance-id]))
 
 (defn- continuation-fx
-  "Build the `[:dispatch <completed-event>]` fx that delivers the continuation
-  reply to the call-site `:reply-to` target, or nil when no target was
-  supplied. Uses the shared `re-frame.reply/complete` to append the reply map
-  as the final argument (the `:append` delivery — static call-site args are
+  "PURE: build the `[:dispatch <completed-event>]` fx that delivers the
+  continuation reply to the call-site `:reply-to` target, or nil when no target
+  was supplied. Uses the shared `re-frame.reply/complete` to append the reply
+  map as the final argument (the `:append` delivery — static call-site args are
   preserved, the reply lands after them), so the continuation rides the SAME
   reply substrate every managed-async family uses (NOT a family-private
   callback contract). A nil / blank target yields nil (no continuation).
-  Emits the `:rf.mutation/replied` trace evidence as a side effect when a
-  continuation is dispatched (D1; never on a stale/suppressed reply — that
-  path does not call this)."
-  [reply-to reply {:keys [frame-id mutation-id instance-id work-id status]}]
+
+  No trace side effect (rf2-ru73k6 F2): the `:rf.mutation/replied` evidence is
+  emitted from the effect-bound settlement boundary, AFTER
+  `:rf.mutation/succeeded`, so the trace row reflects the actual phase-6
+  ordering (continuation runs after cache consequences + instance settlement,
+  Spec 016 §Phase order) rather than landing while the effect vector is still
+  being built."
+  [reply-to reply]
   (when-let [completed (reply/complete reply-to reply)]
+    [:dispatch completed]))
+
+(defn- emit-replied!
+  "Emit the `:rf.mutation/replied` phase-6 trace evidence for an accepted reply
+  that DID continue into app workflow (a non-nil `cont-fx`). Called from the
+  effect-bound settlement boundary AFTER `:rf.mutation/succeeded` /
+  `:rf.mutation/failed` is emitted, so the trace row truthfully reflects the
+  continuation-dispatch boundary's place in the phase order (rf2-ru73k6 F2;
+  tools/xray/spec/024 §6c documents it as post-settlement evidence). Never
+  fires on a stale/suppressed reply (that path returns no continuation) nor
+  when the call site supplied no `:reply-to` (cont-fx is nil)."
+  [cont-fx {:keys [frame-id mutation-id instance-id work-id status reply-to]}]
+  (when cont-fx
     (trace/emit! :rf.event :rf.mutation/replied
                  {:rf.frame/id frame-id :mutation mutation-id :instance instance-id
                   :work/id work-id :status status :target reply-to
-                  :cause [:mutation mutation-id instance-id]})
-    [:dispatch completed]))
+                  :cause [:mutation mutation-id instance-id]})))
 
 ;; ---- :rf.mutation/execute -------------------------------------------------
 
@@ -1109,7 +1125,9 @@
             ;; this ACCEPTED reply. The continuation reply is the canonical
             ;; uniform reply map plus the mutation-specific facts; it is
             ;; dispatched LAST (after the cache-consequence fx) so the
-            ;; continuation runs after the invalidation it composes with.
+            ;; continuation runs after the invalidation it composes with. PURE —
+            ;; the `:rf.mutation/replied` trace is emitted below, AFTER
+            ;; `:rf.mutation/succeeded` (rf2-ru73k6 F2).
             cont-fx     (continuation-fx
                           reply-to
                           (continuation-reply
@@ -1118,10 +1136,7 @@
                                    ;; rf2-fi6tda.2 + .3: the full affected set
                                    ;; (populated + patched + removed + stale),
                                    ;; not just patch/populate.
-                                   :affected-keys affected})
-                          {:frame-id frame-id :mutation-id mutation-id
-                           :instance-id instance-id :work-id work-id
-                           :status (:status reply)})
+                                   :affected-keys affected}))
             ;; best-effort abort of each REMOVED entry's in-flight attempt +
             ;; cancel its advisory timers (its durable facts are gone) —
             ;; mirroring `:rf.resource/remove`. Stale suppression by work-id +
@@ -1148,6 +1163,13 @@
                        ;; exempted from this mutation's refetch) rides the same
                        ;; facet (Spec 016 §Populate is an authoritative load).
                        inv-plan (assoc :invalidation (plan-trace inv-plan populated-ks rdb3))))
+        ;; PHASE 6 evidence — emitted AFTER `:rf.mutation/succeeded` so the
+        ;; `:rf.mutation/replied` trace row truthfully follows settlement in the
+        ;; phase order (rf2-ru73k6 F2). No-op when no `:reply-to` continued.
+        (emit-replied! cont-fx
+                       {:frame-id frame-id :mutation-id mutation-id
+                        :instance-id instance-id :work-id work-id
+                        :status (:status reply) :reply-to reply-to})
         {:rf.db/runtime rdb'
          :fx (cond-> (vec timer-fx)
                (seq remove-abort-fx) (into remove-abort-fx)
@@ -1253,15 +1275,14 @@
             ;; invalidation marks stale (rf2-fi6tda.2 — previously dropped to
             ;; `#{}`). Dispatched LAST, after the optional failure-time
             ;; invalidation it composes with.
+            ;; PURE — the `:rf.mutation/replied` trace is emitted below, AFTER
+            ;; `:rf.mutation/failed` (rf2-ru73k6 F2).
             cont-fx  (continuation-fx
                        reply-to
                        (continuation-reply
                          reply {:mutation-id mutation-id :params params
                                 :instance-id instance-id :scope scope
-                                :affected-keys affected})
-                       {:frame-id frame-id :mutation-id mutation-id
-                        :instance-id instance-id :work-id work-id
-                        :status (:status reply)})]
+                                :affected-keys affected}))]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.mutation/failed
                      (cond-> {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
@@ -1273,6 +1294,13 @@
                        ;; populated keys on a failure, so the Rider 1 exempt
                        ;; set is empty).
                        inv-plan (assoc :invalidation (plan-trace inv-plan #{} runtime-db))))
+        ;; PHASE 6 evidence — emitted AFTER `:rf.mutation/failed` so the
+        ;; `:rf.mutation/replied` row truthfully follows settlement in the phase
+        ;; order (rf2-ru73k6 F2). No-op when no `:reply-to` continued.
+        (emit-replied! cont-fx
+                       {:frame-id frame-id :mutation-id mutation-id
+                        :instance-id instance-id :work-id work-id
+                        :status (:status reply) :reply-to reply-to})
         {:rf.db/runtime rdb'
          :fx (cond-> []
                inv-fxs (into inv-fxs)

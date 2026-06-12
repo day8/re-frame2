@@ -502,7 +502,13 @@
   read-side counterpart of the event-side fail-closed throw. Returns the
   resolved concrete scope otherwise."
   [resource-id reference db where]
-  (or (scope-registry/resolve-from-db-reference reference db where)
+  ;; rf2-ru73k6 F3 — a subscription is a PASSIVE read advertised as pure; it
+  ;; resolves its `{:from-db …}` scope through the trace-FREE evaluator so a
+  ;; sub re-key (which fires on every frame-state change) never emits
+  ;; `:rf.resource/scope-resolved` observability state. The causal write-side
+  ;; resolution (event ensure / route / mutation settle) keeps its traced
+  ;; evidence via `resolve-from-db-reference`.
+  (or (scope-registry/resolve-from-db-reference-pure reference db where)
       (throw (registration-error
                :rf.error/resource-sub-unresolved-scope
                where
