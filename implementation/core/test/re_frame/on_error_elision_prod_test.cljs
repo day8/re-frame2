@@ -145,14 +145,23 @@
             / `:line` / `:column` coord-keys. Xray Open-in-editor and
             re-frame-pair are dev-only — production bundles strip the
             coord-keys from the registry-meta surface; coords for
-            error-emit ride the always-on parallel registry instead."
+            error-emit ride the always-on parallel registry instead.
+
+            Per rf2-9wwkcm (Spec 001 §Production elision contract, Policy 3)
+            the user-supplied pure-documentation key `:doc` is ALSO stripped
+            from the public meta in production — it has zero production
+            runtime / observability use. Load-bearing keys (`:tags` /
+            `:schema` / `:sensitive?` / `:large?` / `:interceptors` / …)
+            are retained; `:tags` below pins that the strip is surgical."
     (rf/reg-event-db :rf2-3un2g/prod-meta-strip
-                     {:doc "stripped"}
+                     {:doc "stripped" :tags #{:probe}}
                      (fn [db _] db))
     (let [meta (rf/handler-meta :event :rf2-3un2g/prod-meta-strip)]
       (is (some? meta))
-      (is (= "stripped" (:doc meta))
-          "user-supplied :doc is preserved — only coord-keys strip")
+      (is (not (contains? meta :doc))
+          "user-supplied :doc is stripped in prod (pure documentation, rf2-9wwkcm)")
+      (is (= #{:probe} (:tags meta))
+          "load-bearing :tags retained — the doc strip is surgical")
       (is (not (contains? meta :ns))     ":ns absent in prod meta")
       (is (not (contains? meta :file))   ":file absent in prod meta")
       (is (not (contains? meta :line))   ":line absent in prod meta")
