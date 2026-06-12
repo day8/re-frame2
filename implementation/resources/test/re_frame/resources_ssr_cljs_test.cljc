@@ -119,9 +119,31 @@
           :refresh-error  refresh-error}))
 
 (defn- runtime-db-with
-  "A runtime-db carrying a `:rf.runtime/resources :entries` map."
+  "A runtime-db carrying a `:rf.runtime/resources :entries` map. rf2-9e0tyq:
+  the runtime keys `:entries` on the CEDN-1 byte `key-id` and stamps each
+  entry's own `:resource/key` vector, so this helper RE-KEYS the
+  `{scoped-key-vector entry}` map callers supply into the runtime's
+  `{key-id (assoc entry :resource/key scoped-key)}` shape — the call sites
+  stay written in the natural scoped-key-vector form."
   [entries]
-  {state/resources-key {:entries entries :tag-index {} :owner-index {}}})
+  {state/resources-key {:entries (into {}
+                                       (map (fn [[sk e]]
+                                              [(state/key-id sk) (assoc e :resource/key sk)]))
+                                       entries)
+                        :tag-index {} :owner-index {}}})
+
+;; rf2-9e0tyq — the runtime keys `:entries` on the CEDN-1 byte `key-id` and
+;; stamps each entry's `:resource/key`. These helpers build / read the
+;; byte-keyed `:entries` map directly so the unit tests speak the runtime's
+;; shape (the `key-id` translation is what `blocking-settled?` /
+;; `settle-blocking-timeout` / the drain loop / projection apply to the
+;; scoped-key vectors).
+(defn- entries*
+  "Build a byte-keyed `:entries` map from `{scoped-key-vector entry}`,
+  stamping each entry's `:resource/key` (mirrors `runtime-db-with`)."
+  [m]
+  (into {} (map (fn [[sk e]] [(state/key-id sk) (assoc e :resource/key sk)])) m))
+(defn- entry-by [entries sk] (get entries (state/key-id sk)))
 
 (def ^:private gkey
   ;; canonical global-scope key for :article/by-slug {:slug "x"}
@@ -145,7 +167,7 @@
           "only the :rf.runtime/resources subsystem key is projected")
       (is (= #{:entries} (set (keys (get proj state/resources-key))))
           "only :entries rides — indexes are recomputable-from-entries")
-      (is (contains? (get-in proj [state/resources-key :entries]) gkey)))))
+      (is (contains? (get-in proj [state/resources-key :entries]) (state/key-id gkey))))))
 
 (deftest projection-empty-when-no-entries
   (testing "no resource entries → empty projection (the hook contributes nothing)"
@@ -153,11 +175,16 @@
     (is (= {} (ssr/project-resources-runtime-db (runtime-db-with {}))))))
 
 (defn- only-wire-entry
-  "The single projected wire entry `[wire-key wire-entry]` from a one-entry
-  projection (the projected key may be redacted, so callers can't look it up
-  by the raw key — rf2-otms75)."
+  "The single projected wire entry as `[projected-scoped-key wire-entry]` from
+  a one-entry projection. rf2-9e0tyq: the projection MAP is keyed on the
+  opaque byte `key-id`; the projected SCOPED KEY (scope+params verbatim for a
+  `:serialize` resource, redacted for `:sensitive?` / `:large?`) rides as the
+  wire entry's own `:resource/key`. The privacy/distinctness assertions are
+  about that projected scoped key, so this returns it as the first element
+  (the byte map-key is exercised separately by the byte-keying tests)."
   [proj]
-  (first (get-in proj [state/resources-key :entries])))
+  (let [we (val (first (get-in proj [state/resources-key :entries])))]
+    [(:resource/key we) we]))
 
 (deftest sensitive-resource-is-redacted
   (reg! :secret/thing {:sensitive? true})
@@ -214,9 +241,14 @@
           k-stale (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "y"})
           k-sens  (state/scoped-resource-key :rf.scope/global :secret/thing {:slug "s"})
           k-big   (state/scoped-resource-key :rf.scope/global :big/thing {:slug "b"})
+          ;; rf2-9e0tyq — `projection-metadata` reads each entry's own
+          ;; `:resource/key` (the `:entries` map is byte-keyed), so stamp it
+          ;; (mirrors the runtime's byte-keyed `:entries` shape). The returned
+          ;; metadata `:resource-key` is the scoped-key VECTOR, so the
+          ;; `(metas k-…)` vector lookups below stay unchanged.
           metas   (->> (ssr/projection-metadata
                          nil 5000
-                         {k-fresh fresh k-stale stale k-sens sens k-big big})
+                         (entries* {k-fresh fresh k-stale stale k-sens sens k-big big}))
                        (into {} (map (juxt :resource-key identity))))]
       (is (= :serialized (:disposition (metas k-fresh))))
       (is (= :fresh      (:freshness   (metas k-fresh))))
@@ -277,14 +309,20 @@
           e1 (entry {:resource-id :secret/thing :data {:s 1} :loaded-at 1000 :stale-at 9.0e15})
           e2 (entry {:resource-id :secret/thing :data {:s 2} :loaded-at 1000 :stale-at 9.0e15})
           proj (ssr/project-resources-runtime-db (runtime-db-with {k1 e1 k2 e2}))
-          wks  (set (keys (get-in proj [state/resources-key :entries])))]
-      (is (= 2 (count wks)) "two distinct entries → two distinct wire keys (no collision)")
+          ;; rf2-9e0tyq — the wire MAP is byte-keyed (distinct byte ids prove no
+          ;; collision); the projected (redacted) scoped keys live as each wire
+          ;; entry's `:resource/key`.
+          wire-entries (vals (get-in proj [state/resources-key :entries]))
+          wks  (set (map :resource/key wire-entries))]
+      (is (= 2 (count (set (keys (get-in proj [state/resources-key :entries])))))
+          "two distinct entries → two distinct byte wire keys (no collision)")
+      (is (= 2 (count wks)) "two distinct projected (redacted) scoped keys (no collision)")
       (is (every? (fn [wk] (= :secret/thing (nth wk 1))) wks)
-          "both wire keys preserve the resource-id")
+          "both projected keys preserve the resource-id")
       (is (every? (fn [wk] (and (contains? (nth wk 2) :rf/redacted)
                                 (not= {:slug "alpha"} (nth wk 2))
                                 (not= {:slug "beta"} (nth wk 2)))) wks)
-          "neither wire key carries the raw params"))))
+          "neither projected key carries the raw params"))))
 
 (deftest project-scoped-key-is-pure
   (testing "project-scoped-key: :serialize rides verbatim; :redact/:omit redact
@@ -315,7 +353,7 @@
     (let [loaded  (entry {:resource-id :a :status :loaded :data {:x 1}})
           errored (entry {:resource-id :b :status :error})
           loading (entry {:resource-id :c :status :loading})
-          es      {ka loaded kb errored kc loading}]
+          es      (entries* {ka loaded kb errored kc loading})]
       (is (true?  (ssr/blocking-settled? es #{ka kb}))
           ":loaded and :error are settled")
       (is (false? (ssr/blocking-settled? es #{ka kc}))
@@ -330,17 +368,17 @@
             structured first-load failure + a route-blocking-failure record (never hangs)"
     (let [loading (entry {:resource-id :a :status :loading})
           loaded  (entry {:resource-id :b :status :loaded :data {:x 1}})
-          es      {ka loading kb loaded}
+          es      (entries* {ka loading kb loaded})
           {:keys [entries route-blocking-failure]}
           (ssr/settle-blocking-timeout es #{ka kb} 250 :app/main)]
       (testing "the unsettled blocking entry settles to a first-load :error"
-        (let [se (get entries ka)]
+        (let [se (entry-by entries ka)]
           (is (= :error (:status se)))
           (is (= :rf.http/timeout (:kind (:error se))))
           (is (= :ssr-blocking-timeout (:reason (:error se))))
           (is (nil? (:data se)) "first-load failure has no usable data")))
       (testing "the already-settled entry is untouched"
-        (is (= :loaded (:status (get entries kb)))))
+        (is (= :loaded (:status (entry-by entries kb)))))
       (testing "the route-blocking-failure record names the timed-out keys + deadline"
         (is (= :rf.error/resource-ssr-blocking-timeout (:rf.error/id route-blocking-failure)))
         (is (= #{ka} (set (:timed-out route-blocking-failure))))
@@ -348,7 +386,7 @@
 
 (deftest blocking-timeout-noop-when-all-settled
   (testing "no unsettled blocking entries → no failure record, entries unchanged"
-    (let [es {ka (entry {:resource-id :a :status :loaded :data {:x 1}})}
+    (let [es (entries* {ka (entry {:resource-id :a :status :loaded :data {:x 1}})})
           {:keys [entries route-blocking-failure]}
           (ssr/settle-blocking-timeout es #{ka} 250 :app/main)]
       (is (= es entries))
@@ -359,7 +397,8 @@
     (let [kmiss (state/scoped-resource-key :rf.scope/global :missing {})
           {:keys [entries route-blocking-failure]}
           (ssr/settle-blocking-timeout {} #{kmiss} 100 :app/main)]
-      (is (= :error (:status (get entries kmiss))))
+      ;; rf2-9e0tyq — the settled entry is keyed on the byte key-id.
+      (is (= :error (:status (entry-by entries kmiss))))
       (is (= #{kmiss} (set (:timed-out route-blocking-failure)))))))
 
 ;; ===========================================================================
@@ -426,7 +465,7 @@
       (is (true? (:settled? res)))
       (is (nil? (:route-blocking-failure res)))
       (is (= :loaded (get-in (frame/frame-runtime-db-value fid)
-                             [state/resources-key :entries ka :status]))
+                             [state/resources-key :entries (state/key-id ka) :status]))
           "the settled entry is untouched")
       (frame/destroy-frame! fid))))
 
@@ -442,13 +481,14 @@
           pump! (fn [_]
                   (when (= 2 (swap! ticks inc))
                     (frame/swap-runtime-db!
-                      fid assoc-in [state/resources-key :entries ka]
-                      (entry {:resource-id :a :status :loaded :data {:x 1}}))))
+                      fid assoc-in [state/resources-key :entries (state/key-id ka)]
+                      (assoc (entry {:resource-id :a :status :loaded :data {:x 1}})
+                             :resource/key ka))))
           res   (ssr/drain-blocking-resources! fid {:pump! pump! :deadline-ms 60000})]
       (is (true? (:settled? res)) "the loop settled once the reply landed")
       (is (nil? (:route-blocking-failure res)) "no timeout — it settled in time")
       (is (= {:x 1} (get-in (frame/frame-runtime-db-value fid)
-                            [state/resources-key :entries ka :data])))
+                            [state/resources-key :entries (state/key-id ka) :data])))
       (frame/destroy-frame! fid))))
 
 (deftest drain-times-out-a-never-settling-blocking-resource
@@ -469,7 +509,7 @@
         (is (false? (:settled? res)) "the loop reported a timeout, not a settle")
         (is (= #{ka} (:timed-out res)))
         (let [se (get-in (frame/frame-runtime-db-value fid)
-                         [state/resources-key :entries ka])]
+                         [state/resources-key :entries (state/key-id ka)])]
           (is (= :error (:status se))
               "the never-settling blocking entry is SETTLED to :error, not left :loading")
           (is (= :rf.http/timeout (:kind (:error se))))
@@ -491,7 +531,7 @@
                 fid {:pump! nil :deadline-ms 50 :clock-fn clock-fn})]
       (is (false? (:settled? res)))
       (is (= :error (get-in (frame/frame-runtime-db-value fid)
-                            [state/resources-key :entries ka :status])))
+                            [state/resources-key :entries (state/key-id ka) :status])))
       (frame/destroy-frame! fid))))
 
 (deftest drain-hook-published
@@ -684,7 +724,7 @@
                       :owners #{[:ssr "req-7" "nav-1"]
                                 [:route :route/article "nav-1"]}})
           out (ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)
-          owners (get-in out [state/resources-key :entries gkey :active-owners])]
+          owners (get-in out [state/resources-key :entries (state/key-id gkey) :active-owners])]
       (is (not (contains? owners [:ssr "req-7" "nav-1"]))
           "the SSR owner is dropped as an orphan")
       (is (contains? owners [:route :route/article "nav-1"])
@@ -699,15 +739,15 @@
                       :loaded-at 1000 :stale-at 9.0e15
                       :current-work [:rf.work/resource gkey 1]})
           out (ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)]
-      (is (nil? (get-in out [state/resources-key :entries gkey :current-work]))))))
+      (is (nil? (get-in out [state/resources-key :entries (state/key-id gkey) :current-work]))))))
 
 (deftest hydrate-preserves-entry-data
   (testing "hydrated entries are PRESERVED (data + status survive the reconcile)"
     (let [e   (entry {:resource-id :article/by-slug :data {:t "kept"}
                       :loaded-at 1000 :stale-at 9.0e15})
           out (ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)]
-      (is (= {:t "kept"} (get-in out [state/resources-key :entries gkey :data])))
-      (is (= :loaded (get-in out [state/resources-key :entries gkey :status]))))))
+      (is (= {:t "kept"} (get-in out [state/resources-key :entries (state/key-id gkey) :data])))
+      (is (= :loaded (get-in out [state/resources-key :entries (state/key-id gkey) :status]))))))
 
 (deftest hydrate-noop-without-resources
   (testing "a runtime-db with no resource entries is returned unchanged (SSR app without resources)"
@@ -733,7 +773,7 @@
             (never stranded :loading), and the refetch plan then refetches it"
     (let [e   (entry {:resource-id :article/by-slug :status :loading :data nil})
           out (ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)
-          se  (get-in out [state/resources-key :entries gkey])]
+          se  (get-in out [state/resources-key :entries (state/key-id gkey)])]
       (is (= :idle (:status se)) "loading-with-no-data → :idle, never a dangling :loading")
       (let [plan (->> (ssr/hydrate-refetch-plan out 5000)
                       (into {} (map (juxt :resource-key identity))))]
@@ -747,7 +787,7 @@
     (let [e   (entry {:resource-id :article/by-slug :status :fetching
                       :data {:t "fresh"} :loaded-at 1000 :stale-at 9.0e15})
           out (ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)
-          se  (get-in out [state/resources-key :entries gkey])]
+          se  (get-in out [state/resources-key :entries (state/key-id gkey)])]
       (is (= :loaded (:status se)) "fetching-with-fresh-data → :loaded (keep last-known-good)")
       (is (= {:t "fresh"} (:data se)) "the data is preserved")
       (let [plan (->> (ssr/hydrate-refetch-plan out 5000)
@@ -761,7 +801,7 @@
     (let [e   (entry {:resource-id :article/by-slug :status :fetching
                       :data {:t "stale"} :loaded-at 1000 :stale-at 1500})  ;; stale vs 5000
           out (ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)
-          se  (get-in out [state/resources-key :entries gkey])]
+          se  (get-in out [state/resources-key :entries (state/key-id gkey)])]
       (is (= :loaded (:status se)) "fetching-with-stale-data → :loaded")
       (is (= {:t "stale"} (:data se)) "the stale last-known-good data is preserved")
       (let [plan (->> (ssr/hydrate-refetch-plan out 5000)
@@ -775,7 +815,7 @@
     (let [e   (entry {:resource-id :article/by-slug :status :loaded
                       :data {:t "kept"} :loaded-at 1000 :stale-at 9.0e15})
           out (ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)
-          se  (get-in out [state/resources-key :entries gkey])]
+          se  (get-in out [state/resources-key :entries (state/key-id gkey)])]
       (is (= :loaded (:status se)) "a :loaded entry stays :loaded")
       (is (= {:t "kept"} (:data se)))
       (let [plan (->> (ssr/hydrate-refetch-plan out 5000)
@@ -795,9 +835,11 @@
           [wk we] (only-wire-entry proj)]
       (is (= :fetching (:status we)) "the projection keeps the entry's :fetching status on the wire")
       (is (not (contains? we :current-work)) "the projection strips :current-work on the wire")
-      (let [installed {state/resources-key {:entries {wk we}}}
+      ;; rf2-9e0tyq — install the REAL projected (byte-keyed) map; look the
+      ;; settled entry up by the byte `key-id` of the projected scoped key.
+      (let [installed proj
             out (ssr/hydrate-runtime-db installed :app/main)
-            se  (get-in out [state/resources-key :entries wk])]
+            se  (get-in out [state/resources-key :entries (state/key-id wk)])]
         (is (= :loaded (:status se))
             "hydration settles the dangling :fetching entry to :loaded — not installed verbatim")
         (is (nil? (:current-work se)) "current-work stays cleared")))))
@@ -932,13 +974,15 @@
                      :owners #{[:route :r "nav-b"]}})
           out (ssr/hydrate-runtime-db (runtime-db-with {ka ea kb eb}) :app/main)
           es  (get-in out [state/resources-key :entries])]
-      (is (= {:owner "a"} (:data (es ka))) "scope-a data stays under scope-a's key")
-      (is (= {:owner "b"} (:data (es kb))) "scope-b data stays under scope-b's key")
+      (is (= {:owner "a"} (:data (es (state/key-id ka)))) "scope-a data stays under scope-a's key")
+      (is (= {:owner "b"} (:data (es (state/key-id kb)))) "scope-b data stays under scope-b's key")
       (testing "the shared tag [:article \"x\"] maps to BOTH scoped keys, never collapsed"
-        (is (= #{ka kb} (get-in out [state/resources-key :tag-index [:article "x"]]))))
+        ;; rf2-9e0tyq — index members are the byte key-id.
+        (is (= #{(state/key-id ka) (state/key-id kb)}
+               (get-in out [state/resources-key :tag-index [:article "x"]]))))
       (testing "each scope's owner indexes only its own key"
-        (is (= #{ka} (get-in out [state/resources-key :owner-index [:route :r "nav-a"]])))
-        (is (= #{kb} (get-in out [state/resources-key :owner-index [:route :r "nav-b"]])))))))
+        (is (= #{(state/key-id ka)} (get-in out [state/resources-key :owner-index [:route :r "nav-a"]])))
+        (is (= #{(state/key-id kb)} (get-in out [state/resources-key :owner-index [:route :r "nav-b"]])))))))
 
 ;; ===========================================================================
 ;; 6. End-to-end through the :rf/hydrate reconcile hook
@@ -962,7 +1006,7 @@
           ;; the SSR payload-policy is the consumer of :ssr/extend-runtime-db-projection
           proj (payload-policy/project-runtime-db rdb)]
       (is (contains? proj state/resources-key))
-      (is (contains? (get-in proj [state/resources-key :entries]) gkey)))))
+      (is (contains? (get-in proj [state/resources-key :entries]) (state/key-id gkey))))))
 
 (deftest hydrate-event-reconciles-resource-slice
   (reg! :article/by-slug)
@@ -978,13 +1022,13 @@
                    :rf/runtime-db (runtime-db-with {gkey e})}]
       (rf/dispatch-sync [:rf/hydrate payload])
       (let [rdb (rf/runtime-db-value :rf/default)
-            installed (get-in rdb [state/resources-key :entries gkey])]
+            installed (get-in rdb [state/resources-key :entries (state/key-id gkey)])]
         (is (= {:t "x"} (:data installed)) "entry data preserved through hydrate")
         (is (nil? (:current-work installed)) "transient current-work cleared")
         (is (not (contains? (:active-owners installed) [:ssr "req-1" "nav-1"]))
             "SSR owner orphaned during the :rf/hydrate reconcile")
         (is (contains? (:active-owners installed) [:route :route/article "nav-1"])
             "route owner survives")
-        (is (= {[:article "x"] #{gkey}}
+        (is (= {[:article "x"] #{(state/key-id gkey)}}
                (get-in rdb [state/resources-key :tag-index]))
-            "tag-index recomputed from entries during the :rf/hydrate reconcile")))))
+            "tag-index recomputed from entries during the :rf/hydrate reconcile (byte key-id member)")))))

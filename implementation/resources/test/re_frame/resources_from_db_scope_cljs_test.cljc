@@ -87,7 +87,12 @@
 ;; ---- helpers --------------------------------------------------------------
 
 (defn- runtime-db [] (rf/runtime-db-value :rf/default))
-(defn- entries [] (get-in (runtime-db) (state/entries-path)))
+;; rf2-9e0tyq — `:entries` is keyed on the byte `key-id`; return a vector-keyed
+;; VIEW (re-keyed from each entry's `:resource/key`) so the assertions speak
+;; scoped-key vectors. Semantics unchanged.
+(defn- entries []
+  (into {} (map (fn [[_k-id e]] [(:resource/key e) e]))
+        (get-in (runtime-db) (state/entries-path))))
 (defn- entry [scoped-key] (get-in (runtime-db) (state/entry-path scoped-key)))
 (defn- slice [] (get-in (runtime-db) [:rf.runtime/routing :current]))
 

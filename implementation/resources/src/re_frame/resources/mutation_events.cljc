@@ -242,7 +242,8 @@
                 tags     (when tags-fn (set (tags-fn rparams value)))
                 entry    (get-in db' (state/entry-path scoped-key))
                 entry'   (mstate/populate-entry entry resource-id value
-                                                {:clock-ms clock-ms :stale-at stale-at :tags tags})
+                                                {:clock-ms clock-ms :stale-at stale-at :tags tags
+                                                 :scoped-key scoped-key})
                 delays   (timer-delays rspec)]
             [(assoc-in db' (state/entry-path scoped-key) entry')
              (conj ks scoped-key)

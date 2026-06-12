@@ -211,11 +211,18 @@
   resource-id)
 
 (defn- entry-keys-for-resource
-  "The scoped keys in `runtime-db`'s `:entries` whose resource id (the
-  SECOND element of `[scope resource-id params]`) is `resource-id`."
+  "The scoped-key VECTORS in `runtime-db`'s `:entries` whose resource id (the
+  SECOND element of `[scope resource-id params]`) is `resource-id`. rf2-9e0tyq:
+  `:entries` is keyed on the opaque byte `key-id`, so the resource-id filter
+  reads each entry's stored `:resource/key` vector (NOT the map key), and the
+  returned keys are the kind-preserving VECTORS the timer-cancel / abort / trace
+  consumers name resources by. The disposal `dissoc` maps these through
+  `state/key-id` to address the byte-keyed `:entries` slots."
   [runtime-db resource-id]
   (into []
-        (comp (map key) (filter (fn [[_scope rid _params]] (= rid resource-id))))
+        (comp (map val)
+              (filter (fn [entry] (= resource-id (second (:resource/key entry)))))
+              (map :resource/key))
         (get-in runtime-db (state/entries-path))))
 
 (defn- dispose-resource-runtime!
@@ -248,7 +255,10 @@
           frame-id
           (fn [rdb]
             (-> (or rdb {})
-                (update-in (state/entries-path) (fn [es] (reduce dissoc es keys')))
+                ;; rf2-9e0tyq — `keys'` are scoped-key VECTORS; the byte-keyed
+                ;; `:entries` map is dissoc'd by their `key-id`s.
+                (update-in (state/entries-path)
+                           (fn [es] (reduce dissoc es (map state/key-id keys'))))
                 (as-> db (reduce (fn [d [wid _]]
                                    (work-ledger/update-record
                                      d wid work-ledger/mark-terminal

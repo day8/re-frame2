@@ -153,7 +153,7 @@
         cparams    (registry/validate+canonicalize-params resource spec params where)
         scoped-key (state/scoped-resource-key scope resource cparams)
         entry      (or (get-in runtime-db (state/entry-path scoped-key))
-                       (state/empty-entry resource))
+                       (state/empty-entry resource scoped-key))
         prior-work (:current-work entry)
         in-flight? (some? prior-work)
         ;; JOINABLE work (rf2-v4ygg5): an `ensure` may DEDUPE onto the prior
@@ -243,7 +243,7 @@
                      (assoc-in (state/entry-path scoped-key) hit)
                      (cond->
                        owner (update-in (state/owner-index-path)
-                                        update owner (fnil conj #{}) scoped-key))
+                                        update owner (fnil conj #{}) (state/key-id scoped-key)))
                      ;; route blocking: a route-owned blocking resource that
                      ;; is already fresh MUST settle the nav-token blocking
                      ;; slot NOW (no fetch will ever land a reply to drain
@@ -281,7 +281,7 @@
                          prior-work work-ledger/join-owner+cause owner cause)
                        (cond->
                          owner (update-in (state/owner-index-path)
-                                          update owner (fnil conj #{}) scoped-key)))]
+                                          update owner (fnil conj #{}) (state/key-id scoped-key))))]
         (trace/emit! :rf.event :rf.resource/deduped
                      {:rf.frame/id frame-id :resource-key scoped-key
                       :generation (:generation entry) :owner owner :cause cause
@@ -348,7 +348,7 @@
                            (work-ledger/put-record work-id record)
                            (cond->
                              owner (update-in (state/owner-index-path)
-                                              update owner (fnil conj #{}) scoped-key)))
+                                              update owner (fnil conj #{}) (state/key-id scoped-key))))
             ;; lower into the resource's transport (the existing seam). The
             ;; runtime owns reply addressing: the internal reply payloads
             ;; stamp the qualified :rf.frame/id + :work/id + :resource-key +
@@ -513,11 +513,14 @@
   [runtime-db clock-ms]
   (let [entries (get-in runtime-db (state/entries-path))]
     (into []
-          (keep (fn [[scoped-key entry]]
+          (keep (fn [[_k-id entry]]
                   (when (and (seq (:active-owners entry))
                              (state/entry-stale? entry clock-ms)
                              (not (entry-revalidation-in-flight? runtime-db entry)))
-                    (let [[scope resource-id params] scoped-key]
+                    ;; rf2-9e0tyq — read the scoped-key VECTOR from the entry's
+                    ;; `:resource/key` (the map key is now the opaque byte id).
+                    (let [scoped-key (:resource/key entry)
+                          [scope resource-id params] scoped-key]
                       {:resource-key scoped-key
                        :scope        scope
                        :resource     resource-id
@@ -717,21 +720,32 @@
         ;; re-staled / refetched). The set is canonicalized at the producer
         ;; (the populate path re-keys by the canonical scoped key), so a plain
         ;; set membership test is identity-correct.
-        exempt     (set exempt-keys)
+        ;; rf2-9e0tyq — `entries` is keyed on the byte `key-id`; every
+        ;; scope/identity decision below reads the entry's `:resource/key`
+        ;; VECTOR (`sk`). `exempt` is matched by byte identity (the populate
+        ;; path supplies scoped-key vectors; reduce both to `key-id`) so a
+        ;; list- vs vector-params exempt key matches exactly. The matched MAP
+        ;; is keyed on the byte `key-id` (so `assoc-in (entry-path …)` and the
+        ;; trace's `:resource-key` use the right form: byte for the db write,
+        ;; vector for the trace/refetch).
+        exempt     (into #{} (map state/key-id) exempt-keys)
         tags-hit?  (fn [entry] (seq (set/intersection (set (:tags entry)) tag-set)))
-        in-scope?  (fn [k] (or cross-scope? (= cscope (first k))))
+        sk-of      (fn [entry] (:resource/key entry))
+        in-scope?  (fn [entry] (or cross-scope? (= cscope (first (sk-of entry)))))
         ;; matched: tags intersect AND (cross-scope OR scope matches) AND NOT
-        ;; exempt (a populated key the same mutation kept authoritative)
+        ;; exempt (a populated key the same mutation kept authoritative).
+        ;; Keyed on the byte key-id.
         matched    (into {}
-                         (filter (fn [[k entry]] (and (not (contains? exempt k))
-                                                      (in-scope? k) (tags-hit? entry))))
+                         (filter (fn [[k-id entry]] (and (not (contains? exempt k-id))
+                                                         (in-scope? entry) (tags-hit? entry))))
                          entries)
         ;; the exempt keys that WOULD have matched (for the trace — what the
-        ;; populate spared from this same-mutation refetch)
+        ;; populate spared from this same-mutation refetch). The trace names
+        ;; them by the scoped-key VECTOR.
         exempt-hit (into []
-                         (comp (filter (fn [[k entry]] (and (contains? exempt k)
-                                                            (in-scope? k) (tags-hit? entry))))
-                               (map key))
+                         (comp (filter (fn [[k-id entry]] (and (contains? exempt k-id)
+                                                               (in-scope? entry) (tags-hit? entry))))
+                               (map (fn [[_k-id entry]] (sk-of entry))))
                          entries)
         ;; tag matches that fell OUTSIDE the requested scope (the
         ;; "no match HERE, but the tag exists in another scope" signal — only
@@ -739,20 +753,21 @@
         other-scope-hit?
         (and (not cross-scope?)
              (boolean
-               (some (fn [[k entry]] (and (not= cscope (first k)) (tags-hit? entry)))
+               (some (fn [[_k-id entry]] (and (not= cscope (first (sk-of entry))) (tags-hit? entry)))
                      entries)))
-        ;; mark each matched entry stale (durable :invalidated-at fact)
+        ;; mark each matched entry stale (durable :invalidated-at fact). Keyed
+        ;; on the byte key-id — write straight to the entries-path slot.
         rdb'       (reduce-kv
-                     (fn [db k entry]
-                       (assoc-in db (state/entry-path k)
+                     (fn [db k-id entry]
+                       (assoc-in db (state/entry-path-by-id k-id)
                                  (assoc entry :invalidated-at invalidated-at)))
                      runtime-db matched)
         ;; per-entry decision: active-owner entries refetch (Spec 016
         ;; §Invalidation 3); ownerless entries are left stale / GC-eligible
         ;; (§Invalidation 4). Collected once for both the dispatches and the
-        ;; per-entry trace detail.
-        decisions  (mapv (fn [[k entry]]
-                           {:resource-key k
+        ;; per-entry trace detail. `:resource-key` is the scoped-key VECTOR.
+        decisions  (mapv (fn [[_k-id entry]]
+                           {:resource-key (sk-of entry)
                             :active? (boolean (seq (:active-owners entry)))
                             :decision (if (seq (:active-owners entry))
                                         :refetch :left-stale)
@@ -819,10 +834,13 @@
         rdb0       (if (and (vector? owner) (= :route (first owner)))
                      (route/clear-blocking-slot runtime-db (nth owner 2))
                      runtime-db)
+        ;; rf2-9e0tyq — `owned` is a set of byte `key-id`s (the owner-index
+        ;; members), so resolve each to its entry via `entry-path-by-id` (NOT
+        ;; `entry-path`, which would re-transform a scoped-key vector).
         ;; drop the owner from each owned entry + the index
         rdb1       (-> (reduce
-                         (fn [db k]
-                           (update-in db (state/entry-path k)
+                         (fn [db k-id]
+                           (update-in db (state/entry-path-by-id k-id)
                                       (fn [e] (when e (update e :active-owners disj owner)))))
                          rdb0 (or owned #{}))
                        (update-in (state/owner-index-path) dissoc owner))
@@ -831,9 +849,9 @@
         ;; (orphaned in-flight attempts → opportunistic abort).
         {rdb2 :rdb aborts :aborts}
         (reduce
-          (fn [acc k]
+          (fn [acc k-id]
             (let [db   (:rdb acc)
-                  e    (get-in db (state/entry-path k))
+                  e    (get-in db (state/entry-path-by-id k-id))
                   wid  (:current-work e)
                   rec  (when wid (work-ledger/get-record db wid))]
               (if (and wid rec)
@@ -867,23 +885,31 @@
   [runtime-db frame-id scope cause]
   (let [cscope     (state/canonicalize-scope scope 'rf.resource/clear-scope nil)
         entries    (get-in runtime-db (state/entries-path))
-        in-scope   (into #{} (comp (filter (fn [[k _]] (= cscope (first k))))
-                                   (map key))
-                         entries)
+        ;; rf2-9e0tyq — `entries` is keyed on the byte `key-id`; the scope to
+        ;; match against lives in each entry's `:resource/key` vector
+        ;; (`(first (:resource/key entry))`), not the map key. `in-scope` is
+        ;; the set of byte key-ids to remove + the scoped-key VECTORS for the
+        ;; downstream trace / timer fx (which name resources by their vector).
+        in-scope-ids (into #{} (comp (filter (fn [[_k-id e]] (= cscope (first (:resource/key e)))))
+                                     (map key))
+                           entries)
+        in-scope     (into #{} (comp (filter (fn [[_k-id e]] (= cscope (first (:resource/key e)))))
+                                     (map (fn [[_k-id e]] (:resource/key e))))
+                           entries)
         ;; collect the in-flight work ids for the cleared entries (best-effort
         ;; abort + terminal :cancelled work rows)
         in-flight  (into []
-                         (keep (fn [k]
-                                 (let [e (get entries k)
+                         (keep (fn [k-id]
+                                 (let [e (get entries k-id)
                                        wid (:current-work e)]
                                    (when wid
                                      [wid (:transport (work-ledger/get-record runtime-db wid))]))))
-                         in-scope)
+                         in-scope-ids)
         ;; remove the entries, settle their in-flight work rows :cancelled,
         ;; then recompute the indexes from what remains
         rdb'       (-> runtime-db
                        (update-in (state/entries-path)
-                                  (fn [es] (reduce dissoc es in-scope)))
+                                  (fn [es] (reduce dissoc es in-scope-ids)))
                        (as-> db (reduce (fn [d [wid _]]
                                           (work-ledger/update-record
                                             d wid work-ledger/mark-terminal
@@ -996,7 +1022,9 @@
         wid        (:current-work entry)
         transport  (when wid (:transport (work-ledger/get-record runtime-db wid)))
         rdb'       (-> runtime-db
-                       (update-in (state/entries-path) dissoc scoped-key)
+                       ;; rf2-9e0tyq — dissoc by the byte key-id (a dissoc by
+                       ;; the scoped-key vector would no-op and leak the entry).
+                       (update-in (state/entries-path) dissoc (state/key-id scoped-key))
                        (cond-> wid (work-ledger/update-record
                                      wid work-ledger/mark-terminal
                                      :cancelled {:reason :remove}))
@@ -1577,8 +1605,11 @@
   (let [runtime-db (or rt {})
         entry      (get-in runtime-db (state/entry-path resource-key))]
     (if (and entry (empty? (:active-owners entry)) (nil? (:current-work entry)))
+      ;; rf2-9e0tyq — `:entries` is keyed on the byte `key-id`; dissoc by it
+      ;; (a dissoc by the scoped-key VECTOR would be a no-op and the GC removal
+      ;; would silently leak the entry).
       (let [rdb' (-> runtime-db
-                     (update-in (state/entries-path) dissoc resource-key)
+                     (update-in (state/entries-path) dissoc (state/key-id resource-key))
                      (update state/resources-key state/recompute-indexes))]
         (trace/emit! :rf.event :rf.resource/gc-fired
                      {:rf.frame/id frame-id :resource-key resource-key})

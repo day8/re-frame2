@@ -82,7 +82,8 @@
   trace). The two continuations are kept distinct: the ledger owns the
   framework-internal reified continuation; the call-site target is the app's
   transport-payload continuation."
-  (:require [re-frame.reply :as reply]
+  (:require [re-frame.identity :as identity]
+            [re-frame.reply :as reply]
             [re-frame.resources.state :as state]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -122,6 +123,22 @@
   identity)."
   [scoped-key generation]
   [:rf.work/resource scoped-key generation])
+
+(defn work-id-id
+  "The CEDN-1 BYTE-IDENTITY map-key for a `work-id`
+  (`[:rf.work/resource <scoped-key> <generation>]`) — its `canonical-bytes`
+  string (rf2-9e0tyq). The work-ledger runtime-db map is keyed on THIS string,
+  NOT the work-id vector, for the SAME reason `:entries` is keyed on
+  `state/key-id`: the work-id embeds the scoped-key, so two work-ids that
+  differ only by a list-vs-vector params spelling are `=`-equal (Clojure
+  `(= [1 2 3] '(1 2 3))`) and would collide in the ledger map even though
+  their CEDN-1 byte identities differ. Keying on the bytes string makes the
+  map-key comparison exactly the CEDN-1 identity. The work-id VECTOR remains
+  the kind-preserving `:work/id` carried in the record, the entry's
+  `:current-work`, and on the wire. Total on a work-id over a canonical
+  scoped-key. Per Spec 016 §Frame work ledger."
+  [work-id]
+  (identity/canonical-bytes work-id))
 
 (defn managed-request-id
   "Build the frame-QUALIFIED managed-HTTP transport correlation token
@@ -315,14 +332,16 @@
 ;; and the linked entry move together.
 
 (defn record-path
-  "Runtime-db-relative path to a single work record by its `:work/id`. Per
-  Spec 016 §Cache home (`[:rf.runtime/work-ledger <work-id>]`)."
+  "Runtime-db-relative path to a single work record, keyed on the CEDN-1 byte
+  `work-id-id` (NOT the work-id vector; rf2-9e0tyq) so a list- and a
+  vector-params work-id never collide in the ledger map. Per Spec 016
+  §Cache home (`[:rf.runtime/work-ledger <work-id-id>]`)."
   [work-id]
-  [:rf.runtime/work-ledger work-id])
+  [:rf.runtime/work-ledger (work-id-id work-id)])
 
 (defn put-record
-  "Write `record` at `[:rf.runtime/work-ledger <work-id>]` in `runtime-db`.
-  Returns the updated runtime-db."
+  "Write `record` at the work-ledger byte-keyed slot for `work-id` in
+  `runtime-db`. Returns the updated runtime-db."
   [runtime-db work-id record]
   (assoc-in runtime-db (record-path work-id) record))
 
@@ -346,7 +365,19 @@
   (Spec 016 §Ledger row retention and identity). Returns the updated
   runtime-db."
   [runtime-db work-id]
-  (update runtime-db :rf.runtime/work-ledger dissoc work-id))
+  (update runtime-db :rf.runtime/work-ledger dissoc (work-id-id work-id)))
+
+(defn update-record-by-id
+  "Apply `f` (and `args`) to the work record under an ALREADY-COMPUTED byte
+  `work-id-id` (a ledger map key from a `(map key)` ledger scan) in
+  `runtime-db`, writing the result back (rf2-9e0tyq). No-op when no record
+  exists. Distinct from `update-record` (which transforms a work-id VECTOR to
+  its byte id first) — a caller iterating the ledger already holds the byte
+  id and must NOT re-transform it. Returns the updated runtime-db."
+  [runtime-db work-id-id f & args]
+  (if (get-in runtime-db [:rf.runtime/work-ledger work-id-id])
+    (apply update-in runtime-db [:rf.runtime/work-ledger work-id-id] f args)
+    runtime-db))
 
 (def default-terminal-tail
   "How many terminal work rows to retain per resource-key for Xray's
@@ -368,10 +399,14 @@
   ([runtime-db resource-key] (prune-terminal-for-key runtime-db resource-key default-terminal-tail))
   ([runtime-db resource-key keep-tail]
    (let [ledger (:rf.runtime/work-ledger runtime-db)
+         ;; rf2-9e0tyq — match by CEDN-1 byte identity, not `=` over the
+         ;; `:resource/key` vector (which would `=`-collapse a list- and a
+         ;; vector-params key and prune both resources' rows).
+         rk-id  (state/key-id resource-key)
          ;; terminal rows for this key, newest-first by :started-at
          terminal-for-key
          (->> ledger
-              (filter (fn [[_ r]] (and (= resource-key (:resource/key r))
+              (filter (fn [[_ r]] (and (= rk-id (state/key-id (:resource/key r)))
                                        (terminal? (:status r)))))
               (sort-by (fn [[_ r]] (or (:started-at r) 0)) >))
          drop-ids (->> terminal-for-key (drop keep-tail) (map key))]
@@ -410,14 +445,16 @@
   nil. Per Spec 016 §Frame work ledger (host handles live OUTSIDE durable
   frame-state, keyed by frame id + work id)."
   [frame-id work-id handle]
-  (swap! handle-table assoc [frame-id work-id] handle)
+  (swap! handle-table assoc [frame-id (work-id-id work-id)] handle)
   nil)
 
 (defn get-handle
   "Read the host handle for `[frame-id work-id]` from the side table, or
-  nil (when absent — already cleared, or a transport that records none)."
+  nil (when absent — already cleared, or a transport that records none).
+  Keyed on `[frame-id (work-id-id work-id)]` (rf2-9e0tyq) so a list- and a
+  vector-params work-id never collapse in the side table."
   [frame-id work-id]
-  (get @handle-table [frame-id work-id]))
+  (get @handle-table [frame-id (work-id-id work-id)]))
 
 (defn clear-handle!
   "Drop the host handle for `[frame-id work-id]` from the side table
@@ -425,7 +462,7 @@
   when a work record terminates so a settled attempt's handle does not leak.
   Idempotent. Returns nil."
   [frame-id work-id]
-  (swap! handle-table dissoc [frame-id work-id])
+  (swap! handle-table dissoc [frame-id (work-id-id work-id)])
   nil)
 
 (defn opportunistic-abort!
@@ -444,6 +481,20 @@
                                  (catch #?(:clj Throwable :cljs :default) _ false))))]
     (clear-handle! frame-id work-id)
     aborted?))
+
+(defn- abort-slot!
+  "Best-effort abort + drop a side-table slot addressed by its ALREADY-COMPUTED
+  table key `[frame-id work-id-id]` (rf2-9e0tyq). The frame-teardown / reset
+  paths iterate `(keys @handle-table)` (which are already byte-keyed pairs) and
+  must NOT re-transform the work-id-id through `work-id-id` (the public
+  `opportunistic-abort!` takes a work-id VECTOR and transforms it; this private
+  variant takes the table key directly). Never throws."
+  [slot-key]
+  (let [handle (get @handle-table slot-key)]
+    (when-let [abort-fn (:abort-fn handle)]
+      (try (abort-fn :resource-superseded) (catch #?(:clj Throwable :cljs :default) _ nil)))
+    (swap! handle-table dissoc slot-key)
+    nil))
 
 ;; ---- opportunistic abort via the transport fx (transport-neutral) ---------
 ;;
@@ -576,8 +627,8 @@ attempt is superseded / settled so a stale handle does not leak. Per Spec 016
   [frame-id]
   (let [slots (->> (keys @handle-table)
                    (filter (fn [[fid _]] (= fid frame-id))))]
-    (doseq [[fid wid] slots]
-      (opportunistic-abort! fid wid)))
+    (doseq [slot-key slots]
+      (abort-slot! slot-key)))
   nil)
 
 (defn reset-cache!
@@ -587,8 +638,8 @@ attempt is superseded / settled so a stale handle does not leak. Per Spec 016
   cleared by the runtime / frames reset). Best-effort aborts each handle on
   the way out. Returns nil."
   []
-  (doseq [[fid wid] (keys @handle-table)]
-    (opportunistic-abort! fid wid))
+  (doseq [slot-key (keys @handle-table)]
+    (abort-slot! slot-key))
   (reset! handle-table {})
   nil)
 

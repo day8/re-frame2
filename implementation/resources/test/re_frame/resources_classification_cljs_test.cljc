@@ -66,11 +66,22 @@
   (merge (state/empty-entry resource-id)
          {:status status :data data :loaded-at loaded-at :stale-at stale-at}))
 
+;; rf2-9e0tyq — the runtime keys `:entries` on the byte `key-id` and stamps
+;; each entry's `:resource/key`; this helper re-keys the natural
+;; `{scoped-key-vector entry}` form callers write into the runtime's shape.
 (defn- runtime-db-with [entries]
-  {state/resources-key {:entries entries :tag-index {} :owner-index {}}})
+  {state/resources-key {:entries (into {}
+                                       (map (fn [[sk e]]
+                                              [(state/key-id sk) (assoc e :resource/key sk)]))
+                                       entries)
+                        :tag-index {} :owner-index {}}})
 
+;; The projection map is byte-keyed; the projected SCOPED KEY (verbatim or
+;; redacted) rides as the wire entry's `:resource/key`. Return it as the
+;; first element so the privacy/distinctness assertions inspect it.
 (defn- only-wire-entry [proj]
-  (first (get-in proj [state/resources-key :entries])))
+  (let [we (val (first (get-in proj [state/resources-key :entries])))]
+    [(:resource/key we) we]))
 
 ;; ===========================================================================
 ;; 1. whole-entry-disposition — the coarse root-prop owner classification
@@ -382,7 +393,9 @@
           e    (entry {:resource-id :secret/thing :data {:ssn "x"}})
           proj (ssr/project-resources-runtime-db (runtime-db-with {k e}))
           [wk we] (only-wire-entry proj)
-          installed {state/resources-key {:entries {wk we}}}
+          ;; rf2-9e0tyq — install the real byte-keyed projection; the plan
+          ;; names entries by their `:resource/key` (the projected wk).
+          installed proj
           plan (->> (ssr/hydrate-refetch-plan installed 5000)
                     (into {} (map (juxt :resource-key identity))))]
       (is (= privacy/redacted-sentinel (:data we)) "redacted (metadata only) on the wire")

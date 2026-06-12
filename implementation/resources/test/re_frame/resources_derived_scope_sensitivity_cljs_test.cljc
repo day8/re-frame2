@@ -75,11 +75,20 @@
   (merge (state/empty-entry resource-id)
          {:status :loaded :data data :loaded-at 1000 :stale-at 9.0e15}))
 
+;; rf2-9e0tyq — re-key into the runtime's byte-`key-id` :entries shape, stamping
+;; each entry's `:resource/key`.
 (defn- runtime-db-with [entries]
-  {state/resources-key {:entries entries :tag-index {} :owner-index {}}})
+  {state/resources-key {:entries (into {}
+                                       (map (fn [[sk e]]
+                                              [(state/key-id sk) (assoc e :resource/key sk)]))
+                                       entries)
+                        :tag-index {} :owner-index {}}})
 
+;; the projected SCOPED KEY rides as the wire entry's `:resource/key` (the map
+;; key is the opaque byte id); return it as the first element.
 (defn- only-wire [proj]
-  (first (get-in proj [state/resources-key :entries])))
+  (let [we (val (first (get-in proj [state/resources-key :entries])))]
+    [(:resource/key we) we]))
 
 (defn- session-key [u page]
   (state/scoped-resource-key [:rf.scope/session {:username u}] :t/feed {:page page}))

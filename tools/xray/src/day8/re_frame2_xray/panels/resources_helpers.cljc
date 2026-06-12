@@ -560,9 +560,14 @@
   whose scope/params redact to the same sentinel. A `nil` slot is left as
   nil (nothing to redact) so the derived `:has-data?` fact survives."
   ([entry+key now-ms] (instance-row entry+key now-ms nil))
-  ([[scoped-key entry] now-ms egress-fn]
+  ([[map-key entry] now-ms egress-fn]
    (let [egress       (or egress-fn (fn [v _slot] v))
          eg           (fn [v slot] (when (some? v) (egress v slot)))
+         ;; rf2-9e0tyq — the `:entries` map key is now the opaque CEDN-1 byte
+         ;; `key-id` STRING; the kind-preserving scoped-key VECTOR lives on the
+         ;; entry as `:resource/key`. Read the scope/rid/params from there (fall
+         ;; back to the map key for a legacy entry that lacks the stamp).
+         scoped-key   (or (:resource/key entry) map-key)
          [raw-scope raw-rid raw-params]
                       (if (and (vector? scoped-key) (= 3 (count scoped-key)))
                         scoped-key

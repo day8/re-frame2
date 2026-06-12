@@ -83,11 +83,20 @@
 
 (defn- runtime-db-with
   "A runtime-db carrying a `:rf.runtime/resources :entries` map (and optional
-  `:rf.runtime/work-ledger`)."
+  `:rf.runtime/work-ledger`). rf2-9e0tyq: re-keys the natural
+  `{scoped-key-vector entry}` form into the runtime's byte-`key-id` shape
+  (stamping each entry's `:resource/key`), and re-keys the ledger from
+  `{work-id-vector record}` to the byte `work-id-id` shape."
   ([entries] (runtime-db-with entries nil))
   ([entries ledger]
-   (cond-> {state/resources-key {:entries entries :tag-index {} :owner-index {}}}
-     ledger (assoc state/work-ledger-key ledger))))
+   (cond-> {state/resources-key
+            {:entries (into {}
+                            (map (fn [[sk e]]
+                                   [(state/key-id sk) (assoc e :resource/key sk)]))
+                            entries)
+             :tag-index {} :owner-index {}}}
+     ledger (assoc state/work-ledger-key
+                   (into {} (map (fn [[wid r]] [(work-ledger/work-id-id wid) r])) ledger)))))
 
 (defn- with-live-nav-token
   "Install a restored routing slice naming `nav-token` as live
@@ -109,7 +118,7 @@
     (let [e   (entry {:resource-id :article/by-slug :status :loading :data nil
                       :current-work [:rf.work/resource gkey 3]})
           out (ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
-          se  (get-in out [state/resources-key :entries gkey])]
+          se  (get-in out [state/resources-key :entries (state/key-id gkey)])]
       (is (= :idle (:status se)) "loading-with-no-data → :idle, never stranded :loading")
       (is (nil? (:current-work se)) "the vanished current-work pointer is cleared"))))
 
@@ -120,7 +129,7 @@
                       :data {:title "kept"} :loaded-at 1000 :stale-at 9.0e15
                       :current-work [:rf.work/resource gkey 4]})
           out (ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
-          se  (get-in out [state/resources-key :entries gkey])]
+          se  (get-in out [state/resources-key :entries (state/key-id gkey)])]
       (is (= :loaded (:status se)) "fetching-with-data → :loaded (keep last-known-good)")
       (is (= {:title "kept"} (:data se)) "the last-known-good data is preserved")
       (is (nil? (:current-work se)) "the vanished current-work pointer is cleared"))))
@@ -132,7 +141,7 @@
           e   (entry {:resource-id :article/by-slug :status :loading :data nil
                       :error err :current-work [:rf.work/resource gkey 5]})
           out (ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
-          se  (get-in out [state/resources-key :entries gkey])]
+          se  (get-in out [state/resources-key :entries (state/key-id gkey)])]
       (is (= :error (:status se)) "loading-with-error-and-no-data → :error")
       (is (= err (:error se)) "the first-load error envelope is retained")
       (is (nil? (:current-work se))))))
@@ -149,9 +158,10 @@
           kc (state/scoped-resource-key :rf.scope/global :c {})
           out (ssr/reconcile-on-restore (runtime-db-with {ka loaded kb errd kc idle}) :app/main)
           es  (get-in out [state/resources-key :entries])]
-      (is (= :loaded (:status (es ka))))
-      (is (= :error  (:status (es kb))))
-      (is (= :idle   (:status (es kc)))))))
+      ;; rf2-9e0tyq — entries are keyed on the byte key-id.
+      (is (= :loaded (:status (es (state/key-id ka)))))
+      (is (= :error  (:status (es (state/key-id kb)))))
+      (is (= :idle   (:status (es (state/key-id kc))))))))
 
 (deftest settle-entry-to-last-stable-is-pure
   (testing "settle-entry-to-last-stable: the three in-flight resolutions + pass-through"
@@ -193,12 +203,15 @@
           kb (state/scoped-resource-key :rf.scope/global :b {})]
       (with-redefs [ssr/now-ms (constantly sentinel)]
         (let [out (ssr/reconcile-on-restore (runtime-db-with {ka loaded kb invalidated}) :app/main)
-              es  (get-in out [state/resources-key :entries])]
-          (is (= 1000 (:loaded-at (es ka))) ":loaded-at is the snapshot's, NOT the install clock")
-          (is (= 2000 (:stale-at  (es ka))) ":stale-at is the snapshot's, NOT the install clock")
-          (is (= 1000 (:loaded-at (es kb))) ":loaded-at (invalidated entry) is the snapshot's")
-          (is (= 8000 (:stale-at  (es kb))) ":stale-at (invalidated entry) is the snapshot's")
-          (is (= 1500 (:invalidated-at (es kb))) ":invalidated-at is the snapshot's, NOT the install clock")
+              es  (get-in out [state/resources-key :entries])
+              ;; rf2-9e0tyq — entries are keyed on the byte key-id.
+              ea (es (state/key-id ka))
+              eb (es (state/key-id kb))]
+          (is (= 1000 (:loaded-at ea)) ":loaded-at is the snapshot's, NOT the install clock")
+          (is (= 2000 (:stale-at  ea)) ":stale-at is the snapshot's, NOT the install clock")
+          (is (= 1000 (:loaded-at eb)) ":loaded-at (invalidated entry) is the snapshot's")
+          (is (= 8000 (:stale-at  eb)) ":stale-at (invalidated entry) is the snapshot's")
+          (is (= 1500 (:invalidated-at eb)) ":invalidated-at is the snapshot's, NOT the install clock")
           (is (not-any? #{sentinel}
                         (mapcat (juxt :loaded-at :stale-at :invalidated-at) (vals es)))
               "NO durable entry timestamp equals the stubbed install clock — restore re-read it nowhere durable"))))))
@@ -230,7 +243,8 @@
           out (ssr/reconcile-on-restore rdb :app/main)
           out-ledger (get out state/work-ledger-key)]
       (doseq [wid [w-running w-queued w-abort]]
-        (let [row (get out-ledger wid)]
+        ;; rf2-9e0tyq — the ledger is keyed on the byte work-id-id.
+        (let [row (get out-ledger (work-ledger/work-id-id wid))]
           (is (= :suppressed (:status row))
               (str wid " settled to terminal :suppressed"))
           (is (work-ledger/terminal? (:status row))
@@ -248,7 +262,7 @@
                                              :loaded-at 1 :stale-at 9.0e15})}
                                {w-done row})
           out (ssr/reconcile-on-restore rdb :app/main)]
-      (is (= row (get-in out [state/work-ledger-key w-done]))
+      (is (= row (get-in out [state/work-ledger-key (work-ledger/work-id-id w-done)]))
           "a completed row is unchanged"))))
 
 (deftest dangle-non-terminal-work-returns-dangled-ids
@@ -406,7 +420,7 @@
          {:kind :success :value {:title "STALE pre-restore write"}}]
         {:frame fid})
       (let [post (frame/frame-runtime-db-value fid)
-            e    (get-in post [state/resources-key :entries gkey])]
+            e    (get-in post [state/resources-key :entries (state/key-id gkey)])]
         (is (= {:title "post-restore"} (:data e))
             "the resource entry is UNCHANGED — the stale reply did not patch/populate it")
         (is (= :error (get-in post [mstate/mutations-key instance-id :status]))
@@ -430,7 +444,7 @@
           ;; names the same nav-token, so it revives (Spec 016 §Restore part 4).
           rdb (with-live-nav-token (runtime-db-with {gkey e}) "nav-1")
           out (ssr/reconcile-on-restore rdb :app/main)
-          owners (get-in out [state/resources-key :entries gkey :active-owners])]
+          owners (get-in out [state/resources-key :entries (state/key-id gkey) :active-owners])]
       (is (not (contains? owners [:ssr "req-9" "nav-1"])) "SSR owner orphaned")
       (is (contains? owners [:route :route/article "nav-1"])
           "live-nav route owner survives (its nav-token is the one routing names live)")
@@ -455,7 +469,7 @@
           ;; navigation the timeline has already left.
           rdb (with-live-nav-token (runtime-db-with {gkey e}) "nav-NEW")
           out (ssr/reconcile-on-restore rdb :app/main)
-          owners (get-in out [state/resources-key :entries gkey :active-owners])]
+          owners (get-in out [state/resources-key :entries (state/key-id gkey) :active-owners])]
       (is (not (contains? owners stale))
           "the stale-nav route owner (nav-OLD ≠ live nav-NEW) is orphaned")
       (is (contains? owners live)
@@ -493,7 +507,7 @@
                                     [:machine :checkout/flow "inst-1"]
                                     [:lease :dashboard 7]}})
               out (ssr/reconcile-on-restore (rdb-fn (runtime-db-with {gkey e})) :app/main)
-              owners (get-in out [state/resources-key :entries gkey :active-owners])]
+              owners (get-in out [state/resources-key :entries (state/key-id gkey) :active-owners])]
           (is (not (contains? owners route-owner))
               "the route owner is ORPHANED (no live nav-token names it live)")
           (is (not (contains? owners [:ssr "req-9" "nav-1"])) "SSR owner orphaned")
@@ -563,7 +577,7 @@
       (is (seq (-> out meta (get :re-frame.resources.ssr/deferred-trace-intents)))
           "the trace intents ride back as metadata on the reconciled runtime-db")
       ;; the reconcile work still happened (the stale owner was orphaned)
-      (is (not (contains? (get-in out [state/resources-key :entries gkey :active-owners]) stale))
+      (is (not (contains? (get-in out [state/resources-key :entries (state/key-id gkey) :active-owners]) stale))
           "the stale-nav owner is still reconciled (only the TRACE is deferred)"))))
 
 (deftest commit-restore-reconcile-traces-emits-deferred-rows
@@ -621,7 +635,7 @@
                       :loaded-at 1 :stale-at 9.0e15
                       :owners #{[:ssr "req-9" "nav-1"] route-owner}})
           out (ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)
-          owners (get-in out [state/resources-key :entries gkey :active-owners])]
+          owners (get-in out [state/resources-key :entries (state/key-id gkey) :active-owners])]
       (is (not (contains? owners [:ssr "req-9" "nav-1"]))
           "SSR owner still orphans on hydration")
       (is (contains? owners route-owner)
@@ -641,15 +655,19 @@
           ;; name nav-1 live so the route owner SURVIVES (rf2-64bdnk) — this
           ;; test pins the index RECOMPUTE, not owner orphaning; without a live
           ;; token the route owner would now correctly orphan.
-          rdb (-> {state/resources-key {:entries     {gkey e}
-                                        :tag-index   {[:bogus] #{:nope}}
-                                        :owner-index {[:bogus] #{:nope}}}}
+          ;; rf2-9e0tyq — build via runtime-db-with (byte-keyed + :resource/key
+          ;; stamped), then overwrite the indexes with deliberately-wrong
+          ;; snapshot values to prove they are discarded + recomputed.
+          rdb (-> (runtime-db-with {gkey e})
+                  (assoc-in [state/resources-key :tag-index]   {[:bogus] #{:nope}})
+                  (assoc-in [state/resources-key :owner-index] {[:bogus] #{:nope}})
                   (with-live-nav-token "nav-1"))
           out (ssr/reconcile-on-restore rdb :app/main)
           sub (get out state/resources-key)]
-      (is (= {[:article "x"] #{gkey}} (:tag-index sub))
+      ;; rf2-9e0tyq — index MEMBERS are the byte key-id, not the scoped-key vector.
+      (is (= {[:article "x"] #{(state/key-id gkey)}} (:tag-index sub))
           "tag-index recomputed from the entry's :tags; bogus snapshot index discarded")
-      (is (= {[:route :route/article "nav-1"] #{gkey}} (:owner-index sub))
+      (is (= {[:route :route/article "nav-1"] #{(state/key-id gkey)}} (:owner-index sub))
           "owner-index recomputed from the entry's owners; bogus snapshot index discarded"))))
 
 ;; ===========================================================================
@@ -765,7 +783,7 @@
       ;; the reconcile returns a runtime-db, never an fx vector / dispatch plan
       (is (map? out))
       (is (contains? out state/resources-key))
-      (is (= {:x 1} (get-in out [state/resources-key :entries gkey :data]))
+      (is (= {:x 1} (get-in out [state/resources-key :entries (state/key-id gkey) :data]))
           "the stale entry keeps its data; restore double-fetches nothing"))))
 
 (deftest restore-noop-without-resources
@@ -785,10 +803,12 @@
                      :loaded-at 1 :stale-at 9.0e15 :tags #{[:article "x"]}})
           out (ssr/reconcile-on-restore (runtime-db-with {ka ea kb eb}) :app/main)
           es  (get-in out [state/resources-key :entries])]
-      (is (= {:owner "a"} (:data (es ka))) "scope-a data stays under scope-a's key")
-      (is (= :loaded (:status (es ka))) "scope-a fetching → loaded (kept data)")
-      (is (= {:owner "b"} (:data (es kb))) "scope-b data stays under scope-b's key")
-      (is (= #{ka kb} (get-in out [state/resources-key :tag-index [:article "x"]]))
+      ;; rf2-9e0tyq — entries + tag-index members are keyed on the byte key-id.
+      (is (= {:owner "a"} (:data (es (state/key-id ka)))) "scope-a data stays under scope-a's key")
+      (is (= :loaded (:status (es (state/key-id ka)))) "scope-a fetching → loaded (kept data)")
+      (is (= {:owner "b"} (:data (es (state/key-id kb)))) "scope-b data stays under scope-b's key")
+      (is (= #{(state/key-id ka) (state/key-id kb)}
+             (get-in out [state/resources-key :tag-index [:article "x"]]))
           "the shared tag maps to both scoped keys, never collapsed"))))
 
 (deftest reconcile-on-restore-hook-published
