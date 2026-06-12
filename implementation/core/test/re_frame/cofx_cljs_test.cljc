@@ -291,7 +291,7 @@
       ;; envelope re-enters build-envelope and is stamped fresh.
       (rf/reg-event-fx :cofx-test/request
         (fn [_ _]
-          {:dispatch [:cofx-test/replied {:status :ok :value {:title "Welcome"}}]}))
+          {:fx [[:dispatch [:cofx-test/replied {:status :ok :value {:title "Welcome"}}]]]}))
       (rf/reg-event-db :cofx-test/replied (fn [db _] db))
       (rf/dispatch-sync [:cofx-test/request]
                         {:rf.cofx {:rf/time-ms 1781078400123}})
