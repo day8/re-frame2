@@ -3016,9 +3016,10 @@ so the gate is not blinded by them:
   map onto the enqueue trace; EP-0017 / rf2-alc1lf renamed the field from the
   nested `:rf.world/inputs` to the flat `:rf.cofx` map and the framework time
   fact from `:time-ms` to `:rf/time-ms`). The `:rf.cofx` map itself is
-  **semantic** (caller-supplied owner-qualified facts — `:uuid` / `:random` /
-  browser-or-storage facts — are the deterministic causal token a scripted /
-  replayed run pins, and a real difference in them MUST perturb the hash), but
+  **semantic** (caller-supplied owner-qualified facts — the app's
+  `:counter/delta`, a subsystem's `:rf.route/location`, … — are the
+  deterministic causal token a scripted / replayed run pins, and a real
+  difference in them MUST perturb the hash), but
   its framework-filled `:rf/time-ms` is epoch-ms wall-clock filled fresh per
   dispatch, so two semantically-equal fresh-frame replays stamp different
   values — it is stripped one level deeper, like `:committed-at`;

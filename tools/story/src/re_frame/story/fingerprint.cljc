@@ -280,10 +280,11 @@
   owner-qualified key, no grouping sub-maps — and the framework time fact from
   the nested `:time-ms` to the flat `:rf/time-ms`).
 
-  The `:rf.cofx` MAP is semantic — caller-supplied owner-qualified facts (a
-  `:uuid` / `:random` / browser-or-storage fact) are the deterministic causal
-  token a scripted / replayed run pins, and a real difference in them MUST
-  still perturb the canonical value. But the framework-stamped `:rf/time-ms`
+  The `:rf.cofx` MAP is semantic — caller-supplied owner-qualified facts (the
+  app's `:counter/delta`, a subsystem's `:rf.route/location`, …) are the
+  deterministic causal token a scripted / replayed run pins, and a real
+  difference in them MUST still perturb the canonical value. But the
+  framework-stamped `:rf/time-ms`
   (epoch-ms WALL-CLOCK, filled fresh per dispatch via `interop/epoch-now-ms`
   when the caller did not supply one — see `re-frame.router/build-envelope`)
   is per-RUN volatile: two semantically-equal programs replayed into FRESH
