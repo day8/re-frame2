@@ -536,44 +536,46 @@
   (parse-positive-int-arg arg-name raw))
 
 ;; ---------------------------------------------------------------------------
-;; Causal world inputs (rf2-q6s1nb / EP-0010 agent-replay-determinism).
+;; Recordable coeffects (rf2-q6s1nb / EP-0010 + EP-0017 agent-replay-determinism).
 ;;
-;; `:rf.world/inputs` is an optional key of the PUBLIC `:rf/dispatch-opts`
-;; schema (spec/Spec-Schemas.md §:rf.world/inputs). The router preserves a
-;; caller-supplied map VERBATIM (router.cljc:202-204) and fills only the
-;; framework-required `:time-ms` when absent — so an AI agent that scripts a
-;; world-input map gets a REPRODUCIBLE resulting state (a fixed `:time-ms`,
-;; named `:uuid` / `:random` choices). This is the agent-replay-determinism
-;; affordance EP-0010 calls for from the tool-dispatch helpers.
+;; `:rf.cofx` is an optional key of the PUBLIC `:rf/dispatch-opts` schema
+;; (spec/Spec-Schemas.md §:rf.cofx). EP-0017 renamed the field from the
+;; nested `:rf.world/inputs` (key `:time-ms`) to the flat `:rf.cofx` (key
+;; `:rf/time-ms`). The router preserves a caller-supplied map VERBATIM and
+;; fills only the framework-required `:rf/time-ms` when absent — so an AI
+;; agent that scripts a `:rf.cofx` map gets a REPRODUCIBLE resulting state (a
+;; fixed `:rf/time-ms`, named owner-qualified recordable facts). This is the
+;; agent-replay-determinism affordance EP-0010 calls for from the
+;; tool-dispatch helpers.
 ;;
 ;; The MCP wire shape is an EDN STRING (the same data-not-source posture as
-;; the `event` arg, rf2-vflrg) — the agent passes `world-inputs
-;; "{:time-ms 1781078400123}"` and we parse + shape-check it. The schema
-;; requires `:time-ms` to be an integer when present; we surface a bad
-;; `:time-ms` as a structured error rather than threading a value that the
+;; the `event` arg, rf2-vflrg) — the agent passes `cofx
+;; "{:rf/time-ms 1781078400123}"` and we parse + shape-check it. The schema
+;; requires `:rf/time-ms` to be an integer when present; we surface a bad
+;; `:rf/time-ms` as a structured error rather than threading a value that the
 ;; runtime's `:rf/dispatch-opts` validation would reject deep inside the
 ;; dispatch eval. Absent ⇒ `[:ok nil]` (the caller omits the key and the
-;; runtime stamps `:time-ms` itself, the ordinary live-dispatch path).
+;; runtime stamps `:rf/time-ms` itself, the ordinary live-dispatch path).
 
-(defn parse-world-inputs
-  "Parse the OPTIONAL `world-inputs` MCP arg (rf2-q6s1nb) into the CLJS map
-  threaded into the dispatch opts under `:rf.world/inputs`. Returns
-  `[:ok nil]` when absent, `[:ok m]` for a well-shaped map, or `[:err {…}]`
-  for a malformed one.
+(defn parse-cofx
+  "Parse the OPTIONAL `cofx` MCP arg (rf2-q6s1nb · EP-0017) into the CLJS map
+  threaded into the dispatch opts under `:rf.cofx`. Returns `[:ok nil]` when
+  absent, `[:ok m]` for a well-shaped map, or `[:err {…}]` for a malformed
+  one.
 
   The arg is an EDN STRING (data, not host source — same gate as `event`).
-  Shape contract, mirroring the `:rf.world/inputs` schema:
+  Shape contract, mirroring the `:rf.cofx` schema:
 
     - MUST read as a map (a vector / scalar / unreadable string is rejected
-      with `:reason :invalid-world-inputs`).
-    - `:time-ms`, when present, MUST be an integer (the schema's lone
-      required-on-the-envelope key; a non-integer is rejected with
-      `:reason :invalid-world-inputs-time-ms`).
+      with `:reason :invalid-cofx`).
+    - `:rf/time-ms`, when present, MUST be an integer (the framework's lone
+      provided fact; a non-integer is rejected with
+      `:reason :invalid-cofx-time-ms`).
 
-  Other keys (`:uuid`, `:random`, `:storage`, …) ride through verbatim —
-  the runtime's `:rf/dispatch-opts` validation is the deeper gate; this is
-  the cheap wire-shape check so an obvious typo gets a corrective hint
-  without a round-trip."
+  Other leaves (owner-qualified app / subsystem recordable facts) ride
+  through verbatim — the runtime's `:rf/dispatch-opts` validation is the
+  deeper gate; this is the cheap wire-shape check so an obvious typo gets a
+  corrective hint without a round-trip."
   [raw]
   (let [trimmed (some-> raw str/trim)]
     (cond
@@ -586,29 +588,29 @@
         (cond
           (= ::reader-fail parsed)
           [:err {:ok?    false
-                 :reason :invalid-world-inputs
+                 :reason :invalid-cofx
                  :given  raw
-                 :hint   (str "world-inputs must be an EDN-readable map of causal world "
-                              "facts, e.g. \"{:time-ms 1781078400123}\" or "
-                              "\"{:time-ms 1781078400123 :uuid {:todo/id #uuid \\\"…\\\"}}\".")}]
+                 :hint   (str "cofx must be an EDN-readable map of recordable coeffects, "
+                              "e.g. \"{:rf/time-ms 1781078400123}\" or "
+                              "\"{:rf/time-ms 1781078400123 :counter/delta 4}\".")}]
 
           (not (map? parsed))
           [:err {:ok?    false
-                 :reason :invalid-world-inputs
+                 :reason :invalid-cofx
                  :given  raw
-                 :hint   (str "world-inputs must be a MAP (got "
+                 :hint   (str "cofx must be a MAP (got "
                               (cond (vector? parsed) "a vector"
                                     (keyword? parsed) "a keyword"
                                     (sequential? parsed) "a list"
                                     :else "a scalar")
-                              "), e.g. \"{:time-ms 1781078400123}\".")}]
+                              "), e.g. \"{:rf/time-ms 1781078400123}\".")}]
 
-          (and (contains? parsed :time-ms) (not (int? (:time-ms parsed))))
+          (and (contains? parsed :rf/time-ms) (not (int? (:rf/time-ms parsed))))
           [:err {:ok?    false
-                 :reason :invalid-world-inputs-time-ms
-                 :time-ms (:time-ms parsed)
-                 :hint   (str "world-inputs :time-ms must be an integer (epoch milliseconds), got "
-                              (pr-str (:time-ms parsed)) ".")}]
+                 :reason :invalid-cofx-time-ms
+                 :time-ms (:rf/time-ms parsed)
+                 :hint   (str "cofx :rf/time-ms must be an integer (epoch milliseconds), got "
+                              (pr-str (:rf/time-ms parsed)) ".")}]
 
           :else
           [:ok parsed])))))
