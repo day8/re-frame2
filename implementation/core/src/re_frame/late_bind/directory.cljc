@@ -514,7 +514,7 @@
    {:key         :resources/resolve-resource-scope
     :producer-ns 're-frame.resources
     :design-bead "rf2-hls77w"
-    :description "PURE helper: resolve a named scope resolver against a SUPPLIED db value, returning the canonical scope or nil — a plain function over the resolver registry, NOT an effect. Canonical use is the logout/account-switch idiom (resolve the concrete old scope from the handler's coeffect db, then pass it to :rf.resource/clear-scope concretely). Per Spec 016 §clear-scope resolves the concrete scope from the coeffect db (EP-0016 issue 7)."}
+    :description "Resolver helper: resolve a named scope resolver against a SUPPLIED db value, returning the canonical scope or nil — a plain function over the resolver registry, NOT an effect (no app-state / dispatch side effects). Not a pure data helper, though: like every resolution site it emits :rf.resource/scope-resolved dev-time trace evidence. Canonical use is the logout/account-switch idiom (resolve the concrete old scope from the handler's coeffect db, then pass it to :rf.resource/clear-scope concretely). Per Spec 016 §clear-scope resolves the concrete scope from the coeffect db (EP-0016 issue 7)."}
    {:key         :resources/reset-resources!
     :producer-ns 're-frame.resources.test-support
     :design-bead "rf2-p10npe"

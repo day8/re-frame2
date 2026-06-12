@@ -361,8 +361,10 @@
   ;; facade vars (moved off the :api-md-known-unmanifested allowlist above).
   ;; `reg-resource-scope` registers a pure named db-derived scope resolver
   ;; under the :resource-scope kind; `clear-resource-scope` is the registrar
-  ;; decrement; `resolve-resource-scope` is the pure scope-resolution helper
-  ;; (the logout coeffect-db idiom). Same optional-artefact wrapper posture
+  ;; decrement; `resolve-resource-scope` is the scope-resolution helper (not
+  ;; an effect, but emits `:rf.resource/scope-resolved` dev trace, so not a
+  ;; pure data helper — rf2-fi6tda.7; the logout coeffect-db idiom). Same
+  ;; optional-artefact wrapper posture
   ;; as reg-resource.
   ["re-frame.core" "reg-resource-scope"]    {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.core" "clear-resource-scope"]  {:tier :advanced :owner "016" :status "v1 (optional capability)"}

@@ -1410,13 +1410,16 @@
   Implementation ships in `day8/re-frame2-resources`."}
   clear-resource-scope rf-resources/clear-resource-scope)
 
-(def ^{:doc "PURE helper: resolve the named resolver `scope-id` against the
-  supplied `db` value, returning a canonical concrete scope or nil — a plain
-  function over the resolver registry, NOT an effect. Canonical use is the
-  logout idiom (resolve the concrete old scope from the handler's coeffect
-  db and pass it to `:rf.resource/clear-scope` concretely). Per Spec 016
-  §`clear-scope` resolves the concrete scope from the coeffect db (EP-0016
-  issue 7). Implementation ships in `day8/re-frame2-resources`."}
+(def ^{:doc "Resolver helper: resolve the named resolver `scope-id` against
+  the supplied `db` value, returning a canonical concrete scope or nil — a
+  plain function over the resolver registry, NOT an effect (no app-state /
+  dispatch side effects). It is not a pure data helper, though: like every
+  resolution site it emits `:rf.resource/scope-resolved` dev-time trace
+  evidence. Canonical use is the logout idiom (resolve the concrete old scope
+  from the handler's coeffect db and pass it to `:rf.resource/clear-scope`
+  concretely). Per Spec 016 §`clear-scope` resolves the concrete scope from
+  the coeffect db (EP-0016 issue 7). Implementation ships in
+  `day8/re-frame2-resources`."}
   resolve-resource-scope rf-resources/resolve-resource-scope)
 
 ;; ---- introspection (Spec 002 §The public registrar query API) -----------

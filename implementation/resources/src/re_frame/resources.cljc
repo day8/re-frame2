@@ -125,8 +125,11 @@
 ;; resource-scope resolvers / EP-0016 D3 slice 2). `reg-resource-scope`
 ;; registers a PURE named scope resolver under the `:resource-scope`
 ;; registrar kind; `clear-resource-scope` is the registration-lifecycle
-;; removal; `resolve-resource-scope` is the PURE helper that resolves a
-;; named scope against a supplied db value (the logout coeffect-db idiom).
+;; removal; `resolve-resource-scope` is a resolver helper that resolves a
+;; named scope against a supplied db value (the logout coeffect-db idiom) —
+;; not an effect (no app-state / dispatch side effects), but it emits
+;; `:rf.resource/scope-resolved` dev-time trace, so it is not a pure data
+;; helper (rf2-fi6tda.7).
 (def reg-resource-scope     scope-registry/reg-resource-scope)
 (def clear-resource-scope   scope-registry/clear-resource-scope)
 (def resolve-resource-scope scope-registry/resolve-resource-scope)

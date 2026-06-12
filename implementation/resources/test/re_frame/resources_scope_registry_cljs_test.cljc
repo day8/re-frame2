@@ -1,6 +1,6 @@
 (ns re-frame.resources-scope-registry-cljs-test
   "Named resource-scope resolvers — `reg-resource-scope` / `clear-resource-scope`
-  / the pure `resolve-resource-scope` helper (rf2-hls77w, EP-0016 D3 slice 2,
+  / the `resolve-resource-scope` resolver helper (rf2-hls77w, EP-0016 D3 slice 2,
   Spec 016 §Named resource-scope resolvers).
 
   Dual-target (`.cljc` + `_cljs_test`): the JVM runner picks it up via the
@@ -14,7 +14,7 @@
        malformed input descriptor;
     3. the RESERVED `[:runtime path]` source is rejected loudly (not shipped);
     4. `[:db path]` input evaluation against a supplied db (EP-0012 rf.path);
-    5. the pure `resolve-resource-scope` helper resolves against a given db
+    5. the `resolve-resource-scope` resolver helper resolves against a given db
        and FAILS CLOSED on nil (no implicit global), throws on an
        unregistered id;
     6. whole-db fn sugar lowers to an explicit whole-db input (`:whole-db?
@@ -127,7 +127,7 @@
     (is (= {:username nil} (scope/eval-inputs {:username [:db [:auth :user :username]]} {})))))
 
 ;; ===========================================================================
-;; 4. The pure resolve-resource-scope helper (fail-closed nil)
+;; 4. The resolve-resource-scope resolver helper (fail-closed nil)
 ;; ===========================================================================
 
 (deftest resolve-resource-scope-against-supplied-db

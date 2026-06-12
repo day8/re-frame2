@@ -117,7 +117,7 @@ The `{:inputs … :resolve …}` form **declares** which app facts decide the id
 
 > **Declarative route-derived scope references (`{:from-route …}` / `{:from-frame …}`) are reserved, not shipped.** A `reg-resource-scope` resolver's declared `:inputs` are **db-derived** only in this slice — viewer identity that is app state → `[:db …]`; a future EP adds a route/runtime input source for pure-route facts. So do not write a *named* resolver that reaches for route/frame facts, and do not invent a `{:from-route …}` / `{:from-frame …}` reference form. **This does not retire route-resource scope functions.** A route `:resources` entry's `:scope` MAY still be an anonymous `(fn [route ctx] …)` route resolver (§Route-driven loading, below) — that one site carries a *populated* planning context (a real route match), so it is the exception to the reserved-`ctx` rule and stays valid. The narrow ban is: don't synthesise an anonymous scope fn at the registration / spec-side surfaces (where `ctx` is reserved-nil), and don't reach for the unshipped declarative route/frame references — name db-derived identity with `reg-resource-scope` instead.
 
-Login, logout, account switch, tenant switch, permission change, and impersonation enter/exit MUST clear or replace the affected scope causally. Clear the scope the user was **in** — and resolve that scope from the handler's **coeffect db** (pre-transition by definition) *before* removing the user, using the pure `resolve-resource-scope` helper:
+Login, logout, account switch, tenant switch, permission change, and impersonation enter/exit MUST clear or replace the affected scope causally. Clear the scope the user was **in** — and resolve that scope from the handler's **coeffect db** (pre-transition by definition) *before* removing the user, using the `resolve-resource-scope` helper:
 
 ```clojure
 (rf/reg-event-fx :auth/logout
@@ -128,7 +128,7 @@ Login, logout, account switch, tenant switch, permission change, and impersonati
                         {:scope old-scope :cause :logout}]]]})))
 ```
 
-`resolve-resource-scope` is a pure function over the resolver registry — it resolves a named scope against a *given* db value, with no timing ambiguity. **Never** put a whole-db snapshot on the event payload (there is no `:snapshot-db` key): a db snapshot riding an event vector is an egress-bearing record on traces and epoch history, rejected under the egress policy. A `{:from-db …}` reference *may* still appear on a `clear-scope` payload (use-time resolution applies); one that resolves nil there emits a **loud diagnostic** (`:rf.warning/resource-clear-scope-unresolved`), never a silent no-op.
+`resolve-resource-scope` is a plain function over the resolver registry — it resolves a named scope against a *given* db value, with no timing ambiguity. It is not an effect (no app-state or dispatch side effects), though it emits `:rf.resource/scope-resolved` dev-time trace evidence like every resolution site — a *resolver* helper, not a pure data helper. **Never** put a whole-db snapshot on the event payload (there is no `:snapshot-db` key): a db snapshot riding an event vector is an egress-bearing record on traces and epoch history, rejected under the egress policy. A `{:from-db …}` reference *may* still appear on a `clear-scope` payload (use-time resolution applies); one that resolves nil there emits a **loud diagnostic** (`:rf.warning/resource-clear-scope-unresolved`), never a silent no-op.
 
 ### Invalidate after a write (scoped, tag-based)
 

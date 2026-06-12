@@ -188,7 +188,7 @@ Logout, account switch, tenant switch, permission change, locale switch that aff
 
 It removes or marks unusable every entry in that scope, releases owners in it, aborts in-flight requests that have no remaining owner outside it, suppresses late replies by scope + generation, and emits trace rows explaining what it removed, aborted, or left alone. (An auth-*token* refresh doesn't necessarily require clearing scope — if the user, tenant, permissions, and impersonation state are unchanged, the cache is still valid.)
 
-Logout has a subtle ordering problem: you want to clear the scope the user *was in*, but the obvious place to do it — after `(dissoc db :auth)` — has already removed the identity the scope is derived from. The canonical idiom resolves the **concrete** old scope from the handler's **coeffect db** (pre-transition by definition — the causal input) with the pure `resolve-resource-scope` helper, and passes it to `clear-scope` concretely:
+Logout has a subtle ordering problem: you want to clear the scope the user *was in*, but the obvious place to do it — after `(dissoc db :auth)` — has already removed the identity the scope is derived from. The canonical idiom resolves the **concrete** old scope from the handler's **coeffect db** (pre-transition by definition — the causal input) with the `resolve-resource-scope` helper, and passes it to `clear-scope` concretely:
 
 ```clojure
 (rf/reg-event-fx :auth/logout
@@ -198,7 +198,7 @@ Logout has a subtle ordering problem: you want to clear the scope the user *was 
        :fx [[:dispatch [:rf.resource/clear-scope {:scope old-scope :cause :logout}]]]})))
 ```
 
-`resolve-resource-scope` is a plain pure function over the resolver registry — not an effect, no resolution-timing ambiguity. (A whole-db snapshot riding an event payload was considered and rejected: it would be an egress-bearing record on traces and epoch history. A `{:from-db …}` reference *may* still appear on a `clear-scope` payload under the single use-time resolution rule; one that resolves nil at a clear-scope site emits a loud diagnostic, never a silent no-op.)
+`resolve-resource-scope` is a plain function over the resolver registry — not an effect (no app-state or dispatch side effects), no resolution-timing ambiguity. It does emit `:rf.resource/scope-resolved` dev-time trace evidence like every resolution site, so it is a *resolver helper* rather than a pure data helper — safe in the logout coeffect-db idiom either way. (A whole-db snapshot riding an event payload was considered and rejected: it would be an egress-bearing record on traces and epoch history. A `{:from-db …}` reference *may* still appear on a `clear-scope` payload under the single use-time resolution rule; one that resolves nil at a clear-scope site emits a loud diagnostic, never a silent no-op.)
 
 ### Xray is defense-in-depth, not the boundary
 

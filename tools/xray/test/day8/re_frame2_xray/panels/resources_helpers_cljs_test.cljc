@@ -507,7 +507,11 @@
            :resolved-nil? true}}
    ;; a mutation settled with per-target scoped invalidation descriptors
    ;; (global + session) + a fail-closed unresolved {:from-db …} + a Rider-1
-   ;; populate-exempt key
+   ;; populate-exempt key. This is a MIXED plan (rf2-fi6tda.3 finding 2): the
+   ;; GLOBAL descriptor is default (it SPARED the populated article key — that
+   ;; key rides its own :exempt-keys), while the SESSION descriptor opts into
+   ;; :refetch-populated? true (it spared NOTHING — empty :exempt-keys). The
+   ;; top-level :populate-exempt is the union of the two per-descriptor sets.
    {:id 12 :operation :rf.mutation/succeeded
     :tags {:mutation :realworld/favorite-article
            :instance [:favorite "welcome"]
@@ -515,9 +519,11 @@
            {:descriptor-count 3
             :dispatched [{:scope :rf.scope/global :cross-scope? false
                           :tags #{[:article-list] [:article "welcome"]}
-                          :refetch-populated? false}
+                          :refetch-populated? false
+                          :exempt-keys [[:rf.scope/global :realworld/article {:slug "welcome"}]]}
                          {:scope [:rf.scope/session {:username "jake"}] :cross-scope? false
-                          :tags #{[:feed]} :refetch-populated? false}]
+                          :tags #{[:feed]} :refetch-populated? true
+                          :exempt-keys []}]
             :unresolved [:realworld/tenant]
             :populate-exempt [[:rf.scope/global :realworld/article {:slug "welcome"}]]}}}
    ;; a mutation settlement with NO :invalidation facet (no :invalidates) — skipped
@@ -573,7 +579,22 @@
     (testing "Rider-1 populate-exempt keys surface (summarized scoped keys)"
       (let [r (first rows)]
         (is (= 1 (count (:populate-exempt r))))
-        (is (= :realworld/article (get-in r [:populate-exempt 0 :resource-id])))))))
+        (is (= :realworld/article (get-in r [:populate-exempt 0 :resource-id])))))
+    ;; rf2-fi6tda.7 finding 1 — the per-descriptor :exempt-keys is the truthful
+    ;; mixed-plan evidence: the consumer no longer collapses observed exemption
+    ;; to the top-level union alone. The DEFAULT (global) descriptor SPARED the
+    ;; populated article key; the :refetch-populated? OPT-IN (session) descriptor
+    ;; SPARED nothing — each row carries its own summarized :exempt-keys.
+    (testing "per-descriptor :exempt-keys surfaces (mixed refetch-populated? plan)"
+      (let [r          (first rows)
+            dispatched (:dispatched r)
+            default-d  (first (remove :refetch-populated? dispatched))
+            opt-in-d   (first (filter :refetch-populated? dispatched))]
+        (testing "the DEFAULT descriptor's own :exempt-keys carries the spared key"
+          (is (= 1 (count (:exempt-keys default-d))))
+          (is (= :realworld/article (get-in default-d [:exempt-keys 0 :resource-id]))))
+        (testing "the OPT-IN descriptor spared NOTHING (its own :exempt-keys empty)"
+          (is (= [] (:exempt-keys opt-in-d))))))))
 
 (deftest mutation-continuations-test
   (let [rows (h/mutation-continuations ep0016-trace-buffer)]

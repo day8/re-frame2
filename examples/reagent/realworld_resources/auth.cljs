@@ -14,7 +14,7 @@
    session {:username …}]`, and a logged-out (or next) user must never see it.
    `:rf.resource/clear-scope` is the causal operation for exactly that (Spec
    016 §clear-scope is causal). The concrete old scope is resolved with the
-   pure `rf/resolve-resource-scope` helper against the handler's COEFFECT db
+   `rf/resolve-resource-scope` helper against the handler's COEFFECT db
    (the pre-transition causal input) and the SAME named `:realworld/session`
    resolver every resource site references (EP-0016 D3) — one scope-resolution
    currency, including teardown. The public `:rf.scope/global` reads (article

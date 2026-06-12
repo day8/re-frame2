@@ -187,10 +187,13 @@
 
 (defwrapper resolve-resource-scope
   "Per Spec 016 §Named resource-scope resolvers / §`clear-scope` resolves
-  the concrete scope from the coeffect db (EP-0016 issue 7). PURE helper:
+  the concrete scope from the coeffect db (EP-0016 issue 7). Resolver helper:
   resolve the named resolver `scope-id` against the supplied `db` value,
   returning a canonical concrete scope or nil — a plain function over the
-  resolver registry, NOT an effect. Canonical use is the logout idiom:
+  resolver registry, NOT an effect (no app-state / dispatch side effects).
+  It is not a pure data helper, though: like every resolution site it emits
+  `:rf.resource/scope-resolved` dev-time trace evidence. Canonical use is the
+  logout idiom:
   resolve the concrete old scope from the handler's coeffect db
   (pre-transition by definition) and pass it to `:rf.resource/clear-scope`
   concretely. Throws when no resolver is registered under `scope-id` (the
