@@ -220,7 +220,7 @@ Events route through the machine's id wrapping an inner event vector:
 
 Outer keyword is the machine; inner vector is the event it sees. The runtime resolves the inner event against the current state's `:on`, runs the guard, fires the action, writes the new snapshot back. (This is the `(dispatch [machine-id [event]])` shape from the xstate cheat-sheet — the divergence from `service.send(event)` made concrete.) An event the current state has no transition for is a **silent no-op** — the snapshot is unchanged, nothing throws, no warning fires (xstate v5 dropped the v4 `strict` flag; re-frame2 matches it). The runtime does emit one benign `:rf.machine.event/unhandled-no-op` trace so a debugger can report that an event arrived and was ignored — benign isn't invisible. To fail loudly on an unknown event instead, declare a `:*` wildcard whose action throws.
 
-For HTTP and other async callbacks, you build a *2-element template* and let the runtime conj the reply onto it:
+When a machine fires an HTTP request, you build a *2-element template* and let `:rf.http/managed` conj its reply payload onto it:
 
 ```clojure
 [:rf.http/managed
@@ -228,13 +228,15 @@ For HTTP and other async callbacks, you build a *2-element template* and let the
   :on-success [:auth.login/flow [:auth.login/success]]   ;; 2-element template
   :on-failure [:auth.login/flow [:auth.login/failure]]}]
 
-;; :rf.http/managed appends the reply, producing:
+;; :rf.http/managed appends ITS payload, producing:
 ;;   [:auth.login/flow [:auth.login/success] {:kind :success :value v}]
-;; The runtime folds the trailing reply onto the inner event, so the action sees:
+;; The runtime folds the trailing arg onto the inner event, so the action sees:
 ;;   [:auth.login/success {:kind :success :value v}]
 ```
 
-This "extras-fold" makes *every* async callback ship a value into the machine the same way. The reply-payload envelope (`{:kind :success :value v}` / `{:kind :failure :failure m}`) is the canonical `:rf.http/managed` shape from [chapter 10](10-http.md) — machines and managed-HTTP compose without an adapter layer between them.
+This "extras-fold" is structural: the runtime folds *whatever the source event appended* onto the machine's inner event, so any async surface ships its value into the machine the same way. What it appends, though, is the source's — **the `{:kind :success :value v}` / `{:kind :failure :failure m}` shape is `:rf.http/managed`'s public compatibility payload** ([chapter 10](10-http.md)), not a uniform reply map every surface shares. Resources, mutations, and future managed surfaces append the canonical reply map (`{:status :ok :value v …}` from the envelope box in [chapter 10](10-http.md#why-there-is-no-await--and-the-one-shape-every-async-effect-replies-through)) instead. So write each action's destructure against the payload the *source event* actually folds — `{:kind …}` when the source is `:rf.http/managed`, `{:status …}` when it's a resource or mutation. Machines and managed-HTTP compose without an adapter layer; the fold just carries the source's own payload through.
+
+A machine's *own* async completions are different again, and don't fold a reply map at all. A spawned child finishing on a `:final?` leaf, and a fired `:after` timer, lower onto the same uniform envelope *internally* — but their public statechart API is preserved exactly: a child's result reaches the parent through the `:on-done` `:data` callback (and a failing child through the `:on-error` transition), and an `:after` fires its declared transition. You write `:on-done` / `:on-error` / `:after`, not a folded `{:status …}` map. (The lowering is internal vocabulary — one `:work/id`, one closed `:status`, stale-suppression on the actor/epoch — so the trace stream correlates machine completions like every other managed async family; see [Spec 005 §Async completions share the uniform reply envelope](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md).)
 
 ## Guards and actions, precisely
 

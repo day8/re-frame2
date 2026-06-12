@@ -509,19 +509,36 @@ The clock is the most common impurity a test needs to pin down, and the way you 
 
 The `:rf.world/inputs` opts key is the same surface SSR hydration, replay fixtures, and host integrations use to hand the runtime exact world facts — fixing the clock in a test is just that surface, pointed at a `deftest`. Generated ids ride the event (the `:id` above), so they're fixed the same way: supply them, don't generate them.
 
-**Stub the *other* world facts by re-registering the cofx.** A handler that reaches a non-clock world fact — a `localStorage` read, a subscription's value — through `inject-cofx` becomes deterministic by re-registering that cofx against the same id. No special test-mode flag — `inject-cofx` finds the override because it's in the same registry:
+**Fixing generated ids and random choices that are minted *inside* the fold.** The example above mints the id at the dispatch site, so it lands in the event vector and there's nothing extra to fix. When a handler instead reads a fresh id or a random choice *from world inputs* — the policy for ids minted inside the fold ([chapter 07](07-effects-and-coeffects.md#causal-world-inputs--where-the-clock-and-fresh-ids-come-from)) — the test supplies those facts on the very same opts key, beside `:time-ms`. `:uuid` is a map of domain id-names to generated values; `:random` carries recorded random *choices*:
 
 ```clojure
-(deftest prefs-load-reads-store
-  (ts/with-fresh-registrar
-    (rf/reg-cofx :local-store
-      (fn [ctx _k] (assoc-in ctx [:coeffects :local-store] "{\"theme\":\"dark\"}")))
-    (rf/with-new-frame [f (rf/make-frame {})]
-      (rf/dispatch-sync [:prefs/load])
-      (is (= :dark (-> (rf/app-db-value f) :prefs :theme))))))
+(deftest game-deal-is-deterministic
+  (rf/with-new-frame [f (rf/make-frame {})]
+    (rf/dispatch-sync [:game/new-round]
+                      {:rf.world/inputs
+                       {:time-ms 1735732800000
+                        :uuid    {:game/id #uuid "00000000-0000-0000-0000-0000000000aa"}
+                        :random  {:game/first-card 7}}})
+    (let [g (:game (rf/app-db-value f))]
+      (is (= #uuid "00000000-0000-0000-0000-0000000000aa" (:id g)))
+      (is (= 7 (:first-card g))))))
 ```
 
-`with-fresh-registrar` scopes the stub to this test, so production wiring is intact for the next one. The full coeffect story — world inputs, `reg-cofx`, `inject-cofx` — is [chapter 07](07-effects-and-coeffects.md); this is just where the testing idiom lands.
+The handler reads `(get-in inputs [:uuid :game/id])` and `(get-in inputs [:random :game/first-card])`; the test hands both in, and the round deals identically every run — no `random-uuid` to monkey-patch, no RNG to seed. (If your app's policy is "ids ride the event payload" instead, there's nothing to supply here — fix them the way the clock example fixes `:id`. The world-input route is for facts minted *inside* the fold.)
+
+**Stub the *other* world facts by re-registering the cofx.** A handler that reaches a non-clock, non-durable world fact — a display-preference `localStorage` read, a subscription's value, a host measurement — through `inject-cofx` becomes deterministic by re-registering that cofx against the same id. No special test-mode flag — `inject-cofx` finds the override because it's in the same registry:
+
+```clojure
+(deftest apply-theme-reads-store
+  (ts/with-fresh-registrar
+    (rf/reg-cofx :local-store
+      (fn [ctx _k] (assoc-in ctx [:coeffects :local-store] "dark")))
+    (rf/with-new-frame [f (rf/make-frame {})]
+      (rf/dispatch-sync [:prefs/apply-theme])
+      (is (= "dark" (-> (rf/app-db-value f) :ui/theme))))))
+```
+
+`with-fresh-registrar` scopes the stub to this test, so production wiring is intact for the next one. This re-registration idiom is for cofxes that read *ambient, non-durable* facts — the only kind a plain `reg-cofx` should carry ([chapter 07](07-effects-and-coeffects.md#reg-cofx-and-inject-cofx--the-registry-pair)). A storage value that feeds a *durable* write isn't stubbed this way at all: it rides `:rf.world/inputs` (under `:storage`) or the event payload, so you *supply* it on the dispatch exactly as you supply the clock above — same `{:rf.world/inputs …}` opts key, not a cofx re-registration. The full coeffect story — world inputs, `reg-cofx`, `inject-cofx` — is [chapter 07](07-effects-and-coeffects.md); this is just where the testing idiom lands.
 
 ## The change you can actually feel
 
