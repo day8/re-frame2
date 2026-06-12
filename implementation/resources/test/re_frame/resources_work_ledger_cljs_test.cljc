@@ -184,7 +184,7 @@
   ;; the durable work-ledger `:started-at` is the TRIGGERING TOKEN'S
   ;; `:time-ms` (the causal world input), and `:deadline-at` is
   ;; `:started-at` + the configured `:timeout-ms` policy — NOT an ambient
-  ;; clock read in the reducer. Scripting the dispatch's `:rf.world/inputs`
+  ;; clock read in the reducer. Scripting the dispatch's `:rf.cofx`
   ;; pins both; the same token mints the same row (replay-stable).
   (rf/reg-resource :wlt/article (article-spec {:timeout-ms 5000}))
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :wlt/article {:slug "w"})
@@ -192,7 +192,7 @@
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :wlt/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:route :r 1]}]
-                      {:rf.world/inputs {:time-ms t1}})
+                      {:rf.cofx {:rf/time-ms t1}})
     (let [r (record (:current-work (entry scoped-key)))]
       (testing ":started-at is EXACTLY the triggering token :time-ms (not now)"
         (is (= t1 (:started-at r))))
@@ -206,7 +206,7 @@
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :wlnt/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:route :r 1]}]
-                      {:rf.world/inputs {:time-ms t2}})
+                      {:rf.cofx {:rf/time-ms t2}})
     (let [r (record (:current-work (entry scoped-key)))]
       (testing ":started-at tracks the token even with no timeout policy"
         (is (= t2 (:started-at r))))

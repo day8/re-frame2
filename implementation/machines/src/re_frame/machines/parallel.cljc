@@ -131,11 +131,12 @@
         (assoc :rf/parent-id      (:rf/parent-id parent-machine))
         (assoc :rf/platform       (:rf/platform parent-machine))
         (assoc :rf/frame          (:rf/frame parent-machine))
-        ;; EP-0010 (rf2-g0m4p5): inherit the causal world-input token so a
-        ;; region's guard / action reads `:rf.world/inputs` causally too. The
-        ;; cached spec's value is overlaid live in `region-spec-overlaid`
-        ;; (the token is dynamic, stamped per dispatch by `prepare-machine-ctx`).
-        (assoc :rf/world-inputs   (:rf/world-inputs parent-machine))
+        ;; EP-0010 / EP-0017 (rf2-g0m4p5 / rf2-alc1lf): inherit the causal
+        ;; recordable-coeffect token so a region's guard / action reads
+        ;; `:rf.cofx` causally too. The cached spec's value is overlaid live in
+        ;; `region-spec-overlaid` (the token is dynamic, stamped per dispatch by
+        ;; `prepare-machine-ctx`).
+        (assoc :rf/cofx           (:rf/cofx parent-machine))
         (assoc :rf/region         region-name))))
 
 (defn region-machine
@@ -353,13 +354,14 @@
       ;; runtime) and must replace any stale cached value.
       true (assoc :rf/platform (:rf/platform parent-machine)
                   :rf/frame    (:rf/frame parent-machine))
-      ;; EP-0010 (rf2-g0m4p5): overlay the live causal world-input token so a
-      ;; region guard / action reads the CURRENT dispatch's `:rf.world/inputs`
-      ;; (the cache was populated at registration time, before the token was
-      ;; stamped). Only when present so the absent path leaves the cached spec
-      ;; free of a stale slot — `callback-ctx` keys off presence.
-      (contains? parent-machine :rf/world-inputs)
-      (assoc :rf/world-inputs (:rf/world-inputs parent-machine)))))
+      ;; EP-0010 / EP-0017 (rf2-g0m4p5 / rf2-alc1lf): overlay the live causal
+      ;; recordable-coeffect token so a region guard / action reads the CURRENT
+      ;; dispatch's `:rf.cofx` (the cache was populated at registration time,
+      ;; before the token was stamped). Only when present so the absent path
+      ;; leaves the cached spec free of a stale slot — `callback-ctx` keys off
+      ;; presence.
+      (contains? parent-machine :rf/cofx)
+      (assoc :rf/cofx (:rf/cofx parent-machine)))))
 
 (defn- reduce-regions
   "Apply `step-fn` to each region of `parent-machine` in declaration

@@ -77,7 +77,7 @@
 ;;
 ;; EP-0010 §The World-Input Rule (rf2-95b0lc): event handlers in this
 ;; namespace take their "now" from the triggering token's causal
-;; `(:time-ms (:rf.world/inputs cofx))` — the one host-clock read the router
+;; `(:rf/time-ms (:rf.cofx coeffects))` — the one host-clock read the router
 ;; stamped at the causal boundary — NOT an ambient `(.now js/Date)` /
 ;; `System/currentTimeMillis` read at the decision site. There is therefore no
 ;; private host-clock helper here: a handler reading the live host clock for a
@@ -127,7 +127,7 @@
 
   `force-new?` false (ensure) ALSO short-circuits a FRESH-SKIP: an
   `ensure` of an already-`:loaded` entry that is still fresh-by-policy
-  (`state/entry-stale?` false against the token's causal `(:time-ms world)`)
+  (`state/entry-stale?` false against the token's causal `(:rf/time-ms cofx)`)
   neither dedupes (no
   in-flight work to join) nor starts a fetch — it serves the cached value,
   attaches the supplied owner lease, emits `:rf.resource/cache-hit`, and
@@ -142,7 +142,7 @@
 
   Returns the event-fx map `{:rf.db/runtime :fx}`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, gen-snapshot :rf.resource/generation
-    world :rf.world/inputs, app-db :db}
+    cofx :rf.cofx, app-db :db}
    {:keys [resource owner cause keep-previous?] :as payload} {:keys [force-new? where]}]
   (let [runtime-db (or rt {})
         spec       (registry/require-resource-spec! resource where)
@@ -196,20 +196,20 @@
         ;; a FRESHNESS DECISION that gates a DURABLE runtime-db write — the
         ;; fresh branch serves cache (no new work-ledger row), the stale
         ;; branch mints a new generation + work record. The basis MUST be the
-        ;; triggering token's causal `(:time-ms world)` (already in scope and
+        ;; triggering token's causal `(:rf/time-ms cofx)` (already in scope and
         ;; used below for the durable `:started-at`), NOT an ambient
         ;; `(now-ms)` host read — otherwise a replay under a LATER live clock
         ;; could take the OPPOSITE branch (refetch vs serve-cache) and produce
         ;; a divergent work-ledger, breaking the EP's same-tokens→equal-durable
         ;; -projections property at the decision boundary. The durable
         ;; `:stale-at`/`:loaded-at` facts the entry carries are still the
-        ;; freshness data; `(:time-ms world)` is the causal "now" they are
+        ;; freshness data; `(:rf/time-ms cofx)` is the causal "now" they are
         ;; compared against (EP §Restore: "freshness decisions made lazily
         ;; from that token plus durable timestamps").
         fresh-skip? (and (not force-new?)
                          (not in-flight?)
                          (= :loaded (:status entry))
-                         (not (state/entry-stale? entry (:time-ms world))))
+                         (not (state/entry-stale? entry (:rf/time-ms cofx))))
         ;; a NEW owner lease lands on the entry when an owner is supplied and
         ;; was not already in the active-owner set. `:rf.resource/owner-attached`
         ;; marks that liveness change distinctly from work — symmetric with the
@@ -320,7 +320,7 @@
             ;; plus the configured timeout policy — NOT an ambient clock read
             ;; in the reducer. Replay-stable: the same ensure/refetch token
             ;; mints the same `:started-at` / `:deadline-at`.
-            started-at (:time-ms world)
+            started-at (:rf/time-ms cofx)
             deadline   (when-let [ms (:timeout-ms spec)] (+ started-at ms))
             entry'     (cond-> (state/entry-start-load
                                  entry {:generation generation :work-id work-id
@@ -442,7 +442,7 @@
 ;;   - DURABLE stale/fresh timestamps decide WHETHER — `state/entry-stale?`
 ;;     (the single shared freshness derivation the subs / SSR / stale-timer
 ;;     re-check all use) against the focus/reconnect token's causal
-;;     `(:time-ms world)` (rf2-95b0lc — not an ambient host-clock read at the
+;;     `(:rf/time-ms cofx)` (rf2-95b0lc — not an ambient host-clock read at the
 ;;     scan site, so the SELECTION is replay-stable); a fresh entry is LEFT
 ;;     ALONE;
 ;;   - GENERATION CHECKS suppress stale replies — the refetch lowers through
@@ -554,14 +554,14 @@
   EP-0010 §The World-Input Rule (rf2-95b0lc): the active-stale SELECTION is a
   freshness decision — it picks which entries get a `:refetch` dispatched —
   so its basis is the triggering focus/reconnect token's causal
-  `(:time-ms world)`, not an ambient `(now-ms)` host read. The scan writes
+  `(:rf/time-ms cofx)`, not an ambient `(now-ms)` host read. The scan writes
   nothing durable itself (the child refetches do, each stamped with its own
   fresh world inputs), so this is the softer of the three sites; but a
   replayed focus/reconnect must still SELECT the same set the recorded
   `:time-ms` dictated, or the replay diverges from the original run."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id, world :rf.world/inputs} signal cause]
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, cofx :rf.cofx} signal cause]
   (let [runtime-db (or rt {})
-        eligible   (active-stale-scan runtime-db (:time-ms world))
+        eligible   (active-stale-scan runtime-db (:rf/time-ms cofx))
         refetches  (mapv (fn [{:keys [resource scope params]}]
                            [:dispatch [:rf.resource/refetch
                                        {:resource resource :scope scope
@@ -705,7 +705,7 @@
   stale-mark / refetch decision, so it keeps its fresh populated value and arms
   no refetch. The summary carries `:exempt` (the exempt keys that actually
   matched the tags, so Xray can show what the populate spared)."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id, world :rf.world/inputs}
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, cofx :rf.cofx}
    [_event-id {:keys [scope tags cause cross-scope? exempt-keys]}]]
   (let [runtime-db (or rt {})
         ;; FAIL CLOSED (rf2-pvdae1): a scoped (default) invalidation MUST
@@ -771,7 +771,7 @@
         ;; at the dispatch boundary), NOT an ambient clock read in the
         ;; reducer. Replay-stable: re-running the same invalidation token
         ;; rewrites the SAME `:invalidated-at`.
-        invalidated-at (:time-ms world)
+        invalidated-at (:rf/time-ms cofx)
         entries    (get-in runtime-db (state/entries-path))
         ;; EP-0016 Rider 1 — keys this same mutation just POPULATED
         ;; authoritatively are EXEMPT from this pass (kept fresh, never
@@ -1303,19 +1303,19 @@
   transport appends `{:kind :success :value <decoded-data>}` as the last arg
   (Spec 014 §Reply addressing); the decoded data is read from there
   (`reply-success-data`) and re-lifted into the canonical `:value`."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id, world :rf.world/inputs}
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, cofx :rf.cofx}
    [_event-id {work-id :work/id :keys [resource-key generation] :as payload} http-result]]
   (let [runtime-db (or rt {})
         value      (reply-success-data payload http-result)
         ;; EP-0010 §Managed Effects And Reply Tokens / §Resources, Mutations,
         ;; And Work-Ledger Timestamps: the reply is a CAUSAL TOKEN. The host
         ;; completion time (`:completed-at`, read ONCE at the transport
-        ;; finalisation boundary) rides the reply event's `:rf.world/inputs`
-        ;; `:time-ms` — the reply handler MUST NOT re-read the clock. It is
+        ;; finalisation boundary) rides the reply event's `:rf.cofx`
+        ;; `:rf/time-ms` — the reply handler MUST NOT re-read the clock. It is
         ;; carried onto the canonical reply map as `:completed-at` (the
         ;; uniform-reply spelling) and is the source of the durable
         ;; `:loaded-at`.
-        completed-at (:time-ms world)
+        completed-at (:rf/time-ms cofx)
         ;; the ONE canonical reply map every managed-async family produces
         ;; (Managed-Effects §The uniform reply envelope). The internal
         ;; resource reply target receives it DIRECTLY (no public `{:kind …}`
@@ -1599,7 +1599,7 @@
       stale entry refreshes on its next live cause: route re-entry, an
       explicit event, or the focus/reconnect active-stale scan
       `revalidate-handler`, rf2-vtblcq)."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id, world :rf.world/inputs}
+  [{rt :rf.db/runtime, frame-id :rf.frame/id, cofx :rf.cofx}
    [_event-id {:keys [resource-key]}]]
   (let [runtime-db (or rt {})
         entry      (get-in runtime-db (state/entry-path resource-key))
@@ -1611,13 +1611,13 @@
         ;;
         ;; EP-0010 §Resources / §The World-Input Rule (rf2-95b0lc): a TIMER-
         ;; FIRE event's freshness re-check uses the timer-fire envelope's own
-        ;; causal `(:time-ms world)`, not an ambient `(now-ms)` host read.
+        ;; causal `(:rf/time-ms cofx)`, not an ambient `(now-ms)` host read.
         ;; This handler writes nothing durable (the decision is trace-only —
         ;; the durable `:stale-at` already drives the `:stale?` sub), but the
         ;; recorded `:decision` must be replay-stable: a replayed
         ;; `:stale-fired` under a later live clock must classify the entry the
         ;; same way the recorded `:time-ms` did.
-        stale?     (state/entry-stale? entry (:time-ms world))]
+        stale?     (state/entry-stale? entry (:rf/time-ms cofx))]
     (trace/emit! :rf.event :rf.resource/stale-fired
                  {:rf.frame/id frame-id :resource-key resource-key
                   :decision (cond (nil? entry) :no-entry

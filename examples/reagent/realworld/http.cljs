@@ -185,30 +185,30 @@
 ;; `(.getTime (js/Date.))` at handler-run time cannot guarantee.
 ;;
 ;; The framework stamps that fact once, at the causal boundary, onto every
-;; dispatch envelope as `:rf.world/inputs {:time-ms ...}`, and exposes it as
-;; a built-in event-context coeffect. Tests, SSR hydration, and replay
-;; fixtures supply an exact `:time-ms` via the dispatch opts; live code lets
-;; the router stamp it.
+;; dispatch envelope as `:rf.cofx {:rf/time-ms ...}` (EP-0017 flat recordable
+;; coeffects), and exposes it as a built-in event-context coeffect. Tests, SSR
+;; hydration, and replay fixtures supply an exact `:rf/time-ms` via the dispatch
+;; opts; live code lets the router stamp it.
 ;;
 ;; The handlers below were written against an `:realworld/now` cofx, so this
 ;; example keeps that recognizable source form (the EP-0010-sanctioned
 ;; migration, §Backwards Compatibility) but moves its SOURCE from the host
-;; clock to the envelope: the cofx now reads `:time-ms` off `:rf.world/inputs`
+;; clock to the envelope: the cofx now reads `:rf/time-ms` off `:rf.cofx`
 ;; instead of calling `(.getTime (js/Date.))`. A greenfield handler would skip
-;; the cofx entirely and destructure `:rf.world/keys [inputs]` directly —
+;; the cofx entirely and destructure the `:rf.cofx` coeffect directly —
 ;; `realworld_resources/` shows that path, where managed resources stamp
 ;; `:loaded-at` from the same envelope time internally.
 
 (rf/reg-cofx :realworld/now
   {:doc "Inject the causal wall-clock time (ms since epoch) into coeffects
          under `:realworld/now`, read from the dispatch envelope's
-         `:rf.world/inputs` `:time-ms` (EP-0010) rather than the host clock,
-         so `:loaded-at` durable writes are replay-deterministic. Use
+         `:rf.cofx` `:rf/time-ms` (EP-0010 / EP-0017) rather than the host
+         clock, so `:loaded-at` durable writes are replay-deterministic. Use
          `(rf/inject-cofx :realworld/now)` on any handler that stamps
          `:loaded-at`."}
   (fn cofx-realworld-now [ctx]
     (rf/assoc-coeffect ctx :realworld/now
-                       (:time-ms (rf/get-coeffect ctx :rf.world/inputs)))))
+                       (:rf/time-ms (rf/get-coeffect ctx :rf.cofx)))))
 
 ;; ============================================================================
 ;; FAILURE PROJECTION

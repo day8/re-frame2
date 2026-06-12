@@ -80,9 +80,9 @@
        :explicit-on    explicit
        :reply-payload  reply-payload
        :kind           kind
-       ;; EP-0010 (rf2-n1rh0f): the host completion time rides the reply
-       ;; dispatch's `:rf.world/inputs` `:time-ms` so a reply reducer reads
-       ;; it as causal data, never a fresh clock.
+       ;; EP-0010 / EP-0017 (rf2-n1rh0f / rf2-alc1lf): the host completion time
+       ;; rides the reply dispatch's `:rf.cofx` `:rf/time-ms` so a reply reducer
+       ;; reads it as causal data, never a fresh clock.
        :completed-at   completed-at})))
 
 ;; rf2-zqefg3.2 — the canonical-reply lowering seam (EP-0011 §Managed HTTP
@@ -108,7 +108,7 @@
   Managed-Effects §Causal completion metadata).
 
   EP-0010 §Time (rf2-2elcw3): `:completed-at` is DURABLE causal time — it
-  flows through `:rf.world/inputs` `:time-ms` into resource `:loaded-at` /
+  flows through `:rf.cofx` `:rf/time-ms` into resource `:loaded-at` /
   `:stale-at` and mutation `:settled-at`, which freshness readers compare
   against `js/Date.now`. It MUST therefore be wall-clock epoch ms
   (`epoch-now-ms`), NOT `now-ms` — on CLJS `now-ms` is `performance.now()`

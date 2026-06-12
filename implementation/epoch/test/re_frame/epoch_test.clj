@@ -185,7 +185,7 @@
 ;;
 ;; Per EP-0010 §Time (epoch record causal time) + Spec 002 §The World-Input
 ;; Rule: the durable :committed-at fact MUST come from the committing causal
-;; token's `:rf.world/inputs` :time-ms (read ONCE at the causal boundary,
+;; token's `:rf.cofx` :time-ms (read ONCE at the causal boundary,
 ;; envelope construction, from `interop/epoch-now-ms` per rf2-n1rh0f), NOT an
 ;; ambient clock read at epoch assembly time. These tests pin that conversion:
 ;; they stub BOTH host clocks (`interop/now-ms` + `interop/epoch-now-ms`) to a
@@ -195,7 +195,7 @@
 
 (deftest committed-at-comes-from-supplied-token-time-ms
   (testing "the durable :committed-at on a clean settle is the committing
-            token's `:rf.world/inputs` :time-ms — NOT an ambient now-ms
+            token's `:rf.cofx` :time-ms — NOT an ambient now-ms
             read at assembly time (rf2-bh56rc / EP-0010 §Time)"
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
@@ -211,7 +211,7 @@
       (with-redefs [interop/now-ms       (constantly clock-time)
                     interop/epoch-now-ms (constantly clock-time)]
         (rf/dispatch-sync [:seed] {:frame            :test/main
-                                   :rf.world/inputs {:time-ms token-time}}))
+                                   :rf.cofx {:rf/time-ms token-time}}))
       (let [r (last (rf/epoch-history :test/main))]
         (is (= token-time (:committed-at r))
             ":committed-at is the supplied token :time-ms — replayable")
@@ -235,11 +235,11 @@
       (with-redefs [interop/now-ms       (constantly 100)
                     interop/epoch-now-ms (constantly 100)]
         (rf/dispatch-sync [:seed] {:frame            :test/main
-                                   :rf.world/inputs {:time-ms token-time}}))
+                                   :rf.cofx {:rf/time-ms token-time}}))
       (with-redefs [interop/now-ms       (constantly 8888888888888)
                     interop/epoch-now-ms (constantly 8888888888888)]
         (rf/dispatch-sync [:inc]  {:frame            :test/main
-                                   :rf.world/inputs {:time-ms token-time}}))
+                                   :rf.cofx {:rf/time-ms token-time}}))
       (let [history (rf/epoch-history :test/main)]
         (is (= 2 (count history)))
         (is (= [token-time token-time]
@@ -272,7 +272,7 @@
       (rf/dispatch-sync [:seed] {:frame :test/main})
       (with-redefs [interop/epoch-now-ms (constantly child-clock)]
         (rf/dispatch-sync [:parent] {:frame            :test/main
-                                     :rf.world/inputs {:time-ms parent-time}}))
+                                     :rf.cofx {:rf/time-ms parent-time}}))
       (let [history    (rf/epoch-history :test/main)
             by-event   (into {} (map (juxt :event-id :committed-at)) history)]
         (is (= parent-time (get by-event :parent))
@@ -919,7 +919,7 @@
 
 (deftest perform-restore!-threads-restored-epoch-causal-time-as-restore-time-ms
   (testing "rf2-wshzsp — perform-restore! threads the RESTORED epoch's causal
-            :committed-at (the committing token's :rf.world/inputs :time-ms,
+            :committed-at (the committing token's :rf.cofx :time-ms,
             replay-stable per EP-0010 §Time) into the reconcile hook as
             :restore-time-ms — NOT the live install wall clock. The hook stamps a
             dangled-on-restore mutation instance's durable :settled-at from it, so
@@ -947,7 +947,7 @@
         ;; Commit the mid-flight epoch under a SCRIPTED causal token time so the
         ;; restored epoch's :committed-at is a known sentinel-distinct value.
         (rf/dispatch-sync [:put-resource] {:frame           :test/main
-                                           :rf.world/inputs {:time-ms token-time}})
+                                           :rf.cofx {:rf/time-ms token-time}})
         (let [mid-record (last (rf/epoch-history :test/main))
               mid-epoch  (:epoch-id mid-record)]
           (is (= token-time (:committed-at mid-record))
@@ -1736,7 +1736,7 @@
       (with-redefs [interop/now-ms (constantly clock-time)]
         (rf/dispatch-sync [:self-destruct]
                           {:frame            :test/short-lived
-                           :rf.world/inputs {:time-ms token-time}}))
+                           :rf.cofx {:rf/time-ms token-time}}))
       (is (= 1 (count @halted))
           "exactly one :halted-destroy record reached the listener")
       (let [r (first @halted)]

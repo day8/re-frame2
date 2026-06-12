@@ -357,10 +357,10 @@
   "Assemble a `:rf/epoch-record`. `committed-at` is the record's durable
   causal time — per EP-0010 §Time (epoch record causal time) and Spec 002
   §The World-Input Rule it MUST be the committing causal token's
-  `:rf.world/inputs` `:time-ms`, threaded down from the router's settle /
+  `:rf.cofx` `:rf/time-ms`, threaded down from the router's settle /
   halt seam, NOT an ambient host-clock read at assembly time. Threading
-  the token's `:time-ms` makes `:committed-at` replayable: replaying the
-  same event log with the same supplied `:time-ms` values produces records
+  the token's `:rf/time-ms` makes `:committed-at` replayable: replaying the
+  same event log with the same supplied `:rf/time-ms` values produces records
   with equal `:committed-at`, and a restored frame-state's recorded
   timestamps are not silently reinterpreted against a new ambient clock.
 
@@ -443,7 +443,7 @@
               :frame              frame-id
               ;; EP-0010 §Time (epoch record causal time) + Spec 002 §The
               ;; World-Input Rule (rf2-bh56rc): the durable causal-time fact
-              ;; is the committing token's `:rf.world/inputs` `:time-ms`,
+              ;; is the committing token's `:rf.cofx` `:rf/time-ms`,
               ;; threaded in via `committed-at` — NOT an ambient
               ;; `interop/now-ms` read at assembly time. The one `now-ms`
               ;; read happens ONCE at the causal boundary (envelope

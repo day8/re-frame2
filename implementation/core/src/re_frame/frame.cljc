@@ -1133,8 +1133,8 @@
 ;; is moot there).
 (def ^:dynamic *cascade-frame-state-before* nil)
 
-;; rf2-bh56rc: the in-flight dequeued event's causal `:time-ms` (the
-;; `:rf.world/inputs` `:time-ms` stamped on its envelope at the causal
+;; rf2-bh56rc: the in-flight dequeued event's causal `:rf/time-ms` (the
+;; `:rf.cofx` `:rf/time-ms` stamped on its envelope at the causal
 ;; boundary), bound by the router around `process-event!` alongside
 ;; `*cascade-frame-state-before*`. A handler that calls `destroy-frame!`
 ;; on its own frame mid-drain runs INSIDE this binding, so the
@@ -1531,7 +1531,7 @@
   step 6) does not have to read a container that is already gone — the
   root cause of the prior nil-`:db-before` / nil-`:db-after` records.
 
-  `committed-at` (rf2-bh56rc) is the destroying event's causal `:time-ms`
+  `committed-at` (rf2-bh56rc) is the destroying event's causal `:rf/time-ms`
   (the router-bound `*cascade-time-ms*`), threaded so the `:halted-destroy`
   record's `:committed-at` is replayable per EP-0010 §Time rather than an
   ambient host-clock read. nil outside a drain (the moot out-of-cascade

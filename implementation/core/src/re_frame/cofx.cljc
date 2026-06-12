@@ -122,15 +122,15 @@
 
   Consumed by event handlers via `inject-cofx` placed in the
   interceptor-vector slot of `reg-event-{db,fx,ctx}`. A DURABLE timestamp
-  reads the causal world input (EP-0010 §The World-Input Rule) — the
-  framework stamps `:time-ms` (wall-clock epoch ms) into `:rf.world/inputs`
-  once at the dispatch boundary, so a durable write that folds it stays
-  replay-/restore-/SSR-stable. It is read from the framework coeffect, not
-  a fresh host-clock cofx:
+  reads the causal recordable coeffect (EP-0010 §The World-Input Rule) — the
+  framework stamps `:rf/time-ms` (wall-clock epoch ms) into the flat
+  `:rf.cofx` map once at the dispatch boundary, so a durable write that folds
+  it stays replay-/restore-/SSR-stable. It is read from the framework
+  coeffect, not a fresh host-clock cofx:
 
       (rf/reg-event-fx :user/save
-        (fn [{:keys [db] :rf.world/keys [inputs]} [_ user]] ;; <-- read here
-          {:db (assoc db :saved-at (:time-ms inputs)        ;; durable epoch ms
+        (fn [{:keys [db] cofx :rf.cofx} [_ user]]           ;; <-- read here
+          {:db (assoc db :saved-at (:rf/time-ms cofx)       ;; durable epoch ms
                          :user user)}))
 
   A raw host-clock cofx (`(js/Date.)`) is for DIAGNOSTIC / host-transient
@@ -187,7 +187,7 @@
   cofx whose value is genuinely user-injected and recordable (a stub, a
   fixture seam, a DIAGNOSTIC reading) is the right tool here; a value that
   feeds a DURABLE app-db write must be a recordable causal input — the
-  framework `:rf.world/inputs` coeffect for time / generated ids (EP-0010),
+  framework `:rf.cofx` coeffect for time / generated ids (EP-0010 / EP-0017),
   not a fresh ambient host read at the write site:
 
       (rf/reg-cofx :stub-config
@@ -395,22 +395,23 @@
 ;; Migration, reference-implementation step 7). It is the migration target for
 ;; the v1-style `(inject-cofx :now)` source shape: handlers that need a
 ;; wall-clock instant for a DURABLE write read it from the dispatch envelope's
-;; causal `:rf.world/inputs` `:time-ms` (the one host-clock read the router
-;; stamped at the causal boundary — Spec 002 §The World-Input Rule) rather than
-;; calling `interop/now-ms` / `(.now js/Date)` ambiently at the write site.
+;; causal `(:rf/time-ms (:rf.cofx coeffects))` (the one host-clock read the
+;; router stamped at the causal boundary — Spec 002 §The World-Input Rule)
+;; rather than calling `interop/now-ms` / `(.now js/Date)` ambiently at the
+;; write site.
 ;;
-;; Because the value is sourced from `:rf.world/inputs` — already captured in
+;; Because the value is sourced from `:rf.cofx` — already captured in
 ;; the replay record and projected/elided like other replayable event data —
 ;; this cofx is RECORDABLE: a scripted / replayed / SSR-hydration dispatch that
-;; supplies an exact `:rf.world/inputs {:time-ms …}` sees that exact value
+;; supplies an exact `:rf.cofx {:rf/time-ms …}` sees that exact value
 ;; returned, with NO ambient clock read. That satisfies the durable-coeffect
 ;; requirement (Spec 002 §Event Context And Coeffects: "a coeffect that can
 ;; affect durable state MUST be recordable").
 ;;
-;; `:rf.world/inputs` is a framework coeffect the runtime seeds into every
+;; `:rf.cofx` is a framework coeffect the runtime seeds into every
 ;; event context (`re-frame.router/build-envelope`), so this cofx is a pure
 ;; read of an already-present coeffect — no host call of its own. When
-;; `:rf.world/inputs` is absent (a handler invoked outside the dispatch path)
+;; `:rf.cofx` is absent (a handler invoked outside the dispatch path)
 ;; the injected value is `nil`; a durable handler MUST get its time from a
 ;; stamped envelope.
 ;;
@@ -418,7 +419,7 @@
 ;; path ships in this initial slice.
 
 (reg-cofx :app/now-ms
-  {:doc "EP-0010 compatibility time coeffect. Injects the dispatch envelope's causal `(:time-ms (:rf.world/inputs cofx))` under `:coeffects :app/now-ms` — the recordable migration target for v1-style host-clock reads (`interop/now-ms` / `(.now js/Date)`) in durable handlers. Reads only the already-seeded `:rf.world/inputs` coeffect; performs no ambient clock read, so a scripted/replayed `:time-ms` is returned exactly. nil when `:rf.world/inputs` is absent (a handler invoked outside the dispatch path)."}
+  {:doc "EP-0010 compatibility time coeffect. Injects the dispatch envelope's causal `(:rf/time-ms (:rf.cofx coeffects))` under `:coeffects :app/now-ms` — the recordable migration target for v1-style host-clock reads (`interop/now-ms` / `(.now js/Date)`) in durable handlers. Reads only the already-seeded `:rf.cofx` coeffect; performs no ambient clock read, so a scripted/replayed `:rf/time-ms` is returned exactly. nil when `:rf.cofx` is absent (a handler invoked outside the dispatch path)."}
   (fn [ctx]
-    (let [world (get-in ctx [:coeffects :rf.world/inputs])]
-      (assoc-in ctx [:coeffects :app/now-ms] (:time-ms world)))))
+    (let [cofx (get-in ctx [:coeffects :rf.cofx])]
+      (assoc-in ctx [:coeffects :app/now-ms] (:rf/time-ms cofx)))))

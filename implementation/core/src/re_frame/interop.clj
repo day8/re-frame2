@@ -181,7 +181,7 @@
 
 (defn epoch-now-ms
   "Wall-clock epoch milliseconds — the canonical source for EP-0010 durable
-  causal time (`:rf.world/inputs` `:time-ms`). On the JVM this coincides with
+  causal time (`:rf.cofx` `:rf/time-ms`). On the JVM this coincides with
   `now-ms`; the CLJS counterpart diverges (`performance.now()` vs
   `js/Date.now()`), which is why durable timestamps read this dedicated
   surface."

@@ -1221,8 +1221,8 @@
     (idempotent; the only failure path is an already-destroyed frame whose
     transients were already released).
   - `:restore-time-ms` (rf2-wshzsp) — the restore's CAUSAL time: the restored
-    epoch's `:committed-at` (the committing token's `:rf.world/inputs`
-    `:time-ms`, replay-stable per EP-0010 §Time). It is the source of the
+    epoch's `:committed-at` (the committing token's `:rf.cofx`
+    `:rf/time-ms`, replay-stable per EP-0010 §Time). It is the source of the
     DURABLE `:settled-at` stamped on a PENDING mutation instance dangled on
     restore — NOT the live install clock (`now-ms`). Per EP-0010 §Restore/Replay
     a durable frame-state field MUST come from a causal input, never an ambient
@@ -1284,7 +1284,7 @@
              ;; frame-state field, so per EP-0010 §Time + §Restore/Replay it MUST
              ;; come from the restore's CAUSAL time (`restore-time-ms` — the
              ;; restored epoch's `:committed-at`, itself the committing token's
-             ;; `:rf.world/inputs` `:time-ms`), NOT the ambient `clock-ms`
+             ;; `:rf.cofx` `:rf/time-ms`), NOT the ambient `clock-ms`
              ;; (`now-ms`) read above. Sourcing it from the live install clock
              ;; would make the durable stamp non-replayable (the exact shape the
              ;; EP's restore clause warns against: a durable write fed by an

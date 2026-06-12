@@ -71,48 +71,53 @@
 ;; key (the per-frame tier).
 (def ^:dynamic *fx-overrides* nil)
 
-;; ---- EP-0010 causal world-input stamping (rf2-s9ss0t) ---------------------
+;; ---- EP-0017 recordable-coeffect stamping (rf2-s9ss0t / rf2-alc1lf) --------
 ;;
 ;; The CAUSAL BOUNDARY: `build-envelope` ensures every dispatch carries an
-;; `:rf.world/inputs` map bearing `:time-ms` — the one host-clock read whose
-;; value durable writes may fold (Spec 002 §The World-Input Rule). This is the
-;; ONLY place the clock is read for the causal token; it is NOT re-read inside
-;; the handler, flow transform, resource reducer, work-ledger writer, or commit.
+;; `:rf.cofx` map bearing `:rf/time-ms` — the one host-clock read whose value
+;; durable writes may fold (Spec 002 §The World-Input Rule, EP-0010). EP-0017
+;; (slice-A.2) renames the envelope field from `:rf.world/inputs` to the flat
+;; `:rf.cofx` map (one fact per owner-qualified key, no grouping sub-maps) and
+;; the framework time fact from the nested `:time-ms` to the flat `:rf/time-ms`.
+;; This is the ONLY place the clock is read for the causal token; it is NOT
+;; re-read inside the handler, flow transform, resource reducer, work-ledger
+;; writer, or commit.
 ;;
-;; `ensure-world-inputs` owns the shape contract so `build-envelope`'s let does
-;; not inline it:
+;; `ensure-cofx` owns the shape contract so `build-envelope`'s let does not
+;; inline it:
 ;;
 ;;   - caller-supplied wins — a test / replay / SSR-hydration / tool dispatch
-;;     that supplies `:rf.world/inputs` has its map PRESERVED verbatim (extra
-;;     `:uuid` / `:random` / browser/storage slots ride through). The router
-;;     fills ONLY the framework-required `:time-ms` when absent, never
-;;     overwriting a supplied one (EP-0010 §Restore, Replay, And Hydration).
-;;   - `:time-ms` is WALL-CLOCK EPOCH ms (rf2-n1rh0f / EP-0010 §Time), read from
-;;     `interop/epoch-now-ms` (`js/Date.now()` / `System/currentTimeMillis`) —
-;;     NOT `interop/now-ms` (CLJS `performance.now()` is origin-relative, so a
+;;     that supplies `:rf.cofx` has its map PRESERVED verbatim (extra
+;;     owner-qualified fact slots ride through). The router fills ONLY the
+;;     framework-required `:rf/time-ms` when absent, never overwriting a
+;;     supplied one (EP-0010 §Restore, Replay, And Hydration).
+;;   - `:rf/time-ms` is WALL-CLOCK EPOCH ms (rf2-n1rh0f / EP-0010 §Time), read
+;;     from `interop/epoch-now-ms` (`js/Date.now()` / `System/currentTimeMillis`)
+;;     — NOT `interop/now-ms` (CLJS `performance.now()` is origin-relative, so a
 ;;     durable timestamp folded from it would be incomparable with `js/Date`-
 ;;     based freshness checks: resource `:stale-at`, invalidation, etc.).
 ;;
 ;; Unlike `:dispatch-id` / the retired `:dispatched-at`, this is NOT dev-gated:
-;; world inputs are DURABLE causal data, not a diagnostic, so `:time-ms` must be
-;; present in production too. The cost is one `epoch-now-ms` read + a small map
-;; on the dispatch path — the price of a deterministic fold.
+;; recordable coeffects are DURABLE causal data, not a diagnostic, so
+;; `:rf/time-ms` must be present in production too. The cost is one
+;; `epoch-now-ms` read + a small map on the dispatch path — the price of a
+;; deterministic fold.
 ;;
 ;; Child dispatches (`:dispatch` / `:dispatch-later` fx) get their OWN map —
-;; `:rf.world/inputs` is deliberately NOT in
+;; `:rf.cofx` is deliberately NOT in
 ;; `re-frame.fx/inheritable-envelope-keys`, so each child re-enters here and is
-;; stamped fresh as a distinct causal token (no `:time-ms` inheritance — Spec
+;; stamped fresh as a distinct causal token (no `:rf/time-ms` inheritance — Spec
 ;; 002 §Dispatch Envelope Stamping).
 
-(defn- ensure-world-inputs
-  "Return the caller-supplied `:rf.world/inputs` map with the framework-required
-  `:time-ms` filled from `interop/epoch-now-ms` iff absent. A supplied `:time-ms`
-  (and every other supplied slot) is preserved verbatim. See the section comment
-  above for the full causal-boundary contract."
+(defn- ensure-cofx
+  "Return the caller-supplied `:rf.cofx` map with the framework-required
+  `:rf/time-ms` filled from `interop/epoch-now-ms` iff absent. A supplied
+  `:rf/time-ms` (and every other supplied fact) is preserved verbatim. See the
+  section comment above for the full causal-boundary contract."
   [supplied]
-  (if (contains? supplied :time-ms)
+  (if (contains? supplied :rf/time-ms)
     supplied
-    (assoc supplied :time-ms (interop/epoch-now-ms))))
+    (assoc supplied :rf/time-ms (interop/epoch-now-ms))))
 
 (defn- build-envelope
   "Build the dispatch envelope per Spec 002 §Routing: the dispatch envelope.
@@ -172,19 +177,19 @@
                         Open-vocabulary; distinct from :source which is
                         the closed-enum trigger-kind / functional-origin
                         axis.
-    :rf.world/inputs    EP-0010 causal world-input map (Spec 002 §The
-                        World-Input Rule). The router ensures it exists
-                        and carries `:time-ms` (epoch-ms wall clock)
-                        stamped from `interop/epoch-now-ms` HERE — the
-                        causal boundary — UNLESS the caller supplied a map,
-                        in
-                        which case it is preserved and only the missing
-                        framework-required `:time-ms` is filled. This is
-                        the durable causal-time contract: the read happens
-                        ONCE, at envelope construction, never re-read in a
-                        handler / flow / resource reducer / commit. Child
-                        dispatches get their OWN map — `:time-ms` is NOT
-                        inherited (a child is a distinct causal token).
+    :rf.cofx            EP-0017 recordable-coeffect map (flat, one fact per
+                        owner-qualified key; Spec 002 §The World-Input Rule).
+                        The router ensures it exists and carries `:rf/time-ms`
+                        (epoch-ms wall clock) stamped from
+                        `interop/epoch-now-ms` HERE — the causal boundary —
+                        UNLESS the caller supplied a map, in which case it is
+                        preserved and only the missing framework-required
+                        `:rf/time-ms` is filled. This is the durable
+                        causal-time contract: the read happens ONCE, at
+                        envelope construction, never re-read in a handler /
+                        flow / resource reducer / commit. Child dispatches get
+                        their OWN map — `:rf/time-ms` is NOT inherited (a child
+                        is a distinct causal token).
     :dispatch-id        process-monotonic id allocated here per
                         Spec 009 §Dispatch correlation
     :parent-dispatch-id the in-flight dispatch's id when this dispatch is
@@ -210,35 +215,35 @@
         ;; EP-0010 disposition 5 (rf2-lj39cn): the RETIRED `:dispatched-at`
         ;; dispatch opt gets the STANDARD RETIREMENT TREATMENT — a HARD
         ;; ERROR naming the replacement, NOT the generic warn-on-unknown-opt
-        ;; below. Checked FIRST — BEFORE the world-input clock stamp below —
+        ;; below. Checked FIRST — BEFORE the cofx clock stamp below —
         ;; so a caller still passing `:dispatched-at` fails fast with the
         ;; specific, actionable retirement error (naming
-        ;; `(:time-ms (:rf.world/inputs envelope))`) WITHOUT first triggering
+        ;; `(:rf/time-ms (:rf.cofx envelope))`) WITHOUT first triggering
         ;; the `epoch-now-ms` clock read / map allocation for a dispatch that
         ;; cannot proceed. Always-on (not dev-gated): a retirement hard error
         ;; is a correctness contract that must fire in production too — see
         ;; `reject-retired-dispatch-opts!`.
         _                  (diag/reject-retired-dispatch-opts! opts event)
         ;; EP-0010 (rf2-47lgee / rf2-nftz2s): VALIDATE a caller-supplied
-        ;; `:rf.world/inputs` at the PUBLIC dispatch boundary BEFORE the clock
+        ;; `:rf.cofx` at the PUBLIC dispatch boundary BEFORE the clock
         ;; stamp below — a supplied value must be nil-or-map and a supplied
-        ;; `:time-ms` must be an integer (Spec 002 §The World-Input Rule +
-        ;; Spec-Schemas.md §:rf.world/inputs). A malformed causal token is not
+        ;; `:rf/time-ms` must be an integer (Spec 002 §The World-Input Rule +
+        ;; Spec-Schemas.md §:rf.cofx). A malformed causal token is not
         ;; a harmless typo: it folds straight into durable writes (the epoch
         ;; record's `:committed-at`, resource `:settled-at`) and breaks the
         ;; deterministic fold / replay. Always-on (a corrupt durable token is a
         ;; production correctness contract); fails fast WITHOUT reading the
         ;; clock for a dispatch that cannot proceed — same fail-before-clock-
         ;; read ordering as the retirement check above. See
-        ;; `diag/validate-world-inputs!`.
-        _                  (diag/validate-world-inputs! opts event)
-        ;; EP-0010 §Dispatch Envelope Stamping (rf2-s9ss0t): the CAUSAL
-        ;; BOUNDARY — ensure `:rf.world/inputs` carries `:time-ms`, the one
-        ;; host-clock read durable writes fold. `ensure-world-inputs` owns the
-        ;; preserve-supplied / fill-missing-`:time-ms` shape contract (see the
+        ;; `diag/validate-cofx!`.
+        _                  (diag/validate-cofx! opts event)
+        ;; EP-0017 §Dispatch Envelope Stamping (rf2-s9ss0t / rf2-alc1lf): the
+        ;; CAUSAL BOUNDARY — ensure `:rf.cofx` carries `:rf/time-ms`, the one
+        ;; host-clock read durable writes fold. `ensure-cofx` owns the
+        ;; preserve-supplied / fill-missing-`:rf/time-ms` shape contract (see the
         ;; section comment on the helper above). Stamped AFTER the retirement +
         ;; validation checks so an invalid dispatch never reads the clock.
-        world-inputs       (ensure-world-inputs (:rf.world/inputs opts))
+        cofx               (ensure-cofx (:rf.cofx opts))
         ;; Per rf2-jbzhj: surface unrecognised opts keys (typically a typo'd
         ;; opt like `:fram` for `:frame`) rather than silently swallowing
         ;; them. Emitted HERE — BEFORE the frame resolution below — so a
@@ -328,12 +333,12 @@
              ;; `emit-dispatched-trace`).
              :source-detail          (:source-detail opts)
              :origin                 (:origin opts :app)
-             ;; EP-0010 (rf2-s9ss0t): the causal world-input map, stamped
-             ;; unconditionally (durable causal data, not a diagnostic —
-             ;; see the `world-inputs` binding above). Always carries
-             ;; `:time-ms`; caller-supplied additional keys (`:uuid`,
-             ;; `:random`, browser/storage facts) ride through preserved.
-             :rf.world/inputs        world-inputs}
+             ;; EP-0017 (rf2-s9ss0t / rf2-alc1lf): the flat recordable-coeffect
+             ;; map, stamped unconditionally (durable causal data, not a
+             ;; diagnostic — see the `cofx` binding above). Always carries
+             ;; `:rf/time-ms`; caller-supplied additional owner-qualified facts
+             ;; ride through preserved.
+             :rf.cofx                cofx}
       ;; Per rf2-ts1a: the macro form of `dispatch` / `dispatch-sync`
       ;; stamps an `:rf.trace/call-site` on the opts map. The read in
       ;; `call-site` above is gated on interop/debug-enabled? so this
@@ -553,17 +558,17 @@
                          :event           event
                          :rf.db/runtime   runtime-db
                          :rf.frame/id     frame
-                         ;; EP-0010 (rf2-s9ss0t): the causal world-input
-                         ;; map is a framework coeffect alongside `:db` /
-                         ;; `:event` / `:rf.db/runtime` / `:rf.frame/id`
-                         ;; (Spec 002 §Event Context And Coeffects).
-                         ;; `build-envelope` guarantees `:time-ms` on the
-                         ;; envelope, so a durable handler reads
-                         ;; `(:time-ms (:rf.world/inputs cofx))` instead of
+                         ;; EP-0017 (rf2-s9ss0t / rf2-alc1lf): the flat
+                         ;; recordable-coeffect map is a framework coeffect
+                         ;; alongside `:db` / `:event` / `:rf.db/runtime` /
+                         ;; `:rf.frame/id` (Spec 002 §Event Context And
+                         ;; Coeffects). `build-envelope` guarantees
+                         ;; `:rf/time-ms` on the envelope, so a durable handler
+                         ;; reads `(:rf/time-ms (:rf.cofx coeffects))` instead of
                          ;; an ambient `interop/now-ms`. Filtered out of the
                          ;; user-cofx trace projection by
                          ;; `fx/framework-coeffect-keys`.
-                         :rf.world/inputs (:rf.world/inputs envelope)}
+                         :rf.cofx         (:rf.cofx envelope)}
                   (:source envelope)   (assoc :source (:source envelope))
                   (:trace-id envelope) (assoc :trace-id (:trace-id envelope)))
      :effects {}
@@ -1977,14 +1982,14 @@
         ;; pending child under the runaway-cascade pattern that trips it).
         halting-envelope (peek queue)
         halting-event   (or (:event halting-envelope) last-event)
-        ;; rf2-bh56rc: the halting event's causal `:time-ms` (stamped on its
+        ;; rf2-bh56rc: the halting event's causal `:rf/time-ms` (stamped on its
         ;; envelope at the causal boundary). Threaded into the synthesised
         ;; `:halted-depth` record's `:committed-at` so even this never-ran
         ;; marker carries a replayable causal time per EP-0010 §Time / Spec
         ;; 002 §The World-Input Rule, not an ambient assembly-time read. nil
         ;; only on the defensive empty-queue fallback (no envelope to read);
         ;; the epoch surface tolerates a nil `:committed-at` there.
-        halting-time-ms (-> halting-envelope :rf.world/inputs :time-ms)
+        halting-time-ms (-> halting-envelope :rf.cofx :rf/time-ms)
         ;; Current durable frame-state value — the state the last-settled
         ;; event left behind. The halting event makes no write, so
         ;; :frame-state-before equals :frame-state-after on its record.
@@ -2011,7 +2016,7 @@
       ;; `settle!` would skip; `commit-halt-record!` commits regardless,
       ;; pinning the halting event's trigger. :frame-state-before equals
       ;; :frame-state-after — the halting event made no write. rf2-bh56rc:
-      ;; `:committed-at` is the halting event's causal `:time-ms`, not an
+      ;; `:committed-at` is the halting event's causal `:rf/time-ms`, not an
       ;; ambient read.
       (commit-halt! frame-id fs-now fs-now halting-time-ms :halted-depth halt-reason
                     halting-event))))
@@ -2037,8 +2042,8 @@
   are whole frame-state values (both partitions); `build-record` derives the
   `:db-before` / `:db-after` app-db projections from them.
 
-  rf2-bh56rc: `committed-at` is the settling event's causal `:time-ms` (its
-  envelope's `:rf.world/inputs` `:time-ms`, stamped at the causal boundary).
+  rf2-bh56rc: `committed-at` is the settling event's causal `:rf/time-ms` (its
+  envelope's `:rf.cofx` `:rf/time-ms`, stamped at the causal boundary).
   Threaded into the epoch record's `:committed-at` so the durable
   causal-time fact is replayable per EP-0010 §Time / Spec 002 §The
   World-Input Rule, not an ambient assembly-time host-clock read."
@@ -2200,13 +2205,13 @@
         ;; an epoch carries (and `restore-epoch` rewinds to) machine snapshots
         ;; / the route slice / SSR metadata, not just app-db.
         (let [fs-before (frame/frame-state-value frame-id)
-              ;; rf2-bh56rc: this event's causal `:time-ms` — the
-              ;; `:rf.world/inputs` `:time-ms` stamped on the envelope at the
+              ;; rf2-bh56rc: this event's causal `:rf/time-ms` — the
+              ;; `:rf.cofx` `:rf/time-ms` stamped on the envelope at the
               ;; causal boundary (`build-envelope`). Threaded into the epoch
               ;; record's `:committed-at` (per EP-0010 §Time / Spec 002 §The
               ;; World-Input Rule) so the durable causal-time fact is
               ;; replayable rather than an ambient assembly-time clock read.
-              time-ms   (-> envelope :rf.world/inputs :time-ms)]
+              time-ms   (-> envelope :rf.cofx :rf/time-ms)]
           ;; Per rf2-9neiq: expose this event's pre-cascade frame-state to a
           ;; handler that calls `destroy-frame!` on its OWN frame mid-drain.
           ;; `destroy-frame!`'s epoch hook reads `frame/*cascade-frame-state-before*`
@@ -2402,27 +2407,28 @@
     (when-not no-emit?
       (trace/with-call-site (:call-site envelope)
         (trace/emit! :rf.event :rf.event/dispatched
-                     ;; Per rf2-jt854w (EP-0010 observability completion):
-                     ;; stamp the envelope's causal world-input map onto the
-                     ;; enqueue trace so Xray's Event lens (018 §5.1) can render
-                     ;; the WORLD INPUTS surface — the framework-stamped
-                     ;; `:time-ms` plus any caller-supplied `:uuid` / `:random`
-                     ;; / browser/storage facts. Without it the only trace-side
-                     ;; view of the causal token is the filtered framework-
-                     ;; default cofx (the user-cofx projection drops it via
-                     ;; `fx/framework-coeffect-keys`), so the lens had no data.
+                     ;; Per rf2-jt854w (EP-0010 observability completion) /
+                     ;; EP-0017 (rf2-alc1lf): stamp the envelope's flat
+                     ;; recordable-coeffect map onto the enqueue trace so Xray's
+                     ;; Event lens (018 §5.1) can render the COEFFECTS surface —
+                     ;; the framework-stamped `:rf/time-ms` plus any
+                     ;; caller-supplied owner-qualified facts. Without it the
+                     ;; only trace-side view of the causal token is the filtered
+                     ;; framework-default cofx (the user-cofx projection drops it
+                     ;; via `fx/framework-coeffect-keys`), so the lens had no
+                     ;; data.
                      ;;
                      ;; DEBUG-GATED via the canonical OUTERMOST
                      ;; `(if interop/debug-enabled? <stamped> <plain>)` shape —
-                     ;; the dev arm carries the `:rf.world/inputs` slot, the
+                     ;; the dev arm carries the `:rf.cofx` slot, the
                      ;; prod arm omits it. This is the rf2-7ynhyn-correct idiom:
                      ;; NOT a `cond->` test-position gate, because Closure does
                      ;; not constant-fold a keyword literal away from a `cond->`
-                     ;; step test, so a `(envelope :rf.world/inputs) (assoc …)`
+                     ;; step test, so a `(envelope :rf.cofx) (assoc …)`
                      ;; step would leave the slot reachable under `:advanced` +
                      ;; `goog.DEBUG=false`. This is a dev-trace / diagnostic
                      ;; surface, NOT always-on — unlike the envelope's
-                     ;; `:rf.world/inputs` itself (durable causal data, stamped
+                     ;; `:rf.cofx` itself (durable causal data, stamped
                      ;; unconditionally in `build-envelope`, present in
                      ;; production). The whole `:rf.event/dispatched` emit
                      ;; already elides in production (the `event/dispatched` op
@@ -2436,7 +2442,7 @@
                                 :rf.event/origin    (:origin envelope)
                                 :source             (:source envelope)
                                 :rf.event/sync?     sync?
-                                :rf.world/inputs    (:rf.world/inputs envelope)}
+                                :rf.cofx            (:rf.cofx envelope)}
                                {:rf.event/v         event
                                 :frame              (:frame envelope)
                                 :rf.event/origin    (:origin envelope)

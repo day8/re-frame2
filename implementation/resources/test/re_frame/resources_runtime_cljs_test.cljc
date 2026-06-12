@@ -676,9 +676,9 @@
   ;; rf2-n1rh0f / EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
   ;; the resource :loaded-at IS the successful reply's completion time
   ;; (carried on the reply token as the host :completed-at, which the managed
-  ;; transport threads onto the reply event's :rf.world/inputs :time-ms), and
+  ;; transport threads onto the reply event's :rf.cofx :time-ms), and
   ;; :stale-at = :loaded-at + :stale-after-ms — NOT an ambient clock read in
-  ;; the reply handler. Scripting the reply dispatch's :rf.world/inputs pins
+  ;; the reply handler. Scripting the reply dispatch's :rf.cofx pins
   ;; both; the same reply token rewrites the same durable timestamps.
   (rf/reg-resource :lra/article (article-spec {:stale-after-ms 60000}))
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :lra/article {:slug "w"})
@@ -692,7 +692,7 @@
                         ;; the managed transport stamps the host :completed-at
                         ;; here; a fixture scripts it directly on the reply
                         ;; token's world inputs.
-                        {:rf.world/inputs {:time-ms completed-at}}))
+                        {:rf.cofx {:rf/time-ms completed-at}}))
     (testing ":loaded-at is EXACTLY the reply completion time (not now)"
       (is (= completed-at (:loaded-at (entry scoped-key)))))
     (testing ":stale-at = :loaded-at + the :stale-after-ms policy"
@@ -701,7 +701,7 @@
 ;; rf2-95b0lc / EP-0010 §The World-Input Rule: the ensure FRESH-SKIP gate is a
 ;; freshness DECISION that gates a durable runtime-db write (serve-cache vs
 ;; start-new-work). Its basis MUST be the ensure token's causal
-;; `(:time-ms (:rf.world/inputs cofx))`, NOT an ambient host-clock read — so a
+;; `(:time-ms (:rf.cofx cofx))`, NOT an ambient host-clock read — so a
 ;; replayed ensure under a LATER live clock takes the SAME branch the recorded
 ;; `:time-ms` dictated. Pre-fix the gate read `(now-ms)` (= the live host
 ;; clock, ~1.78e12 epoch-ms / `System/currentTimeMillis`), which dwarfs any
@@ -721,7 +721,7 @@
       (rf/dispatch-sync [:rf.resource.internal/succeeded
                          {:resource-key scoped-key :work/id (:current-work e)
                           :generation (:generation e) :data {:title "W"}}]
-                        {:rf.world/inputs {:time-ms completed-at}}))
+                        {:rf.cofx {:rf/time-ms completed-at}}))
     (is (= :loaded (:status (entry scoped-key))) "entry loaded")
     (is (= (+ t0 60000) (:stale-at (entry scoped-key))) "durable :stale-at = t0 + policy")
     (let [gen0 (:generation (entry scoped-key))]
@@ -732,7 +732,7 @@
       (rf/dispatch-sync [:rf.resource/ensure {:resource :fsd/article :scope :rf.scope/global
                                               :params {:slug "w"} :owner [:lease :fsd 1]}]
                         ;; scripted causal "now": t0 + 30s — fresh by policy.
-                        {:rf.world/inputs {:time-ms (+ t0 30000)}})
+                        {:rf.cofx {:rf/time-ms (+ t0 30000)}})
       (testing "a within-window causal :time-ms takes the FRESH-SKIP branch
                 — no new work, no transport call, generation unchanged"
         (is (nil? @last-managed-args)
@@ -750,7 +750,7 @@
       (rf/dispatch-sync [:rf.resource/ensure {:resource :fsd/article :scope :rf.scope/global
                                               :params {:slug "w"} :owner [:lease :fsd 1]}]
                         ;; scripted causal "now": t0 + 90s — STALE by policy.
-                        {:rf.world/inputs {:time-ms (+ t0 90000)}})
+                        {:rf.cofx {:rf/time-ms (+ t0 90000)}})
       (testing "a past-window causal :time-ms takes the REFETCH branch — a new
                 load fires (the decision tracks the causal token both ways)"
         (is (some? @last-managed-args)

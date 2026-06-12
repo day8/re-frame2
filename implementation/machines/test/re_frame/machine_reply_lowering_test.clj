@@ -348,7 +348,7 @@
 ;;     completion can mutate durable parent-machine data (:on-done writes
 ;;     the parent's :data). Per spec/Managed-Effects.md §155/§231 a
 ;;     completion that affects durable state MUST carry causal completion
-;;     metadata — the ROUTER's `:rf.world/inputs` `:time-ms` (EP-0010, the
+;;     metadata — the ROUTER's `:rf.cofx` `:rf/time-ms` (EP-0010, the
 ;;     single causal-boundary clock read), NOT an ambient host-clock read.
 ;;     The production finalize path threads that world-input time into the
 ;;     reply-ctx so the done reply + `:rf.machine/done` trace carry the
@@ -356,7 +356,7 @@
 ;; ===========================================================================
 
 (deftest spawned-completion-threads-causal-completed-at
-  (testing "the done reply trace carries the CAUSAL :completed-at — the finishing event's :rf.world/inputs :time-ms — when a spawned child completion mutates durable parent data"
+  (testing "the done reply trace carries the CAUSAL :completed-at — the finishing event's :rf.cofx :time-ms — when a spawned child completion mutates durable parent data"
     (let [traces      (capture-traces ::completed-at)
           completed-at 1781078400888]                ;; the causal token time
       (try
@@ -380,10 +380,10 @@
                                             (assoc data :token-from-child result))}}}})
         (rf/dispatch-sync [:rl/cparent [:go]])
         ;; The child finishes under a SCRIPTED causal time — the finishing
-        ;; dispatch supplies :rf.world/inputs {:time-ms completed-at}, the
+        ;; dispatch supplies :rf.cofx {:rf/time-ms completed-at}, the
         ;; one host-clock read the router captures at the causal boundary.
         (rf/dispatch-sync [:rl/cchild#1 [:finish :secret-token]]
-                          {:rf.world/inputs {:time-ms completed-at}})
+                          {:rf.cofx {:rf/time-ms completed-at}})
         ;; Behavioural parity: :on-done still ran with the canonical value.
         (is (= :secret-token (get-in (snapshot :rl/cparent) [:data :token-from-child]))
             ":on-done mutated the parent's durable :data (the §155/§231 case)")
@@ -393,11 +393,11 @@
           (is (some? done) ":rf.machine/done trace fired")
           (let [tags (:tags done)]
             ;; THE coverage gap: the causal completion timestamp rides the
-            ;; done trace — the supplied :rf.world/inputs :time-ms VERBATIM,
+            ;; done trace — the supplied :rf.cofx :time-ms VERBATIM,
             ;; not an ambient clock read. Both the additive reply-envelope
             ;; spelling and the bare :completed-at carry it.
             (is (= completed-at (:rf.reply/completed-at tags))
-                "the causal :rf.world/inputs :time-ms rides the done reply trace")
+                "the causal :rf.cofx :time-ms rides the done reply trace")
             (is (= completed-at (:completed-at tags))
                 "the bare :completed-at fact carries the same causal time")
             ;; sanity: the rest of the canonical envelope is intact.
@@ -406,7 +406,7 @@
         (finally (trace/unregister-listener! ::completed-at))))))
 
 (deftest unscripted-completion-omits-completed-at
-  (testing "adversarial: an UNSCRIPTED completion (no :rf.world/inputs) carries NO :completed-at — the fact is OMITTED, never nil-filled or stamped from an ambient clock (Managed-Effects §The reply map)"
+  (testing "adversarial: an UNSCRIPTED completion (no :rf.cofx) carries NO :completed-at — the fact is OMITTED, never nil-filled or stamped from an ambient clock (Managed-Effects §The reply map)"
     (let [traces (capture-traces ::no-completed-at)]
       (try
         (rf/reg-machine :rl/uchild
@@ -425,7 +425,7 @@
                               :on-done    (fn [{data :data result :result}]
                                             (assoc data :token-from-child result))}}}})
         (rf/dispatch-sync [:rl/uparent [:go]])
-        ;; The finishing dispatch supplies NO :rf.world/inputs — the
+        ;; The finishing dispatch supplies NO :rf.cofx — the
         ;; unscripted path. The router seeds its own world-inputs only when
         ;; running the full dispatch path with a clock; in this direct
         ;; dispatch-sync with no override the machine def carries whatever

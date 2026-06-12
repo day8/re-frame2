@@ -1,13 +1,13 @@
 (ns re-frame.dispatched-trace-world-inputs-test
   "Per rf2-jt854w (EP-0010 observability completion) — the
   `:rf.event/dispatched` enqueue trace carries the envelope's causal
-  `:rf.world/inputs` map so Xray's Event lens (rf2-9fyn40, the WORLD INPUTS
+  `:rf.cofx` map so Xray's Event lens (rf2-9fyn40, the WORLD INPUTS
   surface) has data to render.
 
   Before this, `emit-dispatched-trace!` stamped
   `:rf.event/v` / `:frame` / `:rf.event/origin` / `:source` / `:rf.event/sync?`
   / `:source-detail` / the dispatch-id correlation slots, but NOT
-  `:rf.world/inputs` — so the only trace-side view of the causal token was
+  `:rf.cofx` — so the only trace-side view of the causal token was
   the filtered framework-default cofx (the user-cofx projection drops it via
   `fx/framework-coeffect-keys`), leaving the lens with no input map.
 
@@ -61,74 +61,74 @@
 (defn- dispatched-of [evs]
   (filterv #(= :rf.event/dispatched (:operation %)) evs))
 
-;; ---- the dispatched trace carries :rf.world/inputs ------------------------
+;; ---- the dispatched trace carries :rf.cofx ------------------------
 
 (deftest dispatched-trace-carries-world-inputs-with-time-ms
-  (testing ":rf.event/dispatched carries the envelope's :rf.world/inputs map,
+  (testing ":rf.event/dispatched carries the envelope's :rf.cofx map,
    and that map carries the framework-stamped causal :time-ms"
     (rf/reg-event-db :rf2-jt854w/noop (fn [db _] db))
     (let [evs        (record-traces
                        (fn [] (rf/dispatch-sync [:rf2-jt854w/noop])))
           [enqueue]  (dispatched-of evs)
           ;; The op-type-specific payload slots (`:rf.event/v`,
-          ;; `:rf.event/origin`, `:rf.world/inputs`, ...) ride under
+          ;; `:rf.event/origin`, `:rf.cofx`, ...) ride under
           ;; `:tags`; `build-event` hoists only `:source` to top-level.
-          wi         (get-in enqueue [:tags :rf.world/inputs])]
+          wi         (get-in enqueue [:tags :rf.cofx])]
       (is (some? enqueue) ":rf.event/dispatched fired")
-      (is (contains? (:tags enqueue) :rf.world/inputs)
-          ":rf.world/inputs is stamped on the dispatched trace (rf2-jt854w)")
-      (is (map? wi) ":rf.world/inputs is a map")
-      (is (contains? wi :time-ms)
-          "the causal world-input map carries the framework-stamped :time-ms")
-      (is (integer? (:time-ms wi))
-          ":time-ms is an epoch-ms integer"))))
+      (is (contains? (:tags enqueue) :rf.cofx)
+          ":rf.cofx is stamped on the dispatched trace (rf2-jt854w)")
+      (is (map? wi) ":rf.cofx is a map")
+      (is (contains? wi :rf/time-ms)
+          "the recordable-coeffect map carries the framework-stamped :rf/time-ms")
+      (is (integer? (:rf/time-ms wi))
+          ":rf/time-ms is an epoch-ms integer"))))
 
 (deftest dispatched-trace-preserves-caller-supplied-world-inputs
-  (testing "a caller-supplied :rf.world/inputs (test/replay/SSR fixture) rides
-   onto the dispatched trace verbatim — the additional :uuid / :random keys
-   are preserved alongside the framework-required :time-ms"
+  (testing "a caller-supplied :rf.cofx (test/replay/SSR fixture) rides
+   onto the dispatched trace verbatim — additional owner-qualified facts
+   are preserved alongside the framework-required :rf/time-ms"
     (rf/reg-event-db :rf2-jt854w/scripted (fn [db _] db))
-    (let [scripted   {:time-ms 1234567890123
-                      :uuid    #uuid "00000000-0000-0000-0000-000000000001"
-                      :random  0.42}
+    (let [scripted   {:rf/time-ms 1234567890123
+                      :todo/id    #uuid "00000000-0000-0000-0000-000000000001"
+                      :todo/score 0.42}
           evs        (record-traces
                        (fn []
                          (rf/dispatch-sync [:rf2-jt854w/scripted]
-                                           {:rf.world/inputs scripted})))
+                                           {:rf.cofx scripted})))
           [enqueue]  (dispatched-of evs)]
       (is (some? enqueue) ":rf.event/dispatched fired")
-      (is (= scripted (get-in enqueue [:tags :rf.world/inputs]))
+      (is (= scripted (get-in enqueue [:tags :rf.cofx]))
           "the caller-supplied causal world-input map is stamped verbatim"))))
 
 (deftest dispatched-trace-fills-missing-time-ms-from-supplied-map
-  (testing "a caller-supplied map WITHOUT :time-ms has it filled by the router;
+  (testing "a caller-supplied map WITHOUT :rf/time-ms has it filled by the router;
    the dispatched trace reflects the filled-and-preserved map"
     (rf/reg-event-db :rf2-jt854w/fill (fn [db _] db))
     (let [evs        (record-traces
                        (fn []
                          (rf/dispatch-sync [:rf2-jt854w/fill]
-                                           {:rf.world/inputs {:random 0.99}})))
+                                           {:rf.cofx {:todo/score 0.99}})))
           [enqueue]  (dispatched-of evs)
-          wi         (get-in enqueue [:tags :rf.world/inputs])]
+          wi         (get-in enqueue [:tags :rf.cofx])]
       (is (some? enqueue) ":rf.event/dispatched fired")
-      (is (= 0.99 (:random wi)) "caller-supplied :random preserved")
-      (is (integer? (:time-ms wi))
-          ":time-ms filled by the router at the causal boundary"))))
+      (is (= 0.99 (:todo/score wi)) "caller-supplied fact preserved")
+      (is (integer? (:rf/time-ms wi))
+          ":rf/time-ms filled by the router at the causal boundary"))))
 
 (deftest world-inputs-rides-under-tags-alongside-event-payload-slots
-  (testing ":rf.world/inputs rides under :tags alongside the other op-type-
+  (testing ":rf.cofx rides under :tags alongside the other op-type-
    specific payload slots (:rf.event/v, :rf.event/origin, :rf.event/sync?) —
    build-event hoists only :source to top-level, so the Event lens reads the
-   world-input map off (get-in event [:tags :rf.world/inputs])"
+   world-input map off (get-in event [:tags :rf.cofx])"
     (rf/reg-event-db :rf2-jt854w/placement (fn [db _] db))
     (let [evs       (record-traces
                       (fn [] (rf/dispatch-sync [:rf2-jt854w/placement])))
           [enqueue] (dispatched-of evs)]
       (is (some? enqueue))
-      (is (contains? (:tags enqueue) :rf.world/inputs)
-          ":rf.world/inputs lives under :tags")
-      (is (not (contains? enqueue :rf.world/inputs))
-          ":rf.world/inputs is NOT a top-level slot (only :source is hoisted)")
+      (is (contains? (:tags enqueue) :rf.cofx)
+          ":rf.cofx lives under :tags")
+      (is (not (contains? enqueue :rf.cofx))
+          ":rf.cofx is NOT a top-level slot (only :source is hoisted)")
       ;; Co-located with the other dispatched payload slots under :tags.
       (is (contains? (:tags enqueue) :rf.event/v)
           ":rf.event/v also rides under :tags — same placement"))))

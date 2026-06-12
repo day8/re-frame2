@@ -171,7 +171,7 @@
   ;; rf2-258p1z / EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
   ;; the durable :invalidated-at is the INVALIDATION EVENT'S :time-ms (the
   ;; causal world input), NOT an ambient clock read in the reducer. Scripting
-  ;; the dispatch's :rf.world/inputs pins the value; replaying the SAME token
+  ;; the dispatch's :rf.cofx pins the value; replaying the SAME token
   ;; rewrites the SAME :invalidated-at (replay-stable, not the live clock).
   (rf/reg-resource :ivt/article (article-spec))
   (let [sa {:user "a"}
@@ -183,7 +183,7 @@
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :a 1]}])
     (rf/dispatch-sync [:rf.resource/invalidate-tags
                        {:scope sa :tags #{[:article "w"]}}]
-                      {:rf.world/inputs {:time-ms t1}})
+                      {:rf.cofx {:rf/time-ms t1}})
     (testing ":invalidated-at is EXACTLY the supplied token :time-ms (not now)"
       (is (= t1 (:invalidated-at (entry ka)))))
     ;; re-invalidate with a DIFFERENT scripted time — the durable fact tracks
@@ -191,7 +191,7 @@
     ;; is read off the token, not a fresh clock read).
     (rf/dispatch-sync [:rf.resource/invalidate-tags
                        {:scope sa :tags #{[:article "w"]}}]
-                      {:rf.world/inputs {:time-ms t2}})
+                      {:rf.cofx {:rf/time-ms t2}})
     (testing "replaying with a new scripted token rewrites :invalidated-at to
               that token's :time-ms (read off the token, not the clock)"
       (is (= t2 (:invalidated-at (entry ka)))))))

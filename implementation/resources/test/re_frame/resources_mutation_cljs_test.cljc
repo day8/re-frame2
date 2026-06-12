@@ -99,7 +99,7 @@
 
 (defn- reply-success!
   ([args result] (rf/dispatch-sync (conj (:on-success args) {:kind :success :value result})))
-  ;; EP-0010: a fixture may script the reply token's :rf.world/inputs to pin
+  ;; EP-0010: a fixture may script the reply token's :rf.cofx to pin
   ;; the host :completed-at (the managed transport stamps it on the reply
   ;; dispatch in live code).
   ([args result opts] (rf/dispatch-sync (conj (:on-success args) {:kind :success :value result}) opts)))
@@ -233,14 +233,14 @@
   ;; rf2-dsyqmz / EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
   ;; :rf.mutation/execute writes the durable instance :started-at from the
   ;; TRIGGERING TOKEN'S :time-ms (the causal world input), NOT an ambient
-  ;; clock read in the reducer. Scripting the dispatch's :rf.world/inputs
+  ;; clock read in the reducer. Scripting the dispatch's :rf.cofx
   ;; pins it; the same execute token mints the same :started-at
   ;; (replay-stable).
   (rf/reg-mutation :m/save (save-article-spec))
   (let [t1 1781078400123]
     (rf/dispatch-sync [:rf.mutation/execute
                        {:mutation :m/save :params {:slug "w"} :instance :st/save-1}]
-                      {:rf.world/inputs {:time-ms t1}})
+                      {:rf.cofx {:rf/time-ms t1}})
     (testing "the instance :started-at is EXACTLY the token :time-ms (not now)"
       (is (= t1 (:started-at (instance :st/save-1)))))))
 
@@ -354,7 +354,7 @@
   ;; and ANY resource patch/populate :loaded-at the mutation produces uses
   ;; that SAME causal completion time (off the reply token, never an ambient
   ;; read in the handler). The host :completed-at rides the reply event's
-  ;; :rf.world/inputs :time-ms; scripting it pins both.
+  ;; :rf.cofx :time-ms; scripting it pins both.
   (rf/reg-resource :r/article
                    {:scope :rf.scope/global
                     :params-schema [:map [:slug :string]]
@@ -368,7 +368,7 @@
                       :request (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}})
                       :populates (fn [_params result] {(art-target) result})})
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :ms1}])
-    (reply-success! @last-managed-args {:title "seed"} {:rf.world/inputs {:time-ms completed-at}})
+    (reply-success! @last-managed-args {:title "seed"} {:rf.cofx {:rf/time-ms completed-at}})
     (testing "the instance :settled-at is EXACTLY the reply completion time"
       (is (= completed-at (:settled-at (instance :ms1)))))
     (testing "the populated entry's :loaded-at is the SAME causal completion
@@ -381,13 +381,13 @@
   ;; rf2-r65m41 / EP-0010 §Resources, Mutations + §Managed Effects: a terminal
   ;; mutation FAILURE reply writes :settled-at from the reply completion time
   ;; carried on the failure reply token — the handler MUST NOT re-read the
-  ;; clock. The host :completed-at rides the reply event's :rf.world/inputs
+  ;; clock. The host :completed-at rides the reply event's :rf.cofx
   ;; :time-ms; scripting it pins :settled-at (replay-stable).
   (rf/reg-mutation :m/save (save-article-spec))
   (let [completed-at 1781078999999]
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :mf1}])
     (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500}
-                    {:rf.world/inputs {:time-ms completed-at}})
+                    {:rf.cofx {:rf/time-ms completed-at}})
     (testing "the instance settles :error with :settled-at = the reply
               completion time (not now)"
       (is (= :error (:status (instance :mf1))))
@@ -1099,7 +1099,7 @@
                        {:mutation :m/save :params {:slug "w"} :instance :rc1
                         :reply-to [:test/save-replied]}])
     (reply-success! @last-managed-args {:slug "w" :title "Fresh"}
-                    {:rf.world/inputs {:time-ms completed-at}})
+                    {:rf.cofx {:rf/time-ms completed-at}})
     (testing "the continuation fired exactly once"
       (is (= 1 (count @replied))))
     (testing "EP-0016 — the appended reply map carries the full continuation contract"

@@ -34,12 +34,12 @@
 ;; write must be a function of prior frame-state plus the causal token — not of
 ;; an ambient `localStorage` read at the write site (which replay/restore could
 ;; not reproduce). So the host-boundary boot read happens once, in
-;; `todomvc.core/run`, and rides the boot dispatch token as
-;; `:rf.world/inputs {:storage {:todos …}}`.
+;; `todomvc.core/run`, and rides the boot dispatch token as the flat recordable
+;; coeffect `:rf.cofx {:todo.storage/todos …}`.
 ;;
 ;; This cofx is the RECORDABLE migration target the EP blesses (the `:app/now-ms`
 ;; pattern, EP-0010 §Backwards Compatibility): it reads the captured storage
-;; value off `:rf.world/inputs` and returns it exactly under replay / restore /
+;; value off `:rf.cofx` and returns it exactly under replay / restore /
 ;; test fixtures. It falls back to a live host read ONLY when no storage was
 ;; supplied on the token — i.e. when building a fresh live token at the boundary
 ;; where reading the host IS correct. Either way the value is always coerced to a
@@ -62,14 +62,14 @@
 (rf/reg-cofx :todo.storage/todos
   {:doc "Inject the saved TodoMVC items into coeffects as a sorted-map.
 
-         EP-0010 recordable storage coeffect: returns the captured
-         `(get-in cofx [:rf.world/inputs :storage :todos])` value when the boot
-         token supplied one (replay / restore / test fixtures get the exact
-         recorded value, no host re-read); falls back to a live
-         `read-todos-from-storage` host read only when none was supplied. Always
-         a sorted-map (never nil) so the allocate-next-id invariant holds."}
+         EP-0010 / EP-0017 recordable storage coeffect: returns the captured
+         `(:todo.storage/todos (:rf.cofx cofx))` value when the boot token
+         supplied one (replay / restore / test fixtures get the exact recorded
+         value, no host re-read); falls back to a live `read-todos-from-storage`
+         host read only when none was supplied. Always a sorted-map (never nil)
+         so the allocate-next-id invariant holds."}
   (fn cofx-todo-storage-todos [ctx]
-    (let [recorded (get-in ctx [:coeffects :rf.world/inputs :storage :todos])
+    (let [recorded (get-in ctx [:coeffects :rf.cofx :todo.storage/todos])
           todos    (cond
                      (map? recorded) (into (sorted-map) recorded)
                      (some? recorded) (sorted-map)
