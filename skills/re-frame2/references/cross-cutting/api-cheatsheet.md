@@ -10,7 +10,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/reg-event-fx` | `(id meta? intercept? (fn [cofx ev] fx-map))` |
 | `rf/reg-event-ctx` | `(id meta? intercept? (fn [ctx] ctx'))` |
 | `rf/reg-fx` | `(id [metadata?] (fn [ctx args] ...))` — `ctx` is `{:frame :event}`; `args` is the `:fx` entry's 2nd slot |
-| `rf/reg-cofx` | `(id [metadata?] (fn [ctx] ctx') \| (fn [ctx value] ctx'))` — `ctx` is the interceptor ctx; assoc into `(:coeffects ctx)`. `value` is the `inject-cofx` per-call arg |
+| `rf/reg-cofx` | `(id [metadata?] (fn [] value) \| (fn [arg] value))` — **value-returning** supplier (EP-0017); returns the coeffect value directly. `arg` is the per-call arg from a `[id arg]` declaration. `meta` may carry `:recordable?` / `:provided?` / `:schema` / `:platforms`. Consumed via `:rf.cofx/requires` (not `inject-cofx`, removed) |
 | `rf/reg-sub` | `(id (fn [db query-v] value))` layer-1 · `(id :<- […] … (fn [inputs query-v] value))` static · `(id (fn [query-v] [[:q…]…]) (fn [inputs query-v] value))` parametric — input fn returns a **vector of query vectors** (EP-0004), NOT `subscribe` reactions |
 | `rf/reg-view` | `(sym [args] body)` — defn-shape, auto-injects `dispatch`/`subscribe` |
 | `rf/reg-view*` | `(id metadata? render-fn)` — runtime form |
@@ -28,8 +28,8 @@ The `reg-event-*` metadata-map is the one **superset** middle slot — reflectio
 
 | Surface | Shape |
 |---|---|
-| `rf/dispatch` | `(event)` / `(event opts)` — async queued; `opts` may carry `:rf.world/inputs` (EP-0010 causal world inputs — pin durable `:time-ms` / `:uuid` / `:random`; runtime stamps `:time-ms` when omitted) |
-| `rf/dispatch-sync` | `(event)` / `(event opts)` — drains to fixed point; same `:rf.world/inputs` opt |
+| `rf/dispatch` | `(event)` / `(event opts)` — async queued; `opts` may carry `:rf.cofx` (EP-0017 recordable coeffects — a flat `fact-name → value` map; pin durable `:rf/time-ms` and other recordable facts; runtime stamps `:rf/time-ms` when omitted). The retired `:rf.world/inputs` opt is a hard error `:rf.error/world-inputs-renamed` |
+| `rf/dispatch-sync` | `(event)` / `(event opts)` — drains to fixed point; same `:rf.cofx` opt |
 | `rf/subscribe` | `(query-v)` / `(frame-id query-v)` → reaction |
 | `rf/subscribe-once` | `(query-v)` — one-shot: materialise + deref + unsubscribe |
 | `rf/unsubscribe` | `(query-v)` / `(frame-id query-v)` |
@@ -181,8 +181,8 @@ Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability
 |---|---|
 | `rf/->interceptor` | `({:id :before :after})` → interceptor |
 | `rf/get-coeffect` / `rf/assoc-coeffect` / `rf/get-effect` / `rf/assoc-effect` | inside an interceptor |
-| `rf/inject-cofx` | `(id)` / `(id value)` — cofx injector; `value` is the per-call arg passed to the cofx handler's 2-arity form. For durable host facts the cofx must be recordable (or use the `:rf.world/inputs` coeffect — see `fundamentals/cofx.md`); ambient cofx are for diagnostics / host-transient reads |
-| `:rf.world/inputs` (coeffect) | framework coeffect on every event context (EP-0010): `{:time-ms … :uuid {…} :random […] :browser/* … :storage …}`. Read durable time/ids/host facts off it — `(fn [{:rf.world/keys [inputs]} ev] (:time-ms inputs))`. Filtered out of the user-coeffect trace. Not injected via `inject-cofx` — it is always present |
+| `:rf.cofx/requires` (metadata) | declare a handler's coeffect dependencies on `reg-event-fx` / `reg-event-ctx`: `{:rf.cofx/requires [:rf/time-ms [:ui/local-theme "k"]]}`. The declared values arrive **flat** in the coeffects map under their ids. Declared-only delivery; a db handler declaring it is a registration error (EP-0017) |
+| `:rf.cofx` (envelope field / dispatch opt) | flat `fact-name → value` map of recordable coeffects on every dispatch / reply envelope (EP-0017; renamed + flattened from EP-0010's `:rf.world/inputs`). `:rf/time-ms` is the framework's one built-in (recordable, provided, stamped at enqueue). Read durable time off it via `:rf.cofx/requires [:rf/time-ms]` → `(fn [{:keys [rf/time-ms]} ev] …)`. `inject-cofx` is **removed** (`:rf.error/inject-cofx-removed`) |
 | `rf/path` / `rf/unwrap-interceptor` | std interceptors |
 | `rf/init!` | `(adapter-map)` — install adapter/runtime capabilities; creates no frame. No registry. |
 | `rf/install-adapter!` / `rf/destroy-adapter!` / `rf/current-adapter` / `rf/current-adapter-spec` | low-level adapter ops; `current-adapter` → discriminator keyword, `current-adapter-spec` → spec map |
