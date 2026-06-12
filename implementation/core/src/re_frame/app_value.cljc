@@ -619,14 +619,19 @@
   "Seat one descriptor into the realm's registrar so it is dispatch/resolve-
   ready. A CONSTRUCTED descriptor (high-level `module` form) must be lowered
   through its kind's real registration logic (the event interceptor wrap, the
-  sub input-signal parse, …) — that logic lives in `re-frame.events` / `.subs`
-  / `.fx` / `.cofx`, which this leaf ns must not require, so it is reached
-  through the `:app-value/install-descriptor!` late-bind hook core publishes.
-  When the hook handles the kind it returns truthy; otherwise (a projected
-  descriptor — whose `:metadata` already carries the wrapped slots — or a kind
-  the hook does not special-case, or the hook being unbound) fall back to the
-  flat registrar lowering, which round-trips a projected descriptor unchanged.
-  INTERNAL."
+  sub input-signal parse, the frame container create + `:on-create`, …) — that
+  logic lives in `re-frame.events` / `.subs` / `.fx` / `.cofx` / `.frame`,
+  which this leaf ns must not require, so it is reached through the
+  `:app-value/install-descriptor!` late-bind hook core publishes. The hook
+  wires the EP-0013 step-7 first-format kinds (`:event`/`:sub`/`:fx`/`:cofx`/
+  `:frame`) and returns truthy; for the step-8-DEFERRED kinds (`:route`/`:flow`/
+  `:resource`/`:mutation`/`:view`/`:head`/`:error-projector`/`:resource-scope`)
+  it THROWS `:rf.error/unsupported-descriptor-kind` (refuse-loudly, fail-closed
+  per EP-0013 issue-12) rather than seat a malformed flat slot. The flat
+  registrar lowering is the FALLBACK reached only when the hook returns falsy —
+  a projected descriptor whose `:metadata` already carries the wrapped slots,
+  with the hook unbound (a bundle that never loaded core's reg surfaces); it
+  round-trips a projected descriptor unchanged. INTERNAL."
   [kind id desc]
   (let [lower (late-bind/get-fn :app-value/install-descriptor!)]
     (when-not (and lower (lower kind id desc))

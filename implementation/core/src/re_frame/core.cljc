@@ -1706,24 +1706,69 @@
 ;; `register-event!` wraps the handler into the kind-appropriate interceptor;
 ;; `reg-sub` parses input signals; `reg-fx`/`reg-cofx` stamp their slots. That
 ;; logic lives in `re-frame.events` / `re-frame.subs` / `re-frame.fx` /
-;; `re-frame.cofx`, which `re-frame.app-value` must NOT require (it is a leaf on
-;; the realm/registrar spine, bundle-isolation neutral). So core — which already
-;; pulls all four reg surfaces — publishes a `:app-value/install-descriptor!`
-;; late-bind hook that `app-value/install!` consults per descriptor; the flat
-;; registrar lowering is the FALLBACK for kinds this hook does not special-case
-;; (and for a projected descriptor, whose `:metadata` already carries the
-;; wrapped slots — it round-trips through the flat path unchanged).
+;; `re-frame.cofx` / `re-frame.frame`, which `re-frame.app-value` must NOT
+;; require (it is a leaf on the realm/registrar spine, bundle-isolation
+;; neutral). So core — which already pulls all those reg surfaces — publishes a
+;; `:app-value/install-descriptor!` late-bind hook that `app-value/install!`
+;; consults per descriptor.
+;;
+;; EP-0013 §Implementation step 7 defines the FIRST descriptor-format kinds —
+;; `:event`/`:sub`/`:fx`/`:cofx` AND `:frame`. All five are wired here through
+;; their real registration logic (`:frame` → `reg-frame`, which creates the
+;; frame container + runs `:on-create` + installs classification — the malformed
+;; flat slot that `reg-frame` never produces is the rf2-chc8vs gap this closes).
+;;
+;; Step 8 DEFERS the rest (`:route`/`:flow`/`:resource`/`:mutation`/`:view`/
+;; `:head`/`:error-projector`/`:resource-scope`): each has real registration
+;; logic (route compile, flow input-signal parse, scope wiring, …) the flat
+;; registrar lowering BYPASSES, so flat-lowering one seats a slot the subsystem
+;; cannot consume. Rather than silently seat that malformed slot, the hook
+;; REFUSES LOUDLY — a diagnosable `:rf.error/unsupported-descriptor-kind` naming
+;; the unsupported kind + the wired set + that it is a later slice — per EP-0013
+;; issue-12 (refuse-loudly is fail-closed) + the corpus no-silent-swallow rule
+;; (rf2-3nbl5.1). The flat fallback in `register-descriptor!` now only ever runs
+;; for a projected descriptor of a wired kind whose `:metadata` already carries
+;; the registrar slot (when the hook is unbound — e.g. a production bundle that
+;; never loaded core's reg surfaces).
+
+(def ^:private install-deferred-kinds
+  "EP-0013 step-8 registration kinds whose install lowering is NOT yet wired.
+  Each carries real registration logic (route compile, flow input-signal parse,
+  resource/mutation/scope wiring, view handler wrap, SSR head + error-projector
+  registration) the flat registrar lowering bypasses, so `install!` REFUSES
+  LOUDLY rather than seat a malformed flat slot the subsystem cannot consume —
+  fail-closed per EP-0013 issue-12. Wiring these is a later slice."
+  #{:route :flow :resource :mutation :resource-scope :view :head :error-projector})
+
+(def ^:private install-wired-kinds
+  "EP-0013 step-7 FIRST descriptor-format kinds — those `install-descriptor!`
+  lowers through their real registration logic. The complement of
+  `install-deferred-kinds` within the Spec 001 registrar taxonomy."
+  #{:event :sub :fx :cofx :frame})
 
 (defn- install-descriptor!
   "Lower one app-value registration descriptor into the realm's registrar
   through its kind's real registration path, so a constructed (high-level)
   descriptor becomes dispatch/resolve-ready exactly as a `reg-*` call would.
-  Returns `true` when the kind was handled here, `false` to signal `install!`
-  should fall back to the flat registrar lowering (projected descriptors +
-  kinds not special-cased — e.g. `:frame`/`:view`/`:route`, whose seating is a
-  later slice). The `:event/kind` is read from the descriptor metadata
+
+  Handles the EP-0013 step-7 first-format kinds — `:event`/`:sub`/`:fx`/`:cofx`
+  AND `:frame` — through their real `reg-*` logic, returning `true`. `:frame`
+  lowers through `reg-frame` (atomic create-and-register: a frame container,
+  `:on-create`, classification install), so a seated frame is a REAL frame that
+  appears in `frame-ids` — not the malformed flat slot the registrar-only path
+  produced (rf2-chc8vs). The `:event/kind` is read from the descriptor metadata
   (defaulting to `:db`), so a module event entry tagged `{:event/kind :fx}`
-  lowers through `reg-event-fx`."
+  lowers through `reg-event-fx`.
+
+  For the step-8-DEFERRED kinds (`install-deferred-kinds`) THROWS
+  `:rf.error/unsupported-descriptor-kind` (the ex-data IS the diagnostic —
+  naming the kind + the wired set + that its install lowering is a later slice)
+  rather than silently flat-lowering a slot the subsystem cannot consume —
+  fail-closed per EP-0013 issue-12 + the no-silent-swallow rule.
+
+  Returns `false` for any other kind to signal `install!` should fall back to
+  the flat registrar lowering — reached only by a projected descriptor when the
+  hook is unbound (the flat path round-trips a projected descriptor unchanged)."
   [kind id {:keys [handler metadata source owner]}]
   ;; Fold the descriptor's lifted `:source` envelope back into the metadata the
   ;; reg fn sees, so an explicitly-supplied source coordinate (issue 8: a
@@ -1733,16 +1778,33 @@
   ;; so the realm's registrar records which module installed each registration.
   (let [meta (cond-> (merge source (or metadata {}))
                (some? owner) (assoc :owner owner))]
-    (case kind
-      :event (do (case (:event/kind meta)
-                   :fx  (events/reg-event-fx  id meta handler)
-                   :ctx (events/reg-event-ctx id meta handler)
-                   (events/reg-event-db id meta handler))
-                 true)
-      :sub   (do (subs/reg-sub id meta handler) true)
-      :fx    (do (fx/reg-fx id meta handler) true)
-      :cofx  (do (cofx/reg-cofx id meta handler) true)
-      false)))
+    (cond
+      (contains? install-deferred-kinds kind)
+      (throw (ex-info (str "rf/install!: descriptor kind " kind
+                           " is not yet installable — its real registration"
+                           " logic is a later EP-0013 slice (step 8). install!"
+                           " wires " (pr-str install-wired-kinds) " so far;"
+                           " seating " kind " through the flat registrar would"
+                           " produce a slot the subsystem cannot consume.")
+                      {:error/id    :rf.error/unsupported-descriptor-kind
+                       :kind        kind
+                       :id          id
+                       :wired       install-wired-kinds
+                       :deferred    install-deferred-kinds
+                       :recovery    :register-through-reg-*-sugar}))
+
+      :else
+      (case kind
+        :event (do (case (:event/kind meta)
+                     :fx  (events/reg-event-fx  id meta handler)
+                     :ctx (events/reg-event-ctx id meta handler)
+                     (events/reg-event-db id meta handler))
+                   true)
+        :sub   (do (subs/reg-sub id meta handler) true)
+        :fx    (do (fx/reg-fx id meta handler) true)
+        :cofx  (do (cofx/reg-cofx id meta handler) true)
+        :frame (do (frame/reg-frame id meta) true)
+        false))))
 
 (late-bind/set-fn! :app-value/install-descriptor! install-descriptor!)
 
