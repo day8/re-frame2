@@ -275,27 +275,27 @@ The `:spec` metadata validates the event vector itself at dispatch time — `[:f
 
 That `:rf.http/managed` is the exact effect from [chapter 10](10-http.md) — the form's network round-trip rides on the managed-HTTP shape, with the form's `submit-success` / `submit-error` events as its reply addresses. `validate-against` is a thin wrapper around your schema library's "explain" function (Malli's `m/explain`, mapped to per-field error vectors). The convention doesn't pick a validator; it picks the *result shape*: `{<field-id> ["msg" ...]}`, with `:_form` for cross-field complaints.
 
-`:submit-success` snapshots `:draft` into `:submitted` and stores whatever the server returned (here, the authenticated user):
+`:submit-success` snapshots `:draft` into `:submitted` and stores whatever the server returned (here, the authenticated user). The reply lands as managed-HTTP's public compatibility payload — `{:kind :success :value v}` ([chapter 10](10-http.md#default-reply-addressing--the-co-located-handler)) — so the decoded server value rides under `:value`, *not* as the raw last argument. Destructure `:value`:
 
 ```clojure
 (rf/reg-event-db :form.login/submit-success
-  (fn [db [_ resp]]
+  (fn [db [_ {:keys [value]}]]
     (-> db
         (assoc-in [:auth :login :status]    :submitted)
         (assoc-in [:auth :login :submitted] (get-in db [:auth :login :draft]))
-        (assoc-in [:auth :user] (:user resp)))))
+        (assoc-in [:auth :user] (:user value)))))
 ```
 
-And `:submit-error` carries the most logic, because it has *two* shapes to sort. A structured server response — `{:errors {:email ["already in use"] :_form ["invalid signup"]}}` — lands in `:errors`, where the *same view code that renders client-side errors* renders the server's. An opaque transport failure — network down, 500 with an HTML body, timeout — lands in `:submit-error`:
+And `:submit-error` carries the most logic, because it has *two* shapes to sort. The reply arrives as managed-HTTP's public compatibility payload — `{:kind :failure :failure m}` ([chapter 10](10-http.md#default-reply-addressing--the-co-located-handler)) — so destructure `:failure` to get the classified failure map, never the raw last argument. From there, a structured server response — `{:errors {:email ["already in use"] :_form ["invalid signup"]}}`, projected from the failed call (a `:accept` domain-failure rides at `:detail`; a 4xx body you decode yourself) — lands in `:errors`, where the *same view code that renders client-side errors* renders the server's. An opaque transport failure — network down, 500 with an HTML body, timeout — lands in `:submit-error`:
 
 ```clojure
 (rf/reg-event-db :form.login/submit-error
-  (fn [db [_ err]]
-    (let [structured (:errors err)]
+  (fn [db [_ {:keys [failure]}]]
+    (let [structured (:errors failure)]
       (cond-> db
-        true                  (assoc-in [:auth :login :status] :error)
-        (map? structured)     (assoc-in [:auth :login :errors] structured)
-        (not (map? structured)) (assoc-in [:auth :login :submit-error] err)))))
+        true                    (assoc-in [:auth :login :status] :error)
+        (map? structured)       (assoc-in [:auth :login :errors] structured)
+        (not (map? structured)) (assoc-in [:auth :login :submit-error] failure)))))
 ```
 
 This is the *second* load-bearing rule: **the view has one code path for validation errors regardless of where they came from, and one separate code path for transport failures.** Client-side schema rejection and server-side validation rejection render through the same markup — the distinction lives in this handler, not in your view. The remaining two events are mechanical: `:blur-field` adds to `:touched` and (if you have per-field async validation) kicks off the check; `:reset` just re-dispatches `:initialise`.
