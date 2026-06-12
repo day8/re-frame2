@@ -86,27 +86,28 @@ Capture intermediate states with `:after-each`:
 
 Target a non-default frame with `{:frame :feature/frame-id}` in the trailing opts map.
 
-## Pinning world inputs: `:rf.world/inputs` in dispatch opts
+## Pinning recordable coeffects: `:rf.cofx` in dispatch opts
 
-A handler that writes a durable timestamp / generated id reads it from the EP-0010 causal world-input coeffect `:rf.world/inputs` (`:time-ms`, `:uuid`, `:random`, …), not from an ambient `js/Date` / `random-uuid` call. That makes the handler a pure function of its inputs — and a test pins those inputs by passing `:rf.world/inputs` in the dispatch opts. The runtime preserves a supplied map verbatim (filling only `:time-ms` when absent), so the durable write becomes deterministic:
+A handler that writes a durable timestamp / generated id **declares** the fact in `:rf.cofx/requires` and reads it flat (EP-0017) — `:rf/time-ms` for the durable clock, the event payload or a recordable cofx for an id — not an ambient `js/Date` / `random-uuid` call. That makes the handler a pure function of its inputs, and a test pins those inputs by passing `:rf.cofx` in the dispatch opts. The runtime preserves a supplied map verbatim (filling only `:rf/time-ms` when absent), so the durable write becomes deterministic:
 
 ```clojure
-;; Handler under test reads :time-ms off the world-input coeffect:
+;; Handler under test declares the clock and reads it flat:
 ;; (rf/reg-event-fx :todo/create
-;;   (fn [{:keys [db] :rf.world/keys [inputs]} [_ text]]
-;;     {:db (assoc-in db [:todos :t1] {:text text :created-at (:time-ms inputs)})}))
+;;   {:rf.cofx/requires [:rf/time-ms]}
+;;   (fn [{:keys [db rf/time-ms]} [_ text]]
+;;     {:db (assoc-in db [:todos :t1] {:text text :created-at time-ms})}))
 
 (rf/dispatch-sync [:todo/create "write spec"]
-  {:rf.world/inputs {:time-ms 1700000000000}})        ;; pin the durable clock
+  {:rf.cofx {:rf/time-ms 1700000000000}})             ;; pin the durable clock
 (ts/assert-path-equals [:todos :t1 :created-at] 1700000000000)
 
-;; Pin generated ids / random choices the same way:
+;; Pin a generated id the same way (a recordable fact in the flat :rf.cofx map):
 (rf/dispatch-sync [:todo/create "write spec"]
-  {:rf.world/inputs {:time-ms 1700000000000
-                     :uuid    {:todo/id #uuid "00000000-0000-0000-0000-000000000001"}}})
+  {:rf.cofx {:rf/time-ms 1700000000000
+             :todo/id    #uuid "00000000-0000-0000-0000-000000000001"}})
 ```
 
-This pinning works through `rf/dispatch-sync` (and `rf/dispatch`) opts — the router preserves a caller-supplied `:rf.world/inputs` verbatim, filling only `:time-ms` when it is absent. If you omit it, the runtime stamps `:time-ms` itself (the wall clock at dispatch) — fine for a non-durable assertion, but pin it whenever a durable timestamp/id is what the test asserts, so the assertion can't drift with the clock. (`ts/dispatch-sequence` does **not** forward `:rf.world/inputs` today — it threads only `:frame` / `:source` / `:origin` — so a multi-event scenario that needs a pinned clock dispatches each step through `rf/dispatch-sync` with the `:rf.world/inputs` opt rather than relying on the sequence helper.) (A durable host fact behind a *recordable* cofx is pinned by stubbing that cofx — see [§HTTP and other side-effecting fx](#http-and-other-side-effecting-fx) for the cofx-override shape; a plain ambient cofx for a diagnostic read needs no pinning.)
+Pin the value at the boundary that owns it: a caller-pinned id is simplest on the **event payload** (`[:todo/create {:id … :text …}]`); a fold-internal fact rides `:rf.cofx`. This pinning works through `rf/dispatch-sync` (and `rf/dispatch`) opts — the router preserves a caller-supplied `:rf.cofx` verbatim, filling only `:rf/time-ms` when it is absent. If you omit it, the runtime stamps `:rf/time-ms` itself (the wall clock at dispatch) — fine for a non-durable assertion, but pin it whenever a durable timestamp/id is what the test asserts, so the assertion can't drift with the clock. (`ts/dispatch-sequence` does **not** forward `:rf.cofx` today — it threads only `:frame` / `:source` / `:origin` — so a multi-event scenario that needs a pinned clock dispatches each step through `rf/dispatch-sync` with the `:rf.cofx` opt rather than relying on the sequence helper.) (A durable host fact behind a *recordable* cofx is pinned by stubbing that cofx — see [§HTTP and other side-effecting fx](#http-and-other-side-effecting-fx) for the cofx-override shape; a plain ambient cofx for a diagnostic read needs no pinning.)
 
 ## Pinning a frame: `with-frame`
 
