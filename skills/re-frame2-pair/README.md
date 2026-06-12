@@ -94,7 +94,7 @@ Here's the kinds of conversations you can have with Claude.
 
 > **You**: What happens when I dispatch `[:cart/apply-coupon "SPRING25"]`?
 >
-> **Claude**: Interceptors: `inject-cofx :now`, `path :shopping-cart`, handler. Effects map: `{:db ...}` only — no HTTP, no further dispatches. app-db diff: `:coupon` `nil` → `"SPRING25"`, `:total` `47.50` → `35.62`. Subs that re-ran (from `:sub-runs`): `[:cart/total]`, `[:cart/coupon-status]`. `[:cart/items]` is absent — cache-hit. One render in `:renders`: the total badge at `cart_view.cljs:23`. Pure handler, nothing outside the cart subtree touched.
+> **Claude**: Interceptors: `path :shopping-cart`, handler; declared coeffects: `:rf/time-ms`. Effects map: `{:db ...}` only — no HTTP, no further dispatches. app-db diff: `:coupon` `nil` → `"SPRING25"`, `:total` `47.50` → `35.62`. Subs that re-ran (from `:sub-runs`): `[:cart/total]`, `[:cart/coupon-status]`. `[:cart/items]` is absent — cache-hit. One render in `:renders`: the total badge at `cart_view.cljs:23`. Pure handler, nothing outside the cart subtree touched.
 
 ### Watch events as they fire
 
