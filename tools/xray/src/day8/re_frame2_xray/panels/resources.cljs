@@ -527,6 +527,12 @@
    " " (str/join " " (map pr-str (:tags d)))
    (when (:refetch-populated? d)
      [:span {:style {:color (:info tokens)}} " refetch-populated"])
+   ;; the per-descriptor :exempt-keys (rf2-fi6tda.7) — the populated keys THIS
+   ;; pass spared. Visible per-chip so a mixed plan (one descriptor opting in,
+   ;; another sparing the same key) is debuggable without the collapsed union.
+   (when (seq (:exempt-keys d))
+     [:span {:style {:color (:info tokens)}}
+      " " (count (:exempt-keys d)) " exempt"])
    "]"])
 
 (defn- mutation-invalidation-row-view [row]

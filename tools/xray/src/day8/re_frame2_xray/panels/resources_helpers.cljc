@@ -934,8 +934,8 @@
 ;; resource-scope resolvers / §Trace evidence). The runtime emits
 ;; `:rf.resource/scope-resolved` whenever a named resolver resolves a
 ;; `{:from-db …}` reference (route entry, event ensure, subscription read,
-;; invalidation descriptor, the pure `resolve-resource-scope` helper). Each row
-;; explains WHICH resolver ran, the declared input NAMES that decided the
+;; invalidation descriptor, the `resolve-resource-scope` resolver helper). Each
+;; row explains WHICH resolver ran, the declared input NAMES that decided the
 ;; identity, the resolved scope (PRIVACY-summarized — a scope carries PII), and
 ;; whether the resolution FAILED CLOSED (`:resolved-nil?` — the scope-requiring
 ;; site got nil, never an implicit global).
@@ -996,17 +996,25 @@
 
 (defn- descriptor-summary
   "Summarize ONE resolved invalidation descriptor `{:scope … :cross-scope? …
-  :tags … :refetch-populated? …}` (the per-descriptor plan-trace facet, Spec
-  016 §Trace evidence for invalidation) for a render-safe row. PRIVACY: the
-  resolved `:scope` carries PII → summarized; the tags are identity, not PII.
-  `:cross-scope?` marks the audited scope-agnostic escape (privacy-relevant per
-  EP-0015); `:refetch-populated?` marks the partial-reply opt-in to a
-  same-mutation refetch of a populated key."
-  [{:keys [scope cross-scope? tags refetch-populated?]}]
+  :tags … :refetch-populated? … :exempt-keys …}` (the per-descriptor plan-trace
+  facet, Spec 016 §Trace evidence for invalidation) for a render-safe row.
+  PRIVACY: the resolved `:scope` carries PII → summarized; the tags are
+  identity, not PII. `:cross-scope?` marks the audited scope-agnostic escape
+  (privacy-relevant per EP-0015); `:refetch-populated?` marks the partial-reply
+  opt-in to a same-mutation refetch of a populated key. `:exempt-keys` is the
+  truthful per-descriptor evidence (rf2-fi6tda.3 finding 2): the populated keys
+  THIS descriptor's pass spared (empty when it opted into `:refetch-populated?
+  true`). Surfacing it per-descriptor — not just the collapsed top-level
+  `:populate-exempt` union — keeps a MIXED plan (one descriptor opts in, another
+  default descriptor matches the same populated key) debuggable: the row shows
+  exactly which pass spared which populated key. Each exempt scoped key carries
+  PII in its scope/params → summarized."
+  [{:keys [scope cross-scope? tags refetch-populated? exempt-keys]}]
   {:scope              (summarize scope)
    :cross-scope?       (boolean cross-scope?)
    :tags               (vec tags)
-   :refetch-populated? (boolean refetch-populated?)})
+   :refetch-populated? (boolean refetch-populated?)
+   :exempt-keys        (mapv scoped-key-summary exempt-keys)})
 
 (defn mutation-invalidation-evidence
   "Project the descriptor-level invalidation evidence off the
@@ -1021,17 +1029,24 @@
        :descriptor-count 2
        :dispatched      [{:scope <summary> :cross-scope? false
                           :tags [[:article-list] [:article \"welcome\"]]
-                          :refetch-populated? false}
+                          :refetch-populated? false
+                          :exempt-keys [<scoped-key-summary> …]}
                          {:scope <summary> :cross-scope? false
-                          :tags [[:feed]] :refetch-populated? false}]
+                          :tags [[:feed]] :refetch-populated? false
+                          :exempt-keys []}]
        :unresolved      [:realworld/session]   ; {:from-db …} refs that resolved nil
-       :populate-exempt [<scoped-key> …]}      ; Rider-1 keys exempt from refetch
+       :populate-exempt [<scoped-key> …]}      ; Rider-1 keys exempt from refetch (union)
 
   Distinguishes the precise-multi-scope case (≥2 dispatched descriptors with
   different scopes — the favorite/unfavorite global+session shape) from a
   fail-closed `:unresolved` descriptor (a `{:from-db …}` reference that
   resolved nil and produced NO invalidation, never an implicit global blast).
-  PRIVACY: each descriptor's resolved scope is summarized; tags are identity.
+  Each `:dispatched` descriptor carries its OWN `:exempt-keys` — the truthful
+  per-pass evidence (rf2-fi6tda.3 finding 2) a MIXED `:refetch-populated?` plan
+  needs (one descriptor opts in and spares nothing while a default descriptor
+  spares the populated key it matched). The top-level `:populate-exempt` is the
+  union of those per-descriptor exempt sets. PRIVACY: each descriptor's resolved
+  scope is summarized; tags are identity; exempt scoped keys are summarized.
   Pure over the trace vector. Per Spec 016."
   [trace-buffer]
   (->> (or trace-buffer [])

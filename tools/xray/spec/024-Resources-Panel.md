@@ -206,12 +206,20 @@ stacked sections:
      (the `:invalidation` plan-trace): the descriptor count, the
      per-descriptor **resolved scope** (summarized) + tags +
      `:cross-scope?` (the audited scope-agnostic escape) +
-     `:refetch-populated?` (the Rider-1 partial-reply opt-in), the
-     **fail-closed `:unresolved`** `{:from-db …}` ids (descriptors that
-     resolved nil and produced NO invalidation — never an implicit global
-     blast), and the Rider-1 **`:populate-exempt`** keys (the keys this
-     mutation populated that are exempt from its own refetch). Surfaces
-     the favorite/unfavorite global+session shape precisely;
+     `:refetch-populated?` (the Rider-1 partial-reply opt-in) + that
+     descriptor's own **`:exempt-keys`** (summarized — the populated keys
+     THAT pass spared, empty when the descriptor opted into
+     `:refetch-populated? true`), the **fail-closed `:unresolved`**
+     `{:from-db …}` ids (descriptors that resolved nil and produced NO
+     invalidation — never an implicit global blast), and the Rider-1
+     **`:populate-exempt`** keys (the **union** of every descriptor's
+     spared keys — the keys this mutation populated that are exempt from
+     its own refetch). The per-descriptor `:exempt-keys` is the truthful
+     evidence in a **mixed** `:refetch-populated?` plan (rf2-fi6tda.3
+     finding 2): one descriptor opting in no longer collapses the row's
+     observed exemption to the top-level union alone — each pass shows
+     exactly which populated key it spared. Surfaces the
+     favorite/unfavorite global+session shape precisely;
    - the **`:reply-to` continuation dispatch** off the
      `:rf.mutation/replied` trace (mutation phase 6, after cache
      consequences + instance settlement): the mutation id, instance, work

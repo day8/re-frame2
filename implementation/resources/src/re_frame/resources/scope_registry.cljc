@@ -1,6 +1,6 @@
 (ns re-frame.resources.scope-registry
   "Named resource-scope resolvers — `reg-resource-scope` /
-  `clear-resource-scope` / the pure `resolve-resource-scope` helper, plus
+  `clear-resource-scope` / the `resolve-resource-scope` resolver helper, plus
   the registry-side introspection accessors and the `{:from-db <id>}`
   reference resolver. Per Spec 016 §Named resource-scope resolvers
   (`reg-resource-scope`) and EP-0016 Decision 3 (slice 2).
@@ -65,15 +65,18 @@
   scoped-key redaction (Spec 016); the arm only ADDS the precision case where
   the owning resource was not itself declared `:sensitive?`.
 
-  ## The pure `resolve-resource-scope` helper
+  ## The `resolve-resource-scope` resolver helper
 
   `resolve-resource-scope` resolves a named scope against a SUPPLIED db
   value — a plain function over the registry, no effect-API surface and no
-  resolution-timing ambiguity. Its canonical use is the logout idiom:
-  resolve the concrete old scope from the handler's coeffect db (the
-  pre-transition causal input) and pass it to `:rf.resource/clear-scope`
-  concretely. Per Spec 016 §`clear-scope` resolves the concrete scope from
-  the coeffect db (EP-0016 issue 7)."
+  resolution-timing ambiguity. It is NOT an effect and has no app-state /
+  dispatch side effects, but it is not a pure data helper either: like every
+  resolution site it emits `:rf.resource/scope-resolved` dev-time trace
+  evidence (the inputs/resolved-scope/`:resolved-nil?` row tooling reads).
+  Its canonical use is the logout idiom: resolve the concrete old scope from
+  the handler's coeffect db (the pre-transition causal input) and pass it to
+  `:rf.resource/clear-scope` concretely. Per Spec 016 §`clear-scope` resolves
+  the concrete scope from the coeffect db (EP-0016 issue 7)."
   (:require [re-frame.marks :as marks]
             [re-frame.path :as path]
             [re-frame.registrar :as registrar]
@@ -448,11 +451,15 @@
     resolved))
 
 (defn resolve-resource-scope
-  "PURE helper: resolve the named resource-scope resolver `scope-id` against
-  the supplied `db` value, returning a canonical concrete scope or nil. A
-  plain function over the resolver registry — NOT an effect, no
-  resolution-timing ambiguity. Per Spec 016 §`clear-scope` resolves the
-  concrete scope from the coeffect db (EP-0016 issue 7).
+  "Resolver helper: resolve the named resource-scope resolver `scope-id`
+  against the supplied `db` value, returning a canonical concrete scope or
+  nil. A plain function over the resolver registry — NOT an effect, no
+  resolution-timing ambiguity, no app-state / dispatch side effects. It is
+  NOT a pure data helper, though: like every resolution site it emits
+  `:rf.resource/scope-resolved` dev-time trace evidence (via `resolve-scope*`)
+  — the inputs / resolved scope / fail-closed `:resolved-nil?` row tooling
+  reads. Per Spec 016 §`clear-scope` resolves the concrete scope from the
+  coeffect db (EP-0016 issue 7).
 
   Canonical use is the logout/account-switch idiom: resolve the concrete old
   scope from the handler's COEFFECT db (pre-transition by definition — the

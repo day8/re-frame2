@@ -151,14 +151,14 @@ A common boundary — logout, account switch, tenant switch — wants to clear t
 ```clojure
 (rf/reg-event-fx :auth/logout
   (fn [{:keys [db]} _]
-    (let [old-scope (rf/resolve-resource-scope db :realworld/session)]   ;; pure helper, resolved against cofx db
+    (let [old-scope (rf/resolve-resource-scope db :realworld/session)]   ;; resolver helper, resolved against cofx db
       {:db (dissoc db :auth)
        :fx [[:dispatch [:rf.resource/clear-scope
                         {:scope old-scope
                          :cause :logout}]]]})))
 ```
 
-A pure helper — `resolve-resource-scope` (resolve a named resource scope against a **given db value**) — ships for ergonomics: a plain function over the resolver registry, no new effect-API surface and no resolution-timing ambiguity. There is **no `:snapshot-db` payload key**: a whole-db snapshot riding an event vector is an egress-bearing record on traces and epoch history — unacceptable under [EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md) (EP-0016 issue 7). A `{:from-db …}` reference *may* still appear on a `clear-scope` payload; the single use-time resolution rule applies, and a reference that resolves **nil** at a clear-scope site emits a **loud diagnostic** (`:rf.warning/resource-clear-scope-unresolved`), **never** a silent no-op.
+A resolver helper — `resolve-resource-scope` (resolve a named resource scope against a **given db value**) — ships for ergonomics: a plain function over the resolver registry, no new effect-API surface and no resolution-timing ambiguity, **no app-state / dispatch side effects**. It is **not an effect**, but it is **not a pure data helper** either: like every resolution site it emits `:rf.resource/scope-resolved` dev-time trace evidence (the inputs / resolved scope / fail-closed `:resolved-nil?` row tooling reads). There is **no `:snapshot-db` payload key**: a whole-db snapshot riding an event vector is an egress-bearing record on traces and epoch history — unacceptable under [EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md) (EP-0016 issue 7). A `{:from-db …}` reference *may* still appear on a `clear-scope` payload; the single use-time resolution rule applies, and a reference that resolves **nil** at a clear-scope site emits a **loud diagnostic** (`:rf.warning/resource-clear-scope-unresolved`), **never** a silent no-op.
 
 ## Named resource-scope resolvers (`reg-resource-scope`)
 
@@ -549,14 +549,14 @@ Two ledger-design points govern what rides the restore/hydration/epoch wire:
 
 (rf/reg-resource-scope scope-id resolver-spec)   ;; named db-derived scope resolver (EP-0016 D3)
 (rf/clear-resource-scope scope-id)               ;; registration-lifecycle removal
-(rf/resolve-resource-scope db scope-id)          ;; pure helper: resolve a named scope against a db value
+(rf/resolve-resource-scope db scope-id)          ;; resolver helper: resolve a named scope against a db value (emits dev trace)
 ```
 
 `clear-resource` is a **registration-lifecycle** operation, not the normal cache invalidation API. Application code uses `:rf.resource/invalidate-tags`, `:rf.resource/remove`, or `:rf.resource/clear-scope` for data-lifecycle work. When a resource registration is cleared, the implementation MUST also dispose resource-runtime state for that resource id in each affected frame: release owner indexes, cancel timers/host handles, abort in-flight requests where possible, suppress late replies by generation, remove tag-index rows, and emit a trace.
 
 Three registrar kinds belong to this artefact: **`:resource`** (`reg-resource` / `clear-resource`), **`:mutation`** (`reg-mutation` / `clear-mutation`), and **`:resource-scope`** (`reg-resource-scope` / `clear-resource-scope`) — each a distinct kind in the [Spec 001 kind taxonomy](001-Registration.md#registry-model--the-canonical-kind-keyword-set), late-bound by the optional Resources artefact (an app that omits the artefact registers none of them), enumerable via `(rf/registrations :resource)` / `(rf/registrations :mutation)` / `(rf/registrations :resource-scope)` and inspectable via `(rf/handler-meta :resource-scope <id>)`. Do **not** add a `:query` public kind (it collides with route query params and prior-art names).
 
-`reg-resource-scope` registers a **pure** named scope resolver (see [§Named resource-scope resolvers](#named-resource-scope-resolvers-reg-resource-scope)); `clear-resource-scope` is its `clear-` counterpart (the registrar decrement, per [Conventions §Tear-down verb axis](Conventions.md#tear-down-verb-axis--clear--vs-destroy-)). `resolve-resource-scope` is a **pure helper** (a plain function over the resolver registry, resolving a named scope against a supplied db value) — it is **not** an effect; its canonical use is the logout/account-switch idiom of [§`clear-scope` resolves the concrete scope from the coeffect db](#clear-scope-resolves-the-concrete-scope-from-the-coeffect-db-not-a-snapshot). Both `reg-resource-scope` and `resolve-resource-scope` are facade exports classified at [API §Resources](API.md#resources-spec-016).
+`reg-resource-scope` registers a **pure** named scope resolver (see [§Named resource-scope resolvers](#named-resource-scope-resolvers-reg-resource-scope)); `clear-resource-scope` is its `clear-` counterpart (the registrar decrement, per [Conventions §Tear-down verb axis](Conventions.md#tear-down-verb-axis--clear--vs-destroy-)). `resolve-resource-scope` is a **resolver helper** (a plain function over the resolver registry, resolving a named scope against a supplied db value) — it is **not** an effect and has **no app-state / dispatch side effects**, but it is **not a pure data helper** either: like every resolution site it emits `:rf.resource/scope-resolved` dev-time trace evidence. Its canonical use is the logout/account-switch idiom of [§`clear-scope` resolves the concrete scope from the coeffect db](#clear-scope-resolves-the-concrete-scope-from-the-coeffect-db-not-a-snapshot). Both `reg-resource-scope` and `resolve-resource-scope` are facade exports classified at [API §Resources](API.md#resources-spec-016).
 
 ### Events (map payloads, not positional argument vectors)
 
