@@ -86,6 +86,8 @@ That discipline has teeth. The runtime refuses every non-explicit call shape:
 
 There is no multi-adapter ambiguity to untangle at boot, even in a build that imports two substrates. Exactly one adapter is ever installed, and the `init!` call names it. One runtime, one substrate, one line.
 
+> **"One runtime" is the load-bearing qualifier.** The adapter is owned not by the process but by the *realm* — the container a program is installed into ([chapter 21](21-dynamic-model.md#realms--the-container-your-registrations-live-in)). A single-program app has one realm, hence one adapter, hence the rule above. The reason that's worth knowing: the path to running *two* substrates in one process — stock Reagent rendering one root and reagent-slim rendering another — is two realms, one adapter each, not a multi-adapter runtime. The realm owns adapter *selection*; render roots own concrete mount instances of that adapter. Today you won't reach for it (single-realm apps are the norm and this guide's examples are all one adapter); it's here so "exactly one adapter" reads as a per-realm fact, not a permanent process-wide ceiling.
+
 ## Why your handlers never noticed
 
 Let me make the "your app code never names a substrate" claim concrete, because it's the kind of thing that sounds like marketing until you see it.
