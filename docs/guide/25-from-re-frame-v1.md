@@ -76,12 +76,14 @@ There's no automated rewrite for the cache-key habit — it's a judgement call a
 - **Generated ids** — `random-uuid` / host UUID calls feeding durable state — move to the event payload (mint at the dispatch site, `[:todo/add {:id (random-uuid)}]`) or to `:rf.world/inputs` under `:uuid` for ids minted inside the fold.
 - **Random choices** — `rand` / `rand-int` / `rand-nth` whose result is written durably — become supplied choices under `:rf.world/inputs` `:random` (recorded *choices*, not seeds).
 - **Durable storage / location reads** — `localStorage` / `sessionStorage` / `js/location` / `navigator` reads that initialise durable state — become router/host events, recordable coeffects, or `:rf.world/inputs` `:storage` rather than ambient reads at the write site.
-- **Ambient `:now` cofx** — a v1 `inject-cofx :now` stays a *recognizable* source form, but if its value affects durable state it must become recordable. The clean migration is a thin compatibility cofx that reads the recorded world input instead of the host, keeping your call sites unchanged:
+- **Ambient `:now` cofx** — a v1 `inject-cofx :now` stays a *recognizable* source form, but if its value affects durable state it must become recordable. The framework ships a recordable time cofx for exactly this: **`:app/now-ms`** injects the recorded `(:time-ms (:rf.world/inputs …))` under `:coeffects :app/now-ms`, reading only the already-seeded world input — no ambient host read, so a scripted or replayed `:time-ms` returns exactly. You do **not** register it; rename your durable call sites onto `(rf/inject-cofx :app/now-ms)` and read `:app/now-ms` from the cofx map. If your v1 id was literally `:now` and you want call sites untouched, register a thin compatibility cofx under the *legacy id* that reads the recorded world input the same way:
 
 ```clojure
-(rf/reg-cofx :app/now-ms
+;; Preserve a legacy :now id — reads the recorded world input, not the host.
+;; (For renamed call sites, use the shipped :app/now-ms instead; don't re-register it.)
+(rf/reg-cofx :now
   (fn [ctx]
-    (assoc-in ctx [:coeffects :app/now-ms]
+    (assoc-in ctx [:coeffects :now]
               (:time-ms (get-in ctx [:coeffects :rf.world/inputs])))))
 ```
 

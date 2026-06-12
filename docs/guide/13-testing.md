@@ -239,7 +239,7 @@ Two payoffs fall straight out of seeing it this way.
     (rf/dispatch-sync [:item/add {:title "ship it" :due #inst "2026-06-15T17:00:00.000Z"}])
     ;; supply the clock on the dispatch — no cofx to stub, no js/Date to patch
     (rf/dispatch-sync [:item/recompute-due]
-                      {:rf.world/inputs {:time-ms 1750000800000}}) ;; 2026-06-15T09:00Z
+                      {:rf.world/inputs {:time-ms 1781514000000}}) ;; 2026-06-15T09:00Z
     (is (true? (-> (rf/app-db-value f) :items first val :due-today?)))))
 ```
 
