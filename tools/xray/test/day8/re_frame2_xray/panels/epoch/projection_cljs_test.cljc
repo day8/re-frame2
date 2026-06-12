@@ -385,44 +385,48 @@
 ;; ---- COEFFECT ------------------------------------------------------------
 
 (deftest coeffect-rows-granular-test
-  (testing "rf2-mmlgk — granular `:rf.cofx/run` events are walked; each
-            row carries the RESOLVED DELIVERED VALUE off the run-end's
-            `:rf.event/coeffects` map (NOT the input arg). The
-            `:rf.cofx/value` tag rides on the row as `:input` when
-            present so the per-call arg of a 1-arity supplier (an
-            `[id arg]` declaration, e.g. `[:session :auth-token]`) is
-            preserved."
-    (let [evs [(cofx-run-ev :session :auth-token)
-               (cofx-run-ev :now nil)
+  (testing "rf2-mmlgk / rf2-sepqgg — granular `:rf.cofx/run` events are
+            walked; each row carries the PRODUCED VALUE off the run-end's
+            `:rf.event/coeffects` map. The per-call REQUIREMENT ARG of a
+            parameterized `[id arg]` declaration (e.g.
+            `[:session :auth-token]`) rides the distinct `:rf.cofx/arg`
+            tag and is preserved on the row as `:input`."
+    (let [evs [(cofx-run-ev :session {:user-id 42} {:arg :auth-token})
+               (cofx-run-ev :now #inst "2026-01-01")
                (run-end-ev 0.1 {:session {:user-id 42}
                                 :now     #inst "2026-01-01"})]
           rows (proj/coeffect-rows evs)]
       (is (= 2 (count rows)))
       (is (= :session (-> rows first :id)))
       (is (= {:user-id 42} (-> rows first :value))
-          ":value is the RESOLVED injected value (from run-end)")
+          ":value is the PRODUCED value (from run-end)")
       (is (= :auth-token (-> rows first :input))
-          ":input preserves the 2-arity cofx's per-call arg")
+          ":input preserves the parameterized cofx's `:rf.cofx/arg`")
       (is (= :now (-> rows second :id)))
       (is (= #inst "2026-01-01" (-> rows second :value))
-          "1-arity cofx (no `:rf.cofx/value` on the run op) still
-           resolves its injected value off the run-end map")
+          "bare cofx (no `:rf.cofx/arg`) resolves its produced value
+           off the run-end map")
       (is (nil? (-> rows second :input))
-          "1-arity cofx carries no :input (no per-call arg)"))))
+          "bare cofx carries no :input (no requirement arg)"))))
 
 (deftest coeffect-rows-granular-without-run-end-test
-  (testing "rf2-mmlgk — when granular `:rf.cofx/run` events exist but
-            no `:rf.event/run-end` carries the coeffects map (older
-            runtimes / interrupted cascades), the row still surfaces
-            with `:value nil`; the operator reads `nil` honestly
-            rather than 'reading the per-call input arg as if it
-            were the result'."
-    (let [evs  [(cofx-run-ev :testdeck/now nil)]
+  (testing "rf2-mmlgk / rf2-sepqgg — when granular `:rf.cofx/run` events
+            exist but no `:rf.event/run-end` carries the coeffects map
+            (interrupted cascades), the row falls back to the run-op's
+            `:rf.cofx/value` (the PRODUCED value) — which since rf2-sepqgg
+            agrees with the run-end egress — rather than reading the
+            requirement arg as if it were the result."
+    (let [evs  [(cofx-run-ev :testdeck/now #inst "2026-02-02")]
           rows (proj/coeffect-rows evs)]
       (is (= 1 (count rows)))
       (is (= :testdeck/now (-> rows first :id)))
-      (is (nil? (-> rows first :value))
-          "no run-end → :value is nil (no false readings of input as result)"))))
+      (is (= #inst "2026-02-02" (-> rows first :value))
+          "no run-end → :value falls back to the run-op `:rf.cofx/value`"))
+    (testing "a value-less run with no run-end still surfaces honestly nil"
+      (let [rows (proj/coeffect-rows [(cofx-run-ev :testdeck/now nil)])]
+        (is (= 1 (count rows)))
+        (is (nil? (-> rows first :value))
+            "no produced value + no run-end → :value is nil")))))
 
 (deftest coeffect-rows-run-end-fallback-test
   (testing "no granular cofx events: fall back to run-end's stamp"
@@ -445,7 +449,7 @@
     (let [cofx-ev  {:op-type   :rf.cofx
                     :operation :rf.cofx/run
                     :tags      {:rf.cofx/id         :session
-                                :rf.cofx/value      :auth-token
+                                :rf.cofx/value      {:user-id 1}
                                 :rf.cofx/elapsed-ms 0.6}}
           rows     (proj/coeffect-rows
                      [cofx-ev (run-end-ev 0.5 {:session {:user-id 1}})])]

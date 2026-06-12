@@ -115,18 +115,36 @@
 (defn cofx-run-ev
   "`:rf.cofx/run` trace — one per USER-injected coeffect (system
   cofx `:db / :event / :frame / :source / :trace-id` are filtered out
-  by the projection per rf2-cq0ch). The 3-arg form supplies a
-  duration; the 2-arg legacy form omits it.
+  by the projection per rf2-cq0ch).
+
+  rf2-sepqgg — `value` is the supplier's PRODUCED value and rides
+  `:rf.cofx/value` (the coeffect that egresses into `:coeffects`,
+  redacted by the cofx's marks). The per-call requirement arg of a
+  parameterized `[id arg]` declaration rides the distinct `:rf.cofx/arg`
+  tag and is supplied via the trailing options map's `:arg` key.
+
+  Arities:
+    `[id value]`            — produced value, no requirement arg
+    `[id value duration-ms]`— + canonical `:rf.cofx/elapsed-ms`
+    `[id value opts]`       — opts: `{:arg <requirement-arg>
+                                      :duration-ms <ms>}`
 
   rf2-w2r4p — substrate stamps the canonical `:rf.cofx/elapsed-ms`
   duration tag (rf2-hhh92 · `re-frame.cofx`; spec 009 §243)."
   ([id value]
    (ev :rf.cofx :rf.cofx/run {:rf.cofx/id    id
                               :rf.cofx/value value}))
-  ([id value duration-ms]
-   (ev :rf.cofx :rf.cofx/run {:rf.cofx/id         id
-                              :rf.cofx/value      value
-                              :rf.cofx/elapsed-ms duration-ms})))
+  ([id value duration-or-opts]
+   (if (map? duration-or-opts)
+     (let [{:keys [arg duration-ms]} duration-or-opts]
+       (ev :rf.cofx :rf.cofx/run
+           (cond-> {:rf.cofx/id    id
+                    :rf.cofx/value value}
+             (contains? duration-or-opts :arg) (assoc :rf.cofx/arg arg)
+             (some? duration-ms)               (assoc :rf.cofx/elapsed-ms duration-ms))))
+     (ev :rf.cofx :rf.cofx/run {:rf.cofx/id         id
+                                :rf.cofx/value      value
+                                :rf.cofx/elapsed-ms duration-or-opts}))))
 
 ;; ---- db-changed --------------------------------------------------------
 

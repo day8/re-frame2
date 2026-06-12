@@ -373,17 +373,24 @@
   "Walk every `:rf.cofx/run` event (rf2-hhh92) and project one row per
   user-injected coeffect.
 
-  Each row carries the cofx id and the RESOLVED INJECTED VALUE — what
-  the cofx put into the handler's `:coeffects` map under its id. The
-  resolved value comes off the `:rf.event/run-end :rf.event/coeffects`
-  map (rf2-9dk9y); the `:rf.cofx/value` tag on the granular
-  `:rf.cofx/run` op carries the per-call INPUT ARG for the 1-arity
-  supplier form (an `[id arg]` declaration in `:rf.cofx/requires`, e.g.
-  `[:ui/local-theme \"theme-key\"]`, runs `(supplier \"theme-key\")` and
-  stamps `\"theme-key\"` there), and is preserved alongside as `:input` so
-  the operator can read both 'what was asked of the cofx' and 'what it
-  produced'. Per rf2-mmlgk — the result value is what the operator
-  reads first; the input arg is secondary.
+  Each row carries the cofx id and the PRODUCED VALUE — what the cofx
+  put into the handler's `:coeffects` map under its id. The produced
+  value is read off the `:rf.event/run-end :rf.event/coeffects` map
+  (rf2-9dk9y), falling back to the `:rf.cofx/value` tag on the granular
+  `:rf.cofx/run` op when no run-end carries the coeffects map. Since
+  rf2-sepqgg these two surfaces AGREE: `:rf.cofx/value` carries the
+  supplier's PRODUCED value (redacted by the cofx's marks via
+  `marks/project-cofx-run-tags`), the same value that egresses into
+  `:coeffects`.
+
+  The per-call REQUIREMENT ARG rides the distinct `:rf.cofx/arg` tag —
+  present only for a parameterized `[id arg]` declaration in
+  `:rf.cofx/requires` (e.g. `[:ui/local-theme \"theme-key\"]` runs
+  `(supplier \"theme-key\")` and stamps `\"theme-key\"` under
+  `:rf.cofx/arg`). It is preserved alongside as `:input` so the operator
+  can read both 'what was asked of the cofx' and 'what it produced'. Per
+  rf2-mmlgk — the produced value is what the operator reads first; the
+  requirement arg is secondary.
 
   Empty seq when no `:rf.cofx/run` events fired. System-injected
   defaults (`:db`, `:event`, `:frame`, `:source`, `:trace-id`) are
@@ -392,9 +399,16 @@
   (let [cofx-map (run-end-coeffects events)]
     (vec
       (for [ev (filter-op events :rf.cofx/run)
-            :let [id        (common/tag-of ev :rf.cofx/id)
-                  input-arg (common/tag-of ev :rf.cofx/value)
-                  resolved  (get cofx-map id)]
+            :let [id          (common/tag-of ev :rf.cofx/id)
+                  ;; rf2-sepqgg: `:rf.cofx/value` is the PRODUCED value;
+                  ;; the requirement-arg moved to `:rf.cofx/arg`.
+                  requirement (common/tag-of ev :rf.cofx/arg)
+                  ;; produced value: prefer the run-end egress (the
+                  ;; authoritative `:coeffects` slot), fall back to the
+                  ;; run-op's `:rf.cofx/value` when no run-end fired.
+                  resolved    (if (contains? cofx-map id)
+                                (get cofx-map id)
+                                (common/tag-of ev :rf.cofx/value))]
             :when (user-cofx? id)]
         (cond-> {:step        :coeffect
                  :badge       :COEFFECT
@@ -407,9 +421,10 @@
                  ;; as a fixture-compat fallback for older runtimes.
                  :duration-ms (or (common/tag-of ev :rf.cofx/elapsed-ms)
                                   (common/tag-of ev :duration-ms))}
-          ;; preserve the per-call input arg for 2-arity cofx so the
-          ;; view can surface it when distinct from the resolved value
-          (some? input-arg) (assoc :input input-arg))))))
+          ;; rf2-sepqgg — preserve the per-call requirement arg for a
+          ;; parameterized `[id arg]` cofx so the view can surface it
+          ;; alongside the produced value.
+          (some? requirement) (assoc :input requirement))))))
 
 (defn- coeffect-rows-from-run-end
   "Fallback: read user-injected coeffects from the `:rf.event/run-end`
