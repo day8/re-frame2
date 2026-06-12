@@ -44,7 +44,7 @@ The recipes lead with **structured tools** (`orient`, `snapshot`, `get-path`, `r
 - **Joining or cross-referencing** projection data — diffing two frames, correlating a sub-value against an app-db path, walking a cascade tree — where the answer is a *computation* over several reads, not a single read.
 - **Recovery — re-run the same query as `eval-cljs` when a structured read returns blank or errors.** A blank `read-dom` / `read-sub` / `read-ui` result usually means the OP (or its underlying eval form) is broken, NOT that the connection is stale. Re-issue the equivalent `eval-cljs` form to confirm the runtime is actually answering; if the eval returns the value, report the structured op as suspect (see [errors.md §A structured read came back blank](errors.md#a-structured-read-came-back-blank)).
 
-Every `eval-cljs` form takes the same `frame: ":foo"` arg the dedicated tools do (rf2-ntuzf) — pass it in a multi-frame app so `(rf/subscribe …)` / `(rf/dispatch …)` inside the form resolve against the right frame.
+Every `eval-cljs` form takes the same `frame: ":foo"` arg the dedicated tools do — pass it in a multi-frame app so `(rf/subscribe …)` / `(rf/dispatch …)` inside the form resolve against the right frame.
 
 ## "What is this app?" / First contact
 
@@ -152,7 +152,7 @@ Returns `{:ns :line :file}`. If `:src` is nil, report which prerequisite is miss
 
 ## "Understand this component" / "What is this thing?"
 
-When the user points at a UI element (CSS selector, *"the thing I last clicked"*, or a description), the one-call move is **`read-ui`** (rf2-3bu3d.1) — it returns the rendered content AND the producing re-frame2 entity (view-id, source-coord, render-key, the frame's live `subs-read`) in a single round-trip, riding the `data-rf-view` map so it works with zero testids:
+When the user points at a UI element (CSS selector, *"the thing I last clicked"*, or a description), the one-call move is **`read-ui`** — it returns the rendered content AND the producing re-frame2 entity (view-id, source-coord, render-key, the frame's live `subs-read`) in a single round-trip, riding the `data-rf-view` map so it works with zero testids:
 
 ```
 mcp__re-frame2-pair__read-ui {selector: "#save"}       ;; or {view-id: ":my.app/toolbar"} or {point: {x, y}}
@@ -165,7 +165,7 @@ Then chain:
 3. Narrate: what the component is, what props it takes, which event(s) its interactions dispatch, and which subscriptions it reads (`:subs-read` already names them). Cross-check against `handler-meta {kind: "view", id: <id>}` for registered views.
 4. If `read-ui` returns `:entity {:view-id nil :reason :no-tagged-view-root}` (a portal / fragment leaf), fall back to `eval-cljs` over `(re-frame2-pair.runtime/dom-source-at "sel")` then `(re-frame2-pair.runtime/dom-describe "sel")` to report tag/class/listeners, and ask the user to point at the source instead.
 
-To read JUST the rendered content of a node you already have a selector for (no entity provenance needed), use `read-dom {selector: "..."}` — see [ops.md §read-dom](ops.md#read-dom--raw-dom-content-by-explicit-css-selector-rf2-nfjil).
+To read JUST the rendered content of a node you already have a selector for (no entity provenance needed), use `read-dom {selector: "..."}` — see [ops.md §read-dom](ops.md#read-dom--raw-dom-content-by-explicit-css-selector).
 
 This is one of the most grounding moves you can make — it turns *"that button"* into *"`re-com/button` at `app/cart/view.cljs:84`, dispatching `[:cart/checkout]`"* in one step.
 
@@ -233,7 +233,7 @@ Canonical procedure (commit-and-compare):
 
 ## "What would this event do?" (dry-run)
 
-**When the user wants to know the consequence of an event WITHOUT paying for it** — before firing a checkout, a destructive delete, anything that hits the network or navigates. `dispatch-dry-run` (rf2-17hvp) runs the full cascade — reducer, interceptors, schema validation, machine transitions, sub-runs, renders — then rolls the frame back via `restore-epoch` (which reinstalls the whole frame-state — both partitions — so any machine/route mutation the simulated cascade made is rewound too, not just app-db). No fx execute; every fx that *would* have fired is enumerated with its args.
+**When the user wants to know the consequence of an event WITHOUT paying for it** — before firing a checkout, a destructive delete, anything that hits the network or navigates. `dispatch-dry-run` runs the full cascade — reducer, interceptors, schema validation, machine transitions, sub-runs, renders — then rolls the frame back via `restore-epoch` (which reinstalls the whole frame-state — both partitions — so any machine/route mutation the simulated cascade made is rewound too, not just app-db). No fx execute; every fx that *would* have fired is enumerated with its args.
 
 ```
 mcp__re-frame2-pair__dispatch-dry-run {event: "[:cart/checkout]"}
@@ -246,7 +246,7 @@ Returns the same `:cascade-summary` shape as `dispatch` (so you read one vocabul
 - `:db-state-after-simulation {...}` — the would-be app-db (what state the cascade *would* have committed).
 - `:cascade-summary {:db-diff {...} :outcome :ok\|:error ...}` — a schema violation surfaces as `:outcome :error`; the rollback still fires.
 
-**Privacy (rf2-z7roa).** Dry-run commits nothing, but it IS an AI-facing read surface — it returns the would-be app-db and fx args, which routinely carry app-db-derived tokens / auth headers / PII. So `:db-state-after-simulation` and every `:would-fire-effects[*].args` slot are run through `re-frame.core/elide-wire-value` **server-side** under the same `--allow-sensitive-reads` posture as `snapshot` / `get-path` / `read-sub` (see [§eval-cljs is the workhorse](#eval-cljs-is-the-workhorse) and [`vocabulary.md` §What gets dropped](vocabulary.md#what-gets-dropped-what-doesnt)): with the gate OFF (the published default) declared-sensitive slots redact to `:rf/redacted` and declared-large slots collapse to `:rf.size/large-elided`. The `:cascade-summary` slot (path lists + counts) rides through unwalked. This makes dry-run the **safer** path than a raw `eval-cljs` "what would happen?" loop — prefer it for sensitive "what would this event do?" work.
+**Privacy.** Dry-run commits nothing, but it IS an AI-facing read surface — it returns the would-be app-db and fx args, which routinely carry app-db-derived tokens / auth headers / PII. So `:db-state-after-simulation` and every `:would-fire-effects[*].args` slot are run through `re-frame.core/elide-wire-value` **server-side** under the same `--allow-sensitive-reads` posture as `snapshot` / `get-path` / `read-sub` (see [§eval-cljs is the workhorse](#eval-cljs-is-the-workhorse) and [`vocabulary.md` §What gets dropped](vocabulary.md#what-gets-dropped-what-doesnt)): with the gate OFF (the published default) declared-sensitive slots redact to `:rf/redacted` and declared-large slots collapse to `:rf.size/large-elided`. The `:cascade-summary` slot (path lists + counts) rides through unwalked. This makes dry-run the **safer** path than a raw `eval-cljs` "what would happen?" loop — prefer it for sensitive "what would this event do?" work.
 
 Compose with `:fx-overrides` to simulate realistic conditions (a canned http response) without losing the rollback guarantee — user overrides win on conflict. Use this in place of the *baseline → restore → modify → re-dispatch* experiment loop when you only need to **read** the consequence once, not iterate on a handler.
 
@@ -287,15 +287,15 @@ Fallback: poll `mcp__re-frame2-pair__watch-epochs {pred: {"event-id-prefix": ":c
 
 ### Inspect what's currently subscribed
 
-For the **live reactive sub-cache** — "what subscriptions are active in this frame?" — call `mcp__re-frame2-pair__list-subscriptions {frame: ":rf/default"}`. It reads the same source as `snapshot :sub-cache` and returns the cached query-vectors (reflecting disposal); pass `include-values: true` for current values + ref-counts (rf2-qicji).
+For the **live reactive sub-cache** — "what subscriptions are active in this frame?" — call `mcp__re-frame2-pair__list-subscriptions {frame: ":rf/default"}`. It reads the same source as `snapshot :sub-cache` and returns the cached query-vectors (reflecting disposal); pass `include-values: true` for current values + ref-counts.
 
 When a **streaming probe** seems to have gone quiet, call `mcp__re-frame2-pair__list-streams {}` to confirm it's still registered and check its `:queue-depth` before assuming the bus is dry. Full return shape and filters: see [streaming-subscriptions.md §Diagnostics](streaming-subscriptions.md#diagnostics--what-streams-are-currently-registered).
 
 ## "Record while I interact" / "Wait until X happens"
 
-**When the bug only reproduces under real human input** — a focus race, a render-timing glitch, a value that only flips after a real mouse drag. `subscribe` / `watch-epochs` stream *epochs*; the `record` / `watch-until` family (rf2-zo4b9) observes arbitrary **signals** (an app-db path, a sub value, a DOM node's text/attribute, the focus slot) across the interaction window. All read-only — never dispatch, never mutate. See [ops.md §Signal recording](ops.md#signal-recording--blocking-waits) for the full SIGNAL / PRED vocabulary.
+**When the bug only reproduces under real human input** — a focus race, a render-timing glitch, a value that only flips after a real mouse drag. `subscribe` / `watch-epochs` stream *epochs*; the `record` / `watch-until` family observes arbitrary **signals** (an app-db path, a sub value, a DOM node's text/attribute, the focus slot) across the interaction window. All read-only — never dispatch, never mutate. See [ops.md §Signal recording](ops.md#signal-recording--blocking-waits) for the full SIGNAL / PRED vocabulary.
 
-> **Privacy:** the `{:app-db [...]}` / `{:sub [...]}` signals sampled below are app-db-derived values that `read-recording` / `watch-until` ship back to the model, so they ride the same `--allow-sensitive-reads` posture as `get-path` / `read-sub` / `snapshot` (rf2-8fin7.2). With the gate OFF (the published default), each `:app-db` / `:sub` sample is walked through `re-frame.core/elide-wire-value` server-side — declared-sensitive slots land as `:rf/redacted`, declared-large slots as `:rf.size/large-elided` — so a sensitive path (`[:auth :token]`) is safe to record by default. `{:dom ...}` / `{:focus true}` signals are host reads, not app-db slots, and pass through. To see the unmasked sample, the operator launches with `--allow-sensitive-reads` and you pass `:include-sensitive true`.
+> **Privacy:** the `{:app-db [...]}` / `{:sub [...]}` signals sampled below are app-db-derived values that `read-recording` / `watch-until` ship back to the model, so they ride the same `--allow-sensitive-reads` posture as `get-path` / `read-sub` / `snapshot`. With the gate OFF (the published default), each `:app-db` / `:sub` sample is walked through `re-frame.core/elide-wire-value` server-side — declared-sensitive slots land as `:rf/redacted`, declared-large slots as `:rf.size/large-elided` — so a sensitive path (`[:auth :token]`) is safe to record by default. `{:dom ...}` / `{:focus true}` signals are host reads, not app-db slots, and pass through. To see the unmasked sample, the operator launches with `--allow-sensitive-reads` and you pass `:include-sensitive true`.
 
 **Capture across an interaction (record → read-recording).** When the user says *"watch what happens to focus and the count while I click around"*:
 

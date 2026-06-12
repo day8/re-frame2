@@ -144,7 +144,7 @@ one that matches the user's situation.
 | User wants to … | Use | How |
 |---|---|---|
 | Inspect the runtime while developing locally | **Default true-inline panel** | Add the preload + a `[data-rf-xray-host]` column in the app layout. Xray auto-opens on page load. |
-| Mount where the host can't give Xray a layout column (full-screen canvas, story-only / prototype host, no `[data-rf-xray-host]`) | **Overlay (fallback)** | `(xray/open-overlay!)` from CLJS, or `window.day8.re_frame2_xray.open_overlay_BANG_()` from devtools. Floats the shell above the host under `document.body` — no layout column needed. The supported fallback for hosts that can't accommodate a right column; **not** the default path (per `spec/011-Launch-Modes.md` + `spec/API.md` §rf2-sa4fr). |
+| Mount where the host can't give Xray a layout column (full-screen canvas, story-only / prototype host, no `[data-rf-xray-host]`) | **Overlay (fallback)** | `(xray/open-overlay!)` from CLJS, or `window.day8.re_frame2_xray.open_overlay_BANG_()` from devtools. Floats the shell above the host under `document.body` — no layout column needed. The supported fallback for hosts that can't accommodate a right column; **not** the default path (per `spec/011-Launch-Modes.md` + `spec/API.md` §Mount facade). |
 | Put Xray on a second monitor with the app full-screen | **Pop-out window** | Click the visible **`⛶` pop-out button** in the panel top-bar's right-icons cluster (the canonical chrome path — it dispatches `:rf.xray/popout-shell`). Or, as the secondary programmatic/devtools path, `(xray/popout!)` from CLJS / `window.day8.re_frame2_xray.popout_BANG_()` (call it — note the parens) from a console. |
 | Install Xray from code (no preload, or alternative wiring) | **Programmatic `init!`** + a mount verb | Call `(xray/init! opts)` after `rf/init!` to install the foundation + apply config (it does **not** open a panel), then `(xray/open!)` / `(xray/open-overlay!)` / `(xray/popout!)` to make it visible. Idempotent. |
 | Browse what's *registered* instead of one dispatch | **Static mode** | Flip the L1 mode pill or press `Cmd/Ctrl+Shift+M`. Static drops the event spine and shows the 5 registry-browse tabs. |
@@ -196,8 +196,8 @@ than the one-liner.
  pauses/resumes, `L` snaps back. (chrome.md §LIVE vs RETRO spine.)
 - **Time-travel: passive inspect vs explicit rewind.** Picking an epoch is
  *passive INSPECTION* — panels rebase, `app-db` does NOT move; live rewind
- is the *separate, explicit* **`Reset` button** on the L3 ribbon (rf2-hga49,
- `restore-epoch` to the focused epoch's `:db-after`). No wired `r`/`R`/`*`
+ is the *separate, explicit* **`Reset` button** on the L3 ribbon
+ (`restore-epoch` to the focused epoch's `:db-after`). No wired `r`/`R`/`*`
  keys — those are spec-future only. (chrome.md §Time-travel.)
 - **Filter pills.** The L1.5 events ribbon carries IN / OUT pills, a mute
  set, an `N hidden by filters` count, and `Clear Filters`; transient,
@@ -212,7 +212,7 @@ than the one-liner.
  order is `defaults < configure! < Settings`. (chrome.md §Settings popup —
  for the per-tab control inventory + the layered-config story.)
 - **Snapshot app-db (the on-box share helper).** Share-URL + EDN export were
- removed (rf2-nugvv); the surviving helper is the **Snapshot app-db**
+ removed; the surviving helper is the **Snapshot app-db**
  palette verb — and it is **redacted by default** (sensitive ⇒
  `:rf/redacted`, large ⇒ `:rf.size/large-elided`, via
  `runtime/egress-value`). Do **not** present it as a raw-`app-db` /
@@ -241,13 +241,13 @@ browse a machine's full topology cold (spine-INDEPENDENT — picker +
 zoom / pan / fit, regardless of the focused event), flip to **Static
 mode** and open its Machines tab.
 
-There is **no Issues tab** — Mike ruled it out (rf2-gbz39 #2540, Option
+There is **no Issues tab** — Mike ruled it out (Option
 (c), 2026-05-31; `panels/issues_ribbon.cljs` deleted). Issues now surface
 inline (see *Where issues surface now* below).
 
 | Tab | Mnem · Icon · Stripe | One-line purpose | When you'd open it |
 |---|---|---|---|
-| **Epoch** *(hero, default landing · `:order -1`)* | `e` · `⚡` · violet | The focused dispatch's full computational timeline as a **numbered vertical cascade**: DISPATCH → COEFFECT(s) → INTERCEPTOR (conditional) → HANDLER → FLOW(s) → SIDE EFFECTS → SUBSCRIPTIONS → VIEWS. Only present steps render; each step carries a per-step ✓ / ✗ / ⊘ status glyph; exceptions render UNDER the step where they occurred. Supersedes the retired Event panel (rf2-5gl5r). | Default landing view. "What did this event do?" / "What fx fired?" / "Where did the cascade fail?" / "Did the flow recompute?" |
+| **Epoch** *(hero, default landing · `:order -1`)* | `e` · `⚡` · violet | The focused dispatch's full computational timeline as a **numbered vertical cascade**: DISPATCH → COEFFECT(s) → INTERCEPTOR (conditional) → HANDLER → FLOW(s) → SIDE EFFECTS → SUBSCRIPTIONS → VIEWS. Only present steps render; each step carries a per-step ✓ / ✗ / ⊘ status glyph; exceptions render UNDER the step where they occurred. Supersedes the retired Event panel. | Default landing view. "What did this event do?" / "What fx fired?" / "Where did the cascade fail?" / "Did the flow recompute?" |
 | **app-db** | `a` · `◐` · cyan | Sectioned-by-reserved-area: APP STATE (db minus `:rf/*` reserved keys) + one section per machine + per spawned instance + ROUTE + SYSTEM-IDS + PENDING-NAVIGATION + ELISION; each section is a collapsible lazy-tree inspector widget with diff annotations **inline** (`← was X`). Hover any changed path for the downstream-subs popover. (Display label is lowercase **app-db** to match the library's app-db naming; internal tab id `:app-db`.) | "What just changed in app-db?" / "What's downstream of `[:cart :items]`?" |
 | **Views** | `v` · `◉` · cyan | The reactive cascade as a depth-first DAG: subs recomputed (SUBSCRIPTIONS) + views re-rendered (VIEWS) with **render-cause chips** on every re-render leaf — `← :sub-id` when a deref'd sub changed value, `← props` when none of the view's own subs changed (the props channel); a first mount carries no cause. (Display label is **Views** — the all-plural-domain-noun convention, Mike-direction 2026-05-21, after a `Reactive → View → Views` rename chain; the internal tab id stays `:views`.) | "Why didn't my view update?" / "Why did this view re-render?" / "Was it a sub or props?" / "Which views re-rendered this epoch?" |
 | **Trace** | `t` · `⬢` · orange | Raw Spec 009 trace events for the focused epoch — a single **flat oldest-first row list** (no bands/envelope), each row carrying a **stage column** (DISPATCH·COEFFECT·HANDLER·FLOW·SIDE EFFECTS·SUBSCRIPTIONS·VIEWS) + a **colour-coded left edge** reusing the Epoch badge taxonomy; the focused epoch IS the scope (no filter chips), click any row to expand its payload inline. | "Show me every raw op in this epoch." / "Is `:rf.fx/*` firing as expected?" |
@@ -256,7 +256,7 @@ inline (see *Where issues surface now* below).
 
 #### Where issues surface now (no Issues tab)
 
-Mike ruled the dedicated Issues TAB out (rf2-gbz39, Option (c),
+Mike ruled the dedicated Issues TAB out (Option (c),
 2026-05-31): `panels/issues_ribbon.cljs` and its aggregate panel were
 deleted; the session-wide triage list was consciously dropped. Issues now
 surface through **three** always-on inline channels (per
@@ -267,7 +267,7 @@ surface through **three** always-on inline channels (per
  exception occurred (handler / interceptor / coeffect / fx / flow
  throws; `:db` schema-fail rollback on the EFFECT HANDLERS `:db` row).
 - **L2 event-row pink-wash** — a cascade carrying an issue washes its L2
- timeline row pink (rf2-b8guz), so the spine itself flags trouble.
+ timeline row pink, so the spine itself flags trouble.
 - **The always-on issues-ribbon signal** — the `:rf.xray/issues-ribbon`
  composite drives the auto-open-on-error watcher (the cross-epoch
  "something is wrong" signal).
@@ -346,7 +346,7 @@ short of improvising.
 - **Implementing Xray** (panel-facade/leaf split, mount lifecycle
  internals, frame-provider isolation, the epoch pump's contract).
  Source of truth:
- [`tools/xray/spec/011-Launch-Modes.md` §Mount lifecycle](../../tools/xray/spec/011-Launch-Modes.md#mount-lifecycle-rf2-9kkrm)
+ [`tools/xray/spec/011-Launch-Modes.md` §Mount lifecycle](../../tools/xray/spec/011-Launch-Modes.md)
  and the per-panel implementation specs. A `xray-implementor` sibling
  skill is **deferred to post-alpha** until the Xray surface stabilises.
 - **The "derivation/process graph" view** (subs / flows / resources /

@@ -12,7 +12,7 @@ fixtures gate two things at once:
    answer names the *currently shipped* control and rejects stale
    guidance. Trigger-only evals can prove the skill fired; they cannot
    prove the answer is still correct as the Xray UI churns. The
-   `expectations[]` layer is the guardrail that closes that gap (rf2-bpj8dp).
+   `expectations[]` layer is the guardrail that closes that gap.
 
 ## Two-layer fixture shape
 
@@ -49,7 +49,7 @@ the Xray UI moves:
 |---:|---|:---:|---|
 | 1 | `launch-default` | yes | True-inline (preload + `[data-rf-xray-host]`) is the canonical launch; overlay is NOT the default. |
 | 2 | `launch-popout` | yes | `(xray/popout!)` with call-parens; the visible `⛶` button is the canonical chrome path; no wired pop-out hotkey. |
-| 27 | `launch-popout-button` | yes | YES there is a visible `⛶` pop-out button (rf2-limfd4) — not programmatic-only, not an invented right-click path. |
+| 27 | `launch-popout-button` | yes | YES there is a visible `⛶` pop-out button — not programmatic-only, not an invented right-click path. |
 | 3 | `launch-programmatic` | yes | `init!` installs but does NOT open; a mount verb is still required; runs after `rf/init!`. |
 | 8 | `panel-route-machine-canvas` | yes | Full topology → Static Machines tab, not the event-driven Dynamic Machine tab; no standalone Machines-Canvas tab. |
 | 11 | `panel-route-schema` | yes | Schema violations → Epoch inline + L2 pink-wash; registry → Static Schemas; no Issues tab, no Dynamic Schemas tab. |

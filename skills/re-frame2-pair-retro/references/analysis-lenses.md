@@ -43,7 +43,7 @@ These signals are unique to or amplified by re-frame2's Tool-Pair surfaces. Watc
 
 ## Error-observability lens
 
-Use when the session chased an error — why it fired, where it surfaced, or why the app didn't "recover" the way the user expected. There is **no app-steering recovery policy** (the per-frame `:on-error` policy was removed per rf2-hiqtk8): recovery is framework-owned (the typed per-category default), and observability is the always-on `register-error-listener!` surface. This lens feeds error-observability friction back into re-frame2-pair improvements.
+Use when the session chased an error — why it fired, where it surfaced, or why the app didn't "recover" the way the user expected. There is **no app-steering recovery policy** (the per-frame `:on-error` policy was removed): recovery is framework-owned (the typed per-category default), and observability is the always-on `register-error-listener!` surface. This lens feeds error-observability friction back into re-frame2-pair improvements.
 
 Friction signals specific to errors:
 
