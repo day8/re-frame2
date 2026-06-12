@@ -76,7 +76,7 @@ Mirrors the `watch-epochs` pull-mode pred map. Recognised keys:
 - `:event-id` — exact match against the epoch's `:event-id`
 - `:event-id-prefix` — `str/starts-with?` match (so `:cart` matches `:cart/apply-coupon`)
 - `:effects` — fx-id appearing in the `:effects` projection
-- `:touches-path` — vector path that resolves to a non-nil value in either `:db-before` or `:db-after`
+- `:touches-path` — **non-nil convenience filter**: matches when the path resolves to a `some?` (non-nil) value in either `:db-before` or `:db-after`. This is *not* EP-0012 path-presence: a present-`nil` value (key exists, value is `nil`) and a removal (present-then-absent, `assoc → dissoc`) both read as `nil` on both sides and are therefore **missed**. When you are debugging exactly those identity-significant transitions (nil writes, removals — the ones EP-0012 makes meaningful), don't rely on `:touches-path`; use a presence-aware lookup or read the full epoch diff instead.
 - `:sub-ran` — sub-id or first element of `:query-v` appearing in `:sub-runs`
 - `:render` — render-key (stringified) appearing in `:renders`
 - `:origin` — `:rf.event/origin` tag on the trigger event's `:rf.event/dispatched` trace
