@@ -567,6 +567,16 @@
   ["re-frame.core" "elision-declarations"]              {:tier :tooling  :owner "009" :status "v1"}
   ["re-frame.core" "elision-sensitive-declarations"]    {:tier :tooling  :owner "009" :status "v1"}
   ["re-frame.core" "sensitive?"]                        {:tier :tooling  :owner "009" :status "v1"}
+  ;; Derived-tree value-match redaction (EP-0015 — rf2-i783h0). The
+  ;; value-based DUAL of the path-based `elide-wire-value` / record-level
+  ;; `project-egress` egress surface — same Spec 015 §Projection ownership.
+  ;; A framework-owned primitive Story-MCP consumes through the façade
+  ;; (the engine centralized in `re-frame.elision`); :tooling, like its
+  ;; egress siblings, not a front-porch app primitive.
+  ["re-frame.core" "redact-derived-values"]             {:tier :tooling  :owner "015" :status "v1"}
+  ["re-frame.core" "elision-sensitive-value-set"]       {:tier :tooling  :owner "015" :status "v1"}
+  ["re-frame.core" "elision-collect-sensitive-values"]  {:tier :tooling  :owner "015" :status "v1"}
+  ["re-frame.core" "redact-matching-values"]            {:tier :tooling  :owner "015" :status "v1"}
 
   ;; --- Individually-named extra-vars (generator `extra-vars`) ---
   ;; The two dev-gate Vars rowed in spec/API.md §Tracing whose home
