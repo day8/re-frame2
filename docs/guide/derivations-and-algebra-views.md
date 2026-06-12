@@ -279,14 +279,15 @@ The machine is the stateful **process**; the selector is an ephemeral **derivati
 
 ## Reading the assembled graph
 
-A tool stitches all of those per-family views into one graph: a map of `:nodes` keyed by canonical id and a list of `:edges`. An Xray panel renders it as a single picture even though the runtime mechanisms underneath are a subscription cache, a flow, a resource cache, a route slice, and a machine snapshot:
+A tool stitches all of those per-family views into one graph: a map of `:nodes` keyed by canonical node id and a list of `:edges`. The node *key* is the canonical id of the node itself — `[:sub <query>]`, `[:resource <scoped-key>]`, `:rf/route` for the live route slice (or `[:rf/route <route-id>]` in a static graph). It is **not** the node's `:output` address; the runtime address the route slice writes to (`[:runtime [:rf.runtime/routing :current]]`) is that node's `:output`, recorded *inside* the node, not the key you look it up by. An Xray panel renders the assembled graph as a single picture even though the runtime mechanisms underneath are a subscription cache, a flow, a resource cache, a route slice, and a machine snapshot:
 
 ```clojure
 {:mode  :live
  :frame :main
  :nodes
  {[:sub [:article/page "welcome"]]    {:kind :derivation :storage :ephemeral  :evaluation :on-demand}
-  [:runtime [:rf.runtime/routing :current]] {:kind :process :storage :runtime-db}
+  :rf/route                           {:kind :process :storage :runtime-db
+                                       :output [:runtime [:rf.runtime/routing :current]]}
   [:resource [[:rf.scope/session {:tenant-id "acme"}] :article/by-slug {:slug "welcome"}]]
                                        {:kind :process :storage :runtime-db
                                         :status :loaded :owners #{[:route :route/article 17]}}}
@@ -300,7 +301,9 @@ A tool stitches all of those per-family views into one graph: a map of `:nodes` 
    :to   [:sub [:article/page "welcome"]] :role :input}]}
 ```
 
-Two things make this graph safe to ship to a tool. **Redaction**: the graph carries source coordinates and value *summaries*, never raw sensitive values — a redacted param is still an edge, so structure survives even when content is hidden. And **the whole-value law**: every derivation must be correct as a function that recomputes its entire output from its inputs. Memoization, equality pruning, and (someday) deltas are optimizations that must not change the observed value — which is exactly why a tool can recompute any node from the graph and trust the answer.
+Two things make this graph safe to ship to a tool. **Redaction**: the graph carries source coordinates and value *summaries*, never raw sensitive values — a redacted param is still an edge, so structure survives even when content is hidden. And **the whole-value law**: every derivation must be correct as a function that recomputes its entire output from its inputs. Memoization, equality pruning, and (someday) deltas are optimizations that must not change the observed value.
+
+That law is what lets *conformance tests* verify a derivation by recomputing its whole-value output — and what lets a tool **trust the graph's declared edges and classifications without executing your app code or reading raw values.** It is not a public recompute API. The first slice is internal inspection plus conformance, not an "ask a tool to recompute any node" promise: off-box tools may hold only summaries or redacted values, and process nodes like resources and machines are not arbitrary pure recomputations. The graph you can trust is the *structure* — who reads what, where it lives, when it runs — not a live re-execution of every node.
 
 ## The one rule worth remembering
 
