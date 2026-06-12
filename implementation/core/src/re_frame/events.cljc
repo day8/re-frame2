@@ -994,9 +994,9 @@
   "Register a `(fn [cofx event-vec] effect-map)` event handler under `id`.
 
   The handler is **pure** — it receives a coeffect map (carrying `:db`,
-  `:event`, plus any cofx injected via `inject-cofx`) and the event
-  vector, and returns an effect-map. The runtime walks the effects in
-  order:
+  `:event`, plus exactly the facts it declared via `:rf.cofx/requires`,
+  delivered flat) and the event vector, and returns an effect-map. The
+  runtime walks the effects in order:
 
   1. `:db`  — atomic swap to the frame's `app-db` (Spec 002 §`:fx`
      ordering, rule 1).
@@ -1016,16 +1016,20 @@
   chain in one map; the positional interceptor vector is sugar for
   `{:interceptors [...]}`):
 
-      (reg-event-fx :id                       (fn [cofx ev] {...}))
-      (reg-event-fx :id {:doc \"...\"}          (fn [cofx ev] {...}))
-      (reg-event-fx :id [(inject-cofx :now)]  (fn [cofx ev] {...}))
-      (reg-event-fx :id {:doc \"...\" :interceptors [(inject-cofx :now)]}
-                                              (fn [cofx ev] {...}))
-      (reg-event-fx :id {:doc \"...\"} [icpt]   (fn [cofx ev] {...}))
+      (reg-event-fx :id                              (fn [cofx ev] {...}))
+      (reg-event-fx :id {:doc \"...\"}                 (fn [cofx ev] {...}))
+      (reg-event-fx :id {:rf.cofx/requires [:rf/time-ms]}
+                                                     (fn [cofx ev] {...}))
+      (reg-event-fx :id {:doc \"...\" :interceptors [(path :a)]}
+                                                     (fn [cofx ev] {...}))
+      (reg-event-fx :id {:doc \"...\"} [icpt]          (fn [cofx ev] {...}))
 
-  `[i1 i2]` ≡ `{:interceptors [i1 i2]}`; supplying a chain in **both**
-  slots raises `:rf.error/interceptors-supplied-twice` (per Conventions
-  §`:interceptors` in the metadata-map — the superset middle slot).
+  Coeffects are declared via `:rf.cofx/requires` on the metadata map (the
+  value arrives FLAT in the cofx map under its id); `inject-cofx` is removed
+  (EP-0017). `[i1 i2]` ≡ `{:interceptors [i1 i2]}`; supplying a chain in
+  **both** slots raises `:rf.error/interceptors-supplied-twice` (per
+  Conventions §`:interceptors` in the metadata-map — the superset middle
+  slot).
 
   Returns `id`. Returning `nil` from the handler is a documented no-op.
 
@@ -1043,7 +1047,8 @@
 
   See also: `reg-event-db` (pure db-only handlers), `reg-event-ctx`
   (advanced — context manipulation), `reg-fx` (register a custom fx),
-  `inject-cofx` (consume a registered cofx)."
+  `reg-cofx` (register a coeffect supplier; declare consumption via
+  `:rf.cofx/requires`)."
   [id & args]
   (register-event! :fx "reg-event-fx" id args))
 
