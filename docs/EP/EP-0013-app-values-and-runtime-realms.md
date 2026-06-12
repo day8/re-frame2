@@ -1,6 +1,6 @@
 # EP-0013: App Values And Runtime Realms
 
-Status: accepted
+Status: final
 Type: standards-track
 
 > This EP defines the long-term architecture in which the application program
@@ -26,6 +26,94 @@ Type: standards-track
 >
 > Normative home after acceptance: registration, frames, reactive substrate,
 > runtime subsystem, adapter, and conventions specs.
+>
+> **Graduated `accepted → final` 2026-06-12 (Mike, in-session).** The decisions
+> are settled and the normative homes above govern (where this EP and the spec
+> differ, the spec governs). The wave + final-review (`rf2-g41gz6`) returned
+> clean — the wave is correct and complete against the dispositions, the prior
+> review tails (correctness ×2, testing-coverage, code-comments) ran clean, and
+> the one completeness gap found (the eight thrown `:rf.error/*` categories
+> needed Spec 009 Error-event catalogue rows) was fixed in the corrective PR.
+> `final` asserts the **decisions are settled**, not that the whole D1/D2/D3
+> build is complete: what shipped and what remains build-not-decision is recorded
+> in the [§Implementation errata](#implementation-errata) ledger below — most
+> notably realm-aware **live-dispatch routing** (`rf2-a15n62`), a deferred
+> post-v1 slice. A v1 constructed realm is a **static-install + query-isolated**
+> container; live dispatch/subscribe still resolve through the default realm.
+
+## Implementation errata
+
+The EP decisions are final. The EP-0013 wave shipped **D1 (the realm container)**
+end-to-end and the **D2 (app-value)** projection/construction/install surface; it
+did **not** ship the full D2/D3 build, and `final` does not claim it did. This
+ledger records what shipped against the dispositions and what stays
+build-not-decision behind a follow-on slice — the EP-0010 precedent, where a
+settled decision's later slice (`:rf.world/uuid` recordable coeffects) is recorded
+as deferred, not as an open question. Verified 2026-06-12 against the merged
+implementation, the realm/app-value test suites, the spec graduation, and the
+final-review verdict (`rf2-g41gz6`).
+
+### Shipped
+
+- **The runtime-realm container (D1) — SHIPPED.** The realm record owns the
+  registrar (its own `(kind, id) → metadata` atom — hermetic by default), the
+  adapter selection + capability map, the frame registry, the host-transient
+  inventory, and disposal state (`re-frame.realm`). The implicit default realm is
+  created at process load, never disposed, and its seating path is byte-identical
+  to the pre-EP global registrar — a single-realm app never spells a realm. The
+  container is graduated in
+  [Runtime-Subsystems §Runtime realms](../../spec/Runtime-Subsystems.md#runtime-realms--the-container)
+  and the realm-record shape in
+  [Spec-Schemas §`:rf/realm`](../../spec/Spec-Schemas.md).
+- **App-value projection + construction + install/reinstall (D2 surface) —
+  SHIPPED.** The default realm's registrations project to an immutable app value
+  (`re-frame.app_value`); `rf/app` / `rf/module` compose descriptors with
+  deterministic same-kind same-id collision diagnostics; `rf/install!` runs the
+  capability check (`:rf.error/missing-capability`) before any registrar mutation,
+  then lowers descriptors and records the seated app at the realm boundary;
+  `rf/reinstall!` diffs the new app and applies the `:added` / `:changed` /
+  `:removed` delta as a descriptor-only hot-reload slice.
+- **Both reinstall refusals + the kind boundary — SHIPPED.** `reinstall!` binds
+  refuse-loudly at the **kind boundary in both directions** (issue 12 errata): the
+  step-8-deferred kinds throw `:rf.error/unsupported-descriptor-kind` on the
+  add/changed path (`install-descriptor!`) **and** the removal path
+  (`refuse-unsupported-removal!`, `rf2-cquy9u`), and a `:removed` `:frame` whose
+  live container still exists is refused loudly
+  (`:rf.error/live-frame-removal-unsupported`, enumerating the blocking frame-ids,
+  `rf2-7zn9kg`) rather than silently orphaned.
+- **The public realm API — SHIPPED.** `rf/realm` (the reserved-vocabulary
+  constructor — ruled `rf/realm`, **never** `rf/runtime`, issue 1) constructs +
+  registers a hermetic realm; a duplicate id throws `:rf.error/realm-id-conflict`.
+  `rf/dispose-realm!` is its teardown counterpart. `rf/realm-ids` enumerates the
+  live realms and `rf/frame-realm` returns a frame's realm — the realm-enumeration
+  half of the `(realm, frame)` addressing model (issue 3); `rf/installed-app`
+  projects a realm's seated app value; and the realm-targeted registrar queries
+  take the map-shaped `{:realm … :kind …}` form (issue 11). Eight thrown EP-0013
+  `:rf.error/*` categories carry Spec 009 Error-event catalogue rows (the
+  final-review corrective).
+
+### Deferred — realm-aware live-dispatch routing
+
+- **Realm-routed LIVE dispatch / subscribe / fx / cofx — DEFERRED
+  (`rf2-a15n62`, staging step 4).** A v1 constructed realm is a **static-install +
+  query-isolated** container: an app value installs into it, and the map-shaped
+  `{:realm …}` registrar queries read its own registrar — but **live dispatch and
+  subscription resolution still resolve through the default realm's registrar**,
+  not the owning frame's realm. `re-frame.frame/reg-frame` is `[id metadata]`-only
+  and hardcodes `:realm :rf.realm/default` on every frame record, so the EP
+  conformance point "frames resolve handlers from their owning realm" is **unmet
+  in v1**. Because of this, `install!` / `reinstall!` deliberately **refuse**
+  `:frame` descriptors into a non-default realm
+  (`:rf.error/realm-frames-unsupported`) rather than silently mis-seat a
+  default-stamped, globally-keyed frame — fail-closed, the issue-12 stance. The
+  deferred slice lifts that refusal: a realm-aware frame-registration path that
+  keys live frames by `(realm, frame-id)` and routes live dispatch/subscribe
+  through the owning frame's realm registrar, plus the per-kind live-instance
+  blocker/continue/migrate rule for the step-8 kinds as they become installable.
+  This is a post-v1 slice exactly as EP-0010's `:rf.world/uuid` recordable
+  coeffect is — the decision is settled (the realm IS the operational container;
+  the wire shape of the realm stamp is `:rf.realm/id` carried beside
+  `:rf.frame/id`), and only the build remains.
 
 ## Abstract
 
