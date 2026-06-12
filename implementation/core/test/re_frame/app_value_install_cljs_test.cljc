@@ -794,7 +794,19 @@
           "a public :app on rf/realm is rejected")
       (is (= :false/r (:realm ed)) "the diagnostic names the realm")
       (is (nil? (realm/realm :false/r))
-          "no realm was registered — the constructor threw before register-realm!"))))
+          "no realm was registered — the constructor threw before register-realm!")
+      ;; The bead's exact phantom scenario — (rf/realm {:app app}) then reinstall!
+      ;; — is structurally IMPOSSIBLE: the constructor threw, so :false/r has no
+      ;; registry entry, and a follow-up reinstall! against it would itself throw
+      ;; :rf.error/unknown-realm (it never reaches a diff against a phantom :app).
+      (let [v2 (rf/app {:id :false/v2 :modules
+                        [(rf/module {:id :m :events {:false/e2 {:handler cart-add}}})]})
+            re-ed (try (rf/reinstall! :false/r v2)
+                       (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                         (ex-data e)))]
+        (is (= :rf.error/unknown-realm (:error/id re-ed))
+            "a reinstall! against the never-created realm throws unknown-realm — no
+             phantom :app to diff against (the false installed-app state is closed)")))))
 
 (deftest realm-without-app-then-install-is-the-correct-path
   (testing "rf2-c6armm.2 #1: the SUPPORTED path — construct a realm, then
@@ -849,9 +861,15 @@
     (is (= "constructed frame" (:doc (frame/frame-meta :xms/frame)))
         "the constructed frame's config was seated through reg-frame")
     ;; End-to-end: the installed frame is dispatchable / subscribable, proving it
-    ;; is a real frame and not a malformed slot.
+    ;; is a real frame and not a malformed slot. A SECOND install! is full
+    ;; replacement (rf2-c6armm.7 #1), so the new app CARRIES the frame forward in
+    ;; the SAME module :m (an identical :frame descriptor — same owner, same :doc —
+    ;; so the diff leaves it untouched; dropping it would correctly refuse, as the
+    ;; live frame is not orphanable through install! any more than through
+    ;; reinstall!) and ADDS the handlers in a second module :m2.
     (rf/install! (rf/app {:id :xms/frame-prog :modules
-                          [(rf/module {:id :m2
+                          [(rf/module {:id :m :frames {:xms/frame {:doc "constructed frame"}}})
+                           (rf/module {:id :m2
                                        :events {:xms/frame-set {:handler (fn [db [_ v]] (assoc db :n v))}}
                                        :subs   {:xms/frame-read {:handler (fn [db _] (:n db))}}})]}))
     (rf/dispatch-sync [:xms/frame-set 7] {:frame :xms/frame})
@@ -894,3 +912,121 @@
         ;; seating — no descriptor of the refused kind leaked into the registrar.
         (is (nil? (registrar/lookup kind :xms/deferred))
             (str "no malformed " kind " slot was seated — the refusal was loud, not silent"))))))
+
+;; ---------------------------------------------------------------------------
+;; (5d) failed install leaves NO live frame side effects — the kind preflight
+;;      refuses BEFORE lowering, so a :frame in the same app never lowers
+;;      (rf2-c6armm.8 #2)
+;; ---------------------------------------------------------------------------
+
+(deftest install-of-frame-plus-deferred-kind-leaks-no-live-frame
+  (testing "rf2-c6armm.8 #2: an app that carries a WIRED :frame AND a step-8
+            DEFERRED kind is refused loudly BEFORE any descriptor lowers — so the
+            :frame is NEVER created. Pre-fix, install-descriptor! threw MID-LOOP:
+            the :frame could lower first (creating a LIVE container + :on-create
+            + classification — a frame/frames side-channel write), then the
+            deferred kind threw, and seat-into-realm!'s registrar-only rollback
+            left the live frame ORPHANED (a false installed-app: a frame the
+            failed install seated but no :app recorded). The kind PREFLIGHT closes
+            that window — the refusal precedes the seating loop, so no live frame
+            leaks."
+    (is (not (contains? (frame/frame-ids) :leak/frame))
+        "the frame does not exist before the failed install")
+    (let [a  (rf/app {:id :leak/app :modules
+                      [(rf/module {:id :m
+                                   ;; A :frame (wired — would lower through reg-frame
+                                   ;; and create a live container) AND a deferred
+                                   ;; :route in the SAME app.
+                                   :frames {:leak/frame {:doc "would-leak frame"}}
+                                   :routes {:leak/route {:handler (fn [& _] nil)}}})]})
+          ed (try (rf/install! a)
+                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                    (ex-data e)))]
+      (is (= :rf.error/unsupported-descriptor-kind (:error/id ed))
+          "the deferred kind refuses the whole install loudly")
+      (is (= :route (:kind ed)) "the refusal names the blocking deferred kind")
+      (is (some #{[:route :leak/route]} (:blocking ed))
+          "the refusal enumerates the blocking [kind id]")
+      ;; THE FIX: no live frame leaked — the refusal was pre-lowering, so
+      ;; reg-frame never ran for :leak/frame.
+      (is (not (contains? (frame/frame-ids) :leak/frame))
+          "no live :frame container leaked from the failed install (pre-lowering refusal)")
+      (is (nil? (frame/frame :leak/frame))
+          "frame/frame resolves no orphaned container for the refused :frame")
+      (is (nil? (registrar/lookup :frame :leak/frame))
+          "the :frame registrar slot was never seated either")
+      ;; And no false installed-app: the realm recorded no :app (the throw
+      ;; preceded set-installed-app!).
+      (is (nil? (:app (realm/realm :rf.realm/default)))
+          "no :app was recorded — the failed install left no false installed-app state"))))
+
+;; ---------------------------------------------------------------------------
+;; (5e) repeated install! is FULL REPLACEMENT — a prior installed app's
+;;      registrations the new app drops are cleared (rf2-c6armm.7 #1)
+;; ---------------------------------------------------------------------------
+
+(deftest repeated-install-clears-the-prior-apps-stale-registrations
+  (testing "rf2-c6armm.7 #1: install! app1 then install! app2 makes the realm's
+            registrar BE app2's program — app1's handlers that app2 drops are
+            CLEARED. Pre-fix, install! only ADDED app2's descriptors + recorded
+            :app, leaving app1's stale handlers resolvable while installed-app
+            reported app2 — the installed-app value stopped being the source of
+            truth for the realm registrar. Full replacement (EP-0013 §Installation
+            'derive the realm registrar from the app value' / 'value replacement
+            at the realm boundary') restores it."
+    (let [r (rf/realm {:id :stale/r})]
+      (try
+        ;; app1: two events.
+        (rf/install! r (rf/app {:id :stale/app1 :modules
+                                [(rf/module {:id :m
+                                             :events {:stale/keep {:handler cart-add}
+                                                      :stale/drop {:handler cart-add}}})]}))
+        (is (identical? cart-add (get-in @(realm/registrar r) [:event :stale/keep :handler-fn]))
+            "app1's :stale/keep is seated")
+        (is (identical? cart-add (get-in @(realm/registrar r) [:event :stale/drop :handler-fn]))
+            "app1's :stale/drop is seated")
+        ;; app2: re-declares :stale/keep (changed handler), DROPS :stale/drop,
+        ;; ADDS :stale/new.
+        (rf/install! r (rf/app {:id :stale/app2 :modules
+                                [(rf/module {:id :m
+                                             :events {:stale/keep {:handler cart-remove}
+                                                      :stale/new  {:handler cart-items}}})]}))
+        ;; THE FIX: :stale/drop (in app1, not app2) is CLEARED — no longer resolvable.
+        (is (nil? (get-in @(realm/registrar r) [:event :stale/drop]))
+            "app1's dropped :stale/drop was CLEARED — not a stale resolvable handler")
+        ;; :stale/keep was replaced with app2's handler (the changed descriptor).
+        (is (identical? cart-remove (get-in @(realm/registrar r) [:event :stale/keep :handler-fn]))
+            ":stale/keep carries app2's handler (replaced)")
+        ;; :stale/new (added by app2) is seated.
+        (is (identical? cart-items (get-in @(realm/registrar r) [:event :stale/new :handler-fn]))
+            "app2's added :stale/new is seated")
+        ;; installed-app IS the source of truth: the registrar's event ids equal
+        ;; exactly app2's, no stale residue.
+        (is (= #{:stale/keep :stale/new}
+               (set (keys (get-in @(realm/registrar r) [:event]))))
+            "the realm registrar's events equal app2's exactly — no stale leak")
+        (is (= :stale/app2 (:rf.app/id (realm/installed-app r)))
+            "installed-app reports app2 (and the registrar matches it)")
+        (finally (rf/dispose-realm! :stale/r))))))
+
+(deftest repeated-install-preserves-coexisting-sugar-registrations
+  (testing "rf2-c6armm.7 #1: replacement is scoped to the PRIOR INSTALLED app, not
+            the whole registrar — a coexisting reg-* SUGAR registration (not part
+            of any installed app value) survives a repeated install!. The stale
+            clear diffs against the realm's STORED :app only, so the load-order
+            sugar program is never swept."
+    ;; Sugar registration into the default realm (NOT an installed app value).
+    (rf/reg-event-db :coexist/sugar {:doc "sugar"} cart-add)
+    ;; install! app1 (its own event), then install! app2 dropping app1's event.
+    (rf/install! (rf/app {:id :coexist/app1 :modules
+                          [(rf/module {:id :m :events {:coexist/a1 {:handler cart-add}}})]}))
+    (rf/install! (rf/app {:id :coexist/app2 :modules
+                          [(rf/module {:id :m :events {:coexist/a2 {:handler cart-add}}})]}))
+    ;; app1's :coexist/a1 was cleared (the stale-replacement fix)...
+    (is (nil? (registrar/lookup :event :coexist/a1))
+        "app1's dropped event was cleared by the replacement")
+    ;; ...but the SUGAR registration coexists untouched (it was never in a stored :app).
+    (is (identical? cart-add (registrar/handler :event :coexist/sugar))
+        "the coexisting sugar registration survives the repeated install (not swept)")
+    (is (identical? cart-add (registrar/handler :event :coexist/a2))
+        "app2's event is seated")))

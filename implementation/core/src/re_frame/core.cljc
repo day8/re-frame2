@@ -1820,6 +1820,71 @@
 
 (late-bind/set-fn! :app-value/install-descriptor! install-descriptor!)
 
+(defn- refuse-unsupported-install!
+  "The PREFLIGHT counterpart of `install-descriptor!`'s kind-boundary throw.
+  Given an app value's full `[kind id]` registration pairs, THROWS
+  `:rf.error/unsupported-descriptor-kind` (enumerating the blocking `[kind id]`s)
+  when ANY names a step-8-DEFERRED kind (`install-deferred-kinds`), BEFORE the
+  seating loop lowers a single descriptor (rf2-c6armm.8 #2).
+
+  `install-descriptor!` already throws on a deferred kind, but it throws
+  MID-LOOP — after the loop has already lowered kinds 1..N-1. For most wired
+  kinds that mid-loop throw is harmless: `seat-into-realm!` snapshots the
+  realm's registrar atom and restores it on any throw, so a half-populated
+  registrar rolls back cleanly. But `:frame` is the exception — `reg-frame`
+  creates a LIVE frame container (a side-channel write to the process
+  `frame/frames` atom, plus `:on-create` + classification side effects) that the
+  registrar-only rollback does NOT undo. So a multi-descriptor app that lowers a
+  `:frame` BEFORE hitting a deferred kind would leave the frame container, its
+  classification, and its `:on-create` residue live even though the registrar
+  rolled back and no `:app` was recorded — the exact `false installed-app /
+  failed-install` leak rf2-c6armm.8 #2 names.
+
+  Preflighting every kind here, before any lowering, closes that window: a
+  refused install creates NO live frame because the throw precedes the loop.
+  This is the install-path symmetry of `refuse-unsupported-removal!` (the
+  removal-path preflight) — both refuse-loudly at the KIND BOUNDARY before any
+  mutation, fail-closed per EP-0013 issue-12 + the no-silent-swallow rule. The
+  per-descriptor `install-descriptor!` throw stays as the in-loop backstop (a
+  bundle whose preflight hook is unbound still refuses, just later).
+
+  Published as `:app-value/refuse-unsupported-install!` (mirroring the removal
+  hook) so the leaf `re-frame.app-value` ns preflights through core rather than
+  re-stating the deferred-kind set; no-op fallback when the hook is unbound (a
+  bundle that never loaded core's reg surfaces — the in-loop throw still fires)."
+  [kind-id-pairs]
+  (let [blocking      (->> kind-id-pairs
+                           (filter (fn [[kind _]] (contains? install-deferred-kinds kind)))
+                           (sort)
+                           (vec))
+        [first-kind
+         first-id]    (first blocking)]
+    (when (seq blocking)
+      (throw (ex-info (str "rf/install!: cannot seat the descriptor(s) "
+                           (pr-str blocking) " — their kinds are step-8-DEFERRED "
+                           "(" (pr-str install-deferred-kinds) "), whose real "
+                           "registration logic is a later EP-0013 slice. install! "
+                           "wires " (pr-str install-wired-kinds) " so far; seating "
+                           "a deferred kind through the flat registrar would produce "
+                           "a slot the subsystem cannot consume. Refused BEFORE any "
+                           "lowering so no partially-seated runtime state (e.g. a "
+                           "live :frame container) leaks from a failed install. "
+                           "Register the deferred kinds through their own reg-* "
+                           "sugar.")
+                      ;; `:kind`/`:id` name the FIRST blocking pair (the same shape
+                      ;; `install-descriptor!`'s in-loop throw carried, so the
+                      ;; single-deferred-kind diagnostic is unchanged); `:blocking`
+                      ;; enumerates every blocking pair (the whole-app preflight).
+                      {:error/id    :rf.error/unsupported-descriptor-kind
+                       :kind        first-kind
+                       :id          first-id
+                       :blocking    blocking
+                       :deferred    install-deferred-kinds
+                       :wired       install-wired-kinds
+                       :recovery    :register-through-reg-*-sugar})))))
+
+(late-bind/set-fn! :app-value/refuse-unsupported-install! refuse-unsupported-install!)
+
 (defn- refuse-unsupported-removal!
   "The REMOVAL-path counterpart of `install-descriptor!`'s kind-boundary throw.
   Given the `:removed` `[kind id]` pairs of a `reinstall!` diff, THROWS

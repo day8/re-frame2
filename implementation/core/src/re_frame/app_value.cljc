@@ -820,28 +820,63 @@
         ;; nothing to snapshot; run the thunk as-is.
         (thunk)))))
 
+;; `diff-registrations` + `refuse-live-frame-removal!` are defined under the
+;; reinstall section below (their narrative lives with `reinstall!`), but
+;; `install!`'s replacement step (rf2-c6armm.7 #1) now shares them to clear a
+;; prior installed app's stale registrations and refuse a stale live-frame
+;; removal. Forward-declared so the install! body can reference them without
+;; reordering the reinstall narrative.
+(declare diff-registrations refuse-live-frame-removal!)
+
+(defn- stored-installed-app
+  "The app value a PRIOR `install!`/`reinstall!` recorded in realm `rid`'s `:app`
+  slot, or nil when none was seated. Unlike `realm/installed-app` (which falls
+  back to the recomputable registrar projection), this reads ONLY the stored
+  slot — `install!`'s replacement step clears the registrations of the
+  PREVIOUSLY-INSTALLED app, and the load-order `reg-*` sugar program (which the
+  projection would surface) is explicitly NOT a prior install to clear against
+  (rf2-c6armm.7 #1 — sugar coexistence is preserved). INTERNAL."
+  [rid]
+  (:app (realm/realm rid)))
+
 (defn install!
   "Seat an immutable app VALUE into a realm — make `app`'s registrations the
   program `realm-or-id` dispatches/subscribes/resolves against (EP-0013 D2
   stage 7, §Installation). PUBLIC (`rf/install!`).
 
-  Two steps, in order:
+  Steps, in order:
 
     1. CAPABILITY CHECK — every `:rf.capability/*` in `(app-requires app)` must
        be present in the realm's `:capabilities` map. The FIRST unmet one
        THROWS `:rf.error/missing-capability` (naming the realm + capability)
        BEFORE any registrar mutation, so an under-provisioned app never becomes
        partially visible (§Installation step 2; §Capability maps).
-    2. DERIVE THE REGISTRAR — lower every descriptor back to the registrar's
-       flat metadata and `register!` it into the realm's registrar (firing the
-       ordinary hot-reload hooks + `:rf.registry/handler-registered` trace per
-       Spec 001), then record the seated app value in the realm's `:app` slot.
+    2. PREFLIGHT THE KINDS — refuse the whole app loudly if ANY descriptor names
+       a step-8-DEFERRED kind, BEFORE lowering a single descriptor
+       (rf2-c6armm.8 #2). `install-descriptor!` also throws on a deferred kind,
+       but mid-loop — after a wired `:frame` may already have lowered into a LIVE
+       container the registrar-only rollback cannot undo. Preflighting closes
+       that failed-install side-effect-leak window.
+    3. DERIVE THE REGISTRAR (full replacement) — `install!` makes the realm's
+       registrar BE the app's program (EP-0013 §Installation step 3, 'derive the
+       realm registrar from the app value'; 'value replacement at the realm
+       boundary'). A REPEATED `install!` therefore clears the
+       PREVIOUSLY-INSTALLED app's registrations that the new app drops
+       (rf2-c6armm.7 #1) — without it, `install! app1` then `install! app2`
+       would leave app1's handlers resolvable while `installed-app` reports app2,
+       so the installed-app value would stop being the source of truth for the
+       realm registrar. The clear + the new seating run in ONE atomic
+       `seat-into-realm!` snapshot, then the new value is recorded in `:app`.
+
+  Replacement is scoped to the PRIOR INSTALLED app, not the whole registrar: the
+  load-order `reg-*` sugar program is NOT cleared (it is not a prior install), so
+  sugar registrations and installed registrations coexist exactly as before. A
+  fresh realm (or a pure-sugar default realm) has no stored `:app`, so `install!`
+  is purely additive there — byte-identical to today.
 
   `realm-or-id` defaults to the default realm — `(install! app)` seats `app`
-  into the process default realm, byte-identical to having registered the same
-  ids through the `reg-*` sugar path (the EP-0013 §Default Realm rule). Returns
-  the realm map after install (its `:app` slot now holds `app`), so the call
-  composes — `(-> realm (install! app))`.
+  into the process default realm. Returns the realm map after install (its
+  `:app` slot now holds `app`), so the call composes — `(-> realm (install! app))`.
 
   The ordinary `reg-*` sugar path is UNCHANGED: it writes the default realm's
   registrar in place, and the projection reflects it for free. `install!` is the
@@ -864,20 +899,55 @@
      ;; orphaned by a partial rollback (the rollback restores the registrar atom
      ;; but not the side-channel `frame/frames` atom).
      (refuse-non-default-realm-frames! rid app)
-     ;; (2) derive the registrar, then record the seated value at the realm
-     ;; boundary. Each descriptor is lowered through its kind's real
-     ;; registration logic (so a constructed handler becomes dispatch-ready),
-     ;; writing the realm's OWN `(kind, id) → metadata` table — so this is value
-     ;; replacement at the realm boundary, not a new global-mutation primitive.
-     ;; The lowering path (`register-descriptor!` → the reg-* fns →
-     ;; `registrar/register!`) targets `registrar/*registrar*`, so binding it to
-     ;; the target realm's own atom seats the program into THAT realm's table
-     ;; (EP-0013 stage 9 isolation). nil resolves to the global atom — the
-     ;; default-realm path is byte-identical (the realm's registrar IS the
-     ;; global atom, so the binding is a no-op rebind to the same atom).
-     (seat-into-realm! rid (fn [] (doseq [[kind id desc] (registrations-seq app)]
-                                    (register-descriptor! kind id desc))))
-     (realm/set-installed-app! rid app))))
+     ;; (1c) PREFLIGHT the kinds (rf2-c6armm.8 #2): refuse the whole app loudly if
+     ;; any descriptor names a step-8-DEFERRED kind, BEFORE the seating loop lowers
+     ;; anything. The per-descriptor throw in `install-descriptor!` fires mid-loop,
+     ;; AFTER a wired `:frame` in the same app may have lowered into a live frame
+     ;; container (a side-channel write the registrar-only rollback does not undo)
+     ;; — so a `:frames`-then-deferred-kind app could leak a live frame from a
+     ;; failed install. Preflighting through the core hook (no-op when unbound; the
+     ;; in-loop throw remains the backstop) closes that window pre-lowering.
+     (when-let [refuse (late-bind/get-fn :app-value/refuse-unsupported-install!)]
+       (refuse (map (fn [[kind id _]] [kind id]) (registrations-seq app))))
+     ;; (1d) REPLACEMENT (rf2-c6armm.7 #1): a repeated install! makes the realm's
+     ;; registrar BE the new app's program — clearing the PREVIOUSLY-INSTALLED
+     ;; app's registrations the new app drops. Diff the new app against the realm's
+     ;; STORED `:app` only (not the sugar projection, so sugar coexists), and refuse
+     ;; the same removal-path edges reinstall! refuses BEFORE any mutation: a stale
+     ;; `:removed` that still backs a LIVE frame container would be orphaned
+     ;; (`refuse-live-frame-removal!`), and a `:removed` deferred kind is not
+     ;; descriptor-removable (the core refuse hook — defensive; a stored `:app`
+     ;; only ever held wired kinds, since deferred kinds refuse at install). With no
+     ;; stored `:app` the stale set is empty and this is a no-op.
+     (let [prior   (stored-installed-app rid)
+           diff    (when prior
+                     (diff-registrations (:registrations prior) (:registrations app)))
+           removed (:removed diff)]
+       (when (seq removed)
+         (when-let [refuse (late-bind/get-fn :app-value/refuse-unsupported-removal!)]
+           (refuse removed))
+         (refuse-live-frame-removal! rid diff))
+       ;; (2) derive the registrar, then record the seated value at the realm
+       ;; boundary. The atomic seating thunk FIRST unregisters the stale set, THEN
+       ;; lowers every new descriptor through its kind's real registration logic
+       ;; (so a constructed handler becomes dispatch-ready), writing the realm's OWN
+       ;; `(kind, id) → metadata` table — value replacement at the realm boundary,
+       ;; not a new global-mutation primitive. The lowering path
+       ;; (`register-descriptor!` → the reg-* fns → `registrar/register!`) targets
+       ;; `registrar/*registrar*`, so binding it to the target realm's own atom
+       ;; seats the program into THAT realm's table (EP-0013 stage 9 isolation). nil
+       ;; resolves to the global atom — the default-realm path is byte-identical
+       ;; (the realm's registrar IS the global atom, so the binding is a no-op
+       ;; rebind to the same atom). The whole thunk is all-or-nothing: the registrar
+       ;; snapshot is restored on any throw, so a failed replacement leaves the
+       ;; realm exactly as it was.
+       (seat-into-realm! rid
+         (fn []
+           (doseq [[kind id] removed]
+             (registrar/unregister! kind id))
+           (doseq [[kind id desc] (registrations-seq app)]
+             (register-descriptor! kind id desc))))
+       (realm/set-installed-app! rid app)))))
 
 ;; ---- reinstall: hot-reload a realm as an app-value diff --------------------
 ;;
