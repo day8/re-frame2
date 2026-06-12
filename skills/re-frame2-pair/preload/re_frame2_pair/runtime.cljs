@@ -251,6 +251,26 @@
 ;; When exactly one APP frame remains after excluding tool frames, tier 3
 ;; AUTO-SELECTS it: single-app + Xray is unambiguous with no `frames/
 ;; select` tax. Two-plus app frames stay genuinely ambiguous (tier 4).
+;;
+;; Realm-scoped tier-3 resolution (EP-0013 disposition 3, rf2-09ijml)
+;; ------------------------------------------------------------------
+;;
+;; A frame lives in a runtime REALM (EP-0013) — the container that owns the
+;; registrar/adapter/capabilities the frame dispatches against. The (realm,
+;; frame) PAIR is the full address: a frame-id is unique only WITHIN a realm,
+;; so two realms may carry the same frame-id legitimately. The operating-frame
+;; ladder therefore gains a realm dimension — tier-3 sole-app-frame resolution
+;; counts only app frames in the OPERATING REALM (the session realm pin, or the
+;; default realm when none is pinned). A single-realm app (the overwhelming
+;; common case — every frame lives in `:rf.realm/default`) is byte-identical:
+;; the operating realm is the default realm, and scoping to it is a no-op.
+;;
+;; The realm half is read via the public `rf/realm-ids` (enumerate the
+;; installed realms) + `rf/frame-realm` (a frame's realm), both shipped in
+;; rf2-f1xa3k. Both are DEFENSIVELY guarded (`exists?`) so the preload still
+;; loads into an older core that predates the realm-enumeration API — there it
+;; degrades to the single-realm (default-realm) view, exactly as a frame with
+;; no realm reference resolves to the default realm.
 
 (defonce ^:private selected-frame (atom nil))
 
@@ -260,6 +280,69 @@
   [frame-id]
   (reset! selected-frame frame-id)
   {:ok? true :frame frame-id})
+
+;; ---- Runtime realm (EP-0013 disposition 3, rf2-09ijml) --------------------
+;;
+;; A frame lives in a runtime REALM; the (realm, frame) pair is its full
+;; address. The realm reads are the public `rf/realm-ids` (the installed realm
+;; ids) + `rf/frame-realm` (a frame's realm), both shipped in rf2-f1xa3k. Both
+;; are guarded with `exists?` so the preload still loads into an older core
+;; that predates the realm-enumeration API — there it degrades to the
+;; single-realm (default) view.
+
+(def ^:private default-realm-id
+  "The process default realm id (re-frame.realm/default-realm-id). A
+   single-realm app's frames all live here, and absence of an explicit realm
+   means this realm — the documented EP-0013 rule. Hard-coded (rather than
+   read from core) so the fallback view is well-defined even on a core that
+   predates the realm API."
+  :rf.realm/default)
+
+(defn realm-ids
+  "The installed runtime realm ids, as a sorted vector. Reads the public
+   `rf/realm-ids` (rf2-f1xa3k) — the realm-enumeration half of the (realm,
+   frame) addressing model (EP-0013 disposition 3). Defensively guarded: a
+   core that predates the realm-enumeration API reports the single default
+   realm, matching the single-realm view every frame resolves to there.
+
+   Sorted by `pr-str` for a stable listing (the underlying `rf/realm-ids`
+   returns an unordered set)."
+  []
+  (if (exists? rf/realm-ids)
+    (vec (sort-by pr-str (rf/realm-ids)))
+    [default-realm-id]))
+
+(defn frame-realm
+  "The realm id a frame lives in. Reads the public `rf/frame-realm`
+   (rf2-f1xa3k) — the frame-side half of the (realm, frame) address (EP-0013
+   disposition 3). Returns `default-realm-id` for an unknown/destroyed frame
+   or when the core predates the public reader (every frame is in the default
+   realm in the single-realm view)."
+  [frame-id]
+  (or (when (exists? rf/frame-realm)
+        (rf/frame-realm frame-id))
+      default-realm-id))
+
+(defonce ^:private selected-realm (atom nil))
+
+(defn select-realm!
+  "Pin the OPERATING REALM for this session — the realm whose app frames the
+   tier-3 sole-app-frame resolver counts (EP-0013 disposition 3, rf2-09ijml).
+   Subsequent frame resolution scopes to it; passing `nil` clears the pin and
+   resolution falls back to the default realm. A single-realm app never needs
+   this (its frames all live in the default realm). Returns the post-pin
+   triple."
+  [realm-id]
+  (reset! selected-realm realm-id)
+  {:ok? true :realm realm-id :realms (realm-ids)})
+
+(defn operating-realm
+  "Resolve the OPERATING REALM: the session realm pin, else the default realm.
+   This is the realm the tier-3 sole-app-frame resolver scopes to. A
+   single-realm app always resolves to `default-realm-id`, so realm-scoping is
+   a no-op there (byte-identical to the pre-realm ladder)."
+  []
+  (or @selected-realm default-realm-id))
 
 (defn reserved-tool-frame?
   "True when `frame-id` names a framework-reserved `:rf/*` TOOL frame —
@@ -283,23 +366,38 @@
        (not= :rf/default frame-id)))
 
 (defn app-frame-ids
-  "The registered frame ids with `:rf/*` reserved TOOL frames removed —
-   the frames the operator is actually pairing against (rf2-3bu3d.4).
-   `:rf/default` is retained (it is an app frame; see
-   `reserved-tool-frame?`). The order/source mirrors `(rf/frame-ids)`."
-  []
-  (vec (remove reserved-tool-frame? (rf/frame-ids))))
+  "The registered APP frame ids in a realm — `(rf/frame-ids)` with `:rf/*`
+   reserved TOOL frames removed AND scoped to a single realm (rf2-3bu3d.4 +
+   EP-0013 disposition 3, rf2-09ijml). `:rf/default` is retained (it is an
+   app frame; see `reserved-tool-frame?`). The order/source mirrors
+   `(rf/frame-ids)`.
+
+   No-arg scopes to the OPERATING REALM (`operating-realm` — the session
+   realm pin, else the default realm); arity-1 scopes to an explicit realm
+   id. A frame's realm is read via `frame-realm`. In a single-realm app
+   every frame is in the default realm, so realm-scoping admits every app
+   frame — byte-identical to the pre-realm view."
+  ([] (app-frame-ids (operating-realm)))
+  ([realm-id]
+   (vec (->> (rf/frame-ids)
+             (remove reserved-tool-frame?)
+             (filter #(= realm-id (frame-realm %)))))))
 
 (defn current-frame
   "Resolve the operating frame: explicit override -> session pin ->
-   the sole registered APP frame -> nil (ambiguous).
+   the sole registered APP frame in the operating realm -> nil (ambiguous).
 
-   Tier 3 is reserved-frame-aware (rf2-3bu3d.4): `:rf/*` TOOL frames
-   (Xray's `:rf/xray`, SSR slots, …) are EXCLUDED before counting, so a
-   single-app session that ALSO carries an Xray frame resolves to the one
-   app frame instead of refusing. `:rf/default` is an app frame and is
-   retained (see `reserved-tool-frame?`). When two-plus APP frames remain
-   the resolver yields nil and mutating ops refuse via the
+   Tier 3 is reserved-frame-aware (rf2-3bu3d.4) AND realm-scoped (EP-0013
+   disposition 3, rf2-09ijml): `:rf/*` TOOL frames (Xray's `:rf/xray`, SSR
+   slots, …) are EXCLUDED and only app frames in the OPERATING REALM are
+   counted, so a single-app session that ALSO carries an Xray frame resolves
+   to the one app frame instead of refusing. The (realm, frame) pair is the
+   full address — a frame-id is unique only within a realm — so counting only
+   the operating realm's app frames is what makes tier-3 sole-frame resolution
+   correct under multiple realms. A single-realm app (every frame in the
+   default realm) is byte-identical. `:rf/default` is an app frame and is
+   retained (see `reserved-tool-frame?`). When two-plus APP frames remain in
+   the operating realm the resolver yields nil and mutating ops refuse via the
    `:ambiguous-frame` path — reads that nil-default to `:rf/default` would
    silently land in the wrong frame, so the resolver stays conservative:
    callers either pin via `select-frame!`, pass an explicit override, or
@@ -313,19 +411,37 @@
            (first app-fids))))))
 
 (defn frames-list
-  "All registered, non-destroyed frame ids plus the operating frame.
+  "All registered, non-destroyed frame ids plus the operating frame and the
+   realm dimension (rf2-3bu3d.4 + EP-0013 disposition 3, rf2-09ijml).
 
-   `:app-frames` exposes the reserved-frame-aware view (rf2-3bu3d.4):
-   the registered frames with `:rf/*` tool frames removed. When it holds
-   exactly one id while `:frames` holds more, the session is
-   single-app-plus-tool-frame and `:operating` auto-resolved to that lone
-   app frame (no `select-frame!` was needed)."
+   `:app-frames` exposes the reserved-frame-aware view (rf2-3bu3d.4) scoped to
+   the operating realm: the registered frames with `:rf/*` tool frames removed
+   and only those in the OPERATING REALM. When it holds exactly one id while
+   `:frames` holds more, the session is single-app-plus-tool-frame (or a
+   multi-realm session whose other app frames live in other realms) and
+   `:operating` auto-resolved to that lone app frame (no `select-frame!` was
+   needed).
+
+   The realm slots make the full (realm, frame) address visible:
+     `:realms`          all installed realm ids (`realm-ids`).
+     `:operating-realm` the realm tier-3 resolution scopes to (the session
+                        realm pin, else the default realm).
+     `:selected-realm`  the tier-2 session realm pin, nil when unset.
+     `:frame-realms`    `{frame-id realm-id}` for every registered frame, so a
+                        tool sees which realm each frame lives in.
+   A single-realm app reports `:realms [:rf.realm/default]` and every frame's
+   realm as the default — the realm dimension collapses to a no-op."
   []
-  {:ok?              true
-   :frames           (vec (rf/frame-ids))
-   :app-frames       (app-frame-ids)
-   :selected         @selected-frame
-   :operating        (current-frame)})
+  (let [fids (vec (rf/frame-ids))]
+    {:ok?              true
+     :frames           fids
+     :app-frames       (app-frame-ids)
+     :selected         @selected-frame
+     :operating        (current-frame)
+     :realms           (realm-ids)
+     :operating-realm  (operating-realm)
+     :selected-realm   @selected-realm
+     :frame-realms     (into {} (map (fn [fid] [fid (frame-realm fid)])) fids)}))
 
 (defn frames-meta
   "Flat metadata map for frame `id` — `(rf/frame-meta id)`. Returns `:id`,
@@ -4180,18 +4296,34 @@
      :frames                    (vec fids)
      ;; rf2-3bu3d.4 — the reserved-frame-aware view: registered frames
      ;; with `:rf/*` TOOL frames (Xray's `:rf/xray`, SSR slots, …)
-     ;; removed. `:rf/default` is retained (it is an app frame). When
-     ;; this holds exactly one id while `:frames` holds more, the session
-     ;; is single-app-plus-tool-frame and resolution auto-selects the
-     ;; lone app frame — see `:ambiguous-frame?` below.
+     ;; removed. `:rf/default` is retained (it is an app frame). EP-0013
+     ;; (rf2-09ijml): ALSO scoped to the operating realm — only app frames
+     ;; in `operating-realm` are counted. When this holds exactly one id
+     ;; while `:frames` holds more, the session is single-app-plus-tool-frame
+     ;; (or a multi-realm session whose other app frames are in other realms)
+     ;; and resolution auto-selects the lone app frame — see
+     ;; `:ambiguous-frame?` below.
      :app-frames                app-fids
      :selected-frame            @selected-frame
      :operating-frame           (current-frame)
+     ;; EP-0013 disposition 3 (rf2-09ijml) — the realm dimension of the
+     ;; (realm, frame) address. `:realms` enumerates the installed realms
+     ;; (`rf/realm-ids`); `:operating-realm` is the realm tier-3 resolution
+     ;; scopes to (the session realm pin, else the default realm);
+     ;; `:frame-realms` maps each registered frame to its realm
+     ;; (`rf/frame-realm`). A single-realm app reports `[:rf.realm/default]`
+     ;; and every frame's realm as the default — the dimension collapses.
+     :realms                    (realm-ids)
+     :operating-realm           (operating-realm)
+     :selected-realm            @selected-realm
+     :frame-realms              (into {} (map (fn [fid] [fid (frame-realm fid)])) fids)
      ;; rf2-3bu3d.4 — ambiguity counts APP frames, not raw frames. A
      ;; single-app session that ALSO carries an Xray (or other `:rf/*`
      ;; tool) frame has exactly one app frame, so it is NOT ambiguous and
      ;; pays no `frames/select` tax. Genuinely multi-app sessions (two-plus
-     ;; non-tool frames) stay ambiguous until the session pins one.
+     ;; non-tool frames) stay ambiguous until the session pins one. EP-0013
+     ;; (rf2-09ijml): `app-fids` is realm-scoped, so two app frames in
+     ;; DIFFERENT realms are not ambiguous — only two in the operating realm.
      :ambiguous-frame?          (and (> (count app-fids) 1)
                                      (nil? @selected-frame))
      :epoch-history-depth       (try
@@ -4242,9 +4374,18 @@
                       frame counts) — the freshness check stays on
                       discover-app; orient names enough to know the read
                       is trustworthy.
-     :frames          {:all [...] :app [...] :operating <id>} — the
+     :frames          {:all [...] :app [...] :operating <id>
+                       :realms [...] :operating-realm <id>
+                       :frame-realms {<frame-id> <realm-id>}} — the
                       `frames-list` view (reserved `:rf/*` tool frames
-                      split out via `app-frame-ids`).
+                      split out via `app-frame-ids`) PLUS the realm
+                      dimension (EP-0013 disposition 3, rf2-09ijml): the
+                      installed realms, the operating realm tier-3
+                      resolution scopes to, and each frame's realm — the
+                      (realm, frame) full address. `:app` is realm-scoped
+                      (only the operating realm's app frames). A
+                      single-realm app reports `[:rf.realm/default]` and
+                      every frame's realm as the default.
      :app-db-top-keys {<app-frame-id> [<top-level key> ...]} — the
                       top-level app-db keys per APP frame (the cheap
                       'what state shape is this' read; drill with
@@ -4272,10 +4413,15 @@
                 :frame-count         (count (:frames h))
                 :app-frame-count     (count app-fids)
                 :ambiguous-frame?    (:ambiguous-frame? h)
+                :realm-count         (count (:realms h))
                 :runtime-instance-id (:runtime-instance-id h)}
-     :frames   {:all       (:frames h)
-                :app       app-fids
-                :operating (:operating-frame h)}
+     :frames   {:all             (:frames h)
+                :app             app-fids
+                :operating       (:operating-frame h)
+                ;; EP-0013 disposition 3 (rf2-09ijml) — the realm dimension.
+                :realms          (:realms h)
+                :operating-realm (:operating-realm h)
+                :frame-realms    (:frame-realms h)}
      :app-db-top-keys
      (into {}
            (map (fn [fid]

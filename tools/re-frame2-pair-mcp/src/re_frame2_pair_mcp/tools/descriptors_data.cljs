@@ -230,6 +230,7 @@
 (def discover-app
   {:name "discover-app"
    :description (str "Verify the shadow-cljs nREPL is reachable, confirm the re-frame2-pair runtime preload landed, and report a health summary. Run this first every session. A failed probe is classified by a diagnostic ladder (rf2-7tgfk): :reason :nrepl-unreachable (nREPL down), :build-not-running (start the build), :no-runtime-connected (build runs but no tab attached — reload/open the page or pick the right build), or :runtime-loaded-but-preload-missing (runtime live but the pair preload entry is absent — add the preload). :runtime-not-preloaded is reserved as the degradation fallback when the ladder cannot otherwise classify. "
+                     "The :ok? true health summary carries :frames + :app-frames AND the EP-0013 REALM dimension — :realms (the installed runtime realm ids), :operating-realm (the realm tier-3 sole-frame resolution scopes to), and :frame-realms ({frame-id realm-id}). The (realm, frame) pair is the full address; a single-realm app reports :realms [:rf.realm/default] and every frame's realm as the default. "
                      "Every :ok? true result carries a :freshness token (rf2-ertqw): {:runtime-instance-id <uuid> :runtime-loaded-at <ms> :compile-cycle <monotonic int> :build-flushed-at <ms> :runtime-count <n> :heartbeat-age-ms <ms> :liveness :fresh|:stale-build|:no-runtime|:unknown}. Check :liveness BEFORE trusting reads — :stale-build means the build recompiled after the running browser code loaded (RELOAD the page), :no-runtime means no tab is connected. "
                      "Examples: "
                      "1. No arg, exactly one build running: {} -> auto-selects it: {:ok? true :debug-enabled? true :frames [:rf/default] :coord-annotation-enabled? true :build-id :examples/step-deck :auto-selected-build :examples/step-deck :freshness {:liveness :fresh ...} :note \"...auto-selected it.\"}. "
@@ -271,18 +272,22 @@
                      "Most valuable for devs NOT working on re-frame2 tooling: they hand you an arbitrary "
                      "app and you need a fast map of it. "
                      "Returns: :liveness {:debug-enabled? :frame-count :app-frame-count :ambiguous-frame? "
-                     ":runtime-instance-id} (run discover-app for the full freshness token); :frames "
-                     "{:all [...] :app [...] :operating <id>} (reserved :rf/* tool frames split out); "
+                     ":realm-count :runtime-instance-id} (run discover-app for the full freshness token); "
+                     ":frames {:all [...] :app [...] :operating <id> :realms [...] :operating-realm <id> "
+                     ":frame-realms {<frame-id> <realm-id>}} (reserved :rf/* tool frames split out PLUS the "
+                     "EP-0013 realm dimension — the (realm, frame) full address; :app is realm-scoped); "
                      ":app-db-top-keys {<app-frame-id> [<top-level key> ...]} (the cheap 'what state "
                      "shape' read per APP frame — tool frames excluded so the summary doesn't overflow); "
                      ":registry {:counts {<kind> N ...} :events [...] :subs [...] :fx [...]} (registrar "
                      "COUNTS for every v1 kind plus the full sorted ids for the three most navigable "
                      "kinds); :machines [...]. "
+                     "A single-realm app (the common case) reports :realms [:rf.realm/default] and every "
+                     "frame's realm as the default — the realm dimension collapses to a no-op. "
                      "Compact + summarized by design (respects the wire cap) — counts + high-value id "
                      "vectors + per-frame top-keys, NOT the full app-db. Drill via list-handlers / "
                      "list-subscriptions / snapshot / get-path / read-sub. "
                      "Examples: "
-                     "1. Orient an unfamiliar app: {} -> {:ok? true :liveness {:debug-enabled? true :frame-count 2 :app-frame-count 1 :ambiguous-frame? false} :frames {:all [:rf/default :rf/xray] :app [:rf/default] :operating :rf/default} :app-db-top-keys {:rf/default [:cart :route :user]} :registry {:counts {:event 14 :sub 9 :fx 3 :cofx 1 :view 6 :frame 2 :route 4 :flow 0 :head 0 :error-projector 0 :resource 0 :mutation 0 :resource-scope 0} :events [:cart/add :cart/checkout ...] :subs [:cart/total :current-user ...] :fx [:http :navigate :persist]} :machines [:checkout]}. "
+                     "1. Orient an unfamiliar app: {} -> {:ok? true :liveness {:debug-enabled? true :frame-count 2 :app-frame-count 1 :ambiguous-frame? false :realm-count 1} :frames {:all [:rf/default :rf/xray] :app [:rf/default] :operating :rf/default :realms [:rf.realm/default] :operating-realm :rf.realm/default :frame-realms {:rf/default :rf.realm/default :rf/xray :rf.realm/default}} :app-db-top-keys {:rf/default [:cart :route :user]} :registry {:counts {:event 14 :sub 9 :fx 3 :cofx 1 :view 6 :frame 2 :route 4 :flow 0 :head 0 :error-projector 0 :resource 0 :mutation 0 :resource-scope 0} :events [:cart/add :cart/checkout ...] :subs [:cart/total :current-user ...] :fx [:http :navigate :persist]} :machines [:checkout]}. "
                      "2. Production build (debug off): {} -> {:ok? true :liveness {:debug-enabled? false ...} ...} — trace/epoch surfaces elide, but the registry/frame shape still answers.")
    :typicalTokens 600
    :annotations idempotent-read-only-annotations
@@ -1562,44 +1567,62 @@
 
 (def set-operating-frame
   {:name "set-operating-frame"
-   :description (str "Pin the session's OPERATING FRAME — the frame that frame-targeted ops "
-                     "(dispatch, snapshot, get-path, subscribe, list-subscriptions, …) resolve to "
-                     "when you DON'T pass a per-call :frame. re-frame2 is multi-frame (Spec 002): "
-                     "with two-plus frames registered and no pin, those ops REFUSE with "
-                     ":reason :ambiguous-frame rather than guess a target. Pin once with this op and "
-                     "they resolve to the pinned frame from then on — the escape from :ambiguous-frame "
+   :description (str "Pin the session's OPERATING FRAME (and/or OPERATING REALM) — the (realm, frame) "
+                     "address that frame-targeted ops (dispatch, snapshot, get-path, subscribe, "
+                     "list-subscriptions, …) resolve to when you DON'T pass a per-call :frame. re-frame2 "
+                     "is multi-frame (Spec 002): with two-plus app frames registered and no pin, those ops "
+                     "REFUSE with :reason :ambiguous-frame rather than guess a target. Pin once with this op "
+                     "and they resolve to the pinned frame from then on — the escape from :ambiguous-frame "
                      "(tier 2 of the resolution table). Validates that :frame names a currently-registered "
                      "frame; an unknown frame returns {:ok? false :reason :no-such-frame :frames [...]}. "
-                     "On success returns the resolved triple {:ok? true :frames [...] :selected <pinned> "
-                     ":operating <resolved>} so you can confirm the pin took. The pin persists for the "
-                     "session (implicit-until-reset); clear it with reset-operating-frame, or a runtime "
-                     "reload clears it automatically. "
+                     "On success returns the resolved map {:ok? true :frames [...] :app-frames [...] "
+                     ":selected <pinned> :operating <resolved> + the realm slots} so you can confirm the "
+                     "pin took. The pin persists for the session (implicit-until-reset); clear it with "
+                     "reset-operating-frame, or a runtime reload clears it automatically. "
+                     "REALM (EP-0013): a frame lives in a runtime REALM and the (realm, frame) PAIR is its "
+                     "full address — a frame-id is unique only WITHIN a realm. Pass an OPTIONAL :realm to "
+                     "pin the OPERATING REALM, which re-scopes tier-3 sole-frame resolution to count only "
+                     "that realm's app frames. Either :frame, :realm, or both may be given. A single-realm "
+                     "app (every frame in :rf.realm/default) never needs :realm. An uninstalled realm "
+                     "returns {:ok? false :reason :no-such-realm :realms [...]}. "
                      "Examples: "
-                     "1. Pin a frame: {:frame \":stories\"} -> {:ok? true :frames [:rf/default :stories] :selected :stories :operating :stories}. "
+                     "1. Pin a frame: {:frame \":stories\"} -> {:ok? true :frames [:rf/default :stories] :selected :stories :operating :stories :operating-realm :rf.realm/default ...}. "
                      "2. Unknown frame: {:frame \":nope\"} -> {:ok? false :reason :no-such-frame :frame :nope :frames [:rf/default :stories]}. "
-                     "3. Missing arg: {} -> {:ok? false :reason :missing-frame}.")
-   :typicalTokens 150
+                     "3. Pin a realm (multi-realm app): {:realm \":shop/realm\"} -> {:ok? true :selected-realm :shop/realm :operating-realm :shop/realm :app-frames [...realm-scoped...] ...}. "
+                     "4. Uninstalled realm: {:realm \":nope\"} -> {:ok? false :reason :no-such-realm :realm :nope :realms [:rf.realm/default]}. "
+                     "5. Missing both args: {} -> {:ok? false :reason :missing-frame}.")
+   :typicalTokens 200
    :annotations session-pin-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
                  :properties {:frame {:type "string"
                                       :description (str "Frame-id to pin as the session operating frame. Accepts bare names "
                                                         "(\"stories\") or EDN-shaped strings (\":stories\"). MUST name a "
-                                                        "currently-registered frame — call get-operating-frame to list them.")}
+                                                        "currently-registered frame — call get-operating-frame to list them. "
+                                                        "OPTIONAL when :realm is given (pin the realm alone).")}
+                              :realm {:type "string"
+                                      :description (str "OPTIONAL realm-id (EP-0013) to pin as the session operating realm — "
+                                                        "e.g. \":shop/realm\". Accepts bare or EDN-shaped (\":\") strings. "
+                                                        "Re-scopes tier-3 sole-frame resolution to count only this realm's "
+                                                        "app frames (the (realm, frame) pair is the full address). MUST name "
+                                                        "an installed realm — call get-operating-frame to list :realms. Omit "
+                                                        "for the default realm (the common single-realm case — byte-identical "
+                                                        "to the pre-realm behaviour).")}
                               :build {:type "string"}}
-                 :required ["frame"]
                  :additionalProperties false}})
 
 (def reset-operating-frame
   {:name "reset-operating-frame"
-   :description (str "Clear the session's operating-frame pin set by set-operating-frame. After reset, "
-                     "frame-targeted ops resolve at tier 3 (sole-registered frame) or tier 4 "
-                     "(:ambiguous-frame when two-plus frames are registered and no per-call :frame is "
-                     "passed) again. Returns the post-reset triple {:ok? true :frames [...] :selected nil "
-                     ":operating <resolved-or-nil>}. Idempotent — resetting when nothing is pinned is a "
-                     "no-op that returns the same triple. "
+   :description (str "Clear the session's operating-frame pin (AND operating-realm pin, EP-0013) set by "
+                     "set-operating-frame. After reset, frame-targeted ops resolve at tier 3 "
+                     "(sole-registered app frame in the operating realm) or tier 4 (:ambiguous-frame when "
+                     "two-plus app frames are registered and no per-call :frame is passed) again, and the "
+                     "operating realm falls back to the default realm. Returns the post-reset map {:ok? true "
+                     ":frames [...] :selected nil :operating <resolved-or-nil> :selected-realm nil "
+                     ":operating-realm :rf.realm/default + the realm slots}. Idempotent — resetting when "
+                     "nothing is pinned is a no-op that returns the same map. "
                      "Examples: "
-                     "1. Clear a pin in a multi-frame app: {} -> {:ok? true :frames [:rf/default :stories] :selected nil :operating nil}. "
+                     "1. Clear a pin in a multi-frame app: {} -> {:ok? true :frames [:rf/default :stories] :selected nil :operating nil :selected-realm nil}. "
                      "2. Clear in a single-frame app: {} -> {:ok? true :frames [:rf/default] :selected nil :operating :rf/default} (tier-3 sole-frame resolution still applies).")
    :typicalTokens 150
    :annotations session-pin-annotations
@@ -1610,15 +1633,24 @@
 
 (def get-operating-frame
   {:name "get-operating-frame"
-   :description (str "Report the session's operating-frame state — the normative triple per the Tool-Pair "
+   :description (str "Report the session's operating-frame state — the normative shape per the Tool-Pair "
                      "contract (§Tool-surface obligations): :frames (all registered frame-ids, so you can "
-                     "pick a target), :selected (the tier-2 session pin set by set-operating-frame, nil when "
+                     "pick a target), :app-frames (the reserved-frame-aware view scoped to the operating "
+                     "realm), :selected (the tier-2 session pin set by set-operating-frame, nil when "
                      "unset), and :operating (the result of full resolution — nil means AMBIGUOUS: two-plus "
-                     "frames and no pin, so frame-targeted ops without a per-call :frame will refuse). "
+                     "app frames in the operating realm and no pin, so frame-targeted ops without a per-call "
+                     ":frame will refuse). "
+                     "REALM dimension (EP-0013 disposition 3): the (realm, frame) pair is the full address. "
+                     "Also reports :realms (all installed realm ids), :operating-realm (the realm tier-3 "
+                     "resolution scopes to — the session realm pin else the default realm), :selected-realm "
+                     "(the tier-2 realm pin, nil when unset), and :frame-realms ({frame-id realm-id} for "
+                     "every frame). A single-realm app reports :realms [:rf.realm/default] and every frame's "
+                     "realm as the default. "
                      "Pure read; reads the SAME frame registry discover-app consults. Call this to find out "
-                     "which frame writes will land in, and whether you need to set-operating-frame first. "
+                     "which frame (and realm) writes will land in, and whether you need to set-operating-frame "
+                     "first. "
                      "Examples: "
-                     "1. Single frame, nothing pinned: {} -> {:ok? true :frames [:rf/default] :selected nil :operating :rf/default} (tier-3 sole-frame). "
+                     "1. Single frame, nothing pinned: {} -> {:ok? true :frames [:rf/default] :selected nil :operating :rf/default :realms [:rf.realm/default] :operating-realm :rf.realm/default} (tier-3 sole-frame). "
                      "2. Multi-frame, nothing pinned (AMBIGUOUS): {} -> {:ok? true :frames [:rf/default :stories] :selected nil :operating nil}. "
                      "3. Multi-frame with a pin: {} -> {:ok? true :frames [:rf/default :stories] :selected :stories :operating :stories}.")
    :typicalTokens 150

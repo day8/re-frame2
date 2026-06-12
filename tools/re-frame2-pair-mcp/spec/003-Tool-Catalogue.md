@@ -16,7 +16,10 @@ registrar-introspection pair `handler-meta` + `list-handlers` (rf2-cibp8
 rf2-4y595 for NAMING.md `list-<things>` conformance), the operating-frame
 trio `set-operating-frame` + `reset-operating-frame` + `get-operating-frame`
 (rf2-zomfq — the [Tool-Pair §Tool-surface obligations][tsobl] ops that
-surface the session frame pin, the escape from tier-4 `:ambiguous-frame`),
+surface the session frame pin, the escape from tier-4 `:ambiguous-frame`;
+extended in rf2-09ijml to carry the EP-0013 **realm dimension** — the
+(realm, frame) full address, with an optional `realm` pin that re-scopes
+tier-3 sole-frame resolution),
 the write pair `restore-epoch` + `replace-app-db` (rf2-ee38b.18 — the
 Tool-Pair time-travel + state-injection primitives, gated behind
 `--allow-writes`), `dispatch-dry-run` (rf2-17hvp — simulate a cascade without
@@ -531,8 +534,11 @@ The summary shape:
             :frame-count         N
             :app-frame-count     N
             :ambiguous-frame?    bool
+            :realm-count         N            ; EP-0013 — # installed realms
             :runtime-instance-id <uuid>}
- :frames   {:all [...] :app [...] :operating <id>}
+ :frames   {:all [...] :app [...] :operating <id>
+            :realms [...] :operating-realm <id>     ; EP-0013 realm dimension
+            :frame-realms {<frame-id> <realm-id>}}
  :app-db-top-keys {<app-frame-id> [<top-level key> ...]}
  :registry {:counts {<kind> N ...}    ; every v1 registrar kind
             :events [...] :subs [...] :fx [...]}  ; full ids for the 3 navigable kinds
@@ -553,6 +559,15 @@ orientation doesn't overflow on tool-frame inspection state. The full
 freshness/liveness token stays on `discover-app`; `orient` carries
 enough of it (`:debug-enabled?`, the frame counts, `:ambiguous-frame?`)
 to know the read is trustworthy.
+
+**Realm dimension (EP-0013 disposition 3, rf2-09ijml).** `:frames`
+carries the **(realm, frame) address**: `:realms` (the installed runtime
+realm ids — `(rf/realm-ids)`), `:operating-realm` (the realm tier-3
+sole-frame resolution scopes to), and `:frame-realms` (`{frame-id
+realm-id}` for every registered frame — `(rf/frame-realm id)`). `:app` is
+**realm-scoped** to the operating realm. A single-realm app (the common
+case) reports `:realms [:rf.realm/default]` and every frame's realm as
+the default — the dimension collapses to a no-op.
 
 Read-only + idempotent across same-state calls — cacheable like the
 other read tools. `:reason :orient-failed` (with `:message`) on a
@@ -2939,10 +2954,13 @@ realm is stamped onto the response as `:realm`. `realm` is **not valid with
 `kind=machine`** (machine specs derive from the default realm's `:event`
 handlers) — that combination returns
 `{:ok? false :reason :realm-unsupported-for-machine …}` rather than
-silently ignoring the realm. Discovering *which* realms exist, a frame's
-owning realm, and the realm-scoped operating-frame ladder are **deferred**
-(no public realm enumeration or frame→realm read ships yet) — see the
-rf2-1koiq1 follow-up beads.
+silently ignoring the realm. Discovering *which* realms exist and a frame's
+owning realm now ship (rf2-f1xa3k — public `(rf/realm-ids)` + `(rf/frame-realm
+frame-id)`), surfaced by `orient` / `discover-app` / `get-operating-frame`;
+the realm-scoped operating-frame ladder ships in rf2-09ijml (tier-3
+sole-app-frame resolution counts only the operating realm's app frames; see
+§set-operating-frame / reset-operating-frame / get-operating-frame and
+[Tool-Pair §Operating frame — Realm dimension](../../../spec/Tool-Pair.md#operating-frame)).
 
 **Supported kinds**: the closed v1 registrar set (per Spec 001
 §Registry model), including the three resources-artefact kinds
@@ -3111,10 +3129,12 @@ gap.
 
 ### set-operating-frame
 
-Pin the session's operating frame.
+Pin the session's operating frame (and/or operating realm).
 
-**Args**: `frame` (string, **required** — bare `"stories"` or EDN-shaped
-`":stories"`), `build` (string, optional).
+**Args**: `frame` (string, optional — bare `"stories"` or EDN-shaped
+`":stories"`), `realm` (string, optional — EP-0013 realm-id, bare or
+EDN-shaped, e.g. `":shop/realm"`), `build` (string, optional). **At least
+one of `frame` / `realm` must be supplied** (both absent → `:missing-frame`).
 
 Per Tool-Pair §Tool-surface obligations, set **validates** that `frame`
 names a currently-registered frame; an unknown frame returns the
@@ -3122,8 +3142,20 @@ names a currently-registered frame; an unknown frame returns the
 :frames [...]}` (the registered list rides along so the agent can
 retarget). Validation and the pin write are one eval form — the
 membership check reads `(re-frame2-pair.runtime/frames-list)` and, on a
-hit, calls `(select-frame! <id>)` and returns the fresh triple; no
+hit, calls `(select-frame! <id>)` and returns the fresh map; no
 check-then-act race across round-trips.
+
+**Realm pin (EP-0013 disposition 3, rf2-09ijml).** The optional `realm`
+arg pins the **operating realm** — the realm tier-3 sole-frame resolution
+scopes to. A frame lives in a runtime realm and the **(realm, frame) pair
+is the full address** (a frame-id is unique only *within* a realm), so
+pinning a realm re-scopes tier-3 to count only that realm's app frames.
+The realm is validated against `(rf/realm-ids)`; an uninstalled realm
+returns `{:ok? false :reason :no-such-realm :realm <id> :realms [...]}`.
+The realm is pinned **first** in the eval form (so the subsequent
+`frames-list` view is already realm-scoped), then the frame. A single-realm
+app (every frame in `:rf.realm/default`) never needs `realm` — it pins the
+frame alone, byte-identical to the pre-realm behaviour.
 
 A **reserved `:rf/*` tool frame** (Xray's `:rf/xray`, an SSR slot — see
 Tool-Pair §Reserved tool frames) is **refused as an operating-frame
@@ -3138,40 +3170,50 @@ source: a reserved frame is never the operating frame. Targeted (sliced)
 reads of a tool frame remain available via the per-call `:frame` arg.
 `:rf/default` is an app frame and is pinnable normally.
 
-**Returns** the resolved triple on success:
+**Returns** the resolved `frames-list` map on success (the frame triple PLUS
+the realm slots):
 
 ```clojure
-{:ok?       true
- :frames    [<frame-id> ...]   ;; all registered
- :selected  <frame-id>         ;; the just-pinned frame (tier-2 pin)
- :operating <frame-id>}        ;; full resolution — now the pinned frame
+{:ok?             true
+ :frames          [<frame-id> ...]   ;; all registered
+ :app-frames      [<frame-id> ...]   ;; tool frames removed, scoped to the operating realm
+ :selected        <frame-id>         ;; the just-pinned frame (tier-2 pin)
+ :operating       <frame-id>         ;; full resolution — now the pinned frame
+ :realms          [<realm-id> ...]   ;; installed realms
+ :operating-realm <realm-id>         ;; the operating realm (the realm pin, else default)
+ :selected-realm  <realm-id|nil>     ;; tier-2 realm pin
+ :frame-realms    {<frame-id> <realm-id> ...}}
 ```
 
 **Error envelopes** (all `isError: true`):
 
-- `{:ok? false :reason :missing-frame :hint "..."}` — no `frame` arg.
+- `{:ok? false :reason :missing-frame :hint "..."}` — neither `frame` nor `realm` supplied.
 - `{:ok? false :reason :reserved-tool-frame :frame <id> :hint "..."}` — `frame` is a reserved `:rf/*` tool frame (refused before nREPL; rf2-wdxyx3).
+- `{:ok? false :reason :no-such-realm :realm <id> :realms [...] :hint "..."}` — `realm` not installed (EP-0013; refused before any frame pin).
 - `{:ok? false :reason :no-such-frame :frame <id> :frames [...] :hint "..."}` — `frame` not registered.
 - `{:ok? false :reason :set-operating-frame-failed :message "..."}` — runtime threw.
 
 ### reset-operating-frame
 
-Clear the session pin.
+Clear the session pin — the frame pin AND the realm pin (EP-0013).
 
-**Args**: `build` (string, optional). No `frame`.
+**Args**: `build` (string, optional). No `frame` / `realm`.
 
-Routes through `(select-frame! nil)` then re-reads the triple so the
-returned shape reflects the cleared pin. After reset, subsequent ops
-resolve at tier 3 / 4 again. Idempotent — resetting when nothing is
-pinned is a no-op that returns the same triple.
+Routes through `(select-frame! nil)` + `(select-realm! nil)` then re-reads
+the `frames-list` map so the returned shape reflects the cleared pins. After
+reset, subsequent ops resolve at tier 3 / 4 again and the operating realm
+falls back to the default realm. Idempotent — resetting when nothing is
+pinned is a no-op that returns the same map.
 
 **Returns**:
 
 ```clojure
-{:ok?       true
- :frames    [<frame-id> ...]
- :selected  nil                ;; pin cleared
- :operating <frame-id|nil>}    ;; tier-3 sole-frame, or nil (ambiguous)
+{:ok?             true
+ :frames          [<frame-id> ...]
+ :selected        nil                ;; frame pin cleared
+ :operating       <frame-id|nil>     ;; tier-3 sole-frame, or nil (ambiguous)
+ :selected-realm  nil                ;; realm pin cleared
+ :operating-realm :rf.realm/default} ;; back to the default realm
 ```
 
 ### get-operating-frame
@@ -3182,20 +3224,29 @@ consults, so the two never disagree.
 
 **Args**: `build` (string, optional).
 
-**Returns** the normative triple (per [Tool-Pair §Tool-surface
-obligations][tsobl] — `:frames` / `:selected` / `:operating`):
+**Returns** the normative shape (per [Tool-Pair §Tool-surface
+obligations][tsobl] — `:frames` / `:selected` / `:operating`) PLUS the
+EP-0013 realm dimension:
 
 ```clojure
-{:ok?       true
- :frames    [<frame-id> ...]   ;; (rf/frame-ids) — all registered
- :selected  <frame-id|nil>     ;; tier-2 session pin (nil = unset)
- :operating <frame-id|nil>}    ;; full resolution (nil = AMBIGUOUS)
+{:ok?             true
+ :frames          [<frame-id> ...]   ;; (rf/frame-ids) — all registered
+ :app-frames      [<frame-id> ...]   ;; tool frames removed, scoped to the operating realm
+ :selected        <frame-id|nil>     ;; tier-2 session frame pin (nil = unset)
+ :operating       <frame-id|nil>     ;; full resolution (nil = AMBIGUOUS)
+ :realms          [<realm-id> ...]   ;; (rf/realm-ids) — all installed realms
+ :operating-realm <realm-id>         ;; the realm tier-3 scopes to (realm pin, else default)
+ :selected-realm  <realm-id|nil>     ;; tier-2 session realm pin
+ :frame-realms    {<frame-id> <realm-id> ...}}  ;; (rf/frame-realm id) per frame
 ```
 
-`:operating nil` means ambiguous: two-plus frames and no pin, so a
-frame-targeted op without a per-call `frame` WILL refuse. The triple
-lets a caller render both "you have pinned X" (`:selected`) and "writes
-will go to X" (`:operating`) when the two diverge.
+`:operating nil` means ambiguous: two-plus app frames in the operating
+realm and no pin, so a frame-targeted op without a per-call `frame` WILL
+refuse. The shape lets a caller render "you have pinned X" (`:selected`),
+"writes will go to X" (`:operating`), and the realm each frame lives in /
+the operating realm (the realm slots). A single-realm app reports `:realms
+[:rf.realm/default]` and every frame's realm as the default — the dimension
+collapses to a no-op.
 
 ### How they escape `:ambiguous-frame`
 

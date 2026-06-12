@@ -1259,7 +1259,7 @@
      :edn-submap {:ok? false :reason :reserved-tool-frame :frame :rf/xray}}}
 
    {:fixture/id    :set-operating-frame/missing-frame
-    :fixture/doc   "set-operating-frame without :frame surfaces :missing-frame before any nREPL round-trip."
+    :fixture/doc   "set-operating-frame without :frame OR :realm surfaces :missing-frame before any nREPL round-trip."
     :fixture/tool  "set-operating-frame"
     :fixture/args  {}
     :fixture/eval-script
@@ -1267,6 +1267,58 @@
     :fixture/expect
     {:isError? true
      :reason :missing-frame}}
+
+   ;; EP-0013 disposition 3 (rf2-09ijml) — the realm dimension of the
+   ;; (realm, frame) address. set-operating-frame accepts an OPTIONAL
+   ;; :realm that pins the operating realm (re-scoping tier-3 sole-frame
+   ;; resolution to that realm's app frames); an uninstalled realm refuses
+   ;; with :no-such-realm.
+   {:fixture/id    :set-operating-frame/realm-pin
+    :fixture/doc   "set-operating-frame {:realm ...} pins the operating realm and returns the frames-list map with :selected-realm = the pinned realm (EP-0013 disposition 3)."
+    :fixture/tool  "set-operating-frame"
+    :fixture/args  {:realm ":shop/realm"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ;; The form validates :shop/realm against (:realms (frames-list)),
+     ;; pins it via select-realm!, then re-reads frames-list — now
+     ;; :selected-realm :shop/realm, :operating-realm :shop/realm.
+     ["select-realm!"             {:ok? true
+                                   :frames [:rf/default :shop/cart]
+                                   :app-frames [:shop/cart]
+                                   :selected nil
+                                   :operating :shop/cart
+                                   :realms [:rf.realm/default :shop/realm]
+                                   :operating-realm :shop/realm
+                                   :selected-realm :shop/realm
+                                   :frame-realms {:rf/default :rf.realm/default
+                                                  :shop/cart :shop/realm}}]
+     [:default                    nil]]
+    ;; The emitted form MUST validate against the installed realm list AND
+    ;; pin via select-realm! — the realm-pin mechanism. The keyword rides
+    ;; well-formed, never the malformed ::shop/realm.
+    :fixture/eval-form-must-contain
+    ["select-realm!" ":realms" ":shop/realm"]
+    :fixture/eval-form-must-not-contain
+    ["::shop"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :selected-realm :shop/realm :operating-realm :shop/realm}
+     :edn-contains-keys #{:realms :operating-realm :selected-realm :frame-realms}}}
+
+   {:fixture/id    :set-operating-frame/no-such-realm
+    :fixture/doc   "set-operating-frame {:realm ...} on an uninstalled realm refuses with :no-such-realm as an isError envelope (EP-0013) — no frame pin happens."
+    :fixture/tool  "set-operating-frame"
+    :fixture/args  {:realm ":nope"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ;; :nope is not in (:realms (frames-list)) → the realm clause's else
+     ;; branch returns :no-such-realm WITHOUT pinning.
+     [:default                    {:ok? false :reason :no-such-realm
+                                   :realm :nope
+                                   :realms [:rf.realm/default]}]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :reason :no-such-realm :realm :nope}}}
 
    {:fixture/id    :reset-operating-frame/clears-pin
     :fixture/doc   "reset-operating-frame clears the session pin (select-frame! nil) and returns the post-reset triple with :selected nil."
