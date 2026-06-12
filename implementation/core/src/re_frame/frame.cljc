@@ -1193,6 +1193,70 @@
                                :where     :safe-call-hook!})
            nil))))
 
+(defn- tear-down-frame-host-transient!
+  "Walk the destroyed frame's realm's host-transient descriptor inventory and
+  run each `:frame`-scoped descriptor's `:teardown` token, addressed to THIS
+  frame (rf2-c6armm.7 #2). The realm OWNS the host-transient inventory
+  (`re-frame.realm/host-transient` — `subsystem-id → :rf/host-transient-descriptor`,
+  Spec-Schemas §`:rf/host-transient-descriptor`); a descriptor declares its
+  `:scope` (`:frame` for entries keyed per-frame, `:realm` for one realm-scoped
+  table) and an opaque `:teardown` fn token the spec says 'runs on frame destroy'
+  (Runtime-Subsystems §Host-transient subsystem state).
+
+  Before this step, `destroy-frame!` released host-transient state only through
+  the FIXED list of hard-coded `safe-call-hook!` hooks (`:routing/...`,
+  `:resources/...`, `:ssr/...`, `:machines/...`). A subsystem could correctly
+  register a frame-scoped host-transient descriptor with the realm AND still leak
+  on `destroy-frame!` unless it ALSO had a bespoke hook in that list — the
+  realm-owned inventory was the single source of truth for realm DISPOSAL
+  (`dispose-realm-host-transient!`) but had no frame-destroy counterpart. This
+  step is that counterpart: it walks the realm's inventory and tears down the
+  `:frame`-scoped descriptors for the frame being destroyed, so a subsystem that
+  declares its host-transient descriptor needs no second hard-coded hook.
+
+  Only `:scope :frame` descriptors are torn down here — `:realm`-scoped tables
+  outlive an individual frame (they release on `dispose-realm!`). The teardown is
+  invoked `(teardown frame-id realm-id)` — the (frame, realm) address — so a
+  frame-scoped teardown can release exactly this frame's entries (the
+  realm-dispose walk invokes `(teardown realm-id)`; a teardown fn that only cares
+  about the frame ignores the trailing realm-id, and one that needs both has it).
+  A descriptor with no `:teardown` (an inventory record whose bytes reset through
+  a late-bind reset hook) or a non-callable token is skipped.
+
+  Best-effort, mirroring `safe-call-hook!`: a throwing teardown is caught,
+  accumulated onto the `*teardown-hook-failures*` accumulator (flushed once as the
+  always-on `:rf.error/frame-teardown-failed` report) AND traced per-descriptor on
+  the dev `:rf.warning/teardown-hook-exception` channel, so one bad teardown can't
+  block the rest. A frame whose realm holds no inventory is a no-op.
+
+  `rid` is the frame's realm id, captured at the TOP of `destroy-frame!` BEFORE
+  `mark-frame-destroyed!` flips `:destroyed?` — once flipped, `(frame id)` (and so
+  `frame-realm`) returns nil, so the realm cannot be resolved from the frame id at
+  this point in the recipe. INTERNAL."
+  [id rid]
+  (when rid
+    (doseq [[sid descriptor] (realm/host-transient rid)]
+      (when (= :frame (:scope descriptor))
+        (when-let [td (:teardown descriptor)]
+          (when (fn? td)
+            (try
+              (td id rid)
+              (catch #?(:clj Throwable :cljs :default) ex
+                ;; Always-on axis: accumulate (flushed once by destroy-frame!).
+                (when-let [acc *teardown-hook-failures*]
+                  (swap! acc conj {:hook      [:host-transient sid]
+                                   :exception ex
+                                   :where     :tear-down-frame-host-transient!}))
+                ;; Diagnostic channel: per-descriptor dev trace at its causal position.
+                (trace/emit-error! :rf.warning/teardown-hook-exception
+                                   {:category   :rf.warning/teardown-hook-exception
+                                    :hook       [:host-transient sid]
+                                    :subsystem  sid
+                                    :frame      *destroying-frame-id*
+                                    :exception  ex
+                                    :where      :tear-down-frame-host-transient!})
+                nil))))))))
+
 (defn- emit-on-destroy-handler-exception!
   "Surface `:rf.error/on-destroy-handler-exception` through BOTH the
   ALWAYS-ON error-emit axis (production-survivable) AND the dev-only trace
@@ -1530,6 +1594,15 @@
                                               caches — work-ledger host
                                               handles + generation
                                               high-water mark (rf2-afpdkn).
+    *. tear-down-frame-host-transient! — walk the frame's realm's
+                                      host-transient descriptor inventory and
+                                      run each :frame-scoped descriptor's
+                                      :teardown for THIS frame (rf2-c6armm.7
+                                      #2). The realm-owned counterpart of the
+                                      fixed hooks above: a subsystem that
+                                      registers a frame-scoped host-transient
+                                      descriptor with the realm is torn down
+                                      here without a second hard-coded hook.
     5. emit-frame-destroyed-trace!  — emit :frame/destroyed AFTER the
                                       machine cascade.
     6. dissoc-frame!                — remove from the `frames` atom.
@@ -1588,6 +1661,12 @@
             ;; is replayable (per EP-0010 §Time). nil outside a drain.
             cascade-time-ms   *cascade-time-ms*
             fs-at-destroy     (frame-state-value id)
+            ;; rf2-c6armm.7 #2: capture the frame's realm id NOW, before
+            ;; `mark-frame-destroyed!` (step 3) flips :destroyed? — once flipped,
+            ;; `frame-realm` (which reads through `(frame id)`) returns nil, so the
+            ;; host-transient teardown step (below) could not resolve the realm to
+            ;; walk its inventory. Captured here so the walk addresses the right realm.
+            frame-rid         (frame-realm id)
             ;; EP-0008 R1 (rf2-ini4wr): per-destroy accumulator for
             ;; cleanup-hook failures. `safe-call-hook!` conj's an entry per
             ;; failed hook; the finally-shaped flush below ships them as ONE
@@ -1655,6 +1734,17 @@
         ;; destroyed frame in each host cache. No-op when re-frame.resources
         ;; is absent (the artefact is optional, post-v1).
         (safe-call-hook! :resources/on-frame-destroyed! id)
+        ;; rf2-c6armm.7 #2: walk the frame's realm's host-transient descriptor
+        ;; inventory and tear down its :frame-scoped descriptors for THIS frame.
+        ;; The hard-coded hooks above release the SHIPPED subsystems' host-transient
+        ;; state; this realm-inventory walk releases any descriptor a subsystem
+        ;; registered with the realm without a second bespoke hook (the realm is
+        ;; the single inventory of what must be torn down on frame/realm destroy —
+        ;; Runtime-Subsystems §Host-transient subsystem state). The realm id was
+        ;; captured at the top (frame-rid), before mark-frame-destroyed! flipped
+        ;; :destroyed? (after which frame-realm returns nil). Best-effort (failures
+        ;; accumulate + trace exactly like safe-call-hook!).
+        (tear-down-frame-host-transient! id frame-rid)
         (emit-frame-destroyed-trace! id)
         ;; Per Spec 009 §Per-frame trace rings (rf2-g1b2m / rf2-8uwce):
         ;; release the destroyed frame's cascade-keyed ring so no

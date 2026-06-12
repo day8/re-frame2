@@ -320,3 +320,76 @@
                                                     :rf.test/nav-counters)))
         "the registered descriptor is non-durable")
     (realm/clear-host-transient!)))
+
+;; ---------------------------------------------------------------------------
+;; (6) host-transient :teardown is wired into destroy-frame! (rf2-c6armm.7 #2)
+;;
+;; The spec says a :frame-scoped host-transient descriptor's :teardown "runs on
+;; frame destroy" (Spec-Schemas §:rf/host-transient-descriptor; Runtime-Subsystems
+;; §Host-transient subsystem state). Before the fix, destroy-frame! released
+;; host-transient state only through a FIXED list of hard-coded per-subsystem
+;; hooks — a subsystem that registered a frame-scoped descriptor with the realm
+;; (the single owning inventory) would still leak unless it ALSO had a bespoke
+;; hook. The fix walks the frame's realm's inventory on destroy.
+;; ---------------------------------------------------------------------------
+
+(deftest host-transient-frame-scoped-teardown-fires-on-destroy-frame
+  (testing "rf2-c6armm.7 #2: a :frame-scoped host-transient descriptor's :teardown
+            FIRES on destroy-frame!, addressed to the (frame, realm) being torn
+            down. A :realm-scoped descriptor does NOT fire on frame destroy (it
+            outlives an individual frame — it releases on dispose-realm!)."
+    (realm/clear-host-transient!)
+    (let [torn (atom [])]
+      ;; A frame-scoped descriptor: its :teardown must run on destroy-frame!.
+      (realm/register-host-transient!
+        {:id            :rf.test/frame-scoped
+         :storage-class :host-transient :scope :frame :durability :none
+         :teardown      (fn [frame-id realm-id]
+                          (swap! torn conj [:frame-scoped frame-id realm-id]))})
+      ;; A realm-scoped descriptor: it must NOT run on destroy-frame! (only on
+      ;; dispose-realm!), so it is the negative control.
+      (realm/register-host-transient!
+        {:id            :rf.test/realm-scoped
+         :storage-class :host-transient :scope :realm :durability :none
+         :teardown      (fn [& _] (swap! torn conj :realm-scoped-fired))})
+      ;; A real frame in the default realm.
+      (rf/reg-frame :ht/frame {:doc "host-transient teardown frame"})
+      (is (some? (frame/frame :ht/frame)) "the frame is live before destroy")
+      ;; Destroy it — the frame-scoped teardown must fire, addressed to (frame, realm).
+      (frame/destroy-frame! :ht/frame)
+      (is (= [[:frame-scoped :ht/frame :rf.realm/default]] @torn)
+          "the :frame-scoped descriptor's :teardown ran with the (frame, realm)
+           address; the :realm-scoped one did NOT fire on frame destroy")
+      ;; The descriptor INVENTORY itself is realm-owned and persists (other frames
+      ;; may share it) — only the per-frame side-table bytes are torn down. The
+      ;; inventory drops on realm dispose / clear, not on frame destroy.
+      (is (some? (realm/host-transient :rf.realm/default :rf.test/frame-scoped))
+          "the descriptor record persists in the realm inventory after frame destroy"))
+    (realm/clear-host-transient!)))
+
+(deftest host-transient-frame-teardown-is-best-effort
+  (testing "rf2-c6armm.7 #2: a throwing host-transient :teardown does not abort
+            destroy-frame! — it is best-effort (caught + accumulated), so the rest
+            of teardown and a SECOND descriptor's teardown still run, mirroring the
+            safe-call-hook! cleanup semantics."
+    (realm/clear-host-transient!)
+    (let [second-ran (atom false)]
+      (realm/register-host-transient!
+        {:id            :rf.test/throwing
+         :storage-class :host-transient :scope :frame :durability :none
+         :teardown      (fn [& _] (throw (ex-info "boom in teardown" {})))})
+      (realm/register-host-transient!
+        {:id            :rf.test/after-throw
+         :storage-class :host-transient :scope :frame :durability :none
+         :teardown      (fn [& _] (reset! second-ran true))})
+      (rf/reg-frame :ht/throw-frame {:doc "throwing teardown frame"})
+      ;; destroy-frame! must NOT propagate the teardown throw...
+      (frame/destroy-frame! :ht/throw-frame)
+      ;; ...the frame is torn down...
+      (is (nil? (frame/frame :ht/throw-frame))
+          "destroy-frame! completed despite a throwing host-transient teardown")
+      ;; ...and the OTHER descriptor's teardown still ran (one bad teardown does
+      ;; not block the rest).
+      (is (true? @second-ran)
+          "a sibling host-transient teardown still ran after the throwing one"))
+    (realm/clear-host-transient!)))
