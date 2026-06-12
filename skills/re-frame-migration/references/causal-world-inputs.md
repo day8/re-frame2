@@ -21,15 +21,17 @@ The test for "durable": *does this value ride restore/replay/SSR?* If yes, it is
 A v1 / early-v2 app expresses these durable host reads as direct calls inside handlers and reducers. Grep for them, then classify each hit by bucket:
 
 ```bash
-# Time
-rg -n 'js/Date\.now|\(\.now js/Date\)|interop/now-ms|\(now-ms\)' src
-# Randomness + generated identity
-rg -n 'random-uuid|\brand\b|rand-int|rand-nth|crypto\.getRandomValues' src
+# Time (incl. raw js/Date constructor + .getTime, common in v1 JS-interop code)
+rg -n 'js/Date\.now|\(\.now js/Date\)|interop/now-ms|\(now-ms\)|\(js/Date\.\)|\(\.getTime\b' src
+# Randomness + generated identity (incl. js/Math.random and crypto.randomUUID forms)
+rg -n 'random-uuid|\brand\b|rand-int|rand-nth|crypto\.getRandomValues|\(\.getRandomValues js/crypto\)|js/Math\.random|\(\.random js/Math\)|crypto\.randomUUID|\(\.randomUUID js/crypto\)' src
 # Browser + storage facts
 rg -n 'js/location|js/navigator|localStorage|sessionStorage|matchMedia' src
 # v1 ambient time coeffect
 rg -n 'inject-cofx\s+:now|:now\b' src
 ```
+
+> **Keep these aligned with the framework's own check.** `scripts/check_ambient_durable_reads.py` is the authoritative ambient-durable-read detector for the re-frame2 codebase; its clock/random pattern list (`now-ms` / `js/Date.now` / `.now js/Date` / `random-uuid` / `getRandomValues`) is the canonical core. The extra raw-JS forms above (`(js/Date.)` + `.getTime`, `js/Math.random` / `.random js/Math`, `crypto.randomUUID` / `.randomUUID js/crypto`) are the ones a **v1 consumer app** commonly uses that the framework code does not — a migration grep that only covers the framework's set under-reports and can falsely conclude EP-0010 is clean. Include both.
 
 For each hit: if the value flows into a durable write → it migrates (below). If it's diagnostic or host-transient → leave it, and note in the report *why* it's allowed to stay ambient.
 

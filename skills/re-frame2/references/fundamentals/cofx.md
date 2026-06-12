@@ -89,6 +89,8 @@ And the handler that ingests it (`examples/reagent/todomvc/events.cljs`):
 
 The cofx writes under `[:coeffects :todo.storage/todos]`; the handler destructures the same key off the coeffect map.
 
+> **This boot value is durable — make the cofx recordable (EP-0010).** `:todo/initialise` writes the localStorage read straight into `:db`, so the read decides a **durable** write and falls squarely under the durable-write rule above (Spec 002 §Causal world inputs). A plain cofx that re-reads `js/localStorage` at the write site re-reads the *current* host on every replay — epoch restore, SSR hydration, and time-travel each diverge from the recorded boot. Reading (and validating) the value is **necessary but not sufficient**. For a durable boot/rehydrate value, make the read **recordable**: register the cofx with a `:schema` so its captured value is validated *and recorded* in the replay record (returned from the record on replay rather than re-read from the host), or source the value from `:rf.world/inputs` `:storage`. The plain-cofx shape above is the right *shape*; the durable-determinism caveat is what a copy-paste into a real app must add. (A storage read that lands only in a diagnostic / host-transient slot — deciding no durable write — stays an ordinary unrecorded cofx.)
+
 ## When `reg-cofx` is overkill — the inline-interceptor escape hatch
 
 `reg-cofx` + `inject-cofx` is the canonical path. It earns its weight by giving the cofx an **id** — and an id is what lets you stub it in tests, hot-rebind it at the REPL (re-registering takes effect on the next dispatch with no event-handler re-registration), enumerate it from devtools (Xray's cofx list), and parameterise it across many call sites (one `:local-store` handler, many keys).
