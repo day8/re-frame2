@@ -30,9 +30,17 @@
 (def User
   "The authenticated user's profile. Returned by /users/login,
    /users (register), and /user (current user)."
+  ;; EP-0015 (issue 5 / disposition 5): the JWT is owner-classified at the
+  ;; slot that introduces it, via the EP-0005 per-slot `:sensitive?` malli
+  ;; property. `UserResponse` is the `:decode` schema for the login / register
+  ;; / session-restore replies, so this classification redacts the token out
+  ;; of any off-box capture of the response body (the same fact the frame
+  ;; `:sensitive` config redacts once it lands at [:auth :token] / the Bearer
+  ;; header — declared here so it is also covered while still in flight as a
+  ;; decoded reply, before the auth machine stores it).
   [:map
    [:email    :string]
-   [:token    :string]
+   [:token    {:sensitive? true} :string]
    [:username :string]
    [:bio      [:maybe :string]]
    [:image    [:maybe :string]]])
