@@ -397,6 +397,43 @@ dispatch `:rf.xray/select-frame`. Reaching the spine's `:rf.xray/
 set-frame` primitive directly bypasses the persistence + future
 instrumentation layers attached to the canonical event.
 
+### EP-0013 realm-awareness posture (considered, deferred — rf2-1koiq1)
+
+EP-0013 (app values and runtime realms) makes the *realm* the owner of
+the registrar/adapter/frame-registry; a frame belongs to exactly one
+realm, and the `(realm, frame)` pair is the full address. The
+`rf2-1koiq1` propagation considered how Xray adopts this and concluded:
+**no Xray code changes today, by the EP's own zero-ceremony rule.** The
+considered scope, recorded so a later slice does not re-derive it:
+
+- **Frames panel — group by realm in multi-realm processes only.**
+  EP-0013 disposition 3: the frame switcher (`frame_switcher.cljs`,
+  `:rf.xray/available-frames`, `distinct-frames`) would render an
+  `<optgroup>` per realm when more than one realm is present; the
+  single-realm render stays byte-identical (zero-ceremony extends to
+  tooling). Tracked: **rf2-3caq85**.
+- **Trace/causality rows — show `:rf.realm/id` where present.** EP-0013
+  disposition 2: the trace rows (`panels/trace.cljs`, which already read
+  a `:frame` stamp) render the realm stamp *where the trace event carries
+  it*, and omit it otherwise. Tracked: **rf2-7vqpwa**.
+- **Module-view — the disposition-6 demand trigger.** EP-0013 keeps
+  descriptor provenance metadata internal *until* an Xray module-view
+  demands it; that view (inspecting app-value modules: ownership,
+  capability requirements, EP-0015 classification, and provenance) is its
+  own design slice, not in-scope here. Tracked: **rf2-wtg9z4**.
+
+All three are **blocked on observability**, not on UI work: Xray consumes
+the Spec 009 trace stream and enumerates frames from trace cascades. Today
+the trace stream carries no `:rf.realm/id`, the frame's `:realm` slot is
+internal, and `re-frame.core` exposes neither a public frame→realm read
+nor a realm enumeration. Until the framework stamps `:rf.realm/id` on the
+observability surfaces (the EP-0010/0011/0016 record shapes reserve the
+slot now per disposition 2; the emit is a later core slice), every frame
+is the default realm — so realm grouping/stamping would be speculative UI
+for constant data. The single-realm UX is therefore correct as-is, and the
+deferred beads carry the standing rule (update `tools/xray/spec/*`
+same-PR) for when the observability lands.
+
 ## The default landing view
 
 On page load after `rf/init!`, when `[data-rf-xray-host]` exists:

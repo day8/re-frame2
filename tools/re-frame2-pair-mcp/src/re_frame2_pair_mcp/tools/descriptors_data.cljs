@@ -1485,6 +1485,14 @@
                                      :description (str "EDN-encoded id, e.g. \":user/login\". For "
                                                        "composite-key subs, pass the vector form "
                                                        "as a string, e.g. \"[:rf/composite :x]\".")}
+                              :realm {:type "string"
+                                      :description (str "OPTIONAL realm-id keyword (EP-0013), e.g. "
+                                                        "\":shop/realm\". Omit for the default realm "
+                                                        "(the common single-realm case — byte-"
+                                                        "identical). When given, reads ONLY that "
+                                                        "realm's registrar via the map-shaped "
+                                                        "(rf/handler-meta {:realm r :kind k :id id}) "
+                                                        "form. Not valid with kind=machine.")}
                               :build {:type "string"}}
                  :required ["kind" "id"]
                  :additionalProperties false}})
@@ -1520,6 +1528,14 @@
                  :properties {:kind {:type "string"
                                      :description "Registrar kind. One of event, sub, fx, cofx, view, frame, route, flow, head, error-projector, machine."
                                      :enum ["event" "sub" "fx" "cofx" "view" "frame" "route" "flow" "head" "error-projector" "machine"]}
+                              :realm {:type "string"
+                                      :description (str "OPTIONAL realm-id keyword (EP-0013), e.g. "
+                                                        "\":shop/realm\". Omit for the default realm "
+                                                        "(the common single-realm case — byte-"
+                                                        "identical). When given, enumerates ONLY that "
+                                                        "realm's registrar via the map-shaped "
+                                                        "(rf/registrations {:realm r :kind k}) form. "
+                                                        "Not valid with kind=machine.")}
                               :build {:type "string"}}
                  :required ["kind"]
                  :additionalProperties false}})

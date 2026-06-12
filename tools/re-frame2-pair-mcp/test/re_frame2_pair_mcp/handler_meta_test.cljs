@@ -330,3 +330,148 @@
                                  "the offending value rides on :value for forensics"))
                            (done))))))
           (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; EP-0013 realm-targeting (rf2-1koiq1).
+;;
+;; The OPTIONAL `:realm` arg threads a realm-id keyword into the public
+;; map-shaped query forms `(rf/handler-meta {:realm r :kind k :id id})` /
+;; `(rf/registrations {:realm r :kind k})` (EP-0013 open-issue 11). ABSENT ⇒
+;; the byte-identical default-realm path (no `:realm` key on the response).
+;; ---------------------------------------------------------------------------
+
+(defn- with-form-capture!
+  "Stub `nrepl/cljs-eval-value` to CAPTURE the non-probe eval form string
+  into `form-atom` and resolve with `canned`. Lets a test assert on the
+  exact form the tool ships (the realm-targeted vs default-realm shape)."
+  [form-atom canned body-fn]
+  (let [orig nrepl/cljs-eval-value
+        stub (fn
+               ([_conn _build-id form-str]
+                (if (re-find #"__re_frame2_pair_runtime" form-str)
+                  (js/Promise.resolve true)
+                  (do (reset! form-atom form-str) (js/Promise.resolve canned))))
+               ([_conn _build-id form-str _opts]
+                (if (re-find #"__re_frame2_pair_runtime" form-str)
+                  (js/Promise.resolve true)
+                  (do (reset! form-atom form-str) (js/Promise.resolve canned)))))]
+    (set! nrepl/cljs-eval-value stub)
+    (-> (js/Promise.resolve nil)
+        (.then (fn [_] (body-fn)))
+        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+
+(deftest handler-meta-default-realm-form-is-byte-identical
+  (testing "no :realm ⇒ the eval form routes through the runtime registrar-describe (unchanged)"
+    (async done
+      (let [form (atom nil)
+            canned {:ns 'app.x :line 1 :handler-fn-hash 7}]
+        (-> (with-form-capture! form canned
+              (fn []
+                (-> (hm/handler-meta-tool nil (args-js {:kind "event" :id ":counter/inc"}))
+                    (.then (fn [result]
+                             (let [edn (extract-edn result)]
+                               (is (str/includes? @form "registrar-describe")
+                                   "default path still uses the runtime registrar-describe fn")
+                               (is (not (str/includes? @form ":realm"))
+                                   "no realm threaded into the default form")
+                               (is (not (contains? edn :realm))
+                                   "default-realm response carries NO :realm key (byte-identical)"))
+                             (done))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+
+(deftest handler-meta-explicit-realm-uses-map-shaped-core-form
+  (testing "an explicit :realm ⇒ the form uses the public (rf/handler-meta {:realm … :kind … :id …}) form and stamps :realm"
+    (async done
+      (let [form (atom nil)
+            canned {:ns 'app.x :line 1 :handler-fn-hash 7}]
+        (-> (with-form-capture! form canned
+              (fn []
+                (-> (hm/handler-meta-tool nil (args-js {:kind  "event"
+                                                        :id    ":counter/inc"
+                                                        :realm ":shop/realm"}))
+                    (.then (fn [result]
+                             (let [edn (extract-edn result)]
+                               (is (str/includes? @form "re-frame.core/handler-meta")
+                                   "realm path routes through the public core map-shaped form")
+                               (is (str/includes? @form ":realm :shop/realm")
+                                   "the realm-id is threaded into the query map")
+                               (is (true? (:ok? edn)))
+                               (is (= :shop/realm (:realm edn))
+                                   "the resolved realm is stamped on the response"))
+                             (done))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+
+(deftest handler-meta-rejects-realm-with-machine
+  (testing "kind=machine + :realm ⇒ structured :realm-unsupported-for-machine (no silent swallow)"
+    (async done
+      (-> (hm/handler-meta-tool nil (args-js {:kind  "machine"
+                                              :id    ":auth/session"
+                                              :realm ":shop/realm"}))
+          (.then (fn [result]
+                   (is (is-error? result))
+                   (let [edn (extract-edn result)]
+                     (is (= :realm-unsupported-for-machine (:reason edn)))
+                     (is (= :shop/realm (:realm edn))))
+                   (done)))))))
+
+(deftest handler-meta-rejects-invalid-realm-edn
+  (testing "an unreadable :realm surfaces :invalid-realm-edn"
+    (async done
+      (-> (hm/handler-meta-tool nil (args-js {:kind  "event"
+                                              :id    ":counter/inc"
+                                              :realm "{:unclosed"}))
+          (.then (fn [result]
+                   (is (is-error? result))
+                   (let [edn (extract-edn result)]
+                     (is (= :invalid-realm-edn (:reason edn))))
+                   (done)))))))
+
+(deftest list-handlers-explicit-realm-uses-map-shaped-core-form
+  (testing "list-handlers with :realm ⇒ (rf/registrations {:realm … :kind …}) form and stamps :realm"
+    (async done
+      (let [form (atom nil)]
+        (-> (with-form-capture! form [:a :b]
+              (fn []
+                (-> (hm/list-handlers-tool nil (args-js {:kind "event" :realm ":shop/realm"}))
+                    (.then (fn [result]
+                             (let [edn (extract-edn result)]
+                               (is (str/includes? @form "re-frame.core/registrations")
+                                   "realm path routes through the public core map-shaped form")
+                               (is (str/includes? @form ":realm :shop/realm"))
+                               (is (true? (:ok? edn)))
+                               (is (= :shop/realm (:realm edn))))
+                             (done))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+
+(deftest list-handlers-default-realm-form-is-byte-identical
+  (testing "list-handlers with no :realm ⇒ runtime registrar-list (unchanged), no :realm key"
+    (async done
+      (let [form (atom nil)]
+        (-> (with-form-capture! form [:a :b]
+              (fn []
+                (-> (hm/list-handlers-tool nil (args-js {:kind "event"}))
+                    (.then (fn [result]
+                             (let [edn (extract-edn result)]
+                               (is (str/includes? @form "registrar-list"))
+                               (is (not (contains? edn :realm))))
+                             (done))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+
+(deftest list-handlers-rejects-realm-with-machine
+  (testing "list-handlers kind=machine + :realm ⇒ structured :realm-unsupported-for-machine"
+    (async done
+      (-> (hm/list-handlers-tool nil (args-js {:kind "machine" :realm ":shop/realm"}))
+          (.then (fn [result]
+                   (is (is-error? result))
+                   (let [edn (extract-edn result)]
+                     (is (= :realm-unsupported-for-machine (:reason edn))))
+                   (done)))))))
+
+(deftest realm-arg-is-optional-in-descriptors
+  (testing "the :realm property is present but NOT required on both tools"
+    (doseq [tool-name ["handler-meta" "list-handlers"]]
+      (let [{:keys [required properties]} (:inputSchema (find-descriptor tool-name))]
+        (is (contains? properties :realm)
+            (str tool-name " exposes the optional :realm property"))
+        (is (not (contains? (set required) "realm"))
+            (str tool-name " does not require :realm (default realm is the common case))"))))))

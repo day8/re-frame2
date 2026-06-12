@@ -2899,7 +2899,26 @@ jump-to-editor link.
 **Args**: `kind` (string, **required** — one of `event` / `sub` /
 `fx` / `cofx` / `view` / `frame` / `route` / `flow` / `head` /
 `error-projector` / `machine`), `id` (string, **required** — EDN-encoded
-keyword or composite vector), `build` (string, optional).
+keyword or composite vector), `realm` (string, optional — EDN-encoded
+realm-id keyword), `build` (string, optional).
+
+**Realm-targeting** (EP-0013, rf2-1koiq1). The optional `realm` arg is a
+realm-id keyword (e.g. `":shop/realm"`). **Omit it for the default realm**
+— the overwhelming single-realm common case, where the response is
+byte-identical (no `:realm` key, no behaviour change; absence = the default
+realm, the EP-0013 issue-2 documented rule). When supplied, the lookup
+routes through the public **map-shaped** form
+`(re-frame.core/handler-meta {:realm r :kind k :id id})` (EP-0013
+open-issue 11 — map-shaped is the ruled public form, unambiguous against the
+keyword arities) and reads **only that realm's** registrar; the resolved
+realm is stamped onto the response as `:realm`. `realm` is **not valid with
+`kind=machine`** (machine specs derive from the default realm's `:event`
+handlers) — that combination returns
+`{:ok? false :reason :realm-unsupported-for-machine …}` rather than
+silently ignoring the realm. Discovering *which* realms exist, a frame's
+owning realm, and the realm-scoped operating-frame ladder are **deferred**
+(no public realm enumeration or frame→realm read ships yet) — see the
+rf2-1koiq1 follow-up beads.
 
 **Supported kinds**: the closed v1 registrar set (per Spec 001
 §Registry model). App-db schemas are **not** a registrar kind
@@ -2943,6 +2962,8 @@ On a miss:
 - `{:ok? false :reason :invalid-kind :kind <raw> :hint "kind must be one of: event, sub, ..."}` — unrecognised / missing `kind` arg.
 - `{:ok? false :reason :missing-id}` — `id` arg absent or blank.
 - `{:ok? false :reason :invalid-id-edn :id <raw> :hint "..."}` — `id` failed `cljs.reader/read-string`.
+- `{:ok? false :reason :invalid-realm-edn :realm <raw> :hint "..."}` — non-blank `realm` failed to read as EDN.
+- `{:ok? false :reason :realm-unsupported-for-machine :realm <r> :kind :machine :hint "..."}` — `realm` given with `kind=machine`.
 - `{:ok? false :reason :handler-meta-failed :message "..."}` — runtime threw.
 
 **Composite-key subs**: pass the vector form as a string —
@@ -2966,7 +2987,15 @@ out what's registered (per kind), then drill in with `handler-meta`
 on a specific `(kind, id)` pair.
 
 **Args**: `kind` (string, **required** — same enum as `handler-meta`),
-`build` (string, optional).
+`realm` (string, optional — EDN-encoded realm-id keyword), `build`
+(string, optional).
+
+**Realm-targeting** (EP-0013, rf2-1koiq1): same contract as `handler-meta`.
+Omit `realm` for the default realm (byte-identical). When supplied, the
+enumeration routes through the public map-shaped
+`(re-frame.core/registrations {:realm r :kind k})` form and lists **only
+that realm's** ids, stamping `:realm` on the response. Not valid with
+`kind=machine`.
 
 **Supported kinds**: same closed v1 registrar set as `handler-meta`
 (per rf2-cq1ak app-db schemas are not a registrar kind — use
@@ -2994,6 +3023,8 @@ empty case.
 **Error envelopes**:
 
 - `{:ok? false :reason :invalid-kind :kind <raw> :hint "..."}` — unrecognised / missing `kind` arg.
+- `{:ok? false :reason :invalid-realm-edn :realm <raw> :hint "..."}` — non-blank `realm` failed to read as EDN.
+- `{:ok? false :reason :realm-unsupported-for-machine :realm <r> :kind :machine :hint "..."}` — `realm` given with `kind=machine`.
 - `{:ok? false :reason :list-handlers-failed :message "..."}` — runtime threw.
 
 **Pair with `handler-meta`**: typical agent workflow is
