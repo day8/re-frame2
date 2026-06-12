@@ -202,6 +202,46 @@ Logout has a subtle ordering problem: you want to clear the scope the user *was 
 
 Because every resource carries an explicit policy, the old `/me`-URL heuristic is downgraded to a hint. Xray's standing security-review surface is *structural*: it enumerates every `:rf.scope/global` resource (the audit list) and warns about *suspicious* explicit-global resources whose requests look session-dependent. A missing scope is now a loud error, not something a tool compensates for.
 
+## Scope — the leak boundary other libraries do not have
+
+The previous section described *how* re-frame2's scope works. This one is about *what it is*, because it's the one place this chapter makes a claim no competitor can: **re-frame2 is the only server-state library in its class where cache scope is a structural, fail-closed isolation axis — not a convention you have to remember.** That's worth being precise about, because "we have multi-tenancy support" is a thing every library says and almost none enforces.
+
+### The mental model you already have: a viewer id inside the query key
+
+If you've used TanStack Query, RTK Query, SWR, or `shipclojure/re-frame-query`, you already know the shape of the answer. You put viewer identity *inside the query key* so two users' caches don't collide:
+
+```js
+// TanStack Query — the viewer id is one segment of the key, by convention.
+useQuery({ queryKey: ['dashboard', userId, tenantId], queryFn: ... })
+
+// RTK Query — the tag/arg carries the viewer; tenancy lives in the arg.
+useGetDashboardQuery({ tenantId, userId })
+
+// SWR — the viewer is interpolated into the key string.
+useSWR(`/api/dashboard?tenant=${tenantId}&user=${userId}`, fetcher)
+```
+
+This works, and it's the right instinct. The cache key *should* carry the viewer. The problem is **nothing enforces it.** The viewer id is one segment of a key you assemble by hand, in every call site, every time. Forget `tenantId` in one of forty `queryKey`s and that read silently shares one tenant's cache with the next — no error, no warning, just a dashboard showing the previous user's data. The leak is a *missing line*, and a missing line throws no exception. And there's a second seam these libraries don't even have a place to address: **logout.** Clearing "the previous user's cache" is `queryClient.clear()` (a sledgehammer that drops everyone's, including a still-valid global cache) or a hand-maintained list of keys to invalidate (another thing to forget). None of the four benchmarked libraries ships a *scoped* clear, and — verified across their canonical example apps (RealWorld, TodoMVC, Linearlite) — none even *exercises* multi-tenancy. The leak boundary is left as an exercise for the reader.
+
+### The re-frame2 equivalent: the resolved scope *is* a key segment, and it's required
+
+re-frame2 keeps the same mental model — the viewer belongs in the key — and removes the two ways it goes wrong: the *forgotten segment* and the *missing logout clear*. Scope is a **declared policy at registration** (you cannot register a read without saying whose cache it is), it **resolves into the key structurally** (the runtime puts it there, not your call site), it **fails closed** (an unresolvable scope is a loud error, never a silent shared read), and it has a **causal clear** (logout is a first-class scoped operation, not a manual key list). The convention you were *trusting* becomes a guarantee the framework *enforces*. Concretely, the boundary rests on six structural facts, each one already introduced above:
+
+| Guarantee | Mechanism | What it prevents |
+|---|---|---|
+| **Scope is required, declared once** | `:scope` is mandatory at `reg-resource`; no policy is a `:rf.error/resource-missing-scope-policy` registration error. | "I forgot this read is user-scoped." The viewer dimension is unrepresentable as an afterthought — it's stated at the definition site, not assembled per call. |
+| **Scope is *in* the identity** | The [scoped resource key](#resource-identity--the-scoped-key) is `[scope resource-id params]`; the resolved scope is a canonicalized key segment the runtime computes, not a string you concatenate. | The forgotten-segment leak. Two principals' reads of the same params land on two structurally distinct entries — neither is reachable through the other's key. |
+| **Sub-side resolution fails closed** | A subscription resolves its own scope or raises `:rf.error/resource-sub-unresolved-scope` — [never a silent global, never a silent `:idle`](#subscription-side-resolution-the-silent-leak-seam). | The read seam: a view that under-specifies scope can't quietly read a *different* (or shared) principal's entry. The error names the fix. |
+| **Logout is a causal scoped clear** | [`:rf.resource/clear-scope`](#clear-scope-is-causal) removes a *named* scope's entries, releases its owners, suppresses its late replies, and emits a trace of exactly what it touched — leaving every other scope (and global) intact. | The cross-session leak. The next principal's session structurally cannot read the prior one's cache, and clearing one principal never collaterally drops another's (or a still-valid global). |
+| **Invalidation is scoped by default** | [Tag invalidation](#invalidation-by-tag) and [per-target descriptors](#per-target-scoped-invalidation) reach *exactly* the resolved scope; crossing principals is an explicit, audited `:cross-scope? true` escape, visible in Xray. | The cross-tenant blast. A write can't accidentally stale or refetch another tenant's data through a shared tag. |
+| **The boundary is auditable, not heuristic** | Xray enumerates every `:rf.scope/global` resource (the [scope audit surface](#xray-is-defense-in-depth-not-the-boundary)), lists each [named resolver's declared inputs](#named-scope-resolvers--derive-viewer-scope-once), shows the scope-resolution timeline, and runs the [scope-mismatch lint](#subscription-side-resolution-the-silent-leak-seam). | The *un-reviewable* cache. "Which reads cross users?" is a query over declared data, not a code review hoping someone remembered every key segment. |
+
+The shift is from *trust* to *structure*. In a query-key library, "no cross-user leak" is a property of your discipline — true only as long as every developer remembers every segment in every key forever. In re-frame2 it's a property of the *type of the cache key*: the viewer is in the identity, resolution fails closed, and the only way to cross the boundary is the loud, audited escape hatch. A forgotten scope is a registration error; a wrong scope is a fail-closed read with a diagnostic; a logout is one causal event. (These guarantees are pinned as executable conformance tests — the cross-user logout-leak, the wrong-scope fail-closed read, and the scoped-invalidation isolation — in `implementation/resources/test/re_frame/resources_scope_leak_boundary_cljs_test.cljc`, alongside the multi-scope lease-lifecycle non-interference suite.)
+
+### Where this matters, and where it doesn't
+
+This isn't free abstraction tax for a single-tenant app. A genuinely global read — public articles, a shared product catalog, anything where the same params produce the same bytes for every viewer — is `:scope :rf.scope/global`, an explicit one-word claim, and you're done; the boundary machinery costs you nothing. The structural payoff lands the moment your app has *any* viewer-relative server state — a per-user dashboard, a tenant-scoped feed, an impersonation/admin mode, a permission-gated list — which is almost every real app eventually. At that point the question stops being "did I remember the viewer in this key?" (a question you re-answer, fallibly, at every call site) and becomes "is this resource's declared scope correct?" (a question you answer once, at registration, and a tool can audit). That's the differentiator: the leak boundary is part of the cache's structure, so it holds without anyone having to keep holding it up.
+
 ## Status — facts, not derived booleans
 
 Resource state uses [Pattern-RemoteData](../../spec/Pattern-RemoteData.md) semantics, but it *refines* the broad `:error` state into something views never have to disambiguate. The durable entry stores facts; the `:rf.resource/state` sub projects derived booleans. The five statuses:
