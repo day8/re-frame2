@@ -190,6 +190,8 @@ This handler carries **both** a `:schema` for its event id **and** `[rf/validate
 
 Both gates validate the **value the body would have read**, so the boundary is closed in the production bundle — not just the dispatch shape.
 
+> **Validation is necessary but not sufficient — this read is durable (EP-0010).** `:session/rehydrate` writes the validated `localStorage` value straight into `:db`, so the read decides a **durable** write. Validation closes the *trust* boundary, but it does **not** make the write replay-deterministic: an ambient `localStorage` read re-reads the *current* host on every replay, so epoch restore / SSR hydration / time-travel each diverge from the recorded boot (Spec 002 §Causal world inputs). The fix is the same direction as the cofx in shape (b), made **recordable**: register the cofx with a `:schema` so its captured value is **recorded in the replay record and returned from the record on replay** (not re-read from the host), or source the value from `:rf.world/inputs` `:storage`. A read that lands only in a diagnostic / host-transient slot — deciding no durable write — stays an ordinary unrecorded cofx and validation alone suffices.
+
 ## Edge cases — when schemaless is fine
 
 - **Internal-only events** that never touch untrusted data — UI toggles, navigation events with structurally-fixed arg shapes (`[:menu/toggle]`, `[:nav/to :route-id]`). The handler's args come from the application's own code; no boundary is crossed.
