@@ -16,7 +16,7 @@ The pattern composes:
 
 - **`reg-app-schema`** — schema-binds the slice path so the slice's shape is enforced at boundaries (per cardinal rule 4 — schemas at boundaries, not everywhere).
 - **`reg-event-fx` for `:feature/load`** — dispatches the HTTP effect; picks `:loading` vs `:fetching` based on whether prior `:data` exists; bumps `:attempt`.
-- **`reg-event-fx` for `:feature/loaded`** — folds the success reply into the slice and stamps a durable `:loaded-at` from the causal clock (`:rf.world/inputs` `:time-ms`, EP-0010), so it must be an event-fx that reads the world inputs — not a host-clock read. **`reg-event-db` for `:feature/load-failed`** — folds the failure; **prior `:data` is kept**, only `:status` and `:error` change.
+- **`reg-event-fx` for `:feature/loaded`** — folds the success reply into the slice and stamps a durable `:loaded-at` from the causal clock (declare `:rf.cofx/requires [:rf/time-ms]`, EP-0017), so it must be an event-fx that declares and reads the recorded time — not a host-clock read. **`reg-event-db` for `:feature/load-failed`** — folds the failure; **prior `:data` is kept**, only `:status` and `:error` change.
 - **`:rf.http/managed` fx** (or the host's HTTP fx) — issues the request; its `:on-success` and `:on-failure` dispatch the lifecycle events. The reply each delivers is the **public HTTP compatibility payload** (`{:kind :success :value v}` / `{:kind :failure :failure m}`), reshaped from the internal EP-0011 reply envelope — NOT the canonical reply map itself (see managed-http.md).
 - **Layered subs `:feature/status`, `:feature/data`, `:feature/loading?`, `:feature/fetching?`** — convenience subs over the slice. `:loading?` means truly empty + in-flight; `:fetching?` means any in-flight (covers both `:loading` and `:fetching`).
 - **(machine variant) `:initial :idle` + states `:idle :loading :fetching :loaded :error` + `:tags`** — the lifecycle as machine states. `:rf/machine-has-tag?` answers the same question `:loading?` / `:fetching?` did.
@@ -54,24 +54,25 @@ The dominant shape; used wherever an explicit `:status` keyword and Pattern-Remo
               :on-failure [:articles/load-failed]}]]})))
 
 (rf/reg-event-fx :articles/loaded
+  ;; :loaded-at is a DURABLE timestamp, so DECLARE the recorded clock fact
+  ;; (EP-0017): :rf/time-ms is delivered flat under its id; reading it here
+  ;; (not a fresh host clock) keeps the same reply replaying to the same
+  ;; :loaded-at on epoch restore / SSR hydration / time-travel.
+  {:rf.cofx/requires [:rf/time-ms]}
   ;; The HTTP `:on-success` reply is the PUBLIC compatibility payload
   ;; `{:kind :success :value v}` — it carries `:value` and nothing else.
   ;; It does NOT expose canonical envelope fields (`:status` / `:work/id` /
   ;; `:completed-at`); those are the EP-0011 reply map, the *internal*
   ;; lowered shape for HTTP (see managed-http.md). So destructure `:value`
   ;; only off the reply.
-  ;;
-  ;; :loaded-at is a DURABLE timestamp, so it must source CAUSALLY
-  ;; (EP-0010 §Causal world inputs): read `:time-ms` off `:rf.world/inputs`,
-  ;; the per-dispatch causal clock the runtime stamps on every event — do NOT
-  ;; call (current-time-ms) here, or the same reply replays to a different
-  ;; `:loaded-at` on epoch restore / SSR hydration / time-travel.
-  (fn [{:keys [db] :rf.world/keys [inputs]} [_ {:keys [value]}]]
+  ;; So destructure `:value` only off the reply; the recorded clock arrives
+  ;; flat as `rf/time-ms` (declared above), the durable causal time.
+  (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
     {:db (-> db
              (assoc-in [:articles :status]    :loaded)
              (assoc-in [:articles :data]      value)
              (assoc-in [:articles :error]     nil)
-             (assoc-in [:articles :loaded-at] (:time-ms inputs)))}))
+             (assoc-in [:articles :loaded-at] time-ms))}))
 
 (rf/reg-event-db :articles/load-failed
   ;; Failure compat payload: `{:kind :failure :failure m}` — read `:failure`.
@@ -108,7 +109,8 @@ Used when the lifecycle is *part of* a larger page's machine (the page already h
     ;; event payload (threaded from the reply map / managed-HTTP completion) —
     ;; NOT an ambient `(current-time-ms)` read inside the action. A durable
     ;; `:loaded-at` MUST source from causal context so the snapshot replays
-    ;; identically; see EP-0010 §Causal world inputs.
+    ;; identically; see EP-0017 §Recordable coeffects (the recorded clock is
+    ;; `:rf/time-ms`; here it rides in on the reply payload).
     :set-tags     (fn [{d :data [_ {:keys [tags now]}] :event}]
                     {:data (assoc d :tags (vec tags) :error nil :loaded-at now)})
     :set-error    (fn [{d :data [_ {:keys [failure]}] :event}] {:data (assoc d :error failure)})}

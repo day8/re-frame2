@@ -67,7 +67,7 @@ From `examples/reagent/counter/core.cljs` — the simplest shape, `reg-event-db`
        :fx [[:todo.storage/save (:todos next-db)]]})))
 ```
 
-The effect map is a **closed shape**: the only legal top-level keys are `:db` (app-db partition), `:rf.db/runtime` (runtime-db partition), and `:fx` (see [fx.md](fx.md) for the rationale). Ordinary app handlers use `:db` and `:fx`; `:rf.db/runtime` is the framework-authority partition (EP-0001) — a non-framework handler that emits it gets a `:rf.warning/app-handler-runtime-effect` dev diagnostic but the write is **not** dropped (it is legal, just framework-reserved by convention). The coeffect first argument is the cofx map — `{:db <current-db-value> :event <event-vec>}` by default, plus anything `inject-cofx` injected (see [cofx.md](cofx.md)).
+The effect map is a **closed shape**: the only legal top-level keys are `:db` (app-db partition), `:rf.db/runtime` (runtime-db partition), and `:fx` (see [fx.md](fx.md) for the rationale). Ordinary app handlers use `:db` and `:fx`; `:rf.db/runtime` is the framework-authority partition (EP-0001) — a non-framework handler that emits it gets a `:rf.warning/app-handler-runtime-effect` dev diagnostic but the write is **not** dropped (it is legal, just framework-reserved by convention). The coeffect first argument is the coeffects map — `{:db <current-db-value> :event <event-vec>}` plus exactly the facts the handler declares in `:rf.cofx/requires`, delivered flat under their ids (EP-0017 — `inject-cofx` is removed; see [cofx.md](cofx.md)).
 
 ## Common gotchas
 
