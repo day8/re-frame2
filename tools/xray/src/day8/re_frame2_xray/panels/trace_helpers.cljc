@@ -590,6 +590,10 @@
                  (str " " (name-or-str from) " → " (name-or-str to))))))
 
       :coeffect
+      ;; rf2-sepqgg — `:rf.cofx/value` carries the supplier's PRODUCED
+      ;; value (redacted by the cofx's marks); the requirement-arg rides
+      ;; the distinct `:rf.cofx/arg`. The one-liner surfaces the produced
+      ;; value (what egressed into `:coeffects`), mirroring `:fx`.
       (when-let [cofx-id (or (:rf.cofx/id tags) (:cofx-id tags))]
         (str cofx-id
              (when-let [v (or (:rf.cofx/value tags) (:value tags))]

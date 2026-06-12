@@ -265,6 +265,16 @@
            (h/target-detail (ev {:id 1 :op-type :rf.event
                                  :operation :rf.resource/registered
                                  :tags {:resource-id :article/by-slug}})))))
+  (testing "coeffect → cofx-id → PRODUCED value (rf2-sepqgg)"
+    ;; `:rf.cofx/value` is the produced value; `:rf.cofx/arg` is the
+    ;; requirement arg. The one-liner surfaces the produced value, not
+    ;; the arg — mirroring `:fx`'s `fx-id → arg`.
+    (is (= ":session → {:user-id 42}"
+           (h/target-detail (ev {:id 1 :op-type :rf.event
+                                 :operation :rf.cofx/run
+                                 :tags {:rf.cofx/id    :session
+                                        :rf.cofx/value {:user-id 42}
+                                        :rf.cofx/arg   :auth-token}})))))
   (testing "an op with no recognised subject → nil (view renders em-dash)"
     (is (nil? (h/target-detail (ev {:id 1 :op-type :rf.event
                                     :operation :rf.event/run-end :tags {}}))))))
