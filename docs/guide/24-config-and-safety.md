@@ -11,7 +11,7 @@ The first thing to understand is that the configuration surface isn't scattered 
 | Lifetime | Surface | Examples |
 |---|---|---|
 | Process-wide, value is data | `(rf/configure! :key opts)` | trace-buffer cascades retained, elision threshold, epoch history |
-| Process-wide, value is a fn/component | `(rf/set-x!)` / `(rf/install-x!)` | schema validator, schema explainer, substrate adapter |
+| Slot-level, value is a fn/component | `(rf/set-x!)` / `(rf/install-x!)` | schema validator, schema explainer (process-level); substrate adapter (realm-owned, default-realm by default) |
 | Per-frame, lives as long as one frame | `reg-frame` / `make-frame` metadata, or `dispatch` opts | `:drain-depth`, `:fx-overrides`, `:interceptors`, `:observability` |
 
 The first two are global; the third is local. And there's a load-bearing rule sitting on top: **one option, one bucket.** If you ever feel the urge to configure the same thing in two places, that's the framework telling you the option is secretly doing two jobs and should be split. That constraint is the entire reason the configuration story is small enough to hold in your head — there's no "you can set this here *or* there *or* via this other thing" ambiguity to memorise.
@@ -68,7 +68,9 @@ A few things look like they should be `configure` keys but aren't, because the v
 (rf/set-schema-explainer! malli.core/explain)    ;; swap the schema explainer
 ```
 
-The bang on the end is the framework telling you the surface mutates a process-level slot it'll call back into from arbitrary sites. If you use the default substrate ([chapter 22 — Adapters](22-adapters.md)) and Malli for schemas ([chapter 08 — Schemas](08-schemas.md)), you call none of these — the boot wiring is automatic. The reason these aren't folded under `configure` is precise rather than arbitrary: keyword-keyed addressing loses the type information a consumer needs to pass an actual fn reference. **`configure` is for data; `set-!` is for impls.** That asymmetry is the signal: "the framework is going to hold this reference and call it back from places you don't control."
+The bang on the end is the framework telling you the surface mutates a slot it'll call back into from arbitrary sites. If you use the default substrate ([chapter 22 — Adapters](22-adapters.md)) and Malli for schemas ([chapter 08 — Schemas](08-schemas.md)), you call none of these — the boot wiring is automatic. The reason these aren't folded under `configure` is precise rather than arbitrary: keyword-keyed addressing loses the type information a consumer needs to pass an actual fn reference. **`configure` is for data; `set-!` is for impls.** That asymmetry is the signal: "the framework is going to hold this reference and call it back from places you don't control."
+
+One distinction inside this bucket: the schema validator and explainer are genuinely *process-level* slots. The **adapter is not** — adapter selection is **realm-owned** ([chapter 22 — Adapters](22-adapters.md#the-one-line-that-differs)). `install-adapter!` mutates the *default realm's* adapter selection, which is exactly what a single-realm app wants; an explicit realm carries its own adapter selection through `rf/realm`, so two realms can render two substrate roots in one process. Read it as a default-realm compatibility surface, not a permanent process-wide ceiling.
 
 ### Bucket 3 — per-frame metadata
 
