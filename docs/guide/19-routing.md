@@ -382,6 +382,18 @@ Two pure, host-agnostic functions are part of the public surface:
 ;; → "/cart/items/abc"   — a string. Does NOT navigate, read app-db, push, or dispatch.
 ```
 
+Route data isn't just path params — it also carries `:query` and `:fragment`, and `route-url` takes both as optional trailing arguments: `(rf/route-url route-id path-params [query-params [fragment]])`. Hand it the whole route and it builds the whole URL, so you never hand-concatenate a query string (and so you never accidentally bypass the canonical query ordering / `nil`-elision the helper applies for you):
+
+```clojure
+(rf/route-url :route/search
+              {}                          ;; no path params
+              {:q "clojure" :sort nil}     ;; query map
+              "results")                   ;; fragment
+;; → "/search?q=clojure#results"
+;; — query keys come out in canonical order regardless of how you typed them,
+;;   the nil :sort drops out of the URL, and the fragment is appended as #results.
+```
+
 Both run on JVM and CLJS, both resolve against the same registered route table, so adding or removing a route updates both directions automatically. `:rf.route/navigate` uses `route-url` internally to build the URL; `:rf.route/handle-url-change` uses `match-url` internally to resolve one. They're the same functions, exposed for when you need URL↔route translation without a navigation.
 
 ### A route is a two-way prism
