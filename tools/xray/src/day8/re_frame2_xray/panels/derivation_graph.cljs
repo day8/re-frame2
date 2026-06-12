@@ -165,14 +165,19 @@
 
 ;; ---- mode toggle ---------------------------------------------------------
 
-(defn- mode-toggle [mode]
+;; `dispatch` (rf2-1w07r) is the reg-view-injected frame-bound dispatcher
+;; threaded down from the `Panel` body, so the deferred `:on-click` lands on
+;; the surrounding `:rf/xray` instance frame (not a bare global `rf/dispatch`
+;; that leaks to `:rf/default` once render unwinds and the ambient frame is
+;; gone). Read-only panel: the only dispatch is the maintainer's mode toggle.
+(defn- mode-toggle [dispatch mode]
   [:div {:data-testid "rf-xray-derivation-graph-mode-toggle"
          :style {:display "flex" :gap "8px" :align-items "center"}}
    (for [m [:static :live]]
      ^{:key (name m)}
      [:button {:data-testid (str "rf-xray-derivation-graph-mode-" (name m))
                :data-active (str (= mode m))
-               :on-click #(rf/dispatch [:rf.xray/set-derivation-graph-mode m])
+               :on-click #(dispatch [:rf.xray/set-derivation-graph-mode m])
                :style {:font-family mono-stack :font-size "11px"
                        :padding "2px 10px" :cursor "pointer"
                        :border (str "1px solid "
@@ -184,7 +189,7 @@
 
 ;; ---- header summary ------------------------------------------------------
 
-(defn- summary-header [{:keys [mode node-count edge-count by-superkind by-role]} mode-now]
+(defn- summary-header [dispatch {:keys [mode node-count edge-count by-superkind by-role]} mode-now]
   [:section {:data-testid "rf-xray-derivation-graph-header"
              :style {:padding "12px 16px"
                      :border-bottom (str "1px solid " (:border-subtle tokens))
@@ -193,7 +198,7 @@
     [:span {:style {:color mode-accent :font-weight 600 :font-family sans-stack
                     :font-size "12px" :text-transform "uppercase" :letter-spacing "0.5px"}}
      "Derivation / process graph"]
-    (mode-toggle mode-now)]
+    (mode-toggle dispatch mode-now)]
    [:div {:data-testid "rf-xray-derivation-graph-counts"
           :style {:display "flex" :gap "12px" :flex-wrap "wrap"
                   :font-family mono-stack :font-size "11px"
@@ -329,7 +334,7 @@
                :style {:height "100%" :display "flex" :flex-direction "column"
                        :background (:bg-2 tokens) :color (:text-primary tokens)
                        :font-family sans-stack :font-size "14px" :overflow "auto"}}
-     (summary-header summary mode)
+     (summary-header dispatch summary mode)
      (if silent?
        (silent-state)
        (into [:<>]
