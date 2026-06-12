@@ -30,8 +30,11 @@
     settles, ALONGSIDE the always-on `event-emit` listener fan-out.
   - `:errors` — production-survivable error records (EP-0008's always-on
     error axis). `error-emit/dispatch-on-error!` calls [[route-error!]]
-    for every `:rf.error/*` site, ALONGSIDE the always-on error-emit
-    listener fan-out.
+    for every event-centric `:rf.error/*` site, and
+    `error-emit/dispatch-error-record!` calls [[route-error-record!]] for
+    the EP-0008 NON-EVENT union records (the frame-teardown report, the
+    promoted SSR categories) — BOTH ALONGSIDE the always-on error-emit
+    listener fan-out (rf2-ntv9i9.1).
 
   This is the THIRD of the three observation streams (Spec 015 §The three
   observation streams) — the bounded, projected, frame-`:observability`-
@@ -259,6 +262,82 @@
         (route-stream! frame-id record entries))))
   nil)
 
+;; ---- non-event union record route (EP-0008, rf2-ntv9i9.1) -----------------
+;;
+;; `route-error!` (above) is the EVENT-centric route: its positional signature
+;; `[error-kw event event-id frame-id exception elapsed-ms time correlation]`
+;; builds an `:rf.observe/error` record from a dispatched-event / subscribe
+;; failure. But the EP-0008 NON-EVENT always-on records — the frame-teardown
+;; report (`:hook-failures`) and the promoted SSR categories (`:phase` /
+;; `:reason` / `:projector-id` / …) — do NOT fit that positional shape: they
+;; are pre-built union records with flat category-specific slots and no
+;; `:event` / `:event-id`. Before rf2-ntv9i9.1 these reached ONLY the
+;; corpus-wide `register-error-listener!` registry (the advanced integration
+;; API) and BYPASSED the frame-owned `:observability :errors` sinks — yet Spec
+;; 015 §Frame-owned observability sink policy says EVERY production-reachable
+;; `:rf.error/*` site routes to the frame sinks ALONGSIDE the listener fan-out.
+;; That left the NORMAL production sink model (the Datadog/Sentry story) blind
+;; to EP-0008's flagship teardown report. `route-error-record!` closes the gap.
+
+(def ^:private error-record-summary-keys
+  "Slots of a non-event union error record that map onto the canonical
+  `:rf.observe/error` SUMMARY slots (structural metadata — passed through the
+  projector unchanged). Every OTHER non-`:error` slot is lifted onto the
+  `:tags` tree-key so the projector walks it under frame classification
+  (sensitive redaction / large elision) — symmetric with the SSR
+  `error-emit-projection-listener`'s generic tags-lift."
+  #{:frame :error :event-id :elapsed-ms :time :correlation})
+
+(defn route-error-record!
+  "Route ONE pre-built NON-EVENT union error `record` to the owning frame's
+  declared `:observability :errors` sinks (EP-0015 §9 / Spec 015 §Frame-owned
+  observability sink policy). The non-event counterpart of [[route-error!]] —
+  for the EP-0008 `:rf.error/*` categories that are NOT a dispatched-event /
+  subscribe failure (the frame-teardown report, the promoted SSR categories),
+  whose union record `{:error <kw> :frame <id-or-nil> :time <ms> + flat
+  category keys}` does not fit the event-centric positional signature.
+
+  Projects the record into a canonical `:rf.observe/error` shape and routes it
+  through `project-egress` exactly like [[route-error!]], so the sink receives
+  an ALREADY-PROJECTED record (EP-0015 §9 — sinks never re-implement
+  redaction). The canonical SUMMARY slots (`:frame` / `:error` / `:event-id` /
+  `:elapsed-ms` / `:time` / `:correlation`) pass through; the host
+  `:exception`, if present, rides the top-level `:exception` slot the projector
+  DROPS under `:rf.egress/public-error` and walks otherwise; EVERY remaining
+  flat category slot (`:hook-failures` / `:phase` / `:reason` / `:projector-id`
+  / …) is lifted onto the `:tags` tree-key so the projector REDACTS it under
+  frame classification (a `:hook-failures` entry's nested exception ex-data, an
+  app value folded into `:reason`, …). This is the same generic tags-lift the
+  SSR `error-emit-projection-listener` performs — so the projected record the
+  sink sees is structurally consistent across the event and non-event paths.
+
+  Fail-closed: a NO-OP when the record's `:frame` is unresolved (destroyed /
+  never-registered — incl. the FRAMELESS `:frame nil` records, which carry no
+  frame-owned sink policy by definition) or declares no `:errors` policy.
+  Returns nil. Called from `error-emit/dispatch-error-record!` via the
+  `:observability/route-error-record` late-bind hook, ALONGSIDE the always-on
+  corpus-wide error-listener fan-out."
+  [record]
+  (let [frame-id      (:frame record)
+        observability (frame-observability frame-id)
+        entries       (:errors observability)]
+    (when (seq entries)
+      (let [summary  (select-keys record error-record-summary-keys)
+            ;; Everything that is NOT a summary slot, the literal :error
+            ;; category, or the (separately-handled) :exception rides :tags so
+            ;; the projector walks + redacts it under frame classification.
+            tags     (dissoc record :error :exception
+                             :frame :event-id :elapsed-ms :time :correlation)
+            observe  (cond-> (assoc summary
+                                    :kind  :rf.observe/error
+                                    :error (:error record)
+                                    :frame frame-id)
+                       (seq tags)              (assoc :tags tags)
+                       (contains? record :exception)
+                       (assoc :exception (:exception record)))]
+        (route-stream! frame-id observe entries))))
+  nil)
+
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
 ;; The router (`re-frame.router`) fires the handled-event route once per
@@ -271,3 +350,4 @@
 
 (late-bind/set-fn! :observability/route-handled-event route-handled-event!)
 (late-bind/set-fn! :observability/route-error         route-error!)
+(late-bind/set-fn! :observability/route-error-record  route-error-record!)

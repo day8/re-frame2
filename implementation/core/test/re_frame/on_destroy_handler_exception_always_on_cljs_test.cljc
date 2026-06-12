@@ -163,6 +163,62 @@
           "the frame is still fully torn down despite the infra fault"))))
 
 ;; ===========================================================================
+;; (c) Nested / overlapping destroy — the transient capture listener uses a
+;; UNIQUE per-destroy key (rf2-ntv9i9.1 #2), so a nested destroy cannot clobber
+;; the outer destroy's listener and drop its dedicated record.
+;; ---------------------------------------------------------------------------
+;; `fire-on-destroy-event!` installs a transient listener on the always-on
+;; error-emit registry for the duration of the `:on-destroy` dispatch. Before
+;; rf2-ntv9i9.1 the listener key was the CONSTANT `::on-destroy-throw-watch`.
+;; Spec 002 (rf2-r1ciy) supports a nested `destroy-frame!` for a DIFFERENT id
+;; from inside an `:on-destroy` handler. With a constant key the inner destroy
+;; RE-REGISTERED under the same key (replacing the outer's listener) and then
+;; DROPPED it on the inner's finally — so when the OUTER frame's own throwing
+;; `:on-destroy` later fired its `:rf.error/handler-exception`, no listener was
+;; watching and the dedicated `:rf.error/on-destroy-handler-exception` was
+;; SILENTLY DROPPED. The unique per-destroy key gives each extent its own
+;; listener: both records survive.
+;; ===========================================================================
+
+(deftest nested-destroy-does-not-clobber-outer-on-destroy-capture
+  (testing "rf2-ntv9i9.1 #2 — an outer frame A whose throwing `:on-destroy`
+            ALSO triggers a nested `destroy-frame!` of a DIFFERENT frame B
+            (whose `:on-destroy` ALSO throws) yields TWO independent
+            `:rf.error/on-destroy-handler-exception` records — one per frame.
+            With the former constant listener key the inner (B) destroy
+            clobbered A's transient capture listener, so A's dedicated record
+            was dropped. The unique per-destroy key keeps both."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :test/recorder
+                                   (fn [record] (swap! seen conj record)))
+      ;; B: the inner frame; its :on-destroy throws.
+      (rf/reg-event-db :ondestroy/inner-throw
+                       (fn [_ _] (throw (ex-info "inner B :on-destroy threw" {}))))
+      (rf/reg-frame :ondestroy/inner-B
+                    {:on-destroy [:ondestroy/inner-throw]})
+      ;; A's :on-destroy: destroy B (nested), THEN throw. The nested destroy of
+      ;; B runs fully (incl. B's own transient capture install + finally
+      ;; remove) BEFORE A's throw — so a constant key would have removed A's
+      ;; listener by the time A's handler-exception fired.
+      (rf/reg-event-db :ondestroy/outer-throw
+                       (fn [_ _]
+                         (rf/destroy-frame! :ondestroy/inner-B)
+                         (throw (ex-info "outer A :on-destroy threw" {}))))
+      (rf/reg-frame :ondestroy/outer-A
+                    {:on-destroy [:ondestroy/outer-throw]})
+      (is (nil? (rf/destroy-frame! :ondestroy/outer-A))
+          "the outer destroy returns nil despite both :on-destroy throws")
+      (let [reports  (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen)
+            by-frame (set (map :frame reports))]
+        (is (= 2 (count reports))
+            "TWO dedicated records — one for A, one for B (no clobber)")
+        (is (contains? by-frame :ondestroy/outer-A)
+            "the OUTER (A) record survived — the unique key was not clobbered
+             by the nested B destroy (the regression: this was dropped)")
+        (is (contains? by-frame :ondestroy/inner-B)
+            "the INNER (B) record fired too")))))
+
+;; ===========================================================================
 ;; The late-bind hook the producer reaches error-emit through is published.
 ;; ===========================================================================
 
