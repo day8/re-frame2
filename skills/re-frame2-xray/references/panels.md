@@ -512,12 +512,25 @@ node-and-edge graph over the frame fold.
  subscription query vectors with realized edges, active resource keys,
  live machine instances, the materialized route slice with its nav-token
  owner.
-- **Contributor coverage today.** The panel composes the families Xray's
- artefact carries — **subscriptions, flows, routes**. Machines and
- resources are optional artefacts Xray does **not** `:require`, so they
- contribute **no nodes** today (the no-machines / no-resources story); the
- composer's present-family-only seam accepts them with no panel change
- the moment those artefacts join Xray's classpath.
+- **Contributor coverage — all five families.** The panel composes the
+ five EP-0014 contributor families — **subscriptions, flows, routes,
+ resources, and machines** (machine processes *and* selectors, with
+ precise machine→selector edges). Xray statically `:require`s the flows,
+ routing, resources, and machines tooling siblings (subs live in core), so
+ every family feeds the one graph. A family with **no registrations in the
+ host app** contributes no nodes — but that is the *per-app* no-machines /
+ no-resources story (the host registered none), not a *per-tool*
+ dependency boundary.
+- **Authority is an axis, not a storage class.** Each node carries its
+ storage / evaluation / lifecycle (owner) classifications; remote-backed
+ nodes (resources) additionally carry an **authority** chip. A resource's
+ storage class is still **local** (the frame's runtime-db, like any
+ runtime-managed value); *remote* describes its **authority** — where the
+ value is sourced/owned upstream — a distinct axis from where it is
+ stored. Read the chip as "locally stored, locally read, upstream source
+ of truth", never as app-db/runtime-db placement. (The EP-0014 ruled
+ split: a remote fact has a local storage class; "remote" is its
+ authority.)
 - **On-box raw, off-box redacted.** On-box rendering shows raw value
  summaries (the developer is entitled to their own app's values; previews
  are bounded for ergonomics, not privacy). The off-box egress boundary —

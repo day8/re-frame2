@@ -264,20 +264,34 @@ inline (see *Where issues surface now* below).
 | **Machine** | `m` · `◆` · green | **Event-driven.** Per-machine topology + transition highlight + guards / actions / cancellation cascade for the focused event. BLANK when the focused event had no machine activity; per-machine prev/next walks the spine. (Display label is singular **Machine** — the focused-epoch lens is on one machine; internal tab id `:machines`.) To browse a machine's full topology cold (picker + zoom / pan / fit, spine-INDEPENDENT), use **Static mode**'s Machines tab. | "What did this event do to my machines?" / "What transition fired?" / "What guards passed/failed?" |
 | **Routes** | `r` · `🌐` · yellow | Flat focused-event lens: current matched route + params/query/fragment + a **Simulate-URL** input that ranks every registered route, with per-event glyphs `◉ TO` / `◇ FROM` / `● HERE`. Silent when no routes registered. (Display label **Routes**, plural-noun convention; internal tab id `:routing`.) | "What route am I on?" / "Did the route change this epoch?" / "What params resolved?" |
 | **Resources** | `s` · cross-feature | The declarative server-state lens (Spec 016 §Xray and AI tooling): the static resource registry, per-frame **live instances** (state · generation · owners · freshness), the **work ledger** of live fetch attempts, the route/resource graph, lifecycle/invalidation/cache-growth, and a scope audit + lints. **Read-only** — observing pins nothing; values are summarized (params/scopes/data redaction-aware), never raw. Reads the runtime-db resource slices decoupled — Xray does **not** `:require` the optional resources artefact, so the panel renders cleanly even when the host has no resources. | "Where's my server state, what owns it, and is it stale?" / "What fetches are in flight?" |
-| **Graph** | `g` · cross-feature (violet — the algebra lens) | Xray's UI over the **EP-0014 derivation/process graph** — the one node-and-edge view where every declared fact and process (subscriptions, flows, resources, route facts, machine processes + selectors) is a node over the frame fold. Every node is classified by its two closed superkinds (`:derivation` / `:process`) read off `:kind` alone; the refined kinds tint the family accent. A per-panel **static ↔ live** toggle (its own toggle, distinct from the L1 mode pill) flips between the registration-derived graph (parametric subs marked, no edge — the don't-execute rule) and the frame-realized graph (concrete query vectors, active resource keys, live machine instances). **On-box raw, off-box redacted.** | "Where does this value come from / when is it evaluated / where does it live / who owns it?" — across families, in one place |
+| **Graph** | `g` · cross-feature (violet — the algebra lens) | Xray's UI over the **EP-0014 derivation/process graph** — the one node-and-edge view where every declared fact and process across **all five contributor families** (subscriptions, flows, resources, route facts, machine processes + selectors) is a node over the frame fold. Every node is classified by its two closed superkinds (`:derivation` / `:process`) read off `:kind` alone; the refined kinds tint the family accent. Each node carries its storage / evaluation / lifecycle (owner) classifications, plus an **authority chip** for remote-backed nodes (an *authority* axis, not a storage class — see below). A per-panel **static ↔ live** toggle (its own toggle, distinct from the L1 mode pill) flips between the registration-derived graph (parametric subs marked, no edge — the don't-execute rule) and the frame-realized graph (concrete query vectors, active resource keys, live machine instances, the materialized route slice with its nav-token owner). **On-box raw, off-box redacted.** | "Where does this value come from / when is it evaluated / where does it live / who owns it?" — across families, in one place |
 
-#### What the Graph tab contributes today (and what it doesn't)
+#### What the Graph tab contributes (all five families)
 
-The Graph tab composes the families Xray's artefact already carries —
-**subscriptions, flows, and routes**. Machines and resources are
-optional, post-v1 artefacts that Xray does **not** statically depend on,
-so today they contribute **no nodes** to the graph (the no-machines /
-no-resources story). The contributor seam is ready: those families join
-the one graph the moment their artefacts are on Xray's classpath, with no
-panel change. So if a user asks "why aren't my machines in the Graph
-tab?", that's the dependency boundary, not a bug — point them at the
-per-family lenses (the **Machine** Dynamic tab, the **Resources** Dynamic
-tab, and **Static → Machines**) for those families in the meantime.
+The Graph tab composes **all five EP-0014 contributor families** —
+**subscriptions, flows, routes, resources, and machines** (machine
+processes *and* machine selectors, with precise machine→selector edges).
+Xray now statically `:require`s the flows, routing, resources, and
+machines tooling siblings (subs live in core), so every family feeds the
+one graph. A family that has **no registrations in the host app**
+contributes no nodes — but that is the *per-app* "no-machines /
+no-resources" story (the host didn't register any), not a *per-tool*
+dependency boundary. So if a user's machines/resources are missing from
+the graph, check whether the host app registers any; if it does, they
+appear. (The per-family lenses — the **Machine** and **Resources**
+Dynamic tabs, **Static → Machines** — remain the deeper single-family
+views.)
+
+> **Authority is an axis, not a storage class.** The Graph tab renders an
+> **authority** chip on remote-backed nodes (resources). A resource's
+> *storage* class is still **local** — it lives in the frame's runtime-db
+> like any other runtime-managed value; *remote* describes its
+> **authority** (where the value is sourced/owned upstream), a distinct
+> axis from where it's stored. Don't read the authority chip as
+> "stored remotely" or conflate it with app-db/runtime-db placement: a
+> remote-authority node is locally stored, locally read, with an upstream
+> source of truth. This mirrors the EP-0014 ruled split (a remote fact has
+> a local storage class; "remote" is its authority).
 
 > **The underlying graph accessor is internal, not a public API.** The
 > Graph tab is a *consumer* of EP-0014's internal `re-frame.derivation.graph`
