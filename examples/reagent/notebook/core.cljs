@@ -75,9 +75,30 @@
                         (if (= (:id d) id) (assoc d :body text) d))
                       docs))))))
 
+;; EP-0010 (Causal World Inputs): the new document's id is written into durable
+;; app-db (`:notebook/documents`), so it must be a function of prior frame-state
+;; — never an ambient `(rand-int)` read at the durable-write site (a fresh
+;; event-stream replay would mint a different id, breaking replay determinism).
+;; So we allocate it deterministically from the existing documents, the todomvc
+;; `allocate-next-id` idiom: scan the `doc-N` keyword ids already in app-db and
+;; take max+1. Seeded ids (`:welcome`, `:six-dominoes`, …) carry no `doc-`
+;; prefix, so they don't participate — the first minted id is `:doc-1`.
+(defn- allocate-next-doc-id
+  "Deterministic next `:doc-N` id from the existing documents — max prior
+   N + 1 (1 when none yet). A pure function of prior app-db state, so it
+   replays identically (EP-0010)."
+  [documents]
+  (let [used-ns (->> documents
+                     (keep (fn [{id :id}]
+                             (some->> (re-matches #"doc-(\d+)" (name id))
+                                      second
+                                      (js/parseInt))))
+                     (apply max 0))]
+    (keyword (str "doc-" (inc used-ns)))))
+
 (rf/reg-event-db :notebook/new
   (fn [db _event]
-    (let [id (keyword (str "doc-" (rand-int 1000000)))
+    (let [id  (allocate-next-doc-id (:notebook/documents db))
           doc {:id id :title "Untitled" :body "# Untitled\n\nStart writing…"}]
       (-> db
           (update :notebook/documents (fnil conj []) doc)

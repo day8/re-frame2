@@ -35,9 +35,17 @@
 ;; SCHEMA
 ;; ============================================================================
 
+;; EP-0010 (Causal World Inputs): a circle's `:id` is written into durable
+;; app-db (`[:drawer :circles]`), so it must be a function of prior frame-state
+;; — never an ambient `(random-uuid)` at the durable-write site (a fresh
+;; event-stream replay would mint different ids). The id is an internal handle
+;; (React `:key` + context-menu target), so we mint it deterministically as a
+;; monotonic `:int` from a db-held counter — the todomvc `allocate-next-id`
+;; idiom — rather than a uuid. Undo/redo snapshot whole `:circles` vectors, so
+;; the ids ride the snapshot and round-trip unchanged.
 (def Circle
   [:map
-   [:id      :uuid]
+   [:id      :int]
    [:x       :double]
    [:y       :double]
    [:radius  pos-int?]])
@@ -45,8 +53,9 @@
 (def DrawerState
   [:map
    [:circles   [:vector Circle]]
+   [:next-id    :int]                           ;; deterministic id allocator (EP-0010)
    [:dialog    [:maybe [:map
-                        [:circle-id      :uuid]
+                        [:circle-id      :int]
                         [:initial-radius pos-int?]
                         [:draft-radius   pos-int?]]]]
    [:undo      [:vector :any]]                  ;; stack of prior :circles values
@@ -85,16 +94,24 @@
 ;; ============================================================================
 
 (rf/reg-event-db :drawer/initialise
-  {:doc "Seed an empty canvas."}
+  {:doc "Seed an empty canvas. `:next-id` is the deterministic id allocator
+         (EP-0010) — circles take monotonic int ids starting at 1."}
   (fn handler-drawer-initialise [db _]
-    (assoc db :drawer {:circles [] :dialog nil :undo [] :redo []})))
+    (assoc db :drawer {:circles [] :next-id 1 :dialog nil :undo [] :redo []})))
 
 (rf/reg-event-db :drawer/add-circle
-  {:doc "Click on canvas. Adds a circle of default radius."}
+  {:doc "Click on canvas. Adds a circle of default radius. The id is minted
+         deterministically from the db-held `:next-id` counter (EP-0010 causal
+         world inputs — a durable id must be a function of prior frame-state,
+         not an ambient `(random-uuid)` read), then the counter is bumped. The
+         counter is NOT in the undoable `:circles` snapshot, so it advances
+         monotonically across undo/redo and never re-mints a live id."}
   [undoable]
   (fn handler-drawer-add-circle [db [_ x y]]
-    (update-in db [:drawer :circles] conj
-               {:id (random-uuid) :x x :y y :radius 30})))
+    (let [id (get-in db [:drawer :next-id])]
+      (-> db
+          (update-in [:drawer :circles] conj {:id id :x x :y y :radius 30})
+          (assoc-in  [:drawer :next-id] (inc id))))))
 
 (rf/reg-event-db :drawer/open-dialog
   {:doc "Right-clicked a circle. Opens the adjust-diameter dialog. Not undoable."}
