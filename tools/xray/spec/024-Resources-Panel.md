@@ -27,13 +27,35 @@ is it stale?" lens.
 > invalidation graph, the cache-growth view, and the scope audit — all as
 > data, all summarized (never raw), all read-only.
 
-## Decoupling — Resources is optional; Xray does not require it
+## Decoupling — the PANEL reads decoupled; the ARTEFACT hard-depends for the Derivation Graph
 
-Resources is a **post-v1 OPTIONAL artefact** (Spec 016 §Implementation
-status) and is **NOT a hard dep of Xray** (`tools/xray/deps.edn` does not
-list `day8/re-frame2-resources`). The panel reads everything **decoupled**
-— exactly the posture the Routing tab uses for the route slice and the
-Machine Inspector uses for machine snapshots:
+Two distinct facts that must not be conflated:
+
+- **The Resources PANEL (this doc, 024) reads the runtime/registry data
+  decoupled** — it does NOT `:require` `re-frame.resources.*`; it reads
+  the static registry, the live runtime-db cache/ledger slice, and the
+  trace family through the spine seams the way the Routing tab reads the
+  route slice and the Machine Inspector reads machine snapshots. An app
+  that omits the Resources artefact still sees the panel render its
+  silent-by-default caption.
+- **The Xray ARTEFACT hard-depends on `day8/re-frame2-resources`**
+  (`tools/xray/deps.edn` declares it under the rf2-1fc459 rationale). The
+  dep exists for a SEPARATE surface — the Derivation-Graph tab (025),
+  EP-0014's named first consumer — which `:require`s
+  `re-frame.resources.tooling` (the `resource-algebra-view` /
+  `resource-cache-algebra-view` projections) to feed the `:resources`
+  contributor of the cross-family graph composer. Resources is no longer
+  dependency-optional for Xray; the resources artefact depends only on
+  core, its tooling body is `interop/debug-enabled?`-gated + DCE'd, and
+  Xray is dev-only via `:devtools/preloads`, so the dep never reaches
+  production bundles (the bundle-isolation gate confirms this). The
+  Derivation-Graph tab needs the algebra-view PROJECTION; the panel below
+  needs only the raw runtime-db slice — hence the panel's read path stays
+  decoupled even though the artefact pulls the dep.
+
+The panel reads everything **decoupled** — exactly the posture the
+Routing tab uses for the route slice and the Machine Inspector uses for
+machine snapshots:
 
 - the **static registry** via `(rf/registrations :resource)` (the
   process-global registrar);
@@ -52,12 +74,17 @@ Machine Inspector uses for machine snapshots:
 - the **trace stream** (`:rf.resource/*` rows) from
   `:rf.xray/trace-buffer`.
 
-Nothing in `tools/xray/` `:require`s `re-frame.resources.*`. The reserved
-runtime-db key paths are small duplicated literals in
-`panels/resources_helpers.cljc` — the bundle-isolation-safe price of not
-adding a require edge from a tool into an optional artefact. An app that
-omits the Resources artefact sees the panel render its silent-by-default
-caption.
+The Resources panel surface (`panels/resources.cljs`,
+`panels/resources_helpers.cljc`, the `runtime.cljs` Resources accessors)
+does **not** `:require` `re-frame.resources.*` — the reserved runtime-db
+key paths are small duplicated literals in
+`panels/resources_helpers.cljc`, the price of keeping the panel's read
+path free of a require edge into the resources artefact. (The
+Derivation-Graph tab `panels/derivation_graph.cljs` DOES `:require
+re-frame.resources.tooling` for its algebra-view projection — see the
+section above; that is a separate surface, and the panel's read path
+stays decoupled regardless.) An app that omits the Resources artefact
+sees the panel render its silent-by-default caption.
 
 ## Read-only — Xray MUST NOT become an owner by observing
 

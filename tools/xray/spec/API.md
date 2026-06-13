@@ -390,27 +390,47 @@ the Dynamic-mode Routes tab at `panels.routing/Panel` is the
 triggered navigation). Two surfaces, two verbs, two homes per
 Mike's 2026-05-19 decision (Lock #15).
 
-## Public JS API
+## Public JS API — the browser globals (no npm adapter)
 
-For React-only hosts (a JS Story consumer, a non-Reagent app):
+Xray ships **no npm package and no ESM/CJS adapter** — there is no
+`@day8/re-frame2-xray` JS entry point, no `package.json` under
+`tools/xray`, and no `init({defaultFrame})` JS surface. A JS-console
+user (or a JS host) drives Xray through the **dev-only browser globals**
+the preload installs on `window`, gated by `interop/debug-enabled?` so
+they are absent from production builds:
 
 ```javascript
-import {init, open, close, toggle, popout} from '@day8/re-frame2-xray';
+// Closure-name-mangled spellings (preload-only bundles):
+window.day8.re_frame2_xray.open_BANG_();          // mount + show inline
+window.day8.re_frame2_xray.open_overlay_BANG_();  // fallback fixed overlay
+window.day8.re_frame2_xray.close_BANG_();          // hide (CSS toggle)
+window.day8.re_frame2_xray.toggle_BANG_();         // toggle visibility
+window.day8.re_frame2_xray.popout_BANG_();         // same-browser pop-out window
+window.day8.re_frame2_xray.status();               // mount diagnostic map
 
-init({defaultFrame: ':app/main', theme: 'dark', density: 'cosy'});
-
-open();
-close();
-toggle();
-popout();
+// Once core.cljs has loaded, the same fns are mirrored under the
+// canonical facade names so JS-console users see kebab-spelled names:
+window.day8.re_frame2_xray.core.open_BANG_();      // etc.
 ```
 
-The JS surface is a thin adapter over the canonical CLJS facade
-(§Canonical: `day8.re-frame2-xray.core`); props camelCase what the
-CLJS surface kebab-cases. There is no host-facing single-panel embed
-surface — full-shell embedding via
-[`008-Embedding-Contract.md`](./008-Embedding-Contract.md) is the
-canonical shape.
+These mirror the canonical CLJS facade fns (`open!` / `open-overlay!` /
+`close!` / `toggle!` / `popout!` / `status` — §Public CLJS API); the
+exact spellings + the `interop/debug-enabled?` gate are catalogued in
+§Wider public surface (`window.day8.re_frame2_xray.*`). The host-side
+**install + boot config** is the CLJS `init!` (kebab opts
+`:target-frame` / `:theme` / `:density` / `:buffer-depths`) or the
+`:devtools/preloads` path — NOT a JS `init`, and there is **no**
+`defaultFrame` opt (the inspected-host opt is `:target-frame`, EP-0002).
+
+> **Future — npm/ESM adapter (not shipped).** A thin React-host npm
+> adapter (`import {open, …} from '@day8/re-frame2-xray'`, camelCasing
+> the CLJS surface) is a plausible future surface but has no package,
+> no JS index, and no tests today. It is documented as future-only here
+> so JS hosts are not pointed at an import that does not resolve.
+
+There is no host-facing single-panel embed surface — full-shell
+embedding via [`008-Embedding-Contract.md`](./008-Embedding-Contract.md)
+is the canonical shape.
 
 ## Trace / epoch surfaces (consumed, not exposed)
 
