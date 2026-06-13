@@ -305,13 +305,22 @@
       last remaining one — was dropped in the same PR. Source now matches the
       catalogue's RETIRED ruling.
 
-  The allow-list is now EMPTY: the wider-scan backlog is fully catalogued and
-  the one drift entry is retired at the source. It is kept as a live ratchet
-  seam — a future deliberate non-catalogue emit category lands here with a
-  rationale — and `allow-list-stays-honest` fails if any future entry becomes
-  catalogued or stops being emitted, forcing the co-edit so the list cannot rot
-  into a silent blanket suppression."
-  #{})
+  The allow-list is kept as a live ratchet seam — a deliberate non-catalogue
+  emit category lands here with a rationale — and `allow-list-stays-honest`
+  fails if any entry becomes catalogued or stops being emitted, forcing the
+  co-edit so the list cannot rot into a silent blanket suppression.
+
+  CURRENT ENTRY (transitional co-edit, rf2-d8mvke.1 / rf2-d8mvke.6 finding-1):
+    - `:rf.error/cofx-registration-invalid` — the malformed-`reg-cofx`-metadata
+      error introduced by the EP-0017 round-2 review (`reject :provided?+supplier
+      contradiction; reserve `:rf.error/cofx-name-collision` for genuine
+      duplicate ownership). The Spec 009 §Error event catalogue row for it is
+      authored by the concurrent EP-0017 completeness-sync worker (rf2-d8mvke.2,
+      which owns the hot-zone 009 file); this code-side PR only EMITS the
+      error-id. Allow-listed so the emit lands green before the catalogue row
+      does. `allow-list-stays-honest` forces the co-edit: once rf2-d8mvke.2
+      catalogues the row, this entry MUST be dropped in that same PR."
+  #{:rf.error/cofx-registration-invalid})
 
 ;; ---------------------------------------------------------------------------
 ;; Tests

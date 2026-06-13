@@ -616,8 +616,9 @@ delivery).
 | `:rf.error/missing-required-cofx` | a required fact is absent and cannot be ensured — strict mode (no generator runs), or any mode for a provided fact whose value wasn't stamped |
 | `:rf.error/unregistered-cofx` | a required id has no registration (the typo case) — registration-time where statically checkable, else first processing |
 | `:rf.error/cofx-request-invalid` | malformed `:rf.cofx/requires` at registration |
+| `:rf.error/cofx-registration-invalid` | malformed `reg-cofx` metadata grade at registration — `:provided?` without `:recordable?`, a missing supplier on a non-provided fact, or a provided fact carrying a (silently ignored) supplier |
 | `:rf.error/cofx-value-invalid` | a supplied/replayed value fails the structural EDN check or the registration's `:schema` — **fires in production** |
-| `:rf.error/cofx-name-collision` | registration-time name collision (above) |
+| `:rf.error/cofx-name-collision` | registration-time name collision (above) — genuine duplicate ownership only |
 | `:rf.error/world-inputs-renamed` | `:rf.world/inputs` supplied in dispatch opts — hard error naming `:rf.cofx` |
 | `:rf.error/inject-cofx-removed` | `inject-cofx` called — hard error naming `:rf.cofx/requires` |
 

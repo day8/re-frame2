@@ -110,6 +110,27 @@
                    :reason      reason
                    :recovery    :no-recovery})))
 
+(defn- emit-cofx-registration-invalid!
+  "Emit `:rf.error/cofx-registration-invalid` (registration-time, diagnostic)
+  and throw. The malformed-METADATA case — a `reg-cofx` whose grade is
+  internally contradictory (`:provided?` without `:recordable?`; a missing
+  supplier on a non-provided fact; a provided fact carrying a supplier that
+  delivery will silently ignore). DISTINCT from
+  `:rf.error/cofx-name-collision`, which is reserved for genuine duplicate
+  ownership (`:db` / `:event` / another registered id). Per Spec 001
+  §`reg-cofx` + Spec 009 §Error catalogue."
+  [id reason]
+  (trace/emit-error! :rf.error/cofx-registration-invalid
+                     {:rf.cofx/id id
+                      :reason     reason
+                      :recovery   :no-recovery})
+  (throw (ex-info ":rf.error/cofx-registration-invalid"
+                  {:rf.error/id :rf.error/cofx-registration-invalid
+                   :rf.cofx/id  id
+                   :where       'rf/reg-cofx
+                   :reason      reason
+                   :recovery    :no-recovery})))
+
 (defn reg-cofx
   "Register a coeffect id with a **value-returning supplier** and standard
   Spec 001 metadata. Per Spec 001 §`reg-cofx` + EP-0017.
@@ -153,9 +174,16 @@
 
   Registration-time errors:
 
-      :rf.error/cofx-name-collision  the id collides with the fold's
-                                     argument keys (`:db` / `:event`) or
-                                     another registered coeffect id.
+      :rf.error/cofx-name-collision       the id collides with the fold's
+                                          argument keys (`:db` / `:event`)
+                                          or another registered coeffect id
+                                          (genuine duplicate ownership).
+      :rf.error/cofx-registration-invalid the metadata grade is malformed —
+                                          `:provided?` without
+                                          `:recordable?`, a missing supplier
+                                          on a non-provided fact, or a
+                                          provided fact carrying a (silently
+                                          ignored) supplier.
 
   Examples:
 
@@ -205,9 +233,10 @@
       ;; grade that would otherwise register as an ambient fact with a nil
       ;; supplier, surfacing only as an opaque host NPE at delivery
       ;; (`run-ambient-supplier` invoking nil). Reject it loudly at the call
-      ;; site instead (Spec-Schemas §`:rf/cofx-meta`, rf2-cu8wet).
+      ;; site instead (Spec-Schemas §`:rf/cofx-meta`, rf2-cu8wet). This is a
+      ;; malformed-grade error, NOT a name collision (rf2-d8mvke.6).
       (when (and provided? (not recordable?))
-        (emit-cofx-name-collision!
+        (emit-cofx-registration-invalid!
           id
           (str "`reg-cofx` id `" id "` declared `:provided? true` without "
                "`:recordable? true`. A provided coeffect is recordable by "
@@ -216,12 +245,35 @@
                "`:recordable? true` (a provided recordable fact) or drop "
                "`:provided?` and supply a value-returning fn (an ambient "
                "fact).")))
+      ;; A PROVIDED recordable fact has NO generator: its value is stamped
+      ;; onto the token by its owner and delivery reads it from the token's
+      ;; `:rf.cofx` verbatim (`deliver-declared-cofx`'s recordable branch
+      ;; never invokes a supplier). A supplier passed alongside `:provided?
+      ;; true` is therefore SILENTLY IGNORED at delivery — the registration
+      ;; looks like it provides a generator, but the first handler requiring
+      ;; the fact (when it is absent from the token) fails as
+      ;; `:rf.error/missing-required-cofx`. Reject the contradiction at the
+      ;; call site (rf2-d8mvke.1). The valid provided shape is
+      ;; `{:recordable? true :provided? true}` with NO supplier.
+      (when (and provided? (some? supplier))
+        (emit-cofx-registration-invalid!
+          id
+          (str "`reg-cofx` id `" id "` declared `:provided? true` WITH a "
+               "supplier. A provided recordable fact has NO generator — its "
+               "value is stamped onto the causal token by its owner and "
+               "delivered verbatim, so this supplier would be silently "
+               "ignored at delivery (the first consumer fails as "
+               "`:rf.error/missing-required-cofx`). Either drop the supplier "
+               "(a provided recordable fact: `{:recordable? true :provided? "
+               "true}`) or drop `:provided?` (a recordable fact whose "
+               "supplier generates the value).")))
       ;; A non-recordable (ambient) fact with no supplier cannot produce a
       ;; value; only a PROVIDED recordable fact legitimately omits its
       ;; generator (its owner stamps the token). An ambient fact MUST carry a
-      ;; supplier.
+      ;; supplier. This is a malformed-grade error, NOT a name collision
+      ;; (rf2-d8mvke.6).
       (when (and (nil? supplier) (not provided?))
-        (emit-cofx-name-collision!
+        (emit-cofx-registration-invalid!
           id
           (str "`reg-cofx` id `" id "` declared no supplier. Only a PROVIDED "
                "recordable fact (`{:recordable? true :provided? true}`) may "
