@@ -2,7 +2,12 @@
 
 The vision-of-record for how Xray renders re-frame2's **cross-cutting
 runtime concerns** — SSR, Machines, Routes, Managed-Effects — without
-fragmenting the chrome. Distils [the 2026-05-18 cross-cutting design
+fragmenting the chrome: the 20-cell idiom matrix renders *inside* the
+existing Dynamic tabs (no idiom-area spawns its own tab). This is distinct
+from the cohesive-sub-domain rule, under which a few runtime sub-domains
+DID earn their own Dynamic tab (Routing · Resources · Graph · Modules) —
+see [`000-Vision.md`](000-Vision.md) §The tab inventory. Distils [the
+2026-05-18 cross-cutting design
 findings](#findings-anchor) into a normative reading: **5 visual idioms ×
 4 areas = a 20-cell matrix of features**, each anchored on a concrete
 bug-class.
@@ -10,7 +15,8 @@ bug-class.
 This doc is the **complement** to [`000-Vision.md`](000-Vision.md) and
 [`018-Event-Spine.md`](018-Event-Spine.md): Vision states the claim;
 Event-Spine specifies the chrome; this doc shows how the chrome accommodates
-the cross-cutting work without growing tabs.
+the cross-cutting idiom work *inside* the existing tabs — each idiom-area
+renders as growth within a tab rather than spawning its own.
 
 ---
 
@@ -40,13 +46,13 @@ that make them hard to debug from code alone:
    Xray today funnels most of them through one generic Issues row; that
    wastes signal the framework paid to capture.
 
-**The strategic move:** Xray's existing 6-tab chrome (Routing was
-promoted to its own L3 tab in rf2-nrbs9 — a deliberate exception
-because cohesive sub-domains earn their own lens; the Issues tab was
-later removed per rf2-gbz39 Option (c), issues surfacing inline + via
-the event-row pink-wash + the always-on issues ribbon signal) does NOT
-need a 7th, 8th tab for the remaining cross-cutting concerns.
-Cross-cutting
+**The strategic move:** Xray's Dynamic tab chrome (cohesive sub-domains
+earn their own L4 lens — Routing per rf2-nrbs9, then Resources / Graph /
+Modules per EP-0016 / EP-0014 / EP-0013; the Issues tab was removed per
+rf2-gbz39 Option (c), issues surfacing inline + via the event-row
+pink-wash + the always-on issues ribbon signal) does NOT need a new tab
+*per cross-cutting idiom*. The four idiom-areas (SSR · Machines · Routes ·
+Managed-Effects) do not each spawn a tab; their cross-cutting
 content needs **deep specialised renderings inside the existing
 tabs**, surfaced through five reusable visual idioms:
 
@@ -139,9 +145,10 @@ Malli rejections live in the trace today as `:rf.error/schema-validation-failure
 events with `:explain` payloads. The user shouldn't have to walk the trace
 to find them. Two surfaces:
 
-- **Inline Malli explanation** in the Issues tab — the human-readable
-  variant of `:explain`, with the offending path highlighted, the schema
-  source-coord linked.
+- **Inline Malli explanation** in the Epoch panel's EFFECT HANDLERS step
+  (rf2-gbz39 Option (c) — issues surface inline, not in a dedicated tab) —
+  the human-readable variant of `:explain`, with the offending path
+  highlighted, the schema source-coord linked.
 - **Per-violation drilldown** — click a schema-violation row → opens the
   Epoch panel for the cascade that produced it; the violating handler's
   `reg-event-*` registration is linked.
@@ -363,7 +370,8 @@ navigations have an animated leading edge.
 Click any bar → spine seeks to that nav-token's allocation cascade.
 
 **Affordance:** Nav-token timeline popover (R-C3); cross-cuts the Trace
-tab and the Issues tab.
+tab and the inline issue surfacing (rf2-gbz39 Option (c) — the Epoch panel
++ the always-on issues ribbon signal; the dedicated Issues tab was removed).
 
 #### R.2 — "My route's `:on-match` events didn't fire."
 
@@ -469,8 +477,10 @@ The "Likely cause" line is heuristic — Xray suggests "session not
 injected" when the divergent sub depends on `:auth/*` and the server's
 `:auth/*` slice is empty.
 
-**Affordance:** Issues tab — hydration mismatch bisector with
-sub-attribution (S-C2). The hero SSR feature.
+**Affordance:** inline issue surfacing — the Epoch panel + the always-on
+issues ribbon signal (rf2-gbz39 Option (c); the dedicated Issues tab was
+removed) — hydration mismatch bisector with sub-attribution (S-C2). The
+hero SSR feature.
 
 #### S.2 — "Server rendered a 500 page; what was the internal exception?"
 
@@ -484,8 +494,9 @@ panel — shows the internal trace + the projector's source-coord + the
 public projection map + the rendered client response. The author sees
 exactly what crossed the wire and what did not.
 
-**Affordance:** Issues tab / Epoch panel — server error projection trace
-(S-C5).
+**Affordance:** the Epoch panel + the always-on issues ribbon signal
+(rf2-gbz39 Option (c) — inline issue surfacing; the dedicated Issues tab
+was removed) — server error projection trace (S-C5).
 
 #### S.3 — "Streaming SSR shipped a chunk that hydrated incorrectly."
 
@@ -660,7 +671,9 @@ the subsequent flows that did NOT run:
 The "Subsequent flows did not run" list is the killer feature — prevents a
 subtle data-corruption bug class.
 
-**Affordance:** Issues tab — flow cascade-halt alarm (F-C8).
+**Affordance:** inline issue surfacing — the Epoch panel + the always-on
+issues ribbon signal (rf2-gbz39 Option (c); the dedicated Issues tab was
+removed) — flow cascade-halt alarm (F-C8).
 
 #### F.5 — Other managed-effects bug classes (catalogued)
 
@@ -702,17 +715,18 @@ features (see §2 for the full catalogue).
 
 ## §4 Surface placement — which tab grows which feature
 
-The matrix's 20 features land in the 6 existing tabs + 3 popovers, with
-NO new tabs. The placement is uniform across areas:
+The matrix's 20 cross-cutting-idiom features land in the existing Dynamic
+tabs + 3 popovers, with NO idiom-area spawning its own tab (the
+cohesive-sub-domain tabs Routing / Resources / Graph / Modules are a
+separate axis — see §0). The placement is uniform across areas:
 
 | Tab | Cross-cutting growth |
 |---|---|
-| **Event** (`e`) | Per-fx **wire-boundary diff** (F-C2). `:on-match` event chain (R-C4). Retry timeline (F-C3). Head model inspector (S-C6). Server error projection (S-C5). Per-fx source-coord chip (F-C6). |
+| **Epoch** (`e`) | Per-fx **wire-boundary diff** (F-C2). `:on-match` event chain (R-C4). Retry timeline (F-C3). Head model inspector (S-C6). Server error projection (S-C5). Per-fx source-coord chip (F-C6). Plus the **inline issue surfacing** (rf2-gbz39 Option (c) — the former Issues tab's content): hydration mismatch bisector (S-C2 — the SSR hero), flow cascade-halt alarm (F-C8), pending-navigation card (R-C7), CRLF + open-redirect rendering (F-C11), open-redirect advisory (R-C10), inline Malli validation explanations, per-request frame teardown summary (S-C8). |
 | **App-db** (`a`) | current-route slice (`:rf/route` runtime area, `[:rf.runtime/routing :current]` in runtime-db) always-visible at top (R-C2). Hydration diff in App-db tab (S-C3). Route-chain visualiser (R-C9). Trusted-shell opt visualiser (S-C9). |
 | **Views** (`v`) | (Largely unchanged; flows surface in the "Re-rendered" group when a flow's downstream sub recomputed.) |
 | **Trace** (`t`) | **Wall-clock axis** for timer rings, retry waterfalls, deferred-dispatch arrivals. Nav-token timeline as sticky header (or via `r` popover). Streaming SSR boundary waterfall (F-C10 / S-C10). Skipped-on-platform tally chip (F-C9). |
 | **Machines** (`m`) | All of §2.1's M-C* features. The cancellation cascade visualiser (M-C3) is the tab's hero growth. |
-| **Issues** (`i`) | Hydration mismatch bisector (S-C2) — the SSR hero. Flow cascade-halt alarm (F-C8). Pending-navigation card (R-C7). CRLF + open-redirect rendering (F-C11). Open-redirect advisory (R-C10). Validation explanations inline (Malli rendering throughout). Per-request frame teardown summary (S-C8). |
 
 | Popover | Cross-cutting role |
 |---|---|
@@ -904,8 +918,9 @@ clause), the findings carry the discussion that locked the opinion.
 - [`000-Vision.md`](000-Vision.md) — the claim, the five canonical
   questions, the audience, the "where Xray fits" diagram.
 - [`018-Event-Spine.md`](018-Event-Spine.md) — the 4-layer chrome
-  contract; the spine sub; the 6-tab inventory (Routing added per
-  rf2-nrbs9; Issues tab removed per rf2-gbz39 Option (c)); the popover
+  contract; the spine sub; the 9-tab Dynamic inventory (Routing added per
+  rf2-nrbs9; Resources / Graph / Modules added per EP-0016 / EP-0014 /
+  EP-0013; Issues tab removed per rf2-gbz39 Option (c)); the popover
   invocation contract.
 - [`003-Machine-Inspector.md`](003-Machine-Inspector.md) — the Machines
   tab's full feature spec; this doc's §2.1 catalogues the bug classes

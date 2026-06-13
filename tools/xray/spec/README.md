@@ -12,13 +12,13 @@ main read**.
 
 - **[000-Vision.md](000-Vision.md)** — The claim. Xray shows you what
   happens when an event fires. The five canonical questions; the audience;
-  the "two doors" split (Xray = human; re-frame2-pair-mcp = AI); the 6-tab
-  inventory (the Issues tab was removed per rf2-gbz39 Option (c)).
+  the "two doors" split (Xray = human; re-frame2-pair-mcp = AI); the 9-tab
+  Dynamic inventory (the Issues tab was removed per rf2-gbz39 Option (c)).
 - **[018-Event-Spine.md](018-Event-Spine.md)** — The architectural core:
   the 4-layer chrome (ribbon · event list · tab bar · detail panel), the
-  spine sub `:rf.xray/focus`, the 6-tab inventory, the popover invocation
-  contract, the data-classification rendering contract. Reading order:
-  read THIS after 000-Vision, then per-tab specs.
+  spine sub `:rf.xray/focus`, the 9-tab Dynamic inventory, the popover
+  invocation contract, the data-classification rendering contract. Reading
+  order: read THIS after 000-Vision, then per-tab specs.
 - **[019-Cross-Cutting-Insight.md](019-Cross-Cutting-Insight.md)** — The
   **5 idioms × 4 areas** matrix. How Xray accommodates SSR, Machines,
   Routes, Managed-Effects without growing tabs. The bug-class catalogue
@@ -136,11 +136,13 @@ main read**.
   process — `rf/realm-ids` × `rf/frame-realm` (disposition 3) — as a REALMS
   section (every installed realm + its frames), zero-ceremony (single-realm
   implicit). The **disposition-6 demand trigger** for per-module ownership /
-  capability / EP-0015 classification / descriptor provenance: that section
-  is **scaffolded** behind an awaiting-seam caption (a running realm exposes
-  no public read of its installed app value — the demand files a follow-up
-  for the realm→installed-app provenance seam rather than expanding core).
-  An L4-only Dynamic tab (not in `panel-enum`). Read-only.
+  capability / EP-0015 classification / descriptor provenance is **shipped**
+  (rf2-at0oen): the MODULES section reads real per-module provenance off each
+  realm's installed app value via the public `rf/installed-app` read seam
+  (EP-0013 disposition 6, PR #4061). A process running entirely on the
+  `reg-*` sugar / load-order path carries no constructed app value, so its
+  MODULES section shows the honest no-module caption. An L4-only Dynamic tab
+  (not in `panel-enum`). Read-only.
 
 ### Reference
 
@@ -161,7 +163,7 @@ main read**.
    ("Xray shows you what happens when an event fires") and the five
    canonical questions.
 2. **Read [`018-Event-Spine.md`](018-Event-Spine.md) next** for the
-   chrome architecture — the 4-layer + spine + 6 tabs + popovers.
+   chrome architecture — the 4-layer + spine + 9 Dynamic tabs + popovers.
 3. **Read [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md)
    third** for the matrix of features across the four cross-cutting areas
    (SSR · Machines · Routes · Managed-Fx).

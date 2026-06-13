@@ -1,7 +1,7 @@
 # 023-Trace-Panel
 
 The normative redesign spec for the Xray **Trace panel** (the `t` tab of
-the 6-tab L3 inventory; the Issues tab was removed per rf2-gbz39 Option (c)). This is the **Figma-handoff target**: it carries
+the 9-tab Dynamic L3 inventory; the Issues tab was removed per rf2-gbz39 Option (c)). This is the **Figma-handoff target**: it carries
 the complete content + interaction contract for the Trace arc, with the
 visual encoding (colour, styling) deliberately delegated to Figma (§8).
 
@@ -12,7 +12,7 @@ documents the destination. Authority for the surrounding look-and-feel is
 the devtools reference `tools/xray/design-reference/xray_devtools_reference.cljs`.
 
 Cross-refs:
-- [`000-Vision.md`](./000-Vision.md) — the five canonical questions; the 6-tab inventory
+- [`000-Vision.md`](./000-Vision.md) — the five canonical questions; the 9-tab Dynamic inventory
 - [`007-UX-IA.md`](./007-UX-IA.md) — typography, density, keyboard maps (still load-bearing)
 - [`013-Trace-Consumer.md`](./013-Trace-Consumer.md) — the trace-bus + collector contract this panel reads
 - [`016-Auxiliary-Panels.md`](./016-Auxiliary-Panels.md) — the sibling per-tab content contracts (Routing, Flows; the Issues tab was removed per rf2-gbz39 Option (c))

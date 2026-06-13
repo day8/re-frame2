@@ -258,15 +258,18 @@ Each row is "new in re-frame2 → new tooling story Xray tells."
 | **Managed effects** (`spec/Managed-Effects.md` eight-property contract) | **Wire-boundary diff** in the Epoch panel's "EFFECTS HANDLERS RAN" section — per fx, show request payload (post-elision) → wire transit (status / headers / timing waterfall) → response → handler dispatched → app-db slice touched. One template; five surfaces (HTTP, WebSocket, machine `:spawn`, SSR `:rf.server/*`, flows). **Active managed-effects dashboard** — Erlang-Observer for what the runtime is currently busy doing. **Stale-suppression badges** uniform across all four cross-cutting areas. |
 | **Production-elision verifier** | Xray runs `npm run test:elision` and warns before deploy if a dev sentinel leaked. |
 
-## The 6-tab inventory
+## The tab inventory
 
-The legacy 16-panel sidebar is dead. Xray ships a **6-tab detail panel**
-(Layer 3 of the 4-layer chrome). Each tab is one projection of the focused
-event; selection in the L2 event list rebinds every tab. Cross-cutting
-concerns extend each tab; they do NOT add new tabs.
+The legacy 16-panel sidebar is dead. Xray ships a **9-tab Dynamic detail
+panel** (Layer 3 of the 4-layer chrome). Each tab is one projection of the
+focused event; selection in the L2 event list rebinds every tab. Cross-cutting
+concerns extend each tab — and where a sub-domain grows cohesive enough it
+earns its own lens tab (Mike's cohesive-sub-domain rule, 2026-05-18): Routing
+(rf2-nrbs9), Resources (EP-0016), Graph (EP-0014), and Modules (EP-0013) each
+landed as their own Dynamic L4 tab rather than overloading App-db.
 
 **The Issues tab was removed per rf2-gbz39 (Mike RULED Option (c),
-2026-05-31).** Issues used to get a dedicated 7th tab carrying a session-wide
+2026-05-31).** Issues used to get a dedicated tab carrying a session-wide
 aggregate / triage list; that aggregate was consciously dropped. Issues now
 surface inline in the Epoch panel (per-step pass/fail + the "Exception
 Thrown" block — rf2-ahhgn / rf2-wnvid; `:db` schema-fail in the EFFECT HANDLERS
@@ -275,7 +278,7 @@ epoch has an issue — rf2-b8guz), and via the always-on issues ribbon signal
 (the auto-open-on-error watcher — the cross-epoch "something is wrong" cue
 that Mike kept under (c)).
 
-(The chrome surface measures in 6 L3 tabs; the underlying
+(The chrome surface measures in 9 Dynamic L3 tabs; the underlying
 **panel-component inventory** totals mountable panels across four
 tiers — see [`007-UX-IA.md`](007-UX-IA.md) §Mountable panel contract
 and [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md)
@@ -295,6 +298,9 @@ cohesive sub-domains earn their own lens tab rather than overloading App-db.
 | 4 | **Trace** | `t` | Raw multi-axis trace stream filtered to the focused cascade; **wall-clock axis** for timer rings, retry waterfalls, deferred-dispatch arrivals; trace-type toggle row + IN/OUT pills + sensible defaults. | [`013-Trace-Consumer.md`](013-Trace-Consumer.md) + [`018-Event-Spine.md`](018-Event-Spine.md) §5.3 |
 | 5 | **Machines** | `m` | **Event-driven Dynamic panel** (rf2-y9xmf): BLANK when the focused event has no machine activity; one per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it did. Cross-cutting Xray surfaces: **`:after`-timer countdown rings**; **cancellation-cascade visualiser**; **`:spawn-all` join inspector**; **per-instance "why am I stuck" trace strip**; supervision tree. UC1 Sim engine + UC2 Mode A/B/C dynamic-instance UI deferred to Static re-host (rf2-r4nao). MachineChart lives in `tools/machines-viz/` (rf2-o9arp); Xray re-exports the public chart API via thin shims — see [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Architectural posture. | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) |
 | 6 | **Routing** | `r` | **FLAT focused-event lens** (rf2-lq0ef) — current matched route + params/query/fragment + **Simulate-URL** input ranking every registered route via the 6-rule `:rf.route/rank` tuple with the rank explainer inline. Per-focused-event glyphs: **`◆ HERE`** on the current matched route · **`◆ FROM` / `◆ TO`** when the focused cascade caused navigation. Silent when no routes registered. | [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab + [`018-Event-Spine.md`](018-Event-Spine.md) §5.6 |
+| 7 | **Resources** | `s` | The declarative-server-state lens (Spec 016 §Xray + AI tooling) — for the focused event: the resource registry · live instances · in-flight work · invalidations · the route→resource graph. The cohesive-sub-domain L4 tab for managed server state (EP-0016). Read-only. | [`024-Resources-Panel.md`](024-Resources-Panel.md) + framework [`spec/016-Resources.md`](../../../spec/016-Resources.md) |
+| 8 | **Graph** | `g` | The unified derivation / process graph across every algebra-view family for the focused cascade (EP-0014, rf2-9ett2d). An **L4-only registry tab** — `reg-l4-tab!` only, no standalone `mount-*!` facade (it is shell-internal, focusable but not independently mountable). | [`025-Derivation-Graph-Panel.md`](025-Derivation-Graph-Panel.md) |
+| 9 | **Modules** | `u` | The **(realm, frame) address space** of the running process + the disposition-6 per-module demand-trigger (EP-0013, rf2-wtg9z4); reads real per-module provenance off each realm's installed app value via the shipped public `rf/installed-app` seam (rf2-at0oen). An **L4-only registry tab** — `reg-l4-tab!` only, no standalone `mount-*!` facade. | [`026-Module-View-Panel.md`](026-Module-View-Panel.md) |
 
 The former **Issues** tab (`i`) — JS exceptions + schema violations +
 sensitive-data warnings + hydration mismatches + perf-budget overruns + app
@@ -302,7 +308,7 @@ console errors/warns + flow cascade-halt alarms + open-redirect advisories +
 `:platforms` skip tallies + stale-suppression group — was **removed per
 rf2-gbz39 (Option (c))**. Those issue classes now surface inline in the Epoch
 panel + the L2 event-row pink-wash + the always-on issues ribbon signal (see
-§The 6-tab inventory intro above). The underlying issue projection
+§The tab inventory intro above). The underlying issue projection
 (`:rf.xray/issues-ribbon`) survives as the ribbon signal's data source.
 
 **Popovers** (transient overlays, invokable from any tab):
