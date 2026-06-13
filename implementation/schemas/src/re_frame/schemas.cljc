@@ -82,11 +82,11 @@
 ;; Posture (rf2-l5r974 ruling, option (a) end-state — reverses the earlier
 ;; rf2-1gm0o "public-by-design fixture primitive" framing). Exposing the atoms
 ;; as Vars was an encapsulation leak that is worse than aesthetic:
-;;   1. `schemas-by-frame` is the authoritative store, so the rep could not
-;;      evolve without breaking ad-hoc consumers — already realised: rf2-naihn1
-;;      added per-frame `frame-reg-locks` companion state that
-;;      `clear-schemas-by-frame!` clears but raw `(reset! schemas-by-frame {})`
-;;      sites silently skip, leaving stale locks.
+;;   1. `schemas-by-frame` is the authoritative store, so the rep cannot
+;;      evolve without breaking ad-hoc consumers — a future companion
+;;      side-table (or a change to the map shape itself) would have to be
+;;      cleared through `clear-schemas-by-frame!`, but raw
+;;      `(reset! schemas-by-frame {})` sites would silently skip it.
 ;;   2. The public `printer-fn` atom bypassed the never-nil invariant
 ;;      `run-printer` relies on with NO read guard — `(reset! printer-fn nil)`
 ;;      NPEs the digest path; the setters exist precisely to coerce
@@ -94,8 +94,7 @@
 ;;
 ;; The supported encapsulated replacements (all below):
 ;;   - REGISTRY:  `snapshot-schemas-by-frame` / `restore-schemas-by-frame!` /
-;;                `clear-schemas-by-frame!` (the last also drops the
-;;                `frame-reg-locks` companion).
+;;                `clear-schemas-by-frame!`.
 ;;   - BUNDLE:    `snapshot-schema-fns` / `restore-schema-fns!` (rf2-l4ljvr) +
 ;;                `set-schema-fns!` / `set-schema-{validator,explainer,printer}!`
 ;;                / `reset-schema-validator!`.
