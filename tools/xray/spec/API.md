@@ -851,6 +851,37 @@ gate is reachable only through the runtime accessors.
 | `get-handlers` | `get-handlers` | `{:ok? true :handlers <vec> :count <n>}` | `rf/registrations` per-kind. Optional `:kind` narrows to one of `:event :sub :fx :cofx :machine :flow :reg-machine :frame :view`. |
 | `get-source-coord` | `get-source-coord` | `{:ok? true :kind <kw> :id <any> :source-coord <map>}` | `rf/handler-meta` projected to `:source-coord`, routed through `egress-value` (rf2-j8b0u — Spec 009's user-supplied `:rf.handler/source` override can stamp arbitrary values into the slot, so the accessor egresses unconditionally rather than judging per-read; `:include-sensitive?` / `:include-large?` opt back in). |
 
+### Resources read band (5 accessors — read-only)
+
+The Resources panel's AI / MCP read API (rf2-dh0y8o). Five read-only
+accessors on `runtime.cljs` that project the resource registry + the
+live per-frame resource-instance cache + the `:rf.resource/*` trace
+family. They apply the two-layer privacy elision documented in
+[`024-Resources-Panel.md`](./024-Resources-Panel.md) §Tool accessors and
+Spec 016 §Xray and AI tooling: the projection always summarizes
+scope/params/data (type + bounded size + redaction-aware preview, never
+the raw value); on top, the payload slots (`:data` / `:error` /
+`:refresh-error` + the key's scope/params) route through the off-box
+`resource-egress-fn` walker so a `:sensitive?` declaration egresses as
+`:rf/redacted` and a `:large?` slot as `:rf.size/large-elided`. The
+non-PII metadata (status / generation / attempt / request-id / owners /
+tags / timestamps) is NEVER redacted, so the status / tag / owner /
+request-id filters work without an opt-in; `:include-runtime-db? true`
+(trusted-local) lifts even a non-declared payload to its raw value.
+`:scope` / `:resource-id` / `:params` filter against the raw cache key
+**before** projection; the remaining axes filter the already-projected
+rows. Per EP-0002 the frame target is carried explicitly — a frameless
+call with no resolvable context fails closed (`{:ok? false :reason
+:no-frame-resolved}`).
+
+| Accessor (fn) | Tool name | Returns | Reads |
+|---|---|---|---|
+| `list-resources` | `list-resources` | `{:ok? true :resources <vec> :count <n>}` | The STATIC resource registry (`rf/registrations :resource` projected via `project-registry`, joined with `:route` registrations): id, source coords, summarized param/data schemas, request summary, stale/GC policy, tag producer, scope policy, sensitivity/large class, declaring routes. Rows carry only static registry facts (no live values), so they egress freely. Filter axis: `:resource-id` (nil lists all). |
+| `list-resource-instances` | `list-resource-instances` | `{:ok? true :frame <id> :instances <vec> :count <n>}` | The LIVE per-frame resource-instance table from the frame's runtime-db at `[:rf.runtime/resources :entries]` (EP-0001 — framework-owned runtime-db state): resource key, scope, status, timestamps, generation, request id, attempt, active owners, tags, data summary, GC eligibility. Filter axes: `:frame` `:scope` `:resource-id` `:params` `:status` `:stale?` `:tag` `:owner` `:request-id`. Payload slots egress per the band's per-slot redaction (rf2-tgm1xu); `:include-sensitive?` / `:include-large?` / `:include-runtime-db?` opt the raw values back in. |
+| `get-resource-state` | `get-resource-state` | `{:ok? true :frame <id> :state <instance-row>}` | The LIVE durable state of ONE resource instance addressed by its scoped key at `[:rf.runtime/resources :entries [scope resource-id params]]` (Spec 016 §Introspection / §Status semantics). Required: `:resource-id` AND `:scope` AND `:params` (the full scoped-key triple); any missing part fails closed with `:reason :missing-key`. `:stale?` / `:has-data?` are derived, not stored. Payload slots egress per the band's per-slot redaction; `:include-runtime-db? true` opts in to the raw payload. |
+| `get-resource-history` | `get-resource-history` | `{:ok? true :frame <id> :history <vec> :count <n>}` | The BOUNDED lifecycle timeline — projects the `:rf.resource/*` trace family out of the frame's trace ring into ordered lifecycle rows (Spec 016 §Xray and AI tooling; history MUST be bounded). Filter axes: `:resource-id` `:nav-token` `:limit` (default 50 — the bound). Whole `:sensitive? true` trace events are default-suppressed at the off-box seam unless `:include-sensitive? true`. |
+| `list-resource-invalidations` | `list-resource-invalidations` | `{:ok? true :frame <id> :invalidations <vec> :count <n>}` | The invalidation / mutation graph — projects the `:rf.resource/invalidated` trace rows: summarized scope, invalidated tags, summarized cause, matched scoped keys, refetch count (distinguishes a broad-tag storm by high `:match-count` from a zero-match invalidation, `:match-count 0`). Filter axis: `:tag` (only invalidations touching the tag). Whole `:sensitive? true` events default-suppressed unless `:include-sensitive? true`. |
+
 ### Mutation band (3 accessors — write)
 
 | Accessor (fn) | Tool name | Returns | Behaviour |
