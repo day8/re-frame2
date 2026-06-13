@@ -752,10 +752,11 @@
                                       :tags        tags})))
         ;; route the concrete scope through the SHARED validation path
         ;; (rf2-hosnba, rf2-lzv9xc): rejects reserved-namespace typos +
-        ;; host / non-EDN scope values, normalizes [:rf.scope/global] → bare,
-        ;; canonicalizes — the SAME single path event/sub resolution, route
-        ;; planning, and clear-scope use. No resource-id (a tag invalidation
-        ;; spans resources); nil when scope-agnostic cross-scope.
+        ;; host / non-EDN scope values, rejects the wrapped [:rf.scope/global]
+        ;; singleton (rf2-bwwk6l — supply bare), canonicalizes — the SAME
+        ;; single path event/sub resolution, route planning, and clear-scope
+        ;; use. No resource-id (a tag invalidation spans resources); nil when
+        ;; scope-agnostic cross-scope.
         cscope     (when (some? scope)
                      (state/canonicalize-scope scope 'rf.resource/invalidate-tags nil))
         ;; rf2-ru73k6 F1 — the SAME shared tag-input normalizer the mutation

@@ -397,8 +397,9 @@
   "Route a CONCRETE resolved scope through the single shared concrete-scope
   validation path (`state/canonicalize-scope`, rf2-lzv9xc): reject a
   reserved-namespace typo fail-closed (rf2-pd7akw), reject a host / opaque
-  value, normalize the historical `[:rf.scope/global]` singleton-vector
-  spelling to bare `:rf.scope/global` (rf2-vv87xz), then canonicalize. Per
+  value, reject the global scope wrapped as the singleton `[:rf.scope/global]`
+  in favour of the canonical bare `:rf.scope/global` (rf2-bwwk6l), then
+  canonicalize. Per
   Spec 016 §Resource identity / §Scope resolution. Used by both event and
   sub scope resolution, so a misspelled reserved `:rf.scope/*` in a payload /
   route-resolver / fn-of-nothing / pure-data policy is caught at the concrete
@@ -554,12 +555,11 @@
   `:rf.scope/from-caller` policy or a multi-arg `(route, ctx)` resolver is
   not sub-resolvable. Returns the canonical scope.
 
-  4-arity (no `db`) is kept for callers that never use a `{:from-db …}`
-  scope — references then resolve against an empty db (fail-closed)."
-  ([resource-id spec payload-scope where]
-   (resolve-scope-for-sub resource-id spec payload-scope where nil))
-  ([resource-id spec payload-scope where db]
-   (let [policy (:scope spec)]
+  Every caller supplies the frame `db` explicitly (rf2-bwwk6l): a caller
+  that resolves no `{:from-db …}` scope passes `{}`, where references resolve
+  fail-closed."
+  [resource-id spec payload-scope where db]
+  (let [policy (:scope spec)]
     (cond
       ;; 1. payload scope — a {:from-db …} reference resolves against the
       ;; frame db at use time + fails closed on nil (sub-side).
@@ -605,4 +605,4 @@
                     "resolution.")
                {:resource-id resource-id :policy from-caller-scope-policy}))
       ;; a pure data-value policy is sub-resolvable
-      :else (canonical-scope! resource-id policy where)))))
+      :else (canonical-scope! resource-id policy where))))

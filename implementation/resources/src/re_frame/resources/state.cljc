@@ -394,10 +394,12 @@
 ;;   2. a BARE unknown `:rf.scope/*` keyword (a reserved-namespace typo such
 ;;      as `:rf.scope/glabal`) is rejected fail-closed (rf2-pd7akw) — it can
 ;;      NEVER become a silent wrong cache scope;
-;;   3. the singleton-vector `[:rf.scope/global]` global-scope spelling is
-;;      normalized to the canonical bare `:rf.scope/global` (rf2-vv87xz) so a
-;;      payload copied from historical prose cannot create a SECOND, distinct
-;;      global cache key.
+;;   3. a reserved bare-keyword scope wrapped in a vector (the canonical
+;;      `:rf.scope/global` supplied as the singleton `[:rf.scope/global]`) is
+;;      rejected fail-closed (rf2-bwwk6l) — the global scope IS the bare
+;;      keyword, and a wrapped spelling that silently collapsed to it was a
+;;      back-compat alias for historical prose, not a second spelling the
+;;      contract blesses.
 
 (def reserved-scope-ns
   "The framework-reserved scope namespace (`:rf.scope/*`, per Conventions
@@ -430,22 +432,36 @@
        (= reserved-scope-ns (namespace scope))
        (not (contains? reserved-concrete-scopes scope))))
 
-(def ^:private global-scope
-  "The canonical CONCRETE global cache scope — the bare keyword the
-  implementation stores as the first element of a scoped key for an explicit
-  global resource (rf2-vv87xz). The historical singleton-vector spelling
-  `[:rf.scope/global]` normalizes to this."
-  :rf.scope/global)
-
-(defn- normalize-global-scope
-  "Normalize the historical singleton-vector global spelling
-  `[:rf.scope/global]` to the canonical concrete `:rf.scope/global` bare
-  keyword (rf2-vv87xz), so a payload that copied the singleton-vector form
-  from older prose collapses to the SAME global cache key the implementation
-  resolves an explicit-global policy to — it can never silently create a
-  second, distinct global key. Every other value passes through unchanged."
-  [scope]
-  (if (= scope [global-scope]) global-scope scope))
+(defn reject-wrapped-reserved-scope!
+  "Throw `:rf.error/resource-invalid-scope` when `scope` is a VECTOR whose
+  head is a reserved bare-keyword concrete scope (`:rf.scope/global`) —
+  i.e. the singleton `[:rf.scope/global]` spelling (rf2-bwwk6l). The global
+  scope IS the bare keyword `:rf.scope/global`; wrapping it in a vector was a
+  back-compat alias the implementation silently collapsed, kept only for
+  payloads copied from historical prose. Pre-alpha there is no alias: the
+  wrapped form fails closed and the diagnostic names the canonical bare
+  spelling. A genuine scope TUPLE like `[:rf.scope/session {…}]` carries a
+  payload after the namespaced tag and is untouched — only a reserved
+  bare-keyword head with NO concrete payload (the historical alias shape) is
+  rejected. `where` / `resource-id` name the offending boundary. Returns
+  `scope` unchanged when it conforms."
+  [scope where resource-id]
+  (when (and (vector? scope)
+             (contains? reserved-concrete-scopes (first scope)))
+    (throw (ex-info ":rf.error/resource-invalid-scope"
+                    {:rf.error/id :rf.error/resource-invalid-scope
+                     :where       where
+                     :recovery    :fix-scope
+                     :reason      (str "resource " resource-id " was reached with a "
+                                       "scope " (pr-str scope) " — a reserved "
+                                       ":rf.scope/* concrete scope wrapped in a "
+                                       "vector. The global scope IS the bare keyword "
+                                       ":rf.scope/global; supply it bare, not as the "
+                                       "singleton [:rf.scope/global]. Per Spec 016 "
+                                       "§Scope resolution.")
+                     :resource-id resource-id
+                     :scope       scope})))
+  scope)
 
 (defn reject-reserved-scope-typo!
   "Throw `:rf.error/resource-invalid-scope` when `scope` is a reserved-
@@ -483,20 +499,22 @@
 
     1. reject a reserved-namespace typo fail-closed
        (`reject-reserved-scope-typo!`, rf2-pd7akw);
-    2. reject a host / opaque value (`reject-non-edn!`);
-    3. normalize the historical `[:rf.scope/global]` singleton-vector
-       spelling to the canonical bare `:rf.scope/global` (rf2-vv87xz);
+    2. reject a reserved bare-keyword scope wrapped in a vector — the
+       singleton `[:rf.scope/global]` alias (`reject-wrapped-reserved-scope!`,
+       rf2-bwwk6l);
+    3. reject a host / opaque value (`reject-non-edn!`);
     4. canonicalize the EDN (`canonicalize`).
 
   Every scope-bearing operation routes its concrete scope through this fn so
-  the typo / host / global-spelling guarantees hold uniformly across event
+  the typo / wrapped-global / host guarantees hold uniformly across event
   resolution, sub resolution, route planning, and mutation invalidation
   defaults. `where` / `resource-id` name the boundary for the structured
   errors. Returns the canonical scope."
   [scope where resource-id]
   (reject-reserved-scope-typo! scope where resource-id)
+  (reject-wrapped-reserved-scope! scope where resource-id)
   (reject-non-edn! scope where :scope resource-id)
-  (canonicalize (normalize-global-scope scope)))
+  (canonicalize scope))
 
 ;; ---- scoped resource key (Spec 016 §Resource identity) --------------------
 

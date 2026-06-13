@@ -278,10 +278,10 @@
   Routes the resolved concrete scope through the SAME shared validation
   path resources use (`state/canonicalize-scope`, rf2-lzv9xc): a host /
   opaque scope value is rejected, a misspelled reserved `:rf.scope/*`
-  keyword is rejected fail-closed (rf2-pd7akw), and the historical
-  `[:rf.scope/global]` singleton-vector spelling normalizes to bare
-  `:rf.scope/global` (rf2-vv87xz) — so a mutation can never invalidate /
-  patch a silent WRONG (or second, distinct global) cache scope. Returns
+  keyword is rejected fail-closed (rf2-pd7akw), and the reserved global
+  scope wrapped as the singleton `[:rf.scope/global]` is rejected fail-closed
+  in favour of the canonical bare `:rf.scope/global` (rf2-bwwk6l) — so a
+  mutation can never invalidate / patch a silent WRONG cache scope. Returns
   the canonical scope. Per EP-0003 §Mutations (hybrid scope: fail-open
   execution default, fail-closed invalidation)."
   [mutation-id spec payload-scope]

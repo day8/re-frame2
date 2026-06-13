@@ -425,7 +425,7 @@
             read / :idle) — Spec 016 §Subscription-side scope resolution"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-sub-unresolved-scope"
-          (subs/resolve-scoped-key {:resource :ss/from-caller :params {:slug "x"}})))))
+          (subs/resolve-scoped-key {:resource :ss/from-caller :params {:slug "x"}} {})))))
 
 ;; ===========================================================================
 ;; 3. Pure lifecycle status transition fn (NOT a spawned machine)
@@ -868,7 +868,7 @@
       (is (thrown-with-msg?
             #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
             (registry/resolve-scope-for-sub
-              :tp/article spec :rf.scope/sesssion 'test))))
+              :tp/article spec :rf.scope/sesssion 'test {}))))
     (testing "rf2-pd7akw — :rf.scope/from-caller reaching a CONCRETE boundary
               as a payload value (not a policy) is a typo-class rejection"
       (is (thrown-with-msg?
@@ -888,37 +888,31 @@
                'test))))))
 
 ;; ===========================================================================
-;; 14. Singleton-vector [:rf.scope/global] cannot create a 2nd global key
-;;     (rf2-vv87xz, impl/guard half)
+;; 14. Singleton-vector [:rf.scope/global] is rejected fail-closed — the
+;;     global scope IS the bare keyword (rf2-bwwk6l; was rf2-vv87xz's
+;;     back-compat normalize alias, removed pre-alpha)
 ;; ===========================================================================
 
-(deftest singleton-vector-global-normalizes-to-bare-global
-  (testing "rf2-vv87xz — a [:rf.scope/global] payload normalizes to the bare
-            :rf.scope/global so it collapses to the SAME global cache key the
-            implementation resolves an explicit-global policy to (it cannot
-            silently create a second, distinct global key)"
-    (let [k-bare      (state/canonicalize-scope :rf.scope/global 'test :r/x)
-          k-singleton (state/canonicalize-scope [:rf.scope/global] 'test :r/x)]
-      (is (= :rf.scope/global k-bare))
-      (is (= :rf.scope/global k-singleton)
-          "singleton-vector spelling collapses to the bare canonical scope")
-      (is (= k-bare k-singleton) "both spellings produce ONE global cache key")))
-  (testing "rf2-vv87xz — end-to-end: an ensure under :rf.scope/global and a
-            sub under [:rf.scope/global] read the SAME entry (no second key)"
+(deftest singleton-vector-global-rejected-fail-closed
+  (testing "rf2-bwwk6l — the bare :rf.scope/global is the canonical concrete
+            global scope and canonicalizes unchanged"
+    (is (= :rf.scope/global (state/canonicalize-scope :rf.scope/global 'test :r/x))))
+  (testing "rf2-bwwk6l — the singleton-vector [:rf.scope/global] spelling is
+            NO LONGER accepted as a global alias; it fails closed at the shared
+            canonicalize boundary, naming the canonical bare spelling"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
+          (state/canonicalize-scope [:rf.scope/global] 'test :r/x))))
+  (testing "rf2-bwwk6l — a sub payload carrying the wrapped [:rf.scope/global]
+            spelling fails closed too (never a silent read of the bare global
+            entry)"
     (rf/reg-resource :gv/article (article-spec))
-    (let [bare-key (state/scoped-resource-key :rf.scope/global :gv/article {:slug "w"})]
-      (rf/dispatch-sync [:rf.resource/ensure {:resource :gv/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:lease 1]}])
-      (let [wid (:current-work (entry bare-key))]
-        (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource-key bare-key :work/id wid :generation 1
-                            :data {:title "W"}}]))
-      ;; a sub payload using the historical singleton-vector spelling resolves
-      ;; to the SAME bare key — it reads the loaded entry, not a fresh skeleton.
-      (is (= bare-key
-             (subs/resolve-scoped-key {:resource :gv/article
-                                       :scope [:rf.scope/global]
-                                       :params {:slug "w"}}))))))
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
+          (subs/resolve-scoped-key {:resource :gv/article
+                                    :scope [:rf.scope/global]
+                                    :params {:slug "w"}}
+                                   {})))))
 
 ;; ===========================================================================
 ;; 15. clear-resource disposes live runtime state (rf2-m9h5iq)
@@ -989,10 +983,14 @@
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
           (mreg/resolve-scope :m/x {} {:fn (fn [])}))))
-  (testing "rf2-lzv9xc — the default global scope still resolves, and the
-            [:rf.scope/global] spelling normalizes to bare (no 2nd key)"
-    (is (= :rf.scope/global (mreg/resolve-scope :m/x {} nil)))
-    (is (= :rf.scope/global (mreg/resolve-scope :m/x {} [:rf.scope/global])))))
+  (testing "rf2-lzv9xc — the default global scope still resolves to the bare
+            :rf.scope/global"
+    (is (= :rf.scope/global (mreg/resolve-scope :m/x {} nil))))
+  (testing "rf2-bwwk6l — the wrapped [:rf.scope/global] singleton is rejected
+            fail-closed (no back-compat alias); supply the bare keyword"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
+          (mreg/resolve-scope :m/x {} [:rf.scope/global])))))
 
 ;; ===========================================================================
 ;; 17. resource-state fails closed without an explicit frame (rf2-c8lgy3)
