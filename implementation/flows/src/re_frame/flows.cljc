@@ -432,12 +432,10 @@
   the pending frame-state, dirty-check each one, recompute and assoc-in the
   result into a transformed APP-DB. Returns the flow-augmented APP-DB value.
 
-  Two arities:
-    `[frame-id db]`            — app-db-only pending state (runtime-db is
-                                 nil; only bare app-db inputs resolve).
-    `[frame-id db runtime-db]` — the full pending frame-state. `db` is the
-                                 pending app-db partition; `runtime-db` the
-                                 pending runtime-db partition.
+  Signature `[frame-id db runtime-db]` — the full pending frame-state. `db`
+  is the pending app-db partition; `runtime-db` the pending runtime-db
+  partition (pass `nil` to resolve only bare app-db inputs). The router's
+  flows-after-interceptor always supplies both partitions.
 
   EP-0001 §535-551 (Mike RULED (b) 2026-06-09): a flow reads app-db by
   default (bare `:inputs` paths) and runtime-db only through EXPLICIT
@@ -494,8 +492,7 @@
   so this rollback cannot clobber its just-advanced dirty-check rows. The
   per-frame-independence invariant (Spec 002 rule 1 / Spec 013
   §Frame-scoping) holds by construction, not by careful keying."
-  ([frame-id db] (run-flows-on-db frame-id db nil))
-  ([frame-id db runtime-db]
+  [frame-id db runtime-db]
   (let [flow-map (get (registry/flows-snapshot) frame-id)]
     (if-not (seq flow-map)
       db
@@ -560,7 +557,7 @@
             ;; untouched. The throw (carrying `:rf.flow/failed-id` from
             ;; `evaluate-flow!`) propagates unchanged for router attribution.
             (registry/reset-frame-last-inputs-to! frame-id last-inputs-before)
-            (throw e))))))))
+            (throw e)))))))
 
 ;; ---- late-bind hook registration ----------------------------------------
 ;;

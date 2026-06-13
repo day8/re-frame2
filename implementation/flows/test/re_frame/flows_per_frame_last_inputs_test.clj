@@ -106,7 +106,7 @@
     ;; Drive frame A's drain directly. A's flow throws, so run-flows-on-db
     ;; rolls back A's OWN container. The throw propagates — catch it.
     (is (thrown? Throwable
-                 (flows/run-flows-on-db :a {:n 7}))
+                 (flows/run-flows-on-db :a {:n 7} nil))
         "A's flow throw propagates out of run-flows-on-db")
 
     ;; THE ASSERTION: B's row is untouched by A's rollback.
@@ -143,7 +143,7 @@
                     :output (fn [_] (throw (ex-info "boom-B" {})))
                     :path   [:b-out]}
                    {:frame :solo})
-      (is (thrown? Throwable (flows/run-flows-on-db :solo {:n 5})))
+      (is (thrown? Throwable (flows/run-flows-on-db :solo {:n 5} nil)))
       (reset! a-row-before (registry/get-frame-flow-last-inputs :solo :A))
       (is (nil? @a-row-before)
           ":A's last-inputs advance was rolled back (single-frame atomicity intact)")

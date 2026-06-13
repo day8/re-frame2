@@ -2,11 +2,13 @@
   "JVM smoke coverage for Spec 013 — Flows.
 
   This file backstops the conformance fixtures in
-  spec/conformance/fixtures/flow-*.edn. Where the fixtures
-  describe canonical flow shapes as data (skipped by the reference
-  harness until the :flow/* capability set is wired into the conformance
-  runner), the tests here exercise the same paths against the JVM
-  reference implementation directly:
+  spec/conformance/fixtures/flow-*.edn. Those fixtures describe canonical
+  flow shapes as data and are driven against the live runtime by
+  `re-frame.flows-conformance-test` (the flows artefact's own conformance
+  gate, which claims the `:flow/*` capability set). The tests here exercise
+  the same paths against the JVM reference implementation directly — a
+  focused, debuggable companion to the data-driven gate so a regression in
+  any of these shapes surfaces as a plain unit-test failure:
 
     - reg-flow / clear-flow round-trip
     - dirty-check (=-equal inputs do NOT recompute)

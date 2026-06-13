@@ -84,9 +84,26 @@
   ## Capability claim
 
   Per `spec/conformance/README.md` §Capability tagging, the runner
-  declares the surface its host implements. A fixture whose
-  `:fixture/capabilities` are NOT a subset of `claimed-capabilities`
-  is reported as out-of-claim and does not block the suite.
+  declares the surface its host implements via `claimed-capabilities` /
+  `claimed-spec-versions`.
+
+  Unlike the corpus-wide machines / ssr / core runners — which iterate
+  the WHOLE fixture set and legitimately skip fixtures targeting another
+  surface — this runner pre-filters to `flow-*.edn` ONLY (see
+  `all-flow-fixtures`). Every fixture it sees is a flow fixture the flows
+  artefact is the reference gate for. So an out-of-claim capability (or an
+  unclaimed spec-version) on a flow fixture is never \"another surface's
+  concern\": it is a newly-added flow capability this runner has not yet
+  implemented, or a typo. Either way it must FAIL the gate loudly, not be
+  silently skipped — a silent skip would let a new flow fixture's
+  contract go entirely unchecked while the gate stayed green.
+
+  Concretely (rf2-lrf1se): out-of-claim / unclaimed-spec-version flow
+  fixtures are recorded as FAILURES (not non-blocking skips), so the
+  suite's `(is (zero? failed))` assertion catches them. The fix is to
+  extend `claimed-capabilities` (and implement the matcher) — a reviewed
+  edit to this file — never to let the fixture skip. There is no
+  known-skips list because the correct number of known skips is zero.
 
   The claim here covers the `:flow/*` capabilities every flow fixture
   exercises plus the bare `:core/*` capabilities every flow fixture
@@ -708,52 +725,58 @@
       (reset-runtime
         (fn []
           (cond
+            ;; A flow fixture that will not parse, declares a spec-version
+            ;; this runner does not claim, or declares a capability outside
+            ;; the claim is NOT a benign skip — this runner is the reference
+            ;; gate for every `flow-*.edn` fixture (rf2-lrf1se). Record it as
+            ;; a FAILURE so `(is (zero? failed))` catches it; the fix is to
+            ;; fix the fixture or extend `claimed-*` + implement the matcher
+            ;; (a reviewed edit to this file), never to let it skip.
             (:fixture/load-error fixture)
             (swap! results conj {:fixture-id fname
-                                 :skipped?   true
+                                 :fname      fname
+                                 :passed?    false
                                  :reason     "load error"
                                  :error      (:fixture/load-error fixture)})
 
             (not (spec-version-claimed? fixture))
             (swap! results conj {:fixture-id   (:fixture/id fixture)
                                  :fname        fname
-                                 :skipped?     true
+                                 :passed?      false
                                  :reason       "spec-version not in claimed set"
                                  :spec-version (:fixture/spec-version fixture)})
 
             (not (runnable-capability-set? fixture))
             (swap! results conj {:fixture-id   (:fixture/id fixture)
                                  :fname        fname
-                                 :skipped?     true
+                                 :passed?      false
                                  :reason       "capabilities outside flows-runner claim"
                                  :capabilities (:fixture/capabilities fixture)})
 
             :else
             (swap! results conj (assoc (run-fixture fixture) :fname fname))))))
     (let [all     @results
-          run     (remove :skipped? all)
-          passed  (filter :passed? run)
-          failed  (remove :passed? run)
-          skipped (filter :skipped? all)]
+          passed  (filter :passed? all)
+          failed  (remove :passed? all)]
       ;; Silent-on-success (rf2-try1x): summary prints only on failure.
+      ;; No skip bucket (rf2-lrf1se): a flow fixture this runner cannot run —
+      ;; load error, unclaimed spec-version, out-of-claim capability — is a
+      ;; FAILURE, not a non-blocking skip.
       (when (seq failed)
         (println)
         (println "Flows conformance corpus (flow-*.edn fixtures):")
         (println "  total fixtures:" (count all))
-        (println "  runnable:      " (count run))
         (println "  passed:        " (count passed))
         (println "  failed:        " (count failed))
-        (println "  skipped:       " (count skipped))
-        (when (seq skipped)
-          (println)
-          (println "Skipped:")
-          (doseq [s skipped]
-            (println "  " (:fixture-id s) "—" (:reason s)
-                     (or (:capabilities s) (:spec-version s) (:error s)))))
         (println)
         (println "Failures:")
         (doseq [f failed]
           (println "  " (:fixture-id f))
+          ;; Out-of-claim / load-error failures carry a `:reason` instead of
+          ;; matcher diffs — surface it (plus the offending caps / version).
+          (when-let [reason (:reason f)]
+            (println "    reason:" reason
+                     (or (:capabilities f) (:spec-version f) "")))
           (when (:error f)
             (println "    error:" (:error f)))
           (when-let [td (:expected-db f)]
@@ -800,5 +823,7 @@
           (doseq [ef (:err-failures f)]
             (println "    error-emit:" ef))))
       (is (zero? (count failed))
-          (str "All claim-runnable flow-*.edn conformance fixtures must pass; "
+          (str "Every flow-*.edn conformance fixture must pass (an out-of-claim "
+               "capability or unclaimed spec-version is itself a failure — extend "
+               "the claim + matcher, don't skip); "
                (count failed) " failed.")))))
