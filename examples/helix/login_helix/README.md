@@ -39,16 +39,18 @@ identical registries, three view layers.
 
 `core.cljs` carries a `SUBSTRATE BOUNDARY` divider. Above it is the
 **substrate-agnostic artefact layer** — the Malli schemas, the
-`:auth.login.demo/managed-stub` fx, the `:auth.login/flow` state machine,
-and the named subs. Those lines are byte-for-byte identical in the Reagent
-and UIx login examples; the artefact layer never names a substrate. Below
-the divider is the **only** substrate-specific code: the Helix `defnc`
-views + the mount.
+`:auth.login.demo/managed-stub` fx, the `:auth.login/flow` state machine
+(a named `auth-login-machine` def passed to `reg-machine`, the same shape
+all three substrates use), and the named subs. These are in semantic + id
+parity with the Reagent and UIx login examples — the same `:auth.login/*`
+ids and the same registered shapes; only the per-file explanatory comments
+differ. The artefact layer never names a substrate. Below the divider is
+the **only** substrate-specific code: the Helix `defnc` views + the mount.
 
 That duplication across the three login examples is **deliberate and the
 intended v2 style**, not copy-paste drift. The id-identity *is* the
-cross-substrate parity demonstration: byte-identical machine + schemas +
-HTTP stub driving Reagent `reg-view`, UIx `defui`, and Helix `defnc`
+cross-substrate parity demonstration: the same machine + schemas + HTTP
+stub driving Reagent `reg-view`, UIx `defui`, and Helix `defnc`
 proves the Spec 005 machine, Spec 010 schemas, and Spec 014 managed-HTTP
 surfaces are substrate-agnostic. It is intentionally **not** hoisted into a
 shared model namespace — each substrate login is a self-contained

@@ -37,11 +37,14 @@
 ;;
 ;; Everything from here down to the SUBSTRATE BOUNDARY divider — schemas, the
 ;; managed-HTTP stub fx, the `:auth.login/flow` state machine, and the named
-;; subs — is the artefact layer. It is byte-for-byte IDENTICAL across the
-;; Reagent, UIx, and Helix login examples: same `:auth.login/*` ids, same
-;; machine spec, same `:auth.login.demo/managed-stub`. That sameness is
-;; deliberate and load-bearing — the id-identity *is* the cross-substrate
-;; parity demonstration (examples/TESTING.md §Exception 2). It is NOT
+;; subs — is the artefact layer. It is in semantic + id parity across the
+;; Reagent, UIx, and Helix login examples: the same `:auth.login/*` ids, the
+;; same machine spec (a named `auth-login-machine` def passed to `reg-machine`
+;; in all three), the same schemas, and the same `:auth.login.demo/managed-stub`
+;; — the registered shapes are identical; only the per-file explanatory
+;; comments differ. That sameness is deliberate and load-bearing — the
+;; id-identity *is* the cross-substrate parity demonstration
+;; (examples/TESTING.md §Exception 2). It is NOT
 ;; extracted into a shared namespace on purpose: each substrate example is a
 ;; self-contained `:browser` build, and `npm run test:bundle-isolation` proves
 ;; a Helix bundle carries no Reagent/UIx code (and vice versa). A shared model
@@ -92,9 +95,10 @@
 ;; `{:state ... :data ...}` snapshot. Per Spec 005 §Schema validation and Spec
 ;; 010 §Machine data schema, `:data-schema` sits as a top-level key on the
 ;; machine spec beside `:data`, and the framework validates it at every
-;; macrostep-commit boundary + at bootstrap (`:where :machine-data`). Identical
-;; to examples/reagent/login + examples/uix/login_uix — the artefact layer is
-;; byte-for-byte parity across the three substrates (see the divider above).
+;; macrostep-commit boundary + at bootstrap (`:where :machine-data`). The same
+;; `:data-schema` shape as examples/reagent/login + examples/uix/login_uix —
+;; the artefact layer is in semantic + id parity across the three substrates
+;; (see the divider above).
 (def AuthLoginData
   [:map
    [:attempts {:default 0} :int]
@@ -158,20 +162,17 @@
 ;; STATE MACHINE
 ;; ============================================================================
 
-;; rf2-wgmipl — the machine + event-vector-schema shape: `reg-machine`'s
-;; event-`:schema` arity carries the event `:schema` (the `:where :event`
-;; boundary on the dispatched outer vector) alongside the machine spec.
-;; `reg-machine` is the single registration home — it stamps the
-;; `:rf/machine?` / `:rf/machine` metadata and (for a machine carrying a
-;; `:data-schema`) bridges its redaction marks, replacing the former
-;; hand-composed `reg-event-fx` + `make-machine-handler` form.
-(rf/reg-machine :auth.login/flow
-  {:doc    "Login flow: idle → submitting → authed / error-shown / locked-out."
-   :schema AuthLoginEvent}
+;; The login flow's machine spec. `:data-schema` is a TOP-LEVEL key on the
+;; spec map (Spec 005 §Schema validation) — it validates the `:data` slot
+;; (`{:attempts ... :error ...}`), NOT the whole snapshot. Factored into a
+;; named `def` (then passed to `reg-machine` below) so the machine spec sits
+;; in the same artefact-layer shape as the Reagent and UIx login siblings —
+;; same registry ids, same machine spec, same schemas + HTTP stub.
+(def auth-login-machine
   {:initial :idle
    ;; Spec 010 §Machine data schema — `:data-schema` validates the snapshot's
    ;; `:data` slot (not the whole snapshot) at the `:where :machine-data`
-   ;; boundary; `reg-machine` (above) bridges its `:sensitive?` / `:large?`
+   ;; boundary; `reg-machine` (below) bridges its `:sensitive?` / `:large?`
    ;; redaction marks into snapshot egress. Parity with reagent/login + uix.
    :data-schema AuthLoginData
    :data    {:attempts 0 :error nil}
@@ -264,6 +265,20 @@
     ;; form (rf2-q6bm7d).
     {:tags #{:auth/locked}
      :meta {:terminal? true}}}})
+
+;; rf2-wgmipl — the machine + event-vector-schema shape: `reg-machine`'s
+;; event-`:schema` arity carries the event `:schema` (the `:where :event`
+;; boundary on the dispatched outer vector) alongside the machine spec.
+;; `reg-machine` is the single registration home — it stamps the
+;; `:rf/machine?` / `:rf/machine` metadata and (for a machine carrying a
+;; `:data-schema`) bridges its redaction marks, replacing the former
+;; hand-composed `reg-event-fx` + `make-machine-handler` form. The machine
+;; spec is the named `auth-login-machine` def above — the same def-then-
+;; register shape the Reagent and UIx login siblings use.
+(rf/reg-machine :auth.login/flow
+  {:doc    "Login flow: idle → submitting → authed / error-shown / locked-out."
+   :schema AuthLoginEvent}
+  auth-login-machine)
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS
