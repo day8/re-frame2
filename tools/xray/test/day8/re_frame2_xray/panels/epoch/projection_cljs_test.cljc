@@ -176,6 +176,28 @@
       (is (nil? (:source-enrichment r))
           "non-canonical timer-event shape → no enrichment"))))
 
+(deftest dispatch-row-after-timer-scalar-slot3-fail-soft-test
+  (testing "rf2-q25i4o — a partial `:rf.machine.timer/after-elapsed`
+            event whose slot-3 invoke-id is a SCALAR (or nil) passes the
+            keyword + count shape checks but must NOT crash on
+            `(vec <scalar>)`. The row fails soft: it preserves
+            `:source :after-timer` and omits `:source-enrichment`,
+            rendering as a plain DISPATCH row (the documented
+            fall-through for malformed/imported/future trace data)"
+    (doseq [slot3 [42 nil "x" :a]]
+      (let [event [:m [:rf.machine.timer/after-elapsed 250 1 slot3]]
+            ev    {:op-type   :rf.event
+                   :operation :rf.event/dispatched
+                   :tags      {:rf.event/v event
+                               :source     :after-timer}}
+            r     (proj/dispatch-row [ev] nil)]
+        (is (some? r)
+            (str "dispatch-row does not throw for slot-3 " (pr-str slot3)))
+        (is (= :after-timer (:source r))
+            (str "source :after-timer preserved for slot-3 " (pr-str slot3)))
+        (is (nil? (:source-enrichment r))
+            (str "scalar/nil slot-3 → no enrichment for " (pr-str slot3)))))))
+
 (deftest dispatch-row-machine-spawn-enrichment-test
   (testing "rf2-5qp4g — `:source :machine-spawn` enrichment extracts
             the spawned actor-id (event vector's head) so the renderer

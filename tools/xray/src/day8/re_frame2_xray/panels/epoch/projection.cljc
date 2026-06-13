@@ -92,13 +92,17 @@
   Returns nil when the event vector doesn't match the timer shape —
   defensive: a future stamp-site that emits `:source :after-timer` on
   some non-canonical event shape still gets the kind label without
-  fields that don't apply."
+  fields that don't apply. The slot-3 invoke-id/source-path must be
+  sequential before it can be coerced into a state-path vector; a
+  scalar or nil there (partial/imported/future trace) falls through to
+  a plain DISPATCH row rather than throwing on `(vec <scalar>)`."
   [event]
   (when (and (vector? event) (= 2 (count event)))
     (let [[machine-id inner] event]
       (when (and (vector? inner)
                  (= :rf.machine.timer/after-elapsed (first inner))
-                 (>= (count inner) 4))
+                 (>= (count inner) 4)
+                 (sequential? (nth inner 3)))
         {:machine-id        machine-id
          :delay-ms          (nth inner 1)
          :source-state-path (vec (nth inner 3))}))))
