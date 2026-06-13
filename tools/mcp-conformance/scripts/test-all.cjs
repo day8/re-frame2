@@ -64,6 +64,10 @@ const TESTS = [
     argv: ['--test', 'test/port-file-escape.test.cjs'],
   },
   {
+    name: 'callTool coverage ratchet unit tests (rf2-ke5n56)',
+    argv: ['--test', 'test/call-coverage-ratchet.test.cjs'],
+  },
+  {
     name: 're-frame2-pair-mcp end-to-end',
     argv: ['test/end-to-end-re-frame2-pair.cjs'],
   },

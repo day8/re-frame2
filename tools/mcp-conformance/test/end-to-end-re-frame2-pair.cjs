@@ -34,6 +34,7 @@ const {
   assertJsonRpcErrorCodes,
   assertDescriptorShape,
   assertClassificationRatchet,
+  assertCallCoverageRatchet,
 } = require('./_runner.cjs');
 
 const RE_FRAME2_PAIR_MCP_DIR = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp');
@@ -69,6 +70,51 @@ const EXPECTED_TOOLS = JSON.parse(
 const env = { ...process.env };
 delete env.SHADOW_CLJS_NREPL_PORT;
 
+// SDK callTool() coverage tracking (rf2-ke5n56). Every tool driven through
+// `Client.callTool()` records its name here; the coverage ratchet at the
+// end of the body fails if any ADVERTISED tool is neither recorded nor in
+// the reviewed exclusion table. `track(rawClient)` returns a Proxy that
+// records the tool name on each `callTool({name,…})` and transparently
+// delegates every other client member (listTools, getServerVersion,
+// request, …) — so existing call sites read unchanged. Same shape as the
+// sibling end-to-end-story.cjs.
+const CALLED = new Set();
+function track(rawClient) {
+  return new Proxy(rawClient, {
+    get(target, prop, receiver) {
+      if (prop === 'callTool') {
+        return (req, ...rest) => {
+          if (req && typeof req.name === 'string') CALLED.add(req.name);
+          return target.callTool(req, ...rest);
+        };
+      }
+      const v = Reflect.get(target, prop, receiver);
+      return typeof v === 'function' ? v.bind(target) : v;
+    },
+  });
+}
+
+// Advertised pair-mcp tools intentionally NOT SDK-call-covered by THIS
+// degraded harness, each with a rationale naming WHERE its coverage lives
+// (rf2-ke5n56). The pair-mcp conformance surface is split: this
+// end-to-end runs DEGRADED (no nREPL), where every tool returns the same
+// `:nrepl-port-not-found` envelope (except the two gated writes, refused
+// pre-connection) — so a degraded probe proves the descriptor reaches the
+// SDK, the dispatch-table entry is wired, the arg shape is accepted, and
+// the SDK's CallToolResultSchema parses the envelope. The genuinely
+// LIVE-only behaviours (streaming progress frames, overflow markers,
+// redaction, the eval/write gates' SUCCESS/refusal under a real runtime)
+// are pinned by the gated live harnesses. This table is currently EMPTY:
+// rf2-ke5n56 added a cheap degraded probe for every previously
+// descriptor-only tool, so all 28 advertised tools are now SDK-called
+// here. The table is wired through `assertCallCoverageRatchet` so a
+// FUTURE tool that is genuinely unreachable degraded has a reviewed home
+// (e.g. `{ 'some-live-only-tool': 'live-only; covered by
+// live-re-frame2-pair-<x>.cjs under a real nREPL' }`) instead of silently
+// dropping out of coverage. A blank/stale/contradictory row trips the
+// ratchet.
+const PAIR_CALL_EXCLUSIONS = {};
+
 runWithWatchdog(
   {
     watchdogMs: 60000,
@@ -80,7 +126,12 @@ runWithWatchdog(
       env,
     },
   },
-  async (client) => {
+  async (rawClient) => {
+    // Wrap the SDK client in the coverage tracker (rf2-ke5n56): every
+    // `client.callTool({name,…})` below records `name` for the callTool
+    // coverage ratchet at the end of this body. All other client members
+    // delegate transparently.
+    const client = track(rawClient);
     // The SDK's `client.connect()` (invoked by the runner) already
     // validated the initialize envelope against `InitializeResultSchema`
     // — a missing / malformed `serverInfo` would have thrown there.
@@ -187,6 +238,52 @@ runWithWatchdog(
       { name: 'read-dom', arguments: { selector: 'body', limit: 1 } },
       { name: 'read-ui', arguments: { selector: 'body' } },
       { name: 'orient', arguments: {} },
+      // rf2-ke5n56 — close the descriptor-only gap. Every advertised
+      // pair-mcp tool below was LISTED (descriptor + classification
+      // metadata checked) but never SDK-CALLED, so a regression in its
+      // callTool envelope / outputSchema / structuredContent shape /
+      // argument handling shipped green. In degraded mode (no nREPL) each
+      // routes through `ensure-connection!` first and returns the SAME
+      // `:nrepl-port-not-found` envelope — which still proves, per tool:
+      // (a) the descriptor reaches the SDK, (b) the dispatch-table entry
+      // is wired (an unwired name surfaces a different error), (c) the arg
+      // shape is accepted into the envelope, (d) the SDK's
+      // CallToolResultSchema parses the result. The two gated WRITE tools
+      // (restore-epoch / replace-app-db) are NOT here — they are refused
+      // PRE-connection with `:writes-disabled`, not `:nrepl-port-not-found`
+      // (writes/refuse-pre-connection fires before ensure-connection!), so
+      // they get their own assertion block below. The closed-world inline
+      // tools (get-re-frame2-pair-instructions / get-stream-controls) DO
+      // appear here: dispatch still routes them through ensure-connection!,
+      // which rejects degraded before the inline body runs.
+      { name: 'discover-app', arguments: {} },
+      // eval-cljs is default-ON post-rf2-a0z0h (no pre-connection gate
+      // unless --no-eval), so degraded it routes through ensure-connection!
+      // and returns the shared :nrepl-port-not-found envelope. Its LIVE
+      // success / overflow behaviour is covered by
+      // live-re-frame2-pair-overflow.cjs and its --no-eval refusal by
+      // live-re-frame2-pair-subscribe.cjs; this degraded probe pins the
+      // callTool envelope + dispatch wiring.
+      { name: 'eval-cljs', arguments: { form: '(+ 1 2)' } },
+      { name: 'dispatch-dry-run', arguments: { event: '[:rf-conformance/probe]' } },
+      { name: 'get-operating-frame', arguments: {} },
+      { name: 'get-path', arguments: { path: '[:does :not :matter]' } },
+      { name: 'get-re-frame2-pair-instructions', arguments: {} },
+      { name: 'get-stream-controls', arguments: {} },
+      { name: 'handler-meta', arguments: { kind: 'event', id: ':rf-conformance/probe' } },
+      { name: 'list-handlers', arguments: { kind: 'event' } },
+      { name: 'read-recording', arguments: { 'recording-id': 'rf2-conformance-no-such' } },
+      { name: 'read-sub', arguments: { sub: '[:rf-conformance/probe]' } },
+      { name: 'record', arguments: { signals: '[[:rf-conformance/probe]]' } },
+      { name: 'reset-operating-frame', arguments: {} },
+      { name: 'set-operating-frame', arguments: { frame: ':rf/default' } },
+      { name: 'tail-build', arguments: {} },
+      { name: 'trace-window', arguments: { 'max-ms': 50 } },
+      { name: 'unsubscribe', arguments: { 'sub-id': 'rf2-conformance-no-such' } },
+      {
+        name: 'watch-until',
+        arguments: { signals: '[[:rf-conformance/probe]]', pred: '(constantly true)' },
+      },
     ];
 
     // Call one tool and assert the shared degraded envelope. Returns the
@@ -212,6 +309,60 @@ runWithWatchdog(
     const degradedResp = {};
     for (const tool of DEGRADED_TOOLS) {
       degradedResp[tool.name] = await assertDegraded(tool);
+    }
+
+    // 3c. Gated WRITE tools — pre-connection refusal (rf2-ke5n56). The two
+    // state-mutating tools `restore-epoch` and `replace-app-db` are gated
+    // behind `--allow-writes` (default OFF, rf2-ee38b.18). This server
+    // booted WITHOUT the flag, so `writes/refuse-pre-connection` short-
+    // circuits BOTH to the `:rf.error/writes-disabled` envelope BEFORE
+    // `ensure-connection!` runs (rf2-wz66k7) — so unlike every other tool
+    // they do NOT return `:nrepl-port-not-found` in degraded mode; they
+    // return the write-gate refusal. These were advertised but never
+    // SDK-called by this harness. Probing them here pins the default-safe
+    // write posture at the real MCP boundary (the env that ships) — a
+    // regression that flipped the default ON, renamed the gate flag, or
+    // dropped the pre-connection guard surfaces RED. The args are
+    // well-formed but inert: the guard fires before the arg is read or any
+    // nREPL touched. (The LIVE, non-degraded refusal — gate-OFF with a
+    // runtime attached — is additionally pinned by
+    // live-re-frame2-pair-subscribe.cjs, which also asserts the `:tool`
+    // slot; here we pin the degraded/pre-connection path the live test
+    // cannot reach.)
+    for (const probe of [
+      { name: 'restore-epoch', arguments: { 'epoch-id': '0' } },
+      { name: 'replace-app-db', arguments: { db: '{}' } },
+    ]) {
+      const resp = await client.callTool(probe);
+      degradedResp[probe.name] = resp;
+      if (!resp.isError) {
+        throw new Error(
+          probe.name + ' MUST isError when booted WITHOUT --allow-writes ' +
+            '(default-OFF write gate, rf2-ee38b.18); the state-mutating ' +
+            'surface is reachable unauthorised. got: ' + JSON.stringify(resp),
+        );
+      }
+      const text = resp.content?.[0]?.text || '';
+      if (!text.includes(':rf.error/writes-disabled')) {
+        throw new Error(
+          probe.name + ' default-OFF write-gate envelope MUST carry ' +
+            ':rf.error/writes-disabled (writes/disabled-result, NAMING.md ' +
+            'cross-server flag-vocabulary contract); got: ' + text.slice(0, 200),
+        );
+      }
+      // The pre-connection refusal must NOT leak a misleading
+      // :nrepl-port-not-found (rf2-wz66k7 — the guard runs before discovery).
+      if (text.includes('nrepl-port-not-found')) {
+        throw new Error(
+          probe.name + ' write-gate refusal MUST NOT mention ' +
+            ':nrepl-port-not-found — the gate is refused PRE-connection, not ' +
+            'after a failed discovery (rf2-wz66k7); got: ' + text.slice(0, 200),
+        );
+      }
+      console.log(
+        'OK   tools/call ' + probe.name + ' (no --allow-writes, degraded) -> ' +
+          'isError + :rf.error/writes-disabled (pre-connection refusal)',
+      );
     }
 
     // 3d. structuredContent dual-slot conformance (rf2-hj3pi). Every
@@ -273,6 +424,22 @@ runWithWatchdog(
     await assertJsonRpcErrorCodes(client);
     console.log(
       'OK   JSON-RPC error codes -> MethodNotFound + (InvalidParams|InternalError)',
+    );
+
+    // 4b. callTool() coverage ratchet (rf2-ke5n56). Every advertised
+    // pair-mcp tool MUST have been driven through `Client.callTool()`
+    // above (recorded in `CALLED` by the `track` proxy) or carry a
+    // reviewed exclusion in `PAIR_CALL_EXCLUSIONS`. A NEW advertised tool
+    // the workflow forgets to probe trips RED here — closing the
+    // descriptor-only false-green the senior review flagged.
+    assertCallCoverageRatchet({
+      advertised: names,
+      called: CALLED,
+      exclusions: PAIR_CALL_EXCLUSIONS,
+    });
+    console.log(
+      'OK   callTool coverage ratchet -> every advertised tool SDK-called ' +
+        '(' + CALLED.size + '/' + names.length + ') or reviewed-excluded',
     );
 
     // 5. The runner tears down the transport via client.close() on

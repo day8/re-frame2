@@ -59,6 +59,32 @@ handshake, walks one canonical workflow per server using `listTools()`
 and `callTool()`, and tears the transport down cleanly. Any spec drift
 on the server side surfaces as an SDK parse-error.
 
+### callTool() coverage ratchet (rf2-ke5n56)
+
+`listTools()` + `assertDescriptorShape` + `assertClassificationRatchet`
+pin every advertised tool's *descriptor metadata*. But descriptor
+metadata is not the wire envelope: a tool that is only LISTED (never
+driven through `callTool()`) can regress its result envelope,
+`outputSchema` / `structuredContent` shape, or argument handling and
+still ship green. A senior review found several advertised Story + Pair
+tools were exactly this — descriptor-only in conformance.
+
+`assertCallCoverageRatchet` (in [`test/_runner.cjs`](test/_runner.cjs))
+closes it. Each end-to-end harness records every tool it drives through
+`callTool()` and asserts at the end that EVERY advertised tool was
+either SDK-called or listed in a reviewed exclusion table with a
+non-empty rationale naming where its coverage lives (a live-only gate, a
+hermetic harness, a unit/fixture pin). A new advertised tool the
+workflow forgets to probe trips RED; a stale, blank, or contradictory
+exclusion row also trips RED, so the table cannot rot into a rubber
+stamp. The ratchet's own teeth are unit-tested in
+[`test/call-coverage-ratchet.test.cjs`](test/call-coverage-ratchet.test.cjs).
+Today both servers' exclusion tables are EMPTY — every advertised tool
+is SDK-called (Story reads + write-loop; Pair degraded `:nrepl-port-not-
+found` envelopes for the read/session/streaming-shaped surface +
+`:rf.error/writes-disabled` pre-connection refusals for the two gated
+writes).
+
 ### Coverage boundary — keyword-intern bounds (rf2-fphr3)
 
 The charter's threat model asks whether the corpus has teeth on the
@@ -175,14 +201,60 @@ wire gate.
 - `test/end-to-end-flag-gates.cjs` — cross-MCP operator-opt-in CLI
   flag-vocabulary conformance (rf2-ee38b.20). Boots story-mcp without /
   with / with-a-legacy `--allow-writes` spelling and asserts the
-  default-OFF write gate (`structuredContent.gated`) + the
+  default-OFF write gate (`structuredContent.gated` + `.tool`) + the
   hard-rename-rejection rule (an unrecognised flag must NOT open the
   gate) over the MCP wire — the NAMING.md §"Operator-opt-in CLI flag
-  vocabulary" contract. Needs `clojure` (the JVM story-mcp server). The
+  vocabulary" contract. rf2-ke5n56 extended the default-OFF coverage from
+  `register-variant`-only to ALL the gated write tools: `register-variant`
+  + `unregister-variant` (gate-first refusal, `:tool` slot pinned) +
+  `record-as-variant` write-back (both gate states — see the VERIFIED
+  gate-ordering note below), plus the intentionally UNGATED
+  snippet-only `record-as-variant` path. Needs `clojure` (the JVM
+  story-mcp server). The
   pair-mcp eval-cljs gate flipped to default-ON in rf2-a0z0h; its
   disabled-envelope wire counterpart now rides the live
   `live-re-frame2-pair-subscribe.cjs` path (the one boot config where
   the gate is observable — non-degraded, WITH `--no-eval`).
+
+### VERIFIED: `record-as-variant` write-back gate ORDERING asymmetry (rf2-ke5n56, flagged)
+
+While wiring the rf2-ke5n56 default-OFF gated-refusal coverage for
+`record-as-variant` write-back, the harness author verified a server-side
+gate-ordering asymmetry worth flagging to the story-mcp owner:
+
+- `register-variant` / `unregister-variant`
+  (`tools/story-mcp/.../tools/write.cljc`) check `assert-writes-allowed`
+  as their FIRST expression — BEFORE any variant resolution — so a
+  gate-OFF boot refuses with `structuredContent.gated === true`
+  regardless of whether the target variant exists.
+- `record-as-variant`
+  (`tools/story-mcp/.../tools/recorder.cljc` `tool-record-as-variant`)
+  wraps the whole body in `(targs/with-variant arguments (fn [vk body] …))`,
+  which resolves `:variant-id` against the live registered-variant set
+  FIRST; the `(when write-back? (write/assert-writes-allowed …))` gate is
+  NESTED inside that callback.
+
+The canonical-vocabulary boot registers NO variants, and a gate-OFF boot
+cannot register one through the MCP surface, so a gate-OFF
+`record-as-variant` write-back:true call short-circuits to `Variant not
+found` BEFORE the gate is consulted — the `gated:true` envelope is
+**unreachable default-off**. The literal default-OFF `gated:true` probe the
+acceptance criterion describes is therefore impossible via the MCP surface
+without either (a) reordering the gate ahead of variant resolution
+(consistent with the two siblings), or (b) a registered fixture under a
+closed gate (no single boot provides both).
+
+`end-to-end-flag-gates.cjs` `assertRecordAsVariantWriteBackGate` pins what
+IS reachable on both gate states — gate-OFF write-back:true ⇒ `Variant not
+found` (regression-locking the current ordering), gate-ON write-back:true
+⇒ success + `:written-back? true` (the positive control) — and its
+gate-OFF assertion is written so that if the server is later reordered
+gate-first, it flips RED with a message telling the maintainer to update
+it to expect `gated:true` + `tool:"record-as-variant"`. The
+intentionally-ungated snippet-only path (`record-as-variant` without
+`:write-back`) is pinned by `assertSnippetOnlyRecordIsUngated`. Whether to
+reorder the gate is a server-owner decision (filed as a follow-up); the
+conformance harness does NOT modify server source.
 
 ## How to run
 
@@ -220,9 +292,14 @@ npm test
    catalogue (sourced from re-frame2-pair-mcp's `tool-names.json`
    fixture — the single source of truth)
 3. Spot-check every descriptor carries an `inputSchema`
-4. Walk degraded-mode `dispatch` / `watch-epochs` / `snapshot` /
-   `subscribe` — each call routes through the SDK's
-   `CallToolResultSchema` parse step
+4. Walk degraded-mode `callTool()` for EVERY advertised tool (rf2-ke5n56)
+   — the read / session / streaming-shaped surface returns the shared
+   `:nrepl-port-not-found` envelope; the two gated writes
+   (`restore-epoch` / `replace-app-db`) return the
+   `:rf.error/writes-disabled` PRE-connection refusal (default-OFF write
+   gate). Each call routes through the SDK's `CallToolResultSchema` parse
+   step. The `callTool` coverage ratchet then asserts no advertised tool
+   was left descriptor-only.
 5. Clean `Client.close()`
 
 Runs without an nREPL on `$SHADOW_CLJS_NREPL_PORT`, so it's
@@ -336,14 +413,22 @@ so CI runs one JVM boot here instead of two near-identical ones.
 3. `assertDescriptorShape` — every descriptor: `inputSchema`
    (type=object + `max-tokens`) + `outputSchema` + an `annotations`
    classification hint
-4. `register-variant` → `get-variant` (body `:doc` round-trips through
-   EDN text) → `preview-variant` (`:lifecycle` surfaces) →
-   `run-variant` (vacuous pass) → `read-failures` (total=0) →
-   `snapshot-identity` (stable content-hash twice) →
-   `record-as-variant` (recorder bridge wired, rf2-luhdu) →
+4. Closed-world reads (`get-story-instructions` / `list-substrates` /
+   `list-modes` / `list-tags` / `list-stories` / `list-assertions` /
+   `list-decorators`) → success envelopes; `get-story` /
+   `get-docs-markdown` default-off refusal probes (rf2-ke5n56) →
+   `Story not found`
+5. `register-variant` → `get-variant` (body `:doc` round-trips through
+   EDN text) → `variant->edn` (the rf2-vyacl outputSchema-defect twin) +
+   `run-a11y` (JVM-standalone empty read) → `preview-variant`
+   (`:lifecycle` surfaces) → `run-variant` (vacuous pass) →
+   `read-failures` (total=0) → `snapshot-identity` (stable content-hash
+   twice) → `record-as-variant` (recorder bridge wired, rf2-luhdu) →
    `unregister-variant` + not-found verify
-5. `assertJsonRpcErrorCodes` — MethodNotFound + (InvalidParams|InternalError)
-6. Clean `Client.close()`
+6. `assertJsonRpcErrorCodes` — MethodNotFound + (InvalidParams|InternalError)
+7. `callTool` coverage ratchet (rf2-ke5n56) — every advertised tool
+   SDK-called or reviewed-excluded
+8. Clean `Client.close()`
 
 Watchdog: 90s (cold JVM boot is ~10–30s on a CI runner).
 
@@ -372,9 +457,13 @@ The `mcp-conformance-re-frame2-pair` job runs three steps in sequence:
    opt-out wire envelope (`:rf.error/eval-cljs-disabled`) post-rf2-a0z0h.
 
 The `mcp-conformance-story` job runs two steps: **`test:story`** (the
-write-loop + read-path conformance) and **`test:flag-gates`** (the
-cross-MCP CLI flag-vocabulary conformance — story-mcp `--allow-writes`
-default-OFF + opt-in + hard-rename rejection). Both need `clojure`.
+write-loop + read-path conformance + the rf2-ke5n56 callTool coverage
+ratchet) and **`test:flag-gates`** (the cross-MCP CLI flag-vocabulary
+conformance — story-mcp `--allow-writes` default-OFF for all three gated
+write tools + the ungated snippet-only path + opt-in + hard-rename
+rejection). Both need `clojure`. The `callTool` coverage ratchet's own
+unit tests (`test:call-coverage-ratchet`) run with the cheap Node unit
+tests via `npm test`.
 
 ## Why a separate artefact?
 

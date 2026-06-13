@@ -652,6 +652,110 @@ function assertClassificationRatchet(tools, expected) {
   }
 }
 
+// ---------------------------------------------------------------------
+// SDK callTool() coverage ratchet (rf2-ke5n56).
+//
+// The name ratchet (`tool-names.json`) pins WHICH tools the catalogue
+// advertises; `assertDescriptorShape` / `assertClassificationRatchet`
+// pin the descriptor METADATA of every advertised tool. NEITHER pins
+// that a tool was ever actually INVOKED through `Client.callTool()` —
+// so a regression in a tool's callTool envelope, outputSchema /
+// structuredContent shape, or argument handling ships GREEN for any
+// advertised tool the conformance workflow only LISTS but never CALLS.
+// This was the false-green class the senior review flagged: several
+// advertised Story + Pair tools were descriptor-only in conformance.
+//
+// This ratchet closes it. The harness records every tool name it
+// drove through `callTool()` (in a `Set`), then calls this gate with:
+//
+//   - `advertised`  — the live `tools/list` names (sourced from the
+//                     server's own `tool-names.json` fixture, the same
+//                     single-source the name ratchet compares against).
+//   - `called`      — the Set of names the workflow SDK-invoked.
+//   - `exclusions`  — a REVIEWED table: `{ "<tool>": "<rationale>" }`.
+//                     Each row names a tool that is intentionally NOT
+//                     SDK-call-covered HERE and states WHERE its
+//                     alternative coverage lives (a live-only gate, a
+//                     hermetic harness, a lower-layer unit/fixture pin).
+//                     A bare-string rationale is mandatory and must be
+//                     non-empty — an empty exclusion is a silent hole.
+//
+// The gate fails when a tool is NEITHER called NOR excluded-with-
+// rationale, AND when the exclusion table carries a stale row (a name
+// that is excluded but was also called, or that the catalogue no longer
+// advertises) — so the table cannot rot into a rubber stamp. A NEW
+// advertised tool that the author forgets to probe trips RED with a
+// message naming it and pointing at the two ways to green it (add a
+// probe, or add a reviewed exclusion row).
+//
+// Throws on the first violation with a descriptive, server-agnostic
+// message. Returns nothing.
+// ---------------------------------------------------------------------
+function assertCallCoverageRatchet({ advertised, called, exclusions = {} }) {
+  const advertisedSet = new Set(advertised);
+  const calledSet = called instanceof Set ? called : new Set(called);
+  const excludedNames = Object.keys(exclusions);
+
+  // 0. The exclusion table must not carry stale rows. A row whose tool
+  // is not advertised is a dangling rationale (the tool was renamed /
+  // removed); a row whose tool WAS called is a contradiction (it claims
+  // "not covered here" but the workflow drove it) — both mean the table
+  // drifted from reality and must be corrected, not silently tolerated.
+  const staleNotAdvertised = excludedNames.filter((n) => !advertisedSet.has(n));
+  const staleAlsoCalled = excludedNames.filter((n) => calledSet.has(n));
+  if (staleNotAdvertised.length > 0 || staleAlsoCalled.length > 0) {
+    throw new Error(
+      'callTool coverage ratchet (rf2-ke5n56): the exclusion table has ' +
+        'stale rows.\n  excluded but no longer advertised (remove the row): ' +
+        JSON.stringify(staleNotAdvertised) +
+        '\n  excluded yet ALSO SDK-called (the row contradicts the ' +
+        'workflow — drop it, the tool IS covered): ' +
+        JSON.stringify(staleAlsoCalled),
+    );
+  }
+
+  // 1. Every excluded row MUST carry a non-empty string rationale. An
+  // empty / non-string rationale is a silent hole dressed as a decision.
+  const blankRationale = excludedNames.filter(
+    (n) => typeof exclusions[n] !== 'string' || exclusions[n].trim().length === 0,
+  );
+  if (blankRationale.length > 0) {
+    throw new Error(
+      'callTool coverage ratchet (rf2-ke5n56): these exclusion rows MUST ' +
+        'carry a non-empty rationale naming WHERE the tool is otherwise ' +
+        'covered (a live-only gate, a hermetic harness, a unit/fixture ' +
+        'pin); a blank exclusion is an unreviewed hole: ' +
+        JSON.stringify(blankRationale),
+    );
+  }
+
+  // 2. The load-bearing check: every advertised tool is either driven
+  // through callTool() or carries a reviewed exclusion. An advertised
+  // tool that is neither trips RED — the descriptor-only false-green
+  // this ratchet exists to catch.
+  const excludedSet = new Set(excludedNames);
+  const uncovered = advertised.filter(
+    (n) => !calledSet.has(n) && !excludedSet.has(n),
+  );
+  if (uncovered.length > 0) {
+    throw new Error(
+      'callTool coverage ratchet (rf2-ke5n56): these advertised tools are ' +
+        'NEITHER invoked through Client.callTool() NOR listed in the ' +
+        'reviewed exclusion table.\n  uncovered: ' +
+        JSON.stringify(uncovered.sort()) +
+        '\n\n  An advertised tool that is only LISTED (descriptor metadata ' +
+        'checked) but never CALLED can regress its callTool envelope / ' +
+        'outputSchema / structuredContent shape and still ship green — the ' +
+        'exact false-green class this ratchet closes. To green this:\n' +
+        '    (a) add a cheap SDK-call probe (prefer a non-mutating read or ' +
+        'a default-off refusal probe), OR\n' +
+        '    (b) add a row to the exclusion table with a rationale naming ' +
+        'where the tool IS covered (a live-only / hermetic / unit-layer ' +
+        'gate).',
+    );
+  }
+}
+
 module.exports = {
   runWithWatchdog,
   connectServer,
@@ -661,4 +765,5 @@ module.exports = {
   assertJsonRpcErrorCodes,
   assertDescriptorShape,
   assertClassificationRatchet,
+  assertCallCoverageRatchet,
 };
