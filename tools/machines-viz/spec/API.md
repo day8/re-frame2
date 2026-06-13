@@ -295,6 +295,53 @@ parser's transition count) so a visual-regression test can pin
 parity at every stage of the parser → projector → DOM chain — the
 silent-drop bug cannot recur at any layer without failing the gate.
 
+### Rendered-topology geometry gate (rf2-dplwxh)
+
+The browser chart suite (`chart-dom-cljs-test`) asserts FIRST-COMMIT
+DOM — node count, edge count, class/testid contract — BEFORE the async
+elkjs pass resolves, so it cannot catch layout-quality regressions
+(wrong fit, overlapped bands/nodes, bad route geometry, missing
+projected edges, adaptive-layout drift). The Xray feature gate only
+requires `nodeCount > 0`; the PNG exporter test proves nonblank output,
+not topology correctness. Those failure classes were therefore
+invisible to CI.
+
+`topology-layout-gate-cljs-test` closes the gap. It drives the REAL
+`chart/compute-layout!` (elkjs — the SAME engine xyflow uses as its
+layout backend — runs Node-side, no DOM/React/`@xyflow/react`),
+**awaits the layout settle** (the callback the synchronous DOM suite
+cannot await), and asserts **post-layout geometry invariants** for the
+representative machines on the topology-parity surface
+(`001-Topology-Parity.md`): a linear/cyclic spine, a guarded fork, a
+parallel machine, a compound machine, and a non-trivial Context-band
+case. Per-machine the gate pins:
+
+- **Fit** — every leaf state node lands at a DISTINCT, finite,
+  positive-area box (not a degenerate origin-stack), and the overall
+  bounding box is finite + positive.
+- **No overlap** — no two leaf siblings (same coordinate frame) overlap;
+  every compound / region container ENCLOSES each of its children (a
+  band painted over its contents fails here).
+- **No missing edges** — every projected transition has BOTH routed
+  halves present (events-as-nodes splits each edge into an `__in` +
+  `__out` segment), each a polyline of ≥ 2 points.
+- **Route placement** — each half's polyline stays within a finite
+  tolerance of the union box of its endpoint nodes (the route attaches
+  to the right nodes rather than flying off into empty canvas).
+
+Geometry invariants are used in lieu of committed pixel/screenshot
+baselines: pixel baselines are cross-platform-flaky (this project's
+maintainer develops on Windows, the ecosystem maintainers on
+Mac/Linux), whereas elkjs's positions are deterministic Node-side and
+the invariants encode the actual quality contract rather than a
+snapshot of one renderer's px output.
+
+**When changing `chart.cljs` `default-elk-options`, `chart.projection`,
+the density / visual constants, or `chart.layout`, run
+`cd implementation && npm run test:cljs`** — the gate runs under the
+always-on `:node-test` build (its ns ends in `-cljs-test`) and fails on
+any fit / overlap / routing / missing-edge regression.
+
 ### Events as nodes — Stately graph view paradigm (rf2-qo5xy)
 
 **This is a paradigm-shift section.** Pre-rf2-qo5xy the chart painted
@@ -1616,9 +1663,15 @@ encoder validates the allowlisted chart state — including the snapshot
 shape — *before* serialising), so the two stay symmetric: the encoder
 never emits a payload the decoder would reject, and a malformed `:state`
 (none of the three configuration arms) is rejected at encode rather than
-producing an undecodable URL. The decoder rejects any `:snapshot`
-carrying additional keys, or a `:state` outside the three arms, with
-`:invalid-chart-state`. The viewer page mounts `MachineChart` with
+producing an undecodable URL. **The top-level ChartState map is CLOSED
+over `#{:machine-id :frame-id :definition :snapshot}` on BOTH sides**
+(rf2-dplwxh): a hand-crafted share URL that bypasses the encoder cannot
+smuggle an extra top-level key (`:source-coords`, `:data`, or any future
+unreviewed field) past `decode-share-url` / `decode-share-url-safe` — the
+decoder rejects it with `:invalid-chart-state`, so the viewer never loads
+anything outside the validated payload schema. The decoder likewise
+rejects any `:snapshot` carrying additional keys, or a `:state` outside
+the three arms, with `:invalid-chart-state`. The viewer page mounts `MachineChart` with
 `:current-state` set to the snapshot's `:state` configuration (there is
 no runtime `:data` to render); the chart highlights every active leaf
 without any data-driven affordance.
@@ -1643,10 +1696,13 @@ definition before serialisation (registered definitions carry
 source-coord meta per Spec 001; that meta does not propagate). The
 viewer page never resolves guards or actions; it only renders.
 
-Anything not in the schema is silently dropped by the encoder. New
-top-level keys (and any future expansion of `:snapshot`) require
-an explicit `:rf.machines-viz.share/allow?` opt-in plus an
-operator-controlled redaction hook (per
+Anything not in the schema is silently dropped by the encoder AND
+rejected by the decoder (rf2-dplwxh — the top-level map is closed on
+both sides; a forged URL adding an extra top-level key fails decode
+with `:invalid-chart-state`). New top-level keys (and any future
+expansion of `:snapshot`) require an explicit
+`:rf.machines-viz.share/allow?` opt-in plus an operator-controlled
+redaction hook (per
 [Principles §No session data in shares](./Principles.md)); CI
 enforces.
 
