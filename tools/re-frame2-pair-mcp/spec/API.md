@@ -275,7 +275,7 @@ Argument schemas and result shapes are specified there.
 | `discover-app` | Health-check the runtime; verify the shadow-cljs `:preloads` entry landed. Run first every session. |
 | `eval-cljs` | Evaluate a CLJS form; returns the EDN value. |
 | `dispatch` | Fire a re-frame event with `:origin :pair`. Modes: queued, sync, trace. |
-| `restore-epoch` | Time-travel undo — rewind a frame's `app-db` to a recorded prior epoch (Tool-Pair §Time-travel). `epoch-id` is EDN (the runtime emits integer ids). **Gated behind `--allow-writes`** (rf2-ee38b.18). |
+| `restore-epoch` | Time-travel undo — rewind a frame's whole frame-state (BOTH app-db and runtime-db) to a recorded prior epoch's `:frame-state-after` via `replace-frame-state!`; machines / routes / elision / SSR metadata revive alongside app-db (Tool-Pair §Time-travel). `epoch-id` is EDN (the runtime emits integer ids). **Gated behind `--allow-writes`** (rf2-ee38b.18). |
 | `replace-app-db` | State injection — replace a frame's `app-db` with an arbitrary EDN value the runtime never recorded; the JSON-loaded-bug-repro case (Tool-Pair §Pair-tool writes). Records a synthetic epoch. **Gated behind `--allow-writes`** (rf2-ee38b.18). |
 | `trace-window` | Return epoch records from the last N ms. |
 | `watch-epochs` | Pull-mode poll for matching epochs since a given id. |
@@ -387,7 +387,7 @@ analogues. Listed here for reference:
 | `re-frame2-pair.runtime/subscribe!` / `drain-subscription!` / `unsubscribe!` | preload/re_frame2_pair/runtime.cljs | Per-subscription filtered queue on the trace + epoch bus; backs the `subscribe` MCP tool (rf2-hq49). |
 | `shadow.cljs.devtools.api/cljs-eval` | shadow-cljs | The CLJS bridge over the JVM-side nREPL socket. |
 | `:rf/epoch-record` | framework | The epoch record shape returned by trace mode. |
-| `:rf.event/origin :pair` (in event tags) | framework | Pair2's dispatches surface in the trace stream distinguishably. |
+| `:rf.event/origin :pair` (in event tags) | framework | The pair tool's dispatches surface in the trace stream distinguishably. |
 
 ## Back-compat: the bash shims
 

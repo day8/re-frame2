@@ -15,10 +15,9 @@
  *       script directly. Asserts the warning fires for a real diff that
  *       crosses an MCP source path, and is silent for a diff that doesn't.
  *
- * The probe-mcp-path-test.cjs sibling carries the .cjs precedent — the
- * hook itself is a sh/Node-side artefact with no CLJS source of truth,
- * so its tests live as .cjs siblings rather than under
- * `re_frame2_pair_mcp/*_test.cljs`.
+ * These tests are `.cjs` rather than CLJS: the hook is a sh/Node-side
+ * artefact with no CLJS source of truth, so its tests live as `.cjs`
+ * siblings rather than under `re_frame2_pair_mcp/*_test.cljs`.
  *
  * Run with: node test/post-merge-hook-test.cjs
  * Exit 0 = all-pass, 1 = any failure.

@@ -4,8 +4,10 @@
   The Tool-Pair contract names two FIRST-CLASS write primitives the
   pair server is the canonical consumer of:
 
-    - `restore-epoch`   — time-travel undo: rewind a frame's app-db to
-                          a recorded prior epoch
+    - `restore-epoch`   — time-travel undo: rewind a frame's whole
+                          frame-state (BOTH app-db and runtime-db) to a
+                          recorded prior epoch's `:frame-state-after`
+                          via `replace-frame-state!`
                           (spec/Tool-Pair.md §Time-travel).
     - `replace-app-db!` — state injection: replace a frame's app-db
                           with an arbitrary value the runtime never
@@ -14,8 +16,10 @@
 
   Both are dev-only (production builds elide the primitives via the
   `goog.DEBUG` gate, per spec/009 §Production builds) and both MUTATE
-  the live app-db wholesale — qualitatively more powerful than a
-  `dispatch` (which drives the app's own handlers). A stale-bug-repro
+  live frame-state wholesale — `restore-epoch` reinstalls both
+  partitions, `replace-app-db!` swaps the app-db partition — qualitatively
+  more powerful than a `dispatch` (which drives the app's own handlers).
+  A stale-bug-repro
   injection or a surprise rewind on a developer's running app is
   exactly the kind of destructive surprise the gate model exists to
   forbid by default.

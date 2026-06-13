@@ -945,13 +945,13 @@ shared with story-mcp. The shared verbs the pair pins are
 mega-op bare verbs (`snapshot`, `trace-window`, `watch-epochs`)
 reserved for derived projections that span multiple registry kinds.
 
-Pair2-mcp's current tools (`discover-app`, `orient`, `eval-cljs`,
+re-frame2-pair-mcp's current tools (`discover-app`, `orient`, `eval-cljs`,
 `dispatch`, `dispatch-dry-run`, `restore-epoch`, `replace-app-db`,
 `trace-window`, `watch-epochs`, `tail-build`, `snapshot`, `get-path`,
 `read-sub`, `read-dom`, `read-ui`, `record`, `read-recording`,
 `watch-until`, `subscribe`, `unsubscribe`, `list-subscriptions`,
-`list-streams`, `handler-meta`, `list-handlers`, `set-operating-frame`,
-`reset-operating-frame`, `get-operating-frame`,
+`list-streams`, `get-stream-controls`, `handler-meta`, `list-handlers`,
+`set-operating-frame`, `reset-operating-frame`, `get-operating-frame`,
 `get-re-frame2-pair-instructions` — the canonical catalogue, in
 `tools/list` order, lives at
 [`003-Tool-Catalogue.md`](003-Tool-Catalogue.md)) are all conformant
