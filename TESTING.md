@@ -21,7 +21,7 @@ Running everything everywhere makes PRs slow and the dev loop painful. Skipping 
 | **MCP conformance — live** (`test:re-frame2-pair-live-overflow-hermetic`, `test:re-frame2-pair-live-subscribe`) | expensive | Real re-frame2-pair-mcp behaviour against a real shadow-cljs nREPL; over-budget eval cap; subscribe/unsubscribe lifecycle. |
 | **Example smoke** (`test:examples`) + **compile gate** (`test:examples-compile`) | medium | `test:examples` = the three adapter-level testbed smokes (Reagent / UIx / Helix — mount + dispatch + assert). The `examples/` tree itself is test-free (one smoke per adapter; no per-example specs). `test:examples-compile` compiles every declared standalone `:examples/*` build. |
 | **Story feature gates** (`test:story-feature-load`, `test:story-play-scripts`) | expensive | Story testbed exercises the feature/load matrix; play-scripts double every story's `:play-script` as a regression test. `test:story-play-scripts` is single-testbed + high-signal (it renders the live shell + assertion-strip) and stays on the PR critical path; `test:story-feature-load` is nightly-full only (see the Story/Xray PR-smoke vs nightly-full split below). |
-| **Xray feature gates** (`test:xray-feature-gate`, `test:xray-feature-gate:smoke`) | expensive (full) / medium (smoke) | Xray feature matrix (4-layer chrome, tab navigation, exception/issue surfacing). The `--smoke` tier runs the 3 highest-signal scenarios over 2 staged surfaces on the PR critical path; the full 14-scenario / 13-surface sweep runs nightly. |
+| **Xray feature gates** (`test:xray-feature-gate`, `test:xray-feature-gate:smoke`) | expensive (full) / medium (smoke) | Xray feature matrix (4-layer chrome, tab navigation, exception/issue surfacing). The `--smoke` tier runs the 4 highest-signal scenarios over 3 staged surfaces on the PR critical path; the full 15-scenario / 10-surface sweep runs nightly. |
 | **Template emitted-app smoke** (`jvm-tools-template`) | expensive | The emitted app from `tools/template/` boots + passes its own gates — proves the template stays viable. Also carries a second fixture that materialises the `skills/re-frame2-setup/*` MANUAL day-one scaffold from the skill's own snippets and compiles it against the in-repo source (semantic-drift net for the skill's hand-written boot ceremony, which diverges from the generator template — rf2-ae98go). Both are gated behind `RF2_TEMPLATE_RUN_EMITTED_TESTS`. |
 | **Skills structural** (`skills-structural`) | fast | Skill manifests + shared content stay structurally valid against the schema. |
 | **docs/cljs playground** (`tools-playground`, Playwright + headless Chromium) | medium | The roll-your-own live-CLJS-cell engine behind the docs reading guide + interactive chapters: rebuilds both committed bundles, smokes plain-eval + live re-frame2 (v2) render cells against them, then gates freshness — strict `git diff --exit-code` on the byte-deterministic esbuild artefacts (`docs/cljs/playground.{js,css}`) plus a smoke + structural-validity gate on the Closure `:advanced` SCI bundle (`docs/cljs/playground-rf2.js`), whose minified symbols are not byte-stable cross-platform so a byte-diff would be flaky. |
@@ -40,7 +40,7 @@ where adapter / framework gates already carry the signal (rf2-eceuv).
 | `tools/xray/testbeds/` | Xray-rich demos and the deterministic `feature_matrix` substrate driven by `test:xray-feature-gate`. The `panel_gallery` substrate is a local-only visual gallery — its rf2-kgn0c workspace-switch regression class is covered by CLJS unit tests in `tools/story/test/re_frame/story_ui_cljs_test.cljs` (variant-id-keyed React identity) plus the `workspace-switch-no-stale-subscribe-derefs-rf2-kgn0c` Playwright scenario in `tools/story/test/story_browser_scenarios.cjs` (driven per-PR by `test:story-feature-load`). | Yes — `feature_matrix` carries the per-PR Xray scenarios; other substrates here are local dev surfaces. |
 | `tools/story/testbeds/` | Story testbeds (counter-with-stories, login-form). | Yes — Story-owned scenarios. |
 | Framework tests (`clojure -M:test` per artefact) | The spec is the artefact; these protect contracts. | N/A (unit, not smoke). |
-| Xray feature-matrix gate (`test:xray-feature-gate`) | 13 scenarios across the matrix. | N/A (feature-gate, not smoke). |
+| Xray feature-matrix gate (`test:xray-feature-gate`) | 15 scenarios across the matrix. | N/A (feature-gate, not smoke). |
 
 Real bugs land in framework contracts + adapter wire-up + Xray lens
 behaviour, not in "this example mounted + clicked." Coverage value
@@ -96,17 +96,18 @@ made it the single slowest CI gate at ~700s (≈6× the next slowest job),
 and the **identical** sweep already runs nightly in
 `expensive-tests.yml` — so PR time ran the full matrix twice over. The
 dominant cost is shadow-cljs testbed compilation (each bundle is 400+
-files, ~24s; the full Xray gate stages 13 surfaces).
+files, ~24s; the full Xray gate stages 10 surfaces).
 
 The gate is now split into two tiers:
 
 - **PR tier (`story-xray-browser` in `test.yml`)** — a fast smoke on the
   critical path. It runs only:
-  - `npm run test:xray-feature-gate:smoke` — the 3 highest-signal Xray
+  - `npm run test:xray-feature-gate:smoke` — the 4 highest-signal Xray
     scenarios (6-tab shell handoff, deterministic-exception →
-    Issues/Trace surfacing, Cmd-K palette) over just 2 staged surfaces
-    (`counter` + `deliberate-throw`), compiling 2 testbed bundles
-    instead of 13. Scenarios opt into the smoke via `smoke: true` in
+    Issues/Trace surfacing, Cmd-K palette, panel-gallery theme-token
+    CSS-variable resolution) over just 3 staged surfaces
+    (`counter` + `deliberate-throw` + `panel-gallery`), compiling 3
+    testbed bundles instead of 10. Scenarios opt into the smoke via `smoke: true` in
     `tools/xray/testbeds/feature_matrix/scenarios.cjs`; the gate fails
     loud if the smoke set is ever empty.
   - `npm run test:story-play-scripts` — single-testbed
@@ -118,7 +119,7 @@ The gate is now split into two tiers:
   keyed `.shadow-cljs/` + `.cpcache` compile cache (next bullet).
 
 - **Nightly tier (`expensive-tests.yml`)** — the full sweep:
-  `test:xray-feature-gate` (all 14 scenarios / 13 surfaces),
+  `test:xray-feature-gate` (all 15 scenarios / 10 surfaces),
   `test:story-feature-load`, `test:story-play-scripts`, and
   `test:story-static`. Off the PR critical path; the nightly-full set is
   a strict superset of the PR-smoke set, so nothing the smoke covers is
@@ -245,8 +246,8 @@ agent pre-checkin "narrow to the changed surface" workflow.
 | `npm run test:examples-compile` | Compile-coverage gate (rf2-0vav5.1 + rf2-cn6kc.1): `shadow-cljs compile` over EVERY declared standalone `:examples/*` build (list derived from `shadow-cljs.edn`, so new example builds are swept automatically). Fails on any compile error AND on any warning (`compile` exits 0 on warnings; a typo'd `:init-fn` surfaces as an `:undeclared-var`). Closes the gap where standalone examples (`login-uix`, `dashboard-uix`, `login-helix`, `process-monitor-helix`, …) were declared but compiled by no gate. Runs in the `cljs-browser` CI job; teeth pinned by `check-examples-compile.test.cjs` in `test:script-policy`. |
 | `npm run test:story-feature-load` | Story full-browser feature-load and resilience gate (`tools/story/test/story_feature_load.cjs`). **Nightly-full tier** — runs in `expensive-tests.yml`, not on the PR critical path (per the Story/Xray split above). |
 | `npm run test:story-play-scripts` | Story `:play-script` CI-as-test gate (rf2-3qcxk). Discovers every registered variant whose body carries a non-empty `:play-script` slot, navigates the live shell to each, waits for the auto-run's terminal status, and reports per-variant pass/fail. Variants whose id contains `failing` or `expected-fail` invert the assertion (expected `:fail`); everything else asserts `:pass`. **PR-smoke tier** — single-testbed, renders the assertion-strip, runs in the `story-xray-browser` PR job (and nightly). |
-| `npm run test:xray-feature-gate` | Xray browser feature/load gate from `tools/xray/spec/017-Test-Coverage-Matrix.md` — the full 14-scenario / 13-surface sweep. **Nightly-full tier** (`expensive-tests.yml`). |
-| `npm run test:xray-feature-gate:smoke` | PR-smoke tier of the Xray gate (`--smoke`). Runs only the scenarios tagged `smoke: true` over just the surfaces those scenarios load (3 scenarios / 2 surfaces today). On the `story-xray-browser` PR critical path. |
+| `npm run test:xray-feature-gate` | Xray browser feature/load gate from `tools/xray/spec/017-Test-Coverage-Matrix.md` — the full 15-scenario / 10-surface sweep. **Nightly-full tier** (`expensive-tests.yml`). |
+| `npm run test:xray-feature-gate:smoke` | PR-smoke tier of the Xray gate (`--smoke`). Runs only the scenarios tagged `smoke: true` over just the surfaces those scenarios load (4 scenarios / 3 surfaces today). On the `story-xray-browser` PR critical path. |
 | `npm run test:story-static` | Static-build contract and deployable-output sanity for the Story export. |
 | `npm run story:build` | Build the Story static artefact. |
 | `npm run test:script-policy` / `npm run test:script-helpers` | Self-tests for the JS harness helpers (path policy, changed-surface classifier port, browser-test report, gate report, local browser harness). |
@@ -440,7 +441,7 @@ PR time; one row per output here so the table stays scannable).
 | `adapter_testbed_smokes` | `adapter-testbed-smokes` (Playwright; the 3 adapter smokes only — rf2-9grp6 split out the framework + top-level testbeds into a separate gate, which rf2-t5slp then retired after all four rf2-tglku migration waves moved every framework + top-level testbed assertion to CLJS/JVM unit tests) |
 | `tools_jvm` | Per-tool JVM probes ×4 (`jvm-tools-xray`, `jvm-tools-story`, `jvm-tools-story-mcp`, `jvm-tools-mcp-base`) |
 | `template_expensive` | `jvm-tools-template` (emitted-app smoke) |
-| `mcp_conformance` | MCP conformance ×4 (`mcp-conformance-{story,re-frame2-pair,wire-vocab,...}`) |
+| `mcp_conformance` | MCP conformance ×3 (`mcp-conformance-{story,re-frame2-pair,wire-vocab}`) |
 | `mcp_live` | `mcp-conformance-re-frame2-pair` (live + hermetic) |
 | `story_xray_browser` | `story-xray-browser` (PR-smoke, Playwright — Xray feature-matrix `--smoke` + Story play-scripts only; the full Xray matrix, Story feature-load, and Story static run nightly in `expensive-tests.yml` — see the Story/Xray split above) |
 | `skills_structural` | `skills-structural` |
