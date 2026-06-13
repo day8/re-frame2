@@ -39,18 +39,14 @@
  *     name:  string,                         // human-readable
  *     url:   string,                         // path under the static server root
  *     run:   async (page) => void,           // Playwright assertions
- *     skip:  string | falsy                  // optional — when truthy
- *                                            //   (any non-empty string),
- *                                            //   the spec is reported as
- *                                            //   SKIP with this string as
- *                                            //   the reason. Any falsy
- *                                            //   value (false / null /
- *                                            //   undefined / "") = run
- *                                            //   normally.
  *   }
  *
- * Exit code: 0 if every spec's `run` resolves (skipped specs count as
- * non-failing); 1 if any spec throws or a pageerror fires during a spec.
+ * There is no opt-out: every selected spec runs. Opting an example out of
+ * the smoke surface means removing it from the EXAMPLES manifest
+ * (examples-filter.cjs) / deleting its spec, not flagging the spec.
+ *
+ * Exit code: 0 if every selected spec's `run` resolves; 1 if any spec
+ * throws or a pageerror fires during a spec.
  */
 
 const path = require('path');
@@ -208,8 +204,7 @@ function withTimeout(promise, ms, label) {
 
   // Silent-on-success: buffer per-spec narration into `lines` and
   // only flush it for specs that FAIL. Green specs emit nothing; the
-  // final summary is a single counts line. SKIP specs still flush so
-  // the reason is visible.
+  // final summary is a single counts line.
   for (const spec of specs) {
     const label = spec.name || path.basename(spec.file);
     const lines = [];
@@ -219,19 +214,6 @@ function withTimeout(promise, ms, label) {
     };
 
     log(`\n=== ${label} ===`);
-
-    if (spec.skip) {
-      // Spec opted out at the spec-module level (truthy `skip`
-      // value). Print a SKIP line with the reason and don't navigate
-      // or run assertions. The orchestrator still compiled the
-      // example's bundle (per its EXAMPLES entry) — so under-
-      // construction examples remain compile-checked, just not
-      // smoke-tested at the user-visible behaviour level.
-      log(`SKIP  ${label}: ${spec.skip}`);
-      flush();
-      results.push({ label, passed: true, skipped: true, reason: spec.skip });
-      continue;
-    }
 
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -276,21 +258,15 @@ function withTimeout(promise, ms, label) {
 
   // Silent-on-success: green runs emit the canonical single-line
   // summary; red runs also list the failing labels for quick triage.
-  const passedCount = results.filter((r) => r.passed && !r.skipped).length;
-  const skippedCount = results.filter((r) => r.skipped).length;
   const failedCount = results.filter((r) => !r.passed).length;
   if (anyFailed) {
     console.log('\n=== summary ===');
     for (const r of results) {
-      if (r.skipped) {
-        console.log(`SKIP  ${r.label}  (${r.reason})`);
-      } else {
-        console.log(`${r.passed ? 'PASS' : 'FAIL'}  ${r.label}`);
-      }
+      console.log(`${r.passed ? 'PASS' : 'FAIL'}  ${r.label}`);
     }
   }
   console.log(
-    `Ran ${results.length} example specs. ${failedCount} failures, ${skippedCount} skipped.`,
+    `Ran ${results.length} example specs. ${failedCount} failures.`,
   );
 
   process.exit(anyFailed ? 1 : 0);
