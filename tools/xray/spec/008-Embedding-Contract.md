@@ -207,15 +207,23 @@ Every field is optional; an empty command is a well-formed no-op focus.
 `day8.re-frame2-xray.focus/valid-panels` set (also re-exported as
 `core/valid-focus-panels`) is the single source of truth for this
 enum — this doc must match it exactly, not hand-restate a divergent
-list:
+list. It mirrors the live Dynamic L4 tab registry
+(`panel-registry/tab-ids-for-mode :dynamic`), one entry per shipped tab
+(rf2-1sddi6 / rf2-7ed9ms — a cross-check test fails the build if the two
+ever drift):
 
 ```
-#{:epoch :app-db :views :trace :machines :routes}
+#{:epoch :app-db :views :trace :machines :routing
+  :resources :derivation-graph :module-view}
 ```
 
-(Six tabs. The `:issues` tab was removed per rf2-gbz39 — issues now
-surface inline in the Epoch panel + the L2 event-row pink-wash + the
-always-on issues ribbon signal, so `:issues` is no longer a focusable
+(Nine tabs — all nine Dynamic L4 tabs are focusable. The registry id for
+the Routes tab is `:routing` (it RENDERS as "Routes"); a host that prefers
+the visible display-noun can pass `:routes`, normalised to `:routing` via
+`focus/panel-aliases`. `:derivation-graph` renders as "Graph" and
+`:module-view` as "Modules". The `:issues` tab was removed per rf2-gbz39 —
+issues now surface inline in the Epoch panel + the L2 event-row pink-wash +
+the always-on issues ribbon signal, so `:issues` is no longer a focusable
 panel. A host that validates a focus command against `:issues` gets
 `{:ok? false :reason :unknown-panel}` from `focus!`.)
 

@@ -118,12 +118,18 @@ The four layers, top to bottom:
    The active/focused row takes a subtle background; functional semantic markers
    (redaction / issue / pin) ride as subtle per-row signals (§Event-list rows). The spine
    sub `:rf.xray/focus` reads from this layer.
-3. **L3 — Tab bar (40px).** Six tabs in the order the Figma export fixes,
-   updated post rf2-5gl5r + rf2-gbz39 (Issues tab removed per Option (c)):
-   **Epoch · app-db · Views · Trace · Machine · Routes**. Letter mnemonics:
-   `e` `a` `v` `t` `m` `r`. (The original Figma export listed Event/Handler at
+3. **L3 — Tab bar (40px).** Nine Dynamic tabs in the order the
+   `panel-registry/reg-l4-tab!` `:order` fixes (the Figma export fixed the
+   first six; the cohesive-sub-domain tabs were appended after), updated post
+   rf2-5gl5r + rf2-gbz39 (Issues tab removed per Option (c)) + EP-0016 /
+   EP-0014 / EP-0013 (Resources / Graph / Modules added):
+   **Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph ·
+   Modules**. Letter mnemonics: `e` `a` `v` `t` `m` `r` `s` `g` `u`. (The
+   original Figma export listed Event/Handler at
    `:order 0`; rf2-5gl5r retired that panel in favour of the Epoch panel at
-   `:order -1` — same letter mnemonic `e`, same leftmost position.) Each tab
+   `:order -1` — same letter mnemonic `e`, same leftmost position. **Graph**
+   and **Modules** are L4-only registry tabs — focusable but with no standalone
+   `mount-*!` facade.) Each tab
    renders its **label only** (no `◉`/`○` glyph — Figma
    design rf2-ad7zx); the **active tab fills with the single `accent`** (GitHub blue) + white
    text, inactive tabs are plain with a hover background. (The Figma export labels
@@ -1175,6 +1181,7 @@ active panel). `Esc` always returns focus to the event list.
 | Key | Action |
 |---|---|
 | `Ctrl+Shift+C` | Toggle Xray visibility |
+| `Ctrl+Shift+M` / `Cmd+Shift+M` | Toggle Dynamic ↔ Static mode (`keybinding/mode-toggle-key?`, rf2-o5f5f.1) |
 | `?` | Keyboard cheat-sheet |
 | `,` or `s` | Settings popup |
 | `Esc` | Close modal / collapse popover / focus event list |
