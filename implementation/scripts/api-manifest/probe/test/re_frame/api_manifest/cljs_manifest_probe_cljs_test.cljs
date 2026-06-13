@@ -33,7 +33,8 @@
       - `day8.re-frame2-xray.panels.{epoch-panel,app-db-diff,reactive-panel,
         trace,machine-inspector,routing}` — the six Dynamic `Panel`s.
       - `day8.re-frame2-xray.static.{flows,interceptors,routes,schemas}.panel`
-        — the four Static `Panel`s.
+        — four Static `Panel`s — and `static.machines.panel` (lowercase
+        `panel`), the five Static reg-views.
       - `day8.re-frame2-xray.config` — the published layout-host constants.
       - `day8.re-frame2-xray.open-in-editor` — the editor-URI chip.
       - `day8.re-frame2-xray.runtime` — the discovery sentinel + safe-egress
@@ -69,6 +70,7 @@
             [day8.re-frame2-xray.panels.resources]
             [day8.re-frame2-xray.static.flows.panel]
             [day8.re-frame2-xray.static.interceptors.panel]
+            [day8.re-frame2-xray.static.machines.panel]
             [day8.re-frame2-xray.static.routes.panel]
             [day8.re-frame2-xray.static.schemas.panel]
             [day8.re-frame2-xray.config]
@@ -97,6 +99,7 @@
    "day8.re-frame2-xray.panels.resources"            (emit-ns-publics day8.re-frame2-xray.panels.resources)
    "day8.re-frame2-xray.static.flows.panel"          (emit-ns-publics day8.re-frame2-xray.static.flows.panel)
    "day8.re-frame2-xray.static.interceptors.panel"   (emit-ns-publics day8.re-frame2-xray.static.interceptors.panel)
+   "day8.re-frame2-xray.static.machines.panel"       (emit-ns-publics day8.re-frame2-xray.static.machines.panel)
    "day8.re-frame2-xray.static.routes.panel"         (emit-ns-publics day8.re-frame2-xray.static.routes.panel)
    "day8.re-frame2-xray.static.schemas.panel"        (emit-ns-publics day8.re-frame2-xray.static.schemas.panel)
    "day8.re-frame2-xray.config"                      (emit-ns-publics day8.re-frame2-xray.config)

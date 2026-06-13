@@ -115,10 +115,12 @@
   {:namespace "day8.re-frame2-xray.panels" :var "mount-segment-inspector!"             :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels" :var "mount-shell!"                          :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels" :var "mount-trace!"                          :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  ;; The six Dynamic-mode canonical Panel reg-views + the four Static-mode
-  ;; Panel reg-views (spec/API.md §Panel reg-views + §Static-mode Panel
-  ;; reg-views). Each panel namespace exports a single public `Panel` — the
-  ;; bare-var symbol the Xray-spec projection check resolves. internal-public:
+  ;; The seven Dynamic-mode Panel reg-views + the five Static-mode panel
+  ;; reg-views (spec/API.md §Panel reg-views + §Static-mode Panel
+  ;; reg-views). Each panel namespace exports a single public reg-view — the
+  ;; bare-var symbol the Xray-spec projection check resolves. All export a
+  ;; `Panel` except `static.machines.panel`, which exports a lowercase `panel`
+  ;; (spec/API.md §Static-mode Panel reg-views). internal-public:
   ;; the leaves the shell composes; NOT a host-facing single-panel embed
   ;; surface (hosts embed the full shell per 008-Embedding-Contract).
   {:namespace "day8.re-frame2-xray.panels.app-db-diff"          :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
@@ -130,6 +132,7 @@
   {:namespace "day8.re-frame2-xray.panels.trace"                :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.static.flows.panel"          :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.static.interceptors.panel"   :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.static.machines.panel"       :var "panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.static.routes.panel"         :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.static.schemas.panel"        :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   ;; day8.re-frame2-xray.config — the published layout-host constants
