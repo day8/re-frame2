@@ -559,6 +559,28 @@
       (is (true? (:provided? meta)))
       (is (nil? (:handler-fn meta)) "a provided fact legitimately omits its supplier"))))
 
+(deftest rf-prefixed-id-is-not-a-registration-time-collision
+  (testing "an `rf.`-prefixed coeffect id registers CLEANLY — the
+            owner-qualified-naming rule is a lint/tooling diagnostic, NOT a
+            runtime registration-time `:rf.error/cofx-name-collision`
+            (rf2-kkw7cn). `reg-cofx` cannot structurally tell an app id from a
+            framework / subsystem one, so the framework and its subsystems may
+            register many `:rf.*` cofx ids; the reserved-namespace convention is
+            enforced by the recommended cofx lint (EP-0017 §9), not a structural
+            guard. Spec 001 §Collisions + Conventions §Recordable-coeffect fact
+            naming + Spec 009 cofx error catalogue all describe lint-only."
+    (is (= :rf.route/some-subsystem-fact
+           (rf/reg-cofx :rf.route/some-subsystem-fact
+             {:recordable? true :provided? true}))
+        "an `rf.X/*` (subsystem-shaped) id registers without throwing")
+    (is (= :rf.app/ambient-pref
+           (rf/reg-cofx :rf.app/ambient-pref
+             {:doc "Lint would flag this app id; the registrar does not."}
+             (fn [] "value")))
+        "even an obviously app-shaped `rf.`-prefixed id is accepted at registration")
+    (is (some? (registrar/lookup :cofx :rf.app/ambient-pref))
+        "the `rf.`-prefixed registration is present in the registry")))
+
 ;; ===========================================================================
 ;; 6c. :rf.cofx/run stamps the PRODUCED value under :rf.cofx/value and the
 ;;     requirement-arg under :rf.cofx/arg (rf2-sepqgg)
