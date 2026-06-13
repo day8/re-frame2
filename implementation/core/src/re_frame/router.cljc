@@ -578,17 +578,31 @@
                       (:source envelope)   (assoc :source (:source envelope))
                       (:trace-id envelope) (assoc :trace-id (:trace-id envelope)))]
     ;; EP-0017 §5 step 4: deliver EXACTLY the declared facts, flat. Recordable
-    ;; facts come from the token's `:rf.cofx`; ambient facts run their suppliers
-    ;; now; a declared-absent provided fact is `:rf.error/missing-required-cofx`;
-    ;; an unregistered declared id is `:rf.error/unregistered-cofx`. Undeclared
-    ;; leaves on the token are NOT staged. A supplier that THROWS emits
-    ;; `:rf.error/coeffect-exception` and sets `:rf/skip-handler?` (the handler
-    ;; does not run; the cascade fails without a raw throw escaping assembly).
-    (let [{:keys [coeffects rf/skip-handler?]}
+    ;; facts come from the token's `:rf.cofx` (validated against `:schema`);
+    ;; ambient facts run their suppliers now; a declared-absent GENERATOR-BACKED
+    ;; recordable fact is GENERATED at processing-start (slice B.7) under the
+    ;; router's `:live` mint policy and written back into the record; a
+    ;; declared-absent PROVIDED fact is `:rf.error/missing-required-cofx`; an
+    ;; unregistered declared id is `:rf.error/unregistered-cofx`. Undeclared
+    ;; leaves on the token are NOT staged. A supplier / generator that THROWS
+    ;; emits `:rf.error/coeffect-exception` and sets `:rf/skip-handler?` (the
+    ;; handler does not run; the cascade fails without a raw throw escaping
+    ;; assembly).
+    ;;
+    ;; The delivery returns the (possibly generation-augmented) `:rf.cofx`
+    ;; record; we restamp the always-staged `:rf.cofx` coeffect with it so the
+    ;; canonical context record carries every generated fact (the epoch
+    ;; capture and generic envelope readers see the post-generation token —
+    ;; EP-0017 §4). With no generators on the path the record is unchanged.
+    (let [{:keys [coeffects rf/skip-handler?] :as delivered}
           (if (seq requires)
             (cofx/deliver-declared-cofx
               base-cofx requires (:rf.cofx envelope) (first event) frame)
-            {:coeffects base-cofx :rf/skip-handler? false})]
+            {:coeffects base-cofx :rf.cofx (:rf.cofx envelope) :rf/skip-handler? false})
+          ;; The (possibly generation-augmented) record — restamp the
+          ;; always-staged `:rf.cofx` coeffect so the canonical context record
+          ;; carries every generated fact (EP-0017 §4).
+          coeffects (assoc coeffects :rf.cofx (:rf.cofx delivered))]
       (cond-> {:coeffects coeffects
                :effects {}
                :rf/framework-authority? (events/framework-authority? handler-meta)

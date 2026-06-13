@@ -40,6 +40,7 @@
             [re-frame.cofx :as cofx]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
+            [re-frame.late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]))
@@ -775,3 +776,227 @@
                       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
           (is (= :rf.error/no-frame-context (:rf.error/id (ex-data ex))))))
       (is (false? @fired?) "the handler never ran"))))
+
+;; ===========================================================================
+;; 12. EP-0017 slice-B.7: recordable generator machinery (rf2-ygpac8)
+;;
+;;     A declared-absent generator-backed recordable fact runs its generator
+;;     at PROCESSING-START under the router's `:live` mint policy; the produced
+;;     value is validated against the registration's `:schema` (a PRODUCTION
+;;     hard error on mismatch — `:rf.error/cofx-value-invalid`), written back
+;;     into the causal record, and the `:rf.cofx/generated` trace op is
+;;     emitted. Generation is the only slice-B step that mints an
+;;     un-boundary-checked recordable value, so the per-leaf `:schema` check
+;;     and the generation step ship together (Spec 002 §Mint policies / §5
+;;     step 3; EP-0017 §5).
+;; ===========================================================================
+
+(defn- with-passthrough-validator
+  "Install a minimal `(fn [schema value] truthy?)` validator + explainer
+  through the schemas late-bind seam for the body, then restore the prior
+  registrations. Lets the cofx `:schema` path exercise the REAL validation
+  branch without depending on the optional schemas artefact being on the
+  core-test classpath. The validator treats a `[:fn pred]`-style schema as a
+  predicate call and any keyword/other schema as a structural `int?`/`any?`
+  probe just rich enough for these tests; the contract under test is the cofx
+  delivery wiring, not Malli."
+  [validate-fn explain-fn body-fn]
+  (let [prior-v (re-frame.late-bind/get-fn :schemas/validate-with-registered-fn)
+        prior-e (re-frame.late-bind/get-fn :schemas/explain-with-registered-fn)]
+    (re-frame.late-bind/set-fn! :schemas/validate-with-registered-fn validate-fn)
+    (re-frame.late-bind/set-fn! :schemas/explain-with-registered-fn explain-fn)
+    (try
+      (body-fn)
+      (finally
+        (re-frame.late-bind/set-fn! :schemas/validate-with-registered-fn prior-v)
+        (re-frame.late-bind/set-fn! :schemas/explain-with-registered-fn prior-e)))))
+
+(deftest generator-runs-at-processing-start-fills-and-records
+  (testing "ADVERSARIAL: a declared-absent generator-backed recordable fact
+            runs its generator at processing-start (AFTER the enqueue-stamped
+            `:rf/time-ms`), delivers the produced value flat, and writes it
+            back into the causal `:rf.cofx` record so the post-generation
+            token is what the fold (and the epoch) sees (EP-0017 §4/§5)"
+    (let [gen-calls   (atom 0)
+          seen-cofx   (atom nil)
+          seen-delta  (atom nil)
+          seen-time   (atom nil)]
+      ;; A generator-backed recordable fact: recordable, NOT provided, with a
+      ;; value-returning supplier. Deterministic body (returns a fixed value)
+      ;; so the assertion is exact — the contract under test is WHEN it runs
+      ;; and WHERE the value lands, not the randomness.
+      (rf/reg-cofx :gen-test/delta
+        {:recordable? true :doc "A generator-backed replayable delta."}
+        (fn [] (swap! gen-calls inc) 7))
+      (rf/reg-event-fx :gen-test/inc
+        {:rf.cofx/requires [:rf/time-ms :gen-test/delta]}
+        (fn [{:keys [rf/time-ms gen-test/delta] :as cofx} _]
+          (reset! seen-delta delta)
+          (reset! seen-time time-ms)
+          ;; The canonical complete record is always staged under :rf.cofx
+          ;; (a flat key the runtime injects; not declarable, read via :as).
+          (reset! seen-cofx (:rf.cofx cofx))
+          {}))
+      (rf/dispatch-sync [:gen-test/inc])
+      (is (= 1 @gen-calls) "the generator ran exactly once, at processing-start")
+      (is (= 7 @seen-delta) "the produced value is delivered flat under its id")
+      (is (integer? @seen-time) "the enqueue-stamped :rf/time-ms is present")
+      (is (= 7 (:gen-test/delta @seen-cofx))
+          "the generated value was written back into the causal :rf.cofx record")
+      (is (= @seen-time (:rf/time-ms @seen-cofx))
+          "the record carries BOTH the enqueue-stamped time and the generated fact"))))
+
+(deftest supplied-value-wins-generator-does-not-run
+  (testing "ADVERSARIAL: a recordable fact PRESENT on the token (supplied /
+            replayed) is delivered verbatim — the generator does NOT run, so
+            replay re-presents the value and the generation step finds nothing
+            to do (EP-0017 §4)"
+    (let [gen-calls  (atom 0)
+          seen-delta (atom nil)]
+      (rf/reg-cofx :gen-test/supplied-delta
+        {:recordable? true}
+        (fn [] (swap! gen-calls inc) 99))
+      (rf/reg-event-fx :gen-test/use-supplied
+        {:rf.cofx/requires [:gen-test/supplied-delta]}
+        (fn [{:keys [gen-test/supplied-delta]} _]
+          (reset! seen-delta supplied-delta) {}))
+      ;; Supply the fact on the token — the replay / dispatch-opts path.
+      (rf/dispatch-sync [:gen-test/use-supplied]
+                        {:rf.cofx {:gen-test/supplied-delta 3}})
+      (is (zero? @gen-calls) "supplied wins — the generator never ran")
+      (is (= 3 @seen-delta) "the supplied value is delivered verbatim"))))
+
+(deftest generator-emits-generated-trace-op
+  (testing "ADVERSARIAL: the generation step emits exactly one
+            `:rf.cofx/generated` trace op naming the generated fact + supplier
+            id, distinct from the ambient `:rf.cofx/run` op (Spec 009 §Trace
+            ops / EP-0017 §9)"
+    (let [traces (collect-traces! ::generated)]
+      (rf/reg-cofx :gen-test/traced
+        {:recordable? true}
+        (fn [] 42))
+      (rf/reg-event-fx :gen-test/traced-evt
+        {:rf.cofx/requires [:gen-test/traced]}
+        (fn [_ _] {}))
+      (rf/dispatch-sync [:gen-test/traced-evt])
+      (rf/unregister-listener! ::generated)
+      (let [gens (filter #(= :rf.cofx/generated (:operation %)) @traces)
+            runs (filter #(= :rf.cofx/run (:operation %)) @traces)]
+        (is (= 1 (count gens)) "exactly one :rf.cofx/generated op")
+        (is (empty? runs)
+            "a generated recordable fact does NOT emit the ambient :rf.cofx/run op")
+        (let [gen (first gens)]
+          (is (= :rf.cofx (:op-type gen)) "the op rides the :rf.cofx family")
+          (is (= :gen-test/traced (get-in gen [:tags :rf.cofx/id]))
+              ":rf.cofx/id names the generated fact + supplier id")
+          (is (= 42 (get-in gen [:tags :rf.cofx/value]))
+              ":rf.cofx/value carries the produced value"))))))
+
+(deftest generated-value-schema-mismatch-is-hard-error
+  (testing "ADVERSARIAL: a generated value that fails the registration's
+            `:schema` is `:rf.error/cofx-value-invalid` — a HARD ERROR (the
+            cascade halts before the handler runs; the bad value never folds
+            into durable state). EP-0017 §5 / Spec 009"
+    (with-passthrough-validator
+      ;; The schema for :gen-test/bad is `:gen-test/positive`; the generator
+      ;; produces -1, which fails. The validator returns false for that pair.
+      (fn [schema value]
+        (if (= schema :gen-test/positive) (and (integer? value) (pos? value)) true))
+      (fn [schema value] {:schema schema :value value :failed true})
+      (fn []
+        (let [traces (collect-traces! ::bad-gen)
+              fired? (atom false)]
+          (rf/reg-cofx :gen-test/bad
+            {:recordable? true :schema :gen-test/positive}
+            (fn [] -1))                          ;; violates the schema
+          (rf/reg-event-fx :gen-test/uses-bad
+            {:rf.cofx/requires [:gen-test/bad]}
+            (fn [_ _] (reset! fired? true) {}))
+          (let [ex (try (rf/dispatch-sync [:gen-test/uses-bad]) nil
+                        (catch #?(:clj clojure.lang.ExceptionInfo
+                                  :cljs cljs.core/ExceptionInfo) e e))]
+            (rf/unregister-listener! ::bad-gen)
+            (is (false? @fired?)
+                "the handler never ran — a schema-invalid generated value halts the cascade")
+            (is (some? ex) "the dispatch threw rather than folding the bad value")
+            (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data ex)))
+                "the throw carries :rf.error/cofx-value-invalid")
+            (is (= :gen-test/bad (:rf.cofx/id (ex-data ex)))
+                ":rf.cofx/id names the offending fact")
+            (let [errs (filter #(= :rf.error/cofx-value-invalid (:operation %)) @traces)]
+              (is (= 1 (count errs)) "exactly one cofx-value-invalid error trace")
+              (is (= :gen-test/bad (get-in (first errs) [:tags :rf.cofx/id]))
+                  "the error trace names the fact"))))))))
+
+(deftest supplied-value-schema-mismatch-is-hard-error
+  (testing "ADVERSARIAL: a SUPPLIED / replayed recordable value that fails the
+            registration's `:schema` is also `:rf.error/cofx-value-invalid` —
+            the `:schema` is the type of the replay hole, validated before the
+            value folds into durable state (EP-0017 §5)"
+    (with-passthrough-validator
+      (fn [schema value]
+        (if (= schema :gen-test/positive) (and (integer? value) (pos? value)) true))
+      (fn [schema value] {:schema schema :value value :failed true})
+      (fn []
+        (let [fired? (atom false)]
+          (rf/reg-cofx :gen-test/checked
+            {:recordable? true :schema :gen-test/positive}
+            (fn [] 5))
+          (rf/reg-event-fx :gen-test/uses-checked
+            {:rf.cofx/requires [:gen-test/checked]}
+            (fn [_ _] (reset! fired? true) {}))
+          ;; Supply an out-of-contract value (-9) on the token.
+          (let [ex (try (rf/dispatch-sync [:gen-test/uses-checked]
+                                          {:rf.cofx {:gen-test/checked -9}}) nil
+                        (catch #?(:clj clojure.lang.ExceptionInfo
+                                  :cljs cljs.core/ExceptionInfo) e e))]
+            (is (false? @fired?) "the handler never ran")
+            (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data ex)))
+                "a supplied value failing :schema is also cofx-value-invalid")))))))
+
+(deftest valid-generated-value-passes-schema
+  (testing "a generated value that CONFORMS to `:schema` is delivered normally
+            (the validator's pass branch does not block the cascade)"
+    (with-passthrough-validator
+      (fn [schema value]
+        (if (= schema :gen-test/positive) (and (integer? value) (pos? value)) true))
+      (fn [_ _] nil)
+      (fn []
+        (let [seen (atom nil)]
+          (rf/reg-cofx :gen-test/good
+            {:recordable? true :schema :gen-test/positive}
+            (fn [] 11))
+          (rf/reg-event-fx :gen-test/uses-good
+            {:rf.cofx/requires [:gen-test/good]}
+            (fn [{:keys [gen-test/good]} _] (reset! seen good) {}))
+          (rf/dispatch-sync [:gen-test/uses-good])
+          (is (= 11 @seen) "a conforming generated value is delivered flat"))))))
+
+(deftest strict-policy-does-not-generate
+  (testing "ADVERSARIAL: under the `:strict` mint policy a declared-absent
+            generator-backed fact is `:rf.error/missing-required-cofx` — the
+            generator does NOT run, no host read happens (replay is
+            unconditionally strict; EP-0017 §6). Exercised at the
+            `deliver-declared-cofx` seam since slice-B.8 wires the policy
+            binding points."
+    (let [gen-calls (atom 0)]
+      (rf/reg-cofx :gen-test/strict-delta
+        {:recordable? true}
+        (fn [] (swap! gen-calls inc) 1))
+      (let [requires (cofx/parse-requires :gen-test/strict-evt [:gen-test/strict-delta])
+            ex (try (cofx/deliver-declared-cofx
+                      {:db {}} requires {} :gen-test/strict-evt :rf/default :strict)
+                    nil
+                    (catch #?(:clj clojure.lang.ExceptionInfo
+                              :cljs cljs.core/ExceptionInfo) e e))]
+        (is (zero? @gen-calls) ":strict ran no generator — no host read")
+        (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data ex)))
+            "a strict-mode absent generator-backed fact is missing-required"))
+      (testing "the same fact under `:live` DOES generate (policy is the switch)"
+        (reset! gen-calls 0)
+        (let [requires (cofx/parse-requires :gen-test/strict-evt [:gen-test/strict-delta])
+              {:keys [coeffects]} (cofx/deliver-declared-cofx
+                                    {:db {}} requires {} :gen-test/strict-evt :rf/default :live)]
+          (is (= 1 @gen-calls) ":live generated the absent fact")
+          (is (= 1 (:gen-test/strict-delta coeffects))
+              "the generated value is delivered under :live"))))))

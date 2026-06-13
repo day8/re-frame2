@@ -109,17 +109,39 @@ of epic `rf2-d8mvke`.
   entries → `:rf.cofx/requires` metadata; ctx→ctx cofx handlers → value-returning
   suppliers; `{:rf.world/keys [inputs]}` reads → declared flat leaves).
 
-### Deferred (Slice B — gated per disposition 11)
+### Slice B (gate lifted 2026-06-14 — Mike un-deferred)
 
-- **Recordable generator machinery — DEFERRED (`rf2-ygpac8`, slice-B.7).**
-  Generation at processing-start, the full **per-leaf
-  `:rf.error/cofx-value-invalid` validation** (structural-EDN-always **and**
-  `:schema`-when-declared, production hard error — see the §5 step-3 slice-A
-  reality note), and the `:rf.cofx/generated` trace op. **Gated on the first
-  real generator consumer** — the named candidate is EP-0016 optimistic
-  temp-ids. The gate is the EP-0016 discipline applied to ourselves: a
-  primitive with no demonstrated site gets a settled contract and a named
-  trigger, not a build.
+The slice-B gate (disposition 11 — "gated on the first real generator
+consumer") was **lifted by Mike on 2026-06-14**: build slice B now. The
+generator machinery (slice-B.7) is the first wave; mint-policy wiring
+(slice-B.8) and machine consumer-attachment (slice-B.9) follow, both gated on
+B.7 as before.
+
+- **Recordable generator machinery — BUILT (`rf2-ygpac8`, slice-B.7).**
+  Generation at processing-start (the generator runs under the cofx
+  HandlerScope + platform gate when the mint policy permits; the produced
+  value is written back into the in-flight `:rf.cofx` record so the epoch
+  captures the post-generation token and replay — supplying that value —
+  finds nothing to generate), the `:rf.cofx/generated` trace op (dev-gated,
+  fact-name + supplier id + produced value, redacted by the shared cofx marks
+  chokepoint), and the **`:schema`-when-declared** half of the per-leaf
+  `:rf.error/cofx-value-invalid` validation: every recordable value reaching
+  the fold — present on the token (supplied / replayed) OR freshly generated —
+  is validated against its `reg-cofx` `:schema` before delivery, a PRODUCTION
+  hard error on mismatch, routed through the shared `set-schema-validator!`
+  seam (nil validator / absent schemas artefact = no-op; fails CLOSED on a
+  throwing validator). The mint policy threads in via a `mint-policy` arg to
+  `deliver-declared-cofx` (default `:live`, the router default); the binding
+  points (`:test` preset / replay → `:strict`) are slice-B.8's job.
+  **Open tail noted for Mike:** the **structural-EDN-always** half of the
+  `:rf.error/cofx-value-invalid` path (rejecting a non-EDN recordable value —
+  a host object — independent of a declared `:schema`) was NOT built in B.7.
+  No shipped generator currently mints a non-EDN value, and the named first
+  consumer (EP-0016 temp-ids) is schema-validated, so the `:schema` half
+  covers the demonstrated need; a cross-runtime "is-this-EDN / host-object"
+  predicate is a separable design decision (what counts as EDN on CLJS vs JVM)
+  best ruled on its own rather than smuggled into the generator wave. Filed
+  for follow-up should a generator without a `:schema` ever ship.
 - **Mint policies — DEFERRED (`rf2-5spzo7`, slice-B.8).** `:live` (router
   default), `:strict` (hard-wired for replay; the `:test` preset default), and
   `:explicit-live` (declared-nondeterminism escape), wired to their normative

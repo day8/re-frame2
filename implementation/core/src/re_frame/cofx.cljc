@@ -374,10 +374,33 @@
 ;; The runtime delivers EXACTLY the declared facts, flat, into the handler's
 ;; coeffects map. A recordable fact is read from the token's `:rf.cofx`; an
 ;; ambient fact runs its supplier now; a provided fact absent from the token
-;; is `:rf.error/missing-required-cofx`. Generation of declared-absent
-;; generator-backed recordable facts is slice B — in slice A every requirable
-;; fact is provided or ambient, so a generator-backed recordable absent from
-;; the token is treated as missing-required (no generator runs).
+;; is `:rf.error/missing-required-cofx`.
+;;
+;; GENERATION (EP-0017 slice B.7, rf2-ygpac8). A declared-absent recordable
+;; fact that is NEITHER provided NOR present on the token is GENERATOR-BACKED:
+;; its `reg-cofx` carries a value-returning supplier. The mint policy (§6)
+;; decides what happens —
+;;
+;;   - `:live` / `:explicit-live` → run the generator at PROCESSING-START
+;;     (the declaration is only knowable once the handler is resolved — late
+;;     registration is legal), emit the dev-only `:rf.cofx/generated` trace
+;;     op, validate the produced value against the registration's `:schema`
+;;     (a PRODUCTION hard error on mismatch — `:rf.error/cofx-value-invalid`),
+;;     WRITE the value back into the in-flight `:rf.cofx` record (so the epoch
+;;     captures the post-generation token and replay re-presents it — at which
+;;     point the fact is present and the generator finds nothing to do), and
+;;     deliver it;
+;;   - `:strict` → no generator runs, no host read: `:rf.error/missing-
+;;     required-cofx` (replay is unconditionally strict — an incomplete record
+;;     MUST fail loudly rather than silently re-read the host).
+;;
+;; Validation also covers SUPPLIED / REPLAYED recordable values: a fact PRESENT
+;; on the token whose `reg-cofx` declared a `:schema` is validated before
+;; delivery (supplied values win, but the `:schema` is the type of the replay
+;; hole — folding an out-of-contract value into the ledger is corrupt durable
+;; state). The mint policy threads in via the `mint-policy` arg; the router
+;; default is `:live` (slice-B.8 wires the binding points — `:test` preset and
+;; replay hard-wire `:strict`).
 
 (defn- emit-unregistered-cofx!
   "Emit `:rf.error/unregistered-cofx` (the typo case — a declared id with no
@@ -445,6 +468,154 @@
                                 :recovery          :no-recovery}
                          frame-id (assoc :frame frame-id)))))
 
+;; ---- :schema validation of recordable values (EP-0017 §5 / slice B.7) -----
+;;
+;; A recordable value — supplied on the token, replayed from a record, or
+;; freshly generated — is validated against its registration's `:schema`
+;; before it reaches the fold. Failure is `:rf.error/cofx-value-invalid`, a
+;; HARD ERROR in dev AND production (the `:dispatched-at` precedent — folding
+;; an out-of-contract value into the durable ledger is corrupt state). The
+;; check routes through the SAME registered validator the dev-time hot path
+;; uses (the `set-schema-validator!` seam, reached via the late-bind
+;; `:schemas/validate-with-registered-fn` hook) so a substituted (non-Malli)
+;; validator covers this surface too; when the schemas artefact is absent or
+;; the validator was set to nil the hook is nil and validation is a no-op
+;; (nil = "every value passes", per Spec 010 §Non-Malli validators).
+
+(defn- emit-cofx-value-invalid!
+  "Emit `:rf.error/cofx-value-invalid` (a supplied / replayed / generated
+  recordable value failed the registration's `:schema`) and throw. ALWAYS-ON
+  — fires in production too: a causal-token contract validation (an
+  out-of-contract durable value is corrupt state). Per Spec 002
+  §Satisfaction + Spec 009 §Error catalogue."
+  [cofx-id value explanation failing-id frame-id]
+  (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
+    (dispatch-on-error! :rf.error/cofx-value-invalid nil failing-id frame-id nil 0 (interop/now-ms)))
+  (trace/emit-error! :rf.error/cofx-value-invalid
+                     (cond-> {:rf.cofx/id        cofx-id
+                              :failing-id        failing-id
+                              :rf.trace/event-id failing-id
+                              :value             value
+                              :recovery          :no-recovery}
+                       (some? explanation) (assoc :explain explanation)
+                       frame-id             (assoc :frame frame-id)))
+  (throw (ex-info ":rf.error/cofx-value-invalid"
+                  {:rf.error/id :rf.error/cofx-value-invalid
+                   :rf.cofx/id  cofx-id
+                   :failing-id  failing-id
+                   :value       value
+                   :explain     explanation
+                   :recovery    :no-recovery})))
+
+(defn- validate-recordable-value!
+  "Validate a recordable `value` for `cofx-id` against its registration's
+  `:schema` (from `meta`). A no-op when the registration declares no
+  `:schema`, when no validator is registered (schemas artefact absent / set
+  to nil), or when the value conforms; otherwise emits
+  `:rf.error/cofx-value-invalid` and THROWS (a production hard error).
+
+  Routes through the shared `:schemas/validate-with-registered-fn` /
+  `:schemas/explain-with-registered-fn` late-bind seam (the same one
+  `re-frame.spec/validate-at-boundary-interceptor` uses). FAILS CLOSED on a
+  validator that throws (a malformed schema, or a non-schemas validator that
+  escapes its isolation) — coercing the throw to a PASS would fold an
+  unvalidated value into the durable ledger, the exact fail-OPEN class this
+  check exists to close. Returns `value` on success."
+  [cofx-id value meta failing-id frame-id]
+  (if-let [schema (:schema meta)]
+    (let [validate-fn (late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
+      (if (nil? validate-fn)
+        ;; No validator registered (schemas artefact absent, or
+        ;; `set-schema-validator!` called with nil) → nil = "every value
+        ;; passes"; the check is a no-op (Spec 010 §Non-Malli validators).
+        value
+        (let [ok? (try (validate-fn schema value)
+                       (catch #?(:clj Throwable :cljs :default) _ false))]
+          (if ok?
+            value
+            (let [explain-fn  (late-bind/get-fn-cached :schemas/explain-with-registered-fn)
+                  explanation (when explain-fn
+                                (try (explain-fn schema value)
+                                     (catch #?(:clj Throwable :cljs :default) _ nil)))]
+              (emit-cofx-value-invalid! cofx-id value explanation failing-id frame-id))))))
+    value))
+
+;; ---- generation at processing-start (EP-0017 §5 step 3 / slice B.7) --------
+;;
+;; A declared-absent recordable fact that is generator-backed (a `reg-cofx`
+;; with a value-returning supplier, NOT `:provided?`) runs its generator at
+;; processing-start when the mint policy permits. The generator runs under the
+;; cofx's HandlerScope (so a throw is attributed to the cofx via
+;; `:rf.error/coeffect-exception`, mirroring the ambient path) and the
+;; platform gate (a `:platforms`-excluded generator does not run — that fact
+;; is then absent and surfaces as missing-required, never a half-generated
+;; nondeterministic value). The produced value is validated against `:schema`
+;; (a production hard error on mismatch) and written back into the in-flight
+;; `:rf.cofx` record so the epoch captures the post-generation token.
+
+(defn- generator-backed?
+  "True when `meta` is a RECORDABLE registration with a generator — i.e. a
+  recordable, non-provided cofx carrying a value-returning supplier (the
+  `:handler-fn` slot). A `:provided?` recordable fact has no generator (its
+  owner stamps the token); an ambient fact is not recordable. Generation
+  applies only to generator-backed recordable facts."
+  [meta]
+  (and (:recordable? meta)
+       (not (:provided? meta))
+       (some? (:handler-fn meta))))
+
+(defn- run-generator
+  "Run a generator-backed recordable supplier at processing-start, returning
+  `[outcome value]` where `outcome` is `:generated` (value produced + emitted
+  + schema-validated), `:skipped` (platform gate — the fact is not produced,
+  the caller treats it as missing-required), or `:threw` (the generator threw
+  — emits `:rf.error/coeffect-exception` and the caller skips the handler).
+
+  A successful run emits the dev-only `:rf.cofx/generated` trace op (fact-name
+  + supplier id) so traces are self-describing even though the record is flat,
+  then validates the produced value against the registration's `:schema` (a
+  PRODUCTION hard error on mismatch — the validation throw propagates). The
+  emit / scope shape mirrors `run-ambient-supplier`; the op differs
+  (`:rf.cofx/generated` vs `:rf.cofx/run`) because generation produces a
+  RECORDED fact, not an ambient read."
+  [cofx-id meta supplier arg frame-id failing-id]
+  (let [active-platform (active-platform-for-frame frame-id)]
+    (if (cofx-runs-on-platform? meta active-platform)
+      (trace/with-handler-scope
+        (trace/handler-scope-from-meta :cofx cofx-id meta)
+        (let [valued? (not (identical? arg no-arg))
+              outcome (try
+                        [:generated (if valued? (supplier arg) (supplier))]
+                        (catch #?(:clj Throwable :cljs :default) t
+                          (emit-coeffect-exception! cofx-id failing-id frame-id t)
+                          [:threw nil]))]
+          (when (= :generated (first outcome))
+            ;; Dev-only `:rf.cofx/generated` — fact-name + supplier id (the
+            ;; cofx id is both). Gated on `interop/debug-enabled?` so
+            ;; production DCEs the tag-map + emit, exactly like
+            ;; `:rf.cofx/run`. The generated value itself rides the durable
+            ;; `:rf.cofx` record (always-on), NOT this dev trace.
+            (when interop/debug-enabled?
+              (trace/emit! :rf.cofx :rf.cofx/generated
+                           (cond-> {:rf.cofx/id    cofx-id
+                                    :frame         frame-id
+                                    :rf.cofx/value (second outcome)}
+                             valued? (assoc :rf.cofx/arg arg))))
+            ;; Validate the produced value against `:schema` (production hard
+            ;; error). A miss throws `:rf.error/cofx-value-invalid` from here,
+            ;; inside the scope binding, so the failure carries the cofx's
+            ;; source-coord like every other cofx emit.
+            (validate-recordable-value! cofx-id (second outcome) meta failing-id frame-id))
+          outcome))
+      (do
+        (trace/emit! :warning :rf.cofx/skipped-on-platform
+                     {:rf.cofx/id                   cofx-id
+                      :frame                        frame-id
+                      :rf.cofx/platform             active-platform
+                      :rf.cofx/registered-platforms (:platforms meta)
+                      :recovery                     :skipped})
+        [:skipped nil]))))
+
 (defn- run-ambient-supplier
   "Run an ambient supplier under its HandlerScope + platform gate, returning
   `[outcome value]` where `outcome` is `:delivered`, `:skipped` (platform
@@ -489,60 +660,124 @@
                       :recovery                     :skipped})
         [:skipped nil]))))
 
+(def ^:private default-mint-policy
+  "The mint policy when the caller threads none — the router's `:live`
+  default (EP-0017 §6). `:live` generates declared-absent generator-backed
+  recordable values; slice-B.8 wires the binding points that select `:strict`
+  (the `:test` preset default; hard-wired for replay) or `:explicit-live`."
+  :live)
+
+(defn- mint-policy-generates?
+  "True when `policy` runs a generator for a declared-absent generator-backed
+  recordable fact — `:live` (router default) and `:explicit-live`
+  (declared-nondeterminism test escape) generate; `:strict` does not (an
+  absent fact is missing-required, no host read). An unrecognised policy is
+  treated CONSERVATIVELY as non-generating (strict) — an unknown policy must
+  not silently mint a nondeterministic value into the durable ledger."
+  [policy]
+  (or (= policy :live) (= policy :explicit-live)))
+
 (defn deliver-declared-cofx
   "Deliver the handler's declared coeffects FLAT into `coeffects`, per Spec
   002 §Satisfaction algorithm step 4 + EP-0017 §5. `requires` is the parsed
   entry vector (`parse-requires`); `recorded` is the token's `:rf.cofx` map;
-  `frame-id` tags the trace / error emits. Returns the augmented coeffects
-  map.
+  `frame-id` tags the trace / error emits. Returns
+  `{:coeffects <augmented> :rf.cofx <record> :rf/skip-handler? <bool>}`.
 
   For each declared id (declaration order):
 
     - **unregistered** → `:rf.error/unregistered-cofx` (the typo case; halts);
     - **ambient** → run its supplier now, deliver the value (never recorded);
       a platform-skipped supplier delivers nothing;
-    - **recordable, present on the token** → deliver the recorded value
+    - **recordable, present on the token** → validate against the
+      registration's `:schema` (a production hard error on mismatch —
+      `:rf.error/cofx-value-invalid`), then deliver the recorded value
       verbatim (no host read);
-    - **recordable, absent** → `:rf.error/missing-required-cofx` (provided
-      facts in every mode; generator-backed facts too in slice A — generation
-      is slice B).
+    - **recordable, absent, generator-backed** → consult the mint policy
+      (EP-0017 §6): `:live` / `:explicit-live` run the generator at
+      processing-start (emit `:rf.cofx/generated`, validate against `:schema`,
+      write the value back into the returned `:rf.cofx` record so the epoch
+      captures the post-generation token), `:strict` fails with
+      `:rf.error/missing-required-cofx`;
+    - **recordable, absent, provided** → `:rf.error/missing-required-cofx`
+      (every mode).
 
   Delivery is DECLARED-ONLY and FLAT: an undeclared leaf on the token is not
   staged, and there is no nested `:cofx` / `:rf.cofx` duplicate in the
   delivered spread (the envelope's canonical `:rf.cofx` map is reachable
   through the context for generic code).
 
-  Returns `{:coeffects <augmented> :rf/skip-handler? <bool>}`. An unregistered
-  or missing-required declared fact halts loudly (throws); a supplier that
-  THREW emits `:rf.error/coeffect-exception` and sets `:rf/skip-handler?` so
-  the handler does not run and the cascade is failed without a raw throw
-  escaping context assembly (mirroring the retired `inject-cofx` interceptor's
+  `mint-policy` (EP-0017 §6) gates generation; it defaults to `:live` (the
+  router default) when omitted. The returned `:rf.cofx` is the (possibly
+  generation-augmented) record — equal to `recorded` when no fact was
+  generated; the caller restamps the in-flight token / context `:rf.cofx`
+  with it so the canonical record carries every generated fact.
+
+  An unregistered, missing-required, or schema-invalid declared fact halts
+  loudly (throws); a supplier / generator that THREW emits
+  `:rf.error/coeffect-exception` and sets `:rf/skip-handler?` so the handler
+  does not run and the cascade is failed without a raw throw escaping context
+  assembly (mirroring the retired `inject-cofx` interceptor's
   capture-don't-propagate behaviour)."
-  [coeffects requires recorded failing-id frame-id]
-  (reduce
-    (fn [{:keys [coeffects] :as acc} {:keys [id arg]}]
-      (let [meta (registrar/lookup :cofx id)]
-        (cond
-          ;; A declared id with NO registration is the typo case (the
-          ;; framework's own facts — e.g. the provided `:rf/time-ms` — are
-          ;; registered, so a nil meta is always an unregistered id).
-          (nil? meta)
-          (emit-unregistered-cofx! id failing-id frame-id)
+  ([coeffects requires recorded failing-id frame-id]
+   (deliver-declared-cofx coeffects requires recorded failing-id frame-id default-mint-policy))
+  ([coeffects requires recorded failing-id frame-id mint-policy]
+   (reduce
+     (fn [{:keys [coeffects] :as acc} {:keys [id arg]}]
+       (let [meta (registrar/lookup :cofx id)]
+         (cond
+           ;; A declared id with NO registration is the typo case (the
+           ;; framework's own facts — e.g. the provided `:rf/time-ms` — are
+           ;; registered, so a nil meta is always an unregistered id).
+           (nil? meta)
+           (emit-unregistered-cofx! id failing-id frame-id)
 
-          (:recordable? meta)
-          (if (contains? recorded id)
-            (assoc-in acc [:coeffects id] (get recorded id))
-            (emit-missing-required-cofx! id failing-id frame-id))
+           (:recordable? meta)
+           (cond
+             ;; Present on the token (supplied / replayed) → validate the
+             ;; value against `:schema` (production hard error on mismatch),
+             ;; then deliver verbatim. Supplied values win, but the `:schema`
+             ;; is the type of the replay hole — folding an out-of-contract
+             ;; value into the ledger is corrupt durable state.
+             (contains? (:rf.cofx acc) id)
+             (let [value (get (:rf.cofx acc) id)]
+               (validate-recordable-value! id value meta failing-id frame-id)
+               (assoc-in acc [:coeffects id] value))
 
-          :else                                   ;; ambient
-          (let [[outcome value]
-                (run-ambient-supplier id meta (:handler-fn meta) arg frame-id failing-id)]
-            (case outcome
-              :delivered (assoc-in acc [:coeffects id] value)
-              :skipped   acc
-              :threw     (assoc acc :rf/skip-handler? true))))))
-    {:coeffects coeffects :rf/skip-handler? false}
-    requires))
+             ;; Absent + generator-backed → consult the mint policy. `:live` /
+             ;; `:explicit-live` run the generator at processing-start, write
+             ;; the value into BOTH the delivered spread AND the in-flight
+             ;; `:rf.cofx` record (so the epoch captures it and replay
+             ;; re-presents it); `:strict` (and any unrecognised policy) fails
+             ;; with missing-required (no host read).
+             (generator-backed? meta)
+             (if (mint-policy-generates? mint-policy)
+               (let [[outcome value]
+                     (run-generator id meta (:handler-fn meta) arg frame-id failing-id)]
+                 (case outcome
+                   :generated (-> acc
+                                  (assoc-in [:coeffects id] value)
+                                  (assoc-in [:rf.cofx id] value))
+                   ;; Platform-skipped generator → the fact is not produced;
+                   ;; treat it as missing-required (a half-skipped generated
+                   ;; fact must not surface as a silent nil).
+                   :skipped   (emit-missing-required-cofx! id failing-id frame-id)
+                   :threw     (assoc acc :rf/skip-handler? true)))
+               (emit-missing-required-cofx! id failing-id frame-id))
+
+             ;; Absent + provided (no generator) → missing-required, every mode.
+             :else
+             (emit-missing-required-cofx! id failing-id frame-id))
+
+           :else                                   ;; ambient
+           (let [[outcome value]
+                 (run-ambient-supplier id meta (:handler-fn meta) arg frame-id failing-id)]
+             (case outcome
+               :delivered (assoc-in acc [:coeffects id] value)
+               :skipped   acc
+               :threw     (assoc acc :rf/skip-handler? true))))))
+     {:coeffects coeffects :rf.cofx recorded :rf/skip-handler? false}
+     requires)))
 
 ;; ---- inject-cofx is REMOVED (EP-0017 slice A.3, no alias) ------------------
 ;;

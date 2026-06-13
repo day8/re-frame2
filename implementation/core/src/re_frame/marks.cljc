@@ -1104,13 +1104,15 @@
         (assoc tags :rf.event/coeffects walked)))))
 
 (defn- project-cofx-run-tags
-  "Walk the `:rf.cofx/run` op shape (rf2-hhh92): `:rf.cofx/id` carries the
-  cofx keyword and `:rf.cofx/value` carries the supplier's PRODUCED value —
-  the coeffect that egresses into `:coeffects` (rf2-sepqgg; the
-  requirement-arg rides the distinct `:rf.cofx/arg`, which this chokepoint
+  "Walk the produced-value op shape shared by `:rf.cofx/run` (ambient
+  supplier, rf2-hhh92) and `:rf.cofx/generated` (slice-B.7 recordable
+  generation, rf2-ygpac8): `:rf.cofx/id` carries the cofx keyword and
+  `:rf.cofx/value` carries the PRODUCED value — the coeffect that egresses
+  into `:coeffects` / the generated fact written into the record (rf2-sepqgg;
+  the requirement-arg rides the distinct `:rf.cofx/arg`, which this chokepoint
   does not redact). Redact the produced value against the cofx's registered
   marks — mirrors `project-fx-tags` for the standalone-value op (the cofx
-  success emit does not ride under `:rf.event/coeffects`)."
+  success / generation emit does not ride under `:rf.event/coeffects`)."
   [tags]
   (let [cofx-id (:rf.cofx/id tags)
         marks   (cofx-marks cofx-id)]
@@ -1478,7 +1480,13 @@
                       (and (map? tags) (contains? tags :rf.view/render-args))
                       (project-view-rendered-tags frame-id)
 
-                      (and (map? tags) (= :rf.cofx/run operation))
+                      ;; `:rf.cofx/run` (ambient supplier) and `:rf.cofx/
+                      ;; generated` (slice-B.7 recordable generation) share
+                      ;; the produced-value shape — `:rf.cofx/id` + `:rf.cofx/
+                      ;; value` — so both redact the produced value against
+                      ;; the cofx's declared marks here.
+                      (and (map? tags) (or (= :rf.cofx/run operation)
+                                           (= :rf.cofx/generated operation)))
                       (project-cofx-run-tags)
 
                       (and (map? tags) (= :rf.sub/run operation))
