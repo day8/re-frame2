@@ -132,7 +132,11 @@
       font-family: var(--ex-sans);
       color: var(--ex-ink);
     }
-    .dash-value { font-size: 2.4rem; font-weight: 700; letter-spacing: -0.025em; }
+    /* `.dash-value` is display-grade type (2.4rem/700) but a <span>, so it
+       does not inherit the shared heading rule. Match the design system's
+       display tracking (the canonical h1–h6 `letter-spacing: -0.018em` in
+       _shared/css/style.css) rather than inventing a bespoke value. */
+    .dash-value { font-size: 2.4rem; font-weight: 700; letter-spacing: -0.018em; }
     .dash-unit  { font-size: 1.2rem; color: var(--ex-ink-muted); font-weight: 500; }
 
     .dash-card-label {

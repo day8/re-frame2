@@ -88,10 +88,15 @@ responsive shape a real UIx app should copy:
   `<button>` carrying `aria-pressed`, and the row is a `role="group"`
   with an `aria-label`. Assistive tech reads the on/off state, not just
   a visual class.
-- **The range picker is a single-select mode control** — it uses the
-  radio idiom (`role="radiogroup"` on the row, `role="radio"` +
-  `aria-checked` on each chip), so it announces as a one-of-N choice
-  rather than three independent buttons.
+- **The range picker is a single-select mode control** — it implements
+  the full WAI-ARIA radio-group idiom, not just the roles. The row is a
+  `role="radiogroup"`; each chip is a `role="radio"` carrying
+  `aria-checked`, so it announces as a one-of-N choice rather than
+  independent buttons. It also honours the radio-group **keyboard
+  contract**: a *roving tabindex* (only the checked radio is in the tab
+  order) so Tab lands on the current selection, and arrow keys
+  (Left/Up, Right/Down, with wrap) move the selection — with focus, since
+  in a radio group selection follows focus.
 - **Sparklines are decorative** (`aria-hidden="true"`) — the card's
   eyebrow, value, and label already carry the metric name + value as
   text, so the SVG is a visual restatement, not a separate nameless
@@ -110,11 +115,15 @@ contracts on the shared stylesheet are already enforced statically by
 `check-examples-assets`; the items here are the layout/semantics that
 need an eye):
 
-1. **Keyboard** — Tab reaches every chip + the range buttons; the
-   focus ring is visible on each; Enter/Space toggles them.
+1. **Keyboard** — Tab reaches every tag chip; Enter/Space toggles each.
+   The range picker is a radio group: Tab lands on the *currently
+   selected* range only (roving tabindex), then Left/Up and Right/Down
+   move the selection (with wrap) and the focus ring follows it. The
+   focus ring is visible on every focused control.
 2. **Screen reader** (VoiceOver / NVDA) — tag chips announce
    "pressed/not pressed"; range chips announce as a radio group with
-   the selected one "checked"; the sparklines are NOT announced.
+   the selected one "checked", and arrowing through them re-announces
+   the new selection; the sparklines are NOT announced.
 3. **Narrow viewport** (≈360px, DevTools device toolbar) — no
    horizontal scrollbar; the grid is one column; the header stacks;
    the H1 does not overrun the edge.
