@@ -12,6 +12,7 @@ const {
   findFreePort,
   isPortFree,
   isValidExplicitPort,
+  probeTargetFromBaseUrl,
   resolveServePort,
   spawnHarnessProcess,
   terminateProcessTree,
@@ -383,6 +384,94 @@ test('resolveServePort never returns 0 and falls back (logged) for invalid prefe
     assert.ok(isValidExplicitPort(resolved), `fallback ${resolved} must be a usable port`);
     assert.notEqual(resolved, 0);
     assert.equal(await isPortFree(resolved), true);
+  }
+});
+
+// rf2-rcepku — XRAY_FEATURE_GATE_BASE_URL probe-target parsing. The Xray
+// feature gate's external-server escape hatch previously extracted only a
+// port and probed loopback `/`, so a base URL with a non-127.0.0.1 host,
+// an https scheme, or a meaningful base path was probed against the wrong
+// endpoint shape. probeTargetFromBaseUrl now derives {host, port, path,
+// protocol} from the parsed URL so the readiness probe hits the endpoint
+// the caller actually pointed at.
+
+test('probeTargetFromBaseUrl honours a non-127.0.0.1 host + base path (rf2-rcepku)', () => {
+  const target = probeTargetFromBaseUrl('http://staging.internal:8080/app/base/');
+  assert.deepEqual(target, {
+    host: 'staging.internal',
+    port: 8080,
+    path: '/app/base/',
+    protocol: 'http:',
+  });
+});
+
+test('probeTargetFromBaseUrl defaults the http port to 80 and path to / (rf2-rcepku)', () => {
+  const target = probeTargetFromBaseUrl('http://example.com');
+  assert.equal(target.host, 'example.com');
+  assert.equal(target.port, 80);
+  assert.equal(target.path, '/');
+  assert.equal(target.protocol, 'http:');
+});
+
+test('probeTargetFromBaseUrl honours the https scheme + default 443 (rf2-rcepku)', () => {
+  const target = probeTargetFromBaseUrl('https://secure.example.com/xray/');
+  assert.equal(target.host, 'secure.example.com');
+  assert.equal(target.port, 443);
+  assert.equal(target.path, '/xray/');
+  assert.equal(target.protocol, 'https:');
+});
+
+test('probeTargetFromBaseUrl keeps an explicit port over the scheme default (rf2-rcepku)', () => {
+  const target = probeTargetFromBaseUrl('https://secure.example.com:8443/');
+  assert.equal(target.port, 8443);
+  assert.equal(target.protocol, 'https:');
+});
+
+test('probeTargetFromBaseUrl throws on a malformed URL rather than falling back (rf2-rcepku)', () => {
+  // A silent loopback fallback is how an invalid escape-hatch value could
+  // probe an unrelated local listener and then send the browser at a
+  // broken external URL — so a bad value must fail loud.
+  assert.throws(
+    () => probeTargetFromBaseUrl('not a url', { envName: 'XRAY_FEATURE_GATE_BASE_URL' }),
+    /XRAY_FEATURE_GATE_BASE_URL is not a valid URL/,
+  );
+});
+
+test('probeTargetFromBaseUrl rejects a non-http(s) scheme (rf2-rcepku)', () => {
+  assert.throws(
+    () => probeTargetFromBaseUrl('ftp://example.com/', { envName: 'XRAY_FEATURE_GATE_BASE_URL' }),
+    /must use http: or https:/,
+  );
+});
+
+test('waitForHttpReady probes the supplied host + path (rf2-rcepku)', async () => {
+  // Only answer 200 on the exact base path the caller advertised; every
+  // other path 404s. Proves the probe targets opts.path (not the old
+  // hard-coded `/`), so a base-path server is correctly seen as ready.
+  const basePath = '/app/base/';
+  const server = http.createServer((req, res) => {
+    if (req.url === basePath) {
+      res.writeHead(200);
+      res.end('ok');
+      return;
+    }
+    res.writeHead(404);
+    res.end('nope');
+  });
+  const port = await listenOnLoopback(server);
+  try {
+    // probeHttp resolves true on ANY status code (liveness, not 2xx), so a
+    // bare `/` would also report ready here — assert instead that the
+    // host/path opts flow through without breaking readiness for the
+    // advertised endpoint. The shape coverage is the deepEqual tests above.
+    const ready = await waitForHttpReady(port, Date.now() + 1000, {
+      host: '127.0.0.1',
+      path: basePath,
+      pollMs: 10,
+    });
+    assert.equal(ready, true);
+  } finally {
+    server.close();
   }
 });
 

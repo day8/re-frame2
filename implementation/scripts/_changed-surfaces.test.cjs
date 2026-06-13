@@ -374,6 +374,45 @@ test('implementation/scripts/* does NOT arm template_expensive (no emitted npm p
   assert.equal(result.template_expensive, 'false');
 });
 
+// rf2-rcepku — Xray PR-smoke launcher false-green fix, mirroring the
+// rf2-y9o5e3 examples/scripts launcher routing. The
+// serve-and-run-xray-feature-gate.cjs launcher IS the executable
+// orchestration for `npm run test:xray-feature-gate:smoke`, the command
+// the story-xray-browser PR job runs (test.yml). Editing it must fire the
+// story_xray_browser gate it drives — else a PR can break the launcher
+// while avoiding the very PR-smoke job it orchestrates. The static-script
+// surfaces it shares with the generic implementation/scripts/* case stay
+// armed (this widens coverage; it does not narrow it).
+
+test('implementation/scripts/serve-and-run-xray-feature-gate.cjs fires story_xray_browser (rf2-rcepku)', () => {
+  const result = classify('implementation/scripts/serve-and-run-xray-feature-gate.cjs');
+  assert.equal(
+    result.story_xray_browser,
+    'true',
+    'editing the Xray PR-smoke launcher must run the story-xray-browser gate it drives',
+  );
+});
+
+test('implementation/scripts/serve-and-run-xray-feature-gate.cjs still arms the generic static-script gates (regression) (rf2-rcepku)', () => {
+  const result = classify('implementation/scripts/serve-and-run-xray-feature-gate.cjs');
+  assert.equal(result.cljs_node_test, 'true');
+  assert.equal(result.cljs_browser, 'true');
+  assert.equal(result.cljs_prod, 'true');
+  assert.equal(result.bundle_isolation, 'true');
+  assert.equal(result.reagent_slim_bundle, 'true');
+});
+
+test('an UNRELATED implementation/scripts/* file does NOT fire story_xray_browser (scope discipline) (rf2-rcepku)', () => {
+  // Only the Xray launcher drives the Xray browser gate; a generic
+  // implementation/scripts/* edit must not be broadened onto it.
+  const result = classify('implementation/scripts/build-foo.cjs');
+  assert.equal(
+    result.story_xray_browser,
+    'false',
+    'a generic implementation/scripts/* edit drives no browser gate; it must NOT fire story_xray_browser',
+  );
+});
+
 test('implementation/package.json still arms cljs_node_test (regression — it defines node deps) (rf2-6yuzo4)', () => {
   const result = classify('implementation/package.json');
   assert.equal(result.cljs_node_test, 'true');

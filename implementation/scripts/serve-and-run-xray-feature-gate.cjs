@@ -19,6 +19,7 @@ const { isVerboseTests } = require('./lib/browser-test-report.cjs');
 const {
   TOKEN_FILE_BASENAME,
   createHarnessCleanup,
+  probeTargetFromBaseUrl,
   resolveServePort,
   spawnHarnessProcess,
   waitForHttpReady,
@@ -537,9 +538,27 @@ async function main() {
   // caller owns the asset tree it points us at. The default path below
   // is the hardened one.
   if (EXTERNAL_BASE_URL) {
-    const externalPort = portFromBaseUrl(EXTERNAL_BASE_URL);
-    console.log(`Using externally-managed server at ${EXTERNAL_BASE_URL}.`);
-    const reachable = await waitForHttpReady(externalPort, Date.now() + READY_TIMEOUT_MS);
+    // rf2-rcepku — probe the URL the caller actually gave us, not just a
+    // port against loopback `/`. The previous form extracted only a port
+    // and called waitForHttpReady(port) which defaults to host
+    // 127.0.0.1 + path `/`, so a base URL with a non-loopback host, an
+    // https scheme, or a meaningful base path could be reported
+    // unreachable while valid — or (worse) pass readiness against an
+    // UNRELATED local listener on the same port before Playwright then
+    // navigated to the real external URL (a false-green). Derive the
+    // host/port/path from the parsed URL and probe those.
+    const target = probeTargetFromBaseUrl(EXTERNAL_BASE_URL, {
+      envName: 'XRAY_FEATURE_GATE_BASE_URL',
+    });
+    console.log(
+      `Using externally-managed server at ${EXTERNAL_BASE_URL} ` +
+        `(probing ${target.protocol}//${target.host}:${target.port}${target.path}).`,
+    );
+    const reachable = await waitForHttpReady(target.port, Date.now() + READY_TIMEOUT_MS, {
+      host: target.host,
+      path: target.path,
+      protocol: target.protocol,
+    });
     if (!reachable) {
       throw new Error(`External server at ${EXTERNAL_BASE_URL} did not become reachable within ${READY_TIMEOUT_MS}ms.`);
     }
@@ -621,18 +640,6 @@ async function main() {
   }
 
   return await runScenarios(baseUrl);
-}
-
-// Extract the TCP port from a base URL, defaulting to 80 (the gate only
-// ever speaks http:// to a local server, so a missing port means 80).
-function portFromBaseUrl(baseUrl) {
-  try {
-    const parsed = new URL(baseUrl);
-    if (parsed.port) return Number(parsed.port);
-    return parsed.protocol === 'https:' ? 443 : 80;
-  } catch (_) {
-    return PREFERRED_PORT;
-  }
 }
 
 main()

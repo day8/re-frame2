@@ -69,8 +69,28 @@ function makeFixture({ withSource = true, withDest = false, nsForm = SLIM_NS_FOR
   return { dir, src, dst };
 }
 
+// Invoke the shell script under `bash`. We pass the script path and the
+// adapter dir through a single `bash -lc` command string with the paths
+// normalised to forward slashes and POSIX-quoted, mirroring the proven
+// pattern in `_changed-surfaces.test.cjs`. The previous form —
+// `spawnSync('bash', [SCRIPT, adapterDir])` with a raw `C:\...` argv —
+// failed on Windows Git Bash (MSYS/MinGW), where the backslashes in the
+// argv path are consumed as shell escapes, so bash reported
+// `C:Users...transform-reagent-slim-ns.sh: No such file or directory`
+// and all four cases failed (rf2-rcepku). Forward slashes are native on
+// POSIX and accepted by Git Bash, so this runs identically on Windows
+// (PowerShell/Git Bash) and Ubuntu.
+function toPosixPath(p) {
+  return String(p).split(path.sep).join('/');
+}
+
+function shQuote(s) {
+  return `'${String(s).replace(/'/g, `'\\''`)}'`;
+}
+
 function run(adapterDir) {
-  return spawnSync('bash', [SCRIPT, adapterDir], { encoding: 'utf8' });
+  const command = `${shQuote(toPosixPath(SCRIPT))} ${shQuote(toPosixPath(adapterDir))}`;
+  return spawnSync('bash', ['-lc', command], { encoding: 'utf8' });
 }
 
 function cleanup(dir) {

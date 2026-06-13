@@ -2,6 +2,7 @@
 
 const { spawn, spawnSync } = require('child_process');
 const http = require('http');
+const https = require('https');
 const net = require('net');
 
 function sleep(ms) {
@@ -142,9 +143,21 @@ function probeHttp(port, opts = {}) {
   const host = opts.host || '127.0.0.1';
   const path = opts.path || '/';
   const timeout = opts.timeout || 1000;
+  // rf2-rcepku — honour the caller's scheme. The default loopback
+  // readiness probes (and the ownership-token handshake) only ever speak
+  // http, so http stays the default; the XRAY_FEATURE_GATE_BASE_URL
+  // escape hatch can point at an https external server, in which case the
+  // probe must use TLS or it would report a valid server unreachable.
+  // `rejectUnauthorized: false` keeps a self-signed external dev server
+  // probeable — this is a liveness probe, not a trust boundary (the real
+  // navigation is Playwright's, which enforces its own TLS policy).
+  const secure = opts.protocol === 'https:' || opts.secure === true;
+  const agent = secure ? https : http;
+  const requestOpts = { host, port, path, timeout };
+  if (secure) requestOpts.rejectUnauthorized = false;
 
   return new Promise((resolve) => {
-    const req = http.get({ host, port, path, timeout }, (res) => {
+    const req = agent.get(requestOpts, (res) => {
       res.resume();
       resolve(res.statusCode != null);
     });
@@ -154,6 +167,47 @@ function probeHttp(port, opts = {}) {
       resolve(false);
     });
   });
+}
+
+// rf2-rcepku — derive a full readiness-probe target {host, port, path,
+// protocol} from a base URL, honouring its host, scheme, explicit-or-
+// default port, and base path. Used by the Xray feature gate's
+// XRAY_FEATURE_GATE_BASE_URL escape hatch (serve-and-run-xray-feature-
+// gate.cjs): the previous code extracted ONLY a port and the probe
+// defaulted to host 127.0.0.1 + path `/`, so a base URL with a
+// non-loopback host, an https scheme, or a meaningful base path could be
+// reported unreachable while valid — or (worse) pass readiness against an
+// UNRELATED local listener on the same port before the browser then
+// navigated to the real external URL (a false-green). On a malformed or
+// non-http(s) URL we THROW rather than silently falling back to a
+// loopback port: that earlier fallback is exactly how an invalid value
+// could probe an unrelated local server and still send the browser at the
+// (broken) external URL. The returned object is shaped to spread straight
+// into probeHttp/waitForHttpReady opts (host + path + protocol).
+function probeTargetFromBaseUrl(baseUrl, opts = {}) {
+  const label = opts.envName || 'base URL';
+  let parsed;
+  try {
+    parsed = new URL(baseUrl);
+  } catch (_) {
+    throw new Error(
+      `${label} is not a valid URL: ${JSON.stringify(baseUrl)}. ` +
+        'Expected something like "http://host:port/optional/base/path".',
+    );
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(
+      `${label} must use http: or https: (got "${parsed.protocol}" ` +
+        `in ${JSON.stringify(baseUrl)}).`,
+    );
+  }
+  const port = parsed.port
+    ? Number(parsed.port)
+    : parsed.protocol === 'https:' ? 443 : 80;
+  // Probe the URL's base path (e.g. "/app/") so a meaningful base path is
+  // honoured; URL normalises a hostname-only URL's pathname to "/".
+  const path = parsed.pathname || '/';
+  return { host: parsed.hostname, port, path, protocol: parsed.protocol };
 }
 
 async function waitForHttpReady(port, deadline, opts = {}) {
@@ -380,6 +434,7 @@ module.exports = {
   isPortFree,
   isValidExplicitPort,
   probeHttp,
+  probeTargetFromBaseUrl,
   resolveServePort,
   sleep,
   spawnHarnessProcess,
