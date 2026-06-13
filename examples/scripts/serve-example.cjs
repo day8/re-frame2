@@ -19,9 +19,13 @@
  *      so there is no hardcoded build->folder table to drift. The example's
  *      hand-written `index.html` is the one colocated with the source file
  *      that declares the build's init-fn namespace.
- *   2. Stages `index.html` + the `examples/_shared/` tree into the output dir
- *      (the SAME staging the adapter-smoke orchestrator uses — reused from
- *      examples-staging.cjs, not re-implemented).
+ *   2. Applies the clean-stage boundary to the selected output dir (remove +
+ *      recreate it empty, path-guarded under out/examples), then stages
+ *      `index.html` + the `examples/_shared/` tree into it — the SAME
+ *      clean-then-stage contract the adapter-smoke / Story orchestrators use,
+ *      reused from examples-staging.cjs, not re-implemented. Serving from a
+ *      freshly cleaned dir means no stale prior bundle/asset is ever served as
+ *      a fresh run (rf2-rg2tze).
  *   3. Resolves a free port (reusing the examples port resolver) and serves
  *      the output dir over http-server on 127.0.0.1.
  *   4. Spawns `shadow-cljs watch <build>` so edits recompile live. A
@@ -57,7 +61,7 @@
 const fs = require('fs');
 const path = require('path');
 const { resolveExamplesPort } = require('./examples-port.cjs');
-const { stageExample, listStandaloneExamples } = require('./examples-staging.cjs');
+const { stageExample, listStandaloneExamples, cleanStageDirs } = require('./examples-staging.cjs');
 const {
   createHarnessCleanup,
   spawnHarnessProcess,
@@ -68,6 +72,12 @@ const {
 // where shadow-cljs runs and node_modules lives.
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
+// The shared staging root every example build emits under
+// (`:output-dir "out/examples/<name>"`). It is the clean-stage boundary's
+// owned root: cleanStageDirs path-guards each selected outDir to live strictly
+// under it, so a clean can never touch the shared root or a sibling output the
+// same root holds. Mirrors OUT_ROOT in serve-and-run-examples-tests.cjs.
+const OUT_ROOT = path.join(IMPL_ROOT, 'out', 'examples');
 const READY_TIMEOUT_MS = 30000;
 
 function parseArgs(argv) {
@@ -140,11 +150,29 @@ async function main() {
   const shadowRunner = resolveShadowRunner();
   const httpServerBin = resolveHttpServerBin();
 
+  // Clean-stage boundary (rf2-bf4vdy / rf2-rg2tze): remove + recreate the
+  // SELECTED build's output dir BEFORE any compile or staging, so every served
+  // file is produced from the CURRENT source this run — exactly the contract
+  // the CI/Story orchestrators already honour (serve-and-run-examples-tests.cjs
+  // cleanSelectedOutDirs, the Story load/play runners). Without this the dev
+  // runner overlaid index.html + _shared onto whatever a PRIOR run left behind,
+  // so a stale main.js (or a retired asset the manifest no longer produces)
+  // stayed serveable — and in watch mode the browser could render that old
+  // bundle while the runner had already printed a live URL, masking an initial
+  // compile that had not yet landed (or had failed). Cleaning first makes a
+  // missing bundle VISIBLY absent until the current watch's first compile lands
+  // — no stale prior main.js is ever advertised or served as a fresh run. We
+  // clean ONLY this dir (never the shared OUT_ROOT) so sibling outputs another
+  // run/harness relies on survive; the helper path-guards the target to live
+  // strictly under OUT_ROOT.
+  cleanStageDirs([entry.outDir], OUT_ROOT);
+
   // For `--no-watch` we compile once up front (CI-shaped: the output dir is
-  // fully built before staging + serving). For the default watch mode the
-  // watch process below produces main.js, so we stage immediately and the
-  // first compile lands in place — http-server serves the freshly built file
-  // the moment the watch finishes its initial compile.
+  // fully built into the freshly cleaned dir before staging + serving). For the
+  // default watch mode the watch process below produces main.js into the clean
+  // dir, so we stage immediately and the first compile lands in place — until
+  // it does, the cleaned dir has no main.js, so http-server cannot serve a
+  // stale bundle.
   if (!watch) {
     const { spawnSync } = require('child_process');
     const result = spawnSync(process.execPath, [shadowRunner, 'compile', entry.build], {
@@ -156,9 +184,9 @@ async function main() {
     }
   }
 
-  // Stage index.html + the _shared design-system tree into the output dir.
-  // The output dir is created by the staging helper if the watch hasn't
-  // emitted into it yet, so the page's assets are present from the start.
+  // Stage index.html + the _shared design-system tree into the (now clean)
+  // output dir. The output dir already exists (cleanStageDirs recreated it),
+  // so the page's assets are present from the start.
   stageExample(entry);
 
   if (watch) {
