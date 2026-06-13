@@ -1706,6 +1706,14 @@
         ;; owner. Symmetric with the machines teardown hook above
         ;; (rf2-vsigt). Without this hook a long-running SSR JVM with
         ;; per-request frame churn grows the flow registry unboundedly.
+        ;; This hook does NOT scrub the frame's flow-output elision marks
+        ;; (rf2-yt5bbl): those live in the runtime-db partition INSIDE the
+        ;; `:frame-state` container, which `dissoc-frame!` (step 6 below)
+        ;; drops wholesale with the frame record — a per-flow scrub here
+        ;; would be redundant work over about-to-be-GC'd state, and a reused
+        ;; frame-id gets a fresh empty container so no stale flow-sourced
+        ;; declaration survives the cycle (see the flows
+        ;; `teardown-on-frame-destroy!` docstring).
         ;; No-op when re-frame.flows is absent (the artefact is optional
         ;; per rf2-tfw3).
         (safe-call-hook! :flows/teardown-on-frame-destroy! id)
