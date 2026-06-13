@@ -62,14 +62,27 @@
   the flow-lifecycle symmetry: the activated/deactivated pair is to
   routes what `:rf.flow/computed` is to flows in giving tools a
   per-transition lifecycle signal independent of the underlying
-  `:rf.route/transitioned` event."
-  [prev-id next-id]
+  `:rf.route/transitioned` event.
+
+  rf2-dbmj6x — `frame` is the in-flight cascade's carried frame stamp
+  (threaded from the nav handler's `:rf.frame/id` cofx via
+  `commit-navigation`). Both lifecycle traces stamp it under `:tags
+  :frame` so they enter the emitting frame's epoch (epoch-capture buffers
+  only frame-tagged traces — `re-frame.epoch.capture` §168-221) and obey
+  the frame-level trace-disable gate (`re-frame.trace/emit!` §397-398);
+  pre-fix the untagged emits silently dropped from Xray and leaked past a
+  `:rf.trace/frame-no-emit?` tool frame. `(cond-> … frame (assoc …))`
+  mirrors the rf2-7d30s / rf2-w3qgc precedent — a nil stamp simply omits
+  the tag rather than synthesising `:rf/default`."
+  [frame prev-id next-id]
   (when (and prev-id (not= prev-id next-id))
     (trace/emit! :rf.event :rf.route/deactivated
-                 {:route-id prev-id}))
+                 (cond-> {:route-id prev-id}
+                   frame (assoc :frame frame))))
   (when (and next-id (not= prev-id next-id))
     (trace/emit! :rf.event :rf.route/activated
-                 {:route-id next-id})))
+                 (cond-> {:route-id next-id}
+                   frame (assoc :frame frame)))))
 
 ;; Per Spec 012 §Per-route data loading rule 3: same-route-id
 ;; navigations with IDENTICAL params/query (and identical fragment) do
@@ -174,10 +187,18 @@
   hook so a cross-feature route-resource `{:from-db <id>}` `:scope` (the
   Resources artefact) can resolve db-derived viewer scope at route entry,
   BEFORE the resource work is planned. Routing itself never reads app-db;
-  it is a pure pass-through of the causal world input. Returns the event-fx
-  cofx map `{:rf.db/runtime :fx}`."
+  it is a pure pass-through of the causal world input.
+
+  rf2-dbmj6x — `frame` is the in-flight cascade's carried frame stamp (the
+  nav handler's `:rf.frame/id` cofx; both nav entry points already
+  validate it via `frame/require-frame-stamp!` and thread it in). It is
+  stamped onto the `:rf.route.nav-token/allocated` trace and passed to
+  `emit-activation-traces!` so the lifecycle pair carries `:frame` too.
+  Without it those frame-known traces miss epoch capture (which buffers
+  only frame-tagged events) and bypass the frame-level trace-disable gate.
+  Returns the event-fx cofx map `{:rf.db/runtime :fx}`."
   [rdb {:keys [id params query fragment transition]} on-match-vec
-   {:keys [prev-id prev-nav-token capture-fx scroll-fx push-fx nav-counters app-db]}]
+   {:keys [prev-id prev-nav-token capture-fx scroll-fx push-fx nav-counters app-db frame]}]
   (let [[counter token] (nav-counters/next-nav-token nav-counters)
         committed (merge-route-slice rdb {:id         id
                                           :params     params
@@ -227,9 +248,13 @@
                      (:plan-error plan)
                      (assoc-in [:rf.runtime/routing :current :error]
                                (:plan-error plan)))]
+    ;; rf2-dbmj6x — stamp the carried `:frame` so the nav-token-allocated
+    ;; trace enters epoch capture + obeys the frame trace-disable gate
+    ;; (the lifecycle pair below carries it via `emit-activation-traces!`).
     (trace/emit! :rf.event :rf.route.nav-token/allocated
-                 {:route-id id :nav-token token})
-    (emit-activation-traces! prev-id id)
+                 (cond-> {:route-id id :nav-token token}
+                   frame (assoc :frame frame)))
+    (emit-activation-traces! frame prev-id id)
     ;; EP-0001 (rf2-vzld77): the route slice is durable framework runtime-db
     ;; state, so `rdb` here is the RUNTIME-DB value and the commit returns
     ;; `:rf.db/runtime`, not `:db`.

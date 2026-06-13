@@ -1234,3 +1234,160 @@
           "a declared :fragment path-param navigates normally (no false reject)")
       (is (= "/anchor/intro" (last @pushed))
           "the path-param :fragment populates the URL segment"))))
+
+;; ---- rf2-dbmj6x: lifecycle / nav-token traces carry :frame ----------------
+;;
+;; The finding: `commit-navigation` emitted `:rf.route.nav-token/allocated`,
+;; `:rf.route/activated`, and `:rf.route/deactivated` with only `{:route-id
+;; …}` — no `:frame`. Because `re-frame.epoch.capture/capture-event!` admits
+;; ONLY frame-tagged traces (capture.cljc §168-221) and the frame-level
+;; trace-disable gate (`re-frame.trace/emit!` §397-398) keys off `:tags
+;; :frame`, those frame-known traces silently dropped from Xray / epoch
+;; history AND leaked past a `:rf.trace/frame-no-emit?` tool frame in a
+;; multi-frame app. The carried frame stamp (validated at the nav handler
+;; top via `frame/require-frame-stamp!`) is now threaded into
+;; `commit-navigation` and stamped on all three. These tests use a
+;; NON-DEFAULT frame so a regression that re-hardcodes `:rf/default` (or
+;; drops the tag) fails here.
+
+(deftest commit-traces-carry-frame-programmatic-rf2-dbmj6x
+  (testing "rf2-dbmj6x: programmatic `:rf.route/navigate` stamps :frame on
+            :rf.route.nav-token/allocated, :rf.route/activated, and
+            :rf.route/deactivated for a non-default frame"
+    (rf/reg-frame :rf/default {})
+    (rf/reg-frame :route/owner {})
+    (rf/reg-route :route/from {:path "/from"})
+    (rf/reg-route :route/to   {:path "/to"})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    ;; First nav (no prior route): only nav-token-allocated + activated fire.
+    (let [traces (atom [])]
+      (rf/register-listener! ::dbmj6x-nav1 (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf.route/navigate :route/from] {:frame :route/owner})
+      (rf/unregister-listener! ::dbmj6x-nav1)
+      (is (some (fn [ev]
+                  (and (= :rf.route.nav-token/allocated (:operation ev))
+                       (= :route/from (-> ev :tags :route-id))
+                       (= :route/owner (-> ev :tags :frame))))
+                @traces)
+          ":rf.route.nav-token/allocated carries :frame :route/owner (pre-fix: absent)")
+      (is (some (fn [ev]
+                  (and (= :rf.route/activated (:operation ev))
+                       (= :route/from (-> ev :tags :route-id))
+                       (= :route/owner (-> ev :tags :frame))))
+                @traces)
+          ":rf.route/activated carries :frame :route/owner (pre-fix: absent)"))
+    ;; Cross-route nav: deactivated + activated both carry the frame.
+    (let [traces (atom [])]
+      (rf/register-listener! ::dbmj6x-nav2 (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf.route/navigate :route/to] {:frame :route/owner})
+      (rf/unregister-listener! ::dbmj6x-nav2)
+      (is (some (fn [ev]
+                  (and (= :rf.route/deactivated (:operation ev))
+                       (= :route/from (-> ev :tags :route-id))
+                       (= :route/owner (-> ev :tags :frame))))
+                @traces)
+          ":rf.route/deactivated carries :frame :route/owner (pre-fix: absent)")
+      (is (some (fn [ev]
+                  (and (= :rf.route/activated (:operation ev))
+                       (= :route/to (-> ev :tags :route-id))
+                       (= :route/owner (-> ev :tags :frame))))
+                @traces)
+          ":rf.route/activated (cross-route) carries :frame :route/owner"))))
+
+(deftest commit-traces-carry-frame-url-driven-rf2-dbmj6x
+  (testing "rf2-dbmj6x: URL-driven `:rf.route/transitioned` /
+            `:rf.route/handle-url-change` stamp :frame on the lifecycle /
+            nav-token traces for a non-default frame"
+    (rf/reg-frame :rf/default {})
+    (rf/reg-frame :route/owner {})
+    (rf/reg-route :route/from {:path "/from"})
+    (rf/reg-route :route/to   {:path "/to"})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    ;; :rf.route/transitioned (forward nav).
+    (let [traces (atom [])]
+      (rf/register-listener! ::dbmj6x-url1 (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf.route/transitioned "/from"] {:frame :route/owner})
+      (rf/unregister-listener! ::dbmj6x-url1)
+      (is (some (fn [ev]
+                  (and (= :rf.route.nav-token/allocated (:operation ev))
+                       (= :route/owner (-> ev :tags :frame))))
+                @traces)
+          "transitioned: :rf.route.nav-token/allocated carries :frame :route/owner")
+      (is (some (fn [ev]
+                  (and (= :rf.route/activated (:operation ev))
+                       (= :route/owner (-> ev :tags :frame))))
+                @traces)
+          "transitioned: :rf.route/activated carries :frame :route/owner"))
+    ;; :rf.route/handle-url-change (popstate / SSR) cross-route → deactivated.
+    (let [traces (atom [])]
+      (rf/register-listener! ::dbmj6x-url2 (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf.route/handle-url-change "/to"] {:frame :route/owner})
+      (rf/unregister-listener! ::dbmj6x-url2)
+      (is (some (fn [ev]
+                  (and (= :rf.route/deactivated (:operation ev))
+                       (= :route/from (-> ev :tags :route-id))
+                       (= :route/owner (-> ev :tags :frame))))
+                @traces)
+          "handle-url-change: :rf.route/deactivated carries :frame :route/owner")
+      (is (some (fn [ev]
+                  (and (= :rf.route/activated (:operation ev))
+                       (= :route/to (-> ev :tags :route-id))
+                       (= :route/owner (-> ev :tags :frame))))
+                @traces)
+          "handle-url-change: :rf.route/activated carries :frame :route/owner"))))
+
+;; ---- rf2-dbmj6x regression: trace-disabled frame suppresses commit traces -
+;;
+;; The frame-level trace-disable gate (`re-frame.trace/emit!` §397-398) keys
+;; off `:tags :frame`: an event tagged with a `:rf.trace/frame-no-emit?`
+;; frame is suppressed before any envelope is built. PRE-FIX the lifecycle /
+;; nav-token traces carried no `:frame`, so a navigation driven from a tool
+;; frame (Xray's `:rf/xray`) LEAKED those events into the very ring the
+;; inspector reads — the bug the gate exists to prevent. This proves the
+;; events now carry `:frame` (and therefore also reach epoch capture, the
+;; sibling frame-tag admission gate): suppression from a no-emit frame and
+;; epoch-capture admission are the SAME `:tags :frame` condition.
+
+(deftest commit-traces-suppressed-from-trace-disabled-frame-rf2-dbmj6x
+  (testing "rf2-dbmj6x: lifecycle / nav-token traces emitted from a
+            `:rf.trace/frame-no-emit?` frame are suppressed (proving they
+            now carry :frame); the same dispatch from an emitting frame
+            still produces them"
+    (rf/reg-frame :rf/default {})
+    ;; A tool / inspector frame whose own reactivity must not flood the ring.
+    (rf/reg-frame :rf/tool {:rf.trace/frame-no-emit? true})
+    (rf/reg-route :route/from {:path "/from"})
+    (rf/reg-route :route/to   {:path "/to"})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    ;; Seed a prior route in the tool frame so a cross-route nav would emit
+    ;; deactivated + activated (both must be suppressed).
+    (rf/dispatch-sync [:rf.route/navigate :route/from] {:frame :rf/tool})
+    (let [tool-traces (atom [])]
+      (rf/register-listener! ::dbmj6x-tool (fn [ev] (swap! tool-traces conj ev)))
+      (rf/dispatch-sync [:rf.route/navigate :route/to] {:frame :rf/tool})
+      (rf/unregister-listener! ::dbmj6x-tool)
+      (is (empty? (filter #(#{:rf.route.nav-token/allocated
+                              :rf.route/activated
+                              :rf.route/deactivated}
+                            (:operation %))
+                          @tool-traces))
+          "no lifecycle / nav-token trace leaks from a :rf.trace/frame-no-emit?
+           frame (pre-fix the unframed emits leaked past the gate)"))
+    ;; Control: the identical events DO fire from an ordinary emitting frame.
+    (rf/dispatch-sync [:rf.route/navigate :route/from] {:frame :rf/default})
+    (let [app-traces (atom [])]
+      (rf/register-listener! ::dbmj6x-app (fn [ev] (swap! app-traces conj ev)))
+      (rf/dispatch-sync [:rf.route/navigate :route/to] {:frame :rf/default})
+      (rf/unregister-listener! ::dbmj6x-app)
+      (is (some #(= :rf.route.nav-token/allocated (:operation %)) @app-traces)
+          "control: :rf.route.nav-token/allocated DOES fire from an emitting frame")
+      (is (some #(= :rf.route/activated (:operation %)) @app-traces)
+          "control: :rf.route/activated DOES fire from an emitting frame")
+      (is (some #(= :rf.route/deactivated (:operation %)) @app-traces)
+          "control: :rf.route/deactivated DOES fire from an emitting frame"))))

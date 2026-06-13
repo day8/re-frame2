@@ -505,6 +505,13 @@
                  ;; `:rf.route/nav-counters` cofx — `commit-navigation`
                  ;; mints the nav-token from it purely + emits the bump fx.
                  :nav-counters nav-counters
+                 ;; rf2-dbmj6x: the in-flight cascade's carried frame stamp
+                 ;; (validated at the handler top). `commit-navigation` stamps
+                 ;; it on the nav-token-allocated + activated/deactivated
+                 ;; lifecycle traces so they enter the emitting frame's epoch
+                 ;; and obey the frame trace-disable gate, consistent with the
+                 ;; route-miss diagnostics this path already frame-tags above.
+                 :frame        frame
                  ;; EP-0016 D3 slice 3: the route-entry app-db, threaded into
                  ;; the `:routing/on-route-entry` hook so a `{:from-db …}`
                  ;; route-resource scope resolves db-derived viewer identity.
