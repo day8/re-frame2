@@ -329,6 +329,30 @@ else
         cljs_browser=true
         cljs_prod=true
         ;;
+      implementation/scripts/serve-and-run-xray-feature-gate.cjs)
+        # rf2-rcepku — false-green fix, mirroring rf2-y9o5e3 for the
+        # examples/scripts launchers. This launcher IS the executable
+        # orchestration for `npm run test:xray-feature-gate:smoke`, the
+        # command the story-xray-browser PR job runs (.github/workflows/
+        # test.yml). A break in this launcher (compile step, surface
+        # staging, port resolution, server staging, the external-base-URL
+        # readiness probe) can break the Xray PR-smoke gate — yet the
+        # generic implementation/scripts/* case below routes only to the
+        # always-on JS/CLJS surfaces and NEVER to story_xray_browser, so a
+        # PR editing this launcher could break the very gate it drives
+        # while avoiding it (a false-green hole). Fire story_xray_browser
+        # so editing the launcher runs the gate it orchestrates. The
+        # remaining static-script surfaces this file shares with the
+        # generic case (cljs_node_test / cljs_browser / cljs_prod /
+        # bundle_isolation / reagent_slim_bundle) stay armed too — this
+        # case widens coverage, it does not narrow it.
+        cljs_node_test=true
+        cljs_browser=true
+        cljs_prod=true
+        bundle_isolation=true
+        reagent_slim_bundle=true
+        story_xray_browser=true
+        ;;
       implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/*)
         # rf2-8jz9t + rf2-bxdk8 + rf2-cjp0i + rf2-k9ekz + rf2-t5slp —
         # adapter_testbed_smokes and story_xray_browser are NOT fired
