@@ -8,22 +8,26 @@
   Runs on CLJS under shadow's `:node-test` target (ns suffix
   `-cljs-test`). `share.cljs` is CLJS-only (Reagent / DOM)."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [cljs.test :refer [deftest is testing use-fixtures async]]
+            [goog.object :as gobj]
             [re-frame.story :as story]
             [re-frame.story.share :as share]
             [re-frame.story.ui.share :as ui-share]
             [re-frame.story.ui.state :as state]))
 
 (use-fixtures :each
-  (fn [t]
-    (story/clear-all!)
-    (state/reset-shell-state!)
-    (story/install-canonical-vocabulary!)
-    (ui-share/close-share-export-dialog!)
-    (t)
-    (story/clear-all!)
-    (state/reset-shell-state!)
-    (ui-share/close-share-export-dialog!)))
+  ;; Map form (`:before` / `:after`) — async tests in this ns (the rf2-ehc5bq
+  ;; screenshot suite) require the map fixture shape; cljs.test aborts an
+  ;; async test under a bare-fn fixture.
+  {:before (fn []
+             (story/clear-all!)
+             (state/reset-shell-state!)
+             (story/install-canonical-vocabulary!)
+             (ui-share/close-share-export-dialog!))
+   :after  (fn []
+             (story/clear-all!)
+             (state/reset-shell-state!)
+             (ui-share/close-share-export-dialog!))})
 
 ;; ---- reproducibility-badge -----------------------------------------------
 
@@ -177,3 +181,204 @@
       (is (= 1 (count (:dropped out))) "the removed :gone override is dropped")
       (is (re-find #":gone" (first (:dropped out)))
           "the dropped token names the stale key"))))
+
+;; ===========================================================================
+;; rf2-ehc5bq — screenshot egress: real capture-to-PNG + clipboard write, or
+;; an HONEST unavailable/error state. The old body marked `:copied :screenshot`
+;; BEFORE any capture/write and only optionally poked an absent host shim, so
+;; a no-shim click was a silent no-op that still flashed copied. These tests
+;; exercise the ACTION (not just the render) on both the success path and the
+;; failure paths; the failure-path tests fail against that old false-success
+;; no-op.
+;;
+;; The `:node-test` runner has no DOM (`js/document` / `js/window` /
+;; `js/navigator` / `js/ClipboardItem` are absent), so each test installs the
+;; minimal fakes it needs on `goog/global` (the Node global object) and tears
+;; them down after. `js/Blob` IS a Node global (Node 18+).
+;; ===========================================================================
+
+(def ^:private global goog/global)
+
+;; Some globals (e.g. `navigator` on Node 21+) are getter-only but
+;; configurable, so a plain assignment throws. Route every install through
+;; `Object.defineProperty` with a writable+configurable data descriptor, and
+;; restore the same way — this works for both the settable (`window`,
+;; `ClipboardItem`) and the getter-only (`navigator`) globals uniformly.
+(defn- define-global! [k v]
+  (js/Object.defineProperty
+    global (name k)
+    #js {:value v :writable true :configurable true}))
+
+(defn- install-globals!
+  "Install `m` (a {js-name → value} map) on the Node global via
+  `Object.defineProperty`. Returns the prior values so a `finally` can
+  restore them. A nil/undefined value INSTALLS that (so a test can simulate
+  an 'absent' capability by overwriting an existing key)."
+  [m]
+  (let [prev (into {} (map (fn [[k _]] [k (gobj/get global (name k))])) m)]
+    (doseq [[k v] m] (define-global! k v))
+    prev))
+
+(defn- restore! [prev]
+  (doseq [[k v] prev] (define-global! k v)))
+
+(defn- fake-document
+  "A `js/document` whose `querySelector` returns a single sentinel node for the
+  canvas selectors `canvas-node` probes, nil otherwise."
+  [node]
+  #js {:querySelector
+       (fn [sel]
+         (if (or (str/includes? sel "Variant canvas")
+                 (str/includes? sel "data-test-variant"))
+           node
+           nil))})
+
+(defn- fake-window-with-capture
+  "A `js/window` exposing an `rfStoryCaptureNode` shim that resolves a PNG
+  Blob (the success raster seam)."
+  []
+  #js {:rfStoryCaptureNode
+       (fn [_node]
+         (js/Promise.resolve (js/Blob. #js ["PNGDATA"] #js {:type "image/png"})))})
+
+(defn- fake-navigator-with-write
+  "A `js/navigator.clipboard` whose `write` resolves and records the items it
+  was handed in `recorder` (an atom)."
+  [recorder]
+  #js {:clipboard
+       #js {:write (fn [items]
+                     (reset! recorder items)
+                     (js/Promise.resolve js/undefined))}})
+
+(deftest screenshot-success-writes-png-and-marks-copied
+  (testing "rf2-ehc5bq — with a canvas node + a capture seam + the async
+            Clipboard image-write API, copy-screenshot! rasters to a PNG,
+            writes a ClipboardItem, and ONLY THEN flashes :copied :screenshot"
+    (async done
+      (let [written (atom nil)
+            prev (install-globals!
+                   {"document"      (fake-document #js {:tag "canvas"})
+                    "window"        (fake-window-with-capture)
+                    "navigator"     (fake-navigator-with-write written)
+                    "ClipboardItem" (fn [parts] (this-as this
+                                                   (set! (.-_parts this) parts)
+                                                   this))})]
+        (-> (ui-share/copy-screenshot!)
+            (.then
+              (fn [ok?]
+                (is (true? ok?) "the write resolved → success")
+                (let [snap (ui-share/dialog-state-snapshot)]
+                  (is (= :screenshot (:copied snap))
+                      "copied flashes only on a real, resolved clipboard write")
+                  (is (nil? (:error snap)) "no error on the success path"))
+                (is (some? @written) "a ClipboardItem was handed to clipboard.write")))
+            (.finally
+              (fn [] (restore! prev) (done))))))))
+
+(deftest screenshot-no-shim-reports-error-not-false-copied
+  (testing "rf2-ehc5bq (adversarial) — clipboard image-write IS available but
+            NO host capture seam is installed: copy-screenshot! must record an
+            HONEST :error and must NOT flash :copied :screenshot. This FAILS
+            against the old body that marked copied before any capture."
+    (async done
+      (let [prev (install-globals!
+                   {"document"      (fake-document #js {:tag "canvas"})
+                    ;; window WITHOUT rfStoryCaptureNode → no raster seam
+                    "window"        #js {}
+                    "navigator"     (fake-navigator-with-write (atom nil))
+                    "ClipboardItem" (fn [parts] (this-as this this))})]
+        (-> (ui-share/copy-screenshot!)
+            (.then
+              (fn [ok?]
+                (is (false? ok?) "no seam → failure outcome")
+                (let [snap (ui-share/dialog-state-snapshot)]
+                  (is (not= :screenshot (:copied snap))
+                      "MUST NOT report success on a no-op (the false-success bug)")
+                  (is (= :screenshot (:cmd (:error snap)))
+                      "records an honest screenshot error")
+                  (is (string? (:reason (:error snap)))
+                      "the error carries a human reason"))))
+            (.finally
+              (fn [] (restore! prev) (done))))))))
+
+(deftest screenshot-no-clipboard-reports-error-not-false-copied
+  (testing "rf2-ehc5bq (adversarial) — a host WITHOUT the async Clipboard
+            image-write API (no navigator.clipboard.write / no ClipboardItem)
+            yields an honest :error, never a false :copied. FAILS against the
+            old false-success no-op."
+    (async done
+      (let [prev (install-globals!
+                   {"document"      (fake-document #js {:tag "canvas"})
+                    "window"        (fake-window-with-capture)
+                    ;; navigator without a clipboard → image write unsupported
+                    "navigator"     #js {}
+                    "ClipboardItem" js/undefined})]
+        (-> (ui-share/copy-screenshot!)
+            (.then
+              (fn [ok?]
+                (is (false? ok?) "no clipboard image write → failure outcome")
+                (let [snap (ui-share/dialog-state-snapshot)]
+                  (is (not= :screenshot (:copied snap))
+                      "MUST NOT report success when clipboard image write is absent")
+                  (is (= :screenshot (:cmd (:error snap)))
+                      "records an honest screenshot error")
+                  (is (str/includes? (str/lower-case (:reason (:error snap)))
+                                     "clipboard")
+                      "the reason names the missing clipboard capability"))))
+            (.finally
+              (fn [] (restore! prev) (done))))))))
+
+(deftest screenshot-no-canvas-reports-error
+  (testing "rf2-ehc5bq — no variant canvas node in the DOM → honest :error, no
+            false :copied."
+    (async done
+      (let [prev (install-globals!
+                   {"document"      (fake-document nil) ; querySelector → nil
+                    "window"        (fake-window-with-capture)
+                    "navigator"     (fake-navigator-with-write (atom nil))
+                    "ClipboardItem" (fn [parts] (this-as this this))})]
+        (-> (ui-share/copy-screenshot!)
+            (.then
+              (fn [ok?]
+                (is (false? ok?))
+                (let [snap (ui-share/dialog-state-snapshot)]
+                  (is (not= :screenshot (:copied snap)))
+                  (is (= :screenshot (:cmd (:error snap)))))))
+            (.finally
+              (fn [] (restore! prev) (done))))))))
+
+(deftest screenshot-row-renders-error-not-copied-after-no-op
+  (testing "rf2-ehc5bq — after a failed screenshot egress the open dialog
+            threads the honest error reason into the screenshot row (`:error`)
+            and leaves it NOT copied (`:copied? false`). `command-block` is a
+            child component, so `str` over the dialog shows its invocation
+            PROPS — the idiomatic shallow-hiccup check used by the sibling
+            render test."
+    (async done
+      (story/reg-variant :story.egress/shot {:tags #{:dev} :events []})
+      (state/swap-state! #(assoc % :selected-variant :story.egress/shot))
+      (ui-share/open-share-export-dialog!)
+      (let [prev (install-globals!
+                   {"document"      (fake-document #js {:tag "canvas"})
+                    "window"        #js {}                ; no capture seam
+                    "navigator"     (fake-navigator-with-write (atom nil))
+                    "ClipboardItem" (fn [parts] (this-as this this))})]
+        (-> (ui-share/copy-screenshot!)
+            (.then
+              (fn [_]
+                (let [flat (str (ui-share/share-export-dialog))
+                      ;; the screenshot command-block invocation props slice
+                      shot (second (str/split flat #":test \"screenshot\""))]
+                  (is (some? shot) "the screenshot row is present")
+                  ;; the honest error reason is threaded into the row's :error
+                  (is (str/includes? shot ":error \"screenshot capture seam not installed on this host\"")
+                      "the screenshot row carries the honest error reason")
+                  ;; …and the row is NOT marked copied
+                  (is (str/includes? shot ":copied? false")
+                      "the screenshot row is NOT a false copied success")
+                  ;; sanity: a genuinely-copied row WOULD read :copied? true —
+                  ;; here it does not, so no false success leaked through
+                  (is (not (str/includes? shot ":copied? true"))
+                      "no false copied ✓ for the failed screenshot egress"))))
+            (.finally
+              (fn [] (restore! prev) (done))))))))

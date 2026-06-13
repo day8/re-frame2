@@ -56,7 +56,8 @@
   [`020-Story-UI-Inspector-And-Xray.md`](020-Story-UI-Inspector-And-Xray.md).
 - Test-mode result presentation and failure promotion — owned by
   [`021-Story-UI-Test-And-Evidence.md`](021-Story-UI-Test-And-Evidence.md).
-- Docs mode, sharing, static export, and egress redaction — owned by
+- Docs mode, human egress (share URL / static export / copied EDN /
+  screenshots), and the egress reproducibility-honesty contract — owned by
   [`022-Story-UI-Docs-And-Share.md`](022-Story-UI-Docs-And-Share.md).
 - The Story/testing runtime substrate itself — owned by
   [`017-Testing-Story.md`](017-Testing-Story.md). This is a UI spec; it
@@ -294,12 +295,22 @@ but they MUST NOT introduce a second artifact model. If an agent-only
 operation becomes important, it creates pressure to add a human-visible
 equivalent or mark the operation internal.
 
-### T4. Safe sharing versus useful reproduction
+### T4. Reproducibility honesty on human egress
 
-Share/export commands must be useful, but not at the cost of leaking
-application data. Redaction must be visible and explain what was removed.
-A shared artifact MAY be partially reproducible; it MUST say so when
-redaction removes required data. (Egress seam: see
+Share/export commands must be useful AND honest about reproducibility.
+Per the reframe, human egress of the developer's OWN running app
+(share URL, static build, copied EDN, screenshots) ships freely and is
+NOT privacy-gated — a local developer already has programmatic access to
+their own state and secrets, so redacting their own egress is futile.
+The surviving contract is reproducibility honesty: a shared / exported /
+copied artifact MUST state whether the recipient can reproduce it —
+fully / partially / view-only — and WHAT makes it less than fully
+replayable (a fn-valued override, a non-serialisable arg, a dropped
+override). A screenshot is always view-only and says so; a screenshot
+egress that cannot capture/write reports an honest unavailable/error
+state rather than a false success (rf2-ehc5bq). The AI/MCP boundary and
+logs are the real redaction points and are handled elsewhere, NOT through
+a share/export seam. (See
 [`022-Story-UI-Docs-And-Share.md`](022-Story-UI-Docs-And-Share.md) §3.)
 
 ### T5. Storybook addons versus product simplicity
@@ -377,7 +388,7 @@ architecture, not because they are untouchable.
 | Controls widget taxonomy | TARGET | Built incrementally over the current args/schema surface. | `019` §2 |
 | Save current state as variant | CURRENT/TARGET | Existing Story specs own the save affordance; this UI must place it coherently and keep it distinct from failure promotion. | `019` §3 |
 | Story-to-Xray focus API | CURRENT/TARGET | `rf2-crtmq` is closed (opening/focusing Xray is current); StoryUI still has to wire focused links from results/evidence/docs. | `020` §2.1 |
-| Share/export redaction across all egress | BLOCKED | Requires a common egress seam (`rf2-qarwq`) beyond epoch redaction. | `022` §3 |
+| Reproducibility honesty on human egress | CURRENT/TARGET | Human egress ships freely (not privacy-gated); each command carries a fully/partially/view-only reproducibility label. NOT blocked on a common redaction seam — `rf2-qarwq`'s real scope (AI/MCP + logs) is elsewhere. | `022` §3 |
 | Unified Test-mode result shape | SUPERSEDES | Supersedes [`009-Test-Mode.md`](009-Test-Mode.md) result-reading once the substrate run-result lands. | `021` §1 |
 | Third-party extension surface | FUTURE | Not justified by a primary P1 user story; keep only typed internal seams. | this spec §11 |
 | Hosted visual review service | OUT | Browser-tier assertions are in scope; hosted review is not. | — |
@@ -512,7 +523,7 @@ Required commands (per-command status; rows link to the owning spec):
 | open full Xray shell | CURRENT | `020` §2 |
 | focus Xray panel/beat/path | TARGET | `020` §2.1 |
 | open source for variant/view/event/assertion | TARGET | this spec §8 |
-| copy share URL | BLOCKED on the egress seam for safe sharing | `022` §3 |
+| copy share URL | CURRENT/TARGET — ships freely with a reproducibility label, not gated on a redaction seam | `022` §3 |
 | copy inline plan | TARGET | `022` §3 |
 | copy run artifact | BLOCKED | `021` §3 |
 | toggle failed-only result rows | TARGET | `021` §1 |
@@ -750,8 +761,10 @@ Empty states should be useful, not explanatory posters. Required states:
 no story selected; selected story has no variants; selected variant
 cannot render; controls have no schema/arg metadata; Xray frame not
 available; run result not available; run result exists but evidence
-projection is blocked; share/copy disabled because egress redaction is
-unavailable.
+projection is blocked; a human-egress command unavailable for a host
+reason (e.g. a screenshot host with no capture/clipboard seam reports an
+honest unavailable state — NOT a redaction gate, which human egress does
+not have).
 
 Each state should answer: what is missing; what command is available
 now; and whether this is a project-setup issue, a runner limitation, or a
@@ -830,8 +843,9 @@ states through sub-overrides; upgrade a low-fidelity state to db seed or
 real setup; review a variants grid with many cells; run a variant with
 all passing checks; investigate a failed assertion through evidence and
 Xray; show cannot-run for a runner/evidence mismatch; promote a generated
-failure into a curated variant; share or copy a reproduction with
-redaction warnings. Each screen needs a happy path and a floor state (the
+failure into a curated variant; share or copy a reproduction with its
+reproducibility label (fully / partially / view-only — NOT a redaction
+warning). Each screen needs a happy path and a floor state (the
 earliest acceptable version when later substrate is still blocked).
 
 ### 12.11 Motion

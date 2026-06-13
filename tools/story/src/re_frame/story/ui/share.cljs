@@ -51,7 +51,11 @@
 
   - `share-export-dialog` + `open-share-export-dialog!` — the human
     egress dialog: copy share URL · copy EDN · copy a PNG screenshot ·
-    the static-build (`story:build`) note, each carrying the badge.
+    the static-build (`story:build`) note, each carrying the badge. The
+    screenshot row does a real capture-to-PNG + `navigator.clipboard.write`
+    and surfaces an honest unavailable/error state when the host lacks a
+    capture seam or the async clipboard image-write API (rf2-ehc5bq) — it
+    never flashes a false 'copied' on a no-op.
 
   ## Bundle isolation
 
@@ -427,21 +431,49 @@
 
 (defonce ^:private dialog-state
   ;; A thin Reagent ratom. `:open?` toggles the modal; `:copied` carries
-  ;; the last-copied command id so the UI can flash a confirmation.
-  (r/atom {:open? false :copied nil}))
+  ;; the last-copied command id so the UI can flash a confirmation;
+  ;; `:error` carries `{:cmd <id> :reason <string>}` when a command could
+  ;; NOT complete (e.g. screenshot capture/clipboard unavailable) so the
+  ;; row surfaces an honest unavailable/error state instead of a false
+  ;; "copied ✓". A command writes EITHER `:copied` OR `:error`, never both
+  ;; for the same id (rf2-ehc5bq).
+  (r/atom {:open? false :copied nil :error nil}))
 
 (defn open-share-export-dialog!
   "Open the human-egress dialog. No-op under production builds (the whole
   shell is elided). Idempotent."
   []
   (when config/enabled?
-    (reset! dialog-state {:open? true :copied nil})))
+    (reset! dialog-state {:open? true :copied nil :error nil})))
 
 (defn close-share-export-dialog! []
-  (reset! dialog-state {:open? false :copied nil}))
+  (reset! dialog-state {:open? false :copied nil :error nil}))
 
-(defn- mark-copied! [cmd]
-  (swap! dialog-state assoc :copied cmd))
+(defn dialog-state-snapshot
+  "Read-only view of the egress dialog ratom (`:open?` / `:copied` /
+  `:error`). Public so tests can assert that a command flashed `:copied`
+  on real success — or recorded an honest `:error` on a no-op / failure —
+  without poking the private ratom (rf2-ehc5bq)."
+  []
+  @dialog-state)
+
+(defn- mark-copied!
+  "Flash the `cmd` success confirmation and clear any prior error for it."
+  [cmd]
+  (swap! dialog-state
+         (fn [s]
+           (cond-> (assoc s :copied cmd)
+             (= cmd (:cmd (:error s))) (assoc :error nil)))))
+
+(defn- mark-error!
+  "Record that `cmd` could NOT complete, with a short human `reason`. Clears
+  any stale `:copied` flash for the same command so the UI never shows a
+  false success alongside the failure (rf2-ehc5bq)."
+  [cmd reason]
+  (swap! dialog-state
+         (fn [s]
+           (cond-> (assoc s :error {:cmd cmd :reason reason})
+             (= cmd (:copied s)) (assoc :copied nil)))))
 
 (defn- current-url
   "The live address-bar URL (`window.location.href`) — the share URL is
@@ -470,29 +502,101 @@
     (or (.querySelector js/document "section[aria-label='Variant canvas']")
         (.querySelector js/document "[data-test-variant]"))))
 
-(defn copy-screenshot!
-  "Copy a PNG screenshot of the variant canvas to the clipboard. Uses the
-  modern Clipboard API (`navigator.clipboard.write` with an `image/png`
-  blob); the raster is produced from the canvas node via the browser's
-  native capture seam if available (`html-to-image`-style APIs are NOT
-  vendored — Story stays slim). When no raster seam is present this is a
-  graceful no-op that flashes the confirmation so the affordance is never
-  a dead click in unsupported hosts.
-
-  A screenshot is ALWAYS view-only egress (a static image — no replay);
-  the dialog row says so. Per the reframe this is NOT privacy-gated —
-  it is the dev's own rendered app."
+(defn- clipboard-write-image-supported?
+  "True iff the host exposes the modern async Clipboard API image-write seam
+  (`navigator.clipboard.write` + the `ClipboardItem` constructor). PNG-to-
+  clipboard needs BOTH; `writeText` alone is not enough. Node/JSDOM and
+  non-secure contexts have neither, so this returns false there."
   []
-  (mark-copied! :screenshot)
-  (when-let [node (canvas-node)]
-    ;; Best-effort: hand the node off to the browser's capture seam when one
-    ;; is wired by the host (e.g. a `js/window.rfStoryCaptureNode` shim a
-    ;; host installs). Story does not vendor a rasteriser; absent a seam this
-    ;; is a no-op (the confirmation still flashes — the command exists, the
-    ;; host opts into rastering). Pure UI affordance; no app data leaves the
-    ;; process beyond the dev's own rendered pixels.
-    (when-let [capture (and (exists? js/window) (.-rfStoryCaptureNode js/window))]
-      (try (capture node) (catch :default _ nil)))))
+  (boolean
+    (and (exists? js/navigator)
+         (.-clipboard js/navigator)
+         (fn? (.-write (.-clipboard js/navigator)))
+         (exists? js/ClipboardItem))))
+
+(defn- rasterise-node
+  "Produce an `image/png` Blob from `node` using the host-installed capture
+  seam `js/window.rfStoryCaptureNode`. Story does NOT vendor a rasteriser
+  (`html-to-image`-style libs would bloat the slim bundle); the host opts in
+  by installing the shim, which MUST return a `Blob`/`Promise<Blob>` of the
+  rendered pixels.
+
+  Returns a `js/Promise` resolving to the PNG Blob. Rejects (or resolves a
+  non-Blob) when no seam is installed or the seam throws — the caller turns
+  that into the honest unavailable/error state. Never silently succeeds."
+  [node]
+  (js/Promise.
+    (fn [resolve reject]
+      (let [capture (and (exists? js/window) (.-rfStoryCaptureNode js/window))]
+        (cond
+          (not (fn? capture))
+          (reject (js/Error. "no-capture-seam"))
+
+          :else
+          (try
+            (-> (js/Promise.resolve (capture node))
+                (.then (fn [blob]
+                         (if (instance? js/Blob blob)
+                           (resolve blob)
+                           (reject (js/Error. "capture-returned-no-blob")))))
+                (.catch reject))
+            (catch :default e (reject e))))))))
+
+(defn copy-screenshot!
+  "Copy a PNG screenshot of the variant canvas to the clipboard.
+
+  Capture-to-PNG then clipboard write, in the standard browser path:
+
+    1. locate the canvas node;
+    2. rasterise it to an `image/png` Blob via the host capture seam
+       (`js/window.rfStoryCaptureNode` — Story stays slim and does not
+       vendor a rasteriser);
+    3. write the Blob to the clipboard via `navigator.clipboard.write`
+       wrapping a `ClipboardItem`.
+
+  Marks `:copied :screenshot` ONLY when the clipboard write actually
+  resolves. When the canvas node is missing, no capture seam is installed,
+  the seam fails, the async Clipboard image-write API is unavailable, or the
+  write rejects, it records an HONEST unavailable/error state (`mark-error!`)
+  — it does NOT flash a false 'copied ✓' on a no-op (rf2-ehc5bq).
+
+  A screenshot is ALWAYS view-only egress (a static image — no replay); the
+  dialog row says so. Per the reframe this is NOT privacy-gated — it is the
+  dev's own rendered app. Returns the `js/Promise` of the write (or a
+  rejected/immediate-resolve sentinel) so tests can await the outcome."
+  []
+  (let [node (canvas-node)]
+    (cond
+      ;; Early-exit unavailable paths record the honest error and resolve
+      ;; `false` (NOT a rejected Promise) so a fire-and-forget `:on-click`
+      ;; caller does not leak an unhandled rejection — the error state is
+      ;; already in the ratom for the row to surface.
+      (nil? node)
+      (do (mark-error! :screenshot "no variant canvas to capture")
+          (js/Promise.resolve false))
+
+      (not (clipboard-write-image-supported?))
+      (do (mark-error! :screenshot
+                       "clipboard image write unavailable in this browser")
+          (js/Promise.resolve false))
+
+      :else
+      (-> (rasterise-node node)
+          (.then (fn [blob]
+                   (let [item (js/ClipboardItem. #js {"image/png" blob})]
+                     (.write (.-clipboard js/navigator) #js [item]))))
+          (.then (fn [_]
+                   (mark-copied! :screenshot)
+                   true))
+          (.catch (fn [e]
+                    (let [reason (case (some-> e .-message)
+                                   "no-capture-seam"
+                                   "screenshot capture seam not installed on this host"
+                                   "capture-returned-no-blob"
+                                   "capture seam did not return a PNG"
+                                   "could not capture or copy the screenshot")]
+                      (mark-error! :screenshot reason))
+                    false))))))
 
 ;; ---- the dialog ----------------------------------------------------------
 
@@ -500,8 +604,13 @@
 
 (defn- command-block
   "One egress command row: a name + description, an optional badge, an
-  action button, and an optional inline body (the URL field)."
-  [{:keys [test name desc badge action action-label body copied?]}]
+  action button, and an optional inline body (the URL field).
+
+  Surfaces EITHER a `copied ✓` flash (`copied?`) OR an honest
+  unavailable/error note (`error` — a short reason string), never both: a
+  command that could not complete (e.g. screenshot capture/clipboard
+  unavailable) MUST NOT show a false success (rf2-ehc5bq)."
+  [{:keys [test name desc badge action action-label body copied? error]}]
   [:div {:style (:command styles) :data-test (str "story-egress-command-" test)}
    [:div {:style (:command-h styles)}
     [:span {:style (:command-name styles)} name]
@@ -509,11 +618,17 @@
    [:div {:style (:command-desc styles)} desc]
    (when body body)
    [:div {:style (:btn-row styles)}
-    (when copied?
+    (when (and copied? (not error))
       [:span {:style (merge (:hint styles) {:font-style "normal"
                                             :color (:success colors/tokens)})
               :data-test (str "story-egress-copied-" test)}
        "copied ✓"])
+    (when error
+      [:span {:style (merge (:hint styles) {:font-style "normal"
+                                            :color (:danger colors/tokens)})
+              :role      "status"
+              :data-test (str "story-egress-error-" test)}
+       (str "unavailable — " error)])
     [:button {:style     (:btn styles)
               :data-test (str "story-egress-action-" test)
               :on-click  action}
@@ -538,7 +653,7 @@
   commands SHIP enabled and are NOT privacy-gated — the only contract
   is the reproducibility honesty each row carries."
   []
-  (let [{:keys [open? copied]} @dialog-state]
+  (let [{:keys [open? copied error]} @dialog-state]
     (when open?
       (let [shell    @state/shell-state-atom
             vid      (:selected-variant shell)
@@ -603,6 +718,7 @@
                                     :code   :screenshot
                                     :detail "a screenshot is a static image — the recipient sees the view but cannot replay it"}]})
              :copied? (= copied :screenshot)
+             :error   (when (= :screenshot (:cmd error)) (:reason error))
              :action       (fn [_] (copy-screenshot!))
              :action-label "copy PNG"}]
 
