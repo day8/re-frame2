@@ -156,18 +156,18 @@
   `re-frame.ssr.response`; this is the structural shape check.
 
   [Spec-Schemas §`:rf.fx.server/redirect-args`]'s `RedirectFxArgs`, Spec
-  011 §Standard fx (line 435), and `re-frame.ssr.response/redirect-fx`
-  all agree: the target is supplied under any ONE of `:location` /
-  `:url` / `:to`, and redirect-fx reads all three (`(or :location :url
-  :to)`). The schema accepts any one of the three target keys (a
-  `:string`), each optional, plus the optional `:int` `:status`. The fx
-  handler resolves precedence (`:location` wins, then `:url`, then
-  `:to`).
+  011 §Standard fx, and `re-frame.ssr.response/redirect-fx` all agree:
+  the canonical (and only) target key is `:location` (rf2-vngir / EP-0007
+  one-name-per-fact — this fx writes an HTTP `Location` response header,
+  so it uses header vocabulary). The retired synonyms `:url` / `:to` are
+  NOT accepted: `redirect-fx` throws `:rf.error/redirect-retired-target-
+  key` naming `:location` (no back-compat alias). The schema accepts the
+  optional `:string` `:location` plus the optional `:int` `:status`.
 
   PERMISSIVE on the no-target case (rf2-ee38b.11 contract, the live half
-  of decision rf2-cwfy2). All three target keys are optional AND a
-  redirect with ZERO target keys PASSES this shape gate — it is not a
-  structural error. A target-less redirect is the established
+  of decision rf2-cwfy2). `:location` is optional AND a redirect with NO
+  `:location` PASSES this shape gate — it is not a structural error. A
+  target-less redirect is the established
   `:rf.ssr/ssr-redirect-no-target` graceful-degradation path: the
   redirect-fx accepts it (location is caller-trusted/optional at the fx
   boundary) and the adapter emits the warning trace + a 3xx with no
@@ -179,9 +179,7 @@
   fall through to the runtime's warning path."
   [:map
    [:status   {:optional true} :int]      ;; default 302
-   [:location {:optional true} :string]
-   [:url      {:optional true} :string]
-   [:to       {:optional true} :string]])
+   [:location {:optional true} :string]]) ;; canonical (and only) target key (rf2-vngir)
 
 (def safe-redirect-args
   "Args of `:rf.server/safe-redirect` — `:rf.fx.server/safe-redirect-args`.
