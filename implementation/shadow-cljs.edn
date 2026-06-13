@@ -64,6 +64,18 @@
                 "adapters/reagent/testbed"
                 "adapters/reagent-slim/src"
                 "adapters/reagent-slim/test"
+                ;; rf2-xsgu8a — per-adapter CLIENT-RUNTIME smoke (reagent-slim).
+                ;; Standalone counter app under adapters/reagent-slim/testbed/
+                ;; that proves the day8/reagent-slim substrate wires up
+                ;; end-to-end in a browser (mount through reagent2.dom.client,
+                ;; frame-provider + injected dispatch/subscribe, click-driven
+                ;; updates). Source path here so the
+                ;; :adapters/reagent-slim-testbed build's init-fn resolves.
+                ;; Driven by the adapter-owned runner
+                ;; scripts/serve-and-run-reagent-slim-smoke.cjs (npm
+                ;; test:reagent-slim:smoke), NOT the shared examples
+                ;; adapter-smoke manifest.
+                "adapters/reagent-slim/testbed"
                 "adapters/uix/src"
                 "adapters/uix/test"
                 ;; rf2-eceuv — per-adapter testbed (UIx). See the Reagent
@@ -1791,6 +1803,27 @@
    :output-dir "out/examples/adapter-testbeds/helix"
    :asset-path "."
    :modules    {:main {:init-fn adapter-testbed-helix.core/init}}
+   :devtools   {:preloads [re-frame2-pair.runtime]}}
+
+  ;; rf2-xsgu8a — per-adapter CLIENT-RUNTIME smoke for the day8/reagent-slim
+  ;; substrate. Same minimal-counter shape as the Reagent/UIx/Helix
+  ;; testbeds above, but every Reagent import points at reagent2.* and
+  ;; rf/init! receives the slim adapter Var (init value 5; inc + dec). It
+  ;; proves the slim mount/inject/click path end-to-end in a browser — the
+  ;; layer the rf2-xsgu8a review found uncovered (the slim example's prior
+  ;; browser coverage was compile-only + the release-bundle sentinel grep).
+  ;;
+  ;; Deliberately NOT in the shared examples adapter-smoke manifest
+  ;; (examples/scripts/examples-filter.cjs): it is the slim adapter's OWN
+  ;; gate, driven by scripts/serve-and-run-reagent-slim-smoke.cjs (npm
+  ;; test:reagent-slim:smoke) — mirroring how the slim bundle-isolation
+  ;; contract ships its own check-reagent-slim-bundle-isolation.cjs rather
+  ;; than folding into the shared check-bundle-isolation.cjs.
+  :adapters/reagent-slim-testbed
+  {:target     :browser
+   :output-dir "out/examples/adapter-testbeds/reagent-slim"
+   :asset-path "."
+   :modules    {:main {:init-fn adapter-testbed-reagent-slim.core/init}}
    :devtools   {:preloads [re-frame2-pair.runtime]}}
 
   ;; ============================================================================
