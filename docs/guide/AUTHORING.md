@@ -16,22 +16,44 @@ Every guide page commits to all five:
 2. **One load-bearing takeaway** a reader could quote from memory a week later (this page's is the blockquote above). One per page; a page with three slogans has none.
 3. **Reader-first ordering.** Goal → working code → explanation → spec link. Result before mechanism, mechanism before theory, theory before citation. Never open with internals.
 4. **Adjacency.** Examples sit beside the explanation they serve; warnings sit beside the risky step; the common mistake appears where the reader is about to make it — not in a pitfalls appendix.
-5. **The footer.** A **"You can now:"** bullet list (capabilities, not topics covered) plus **at most two** onward links, each with a reason to follow it.
+5. **The footer.** A **"You can now:"** bullet list — capabilities the reader earned, not topics covered. No "Next:" paragraph; navigation is the left nav and Material's prev/next buttons (see [§The footer](#the-footer)).
 
 Mode rules, stated as what each mode *forbids*: a **tutorial** page never catalogues alternatives ("you could also…" is a how-to's job); a **how-to** page assumes competence and never teaches a concept beyond a link; an **explanation** page carries no task steps; an **index** page routes and never teaches. Quality bar for foundational pages: a concrete reader problem, a complete listing, a walkthrough, a common mistake, and a checkpoint the reader can run or reason through.
 
 ## Voice
 
-Write like a calm senior engineer pair-programming at a whiteboard — not like an essayist. The test: could a tired engineer follow this at 11pm while something is broken? If a sentence needs a second read, split it.
+Write like **a friendly senior developer who's good at explaining things** — one who knows the material well enough not to show off. The reader knows React or Redux but is new to re-frame2; meet them as a knowledgeable colleague explaining over coffee, not as a terse README and not as an essay. The test: would it sound natural said aloud, and could a tired engineer follow it at 11pm?
 
-- **Short sentences, one idea each.** Break em-dash and semicolon chains into separate sentences. Full stops are free.
-- **Concrete before abstract.** Show the fact or the example first; state the general rule after, or not at all. Never open a paragraph with the generalization.
-- **Say the consequence, not the abstraction.** "A leak boundary that fails closed" becomes "forget the scope and you get a loud error, never one user quietly seeing another's data."
-- **One takeaway per page, not per paragraph.** Keep the single best memorable line — the page's load-bearing takeaway. Every other aphorism becomes a plain statement; a page of slogans has none.
-- **Cut performance and deep-cut analogies.** No showing off. Anchor to one tool the reader already knows (Redux, TanStack Query, XState, React Router), not three they might not.
-- **Repeat the load-bearing idea once, plainly.** Learning needs a little redundancy; reference does not — and the guide teaches.
+- **Explain the why, not just the what.** After an instruction, a short *because* / *which means* / *so that* clause earns its keep. A senior dev tells you why a thing works, briefly.
+- **Vary your rhythm and connect your ideas.** Mix sentence lengths; carry the reader with transitions ("Now that X works…", "Here's the catch…", "The reason this matters…"). Stacks of clipped four-word sentences read cold — that's the failure mode to avoid.
+- **Be warm, and on the reader's side.** Acknowledge what trips people up, what they might expect, what they can ignore for now. That small gesture is most of what reads as friendly.
+- **Trust the reader with the obvious.** Calm seniority, not anxious over-hedging: spend the words on what's genuinely hard, not on what they already know.
+- **Never show off.** This is the guardrail against the old essayist voice — no aphorism-per-paragraph, no flourish, no deep-cut analogies, no jokes. Anchor to one tool the reader knows. One bolded takeaway per page, not one per paragraph.
 
-Voice modulates by tier. **Tutorial and how-to** are the plainest and most imperative — "Do this. Now look." **Concept** pages may carry one metaphor. The **explanation shelf** (`explanation/`, `derivations-and-algebra-views.md`) is the one place the argumentative essay voice belongs: keep the thesis, trim the excess.
+Voice modulates by tier. **Tutorial and concepts** are the warmest and most explanatory — the reader is learning. **How-to** pages stay tighter, because the reader is competent and in a hurry; warmth is a sentence, not a paragraph. The **explanation shelf** (`explanation/`, `derivations-and-algebra-views.md`) keeps the argument voice — just trim the excess.
+
+## Define before use
+
+A reader goes top to bottom. The first time a page uses a core term — `app-db`, event, handler, subscription, view, effect, coeffect, frame, resource, mutation — it carries a one-line plain gloss at or before that first use ("app-db, your app's single state map"). Never use a load-bearing term cold, and never pack the reader off to another page mid-flow for a basic word — gloss it inline in a few words. The guide's reading order (quickstart → the loop → tutorial → deeper concepts) exists so the fundamentals are taught before a real domain leans on them.
+
+## Callouts
+
+Leverage MkDocs Material, but match the box to the signal:
+
+- **Persona deltas** (`> **Coming from React?** …`) stay **light bold blockquotes**. They're frequent and skippable; a coloured box each time is just noise.
+- **Warnings / footguns** → `!!! warning`. Rare and high-signal, so the box and colour earn their place.
+- **Heads-up / honesty / "when not to use" / CLIENT-ONLY / deferred** → `!!! note`.
+- **Deep or optional asides** a reader can skip → collapsible `??? note`.
+
+Admonition bodies are indented four spaces with a blank line after the marker — mis-indentation breaks the build.
+
+## The footer
+
+End with a **"You can now:"** checklist — the capabilities the reader earned, not the topics you covered. That is the whole footer. **No "Next:" paragraph:** navigation is the left nav plus Material's prev/next buttons (`navigation.footer`), and a genuinely useful cross-link belongs inline in the prose where it's relevant, not parked at the bottom.
+
+## Live code cells
+
+Small, self-contained examples should run in the browser, not just sit there. A fenced block tagged ` ```cljs-rf2 ` is mounted by the docs playground as a live, editable cell — no install. The cell dialect is functions-only: plain `defn` views with explicit `rf/dispatch` / `rf/subscribe`, a `(require …)` form instead of `ns`, and a trailing hiccup form (`[counter]`) as the thing to render. Reach for a live cell where editing teaches more than reading — the counter and its small variations, a subscription graph, a single derivation. A full app like RealWorld can't be a cell, so keep those static and link to the worked example.
 
 ## Tiers and modes
 
@@ -136,5 +158,3 @@ Write Markdown for MkDocs Material. Pages live under `docs/guide/`; the nav is e
 - write a page that passes the contract: reader-problem opening, one quotable takeaway, adjacency, a you-can-now footer with ≤2 links
 - pick the right canon app (counter until server data appears, RealWorld after), source snippets from named `examples/` files, and link down into spec at the right depth
 - author a `cljs-rf2` cell that mounts, deploy the standing devices, and know which of the four gates will check your work
-
-**Next:** [The re-frame2 Guide](README.md) — the reader-facing shape this contract produces · [Build RealWorld — what you'll make, and setup](tutorial/index.md) — the tier the cold-agent and time-to-pixels gates measure.

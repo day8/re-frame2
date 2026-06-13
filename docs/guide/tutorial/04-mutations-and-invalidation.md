@@ -1,22 +1,22 @@
 # Part 4: writes — favoriting, posting, invalidation
 
-In [Part 2](02-server-data.md) the app *read* server state through resources. In [Part 3](03-auth-and-forms.md) you added login. Now Conduit gets its writes: the favorite heart on every article card, and the editor's **Publish Article** button. By the end of this part:
+In [Part 2](02-server-data.md) the app *read* server state through resources — a resource is a cached, declarative read of remote data. In [Part 3](03-auth-and-forms.md) you added login. Now Conduit gets its writes: the favorite heart on every article card, and the editor's **Publish Article** button. By the end of this part:
 
-- clicking the heart fires a **mutation**. Its registration declares which cached reads it breaks. The detail, the lists, and your personal feed all refresh with **no wiring at the call site**.
+- clicking the heart fires a **mutation** — a write to the server, registered once with its consequences attached. Its registration declares which cached reads it breaks, so the detail, the lists, and your personal feed all refresh with **no wiring at the call site**.
 - publishing an article saves it, then *continues* — navigate to the new article, clear the form — via a **`:reply-to` event**, not a callback.
 - a **`:can-leave` route guard** and a confirm dialog block you from navigating away from a half-written draft.
 
 > **Coming from RTK Query or TanStack Query?** A mutation here is RTK Query's mutation with `invalidatesTags`, with three differences: invalidation is declared once on the write's *registration*, not per call site; every invalidation is **scoped** — your feed and another user's feed are different cache entries, and a write names which scopes it touches; and the post-write continuation is a dispatched **event**, not an `onSuccess` callback.
 
-The idea this part lands:
+The idea this part lands is worth holding onto as you read:
 
 **A mutation's `:reply-to` is the continuation — on the record, inspectable, replayable.**
 
 ## The reads, ready to be broken
 
-In Part 2, each resource declared `:tags` on its cached data. The article detail carries `[:article slug]`. The lists carry `[:article-list]` plus a tag per article they contain. We planted those tags for this moment. They are the join key between writes and reads.
+In Part 2, each resource declared `:tags` on its cached data. The article detail carries `[:article slug]`. The lists carry `[:article-list]` plus a tag per article they contain. We planted those tags back then for exactly this moment — they're the join key between writes and reads, the thing that lets a write say "I just made these tags stale" without naming a single read by hand.
 
-One read is still missing: the **personal feed** (`GET /articles/feed`). Part 2 left it out because what it returns depends on *who is asking*. So its cache must be keyed per user. That key is a **named scope resolver**:
+One read is still missing: the **personal feed** (`GET /articles/feed`). Part 2 left it out on purpose, because what it returns depends on *who is asking*. So its cache has to be keyed per user, which means we need a way to compute that key. That's a **named scope resolver** — a small function that turns app-db (your app's single state map) into a cache scope:
 
 ```clojure
 ;; src/conduit/scope.cljs
@@ -28,11 +28,11 @@ One read is still missing: the **personal feed** (`GET /articles/feed`). Part 2 
               (when username [:rf.scope/session {:username username}]))})
 ```
 
-Now register `:conduit/feed` exactly like Part 2's resources — tagged `#{[:feed]}` — but with `:scope {:from-db :conduit/session}` instead of `:rf.scope/global`. Its cache entries are keyed by the signed-in username. Signed out, the scope resolves to `nil` and the read fails closed. It never silently serves the previous user's feed.
+Now register `:conduit/feed` exactly like Part 2's resources — tagged `#{[:feed]}` — but with `:scope {:from-db :conduit/session}` instead of `:rf.scope/global`. Its cache entries are keyed by the signed-in username, so each user gets their own. Here's the payoff of fail-closed: signed out, the scope resolves to `nil` and the read fails closed. It never silently serves the previous user's feed.
 
 ## Register the write
 
-A mutation is the write-side counterpart of a resource. Register it with `reg-mutation`:
+A mutation is the write-side counterpart of a resource. You register it with `reg-mutation`:
 
 ```clojure
 ;; src/conduit/mutations.cljs
@@ -69,17 +69,19 @@ A mutation is the write-side counterpart of a resource. Register it with `reg-mu
 
 Three keys do the work:
 
-- **`:request`** describes the HTTP write the way a resource describes its read. It must *not* supply `:on-success` / `:on-failure` / `:request-id`. The runtime owns reply addressing, and that ownership is what makes the stale-reply suppression below possible. One asymmetry from reads: **writes never retry by default**. Re-sending a POST because the reply was slow is the classic double-submit bug. So a mutation retries only if its `:request` explicitly opts in. This one doesn't.
-- **`:invalidates`** declares which tags the write makes stale on success. A single-scope write can use a bare tag set, like `#{[:article slug]}`. But favoriting breaks reads in *two* scopes: the article and lists are global, your feed is keyed by session. So it returns a vector of descriptors. Each names its own scope. The second resolves through the `:conduit/session` resolver above, at settle time. One write, both scopes, declared once.
-- **`:populates`** seeds an exact cache entry from the write's own reply, *before* the invalidation runs. The favorite endpoint replies with the full updated article, so we write it straight into the `:conduit/article` entry. The populated value must be the resource's stored shape — the same `{:article …}` envelope a normal load produces, which is why we pass `result` whole. A populated entry counts as freshly loaded, so this mutation's own invalidation won't refetch the key it just learned.
+- **`:request`** describes the HTTP write the way a resource describes its read. It must *not* supply `:on-success` / `:on-failure` / `:request-id`, because the runtime owns reply addressing — and that ownership is what makes the stale-reply suppression below possible. There's one asymmetry from reads worth flagging: **writes never retry by default.** Re-sending a POST because the reply was slow is the classic double-submit bug, so a mutation retries only if its `:request` explicitly opts in. This one doesn't.
+- **`:invalidates`** declares which tags the write makes stale on success. A single-scope write can use a bare tag set, like `#{[:article slug]}`. But favoriting breaks reads in *two* scopes: the article and lists are global, while your feed is keyed by session. So it returns a vector of descriptors, each naming its own scope. The second resolves through the `:conduit/session` resolver above, at settle time. One write, both scopes, declared once.
+- **`:populates`** seeds an exact cache entry from the write's own reply, *before* the invalidation runs. The favorite endpoint replies with the full updated article, so we write it straight into the `:conduit/article` entry. The populated value must be the resource's stored shape — the same `{:article …}` envelope a normal load produces, which is why we pass `result` whole. A populated entry counts as freshly loaded, so this mutation's own invalidation won't turn around and refetch the key it just learned.
 
 Register `:conduit/unfavorite` the same way — same shape, `:method :delete`. The full registration surface lives in [Spec 016](../../../spec/016-Resources.md).
 
-> **Honest limits.** `:populates` is a *forward-only* seed — optimistic rollback is a deferred feature, not a current one. Here that's harmless: populate runs only on success. But don't reach for populate expecting TanStack-style optimistic updates that revert on failure; that shape isn't available yet.
+!!! note "Honest limits on `:populates`"
+
+    `:populates` is a *forward-only* seed — optimistic rollback is a deferred feature, not a current one. Here that's harmless, because populate runs only on success. But don't reach for populate expecting TanStack-style optimistic updates that revert on failure; that shape isn't available yet.
 
 ## Fire it, watch the instance
 
-A resource is "a sub you read and a cause you fire." A mutation is **a cause you fire and an instance you watch**. The UI never calls the mutation directly. It dispatches `:rf.mutation/execute`:
+A resource is "a sub you read and a cause you fire." A mutation is the mirror image: **a cause you fire and an instance you watch.** The UI never calls the mutation directly. Instead it dispatches `:rf.mutation/execute` — `dispatch` being how every event enters the system:
 
 ```clojure
 ;; src/conduit/views.cljs
@@ -106,9 +108,9 @@ A resource is "a sub you read and a cause you fire." A mutation is **a cause you
      [:i.ion-heart] " " favoritesCount]))
 ```
 
-Pause on the `:instance` id. Mutation state is keyed by **instance**, not by mutation id. `[:favorite slug]` gives every article card its own lifecycle. Click hearts on three cards in quick succession and they can never clobber each other. The view watches its instance through the passive `[:rf.mutation/state {:instance …}]` sub, which returns `{:pending? :success? :error? :settled? :result :error}`. That's where `:disabled (:pending? fav)` comes from. No `app-db` bookkeeping. No `:saving?` flag to maintain.
+Pause on the `:instance` id, because this is where people get tripped up. Mutation state is keyed by **instance**, not by mutation id. `[:favorite slug]` gives every article card its own lifecycle, which means you can click hearts on three cards in quick succession and they can never clobber each other. The view watches its instance through the passive `[:rf.mutation/state {:instance …}]` sub — a subscription being a read of derived state — which returns `{:pending? :success? :error? :settled? :result :error}`. That's where `:disabled (:pending? fav)` comes from. No `app-db` bookkeeping, no `:saving?` flag to maintain.
 
-Notice what the view *doesn't* do: it never invalidates anything. Add this button to the article cards from Part 1 and to the article page, and you're done. Favoriting behaves identically everywhere, because the write's consequences live on the write.
+Notice what the view *doesn't* do: it never invalidates anything. Add this button to the article cards from Part 1 and to the article page, and you're done. Favoriting behaves identically everywhere, because the write's consequences live on the write, not on the call site.
 
 ### Watch it happen
 
@@ -116,7 +118,7 @@ Run the app, sign in, and click a heart. The count changes immediately — that'
 
 ## Publish from the editor — and continue with `:reply-to`
 
-Watching an instance is right for *rendering*. The button disables itself. But a successful save usually has to **drive workflow**: navigate to the new article, clear the form. Those are causes, not renders. In Promise-land you'd `await` the POST and then navigate. Here the continuation is a declared part of the execute call: `:reply-to`.
+Watching an instance is the right tool for *rendering*: the button disables itself, and that's all it needs. But a successful save usually has to **drive workflow** too — navigate to the new article, clear the form. Those are causes, not renders. In Promise-land you'd `await` the POST and then navigate. Here the continuation is a declared part of the execute call: `:reply-to`.
 
 First, the write. Create and edit share one mutation that switches POST/PUT on whether a slug exists yet:
 
@@ -147,7 +149,7 @@ First, the write. Create and edit share one mutation that switches POST/PUT on w
                       :tags  #{[:feed]}}])})
 ```
 
-The editor's `app-db` slice is an ordinary form in Part 3's mold: a `:draft` the inputs edit, plus a `:baseline` (the article as loaded, or blank) so we can tell whether anything actually changed. Note what's *not* here: there's no `:status` field. The submission lifecycle Part 3 hand-rolled lives on the mutation instance instead.
+The editor's `app-db` slice is an ordinary form in Part 3's mold: a `:draft` the inputs edit, plus a `:baseline` (the article as loaded, or blank) so we can tell whether anything actually changed. Note what's *not* here: there's no `:status` field. The submission lifecycle Part 3 hand-rolled lives on the mutation instance instead — one of the things you get back by moving to mutations.
 
 ```clojure
 ;; src/conduit/editor.cljs
@@ -231,17 +233,17 @@ When the runtime accepts the write's reply, it dispatches `[:editor/replied repl
 
 Three rules make `:reply-to` trustworthy:
 
-- **You only ever see accepted, terminal replies.** The reply's `:status` is `:ok`, `:error`, or `:cancelled`. Branch on it. A *stale* reply (the user re-submitted under the same instance, or something cleared it) is suppressed by the runtime and never reaches your handler. You cannot write the "slow first response overwrites the fast second one" bug here.
-- **The continuation observes a settled world.** Phase order is fixed: populate and invalidate run first, the instance settles, *then* `:reply-to` dispatches. By the time `:editor/replied` runs, the lists are already marked stale and refetching.
+- **You only ever see accepted, terminal replies.** The reply's `:status` is `:ok`, `:error`, or `:cancelled` — so you branch on it. A *stale* reply (the user re-submitted under the same instance, or something cleared it) is suppressed by the runtime and never reaches your handler. You simply cannot write the "slow first response overwrites the fast second one" bug here.
+- **The continuation observes a settled world.** The phase order is fixed: populate and invalidate run first, the instance settles, *then* `:reply-to` dispatches. By the time `:editor/replied` runs, the lists are already marked stale and refetching.
 - **Workflow goes in `:reply-to`; cache consequences go on the registration.** Navigate, toast, update a session — those are continuation. "Which reads did this break" — that's `:invalidates` / `:populates`, declared once. Don't invalidate tags from a continuation.
 
-And the point this part exists to land: `[:editor/replied]` is **data**. It's not a closure awaiting a Promise. It's an event vector, sitting in the execute payload where Xray can show it (the mutation's `replied` trace op is that dispatch), where a test can assert it, and where replay can re-run it deterministically. The async workflow "save, then navigate" is on the record, step by step. That's the trade against `await`: slightly more ceremony, for a workflow you can inspect after the fact — [No await: continuations are data](../explanation/continuations-are-data.md) makes the full argument.
+And here's the point this part exists to land: `[:editor/replied]` is **data**. It's not a closure awaiting a Promise. It's an event vector, sitting in the execute payload where Xray can show it (the mutation's `replied` trace op is that dispatch), where a test can assert it, and where replay can re-run it deterministically. The async workflow "save, then navigate" is on the record, step by step. That's the trade against `await`: slightly more ceremony, in exchange for a workflow you can inspect after the fact — [No await: continuations are data](../explanation/continuations-are-data.md) makes the full argument.
 
 > **Coming from re-frame v1?** `:reply-to` is your `:on-success`/`:on-failure` pair collapsed into one stale-safe target with a uniform reply map — the same envelope every async family replies with ([From re-frame v1](../25-from-re-frame-v1.md)).
 
 ## Guard the half-written draft
 
-One gap left: write half an article, click the site logo, and the draft silently vanishes. Routes close this with a `:can-leave` guard — a subscription the router consults before navigating away:
+One gap is left. Write half an article, click the site logo, and the draft silently vanishes — which is exactly the kind of thing users never forgive. Routes close this with a `:can-leave` guard, a subscription the router consults before navigating away:
 
 ```clojure
 ;; src/conduit/editor.cljs
@@ -264,7 +266,7 @@ One gap left: write half an article, click the site logo, and the draft silently
 
 (The example adds the `/editor/:slug` edit route the same way — same guard; its `:on-match` seeds the draft from the article read.)
 
-The contract is strict. `true` allows the navigation. `false` blocks it. Anything else blocks *and* emits a structured error (`:rf.error/can-leave-non-boolean`) — a buggy guard fails safe. The guard runs on **every** way out: a link click, a programmatic `:rf.route/navigate`, the browser Back button. There's no unguarded side door. The full pending-nav protocol lives in [Spec 012](../../../spec/012-Routing.md).
+The contract is strict, and the strictness is the point. `true` allows the navigation. `false` blocks it. Anything else blocks *and* emits a structured error (`:rf.error/can-leave-non-boolean`), so a buggy guard fails safe rather than waving you through by accident. The guard runs on **every** way out — a link click, a programmatic `:rf.route/navigate`, the browser Back button. There's no unguarded side door. The full pending-nav protocol lives in [Spec 012](../../../spec/012-Routing.md).
 
 When the guard blocks, the runtime parks the blocked navigation in a **pending-navigation slot** and leaves the decision to your UI. The UI reads it from the `:rf/pending-navigation` sub:
 
@@ -282,7 +284,7 @@ When the guard blocks, the runtime parks the blocked navigation in a **pending-n
 
 `:rf.route/continue` re-issues the original navigation, skipping the guard this one time. `:rf.route/cancel` clears the slot and stays put. The blocked navigation is, once again, *data*: a map you can subscribe to, assert on in a test, and see in Xray — not a `window.confirm` buried in router internals.
 
-Now re-read `:editor/replied` above and notice the choreography: on a successful save it re-seeds the editor from the saved article *before* navigating, so `:editor/dirty?` is `false` and the guard waves the navigation through. Type into the editor, hit Back — dialog. Publish — clean navigation to your new article, lists already refreshing behind you. (The example's submit gate materialises "valid and dirty" as a [flow](../concepts/flows.md) shared by the button and the handler.)
+Now re-read `:editor/replied` above and notice the choreography. On a successful save it re-seeds the editor from the saved article *before* navigating, so `:editor/dirty?` is `false` and the guard waves the navigation through. Type into the editor, hit Back — dialog. Publish — clean navigation to your new article, lists already refreshing behind you. (The example's submit gate materialises "valid and dirty" as a [flow](../concepts/flows.md) shared by the button and the handler.)
 
 Everything in this part is running code: [`examples/reagent/realworld_resources/`](../../../examples/reagent/realworld_resources/) is the full app, including the pieces we trimmed for space (edit mode's load-and-seed, article delete, comments, follow/unfollow, the editor's field markup).
 
@@ -294,5 +296,3 @@ Everything in this part is running code: [`examples/reagent/realworld_resources/
 - fire writes with `:rf.mutation/execute` and render their lifecycle from the instance-keyed `[:rf.mutation/state …]` sub — concurrency-safe, with no app-db flags;
 - continue a workflow after a write with `:reply-to` — an event target that receives the uniform reply map, only ever for accepted replies, after the cache has settled;
 - block navigation away from unsaved work with a `:can-leave` guard and a dialog over `:rf/pending-navigation`.
-
-**Next:** [Part 5: test it, ship it](05-test-and-ship.md) — or, for the full argument behind `:reply-to`, [No await: continuations are data](../explanation/continuations-are-data.md).
