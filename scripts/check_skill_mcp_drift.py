@@ -607,11 +607,29 @@ class TitleSafetyRule:
                          local copy can silently omit it, so this flag pins
                          the dedupe clause for the local-recipe consumer
                          (rf2-ij6ulc). Ignored on the link branch.
+    `local_recipe`     — if True, this consumer carries its filing recipe
+                         LOCALLY and is NOT permitted to satisfy the contract
+                         via the loose shared-leaf-link substring (rf2-wpwckr
+                         finding 2). The link branch's `SHARED_ISSUE_FILING_LINK
+                         in text` test is a loose substring match — a
+                         deliberately-local consumer that only *mentions* the
+                         shared leaf's path in prose (e.g. "kept in sync with
+                         skills/shared/issue-filing.md") would otherwise
+                         short-circuit on the link branch and skip its local
+                         body+title clause enforcement entirely, letting the
+                         local title/body safety silently drift. With this flag
+                         set the link branch is skipped and the consumer MUST be
+                         proven by its local body+title clauses (plus the search
+                         clause when `require_search`). A consumer that TRULY
+                         loads/links the shared leaf as its canonical recipe
+                         (pair-retro, migration) leaves this False and is
+                         satisfied by the link.
     """
     consumer: str
     docs: tuple[Path, ...]
     allowance_bead: str | None = None
     require_search: bool = False
+    local_recipe: bool = False
 
 
 # Body-safety clause markers: the `--body-file` recipe and the
@@ -665,11 +683,11 @@ TITLE_SAFETY_RULES: list[TitleSafetyRule] = [
         docs=(REPO_ROOT / "skills" / "re-frame-migration" / "SKILL.md",),
     ),
     # re-frame2-implementor — carries a DELIBERATELY-LOCAL recipe in
-    # references/cardinal-rules.md §8 and does NOT link the shared leaf.
-    # That local recipe now carries BOTH the body-safety clauses and the
-    # title-safety clauses (no `--title-file`, restricted safe alphabet,
-    # never-paste-evidence-into-`--title`, reviewer pass for the title arg),
-    # added under rf2-57b5t0 — the rf2-4kyg6 finding-1 gap is closed. The
+    # references/cardinal-rules.md §8 and does NOT link the shared leaf as its
+    # canonical recipe. That local recipe now carries BOTH the body-safety
+    # clauses and the title-safety clauses (no `--title-file`, restricted safe
+    # alphabet, never-paste-evidence-into-`--title`, reviewer pass for the title
+    # arg), added under rf2-57b5t0 — the rf2-4kyg6 finding-1 gap is closed. The
     # follow-up allowance that kept the gate green while rf2-708nm held
     # cardinal-rules.md has been removed, so this consumer is now enforced
     # via the local-clauses branch (no allowance).
@@ -679,6 +697,15 @@ TITLE_SAFETY_RULES: list[TitleSafetyRule] = [
     # from the shared leaf's §"Search before filing" hardening. `require_search`
     # pins it: a future edit that drops the dedupe clause from the local recipe
     # fires `missing-search-clause` drift.
+    # rf2-wpwckr finding 2: `local_recipe=True` closes the guard hole. The
+    # local recipe *mentions* `skills/shared/issue-filing.md` in prose (it says
+    # the local copy is kept in sync with the shared leaf), so the loose
+    # `SHARED_ISSUE_FILING_LINK in text` substring would otherwise short-circuit
+    # this consumer onto the link branch and SKIP its local body+title clause
+    # enforcement — a deliberately-local consumer could then drift the title/body
+    # safety while still reporting "links the shared leaf -- OK". With
+    # `local_recipe=True` the link branch is bypassed and the implementor MUST be
+    # proven by its local body+title (+search) clauses.
     TitleSafetyRule(
         consumer="re-frame2-implementor",
         docs=(
@@ -686,6 +713,7 @@ TITLE_SAFETY_RULES: list[TitleSafetyRule] = [
             REPO_ROOT / "skills" / "re-frame2-implementor" / "references" / "cardinal-rules.md",
         ),
         require_search=True,
+        local_recipe=True,
     ),
 ]
 
@@ -738,7 +766,18 @@ def check_title_safety_rules(
             )
             continue
 
-        if SHARED_ISSUE_FILING_LINK in text:
+        # rf2-wpwckr finding 2: a DELIBERATELY-LOCAL consumer (`local_recipe`)
+        # must NOT be satisfied by the loose `SHARED_ISSUE_FILING_LINK in text`
+        # substring — it carries the recipe and only *mentions* the shared
+        # leaf's path in prose ("kept in sync with skills/shared/issue-filing.md"),
+        # which the substring match would mistake for a canonical link and so
+        # skip the local body+title clause enforcement, letting the local
+        # title/body safety silently drift. The link branch is therefore gated
+        # on `not rule.local_recipe`: only a consumer that TRULY loads/links the
+        # shared leaf as its canonical recipe (pair-retro, migration) inherits
+        # both halves via the link; the local-recipe consumer is forced down the
+        # clause branch below and proven by its own body+title (+search) clauses.
+        if not rule.local_recipe and SHARED_ISSUE_FILING_LINK in text:
             info.append(
                 f"title-safety: {rule.consumer} links the shared "
                 f"issue-filing leaf (single-source)"
@@ -753,7 +792,10 @@ def check_title_safety_rules(
             info.append(
                 f"title-safety: {rule.consumer} carries local body+title"
                 + ("+search" if rule.require_search else "")
-                + " shell-safety clauses -- OK."
+                + (" shell-safety clauses (local recipe; link-branch bypassed)"
+                   if rule.local_recipe
+                   else " shell-safety clauses")
+                + " -- OK."
             )
             continue
 
@@ -991,6 +1033,14 @@ def _run_self_test(ci: bool) -> int:
       4. The shipped implementor consumer specifically must be GREEN via
          its local clauses with no allowance present — the exact tightening
          rf2-57b5t0 lands.
+      5. (rf2-wpwckr finding 2) A synthetic `local_recipe=True` consumer
+         whose docs MENTION `skills/shared/issue-filing.md` in prose but lack
+         the local body+title clauses MUST fire `missing-title-safety` — the
+         loose link substring no longer rescues a deliberately-local
+         consumer onto the link branch. The mirror positive: the same
+         consumer WITH the local clauses (still only mentioning the path)
+         stays green via the clause branch, proving the bypass routes to the
+         right branch rather than failing outright.
 
     Returns 0 on pass, 1 on a broken invariant.
     """
@@ -1113,6 +1163,78 @@ def _run_self_test(ci: bool) -> int:
                 "is broken (rf2-ij6ulc)."
             )
 
+        # (3d) Synthetic LOCAL-RECIPE-LINK-MENTION-NEGATIVE (rf2-wpwckr finding
+        #      2): a `local_recipe=True` consumer whose doc MENTIONS the shared
+        #      leaf's path in prose (the loose `SHARED_ISSUE_FILING_LINK`
+        #      substring is present) but lacks the local body+title clauses MUST
+        #      fire missing-title-safety. Before the fix the loose substring
+        #      short-circuited onto the link branch and reported "links the
+        #      shared leaf -- OK", masking the missing clauses. This fixture
+        #      proves the link branch is now bypassed for local-recipe consumers.
+        link_mention_no_clauses = td_path / "local-recipe-mentions-link.md"
+        link_mention_no_clauses.write_text(
+            "# fixture\n"
+            "This recipe files a gh issue. Its shell-safety guidance is kept "
+            "in sync with skills/shared/issue-filing.md as a local copy.\n"
+            "Search first: gh issue list --repo day8/re-frame2 --search "
+            "\"<keywords>\"; there is no `--search-file`, author the keywords "
+            "from the safe alphabet and never paste evidence.\n",
+            encoding="utf-8",
+        )
+        link_mention_drift, _ = check_title_safety_rules(
+            [TitleSafetyRule(
+                consumer="synthetic-local-recipe-link-mention",
+                docs=(link_mention_no_clauses,),
+                require_search=True,
+                local_recipe=True,
+            )]
+        )
+        if not [
+            d for d in link_mention_drift
+            if d.direction == "missing-title-safety"
+            and d.tool == "synthetic-local-recipe-link-mention"
+        ]:
+            failures.append(
+                "a local_recipe consumer that MENTIONS "
+                "skills/shared/issue-filing.md in prose but lacks the local "
+                "body+title clauses did NOT fire missing-title-safety -- the "
+                "loose shared-leaf-link substring still rescues a deliberately-"
+                "local consumer onto the link branch, leaving the local title/"
+                "body safety free to drift (rf2-wpwckr finding 2 guard hole)."
+            )
+
+        # (3e) Synthetic LOCAL-RECIPE-LINK-MENTION-POSITIVE (rf2-wpwckr finding
+        #      2): the same local_recipe consumer, still only MENTIONING the
+        #      shared path, but now WITH the local body+title (+search) clauses
+        #      MUST stay green via the clause branch — proving the link-branch
+        #      bypass routes a local-recipe consumer to its clause proof rather
+        #      than failing it outright.
+        link_mention_with_clauses = td_path / "local-recipe-mentions-link-ok.md"
+        link_mention_with_clauses.write_text(
+            search_pos.read_text(encoding="utf-8")
+            + "\nThis local recipe is kept in sync with "
+            "skills/shared/issue-filing.md.\n",
+            encoding="utf-8",
+        )
+        link_mention_ok_drift, _ = check_title_safety_rules(
+            [TitleSafetyRule(
+                consumer="synthetic-local-recipe-link-mention-ok",
+                docs=(link_mention_with_clauses,),
+                require_search=True,
+                local_recipe=True,
+            )]
+        )
+        if [
+            d for d in link_mention_ok_drift
+            if d.tool == "synthetic-local-recipe-link-mention-ok"
+        ]:
+            failures.append(
+                "a local_recipe consumer carrying the local body+title+search "
+                "clauses (while also mentioning the shared leaf's path) was "
+                "flagged -- the link-branch bypass must route a local-recipe "
+                "consumer to its CLAUSE proof, not fail it (rf2-wpwckr)."
+            )
+
     # (4) Shipped implementor specifically: GREEN via local clauses, no
     #     allowance. This is the exact state rf2-57b5t0 lands.
     impl_rule = next(
@@ -1137,6 +1259,18 @@ def _run_self_test(ci: bool) -> int:
                 "re-frame2-implementor no longer carries require_search=True -- "
                 "its local recipe must keep enforcing the search-before-filing "
                 "(dedupe) clause (rf2-ij6ulc)."
+            )
+        # rf2-wpwckr finding 2: the implementor must be proven via its LOCAL
+        # clauses, never the loose shared-leaf-link substring (its recipe
+        # mentions the shared path in prose). local_recipe=True bypasses the
+        # link branch and forces the clause proof.
+        if not impl_rule.local_recipe:
+            failures.append(
+                "re-frame2-implementor no longer carries local_recipe=True -- "
+                "its recipe mentions skills/shared/issue-filing.md in prose, so "
+                "without local_recipe the loose link substring would short-"
+                "circuit the clause enforcement and let its title/body safety "
+                "drift (rf2-wpwckr finding 2)."
             )
         impl_drift, _ = check_title_safety_rules([impl_rule])
         if [
