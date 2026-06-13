@@ -39,9 +39,12 @@
 
   ## North star (acceptance)
 
-  Pick ANY ONE Xray panel — Epoch, App-db, Views, Trace, or Issues — and
-  step through top to bottom: that panel is COMPLETELY exercised. The step
-  set is chosen for per-panel coverage completeness, not one-lens-per-step.
+  Pick ANY ONE Xray panel — Epoch, App-db, Views, or Trace — (or the
+  inline issue surfacing — Epoch issue blocks · L2 event-row wash · the
+  issues ribbon signal; the standalone Issues tab was removed per
+  rf2-gbz39) and step through top to bottom: that panel is COMPLETELY
+  exercised. The step set is chosen for per-panel coverage completeness,
+  not one-lens-per-step.
 
   ## Per-panel coverage map
 
@@ -171,7 +174,9 @@
 ;; The only constraint: [:auth :token] must be a string. Button #19
 ;; writes an int there; the post-handler app-db validation (Spec 010
 ;; §Validation order) rejects it and rolls the :db effect back, while the
-;; schema-violation issue survives in Xray's Issues lens.
+;; schema-violation issue surfaces inline — the Epoch panel's issue block,
+;; the L2 event-row wash, and the issues ribbon signal (the standalone
+;; Issues tab was removed per rf2-gbz39).
 
 (def AuthSlice [:map [:token :string]])
 ;; EP-0002 (rf2-5q7um6): reg-app-schema is context-required frame-local; a
@@ -252,8 +257,9 @@
 
 ;; A managed slow fx (~600ms, button #17). Resolves later with a
 ;; follow-on dispatch back onto the originating frame. ~600ms exceeds
-;; Spec 009's slow-effect threshold, so Xray's Issues lens flags it as a
-;; (non-bug) slow effect; the status moves :loading -> :loaded.
+;; Spec 009's slow-effect threshold, so Xray's inline issue surfacing
+;; (the Epoch panel + the issues ribbon signal) flags it as a (non-bug)
+;; slow effect; the status moves :loading -> :loaded.
 (def SLOW-MS 600)
 (rf/reg-fx :standard-epochs/slow-fetch
   (fn fx-slow-fetch [{:keys [frame]} _args]
@@ -263,8 +269,9 @@
 
 ;; An fx whose body throws (button #16). The handler's :db commits first;
 ;; the throw fires later, during the post-commit fx walk — best-effort
-;; per the FX atomicity asymmetry — so Xray's Issues lens shows the fx
-;; error while the baseline bump survives.
+;; per the FX atomicity asymmetry — so Xray's inline issue surfacing
+;; (the Epoch panel + the L2 event-row wash + the issues ribbon signal)
+;; shows the fx error while the baseline bump survives.
 (rf/reg-fx :standard-epochs/boom
   (fn fx-boom [_ctx _args]
     (throw (ex-info "standard-epochs / effect (intentional — exercises the fx error surface)"

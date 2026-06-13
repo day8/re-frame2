@@ -258,10 +258,14 @@
 
 (def valid-focus-panels
   "The canonical host-facing Xray panel ids a focus command may target
-  — `#{:epoch :app-db :views :trace :machines :routes}`. A host
+  — one per LIVE Dynamic L4 tab: `#{:epoch :app-db :views :trace
+  :machines :routing :resources :derivation-graph :module-view}`. A host
   validates a panel selector against this set before sending a focus
-  command. The Issues tab was removed per rf2-gbz39 (Option (c)), so
-  `:issues` is no longer focusable. See
+  command (the host-friendly alias `:routes` normalises to `:routing`).
+  The Issues tab was removed per rf2-gbz39 (Option (c)), so `:issues` is
+  no longer focusable. This MIRRORS the live L4 tab registry
+  (`panel-registry/tab-ids-for-mode :dynamic`) — rf2-1sddi6 / rf2-7ed9ms
+  aligned the set to the shipped inventory. See
   `day8.re-frame2-xray.focus/valid-panels`."
   focus/valid-panels)
 

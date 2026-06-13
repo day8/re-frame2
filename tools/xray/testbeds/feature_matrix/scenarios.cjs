@@ -12,13 +12,16 @@ const {
 } = require('../../../../testbeds/spec-helpers.cjs');
 
 // Post rf2-xy4yb (4-layer chrome refactor): the legacy 15-panel
-// sidebar + bottom rail is dead. The L3 tab bar exposes 6 tabs:
-// epoch / app-db / views / trace / machines / routing
-// (spec/018 §5; spec/007-UX-IA.md §L3 — post rf2-5gl5r the Event/
-// Handler tab was retired in favour of the Epoch panel; post rf2-gbz39
-// the Issues tab was removed per Mike's Option (c) ruling — issues
-// surface inline in the Epoch panel + the L2 event-row pink-wash + the
-// always-on issues ribbon signal). Panels
+// sidebar + bottom rail is dead. The L3 tab bar exposes the 9 LIVE
+// Dynamic tabs: epoch / app-db / views / trace / machines / routing /
+// resources / derivation-graph / module-view
+// (spec/018 §5 §The 9 tabs; spec/007-UX-IA.md §L3 — post rf2-5gl5r the
+// Event/Handler tab was retired in favour of the Epoch panel; post
+// rf2-gbz39 the Issues tab was removed per Mike's Option (c) ruling —
+// issues surface inline in the Epoch panel + the L2 event-row pink-wash
+// + the always-on issues ribbon signal). The sweep walks EVERY shipped
+// Dynamic tab (rf2-1sddi6 F3 — Graph + Modules were previously omitted)
+// and asserts a real panel root, never the unknown-tab stub. Panels
 // without a tab no longer have a UI handoff and are dropped from
 // the shell-sweep scenario.
 const PANEL_HANDOFFS = [
@@ -40,6 +43,17 @@ const PANEL_HANDOFFS = [
   // testbed no resources are registered, so the panel renders its
   // silent-by-default state under the same `rf-xray-resources` root.
   ['resources', 'rf-xray-resources'],
+  // The :derivation-graph tab (EP-0014 prop-3, rf2-9ett2d) — the unified
+  // derivation/process graph. L4-only registry tab. Its root view always
+  // renders the `rf-xray-derivation-graph` testid (panels/derivation_
+  // graph.cljs); on the counter testbed it renders the silent state under
+  // the same root.
+  ['derivation-graph', 'rf-xray-derivation-graph'],
+  // The :module-view tab (EP-0013, rf2-wtg9z4) — the (realm, frame)
+  // address space + demand-trigger surface. L4-only registry tab. Its
+  // root view always renders the `rf-xray-module-view` testid
+  // (panels/module_view.cljs).
+  ['module-view', 'rf-xray-module-view'],
   // rf2-gbz39 — the Issues tab was removed (Mike RULED Option (c));
   // issues surface inline in the Epoch panel + the L2 event-row pink-
   // wash + the always-on issues ribbon signal (the auto-open-on-error
@@ -194,11 +208,13 @@ async function openXray(page) {
 }
 
 // Post rf2-xy4yb: the L3 tab bar replaces the legacy sidebar. Tabs
-// expose `data-testid="rf-xray-tab-<id>"` for the 7 panels
-// (epoch / app-db / views / trace / machines / routing / resources —
-// spec/018 §5; rf2-5gl5r retired the Event/Handler tab in favour of
-// the Epoch panel; rf2-gbz39 removed the Issues tab per Mike's Option
-// (c) ruling; Resources added per Spec 016 §Xray and AI tooling).
+// expose `data-testid="rf-xray-tab-<id>"` for the 9 LIVE Dynamic panels
+// (epoch / app-db / views / trace / machines / routing / resources /
+// derivation-graph / module-view — spec/018 §5 §The 9 tabs; rf2-5gl5r
+// retired the Event/Handler tab in favour of the Epoch panel; rf2-gbz39
+// removed the Issues tab per Mike's Option (c) ruling; Resources added
+// per Spec 016 §Xray and AI tooling; Graph + Modules per EP-0014 /
+// EP-0013, swept since rf2-1sddi6 F3).
 async function clickTab(page, id, canvasTestId) {
   await page.locator(`[data-testid="rf-xray-tab-${id}"]`).click();
   await expectVisible(page.locator(`[data-testid="${canvasTestId}"]`), 5000);

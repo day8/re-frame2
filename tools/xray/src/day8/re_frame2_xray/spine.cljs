@@ -45,8 +45,9 @@
   no mirror slots: the App-DB-diff / Views panels follow the focused
   epoch through `[:focus :epoch-id]` (surfaced by `:rf.xray/focus` →
   `:rf.xray/focus-epoch-id` → `app_db_diff_subs`), and the cross-panel
-  `:rf.xray/event-detail` composite (relocated to `registry.cljs` post
-  rf2-5gl5r — the retired Event/Handler panel originally owned it)
+  `:rf.xray/focused-cascade-detail` composite (relocated to `registry.cljs`
+  post rf2-5gl5r — the retired Event/Handler panel originally owned it;
+  renamed off the retired-panel name per rf2-7ed9ms)
   reads focus directly off the spine. The former `:selected-dispatch-id`
   / `:selected-dispatch` / `:selected-epoch-id` mirror slots are all
   gone (the last, `:selected-epoch-id`, was retired by rf2-uy7nz once

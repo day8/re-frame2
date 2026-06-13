@@ -130,8 +130,9 @@ All tab content shares the cross-panel substrate:
 > surface is now the Epoch panel — a numbered vertical cascade of
 > every pipeline step (DISPATCH · COEFFECTS · HANDLER · FLOW · FX ·
 > SUBSCRIPTIONS · VIEWS, conditional per the trace stream). The
-> surviving cross-panel sub `:rf.xray/event-detail` + spine-shim
-> events `:rf.xray/select-dispatch-id` / `:rf.xray/clear-selected-
+> surviving cross-panel sub `:rf.xray/focused-cascade-detail` (renamed
+> off the retired-panel name `:rf.xray/event-detail` per rf2-7ed9ms) +
+> spine-shim events `:rf.xray/select-dispatch-id` / `:rf.xray/clear-selected-
 > dispatch-id` were relocated to `registry.cljs` as cross-panel
 > primitives (consumed by the trace panel's status bar,
 > machine-inspector, cancellation-cascade, and the existing test

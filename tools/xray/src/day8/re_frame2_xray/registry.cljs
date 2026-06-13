@@ -421,9 +421,9 @@
     ;; ---- Focused-cascade composite (rf2-5gl5r — relocated from the
     ;; retired event-detail panel) -----------------------------------
     ;;
-    ;; `:rf.xray/event-detail` produces the focused-cascade record
-    ;; alongside the cascade vector + the effective dispatch-id/frame
-    ;; so multiple consumers can read "the cascade the spine is
+    ;; `:rf.xray/focused-cascade-detail` produces the focused-cascade
+    ;; record alongside the cascade vector + the effective dispatch-id/
+    ;; frame so multiple consumers can read "the cascade the spine is
     ;; pointing at" in one shot. The original home was
     ;; `panels/event_detail.cljs`'s `install!`; when the Event/Handler
     ;; panel was retired (Epoch panel supersedes it — rf2-5gl5r) the
@@ -433,6 +433,13 @@
     ;; (rf2-nugvv removed the share modal that previously also consumed
     ;; it via `:rf.xray/cascade-export`.)
     ;;
+    ;; rf2-7ed9ms — renamed from the retired-panel name
+    ;; `:rf.xray/event-detail` to the BEHAVIOUR name
+    ;; `:rf.xray/focused-cascade-detail`. The composite now means
+    ;; "the focused cascade's detail record", not "the Event Detail
+    ;; panel's data" (that panel is gone), so the live sub no longer
+    ;; carries retired-panel vocabulary in an active API surface.
+    ;;
     ;; Reads the EFFECTIVE focused dispatch-id off the spine sub
     ;; (`:rf.xray/focus`); spine auto-advances to head in `:live` mode,
     ;; so the consumers never pin to a stale id. Per rf2-639lc Bug 1:
@@ -440,7 +447,7 @@
     ;; bucket for registry-time emits / frame lifecycle outside a
     ;; drain), fall back to the most recent ROUTED cascade so the
     ;; default-focus never lands on the projection's internal bucket.
-    (rf/reg-sub :rf.xray/event-detail
+    (rf/reg-sub :rf.xray/focused-cascade-detail
       :<- [:rf.xray/cascades]
       :<- [:rf.xray/focus]
       (fn [[cascades focus] _query]
@@ -918,7 +925,7 @@
     ;; projects the focused record's `:trace-events` into ordered
     ;; step rows. Registers at order -1 (leftmost). The retired
     ;; Event/Handler panel (rf2-5gl5r) used to install here; its
-    ;; surviving cross-panel primitives — `:rf.xray/event-detail`,
+    ;; surviving cross-panel primitives — `:rf.xray/focused-cascade-detail`,
     ;; `:rf.xray/select-dispatch-id`, `:rf.xray/clear-selected-
     ;; dispatch-id` — were relocated to the cross-panel block above.
     (epoch-panel/install!)

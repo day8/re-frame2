@@ -1,6 +1,6 @@
 # 018-Event-Spine
 
-The architectural core of Xray: the **4-layer chrome** + the **6-tab detail panel** + the **single-axis spine sub** (`:rf.xray/focus`) that binds every dependent surface to one user-controlled focal point.
+The architectural core of Xray: the **4-layer chrome** + the **9-tab detail panel** + the **single-axis spine sub** (`:rf.xray/focus`) that binds every dependent surface to one user-controlled focal point.
 
 This spec replaces the legacy 16-panel sidebar (now dead — see [`000-Vision.md`](000-Vision.md) §The 6-tab inventory and [`007-UX-IA.md`](007-UX-IA.md) §The 4-layer chrome) with a denser, keyboard-mnemonic, 10x-shaped layout. The event list is the load-bearing layer; every panel rebinds when selection moves.
 
@@ -16,7 +16,7 @@ Make the five canonical questions ([`000-Vision.md`](000-Vision.md) §Why it exi
 
 1. A **two-ribbon chrome** (rf2-4vp5j) — a chrome ribbon (`Event History` label + nav cluster + `+ filter` + frame view-scope + Dynamic/Static mode dropdown + settings/close) above an events ribbon (filter pills + hidden-by-filters count). The events ribbon is hidden by default and animates open only once the first filter exists (rf2-pjjwh). The focus-dimension feature (focus button / focus-chip / per-row focus gutter / out-of-focus dimming) and the `Clear Filters` button were RETIRED per rf2-pjjwh — they were not in the Figma surface; row click still SELECTS the cascade and drives every panel.
 2. An **event list** that is the orienting timeline + canonical scrubber.
-3. A **tab bar** of 6 surfaces (Event / App-db / Views / Trace / Machines / Routing — the Issues tab was removed per rf2-gbz39 Option (c)).
+3. A **tab bar** of 9 surfaces (Epoch / App-db / Views / Trace / Machines / Routing / Resources / Graph / Modules — the Issues tab was removed per rf2-gbz39 Option (c); the Resources / Graph / Modules tabs are the cohesive-sub-domain L4 lenses added per EP-0016 / EP-0014 / EP-0013).
 4. A **detail panel** whose content is always the current tab's projection of the focused event.
 
 Every selection event passes through a single spine sub — `:rf.xray/focus` — so every panel reading the spine rebinds atomically. No panel reads `(peek history)`; no panel carries its own `:selected-*-id` slot.
@@ -40,7 +40,7 @@ Every selection event passes through a single spine sub — `:rf.xray/focus` —
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 2  Event list (8 rows default; resizable; min 2)                  │  the spine / timeline
 ├─────────────────────────────────────────────────────────────────────────┤
-│ LAYER 3  Tab bar (40px) — 6 tabs                                        │  projection selector
+│ LAYER 3  Tab bar (40px) — 9 tabs                                        │  projection selector
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 4  Detail panel (fills remaining canvas)                          │  per-tab content
 └─────────────────────────────────────────────────────────────────────────┘
@@ -62,7 +62,8 @@ Wireframe at default (800px popout, "cosy" density):
 │ ● :cart/recalculate                                                     │
 │ ◉ :order/retry                                      🌐  ← head/sel      │
 ├═════════════════════════════════════════════════════════════════════════┤   drag handle (L2/L3)
-│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing                  │   L3 — 6 tabs
+│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ○Resources …    │   L3 — 9 tabs
+│   (… ○Graph ○Modules — strip scrolls horizontally below 560px)          │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ — Epoch panel content for the focused event —                           │   L4 — fills the rest
 │   numbered cascade: DISPATCH · COEFFECTS · HANDLER · FLOW · FX · …      │
@@ -518,24 +519,32 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 
 ## §5 Tab bar + detail panel (Layers 3 + 4)
 
-### The 6 tabs
+### The 9 tabs
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing                                   │   L3
+│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ○Resources ○Graph ○Modules         │   L3
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 > The Issues tab (`i`) was removed per rf2-gbz39 (Mike RULED Option (c)). Its session-wide aggregate triage list was consciously dropped; issues surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal (see the doc-intro note + §5.4 below).
 
-| # | Tab | Mnem | What it shows for the focused event | Spec |
-|---|---|---|---|---|
-| 1 | **Epoch** | `e` | Numbered vertical cascade of the focused epoch's pipeline (DISPATCH · COEFFECTS · HANDLER · FLOW · FX · SUBSCRIPTIONS · VIEWS, conditional per the trace stream); supersedes the retired Event/Handler panel per rf2-5gl5r. | [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §9.1 + this doc §5.1 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Epoch tab |
-| 2 | **App-db** | `a` | Diff `:db-before` vs `:db-after` — slice-first · clickable path segments (rf2-e9tb0) · path-origin chips (rf2-s8r6c) · full-tree disclosure | [`004-App-DB-Diff.md`](004-App-DB-Diff.md) + this doc §5.2 |
-| 3 | **Views** | `v` | Per-view rows: mounted / re-rendered / unmounted groups; each row lists subs used + sub return values; cluster-large-grids; isolation-scoped to selected frame | [`012-Views.md`](012-Views.md) |
-| 4 | **Trace** | `t` | Raw multi-axis trace stream filtered to `:dispatch-id = <focus>`; trace-type toggle row at top + IN/OUT pills + sensible defaults | this doc §5.3 + [`013-Trace-Consumer.md`](013-Trace-Consumer.md) |
-| 5 | **Machines** | `m` | **Event-driven Dynamic panel** (rf2-y9xmf): BLANK when the focused event has no machine activity; one per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it does. The spine-INDEPENDENT browse-all canvas relocated to the Static Machines sub-tab's Topology mode in rf2-ga16q. UC1 Sim engine landed under the Static Machines surface's Sim sub-mode (rf2-r4nao — events/subs at `:rf.xray.static.machines/sim-*`, view at `tools/xray/src/day8/re_frame2_xray/static/machines/sim.cljs`); UC2 Mode A/B/C remains a Dynamic-side concern, reached from Static via the per-row → Dynamic JUMP. | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) |
-| 6 | **Routing** | `r` | **FLAT focused-event lens** (rf2-lq0ef): current matched route + params/query/fragment + **Simulate-URL** input ranking every registered route via the 6-rule `:rf.route/rank` tuple with the rank explainer inline; per-focused-event glyphs `◆ HERE` / `◆ FROM` / `◆ TO`. Silent when no routes registered. | this doc §5.6 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab |
+The `Registry id` column is the keyword each tab lands on
+`:rf.xray/selected-tab` — and the host-facing `focus!` panel id (the
+`focus.cljc` `valid-panels` set mirrors this inventory exactly; `:routes`
+is accepted as a host-friendly alias normalising to `:routing`):
+
+| # | Tab | Mnem | Registry id | What it shows for the focused event | Spec |
+|---|---|---|---|---|---|
+| 1 | **Epoch** | `e` | `:epoch` | Numbered vertical cascade of the focused epoch's pipeline (DISPATCH · COEFFECTS · HANDLER · FLOW · FX · SUBSCRIPTIONS · VIEWS, conditional per the trace stream); supersedes the retired Event/Handler panel per rf2-5gl5r. | [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §9.1 + this doc §5.1 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Epoch tab |
+| 2 | **App-db** | `a` | `:app-db` | Diff `:db-before` vs `:db-after` — slice-first · clickable path segments (rf2-e9tb0) · path-origin chips (rf2-s8r6c) · full-tree disclosure | [`004-App-DB-Diff.md`](004-App-DB-Diff.md) + this doc §5.2 |
+| 3 | **Views** | `v` | `:views` | Per-view rows: mounted / re-rendered / unmounted groups; each row lists subs used + sub return values; cluster-large-grids; isolation-scoped to selected frame | [`012-Views.md`](012-Views.md) |
+| 4 | **Trace** | `t` | `:trace` | Raw multi-axis trace stream filtered to `:dispatch-id = <focus>`; trace-type toggle row at top + IN/OUT pills + sensible defaults | this doc §5.3 + [`013-Trace-Consumer.md`](013-Trace-Consumer.md) |
+| 5 | **Machines** | `m` | `:machines` | **Event-driven Dynamic panel** (rf2-y9xmf): BLANK when the focused event has no machine activity; one per-machine section (topology + transition highlight + guards + actions + cancellation cascade + `:after` rings) when it does. The spine-INDEPENDENT browse-all canvas relocated to the Static Machines sub-tab's Topology mode in rf2-ga16q. UC1 Sim engine landed under the Static Machines surface's Sim sub-mode (rf2-r4nao — events/subs at `:rf.xray.static.machines/sim-*`, view at `tools/xray/src/day8/re_frame2_xray/static/machines/sim.cljs`); UC2 Mode A/B/C remains a Dynamic-side concern, reached from Static via the per-row → Dynamic JUMP. | [`003-Machine-Inspector.md`](003-Machine-Inspector.md) |
+| 6 | **Routing** (label "Routes") | `r` | `:routing` | **FLAT focused-event lens** (rf2-lq0ef): current matched route + params/query/fragment + **Simulate-URL** input ranking every registered route via the 6-rule `:rf.route/rank` tuple with the rank explainer inline; per-focused-event glyphs `◆ HERE` / `◆ FROM` / `◆ TO`. Silent when no routes registered. The id is `:routing`; the tab RENDERS as "Routes" (matching the Static Routes catalogue tab). | this doc §5.6 + [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Routing tab |
+| 7 | **Resources** | `s` | `:resources` | Server-state / resource cache lens (EP-0016): registry · instances · in-flight work · invalidations · the route→resource graph · scope-resolver audit. Cohesive sub-domain earns its own L4 tab (Mike's cohesive-sub-domain ruling). | [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Xray and AI tooling |
+| 8 | **Graph** | — | `:derivation-graph` | The unified derivation/process graph across all algebra-view families (EP-0014 prop-3, rf2-9ett2d). **L4-only** — a `reg-l4-tab!` registry surface with no standalone `mount-*!` facade (shell-internal; focusable, not independently mountable). | [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) |
+| 9 | **Modules** | `u` | `:module-view` | The (realm, frame) address space + the disposition-6 demand-trigger surface (EP-0013, rf2-wtg9z4). **L4-only** — a `reg-l4-tab!` registry surface with no standalone `mount-*!` facade (shell-internal; focusable, not independently mountable). | [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) |
 
 (rf2-gbz39 — the **Issues** tab (`i`) was removed per Mike's Option (c) ruling. It carried JS exceptions + schema violations + sensitive-data warnings + hydration mismatches + perf-budget overruns + app console errors/warns. Those classes now surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal; the §5.4 content contract below records WHAT surfaces + where. The underlying `:rf.xray/issues-ribbon` projection survives as the ribbon signal's data source.)
 
@@ -556,7 +565,7 @@ noise that flagged the Xray events-list as a problem.)
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing                                   │
+│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ○Resources ○Graph ○Modules         │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 

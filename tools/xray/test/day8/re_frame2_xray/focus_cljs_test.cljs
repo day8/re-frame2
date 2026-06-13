@@ -23,6 +23,7 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.focus :as focus]
+            [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
@@ -135,12 +136,39 @@
          (focus/focus-command->dispatches {:path [:user :profile :name]}))))
 
 (deftest valid-panels-is-the-tab-inventory
-  ;; rf2-gbz39 — the Issues tab was removed (Mike RULED Option (c));
-  ;; `:issues` is no longer a focusable panel.
-  ;; rf2-9ett2d (EP-0014 prop-3) — `:derivation-graph` is the unified
-  ;; derivation/process graph tab.
-  (is (= #{:epoch :app-db :views :trace :machines :routes :derivation-graph}
+  ;; rf2-1sddi6 / rf2-7ed9ms — `valid-panels` MIRRORS the live Dynamic
+  ;; L4 tab registry. The Routing tab's id is `:routing` (renders as
+  ;; "Routes"), and the EP-0016 / EP-0014 / EP-0013 cohesive-sub-domain
+  ;; tabs `:resources` / `:derivation-graph` / `:module-view` ship — so
+  ;; all nine live ids are focusable. (rf2-gbz39 removed the Issues tab
+  ;; under Option (c) — `:issues` is no longer a focusable panel.)
+  (is (= #{:epoch :app-db :views :trace :machines :routing
+           :resources :derivation-graph :module-view}
          focus/valid-panels)))
+
+(deftest valid-panels-mirrors-the-live-registry
+  ;; rf2-1sddi6 / rf2-7ed9ms — the static mirror MUST equal the live
+  ;; Dynamic L4 registry so focus can never drift from the shipped tab
+  ;; inventory (the shell mounts a tab via the same registry; a drift
+  ;; would let focus validate a panel that lands the unknown-tab stub,
+  ;; or reject a shipped tab). `register-xray-handlers!` populates the
+  ;; registry; the companion cross-check in `registry_cljs_test.cljs`
+  ;; guards the same invariant from the registry side.
+  (setup-xray-frame!)
+  (is (= focus/valid-panels
+         (panel-registry/tab-ids-for-mode :dynamic))
+      "focus/valid-panels == the live Dynamic L4 tab registry ids"))
+
+(deftest routes-alias-normalises-to-routing
+  ;; rf2-7ed9ms F1 — a host that sends the display-noun `:routes`
+  ;; lands the real `:routing` tab, not the unknown-tab stub.
+  (is (= :routing (focus/normalize-panel :routes)))
+  (is (= :app-db (focus/normalize-panel :app-db))
+      "a non-aliased id passes through unchanged")
+  (is (nil? (focus/normalize-panel nil)))
+  (is (= [[:rf.xray/select-tab :routing]]
+         (focus/focus-command->dispatches {:panel :routes}))
+      "the emitted select-tab id is the live registry id, never :routes"))
 
 ;; =========================================================================
 ;; (2) End-to-end — focus! drives the real Xray events
@@ -192,6 +220,32 @@
       (is (:ok? result))
       (is (= :views (selected-tab)))
       (is (= :c2 (:dispatch-id (focus-sub)))))))
+
+(deftest focus-routes-alias-lands-the-routing-tab
+  (testing "rf2-7ed9ms F1 — `{:panel :routes}` (the host-friendly
+            display-noun) renders the live Dynamic Routing tab
+            (`:routing`), NOT the unknown-tab stub"
+    (setup-xray-frame!)
+    (let [result (focus/focus! {:frame :checkout :panel :routes :sync? true})]
+      (is (:ok? result) ":routes is accepted (alias), not rejected")
+      (is (= [:rf.xray/select-tab :routing]
+             (last (:applied result)))
+          "the alias normalised to the live `:routing` registry id")
+      (is (= :routing (selected-tab)) "the real Routing tab is selected")
+      (is (some? (panel-registry/tab-by-id :dynamic (selected-tab)))
+          "the selected id resolves to an installed tab — no unknown-tab stub"))))
+
+(deftest focus-shipped-l4-tabs-select-real-panels
+  (testing "rf2-1sddi6 / rf2-7ed9ms acceptance — every shipped Dynamic
+            tab id (incl. the L4-only Graph + Modules tabs) is focusable
+            and resolves to an installed panel, never the unknown-tab stub"
+    (setup-xray-frame!)
+    (doseq [panel [:resources :derivation-graph :module-view]]
+      (let [result (focus/focus! {:frame :checkout :panel panel :sync? true})]
+        (is (:ok? result) (str panel " is a focusable shipped tab"))
+        (is (= panel (selected-tab)) (str panel " tab is selected"))
+        (is (some? (panel-registry/tab-by-id :dynamic (selected-tab)))
+            (str panel " resolves to an installed tab — no unknown-tab stub"))))))
 
 (deftest command-is-host-agnostic
   (testing "the SAME command shape drives Xray regardless of who built
