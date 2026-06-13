@@ -4,10 +4,10 @@ Maven artefact: `day8/reagent-slim` (per IMPL-SPEC §1 DECISION-1 — the `re-fr
 
 Public ns:
 
-- **In-tree (this repo):** `re-frame.adapter.reagent-slim`. The monorepo shadow-cljs build adds both `adapters/reagent/src` and `adapters/reagent-slim/src` to the same classpath, so the two adapters carry distinct ns suffixes to avoid clashing.
+- **In-tree (this repo):** `re-frame.adapter.reagent-slim`. The monorepo shadow-cljs build adds both `adapters/reagent/src` and `adapters/reagent-slim/src` to the same classpath, and the bridge adapter already owns `(ns re-frame.adapter.reagent ...)`; the slim adapter therefore carries the `-slim` suffix in-tree to avoid a hard ns clash on that shared classpath.
 - **Published Maven artefact:** `re-frame.adapter.reagent` — i.e. the canonical adapter ns (no `-slim` suffix). Downstream apps depend on exactly one of `{day8/re-frame2-reagent, day8/reagent-slim}`, so the ns is single-source per app and a downstream `(:require [re-frame.adapter.reagent :as ra])` works regardless of which coord their `deps.edn` pins.
 
-The publication-time rename happens on a throwaway runner checkout in `.github/workflows/release.yml` (the `Rename adapter ns at publication` step in the `deploy-leaf` matrix job, gated `if: matrix.leaf == 'reagent-slim'`) — it mv's `reagent_slim.cljs` → `reagent.cljs` and rewrites the `(ns ...)` declaration before clein packages the jar. The in-tree source is never modified.
+The publication-time rename exists **solely** to resolve the monorepo classpath clash above — it is not a back-compat shim for some prior published ns (reagent-slim is pre-alpha and has never shipped). It happens on a throwaway runner checkout in `.github/workflows/release.yml` (the `Rename adapter ns at publication` step in the `deploy-leaf` matrix job, gated `if: matrix.leaf == 'reagent-slim'`, delegating to `.github/scripts/transform-reagent-slim-ns.sh`) — it mv's `reagent_slim.cljs` → `reagent.cljs` and rewrites the `(ns ...)` declaration before clein packages the jar. The in-tree source is never modified.
 
 Reagent-slim is the trimmed-down Reagent variant re-frame2's reference adapter targets when re-com's full surface isn't required. Same observable view semantics as the full Reagent adapter; smaller dependency footprint; an empirically-capped Form-3 surface.
 

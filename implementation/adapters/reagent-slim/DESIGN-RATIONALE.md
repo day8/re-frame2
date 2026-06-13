@@ -72,7 +72,7 @@ Apps using any dropped surface have two paths. (a) Migrate the call site to re-f
 
 ### Decision
 
-reagent-slim targets React 19 as its floor. The legacy `reagent.dom` namespace does not ship. Surfaces that depended on React-17-era APIs are absent or throw on call.
+reagent-slim targets React 19 as its floor. The legacy `reagent.dom` namespace does not ship. Surfaces that depended on React-17-era APIs are absent.
 
 ### Why
 
@@ -80,11 +80,11 @@ React 19 removed `ReactDOM.render`, `ReactDOM.hydrate`, `ReactDOM.unmountCompone
 
 The rewrite does not pretend otherwise. `reagent.dom/render` and `reagent.dom/unmount-component-at-node` are not shipped. `reagent.core/render` (which forwarded to `reagent.dom/render`) is not shipped. `reagent.core/dom-node` (which proxied `findDOMNode`) is not shipped.
 
-What the rewrite does ship is a thin `reagent2.dom` namespace whose only purpose is throwing on first call with a migration message. Static-analysis-friendly callers delete the import and never trigger the throw. The throw exists for runtime callers who need a clear signal: *this API is gone, here is what replaces it.*
+These surfaces are **absent**, not throw-on-call stubs (rf2-jif0qp). An earlier design shipped a thin `reagent2.dom` namespace whose only purpose was throwing on first call with a migration message; it was pruned because a throw-only stub for a removed surface is itself a back-compat shim, which the pre-alpha masterpiece stance disallows (DECISION-8). A call site that still references one of these symbols fails to compile with an unresolved-var error — the louder, earlier signal than a runtime throw.
 
 ### Slim impact
 
-The legacy `reagent.dom` namespace was ~62 LoC plus its `react-dom`-legacy import. The throw-on-call shim is ~10 LoC. Stage 2 estimate: ~0.7-1 KB gzipped saved. Modest in isolation, structural in aggregate — committing to React 19 is what unlocks the larger simplifications elsewhere (no `requestAnimationFrame` fallback dance, no mount-order render sort, no React-17-vs-18 path branching).
+The legacy `reagent.dom` namespace was ~62 LoC plus its `react-dom`-legacy import — all of it gone. With the throw-on-call stub also dropped (rf2-jif0qp), the removed surfaces contribute zero source and zero footprint. Stage 2 estimate: ~0.7-1 KB gzipped saved. Modest in isolation, structural in aggregate — committing to React 19 is what unlocks the larger simplifications elsewhere (no `requestAnimationFrame` fallback dance, no mount-order render sort, no React-17-vs-18 path branching).
 
 ### Re-frame2-fit impact
 
@@ -229,7 +229,6 @@ The Maven coord `day8/reagent-slim` is decoupled from import paths. Adopters req
 | Reactive primitives | `reagent2.ratom` |
 | React 19 mount entry | `reagent2.dom.client` |
 | Pure-CLJS static markup | `reagent2.dom.server` |
-| Throw-on-call shim for legacy mount path | `reagent2.dom` |
 
 ### Why
 
@@ -281,7 +280,7 @@ This decision splits the dropped surfaces into two classes by why they were drop
 
 **Class A — pure-CLJS deprecates with no React-internal dependency.** `cursor`, `wrap`, `next-tick`, `class-names`, `is-client`, `IRunnable`. These could have shipped as warning stubs that emit a `console.warn` and forward to a re-frame2-idiom replacement. The audits found zero usage across re-com, re-frame-10x, Dash8, rf8.
 
-**Class B — React-internal removes.** `reagent.core/render`, `reagent.dom/render`, `reagent.dom/unmount-component-at-node`, `reagent.dom/force-update-all`, `r/dom-node`. These cannot warn-and-continue because the React APIs they depended on are gone in React 19. They ship as throw-on-call shims (per §3).
+**Class B — React-internal removes.** `reagent.core/render`, `reagent.dom/render`, `reagent.dom/unmount-component-at-node`, `reagent.dom/force-update-all`, `r/dom-node`. These cannot warn-and-continue because the React APIs they depended on are gone in React 19. Like Class A, they ship as nothing (rf2-jif0qp): an earlier design shipped throw-on-call stubs, but a throw-only stub for a removed surface is itself a back-compat shim the masterpiece stance disallows. A call site fails at compile time with an unresolved-var error.
 
 For Class A, the question was whether to ship warning stubs or nothing. The "back-compat goodwill" argument for warning stubs assumes there are users to be courteous to. The audits established there are no such users. And `re-frame2-reagent` exists for any genuine stock-Reagent user.
 
@@ -299,7 +298,7 @@ The discipline is the load-bearing thing. "Warning stub" is a soft posture that 
 
 If your code calls a Class A surface, the compiler tells you. Migration to re-frame2 idiom: `cursor` → layer-2 sub. `next-tick` → re-frame2's scheduling primitives or `goog.async.nextTick` directly. `class-names` → a one-line userland helper or one of several CLJS string-join libraries. `is-client` → re-frame2's platform marker in `re-frame.interop`. If migration is not feasible, stay on `re-frame2-reagent`.
 
-Class B surfaces, per §3, throw on call with a migration message rather than failing at compile time — the React-API-gone framing means the throw is the right pedagogy for callers who try them at runtime.
+Class B surfaces are absent too (rf2-jif0qp): a call site fails at compile time with an unresolved-var error, the same pedagogy as Class A. The earlier throw-on-call design was pruned because a throw-only stub for a removed surface is itself a back-compat shim the masterpiece stance disallows.
 
 ---
 
@@ -390,8 +389,8 @@ This honesty matters because the doc you are reading is for adopters making a re
 | Bundle (gzip) vs stock Reagent 1.3 | baseline | -25% to -33% (typical), -70% (SSR-using) |
 | Form-3 keys | all React lifecycle keys | 7-key cap |
 | `convert-prop-value` | stringifies all keywords | HTML-attribute names only |
-| `r/dom-node` / `findDOMNode` | works | throws (React 19 — API gone) |
-| `reagent.dom/render` | works | throws (React 19 — API gone) |
+| `r/dom-node` / `findDOMNode` | works | absent (React 19 — API gone; compile error) |
+| `reagent.dom/render` | works | absent (React 19 — API gone; compile error) |
 | Trace integration | requires 10x v1 monkey-patches | native to renderer |
 | Source-coord stamping | post-render tree walk | native to renderer |
 | `r/flush` | brittle under React 18+ concurrent | `flush-views!` deterministic |

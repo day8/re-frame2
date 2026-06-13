@@ -35,7 +35,7 @@
   watch-baseline, managed-HTTP, the cross-Spec headless subset, and
   (rf2-6j09b) the public-surface guard: presence/kind/cross-wiring
   distinctness of the seven re-exported Vars + the adapter-map :kind +
-  nine-fn shape, folded from the former helix_public_surface_cljs_test.cljs.
+  contract-fn shape, folded from the former helix_public_surface_cljs_test.cljs.
 
   The async *current-frame*-across-dispatch contract (rf2-l5q3) is
   forwarded from a dedicated entry pair carrying a map-form fixture —

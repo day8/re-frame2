@@ -4,7 +4,10 @@
   closures, unbalanced subscribe/dispose, sync unmount inside render — the
   rf2-4l7t2 class) can be caught at unit-test speed.
 
-  Implements the Spec 006 nine-fn adapter contract. The atom-backed
+  Implements the Spec 006 adapter contract: the 6 required fns, 2 of the
+  3 optional (`subscribe-container`, `register-context-provider` — no
+  `flush-render!`, since the test owns the clock via `trigger-update!`),
+  and the 1 lifecycle fn. The atom-backed
   container quartet is shared with plain-atom via
   `re-frame.substrate.atom-container`; the render half is the novel surface
   — a `class-3` lifecycle simulator that records every transition into a
@@ -380,8 +383,9 @@
       (require '[re-frame.adapter.test-react :as test-react])
       (rf/init! test-react/adapter)
 
-  Per Spec 006 §The adapter API contract — implements the nine-fn
-  contract. The reactive-container half is shared with plain-atom; the
+  Per Spec 006 §The adapter API contract — implements the 6 required +
+  2-of-3 optional (no `flush-render!`) + 1 lifecycle fn. The
+  reactive-container half is shared with plain-atom; the
   render half is the novel surface (class-3 lifecycle simulation with the
   `:currently-rendering?` invariant). See `mount!` / `trigger-update!` /
   `unmount!` for the test driver helpers."

@@ -24,20 +24,22 @@
     force-update      — force re-render of `this` component
     reaction          — function form sugar over make-reaction
 
-  Symbols **shipped as Class B throw-on-call shims** (per Stage 4-F /
-  IMPL-SPEC §10.1 — surfaces React 19 removed; calls throw an `ex-info`
-  whose canonical `:rf.error/id` discriminator (per Spec 009) is
-  `:rf.error/react-19-removed-surface`):
-
-    render            — Use reagent2.dom.client/{create-root, render}.
-    dom-node          — findDOMNode is removed; use :ref / useRef.
-
   Symbols **not shipped** (per Stage 1 §2.4 + DECISION-7 + Stage 2 §2.7
   audit-confirmed zero usage): `track`, `track!`, `cursor`, `wrap`,
   `rswap!`, `partial`, `merge-props`, `unsafe-html`, `adapt-react-class`,
   `reactify-component`, `create-element`, `next-tick`, `flush` (replaced
   by `reagent2.dom.client/flush-views!`), `class-names`, `is-client`,
   `set-default-compiler!`, `create-compiler`, `with-let`.
+
+  React-19-removed surfaces are **absent**, not throw-on-call stubs
+  (rf2-jif0qp; the pre-alpha no-back-compat-shim stance — DECISION-8).
+  `render` (stock `reagent.core/render`, which forwarded to the removed
+  `ReactDOM.render`) and `dom-node` (stock `reagent.core/dom-node`,
+  which proxied the removed `findDOMNode`) are simply not defined here:
+  use `reagent2.dom.client/{create-root, render}` to mount and a `:ref`
+  callback (or `React.useRef`) to reach a DOM node. A call site that
+  still references them gets an unresolved-var compile error — fail loud
+  at build time rather than at first runtime invocation.
 
   Apps that genuinely need a dropped surface stay on the bridge
   adapter day8/re-frame2-reagent; the rewrite's commitment is
@@ -161,55 +163,8 @@
   [form]
   (template/as-element form))
 
-;; ---------------------------------------------------------------------------
-;; Class B throw-on-call shims (per IMPL-SPEC §10.1 + DECISION-7)
-;;
-;; Two of the five React-19-removed surfaces live on `reagent.core` in
-;; stock Reagent: `reagent.core/render` and `reagent.core/dom-node`.
-;; The three `reagent.dom/*` shims live in `reagent2.dom`. All five
-;; share `:rf.error/id :rf.error/react-19-removed-surface` (the
-;; canonical discriminator per Spec 009) so a single try/catch in a
-;; migration helper matches the lot.
-;;
-;; Static-analysis friendliness: each shim's body is a single throw,
-;; so :advanced Closure compilation can DCE the symbol when no call
-;; site reaches it. Apps that import `reagent2.core/render` but never
-;; call it pay zero runtime cost.
-;;
-;; Migration: see migration/from-re-frame-v1/README.md M-42 — legacy mount path /
-;; dom-node removal.
-;; ---------------------------------------------------------------------------
-
-(defn render
-  "REMOVED under React 19. See migration message; throws on first call.
-
-  Use `reagent2.dom.client/create-root` + `reagent2.dom.client/render`
-  instead — the React 18+ root API replaces the React 17 legacy mount."
-  [& _]
-  (throw
-    (ex-info
-      ":rf.error/react-19-removed-surface"
-      {:rf.error/id :rf.error/react-19-removed-surface
-       :where       'reagent2.core/render
-       :recovery    :no-recovery
-       :reason      "reagent.core/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead."
-       :surface     'reagent2.core/render
-       :migration   "https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path"})))
-
-(defn dom-node
-  "REMOVED under React 19. See migration message; throws on first call.
-
-  Stock Reagent's `dom-node` returned the underlying DOM element for a
-  mounted component via React 17's `findDOMNode` API. React 19 removed
-  `findDOMNode` — use a `:ref` callback (or React's `useRef` for
-  function components) to capture the DOM node directly."
-  [& _]
-  (throw
-    (ex-info
-      ":rf.error/react-19-removed-surface"
-      {:rf.error/id :rf.error/react-19-removed-surface
-       :where       'reagent2.core/dom-node
-       :recovery    :no-recovery
-       :reason      "reagent.core/dom-node depended on findDOMNode which is removed in React 19. Use a :ref callback or React.useRef instead."
-       :surface     'reagent2.core/dom-node
-       :migration   "https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#dom-node-removal"})))
+;; React-19-removed surfaces (`render`, `dom-node`) are ABSENT, not
+;; throw-on-call shims — see the ns docstring. The pre-alpha no-back-
+;; compat-shim stance (rf2-jif0qp) drops the stub entirely: an
+;; unresolved-var compile error at the call site is the louder, earlier
+;; signal than a runtime throw.
