@@ -156,6 +156,19 @@
                              fid render-hash
                              {:version 1
                               :payload :rf.ssr.payload/whole-app-db}))
+           ;; EP-0002 (rf2-acjknb): `streaming-build-final-payload` stamps the
+           ;; per-request server frame (`fid`) as `:rf/frame-id`, but the
+           ;; client hydrates a FIXED app-frame (`app-frame` → `:rf/default`,
+           ;; below). `ssr/hydrate!` VALIDATES a present payload `:rf/frame-id`
+           ;; against the client's explicit `:frame` and raises
+           ;; `:rf.error/hydration-frame-id-mismatch` on disagreement (Spec 011
+           ;; §The hydration payload). The server's per-request gensym would
+           ;; always conflict with the client's fixed frame, so we DROP it —
+           ;; an absent `:rf/frame-id` is explicitly NO conflict (the explicit
+           ;; client target stands), matching the static `index.html` next to
+           ;; this file. A deployment that wants a frame-id on the wire stamps
+           ;; a STABLE id both sides agree on, not a per-request gensym.
+           final-payload (dissoc final-payload :rf/frame-id)
            _ (rf/destroy-frame! fid)]
        {:shell shell-html
         :resolved-chunks resolved-chunks
@@ -213,10 +226,15 @@
 ;; never synthesises a frame from absence. This example uses `:rf/default`
 ;; as its client app-frame id; it MUST be a `:client`-platform frame so the
 ;; `:rf.ssr/check-*` compatibility-check fxs the `:rf/hydrate` handler
-;; dispatches actually fire (Spec 011 §The :rf/hydrate event). The static
-;; `index.html` payload carries no `:rf/frame-id` (a real streaming server
-;; stamps it via `handle-request`/`streaming-build-final-payload` above),
-;; which is NOT a hydration-frame-id conflict — the explicit `:frame` stands.
+;; dispatches actually fire (Spec 011 §The :rf/hydrate event). BOTH the static
+;; `index.html` payload AND the dynamic `handle-request` final-payload above
+;; carry NO `:rf/frame-id`: the server renders under a per-request gensym
+;; frame the client can't know ahead of time, and the client hydrates this
+;; FIXED app-frame, so an absent frame-id is the correct shape (it is NOT a
+;; hydration-frame-id conflict — the explicit `:frame` stands). A present-but-
+;; different stamp (the server's per-request gensym against this `:rf/default`
+;; client target) WOULD surface `:rf.error/hydration-frame-id-mismatch` (Spec
+;; 011 §The hydration payload), which is why `handle-request` drops it.
 #?(:cljs (def app-frame :rf/default))
 
 #?(:cljs

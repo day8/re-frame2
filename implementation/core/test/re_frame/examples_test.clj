@@ -19,6 +19,7 @@
   reset registrar) and exercises it directly."
   (:require [clojure.set]
             [clojure.string]
+            [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -26,6 +27,12 @@
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
+            ;; The resources artefact (Spec 016) — TEST-ONLY dep on the core
+            ;; test classpath (deps.edn `:test` alias). Loading it registers
+            ;; the resource registrar kind, the `:rf.resource/*` events/subs,
+            ;; and the late-bound SSR runtime-db projection + hydration
+            ;; reconcile hooks the `resources-ssr` example drives.
+            [re-frame.resources]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.error-listener :as ssr-error-listener]
             [re-frame.ssr.request :as ssr-request]
@@ -76,6 +83,15 @@
   ;; idempotent (won't re-fire the toplevel forms once loaded), so reload here
   ;; — mirroring the http / machines reloads above (rf2-kb7zis).
   (require 're-frame.ssr :reload)
+  ;; clear-all! also drops the resources artefact's registrar kind +
+  ;; `:rf.resource/*` events/subs AND its late-bind hooks
+  ;; (`:ssr/extend-runtime-db-projection`, `:resources/hydrate-runtime-db`)
+  ;; — the `resources-ssr` example's `handle-request` ensures + drains a
+  ;; resource and its client hydrate reconciles the resource projection, so
+  ;; both surfaces need resurrecting. Transitive require from the example ns
+  ;; is idempotent once loaded, so reload here (mirrors the http/machines/ssr
+  ;; reloads above, rf2-2pjgiq).
+  (require 're-frame.resources :reload)
   ;; Reset the SSR per-frame side-channel atoms (request slots, response
   ;; accumulators, pending error traces) between tests. These are `defonce`
   ;; tables keyed by frame-id, OUTSIDE app-db, so neither `clear-all!` nor
@@ -91,6 +107,7 @@
   ;; re-evaluates their namespace-level handlers against a fresh registrar.
   (remove-ns 'ssr.core)
   (remove-ns 'ssr-streaming.core)
+  (remove-ns 'resources-ssr.core)
   (remove-ns 'state-machine-walkthrough.core)
   ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
@@ -400,6 +417,190 @@
       (is (some? (:rf/render-hash (:final-payload result))))
       (is (= 3 (count (:cards (:rf/app-db (:final-payload result)))))
           "three cards' state in the final payload (revenue, signups, latency); the flaky card has no app-db slice because it threw before its data fetched"))))
+
+;; ============================================================================
+;; SSR examples — dynamic payload path round-trip (rf2-2pjgiq).
+;;
+;; The acceptance gate the review (rf2-2pjgiq) named: feed the ACTUAL dynamic
+;; example payload — the plain `handle-request` HTML payload, the resources
+;; `handle-request` HTML payload, and the streaming `final-payload` — into the
+;; framework `ssr/hydrate!` against the example's OWN client frame
+;; (`:rf/default`) and assert NO `:rf.error/hydration-frame-id-mismatch` plus
+;; the expected hydrated state. The earlier example tests covered server and
+;; client separately with hand-built payloads that omitted `:rf/frame-id`;
+;; these drive the real server→client wire so a drift back to stamping the
+;; per-request server gensym (which would conflict with the fixed
+;; `:rf/default` client frame) fails loud here.
+;;
+;; The fix (rf2-2pjgiq): the dynamic example payloads deliberately OMIT
+;; `:rf/frame-id` (an absent frame-id is no conflict; the explicit client
+;; target stands — Spec 011 §The hydration payload), and the manual payload
+;; `<script>` emission routes through the EDN-aware `escape-edn-script-body`
+;; so a server-provided `</script>` can't close the envelope.
+;; ============================================================================
+
+(defn- extract-payload-edn
+  "Pull the `__rf_payload` EDN string out of an SSR example's HTML body and
+  read it. `clojure.edn/read-string` decodes the `\\u003c` reader escapes
+  `escape-edn-script-body` emits inside string literals, so the parsed value
+  is the exact payload the server built."
+  [html-body]
+  (let [m (re-find #"(?s)id='__rf_payload' type='application/edn'>(.*?)</script>"
+                   html-body)]
+    (some-> (second m) edn/read-string)))
+
+(deftest ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch
+  (testing "examples/reagent/ssr — the payload the dynamic `handle-request`
+            emits feeds into `ssr/hydrate!` against the example's `:rf/default`
+            client frame with NO `:rf.error/hydration-frame-id-mismatch` (the
+            payload omits the per-request server frame-id) and seeds the
+            client app-db with the server's articles (rf2-2pjgiq)"
+    (require 'ssr.core :reload)
+    (rf/init! ssr/adapter)
+    (install-canned-articles-stub!)
+    (let [handle-request (resolve 'ssr.core/handle-request)
+          resp           (rf/with-fx-overrides
+                           {:rf.http/managed :ssr.http/canned-articles}
+                           (handle-request {:uri "/articles"}))
+          payload        (extract-payload-edn (:body resp))]
+      (is (= 200 (:status resp)))
+      (is (some? payload) "the __rf_payload EDN parsed out of the HTML body")
+      (is (not (contains? payload :rf/frame-id))
+          (str "the dynamic payload OMITS :rf/frame-id (server gensym frame "
+               "would conflict with the fixed :rf/default client frame)"))
+      ;; Hydrate the example's OWN client frame (:rf/default, a :client frame).
+      (let [client-frame @(resolve 'ssr.core/app-frame)
+            _            (rf/reg-frame client-frame
+                           {:doc "ssr-example client frame" :platform :client})
+            returned     (ssr/hydrate! {:frame client-frame :payload payload})]
+        (is (= payload returned)
+            "hydrate! applied the payload (no frame-id conflict thrown)")
+        (is (= [{:id "a" :title "Article A" :body "Body A"}
+                {:id "b" :title "Article B" :body "Body B"}]
+               (:articles (rf/app-db-value client-frame)))
+            "the client app-db carries the server's articles after hydration")))))
+
+(deftest ssr-example-payload-script-escapes-script-breakout
+  (testing "examples/reagent/ssr — a server-provided string containing
+            `</script>` (round-tripped through app-db) is escaped by the
+            EDN-aware `<script>`-body encoder, so it CANNOT close the
+            `__rf_payload` envelope, and the payload still round-trips through
+            the client EDN reader unchanged (security audit 2026-05-14 §P1,
+            rf2-7ksyr / rf2-2pjgiq)"
+    (require 'ssr.core :reload)
+    (rf/init! ssr/adapter)
+    ;; A canned stub whose article title carries a `</script>` breakout
+    ;; precursor — the exact XSS shape the EDN-aware escaper exists to defang.
+    (rf/reg-fx :ssr.http/canned-evil
+      {:platforms #{:server :client}}
+      (fn [frame-ctx args-map]
+        (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
+          (stub frame-ctx
+                (assoc args-map
+                       :value [{:id "x"
+                                :title "</script><script>alert('xss')</script>"
+                                :body "b"}])))))
+    (let [handle-request (resolve 'ssr.core/handle-request)
+          resp           (rf/with-fx-overrides
+                           {:rf.http/managed :ssr.http/canned-evil}
+                           (handle-request {:uri "/x"}))
+          body           (:body resp)]
+      (is (= 200 (:status resp)))
+      ;; The raw breakout must NOT appear verbatim — the `<` inside the EDN
+      ;; string literal is escaped to the `<` reader escape.
+      (is (not (clojure.string/includes?
+                 body "</script><script>alert('xss')</script>"))
+          "the raw </script> breakout must not survive into the HTML")
+      (is (clojure.string/includes? body "\\u003c")
+          "the breakout `<` is escaped to the \\u003c EDN reader escape")
+      ;; And the escaped payload still parses back to the exact server value —
+      ;; the EDN reader decodes < inside the string literal.
+      (let [payload (extract-payload-edn body)]
+        (is (= "</script><script>alert('xss')</script>"
+               (-> payload :rf/app-db :articles first :title))
+            "the payload round-trips through the EDN reader unchanged")))))
+
+(deftest ssr-streaming-example-final-payload-hydrates-without-frame-id-mismatch
+  (testing "examples/reagent/ssr_streaming — the dynamic `handle-request`
+            `:final-payload` feeds into `ssr/hydrate!` against the example's
+            `:rf/default` client frame with NO frame-id mismatch (it omits the
+            per-request server frame-id) and seeds the client app-db with the
+            three streamed cards (rf2-2pjgiq)"
+    (require 'ssr-streaming.core :reload)
+    (rf/init! ssr/adapter)
+    (let [handle-request (resolve 'ssr-streaming.core/handle-request)
+          result         (handle-request {:uri "/dashboard"})
+          payload        (:final-payload result)]
+      (is (not (contains? payload :rf/frame-id))
+          "the streaming final-payload OMITS :rf/frame-id")
+      ;; The example's `app-frame` is `:cljs`-only (the streaming client boot
+      ;; is browser-side), so reference its value (`:rf/default`) directly
+      ;; here — the JVM cannot resolve a reader-conditional `:cljs` def.
+      (let [client-frame :rf/default
+            _            (rf/reg-frame client-frame
+                           {:doc "ssr-streaming-example client frame"
+                            :platform :client})
+            returned     (ssr/hydrate! {:frame client-frame :payload payload})]
+        (is (= payload returned)
+            "hydrate! applied the final-payload (no frame-id conflict thrown)")
+        (is (= 3 (count (:cards (rf/app-db-value client-frame))))
+            "the client app-db carries the three streamed cards after hydration")))))
+
+(deftest resources-ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch
+  (testing "examples/reagent/resources_ssr — the payload the dynamic
+            `handle-request` emits (under the valid
+            `:rf.ssr.payload/whole-app-db` policy, NOT the invalid empty
+            `[]`) feeds into `ssr/hydrate!` against the example's `:rf/default`
+            client frame with NO frame-id mismatch and installs the SSR-
+            preloaded resource entry into the client `:rf.runtime/resources`
+            slice (Spec 016 §SSR client hydration, rf2-2pjgiq)"
+    (require 'resources-ssr.core :reload)
+    (rf/init! ssr/adapter)
+    ;; Stub the resource's managed-HTTP fetch with a canned-success reply so
+    ;; the example's blocking drain settles the page resource synchronously
+    ;; (no real network; mirrors the plain-SSR canned-articles stub).
+    (rf/reg-fx :resources-ssr.http/canned
+      {:platforms #{:server :client}}
+      (fn [frame-ctx args-map]
+        (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
+          (stub frame-ctx
+                (assoc args-map
+                       :value [{:slug "welcome"   :title "Welcome to re-frame2"}
+                               {:slug "resources" :title "Server-state as resources"}])))))
+    (let [handle-request (resolve 'resources-ssr.core/handle-request)
+          resp           (rf/with-fx-overrides
+                           {:rf.http/managed :resources-ssr.http/canned}
+                           (handle-request {:uri "/articles"}))
+          payload        (extract-payload-edn (:body resp))]
+      (is (= 200 (:status resp))
+          (str "the dynamic handle-request returned 200 (valid payload policy "
+               "— an empty `[]` policy would have thrown "
+               ":rf.error/ssr-missing-payload-policy)"))
+      (is (some? payload))
+      (is (not (contains? payload :rf/frame-id))
+          "the resources payload OMITS :rf/frame-id")
+      ;; The runtime-db projection carries the loaded resource entry (the
+      ;; allowed `:entries`, not the indexes).
+      (let [entries (get-in payload [:rf/runtime-db :rf.runtime/resources :entries])]
+        (is (= 1 (count entries)) "one resource entry rides :rf/runtime-db")
+        (is (= :loaded (-> entries vals first :status))
+            "the SSR-preloaded resource settled :loaded before render"))
+      ;; Hydrate the example's OWN :rf/default client frame.
+      (let [client-frame @(resolve 'resources-ssr.core/app-frame)
+            _            (rf/reg-frame client-frame
+                           {:doc "resources-ssr-example client frame"
+                            :platform :client})
+            returned     (ssr/hydrate! {:frame client-frame :payload payload})]
+        (is (= payload returned)
+            "hydrate! applied the payload (no frame-id conflict thrown)")
+        ;; The client runtime-db carries the reconciled resource entry — the
+        ;; reverse indexes are recomputed from `:entries` on install (Spec 016).
+        (let [client-entries (get-in (rf/runtime-db-value client-frame)
+                                     [:rf.runtime/resources :entries])]
+          (is (= 1 (count client-entries))
+              "the hydrated resource entry installed into the client frame")
+          (is (= :loaded (-> client-entries vals first :status))
+              "the hydrated entry is :loaded (renders immediately, no refetch)"))))))
 
 ;; ============================================================================
 ;; state-machine-walkthrough — chapter §Headless testing. Two flavours:
