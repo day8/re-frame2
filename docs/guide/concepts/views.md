@@ -1,0 +1,175 @@
+# Views: pure functions of data
+
+If you write React, you already write view functions. A re-frame2 view *is* a React function component — with everything except rendering taken away. No `useState`: state lives in [app-db](app-db.md) and arrives through [subscriptions](subscriptions.md). No `useEffect`: anything that touches the world is an [effect](effects-and-coeffects.md), described as data by an event handler, never run from a component. No JSX: a view returns **hiccup**, plain Clojure data. What's left is a function from data to a description of the screen — and that subtraction, not any addition, is the design.
+
+> **Coming from re-frame v1?** `reg-view` is new and is more than sugar — registration is how a view finds its frame now that the implicit default frame is gone (the equivalence section below has the details) — full delta in [From re-frame v1](../25-from-re-frame-v1.md).
+
+## Subscribe in, dispatch out
+
+A view has exactly two openings to the rest of the app, and both are one-way.
+
+**Reading state in:** the view derefs a subscription. `@(rf/subscribe [:cart/total])` declares "I depend on this derived value — re-run me when it changes." That is the only way a view learns application state. It doesn't read `app-db` directly, and it doesn't receive a props object threaded down through ten ancestors; it asks the [derivation graph](subscriptions.md) for exactly the slice it needs, by name.
+
+**Sending events out:** the view dispatches. `#(rf/dispatch [:cart/add id])`, wired to an `:on-click` or `:on-change`, announces "something happened" and returns immediately. It does not change state, and it does not know or care what the handler will do. The [cascade](events-and-the-cascade.md) takes it from there: the handler runs, `app-db` moves, subscriptions repropagate, and — at the very end — this view re-renders to match.
+
+Notice the shape of the round trip: a click never mutates the number it sits next to. It dispatches an event that produces a new `app-db` that flows back through a subscription. The view can't short-circuit that path, because it holds no state to short-circuit with. The whole contract fits in one sentence: **a view is a pure function from subscription values to hiccup.**
+
+## Hiccup: the screen is data
+
+The thing a view returns is nested Clojure vectors shaped like the DOM they describe:
+
+```clojure
+[:div.cart
+ [:h1 "Cart"]
+ [:p "Items: " [:strong 3]]]
+```
+
+A vector whose first element is a keyword is an element — `:div.cart` is a `<div class="cart">` (the `.class` shorthand comes from CSS selectors; `:input#email.wide` adds an id). A map in second position is the attributes: `[:button {:on-click f :disabled true} "Go"]`. Everything after that is children — strings become text, nested vectors become nested elements.
+
+The important word is *data*. Not "data-like", the way JSX is — actual vectors, maps, and keywords, the same structures you manipulate everywhere else in the program. So you build screens with ordinary code, no template syntax: `(into [:ul] (for [item items] [:li (:name item)]))`. You can `pprint` a view's output and read it. Functions can take hiccup and return hiccup, so views compose like any other values. And a pure hiccup-to-HTML emitter can run on the JVM, which is exactly how [server-side rendering](ssr.md) renders the *same* views without a browser. Template strings can do none of that — they don't compose, don't diff, and string-built markup is the mechanism injection bugs are made of. The full render-tree contract, including what survives serialisation, is [spec 004 — Views](../../../spec/004-Views.md).
+
+## The `defn` / `reg-view` equivalence
+
+The simplest view is a `defn`:
+
+```clojure
+(defn counter []
+  [:div
+   [:button {:on-click #(rf/dispatch [:counter/dec])} "-"]
+   [:span @(rf/subscribe [:counter/value])]
+   [:button {:on-click #(rf/dispatch [:counter/inc])} "+"]])
+```
+
+You use it by referencing it inside other hiccup — `[counter]` — and a view that takes arguments takes them like any function: `[labelled-counter "Apples"]`. In project code you'll write the registered form:
+
+```clojure
+;; cf. examples/reagent/counter/core.cljs
+(rf/reg-view counter []
+  [:div
+   [:button {:on-click #(dispatch [:counter/dec])} "-"]
+   [:span @(subscribe [:counter/value])]
+   [:button {:on-click #(dispatch [:counter/inc])} "+"]])
+```
+
+> **The equivalence — canonical statement.** A `reg-view` and a `defn` define the *same render function*. `reg-view` adds exactly two things. **One: a registry entry.** The view is registered under an auto-derived id — `(keyword *ns* 'counter)` here — so tooling can list it, jump to its source, and resolve a rendered DOM node back to the view that produced it. **Two: frame-aware injection.** Inside the body, unqualified `dispatch` and `subscribe` are locals, bound to the frame the view renders under — which is what lets the same view mount in several isolated [frames](frames.md) at once, each reading and writing only its own world. Nothing else differs about the render function. To *read* a `reg-view` body as a `defn`, map `dispatch` → `rf/dispatch` and `subscribe` → `rf/subscribe`. The reverse is not a free rewrite: the qualified forms resolve their frame from the surrounding scope, and a mounted app's frame-provider hands a frame only to *registered* views — an unregistered `defn` deref'ing `rf/subscribe` under it fails loudly with `:rf.error/no-frame-context`. (A plain fn that must stay unregistered captures a `(rf/frame-handle)` at render instead — [spec 004](../../../spec/004-Views.md).)
+
+Every live cell in this guide uses the `defn` spelling, because the cells run in a functions-only environment: `reg-view` isn't available there, `rf/dispatch` / `rf/subscribe` resolve as plain functions, and the cell environment supplies the frame scope that makes the qualified forms resolve. When a cell and a prose listing differ in this one way, this section is why — same component, two spellings; in project code, write `reg-view`.
+
+(For computed ids, library-generated views, or Reagent class components there is `reg-view*`, the plain-fn surface beneath the macro — see [spec 004](../../../spec/004-Views.md).)
+
+## A view, live
+
+Here is a `defn` view doing its whole job — subscribe in, dispatch out, hiccup between. Click into the cell, press **Ctrl-Enter** (**Cmd-Enter** on macOS) to evaluate, then click the buttons.
+
+```cljs-rf2
+(require '[reagent2.core :as r]
+         '[re-frame.core :as rf])
+
+;; Adapted from examples/reagent/counter/core.cljs (defn spelling for the cell).
+(rf/reg-event-db :views.counter/initialise
+  (fn [db _event] (assoc db :views.counter/value 5)))
+
+(rf/reg-event-db :views.counter/inc
+  (fn [db _event] (update db :views.counter/value inc)))
+
+(rf/reg-event-db :views.counter/dec
+  (fn [db _event] (update db :views.counter/value dec)))
+
+(rf/reg-sub :views.counter/value
+  (fn [db _query] (:views.counter/value db)))
+
+(defn counter []
+  [:div
+   [:button {:on-click #(rf/dispatch [:views.counter/dec])} "-"]
+   [:span {:style {:margin "0 1em"}} @(rf/subscribe [:views.counter/value])]
+   [:button {:on-click #(rf/dispatch [:views.counter/inc])} "+"]])
+
+(rf/dispatch-sync [:views.counter/initialise])
+[counter]
+```
+
+> **Try it.** Change the last form to `[:div [counter] [counter]]` and re-evaluate. Click either counter: both move, because neither owns the number — each is a window onto the same `app-db` value. There is no local copy to fall out of sync.
+
+## The one rule: views compute hiccup only
+
+There is exactly one discipline views must keep, and it pays for itself within a day of writing real screens:
+
+> **Views compute hiccup only. Everything else — sorting, filtering, formatting, deriving, joining — happens in a subscription.**
+
+The temptation always looks innocent: the subscribed list is *almost* what the screen needs, so one little `sort-by` here, one `.toFixed` there. Don't. The before, with the view quietly doing two jobs that aren't its own:
+
+```clojure
+;; Before — the view computes. The sort and the price-format re-run on
+;; EVERY re-render of this view, whether or not the list changed.
+(rf/reg-view product-list []
+  [:ul
+   (for [p (sort-by :name @(subscribe [:products]))]
+     ^{:key (:id p)} [:li (:name p) " — $" (.toFixed (:price p) 2)])])
+```
+
+And the after, with the derivation pushed up into a [subscription](subscriptions.md) where it belongs:
+
+```clojure
+;; After — the sub computes once per change to :products; the view renders.
+(rf/reg-sub :products/display
+  :<- [:products]
+  (fn [products _]
+    (->> products
+         (map #(update % :price (fn [n] (.toFixed n 2))))
+         (sort-by :name))))
+
+(rf/reg-view product-list []
+  [:ul
+   (for [p @(subscribe [:products/display])]
+     ^{:key (:id p)} [:li (:name p) " — $" (:price p)])])
+```
+
+Ask the "after" view its job: *all I do is walk the list and emit `<li>`s.* That's a view that knows what it's for.
+
+The mechanics of why this pays: a view re-runs whenever any value it derefs changes — and ancestor re-renders can trigger it too. A `sort-by` in the view re-runs on every one of those. The same `sort-by` in a sub re-runs *only when `:products` changes*, sits in the subscription cache, and is shared by every view that wants the sorted list — compute once, read many. Compute-in-view is the single most common way re-frame2 apps get accidentally slow; the hunt and the fix are in [Find and fix a slow view](../how-to/fix-a-slow-view.md).
+
+## The trap: imperative listeners lose the frame
+
+Hiccup's event attrs — `:on-click`, `:on-change`, `:on-animation-end`, the whole synthetic-event surface — are wrapped by the substrate at render time, so a `dispatch` inside them is routed to the right [frame](frames.md) automatically. Anything you attach *imperatively* from a render body is not wrapped. It fires later, on a fresh stack, with no frame in scope, and the dispatch fails loudly with `:rf.error/no-frame-context`:
+
+```clojure
+;; WRONG — imperative listener: the callback fires on a fresh stack with no
+;; frame in scope; the dispatch raises :rf.error/no-frame-context.
+(defn tile []
+  [:div {:ref (fn [el]
+                (when el
+                  (.addEventListener el "animationend"
+                    #(rf/dispatch [:tile/finished]))))}])
+
+;; RIGHT — :on-animation-end is a synthetic prop; the adapter wraps it
+;; and the dispatch carries the frame.
+(defn tile []
+  [:div {:on-animation-end #(rf/dispatch [:tile/finished])}])
+```
+
+(Inside a `reg-view` body the injected `dispatch` happens to survive — it captured its frame at render time — but the imperative attach is wrong there too: render bodies re-run, each run adds another listener, and nothing ever removes them. Attach through the attrs map either way.)
+
+Rule of thumb: if a synthetic prop exists for what you need, use it. If one doesn't — a `js/setTimeout`, a `fetch`, an `IntersectionObserver`, a WebSocket — that work was never a view's job: it belongs in a registered [effect](effects-and-coeffects.md), which captures the frame for you. The loud failure is deliberate — the runtime refuses to guess which world a frameless dispatch belongs to. Why, and the carried-frame mechanism behind it, is explained in [Frames: isolated worlds](frames.md).
+
+## The substrate seam, in one paragraph
+
+Everything upstream of the view — handlers, subscriptions, effects, `app-db` itself — is operations on Clojure data, and never names a rendering library. The one place re-frame2 touches React is the seam where hiccup becomes pixels and a click becomes a dispatch, and that seam is an **adapter**: a small map of functions named once at boot, `(rf/init! reagent-adapter/adapter)`. Port an app from Reagent to UIx or Helix and your handlers, subs, and `app-db` don't change by a character — only the `init!` line and the view bodies' notation do, because the view body is the one place the substrate is visible. The practical how-to is [Use UIx, Helix, or reagent-slim](../how-to/use-uix-helix-or-slim.md); the adapter contract itself is [spec 006 — Reactive substrate](../../../spec/006-ReactiveSubstrate.md).
+
+## When something renders wrong
+
+Step back and notice what all this buys you at debugging time. A view holds no state, runs no effects, owns no lifecycle — it is a pure function from subscription values to hiccup, so there is almost nothing *in* it to break:
+
+> **When something renders wrong, the bug is almost never in the view — it's in the data the view was handed.**
+
+So don't debug views; inspect data. Follow the value upstream: the [subscription](subscriptions.md) that computed it, then the [event handler](events-and-the-cascade.md) that wrote it — both pure functions you can test without a browser. With Xray open, find the event row for the action that preceded the bad render and look at the data it produced: the wrong value is usually sitting there, visibly wrong, before the view ever ran ([Debug with Xray](../how-to/debug-with-xray.md)).
+
+---
+
+**You can now:**
+
+- name a view's only two openings — subscribe in, dispatch out — and explain why the round trip always goes through the cascade
+- read `reg-view` and `defn` views as the same component, and say exactly what the macro adds (a registry entry and frame-aware `dispatch`/`subscribe`)
+- push computation out of views into subscriptions, and spot the compute-in-view smell in review
+- avoid the imperative-listener trap, and say why the failure is loud instead of silent
+
+**Next:** the world at the boundary — [Effects and coeffects](effects-and-coeffects.md) — or the isolation mechanism views rely on, [Frames](frames.md).

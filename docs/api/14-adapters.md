@@ -223,4 +223,4 @@ There's a fourth adapter — Plain Atom — that ships in core and exists for tw
 - [02 — Views](02-views.md) — the substrate-agnostic ergonomic surface (`frame-handle`, `frame-bound-fn` / `frame-bound-fn*`, `with-frame`, `with-new-frame`, `frame-provider`).
 - [13 — Lifecycle](13-lifecycle.md) — `init!`, `install-adapter!`, `destroy-adapter!`, `current-adapter`, `adapter-disposed?`.
 - [Spec 006 — Reactive Substrate](../../spec/006-ReactiveSubstrate.md) — the adapter contract.
-- [Guide ch.21 — Adapters](../guide/22-adapters.md) — narrative coverage with worked examples.
+- [Guide ch.21 — Adapters](../guide/how-to/use-uix-helix-or-slim.md) — narrative coverage with worked examples.

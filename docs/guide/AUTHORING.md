@@ -1,120 +1,127 @@
-# Guide Authoring Notes
+# Guide authoring contract
 
-These notes are for authors of `docs/guide/` chapters. Spec authors should read
-`spec/SPEC-AUTHORING.md` (if it exists) — these rules are about the human
-tutorial track, not the normative spec track.
+> **Who this is for.** Contributors writing or revising pages under `docs/guide/`. This page is excluded from the site nav — readers never land here. If you came to *learn* re-frame2, start at [the guide](README.md). This page's one job: state the contract every guide page is held to, and the gates that enforce it.
 
-## Linking from the guide to the spec
+The guide is organised by **Diátaxis** — tutorial / how-to / explanation / reference — with two deliberate divergences. First, **reference is not a guide mode at all**: the normative reference lives in `spec/` (AI-targeted, exhaustive, boring on purpose); the guide carries only [a thin map](reference.md) pointing down into it. A guide page that starts accumulating option tables and precedence rules is absorbing weight the spec already owns — move the weight, don't polish it. Second, the mode discipline is enforced **per page**, not per section: a page is one mode all the way down.
 
-The guide is for **human readers**; the spec is for **AI agents and
-implementors**. The spec is dry, normative, and exhaustive by design — not
-where a tutorial reader should land mid-chapter.
+Which yields the rule everything else here serves:
 
-When you want to send the reader to spec material, **paraphrase the load-bearing
-detail inline** rather than linking out, except for these explicitly permitted
-spec docs:
+> **If a page can't state its one job, it's two pages.**
 
-| Doc | Why permitted |
-|---|---|
-| `spec/Principles.md` | Framework philosophy; load-bearing for a curious reader |
-| `spec/000-Vision.md` | Human-readable philosophy track; the 'why re-frame2 exists' doc. Permitted but most chapters won't need it; ch.26 (operating map) is its natural home. |
-| `migration/from-re-frame-v1/README.md` | v1 -> v2 migrants are a distinct audience; ch.25 is their on-ramp |
-| `spec/Pattern-AsyncEffect.md` | Runnable convention; cross-cutting across ch.04 / ch.09 / ch.16 |
-| `spec/Pattern-RemoteData.md` | Runnable convention; cross-cutting across ch.02 / ch.08 / ch.10 |
-| `spec/Pattern-Forms.md` | Runnable convention; the 7-event lifecycle is reused |
+## The page contract
 
-**Chapter 26 (Operating well) is exempt** from this restriction. It is the
-reference/tooling portal: curated lists of spec docs, API pages, examples,
-patterns, Story/Xray docs, and skills are appropriate there.
+Every guide page commits to all five:
 
-## What "paraphrase inline" means
+1. **One job, one mode.** The page is exactly one of *start / tutorial / how-to / explanation / index*, and its opening states the reader's problem — what brought them here, what they can do afterward — in a sentence or two.
+2. **One load-bearing takeaway** a reader could quote from memory a week later (this page's is the blockquote above). One per page; a page with three slogans has none.
+3. **Reader-first ordering.** Goal → working code → explanation → spec link. Result before mechanism, mechanism before theory, theory before citation. Never open with internals.
+4. **Adjacency.** Examples sit beside the explanation they serve; warnings sit beside the risky step; the common mistake appears where the reader is about to make it — not in a pitfalls appendix.
+5. **The footer.** A **"You can now:"** bullet list (capabilities, not topics covered) plus **at most two** onward links, each with a reason to follow it.
 
-When the chapter prose hits the boundary of "user needs to know X about the
-spec", state X in chapter-flavoured prose. Don't write "See Spec NNN for the
-full table" — give the reader the table or the relevant rows directly.
+Mode rules, stated as what each mode *forbids*: a **tutorial** page never catalogues alternatives ("you could also…" is a how-to's job); a **how-to** page assumes competence and never teaches a concept beyond a link; an **explanation** page carries no task steps; an **index** page routes and never teaches. Quality bar for foundational pages: a concrete reader problem, a complete listing, a walkthrough, a common mistake, and a checkpoint the reader can run or reason through.
 
-The spec link is correct when:
-- The link target is in the permitted set above, AND
-- The user genuinely benefits from following it (not a defensive citation).
+## Tiers and modes
 
-The spec link is wrong when:
-- It's a "see spec for the full story" sentence used to dodge writing the
-  chapter explanation.
-- It's a parenthetical citation (e.g. "(per Spec 010)") — citations belong in
-  the spec, not the guide.
-- It's a chapter-end "Further reading" pointing at a numbered Spec doc the
-  tutorial reader has no business reading.
+| Where | Tier | Mode | Job |
+|---|---|---|---|
+| `README.md` | start | index | Route readers; teach nothing |
+| `quickstart.md` | start | start | Pixels in five minutes |
+| `tutorial/` | tutorial | tutorial | Build RealWorld end to end |
+| `concepts/`, `where-state-lives.md` | concepts | explanation | The mental model, one piece per page |
+| `how-to/` | how-to | how-to | One task, complete code, done |
+| `explanation/`, `derivations-and-algebra-views.md` | explanation | explanation | The why — for the curious, not the blocked |
+| `25-from-re-frame-v1.md` | migration | migration | v1 deltas, not basics |
+| `reference.md` | reference | index | The thin map down into `spec/` |
+| `AUTHORING.md` | meta | index | This contract |
 
-## Cross-chapter linking
+A new page must name its tier and mode before drafting starts. If it doesn't fit one row, it's two pages.
 
-Linking guide chapter → guide chapter is fine and encouraged (e.g. "covered in
-ch.13"). The reader stays in the tutorial track.
+## The two-app canon
 
-## When you discover a gap
+The guide orbits exactly two applications, and the boundary between them is deliberate:
 
-If you find yourself wanting to link to a spec doc that's NOT in the permitted
-set, that's a signal the chapter prose is incomplete. Add the missing prose;
-don't reach for the link.
+- **The counter** (with its odd/even badge and last-clicked timestamp) carries the start tier and the concepts pages, for as long as it can stretch. It's the ecosystem's shared hello-world — Elm's counter, the Redux counter — so 100% of the reader's attention goes to *our* idioms, not the domain.
+- **RealWorld** (conduit: articles, feeds, favorites, auth) carries the tutorial and the how-tos. **The switch point is the moment server data enters the picture** — the counter has no server, and faking one would teach a shape we'd reject in review.
 
-## Drift watch
+Concepts pages whose domain is inherently server-shaped (resources, HTTP, routing) borrow RealWorld's nouns rather than inventing a third domain. Small inline examples are fine anywhere; the *narrative* belongs to the canon. No throwaway example apps.
 
-The guide's spec-link policy was tightened retrospectively after chapter
-authors had started reaching for spec URLs as a substitute for writing
-the explanation in chapter prose. Future chapter authors who skip this
-policy will reintroduce the same drift — keep the tutorial track
-self-sufficient.
+## Spec links
 
-## The "for the categorically curious" callout
+The guide teaches the model and the happy path, then **links down** into spec for completeness — it never duplicates spec content in friendlier voice (that's how 74KB chapters happen). The link placement rule: **teach first, link after**. A spec link carries completeness, never the lesson.
 
-re-frame2's design is grounded in functional and category-theoretic ideas
-(folds, lattices, lenses, derivation algebras). Those ideas are real and they
-earn the framework its shape — but they are *design tools*, not *teaching
-vocabulary*. The guide's rule is **translate, don't transplant**: the chapter
-body explains an idea in plain language, framed as a payoff for the reader; the
-category-theory vocabulary appears *only* inside an optional, collapsible
-callout for the reader who enjoys the deeper unifying frame.
+A spec link is wrong when it's a "see the spec for the full story" dodge replacing an explanation the page owes the reader, or a parenthetical citation ("(per Spec 010)") — citations belong in the spec.
 
-The device is an mkdocs-material collapsible admonition (the `pymdownx.details`
-extension, already enabled), titled **"For the categorically curious"**:
+**Link form** — write the GitHub-correct relative path; the build hook rewrites it for the staged site, so never hand-write the staged path:
 
-```markdown
-<details markdown="1">
-<summary>For the categorically curious</summary>
+- From a **depth-3** page (`tutorial/`, `concepts/`, `how-to/`, `explanation/`), a spec link's target is `../../../spec/008-Testing.md`.
+- From a **depth-2** page (`docs/guide/X.md`), it's `../../spec/API.md`.
+- Same rule for `migration/` and `examples/` targets at the matching depth (examples links become GitHub blob URLs — examples are not staged into the site).
+- Guide → guide links are plain sibling-relative and encouraged.
 
-All four homes are the same thing seen four ways: a node in one dependency
-graph, distinguished by its storage policy and its evaluation policy. ...
-</details>
-```
+## Delta teaching
 
-The rules — non-negotiable, so the device stays a treat and never a tax:
+Every domain page **opens by naming its ecosystem anchor** — TanStack Query, XState v5, Redux, Storybook, React Router, re-frame v1 — and the deliberate divergences. The reader arrives with a mental model; teach the difference, not the basics.
 
-- **Always collapsible and always skippable.** Use the `<details>`/`<summary>`
-  form (collapsed by default), never a plain `> **Note:**` block or an
-  always-expanded admonition. A reader who never opens it must lose nothing.
-- **The surrounding prose must stand alone.** The chapter has to make complete
-  sense to a reader who skips every callout. The callout *adds* a frame; it
-  never *carries* a load-bearing fact. If the body can't be understood without
-  it, the body is incomplete — fix the body, don't lean on the box.
-- **At most one per concept.** One callout illuminating one idea. A page with
-  three of them has turned the treat into the meal.
-- **Max ~6 lines.** It's a glimpse, not a lecture. No proofs, no derivations,
-  no chains of definitions.
-- **Every symbol gets a plain-English gloss.** If you write "catamorphism" or
-  "lens," say in the same breath what it means here. A term the reader can't
-  decode is noise, not insight.
+Per-persona callouts are bold-lead blockquotes, **one sentence each, at most two per section, never load-bearing** (the page must read complete with every callout skipped):
 
-First user: [Where Should This Value Live?](where-state-lives.md), whose body
-teaches the sub/flow/resource/machine decision in plain language and offers one
-callout framing the four as storage-and-evaluation policies over one graph.
+> **Coming from TanStack Query?** A resource is your query — except reads are subscriptions and fetches are caused by routes and events, never by render.
 
-## No bead references in chapter prose
+The **v1 delta callout** (`> **Coming from re-frame v1?** …`) is the standing instance of this device: one sentence on what moved, linking to [From re-frame v1](25-from-re-frame-v1.md) for the full delta. Retired v1 surfaces (`inject-cofx`, `:rf.world/inputs`) appear *only* on that migration page, marked superseded — never in teaching prose elsewhere.
 
-User-facing docs state the **current truth** of the framework, not the
-historical trace of which decisions produced it. Do not introduce
-`(rf2-xxx)` citations, `Per rf2-xxx ...` constructions, or
-`as decided in rf2-xxx` style references into chapter text. Substantive
-content goes inline; the bead history lives in the bead tracker.
+## Snippets are production code
 
-Migration-rule ids (`M-NN`), spec section anchors (`#section-name`), and
-cross-doc filename links are all fine — those are normative anchors, not
-historical decision-trace references.
+Readers copy-paste; nobody reads the disclaimer. So every snippet is complete, idiomatic, and runnable — **never simplified into an anti-pattern for pedagogy**. If the simplification would fail review, the example is wrong even with a caveat beside it.
+
+- **Source by inclusion.** Prefer adapting snippets from `examples/` files, citing the source in a first-line comment: `;; cf. examples/reagent/realworld/articles.cljs`. The named file is the compile gate's anchor (see [Gates](#the-gates)); an uncited hand-written snippet is a snippet CI can't defend.
+- **Verify every API symbol** against `spec/API.md` and `implementation/core/src/re_frame/core.cljc` (`git grep` both) before teaching it. Not found there → not taught.
+- **Async snippets carry the frame.** Never a bare `rf/dispatch` from a `js/setTimeout` / promise callback — that raises `:rf.error/no-frame-context`. Use the frame-carrying idiom from the examples.
+
+## Live cells
+
+Pages may embed editable, in-browser code via two fences (the info string is the only difference from a static block): ` ```cljs ` evaluates forms and prints the last value — pure ClojureScript teaching only, no re-frame; ` ```cljs-rf2 ` **mounts the last form as a live component** against re-frame2's real public API. For guide pages you almost always want `cljs-rf2`.
+
+Use them **sparingly** — one or two per page, only where editing the code teaches more than reading it. Section shape: a sentence of *why* → the cell → a named *what-to-try* edit with its expected outcome. A live cell with no suggested experiment is a slow screenshot.
+
+The `cljs-rf2` rules, each of which bites the first time:
+
+- **Standard preamble:** `(require '[reagent2.core :as r] '[re-frame.core :as rf])` — the `reg-*` family and `dispatch` / `dispatch-sync` / `subscribe` all resolve as functions.
+- **Top-level forms only** — never wrap the cell in `(do …)`; it breaks the require's alias resolution for everything inside.
+- **The last form must be renderable hiccup** (`[counter]` or a literal `[:div …]`). There is no plain-eval path; anything else renders blank. To show a computed value, wrap it in a tiny display view.
+- **Seed app-db with `rf/dispatch-sync`** before the final view form — plain `dispatch` races the first render.
+- **Cell dialect is plain `defn` views with explicit `rf/dispatch` / `rf/subscribe`** — the cell environment is functions-only, so macro sugar like `reg-view` is unavailable. Don't re-explain this; the reader-facing statement is the equivalence section in [Views: pure functions of data](concepts/views.md#the-defn-reg-view-equivalence) — link it when a cell and a static listing differ.
+- **One shared registry and app-db per page**, across all cells. Write each cell self-contained (require, registrations, seed, view) and namespace ids (`:demo-a/inc`) when cells must be independent.
+- **Name the eval shortcut once per page** — `Ctrl-Enter` (`Cmd-Enter` on macOS) — the first time you ask for an evaluation; after that, "re-evaluate".
+- The rf2 bundle loads on demand, so a page's first cell may take a moment to come alive. After authoring, build and click every cell in a browser — a cell that compiles but doesn't mount is worse than a static block.
+
+## Standing per-page devices
+
+- **Do → observe → explain.** Any page whose example dispatches something closes the loop with an observation step: *"Open Xray: the submit's event row shows the validation branch — no request left."* Phrase affordances generally (the event row, the epoch ledger, the app-db view); do not invent Xray UI names — verify in `tools/xray/spec/` before using a specific one.
+- **The war story.** Where a feature exists because a production failure class exists, tell it as a lived story — concrete, second-person, ending in the mechanism that makes the failure *structurally impossible* (canonical instance: the test that's green every afternoon and red the one time CI crosses midnight, until the clock becomes a recorded fact). At most one per page; it motivates, the mechanism teaches.
+- **"For the categorically curious."** re-frame2's category-theory grounding is a design tool, not teaching vocabulary — *translate, don't transplant*. The deeper frame goes only in a collapsed `<details markdown="1"><summary>For the categorically curious</summary>…</details>` block: always skippable, never load-bearing, at most one per concept, ~6 lines, every term glossed in the same breath.
+- **Asides are bold-lead blockquotes** (`> **Heads-up.** …`), not `!!!` admonitions — match the corpus.
+- **No bead references in prose.** Pages state current truth, not the decision trail; `(rf2-xxx)` citations belong in the tracker. Spec section anchors and migration-rule ids are fine — those are normative, not historical.
+- **Honesty.** Say when *not* to use a feature; mark deferred things (optimistic rollback) and CLIENT-ONLY paths; no marketing voice. The test for every paragraph: could a tired engineer act on it at 11pm mid-incident?
+
+## The gates
+
+Four gates keep the contract from rotting — the guide is maintained like product code:
+
+1. **Per-PR staleness rule.** Every feature-touching PR updates the affected guide page(s) or states explicitly in the PR why the guide is unchanged — the same discipline already enforced for `tools/xray/spec/`, extended to the guide.
+2. **The cold-agent test.** A fresh AI agent, given only the **quickstart + tutorial** and an empty project, must produce a working app. Every stall or hallucination is a documentation bug *with a repro*. Concepts and how-tos are deliberately out of scope — the agent reaching for them is itself a tutorial-tier finding.
+3. **Time-to-pixels.** From setup start to first render in under five minutes, measured against the setup section of [the tutorial's index](tutorial/index.md). The quickstart's live cells are zero-install and don't count toward the budget.
+4. **Snippets compile in CI.** Snippets cited from `examples/` files compile because their sources do; the citation comment is what lets the gate map a page to its compiled source. Hand-written snippets without a source file get the symbol-verification rule as their floor — prefer promoting them into an example.
+
+## Mechanics
+
+Write Markdown for MkDocs Material. Pages live under `docs/guide/`; the nav is explicit in `mkdocs.yml` and a new page must be added there by hand, next to its siblings (this page stays out of the nav). Build locally with `mkdocs build --strict` before opening a PR; if the page has live cells, load it and click them.
+
+---
+
+**You can now:**
+
+- name a new page's tier and mode before drafting, and split it when it can't state one job
+- write a page that passes the contract: reader-problem opening, one quotable takeaway, adjacency, a you-can-now footer with ≤2 links
+- pick the right canon app (counter until server data appears, RealWorld after), source snippets from named `examples/` files, and link down into spec at the right depth
+- author a `cljs-rf2` cell that mounts, deploy the standing devices, and know which of the four gates will check your work
+
+**Next:** [The re-frame2 Guide](README.md) — the reader-facing shape this contract produces · [Build RealWorld — what you'll make, and setup](tutorial/index.md) — the tier the cold-agent and time-to-pixels gates measure.

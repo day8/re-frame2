@@ -155,38 +155,56 @@ nav:
     # navigation.indexes: the section label IS the Guide overview page (no
     # redundant "Overview" child) — see theme.features (rf2-qgpkm).
     - guide/README.md
-    # Human-first rewrite: 26 numbered chapters, straight integer ordering
-    # per guide/OUTLINE.md, with runnable cells where editing teaches more
-    # than static prose.
-    - "01 - Introduction": guide/01-introduction.md
-    - "02 - app-db": guide/02-app-db.md
-    - "03 - First app": guide/03-first-app.md
-    - "04 - Events and the cascade": guide/04-events-and-the-cascade.md
-    - "05 - Subscriptions": guide/05-subscriptions.md
-    - "06 - Views": guide/06-views.md
-    - "07 - Effects and coeffects": guide/07-effects-and-coeffects.md
-    - "08 - Schemas": guide/08-schemas.md
-    - "09 - Interceptors": guide/09-interceptors.md
-    - "10 - HTTP": guide/10-http.md
-    - "11 - Forms": guide/11-forms.md
-    - "12 - Machines": guide/12-machines.md
-    - "13 - Testing": guide/13-testing.md
-    - "14 - Errors": guide/14-errors.md
-    - "15 - Performance": guide/15-performance.md
-    - "16 - Observability": guide/16-observability.md
-    - "17 - Tooling": guide/17-tooling.md
-    - "18 - Frames": guide/18-frames.md
-    - "19 - Routing": guide/19-routing.md
-    - "20 - Server side": guide/20-server-side.md
-    - "21 - Runtime model": guide/21-dynamic-model.md
-    - "22 - Adapters": guide/22-adapters.md
-    - "23 - Privacy and large data": guide/23-privacy-and-large-things.md
-    - "24 - Configuration and safety": guide/24-config-and-safety.md
-    - "25 - From re-frame v1": guide/25-from-re-frame-v1.md
-    - "26 - Operating well": guide/26-operating-well.md
-    - "27 - Server-state and resources": guide/27-resources.md
-    - "Where should this value live?": guide/where-state-lives.md
-    - "One graph: derivations and algebra views": guide/derivations-and-algebra-views.md
+    # Human-first rebuild (Diataxis tiers): quickstart -> one threaded
+    # RealWorld tutorial -> concepts (explanation) -> how-to recipes ->
+    # explanation shelf -> v1 migration -> a thin index into spec/.
+    - "Quickstart": guide/quickstart.md
+    - "Tutorial: Build RealWorld":
+      - guide/tutorial/index.md
+      - "1. Pages and state": guide/tutorial/01-pages-and-state.md
+      - "2. Real data": guide/tutorial/02-server-data.md
+      - "3. Auth and forms": guide/tutorial/03-auth-and-forms.md
+      - "4. Mutations and invalidation": guide/tutorial/04-mutations-and-invalidation.md
+      - "5. Test and ship": guide/tutorial/05-test-and-ship.md
+    - "Concepts":
+      - guide/concepts/index.md
+      - "Events and the cascade": guide/concepts/events-and-the-cascade.md
+      - "app-db": guide/concepts/app-db.md
+      - "Subscriptions": guide/concepts/subscriptions.md
+      - "Views": guide/concepts/views.md
+      - "Effects and coeffects": guide/concepts/effects-and-coeffects.md
+      - "Interceptors": guide/concepts/interceptors.md
+      - "Frames": guide/concepts/frames.md
+      - "Flows": guide/concepts/flows.md
+      - "Machines": guide/concepts/machines.md
+      - "HTTP": guide/concepts/http.md
+      - "Server state: resources": guide/concepts/server-state.md
+      - "Routing": guide/concepts/routing.md
+      - "Server-side rendering": guide/concepts/ssr.md
+      - "Errors": guide/concepts/errors.md
+      - "Observability": guide/concepts/observability.md
+    - "How-to":
+      - guide/how-to/index.md
+      - "Add auth": guide/how-to/add-auth.md
+      - "Build a form": guide/how-to/build-a-form.md
+      - "Validate with schemas": guide/how-to/validate-with-schemas.md
+      - "Paginate a feed": guide/how-to/paginate-a-feed.md
+      - "Invalidate after a mutation": guide/how-to/invalidate-after-a-mutation.md
+      - "Test an event handler": guide/how-to/test-an-event-handler.md
+      - "Test a cascade": guide/how-to/test-a-cascade.md
+      - "Debug with Xray": guide/how-to/debug-with-xray.md
+      - "Fix a slow view": guide/how-to/fix-a-slow-view.md
+      - "Keep secrets out of traces": guide/how-to/keep-secrets-out-of-traces.md
+      - "Report errors in production": guide/how-to/report-errors-in-production.md
+      - "Configure dev and prod": guide/how-to/configure-dev-and-prod.md
+      - "Use UIx, Helix, or slim": guide/how-to/use-uix-helix-or-slim.md
+    - "Explanation":
+      - "Inside-out: why it's built this way": guide/explanation/inside-out.md
+      - "Continuations are data": guide/explanation/continuations-are-data.md
+      - "One graph: derivations and algebra views": guide/derivations-and-algebra-views.md
+      - "Where should this value live?": guide/where-state-lives.md
+    - "From re-frame v1": guide/25-from-re-frame-v1.md
+    - "Reference index": guide/reference.md
 
   - CLJS:
     - "ClojureScript for non-Clojurians": cljs/index.md
