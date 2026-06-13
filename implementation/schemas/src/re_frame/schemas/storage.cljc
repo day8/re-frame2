@@ -166,8 +166,14 @@
 ;; an app schema against a runtime path. So — unlike the `:rf.db/runtime`
 ;; EFFECT seam, where a warning teaches because the misuse still executes
 ;; as intended — this is a HARD REJECT at the existing pre-mutation gate
-;; (RULING (b), rf2-k0ew8n). `reg-runtime-schema` is the correct surface
-;; for runtime-db validation, and the error names it. EP-0001 line ~484
+;; (RULING (b), rf2-k0ew8n). The runtime-db partition is framework-owned —
+;; the framework validates it (machine `:snapshots` refined per-machine from
+;; each machine's `:data-schema`); it is NOT a user schema-registration
+;; surface (per Conventions §Reserved runtime-db keys — "user code MUST NOT
+;; register against it"). So the error tells the user the honest remedy
+;; (drop the runtime path), NOT to call a non-public, framework-owned API
+;; (rf2-sklyam — the prior `:reason` pointed users at `reg-runtime-schema`,
+;; which has no public export and is framework-owned). EP-0001 line ~484
 ;; said "warn"; that predates the fail-closed hardening campaign
 ;; (rf2-sk0ql, rf2-naihn1, the legacy-root hard error) and is the artefact
 ;; under repair here, not a constraint.
@@ -208,7 +214,12 @@
     - `:rf.error/app-schema-runtime-path` — the shape is fine but the
       FIRST segment reaches into the runtime-db partition (`:rf.runtime/*`
       or the legacy `:rf/runtime` root). App schemas validate only app-db;
-      `reg-runtime-schema` is the correct surface (rf2-k0ew8n, RULING (b)).
+      the runtime-db partition is framework-owned (the framework validates
+      it — machine `:snapshots` refined per-machine from each machine's
+      `:data-schema`) and is NOT a user schema-registration surface, so the
+      honest remedy is to drop the runtime path (rf2-k0ew8n, RULING (b);
+      rf2-sklyam — the reason no longer points users at a non-public,
+      framework-owned API).
 
   `frame` (optional) names the resolved registration frame for the
   runtime-path error payload; callers pass the frame they resolved. It is
@@ -236,9 +247,13 @@
                                         "path whose first segment is a "
                                         ":rf.runtime/* keyword (or the legacy "
                                         ":rf/runtime root) reaches into the "
-                                        "runtime-db partition. Use "
-                                        "reg-runtime-schema to validate "
-                                        "runtime-db state.")
+                                        "runtime-db partition. The runtime-db "
+                                        "partition is framework-owned and "
+                                        "validated by the framework (machine "
+                                        ":snapshots refined per-machine from "
+                                        "each machine's :data-schema); it is "
+                                        "NOT a user schema-registration "
+                                        "surface — drop the runtime path.")
                       :rf.error/id :rf.error/app-schema-runtime-path})))))
 
 ;; ---- bulk first-argument shape validation (rf2-naihn1) --------------------
