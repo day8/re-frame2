@@ -1433,7 +1433,18 @@
           _            (rf/with-frame scope-frame
                          (realise-flows! fixture))
           dispatches   (or (:fixture/dispatches fixture) [])
-          sub-registry (get-in fixture [:fixture/registry :sub] {})]
+          sub-registry (get-in fixture [:fixture/registry :sub] {})
+          ;; EP-0017 (rf2-d8mvke.3): a dispatch map may carry
+          ;; `:expect-error <:rf.error/id>` to assert the dispatch THROWS an
+          ;; `ex-info` whose `:rf.error/id` ex-data slot equals the expected
+          ;; id (the cofx delivery errors + the `:rf.world/inputs` retirement
+          ;; throw from context assembly / the dispatch boundary, escaping
+          ;; `dispatch-sync`). Mirrors the Mode-B `:reg-machine` /
+          ;; `:path-instantiate` `:expect-error` convention. Failures
+          ;; (no-throw, wrong id, or generic throw) accumulate here and fail
+          ;; the fixture; an UNEXPECTED throw (no `:expect-error`) still
+          ;; propagates to the outer fixture-level catch.
+          dispatch-error-failures (atom [])]
       ;; EP-0002 (rf2-9o48ih) — bare `dispatch-sync` resolves its target
       ;; from the `scope-frame` established here; see the registration-
       ;; time note above for the carried-invariant rationale.
@@ -1483,6 +1494,36 @@
                                 (concat (when (seq sub-meta) [sub-meta])
                                         (interleave (repeat :<-) inputs)
                                         [body]))))
+
+            ;; EP-0017 (rf2-d8mvke.3): a dispatch asserting a boundary /
+            ;; context-assembly THROW. `:expect-error` is the
+            ;; `:rf.error/id` the dispatch must raise (e.g. the cofx
+            ;; delivery errors, or the `:rf.world/inputs` retirement). The
+            ;; throw escapes `dispatch-sync` (the cofx errors throw during
+            ;; context assembly, the retirement at the dispatch boundary —
+            ;; neither is captured into the chain), so the runner catches it
+            ;; here and compares the ex-data `:rf.error/id`. The remaining
+            ;; opts (e.g. `:rf.cofx` / `:rf.world/inputs`) pass through to
+            ;; `dispatch-sync`.
+            (contains? ev :expect-error)
+            (let [{event :event want :expect-error} ev
+                  opts   (dissoc ev :event :expect-error)
+                  got    (try (rf/dispatch-sync event opts) ::no-throw
+                              (catch clojure.lang.ExceptionInfo e
+                                (:rf.error/id (ex-data e)))
+                              (catch Throwable e e))]
+              (cond
+                (= got ::no-throw)
+                (swap! dispatch-error-failures conj
+                       (str "dispatch " (pr-str event) " expected to throw "
+                            want " but did not throw"))
+                (not= got want)
+                (swap! dispatch-error-failures conj
+                       (str "dispatch " (pr-str event) " expected error " want
+                            " but got " (if (instance? Throwable got)
+                                          (str "a non-ExceptionInfo throw: "
+                                               (some-> ^Throwable got .getMessage))
+                                          got)))))
 
             :else
             (let [{event :event :as opts} ev]
@@ -1552,6 +1593,14 @@
             ;; {frame-id db}.
             expected-db  (:final-app-db expect)
             expected-dbs (:final-app-dbs expect)
+            ;; EP-0017 (rf2-d8mvke.3): NEGATIVE app-db assertion. A vector of
+            ;; `get-in`-shaped paths that must be ABSENT from the final
+            ;; (`:rf/default`) app-db — the key at the path's tip must not be
+            ;; present (distinguished from present-with-nil). `:final-app-db`'s
+            ;; submap matching tolerates extra keys, so it cannot pin
+            ;; declared-only delivery (an over-delivering port still passes);
+            ;; this absent-path check is what FAILS such a port.
+            expected-absent (:final-app-db-absent expect)
             final-db     (rf/app-db-value :rf/default)
             final-dbs    (when expected-dbs
                            (into {}
@@ -1581,6 +1630,21 @@
                   {:query    query-v
                    :expected expected-val
                    :actual   (rf/subscribe-once frame-id qv)})))
+            ;; EP-0017 (rf2-d8mvke.3): NEGATIVE app-db path assertions. Each
+            ;; path's tip key must be ABSENT from the final app-db. Uses a
+            ;; sentinel `get-in` so a present-with-nil leaf is NOT mistaken
+            ;; for absent (the over-delivery case might legitimately deliver
+            ;; a nil-valued coeffect, which is still a delivery).
+            absent-failures
+            (when expected-absent
+              (vec
+                (keep (fn [path]
+                        (let [sentinel ::absent
+                              v        (get-in final-db path sentinel)]
+                          (when-not (identical? v sentinel)
+                            (str "expected app-db path " (pr-str path)
+                                 " to be ABSENT but found " (pr-str v)))))
+                      expected-absent)))
             trace-failures (check-trace-emissions @traces (:trace-emissions expect))
             ;; rf2-wxe9t — substrate-side error-emit records (the
             ;; corpus-wide listener fan-out). The matcher mirrors
@@ -1644,6 +1708,10 @@
                             (or (nil? expected-rts)
                                 (every? (fn [[fid rt]] (submap? rt (get final-rts fid)))
                                         expected-rts))
+                            ;; EP-0017 (rf2-d8mvke.3) — negative app-db paths +
+                            ;; per-dispatch expect-error assertions.
+                            (empty? absent-failures)
+                            (empty? @dispatch-error-failures)
                             (every? #(= (:expected %) (:actual %)) sub-checks)
                             (empty? trace-failures)
                             (empty? effects-failures)
@@ -1651,6 +1719,8 @@
                             (empty? error-emit-failures)
                             (or (nil? public-error-check)
                                 (:passed? public-error-check)))
+         :absent-failures         absent-failures
+         :dispatch-error-failures @dispatch-error-failures
          :final-db     final-db
          :final-dbs    final-dbs
          :expected-db  expected-db
@@ -1768,6 +1838,12 @@
             (when (not= tds (:final-dbs f))
               (println "    expected app-dbs:" tds)
               (println "    actual   app-dbs:" (:final-dbs f))))
+          (when (seq (:absent-failures f))
+            (doseq [af (:absent-failures f)]
+              (println "    absent:" af)))
+          (when (seq (:dispatch-error-failures f))
+            (doseq [def (:dispatch-error-failures f)]
+              (println "    expect-error:" def)))
           (doseq [sc (:sub-checks f)]
             (when (not= (:expected sc) (:actual sc))
               (println "    sub" (:query sc) "expected:" (:expected sc) "actual:" (:actual sc))))

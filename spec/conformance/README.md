@@ -60,7 +60,7 @@ The classic shape: a starting state (frame configuration plus initial `app-db`),
   :effects-routed      []}}
 ```
 
-The expectation keys inside `:fixture/expect` are partial-match by convention: `:trace-emissions` matches each trace event by its specified keys (absent keys ignored), `:final-app-db` is a literal compare, `:effects-routed` matches the routed-fx pairs in declaration order. See [§Fixture lifecycle](#fixture-lifecycle) for the full comparison contract.
+The expectation keys inside `:fixture/expect` are partial-match by convention: `:trace-emissions` matches each trace event by its specified keys (absent keys ignored), `:final-app-db` is a **submap** compare (every declared key must match; extra actual keys are tolerated), `:effects-routed` matches the routed-fx pairs in declaration order. Because `:final-app-db`'s submap match tolerates extras, a **negative** companion key `:final-app-db-absent` — a vector of `get-in`-shaped paths that must be ABSENT from the final app-db (the tip key not present; a present-with-`nil` leaf counts as present) — pins contracts the positive submap cannot, e.g. EP-0017 declared-only delivery (a port that over-delivers undeclared coeffects still passes the positive check but fails the absent-path check). See [§Fixture lifecycle](#fixture-lifecycle) for the full comparison contract.
 
 ### Mode B — pure / direct-call
 
@@ -248,6 +248,7 @@ In addition, `:fixture/dispatches` accepts two harness-level map forms (alongsid
 |---|---|
 | `{:destroy-frame <frame-id>}` | Call `destroy-frame!` on the named frame. The machine-cascade teardown hook fires (`:rf.machine.lifecycle/destroyed` per active machine), the sub-cache disposes, the substrate releases frame-scoped resources, and `:rf.frame/destroyed` trace fires. Used by Cross-Spec Interaction §1's fixture. |
 | `{:reg-sub <sub-id> :body <sub-body-dsl>}` | Re-register the sub with a new body realised via the conformance sub-DSL interpreter. The registrar's replacement hook fires (`:rf.registry/handler-replaced` with `:kind :sub`), invalidating the cache slot for that query-id. Used by Cross-Spec Interaction §18's fixture. |
+| `{:event <event-vec> :expect-error <:rf.error/id> & opts}` | Dispatch `:event` (forwarding any remaining opts, e.g. `:rf.cofx` / `:rf.world/inputs`) and assert it **throws** an error whose `:rf.error/id` ex-data slot equals `:expect-error`. For boundary / context-assembly errors that escape `dispatch-sync` before any handler runs — the EP-0017 cofx delivery errors (`:rf.error/missing-required-cofx`, `:rf.error/unregistered-cofx`) and the `:rf.world/inputs` retirement (`:rf.error/world-inputs-renamed`). The same `:expect-error` convention the Mode-B `:reg-machine` / `:path-instantiate` ops use, lifted to Mode-A dispatches. A dispatch that does not throw, throws a different `:rf.error/id`, or throws a generic (non-`ex-info`) error is a fixture failure. (A dispatch WITHOUT `:expect-error` that throws still propagates as a fixture-level error.) |
 
 **Control / failure ops:**
 
@@ -296,7 +297,7 @@ Each fixture defines an **invariant the implementation upholds**. The harness:
 4. **Runs `:fixture/dispatches`** — one event vector per call, each via `dispatch-sync`. Each settles to fixed point before the next.
 5. **Runs `:fixture/calls`** (if present) — direct invocations of pure primitives (`machine-transition`, `reg-machine`, `match-url`, `route-url`, `render-to-string`, `round-trip`, `assert-rank-greater`). Each call carries its own expectation; mismatches surface as fixture-level failures.
 6. **Captures observables** (Mode A) — final `app-db`, sub values (per `:fixture/expect :sub-values`), trace events emitted, effects routed.
-7. **Compares** (Mode A) — partial-match per assertion. `:trace-emissions` partial-matches each trace event by its specified keys; absent keys are ignored. `:final-app-db` is a literal compare. `:effects-routed` matches the routed-fx pairs in declaration order.
+7. **Compares** (Mode A) — partial-match per assertion. `:trace-emissions` partial-matches each trace event by its specified keys; absent keys are ignored. `:final-app-db` is a **submap** compare (declared keys must match; extra actual keys tolerated); `:final-app-db-absent` (a vector of `get-in`-shaped paths) asserts each path's tip key is ABSENT. `:effects-routed` matches the routed-fx pairs in declaration order. A dispatch carrying `:expect-error` asserts that dispatch threw the named `:rf.error/id`.
 
 For Mode B fixtures, comparison happens inline at each call; there is no top-level `:fixture/expect` to evaluate after drain.
 
@@ -345,6 +346,10 @@ See `fixtures/` for the actual files. Each fixture is one EDN file; each exercis
 | `frame-multi-instance.edn` | `:frame/multi-instance` | Multi-frame isolation with shared registrar |
 | `frame-lifecycle.edn` | `:frame/lifecycle` | `:on-create` and `:on-destroy` events; lifecycle trace emissions |
 | `dispatch-envelope.edn` | `:dispatch/envelope` | Envelope shape (`:event`, `:frame`, `:source`, `:trace-id`) surfacing in cofx |
+| `cofx-envelope-preserved.edn` | `:cofx/envelope-preserved` | EP-0017 Slice-A: the dispatch envelope's `:rf.cofx` recordable-coeffect map is delivered into the event context under `:rf.cofx`, preserved verbatim (a caller-supplied `:rf/time-ms` rides through unchanged). Expected app-db INCLUDES `:rf.cofx` — the `dispatch-envelope.edn` fixture's expected output omits it, so a port could drop the key and still pass the weaker fixture |
+| `cofx-declared-only-delivery.edn` | `:cofx/declared-only-delivery` | EP-0017 Slice-A: a handler receives EXACTLY its `:rf.cofx/requires` declarations, flat; a REGISTERED-but-undeclared coeffect is withheld. The `:final-app-db-absent` check FAILS a port that over-delivers (submap matching alone tolerates the extra) |
+| `cofx-missing-vs-unregistered.edn` | `:cofx/missing-vs-unregistered` | EP-0017 Slice-A: a declared-but-absent REGISTERED provided coeffect is `:rf.error/missing-required-cofx`; a declared coeffect with NO registration is `:rf.error/unregistered-cofx`. Two distinct error ids (per-dispatch `:expect-error`) — a port that conflates them, throws generically, or fails to throw FAILS |
+| `cofx-world-inputs-retired.edn` | `:cofx/world-inputs-retired` | EP-0017 Slice-A: the retired `:rf.world/inputs` dispatch opt is the hard error `:rf.error/world-inputs-renamed` (per-dispatch `:expect-error`); the canonical `:rf.cofx` replacement is accepted (control dispatch runs). A port that aliases the retired key or fails to reject it FAILS |
 | `drain-depth-limit.edn` | `:drain/depth-limit` | Drain-depth-exceeded error + `:rf.error/drain-depth-exceeded` trace |
 | `sub-chain.edn` | `:sub/chain` | `:<-` chained subs; static dependency topology |
 | `fx-db-first.edn` | `:fx/db-first` | `:db` commits atomically before any `:fx` entry runs; the first `:fx` entry's handler observes the post-`:db` state |
