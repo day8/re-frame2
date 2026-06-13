@@ -26,7 +26,7 @@
 ## Builds on
 
 - [`018-Story-UI-North-Star.md`](018-Story-UI-North-Star.md) — the
-  product contract and the T4 safe-sharing-vs-useful-reproduction tension
+  product contract and the T4 reproducibility-honesty tension
   resolution (§4).
 - [`008-Docs-Mode.md`](008-Docs-Mode.md) — the current read-only
   AutoDocs-equivalent docs pane (header, prose, args, decorators,

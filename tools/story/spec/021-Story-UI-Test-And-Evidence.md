@@ -234,10 +234,14 @@ re-inspectable and re-promotable. The saved-from-promotion variant is
 explicit variant DATA (the registered four-bucket body), not hidden UI
 state.
 
-The promoted variant MUST record the fidelity of the captured state and
-MUST respect the egress redaction posture
-([`022-Story-UI-Docs-And-Share.md`](022-Story-UI-Docs-And-Share.md) §3)
-when the artifact leaves the process.
+The promoted variant MUST record the fidelity of the captured state.
+Promotion is registrar-WRITE authoring — it is NOT one of the four
+human-egress commands; the promoted variant becomes a first-class
+registered variant that is then shareable through those commands, each
+carrying the reproducibility-honesty label
+([`022-Story-UI-Docs-And-Share.md`](022-Story-UI-Docs-And-Share.md) §3).
+Human egress of the dev's own app is not privacy-gated; the AI/MCP
+boundary and logs are the separate redaction points, handled elsewhere.
 
 ## 4. Visual and a11y checks
 
@@ -300,7 +304,9 @@ The Test-mode and evidence-linkage contract is satisfied when:
   exist) focuses the relevant Xray panel, so failures explain themselves
   through variant → script span → epoch beat → assertion → Xray panel;
 - generated-failure promotion is distinct from save-current-state, records
-  fidelity, and respects egress redaction;
+  fidelity, and is registrar-write authoring (NOT a human-egress command);
+  the promoted variant is then shareable with a reproducibility label
+  (§3, [`022`](022-Story-UI-Docs-And-Share.md) §3);
 - visual/a11y results show browser-evidence requirements, render
   cannot-run distinctly, and present diffs/findings beside app evidence
   with source links — the axe `:browser`-tier finding carries the
