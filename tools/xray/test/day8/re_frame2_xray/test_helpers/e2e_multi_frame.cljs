@@ -8,7 +8,7 @@
       whatever events / subs / machines / flows the test wants to
       drive;
     - the `:rf/xray` panel frame; `:install-xray` (default:
-      `xray-test-support/reset-all!` + `registry/register-xray-
+      `xray-test-support/reset-sentinels!` + `registry/register-xray-
       handlers!` + the seed dispatches `mount.cljs/ensure-xray-
       frame!` runs) wires Xray's own subs / events / fxs.
 
@@ -83,8 +83,12 @@
 
   Mirrors what production does:
 
-    1. `xray-test-support/reset-all!` — wipe idempotency sentinels so
-       a re-install in a re-used test process actually re-installs.
+    1. `xray-test-support/reset-sentinels!` — wipe idempotency
+       sentinels so a re-install in a re-used test process actually
+       re-installs. Sentinels ONLY — NOT the trace rings: the host
+       frame is already registered by this point (rf2-sdqsla), and
+       clearing the rings here would wipe its per-frame recording
+       config. The harness teardown owns the ring clear (below).
     2. `registry/register-xray-handlers!` — every `:rf.xray/*` sub /
        event / fx (the orchestrator).
     3. `reg-frame :rf/xray` — register Xray's frame so subs scoped
@@ -102,7 +106,7 @@
   Idempotent — repeated invocations are safe (the sentinels are reset
   by step 1)."
   []
-  (xray-test-support/reset-all!)
+  (xray-test-support/reset-sentinels!)
   (registry/register-xray-handlers!)
   (frame/reg-frame :rf/xray {})
   ;; Seed app-db slots so subs that depend on `:epoch-history` /
