@@ -190,13 +190,53 @@
   "Resolve the operating frame for an op. `explicit` is the caller's
   `:frame` arg (or nil); we fall back to the sole registered frame.
   Returns nil when no frame is registered or more than one is registered
-  without an explicit pick — callers tag the result accordingly."
+  without an explicit pick — callers tag the result accordingly.
+
+  NOTE this does NOT validate an explicit id against the registry — a
+  caller-supplied id is returned verbatim. Accessors guard the
+  explicit-but-unregistered case via `frame-failure` (rf2-xxo3zz) so a
+  typo / stale frame id fails with a distinct `:no-such-frame` rather
+  than reporting success against a nonexistent frame."
   [explicit]
   (cond
     (some? explicit) explicit
     :else            (let [fids (rf/frame-ids)]
                        (when (= 1 (count fids))
                          (first fids)))))
+
+(defn- frame-failure
+  "rf2-xxo3zz — the single frame-resolution guard every read / dispatch /
+  mutation accessor consults before touching a frame. Given the caller's
+  `explicit` `:frame` arg and the `fid` that `resolve-frame` returned,
+  returns a consistent failure map when the frame cannot be operated on,
+  or nil when the accessor may proceed:
+
+    - `fid` nil → `:no-frame-resolved` — nothing explicit was passed and
+      the registry isn't a single unambiguous frame (none registered, or
+      more than one without a pick).
+    - `explicit` given but NOT in `rf/frame-ids` → `:no-such-frame` — a
+      typo or stale frame id. Without this guard `resolve-frame` returned
+      the bogus id verbatim and reads returned `{:ok? true :value nil}`
+      (indistinguishable from a legitimate nil) while mutations reported
+      success against a frame that does not exist.
+
+  Returns nil when `fid` is registered (the accessor proceeds). The
+  implicit-resolution path (`explicit` nil, `fid` the sole frame) never
+  hits the `:no-such-frame` branch — `resolve-frame` only ever returns a
+  registered id there."
+  [explicit fid]
+  (cond
+    (nil? fid)
+    {:ok? false :reason :no-frame-resolved
+     :hint "Pass :frame :foo or register at least one frame."}
+
+    (and (some? explicit) (not (contains? (rf/frame-ids) fid)))
+    {:ok? false :reason :no-such-frame :frame fid
+     :hint (str "No frame " (pr-str fid) " is registered. "
+                "Check the id for a typo or a stale/destroyed frame; "
+                "discover-app lists the live frame ids.")}
+
+    :else nil))
 
 (defn- frames-list
   "All registered frame ids — used by `health` and indirectly by tools
@@ -491,9 +531,8 @@
   ([opts]
    (let [{:keys [frame include-sensitive? include-large?]} opts
          fid (resolve-frame frame)]
-     (if (nil? fid)
-       {:ok? false :reason :no-frame-resolved
-        :hint "Pass :frame :foo or register at least one frame."}
+     (if-let [fail (frame-failure frame fid)]
+       fail
        (let [filter-opts (-> opts
                              (dissoc :frame :include-sensitive? :include-large?)
                              (assoc :flat true))
@@ -524,9 +563,8 @@
   ([opts]
    (let [{:keys [frame include-sensitive? include-large? include-runtime-db?]} opts
          fid (resolve-frame frame)]
-     (if (nil? fid)
-       {:ok? false :reason :no-frame-resolved
-        :hint "Pass :frame :foo or register at least one frame."}
+     (if-let [fail (frame-failure frame fid)]
+       fail
        (let [records  (rf/epoch-history fid)
              scrubbed (mapv #(egress-record % {:include-sensitive?  include-sensitive?
                                                :include-large?      include-large?
@@ -551,9 +589,8 @@
   ([opts]
    (let [{:keys [frame path include-sensitive? include-large?]} opts
          fid (resolve-frame frame)]
-     (if (nil? fid)
-       {:ok? false :reason :no-frame-resolved
-        :hint "Pass :frame :foo or register at least one frame."}
+     (if-let [fail (frame-failure frame fid)]
+       fail
        (let [db    (rf/app-db-value fid)
              value (if (seq path) (get-in db path) db)]
          {:ok?   true
@@ -635,11 +672,10 @@
   Returns `{:ok? true :frame <id> :epoch-id <uuid> :diff <map>}` or
   `{:ok? false :reason :no-such-epoch ...}` / `:no-frame-resolved`."
   [{:keys [frame epoch-id include-sensitive? include-large?] :as _opts}]
-  (let [fid (resolve-frame frame)]
+  (let [fid  (resolve-frame frame)
+        fail (frame-failure frame fid)]
     (cond
-      (nil? fid)
-      {:ok? false :reason :no-frame-resolved
-       :hint "Pass :frame :foo or register at least one frame."}
+      fail fail
 
       (nil? epoch-id)
       {:ok? false :reason :missing-epoch-id
@@ -728,11 +764,10 @@
   elision) regardless of the runtime-db opt-in."
   [{:keys [frame machine-id include-sensitive? include-large?
            include-runtime-db?] :as _opts}]
-  (let [fid (resolve-frame frame)]
+  (let [fid  (resolve-frame frame)
+        fail (frame-failure frame fid)]
     (cond
-      (nil? fid)
-      {:ok? false :reason :no-frame-resolved
-       :hint "Pass :frame :foo or register at least one frame."}
+      fail fail
 
       (nil? machine-id)
       {:ok? false :reason :missing-machine-id
@@ -888,9 +923,8 @@
   ([{:keys [frame scope resource-id params status stale? tag owner request-id
             include-sensitive? include-large? include-runtime-db?] :as _opts}]
    (let [fid (resolve-frame frame)]
-     (if (nil? fid)
-       {:ok? false :reason :no-frame-resolved
-        :hint "Pass :frame :foo or register at least one frame."}
+     (if-let [fail (frame-failure frame fid)]
+       fail
        (let [runtime-db  (rf/runtime-db-value fid)
              all-entries (get-in runtime-db resources-helpers/entries-rel-path)
              ;; upstream key-filter BEFORE projection (scope/resource-id/params
@@ -951,11 +985,10 @@
   exposes the metadata (the EP-0003 contract)."
   [{:keys [frame resource-id scope params
            include-sensitive? include-large? include-runtime-db?]}]
-  (let [fid (resolve-frame frame)]
+  (let [fid  (resolve-frame frame)
+        fail (frame-failure frame fid)]
     (cond
-      (nil? fid)
-      {:ok? false :reason :no-frame-resolved
-       :hint "Pass :frame :foo or register at least one frame."}
+      fail fail
 
       ;; A scoped key is the full [scope resource-id params] triple — any
       ;; missing part cannot address an entry (rf2-tgm1xu: missing scope or
@@ -1001,9 +1034,8 @@
   ([{:keys [frame resource-id nav-token limit include-sensitive?]
      :or   {limit 50} :as _opts}]
    (let [fid (resolve-frame frame)]
-     (if (nil? fid)
-       {:ok? false :reason :no-frame-resolved
-        :hint "Pass :frame :foo or register at least one frame."}
+     (if-let [fail (frame-failure frame fid)]
+       fail
        (let [events  (-> (trace-tooling/trace-buffer fid {:flat true})
                          (drop-sensitive-events include-sensitive?))
              rows    (-> (resources-helpers/lifecycle-timeline events)
@@ -1028,9 +1060,8 @@
   ([] (list-resource-invalidations nil))
   ([{:keys [frame tag include-sensitive?] :as _opts}]
    (let [fid (resolve-frame frame)]
-     (if (nil? fid)
-       {:ok? false :reason :no-frame-resolved
-        :hint "Pass :frame :foo or register at least one frame."}
+     (if-let [fail (frame-failure frame fid)]
+       fail
        (let [events (-> (trace-tooling/trace-buffer fid {:flat true})
                         (drop-sensitive-events include-sensitive?))
              rows   (cond->> (resources-helpers/invalidation-graph events)
@@ -1180,15 +1211,14 @@
   ([event-vec] (dispatch! event-vec nil))
   ([event-vec {:keys [frame sync?] :as _opts}]
    (let [fid    (resolve-frame frame)
-         origin *current-origin*]
+         origin *current-origin*
+         fail   (frame-failure frame fid)]
      (cond
        (not (vector? event-vec))
        {:ok? false :reason :not-an-event-vector
         :hint "event must be a vector, e.g. [:cart/checkout]"}
 
-       (nil? fid)
-       {:ok? false :reason :no-frame-resolved
-        :hint "Pass :frame :foo or register at least one frame."}
+       fail fail
 
        :else
        ;; Pass the bound origin through the framework's dispatch OPTS map
@@ -1232,11 +1262,10 @@
   boolean — the structured row already lives on the bus and
   double-projecting it would let the two drift."
   [{:keys [frame epoch-id] :as _opts}]
-  (let [fid (resolve-frame frame)]
+  (let [fid  (resolve-frame frame)
+        fail (frame-failure frame fid)]
     (cond
-      (nil? fid)
-      {:ok? false :reason :no-frame-resolved
-       :hint "Pass :frame :foo or register at least one frame."}
+      fail fail
 
       (nil? epoch-id)
       {:ok? false :reason :missing-epoch-id
@@ -1266,11 +1295,10 @@
   `{:ok? false :frame <id> :reason :rf.epoch/reset-failed ...}` on
   failure (same projection rationale as `restore-epoch!`)."
   [{:keys [frame value] :as _opts}]
-  (let [fid (resolve-frame frame)]
+  (let [fid  (resolve-frame frame)
+        fail (frame-failure frame fid)]
     (cond
-      (nil? fid)
-      {:ok? false :reason :no-frame-resolved
-       :hint "Pass :frame :foo or register at least one frame."}
+      fail fail
 
       (nil? value)
       {:ok? false :reason :missing-value

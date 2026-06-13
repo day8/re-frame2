@@ -41,15 +41,24 @@
   vertical rail + numbered circles are positioned absolutely so they
   read as one continuous timeline regardless of which steps render.
 
-  ## Expansion state
+  ## Expansion state (registered, NOT wired by the current renderer)
 
-  Per-row EDN expansion (clicking a row's header opens the
-  edn-inspector for the row's payload) is stored in the Xray app-db
-  under `:epoch-panel-expanded-rows` (a set of `[step-kw row-id]`
-  pairs). The view subscribes to the expanded-set sub and dispatches
-  toggle events; the edn-inspector widget composes naturally with
-  `:zoomable? true` (rf2-h71e0) + `:header` (rf2-okq7p) per the
-  bead body's §edn-inspector composition.
+  The orchestrator's `install!` registers a per-row EDN-expansion
+  surface — the `:rf.xray.epoch/expanded-rows` sub + the
+  `:rf.xray.epoch/toggle-row-expand` event, backed by a
+  `:epoch-panel-expanded-rows` set of `[step-kw row-id]` pairs in the
+  Xray app-db. The intent (rf2-h71e0 / rf2-okq7p) is that clicking a
+  row's header mounts the edn-inspector widget (`:zoomable? true` +
+  `:header`) under the row body.
+
+  The CURRENT view does NOT wire it: every `epoch-step-header` call
+  site passes `:expandable? false`, the view does not subscribe to
+  `:rf.xray.epoch/expanded-rows`, and nothing dispatches
+  `:rf.xray.epoch/toggle-row-expand`. The cascade renders
+  default-visible content for every step — its punch is the
+  always-visible rhythm. The sub/event infrastructure is kept in place
+  for the follow-on rich-expansion pass (see the §expansion state
+  helpers comment below); until then it is registered-but-unused.
 
   ## Pure hiccup
 
@@ -1796,13 +1805,17 @@
 ;;
 ;; The Epoch panel's row-expansion surface (`:rf.xray.epoch/toggle-
 ;; row-expand` event + `:rf.xray.epoch/expanded-rows` sub) is
-;; registered by the orchestrator's `install!`. The current view
-;; renders default-visible content for every step (the cascade's
-;; punch is its always-visible rhythm); the toggle infrastructure
-;; stays in place for the follow-on rich-expansion pass where
-;; clicking a row's header mounts the edn-inspector widget under
-;; the body via `:zoomable? true` + `:header "<step>"` (rf2-h71e0 /
-;; rf2-okq7p) per the bead body's §edn-inspector composition.
+;; registered by the orchestrator's `install!` but is NOT wired by the
+;; current renderer (see the ns docstring's §Expansion state): every
+;; `epoch-step-header` call site passes `:expandable? false`, and the
+;; view neither subscribes to `:rf.xray.epoch/expanded-rows` nor
+;; dispatches the toggle. The current view renders default-visible
+;; content for every step (the cascade's punch is its always-visible
+;; rhythm); the sub/event infrastructure stays in place for the
+;; follow-on rich-expansion pass where clicking a row's header mounts
+;; the edn-inspector widget under the body via `:zoomable? true` +
+;; `:header "<step>"` (rf2-h71e0 / rf2-okq7p) per the bead body's
+;; §edn-inspector composition.
 
 ;; ---- view-name hover-highlight (rf2-2f962) ------------------------------
 ;;
