@@ -746,6 +746,9 @@
   ["re-frame.machines" "validate-machine!"]     {:tier :internal-public :owner "005" :status "v1"}
   ["re-frame.machines" "validate-machine-data!"] {:tier :internal-public :owner "005" :status "v1"}
   ["re-frame.machines" "validate-spawn-data!"]  {:tier :internal-public :owner "005" :status "v1"}
+  ;; rf2-wrrvs7 — escape-hatch sibling validating the would-be-merged
+  ;; `:rf.machine/update-snapshot` snapshot `:data` before the fx writes it.
+  ["re-frame.machines" "validate-update-snapshot-data!"] {:tier :internal-public :owner "005" :status "v1"}
   ["re-frame.machines" "reset-timers!"]         {:tier :internal-public :owner "005" :status "v1"}
   ;; rf2-ma0wvq — spawned-actor ownership resolver, published as the
   ;; `:machines/owning-actor-id` late-bind hook the http artefact consults.
