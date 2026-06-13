@@ -56,6 +56,22 @@
 (def ^:private variant-md (delay (slurp-rel "references/variant-as-frame.md")))
 (def ^:private wire-size-md (delay (slurp-rel "references/wire-size-budget.md")))
 
+;; Live Pair-MCP catalogue cardinality (rf2-sdudwy). The generated descriptor
+;; manifest is the single source of truth for the tool count; read its
+;; `:meta :tool-count` directly rather than hard-coding a number here, so this
+;; guard tracks the catalogue automatically. The manifest sits two levels up
+;; from skill-root (repo `tools/re-frame2-pair-mcp/`).
+(def ^:private tool-count
+  (delay
+    (let [manifest (io/file skill-root
+                            ".." ".." "tools" "re-frame2-pair-mcp"
+                            "tool-descriptors.edn")
+          text     (slurp manifest)
+          ;; Lightweight extraction — avoid an EDN reader dep under bb.
+          m        (re-find #":tool-count\s+(\d+)" text)]
+      (assert m (str "could not read :tool-count from " (.getPath manifest)))
+      (Long/parseLong (second m)))))
+
 ;; ---------------------------------------------------------------------------
 ;; The canonical-prompts table
 ;; ---------------------------------------------------------------------------
@@ -278,20 +294,25 @@
 ;; MCP-surface conformance drift (rf2-ojo3z)
 ;; ---------------------------------------------------------------------------
 ;;
-;; The skill-facing docs MUST describe the MCP-primary 28-tool surface, NOT
+;; The skill-facing docs MUST describe the MCP-primary 29-tool surface, NOT
 ;; the retired bash/Babashka shim world or v1-style op names. These guards
 ;; assert the current surface IS named and the specific retired-as-primary
 ;; phrasings the rf2-ojo3z review caught do NOT come back. They are scoped to
 ;; the user-facing prose docs (README / capabilities / LOCAL_DEV / TESTING) —
 ;; the legitimate harness appendix in references/ops.md is out of scope here.
+;; The "29" count is the live catalogue cardinality (rf2-sdudwy): the
+;; descriptor manifest tools/re-frame2-pair-mcp/tool-descriptors.edn carries
+;; :meta :tool-count 29. The `catalogue-count-matches-live-manifest` guard
+;; below keeps every count-stating doc's prose number in lockstep with that
+;; manifest, so this README assertion is one facet of a fuller sweep.
 
-(deftest readme-names-mcp-primary-28-tool-surface
-  (testing "README names the 28-tool MCP-primary surface, not 'fourteen ops'"
-    (is (str/includes? @readme-md "28")
-        "README must state the MCP server catalogues 28 tools.")
+(deftest readme-names-mcp-primary-tool-surface
+  (testing "README names the 29-tool MCP-primary surface, not 'fourteen ops'"
+    (is (str/includes? @readme-md "29")
+        "README must state the MCP server catalogues 29 tools.")
     (is (not (str/includes? @readme-md "fourteen ops"))
         (str "README carries the stale 'fourteen ops' count — the MCP surface "
-             "is 28 tools (rf2-ojo3z).")))
+             "is 29 tools (rf2-ojo3z).")))
   (testing "README does not claim the skill is un-exercised end-to-end"
     (is (not (str/includes? @readme-md "not yet exercised against a running"))
         (str "README carries the stale 'not yet exercised against a running "
@@ -559,6 +580,88 @@
         (str "ops.md no longer labels the raw eval restore/reset forms as a "
              "BACKSTOP — they must remain documented for a gate-OFF server but "
              "framed as the fallback, not the default (rf2-230ekq)."))))
+
+;; ---------------------------------------------------------------------------
+;; Catalogue-cardinality drift (rf2-sdudwy)
+;; ---------------------------------------------------------------------------
+;;
+;; The existing name-level gate (scripts/check_skill_mcp_drift.py) compares the
+;; SKILL.md allow-list against the server descriptor SET — it does NOT read the
+;; PROSE cardinality, so the skill/re-authoring docs kept teaching a stale
+;; 28-tool catalogue after the surface grew to 29. These guards anchor every
+;; doc that states a count to the LIVE manifest `:tool-count` (read from
+;; tools/re-frame2-pair-mcp/tool-descriptors.edn) and fail when a doc still
+;; carries a stale number. Add a doc to `count-docs` if it states the count.
+
+(def ^:private count-docs
+  ;; [label deref] for every skill/re-authoring doc that states the tool count
+  ;; in prose. Each MUST name the current count and MUST NOT name a stale one.
+  [["README.md"                 readme-md]
+   ["SKILL.md"                  skill-md]
+   ["STATUS.md"                 (delay (slurp-rel "STATUS.md"))]
+   ["references/mcp-transport.md" (delay (slurp-rel "references/mcp-transport.md"))]
+   ["references/vocabulary.md"  vocabulary-md]
+   ["docs/capabilities.md"      capabilities-md]
+   ["docs/initial-spec.md"      (delay (slurp-rel "docs/initial-spec.md"))]
+   ["spec/inputs.md"            (delay (slurp-rel "spec/inputs.md"))]
+   ["spec/design.md"            (delay (slurp-rel "spec/design.md"))]
+   ["spec/authoring-prompt.md"  (delay (slurp-rel "spec/authoring-prompt.md"))]])
+
+(deftest catalogue-count-matches-live-manifest
+  (let [live  @tool-count
+        live-s (str live)]
+    (testing (str "every count-stating doc names the live " live "-tool catalogue")
+      (doseq [[label md] count-docs]
+        (is (str/includes? @md live-s)
+            (str label " no longer states the live Pair-MCP tool count of "
+                 live " (from tool-descriptors.edn :tool-count) — update the "
+                 "prose count when the catalogue changes (rf2-sdudwy)."))))
+    (testing "no count-stating doc carries a stale tool count"
+      ;; Sweep the plausible recent counts; the LIVE count is exempt. This
+      ;; catches a doc that was missed when the catalogue grew/shrank.
+      (doseq [[label md] count-docs
+              stale ["26" "27" "28" "30"]
+              :when (not= stale live-s)]
+        ;; Match the count only in a TOOL-catalogue framing ("NN tool" /
+        ;; "NN-tool" / "all NN") so unrelated numerals (dates, line counts,
+        ;; failure-mode counts) don't trip the guard.
+        (let [pat (re-pattern (str "(?i)\\b" stale "[ -]tools?\\b|\\ball " stale "\\b"))]
+          (is (not (re-find pat @md))
+              (str label " carries a stale " stale "-tool catalogue count — "
+                   "the live surface is " live " tools (rf2-sdudwy).")))))))
+
+;; ---------------------------------------------------------------------------
+;; Gated-write allow-list policy drift (rf2-sdudwy)
+;; ---------------------------------------------------------------------------
+;;
+;; Current policy (scripts/check_skill_mcp_drift.py: `intentional_server_only`
+;; is empty for the re-frame2-pair mapping): EVERY server tool — including a
+;; new `--allow-writes`-gated write tool — is allow-listed and fenced at the
+;; SERVER. The re-authoring docs once told a future author to keep gated write
+;; tools OFF the allow-list and put them in `intentional_server_only`; that
+;; contradicts the live gate and would regenerate stale guidance. This guard
+;; fails if the contradictory policy reappears in the re-authoring/meta docs.
+
+(deftest gated-write-tools-stay-allow-listed-in-reauthoring-docs
+  (testing "re-authoring docs do NOT route gated write tools into intentional_server_only / off the allow-list"
+    (doseq [[label md] [["spec/inputs.md"           (delay (slurp-rel "spec/inputs.md"))]
+                        ["spec/design.md"           (delay (slurp-rel "spec/design.md"))]
+                        ["spec/authoring-prompt.md" (delay (slurp-rel "spec/authoring-prompt.md"))]
+                        ["docs/initial-spec.md"     (delay (slurp-rel "docs/initial-spec.md"))]]]
+      (let [text @md]
+        ;; Flag the STALE-policy framing: a write tool that "stay(s) off" the
+        ;; allow-list, or that should "go in" `intentional_server_only`. The
+        ;; positive-verb requirement ("stay(s) off" / "go(es) in") deliberately
+        ;; does NOT match the CORRECT framing that says a gated write tool is
+        ;; "never excluded into `intentional_server_only`" — the negating prose
+        ;; lacks the placement verbs.
+        (is (not (re-find #"(?is)write tool[^.\n]{0,90}(stays? off[^.\n]{0,30}allow-list|go(?:es)? (?:in)?to?[^.\n]{0,30}intentional_server_only)" text))
+            (str label " teaches that a `--allow-writes`-gated write tool stays "
+                 "OFF the allow-list / goes in `intentional_server_only` — the "
+                 "current policy allow-lists EVERY server tool (incl. gated "
+                 "write tools) and fences them at the server's `--allow-writes` "
+                 "launch gate; `intentional_server_only` is empty for the "
+                 "re-frame2-pair mapping (rf2-sdudwy)."))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run
