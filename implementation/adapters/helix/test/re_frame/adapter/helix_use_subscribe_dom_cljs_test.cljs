@@ -33,6 +33,7 @@
             [helix.dom  :as d]
             [helix.hooks :as helix-hooks]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.adapter.helix :as helix-adapter]
             [re-frame.adapter.react-shared-suite :as suite]
             [re-frame.test-support :as test-support]))
@@ -153,6 +154,13 @@
    :probe-frame-provider-observed probe-frame-provider-observed
    :frame-provider-frame          :rf.helix-use-subscribe-test/frame-provider-frame
    :frame-provider-query          :rf.helix-use-subscribe-test/k
+   ;; rf2-4mi2zj — 1-arg full frame-resolution chain (reuses ProbeFrameProvider
+   ;; + :frame-provider-query :k; isolated frame ids per case).
+   :provider-tier-frame               :rf.helix-4mi2zj/provider-tier-frame
+   :dynamic-precedence-provider-frame :rf.helix-4mi2zj/precedence-provider-frame
+   :dynamic-precedence-dynamic-frame  :rf.helix-4mi2zj/precedence-dynamic-frame
+   :no-scope-frame                    :rf.helix-4mi2zj/no-scope-frame
+   :substrate-kw                      :helix
    ;; 2-arg explicit pin
    :probe-2arg-element    (fn [] ($ :div ($ Probe2ArgA) ($ Probe2ArgB)))
    :probe-2arg-a-observed probe-2arg-a-observed
@@ -191,6 +199,17 @@
 
 (deftest use-subscribe-2-arg-pins-explicit-frame
   (suite/assert-use-subscribe-2-arg-pins-explicit-frame cfg))
+
+;; rf2-4mi2zj — 1-arg full frame-resolution chain (the bug: spine fed the
+;; raw use-context read into the explicit 2-arg path, bypassing the chain).
+(deftest use-subscribe-provider-tier-resolution-ambient-cleared
+  (suite/assert-use-subscribe-provider-tier-resolution-ambient-cleared cfg))
+
+(deftest use-subscribe-dynamic-var-precedence-over-provider
+  (suite/assert-use-subscribe-dynamic-var-precedence-over-provider cfg))
+
+(deftest use-subscribe-no-provider-no-dynamic-raises-no-frame-context
+  (suite/assert-use-subscribe-no-provider-no-dynamic-raises-no-frame-context cfg))
 
 (deftest use-subscribe-cleanup-decrements-sub-cache-refcount
   (suite/assert-use-subscribe-cleanup-decrements-refcount cfg))
@@ -293,28 +312,34 @@
           (is true "act() not reachable from this runner; skipping")
           (let [frame-kw :rf.helix-use-subscribe-test/frame-provider-frame
                 query-v  [:rf.helix-use-subscribe-test/k]]
-            (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
-            (reset! probe-frame-provider-observed [])
-            (rf/reg-frame frame-kw {:doc "rf2-7kii2 trailing-children frame-provider probe"})
-            (rf/reg-event-db ::dollar-shape-seed (fn [_ _] {:k :wrapped}))
-            (rf/dispatch-sync [::dollar-shape-seed] {:frame frame-kw})
-            (rf/reg-sub (first query-v) (fn [db _] (:k db)))
-            (let [mount-node (.createElement js/document "div")
-                  root       (react-dom-client/createRoot mount-node)]
-              (try
-                (act-fn
-                  (fn []
-                    ;; The idiomatic public call shape — TWO native trailing
-                    ;; children (no `:children` key), flowing through Helix's
-                    ;; `$` → `extract-cljs-props` → the native `defnc` shell.
-                    (.render root
-                      ($ helix-adapter/frame-provider
-                         {:frame frame-kw}
-                         ($ ProbeFrameProvider)
-                         ($ ProbeFrameProvider)))))
-                (is (some #{:wrapped} @probe-frame-provider-observed)
-                    "trailing children's use-subscribe read the wrapped frame's value, not :rf/default")
-                (is (= 2 (count (filterv #{:wrapped} @probe-frame-provider-observed)))
-                    "both trailing children rendered (not dropped)")
-                (finally
-                  (try (.unmount root) (catch :default _ nil)))))))))))
+            ;; rf2-4mi2zj: clear the fixture's ambient `:rf/default` dynamic
+            ;; scope so the 1-arg `use-subscribe` in ProbeFrameProvider
+            ;; resolves via the React-context (provider) tier rather than
+            ;; reading the shadowing :rf/default frame. See the suite's
+            ;; assert-use-subscribe-frame-provider-resolution masking note.
+            (binding [frame/*current-frame* nil]
+              (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
+              (reset! probe-frame-provider-observed [])
+              (rf/reg-frame frame-kw {:doc "rf2-7kii2 trailing-children frame-provider probe"})
+              (rf/reg-event-db ::dollar-shape-seed (fn [_ _] {:k :wrapped}))
+              (rf/dispatch-sync [::dollar-shape-seed] {:frame frame-kw})
+              (rf/reg-sub (first query-v) (fn [db _] (:k db)))
+              (let [mount-node (.createElement js/document "div")
+                    root       (react-dom-client/createRoot mount-node)]
+                (try
+                  (act-fn
+                    (fn []
+                      ;; The idiomatic public call shape — TWO native trailing
+                      ;; children (no `:children` key), flowing through Helix's
+                      ;; `$` → `extract-cljs-props` → the native `defnc` shell.
+                      (.render root
+                        ($ helix-adapter/frame-provider
+                           {:frame frame-kw}
+                           ($ ProbeFrameProvider)
+                           ($ ProbeFrameProvider)))))
+                  (is (some #{:wrapped} @probe-frame-provider-observed)
+                      "trailing children's use-subscribe read the wrapped frame's value, not :rf/default")
+                  (is (= 2 (count (filterv #{:wrapped} @probe-frame-provider-observed)))
+                      "both trailing children rendered (not dropped)")
+                  (finally
+                    (try (.unmount root) (catch :default _ nil))))))))))))

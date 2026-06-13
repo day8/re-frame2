@@ -1710,7 +1710,56 @@
             (React/useSyncExternalStore subscribe-fn get-snap get-snap)))
         use-subscribe
         (fn use-subscribe
-          ([query-v] (use-subscribe-2 (use-current-frame) query-v))
+          ;; ---- 1-arg ambient form — full frame-resolution chain (rf2-4mi2zj) ----
+          ;;
+          ;; The ambient `(use-subscribe [:q …])` form MUST resolve the
+          ;; frame through the SAME carried-invariant chain `subs/subscribe`'s
+          ;; own 1-arity uses (Spec 006 §Frame resolution (1-arg form), :734,
+          ;; :1058; EP-0002): dynamic-var tier (`frame/*current-frame*`, set by
+          ;; `with-frame` / `frame-bound-fn`) FIRST, the React-context tier
+          ;; (the surrounding `frame-provider`) SECOND, and **nil → a loud
+          ;; `:rf.error/no-frame-context`** with NO `:rf/default` floor.
+          ;;
+          ;; The earlier shortcut `(use-subscribe-2 (use-current-frame) …)`
+          ;; bypassed that chain in two correctness-breaking ways:
+          ;;
+          ;;   1. `use-current-frame` is the NARROW raw `use-context` read
+          ;;      (React-context tier ONLY — it never consults the dynamic
+          ;;      var). Passing its result straight into the 2-arg EXPLICIT
+          ;;      path let a surrounding provider beat a `with-frame` /
+          ;;      `frame-bound-fn` dynamic scope — inverting the spec's tier
+          ;;      precedence (dynamic-var MUST win).
+          ;;   2. With no enclosing provider, `use-context` returns the
+          ;;      no-provider sentinel (`:rf.frame/no-provider`), NOT nil. The
+          ;;      explicit 2-arg path then subscribed against that sentinel as
+          ;;      a literal frame id — surfacing a bad-/destroyed-frame path
+          ;;      instead of the specified `:rf.error/no-frame-context`.
+          ;;
+          ;; Fix: still CALL `use-current-frame` (the `use-context` hook) so
+          ;; the component stays subscribed to provider-value changes and
+          ;; re-renders when the surrounding `frame-provider` swaps frames —
+          ;; a hook-safe, unconditional top-of-body call — but DISCARD its raw
+          ;; value for resolution. Resolve the real frame via
+          ;; `frame/require-current-frame!`, which delegates to
+          ;; `resolve-current-frame` → the live `:adapter/current-frame`
+          ;; late-bind hook (`function-component-current-frame`: dynamic-var →
+          ;; `_currentValue` with sentinel→nil and corrupted-value detection)
+          ;; and emits + throws `:rf.error/no-frame-context` on nil. This
+          ;; single-sources resolution with `subs/subscribe`'s 1-arity — the
+          ;; hook and the imperative read can never diverge — and then hands
+          ;; the now-EXPLICIT resolved frame to the 2-arg path. The 2-arg
+          ;; EXPLICIT form is unchanged (it bypasses the chain by design).
+          ([query-v]
+           ;; Hook subscription to provider-value changes (re-render). The
+           ;; returned sentinel/keyword is intentionally NOT used as the
+           ;; frame — resolution runs through the chain below.
+           (use-current-frame)
+           (use-subscribe-2
+             (frame/require-current-frame!
+               :subscribe
+               {:where    're-frame.substrate.spine/use-subscribe
+                :event-id (first query-v)})
+             query-v))
           ([frame-kw query-v] (use-subscribe-2 frame-kw query-v)))]
     {:emitter-cell                emitter-cell
      :warn-cache                  warn-cache
