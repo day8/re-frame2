@@ -1,12 +1,14 @@
 # Errors: dossiers, not log lines
 
-> **Who this is for.** You know [events and the cascade](events-and-the-cascade.md) and [effects and coeffects](effects-and-coeffects.md), and you want to know what happens when one of them breaks. The anchor is two tools at once: **Sentry's structured events** (an error as a rich record, not a string) and **React error boundaries** (a designated place failures land). Two deliberate divergences: you instrument nothing — the framework emits the structured record itself, with the causal context already attached; and there is no boundary component to catch-and-steer — what the runtime does after each kind of error is fixed per category, and your code observes rather than decides.
+> **Who this is for.** You know [events and the cascade](events-and-the-cascade.md) and [effects and coeffects](effects-and-coeffects.md). Now you want to know what happens when one of them breaks. Two anchors: **Sentry's structured events** (an error is a rich record, not a string) and **React error boundaries** (failures land in one designated place). Two deliberate differences. You instrument nothing — the framework emits the structured record itself, with the causal context already attached. And there is no boundary component to catch and steer — what the runtime does after each kind of error is fixed per category, and your code observes rather than decides.
 
 **The takeaway: that's not a log line — that's a dossier.**
 
 ## The dossier
 
-Every error you ever caught with `console.error("something broke", e)` kept the message and the stack and discarded the important half: *which event was in flight, which frame owned it, which handler was on the hook, what the cascade had already done.* All of that existed in the runtime microseconds before the catch — and you spent the next hour reconstructing it by hand. re-frame2's stance: if the runtime knows it, the error record carries it. Every error the framework detects becomes a map with a known, stable shape — fat on purpose:
+You've caught a hundred errors with `console.error("something broke", e)`. It kept the message and the stack. It threw away the important half: which event was in flight, which frame owned it, which handler was on the hook, what the cascade had already done. All of that existed in the runtime microseconds before the catch. You spent the next hour rebuilding it by hand.
+
+re-frame2's rule is simple. If the runtime knows it, the error record carries it. Every error the framework detects becomes a map with a known, stable shape — fat on purpose:
 
 ```clojure
 {:id        42                              ;; unique trace id
@@ -30,44 +32,48 @@ Every error you ever caught with `console.error("something broke", e)` kept the 
 
 That's not a log line. That's a dossier.
 
-Three fields do the load-bearing work, and learning them is most of learning the whole surface:
+Three fields do the heavy lifting. Learn them and you've learned most of the surface:
 
-- **`:op-type`** is the severity axis — `:error` for genuine failures, `:warning` for misuse the runtime recovers from. "Show me everything that failed" is a filter on `:op-type :error`; you don't need to know a single category name to ask it.
-- **`:operation`** is the category — a namespaced keyword like `:rf.error/handler-exception` or `:rf.error/no-such-fx`. "Show me only handler exceptions" filters on it exactly.
+- **`:op-type`** is severity. `:error` for genuine failures, `:warning` for misuse the runtime recovers from. To ask "show me everything that failed", filter on `:op-type :error`. You don't need to know a single category name.
+- **`:operation`** is the category — a namespaced keyword like `:rf.error/handler-exception` or `:rf.error/no-such-fx`. To ask "show me only handler exceptions", filter on it exactly.
 - **`:recovery`** is what the framework did *after* the error. This is the field that tells you whether your app is still standing.
 
-Two more slots turn a debugging session into a click: `:rf.trace/trigger-handler` carries the file and line where the failing handler was *registered*, and `:rf.trace/call-site` the line of the `dispatch` that triggered the cascade — tools render both as jump-to-source links. Everything else rides under `:tags`, with one fixed, schema-checked payload shape per category, so a consumer always knows what's in the envelope.
+Two more slots turn a debugging session into a click. `:rf.trace/trigger-handler` carries the file and line where the failing handler was *registered*. `:rf.trace/call-site` carries the line of the `dispatch` that triggered the cascade. Tools render both as jump-to-source links. Everything else rides under `:tags`, with one fixed, schema-checked payload shape per category, so a consumer always knows what's in the envelope.
 
-> **Heads-up — the dossier is a development surface.** Production builds eliminate the trace machinery — not disable, *eliminate*: the code is compiled out of the release bundle. Errors that must reach a monitor in production travel a separate always-on channel carrying a tight, privacy-projected record. The channel map is in [observability](observability.md); wiring Sentry to it is [a how-to](../how-to/report-errors-in-production.md).
+> **Heads-up — the dossier is a development surface.** Production builds eliminate the trace machinery. Not disable — *eliminate*: the code is compiled out of the release bundle. Errors that must reach a monitor in production travel a separate always-on channel carrying a tight, privacy-projected record. The channel map is in [observability](observability.md); wiring Sentry to it is [a how-to](../how-to/report-errors-in-production.md).
 
 ## A catalogue you consult, not memorise
 
-The framework emits errors from a fixed-but-additive set of categories — dozens, covering handlers, subscriptions, effects, coeffects, schemas, frames, routing, machines, SSR. You don't memorise the list; you learn its grammar. **The prefix names the owning subsystem**: `:rf.error/*` is a genuine failure, `:rf.warning/*` is recoverable misuse, and `:rf.fx/*` / `:rf.cofx/*` / `:rf.ssr/*` / `:rf.epoch/*` are substrate events riding the same envelope (a platform-skipped effect, a hydration mismatch). **The vocabulary is stable and additive**: existing categories are never renamed or repurposed, so you can pin a test to `:rf.error/no-such-fx` and trust it still means that next year.
+The framework emits errors from a fixed set of categories — dozens of them, covering handlers, subscriptions, effects, coeffects, schemas, frames, routing, machines, SSR. The set grows but never breaks. You don't memorise the list; you learn its grammar.
+
+The prefix names the owning subsystem. `:rf.error/*` is a genuine failure. `:rf.warning/*` is recoverable misuse. `:rf.fx/*` / `:rf.cofx/*` / `:rf.ssr/*` / `:rf.epoch/*` are substrate events riding the same envelope — a platform-skipped effect, a hydration mismatch. The vocabulary is stable and additive. Existing categories are never renamed or repurposed. Pin a test to `:rf.error/no-such-fx` and it still means that next year.
 
 The full catalogue — every category, its trigger, its `:tags` payload, its recovery default — is one table in [spec 009](../../../spec/009-Instrumentation.md#error-event-catalogue). Treat it like an HTTP status-code list: look a category up when you meet it, don't study it cold.
 
 ## Recovery is typed — and it isn't yours
 
-When an error fires, the runtime applies a **typed, per-category default**, and that is the whole story. There is no app-steering error policy: no global error handler, no hook that swallows an exception or substitutes a result. This is deliberate — swallowing an exception masks a bug, and fabricating a replacement result invents something the thrown handler could not have produced. Genuine recovery for *expected* failures belongs at the source, where "recovery" means something: [managed HTTP's](http.md) `:retry` for a flaky network, a defensive default at a read. And the framework never re-runs a failing handler behind your back; to try again, dispatch a fresh event.
+When an error fires, the runtime applies a typed, per-category default. That is the whole story. There is no app-steering error policy: no global error handler, no hook that swallows an exception or substitutes a result. This is deliberate. Swallowing an exception masks a bug. Fabricating a replacement result invents something the thrown handler could not have produced.
 
-> **Coming from re-frame v1?** `reg-event-error-handler` is gone — its observability half becomes a listener on the error channel, and its steering half has no successor by design; the [migration page](../25-from-re-frame-v1.md) maps the translation.
+Genuine recovery belongs at the source, for *expected* failures, where "recovery" means something — [managed HTTP's](http.md) `:retry` for a flaky network, a defensive default at a read. And the framework never re-runs a failing handler behind your back. To try again, dispatch a fresh event.
 
-The `:recovery` vocabulary is small and readable on sight — `:no-recovery` (the operation did not complete), `:replaced-with-default`, `:logged-and-skipped` (the offending input dropped, siblings still apply), `:warned-and-replaced`, `:skipped`, `:retried` — plus a few category-specific verbs like `:supply-frame` on the missing-frame error below. The per-category assignments live in [the catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue).
+> **Coming from re-frame v1?** `reg-event-error-handler` is gone. Its observability half becomes a listener on the error channel. Its steering half has no successor by design. The [migration page](../25-from-re-frame-v1.md) maps the translation.
 
-Four of those defaults shape how your app degrades, and are worth knowing by heart:
+The `:recovery` vocabulary is small and readable on sight. `:no-recovery` (the operation did not complete), `:replaced-with-default`, `:logged-and-skipped` (the offending input dropped, siblings still apply), `:warned-and-replaced`, `:skipped`, `:retried` — plus a few category-specific verbs like `:supply-frame` on the missing-frame error below. The per-category assignments live in [the catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue).
 
-- **A throwing event handler halts its cascade with no half-applied state.** `:rf.error/handler-exception` means no `:db` commit and no `:fx` — app-db is exactly as it was before the dispatch.
-- **A dispatch to an unregistered event id is a traced no-op.** `:rf.error/no-such-handler` lets a feature module with a botched load order boot degraded instead of crashing — and the trace names the exact id, so the bug announces itself instead of manifesting as "huh, the button does nothing."
-- **A missing fx drops only itself.** Read it twice, because people get it backwards: `:rf.error/no-such-fx` does *not* halt the cascade. The handler's `:db` change still applies and the sibling `:fx` entries still fire.
-- **A missing coeffect fails loud, before the handler runs.** `:rf.error/unregistered-cofx` — the asymmetry is explained below.
+Four of those defaults shape how your app degrades. Know them by heart:
+
+- **A throwing event handler halts its cascade with no half-applied state.** `:rf.error/handler-exception` means no `:db` commit and no `:fx`. app-db is exactly as it was before the dispatch.
+- **A dispatch to an unregistered event id is a traced no-op.** `:rf.error/no-such-handler` lets a feature module with a botched load order boot degraded instead of crashing. The trace names the exact id, so the bug announces itself instead of showing up as "huh, the button does nothing."
+- **A missing fx drops only itself.** Read it twice, because people get it backwards. `:rf.error/no-such-fx` does *not* halt the cascade. The handler's `:db` change still applies and the sibling `:fx` entries still fire.
+- **A missing coeffect fails loud, before the handler runs.** `:rf.error/unregistered-cofx`. The asymmetry is explained below.
 
 ## The failures you'll actually meet
 
-Each category is best understood through the production incident it describes. Here are the three you'll meet first; the rest read the same way — find the catalogue row, read the trigger, check the recovery.
+Read each category through the production incident it describes. Here are the three you'll meet first. The rest read the same way: find the catalogue row, read the trigger, check the recovery.
 
 ### A dispatch with no frame in scope
 
-*You wrote a quick `(rf/dispatch [:counter/inc])` at the REPL, or in a `setTimeout` callback, or in a promise `.then` — and instead of a cascade you got an error.* This is the most common first stumble: `dispatch` and `subscribe` resolve their target [frame](frames.md) from the surrounding scope, and a deferred callback runs on a fresh stack, long after that scope has unwound. The runtime does not guess a default; it emits `:rf.error/no-frame-context` (recovery: `:supply-frame`) and dispatches nothing.
+*You wrote a quick `(rf/dispatch [:counter/inc])` at the REPL, or in a `setTimeout` callback, or in a promise `.then` — and instead of a cascade you got an error.* This is the most common first stumble. `dispatch` and `subscribe` resolve their target [frame](frames.md) from the surrounding scope. A deferred callback runs on a fresh stack, long after that scope has unwound. The runtime does not guess a default. It emits `:rf.error/no-frame-context` (recovery: `:supply-frame`) and dispatches nothing.
 
 The fix is always the same: **carry the frame** across the async gap. In an effect handler, capture it from the context at entry and pass it explicitly on the deferred dispatch:
 
@@ -87,7 +93,7 @@ The fix is always the same: **carry the frame** across the async gap. In an effe
                                {:frame frame}))))))
 ```
 
-Delete either `{:frame frame}` and that callback's dispatch raises `:rf.error/no-frame-context`. In a view, render under the frame provider (registered views do this for you); at the REPL or in a test, wrap the work in `with-frame` / `with-new-frame`.
+Delete either `{:frame frame}` and that callback's dispatch raises `:rf.error/no-frame-context`. In a view, render under the frame provider — registered views do this for you. At the REPL or in a test, wrap the work in `with-frame` / `with-new-frame`.
 
 ### A handler throws
 
@@ -107,17 +113,17 @@ The runtime catches it and emits `:rf.error/handler-exception` with `:recovery :
     (update-in db [:cart :items] (fnil conj []) item)))
 ```
 
-> **Do, observe.** Make a handler throw on purpose in dev with Xray open. The error lands *inside the cascade that produced it* — the dispatch that caused it sits right above, the category and recovery read off the error row, and one click lands on the handler's registration site. Nothing about the failure is out-of-band.
+> **Do, observe.** Make a handler throw on purpose in dev with Xray open. The error lands *inside the cascade that produced it*. The dispatch that caused it sits right above. The category and recovery read off the error row. One click lands on the handler's registration site. Nothing about the failure is out-of-band.
 
 ### A missing fx is not a missing cofx
 
-*You moved an fx-id behind a feature module, the load order shifted, and an event now fires before the fx registers.* The bogus entry emits `:rf.error/no-such-fx`, naming the fx-id and the event that carried it — and the rest of the handler's work proceeds: `:db` applies, sibling effects fire. An fx is *output*; dropping one corrupts nothing the handler already computed.
+*You moved an fx-id behind a feature module, the load order shifted, and an event now fires before the fx registers.* The bogus entry emits `:rf.error/no-such-fx`, naming the fx-id and the event that carried it. The rest of the handler's work proceeds: `:db` applies, sibling effects fire. An fx is *output*. Dropping one corrupts nothing the handler already computed.
 
-A missing coeffect is the stricter sibling, because a cofx is *input*. If a handler's `:rf.cofx/requires` names an id with no `reg-cofx` registration, the framework emits `:rf.error/unregistered-cofx` and fails loud — at registration where it can check statically, else at first processing, always *before* the handler runs. Running the handler anyway would mean computing new state from a silently-missing fact — exactly the silent-`nil` coupling the [declared-coeffects model](effects-and-coeffects.md) exists to kill.
+A missing coeffect is the stricter sibling, because a cofx is *input*. If a handler's `:rf.cofx/requires` names an id with no `reg-cofx` registration, the framework emits `:rf.error/unregistered-cofx` and fails loud — at registration where it can check statically, else at first processing, always *before* the handler runs. Running the handler anyway would mean computing new state from a silently-missing fact. That's exactly the silent-`nil` coupling the [declared-coeffects model](effects-and-coeffects.md) exists to kill.
 
 ## Test the structure, not the string
 
-Errors are data, which makes asserting them as boring as asserting anything else: collect trace events with `rf/register-listener!` (the dev trace tap — [observability](observability.md) is its full story), do the thing that should fail, filter for the category, pin the structured fields. This is the same shape the framework's own suite uses:
+Errors are data. So asserting them is as boring as asserting anything else. Collect trace events with `rf/register-listener!` (the dev trace tap — [observability](observability.md) is its full story), do the thing that should fail, filter for the category, pin the structured fields. This is the same shape the framework's own suite uses:
 
 ```clojure
 ;; Shape adapted from the framework's own error tests
@@ -155,13 +161,13 @@ Three things in that test generalise to every category:
 
 1. **The assertions are structural.** They pin `:operation`, `:op-type`, and the schema-checked `:tags` keys — the contract. They never touch `:reason`, the human-facing headline sentence, because its wording is allowed to change. String-shaped error tests rot; structural ones don't.
 2. **The listener is scoped to the test** and detached in `finally`, so a failing assertion can't leak it into the next test.
-3. **It runs on the JVM.** No browser, no DOM — register, dispatch, emit, assert, in milliseconds. [Testing a full cascade](../how-to/test-a-cascade.md) covers the fixture machinery for suites of these.
+3. **It runs on the JVM.** No browser, no DOM. Register, dispatch, emit, assert, in milliseconds. [Testing a full cascade](../how-to/test-a-cascade.md) covers the fixture machinery for suites of these.
 
 The same move covers every category: `dispatch-sync` for event errors, a sub computation for sub errors, frame setup and teardown for lifecycle errors.
 
 ## Where the boundaries are
 
-This page is the *model* — the record, the taxonomy, the recovery contract. Three adjacent concerns live elsewhere, deliberately: **the wire itself** — the trace stream these records ride, the channel split, and how Xray reads the same stream your one-line test listener just did — is [observability](observability.md); **production shipping** to a monitor is [a how-to](../how-to/report-errors-in-production.md); and **the server boundary** — raw error records must never leak into an HTTP response — is handled by [SSR](ssr.md), which projects them to a sanitised public shape before anything reaches the browser.
+This page is the *model* — the record, the taxonomy, the recovery contract. Three adjacent concerns live elsewhere, on purpose. **The wire itself** — the trace stream these records ride, the channel split, and how Xray reads the same stream your one-line test listener just did — is [observability](observability.md). **Production shipping** to a monitor is [a how-to](../how-to/report-errors-in-production.md). **The server boundary** — raw error records must never leak into an HTTP response — is handled by [SSR](ssr.md), which projects them to a sanitised public shape before anything reaches the browser.
 
 ---
 

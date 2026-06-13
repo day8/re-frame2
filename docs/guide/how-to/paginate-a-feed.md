@@ -1,16 +1,16 @@
 # Paginate a feed
 
-You have a list with more rows than you want to fetch at once. This recipe builds both pagination shapes: **numbered pages**, where page 2 *replaces* page 1 on screen (search results, admin tables), and **load more**, where page 2 *appends* (social feeds). It assumes a resource-backed list like the one [Server state: resources](../concepts/server-state.md) sets up.
+You have a list with more rows than you want to fetch at once. This recipe builds two pagination shapes. **Numbered pages**: page 2 *replaces* page 1 on screen (search results, admin tables). **Load more**: page 2 *appends* (social feeds). It assumes a resource-backed list like the one [Server state: resources](../concepts/server-state.md) sets up.
 
-**The anchor.** In TanStack Query the first shape is `useQuery` with the page in the `queryKey` plus `keepPreviousData`; the second is `useInfiniteQuery`. The first maps directly — page in the resource's params, `:keep-previous?` as the no-flicker parity surface — with the twist that the page also lives in the URL, and views never fetch. The second diverges deliberately: there is no `useInfiniteQuery` counterpart yet (infinite resources are a deferred slice); the accumulated feed is *your app state*, grown by a reply event — not a cache entry.
+**The anchor.** Think TanStack Query. The first shape is `useQuery` with the page in the `queryKey` plus `keepPreviousData`. The second is `useInfiniteQuery`. The first maps over directly: put the page in the resource's params, use `:keep-previous?` for the no-flicker behaviour. Two twists. The page also lives in the URL. Views never fetch. The second shape diverges on purpose. There is no `useInfiniteQuery` counterpart yet (infinite resources are deferred). The accumulated feed is *your app state*, grown by a reply event. It is not a cache entry.
 
-> **A page is part of the resource's identity, not a mutation of it.** Paging doesn't change "the feed"; it reads a different, separately cached value.
+> **A page is part of the resource's identity, not a mutation of it.** Paging doesn't change "the feed". It reads a different, separately cached value.
 
 ## Numbered pages: each page is its own cache entry
 
 ### 1. Put the page in the resource's params
 
-Every variable that changes the server's answer belongs in params — the page included. Page 1 and page 2 become distinct entries under one resource:
+Every variable that changes the server's answer belongs in params. The page is one of them. Page 1 and page 2 become distinct entries under one resource:
 
 ```clojure
 ;; Adapted from examples/reagent/realworld_resources/resources.cljs
@@ -33,7 +33,7 @@ Every variable that changes the server's answer belongs in params — the page i
 
 ### 2. Let the URL carry the page
 
-The current page is a fact about *where the user is* — that's the URL's job, not app-db's. The route validates `?page=`, feeds it into the resource's params, and opts into keeping the old page visible while the new one loads:
+The current page tells you *where the user is*. That's the URL's job, not app-db's. The route validates `?page=`, feeds it into the resource's params, and opts into keeping the old page visible while the new one loads:
 
 ```clojure
 ;; Adapted from examples/reagent/realworld_resources/routing.cljs
@@ -47,13 +47,13 @@ The current page is a fact about *where the user is* — that's the URL's job, n
                 :keep-previous? true}]})
 ```
 
-Route entry now *causes* the right page to load, owns it while you're on the page, and releases it when you leave; unowned pages fall to the normal staleness and GC policy.
+Now route entry loads the right page, owns it while you're there, and releases it when you leave. Unowned pages fall to the normal staleness and GC policy.
 
-> **Both seams must compute the same key.** Params identity is exact: `{:page nil}` and `{:page 1}` are *different* cache entries, and a view subscribing under one while the route ensured the other reads `:idle` forever. Use the same normalization everywhere — here, `(or page 1)` on the route side (above) and the sub side (below).
+> **Both seams must compute the same key.** Params identity is exact. `{:page nil}` and `{:page 1}` are *different* cache entries. A view subscribing under one while the route ensured the other reads `:idle` forever. So normalize the same way everywhere: `(or page 1)` on the route side (above) and the sub side (below).
 
 ### 3. Page by navigating
 
-Changing pages is a navigation, not a fetch. Swap only `?page=`; drop it for page 1 so the first page has one canonical URL:
+Changing pages is a navigation, not a fetch. Swap only `?page=`. Drop it for page 1 so the first page has one canonical URL:
 
 ```clojure
 (rf/reg-event-fx :home/go-to-page
@@ -66,7 +66,7 @@ Changing pages is a navigation, not a fetch. Swap only `?page=`; drop it for pag
   (fn [q _] (or (:page q) 1)))
 ```
 
-A filter (tag, search term) is one more params key and query param; keep it across page changes via the route's `:query-retain`, and reset to page 1 when the *filter* changes — a new filter is a fresh list.
+A filter (tag, search term) is one more params key and query param. Keep it across page changes via the route's `:query-retain`. Reset to page 1 when the *filter* changes — a new filter is a fresh list.
 
 ### 4. Show the old page while the new one loads
 
@@ -102,13 +102,13 @@ With `:keep-previous?`, while page 2 first-loads the state carries `:previous? t
 
 (`dispatch`/`subscribe` are the frame-bound bindings `reg-view` injects; `list-skeleton`, `list-error`, `article-row` are your own views.)
 
-Now watch it work. Click to page 2 with Xray open: the navigation event row shows the ensure it caused under the `{:page 2}` key, and the entry moves through `:loading` to `:loaded`. Click back to page 1: same key, still fresh — a cache hit, no network. That's the payoff of pages-as-identity: back-navigation is free.
+Now watch it work. Click to page 2 with Xray open. The navigation event row shows the ensure it caused under the `{:page 2}` key, and the entry moves through `:loading` to `:loaded`. Click back to page 1. Same key, still fresh — a cache hit, no network. That's the payoff of pages-as-identity: back-navigation is free.
 
 > **Coming from re-frame v1?** The page-keyed cache map, the `:loading?` flags, the "don't blank the list while fetching" dance — all the framework's job now; your app-db holds none of it.
 
 ## Load more: an append-feed is app state, not a cache entry
 
-A load-more feed breaks the cache model on purpose: what's on screen is no longer "the server's page N" — it's everything this user has loaded so far this session. That accumulated list is a session fact, and facts live in app-db. Don't contort resources into this shape — use a [managed HTTP request](../concepts/http.md) whose reply event appends:
+A load-more feed breaks the cache model on purpose. What's on screen is no longer "the server's page N". It's everything this user has loaded so far this session. That accumulated list is a session fact, and facts live in app-db. Don't contort resources into this shape. Use a [managed HTTP request](../concepts/http.md) whose reply event appends:
 
 ```clojure
 (rf/reg-event-fx :feed/load-more
@@ -141,7 +141,7 @@ A load-more feed breaks the cache model on purpose: what's on screen is no longe
         (dissoc :feed/loading-more?))))
 ```
 
-That `:on-success` target is the uniform reply envelope's append delivery — the same no-`await` shape every managed effect completes through ([No await: continuations are data](../explanation/continuations-are-data.md)). The *next* page needs no counter: the offset is derived from how many rows are already loaded.
+That `:on-success` target receives the uniform reply envelope, appended for you. Every managed effect completes through this same no-`await` shape ([No await: continuations are data](../explanation/continuations-are-data.md)). The *next* page needs no counter. The offset is derived from how many rows are already loaded.
 
 The view is a list plus one button. Dispatch `[:feed/load-more]` from the route's `:on-match` to load the first page on entry:
 
@@ -168,7 +168,7 @@ The view is a list plus one button. Dispatch `[:feed/load-more]` from the route'
         (cond loading? "Loading…" error "Retry" :else "Load more")])]))
 ```
 
-You've left the resource machinery behind, so its guarantees are yours to keep: if the feed is per-user, clear `:feed/articles` at logout yourself; and decide when the list resets (route leave, pull-to-refresh) — `(assoc db :feed/articles [] :feed/total nil)` is the whole reset.
+You've left the resource machinery behind, so its guarantees are now yours to keep. If the feed is per-user, clear `:feed/articles` at logout yourself. Decide when the list resets (route leave, pull-to-refresh) — `(assoc db :feed/articles [] :feed/total nil)` is the whole reset.
 
 > **Auto-loading sentinel?** An `IntersectionObserver` callback fires outside frame context — a bare `rf/dispatch` there raises `:rf.error/no-frame-context`. Capture a frame handle where context exists (render/mount) and dispatch through it:
 >
@@ -183,7 +183,7 @@ You've left the resource machinery behind, so its guarantees are yours to keep: 
 
 ## Scroll position is not a fact
 
-The temptation with feeds is to dispatch scroll positions into app-db. Don't. The test from [Where should this value live?](../where-state-lives.md): would any handler or sub *decide* anything on this value, and would it mean anything after a time-travel restore or on a server render? A pixel offset fails both — it's host state, and the framework treats it that way: the route's `:scroll` key declares the behaviour (`:top` above; leave it undeclared and the default is `:top` on forward navigation, saved-position restore on Back/Forward), with the saved-position cache kept host-side, deliberately outside app-db. Dispatching on scroll ticks also floods the event tape with noise no tool can use. What *is* a fact: the page number (URL), the rows loaded so far (app-db), and — if you need a resume point — a real domain fact like the last-read article id. Store those; let the router own the pixels.
+With feeds you'll be tempted to dispatch scroll positions into app-db. Don't. Run the test from [Where should this value live?](../where-state-lives.md): would any handler or sub *decide* anything on this value, and would it mean anything after a time-travel restore or on a server render? A pixel offset fails both. It's host state, and the framework treats it that way. The route's `:scroll` key declares the behaviour (`:top` above; leave it undeclared and the default is `:top` on forward navigation, saved-position restore on Back/Forward). The saved-position cache is kept host-side, deliberately outside app-db. Dispatching on scroll ticks also floods the event tape with noise no tool can use. What *is* a fact: the page number (URL), the rows loaded so far (app-db), and — if you need a resume point — a real domain fact like the last-read article id. Store those. Let the router own the pixels.
 
 The complete worked version of the numbered-pages half — tag filters, a session-scoped feed, profile tabs — is [`examples/reagent/realworld_resources/`](../../../examples/reagent/realworld_resources/).
 

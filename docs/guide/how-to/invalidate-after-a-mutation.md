@@ -1,16 +1,16 @@
 # Invalidate after a mutation
 
-Your app just wrote to the server — saved an article, posted a comment, toggled a favorite — and the cached reads covering that data are now wrong. This guide wires the write itself to invalidate exactly those reads, so every view still showing them refetches automatically, and nothing else moves.
+Your app just wrote to the server. It saved an article, posted a comment, toggled a favorite. The cached reads covering that data are now wrong. This guide wires the write to invalidate exactly those reads. Every view still showing them refetches automatically. Nothing else moves.
 
-If you know TanStack Query, the anchor is `queryClient.invalidateQueries({ queryKey: ['articles'] })` inside a mutation's `onSuccess`. Same instinct, two deliberate differences: in re-frame2 the invalidation is **declared on the mutation registration as data**, not called imperatively in a callback at every call site; and it matches by **tags within a scope**, refetching only entries something on screen still owns.
+Coming from TanStack Query? The anchor is `queryClient.invalidateQueries({ queryKey: ['articles'] })` inside a mutation's `onSuccess`. Same instinct here, with two deliberate differences. First, in re-frame2 you **declare the invalidation as data on the mutation registration** — you don't call it imperatively in a callback at every call site. Second, it matches by **tags within a scope**. It refetches only entries something on screen still owns.
 
-The principle underneath: **invalidation is causal — the write that made the cache stale is the thing that says so.** A timer guesses; polling pays for that guess on every interval. The mutation *knows*: it just changed the data, so it names the reads it broke, once, at registration. (That covers your app's own writes; staleness caused by *other* users is what `:stale-after-ms` and focus/reconnect revalidation are for.)
+Here's the idea underneath. The write that made the cache stale is the thing that says so. A timer guesses. Polling pays for that guess on every interval. The mutation knows: it just changed the data, so it names the reads it broke, once, at registration. **Invalidation is causal.** (That covers your app's own writes. Staleness caused by *other* users is what `:stale-after-ms` and focus/reconnect revalidation are for.)
 
-You need the resources artefact (`day8/re-frame2-resources`) booted — `re-frame.resources` plus the `re-frame.http-managed` transport on your require list — and reads registered with `reg-resource`. If not, start at [Server state: resources](../concepts/server-state.md).
+You need two things in place. Boot the resources artefact (`day8/re-frame2-resources`) — put `re-frame.resources` plus the `re-frame.http-managed` transport on your require list. And register your reads with `reg-resource`. If you haven't, start at [Server state: resources](../concepts/server-state.md).
 
 ## 1. Tag the reads
 
-Tags name *facts* — `[:article "welcome"]`, `[:article-list]` — not resources. A tag carried by two resources is the join key a write will use to reach both.
+Tags name *facts*, not resources. `[:article "welcome"]` and `[:article-list]` are facts. When two resources carry the same tag, that tag is the join key a write uses to reach both.
 
 ```clojure
 ;; Adapted from examples/reagent/realworld_resources/resources.cljs
@@ -37,7 +37,7 @@ Tags name *facts* — `[:article "welcome"]`, `[:article-list]` — not resource
 
 ## 2. Declare what the write breaks
 
-`:invalidates` on the mutation is the causal heart — the tags this write makes stale on success:
+`:invalidates` on the mutation names the tags this write makes stale on success. This is the causal heart of the page.
 
 ```clojure
 (rf/reg-mutation :article/save
@@ -51,7 +51,7 @@ Tags name *facts* — `[:article "welcome"]`, `[:article-list]` — not resource
    :invalidates (fn [{:keys [slug]} _result] #{[:article slug] [:article-list]})})
 ```
 
-On success this lowers through the same scoped, owner-aware engine as `:rf.resource/invalidate-tags`: entries whose tags intersect are marked stale; entries something still owns — a mounted route, a live machine — refetch immediately; unowned ones just go stale until their next ensure. No refetch storm for data nothing is watching.
+On success this runs through the same scoped, owner-aware engine as `:rf.resource/invalidate-tags`. Entries whose tags intersect get marked stale. Entries something still owns — a mounted route, a live machine — refetch immediately. Unowned ones just go stale until their next ensure. So there's no refetch storm for data nothing is watching.
 
 ## 3. Fire the write, watch the instance
 
@@ -74,11 +74,11 @@ On success this lowers through the same scoped, owner-aware engine as `:rf.resou
      (when (:error? save) [save-error (:error save)])]))
 ```
 
-The per-slug `:instance` id keeps two concurrent submissions from clobbering each other. (`editor-fields` and `save-error` are your own child views.) Notice what's absent: the view never dispatches an invalidate, never refetches a list, never touches `app-db`. The registration already said which reads this write breaks.
+The per-slug `:instance` id keeps two concurrent submissions from clobbering each other. (`editor-fields` and `save-error` are your own child views.) Notice what's absent. The view never dispatches an invalidate. It never refetches a list. It never touches `app-db`. The registration already said which reads this write breaks.
 
 ## 4. Optional: seed the cache from the reply
 
-When the write's reply carries the updated data, `:populates` puts it in the cache *before* the invalidation — the change appears instantly, no refetch round-trip:
+Sometimes the write's reply carries the updated data. `:populates` puts that data in the cache *before* the invalidation runs. The change appears instantly, with no refetch round-trip.
 
 ```clojure
 ;; Adapted from examples/reagent/realworld_resources/mutations.cljs
@@ -95,7 +95,7 @@ When the write's reply carries the updated data, `:populates` puts it in the cac
    :invalidates (fn [{:keys [slug]} _result] #{[:article slug] [:article-list]})})
 ```
 
-A populated key counts as an **authoritative load**: it's exempt from this same mutation's invalidation pass, so invalidating broad tags doesn't immediately re-fetch the entry you just seeded from the reply. Populate is forward-only — no automatic revert on failure (optimistic rollback is deferred). A write that must flip the UI and roll back on rejection stays a plain managed [HTTP](../concepts/http.md) write with an `:on-failure` handler.
+A populated key counts as an **authoritative load**. It's exempt from this same mutation's invalidation pass. So invalidating broad tags doesn't immediately re-fetch the entry you just seeded from the reply. Populate is forward-only: there's no automatic revert on failure (optimistic rollback is deferred). If a write must flip the UI and roll back on rejection, keep it a plain managed [HTTP](../concepts/http.md) write with an `:on-failure` handler.
 
 > **Watch out: a bare tag set matches only in the mutation's resolved scope** — and zero matches is legitimate, so a global mutation that means to refresh a session-scoped read (the user's personalized feed) **silently misses**: no error, no refetch, just stale data. When one write breaks reads in more than one scope, use descriptors, one scope per target:
 >

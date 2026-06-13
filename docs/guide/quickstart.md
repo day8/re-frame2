@@ -1,8 +1,8 @@
 # Quickstart: a counter in five minutes
 
-You'll build the classic counter — then make it show something no other framework's counter can: **its own history**. By the end you'll have dispatched events, derived a value with a subscription, recorded a wall-clock fact the *right* way, and travelled in time in the inspector.
+You'll build the classic counter. Then you'll make it show something other counters can't: its own history. Along the way you'll dispatch events, derive a value with a subscription, record a wall-clock fact the right way, and travel in time in the inspector.
 
-**The takeaway: state changes only through events, handlers stay pure, and world facts arrive recorded — and time travel falls out for free.**
+**The takeaway: state changes only through events, handlers stay pure, world facts arrive recorded — and time travel falls out for free.**
 
 > **Coming from Redux?** `reg-event-db` is your reducer — but there's no store to wire, no action creators, and no `useSelector` memo dance: subscriptions *are* the selector layer, built in and cached by input.
 
@@ -36,13 +36,13 @@ You'll build the classic counter — then make it show something no other framew
    [:button {:on-click #(dispatch [:counter/inc])} "+"]])
 ```
 
-Click the buttons and the loop you just ran is: **a view dispatches an event → a pure handler computes the next state → the subscription delivers the change back to the view.** That one-way loop is the entire framework; everything else is a refinement of it.
+Click a button. Here's the loop you just ran: **a view dispatches an event → a pure handler computes the next state → the subscription delivers the change back to the view.** That one-way loop is the whole framework. Everything else refines it.
 
 > **Coming from re-frame v1?** So far it's identical, except `reg-view` replaces bare form-1 components — it injects `dispatch`/`subscribe` pre-bound to the frame in scope, which is why the same component will later run in two isolated frames side by side, unchanged.
 
 ## Beat 2 — derive, don't store
 
-Is the count odd or even? Don't *store* that — it isn't a new fact, it's a consequence of one you already have. Derive it:
+Is the count odd or even? Don't store that. It isn't a new fact. It's a consequence of one you already have. Derive it:
 
 ```clojure
 (rf/reg-sub :counter/parity
@@ -57,13 +57,13 @@ And read it in the view's `:span`:
        " is " (name @(subscribe [:counter/parity]))]
 ```
 
-`:<-` declares the input: `:counter/parity` reads the *other subscription*, not app-db. You've built a two-node spreadsheet — `:counter/value` is a cell, `:counter/parity` is a formula — and the framework now knows the dependency graph: parity recomputes only when the value changes, and a view watching parity re-renders only when parity actually flips. This is the rule that scales: **app-db stores facts; subscriptions derive conclusions.**
+`:<-` declares the input. `:counter/parity` reads the *other subscription*, not app-db. You've built a two-node spreadsheet: `:counter/value` is a cell, `:counter/parity` is a formula. The framework now knows the dependency. Parity recomputes only when the value changes, and a view watching parity re-renders only when parity actually flips. This is the rule that scales: **app-db stores facts; subscriptions derive conclusions.**
 
 ## Beat 3 — "last clicked", and where time comes from
 
-Show when a button was last clicked. This looks like decoration; it's the most important idea on the page.
+Show when a button was last clicked. It looks like decoration. It's the most important idea on the page.
 
-A pure handler must not read the clock — the same event replayed tomorrow would compute different state, and the history you're about to inspect in Beat 4 would be a lie. So re-frame2 stamps the time **onto the event** as it enters the queue, and a handler that wants it *declares* it:
+A pure handler must not read the clock. Replay the same event tomorrow and it would compute different state — and the history you're about to inspect in Beat 4 would be a lie. So re-frame2 stamps the time **onto the event** as it enters the queue. A handler that wants the time *declares* it:
 
 ```clojure
 (rf/reg-event-fx :counter/inc
@@ -84,19 +84,19 @@ And at the bottom of the view:
   [:p "last clicked " (.toLocaleTimeString (js/Date. t))])
 ```
 
-Two things changed. The handler became `reg-event-fx` — it now takes the **coeffects** map, the bundle of facts a handler is allowed to know — because a `reg-event-db` handler sees only db and event: *needing the world is what graduates a handler to the fx form.* And it **declares** `:rf.cofx/requires [:rf/time-ms]`: delivery is declared-only, so `time-ms` arrives flat in the coeffects map, read once at the moment the click entered the system, then frozen onto the event's record. Replay this event next week and `last-clicked-at` comes out identical. (Formatting with `.toLocaleTimeString` lives in the view — the recorded *fact* is the milliseconds; pretty-printing is presentation.)
+Two things changed. First, the handler became `reg-event-fx`. It now takes the **coeffects** map — the bundle of facts a handler is allowed to know. A `reg-event-db` handler sees only db and event. Needing the world is what graduates a handler to the fx form. Second, it **declares** `:rf.cofx/requires [:rf/time-ms]`. Delivery is declared-only, so `time-ms` arrives flat in the coeffects map. It's read once, at the moment the click entered the system, then frozen onto the event's record. Replay this event next week and `last-clicked-at` comes out identical. The recorded fact is the milliseconds. Formatting with `.toLocaleTimeString` lives in the view, because pretty-printing is presentation.
 
 > **Coming from re-frame v1?** You'd reach for `(inject-cofx :now)` — same purity instinct, but it was opt-in per handler and the value wasn't recorded, so replay re-rolled it. Declaring `:rf/time-ms` makes the same idea a recorded guarantee.
 
 ## Beat 4 — open the inspector: your app has a history
 
-Open Xray (it ships with the dev build). Click `+` a few times: every click is a **row** — the event, the app-db before and after, and the recorded `:rf/time-ms` you just used. Your app's state isn't a mystery to reconstruct from `console.log`; it's a ledger you can read.
+Open Xray. It ships with the dev build. Click `+` a few times. Every click is a **row**: the event, the app-db before and after, and the recorded `:rf/time-ms` you just used. You don't reconstruct state from `console.log`. You read it off a ledger.
 
-Now restore an older row. The counter — value, parity, last-clicked, all of it — returns to that moment. That isn't a trick bolted on for the demo: it falls out of the three rules you just followed — state changes only through events, handlers are pure, world facts arrive recorded. **You earned time travel by construction.**
+Now restore an older row. The counter returns to that moment — value, parity, last-clicked, all of it. This isn't a trick bolted on for the demo. It falls out of the three rules you just followed: state changes only through events, handlers are pure, world facts arrive recorded. **You earned time travel by construction.**
 
 ## Running it locally
 
-The snippets above are the whole app *except* boot — the one place you name the rendering substrate and the frame. Adapt `examples/reagent/counter/`:
+The snippets above are the whole app *except* boot. Boot is the one place you name the rendering substrate and the frame. Adapt `examples/reagent/counter/`:
 
 ```clojure
 (ns quickstart.core
@@ -118,7 +118,7 @@ The snippets above are the whole app *except* boot — the one place you name th
                [counter/counter-app]]))
 ```
 
-A **frame** is one isolated world of app-db, registrations, and subscriptions; `frame-provider` scopes the mounted views to it, so every `subscribe` and `dispatch` resolves there. One app, one frame — you'll rarely think about it again until you want two ([Frames](concepts/frames.md)).
+A **frame** is one isolated world: app-db, registrations, and subscriptions. `frame-provider` scopes the mounted views to it, so every `subscribe` and `dispatch` resolves there. One app, one frame. You'll rarely think about it again until you want two ([Frames](concepts/frames.md)).
 
 ---
 

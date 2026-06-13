@@ -1,26 +1,26 @@
 # Frames: isolated worlds
 
-You want two independent copies of your app on one screen — a split pane showing the same widget against different data, a Story canvas rendering one view in three states side by side, a server handling a hundred render requests at once. Or you've just hit `:rf.error/no-frame-context` from a `setTimeout` callback and want to know what it's telling you. Both roads lead here. This page explains the **frame** — re-frame2's isolation boundary — and the one rule everything else on this page falls out of.
+You want two independent copies of your app on one screen. A split pane showing the same widget against different data. A Story canvas rendering one view in three states side by side. A server handling a hundred render requests at once. Or you've just hit `:rf.error/no-frame-context` from a `setTimeout` callback and want to know what it means. Both roads lead here. This page explains the **frame** — re-frame2's isolation boundary — and the one rule everything else falls out of.
 
 > **Coming from Redux?** A frame is a store instance and `frame-provider` is `<Provider store={...}>` — creating a second store gives you a second state tree but the same reducers, and frames work exactly that way: handlers are registered once, state is per-frame. The divergence: there is no default store. A dispatch that can't trace which frame it belongs to fails loudly instead of landing somewhere conventional.
 
 ## What a frame is
 
-**A frame is one running instance of your app.** It owns the runtime state of that instance:
+A frame is one running instance of your app. It owns the runtime state of that instance:
 
 - its **app-db** — the map this instance's events read and write,
 - its **event queue** — the dispatches waiting to run against this instance,
 - its **subscription cache** — the memoised derivation graph over this instance's state.
 
-And here is what a frame deliberately does *not* own: **the handlers**. Every `reg-event-db`, `reg-event-fx`, `reg-sub`, and `reg-view` in your program goes into a single shared registry. Two frames running `[:counter/inc]` run the *same handler function* against *different app-dbs*. That's the whole trick, and it's worth saying back to yourself: **frames isolate state, not behaviour**. You write the app once; the frame decides which copy of the state it runs against.
+A frame deliberately does *not* own the handlers. Every `reg-event-db`, `reg-event-fx`, `reg-sub`, and `reg-view` in your program goes into a single shared registry. Two frames running `[:counter/inc]` run the *same handler function* against *different app-dbs*. That's the whole trick.
 
-That division is why "show two of them side by side" never forces a rewrite: you mount the same app twice, each mount in its own frame, and isolation is total.
+**A frame isolates state, not behaviour.** You write the app once. The frame decides which copy of the state it runs against.
 
-**One app, one frame — until the day you need two, and then nothing leaks.**
+That division is why "show two of them side by side" never forces a rewrite. You mount the same app twice, each mount in its own frame, and isolation is total. One app, one frame — until the day you need two, and then nothing leaks.
 
 ## The normal case: one app, one frame
 
-Almost every app is a one-frame app, and stays one. You register a frame at boot, establish it at the root of your view tree, and never spell it again:
+Almost every app is a one-frame app, and stays one. You register a frame at boot, establish it at the root of your view tree, and never name it again:
 
 ```clojure
 (ns my-app.core
@@ -52,7 +52,7 @@ Almost every app is a one-frame app, and stays one. You register a frame at boot
      [main-view]]))
 ```
 
-`frame-provider` establishes the frame for everything underneath it. Inside that subtree, every `dispatch` and `subscribe` — the ones injected into [registered views](views.md), the ones your event handlers cause — resolves to `:app` without ever naming it. The frame is invisible *inside its own scope*. That's a design rule, not an accident: going multi-frame later must not change a line of your app code, so single-frame code is forbidden from ever depending on which frame it's in. And note that `init!` created no frame — nothing is implicit about which frame your root uses; you say so, once, at the root.
+`frame-provider` establishes the frame for everything underneath it. Inside that subtree, every `dispatch` and `subscribe` resolves to `:app` without ever naming it. This covers the ones injected into [registered views](views.md) and the ones your event handlers cause. The frame is invisible inside its own scope. That's a design rule. Going multi-frame later must not change a line of your app code, so single-frame code is forbidden from ever depending on which frame it's in. Notice that `init!` created no frame. Nothing is implicit about which frame your root uses. You say so, once, at the root.
 
 ## When you want more than one
 
@@ -63,7 +63,7 @@ The genuine multi-frame cases, roughly in the order you'll meet them:
 - **A fresh frame per test.** Each test gets its own frame, torn down after, so no test can leak state into the next — see [Test a full cascade](../how-to/test-a-cascade.md).
 - **A frame per server request.** [Server-side rendering](ssr.md) creates a frame per HTTP request, runs the app in it, serialises, destroys it. A hundred concurrent requests are a hundred isolated app-dbs.
 
-In every one of these, the shape is the same: **one app, mounted N times, each mount fully isolated**. Multi-frame is never "N half-apps stitched together" — each frame is a complete, self-sufficient world.
+The shape is the same every time: one app, mounted N times, each mount fully isolated. Multi-frame is never "N half-apps stitched together." Each frame is a complete, self-sufficient world.
 
 Here's the split pane, end to end:
 
@@ -98,9 +98,9 @@ Here's the split pane, end to end:
    [split-screen]])
 ```
 
-Notice what isn't there: no pane id threaded through the view, no atom per pane, no "which counter am I" argument on the handler. Click `+` on the left and only the left number moves. Run it and open Xray: pick the left frame and you see only that frame's events and app-db — the right frame's ledger never heard about the click. Frames are how every inspection tool partitions the world.
+Notice what isn't there: no pane id threaded through the view, no atom per pane, no "which counter am I" argument on the handler. Click `+` on the left and only the left number moves. Run it and open Xray: pick the left frame and you see only that frame's events and app-db. The right frame's ledger never heard about the click. Frames are how every inspection tool partitions the world.
 
-Borderline case? Ask one question: **would these two things ever sensibly share a piece of state?** If yes, they are two views over slices of *one* frame's app-db — components on a page compose by sharing app-db, and that's the point of [having one place](app-db.md). If no — if they're genuinely two separate runs of the app — they're two frames. The two panes never want to share a counter; that "no" is the signal.
+Borderline case? Ask one question: would these two things ever sensibly share a piece of state? If yes, they are two views over slices of *one* frame's app-db. Components on a page compose by sharing app-db, and that's the point of [having one place](app-db.md). If no — if they're genuinely two separate runs of the app — they're two frames. The two panes never want to share a counter; that "no" is the signal.
 
 ## Frame identity is carried, not found
 
@@ -117,7 +117,7 @@ So a bare `(rf/dispatch [:counter/inc])` works when — and only when — someth
  :recovery    :supply-frame}
 ```
 
-Why an error instead of a sensible default? Because a default would make distant code change meaning silently. If a frameless dispatch fell through to "the" frame, your app would work perfectly — right up until a second frame appears (a Story canvas, an inspection tool, an SSR pass), at which point the dispatch lands *somewhere*, with no error, in the wrong world. The carried rule converts that silent cross-frame leak into an immediate, attributed failure at the exact call site that lost its frame. The error is the feature.
+Why an error instead of a sensible default? Because a default would make distant code change meaning silently. Say a frameless dispatch fell through to "the" frame. Your app would work perfectly — right up until a second frame appears (a Story canvas, an inspection tool, an SSR pass). At that point the dispatch lands *somewhere*, with no error, in the wrong world. The carried rule converts that silent cross-frame leak into an immediate, attributed failure at the exact call site that lost its frame. The error is the feature.
 
 From outside any scope — a test, a tool, the REPL — you name the frame explicitly, and the explicit target always wins:
 
@@ -132,9 +132,9 @@ The complete resolution contract — every rule, the full error payload, the fra
 
 ## The async boundary: capture the frame
 
-There is exactly one place a frame gets lost: **a callback built while a frame was in scope, fired later when the scope is gone.** A `setTimeout` tick, a promise continuation, a WebSocket `onmessage`, a `window` listener, a third-party SDK calling you back. The provider's scope is render-time knowledge; a handler's scope ends when the handler returns. When the callback finally runs, it's on a fresh stack with no frame anywhere — and a bare `dispatch` inside it raises `:rf.error/no-frame-context`.
+There is exactly one place a frame gets lost: a callback built while a frame was in scope, fired later when the scope is gone. A `setTimeout` tick. A promise continuation. A WebSocket `onmessage`. A `window` listener. A third-party SDK calling you back. The provider's scope is render-time knowledge, and a handler's scope ends when the handler returns. When the callback finally runs, it's on a fresh stack with no frame anywhere — and a bare `dispatch` inside it raises `:rf.error/no-frame-context`.
 
-The fix is always the same move: **capture the frame as a value at the moment it's still in scope, and close over it.** The capture tool is `frame-handle`:
+The fix is always the same move: capture the frame as a value while it's still in scope, and close over it. The capture tool is `frame-handle`:
 
 ```clojure
 ;; Adapted from examples/reagent/websocket/messages.cljs
@@ -151,7 +151,7 @@ The fix is always the same move: **capture the frame as a value at the moment it
     socket))
 ```
 
-`(rf/frame-handle)` reads the frame in scope *at creation time* and returns a bundle of operations locked to it — `{:frame ... :dispatch ... :dispatch-sync ... :subscribe ...}`. The captured `dispatch` carries its frame inside the closure, so it routes correctly whenever and wherever the socket fires. Trigger the opening effect from the left pane and the socket's messages land in the left frame; trigger it from the right pane and they land in the right one — same code.
+`(rf/frame-handle)` reads the frame in scope *at creation time* and returns a bundle of operations locked to it — `{:frame ... :dispatch ... :dispatch-sync ... :subscribe ...}`. The captured `dispatch` carries its frame inside the closure, so it routes correctly whenever and wherever the socket fires. Trigger the opening effect from the left pane and the socket's messages land in the left frame. Trigger it from the right pane and they land in the right one. Same code.
 
 Two companions round out the surface:
 
@@ -167,9 +167,9 @@ Two companions round out the surface:
 (rf/frame-bound-fn* on-message)
 ```
 
-Reach for `frame-handle` for the common dispatch/subscribe case; reach for `frame-bound-fn` / `frame-bound-fn*` when you're wrapping an arbitrary function whose *body* needs the frame re-established around it.
+Reach for `frame-handle` for the common dispatch/subscribe case. Reach for `frame-bound-fn` / `frame-bound-fn*` when you're wrapping an arbitrary function whose *body* needs the frame re-established around it.
 
-And one important case where you need none of this: **scheduling from inside an event handler.** A handler that wants a later dispatch returns effect data, and the effects carry the frame for you:
+And one important case where you need none of this: scheduling from inside an event handler. A handler that wants a later dispatch returns effect data, and the effects carry the frame for you:
 
 ```clojure
 (rf/reg-event-fx :toast/show
@@ -178,15 +178,15 @@ And one important case where you need none of this: **scheduling from inside an 
      :fx [[:dispatch-later {:ms 3000 :event [:toast/clear]}]]}))
 ```
 
-`:dispatch` and `:dispatch-later` effects are stamped with the in-flight frame before any timer or microtask boundary — zero ceremony. If the deferred work is just a dispatch, this is the shape; `frame-handle` is for callbacks the effect system doesn't mediate — the socket's `onmessage` above, SDK callbacks, `window` listeners — even when the function that wires them up runs inside an effect handler.
+`:dispatch` and `:dispatch-later` effects are stamped with the in-flight frame before any timer or microtask boundary — zero ceremony. If the deferred work is just a dispatch, this is the shape. Reach for `frame-handle` only for callbacks the effect system doesn't mediate — the socket's `onmessage` above, SDK callbacks, `window` listeners — even when the function that wires them up runs inside an effect handler.
 
-This page is the canonical home of the capture pattern — when the [views](views.md) and [subscriptions](subscriptions.md) pages warn "don't dispatch bare from async callbacks," this is the full story they're pointing at.
+This page is the canonical home of the capture pattern. When the [views](views.md) and [subscriptions](subscriptions.md) pages warn "don't dispatch bare from async callbacks," this is the full story they're pointing at.
 
 ## The hard rule: subscriptions never reach across frames
 
 A subscription belongs to one frame. It computes from that frame's app-db and from other subscriptions *in that frame* — never from another frame's state. There is no "read frame B from a sub in frame A" affordance, and you must not build one by sneaking a cross-frame read into a sub's computation function. That's the anti-pattern, full stop.
 
-The reasoning is the same as the carried rule's: isolation is only worth having if it's total. Story variants are reproducible because nothing outside a frame can influence them; SSR requests can run concurrently because no request can observe another; a test frame is hermetic because *nothing* reaches in. One cross-frame sub quietly breaks all three — frame A's derived values now change when frame B does, and every tool that reasons per-frame (the epoch ledger, time-travel, replay) is lying to you about A. If you feel the need for one, you've answered the discriminator question wrongly: two things that need to share derived state are one frame. Restructure — don't reach across.
+The reasoning is the same as the carried rule's: isolation is only worth having if it's total. Story variants are reproducible because nothing outside a frame can influence them. SSR requests can run concurrently because no request can observe another. A test frame is hermetic because *nothing* reaches in. One cross-frame sub quietly breaks all three. Frame A's derived values now change when frame B does, and every tool that reasons per-frame — the epoch ledger, time-travel, replay — is lying to you about A. If you feel the need for one, you've answered the discriminator question wrongly: two things that need to share derived state are one frame. Restructure — don't reach across.
 
 ## What frames are not
 

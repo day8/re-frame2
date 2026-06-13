@@ -1,8 +1,10 @@
 # Part 3: auth — login, register, and the guard
 
-In [Part 2](02-server-data.md) Conduit learned to read server data; now it learns who you are: sign-in and sign-up pages, a session that survives reload, routes that refuse to open while signed out, and a clean sign-out. Most of it lands in one new namespace, `conduit/auth.cljs`.
+In [Part 2](02-server-data.md) Conduit learned to read server data. Now it learns who you are. You'll add a sign-in page, a sign-up page, a session that survives reload, routes that refuse to open while signed out, and a clean sign-out. Most of it lands in one new namespace, `conduit/auth.cljs`.
 
-For React readers this is React Hook Form territory (the forms) and Axios-interceptor territory (the token, the guard) — except re-frame2 deliberately ships neither a forms library nor an auth plugin: shared form components drown in props chasing every project's slightly-different needs. Instead you get a convention — one map shape, a small event lifecycle, one error-visibility rule — built from the same events and subs as everything else. The load-bearing idea: **a form is a tiny state machine wearing a trenchcoat.** Strip away the inputs and login is `idle → submitting → submitted | error` plus a draft and an error map. Build that once and every later form is a fill-in-the-blanks job.
+Coming from React, this is React Hook Form territory (the forms) and Axios-interceptor territory (the token, the guard). re-frame2 ships neither. There's no forms library and no auth plugin. Shared form components drown in props chasing every project's slightly-different needs, so instead you get a convention: one map shape, a small event lifecycle, one error-visibility rule. It's built from the same events and subs as everything else.
+
+Here's the load-bearing idea. **A form is a tiny state machine wearing a trenchcoat.** Strip away the inputs and login is `idle → submitting → submitted | error`, plus a draft and an error map. Build that once. Every later form is then a fill-in-the-blanks job.
 
 ```clojure
 (ns conduit.auth
@@ -13,7 +15,7 @@ For React readers this is React Hook Form territory (the forms) and Axios-interc
 
 ## The form slice: seven keys, no library
 
-Two new routes first; each `:on-match` seeds its form's slice whenever the route matches, so the form always starts clean:
+Add two routes first. Each `:on-match` seeds its form's slice whenever the route matches, so the form always starts clean:
 
 ```clojure
 (rf/reg-route :conduit.auth/login
@@ -40,9 +42,9 @@ Every form lives at one app-db path with one standard shape. The initialise even
                :submit-error      nil})))  ;; transport failure (network down)
 ```
 
-`:status` is the machine under the trenchcoat. `:errors` holds renderable validation results — client- or server-produced, the view won't care — with `:_form` reserved for complaints owned by no single field. `:submit-error` stays separate: transport failure has nothing field-shaped to render.
+`:status` is the machine under the trenchcoat. `:errors` holds renderable validation results. They can be client- or server-produced; the view won't care. `:_form` is reserved for complaints that no single field owns. `:submit-error` stays separate, because transport failure has nothing field-shaped to render.
 
-Every keystroke is one event — draft update and touch-marking in one step:
+Every keystroke is one event. It updates the draft and marks the field touched in one step:
 
 ```clojure
 (rf/reg-event-db :auth.login-form/edit-field
@@ -55,15 +57,15 @@ Every keystroke is one event — draft update and touch-marking in one step:
 
 > **Coming from React Hook Form?** `register`, `handleSubmit`, and `formState.errors` collapse into this one map and a handful of events you own outright.
 
-Login needs only this much; the full seven-event convention (`blur-field` for async checks, a `dirty?` sub) is [Pattern-Forms](../../../spec/Pattern-Forms.md); [build a form](../how-to/build-a-form.md) is the condensed recipe.
+Login needs only this much. The full seven-event convention (`blur-field` for async checks, a `dirty?` sub) is [Pattern-Forms](../../../spec/Pattern-Forms.md). [build a form](../how-to/build-a-form.md) is the condensed recipe.
 
 ## The visibility rule
 
-Two classic form failures: every field screaming "required!" before you've typed a character, and a submit that silently does nothing because untouched fields are invisibly invalid. One rule kills both:
+Two classic form failures. First, every field screams "required!" before you've typed a character. Second, a submit silently does nothing because untouched fields are invisibly invalid. One rule kills both:
 
 > A field's error is visible when the field is in `:touched`, **or** after the first submit attempt. Form-level errors (`:_form`) are visible whenever they exist.
 
-The rule lives in one place — a sub:
+The rule lives in one place, a sub:
 
 ```clojure
 (rf/reg-sub :auth.login-form/slice
@@ -82,7 +84,7 @@ The rule lives in one place — a sub:
 
 ## Submit: one managed request, no retry
 
-Login is a one-shot command, not cached server state — a plain managed request, not one of Part 2's resources. Validate the draft; if clean, flip to `:submitting` and hand the round-trip to `:rf.http/managed`:
+Login is a one-shot command, not cached server state. So it's a plain managed request, not one of Part 2's resources. Validate the draft. If it's clean, flip to `:submitting` and hand the round-trip to `:rf.http/managed`:
 
 ```clojure
 (def api "https://api.realworld.io/api")
@@ -113,11 +115,11 @@ Login is a one-shot command, not cached server state — a plain managed request
         {:db (assoc-in db' [:auth :login-form :errors] errors)}))))
 ```
 
-The `:submit-attempted?` latch flips on *every* submit click, valid or not — that's what arms the visibility rule. And no `:retry`: a submit is one click, one attempt; silently re-posting credentials after a 5xx isn't what the user asked for. The reply comes back as the last argument of the event you named — `{:kind :success :value <decoded-body>}` or `{:kind :failure :failure <failure-map>}`; those two shapes are the whole contract ([HTTP: the managed request](../concepts/http.md) has the rest).
+The `:submit-attempted?` latch flips on *every* submit click, valid or not. That's what arms the visibility rule. There's no `:retry`: a submit is one click, one attempt. Silently re-posting credentials after a 5xx isn't what the user asked for. The reply comes back as the last argument of the event you named, either `{:kind :success :value <decoded-body>}` or `{:kind :failure :failure <failure-map>}`. Those two shapes are the whole contract. [HTTP: the managed request](../concepts/http.md) has the rest.
 
 ## The two endings: token in, errors back
 
-On success Conduit replies `{:user {... :token "<jwt>"}}`. One handler stores the session, snapshots the draft, persists the token, and sends the user on — to wherever the guard intercepted them (stash below), or home:
+On success Conduit replies `{:user {... :token "<jwt>"}}`. One handler stores the session, snapshots the draft, persists the token, and sends the user on. They go to wherever the guard intercepted them (stash below), or home:
 
 ```clojure
 (rf/reg-event-fx :auth.login-form/submit-success
@@ -136,7 +138,7 @@ On success Conduit replies `{:user {... :token "<jwt>"}}`. One handler stores th
                          [:rf.route/navigate :conduit/home])]]})))
 ```
 
-Failure sorts into two shapes — the second load-bearing rule: **structured server validation lands in `:errors`, rendered by the same view code as client errors; only unstructured transport failure lands in `:submit-error`.** Conduit's 422 body is `{"errors": {"email or password": ["is invalid"]}}` — keys naming a real field go per-field, the rest joins `:_form`:
+Failure sorts into two shapes, and here's the second load-bearing rule. **Structured server validation lands in `:errors`, rendered by the same view code as client errors; only unstructured transport failure lands in `:submit-error`.** Conduit's 422 body is `{"errors": {"email or password": ["is invalid"]}}`. Keys naming a real field go per-field; the rest joins `:_form`:
 
 ```clojure
 (defn failure->form-errors
@@ -164,7 +166,7 @@ Failure sorts into two shapes — the second load-bearing rule: **structured ser
 
 ## The login page
 
-With the rules in subs and handlers, the view is the thinnest layer — read, render, dispatch:
+The rules live in subs and handlers, so the view is the thinnest layer. Read, render, dispatch:
 
 ```clojure
 (reg-view login-page []
@@ -193,15 +195,15 @@ With the rules in subs and handlers, the view is the thinnest layer — read, re
      (when submit-error [:p.error submit-error])]))
 ```
 
-The register page is the same shape plus a `:username` field: a `[:auth :register-form]` slice, the same events posting to `/users`, the same subs. Write it as your first fill-in-the-blanks form — or crib the finished pair from [the example's `auth.cljs`](../../../examples/reagent/realworld/).
+The register page is the same shape plus a `:username` field. It uses a `[:auth :register-form]` slice, the same events posting to `/users`, and the same subs. Write it as your first fill-in-the-blanks form, or crib the finished pair from [the example's `auth.cljs`](../../../examples/reagent/realworld/).
 
-**Try it, then watch it.** Type a bad email, click *Sign in* — both errors appear, including the password field you never touched (the latch). Open Xray: the submit's event row shows the validation branch — no request left. Fix and resubmit: the epoch ledger shows the submit, then the reply arriving as its own event. The async gap is two inspectable rows, not a mystery inside a promise.
+**Try it, then watch it.** Type a bad email and click *Sign in*. Both errors appear, including the password field you never touched (the latch). Open Xray: the submit's event row shows the validation branch, and no request left. Fix and resubmit. The epoch ledger shows the submit, then the reply arriving as its own event. The async gap is two inspectable rows, not a mystery inside a promise.
 
 ## The session: persist, restore, attach
 
-A login that evaporates on reload isn't a session. Three pieces: a write, a read, a header.
+A login that evaporates on reload isn't a session. You need three pieces: a write, a read, a header.
 
-**The write** is an effect — localStorage is the outside world, so it sits behind `reg-fx`; `:platforms #{:client}` makes a server render skip it:
+**The write** is an effect. localStorage is the outside world, so it sits behind `reg-fx`. `:platforms #{:client}` makes a server render skip it:
 
 ```clojure
 (rf/reg-fx :auth.session/persist
@@ -214,7 +216,7 @@ A login that evaporates on reload isn't a session. Three pieces: a write, a read
         (.removeItem ls "jwtToken")))))
 ```
 
-**The read** happens at boot, and reading the world is a *coeffect*: register a supplier for the fact, and the boot handler declares that it requires it. The value arrives flat in the handler's first argument, beside `:db`:
+**The read** happens at boot. Reading the world is a *coeffect*. Register a supplier for the fact, and the boot handler declares that it requires it. The value arrives flat in the handler's first argument, beside `:db`:
 
 ```clojure
 (rf/reg-cofx :auth.session/token
@@ -242,11 +244,11 @@ A login that evaporates on reload isn't a session. Three pieces: a write, a read
      :fx [[:auth.session/persist {:token nil}]]}))
 ```
 
-Delivery is declared-only — a handler receives exactly the facts in `:rf.cofx/requires`; even the framework clock works this way (`:rf/time-ms` rides every dispatch, but a handler must declare it to read it). And it had to be `reg-event-fx`: a `reg-event-db` handler sees only db and event — needing the world is what graduates a handler to the fx form. The token read registers as an *ambient* coeffect — re-read live, never recorded; tests stub it by re-registering the supplier. Ambient passes here only because the read runs once at boot, before any epoch you'd replay; a fact folded into durable state mid-session registers `:recordable? true`, so replay re-presents the recorded value instead of re-reading the world. Dispatch `[:auth/initialise]` from boot, after Part 1's `[:app/initialise]`.
+Delivery is declared-only. A handler receives exactly the facts in `:rf.cofx/requires`. Even the framework clock works this way: `:rf/time-ms` rides every dispatch, but a handler must declare it to read it. And it had to be `reg-event-fx`. A `reg-event-db` handler sees only db and event; needing the world is what graduates a handler to the fx form. The token read registers as an *ambient* coeffect. It's re-read live, never recorded, and tests stub it by re-registering the supplier. Ambient passes here only because the read runs once at boot, before any epoch you'd replay. A fact folded into durable state mid-session registers `:recordable? true`, so replay re-presents the recorded value instead of re-reading the world. Dispatch `[:auth/initialise]` from boot, after Part 1's `[:app/initialise]`.
 
 > **Coming from re-frame v1?** The injection helper is gone — declare `:rf.cofx/requires` on the registration and the runtime assembles the value before the handler runs.
 
-**The header** — every authenticated request needs `Authorization: Token <jwt>`, and threading it through forty request maps is what Axios request-interceptors exist to prevent. Same move here: one HTTP interceptor on the frame decorates every managed request — including the `/user` restore above, because `:db` commits before `:fx` runs, so the token is in app-db when the request leaves:
+**The header.** Every authenticated request needs `Authorization: Token <jwt>`, and threading it through forty request maps is what Axios request-interceptors exist to prevent. Same move here. One HTTP interceptor on the frame decorates every managed request. That includes the `/user` restore above, because `:db` commits before `:fx` runs, so the token is in app-db when the request leaves:
 
 ```clojure
 (defn bearer-auth [ctx]
@@ -256,7 +258,7 @@ Delivery is declared-only — a handler receives exactly the facts in `:rf.cofx/
                       (str "Token " token)))))
 ```
 
-Wire it at boot, and add one more frame line: mark the token path sensitive so the raw JWT never reaches traces or any off-box record — it renders as redacted (check Xray's App-db tab after signing in; [keep secrets out of traces](../how-to/keep-secrets-out-of-traces.md) has the full surface):
+Wire it at boot, and add one more frame line. Mark the token path sensitive so the raw JWT never reaches traces or any off-box record. It renders as redacted (check Xray's App-db tab after signing in; [keep secrets out of traces](../how-to/keep-secrets-out-of-traces.md) has the full surface):
 
 ```clojure
 ;; core.cljs — additions to Part 1's boot
@@ -274,7 +276,7 @@ Wire it at boot, and add one more frame line: mark the token path sensitive so t
 
 ## The guard
 
-Settings and the editor should refuse to open while signed out. Route protection is an ordinary event interceptor — every way of *reaching* a route is an event. First tag the routes that need a user (extending Part 1's registrations):
+Settings and the editor should refuse to open while signed out. Route protection is an ordinary event interceptor, because every way of *reaching* a route is an event. First tag the routes that need a user (extending Part 1's registrations):
 
 ```clojure
 (rf/reg-route :conduit.user/settings
@@ -283,7 +285,7 @@ Settings and the editor should refuse to open while signed out. Route protection
    :on-match [[:settings/load]]})
 ```
 
-The one trap: navigations enter the system **three** ways — programmatic `:rf.route/navigate`, link clicks (`:rf/url-requested`), and the URL bar or back-button (`:rf.route/handle-url-change`). Gate only the first and the guard *fails open* when someone types `/settings` into the address bar. Normalise all three, gate once:
+There's one trap. Navigations enter the system **three** ways: programmatic `:rf.route/navigate`, link clicks (`:rf/url-requested`), and the URL bar or back-button (`:rf.route/handle-url-change`). Gate only the first, and the guard *fails open* when someone types `/settings` into the address bar. Normalise all three, then gate once:
 
 ```clojure
 (defn- nav-target
@@ -320,15 +322,15 @@ The one trap: navigations enter the system **three** ways — programmatic `:rf.
           ctx)))))
 ```
 
-For a protected navigation while signed out, the `:before` sets `:rf/skip-handler?` — the route never commits, its `:on-match` loads never fire — stashes the destination at `[:auth :return-to]` (what `submit-success` read earlier), and dispatches the login navigation instead. Attached frame-wide (the boot's `:interceptors [auth-guard]`), it wraps every event and stands aside for all but navigations. [Interceptors](../concepts/interceptors.md) is the deeper model.
+For a protected navigation while signed out, the `:before` sets `:rf/skip-handler?`. The route never commits, and its `:on-match` loads never fire. It stashes the destination at `[:auth :return-to]` (what `submit-success` read earlier) and dispatches the login navigation instead. Attached frame-wide (the boot's `:interceptors [auth-guard]`), it wraps every event and stands aside for all but navigations. [Interceptors](../concepts/interceptors.md) is the deeper model.
 
 > **Coming from Axios?** Your request interceptor became `reg-http-interceptor`; your redirect-on-401 response interceptor became this event interceptor, one layer up — it stops the navigation *before* any request exists.
 
-**Watch it fire.** Signed out, click *Settings*: in Xray the navigation's event row shows the guard short-circuiting the handler, and the next row is the redirect dispatch to the login route. Sign in, and the ledger shows the bounce back to `/settings` — the stash paying off.
+**Watch it fire.** Signed out, click *Settings*. In Xray the navigation's event row shows the guard short-circuiting the handler, and the next row is the redirect dispatch to the login route. Sign in, and the ledger shows the bounce back to `/settings` — the stash paying off.
 
 ## Sign out
 
-Teardown is setup, reversed, in one event — wire `(dispatch [:auth/logout])` to the navbar:
+Teardown is setup, reversed, in one event. Wire `(dispatch [:auth/logout])` to the navbar:
 
 ```clojure
 (rf/reg-event-fx :auth/logout
@@ -338,11 +340,11 @@ Teardown is setup, reversed, in one event — wire `(dispatch [:auth/logout])` t
           [:dispatch [:rf.route/navigate :conduit/home]]]}))
 ```
 
-Nothing else to unhook: the bearer interceptor reads app-db per request, so the header stops the instant the token is `nil`, and the guard starts intercepting again for the same reason. State went away; behaviour followed.
+Nothing else to unhook. The bearer interceptor reads app-db per request, so the header stops the instant the token is `nil`. The guard starts intercepting again for the same reason. State went away; behaviour followed.
 
 ## Taking the trenchcoat off
 
-An honest closing note: this part hand-rolled the `:status` transitions, and at this size that's right. The shipped example implements the same flow as an explicit state machine — once "submitting" is enterable from three places and "error" needs retry rules, scattered status flips stop scaling. The slice stays identical; only the transition logic moves. When you feel that pull, [State machines](../concepts/machines.md) is the step up, and the example's [`auth.cljs`](../../../examples/reagent/realworld/) shows the finished machine.
+An honest closing note. This part hand-rolled the `:status` transitions, and at this size that's right. The shipped example implements the same flow as an explicit state machine. Once "submitting" is enterable from three places and "error" needs retry rules, scattered status flips stop scaling. The slice stays identical; only the transition logic moves. When you feel that pull, [State machines](../concepts/machines.md) is the step up, and the example's [`auth.cljs`](../../../examples/reagent/realworld/) shows the finished machine.
 
 **You can now:**
 

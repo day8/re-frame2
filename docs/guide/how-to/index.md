@@ -1,6 +1,6 @@
 # How-to guides
 
-You have a working app and a specific task. Each page on this shelf is a recipe for one task: the goal, the steps, complete code, the working result — in that order, no detours through theory. Recipes assume you've built something already (the [quick start](../quickstart.md) is enough) and can read the loop at sight ([the model](../concepts/index.md), one page). Every recipe ends with links *down*: to the concept page for why it's shaped this way, and to the spec when you need every option.
+You have a working app and one specific task. Each page here is a recipe for one task. It gives you the goal, the steps, the complete code, then the working result, in that order. No theory in the way. Recipes assume you've already built something. The [quick start](../quickstart.md) is enough. They also assume you can read the loop at a glance: [the model](../concepts/index.md), one page. Every recipe ends with links *down*: to the concept page for why it's shaped this way, and to the spec when you need every option.
 
 > **Find the task, follow the recipe, link down for the contract.**
 
@@ -39,8 +39,8 @@ You have a working app and a specific task. Each page on this shelf is a recipe 
 
 ## Can't find your task?
 
-- If the question is "where should this value live — db, sub, flow, resource, or machine?", that's a design decision, not a recipe: [Where should this value live?](../where-state-lives.md)
-- If the task spans several features and you'd rather watch one app grow through them, the [RealWorld tutorial](../tutorial/index.md) builds auth, feeds, forms, and invalidation end to end.
+- Asking "where should this value live — db, sub, flow, resource, or machine?" That's a design decision, not a recipe: [Where should this value live?](../where-state-lives.md)
+- Your task spans several features, and you'd rather watch one app grow through them? The [RealWorld tutorial](../tutorial/index.md) builds auth, feeds, forms, and invalidation end to end.
 - For everything else, [the reference map](../reference.md) indexes the complete surface.
 
 ---
