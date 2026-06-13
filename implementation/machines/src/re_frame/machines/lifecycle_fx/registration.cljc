@@ -23,6 +23,7 @@
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.machines.cofx-attach :as cofx-attach]
             [re-frame.machines.lifecycle-fx.finalize :as finalize]
             [re-frame.machines.lifecycle-fx.join :as join]
             [re-frame.machines.lifecycle-fx.resolver :as resolver]
@@ -474,6 +475,40 @@
   [ctx post-boot-snap]
   (parallel/machine-transition (:machine ctx) post-boot-snap (:inner-event ctx)))
 
+(defn- ensure-ctx-cofx
+  "Per EP-0017 slice-B.9 (rf2-mjmxgb) — the dispatch-time consumer-attachment
+  ensure step, run between `maybe-boot` and `run-step`. Computes the derived
+  per-(state × event-type) ensure-set for the POST-BOOT snapshot's active
+  state + the routed inner event (`cofx-attach/ensure-set-for`, incl. the
+  `:always` closure) and ensures it onto the in-flight `:rf.cofx` record
+  carried under the machine def's `:rf/cofx`, BEFORE transition selection.
+
+  Returns `ctx` with `:machine`'s `:rf/cofx` updated to the augmented record
+  (so `callback-ctx` surfaces every ensured fact to guards / actions during
+  selection). A no-op when the machine declares no requires, when no token
+  was threaded (`:rf/cofx` absent — pure-fn / no-router callers), or when the
+  ensure-set is empty — `ctx` is returned unchanged in all three.
+
+  Ensuring runs under the default `:live` mint policy (the router default);
+  the `:strict` binding points for replay / the `:test` preset are slice-B.8's
+  surface. A provided fact absent from the record is `:rf.error/missing-
+  required-cofx`; a schema-invalid value is `:rf.error/cofx-value-invalid`
+  (both production hard errors, propagated by `deliver-declared-cofx`)."
+  [ctx post-boot-snap]
+  (let [machine (:machine ctx)]
+    ;; Only run when a causal token was threaded (the normal dispatch path
+    ;; stamps `:rf/cofx`); pure-fn callers carry no token and consume no
+    ;; recordable facts, so there is nothing to ensure.
+    (if-not (contains? machine :rf/cofx)
+      ctx
+      (let [recorded  (:rf/cofx machine)
+            augmented (cofx-attach/ensure-cofx
+                        machine post-boot-snap (:inner-event ctx)
+                        recorded (:frame-id ctx) (:machine-id ctx))]
+        (if (identical? augmented recorded)
+          ctx
+          (assoc ctx :machine (assoc machine :rf/cofx augmented)))))))
+
 (defn- commit-or-finalize
   "Step 4 of 4 (rf2-2zzyg). Emit `:rf.machine/transition` (and optional
   `:rf.machine/snapshot-updated`) traces, build the new app-db, and
@@ -625,6 +660,15 @@
   `run-step` → `commit-or-finalize` — with the intercept-spawn-all-
   event short-circuit branching off after step 1."
   [machine]
+  ;; Per EP-0017 slice-B.9 (rf2-mjmxgb) — consumer attachment. Run FIRST so
+  ;; the inline-fn restriction (`:rf.error/machine-cofx-requires-inline`) and
+  ;; the named-entry `:rf.cofx/requires` parse (`:rf.error/cofx-request-invalid`
+  ;; / `-name-collision`) surface as their OWN precise categories before
+  ;; `validate-machine!`'s guard/action ref resolution would otherwise paint a
+  ;; bare-entry-map-with-requires-no-`:fn` as the generic
+  ;; `:rf.error/machine-unresolved-guard`. The indexed spec carries
+  ;; `:rf/cofx-ensure-index` for the dispatch-time `ensure-ctx-cofx` to read.
+  (let [machine (cofx-attach/index-ensure-sets machine)]
   (validation/validate-machine! machine)
   ;; Per rf2-genufr — fail-loud guard. A `:data-schema`-bearing spec MUST be
   ;; registered through the single home (`reg-machine` / `reg-machine*` / the
@@ -667,9 +711,12 @@
   ;; satisfy the snapshot shape at reg-machine call time. The original
   ;; (pre-split) implementation deferred this work; preserve that.
   ;;
-  ;; Pass `:bootstrap-pending? false` — the singleton path stamps the
-  ;; marker lazily inside `prepare-machine-ctx` (when `existing-snap` is
-  ;; nil); only the spawn path needs it stamped here.
+  ;; `machine` already carries the EP-0017 slice-B.9 consumer-attachment index
+  ;; (`:rf/cofx-ensure-index`, stamped above by `cofx-attach/index-ensure-sets`
+  ;; ahead of `validate-machine!`), so the handler closure captures it and
+  ;; `prepare-machine-ctx` threads it onto the machine def — the dispatch-time
+  ;; `ensure-ctx-cofx` reads it to derive the per-(state × event-type)
+  ;; ensure-set (incl. the `:always` closure).
   (let [base-initial (delay (parallel/build-initial-snapshot
                               machine {:bootstrap-pending? false}))]
     (fn [{:keys [db] frame :rf.frame/id rt :rf.db/runtime
@@ -754,7 +801,21 @@
                                                  (vec boot-fx))
                       {:rf.db/runtime (assoc-in runtime-db (:path ctx) post-boot-snap)
                        :fx            (vec boot-fx)}))
-                  (let [step-result (run-step ctx post-boot-snap)]
+                  ;; Per EP-0017 slice-B.9 (rf2-mjmxgb) — ensure the derived
+                  ;; per-(state × event-type) cofx ensure-set onto the
+                  ;; in-flight `:rf.cofx` record BEFORE transition selection
+                  ;; (`run-step`) runs. A guard-consumed fact MUST be present
+                  ;; when guards execute during selection, so a mid-selection
+                  ;; host read can never put nondeterminism in the fold's most
+                  ;; sensitive spot (replay selecting a DIFFERENT transition).
+                  ;; Generated values are written back into the record the
+                  ;; epoch captures (so replay re-presents them); the augmented
+                  ;; record is re-stamped onto the machine def under `:rf/cofx`
+                  ;; so `callback-ctx` surfaces it to guards / actions / entry /
+                  ;; exit. A no-requires machine no-ops (returns the record
+                  ;; unchanged) and `ctx` is untouched.
+                  (let [ctx (ensure-ctx-cofx ctx post-boot-snap)
+                        step-result (run-step ctx post-boot-snap)]
                     (if (result/fail? step-result)
                       (trace-action-failure! ctx (:inner-event ctx)
                                              "Machine action threw."
@@ -764,7 +825,7 @@
                       ;; same-call bootstrap's entry cascade prepends the
                       ;; event-driven cascade on the `:rf.machine/transition`
                       ;; trace.
-                      (commit-or-finalize ctx step-result boot-result))))))))))))
+                      (commit-or-finalize ctx step-result boot-result)))))))))))))
 
 ;; ---- :data-schema redaction bridge (EP-0005, rf2-w46fpt) ------------------
 ;;
@@ -931,6 +992,13 @@
     ;; prior-marks capture needed; `reg-event-fx`'s bare-meta `register-marks!`
     ;; can no longer clobber the schema set).
     (register-data-schema-marks! machine-id machine)
+    ;; Per EP-0017 slice-B.9 (rf2-mjmxgb) — the dev-only consumer-attachment
+    ;; lints (consume-without-declaring + ambient-durable). Run here in the
+    ;; home (with the machine-id known) over a locally-indexed copy so the
+    ;; lints read the parsed diets without altering the stored `:rf/machine`
+    ;; meta shape. DCE'd in production (`interop/debug-enabled?`-gated inside
+    ;; `lint-machine!`). Idempotent — `index-ensure-sets` is pure.
+    (cofx-attach/lint-machine! machine-id (cofx-attach/index-ensure-sets machine))
     (trace/emit! :rf.machine.lifecycle/created :rf.machine.lifecycle/created
                  {:machine-id machine-id
                   :initial    (:initial machine)})
