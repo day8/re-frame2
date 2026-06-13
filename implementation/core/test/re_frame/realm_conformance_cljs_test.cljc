@@ -286,9 +286,15 @@
           "the default realm's registrar did NOT receive the installed event")
       (is (nil? (registrar/lookup :sub :s/y))
           "the default realm's registrar did NOT receive the installed sub")
-      ;; And the realm's installed-app value round-trips.
-      (is (= app (realm/installed-app r1))
-          "the realm stores the constructed app value it was installed with"))))
+      ;; And the realm's installed-app value reports the seated provenance over
+      ;; its own live projection (rf2-77ewnm) — the stored slot holds the value
+      ;; verbatim; the public read reconciles it with the realm's registrar.
+      (is (= app (:app (realm/realm (realm/realm-id r1))))
+          "the realm stores the constructed app value it was installed with")
+      (is (= :conf/app1 (:rf.app/id (realm/installed-app r1)))
+          "installed-app reports the seated app's identity")
+      (is (= #{:e/x} (set (keys (get-in (realm/installed-app r1) [:registrations :event]))))
+          "and its reconciled read enumerates exactly the realm's own program"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (3) SAME ID, INDEPENDENT — two realms hold different handlers for one id
@@ -599,7 +605,10 @@
           (is (nil? (get-in @(realm/registrar r) [:event :rb/new]))
               ":rb/new did not leak (the added register! was rolled back)")
           ;; ATOMIC :app: set-installed-app! runs only after a clean apply, so the
-          ;; installed app is still v1.
-          (is (= v1 (realm/installed-app r))
-              "installed-app is still v1 — set-installed-app! never ran on the failed reinstall"))
+          ;; stored :app slot is still v1 (and the reconciled read reports it).
+          (is (= v1 (:app (realm/realm (realm/realm-id r))))
+              "the stored :app slot is still v1 — set-installed-app! never ran on the failed reinstall")
+          (is (= #{:rb/keep :rb/drop}
+                 (set (keys (get-in (realm/installed-app r) [:registrations :event]))))
+              "installed-app reconciles to v1's program (no partial v2 :rb/new seating)"))
         (finally (rf/dispose-realm! :rb/r))))))

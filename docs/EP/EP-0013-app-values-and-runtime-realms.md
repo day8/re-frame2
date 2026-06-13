@@ -87,7 +87,10 @@ final-review verdict (`rf2-g41gz6`).
   `rf/dispose-realm!` is its teardown counterpart. `rf/realm-ids` enumerates the
   live realms and `rf/frame-realm` returns a frame's realm — the realm-enumeration
   half of the `(realm, frame)` addressing model (issue 3); `rf/installed-app`
-  projects a realm's seated app value; and the realm-targeted registrar queries
+  reads a realm's installed app value as the LIVE registrar projection enriched
+  with any seated app's module provenance — so coexisting `reg-*` sugar stays
+  visible and the public read never desyncs from the registrar (`rf2-77ewnm`);
+  and the realm-targeted registrar queries
   take the map-shaped `{:realm … :kind …}` form (issue 11). Eight thrown EP-0013
   `:rf.error/*` categories carry Spec 009 Error-event catalogue rows (the
   final-review corrective).

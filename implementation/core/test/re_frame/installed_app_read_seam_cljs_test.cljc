@@ -83,10 +83,14 @@
                       assoc :capabilities {:rf.capability/http :stub})]
       (try
         (rf/install! a)
-        ;; The PUBLIC read yields the running realm's installed app value.
+        ;; The PUBLIC read yields the running realm's installed app value:
+        ;; the LIVE registrar projection enriched with the seated app's
+        ;; provenance (rf2-77ewnm). With NO coexisting sugar the registration
+        ;; set is exactly the seated app's, so it round-trips to the seated id +
+        ;; modules + requires, with registrations re-projected off the registrar.
         (let [running (rf/installed-app)]
-          (is (= a running)
-              "rf/installed-app returns the seated app value")
+          (is (= :shop/app (:rf.app/id running))
+              "rf/installed-app reports the seated app's identity")
           (is (= {:shop/cart cart} (:modules running))
               "the rich constructed value's :modules provenance is present
                (NOT the module-less projection)")
@@ -137,3 +141,119 @@
         "(installed-app) and (installed-app default-realm-id) agree")
     (is (contains? (rf/app-registrations (rf/installed-app) :event) :default/e)
         "the no-arg read is the default realm's program")))
+
+;; ---------------------------------------------------------------------------
+;; (5) MIXED MODE — reg-* sugar coexisting with an install!-seated app
+;;     (rf2-77ewnm). THE contract this bead reconciles: once a realm has a
+;;     stored :app, the public read seam must STILL reflect coexisting sugar
+;;     (the registrar is the single source of truth, EP-0013:138/:838), while
+;;     preserving the seated value's per-module provenance. Before the fix,
+;;     `rf/installed-app` returned the frozen install-time snapshot, so a sugar
+;;     registration live in the registrar (and visible to `av/app-value` /
+;;     dispatch) was INVISIBLE here. These are the adversarial regressions.
+;; ---------------------------------------------------------------------------
+
+(defn- with-default-realm-http! [thunk]
+  ;; install! gates on the realm satisfying the app's :requires; seed a stub
+  ;; :rf.capability/http, run, then clear (the :app slot is cleared by the
+  ;; suite fixture).
+  (swap! realm/realms update realm/default-realm-id
+         assoc :capabilities {:rf.capability/http :stub})
+  (try (thunk)
+       (finally
+         (swap! realm/realms update realm/default-realm-id dissoc :capabilities))))
+
+(deftest installed-app-mixed-sugar-BEFORE-install-shows-both
+  (testing "rf2-77ewnm: a reg-* sugar registration made BEFORE install! is
+            visible in rf/installed-app alongside the installed app's events —
+            the public read is the LIVE registrar, not the frozen snapshot. The
+            seated app's :modules / :requires provenance is preserved."
+    ;; Sugar FIRST — writes the default realm's registrar in place, no module.
+    (rf/reg-event-db :sugar/before (fn [db _] db))
+    (with-default-realm-http!
+      (fn []
+        (let [cart (rf/module {:id       :shop/cart
+                               :owns     {:app-db [[:cart]]}
+                               :requires #{:rf.capability/http}
+                               :events   {:cart/add {:doc "Add." :handler cart-add}}
+                               :subs     {:cart/items {:doc "Items." :handler cart-items}}})
+              a    (rf/app {:id :shop/app :modules [cart]})]
+          (rf/install! a)
+          (let [running (rf/installed-app)
+                events  (rf/app-registrations running :event)]
+            ;; BOTH the coexisting sugar AND the installed event are visible.
+            (is (contains? events :sugar/before)
+                "the pre-install sugar event is visible in the public read seam
+                 (NOT swept by, NOT hidden behind, the stored :app)")
+            (is (contains? events :cart/add)
+                "the installed event is visible too")
+            ;; The reconciled read agrees with the live projection's registrar
+            ;; view — no desync between rf/installed-app and av/app-value.
+            (is (= (set (keys events))
+                   (set (keys (rf/app-registrations (rf/installed-app realm/default-realm-id) :event))))
+                "the public read enumerates exactly the live registrar's events")
+            ;; Provenance survives: the installed event carries its owner; the
+            ;; sugar event has none (load-order declares no module).
+            (is (= :shop/cart (:owner (get events :cart/add)))
+                "the installed event keeps its owning-module provenance")
+            (is (nil? (:owner (get events :sugar/before)))
+                "the sugar event declares no owner (no module)")
+            ;; Seated-value provenance is overlaid onto the live projection.
+            (is (= :shop/app (:rf.app/id running))
+                "the read reports the seated app's identity")
+            (is (= {:shop/cart cart} (:modules running))
+                ":modules provenance from the seated app is preserved")
+            (is (= #{:rf.capability/http} (rf/app-requires running))
+                ":requires from the seated app is preserved")
+            (is (= :shop/cart (rf/app-owns running [:cart]))
+                "app-owns resolves through the overlaid :modules")))))))
+
+(deftest installed-app-mixed-sugar-AFTER-install-shows-both
+  (testing "rf2-77ewnm: a reg-* sugar registration made AFTER install! is ALSO
+            visible — sugar updates the default realm's app value in place at any
+            point (EP-0013:138), and the public read recomputes over the live
+            registrar every call, so a post-install sugar registration appears
+            without any re-install or invalidation step."
+    (with-default-realm-http!
+      (fn []
+        (let [a (rf/app {:id :shop/app
+                         :modules [(rf/module {:id       :shop/cart
+                                               :requires #{:rf.capability/http}
+                                               :events   {:cart/add {:handler cart-add}}})]})]
+          (rf/install! a)
+          ;; Sugar AFTER the install — must still surface in the public read.
+          (rf/reg-event-db :sugar/after (fn [db _] db))
+          (let [events (rf/app-registrations (rf/installed-app) :event)]
+            (is (contains? events :sugar/after)
+                "a post-install sugar registration is visible (live recompute,
+                 no frozen snapshot)")
+            (is (contains? events :cart/add)
+                "the installed event remains visible alongside it")
+            (is (= :shop/app (:rf.app/id (rf/installed-app)))
+                "the seated identity/provenance is still overlaid")))))))
+
+(deftest installed-app-repeated-install-public-view-keeps-coexisting-sugar
+  (testing "rf2-77ewnm + rf2-c6armm.7 #1: a repeated install! clears the prior
+            installed app's dropped registrations but PRESERVES coexisting sugar
+            — and the PUBLIC read surface (rf/installed-app), not just the
+            registrar, reflects that. AC3: assert how the chosen read exposes
+            the coexisting sugar through a replacement."
+    (rf/reg-event-db :coexist/sugar (fn [db _] db))
+    (with-default-realm-http!
+      (fn []
+        ;; install app1 (its own event), then install app2 dropping app1's event.
+        (rf/install! (rf/app {:id :coexist/app1
+                              :modules [(rf/module {:id :m :events {:coexist/a1 {:handler cart-add}}})]}))
+        (rf/install! (rf/app {:id :coexist/app2
+                              :modules [(rf/module {:id :m :events {:coexist/a2 {:handler cart-add}}})]}))
+        (let [running (rf/installed-app)
+              events  (rf/app-registrations running :event)]
+          (is (not (contains? events :coexist/a1))
+              "app1's dropped event is GONE from the public read (replacement)")
+          (is (contains? events :coexist/a2)
+              "app2's event is present")
+          (is (contains? events :coexist/sugar)
+              "the coexisting sugar SURVIVES the replacement and is visible in
+               the public read seam (NOT swept, NOT hidden by the stored :app)")
+          (is (= :coexist/app2 (:rf.app/id running))
+              "the read reports the most-recently-installed app's identity"))))))

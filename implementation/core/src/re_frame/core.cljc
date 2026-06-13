@@ -2017,22 +2017,25 @@
 
 (def ^{:doc "Return the app VALUE installed in a running realm — `(installed-app)`
   (default realm) / `(installed-app realm-or-id)`. The public realm→installed-app
-  READ seam (EP-0013 disposition 6): the static read of a running realm's
-  install-time program-as-a-value that nothing public exposed before. A realm
-  that had an app value SEATED via `install!` returns that rich constructed value
-  — carrying `:modules` provenance (per-module `:owns` / `:requires` / `:owner`-
-  stamped descriptors / source coords) — so a tool can feed it straight to the
-  `app-registrations` / `app-owns` / `app-requires` inspectors to read which
-  module owns a handler/sub/path WITHOUT installing anything. A realm seated only
-  through the `reg-*` sugar (load-order, no `install!`) carries no module
-  structure, so its installed app is the recomputable projection over the realm's
-  registrar — registrations grouped by kind, but an empty `:modules`/`:requires`
-  (load-order registrations declare no module). nil resolves to the default realm
-  (absence = default realm). `tooling` tier alongside `realm-ids` / `frame-realm`
-  — the realm-aware-tool read surface (it unblocks the Xray Module-view's MODULES
-  section, EP-0013 disposition 6). A STATIC read of the install-time value: it does
-  NOT route live dispatch through a non-default realm (the deferred runtime-routing
-  slice). Per spec/API.md §App values and composition (EP-0013)."}
+  READ seam (EP-0013 disposition 6): a running realm's program-as-a-value that
+  nothing public exposed before. The registrar is the single source of truth, so
+  this is the LIVE registrar projection — it ALWAYS reflects the live
+  registrations (`reg-*` sugar AND installed alike) and never desyncs from
+  `app-value` / dispatch (rf2-77ewnm). A realm that had an app value SEATED via
+  `install!` overlays that seated value's `:modules` provenance (per-module
+  `:owns` / `:requires` / `:owner`-stamped descriptors / source coords) onto the
+  projection — so a tool can feed it straight to the `app-registrations` /
+  `app-owns` / `app-requires` inspectors to read which module owns a
+  handler/sub/path WITHOUT installing anything, while coexisting sugar that
+  `install!` preserves stays visible. A realm seated only through the `reg-*`
+  sugar (load-order, no `install!`) carries no module structure, so its installed
+  app is the bare projection — registrations grouped by kind, but an empty
+  `:modules`/`:requires` (load-order registrations declare no module). nil resolves
+  to the default realm (absence = default realm). `tooling` tier alongside
+  `realm-ids` / `frame-realm` — the realm-aware-tool read surface (it unblocks the
+  Xray Module-view's MODULES section, EP-0013 disposition 6). It does NOT route
+  live dispatch through a non-default realm (the deferred runtime-routing slice).
+  Per spec/API.md §App values and composition (EP-0013)."}
   installed-app realm/installed-app)
 
 ;; ---- interceptors --------------------------------------------------------

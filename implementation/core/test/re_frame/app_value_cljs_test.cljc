@@ -221,18 +221,33 @@
     (is (= (av/app-value) (realm/installed-app nil))
         "nil resolves to the default realm (absence = default realm)")))
 
-(deftest installed-app-reads-stored-app-slot-first
-  (testing "installed-app reads a STORED :app slot first (forward-stable across
-            the stage-6/7 graduation — a future install! seats a value), and
-            falls back to the projection when no :app is stored"
-    ;; Seat a sentinel :app on a fresh test realm to prove precedence — this is
-    ;; the shape a stage-7 install! would write; stage 5 never writes it.
-    (let [sentinel {:rf.app/id :av/sentinel :registrations {} :requires #{}}
+(deftest installed-app-reconciles-stored-app-with-live-projection
+  (testing "installed-app reconciles a STORED :app slot WITH the live registrar
+            projection (rf2-77ewnm): the seated value's identity / :modules /
+            :requires provenance is overlaid, but the registrations are always
+            the LIVE registrar's, so the public read never desyncs from the
+            registrar / av/app-value. (Was: stored slot returned verbatim,
+            precedence over projection — the desync the reconcile fix closes.)"
+    ;; Seat a sentinel :app on a fresh test realm — the shape a stage-7 install!
+    ;; would write. Its :rf.app/id + :requires must overlay the live projection.
+    (let [sentinel {:rf.app/id :av/sentinel
+                    :modules   {:av/m {:rf.module/id :av/m :owns {} :requires #{}}}
+                    :registrations {}
+                    :requires  #{:rf.capability/example}}
           test-rid :av/test-realm]
       (swap! realm/realms assoc test-rid
              (assoc (realm/make-realm test-rid) :app sentinel))
-      (is (= sentinel (realm/installed-app test-rid))
-          "a stored :app slot is returned verbatim (precedence over projection)")
+      (let [read (realm/installed-app test-rid)
+            proj (av/app-value test-rid)]
+        (is (= :av/sentinel (:rf.app/id read))
+            "the seated app's identity is overlaid")
+        (is (= {:av/m {:rf.module/id :av/m :owns {} :requires #{}}} (:modules read))
+            "the seated app's :modules provenance is overlaid")
+        (is (= #{:rf.capability/example} (:requires read))
+            "the seated app's :requires is overlaid")
+        (is (= (:registrations proj) (:registrations read))
+            "the registrations are the LIVE projection's — not the frozen
+             sentinel's empty map (the source-of-truth reconcile)"))
       ;; Cleanup the test realm so the registry returns to its fixture state.
       (swap! realm/realms dissoc test-rid))))
 
