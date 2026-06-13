@@ -2,13 +2,13 @@
 
 The **single source of truth** for re-frame2's error / warning / advisory event vocabulary is [`spec/009-Instrumentation.md` §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue). The catalogue enumerates ~95 categories with `:operation`, `:op-type`, trigger, default `:recovery`, and `:tags` columns. **Do not inline the catalogue here** — duplication will drift; cross-reference the spec instead.
 
-When an agent migrating a v1 codebase needs to answer *"is this error name old or new?"* or *"what does the new `:on-error` policy actually intercept?"* — the answer is one click away in the spec, and this leaf points the way.
+When an agent migrating a v1 codebase needs to answer *"is this error name old or new?"* or *"which listener surface do I wire production error monitoring on?"* — the answer is one click away in the spec, and this leaf points the way. (There is **no** app-steering frame-level `:on-error` recovery policy to "intercept" anything — recovery is framework-owned; see below.)
 
 ## Why this leaf exists
 
 The migration touches three surfaces that hand-off to the error event stream:
 
-- **M-13** — `reg-event-error-handler` is gone. The replacements (frame-level `:on-error` for recovery policy, `register-listener!` for dev-loop observation, `register-error-listener!` for always-on production egress) consume events from the catalogue.
+- **M-13** — `reg-event-error-handler` is gone, and there is **no** app-steering frame-level `:on-error` recovery policy that replaces it (recovery is framework-owned — the typed per-category default). The observability replacements (`register-listener!` for dev-loop observation, `register-error-listener!` for always-on production egress) consume events from the catalogue.
 - **M-17 / M-26** — observer-shaped interceptors / post-event callbacks become trace listeners; they filter on `:operation` / `:op-type` from the catalogue.
 - **M-23** — `re-frame.alpha` lifecycle annotations dropped; some user error-recognition code referenced old category names.
 
@@ -98,7 +98,7 @@ Specific drift to watch:
 
 ## When to point an author at this leaf
 
-- They're writing the `:on-error` fn for M-13 and need to know what events arrive.
+- They're wiring an error-observability listener for M-13 (`register-error-listener!` / `register-listener!`) and need to know what events arrive.
 - They're writing a `register-listener!` listener and ask "which categories are errors vs warnings vs informational?"
 - They have a `(case operation …)` shape and want a complete list of arms.
 - A test asserts on an error event's `:operation` keyword and they need the canonical name.

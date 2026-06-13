@@ -145,6 +145,29 @@ jobs:
       - name: Verify skill M-id cites resolve in MIGRATION.md
         run: python scripts/check_skill_migration_cites.py --verbose --ci
 
+      # M-11 / M-13 contract-drift guard (rf2-h9yfsm). A senior review found the
+      # migration skill + corpus carrying two stale CONTRACT claims while the
+      # spec/runtime/tests said the opposite: (M-11) plain Reagent fns "work
+      # inside any established frame scope" / "inherit the frame-provider's frame
+      # ambiently" — false; a plain fn carries no `:contextType`, so a bare
+      # ambient subscribe/dispatch raises `:rf.error/no-frame-context` (EP-0002;
+      # only a reg-view'd view reads the provider frame); and (M-13)
+      # `reg-event-error-handler` "moved to frame-level `:on-error`" — false; that
+      # per-frame recovery policy was REMOVED (rf2-hiqtk8), recovery is
+      # framework-owned, observability is `register-error-listener!` /
+      # `register-listener!`. Because the skill is the agent's source of truth for
+      # what breaks, a stale contract claim produces a wrong migration. The guard
+      # fires only on the stale ASSERTION shape (never the corrected negation, and
+      # never the unrelated live machine-`:spawn :on-error` / route-`:on-error`
+      # surfaces). Self-test first (proves it fires on each stale shape + stays
+      # green on the corrected wording), then the live scan asserts the skill +
+      # corpus are clean. See scripts/check_skill_migration_contract_drift.py.
+      - name: Self-test the M-11/M-13 contract-drift guard
+        run: python scripts/check_skill_migration_contract_drift.py --self-test
+
+      - name: Verify migration skill M-11/M-13 contract wording
+        run: python scripts/check_skill_migration_contract_drift.py --verbose --ci
+
       # Foundation-order guard (rf2-708nm): the re-frame2-implementor skill must
       # keep Spec 015 (Data Classification — v1-required, rides the 009 emission
       # boundary) INSIDE the core-complete gate. Catches the drift where an entry
