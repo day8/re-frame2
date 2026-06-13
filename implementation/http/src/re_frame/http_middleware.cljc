@@ -435,7 +435,7 @@
      the `(if middleware-ctx …)` guard skips the `:after` chain and
      passes the payload through unchanged — the chain's contract is to
      see the `:before`'s ctx, not a synthesised one.
-   - `http-machine-wrapper/dispatch-canned-reply!` — the canned-stub
+   - `http-test-support/dispatch-canned-reply!` — the canned-stub test
      path, which always produces a `:middleware-ctx` via
      `run-request-chain` and therefore always runs the `:after` chain.
 

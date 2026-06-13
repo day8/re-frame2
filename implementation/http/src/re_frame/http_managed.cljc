@@ -99,12 +99,13 @@
    - `re-frame.http-handlers`      — `:rf.http/managed` /
                                       `:rf.http/managed-abort` fx
                                       handler bodies (rf2-0eyp2).
-   - `re-frame.http-machine-wrapper`— machine-shape wrapper (rf2-ijm7)
-                                      and canned-stub handler bodies.
+   - `re-frame.http-machine-wrapper`— machine-shape wrapper (rf2-ijm7).
    - `re-frame.http-test-support`   — test-only surface: stub macros
-                                      + canned-stub fx registrations
-                                      + late-bind hook publication for
-                                      the stub family (rf2-lwmgw).
+                                      + canned-stub handler bodies
+                                      (rf2-w59es5) + canned-stub fx
+                                      registrations + late-bind hook
+                                      publication for the stub family
+                                      (rf2-lwmgw).
    - `re-frame.util-json`           — pure-Clojure JSON reader extracted
                                       per rf2-p7da; shared by the decode
                                       pipeline. (Currently shipped in

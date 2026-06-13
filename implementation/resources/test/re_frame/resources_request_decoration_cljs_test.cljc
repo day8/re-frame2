@@ -42,13 +42,13 @@
   The decoration seam IS the production `:rf.http/managed` per-frame
   interceptor chain (`re-frame.http-middleware`). To exercise it without a
   live fetch we override `:rf.http/managed` with a stub that runs the REAL
-  request-side chain (`http-machine-wrapper/run-request-chain`) — so the
+  request-side chain (`http-test-support/run-request-chain`) — so the
   registered interceptors genuinely fire on the request the resource /
   mutation runtime lowered — captures the post-`:before` decorated request,
   and exposes the runtime-owned reply addressing so the test can replay the
   internal reply (the genuine 3-element transport-append shape) and watch
   the entry / instance settle. This is the same `run-request-chain` the
-  production canned-stub path and the real Fetch/HttpClient transport walk."
+  canned-stub path and the real Fetch/HttpClient transport walk."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -63,7 +63,10 @@
    ;; transport feature probe (`:http/abort-on-actor-destroy`) the resource
    ;; lowering consults AND registers the per-frame interceptor chain.
    [re-frame.http-managed :as http-managed]
-   [re-frame.http-machine-wrapper :as http-wrapper]
+   ;; the request-side chain walker `run-request-chain` is HTTP test
+   ;; scaffolding (rf2-w59es5) — it lives in http-test-support alongside the
+   ;; canned-stub fxs, not the production machine-wrapper.
+   [re-frame.http-test-support :as http-test-support]
    [re-frame.schemas]
    [re-frame.test-support :as core-test-support]
    [re-frame.trace.tooling :as trace-tooling]
@@ -95,7 +98,7 @@
   (http-managed/clear-all-http-interceptors!)
   (rf/reg-fx :rf.http/managed
              (fn [frame-ctx args]
-               (let [ctx (http-wrapper/run-request-chain frame-ctx args)]
+               (let [ctx (http-test-support/run-request-chain frame-ctx args)]
                  (reset! last-decorated
                          {:request    (:request ctx)
                           :on-success (:on-success args)

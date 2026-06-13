@@ -195,13 +195,14 @@
       (is (= 1234 (:elapsed-ms failure)) "measured elapsed wall-clock is carried")
       (is (= 30000 (:limit-ms failure)) "the configured limit is preserved"))))
 
-(deftest classify-jvm-error-elapsed-ms-nil-for-legacy-arities
-  (testing "rf2-a3wxe — the 2-arity (and 1-arity) preserve back-compat:
-            :elapsed-ms is nil when no start mark was threaded"
+(deftest classify-jvm-error-elapsed-ms-nil-when-unmeasured
+  (testing "rf2-w59es5 — the single 3-arity carries a nil :elapsed-ms when no
+            start mark was measured (the synthetic-caller case); :limit-ms
+            still rides whatever was threaded"
     (let [classify transport-jvm/classify-jvm-error
           timeout  (java.net.http.HttpTimeoutException. "request timed out")]
-      (is (nil? (:elapsed-ms (classify timeout 30000))))
-      (is (nil? (:elapsed-ms (classify timeout)))))))
+      (is (nil? (:elapsed-ms (classify timeout 30000 nil))))
+      (is (nil? (:elapsed-ms (classify timeout nil nil)))))))
 
 (deftest jvm-real-timeout-populates-elapsed-ms
   (testing "rf2-a3wxe — a live JVM request that exceeds its per-attempt

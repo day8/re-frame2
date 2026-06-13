@@ -9,11 +9,12 @@
    - load-time registration of the two canned-stub fxs:
       - `:rf.http/managed-canned-success`
       - `:rf.http/managed-canned-failure`
-     Each wraps `re-frame.http-machine-wrapper/canned-success-handler`
-     / `canned-failure-handler` in the rf2-j1mo4 `:after-ms` delay
-     decorator: absent / 0 `:after-ms` delegates straight through
-     (immediate reply); a positive `:after-ms` defers via the framework
-     `:dispatch-later`.
+     Each wraps this namespace's own `canned-success-handler` /
+     `canned-failure-handler` (rf2-w59es5 — the canned-stub bodies live
+     here in test-support, not the production machine-wrapper) in the
+     rf2-j1mo4 `:after-ms` delay decorator: absent / 0 `:after-ms`
+     delegates straight through (immediate reply); a positive `:after-ms`
+     defers via the framework `:dispatch-later`.
    - the stub macros / fns:
       - `with-managed-request-stubs`
       - `with-managed-request-stubs*`
@@ -26,7 +27,7 @@
      `re-frame.core-http`'s defwrapper surface).
 
   This smoke pins the load-time side effects: fx registrations land,
-  the fx ids delegate (on the immediate path) to the machine-wrapper
+  the fx ids delegate (on the immediate path) to this namespace's
   canned-* bodies, and the stub-family late-bind hooks are non-nil after
   the require. The deeper end-to-end
   behaviour (canned reply → late-bind dispatch → reply lands in
@@ -52,20 +53,20 @@
     (is (some? (registrar/lookup :fx :rf.http/managed-canned-failure))
         ":rf.http/managed-canned-failure registered")))
 
-(deftest canned-stub-fxs-delegate-to-machine-wrapper-handlers
-  (testing "rf2-j1mo4 — the registered handlers wrap the machine-wrapper
-            canned-* vars in the `with-after-ms` delay decorator. On the
-            immediate path (no `:after-ms`) the wrapper delegates straight
-            through to the machine-wrapper body, so Spec 014 §Testing's
-            args-map contract carries through unchanged; a positive
-            `:after-ms` defers via the framework `:dispatch-later`.
+(deftest canned-stub-fxs-delegate-to-canned-handlers
+  (testing "rf2-j1mo4 — the registered handlers wrap the canned-* handler
+            vars in the `with-after-ms` delay decorator. On the immediate
+            path (no `:after-ms`) the wrapper delegates straight through to
+            the canned handler body, so Spec 014 §Testing's args-map contract
+            carries through unchanged; a positive `:after-ms` defers via the
+            framework `:dispatch-later`.
 
-            The handlers are deliberately NOT `identical?` to the
-            machine-wrapper vars anymore — the delay is a parameter of the
-            same effect, threaded by wrapping the reg-fx body. We pin the
-            delegation by driving the immediate path through a stub
-            late-bind router and asserting the wrapper body fired the
-            machine-wrapper reply walk (a dispatch through `:router/dispatch!`)."
+            The handlers are deliberately NOT `identical?` to the canned-*
+            vars anymore — the delay is a parameter of the same effect,
+            threaded by wrapping the reg-fx body. We pin the delegation by
+            driving the immediate path through a stub late-bind router and
+            asserting the canned body fired the reply walk (a dispatch
+            through `:router/dispatch!`)."
     (let [dispatched (atom [])
           ;; Save the live router hook and RESTORE it in finally — never
           ;; null it. Nulling `:router/dispatch!` is global state that
@@ -76,14 +77,14 @@
                          (fn [ev opts] (swap! dispatched conj [ev opts])))
       (try
         ;; Immediate path — no :after-ms. The wrapper must delegate to the
-        ;; machine-wrapper body, which calls dispatch-reply-via-late-bind!.
+        ;; canned handler body, which calls dispatch-reply-via-late-bind!.
         ((registrar/handler :fx :rf.http/managed-canned-success)
          {:frame :rf/default :event [:t/load]}
          {:value {:ok true}})
         (is (= 1 (count @dispatched))
-            "immediate canned-success delegated to the machine-wrapper body (one reply dispatch)")
+            "immediate canned-success delegated to the canned handler body (one reply dispatch)")
         (is (= :success (-> @dispatched first first (nth 1) :rf/reply :kind))
-            "the synthesised reply is the machine-wrapper's success envelope")
+            "the synthesised reply is the canned handler's success envelope")
         (finally
           (late-bind/set-fn! :router/dispatch! original))))))
 

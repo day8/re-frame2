@@ -245,7 +245,7 @@
   "Compose `build-reply-event` with a late-bind `:router/dispatch!` lookup
   and fire the dispatch. The single truth point for 'how does http
   dispatch its reply' — shared by `http-transport/dispatch-reply!` and
-  the canned-stub handlers in `http-machine-wrapper`. Per rf2-2utlm.
+  the canned-stub handlers in `http-test-support`. Per rf2-2utlm.
 
   `args` is the same map `build-reply-event` consumes; `frame` (optional)
   is threaded as `{:frame <id>}` onto the dispatch options when present.

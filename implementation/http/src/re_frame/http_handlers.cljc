@@ -117,7 +117,7 @@
   surfaces as `:rf.error/http-bad-request` (rf2-93bck).
 
   Public (rf2-azrcs) so the canned-stub override target
-  (`http-machine-wrapper`/`http-test-support`'s route-map stub) validates
+  (`http-test-support`'s route-map stub) validates
   the FINAL post-`:before` url with the same canonical error the real
   `:rf.http/managed` handler emits — a `:before` that blanks the url must
   raise `:rf.error/http-bad-request`, not receive a synthetic stubbed reply.

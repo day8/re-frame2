@@ -69,7 +69,7 @@
                    :success explicit-on-success
                    :failure explicit-on-failure)]
     ;; rf2-uheqq — `:after` chain + late-bind dispatch. Shared with the
-    ;; canned-stub reply path (`http-machine-wrapper/dispatch-canned-
+    ;; canned-stub reply path (`http-test-support/dispatch-canned-
     ;; reply!`) via `middleware/run-after-then-dispatch!` (rf2-k67u3): the
     ;; `:after` chain is skipped when no middleware-ctx is present
     ;; (synthetic / test-path callers).
