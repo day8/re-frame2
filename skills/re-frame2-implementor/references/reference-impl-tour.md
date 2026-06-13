@@ -23,7 +23,7 @@ implementation/
 │       ├── frame.cljc       EP 002 — frame: {frame-state, queue, sub-cache, id}; frame-state = {:rf.db/app :rf.db/runtime}
 │       ├── events.cljc      EP 002 — event handlers; interceptor chain
 │       ├── fx.cljc          EP 002 — fx registration + invocation
-│       ├── cofx.cljc        EP 002 — coeffect registration + injection
+│       ├── cofx.cljc        EP 002 — coeffect registration + declared delivery (value-returning suppliers; EP-0017)
 │       ├── subs.cljc        EP 002 — subscription cache + signal graph
 │       ├── interceptor.cljc EP 002 — interceptor primitives (impl detail)
 │       ├── router.cljc      EP 002 — dispatch routing + drain
