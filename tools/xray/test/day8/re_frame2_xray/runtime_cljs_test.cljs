@@ -3,12 +3,14 @@
 
   Pins the load-bearing contracts the F-4 port lands:
 
-    1. **Eighteen tool-shaped accessors.** Each MCP tool in
-       `tools/xray/spec/010-MCP-Server.md` §Tool catalogue maps to
+    1. **Twenty-three tool-shaped accessors.** Each accessor in
+       `tools/xray/spec/API.md` §Runtime accessor surface maps to
        exactly one runtime fn; the lint here enumerates and asserts
        every one is `fn?`. Drift between the catalogue and the
        runtime surface fails this test first, before any tool dispatch
-       round-trip would notice.
+       round-trip would notice. The five-accessor Resources read band
+       is enumerated in `tools/xray/spec/024-Resources-Panel.md`
+       §Tool accessors (rf2-dh0y8o).
     2. **Session sentinel.** `session-id` is a non-empty string and a
        mirror lands at `js/globalThis.__day8_re_frame2_xray_runtime`
        (under node-test the global is the Node global; we exercise it
@@ -66,12 +68,12 @@
      :init-fn runtime-init!}))
 
 ;; ---------------------------------------------------------------------------
-;; (1) Eighteen tool-shaped accessors are resolvable.
+;; (1) Twenty-three tool-shaped accessors are resolvable.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private tool-accessor-vars
-  "The canonical eighteen tool-shaped accessors per
-  `tools/xray/spec/010-MCP-Server.md` §Tool catalogue. Order matches
+  "The canonical twenty-three tool-shaped accessors per
+  `tools/xray/spec/API.md` §Runtime accessor surface. Order matches
   the catalogue band split for readability — change here only when
   the catalogue changes (and update the count assertion below).
 
@@ -90,6 +92,12 @@
    ['get-issues          runtime/get-issues]
    ['get-handlers        runtime/get-handlers]
    ['get-source-coord    runtime/get-source-coord]
+   ;; Resources read (5) — rf2-dh0y8o
+   ['list-resources              runtime/list-resources]
+   ['list-resource-instances     runtime/list-resource-instances]
+   ['get-resource-state          runtime/get-resource-state]
+   ['get-resource-history        runtime/get-resource-history]
+   ['list-resource-invalidations runtime/list-resource-invalidations]
    ;; Mutation (3)
    ['dispatch!           runtime/dispatch!]
    ['restore-epoch!      runtime/restore-epoch!]
@@ -104,11 +112,13 @@
    ['health              runtime/health]
    ['tail-build-probe    runtime/tail-build-probe]])
 
-(deftest eighteen-tool-accessors-exist
+(deftest twenty-three-tool-accessors-exist
   (testing "every catalogue tool has a runtime-side accessor — drift
-            between the eighteen MCP tools and this ns fails here first"
-    (is (= 18 (count tool-accessor-vars))
-        "the canonical list is the eighteen-tool catalogue")
+            between the MCP tools and this ns fails here first"
+    (is (= 23 (count tool-accessor-vars))
+        "the canonical list is the twenty-three-tool catalogue
+         (9 inspection + 5 resources + 3 mutation + 3 streaming +
+         1 escape + 2 meta)")
     (doseq [[sym f] tool-accessor-vars]
       (is (fn? f)
           (str "accessor not callable: day8.re-frame2-xray.runtime/" sym)))))
