@@ -400,7 +400,8 @@ Performance, the rest), see
 [`references/panels.md` §What's deliberately NOT here](references/panels.md#whats-deliberately-not-here)
 (the single maintained home; + spec/021 §15). The hero on first open is
 **Epoch** (`:order -1`). AI integration lives in the separate
-`tools/re-frame2-pair-mcp/` jar — Xray itself is the human surface only.
+`tools/re-frame2-pair-mcp/` MCP server (Node, npm `@day8/re-frame2-pair-mcp`)
+— Xray itself is the human surface only.
 
 ---
 

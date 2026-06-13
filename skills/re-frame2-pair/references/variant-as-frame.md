@@ -82,7 +82,7 @@ mcp__re-frame2-pair__eval-cljs {form: "(filter #(= \"story\" (namespace %)) (rf/
 ```
 
 
-For richer metadata (parent story, tags, modes, substrates), use Story's side-table via the MCP transport if available (`mcp__re-frame2-story-mcp__list-stories` / `get-variant`), or fall back to `(re-frame.story/variant->edn <id>)` over `eval-cljs`. The variant-id grammar (`:story.<dotted.path>/<variant-name>`) is documented in `skills/re-frame2/references/tooling/stories.md`.
+For richer metadata (parent story, tags, modes, substrates), Story's side-table is reachable via `list-stories` / `get-variant` — but those are the **authoring** surface, allow-listed by the `re-frame2` skill rather than re-frame2-pair, so reach them across the skill boundary only if a session has the authoring skill loaded. Within re-frame2-pair's own surface, fall back to `(re-frame.story/variant->edn <id>)` over `eval-cljs`. The variant-id grammar (`:story.<dotted.path>/<variant-name>`) is documented in `skills/re-frame2/references/tooling/stories.md`.
 
 To discover the *active* variant in the user's canvas (the one currently visible), inspect frame metadata for the `:story/active?` flag set by Story's shell — or ask the user. re-frame2-pair has no DOM bridge that locates the canvas iframe specifically; use `dom/source-at` on something inside it.
 

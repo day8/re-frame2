@@ -251,8 +251,8 @@ in [`core.cljs`](../../../tools/xray/src/day8/re_frame2_xray/core.cljs)):
 
 Unknown opt keys are silently ignored for forward-compat — so an `init!`
 that worked against a newer Xray won't break an older one. (There is **no**
-`:ai-provider` opt — AI access is the separate `re-frame2-pair-mcp` jar,
-not an `init!` knob.) See the `core.cljs` `init!` docstring for the
+`:ai-provider` opt — AI access is the separate `re-frame2-pair-mcp` MCP
+server (Node/npm), not an `init!` knob.) See the `core.cljs` `init!` docstring for the
 authoritative per-opt contract.
 
 ## Pop-out to a second window
