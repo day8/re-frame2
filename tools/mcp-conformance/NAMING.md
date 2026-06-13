@@ -21,7 +21,7 @@ per rf2-hvl1g — AI agent access to Xray state already flows via
 `re-frame2-pair-mcp` against the framework-published Xray runtime API,
 so a dedicated xray-mcp is unnecessary.)
 
-This doc locks the verb vocabulary the triplet picks from. New tools
+This doc locks the verb vocabulary the pair picks from. New tools
 land against an existing verb; novel verbs require a Lock entry in
 the relevant server's `DESIGN-RATIONALE.md` and a return-trip here
 to extend the table. The conformance harness in
@@ -181,8 +181,8 @@ The convention for per-server tool-catalogue docs:
 - **PR-review rule.** A PR that adds or removes a tool MUST update the
   canonical count site in the catalogue heading. Any other doc that still
   reads "the N tools" after the catalogue update is a stale citation — fix
-  it or convert it to a count-free link. The cross-MCP audit walks the
-  triplet once per release looking for the pattern; until that audit is
+  it or convert it to a count-free link. The cross-MCP audit walks both
+  servers once per release looking for the pattern; until that audit is
   automated, the discipline lives here.
 - **`Server alignment today` (above) carries no integer counts in its
   headings.** Per-server subsections link to the catalogue for the live
@@ -224,7 +224,7 @@ Underneath the `:reason` keyword layer above sits the **JSON-RPC 2.0
 numeric error-code** layer — the codes the SDK / framework return
 when a request is malformed at the protocol level rather than failing
 in tool-result space. Per JSON-RPC §5.1 and MCP's reuse, the same
-numeric codes apply across the triplet; the canonical home for every
+numeric codes apply across both servers; the canonical home for every
 code constant is
 [`tools/mcp-base/src/re_frame/mcp_base/vocab.cljc`](../mcp-base/src/re_frame/mcp_base/vocab.cljc)
 (see the `code-*` defs).
@@ -233,7 +233,7 @@ The conformance contract pins:
 
 - **`-32601 MethodNotFound`** — the canonical code for an unknown
   JSON-RPC method. Pinned by `mcp-base/vocab.cljc/code-method-not-found`.
-  Every server in the triplet MUST yield this code for an unrecognised
+  Every server in the pair MUST yield this code for an unrecognised
   method name; the conformance harness asserts the exact value (see
   `tools/mcp-conformance/test/_runner.cjs/assertJsonRpcErrorCodes`).
 - **`-32602 InvalidParams` / `-32603 InternalError`** — both are
@@ -260,7 +260,7 @@ dispatching a tool.
 ## Operator-opt-in CLI flag vocabulary
 
 Boot-time CLI flags that gate authority surfaces share a canonical
-name across all servers in the triplet. Same operator semantic ⇒
+name across both servers. Same operator semantic ⇒
 same flag spelling. Sourced from rf2-2x3ql: story-mcp originally
 shipped `--allow-sensitive-reads` (rf2-uaymx / rf2-g9fje); pair-mcp
 shipped `--allow-raw-state` for the same concept. Both servers now

@@ -85,20 +85,27 @@ The cap is a **soft** constraint at the algorithm level — the consumer can ove
 
 ## Conformance posture
 
-The cross-MCP conformance gate at `tools/mcp-conformance/wire-vocab/` pins the canonical Malli schema for the `:rf.mcp/overflow` marker:
+The cross-MCP conformance gate at `tools/mcp-conformance/wire-vocab/` pins the canonical Malli schema for the `:rf.mcp/overflow` marker (`wire_vocab/schemas.clj` `Overflow` / `ReFrame2PairOverflowBody`):
 
 ```clojure
-[:map
+[:map {:closed true}
  [:rf.mcp/overflow
-  [:map
-   [:limit       [:= :reached]]
+  [:map {:closed false}
+   [:limit       [:enum :reached]]
    [:token-count :int]
    [:cap-tokens  :int]
-   [:tool        :string]
-   [:hint        :string]]]]
+   [:tool        [:or :string :keyword]]
+   [:hint        [:or :string :keyword]]]]]
 ```
 
-Every server's cap-trigger fixture asserts the response matches this schema. The conformance harness at `tools/mcp-conformance/test/live-re-frame2-pair-overflow.cjs` drives a real `:max-tokens 100` over-budget call on each server and asserts the marker shape parity.
+Both servers emit this marker via the shared `cap/apply-cap` → `overflow-payload`, so the body is byte-identical; the gate carries a per-server cap-trigger fixture (`:re-frame2-pair-mcp` and `:story-mcp`) and asserts each validates against this one schema.
+
+Live cap-trigger coverage today:
+
+- **re-frame2-pair-mcp** — over the real MCP wire via `tools/mcp-conformance/test/live-re-frame2-pair-overflow.cjs` (a `:max-tokens 100` over-budget `tools/call` against a live nREPL-backed server; hermetic on CI, SKIPs without `$SHADOW_CLJS_NREPL_PORT`).
+- **story-mcp** — at the wire-pipeline boundary via `tools/story-mcp/test/re_frame/story_mcp/tools_test.clj` (`wire-pipeline/invoke-tool` with `:max-tokens 1` asserts the `{:rf.mcp/overflow …}` marker; `:max-tokens 0` asserts the bypass). story-mcp is JVM-side with no nREPL/browser runtime, so its over-budget trip is exercised in-process rather than through a parallel `.cjs` SDK script.
+
+The marker SHAPE builder (`overflow-payload`) is additionally driven live JVM-side in `wire_vocab_test.clj` (`overflow-marker-shape-emitted-live-by-canonical-builder`) — the one builder both servers share.
 
 ## See also
 

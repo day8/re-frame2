@@ -37,7 +37,7 @@
   ## JSON-RPC error codes
 
   Per JSON-RPC 2.0 §5.1 and MCP's reuse of them — the same numeric
-  codes apply across the triplet. Story-mcp emits them via Cheshire;
+  codes apply across both servers. Story-mcp emits them via Cheshire;
   re-frame2-pair-mcp would emit them via the npm MCP SDK if it surfaced
   JSON-RPC-level errors directly (today it uses the SDK's
   `isError: true` tool-result shape, but the codes still pin the
@@ -49,7 +49,8 @@
 
 (def overflow-key
   "Top-level marker on a response that exceeded the per-call token cap.
-  Shape (per re-frame2-pair-mcp's `apply-cap`):
+  Shape (per the shared `mcp-base.cap/apply-cap` → `overflow/overflow-payload`
+  builder, emitted by BOTH re-frame2-pair-mcp and story-mcp):
     `{:rf.mcp/overflow {:limit :reached :token-count N :cap-tokens M
                         :tool \"<name>\" :hint \"...\"}}`.
   Per rf2-rvyzy."

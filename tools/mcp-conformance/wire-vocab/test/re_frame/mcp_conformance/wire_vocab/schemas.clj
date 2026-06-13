@@ -30,21 +30,25 @@
 ;; ---------------------------------------------------------------------------
 
 (def ReFrame2PairOverflowBody
-  "re-frame2-pair-mcp's `:rf.mcp/overflow` body shape (per
+  "The canonical `:rf.mcp/overflow` body shape (per
   `mcp-base/overflow.cljc/overflow-payload`). Every emit carries
   `:cap-tokens` + `:token-count` + `:tool` + `:hint` plus the `:limit
   :reached` sentinel. Required-not-optional — an emit missing any of
   these is a contract break, not a degenerate but tolerated marker.
 
-  Single-emitter today; the per-server name IS the canonical name.
-  Pinned cross-server as a re-frame2-pair-mcp-only shape; if a future
-  MCP server ships an `:rf.mcp/overflow` emit, the wrapper's body
-  slot below becomes `[:or ReFrame2PairOverflowBody PairXOverflowBody]`
-  rather than a one-arm canonical alias. (Same posture as
-  `ReFrame2PairProgressNotificationParams`.) Cap renames (`cap-tokens`
-  vs `cap_tokens`), field renames (`hint` vs `next-step`), or empty
-  bodies all trip the schema. Per rf2-kn8cj (refactor-audit r2 of
-  rf2-azk9c §F-VOCAB-2)."
+  Multi-emitter as of rf2-yxgcsz: BOTH re-frame2-pair-mcp and story-mcp
+  emit this marker via the shared `mcp-base.cap/apply-cap` →
+  `overflow-payload` builder, so the body is byte-identical across both
+  — there is exactly one shape, not a per-server variant. (Historically
+  documented as a re-frame2-pair-mcp-only shape while story-mcp's cap
+  enforcement was still spec-pending; story-mcp's wire-boundary cap
+  landed — `tools/story-mcp/.../tools/wire_pipeline.cljc` calls
+  `base-cap/apply-cap` — making the marker a genuine cross-server
+  emission. The name keeps the `ReFrame2Pair` prefix as the historical
+  shape-author; the SHAPE is the cross-MCP contract.) Cap renames
+  (`cap-tokens` vs `cap_tokens`), field renames (`hint` vs `next-step`),
+  or empty bodies all trip the schema. Per rf2-kn8cj (refactor-audit r2
+  of rf2-azk9c §F-VOCAB-2)."
   [:map
    {:closed false}
    [:limit       [:enum :reached]]
@@ -450,7 +454,16 @@
   `:servers` mentions the marker key literally."
   [{:key      :rf.mcp/overflow
     :schema   Overflow
-    :servers  #{:re-frame2-pair-mcp}                                    ;; not :story-mcp
+    ;; Multi-server marker as of rf2-yxgcsz — story-mcp's wire-boundary
+    ;; cap landed (`tools/story-mcp/.../tools/wire_pipeline.cljc` calls
+    ;; `base-cap/apply-cap`), so BOTH servers emit `:rf.mcp/overflow`
+    ;; via the shared `mcp-base.cap/apply-cap` → `overflow/overflow-payload`
+    ;; builder. The body is byte-identical across both — same posture as
+    ;; `:rf.mcp/dedup-table` (rf2-90eft). Both servers source the marker
+    ;; key from `re-frame.mcp-base.vocab/overflow-key` so the literal
+    ;; stays byte-identical; an agent that learned the overflow retry
+    ;; signal on either server recognises it on the other.
+    :servers  #{:re-frame2-pair-mcp :story-mcp}
     :fixtures {:re-frame2-pair-mcp {:rf.mcp/overflow
                            {:limit       :reached
                             :token-count 12400
@@ -462,7 +475,22 @@
                                          :token-count 12400
                                          :cap-tokens  5000
                                          :tool        "snapshot"
-                                         :hint        :narrow-scope}}}}
+                                         :hint        :narrow-scope}}
+               ;; story-mcp emission (rf2-yxgcsz) — the `run-variant`
+               ;; payload (`:app-db` + `:rendered-hiccup` + `:snapshot`)
+               ;; can blow the cap; `wire_pipeline/invoke-tool` replaces it
+               ;; via `base-cap/apply-cap`, whose `build-overflow-result`
+               ;; surfaces the `overflow/overflow-payload` marker as the
+               ;; `:structuredContent` slot. The body is the SAME shape the
+               ;; shared builder emits — the fixture pins that a regression
+               ;; in story-mcp's cap-pipeline wiring trips this gate. The
+               ;; per-tool `:hint` is story-mcp's own (`run-variant` table).
+               :story-mcp {:rf.mcp/overflow
+                           {:limit       :reached
+                            :token-count 9300
+                            :cap-tokens  5000
+                            :tool        "run-variant"
+                            :hint        "Tighten scope: pass `:cell-overrides` to shrink the run, or omit `:active-modes`. The :app-db / :rendered-hiccup slots dominate; raise `max-tokens` (0 disables) if the full payload is genuinely needed."}}}}
 
    {:key      :rf.mcp/summary
     :schema   Summary

@@ -1,6 +1,6 @@
 (ns re-frame.mcp-base.diff-encode-test
   "Tests for the path-keyed structural diff used at the MCP wire
-  boundary (rf2-1wdzp, shared across the triplet via rf2-vw4sq)."
+  boundary (rf2-1wdzp, shared across both servers via rf2-vw4sq)."
   (:require [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
             [re-frame.mcp-base.diff-encode :as de]))
