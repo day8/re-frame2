@@ -80,10 +80,15 @@
        hook clears the per-frame request slot in the same step
        (rf2-fcj33).
 
+  Streaming counterpart: `stream-handler` (re-exported below from
+  `re-frame.ssr.ring.streaming`) is the chunked-HTTP sibling of
+  `ssr-handler` — it flushes a shell on first byte and streams
+  `:rf/suspense-boundary` subtrees as their data resolves (Spec 011
+  §Streaming SSR; rf2-ojakd / rf2-olb64). `ssr-handler` itself is
+  single-shot: it mirrors `render-to-string`.
+
   Out of scope (deferred / other beads):
 
-    - Streaming SSR (rf2-olb64) — `render-to-string` is single-shot;
-      this adapter mirrors that.
     - Async Ring handler (3-arity) — synchronous-only in v1;
       extension is additive."
   (:require [re-frame.ssr :as ssr]
