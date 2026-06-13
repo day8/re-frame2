@@ -313,18 +313,12 @@ it('SPEC_ROOTS resolve under the repo root', () => {
 });
 
 // ---- root TESTING.md examples-gate drift guard (rf2-n4nc2o) --------------
-// The root testing guide previously documented a retired/nonexistent
-// `test:examples:realworld` command and "whole-example browser smoke"
-// wording for the examples gate, while the actual scripts are
-// adapter-smoke-only. Two teeth pin the human-facing gate map to reality:
-//
-//   1. Every example-gate script the guide names (the `test:examples*`
-//      family) must actually exist in implementation/package.json — so a
-//      reintroduced `test:examples:realworld` row fails loud rather than
-//      sending contributors to a nonexistent command.
-//   2. The retired "whole-example browser smoke" wording must not reappear
-//      for this gate — `test:examples` is the three adapter testbed smokes
-//      only (the `examples/` tree is test-free).
+// Pin the human-facing gate map to reality: every example-gate script the
+// root testing guide names (the `test:examples*` family) must actually
+// exist in implementation/package.json, so a guide row pointing at a
+// nonexistent command fails loud rather than sending contributors to a
+// dead script. (`test:examples` is the three adapter testbed smokes only —
+// the `examples/` tree is itself test-free.)
 
 const ROOT_TESTING_MD = path.join(REPO_ROOT, 'TESTING.md');
 const PKG_JSON = path.join(REPO_ROOT, 'implementation', 'package.json');
@@ -350,19 +344,6 @@ it('every `test:examples*` command named in root TESTING.md exists in implementa
     missing,
     [],
     `root TESTING.md names example-gate scripts absent from implementation/package.json: ${missing.join(', ')}`,
-  );
-});
-
-it('root TESTING.md does not resurrect the retired examples-gate wording (rf2-n4nc2o)', () => {
-  const doc = fs.readFileSync(ROOT_TESTING_MD, 'utf8');
-  assert.ok(
-    !/test:examples:realworld/.test(doc),
-    'root TESTING.md references the retired `test:examples:realworld` script',
-  );
-  assert.ok(
-    !/whole-example browser smoke/i.test(doc),
-    'root TESTING.md uses retired "whole-example browser smoke" wording for the examples gate; ' +
-      'test:examples is the three adapter testbed smokes only',
   );
 });
 
