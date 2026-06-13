@@ -18,9 +18,10 @@
       + `[:rf.runtime/machines :spawned]` slot + spawn-order channel after `destroy-frame!`.
 
   JVM-only by design — synthetic
-  `[:rf.machine.timer/after-elapsed <delay-key> <epoch>]` dispatches are
-  deterministic without wall-clock host scheduling, matching the
-  precedent in `after_test.clj`."
+  `[:rf.machine.timer/after-elapsed <delay-key> <epoch> <decl-path>]`
+  dispatches are deterministic without wall-clock host scheduling,
+  matching the precedent in `after_test.clj` (the decl-path is
+  contractual — the runtime always emits the 4-element shape)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -89,7 +90,7 @@
       (let [[recorded unreg] (record! ::stale-1)]
         (try
           (is (nil? (rf/dispatch-sync
-                      [:corner.timer/m [:rf.machine.timer/after-elapsed 5000 1]]
+                      [:corner.timer/m [:rf.machine.timer/after-elapsed 5000 1 [:loading]]]
                       {:frame :corner.timer/scoped}))
               "stale firing does not throw")
           (is (some #(= :rf.error/frame-destroyed (:operation %)) @recorded)
@@ -157,7 +158,7 @@
       (let [[recorded unreg] (record! ::stale-2)]
         (try
           (rf/dispatch-sync [:corner.sid/child#1
-                             [:rf.machine.timer/after-elapsed 5000 1]])
+                             [:rf.machine.timer/after-elapsed 5000 1 [:running]]])
           ;; A is gone; the dispatch traces :rf.error/no-such-handler.
           (is (some #(= :rf.error/no-such-handler (:operation %)) @recorded)
               "stale dispatch to A's gone handler trace :rf.error/no-such-handler")
@@ -291,7 +292,7 @@
         (let [[recorded unreg] (record! ::corner-dyn)]
           (try
             (rf/dispatch-sync [:corner.dyn/m
-                               [:rf.machine.timer/after-elapsed 5000 epoch-loading]])
+                               [:rf.machine.timer/after-elapsed 5000 epoch-loading [:loading]]])
             (is (= :ready (:state (get-in (rf/runtime-db-value :rf/default)
                                           [:rf.runtime/machines :snapshots :corner.dyn/m])))
                 "stale firing did NOT transition the machine off :ready")

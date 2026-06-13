@@ -12,10 +12,13 @@
   that triggers cancel-and-reschedule on sub-value change. On expiry the
   timer dispatches the synthetic
 
-      [<parent-id> [:rf.machine.timer/after-elapsed <delay-key> <epoch>]]
+      [<parent-id> [:rf.machine.timer/after-elapsed <delay-key> <epoch> <decl-path>]]
 
   back into the parent machine via the late-bound `:router/dispatch!`
-  hook. Pick-after-transition (in transition) resolves the delay-key
+  hook. Per Spec 005 §Hierarchy interaction the scheduling node's
+  declaring path (`<decl-path>`) travels with EVERY timer alongside its
+  per-path epoch — the event is always this 4-element shape.
+  Pick-after-transition (in transition) resolves the delay-key
   against the active state path's `:after` table; epoch-mismatch surfaces
   as `:rf.machine.timer/stale-after`, epoch-match drives the transition
   through the standard cascade.
@@ -405,10 +408,12 @@
 
   The synthetic event dispatched on expiry is
 
-      [<parent-id> [:rf.machine.timer/after-elapsed <delay-key> <epoch>]]
+      [<parent-id> [:rf.machine.timer/after-elapsed <delay-key> <epoch> <decl-path>]]
 
-  which routes through pick-after-transition's epoch check and (on match)
-  through the standard transition cascade.
+  (the scheduling node's declaring path travels with the timer per Spec
+  005 §Hierarchy interaction) which routes through pick-after-transition's
+  per-node epoch check and (on match) through the standard transition
+  cascade.
 
   No-op under `:platform :server` (per Spec 005 §SSR mode)."
   [{frame-id :frame} args]

@@ -15,10 +15,12 @@
       registration throws :rf.error/spawn-timeout-ms-removed.
 
   These JVM tests dispatch the synthetic
-  [:rf.machine.timer/after-elapsed delay-key epoch] event manually so
-  the verification is deterministic without depending on setTimeout
-  firing. The CLJS runtime path for actual wall-clock scheduling is
-  exercised by machines_cljs_test.cljs."
+  [:rf.machine.timer/after-elapsed delay-key epoch decl-path] event
+  manually so the verification is deterministic without depending on
+  setTimeout firing. The decl-path is contractual — the runtime always
+  emits the 4-element shape (Spec 005 §Hierarchy interaction). The CLJS
+  runtime path for actual wall-clock scheduling is exercised by
+  machines_cljs_test.cljs."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]

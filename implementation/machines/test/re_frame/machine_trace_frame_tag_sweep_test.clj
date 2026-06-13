@@ -184,7 +184,7 @@
               (rf/dispatch-sync [:ko8jb/stale [:cancel]])
               (rf/dispatch-sync
                 [:ko8jb/stale
-                 [:rf.machine.timer/after-elapsed 5000 0]])))
+                 [:rf.machine.timer/after-elapsed 5000 0 [:loading]]])))
           ev (first-of-op traces :rf.machine.timer/stale-after)]
       (is (some? ev) ":rf.machine.timer/stale-after fired")
       (is (= :rf/default (frame-tag ev))
