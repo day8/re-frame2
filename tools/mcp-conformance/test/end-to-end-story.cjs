@@ -154,10 +154,15 @@ runWithWatchdog(
     // max-tokens (rf2-i3ffz F-GAP-2 / TOKEN-BUDGETS.md), :outputSchema
     // (rf2-3l3be), and an :annotations classification hint (rf2-94p8q).
     // Shared `assertDescriptorShape` helper (rf2-80y2h dedup). story-mcp
-    // is closed-world (reads + fixture writes), so openWorldHint does
-    // NOT count as a classifier — `allowOpenWorld` omitted (defaults
-    // false).
-    assertDescriptorShape(listed.tools, { allowOpenWorld: false });
+    // is MOSTLY closed-world (reads + fixture writes), but `run-variant`
+    // and `preview-variant` run the variant author's lifecycle events/fx
+    // and so carry `openWorldHint:true` (rf2-e6knrq finding 2). Passing
+    // `allowOpenWorld: true` lets that hint count as a classifier; the
+    // PER-TOOL open-world VALUES are pinned exactly by the classification
+    // ratchet's `closed-world` list below + the JVM matrix, so this only
+    // relaxes the "at-least-one-classifier" floor — it does not let a
+    // closed-world tool silently flip open.
+    assertDescriptorShape(listed.tools, { allowOpenWorld: true });
     console.log(
       'OK   every tool descriptor: inputSchema(type=object,max-tokens) + outputSchema + annotations hint',
     );
@@ -171,6 +176,39 @@ runWithWatchdog(
     console.log(
       'OK   per-tool classification ratchet: readOnly/destructive posture + ' +
         'budget-hint prose pinned (rf2-yi451)',
+    );
+
+    // Open-world VALUE conformance (rf2-e6knrq finding 2). The ratchet's
+    // `closed-world` list pins the closed-world tools to openWorldHint:false;
+    // this positively pins the OTHER direction over the SDK wire — the two
+    // lifecycle-run tools MUST advertise openWorldHint:true so an agent host
+    // does not treat a call that can reach HTTP / analytics / websocket /
+    // storage / navigation (any un-stubbed author fx) as contained on-box.
+    // The annotation VALUE (not just the KEY presence the generated
+    // descriptor manifest tracks) is what an MCP client actually reads.
+    const byName = new Map(listed.tools.map((t) => [t.name, t]));
+    for (const openWorldTool of ['run-variant', 'preview-variant']) {
+      const a = (byName.get(openWorldTool) || {}).annotations || {};
+      if (a.openWorldHint !== true) {
+        throw new Error(
+          openWorldTool +
+            ' MUST advertise openWorldHint:true over the wire (rf2-e6knrq ' +
+            'finding 2): it runs the variant author\'s lifecycle events/fx ' +
+            'which can reach external systems unless explicitly stubbed. Got ' +
+            'annotations: ' + JSON.stringify(a),
+        );
+      }
+      if (a.destructiveHint !== true) {
+        throw new Error(
+          openWorldTool +
+            ' MUST also keep destructiveHint:true (lifecycle run is a write); got: ' +
+            JSON.stringify(a),
+        );
+      }
+    }
+    console.log(
+      'OK   open-world VALUE: run-variant + preview-variant advertise ' +
+        'openWorldHint:true + destructiveHint:true (rf2-e6knrq)',
     );
 
     // 2e. Closed-world read-path SUCCESS-envelope conformance

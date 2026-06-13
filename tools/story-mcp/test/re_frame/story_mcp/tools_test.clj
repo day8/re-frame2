@@ -274,7 +274,29 @@
                       "unregister-variant" "record-as-variant"]]
       (doseq [n dest-tools]
         (is (true? (get-in (by-name n) [:annotations :destructiveHint]))
-            (str n " should have destructiveHint true (rf2-94p8q matrix)"))))))
+            (str n " should have destructiveHint true (rf2-94p8q matrix)")))))
+  ;; rf2-e6knrq finding 2 — the open-world axis is now LOAD-BEARING and
+  ;; must not drift silently. `run-variant` / `preview-variant` run the
+  ;; author's lifecycle events/fx, which can reach external systems unless
+  ;; the author stubbed them (fx-stubbing is an opt-in authoring surface,
+  ;; not a universal default), so they MUST be open-world. EVERY other
+  ;; tool is closed-world: reads, registry writes, static docs, and
+  ;; `record-as-variant` (which records an externally-driven canvas + an
+  ;; on-box registry write, never running the lifecycle itself).
+  (testing "matrix: only the lifecycle-run tools are open-world (rf2-e6knrq)"
+    (let [by-name      (into {} (map (juxt :name identity)) registry/tool-registry)
+          open-world   #{"run-variant" "preview-variant"}]
+      (doseq [t registry/tool-registry
+              :let [n (:name t)
+                    ow (get-in t [:annotations :openWorldHint])]]
+        (if (contains? open-world n)
+          (is (true? ow)
+              (str n " MUST be open-world (openWorldHint true): it runs the "
+                   "author's lifecycle events/fx which can reach external "
+                   "systems unless explicitly stubbed (rf2-e6knrq finding 2)"))
+          (is (false? ow)
+              (str n " MUST stay closed-world (openWorldHint false): it does "
+                   "not run the author's lifecycle (rf2-e6knrq finding 2)")))))))
 
 (def ^:private tool-names-fixture
   "Canonical tool-name list (rf2-36upq TE7). Single source of truth
@@ -1932,6 +1954,137 @@
                   :params {:arguments {}}})]
       (is (= vocab/code-invalid-params (-> resp :error :code))
           "a missing tool name is invalid-params (nil is not a string)"))))
+
+;; ---------------------------------------------------------------------------
+;; Lifecycle state enforcement (rf2-e6knrq finding 1)
+;;
+;; Before a successful `initialize`, the dispatcher MUST accept only
+;; `initialize` + `ping` (and any notification); every other request —
+;; `tools/list`, `tools/call`, `shutdown`, an unknown method — MUST be a
+;; protocol-level `-32600 invalid-request`. A malformed or hostile client
+;; must not be able to enumerate or invoke tools before the handshake.
+;; These deftests drive BOTH the direct stateful `dispatch` (2-arity) AND
+;; the full `run-loop!` stdio order, per the bead's acceptance criteria.
+;; ---------------------------------------------------------------------------
+
+(deftest dispatch-rejects-tools-list-before-initialize
+  (testing "tools/list before initialize → -32600 invalid-request"
+    (let [state (server/new-lifecycle-state)
+          resp  (server/dispatch state {:jsonrpc "2.0" :id 1 :method "tools/list"})]
+      (is (= 1 (:id resp)) "the request id is echoed")
+      (is (= vocab/code-invalid-request (-> resp :error :code))
+          "enumerating tools pre-handshake is a protocol violation, not a success")
+      (is (nil? (:result resp)) "no tool registry leaks before initialize")
+      (is (re-find #"(?i)initialize" (-> resp :error :message))
+          "the error names the missing handshake step"))))
+
+(deftest dispatch-rejects-tools-call-before-initialize
+  (testing "tools/call before initialize → -32600 invalid-request (no tool runs)"
+    (let [state (server/new-lifecycle-state)
+          resp  (server/dispatch state {:jsonrpc "2.0" :id 2 :method "tools/call"
+                                        :params {:name "get-story-instructions"
+                                                 :arguments {}}})]
+      (is (= vocab/code-invalid-request (-> resp :error :code))
+          "a tool call pre-handshake is refused at the protocol layer")
+      (is (nil? (:result resp)) "the tool handler never ran — no result envelope"))))
+
+(deftest dispatch-rejects-shutdown-and-unknown-before-initialize
+  (testing "shutdown + unknown methods are also gated pre-initialize"
+    (let [state (server/new-lifecycle-state)]
+      (is (= vocab/code-invalid-request
+             (-> (server/dispatch state {:jsonrpc "2.0" :id 3 :method "shutdown"}) :error :code))
+          "shutdown is not in the pre-init open set")
+      (is (= vocab/code-invalid-request
+             (-> (server/dispatch state {:jsonrpc "2.0" :id 4 :method "nope/whatever"}) :error :code))
+          "an unknown method pre-init is invalid-request (the gate runs before the method case)"))))
+
+(deftest dispatch-allows-initialize-and-ping-before-handshake
+  (testing "initialize + ping are the only requests accepted pre-handshake"
+    (let [state (server/new-lifecycle-state)
+          ping  (server/dispatch state {:jsonrpc "2.0" :id 5 :method "ping"})]
+      (is (= {} (:result ping)) "ping is a stateless liveness probe — allowed pre-init")
+      (is (nil? (:error ping)))
+      ;; ping does NOT mark the session initialized.
+      (is (false? (:initialized? @state)) "ping must not flip the lifecycle flag")
+      (let [init (server/dispatch state {:jsonrpc "2.0" :id 6 :method "initialize"
+                                         :params {:protocolVersion "2025-06-18"}})]
+        (is (= config/protocol-version (-> init :result :protocolVersion))
+            "initialize succeeds and negotiates the protocol version")
+        (is (true? (:initialized? @state))
+            "a successful initialize flips the session to initialized")))))
+
+(deftest dispatch-allows-tools-immediately-after-initialize
+  ;; The deliberate relaxation: the session is ready the MOMENT the
+  ;; initialize response is built — we do NOT require
+  ;; `notifications/initialized` first (the reference-SDK posture; a
+  ;; client pipelining initialize + tools/list must not race a refusal).
+  (testing "tools/list works right after initialize, WITHOUT notifications/initialized"
+    (let [state (server/new-lifecycle-state)]
+      (server/dispatch state {:jsonrpc "2.0" :id 7 :method "initialize"
+                              :params {:protocolVersion "2025-06-18"}})
+      (let [resp (server/dispatch state {:jsonrpc "2.0" :id 8 :method "tools/list"})]
+        (is (vector? (-> resp :result :tools))
+            "tools/list dispatches immediately post-initialize (relaxation, no notification required)")))))
+
+(deftest dispatch-notifications-accepted-in-any-lifecycle-posture
+  (testing "a notification (no id) is a silent no-op before AND after initialize"
+    (let [state (server/new-lifecycle-state)]
+      (is (nil? (server/dispatch state {:jsonrpc "2.0" :method "notifications/initialized"}))
+          "notifications/initialized pre-handshake is accepted (no response, no error)")
+      ;; It must NOT have flipped the flag — only `initialize` does that.
+      (is (false? (:initialized? @state))
+          "the relaxation: notifications/initialized is informational, initialize is the trigger")
+      (server/dispatch state {:jsonrpc "2.0" :id 9 :method "initialize"
+                              :params {:protocolVersion "2025-06-18"}})
+      (is (nil? (server/dispatch state {:jsonrpc "2.0" :method "notifications/initialized"}))
+          "the same notification post-handshake is still a silent no-op"))))
+
+(deftest run-loop-rejects-pre-initialize-tool-calls
+  (testing "stdio order: a tools/call as the FIRST frame is refused, then initialize unlocks"
+    ;; Frame 1: tools/call BEFORE any initialize → must be -32600.
+    ;; Frame 2: initialize → success.
+    ;; Frame 3: tools/list AFTER initialize → success (registry surfaces).
+    (let [in-text (str "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
+                       "\"params\":{\"name\":\"list-tags\",\"arguments\":{}}}\n"
+                       "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"initialize\","
+                       "\"params\":{\"protocolVersion\":\"2025-06-18\"}}\n"
+                       "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/list\"}\n")
+          reader  (java.io.BufferedReader. (java.io.StringReader. in-text))
+          sw      (java.io.StringWriter.)
+          err     (java.io.StringWriter.)]
+      (binding [*err* err]
+        (server/run-loop! reader sw))
+      (let [out-lines (filter seq (clojure.string/split-lines (.toString sw)))
+            frames    (mapv #(cheshire.core/parse-string % true) out-lines)]
+        (is (= 3 (count frames)) "three responses (the pre-init refusal + initialize + tools/list)")
+        (is (= 1 (:id (nth frames 0))))
+        (is (= vocab/code-invalid-request (-> (nth frames 0) :error :code))
+            "the pre-initialize tools/call is refused at the protocol layer over stdio")
+        (is (nil? (-> (nth frames 0) :result))
+            "no tool registry / result leaked before the handshake")
+        (is (= 2 (:id (nth frames 1))))
+        (is (= config/protocol-version (-> (nth frames 1) :result :protocolVersion))
+            "initialize succeeds as the second frame")
+        (is (= 3 (:id (nth frames 2))))
+        (is (vector? (-> (nth frames 2) :result :tools))
+            "tools/list now surfaces the registry — the handshake unlocked the surface")))))
+
+(deftest run-loop-allows-ping-before-initialize
+  (testing "stdio order: a ping as the FIRST frame is answered (liveness probe)"
+    (let [in-text (str "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n"
+                       "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"initialize\","
+                       "\"params\":{\"protocolVersion\":\"2025-06-18\"}}\n")
+          reader  (java.io.BufferedReader. (java.io.StringReader. in-text))
+          sw      (java.io.StringWriter.)
+          err     (java.io.StringWriter.)]
+      (binding [*err* err]
+        (server/run-loop! reader sw))
+      (let [frames (->> (clojure.string/split-lines (.toString sw))
+                        (filter seq)
+                        (mapv #(cheshire.core/parse-string % true)))]
+        (is (= 2 (count frames)))
+        (is (= {} (:result (nth frames 0))) "ping answered with the empty result pre-init")
+        (is (= config/protocol-version (-> (nth frames 1) :result :protocolVersion)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run-loop end-to-end (in-memory)
@@ -3604,7 +3757,9 @@
       ;; write) are caught and logged. If propagation regressed, this
       ;; would throw and the test would fail loudly.
       (is (nil? (try
-                  (#'server/handle-frame! throwing-writer msg)
+                  ;; `ping` is accepted in EVERY lifecycle posture, so a
+                  ;; fresh (uninitialized) state still reaches the writer.
+                  (#'server/handle-frame! (server/new-lifecycle-state) throwing-writer msg)
                   nil
                   (catch Throwable e e)))
           "handle-frame! must not propagate writer-side throws"))))
@@ -4031,16 +4186,33 @@
 (defn- run-frames!
   "Drive `server/run-loop!` over `in-text` (one JSON frame per line) and
   return the parsed response frames (keywordised for assertion
-  ergonomics). stderr is captured so the test output stays clean."
+  ergonomics). stderr is captured so the test output stays clean.
+
+  rf2-e6knrq: the dispatcher now enforces the MCP lifecycle — a
+  `tools/call` / `tools/list` before `initialize` is refused with
+  `-32600`. These no-intern wire tests exercise the TOOL surface, not
+  the lifecycle gate, so the helper PREPENDS an `initialize` frame to
+  complete the handshake and DROPS its response from the returned vector.
+  Callers' `(first frames)` / `(count frames)` assertions are therefore
+  unaffected — they still see only the response(s) to `in-text`. The
+  prepended handshake uses a string `:id` (`\"rf2-e6knrq-init\"`) that
+  cannot collide with any caller's numeric ids."
   [in-text]
-  (let [reader (java.io.BufferedReader. (java.io.StringReader. in-text))
+  (let [init-frame (str "{\"jsonrpc\":\"2.0\",\"id\":\"rf2-e6knrq-init\","
+                        "\"method\":\"initialize\","
+                        "\"params\":{\"protocolVersion\":\"2025-06-18\"}}\n")
+        reader (java.io.BufferedReader. (java.io.StringReader. (str init-frame in-text)))
         sw     (java.io.StringWriter.)
         err    (java.io.StringWriter.)]
     (binding [*err* err]
       (server/run-loop! reader sw))
     (->> (clojure.string/split-lines (.toString sw))
          (filter seq)
-         (mapv #(cheshire.core/parse-string % true)))))
+         (mapv #(cheshire.core/parse-string % true))
+         ;; Drop the prepended handshake's response so callers see only
+         ;; the responses to their own `in-text` frames.
+         (drop-while #(= "rf2-e6knrq-init" (:id %)))
+         vec)))
 
 (deftest ingress-does-not-intern-unknown-nested-arguments-key
   (testing "a fresh unknown nested :arguments key is NOT interned over the wire (rf2-3luf3)"
