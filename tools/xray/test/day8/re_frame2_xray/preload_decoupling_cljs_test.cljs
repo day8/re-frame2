@@ -301,6 +301,74 @@
           (is (fn? (aget xray "toggle_BANG_"))
               "the toggle! launch API is exported on the global"))))))
 
+;; ---- (2b) install-browser-api-exports! `core` branch (rf2-3t7rs8) --------
+;;
+;; rf2-3t7rs8 finding 2: install-browser-api-exports! (install.cljs:156-173)
+;; exports onto `window.day8.re_frame2_xray` and CONDITIONALLY augments an
+;; EXISTING `window.day8.re_frame2_xray.core`, explicitly NEVER pre-creating
+;; `core` (pre-creating it races `goog.provide` in browser-test with a
+;; "Namespace already declared" failure). The pre-existing coverage above
+;; only asserted the top-level `toggle_BANG_` export — neither conditional
+;; `core` branch was pinned. These two cases close that gap without relying
+;; on real browser globals (they drive the stub window directly).
+
+(deftest install-browser-api-exports-does-not-create-core-when-absent
+  (testing "rf2-3t7rs8 — install-browser-api-exports! must NOT pre-create
+            `core`. With no pre-existing core object on the stub window,
+            `re_frame2_xray.core` stays absent after install (the
+            `when-let [core …]` guard skips the augment branch). This is
+            load-bearing: pre-creating core would race goog.provide and
+            fail browser-test with 'Namespace already declared'."
+    (with-stub-dom*
+      (fn [{:keys [window]}]
+        ;; Baseline: clear-world! ran; the stub window is bare.
+        (is (nil? (aget window "day8")) "no day8 namespace before install")
+        (install/install-browser-api-exports!)
+        (let [day8 (aget window "day8")
+              xray (when day8 (aget day8 "re_frame2_xray"))]
+          (is (some? xray) "top-level export object created")
+          (is (fn? (aget xray "toggle_BANG_"))
+              "top-level launch API still installed")
+          (is (nil? (aget xray "core"))
+              "core was NOT pre-created — the absent-core branch is a
+               no-op, never a `goog.provide`-racing object creation"))))))
+
+(deftest install-browser-api-exports-augments-preexisting-core
+  (testing "rf2-3t7rs8 — when Closure has ALREADY created the real
+            `window.day8.re_frame2_xray.core` namespace object, install!
+            augments it in place with the launch API (the `when-let
+            [core …]` branch fires). The existing object identity is
+            preserved (no replacement) and the exact exports the facade
+            relies on land on it."
+    (with-stub-dom*
+      (fn [{:keys [window]}]
+        ;; Model Closure having already declared the core namespace:
+        ;; pre-seed window.day8.re_frame2_xray.core with a marker so we
+        ;; can prove the SAME object is augmented (not replaced).
+        (let [day8        (js-obj)
+              xray        (js-obj)
+              core        (js-obj "rf2-3t7rs8-marker" true)]
+          (aset xray "core" core)
+          (aset day8 "re_frame2_xray" xray)
+          (aset window "day8" day8)
+          (install/install-browser-api-exports!)
+          (let [core' (-> (aget window "day8")
+                          (aget "re_frame2_xray")
+                          (aget "core"))]
+            (is (identical? core core')
+                "the pre-existing core object is augmented in place, not
+                 replaced — its identity (and the marker) survives")
+            (is (true? (aget core' "rf2-3t7rs8-marker"))
+                "the pre-existing marker is preserved (augment, not clobber)")
+            (is (fn? (aget core' "toggle_BANG_"))
+                "toggle_BANG_ landed on the pre-existing core object")
+            (is (fn? (aget core' "status"))
+                "status landed on the pre-existing core object")
+            ;; And the top-level export is unconditionally present too.
+            (is (fn? (aget xray "toggle_BANG_"))
+                "the top-level export still installs alongside the
+                 core augment")))))))
+
 (deftest install-ns-load-is-side-effect-free
   (testing "rf2-5w06uu — the install ns is load-inert: its re-exports are
             identity-equal to the preload re-exports (one shared backing
