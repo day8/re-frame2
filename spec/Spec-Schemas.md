@@ -1552,8 +1552,8 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:frame       :keyword]
    [:rf.epoch/id :any]])
 
-(def ReplaceAppDbDuringDrainTags
-  ;; :rf.epoch/replace-app-db-during-drain — failure mode: caller
+(def ReplaceDuringDrainTags
+  ;; :rf.epoch/replace-during-drain — failure mode: caller
   ;; invoked a pair-tool injection while the frame's drain was in
   ;; flight. Mirrors RestoreDuringDrainTags' shape (no :rf.epoch/id
   ;; slot — the injection was rejected before any synthetic record was
@@ -1562,8 +1562,8 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:category :keyword]
    [:frame    :keyword]])
 
-(def ReplaceAppDbSchemaMismatchTags
-  ;; :rf.epoch/replace-app-db-schema-mismatch — failure mode: the
+(def ReplaceSchemaMismatchTags
+  ;; :rf.epoch/replace-schema-mismatch — failure mode: the
   ;; injected value failed the frame's currently-registered schemas (the
   ;; new app-db against the app-schema set, or the new runtime-db against
   ;; the framework-owned runtime-db validator). :failing-paths enumerates

@@ -532,8 +532,8 @@
 ;;
 ;; Failure modes (each is a no-op on `app-db` and returns `false`):
 ;;   :rf.error/no-such-handler              (kind :frame) — frame not registered
-;;   :rf.epoch/replace-app-db-during-drain  — called while drain is in flight
-;;   :rf.epoch/replace-app-db-schema-mismatch — `new-db` fails the frame's
+;;   :rf.epoch/replace-during-drain  — called while drain is in flight
+;;   :rf.epoch/replace-schema-mismatch — `new-db` fails the frame's
 ;;                                              registered app-schema set
 ;;
 ;; On success: records a synthetic `:rf/epoch-record` (so undo via
@@ -788,8 +788,8 @@
   emitting a structured error trace):
 
     :rf.error/no-such-handler                   — frame not registered
-    :rf.epoch/replace-app-db-during-drain       — drain in flight
-    :rf.epoch/replace-app-db-schema-mismatch    — new-db fails app-schema
+    :rf.epoch/replace-during-drain       — drain in flight
+    :rf.epoch/replace-schema-mismatch    — new-db fails app-schema
 
   Dev-only — gated on `interop/debug-enabled?`. Production builds elide.
 
@@ -832,8 +832,8 @@
   surface per Spec 009 §Trace events):
 
     :rf.error/no-such-handler                   — frame not registered
-    :rf.epoch/replace-app-db-during-drain       — drain in flight
-    :rf.epoch/replace-app-db-schema-mismatch    — new-runtime-db fails the
+    :rf.epoch/replace-during-drain       — drain in flight
+    :rf.epoch/replace-schema-mismatch    — new-runtime-db fails the
                                                    framework-owned runtime-db
                                                    validator (reg-runtime-schema)
 
@@ -867,8 +867,8 @@
   surface per Spec 009 §Trace events):
 
     :rf.error/no-such-handler                   — frame not registered
-    :rf.epoch/replace-app-db-during-drain       — drain in flight
-    :rf.epoch/replace-app-db-schema-mismatch    — the app-db partition fails
+    :rf.epoch/replace-during-drain       — drain in flight
+    :rf.epoch/replace-schema-mismatch    — the app-db partition fails
                                                    the frame's app-schema set
                                                    OR the runtime-db partition
                                                    fails the framework-owned

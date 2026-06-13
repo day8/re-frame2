@@ -176,8 +176,8 @@
   ;;   :rf.epoch/restore-version-mismatch          (failure mode 6)
   ;;   :rf.epoch/restore-non-ok-record             (rf2-v0jwt — failure mode 7)
   ;;   :rf.epoch/db-replaced                       (rf2-zq55 — replace-app-db! happy path)
-  ;;   :rf.epoch/replace-app-db-during-drain       (rf2-zq55 — failure mode A)
-  ;;   :rf.epoch/replace-app-db-schema-mismatch    (rf2-zq55 — failure mode B)
+  ;;   :rf.epoch/replace-during-drain       (rf2-zq55 — failure mode A)
+  ;;   :rf.epoch/replace-schema-mismatch    (rf2-zq55 — failure mode B)
   ;;   :rf.warning/epoch-redact-fn-exception       (rf2-wp70d — redact-fn throw)
   ;;
   ;; Every emit site sits inside `(when interop/debug-enabled? ...)`
@@ -240,8 +240,8 @@
   ;; surface. The body is gated by an `(if-not interop/debug-enabled?
   ;; false ...)` early-return — the success branch fires
   ;; :rf.epoch/db-replaced, the in-drain rejection fires
-  ;; :rf.epoch/replace-app-db-during-drain, the schema-mismatch
-  ;; rejection fires :rf.epoch/replace-app-db-schema-mismatch. All
+  ;; :rf.epoch/replace-during-drain, the schema-mismatch
+  ;; rejection fires :rf.epoch/replace-schema-mismatch. All
   ;; three string fragments must elide under :advanced + goog.DEBUG=
   ;; false. Calling against a frame ID without forcing an actual
   ;; replace is enough — the literal sentinels live in the gated body.

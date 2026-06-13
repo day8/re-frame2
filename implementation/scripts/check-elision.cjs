@@ -218,14 +218,14 @@ const DEV_ONLY_SENTINELS = [
   // arm and its string sentinel must elide under :advanced.
   { source: 're-frame.epoch/replace-app-db! (rf.epoch/db-replaced)',
     sentinel: 'rf.epoch/db-replaced' },
-  // re-frame.epoch — :rf.epoch/replace-app-db-during-drain failure mode
+  // re-frame.epoch — :rf.epoch/replace-during-drain failure mode
   // (EP-0001 rf2-tfepxu). Same elision gate as the success path.
-  { source: 're-frame.epoch/replace-app-db! (rf.epoch/replace-app-db-during-drain)',
-    sentinel: 'rf.epoch/replace-app-db-during-drain' },
-  // re-frame.epoch — :rf.epoch/replace-app-db-schema-mismatch failure
+  { source: 're-frame.epoch/replace-app-db! (rf.epoch/replace-during-drain)',
+    sentinel: 'rf.epoch/replace-during-drain' },
+  // re-frame.epoch — :rf.epoch/replace-schema-mismatch failure
   // mode (EP-0001 rf2-tfepxu). Same elision gate.
-  { source: 're-frame.epoch/replace-app-db! (rf.epoch/replace-app-db-schema-mismatch)',
-    sentinel: 'rf.epoch/replace-app-db-schema-mismatch' },
+  { source: 're-frame.epoch/replace-app-db! (rf.epoch/replace-schema-mismatch)',
+    sentinel: 'rf.epoch/replace-schema-mismatch' },
   // re-frame.epoch — :rf.epoch.cb/silenced-on-frame-destroy listener
   // silencing trace (Tool-Pair §Surface behaviour against destroyed
   // frames, rf2-d656). Emitted by on-frame-destroyed! once per

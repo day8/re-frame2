@@ -28,7 +28,7 @@
   certainly rejected by the frame's app-schema), never executed.
 
   The injection can fail for the documented `:rf.epoch/*` reasons
-  (no-such-frame, replace-app-db-during-drain, schema-mismatch — see
+  (no-such-frame, replace-during-drain, schema-mismatch — see
   spec/Tool-Pair.md §Pair-tool write failure modes). The runtime's
   `app-db-reset!` already returns a structured `{:ok? false :reason
   :reset-rejected ...}` on those soft failures; we pass it through.
