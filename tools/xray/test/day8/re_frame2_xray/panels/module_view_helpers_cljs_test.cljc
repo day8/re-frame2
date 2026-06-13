@@ -42,6 +42,18 @@
    :registrations {:event {:sugar/inc {:kind :event :id :sugar/inc}}}
    :requires      #{}})
 
+;; A CONSTRUCTED app composed from ZERO modules (rf2-e0mq7a). The core
+;; app-value contract (app_value.cljc:123-127) is explicit: an app constructed
+;; from zero modules carries an EMPTY `:modules {}` map — distinct from a
+;; projected/load-order app, which carries no `:modules` slot at all. Core
+;; tests pin `(rf/app {:id :empty/app})` → `:modules {}` + `:requires #{}`
+;; (app_value_compose_cljs_test.cljc:141-147), so this fixture mirrors that
+;; shape.
+(def ^:private zero-module-app
+  {:rf.app/id :empty/app
+   :modules   {}
+   :requires  #{}})
+
 ;; ---- realm-frames -------------------------------------------------------
 
 (deftest realm-frames-groups-by-resolver
@@ -108,6 +120,24 @@
       (is (= #{} requires))))
   (testing "nil app (no seam value) is likewise module-less"
     (is (nil? (:modules (h/project-app-modules nil))))))
+
+(deftest project-app-modules-zero-module-constructed-app
+  ;; rf2-e0mq7a — the adversarial case: an app CONSTRUCTED from zero modules
+  ;; carries an explicit empty `:modules {}` map (the core contract). The
+  ;; projection MUST preserve the present-but-empty distinction — an empty
+  ;; VECTOR `[]`, NOT nil — so the panel never falsely renders the
+  ;; load-order/no-provenance caption over a genuinely-installed app.
+  (testing "a constructed app with `:modules {}` projects to `[]` (NOT nil) —
+            present-but-empty provenance, distinct from no-provenance"
+    (let [{:keys [modules requires]} (h/project-app-modules zero-module-app)]
+      (is (= [] modules)
+          "explicit empty `:modules {}` → empty VECTOR, not nil")
+      (is (vector? modules)
+          "the empty result is a vector (constructed) — `(vector? modules)`
+           is the provenance signal `any-provenance?` reads")
+      (is (not (nil? modules))
+          "MUST NOT collapse to nil — that would erase the constructed app")
+      (is (= #{} requires)))))
 
 ;; ---- project-realm-row --------------------------------------------------
 
@@ -204,15 +234,54 @@
       (is (contains? (set (map :realm (:realms data))) :app/gone)
           "the orphan realm is surfaced rather than dropped"))))
 
-;; ---- no-modules empty-state / any-modules? ------------------------------
+;; ---- empty-state decision: any-modules? / any-provenance? ---------------
 
-(deftest any-modules?-detects-provenance
-  (testing "any-modules? is true when some realm-row carries modules"
+(deftest any-modules?-detects-module-rows
+  (testing "any-modules? is true when some realm-row carries at least one
+            MODULE ROW"
     (is (true? (h/any-modules? [{:realm :r1 :modules nil}
                                 {:realm :r2 :modules [{:module-id :m/a}]}])))
     (is (false? (h/any-modules? [{:realm :r1 :modules nil}
                                  {:realm :r2 :modules []}]))
-        "no modules anywhere → false")))
+        "a zero-module constructed app ([]) carries NO module rows → false")))
+
+(deftest any-provenance?-detects-constructed-app
+  ;; rf2-e0mq7a — the predicate that separates the zero-module-app caption
+  ;; (a constructed app with no modules) from the no-provenance caption (no
+  ;; constructed app anywhere). `:modules` is a VECTOR exactly when the realm's
+  ;; installed app was CONSTRUCTED (`[]` for a zero-module app); it is nil for
+  ;; the load-order / no-provenance case.
+  (testing "true when some realm carries a constructed app — including a
+            zero-module one (`:modules []`)"
+    (is (true? (h/any-provenance? [{:realm :r1 :modules nil}
+                                   {:realm :r2 :modules []}]))
+        "an empty VECTOR is present provenance (a constructed zero-module app)")
+    (is (true? (h/any-provenance? [{:realm :r1 :modules [{:module-id :m/a}]}]))
+        "a non-empty module vector is provenance too"))
+  (testing "false when NO realm carries a constructed app (every :modules nil)"
+    (is (false? (h/any-provenance? [{:realm :r1 :modules nil}
+                                    {:realm :r2 :modules nil}]))
+        "all load-order / no-provenance → no provenance anywhere")))
+
+(deftest empty-state-decision-three-way
+  ;; rf2-e0mq7a — the decision the UI `modules-section-body` consumes. Pins the
+  ;; three mutually-exclusive outcomes off the predicate pair so the panel's
+  ;; caption choice is correct without a browser render.
+  (testing "module rows present → render the module list (any-modules? true)"
+    (let [rows [{:realm :r :modules [{:module-id :m/a}]}]]
+      (is (true? (h/any-modules? rows)))))
+  (testing "constructed zero-module app → zero-module-app caption, NOT the
+            load-order caption (any-modules? false, any-provenance? true)"
+    (let [rows [{:realm :r :modules []}]]
+      (is (false? (h/any-modules? rows))
+          "no module rows → not the module list")
+      (is (true? (h/any-provenance? rows))
+          "provenance present → the zero-module-app branch, not no-provenance")))
+  (testing "no provenance anywhere → the load-order/no-provenance caption
+            (any-modules? false AND any-provenance? false)"
+    (let [rows [{:realm :r :modules nil}]]
+      (is (false? (h/any-modules? rows)))
+      (is (false? (h/any-provenance? rows))))))
 
 (deftest no-modules-caption-explains-the-empty-state
   (testing "the no-modules caption names the load-order / sugar reason and the
@@ -222,6 +291,22 @@
       (is (re-find #"(?i)load-order" c))
       (is (re-find #"(?i)rf/module" c))
       (is (re-find #"(?i)rf/install!" c)))))
+
+(deftest zero-module-app-caption-distinct-from-no-provenance
+  ;; rf2-e0mq7a — the caption an installed zero-module app renders. It MUST be
+  ;; distinct from `no-modules-caption` (a different string) and MUST NOT claim
+  ;; the process is on the load-order path (which is false for an installed
+  ;; constructed app).
+  (testing "the zero-module-app caption names the installed-but-empty state +
+            the rf/module remedy"
+    (let [c h/zero-module-app-caption]
+      (is (re-find #"(?i)zero modules" c))
+      (is (re-find #"(?i)constructed" c))
+      (is (re-find #"(?i)rf/module" c))
+      (is (not (re-find #"(?i)load-order" c))
+          "MUST NOT claim the load-order path — the app WAS constructed")))
+  (testing "the two empty-state captions are different strings"
+    (is (not= h/no-modules-caption h/zero-module-app-caption))))
 
 ;; ---- summaries ----------------------------------------------------------
 

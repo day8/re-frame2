@@ -1337,3 +1337,217 @@
                :params      {:slug "does-not-exist"}})]
       (is (false? (:ok? r)))
       (is (= :no-such-instance (:reason r))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-e0mq7a — get-resource-history / list-resource-invalidations egress the
+;; VALUE-BEARING trace fields (scope/params in the scoped key, the cause, the
+;; matched keys) through `egress-value` BEFORE summarizing, so per-slot
+;; :sensitive? / :large? declarations redact / elide them by DEFAULT and reveal
+;; them only under the trusted-local :include-sensitive? / :include-large?
+;; opt-ins, while the non-PII metadata (tags, counts, lifecycle shape) stays
+;; useful. This is the trace-buffer peer of the per-slot egress
+;; list-resource-instances / get-resource-state thread through
+;; `resource-egress-fn` for the live-cache payloads.
+;;
+;; The framework wire walker matches a :sensitive? / :large? declaration by
+;; APP-DB path WITHIN the value it walks (see egress-value-redacts-sensitive-
+;; on-the-safe-default-path). We declare a sub-path (`[:secret]`) that sits
+;; INSIDE the scope / cause map values, emit resource trace events carrying
+;; those values, and assert on the in-panel SUMMARY PREVIEW: when the walker
+;; redacts a nested leaf the surrounding map is still a map (so `:redacted?` on
+;; the wrapper stays false — the SENTINEL is nested, not the whole value), but
+;; the preview text carries the `:rf/redacted` sentinel in place of the raw
+;; secret. The load-bearing observable is therefore: the raw secret is ABSENT
+;; from the preview by default and PRESENT under the opt-in. A tiny helper makes
+;; that the assertion.
+
+(defn- seed-resource-trace-elision-schema! []
+  ;; A sensitive leaf (`[:secret]`) that sits INSIDE the scope / cause map
+  ;; values, plus a large leaf (`[:blob]`). The walker substitutes
+  ;; :rf/redacted / :rf.size/large-elided for those paths on off-box egress.
+  (frame-class/install! :rf/default
+    (frame-class/validate+extract :rf/default
+      {:sensitive {:app-db [[:secret]]}
+       :large     {:app-db [[:blob]]}})))
+
+;; A scope value carrying a declared-sensitive leaf alongside a plain identity
+;; leaf (which must survive — the scope's non-PII shape stays inspectable).
+(def ^:private e0mq7a-secret "tenant-shh-9001")
+(def ^:private e0mq7a-scope
+  {:secret e0mq7a-secret :region "ap-southeast"})
+(def ^:private e0mq7a-rkey
+  [e0mq7a-scope :article/by-slug {:slug "welcome"}])
+;; A cause value carrying a declared-sensitive leaf (a mutation may carry data).
+(def ^:private e0mq7a-cause
+  {:mutation :article/save :secret e0mq7a-secret})
+
+(defn- emit-resource-trace-into-ring! [operation tags]
+  (rf/emit-trace-event! :rf.resource operation
+                        (merge {:frame                :rf/default
+                                :rf.trace/dispatch-id (random-uuid)}
+                               tags)))
+
+(defn- preview-has? [summary substr]
+  ;; True when the summary's preview text contains substr (plain substring,
+  ;; no regex — the sentinels carry `.` / `/`). The redaction observable: the
+  ;; raw secret is absent (and `:rf/redacted` present) by default; the raw
+  ;; secret is present under the opt-in.
+  (boolean (and (string? (:preview summary))
+                (<= 0 (.indexOf ^js/String (:preview summary) substr)))))
+
+(deftest get-resource-history-redacts-value-bearing-fields-by-default
+  (testing "rf2-e0mq7a — the scoped-key scope (PII) and the cause (may carry
+            data) are routed through egress-value BEFORE summarizing, so a
+            declared-sensitive leaf is REDACTED OUT of the summary preview by
+            DEFAULT while the lifecycle metadata still projects"
+    (trace-tooling/clear-trace-buffer! :rf/default)
+    (seed-resource-trace-elision-schema!)
+    (emit-resource-trace-into-ring! :rf.resource/fetch-started
+                                    {:resource-key e0mq7a-rkey
+                                     :generation   4
+                                     :cause        e0mq7a-cause})
+    (let [result (runtime/get-resource-history {:resource-id :article/by-slug})]
+      (is (true? (:ok? result)))
+      (is (= 1 (:count result)))
+      (let [row        (first (:history result))
+            scope-sum  (get-in row [:resource-key :scope])
+            cause-sum  (:cause row)]
+        ;; METADATA rides — a redacted timeline still exposes the shape.
+        (is (= :rf.resource/fetch-started (:operation row)) "operation metadata projects")
+        (is (= :article/by-slug (:resource-id row)) "resource-id metadata projects")
+        (is (= 4 (:generation row)) "generation metadata projects")
+        ;; The scope's declared-sensitive leaf is gone from the preview; the
+        ;; non-PII sibling (:region) survives — the shape stays inspectable.
+        (is (not (preview-has? scope-sum e0mq7a-secret))
+            "the raw secret is REDACTED OUT of the scope preview by default")
+        (is (preview-has? scope-sum ":rf/redacted")
+            "the scope preview carries the :rf/redacted sentinel where the secret was")
+        (is (preview-has? scope-sum "ap-southeast")
+            "the non-PII scope sibling survives (metadata stays useful)")
+        ;; The cause carried a declared-sensitive leaf too → redacted out.
+        (is (not (preview-has? cause-sum e0mq7a-secret))
+            "the raw secret is REDACTED OUT of the cause preview by default")
+        (is (preview-has? cause-sum ":rf/redacted")
+            "the cause preview carries the sentinel")))))
+
+(deftest get-resource-history-reveals-value-bearing-fields-on-opt-in
+  (testing "rf2-e0mq7a — :include-sensitive? true is the trusted-local opt-in:
+            the raw sensitive leaf returns to the scope / cause preview"
+    (trace-tooling/clear-trace-buffer! :rf/default)
+    (seed-resource-trace-elision-schema!)
+    (emit-resource-trace-into-ring! :rf.resource/fetch-started
+                                    {:resource-key e0mq7a-rkey
+                                     :generation   4
+                                     :cause        e0mq7a-cause})
+    (let [result (runtime/get-resource-history
+                   {:resource-id :article/by-slug :include-sensitive? true})
+          row    (first (:history result))]
+      (is (true? (:ok? result)))
+      (is (preview-has? (get-in row [:resource-key :scope]) e0mq7a-secret)
+          ":include-sensitive? true ⇒ the raw secret returns to the scope preview")
+      (is (preview-has? (:cause row) e0mq7a-secret)
+          ":include-sensitive? true ⇒ the raw secret returns to the cause preview"))))
+
+(deftest get-resource-history-large-leaf-elided-by-default
+  (testing "rf2-e0mq7a — a declared-:large? leaf is size-elided out of the
+            scope preview by default and returns under :include-large? true"
+    (trace-tooling/clear-trace-buffer! :rf/default)
+    (seed-resource-trace-elision-schema!)
+    ;; A scope whose ONLY value-bearing slot is a declared-large leaf, so the
+    ;; large elision is observable independent of the sensitive redaction.
+    (let [big-scope {:blob {:rows (vec (range 50))} :region "ap-southeast"}
+          big-rkey  [big-scope :article/by-slug {:slug "big"}]]
+      (emit-resource-trace-into-ring! :rf.resource/fetch-started
+                                      {:resource-key big-rkey :generation 4})
+      (testing "default path elides the large leaf out of the preview"
+        (let [row   (first (:history (runtime/get-resource-history
+                                       {:resource-id :article/by-slug})))
+              scope (get-in row [:resource-key :scope])]
+          (is (preview-has? scope ":rf.size/large-elided")
+              "the large leaf is replaced by the size-elided sentinel by default")
+          (is (not (preview-has? scope ":rows"))
+              "the large leaf's raw contents (the :rows blob) do NOT cross by default")))
+      (testing ":include-large? true returns the raw large leaf to the preview"
+        (let [row   (first (:history (runtime/get-resource-history
+                                       {:resource-id :article/by-slug
+                                        :include-large? true})))
+              scope (get-in row [:resource-key :scope])]
+          (is (not (preview-has? scope ":rf.size/large-elided"))
+              ":include-large? true ⇒ the large leaf is no longer elided"))))))
+
+(deftest list-resource-invalidations-redacts-value-bearing-fields-by-default
+  (testing "rf2-e0mq7a — :scope (PII), :cause (may carry data), and each
+            :matched key's scope are routed through egress-value BEFORE
+            summarizing, so a declared-sensitive leaf is redacted out by
+            default; the non-PII :tags / :match-count / :refetched metadata
+            still project"
+    (trace-tooling/clear-trace-buffer! :rf/default)
+    (seed-resource-trace-elision-schema!)
+    (emit-resource-trace-into-ring! :rf.resource/invalidated
+                                    {:scope   e0mq7a-scope
+                                     :tags    #{[:article "welcome"]}
+                                     :cause   e0mq7a-cause
+                                     :matched [e0mq7a-rkey]
+                                     :refetched 1})
+    (let [result (runtime/list-resource-invalidations)]
+      (is (true? (:ok? result)))
+      (is (= 1 (:count result)))
+      (let [row (first (:invalidations result))]
+        ;; Non-PII metadata rides → the :tag filter axis + storm/zero-match
+        ;; distinction stay useful on the default-redacted path.
+        (is (= [[:article "welcome"]] (:tags row)) "invalidated tags project (identity)")
+        (is (= 1 (:match-count row)) "match-count projects")
+        (is (= 1 (:refetched row)) "refetched projects")
+        ;; Value-bearing fields redact the secret out by default.
+        (is (not (preview-has? (:scope row) e0mq7a-secret))
+            "the invalidation scope redacts the secret out by default")
+        (is (preview-has? (:scope row) ":rf/redacted")
+            "the scope preview carries the sentinel")
+        (is (not (preview-has? (:cause row) e0mq7a-secret))
+            "the cause redacts the secret out by default")
+        (is (not (preview-has? (get-in row [:matched 0 :scope]) e0mq7a-secret))
+            "each matched key's scope redacts the secret out by default")
+        (is (preview-has? (get-in row [:matched 0 :scope]) ":rf/redacted")
+            "the matched-key scope preview carries the sentinel")))))
+
+(deftest list-resource-invalidations-reveals-value-bearing-fields-on-opt-in
+  (testing "rf2-e0mq7a — :include-sensitive? true reveals the raw secret in the
+            invalidation scope / cause / matched-key scope previews, while the
+            metadata is unchanged"
+    (trace-tooling/clear-trace-buffer! :rf/default)
+    (seed-resource-trace-elision-schema!)
+    (emit-resource-trace-into-ring! :rf.resource/invalidated
+                                    {:scope   e0mq7a-scope
+                                     :tags    #{[:article "welcome"]}
+                                     :cause   e0mq7a-cause
+                                     :matched [e0mq7a-rkey]
+                                     :refetched 1})
+    (let [result (runtime/list-resource-invalidations {:include-sensitive? true})
+          row    (first (:invalidations result))]
+      (is (true? (:ok? result)))
+      (is (preview-has? (:scope row) e0mq7a-secret) ":include-sensitive? reveals the scope secret")
+      (is (preview-has? (:cause row) e0mq7a-secret) ":include-sensitive? reveals the cause secret")
+      (is (preview-has? (get-in row [:matched 0 :scope]) e0mq7a-secret)
+          ":include-sensitive? reveals the matched-key scope secret")
+      (is (= [[:article "welcome"]] (:tags row))
+          "metadata is unchanged by the opt-in"))))
+
+(deftest list-resource-invalidations-tag-filter-works-on-default-path
+  (testing "rf2-e0mq7a — the :tag filter axis (which matches the non-PII
+            invalidated :tags) still works on the default-redacted path,
+            because :tags are NEVER routed through egress"
+    (trace-tooling/clear-trace-buffer! :rf/default)
+    (seed-resource-trace-elision-schema!)
+    (emit-resource-trace-into-ring! :rf.resource/invalidated
+                                    {:scope e0mq7a-scope
+                                     :tags  #{[:article "welcome"]}
+                                     :matched [e0mq7a-rkey]})
+    (emit-resource-trace-into-ring! :rf.resource/invalidated
+                                    {:scope e0mq7a-scope
+                                     :tags  #{[:user "u-1"]}
+                                     :matched []})
+    (is (= 1 (:count (runtime/list-resource-invalidations
+                       {:tag [:article "welcome"]})))
+        "tag filter matches exactly the one invalidation touching the tag")
+    (is (= 2 (:count (runtime/list-resource-invalidations)))
+        "both invalidations surface with no filter")))

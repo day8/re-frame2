@@ -305,16 +305,27 @@
   scope carries PII, params identify the remote read), while the
   resource-id is a plain keyword (a registry name, never PII). Returns
   `{:scope <summary> :resource-id <kw> :params <summary>}`. A malformed
-  key (not a 3-vector) summarizes the whole key as a single value."
-  [scoped-key]
-  (if (and (vector? scoped-key) (= 3 (count scoped-key)))
-    (let [[scope rid params] scoped-key]
-      {:scope       (summarize scope)
-       :resource-id rid
-       :params      (summarize params)})
-    {:scope       (summarize scoped-key)
-     :resource-id nil
-     :params      (summarize nil)}))
+  key (not a 3-vector) summarizes the whole key as a single value.
+
+  Optional `egress-fn` (rf2-e0mq7a): `(fn [value] -> egressed)` applied to
+  the PII-bearing scope + params BEFORE `summarize`, so the off-box
+  (AI/MCP / log) accessors route those values through the framework
+  `egress-value` walker — a `:sensitive?` slot summarizes as `[redacted]`
+  and a `:large?` slot as `[large — elided]`. The resource-id is a registry
+  name (never PII), so it is never egressed. The in-panel caller omits the
+  fn — the in-panel `summarize` is sufficient for human rendering and the
+  values never leave the box."
+  ([scoped-key] (scoped-key-summary scoped-key nil))
+  ([scoped-key egress-fn]
+   (let [eg (or egress-fn identity)]
+     (if (and (vector? scoped-key) (= 3 (count scoped-key)))
+       (let [[scope rid params] scoped-key]
+         {:scope       (summarize (eg scope))
+          :resource-id rid
+          :params      (summarize (eg params))})
+       {:scope       (summarize (eg scoped-key))
+        :resource-id nil
+        :params      (summarize nil)}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Static resource registry projection (Spec 016 §Xray and AI tooling).
@@ -914,27 +925,44 @@
 
   Pure over the trace vector; preserves buffer order (oldest-first). The
   panel renders this as the per-resource lifecycle strip; filtering by
-  resource-id happens in the composite. Per Spec 016."
-  [trace-buffer]
-  (->> (or trace-buffer [])
-       (filter #(resource-trace-op? (trace-op %)))
-       (mapv (fn [ev]
-               (let [op   (trace-op ev)
-                     tags (trace-tags ev)
-                     rkey (or (:resource-key tags) (:resource/key tags))]
-                 {:id           (:id ev)
-                  :operation    op
-                  :label        (op-label op)
-                  :class        (op-class op)
-                  :resource-id  (or (:resource-id tags)
-                                    (when (vector? rkey) (second rkey)))
-                  :resource-key (when rkey (scoped-key-summary rkey))
-                  :generation   (:generation tags)
-                  :work-id      (:work/id tags)
-                  :owner        (:owner tags)
-                  :cause        (when (contains? tags :cause) (summarize (:cause tags)))
-                  :status       {:before (:status-before tags)
-                                 :after  (or (:status-after tags) (:status tags))}})))))
+  resource-id happens in the composite. Per Spec 016.
+
+  Optional `egress-fn` (rf2-e0mq7a): `(fn [value] -> egressed)` applied to
+  the VALUE-BEARING fields — the `:resource-key`'s scope/params (PII) and
+  the `:cause` (may carry mutation data) — BEFORE `summarize`. The off-box
+  (AI/MCP / log) accessor (`get-resource-history`) threads
+  `runtime/egress-value` here so per-slot `:sensitive?` / `:large?`
+  declarations are honoured on the trace-borne values, parallel to the way
+  `list-resource-instances` / `get-resource-state` route the live-cache
+  payloads through `resource-egress-fn`. The METADATA (operation, label,
+  class, resource-id, generation, work-id, owner, status) is NOT a payload
+  value and is never egressed — a redacted timeline STILL exposes the
+  lifecycle shape. The in-panel caller omits the fn (the in-panel
+  `summarize` is sufficient; values never leave the box). Pure when
+  `egress-fn` is pure."
+  ([trace-buffer] (lifecycle-timeline trace-buffer nil))
+  ([trace-buffer egress-fn]
+   (let [eg (or egress-fn identity)]
+     (->> (or trace-buffer [])
+          (filter #(resource-trace-op? (trace-op %)))
+          (mapv (fn [ev]
+                  (let [op   (trace-op ev)
+                        tags (trace-tags ev)
+                        rkey (or (:resource-key tags) (:resource/key tags))]
+                    {:id           (:id ev)
+                     :operation    op
+                     :label        (op-label op)
+                     :class        (op-class op)
+                     :resource-id  (or (:resource-id tags)
+                                       (when (vector? rkey) (second rkey)))
+                     :resource-key (when rkey (scoped-key-summary rkey eg))
+                     :generation   (:generation tags)
+                     :work-id      (:work/id tags)
+                     :owner        (:owner tags)
+                     :cause        (when (contains? tags :cause)
+                                     (summarize (eg (:cause tags))))
+                     :status       {:before (:status-before tags)
+                                    :after  (or (:status-after tags) (:status tags))}})))))))
 
 (defn invalidation-graph
   "Project the `:rf.resource/invalidated` trace rows into the
@@ -951,20 +979,35 @@
 
   Distinguishes a broad-tag storm (high `:match-count`) without flooding;
   a zero-match invalidation surfaces `:match-count 0` so 'no match in
-  this scope' is visible. Pure over the trace vector. Per Spec 016."
-  [trace-buffer]
-  (->> (or trace-buffer [])
-       (filter #(= :rf.resource/invalidated (trace-op %)))
-       (mapv (fn [ev]
-               (let [tags    (trace-tags ev)
-                     matched (or (:matched tags) [])]
-                 {:id          (:id ev)
-                  :scope       (summarize (:scope tags))
-                  :tags        (vec (:tags tags))
-                  :cause       (when (contains? tags :cause) (summarize (:cause tags)))
-                  :matched     (mapv scoped-key-summary matched)
-                  :match-count (count matched)
-                  :refetched   (or (:refetched tags) 0)})))))
+  this scope' is visible. Pure over the trace vector. Per Spec 016.
+
+  Optional `egress-fn` (rf2-e0mq7a): `(fn [value] -> egressed)` applied to
+  the VALUE-BEARING fields — `:scope` (PII), `:cause` (may carry mutation
+  data), and each `:matched` scoped key's scope/params — BEFORE `summarize`.
+  The off-box (AI/MCP / log) accessor (`list-resource-invalidations`)
+  threads `runtime/egress-value` here so per-slot `:sensitive?` / `:large?`
+  declarations are honoured on the trace-borne values, parallel to the
+  live-cache accessors. The non-PII metadata (`:tags` — invalidation
+  identity, `:match-count`, `:refetched`) is NEVER egressed, so the
+  tag-filter axis and the storm / zero-match distinction stay useful even
+  on the default-redacted path. The in-panel caller omits the fn. Pure when
+  `egress-fn` is pure."
+  ([trace-buffer] (invalidation-graph trace-buffer nil))
+  ([trace-buffer egress-fn]
+   (let [eg (or egress-fn identity)]
+     (->> (or trace-buffer [])
+          (filter #(= :rf.resource/invalidated (trace-op %)))
+          (mapv (fn [ev]
+                  (let [tags    (trace-tags ev)
+                        matched (or (:matched tags) [])]
+                    {:id          (:id ev)
+                     :scope       (summarize (eg (:scope tags)))
+                     :tags        (vec (:tags tags))
+                     :cause       (when (contains? tags :cause)
+                                    (summarize (eg (:cause tags))))
+                     :matched     (mapv #(scoped-key-summary % eg) matched)
+                     :match-count (count matched)
+                     :refetched   (or (:refetched tags) 0)})))))))
 
 ;; ---------------------------------------------------------------------------
 ;; EP-0016 D3 — named scope-resolver resolution timeline (Spec 016 §Named

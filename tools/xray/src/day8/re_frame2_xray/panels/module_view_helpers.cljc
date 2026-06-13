@@ -124,13 +124,26 @@
   CONSTRUCTED (`rf/app` / `rf/install!`); a realm seated through the `reg-*`
   sugar (load-order, no `install!`) carries NO `:modules` — its installed app is
   the registrar projection (EP-0013 disposition 6, the honest no-provenance
-  case). `nil` app (no seam value) is likewise module-less. `:modules` is nil
-  (not `[]`) in the no-provenance case so the panel can distinguish \"a
-  module-less load-order app\" from \"an app with zero modules\". Pure data →
-  data; JVM-testable."
+  case). `nil` app (no seam value) is likewise module-less.
+
+  The PRESENCE of the `:modules` KEY — not its non-emptiness — decides
+  provenance (rf2-e0mq7a). The core app-value contract (app_value.cljc) is
+  explicit: a projected/load-order app carries NO `:modules` slot, while an app
+  CONSTRUCTED from zero modules carries an EMPTY `:modules {}` map. So:
+
+    - `:modules` key ABSENT/nil → `:modules` projects to nil — the honest
+      no-provenance (load-order / sugar-only) case.
+    - `:modules` key PRESENT (even `{}`) → `:modules` projects to a VECTOR
+      (`[]` for a zero-module constructed app) — an installed constructed app.
+      This must NOT collapse to nil, or the panel falsely renders the
+      load-order/no-provenance caption over a genuinely-installed zero-module
+      app.
+
+  `:modules` is therefore one of: nil (no provenance), `[]` (constructed, zero
+  modules), or a non-empty row vector. Pure data → data; JVM-testable."
   [app]
   (let [modules (:modules app)]
-    {:modules  (when (seq modules)
+    {:modules  (when (some? modules)
                  (->> (vals modules)
                       (sort-by (comp str :rf.module/id))
                       (mapv project-module-row)))
@@ -146,8 +159,10 @@
        ;; (EP-0013 disposition 6, rf2-at0oen). `:modules` is nil for a
        ;; load-order (sugar-only / module-less) app — the honest
        ;; no-provenance case; the realm renders its address row but no module
-       ;; rows.
-       :modules        [<module-row> …] | nil
+       ;; rows. `:modules` is an empty VECTOR `[]` for a CONSTRUCTED app with
+       ;; zero modules (rf2-e0mq7a) — present-but-empty provenance, NOT the
+       ;; no-provenance case; the realm carries an installed constructed app.
+       :modules        [<module-row> …] | [] | nil
        :requires       #{:rf.capability/* …}  ;; the app's union requires
        :owns           nil                    ;; reserved — ownership lives per
                                               ;; module (`:modules … :owns`)
@@ -234,18 +249,50 @@
   but a process running entirely on the `reg-*` sugar / load-order path has no
   CONSTRUCTED app value — its installed app is the registrar projection, which
   carries no `:modules`. Names why the section is empty so the operator
-  understands it is the honest no-module state, not a broken surface. Pure data
-  → string."
+  understands it is the honest no-module state, not a broken surface.
+
+  This caption is for the NO-PROVENANCE case ONLY (`:modules` absent/nil on
+  every realm). An installed CONSTRUCTED app that simply has zero modules
+  (`:modules {}` → `[]`) carries provenance — it must render
+  `zero-module-app-caption`, not this one (rf2-e0mq7a). Pure data → string."
   (str "No module provenance — this process's realms are running on the "
        "load-order (reg-* sugar) path, whose installed app value carries no "
        "modules. Compose an app from modules (rf/app / rf/module) and install "
        "it (rf/install!) to surface per-module ownership, capability "
        "requirements, and descriptor provenance here."))
 
+(def zero-module-app-caption
+  "The empty-state caption the MODULES section renders when at least one realm
+  carries module PROVENANCE (a CONSTRUCTED, installed app — `:modules` present)
+  but no realm declares any modules — every constructed app was composed from
+  ZERO modules (`:modules {}` → `[]`) (rf2-e0mq7a). Distinct from
+  `no-modules-caption`: this app IS constructed and installed (it did NOT run on
+  the load-order path), it simply owns no modules yet. The honest
+  installed-but-empty state, NOT the no-provenance one. Pure data → string."
+  (str "Installed app has zero modules — this process's app value was "
+       "constructed and installed (rf/app / rf/install!) but composed from no "
+       "modules, so there is no per-module ownership, capability, or descriptor "
+       "provenance to show. Add modules (rf/module) to the app to populate this "
+       "section."))
+
+(defn any-provenance?
+  "True when at least one realm-row carries module PROVENANCE — i.e. some
+  realm's installed app was CONSTRUCTED and seated, so its `:modules` slot is a
+  VECTOR (`[]` for a zero-module app, or a non-empty row vector). A
+  no-provenance (load-order / sugar-only) realm carries `:modules` nil and does
+  NOT count. Used by the panel to decide whether ANY realm has a constructed app
+  at all — separating the no-provenance caption (no constructed app anywhere)
+  from the zero-module-app caption (a constructed app with no modules)
+  (rf2-e0mq7a). Pure data → bool; JVM-testable."
+  [realm-rows]
+  (boolean (some (comp vector? :modules) realm-rows)))
+
 (defn any-modules?
-  "True when at least one realm-row carries module provenance — i.e. some
-  realm's installed app was constructed and seated (`:modules` non-empty). Used
-  by the panel to choose between the module list and the no-modules caption.
+  "True when at least one realm-row carries at least one MODULE ROW — i.e. some
+  realm's installed app was constructed and seated with a NON-EMPTY `:modules`
+  vector. A constructed-but-zero-module app (`:modules []`) carries provenance
+  (`any-provenance?` is true) but NO module rows, so `any-modules?` is false for
+  it. Used by the panel to decide whether to render the module list at all.
   Pure data → bool; JVM-testable."
   [realm-rows]
   (boolean (some (comp seq :modules) realm-rows)))

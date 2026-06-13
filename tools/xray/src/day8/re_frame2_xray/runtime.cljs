@@ -1018,6 +1018,32 @@
                       [scoped-key entry] (.now js/Date)
                       (resource-egress-fn egress-opts))}))))))
 
+;; rf2-e0mq7a — the trace-value egress closure for the resource
+;; history/invalidation accessors. The lifecycle-timeline / invalidation-graph
+;; helpers project VALUE-BEARING fields off trace tags (the scoped key's
+;; scope/params, the cause, the matched keys). Those are trace-borne VALUES
+;; (NOT runtime-db `:entries` payloads — they live in the trace ring), so they
+;; egress through the plain `egress-value` walker with the off-box
+;; sensitive/large defaults baked in, NOT `resource-egress-fn` (which layers
+;; the runtime-db partition default + the `:entries` slot path). This is the
+;; trace-buffer peer of the per-slot egress the live-cache accessors thread:
+;; `list-resource-instances` / `get-resource-state` route runtime-db payloads
+;; through `resource-egress-fn`; these two route trace payloads through
+;; `egress-value`. Both honour per-slot `:sensitive?` / `:large?` declarations
+;; (matched by schema path) and both default-redact, opting back in per call.
+;; `drop-sensitive-events` already removes whole `:sensitive? true` ENVELOPES
+;; upstream; this scrubs the VALUES carried inside the surviving events.
+(defn- resource-trace-egress-fn
+  "Return the `(fn [value] -> egressed)` value-egress closure the resource
+  trace projections (`lifecycle-timeline` / `invalidation-graph`) apply to
+  their value-bearing fields (scope / params / cause / matched). Routes
+  through `egress-value` with the off-box defaults; `include-sensitive?` /
+  `include-large?` opt the matching declared slots back in (rf2-e0mq7a)."
+  [{:keys [include-sensitive? include-large?]}]
+  (fn [value]
+    (egress-value value {:include-sensitive? include-sensitive?
+                         :include-large?     include-large?})))
+
 (defn get-resource-history
   "Tool: `get-resource-history`. The BOUNDED lifecycle history for a
   resource (Spec 016 §Xray and AI tooling — the lifecycle timeline;
@@ -1026,21 +1052,36 @@
   `:resource-id`, `:nav-token`, `:limit` (default 50 — the bound).
 
   Returns `{:ok? true :frame <id> :history [<timeline-row> …] :count N}`
-  or `{:ok? false :reason :no-frame-resolved}`. The rows carry the
-  PRIVACY-summarized scope/params/cause projection (a cause may carry
-  data); whole `:sensitive? true` trace events are default-suppressed at
-  the off-box seam."
+  or `{:ok? false :reason :no-frame-resolved}`.
+
+  PRIVACY (rf2-e0mq7a — the off-box egress boundary for the value-bearing
+  trace fields): TWO layers, mirroring the live-cache accessors.
+    1. Whole `:sensitive? true` trace ENVELOPES are default-suppressed
+       (`drop-sensitive-events`); `:include-sensitive? true` opts them back
+       in.
+    2. The VALUE-BEARING fields carried INSIDE the surviving events — the
+       scoped key's scope/params (PII) and the cause (may carry mutation
+       data) — route through `egress-value` (`resource-trace-egress-fn`)
+       BEFORE the in-panel `summarize`, so per-slot `:sensitive?` / `:large?`
+       declarations redact / elide them by default. `:include-sensitive?` /
+       `:include-large?` are the trusted-local opt-ins. The METADATA
+       (operation / class / resource-id / generation / owner / status) is
+       NEVER egressed — a redacted timeline STILL exposes the lifecycle shape
+       and the resource-id filter stays useful."
   ([] (get-resource-history nil))
-  ([{:keys [frame resource-id nav-token limit include-sensitive?]
+  ([{:keys [frame resource-id nav-token limit include-sensitive? include-large?]
      :or   {limit 50} :as _opts}]
    (let [fid (resolve-frame frame)]
      (if-let [fail (frame-failure frame fid)]
        fail
-       (let [events  (-> (trace-tooling/trace-buffer fid {:flat true})
-                         (drop-sensitive-events include-sensitive?))
-             rows    (-> (resources-helpers/lifecycle-timeline events)
-                         (resources-helpers/filter-history-rows
-                           {:resource-id resource-id :nav-token nav-token :limit limit}))]
+       (let [events    (-> (trace-tooling/trace-buffer fid {:flat true})
+                           (drop-sensitive-events include-sensitive?))
+             egress-fn (resource-trace-egress-fn
+                         {:include-sensitive? include-sensitive?
+                          :include-large?     include-large?})
+             rows      (-> (resources-helpers/lifecycle-timeline events egress-fn)
+                           (resources-helpers/filter-history-rows
+                             {:resource-id resource-id :nav-token nav-token :limit limit}))]
          {:ok?     true
           :frame   fid
           :history (vec rows)
@@ -1056,16 +1097,29 @@
   Filter axis: `:tag` (only invalidations touching the tag).
 
   Returns `{:ok? true :frame <id> :invalidations [<row> …] :count N}` or
-  `{:ok? false :reason :no-frame-resolved}`."
+  `{:ok? false :reason :no-frame-resolved}`.
+
+  PRIVACY (rf2-e0mq7a — symmetric with `get-resource-history`): whole
+  `:sensitive? true` envelopes are default-suppressed, AND the value-bearing
+  fields (`:scope` / `:cause` / each `:matched` key's scope/params) route
+  through `egress-value` BEFORE `summarize` so per-slot `:sensitive?` /
+  `:large?` declarations redact / elide them by default; `:include-sensitive?`
+  / `:include-large?` are the trusted-local opt-ins. The non-PII metadata
+  (`:tags` — the invalidation identity used by the `:tag` filter axis,
+  `:match-count`, `:refetched`) is NEVER egressed, so tag filtering and the
+  storm / zero-match distinction stay useful on the default-redacted path."
   ([] (list-resource-invalidations nil))
-  ([{:keys [frame tag include-sensitive?] :as _opts}]
+  ([{:keys [frame tag include-sensitive? include-large?] :as _opts}]
    (let [fid (resolve-frame frame)]
      (if-let [fail (frame-failure frame fid)]
        fail
-       (let [events (-> (trace-tooling/trace-buffer fid {:flat true})
-                        (drop-sensitive-events include-sensitive?))
-             rows   (cond->> (resources-helpers/invalidation-graph events)
-                      (some? tag) (filter #(some #{tag} (:tags %))))]
+       (let [events    (-> (trace-tooling/trace-buffer fid {:flat true})
+                           (drop-sensitive-events include-sensitive?))
+             egress-fn (resource-trace-egress-fn
+                         {:include-sensitive? include-sensitive?
+                          :include-large?     include-large?})
+             rows      (cond->> (resources-helpers/invalidation-graph events egress-fn)
+                         (some? tag) (filter #(some #{tag} (:tags %))))]
          {:ok?           true
           :frame         fid
           :invalidations (vec rows)

@@ -98,16 +98,46 @@ anything**:
   caption** (`module_view_helpers/no-modules-caption`), naming the
   `rf/app` / `rf/module` / `rf/install!` remedy, rather than fabricating rows.
 
+### The three-way empty-state decision (rf2-e0mq7a)
+
+The core app-value contract distinguishes a **projected / load-order** app
+(no `:modules` slot) from an app **CONSTRUCTED from zero modules** (an explicit
+empty `:modules {}` map). The MODULES section preserves that distinction so a
+genuinely-installed zero-module app is never mislabelled as the load-order case:
+
+- some realm carries **module rows** (`any-modules?` true) → render the module
+  list;
+- some realm carries **provenance** (`any-provenance?` true — a CONSTRUCTED,
+  installed app whose `:modules` projects to a **vector**, `[]` for zero
+  modules) but no realm has any modules → render the **zero-module-app caption**
+  (`module_view_helpers/zero-module-app-caption`): the honest
+  installed-but-empty state, naming the `rf/module` remedy;
+- no realm carries provenance at all (every `:modules` nil — load-order /
+  sugar-only) → render the **no-module caption** (`no-modules-caption`).
+
+`project-app-modules` keys provenance off the **presence** of the `:modules`
+key, not its non-emptiness: an explicit `:modules {}` projects to an empty
+**vector** `[]` (constructed, zero modules), while an absent/nil `:modules`
+projects to **nil** (no provenance). Collapsing `{}` to nil — the prior
+`(when (seq modules) …)` bug — falsely rendered the load-order caption over an
+installed zero-module app.
+
 The pure projection (`module_view_helpers`):
 
 - `project-module-row` — one module value → `{:module-id :owns :requires
   :registration-kinds :registration-count :source}`;
 - `project-app-modules` — an app value → its sorted module rows + union
-  `:requires` (nil `:modules` when the app carries none);
+  `:requires`. `:modules` is **nil** when the app carries no `:modules` slot
+  (no provenance), an empty **vector** `[]` when `:modules {}` (constructed,
+  zero modules), or a non-empty row vector;
 - `project-realm-row` (3-arity) — fills a realm's `:modules` / `:requires`
   from `(rf/installed-app realm)`;
 - `project-module-view` (4-arity) — takes an `installed-app-of` resolver
-  (`rf/installed-app`) and sets `:provenance-available?` **true**.
+  (`rf/installed-app`) and sets `:provenance-available?` **true**;
+- `any-provenance?` — true when some realm's `:modules` is a vector (a
+  constructed app, including a zero-module one); separates the zero-module-app
+  caption from the no-provenance caption;
+- `any-modules?` — true when some realm carries at least one module row.
 
 **EP-0015 classification is NOT a per-module fact.** Durable data
 classification is **frame-owned** — declared on `reg-frame` / `make-frame` and
@@ -155,9 +185,13 @@ Cmd-K palette picks it up automatically (the palette reads
   reads `rf/installed-app` per realm.
 - `panels/module_view_helpers.cljc` — the pure `data → data` projection
   (`realm-frames` · `project-module-row` · `project-app-modules` ·
-  `project-realm-row` · `project-module-view` · `any-modules?` ·
-  `no-modules-caption` · `realm-summary-line`); JVM-testable.
+  `project-realm-row` · `project-module-view` · `any-provenance?` ·
+  `any-modules?` · `no-modules-caption` · `zero-module-app-caption` ·
+  `realm-summary-line`); JVM-testable.
 - Tests: `panels/module_view_helpers_cljs_test.cljc` (the address-space
   projection + the zero-ceremony / multi-realm classification + the empty /
   stale-frame edge cases + the module-row shape + the seam-fed
-  `project-module-view` + the no-modules / `any-modules?` empty state).
+  `project-module-view` + the three-way empty-state decision: module list /
+  zero-module-app caption / no-provenance caption via
+  `any-provenance?` / `any-modules?`, incl. the explicit `:modules {}`
+  constructed app — rf2-e0mq7a).
