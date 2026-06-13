@@ -374,15 +374,18 @@
         ;; the nREPL/MCP wire, exactly as the pull-mode `trace-window` /
         ;; `watch-epochs` surfaces do (rf2-6wvh5). The `--allow-sensitive-
         ;; reads` boot gate (`raw-state-allowed?`, positive sense — true
-        ;; only when the operator opted in at launch) is the single
-        ;; predicate: gate-OFF (default) ⇒ project; gate-ON + opt-in ⇒
-        ;; ship raw (the operator's deliberate choice). `:include-sensitive
-        ;; true` is honoured ONLY behind the gate, mirroring every other
-        ;; egress surface.
+        ;; only when the operator opted in at launch) governs whether the
+        ;; per-call `:include-sensitive true` is honoured.
+        ;; rf2-m9duxl — `incl?` (gate-ON + `:include-sensitive true`) NO
+        ;; LONGER bypasses the epoch projection: the `:trace` / `:settle`
+        ;; epoch ALWAYS routes through `projected-record`, and `incl?`
+        ;; threads `{:include-sensitive? true}` INTO it (app-db sensitive
+        ;; axis only). The orthogonal fx-args / runtime-db / large axes
+        ;; and the app `:redact-fn` stay fail-closed regardless of
+        ;; `:include-sensitive` (Security.md §Off-box egress).
         incl?        (if (raw-state/raw-state-allowed?)
                        (boolean (wire/arg args :include-sensitive))
                        false)
-        project?     (not incl?)
         [tag payload] (parse-event-edn event-str)]
     (cond
       ;; rf2-wz66k7 — a malformed `:timeout-ms` short-circuits to an honest
@@ -483,7 +486,7 @@
                 ;; crosses the wire. The sync / queued consequence shapes
                 ;; carry no raw app-db, so they emit the bare call.
                 form     (if (contains? #{:trace :settle} mode)
-                           (egress/project-dispatch-result-src call-src project?)
+                           (egress/project-dispatch-result-src call-src incl?)
                            call-src)]
             ;; rf2-8fin7.3 — issue the boot-gate signal between the
             ;; preload probe and the dispatch eval (the snapshot /

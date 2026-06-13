@@ -55,9 +55,13 @@
         ;; `re-frame.core/projected-record` — the framework's SINGLE
         ;; normative off-box-egress emission site (Security.md §Epoch
         ;; privacy posture; core.cljc names the hand-walk an anti-pattern
-        ;; "one missed `mapv projected-record` away from a leak"). When
-        ;; `incl?` is true (only reachable gate-ON + explicit opt-in) the
-        ;; records ship raw, mirroring subscribe's bare-drain opt-in.
+        ;; "one missed `mapv projected-record` away from a leak").
+        ;; rf2-m9duxl — `incl?` (gate-ON + explicit `:include-sensitive
+        ;; true`) NO LONGER bypasses projection. It is threaded as the
+        ;; `{:include-sensitive? true}` egress opt INTO `projected-record`,
+        ;; lifting ONLY the app-db sensitive axis; fx-args / runtime-db /
+        ;; large slots / `:redact-fn` stay fail-closed. Every egressed page
+        ;; is ALWAYS projected.
         incl?     (if (raw-state/raw-state-allowed?)
                     (args/parse-bool-arg raw-args :include-sensitive)
                     false)
@@ -85,11 +89,11 @@
             ;; rf2-6wvh5 — the egress slice (`page`) is the ONLY vector
             ;; that crosses the wire, so projection happens HERE, after
             ;; the cursor `:limit` cap, before the records ship. Each
-            ;; record routes through `re-frame.core/projected-record`
+            ;; record ALWAYS routes through `re-frame.core/projected-record`
             ;; (which reads `:frame` off the record itself and elides all
-            ;; four payload slots) unless the operator opted in to raw
-            ;; egress (`incl?` — gate-ON + `:include-sensitive true`).
-            project?       (not incl?)
+            ;; four payload slots). rf2-m9duxl — `incl?` threads
+            ;; `{:include-sensitive? true}` INTO the projection (app-db
+            ;; sensitive axis only); it does NOT disable projection.
             page-src       (str "(vec (take " limit " filtered))")
             form (ef/emit
                    (ef/rt-let
@@ -113,7 +117,7 @@
                       ;; server-side). `:epoch-id` is a bookkeeping slot
                       ;; the projection preserves, so `next-id`'s
                       ;; `(:epoch-id (last page))` still resolves.
-                      'page      (ef/rt-raw (egress/project-page-src page-src project?))
+                      'page      (ef/rt-raw (egress/project-page-src page-src incl?))
                       'next-id   (ef/rt-raw
                                    "(when (< (count page) (count filtered)) (:epoch-id (last page)))")]
                      (ef/rt-raw

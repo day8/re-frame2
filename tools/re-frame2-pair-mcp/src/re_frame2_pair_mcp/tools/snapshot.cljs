@@ -110,13 +110,16 @@
         ;; inside a NON-sensitive epoch's `:db-before` / `:db-after`. So a
         ;; sensitive slot leaked off-box under the default
         ;; `--allow-sensitive-reads` OFF posture whenever the slice
-        ;; expanded to `:full`. The projection is gated by `incl?` (the
-        ;; sensitive opt-in), NOT by `elision?` (the large-slot toggle) —
-        ;; same posture trace-window / watch-epochs use (rf2-6wvh5). Gate
-        ;; OFF forces `incl?` false ⇒ `project-epochs?` true ⇒ every epoch
-        ;; record is projected; gate ON + `:include-sensitive true` ⇒
-        ;; records ship raw (the operator's deliberate opt-in).
-        project-epochs?   (not incl?)
+        ;; expanded to `:full`. The `:epochs` slice ALWAYS projects —
+        ;; same posture trace-window / watch-epochs use (rf2-6wvh5,
+        ;; rf2-m9duxl). rf2-m9duxl — `incl?` (the sensitive opt-in) NO
+        ;; LONGER bypasses the projection: it threads
+        ;; `{:include-sensitive? true}` INTO `projected-record` (app-db
+        ;; sensitive axis only), so the orthogonal fx-args / runtime-db /
+        ;; large axes and the app `:redact-fn` stay fail-closed. An epoch
+        ;; record never crosses the wire as a raw fx-arg / runtime-db
+        ;; payload, gate ON or OFF.
+        project-epochs?   true
         ;; EP-0001 (rf2-jj1xer · Mike ruling #14) — the `:machines` slice is
         ;; RUNTIME-DB-partition state (machine snapshots now live in the
         ;; durable runtime-db partition, not app-db — rf2-vzld77). Per Spec
@@ -162,7 +165,11 @@
                                (if project-epochs?
                                  (str " fmap (if (contains? fmap :epochs)"
                                       "        (update fmap :epochs"
-                                      "                (fn [es] " (egress/project-page-src "es" true) ")) fmap)")
+                                      ;; rf2-m9duxl — thread `incl?` so the
+                                      ;; `:include-sensitive` opt-in routes
+                                      ;; THROUGH the projection (app-db
+                                      ;; sensitive axis only), never around it.
+                                      "                (fn [es] " (egress/project-page-src "es" incl?) ")) fmap)")
                                  "")
                                (if redact-runtime-db?
                                  (str " fmap (if (contains? fmap :machines)"
