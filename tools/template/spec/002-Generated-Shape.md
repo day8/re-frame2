@@ -276,5 +276,5 @@ GitHub Release is cut.
   migration plan that established the current resource shape.
 - [DESIGN-RATIONALE.md §1](DESIGN-RATIONALE.md#1--deps-new-over-clj-new)
   — why deps-new + git-coord over clj-new + Clojars.
-- [Guide chapter 03 — Your first app](../../../docs/guide/03-first-app.md)
+- [Quickstart — your first app](../../../docs/guide/quickstart.md)
   — the counter walkthrough the generated app aligns with.

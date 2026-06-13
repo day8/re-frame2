@@ -110,7 +110,7 @@ registration are the same regardless of view library.
 Every variant emits a working counter. The counter is the same
 shape the developer reads about in:
 
-- [Guide chapter 03 — Your first app](../../../docs/guide/03-first-app.md)
+- [Quickstart — your first app](../../../docs/guide/quickstart.md)
   — the friendly walkthrough.
 - [`examples/reagent/counter/`](../../../examples/reagent/counter/) —
   the canonical Reagent counter.
