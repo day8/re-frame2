@@ -419,7 +419,9 @@ A requirement means **ensure + deliver**; the full satisfaction algorithm (prese
 
 ### Collisions
 
-A coeffect id registration colliding with another registered coeffect id (one registry, one id-namespace), with the fold's argument keys (`:db`, `:event`), or an application id under an `rf.`-prefixed namespace is a hard registration-time error `:rf.error/cofx-name-collision`. No per-handler or dispatch-time collision rules are needed: the requires-vs-inject double-delivery is unexpressible (`inject-cofx` is removed) and an undeclared supplied leaf is never staged (declared-only delivery).
+A coeffect id registration colliding with another registered coeffect id (one registry, one id-namespace) or with the fold's argument keys (`:db`, `:event`) is a hard registration-time error `:rf.error/cofx-name-collision`. No per-handler or dispatch-time collision rules are needed: the requires-vs-inject double-delivery is unexpressible (`inject-cofx` is removed) and an undeclared supplied leaf is never staged (declared-only delivery).
+
+The owner-qualified fact-naming rule — application coeffect ids MUST NOT register under an `rf.`-prefixed namespace ([Conventions §Recordable-coeffect fact naming](Conventions.md#recordable-coeffect-fact-naming-rfcofx)) — is a **lint/tooling diagnostic, not a registration-time guard**: `reg-cofx` does **not** reject an `rf.`-prefixed id, because the framework and its subsystems legitimately register many `:rf.*` coeffect ids and the registration site cannot structurally tell an app id from a framework/subsystem one. The recommended cofx lint ([EP-0017 §9](../docs/EP/EP-0017-recordable-coeffects.md#9-reflection-trace-and-tooling)) is the enforcement surface — the same status the `(random-uuid)`-in-payload idiom has today.
 
 ## `:doc` is dev-warned when absent
 
