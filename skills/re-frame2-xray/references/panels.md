@@ -112,10 +112,12 @@ step order, per `panels/epoch/projection.cljc`'s `project` (§021 §9.1.3):
 
 1. **DISPATCH** — always present (every epoch starts here). Event vector,
  origin tag, call-site (open-in-editor).
-2. **COEFFECT** — **one numbered step per user-injected coeffect**
- (system defaults `:db / :event / :frame / :source / :trace-id` are
- filtered at projection time). A cofx that threw on injection gets a
- synthesised placeholder step so its exception card has a home.
+2. **COEFFECT** — **one numbered step per handler-declared coeffect**
+ (the framework defaults `:db / :event / :source / :trace-id /
+ :rf.db/runtime / :rf.frame/id / :rf.cofx` are filtered at projection
+ time, so the lens shows only declared leaves). A cofx supplier that
+ threw while delivering its value gets a synthesised placeholder step so
+ its exception card has a home.
 3. **INTERCEPTOR** — **conditional, exception-only**: rendered ONLY when a
  user interceptor threw this cascade (the substrate emits no
  per-interceptor "ran" trace, so a clean chain shows nothing). One row
@@ -126,8 +128,8 @@ step order, per `panels/epoch/projection.cljc`'s `project` (§021 §9.1.3):
  (`:reg-event-db` → `:db` diff · `:reg-event-fx` → `:db` + per-fx ·
  `:reg-machine` → the time-ordered machine cascade). Rendered
  as **SKIPPED** (⊘) when an upstream `:before`-chain throw — a coeffect
- injector or a `:before` interceptor — aborted the cascade before the
- handler ran (NOT "ran, returned no :db").
+ supplier that threw while delivering, or a `:before` interceptor —
+ aborted the cascade before the handler ran (NOT "ran, returned no :db").
 5. **FLOW** — one numbered step per flow that fired (the t1→t2 reshape as
  the flow's own `:db` diff). Only when flows fired.
 6. **EFFECT HANDLERS** — a flat per-effect ledger (see §EFFECT HANDLERS below).
