@@ -798,10 +798,24 @@
                       ordered))))))))
 
 (defn- clear-flow-output-marks!
-  "Drop `flow-id`'s `:source :flow` declarations from `frame-id`'s app-db
-  elision registry. Called on `clear-flow` and frame-destroy teardown so a
-  deregistered flow leaves no orphaned redaction declaration behind.
-  Schema- and marks-sourced entries survive."
+  "Drop `flow-id`'s `:source :flow` declarations from `frame-id`'s elision
+  registry. Called on `clear-flow` (`registry.cljc` §clear-flow) so a
+  *single* deregistered flow leaves no orphaned redaction declaration behind
+  while its frame and the frame's other flows live on. Schema- and
+  marks-sourced entries survive.
+
+  NOT called on frame-destroy teardown (`teardown-on-frame-destroy!`),
+  and deliberately so: the elision registry lives in the frame's runtime-db
+  partition at `[:rf.runtime/elision]` (re-frame.elision §registry-of),
+  INSIDE the one physical `:frame-state` container held under the frame
+  record. `destroy-frame!` step 6 (`frame.cljc` §dissoc-frame!) drops that
+  whole frame record — container, runtime-db partition, and every
+  `:source :flow` declaration with it — so a per-flow registry scrub at
+  teardown would be redundant work over state that is about to be GC'd.
+  A reused frame-id starts from a FRESH empty container
+  (`frame.cljc` §new-frame-record), so a destroyed/reused frame can never
+  observe a prior incarnation's stale flow-sourced declaration. See
+  `flows_destroy_frame_teardown_test` §destroy-frame-drops-flow-output-marks."
   [frame-id flow-id]
   (elision/swap-elision-slot! frame-id
     (fn [reg]
@@ -1340,6 +1354,25 @@
       onto the registrar entry was the destroyed frame whenever it was
       the most-recent registrant — leaving that metadata pointing at the
       dead frame staled registrar-backed tooling / hot-reload.
+
+   NO explicit flow-output elision-mark scrub (rf2-yt5bbl). Unlike
+   `clear-flow` — which removes ONE flow's `:source :flow` declarations
+   while its frame lives on (hence its `clear-flow-output-marks!` call) —
+   frame-destroy drops the WHOLE frame. The elision registry lives in the
+   frame's runtime-db partition at `[:rf.runtime/elision]`
+   (`re-frame.elision` §registry-of), INSIDE the one physical
+   `:frame-state` container held under the frame record; `destroy-frame!`
+   step 6 (`frame.cljc` §dissoc-frame!) `(swap! frames dissoc id)` drops
+   that whole record — container, runtime-db, and every `:source :flow`
+   declaration — so the marks are gone with the frame and a per-flow scrub
+   here would be redundant work over about-to-be-GC'd state. The
+   teardown hook runs BEFORE step 6 (`frame.cljc:1711` then `:1757`), but
+   that ordering is moot: nothing observes the (still-live) elision slot
+   between the hook and the dissoc, and a reused frame-id gets a FRESH
+   empty container (`frame.cljc` §new-frame-record), so a destroyed/reused
+   frame can never observe a prior incarnation's stale flow-sourced
+   declaration. Pinned by
+   `flows_destroy_frame_teardown_test` §destroy-frame-drops-flow-output-marks.
 
    Idempotent against a frame the registry never recorded (a frame
    destroy before any `reg-flow`). Published via the

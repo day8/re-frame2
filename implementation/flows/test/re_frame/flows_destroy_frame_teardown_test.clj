@@ -17,6 +17,7 @@
   artefact publishes for `frame/destroy-frame!`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.elision :as elision]
             [re-frame.flows :as flows]
             ;; Loading `re-frame.flows` registers the late-bind hook
             ;; (`:flows/teardown-on-frame-destroy!`) the tests exercise —
@@ -244,6 +245,82 @@
         "the new frame has no inherited last-inputs row")
     (is (nil? (registrar/lookup :flow :area))
         "the new frame has no inherited :flow registrar slot")))
+
+;; ---- rf2-yt5bbl: flow-output elision marks ride the frame-record drop -----
+;;
+;; `clear-flow` scrubs ONE flow's `:source :flow` elision declarations via
+;; `clear-flow-output-marks!` while its frame lives on. Frame-destroy does NOT
+;; call that scrub — and deliberately so: the elision registry lives in the
+;; frame's runtime-db partition (`[:rf.runtime/elision]`) INSIDE the one
+;; physical `:frame-state` container held under the frame record, and
+;; `destroy-frame!` step 6 (`dissoc-frame!`) drops that whole record. These
+;; tests pin the chosen contract: a destroyed frame cannot observe its
+;; flow-sourced declarations, and a reused frame-id starts with NONE.
+
+(deftest destroy-frame-drops-flow-output-marks
+  (testing "Per rf2-yt5bbl: destroying a frame makes its flow-output elision
+            marks unobservable — both :sensitive (sensitive-declarations) and
+            :large (declarations) flow-sourced entries vanish with the frame
+            record, with no explicit teardown scrub"
+    (rf/reg-frame :fc/scratch {:doc "scratch frame for flow-output-mark teardown"})
+    (rf/reg-flow {:id        :creds
+                  :inputs    [[:n]]
+                  :output    (fn [n] {:secret n})
+                  :path      [:derived :creds]
+                  :sensitive [[:secret]]}
+                 {:frame :fc/scratch})
+    (rf/reg-flow {:id     :blob
+                  :inputs [[:n]]
+                  :output (fn [n] {:bytes n})
+                  :path   [:derived :blob]
+                  :large? true}
+                 {:frame :fc/scratch})
+    ;; Precondition: the flow-sourced declarations are installed in the LIVE
+    ;; frame's elision registry (the same surface flows_output_marks_test
+    ;; reads). The sensitive subpath roots at :path ++ [:secret]; the large
+    ;; whole-output mark roots at :path.
+    (is (contains? (elision/sensitive-declarations :fc/scratch) [:derived :creds :secret])
+        "precondition: the :sensitive flow declaration is installed")
+    (is (contains? (elision/declarations :fc/scratch) [:derived :blob])
+        "precondition: the :large flow declaration is installed")
+    (frame/destroy-frame! :fc/scratch)
+    ;; Post-destroy: `registry-of` reads the destroyed frame's container,
+    ;; which `dissoc-frame!` removed, so both reader fns return {} — the
+    ;; flow-sourced declarations are unobservable, no explicit scrub needed.
+    (is (nil? (frame/frame :fc/scratch))
+        "the frame record is gone after destroy-frame!")
+    (is (= {} (elision/sensitive-declarations :fc/scratch))
+        "the destroyed frame exposes no flow-sourced sensitive declarations")
+    (is (= {} (elision/declarations :fc/scratch))
+        "the destroyed frame exposes no flow-sourced large declarations")))
+
+(deftest reg-frame-after-destroy-observes-no-stale-flow-output-marks
+  (testing "Per rf2-yt5bbl (adversarial): a frame-id reused after a destroy
+            that left flow-output marks behind starts with a FRESH empty
+            container — the second incarnation observes NONE of the first
+            incarnation's flow-sourced elision declarations. This is the
+            regression guard for the teardown contract: the marks must not
+            leak across a destroy→reuse cycle even though teardown runs no
+            explicit elision scrub"
+    ;; First incarnation: register a flow whose output is whole-sensitive.
+    (rf/reg-frame :fc/scratch {:doc "first incarnation"})
+    (rf/reg-flow {:id                           :token
+                  :inputs                       [[:n]]
+                  :output                       (fn [n] {:jwt n})
+                  :path                         [:auth :token]
+                  :rf.egress/output-sensitivity :rf.egress/sensitive}
+                 {:frame :fc/scratch})
+    (is (contains? (elision/sensitive-declarations :fc/scratch) [:auth :token])
+        "precondition: the first incarnation installed a whole-output sensitive mark")
+    (frame/destroy-frame! :fc/scratch)
+    ;; Second incarnation under the SAME id — a brand-new frame-state container.
+    (rf/reg-frame :fc/scratch {:doc "second incarnation"})
+    (is (= {} (elision/sensitive-declarations :fc/scratch))
+        "the reused frame inherited no sensitive flow-sourced declaration")
+    (is (= {} (elision/declarations :fc/scratch))
+        "the reused frame inherited no large flow-sourced declaration")
+    (is (not (contains? (elision/sensitive-declarations :fc/scratch) [:auth :token]))
+        "specifically: the first incarnation's [:auth :token] mark did not survive")))
 
 ;; ---- rf2-zbxvqj: reg-flow must not resurrect stale flows on a dead frame --
 ;;
