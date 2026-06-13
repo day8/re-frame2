@@ -3,9 +3,11 @@
   EP-0014 Reference Implementation Plan item 9 + §Validation / Conformance;
   spec/Derivations.md §Conformance).
 
-  EP-0014's whole point is ONE derivation/process vocabulary across SIX
-  plural source forms — `reg-sub`, `reg-runtime-sub`, `reg-flow`,
-  `reg-resource`, `reg-route`, `reg-machine` — so a tool reads ONE graph
+  EP-0014's whole point is ONE derivation/process vocabulary across the FIVE
+  graph families — subscriptions (`reg-sub`, which folds `reg-runtime-sub`
+  under the same subs contributor), flows (`reg-flow`), resources
+  (`reg-resource`), route facts (`reg-route`), and machines (`reg-machine`)
+  — so a tool reads ONE graph
   (`{:mode :nodes :edges}`) and a maintainer answers ONE question
   consistently: where does this fact come from, when is it evaluated, where
   does it live, and who owns it? Each family already exposes its OWN algebra
