@@ -412,8 +412,8 @@
       (drain-in-flight? (:frame-record frame-result))
       {:outcome :fail
        :op      :rf.epoch/restore-during-drain
-       :tags    {:frame    frame-id
-                 :epoch-id epoch-id}}
+       :tags    {:frame       frame-id
+                 :rf.epoch/id epoch-id}}
 
       :else
       (let [history (state/history-for frame-id)
@@ -424,7 +424,7 @@
           {:outcome :fail
            :op      :rf.epoch/restore-unknown-epoch
            :tags    {:frame        frame-id
-                     :epoch-id     epoch-id
+                     :rf.epoch/id  epoch-id
                      :history-size (count history)}}
 
           ;; (3a) Halted-cascade target? Per rf2-v0jwt: an epoch whose
@@ -437,7 +437,7 @@
           {:outcome :fail
            :op      :rf.epoch/restore-non-ok-record
            :tags    {:frame       frame-id
-                     :epoch-id    epoch-id
+                     :rf.epoch/id epoch-id
                      :outcome     (:outcome epoch)
                      :halt-reason (:halt-reason epoch)}}
 
@@ -469,7 +469,7 @@
               {:outcome :fail
                :op      :rf.epoch/restore-schema-mismatch
                :tags    {:frame                  frame-id
-                         :epoch-id               epoch-id
+                         :rf.epoch/id            epoch-id
                          :schema-digest-recorded (:schema-digest epoch)
                          :schema-digest-current  (assembly/current-schema-digest frame-id)
                          :failing-paths          (vec failing-paths)}}
@@ -478,9 +478,9 @@
                 ;; (5) Missing handler referenced from runtime-db?
                 {:outcome :fail
                  :op      :rf.epoch/restore-missing-handler
-                 :tags    {:frame    frame-id
-                           :epoch-id epoch-id
-                           :missing  (vec missing)}}
+                 :tags    {:frame       frame-id
+                           :rf.epoch/id epoch-id
+                           :missing     (vec missing)}}
 
                 (if-let [{:keys [machine-id machine-type recorded current]} (machine-version-mismatch runtime-target)]
                   ;; (6) Machine snapshot version drift?
@@ -493,7 +493,7 @@
                   {:outcome :fail
                    :op      :rf.epoch/restore-version-mismatch
                    :tags    (cond-> {:frame            frame-id
-                                     :epoch-id         epoch-id
+                                     :rf.epoch/id      epoch-id
                                      :machine-id       machine-id
                                      :version-recorded recorded
                                      :version-current  current}
@@ -704,8 +704,8 @@
                                           {:kind :frame :frame frame-id})
               false)
           (do (trace/emit! :rf.epoch :rf.epoch/restored
-                           {:frame    frame-id
-                            :epoch-id (:epoch-id epoch)})
+                           {:frame       frame-id
+                            :rf.epoch/id (:epoch-id epoch)})
               ;; rf2-obi8rr — the install succeeded, so it is now safe to emit
               ;; the resources restore-reconcile success rows the reconcile
               ;; deferred. A destroyed-frame install (nil branch above) returns

@@ -725,9 +725,9 @@
       (let [events @recorded]
         (is (some (fn [ev]
                     (and (= :rf.epoch/restored (:operation ev))
-                         (= target-eid (:epoch-id (:tags ev)))))
+                         (= target-eid (:rf.epoch/id (:tags ev)))))
                   events)
-            ":rf.epoch/restored fired with the matching epoch-id")))))
+            ":rf.epoch/restored fired with the matching :rf.epoch/id")))))
 
 ;; ---- frame-state snapshot/restore (EP-0001 rf2-3aizt1, decision #2 + #9) ---
 
@@ -993,7 +993,7 @@
       (let [events @recorded
             ev     (some #(when (= :rf.epoch/restore-unknown-epoch (:operation %)) %) events)]
         (is (some? ev) ":rf.epoch/restore-unknown-epoch fired")
-        (is (= :no-such-epoch (:epoch-id (:tags ev))))
+        (is (= :no-such-epoch (:rf.epoch/id (:tags ev))))
         (is (number? (:history-size (:tags ev))))))))
 
 (deftest restore-failure-schema-mismatch
@@ -3082,6 +3082,123 @@
           "skip-ops catalogue matches the documented set of
            out-of-cascade :rf.epoch/* + :rf.warning/* emits"))))
 
+;; ---- restore trace-tag :rf.epoch/id golden guard (rf2-5wzfez) ---------------
+;;
+;; Spec 009 §Instrumentation and Spec-Schemas reserve the namespaced
+;; `:rf.epoch/id` key for the epoch-id slot on EVERY `:rf.epoch/*` trace tag
+;; (Spec-Schemas `Restore{UnknownEpoch,SchemaMismatch,MissingHandler,
+;; VersionMismatch,DuringDrain}Tags` + `DbReplacedTags`). The restore
+;; success (`:rf.epoch/restored`) and the precondition-failure traces had
+;; drifted to an unqualified `:epoch-id` alias, splitting the contract so a
+;; trace consumer keyed off the Spec-Schemas vocabulary could not correlate a
+;; restore success/failure trace with its epoch record. This golden guard
+;; drives one restore SUCCESS and two restore FAILURE paths, validates each
+;; emitted tag map against the Spec-Schemas key-set, and — adversarially —
+;; fails loudly if ANY restore-family trace tag ever carries the unqualified
+;; `:epoch-id` again.
+
+(defn- restore-tag-event
+  "Find the first listener event whose `:operation` is `op`."
+  [events op]
+  (some (fn [ev] (when (= op (:operation ev)) ev)) events))
+
+(deftest restore-trace-tags-use-namespaced-epoch-id
+  (testing "every restore-family trace tag carries :rf.epoch/id (Spec 009 /
+            Spec-Schemas) and never the unqualified :epoch-id alias"
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (rf/dispatch-sync [:inc]  {:frame :test/main})
+
+    (let [history    (rf/epoch-history :test/main)
+          target     (first history)            ;; the :seed epoch ({:n 0})
+          target-eid (:epoch-id target)
+          recorded   (record-trace!)]
+
+      ;; (A) SUCCESS path — :rf.epoch/restored.
+      (is (true? (rf/restore-epoch :test/main target-eid))
+          "restore to a valid epoch succeeds")
+
+      ;; (B) FAILURE path 1 — unknown epoch.
+      (is (false? (rf/restore-epoch :test/main :no-such-epoch))
+          "restore to an absent epoch is rejected")
+
+      ;; (C) FAILURE path 2 — restore refused mid-drain.
+      (let [drain-attempt (atom nil)]
+        (rf/reg-event-db :try-restore
+          (fn [db _]
+            (reset! drain-attempt (rf/restore-epoch :test/main target-eid))
+            db))
+        (rf/dispatch-sync [:try-restore] {:frame :test/main})
+        (is (false? @drain-attempt)
+            "restore from inside a drain is rejected"))
+
+      (let [events   @recorded
+            restored (restore-tag-event events :rf.epoch/restored)
+            unknown  (restore-tag-event events :rf.epoch/restore-unknown-epoch)
+            drain    (restore-tag-event events :rf.epoch/restore-during-drain)]
+
+        ;; --- success: :rf.epoch/restored ---
+        (is (some? restored) ":rf.epoch/restored fired on the success path")
+        (is (= target-eid (:rf.epoch/id (:tags restored)))
+            ":rf.epoch/restored carries the restored epoch's id under :rf.epoch/id")
+        (is (= :test/main (:frame (:tags restored))))
+
+        ;; --- failure: :rf.epoch/restore-unknown-epoch ---
+        (is (some? unknown) ":rf.epoch/restore-unknown-epoch fired")
+        (is (= :no-such-epoch (:rf.epoch/id (:tags unknown)))
+            "restore-unknown-epoch carries the requested id under :rf.epoch/id")
+        (is (= :test/main (:frame (:tags unknown))))
+        (is (number? (:history-size (:tags unknown))))
+
+        ;; --- failure: :rf.epoch/restore-during-drain ---
+        (is (some? drain) ":rf.epoch/restore-during-drain fired")
+        (is (= target-eid (:rf.epoch/id (:tags drain)))
+            "restore-during-drain carries the requested id under :rf.epoch/id")
+        (is (= :test/main (:frame (:tags drain))))
+
+        ;; --- golden key-set: each tag map's keys match the Spec-Schemas
+        ;;     definition for its op (the `:category` key is injected by
+        ;;     core's `emit-error!` on the failure paths — Spec-Schemas list
+        ;;     it; the success trace is op-type :rf.epoch and carries none). ---
+        (is (= #{:frame :rf.epoch/id} (set (keys (:tags restored))))
+            ":rf.epoch/restored tag key-set == Spec-Schemas (frame + :rf.epoch/id)")
+        (is (= #{:category :frame :rf.epoch/id :history-size}
+               (set (keys (:tags unknown))))
+            "restore-unknown-epoch tag key-set == Spec-Schemas RestoreUnknownEpochTags")
+        ;; restore-during-drain fires from INSIDE a live cascade, so the
+        ;; envelope's `stamp-cascade-id` adds `:rf.trace/dispatch-id` for
+        ;; correlation — that's an envelope concern, not part of the
+        ;; Spec-Schemas RestoreDuringDrainTags shape. Assert the contract
+        ;; keys are present and the alias is absent (the adversarial scan
+        ;; below pins the full no-:epoch-id invariant across every op).
+        (is (= #{:category :frame :rf.epoch/id}
+               (-> (:tags drain)
+                   (dissoc :rf.trace/dispatch-id)
+                   keys set))
+            "restore-during-drain contract keys == Spec-Schemas RestoreDuringDrainTags
+             (:recovery hoisted to envelope; :rf.trace/dispatch-id is cascade correlation)")
+
+        ;; --- ADVERSARIAL guard: NO restore-family trace tag may carry the
+        ;;     unqualified :epoch-id alias. Scan EVERY emitted :rf.epoch/*
+        ;;     event so a future restore failure mode cannot silently regress. ---
+        (let [restore-ops #{:rf.epoch/restored
+                            :rf.epoch/restore-unknown-epoch
+                            :rf.epoch/restore-schema-mismatch
+                            :rf.epoch/restore-missing-handler
+                            :rf.epoch/restore-version-mismatch
+                            :rf.epoch/restore-during-drain
+                            :rf.epoch/restore-non-ok-record}
+              leaked      (filter (fn [ev]
+                                    (and (restore-ops (:operation ev))
+                                         (contains? (:tags ev) :epoch-id)))
+                                  events)]
+          (is (empty? leaked)
+              (str "no restore-family trace tag may carry the unqualified "
+                   ":epoch-id alias; leaked ops: "
+                   (mapv :operation leaked))))))))
+
 ;; ---- destroyed-frame contract (rf2-d656) -----------------------------------
 ;;
 ;; Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656):
@@ -3982,7 +4099,7 @@
                        @recorded)]
           (is (some? ev) ":rf.epoch/restore-unknown-epoch fired")
           (is (= :test/main      (:frame (:tags ev))))
-          (is (= evicted-id      (:epoch-id (:tags ev))))
+          (is (= evicted-id      (:rf.epoch/id (:tags ev))))
           (is (= 3 (:history-size (:tags ev)))
               "history-size tag reflects the post-eviction size, not
                the pre-eviction count"))))))
