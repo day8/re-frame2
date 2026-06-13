@@ -1,37 +1,56 @@
 #!/usr/bin/env python3
-"""Eval-docs drift gate: `skills/re-frame2/evals/README.md` vs `evals.json` (rf2-r2xswa).
+"""Eval-docs drift gate: a packaged skill's `evals/README.md` vs its `evals.json`.
 
-The eval harness README carries a human-readable coverage table, a total
-eval count, and a per-dimension breakdown. Those are hand-maintained prose
-that silently fell behind the JSON once before (a seventh eval —
-`recipe-correctness-story-recorder-sensitive-login` — landed in `evals.json`
-while the README still said "Six evals … two evals per dimension"). A stale
-coverage table makes the validation story less trustworthy than the skill it
-guards: a maintainer can miss an eval, misread the dimension balance, or
-trust a count that no longer holds.
+The eval harness README of a skill carries a human-readable coverage table, a
+total eval count, and one or more per-axis tallies (per-dimension, and — for
+the two-kind improver harness — per-kind). Those are hand-maintained prose
+that silently fell behind the JSON before:
 
-This gate makes that drift impossible to ship. It parses `evals.json` as the
-source of truth and asserts the README agrees on three axes:
+  * `skills/re-frame2/evals` (rf2-r2xswa): a seventh eval
+    (`recipe-correctness-story-recorder-sensitive-login`) landed in `evals.json`
+    while the README still said "Six evals … two evals per dimension".
+  * `skills/re-frame2-improver/evals` (rf2-xw7ra9): the corpus grew to 26
+    total / 10 behavioural, but the top README / spec / authoring-prompt prose
+    still said "9 behavioural fixtures", silently dropping the false-positive
+    guard added by eval 26 (`behav-neg-diagnostic-time-read`). The original
+    gate was hard-coded to `skills/re-frame2/evals`, so it never saw the
+    improver drift.
 
-  A1  TOTAL COUNT      — the README's "<N> evals" sentence matches
-                         `len(evals)`.
-  A2  EVAL NAMES       — every eval `name` in the JSON appears in the README
-                         coverage table, and the table names no eval the JSON
-                         lacks (set equality). IDs are matched too so a row
-                         can't point at the wrong id.
-  A3  DIMENSION TALLY  — the README's per-dimension breakdown sentence states
-                         the same counts the JSON produces (e.g. "three
-                         recipe-correctness … two each for discovery and
-                         routing-correctness"). Counts are read as
-                         number-words OR digits.
+A stale coverage table makes the validation story less trustworthy than the
+skill it guards: a maintainer can miss an eval, misread the dimension balance,
+or trust a count that no longer holds; a re-authoring pass fed the stale
+authoring prompt would under-weight the missing fixtures.
+
+This gate makes that drift impossible to ship. It is **multi-target**: a
+`TARGETS` registry lists every packaged skill whose `evals/README.md` carries a
+coverage table, and for each one it parses `evals.json` as the source of truth
+and asserts the README agrees on three axes:
+
+  A1  TOTAL COUNT      — the README's total-count sentence matches the number
+                         of evals the JSON declares.
+  A2  EVAL NAMES       — every eval that the target expects in the coverage
+                         table appears there, the table names no eval the JSON
+                         lacks (set equality), and each table row's id matches
+                         the JSON id for that name.
+  A3  TALLIES          — every tally axis the target declares (per-dimension,
+                         and per-kind for the improver) states, in README
+                         prose, the same counts the JSON produces. Counts are
+                         read as number-words OR digits.
+
+Each target declares its own conventions (which evals appear in the table, how
+its total-count sentence reads, which tally axes it asserts), so two harnesses
+with different README shapes are both gated correctly. The `re-frame2` target
+keeps its original single-axis (per-dimension) semantics verbatim; the
+`re-frame2-improver` target adds the two-axis (per-kind + per-behavioural-
+dimension) shape and a behavioural-only coverage table.
 
 The gate is pure-Python-stdlib (no PyYAML / Node) to stay fast and
 CI-portable, mirroring the sibling `scripts/check_skill_*.py` gates. It does
-NOT validate `evals.json` schema beyond what it needs (id / name / dimension)
-— that is the harness runner's job.
+NOT validate `evals.json` schema beyond what it needs (id / name / kind /
+dimension) — that is the harness runner's job.
 
 Exit code:
-    0  no drift
+    0  no drift across all targets
     1  drift detected (printed; `::error::` under CI)
     2  invocation / setup error
 
@@ -41,7 +60,7 @@ Usage:
     python scripts/check_skill_eval_docs.py --ci          # CI-shaped
     python scripts/check_skill_eval_docs.py --self-test    # built-in fixtures
 
-rf2-r2xswa (finding 3).
+rf2-r2xswa (finding 3); generalised under rf2-xw7ra9.
 """
 
 from __future__ import annotations
@@ -52,13 +71,12 @@ import os
 import re
 import sys
 from collections import Counter
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-EVALS_DIR = REPO_ROOT / "skills" / "re-frame2" / "evals"
-EVALS_JSON = EVALS_DIR / "evals.json"
-EVALS_README = EVALS_DIR / "README.md"
+SKILLS_DIR = REPO_ROOT / "skills"
 
 # Force UTF-8 on output streams — the corpus carries → / em-dash etc. and the
 # default Windows console codec (cp1252) would crash on them.
@@ -68,14 +86,16 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):  # pragma: no cover
         pass
 
-# Number-words 0..20 (the eval counts live well within this range). Used for
-# both the total-count and the per-dimension-tally axes.
+# Number-words 0..30 (the eval counts live well within this range). Used for
+# both the total-count and the tally axes.
 _WORD_TO_INT = {
     "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
     "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
     "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
     "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19,
-    "twenty": 20,
+    "twenty": 20, "twenty-one": 21, "twenty-two": 22, "twenty-three": 23,
+    "twenty-four": 24, "twenty-five": 25, "twenty-six": 26,
+    "twenty-seven": 27, "twenty-eight": 28, "twenty-nine": 29, "thirty": 30,
 }
 _INT_TO_WORD = {v: k for k, v in _WORD_TO_INT.items()}
 
@@ -85,7 +105,92 @@ def _count_token(n: int) -> str:
     word = _INT_TO_WORD.get(n)
     if word is None:
         return str(n)
-    return rf"(?:{n}|{word})"
+    return rf"(?:{n}|{re.escape(word)})"
+
+
+# ---------------------------------------------------------------------------
+# Target configuration.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TallyAxis:
+    """One per-axis count breakdown the README must state in prose.
+
+    `field_name` is the eval field this axis tallies (e.g. "dimension" or
+    "kind"). `eval_filter`, if given, restricts the tally to a subset of evals
+    (e.g. only the behavioural evals for the improver's dimension axis). The
+    axis is matched against README prose as `<count> … <item-name>` within a
+    short window; the coverage TABLE is stripped first so a table row (which
+    carries a digit id AND a dimension/kind name) cannot satisfy the prose
+    check vacuously.
+    """
+
+    field_name: str
+    label: str = ""
+    eval_filter: Callable[[dict], bool] | None = None
+    # Items intentionally NOT asserted in prose (e.g. an axis value with no
+    # narrative count sentence). Empty == assert every item the JSON produces.
+    skip_items: frozenset[str] = field(default_factory=frozenset)
+
+
+@dataclass(frozen=True)
+class Target:
+    """A packaged skill whose evals/README.md is gated against its evals.json."""
+
+    slug: str
+    # README total-count sentence. A single capture group holds the count
+    # token (digit or number-word). Verified == len(evals).
+    total_count_re: re.Pattern
+    # Which evals are expected to appear as coverage-table rows. Default: all.
+    table_filter: Callable[[dict], bool] | None = None
+    # Per-axis count breakdowns asserted in prose.
+    tally_axes: tuple[TallyAxis, ...] = ()
+
+    @property
+    def evals_dir(self) -> Path:
+        return SKILLS_DIR / self.slug / "evals"
+
+    @property
+    def evals_json(self) -> Path:
+        return self.evals_dir / "evals.json"
+
+    @property
+    def evals_readme(self) -> Path:
+        return self.evals_dir / "README.md"
+
+
+# The `re-frame2` authoring harness: a single coverage table over ALL evals,
+# the "<N> evals, covering …" total sentence, and a per-`dimension` tally
+# ("four recipe-correctness … two each for discovery and routing-correctness").
+# This reproduces the original hard-coded semantics verbatim.
+_REFRAME2 = Target(
+    slug="re-frame2",
+    total_count_re=re.compile(r"\b([A-Za-z]+|\d+)\s+evals,\s+covering"),
+    table_filter=None,
+    tally_axes=(TallyAxis(field_name="dimension", label="dimension"),),
+)
+
+# The `re-frame2-improver` critique harness: a behavioural-only coverage table
+# (trigger fixtures are described in prose, not tabulated), a two-clause total
+# sentence ("Twenty-six evals: …"), and TWO tally axes — per-`kind`
+# (16 trigger / 10 behavioural) and per-behavioural-`dimension`
+# (6 critique-correctness / 3 false-positive-avoidance / 1 edit-gate).
+_IMPROVER = Target(
+    slug="re-frame2-improver",
+    total_count_re=re.compile(r"\b([A-Za-z][A-Za-z-]*|\d+)\s+evals[:,]"),
+    table_filter=lambda e: e.get("kind") == "behavioural",
+    tally_axes=(
+        TallyAxis(field_name="kind", label="kind"),
+        TallyAxis(
+            field_name="dimension",
+            label="behavioural dimension",
+            eval_filter=lambda e: e.get("kind") == "behavioural",
+        ),
+    ),
+)
+
+TARGETS: tuple[Target, ...] = (_REFRAME2, _IMPROVER)
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +210,7 @@ def load_evals(path: Path) -> list[dict]:
 # README parsing.
 # ---------------------------------------------------------------------------
 
-# Coverage-table rows: `| 7 | \`recipe-correctness-story-recorder-...\` | ... |`.
+# Coverage-table rows: `| 7 | \`recipe-correctness-story-recorder-...\` | … |`.
 # Capture the id (first cell) and the name (second cell, backtick-wrapped).
 _TABLE_ROW_RE = re.compile(
     r"^\|\s*(\d+)\s*\|\s*`([^`]+)`\s*\|", re.MULTILINE
@@ -120,12 +225,9 @@ def parse_readme_table(text: str) -> dict[int, str]:
     return rows
 
 
-def find_total_count(text: str) -> int | None:
-    """Pull the README's '<N> evals, covering ...' total-count assertion."""
-    m = re.search(
-        r"\b([A-Za-z]+|\d+)\s+evals,\s+covering",
-        text,
-    )
+def find_total_count(text: str, total_re: re.Pattern) -> int | None:
+    """Pull the README's total-count assertion via the target's pattern."""
+    m = total_re.search(text)
     if not m:
         return None
     tok = m.group(1).lower()
@@ -134,13 +236,9 @@ def find_total_count(text: str) -> int | None:
     return _WORD_TO_INT.get(tok)
 
 
-def dimension_tally(evals: list[dict]) -> Counter:
-    return Counter(e.get("dimension", "?") for e in evals)
-
-
 def _strip_table_rows(text: str) -> str:
-    """Drop markdown table rows so the per-dimension PROSE check doesn't read
-    a coverage-table row (e.g. `| 2 | … | discovery | …`) as the count
+    """Drop markdown table rows so the per-axis PROSE check doesn't read a
+    coverage-table row (e.g. `| 2 | … | discovery | …`) as the count
     statement. A row is any line whose first non-space char is `|`.
     """
     return "\n".join(
@@ -148,29 +246,53 @@ def _strip_table_rows(text: str) -> str:
     )
 
 
-def check_dimension_sentence(text: str, tally: Counter) -> list[str]:
-    """Return a list of human-readable problems with the per-dimension prose.
+def axis_tally(evals: list[dict], axis: TallyAxis) -> Counter:
+    subset = (
+        [e for e in evals if axis.eval_filter(e)]
+        if axis.eval_filter
+        else evals
+    )
+    return Counter(e.get(axis.field_name, "?") for e in subset)
 
-    For each dimension present in the JSON, require the README to state its
-    count adjacent to the dimension name (digit or number-word). Phrasing is
-    free as long as `<count> ... <dimension>` co-occurs within a short window.
-    The coverage TABLE is stripped first — its rows carry both an id digit and
-    a dimension name and would otherwise satisfy this check vacuously.
+
+def check_axis_sentence(text: str, axis: TallyAxis, tally: Counter) -> list[str]:
+    """Return a list of human-readable problems with one axis's prose.
+
+    For each item present in the JSON (minus `skip_items`), require the README
+    to state its count adjacent to the item name (digit or number-word).
+    Phrasing is free as long as the item's count is the NEAREST count token
+    before the item name within a short window — so a packed sentence like
+    "2 trigger fixtures and 1 behavioural fixtures" cannot let the `2` satisfy
+    the `behavioural` check (the intervening `1` is the nearer, governing
+    count). The coverage TABLE is stripped first — its rows carry both an id
+    digit and a dimension/kind name and would otherwise satisfy this check
+    vacuously.
     """
     problems: list[str] = []
     low = _strip_table_rows(text).lower()
-    for dim, n in sorted(tally.items()):
+    label = axis.label or axis.field_name
+    # Any count token (digit or number-word) — used to forbid a NEARER count
+    # between the asserted count and the item name.
+    any_count = r"(?:\d+|" + "|".join(re.escape(w) for w in _WORD_TO_INT) + r")"
+    for item, n in sorted(tally.items()):
+        if item in axis.skip_items:
+            continue
         tok = _count_token(n)
-        # `<count>` then up to ~40 chars then the dimension name. The window
-        # absorbs phrasing like "three recipe-correctness evals" and
-        # "two each for discovery and routing-correctness".
-        pat = re.compile(rf"{tok}\b[^.]{{0,60}}?{re.escape(dim)}", re.IGNORECASE)
+        # `<count>` then up to ~60 chars (containing NO other count token) then
+        # the item name. The window absorbs phrasing like "three
+        # recipe-correctness evals" and "two each for discovery and
+        # routing-correctness" while rejecting a count that belongs to a
+        # neighbouring item.
+        pat = re.compile(
+            rf"{tok}\b(?:(?!{any_count}\b)[^.]){{0,60}}?{re.escape(item)}",
+            re.IGNORECASE,
+        )
         if not pat.search(low):
             problems.append(
-                f"dimension '{dim}' has {n} eval(s) in evals.json but the "
-                f"README's per-dimension breakdown does not state a count of "
+                f"{label} '{item}' has {n} eval(s) in evals.json but the "
+                f"README's per-{label} breakdown does not state a count of "
                 f"{n} for it (looked for '{n}'/'{_INT_TO_WORD.get(n, n)}' "
-                f"near '{dim}')"
+                f"near '{item}')"
             )
     return problems
 
@@ -180,19 +302,20 @@ def check_dimension_sentence(text: str, tally: Counter) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def check(evals_json: Path, readme: Path) -> list[str]:
-    """Return a list of drift findings (empty == clean)."""
+def _cross_check(evals: list[dict], text: str, target: Target) -> list[str]:
+    """Core cross-check of an in-memory (evals, README text) pair against a
+    target's conventions. Used by `check_target` (live files), `check` (the
+    back-compat single-target entry), and the self-test (synthetic fixtures).
+    """
     findings: list[str] = []
-    evals = load_evals(evals_json)
-    text = readme.read_text(encoding="utf-8")
 
     # A1 — total count.
     json_total = len(evals)
-    readme_total = find_total_count(text)
+    readme_total = find_total_count(text, target.total_count_re)
     if readme_total is None:
         findings.append(
-            "A1 total-count: could not find the README's '<N> evals, "
-            "covering …' sentence — the gate cannot verify the count."
+            "A1 total-count: could not find the README's total-eval-count "
+            "sentence — the gate cannot verify the count."
         )
     elif readme_total != json_total:
         findings.append(
@@ -200,10 +323,16 @@ def check(evals_json: Path, readme: Path) -> list[str]:
             f"evals.json has {json_total}."
         )
 
-    # A2 — eval names (and ids) set-equality between table and JSON.
-    json_by_id = {e.get("id"): e.get("name") for e in evals}
+    # A2 — eval names (and ids): set-equality between the coverage table and
+    # the evals the target expects to be tabulated.
+    table_evals = (
+        [e for e in evals if target.table_filter(e)]
+        if target.table_filter
+        else evals
+    )
+    json_by_id = {e.get("id"): e.get("name") for e in table_evals}
     table = parse_readme_table(text)
-    json_names = {e.get("name") for e in evals}
+    json_names = {e.get("name") for e in table_evals}
     table_names = set(table.values())
 
     for missing in sorted(json_names - table_names):
@@ -214,7 +343,7 @@ def check(evals_json: Path, readme: Path) -> list[str]:
     for extra in sorted(table_names - json_names):
         findings.append(
             f"A2 names: README coverage table lists '{extra}' but evals.json "
-            f"has no eval by that name."
+            f"has no (tabulated) eval by that name."
         )
     # id↔name agreement for rows whose id exists in both.
     for rid, rname in sorted(table.items()):
@@ -225,16 +354,36 @@ def check(evals_json: Path, readme: Path) -> list[str]:
                 f"id={rid} is '{jname}'."
             )
 
-    # A3 — dimension tally.
-    findings.extend(
-        f"A3 dimension: {p}" for p in check_dimension_sentence(text, dimension_tally(evals))
-    )
+    # A3 — tally axes.
+    for axis in target.tally_axes:
+        findings.extend(
+            f"A3 {axis.label or axis.field_name}: {p}"
+            for p in check_axis_sentence(text, axis, axis_tally(evals, axis))
+        )
 
     return findings
 
 
+def check_target(target: Target) -> list[str]:
+    """Return a list of drift findings for one target (empty == clean)."""
+    evals = load_evals(target.evals_json)
+    text = target.evals_readme.read_text(encoding="utf-8")
+    return _cross_check(evals, text, target)
+
+
+# Back-compat shim: the original single-target entry point, kept so any
+# external caller importing `check(json, readme)` still works. Uses the
+# `re-frame2` conventions (single coverage table, per-dimension tally).
+def check(evals_json: Path, readme: Path) -> list[str]:
+    """Single-target cross-check using the `re-frame2` conventions."""
+    evals = load_evals(evals_json)
+    text = readme.read_text(encoding="utf-8")
+    return _cross_check(evals, text, _REFRAME2)
+
+
 # ---------------------------------------------------------------------------
-# Self-test — synthetic README/JSON pairs exercising each axis.
+# Self-test — synthetic README/JSON pairs exercising each axis, plus a
+# multi-target fixture mirroring the improver's two-kind shape.
 # ---------------------------------------------------------------------------
 
 
@@ -243,6 +392,7 @@ def _run_self_test() -> int:
 
     failures = 0
 
+    # --- single-axis (re-frame2 shape) fixtures -----------------------------
     good_json = {
         "evals": [
             {"id": 1, "name": "a-disc", "dimension": "discovery"},
@@ -259,7 +409,7 @@ def _run_self_test() -> int:
         "Two discovery evals and one recipe-correctness eval.\n"
     )
 
-    def run(jobj: dict, rtext: str) -> list[str]:
+    def run_single(jobj: dict, rtext: str) -> list[str]:
         with tempfile.TemporaryDirectory() as td:
             jp = Path(td) / "evals.json"
             rp = Path(td) / "README.md"
@@ -267,7 +417,7 @@ def _run_self_test() -> int:
             rp.write_text(rtext, encoding="utf-8")
             return check(jp, rp)
 
-    cases: list[tuple[str, dict, str, bool]] = [
+    single_cases: list[tuple[str, dict, str, bool]] = [
         ("clean pair", good_json, good_readme, True),
         # Stale total count.
         ("bad total", good_json,
@@ -283,13 +433,88 @@ def _run_self_test() -> int:
          good_readme.replace("Two discovery evals", "One discovery eval"), False),
     ]
 
-    for label, jobj, rtext, want_clean in cases:
-        findings = run(jobj, rtext)
+    for label, jobj, rtext, want_clean in single_cases:
+        findings = run_single(jobj, rtext)
         is_clean = not findings
         if is_clean != want_clean:
             failures += 1
             print(
-                f"SELF-TEST FAIL: {label!r} expected "
+                f"SELF-TEST FAIL [single]: {label!r} expected "
+                f"{'clean' if want_clean else 'drift'}, got "
+                f"{'clean' if is_clean else findings}"
+            )
+
+    # --- two-axis (improver shape) fixtures ---------------------------------
+    # Behavioural-only coverage table; per-kind tally over ALL evals; per-
+    # behavioural-dimension tally over the behavioural subset only.
+    improver_json = {
+        "evals": [
+            {"id": 1, "kind": "trigger", "name": "t-one", "should_trigger": True},
+            {"id": 2, "kind": "trigger", "name": "t-two", "should_trigger": False},
+            {"id": 3, "kind": "behavioural", "name": "b-corr",
+             "dimension": "critique-correctness"},
+            {"id": 4, "kind": "behavioural", "name": "b-neg",
+             "dimension": "false-positive-avoidance"},
+        ]
+    }
+    improver_readme = (
+        "## Coverage\n\n"
+        "Four evals: 2 trigger fixtures and 2 behavioural fixtures.\n\n"
+        "### Behavioural fixtures\n\n"
+        "| ID | Name | Dimension | What |\n|---:|---|---|---|\n"
+        "| 3 | `b-corr` | critique-correctness | x |\n"
+        "| 4 | `b-neg` | false-positive-avoidance | y |\n\n"
+        "One critique-correctness eval and one false-positive-avoidance eval.\n"
+    )
+
+    improver_target = Target(
+        slug="<self-test-improver>",
+        total_count_re=_IMPROVER.total_count_re,
+        table_filter=_IMPROVER.table_filter,
+        tally_axes=_IMPROVER.tally_axes,
+    )
+
+    def run_target(t: Target, jobj: dict, rtext: str) -> list[str]:
+        # Exercise the shared core against synthetic in-memory fixtures, with
+        # the same conventions a live target would use.
+        return _cross_check(jobj["evals"], rtext, t)
+
+    improver_cases: list[tuple[str, dict, str, bool]] = [
+        ("clean improver", improver_json, improver_readme, True),
+        # Stale total count (the rf2-xw7ra9 regression class: "9 behavioural").
+        ("bad total", improver_json,
+         improver_readme.replace("Four evals", "Five evals"), False),
+        # Stale per-kind tally (claim 1 behavioural when there are 2).
+        ("bad kind tally", improver_json,
+         improver_readme.replace("2 behavioural fixtures", "1 behavioural fixtures"), False),
+        # Stale per-behavioural-dimension tally.
+        ("bad behav-dim tally", improver_json,
+         improver_readme.replace(
+             "One critique-correctness eval", "Two critique-correctness evals"), False),
+        # A new behavioural eval in JSON but absent from the table.
+        ("missing behav row", {
+            "evals": improver_json["evals"] + [
+                {"id": 5, "kind": "behavioural", "name": "b-edit",
+                 "dimension": "edit-gate"}],
+        }, improver_readme.replace("Four evals", "Five evals"), False),
+        # A trigger eval must NOT be required in the behavioural-only table:
+        # adding a trigger eval (and bumping the count + kind tally) stays clean.
+        ("trigger not tabulated", {
+            "evals": improver_json["evals"] + [
+                {"id": 5, "kind": "trigger", "name": "t-three",
+                 "should_trigger": True}],
+        }, improver_readme
+            .replace("Four evals", "Five evals")
+            .replace("2 trigger fixtures", "3 trigger fixtures"), True),
+    ]
+
+    for label, jobj, rtext, want_clean in improver_cases:
+        findings = run_target(improver_target, jobj, rtext)
+        is_clean = not findings
+        if is_clean != want_clean:
+            failures += 1
+            print(
+                f"SELF-TEST FAIL [two-axis]: {label!r} expected "
                 f"{'clean' if want_clean else 'drift'}, got "
                 f"{'clean' if is_clean else findings}"
             )
@@ -313,9 +538,9 @@ def _is_ci() -> bool:
 def main(argv: Iterable[str]) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Verify skills/re-frame2/evals/README.md coverage table, total "
-            "count, and per-dimension breakdown agree with evals.json "
-            "(rf2-r2xswa)."
+            "Verify every packaged skill's evals/README.md coverage table, "
+            "total count, and per-axis tallies agree with its evals.json "
+            "(rf2-r2xswa; generalised rf2-xw7ra9)."
         ),
     )
     parser.add_argument("--verbose", "-v", action="store_true")
@@ -330,37 +555,46 @@ def main(argv: Iterable[str]) -> int:
 
     ci = args.ci or _is_ci()
 
-    for p in (EVALS_JSON, EVALS_README):
-        if not p.is_file():
-            msg = f"required file not found: {p}"
+    # Setup check: every target's files must exist.
+    for target in TARGETS:
+        for p in (target.evals_json, target.evals_readme):
+            if not p.is_file():
+                msg = f"required file not found: {p} (target '{target.slug}')"
+                print(f"::error::{msg}" if ci else f"ERROR: {msg}", file=sys.stderr)
+                return 2
+
+    all_findings: list[tuple[str, str]] = []
+    for target in TARGETS:
+        try:
+            findings = check_target(target)
+        except (ValueError, json.JSONDecodeError) as e:
+            msg = f"failed to parse {target.evals_json}: {e}"
             print(f"::error::{msg}" if ci else f"ERROR: {msg}", file=sys.stderr)
             return 2
+        for f in findings:
+            all_findings.append((target.slug, f))
+        if args.verbose and not findings:
+            print(f"  [{target.slug}] no eval-docs drift.")
 
-    try:
-        findings = check(EVALS_JSON, EVALS_README)
-    except (ValueError, json.JSONDecodeError) as e:
-        msg = f"failed to parse evals.json: {e}"
-        print(f"::error::{msg}" if ci else f"ERROR: {msg}", file=sys.stderr)
-        return 2
-
-    if findings:
+    if all_findings:
         print(
-            f"Eval-docs drift detected ({len(findings)} "
-            f"finding{'' if len(findings) == 1 else 's'}):",
+            f"Eval-docs drift detected ({len(all_findings)} "
+            f"finding{'' if len(all_findings) == 1 else 's'}):",
             file=sys.stderr,
         )
-        for f in findings:
-            print(f"::error::{f}" if ci else f"ERROR: {f}", file=sys.stderr)
+        for slug, f in all_findings:
+            line = f"[{slug}] {f}"
+            print(f"::error::{line}" if ci else f"ERROR: {line}", file=sys.stderr)
         print(
-            "\nFix: update skills/re-frame2/evals/README.md (coverage table, "
-            "the '<N> evals' count, and the per-dimension breakdown) to match "
-            "skills/re-frame2/evals/evals.json. (rf2-r2xswa)",
+            "\nFix: update the named skill's evals/README.md (coverage table, "
+            "the total-eval-count sentence, and the per-axis breakdowns) to "
+            "match its evals/evals.json. (rf2-r2xswa / rf2-xw7ra9)",
             file=sys.stderr,
         )
         return 1
 
     if args.verbose:
-        print("No eval-docs drift detected.")
+        print(f"No eval-docs drift detected across {len(TARGETS)} target(s).")
     return 0
 
 
