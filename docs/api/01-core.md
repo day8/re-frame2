@@ -122,13 +122,22 @@ This is the surface every re-frame2 app touches. You're answering "what events c
 - **Kind**: macro
 - **Signature**:
   ```clojure
-  (reg-cofx id ?metadata handler)
+  (reg-cofx id ?metadata supplier)
   ```
-- **Description**: "Inject something into the handler's coeffect map." A `:now` cofx hands the current time; an `:rf.server/request` cofx hands the active HTTP request. Reading a sub from a handler is also done by cofx-wrapping — see [Guide ch.06 §Reading a subscription from a handler](../guide/concepts/effects-and-coeffects.md).
+- **Description**: "Register a named supplier for a world fact a handler can ask for." The supplier is a plain **value-returning** function — `(fn [] value)`, or `(fn [arg] value)` for ids parameterised at the call site — *not* a context-mutating fn. The runtime calls it and puts the result into the coeffects map under the cofx's id. A handler opts in with `:rf.cofx/requires` registration metadata; v2 has **no `inject-cofx` interceptor**. The middle slot carries the fact's grade: `{:recordable? true}` for a replayable fact, `{:recordable? true :provided? true}` for a recordable fact stamped by an owner boundary (no generator), a bare registration for an ambient (unrecorded) read. Reading a sub from a handler is done the same way — wrap `subscribe-once` in a cofx and declare it (see [Guide — Reading a subscription from a handler](../guide/concepts/effects-and-coeffects.md)). Full model: [Guide — Effects and coeffects](../guide/concepts/effects-and-coeffects.md).
 - **Example**:
   ```clojure
-  (rf/reg-cofx :app/now
-    (fn [ctx] (assoc-in ctx [:coeffects :app/now] (js/Date.now))))
+  ;; A value-returning supplier — quarantines an impure read behind a named id.
+  (rf/reg-cofx :ui/local-theme
+    {:doc "Ambient localStorage read for the display theme."}
+    (fn [storage-key]
+      (some-> (.-localStorage js/globalThis) (.getItem storage-key))))
+
+  ;; The handler declares the fact; the runtime supplies it flat in the coeffects map.
+  (rf/reg-event-fx :prefs/apply-theme
+    {:rf.cofx/requires [[:ui/local-theme "ui-theme"]]}
+    (fn [{:keys [db ui/local-theme]} _]
+      {:db (assoc db :ui/theme (or local-theme "system"))}))
   ```
 - **In the wild**: [todomvc](https://github.com/day8/re-frame2/tree/main/examples/reagent/todomvc)
 

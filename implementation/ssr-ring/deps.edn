@@ -27,7 +27,8 @@
 ;; Per Spec 011 §Request storage substrate, the adapter populates the
 ;; per-frame request slot via `re-frame.ssr/set-request!` before the
 ;; drain so the `:rf.server/request` cofx (rf2-e825b) surfaces the
-;; Ring request to handlers via `(inject-cofx :rf.server/request)`.
+;; Ring request to handlers that declare
+;; `{:rf.cofx/requires [:rf.server/request]}`.
 ;;
 ;; Consumers add this artefact alongside core and ssr:
 ;;

@@ -115,13 +115,13 @@ A thin wrapper around `:rf.http/managed` — one state spawns the request; succe
 
 ### Wiring into the SSR request
 
-The per-request frame is created by the host adapter; `:on-create` reads the URL (via `:rf.server/request` cofx — see [§Composition with `:rf.server/request`](#composition-with-rfserverrequest-cofx) below) and spawns the loader:
+The per-request frame is created by the host adapter; `:on-create` reads the URL (the `:rf.server/request` cofx — see [§Composition with `:rf.server/request`](#composition-with-rfserverrequest-cofx) below — declared via `:rf.cofx/requires`) and spawns the loader:
 
 ```clojure
 (rf/reg-event-fx :rf/server-init
-  {:doc       "Per-request boot for SSR. Reads the request URL, spawns the page loader."
-   :platforms #{:server}}
-  [(rf/inject-cofx :rf.server/request)]
+  {:doc              "Per-request boot for SSR. Reads the request URL, spawns the page loader."
+   :platforms        #{:server}
+   :rf.cofx/requires [:rf.server/request]}
   (fn handler-server-init [{:keys [rf.server/request]} _]
     (let [{:keys [product-id]} (route/match (:url request))]
       {:fx [[:rf.machine/spawn {:machine-id :pdp/load
@@ -145,8 +145,8 @@ Read the cofx **once**, at `:rf/server-init` — bind the values into the loader
 
 ```clojure
 (rf/reg-event-fx :rf/server-init
-  {:platforms #{:server}}
-  [(rf/inject-cofx :rf.server/request)]
+  {:platforms        #{:server}
+   :rf.cofx/requires [:rf.server/request]}
   (fn [{:keys [rf.server/request]} _]
     (let [{:keys [product-id]} (route/match (:url request))
           auth-token            (-> request :session :token)

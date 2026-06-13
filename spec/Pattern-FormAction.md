@@ -17,7 +17,7 @@ A six-step shape:
 
 1. **The HTML form** renders with `method="POST" action="/<route>"` and a hidden CSRF token. Standard Pattern-Forms slice drives the field values (server-rendered from `app-db`).
 2. **The host adapter receives the POST**. Per [011-SSR.md §HTTP response contract](011-SSR.md#http-response-contract), the host owns the wire layer; it MUST parse the request body (form-urlencoded or multipart), bind it to `*current-request*` under a `:form-params` slot, and create a per-request frame.
-3. **`:rf/server-init` dispatches** with `(inject-cofx :rf.server/request)`. The event reads `:request-method`, `:uri`, and `:form-params`; on POST it dispatches the domain event (e.g. `[:cart/add-item form-params]`); on GET it dispatches the standard page-load loader (Pattern-SSR-Loaders applies).
+3. **`:rf/server-init` dispatches**, declaring `{:rf.cofx/requires [:rf.server/request]}`. The event reads `:request-method`, `:uri`, and `:form-params` from the supplied request coeffect; on POST it dispatches the domain event (e.g. `[:cart/add-item form-params]`); on GET it dispatches the standard page-load loader (Pattern-SSR-Loaders applies).
 4. **The domain event handler validates** the form-params against the registered schema for the form ([010-Schemas.md §Validation timing](010-Schemas.md#validation-timing)). On schema failure, the handler writes structured errors into the form slice's `:errors` map (per [Pattern-Forms §Form slice](Pattern-Forms.md#the-form-slice)) and lets the drain settle; the standard SSR render reads the slice and emits the form again with errors. On schema success, the handler runs the side effect (DB write, external API call), then emits either `:rf.server/redirect` (success path) or writes a structural success flag plus the standard re-render.
 5. **The drain settles**, the SSR emitter runs (or is short-circuited by `:rf.server/redirect`), and the host adapter materialises the `[:rf/response]` accumulator.
 6. **Once JS hydrates**, the form's `:on-submit` handler intercepts the native submission, calls `(.preventDefault e)`, and dispatches the *same* domain event the server dispatched. The handler tree is identical; only the dispatch site differs.
@@ -79,9 +79,9 @@ The `action` attribute is what makes the form work without JS: the browser will 
 
 ```clojure
 (rf/reg-event-fx :rf/server-init
-  {:doc       "Per-request boot for SSR. Routes GET → page loader; POST → form action."
-   :platforms #{:server}}
-  [(rf/inject-cofx :rf.server/request)]
+  {:doc              "Per-request boot for SSR. Routes GET → page loader; POST → form action."
+   :platforms        #{:server}
+   :rf.cofx/requires [:rf.server/request]}
   (fn handler-server-init [{:keys [rf.server/request]} _]
     (let [{:keys [request-method uri form-params]} request
           route (route/match uri)]
@@ -96,10 +96,10 @@ The `action` attribute is what makes the form work without JS: the browser will 
 
 ```clojure
 (rf/reg-event-fx :cart/add-item
-  {:doc  "Add an item to the user's cart. Runs on both platforms; the POST entry point lives on the server."
-   :schema [:cat [:= :cart/add-item] AddToCartForm]}  ;; schema validates form-params per 010
-  [(rf/inject-cofx :rf.server/request)
-   (rf/inject-cofx :app.csrf/active-token)]    ;; app-owned cofx — see §CSRF
+  {:doc              "Add an item to the user's cart. Runs on both platforms; the POST entry point lives on the server."
+   :schema           [:cat [:= :cart/add-item] AddToCartForm]  ;; schema validates form-params per 010
+   :rf.cofx/requires [:rf.server/request                       ;; server request context
+                      :app.csrf/active-token]}                 ;; app-owned cofx — see §CSRF
   (fn [{:keys [db rf.server/request app.csrf/active-token]} [_ form-params]]
     (cond
       ;; CSRF first — fail loud before validating anything else.
@@ -213,10 +213,10 @@ The success/failure effects are the only platform-divergent slot. Apps express t
 
 The action handler's input is `form-params`, which the request cofx exposes per [011 §Server-only `reg-cofx` for request context](011-SSR.md#server-only-reg-cofx-for-request-context). Two patterns:
 
-- **Direct args**: `:rf/server-init` extracts `:form-params` from the request and dispatches it as the event's args vector — the handler reads via destructuring, no cofx required. Simpler, recommended for app-level action handlers.
-- **Cofx inject**: the handler itself `(inject-cofx :rf.server/request)` and reads `:form-params` from the cofx — useful when the handler also needs other request slots (session, headers, locale) without the dispatcher having to thread them through.
+- **Direct args**: `:rf/server-init` extracts `:form-params` from the request and dispatches it as the event's args vector — the handler reads via destructuring, no coeffect declaration required. Simpler, recommended for app-level action handlers.
+- **Declared coeffect**: the handler itself declares `{:rf.cofx/requires [:rf.server/request]}` and reads `:form-params` from the supplied request coeffect — useful when the handler also needs other request slots (session, headers, locale) without the dispatcher having to thread them through.
 
-Either is acceptable; the worked example above uses the direct-args form for the form fields and a cofx inject for CSRF (since CSRF is cross-cutting).
+Either is acceptable; the worked example above uses the direct-args form for the form fields and a declared `:rf.server/request` coeffect for CSRF (since CSRF is cross-cutting).
 
 ## Composition with the error projector
 
