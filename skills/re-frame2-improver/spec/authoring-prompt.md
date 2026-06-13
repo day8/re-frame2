@@ -27,7 +27,7 @@ A self-contained prompt that re-authors the `re-frame2-improver` skill from this
 > ├── package.json
 > ├── .claude-plugin/plugin.json
 > ├── evals/
-> │   ├── evals.json (8 should-trigger + 8 should-not-trigger + 9 behavioural critique fixtures)
+> │   ├── evals.json (8 should-trigger + 8 should-not-trigger + 10 behavioural critique fixtures)
 > │   └── README.md (coverage table + grading guidance + release threshold)
 > ├── references/
 > │   ├── README.md (catalogue index + locked five-section leaf format + growth procedure)

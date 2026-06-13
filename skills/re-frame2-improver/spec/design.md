@@ -99,7 +99,7 @@ skills/re-frame2-improver/
 ├── package.json (npm metadata)
 ├── .claude-plugin/plugin.json (Claude Code plugin metadata)
 ├── evals/
-│   ├── evals.json (8 should-trigger + 8 should-not-trigger + 9 behavioural critique fixtures)
+│   ├── evals.json (8 should-trigger + 8 should-not-trigger + 10 behavioural critique fixtures)
 │   └── README.md (coverage table + grading guidance + release threshold)
 ├── references/
 │   ├── README.md (catalogue index + locked leaf format + growth procedure)

@@ -73,7 +73,7 @@ If 1 holds but 2 doesn't — vocabulary about "my project" with no file, snippet
  - Higher-leverage redesigns always stay as suggestions — present the option, let the user decide.
 6. **Surface findings** in the output shape below.
 
-The diagnosis-first discipline, evidence-citation rules, layer-routing heuristics, untrusted-evidence boundary, universal-redaction rules, and opt-in bead / Edit protocol are shared with `re-frame2-pair-retro` — load the shared leaf at [`../shared/retro-protocol.md`](../shared/retro-protocol.md). The workflow above is the consuming view; the protocol leaf is the normative source for the Edit-gate split.
+The diagnosis-first discipline, evidence-citation rules, layer-routing heuristics, untrusted-evidence boundary, universal-redaction rules, and opt-in issue-filing / Edit protocol are shared with `re-frame2-pair-retro` — load the shared leaf at [`../shared/retro-protocol.md`](../shared/retro-protocol.md). The workflow above is the consuming view; the protocol leaf is the normative source for the Edit-gate split.
 
 ## Output format
 
@@ -96,10 +96,10 @@ If the in-scope code is too thin for findings, say so plainly and ask for a wide
 - Don't reduce every finding to "read the spec". The cross-link is supporting evidence; the finding must stand on its own with the symptom + suggested rewrite.
 - Don't apply `Edit` for higher-leverage redesigns or for any finding the user hasn't agreed to. Only canonical-idiom-shaped rewrites bypass the approval gate; evidence-shaped rewrites require explicit approval first, even when mechanical — full statement at §Workflow step 5 and the normative source [`../shared/retro-protocol.md` §Step 6](../shared/retro-protocol.md#the-seven-step-protocol).
 - Don't interrupt authoring with anti-pattern detections. The skill is pull-only; if the user is in the middle of writing code via `re-frame2`, wait for the pull.
-- Don't propose framework-shape changes here. If the friction is really a gap in re-frame2's Tool-Pair surface or spec, route the user toward filing a bead via the appropriate retro skill rather than rewriting their code. **Filing is delegated, not performed here** — this skill's `allowed-tools` deliberately omit a `gh` / issue-filing surface; it critiques code and hands framework-shape friction to the retro skill that owns filing.
+- Don't propose framework-shape changes here. If the friction is really a gap in re-frame2's Tool-Pair surface or spec, route the user toward filing a GitHub issue via the appropriate retro skill rather than rewriting their code. **Filing is delegated, not performed here** — this skill's `allowed-tools` deliberately omit a `gh` / issue-filing surface; it critiques code and hands framework-shape friction to the retro skill that owns filing.
 
 ## Reference files
 
 - [`references/`](references/) — anti-pattern catalogue (6 leaves resident at launch). Each leaf carries: detection rule, symptom example, canonical re-frame2 idiom, suggested rewrite, cross-link to `skills/re-frame2/patterns/` or `spec/`.
-- [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — shared retro protocol (seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in bead protocol). Consumed by both this skill and `re-frame2-pair-retro`.
+- [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — shared retro protocol (seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in issue-filing protocol). Consumed by both this skill and `re-frame2-pair-retro`.
 - [`spec/`](spec/) — skill-internal meta-docs (design rationale, canonical inputs, re-authoring prompt). Not loaded during normal operation; exists to re-author the skill from committed inputs.

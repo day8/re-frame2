@@ -116,7 +116,7 @@ Every pattern that has a worked example is verified end-to-end by a Playwright s
 - The event names in your task scale to the example's `:feature/<verb>` naming.
 - The schema attachment points (`reg-app-schema` invocations) cover the same boundaries.
 
-If the example contradicts the leaf, **the example wins** — re-frame2's cardinal rule is that implementation is ground truth (per SKILL.md §Cardinal rules). File a bead against the spec; don't silently work around.
+If the example contradicts the leaf, **the example wins** — re-frame2's cardinal rule is that implementation is ground truth (per SKILL.md §Cardinal rules). Report the divergence upstream as a `day8/re-frame2` GitHub issue against the spec; don't silently work around.
 
 ## Step 4 — load the leaves
 
