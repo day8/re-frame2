@@ -13,7 +13,7 @@
    and views read them via the `:rf/machine-has-tag?` framework sub —
    same tag taxonomy as the state-machines walkthrough, only the
    substrate's hook idiom differs. The terminal `:locked-out` state is
-   surfaced as a non-interactive locked-account panel (rf2-q6bm7d).
+   surfaced as a non-interactive locked-account panel.
 
    `reg-view` stays Reagent-only; Helix components are plain `defnc`.
    There is no auto-injection."
@@ -82,7 +82,7 @@
 ;; elements. Without the optional trailing slot the `:cat` rejects every
 ;; reply with `:malli.core/input-remaining`, the boundary validation
 ;; fails BEFORE the machine handler runs, and the flow is stranded in
-;; `:submitting` (rf2-1gz14).
+;; `:submitting`.
 (def AuthLoginEvent
   [:cat [:= :auth.login/flow]
    [:or
@@ -104,11 +104,11 @@
    [:attempts {:default 0} :int]
    [:error    [:maybe :string]]])
 
-;; EP-0001 (rf2-vzld77): machine snapshots are runtime-db state, not app-db —
-;; an `reg-app-schema` on a machine-snapshot path validates nothing (app
-;; schemas validate the app-db partition only, Mike ruling #11). The
-;; machine's own `:data-schema` (attached below) is the snapshot-validation
-;; surface, so no app-schema reg applies to the login snapshot.
+;; Machine snapshots are runtime-db state, not app-db — a `reg-app-schema` on a
+;; machine-snapshot path validates nothing (app schemas validate the app-db
+;; partition only). The machine's own `:data-schema` (attached below) is the
+;; snapshot-validation surface, so no app-schema reg applies to the login
+;; snapshot.
 
 ;; ============================================================================
 ;; FX
@@ -127,12 +127,11 @@
   {:doc       "Demo override for `:rf.http/managed`. Identical behaviour
                to the Reagent and UIx examples' stub — delegates straight
                to the framework-shipped canned-success / canned-failure
-               fxs with `:after-ms` (rf2-j1mo4), so the framework defers
-               the reply via `:dispatch-later` (50 ms) — observable in
-               the tape, time-travel-safe, NOT raw `js/setTimeout`. The
-               `:after-ms` parameter collapses the former schedule-reply →
-               `:dispatch-later` → deliver-reply chain into one arg on the
-               same canned effect."
+               fxs with `:after-ms`, so the framework defers the reply via
+               `:dispatch-later` (50 ms) — observable in the tape,
+               time-travel-safe, NOT raw `js/setTimeout`. The `:after-ms`
+               parameter carries the schedule-reply → `:dispatch-later` →
+               deliver-reply chain as one arg on the canned effect."
    :platforms #{:server :client}}
   (fn fx-managed-login-demo [frame-ctx args-map]
     (let [{:keys [url body]} (:request args-map)
@@ -262,19 +261,17 @@
     ;; form for a locked-account panel and refuse further submits — same
     ;; tag + locked-panel pattern as the state-machines walkthrough. A
     ;; terminal lockout must be visible and non-interactive, not a live
-    ;; form (rf2-q6bm7d).
+    ;; form.
     {:tags #{:auth/locked}
      :meta {:terminal? true}}}})
 
-;; rf2-wgmipl — the machine + event-vector-schema shape: `reg-machine`'s
-;; event-`:schema` arity carries the event `:schema` (the `:where :event`
-;; boundary on the dispatched outer vector) alongside the machine spec.
-;; `reg-machine` is the single registration home — it stamps the
-;; `:rf/machine?` / `:rf/machine` metadata and (for a machine carrying a
-;; `:data-schema`) bridges its redaction marks, replacing the former
-;; hand-composed `reg-event-fx` + `make-machine-handler` form. The machine
-;; spec is the named `auth-login-machine` def above — the same def-then-
-;; register shape the Reagent and UIx login siblings use.
+;; The machine + event-vector-schema shape: `reg-machine`'s event-`:schema`
+;; arity carries the event `:schema` (the `:where :event` boundary on the
+;; dispatched outer vector) alongside the machine spec. `reg-machine` is the
+;; single registration home — it stamps the `:rf/machine?` / `:rf/machine`
+;; metadata and (for a machine carrying a `:data-schema`) bridges its redaction
+;; marks. The machine spec is the named `auth-login-machine` def above — the
+;; same def-then-register shape the Reagent and UIx login siblings use.
 (rf/reg-machine :auth.login/flow
   {:doc    "Login flow: idle → submitting → authed / error-shown / locked-out."
    :schema AuthLoginEvent}
@@ -290,8 +287,8 @@
 ;; `:rf/machine-has-tag?` framework sub in views below (per Spec 005
 ;; §State tags).
 
-;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state — read
-;; them through the framework `:rf/machine` sub.
+;; Machine snapshots are durable runtime-db state — read them through the
+;; framework `:rf/machine` sub.
 (rf/reg-sub :auth.login/state
   :<- [:rf/machine :auth.login/flow]
   (fn [snapshot _] (:state snapshot)))
@@ -396,11 +393,11 @@
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (react-dom-client/createRoot (js/document.getElementById "app"))))
-    ;; EP-0002 (rf2-9o48ih): wrap the render in the Helix `frame-provider` so the
-    ;; `use-subscribe` hook + the render-time `(rf/frame-handle)` capture in
-    ;; `login-form` resolve to `:rf/default` via React context. With NO provider
-    ;; the tree observes the no-provider sentinel and those reads raise
-    ;; `:rf.error/no-frame-context` (there is no `:rf/default` floor).
+    ;; Wrap the render in the Helix `frame-provider` so the `use-subscribe` hook
+    ;; + the render-time `(rf/frame-handle)` capture in `login-form` resolve to
+    ;; `:rf/default` via React context. With NO provider the tree observes the
+    ;; no-provider sentinel and those reads raise `:rf.error/no-frame-context`
+    ;; (there is no `:rf/default` floor).
     (.render @react-root
              ($ helix-adapter/frame-provider {:frame :rf/default}
                 ($ root-view)))))

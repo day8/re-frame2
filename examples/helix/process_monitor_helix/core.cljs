@@ -322,10 +322,9 @@
 ;; This matches the sibling notebook / dashboard_uix mount shape.
 (defonce react-root (atom nil))
 
-;; EP-0002 (rf2-9o48ih): under the carried invariant the runtime never
-;; synthesises a frame from absence — an app must establish its frame
-;; explicitly. `init!` installs the adapter (it does NOT create the frame),
-;; `reg-frame` registers the app frame, the boot dispatch runs under
+;; The runtime never synthesises a frame from absence — an app must establish
+;; its frame explicitly. `init!` installs the adapter (it does NOT create the
+;; frame), `reg-frame` registers the app frame, the boot dispatch runs under
 ;; `with-frame`, and the render is wrapped in the Helix `frame-provider` so the
 ;; `use-subscribe` hook and the render-time `(rf/frame-handle)` capture inside
 ;; `monitor` (the tick-loop arm/stop dispatches) resolve to the app frame via
