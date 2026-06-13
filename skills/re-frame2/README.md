@@ -1,6 +1,6 @@
 # re-frame2 (skill)
 
-> ↑ [`skills/`](../) — index of all six re-frame2 skills.
+> ↑ [`skills/`](../) — index of all eight re-frame2 skills.
 
 A `Skill` that helps `Claude Code` (and any Claude Agent SDK harness) **author re-frame2 ClojureScript applications**. Companion to [`re-frame2-pair`](../re-frame2-pair/) (which targets running apps) and [`re-frame2-setup`](../re-frame2-setup/) (which bootstraps new projects from scratch).
 
