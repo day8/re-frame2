@@ -730,23 +730,22 @@
         (finally
           (delete-recursively tmp))))))
 
-;; --- package.json byte-identical regression (rf2-sqqxj) ------------------
+;; --- package.json one-source byte-exact contract (rf2-sqqxj) -------------
 ;;
-;; The default and with-Story package.json sources were collapsed from
-;; two near-identical files into one `_shared/package.json` whose
-;; `description` parenthetical rides the `{{story-tag}}` subst var
-;; (`""` default / `", with Story playground"` under :include-story?).
-;; This test is the generate-both-and-diff proof: both emitted variants
-;; must be BYTE-IDENTICAL to the pre-refactor two-file output. The
-;; expected strings below are verbatim copies of the (now-deleted)
-;; pre-refactor `package_with_story.json` / `package.json` content, with
-;; the template's three subst vars resolved for the `acme/my-app`
-;; Reagent emission. If a future edit to the shared package.json or the
+;; The template emits package.json from a SINGLE `_shared/package.json`
+;; source whose `description` parenthetical rides the `{{story-tag}}`
+;; subst var (`""` default / `", with Story playground"` under
+;; :include-story?). This test is the generate-both-and-diff proof: both
+;; the default and the with-Story emission must be BYTE-EXACT against the
+;; expected literals below. The expected strings are the full resolved
+;; output for the `acme/my-app` Reagent emission (the template's three
+;; subst vars resolved), differing only in the `description`
+;; parenthetical. If a future edit to the shared package.json or the
 ;; story-tag derivation drifts the output, this fires.
 
 (def ^:private expected-package-json-default
-  "Verbatim pre-refactor `_shared/package.json` emission for
-  `acme/my-app` on the Reagent default path (subst vars resolved)."
+  "Expected `_shared/package.json` emission for `acme/my-app` on the
+  Reagent default path (`:include-story? false`, subst vars resolved)."
   (str "{\n"
        "  \"name\": \"acme/my-app\",\n"
        "  \"version\": \"0.1.0\",\n"
@@ -767,9 +766,9 @@
        "}\n"))
 
 (def ^:private expected-package-json-with-story
-  "Verbatim pre-refactor `_shared/package_with_story.json` emission for
-  `acme/my-app` on the Reagent :include-story? true path — identical to
-  the default save for the `description` parenthetical."
+  "Expected `_shared/package.json` emission for `acme/my-app` on the
+  Reagent `:include-story? true` path — identical to the default save
+  for the `{{story-tag}}`-driven `description` parenthetical."
   (str "{\n"
        "  \"name\": \"acme/my-app\",\n"
        "  \"version\": \"0.1.0\",\n"
@@ -799,9 +798,9 @@
   (string/replace s "\r" ""))
 
 (deftest package-json-story-tag-byte-identical-test
-  (testing "the {{story-tag}}-driven single package.json emits the same
-            content as the pre-refactor two-file split, on both the
-            default and :include-story? true paths (rf2-sqqxj DRY proof —
+  (testing "the {{story-tag}}-driven single package.json emits the
+            expected byte-exact content on both the default and
+            :include-story? true paths (rf2-sqqxj one-source proof —
             EOL-normalised so it is portable Windows↔CI)"
     (let [tmp (tmp-dir "rf2-template-pkg-story-tag-")]
       (try
@@ -809,8 +808,8 @@
               default-txt  (slurp (io/file default-root "package.json"))]
           (is (= (normalise-eol expected-package-json-default)
                  (normalise-eol default-txt))
-              "default-path package.json content matches the
-               pre-refactor _shared/package.json emission"))
+              "default-path package.json content matches the expected
+               single-source _shared/package.json emission"))
         (finally
           (delete-recursively tmp)))
       ;; Fresh tmp for the with-Story path so the two emissions don't
@@ -821,8 +820,8 @@
                 story-txt  (slurp (io/file story-root "package.json"))]
             (is (= (normalise-eol expected-package-json-with-story)
                    (normalise-eol story-txt))
-                "with-Story package.json content matches the
-                 pre-refactor _shared/package_with_story.json emission"))
+                "with-Story package.json content matches the expected
+                 single-source _shared/package.json emission (story-tag on)"))
           (finally
             (delete-recursively tmp2)))))))
 

@@ -14,10 +14,16 @@
 
 ## §0 Lineage
 
-The current template is a [clj-new](https://github.com/seancorfield/clj-new)
+> **Historical.** This section records the *pre-migration* starting
+> state. The migration described by this plan is **complete** (Stages
+> 2-3 landed 2026-05-20; see §2.5 / §3) — the template is now a
+> deps-new + git-coord tool, no longer clj-new + Clojars. Read the
+> steady-state shape in the docs listed under §Scope, not here.
+
+The template *was* a [clj-new](https://github.com/seancorfield/clj-new)
 template at `tools/template/`, published as `day8/clj-template.re-frame2`
 on Clojars (publish pipeline wired via clein). Per Mike's lock
-(template walkthrough Q2, 2026-05-12), the rebuild moves to:
+(template walkthrough Q2, 2026-05-12), the rebuild moved to:
 
 - **[deps-new](https://github.com/seancorfield/deps-new)** as the
   template framework — programmatic `:data-fn` / `:template-fn` /
@@ -248,8 +254,8 @@ check on the emitted tree is the spike's effective signal.
   dev/{user,scratch}, resources/public/{index.html, css/app.css}).
 - ✓ Updated `template-fn` to handle all three substrates + the
   `:include-story?` branch (see §2.4 below).
-- ✓ The clj-new tree at `src/clj/new/re_frame2/` stays in parallel as
-  a backstop until §2.5 (rf2-40vmd) lands.
+- ✓ The clj-new tree at `src/clj/new/re_frame2/` was kept in parallel
+  as a backstop until §2.5 (rf2-40vmd) landed and removed it.
 
 ### §2.3 — Port the test suite (rf2-c2770 — DONE 2026-05-20)
 
