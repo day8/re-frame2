@@ -2,7 +2,7 @@
 
 The effect map is what an event handler returns. The interceptor chain is what runs before and after the handler. Together they're the load-bearing trick that makes re-frame2 a *pattern* — handlers stay pure (they return descriptions of effects, not the effects themselves), and the runtime actions those descriptions against the real world at exactly one point. That separation is why the trace bus, time-travel, and effect-overrides all work; if handlers fired effects directly, none of those would compose.
 
-This chapter covers what an `:fx` map can carry (`:db`, `:fx`, the standard fx-ids), what an interceptor is and the surface for building one (`->interceptor`), the four ergonomic interceptors v2 ships (`inject-cofx`, `path`, `unwrap`, the pre-built `validate-at-boundary-interceptor`), and the override surfaces that let tests and tools swap fx behaviour at runtime (`with-fx-overrides`, the per-call `:fx-overrides` opt).
+This chapter covers what an `:fx` map can carry (`:db`, `:fx`, the standard fx-ids), what an interceptor is and the surface for building one (`->interceptor`), the ergonomic interceptors v2 ships (`path`, `unwrap`, the pre-built `validate-at-boundary-interceptor`), and the override surfaces that let tests and tools swap fx behaviour at runtime (`with-fx-overrides`, the per-call `:fx-overrides` opt). Coeffects are *not* delivered by an interceptor in v2 — a handler declares the world facts it needs with `:rf.cofx/requires` registration metadata and the runtime supplies them (see [01 — Core §`reg-cofx`](01-core.md#reg-cofx) and [Guide — Effects and coeffects](../guide/concepts/effects-and-coeffects.md)). v1's `inject-cofx` interceptor is removed; see [15 — Removed](15-removed.md).
 
 ## The effect map: closed shape
 
@@ -38,37 +38,9 @@ SSR-side server-only fx (`:rf.server/set-status`, `:rf.server/set-header`, `:rf.
 
 ## Standard interceptors
 
-The interceptor chain wraps the handler. Every interceptor has a `:before` (runs before the handler) and / or `:after` (runs after the handler). The runtime threads a context map — the **ctx** — through the chain, and the chain composes deterministically. Interceptors are how you add cross-cutting behaviour (validation, cofx injection, focus-on-path) without writing it into every handler.
+The interceptor chain wraps the handler. Every interceptor has a `:before` (runs before the handler) and / or `:after` (runs after the handler). The runtime threads a context map — the **ctx** — through the chain, and the chain composes deterministically. Interceptors are how you add cross-cutting behaviour (validation, focus-on-path, logging) without writing it into every handler.
 
-The v2 standard-interceptor surface is **three specific helpers** plus the `->interceptor` primitive. The principle is: keep helpers that do specific, non-trivial work; drop helpers that are just `(->interceptor :before f)` with no other logic. Five v1 interceptors are removed (`debug`, `trim-v`, `on-changes`, `enrich`, `after`); see [15 — Removed](15-removed.md).
-
-### `inject-cofx`
-
-- **Kind**: macro
-- **Signature**:
-  ```clojure
-  (inject-cofx id)
-  (inject-cofx id value)
-  ```
-- **Description**: Inject a registered cofx into the handler's coeffect map. Macro: captures the call-site for `:rf.trace/call-site` on errors emitted from the cofx body. Does specific work — `:cofx` registry lookup — not subsumable by `->interceptor`.
-- **Example**:
-  ```clojure
-  (rf/reg-event-fx :todo/load
-    [(rf/inject-cofx :todo.storage/todos)]
-    (fn [{:keys [todo.storage/todos]} _event]
-      {:db {:todos todos}}))
-  ```
-- **In the wild**: [todomvc](https://github.com/day8/re-frame2/tree/main/examples/reagent/todomvc)
-
-### `inject-cofx*`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (inject-cofx* id)
-  (inject-cofx* id value)
-  ```
-- **Description**: Fn form for HoF / programmatic interceptor construction — no call-site stamping.
+The v2 standard-interceptor surface is **two specific helpers** (`path`, `unwrap`) plus the pre-built `validate-at-boundary-interceptor` and the `->interceptor` primitive. The principle is: keep helpers that do specific, non-trivial work; drop helpers that are just `(->interceptor :before f)` with no other logic. Five v1 interceptors are removed (`debug`, `trim-v`, `on-changes`, `enrich`, `after`); so is `inject-cofx` — coeffect delivery is now declared with `:rf.cofx/requires`, not injected by an interceptor (see [01 — Core §`reg-cofx`](01-core.md#reg-cofx) and [15 — Removed](15-removed.md)).
 
 ### `path`
 
@@ -115,7 +87,7 @@ The v2 standard-interceptor surface is **three specific helpers** plus the `->in
     (conj items item)))                       ;; the handler sees and returns the slice
 ```
 
-The `:before` rewrites `(:db cofx)` to `(get-in db [:cart :items])`. The handler returns the new slice. The `:after` splices it back with `(assoc-in db [:cart :items] result)`. Compose `path` with `inject-cofx` to focus a handler on a slice and inject auxiliary state in one go.
+The `:before` rewrites `(:db cofx)` to `(get-in db [:cart :items])`. The handler returns the new slice. The `:after` splices it back with `(assoc-in db [:cart :items] result)`. A handler that focuses on a slice with `path` and also needs auxiliary world facts declares those facts with `:rf.cofx/requires` — the slice arrives via the interceptor, the facts via the coeffect declaration (see [01 — Core §`reg-cofx`](01-core.md#reg-cofx)).
 
 ### The `unwrap` interceptor
 
