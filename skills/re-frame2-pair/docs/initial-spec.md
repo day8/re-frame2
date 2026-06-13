@@ -142,7 +142,7 @@ A UUID set once at preload-load time, mirrored to `js/globalThis.__re_frame2_pai
 
 ### 3.5 Watch transport
 
-Pull-mode (same as v1, with Spec-Schemas-aware decoding). The watch loop polls `epochs-since` against the operating frame, tracks the last seen `:epoch-id`, and surfaces an `:id-aged-out?` warning when the tracking id falls off the ring. Streaming-via-`:out` is deferred.
+Pull-mode (same as v1, with Spec-Schemas-aware decoding). The watch loop polls `epochs-since` against the operating frame, tracks the last seen `:epoch-id`, and surfaces an `:id-aged-out?` warning when the tracking id falls off the ring. (Historical: this draft deferred push-streaming-via-`:out`; push-mode `subscribe` / `unsubscribe` has since landed — see `STATUS.md` §Live watch and `references/streaming-subscriptions.md`.)
 
 ### 3.6 Error surfaces
 

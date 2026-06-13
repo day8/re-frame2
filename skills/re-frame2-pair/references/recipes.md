@@ -338,7 +338,7 @@ Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :
      form: "(filter #(= \"story\" (namespace %)) (rf/frame-ids))"
    }
    ```
-   If the user has the story-mcp jar loaded, prefer `mcp__re-frame2-story-mcp__list-stories` — richer metadata (tags, modes, parent story).
+   For richer metadata (tags, modes, parent story), `list-stories` is the **authoring** surface — allow-listed by the `re-frame2` skill, not by re-frame2-pair — so reach it via the authoring skill if a session has it loaded; otherwise the `eval-cljs` form above stays within re-frame2-pair's own surface.
 2. If the variant isn't mounted yet, mount it via story-mcp:
    ```
    mcp__re-frame2-story-mcp__run-variant {variant-id: ":story.counter/loaded"}
@@ -387,41 +387,31 @@ Blocks (server polls ~100ms cadence) until the predicate holds — `{:ok? true :
 
 ## "Refine a variant interactively"
 
-**Why this works:** the same loop that powers Story-MCP's self-healing pattern (`skills/re-frame2/references/tooling/story-mcp-loop.md`) is observable from re-frame2-pair — modify the variant body via story-mcp, then watch the trace events as it re-runs. re-frame2-pair sees every dispatch the play-runner makes, and you can intervene mid-loop without leaving the runtime.
+**Why this works:** the same loop that powers Story-MCP's self-healing pattern (`skills/re-frame2/references/tooling/story-mcp-loop.md`) is observable from re-frame2-pair — the variant body is edited via the **authoring** surface, then re-frame2-pair watches the trace events as it re-runs. re-frame2-pair sees every dispatch the play-runner makes, and you can intervene mid-loop without leaving the runtime.
+
+**Skill-boundary handoff.** Editing a variant body — reading it (`get-variant`) and re-registering it (`register-variant`) — is the **Story authoring** surface, allow-listed by the `re-frame2` skill, **not** by re-frame2-pair (see `SKILL.md` frontmatter + `stories.md §The five tools`). re-frame2-pair's own Story allow-list is the five live-session tools (`run-variant`, `read-failures`, `snapshot-identity`, `run-a11y`, `record-as-variant`). So the body-editing steps below are a **handoff to the authoring skill**: drive them under `re-frame2` (its `register-variant`/`get-variant` are reachable there), and let re-frame2-pair watch + run + diagnose against the live runtime. The handoff is by design — re-frame2-pair drives the runtime; `re-frame2` owns the source-of-truth variant body.
 
 **Setup.** Story-MCP write surface is enabled (`--allow-writes` / `RF_STORY_MCP_ALLOW_WRITES=true`). The variant exists; you want to iterate on its `:play-script` body to make an assertion pass.
 
 **Procedure:**
 
-1. Read the current body:
-   ```
-   mcp__re-frame2-story-mcp__get-variant {variant-id: ":story.counter/loaded"}
-   ```
-2. Open a re-frame2-pair watch scoped to the variant before re-running, so you see every dispatch the play-runner makes:
+1. **(authoring skill)** Read the current body — `get-variant` is the `re-frame2` skill's surface, so reach it from there: `register-variant`/`get-variant {variant-id ...}` returns the current body to refine.
+2. **(re-frame2-pair)** Open a watch scoped to the variant before re-running, so you see every dispatch the play-runner makes:
    ```
    mcp__re-frame2-pair__subscribe {topic: "epoch", filter: {":frame": ":story.counter/loaded"}}
    ```
    Each `notifications/progress` tick carries one epoch record from the variant's cascade.
-3. Re-register with the refined body:
-   ```
-   mcp__re-frame2-story-mcp__register-variant
-     {variant-id: ":story.counter/loaded"
-      body: {:extends     :story.counter
-             :events      [[:counter/initialise 7]]
-             :play-script [[:dispatch-sync [:counter/inc]]
-                           [:dispatch-sync [:rf.assert/path-equals [:count] 8]]]}}
-   ```
-   `reg-variant*` calls `reset-frame!` on the variant's frame; `app-db` reverts to `{}`, loaders re-run, then events.
-4. Run it:
+3. **(authoring skill)** Re-register with the refined body via the `re-frame2` skill's `register-variant` (e.g. extend `:story.counter`, set `:events [[:counter/initialise 7]]`, set `:play-script` to drive `[:counter/inc]` then assert `[:rf.assert/path-equals [:count] 8]`). `reg-variant*` calls `reset-frame!` on the variant's frame; `app-db` reverts to `{}`, loaders re-run, then events.
+4. **(re-frame2-pair)** Run it — `run-variant` IS in re-frame2-pair's allow-list:
    ```
    mcp__re-frame2-story-mcp__run-variant {variant-id: ":story.counter/loaded"}
    ```
    As the play-runner drives each `:play-script` step, the re-frame2-pair subscription emits its epoch. Narrate them in order.
-5. Read failures:
+5. **(re-frame2-pair)** Read failures:
    ```
    mcp__re-frame2-story-mcp__read-failures {variant-id: ":story.counter/loaded"}
    ```
-6. If `:status :fail` (`result-passed?` is false), repeat from step 3 with a refined body. A `:status :cannot-run` is the distinct third verdict — the runner could not attempt the plan; fix the runner/environment rather than the body. re-frame2-pair's subscription stays open across iterations — close it with `unsubscribe` when the loop terminates.
+6. If `:status :fail` (`result-passed?` is false), hand back to the authoring skill and repeat from step 3 with a refined body. A `:status :cannot-run` is the distinct third verdict — the runner could not attempt the plan; fix the runner/environment rather than the body. re-frame2-pair's subscription stays open across iterations — close it with `unsubscribe` when the loop terminates.
 
 **Expected output shape.** Stream of epoch records on the re-frame2-pair channel (one per play event), plus a `:status` verdict (`:pass`/`:fail`/`:cannot-run`/`:error`, read via `result-status`/`result-passed?`) + `:assertions` list from `read-failures`. Successful loop ends with `:status :pass`.
 
