@@ -429,7 +429,18 @@
 ;; installs a validator the author falsely believes guards runtime-db.
 ;; Nothing to soft-land — unlike the `:rf.db/runtime` EFFECT seam, no
 ;; legitimate caller exists, so this is a hard reject at the existing
-;; pre-mutation gate. `reg-runtime-schema` is the correct surface.
+;; pre-mutation gate. The runtime-db partition is framework-owned (the
+;; framework validates it; machine `:snapshots` are refined per-machine from
+;; each machine's `:data-schema`) and is NOT a user schema-registration
+;; surface, so the honest remedy is to drop the runtime path.
+;;
+;; rf2-sklyam: the prior `:reason` told users to "Use reg-runtime-schema to
+;; validate runtime-db state" — but `reg-runtime-schema` has NO public export
+;; (it is framework-internal boot vocabulary; `git grep` finds only prose),
+;; and runtime-db is framework-owned (Conventions §Reserved runtime-db keys —
+;; "user code MUST NOT register against it"). The error must not direct a user
+;; at a non-callable, framework-owned API. The tests below now FAIL if the
+;; `:reason` names `reg-runtime-schema`, pinning the corrected contract.
 
 (def runtime-paths-rejected
   "Every shape `runtime-app-schema-path?` must reject as a first segment."
@@ -440,10 +451,12 @@
    [:rf/runtime :legacy :slice]])          ; retired legacy app-db root
 
 (deftest reg-app-schema-rejects-runtime-path-with-distinct-error
-  (testing "rf2-k0ew8n — a singular reg-app-schema against a runtime-db
-            path throws :rf.error/app-schema-runtime-path (distinct from
-            the shape error), carries :received + :frame + a :reason naming
-            reg-runtime-schema, and stores NOTHING"
+  (testing "rf2-k0ew8n / rf2-sklyam — a singular reg-app-schema against a
+            runtime-db path throws :rf.error/app-schema-runtime-path (distinct
+            from the shape error), carries :received + :frame + a :reason that
+            states the honest remedy (drop the runtime path; runtime-db is
+            framework-owned) and does NOT direct the user at the non-public,
+            framework-owned `reg-runtime-schema` API, and stores NOTHING"
     (doseq [bad-path runtime-paths-rejected]
       (let [before (schemas/snapshot-schemas-by-frame)
             thrown (try (rf/reg-app-schema bad-path [:map] {:frame :tenant/rt})
@@ -454,15 +467,25 @@
           (is (= ":rf.error/app-schema-runtime-path"
                  (.getMessage ^Exception thrown))
               "names the DISTINCT runtime-path error category")
-          (let [data (ex-data thrown)]
+          (let [data   (ex-data thrown)
+                reason (:reason data)]
             (is (= :rf.error/app-schema-runtime-path (:rf.error/id data))
                 ":rf.error/id is the distinct runtime-path id")
             (is (= bad-path (:received data))
                 ":received carries the offending path verbatim")
             (is (= :tenant/rt (:frame data))
                 ":frame carries the resolved registration frame")
-            (is (re-find #"reg-runtime-schema" (:reason data))
-                ":reason names reg-runtime-schema as the correct surface")))
+            ;; rf2-sklyam — ADVERSARIAL: the prior bug pointed users at a
+            ;; phantom, framework-owned API. The reason MUST NOT name it.
+            (is (not (re-find #"reg-runtime-schema" (str reason)))
+                (str ":reason must NOT direct the user at the non-public, "
+                     "framework-owned reg-runtime-schema API (rf2-sklyam)"))
+            ;; ...and MUST state the honest contract: runtime-db is
+            ;; framework-owned, so the remedy is to stop using the runtime path.
+            (is (re-find #"(?i)framework-owned" (str reason))
+                ":reason states the runtime-db partition is framework-owned")
+            (is (re-find #"(?i)app-?db" (str reason))
+                ":reason reminds the user app schemas validate app-db only")))
         (is (= before (schemas/snapshot-schemas-by-frame))
             (str "store unchanged after rejecting " (pr-str bad-path)))))))
 

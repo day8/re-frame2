@@ -5,22 +5,43 @@
   schema-driven nomination path: any Malli slot carrying a per-slot flag
   (`:large? true` or `:sensitive? true`) in its per-slot properties
   (per Spec-Schemas §`:rf/app-schema-meta` — the per-slot metadata
-  vocabulary) is registered into the frame's
-  `[:rf.runtime/elision :declarations]` (`:large?`) or
-  `[:rf.runtime/elision :sensitive-declarations]` (`:sensitive?`) slot
-  with `:source :schema`. Both registries are sibling slots under the
-  shared `:rf.runtime/elision` runtime-db sub-tree; flags compose
-  orthogonally — a slot may carry either or both, and the validation
-  walker resolves the conflict at emit time. Storing them separately
-  keeps the per-flag query
-  (`(get-in runtime-db [:rf.runtime/elision :sensitive-declarations <path>])`)
-  O(1) without value-shape inspection.
+  vocabulary) is walked to a `{path declaration}` map with `:source
+  :schema`. Flags compose orthogonally — a slot may carry either or both,
+  and the consumer resolves the conflict at use time.
 
   This file owns the **walker** that maps a registered schema's EDN form
-  to a `{path declaration}` map; the actual runtime-db write lives in
-  `re-frame.elision` (rf2-v9tw2) so that file owns the unified registry
-  surface for schema-owned declarations. The seam between the two is
-  the per-flag late-bind hook registered by the outer façade.
+  to a `{path declaration}` map. It is a **pure-data extractor**; the
+  walker itself performs no runtime-db write.
+
+  ## EP-0015 §8 (rf2-d2r3um) — schema props do NOT feed app-db egress
+
+  These extractors NO LONGER populate the frame's app-db egress registry
+  under `[:rf.runtime/elision :declarations]` /
+  `[:rf.runtime/elision :sensitive-declarations]`. App-db egress
+  classification is **frame-owned** (`reg-frame` `:sensitive` /
+  `:large {:app-db …}` plus the imperative `add-marks` / `set-marks`
+  surface) — schemas describe **shape**, not durable app-db egress
+  policy, and the old `re-frame.elision/populate-{,sensitive-}from-schemas!`
+  bridge + its `:elision/populate-from-schemas!` late-bind seam are
+  REMOVED (see `re-frame.schemas` §schema-walker hooks; Spec-Schemas
+  §`:rf/runtime-db` `:rf.runtime/elision`).
+
+  The extractors survive for their **owner-local** schema-prop consumers,
+  which read the `{path declaration}` map directly (NOT via the elision
+  runtime-db registry):
+
+    - the machine `:data-schema` redaction bridge
+      (`re-frame.machines`, EP-0005);
+    - the resource `:data-schema` classification
+      (`re-frame.resources.classification`, EP-0015 §6);
+    - the HTTP body-privacy projector
+      (`re-frame.http-privacy-body`);
+    - story-mcp's tool-egress projector.
+
+  These call the per-flag late-bind hooks
+  (`:schemas/extract-large-paths-from-schema` /
+  `:schemas/extract-sensitive-paths-from-schema`) registered by the outer
+  façade and apply the result within their own owner-local scope.
 
   The walker is **pure data** — it doesn't import malli.core. Malli EDN
   forms are vectors of the shape `[op props? children...]`; we pattern-
@@ -171,7 +192,10 @@
   or nil when `flag-key` is not set to `true`. Per Spec 009 §Size
   elision in traces and Spec 010 §`:sensitive?` — `:hint` is optional
   and omitted when absent so the marker shape stays minimal. The
-  `:source` slot records schema provenance for the unified registry."
+  `:source :schema` slot records schema provenance for the owner-local
+  consumer (machine / resource `:data-schema`, HTTP body-privacy,
+  story-mcp) that reads the extracted map — NOT the (removed, EP-0015 §8)
+  app-db egress registry."
   [flag-key props]
   (when (true? (get props flag-key))
     (cond-> {flag-key true
@@ -345,9 +369,12 @@
   `{path declaration}` map for every `:large? true` slot found. Per
   Spec 009 §Size elision in traces — the schema-driven nomination path.
 
-  Returned declarations carry `:source :schema` per Spec 009 —
-  introspection (`(get-in runtime-db [:rf.runtime/elision :declarations <path>])`)
-  reports schema provenance for wire-boundary elision."
+  Returned declarations carry `:source :schema` per Spec 009 so the
+  owner-local consumer (machine / resource `:data-schema`, HTTP
+  body-privacy, story-mcp) that reads this map can report schema
+  provenance for its wire-boundary elision. EP-0015 §8: this map does
+  NOT feed the app-db egress registry under `[:rf.runtime/elision
+  :declarations]` — app-db egress is frame-owned."
   [schema base-path]
   (walk-flagged-schema :large? schema base-path {}))
 
