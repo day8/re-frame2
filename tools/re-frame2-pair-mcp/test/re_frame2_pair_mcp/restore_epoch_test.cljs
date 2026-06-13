@@ -1,8 +1,10 @@
 (ns re-frame2-pair-mcp.restore-epoch-test
   "Unit tests for the restore-epoch tool (rf2-ee38b.18).
 
-  Time-travel undo — rewinds a frame's app-db to a recorded prior
-  epoch via the Tool-Pair `restore-epoch` write primitive. Pins:
+  Time-travel undo — rewinds a frame's whole frame-state (BOTH app-db
+  and runtime-db) to a recorded prior epoch's `:frame-state-after` via
+  the Tool-Pair `restore-epoch` write primitive (`replace-frame-state!`).
+  Pins:
 
     - the `--allow-writes` gate (default OFF returns
       `:rf.error/writes-disabled` without touching the runtime);

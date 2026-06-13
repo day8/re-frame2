@@ -11,8 +11,8 @@ back-compat, but new sessions should prefer the MCP server.
 ## What it is
 
 A Node-based stdio JSON-RPC server (written in ClojureScript, compiled
-via shadow-cljs to a single `.js` file) that exposes the twenty-eight
-re-frame2-pair ops as MCP tools (twenty-six read/inspect/action ops —
+via shadow-cljs to a single `.js` file) that exposes the twenty-nine
+re-frame2-pair ops as MCP tools (the read/inspect/action ops —
 including the operating-frame trio `set-operating-frame` /
 `reset-operating-frame` / `get-operating-frame` (rf2-zomfq) — plus the
 two write tools `restore-epoch` / `replace-app-db`, which are gated behind
@@ -55,6 +55,7 @@ cljs-eval compile.
 | `unsubscribe`  | _(new — no bash equivalent)_ | Close a streaming subscription out-of-band. Idempotent — closing an unknown sub-id returns `:existed? false` rather than an error. |
 | `list-subscriptions` | _(new — no bash equivalent)_ | List the **live reactive sub-cache** for a frame — "what subscriptions are active?" — reading the same source as `snapshot :sub-cache` (rf2-qicji). Returns the cached query-vectors (reflecting disposal); optional `frame` / `include-values`. |
 | `list-streams` | _(new — no bash equivalent)_ | List active **streaming-tap** subscriptions with per-sub queue depth, drop counts, and `:overflow-reason`. Diagnostic for "what streams are open?" / "is my probe still alive?" — wraps `subscription-info` directly so AI clients don't need an `eval-cljs` round-trip. Optional `topic` / `sub-id` filters. (rf2-qicji: the streaming diagnostic `list-subscriptions` formerly carried.) |
+| `get-stream-controls` | _(new — no bash equivalent)_ | Report the **server-side** streaming resource-control state (rf2-a0kxsb): effective caps, active stream slots vs limit, token-bucket pressure, and abuse-window count vs threshold. The diagnostic for "why was my stream denied / quiet / terminated?". Reads the server's resource-control atoms IN-PROCESS — no nREPL round-trip — so it answers even when the runtime is down. Complements `list-streams` (which reads the runtime tap registry); cross-check the two `:active` counts to spot a leaked server slot or a stale runtime subscription. Control state only, no payloads — ungated. |
 | `handler-meta` | _(new — no bash equivalent)_ | Registration metadata for a `(kind, id)` — source-coord (file/line/column/ns), `:doc`, `:tags`, plus an `:rf.source/uri` jump-to-editor link (rf2-pctf8). Eleven supported kinds: event, sub, fx, cofx, view, frame, route, flow, head, error-projector, machine. |
 | `list-handlers` | _(new — no bash equivalent)_ | Every registered id under a kind — the discovery surface (rf2-pctf8; renamed from `registry-list` per rf2-4y595). Same eleven supported kinds as `handler-meta`. |
 | `set-operating-frame` | _(new — no bash equivalent)_ | Pin the session's **operating frame** (and/or **operating realm**) so frame-targeted ops resolve to it without a per-call `frame` (rf2-zomfq). The escape from `:ambiguous-frame` in multi-frame apps (tier 2 of the resolution table). Validates the frame-id is registered — unknown → `:reason :no-such-frame`. Per EP-0013 the address is the **`(realm, frame)` pair**; accepts an optional `realm` to pin the operating realm (an uninstalled realm → `:reason :no-such-realm`). A single-realm app never needs `realm`. |
@@ -152,59 +153,6 @@ from (highest precedence first):
    destroying the runtime sentinel).
 3. `$SHADOW_CLJS_BUILD_ID` env var, defaulting to `:app`.
 
-### Path-drift probe
-
-After repo-side renames of this tool (e.g. PR #1504 `tools/pair2-mcp/`
-→ `tools/re-frame2-pair-mcp/`) your `~/.claude.json` keeps pointing at
-the old path until you edit it, and the MCP server then fails to start
-with no obvious clue why. A self-healing **read-only** probe ships in
-this directory to surface that drift on demand:
-
-```bash
-# From this directory:
-npm run probe-mcp-path
-
-# Or directly:
-node bin/probe-mcp-path.cjs
-```
-
-The probe:
-
-- Reads `~/.claude.json`, scans both top-level `mcpServers` and any
-  per-project `projects.<path>.mcpServers` entries.
-- For each entry whose `command`, `args`, `cwd`, or `env` value still
-  references the legacy `tools/pair2-mcp/` token, prints a clear
-  remediation message naming the stale field + the suggested
-  replacement.
-- **Never writes the file.** `~/.claude.json` is the operator's; the
-  probe only reads.
-- Silent on success — zero output if no drift is detected, the file
-  is absent, or there are no matching entries.
-
-Exit codes: `0` clean / absent / malformed (non-blocking); `1` drift
-detected. Suitable for CI / preflight scripts.
-
-Sample output when drift is present:
-
-```
-re-frame2-pair-mcp: stale path detected in ~/.claude.json
-
-PR #1504 (rf2-e2ufx) renamed the MCP source dir from
-  tools/pair2-mcp/  ->  tools/re-frame2-pair-mcp/
-but your ~/.claude.json still points at the old path. The MCP server
-will fail to start until the references are updated.
-
-Stale references:
-  [global] mcpServers.re-frame-pair2
-    - arg: C:/Users/me/code/my-app/tools/pair2-mcp/out/server.js
-      suggested: C:/Users/me/code/my-app/tools/re-frame2-pair-mcp/out/server.js
-
-Remediation: open ~/.claude.json in an editor, replace each
-'tools/pair2-mcp/' fragment with 'tools/re-frame2-pair-mcp/',
-save, then restart Claude Code. This probe never writes the file;
-your editor is the source of truth.
-```
-
 ### Launch flags
 
 | Flag                        | Default | What it does                                                                         |
@@ -280,11 +228,15 @@ Once an operator has installed re-frame2-pair-mcp and wired it into
 
 ##### Migration
 
-Operators with `--allow-eval` in their `~/.claude.json` from the
-prior rf2-cxx5s era can leave it — the parser silently ignores
-unrecognised flags (no warning is printed because there's no harm
-done; the surface the legacy flag would have opened is now on by
-default anyway). Removing it is recommended for clarity.
+`--allow-eval` is a **removed flag** (rf2-a0z0h). Operators carrying it
+in their `~/.claude.json` from the prior rf2-cxx5s era get an
+intentional `:removed-flag` boot diagnostic on stderr naming the
+replacement (the parser ignores the flag for posture purposes — eval is
+on by default — but pre-alpha there is no silent no-op for a stale
+config; see "launch diagnostics" / `--allow-eval` row in
+[spec/003-Tool-Catalogue.md](spec/003-Tool-Catalogue.md)). Remove it
+from `~/.claude.json` to clear the diagnostic; `--no-eval` is the way to
+opt OUT of the eval surface.
 
 #### sensitive-reads gate (rf2-c2dtu)
 
@@ -590,16 +542,13 @@ tools/re-frame2-pair-mcp/
 ├── package.json                              ; npm package
 ├── shadow-cljs.edn                           ; build config
 ├── spec/                                     ; contract
-├── bin/
-│   └── probe-mcp-path.cjs                    ; read-only ~/.claude.json drift probe (rf2-vsxgz)
 └── src/re_frame2_pair_mcp/
     ├── nrepl.cljs                            ; persistent socket + bencode
-    ├── tools/registry.cljs                   ; the authoritative ordered catalogue of the twenty-eight MCP tools (single source of truth: tools/list descriptors + tools/call dispatch + cache opt-in)
+    ├── tools/registry.cljs                   ; the authoritative ordered catalogue of the MCP tools (single source of truth: tools/list descriptors + tools/call dispatch + cache opt-in)
     ├── tools.cljs                            ; tools/call dispatcher (resolves handlers from registry)
     └── server.cljs                           ; stdio JSON-RPC entry point
 └── test/
     ├── re_frame2_pair_mcp/nrepl_test.cljs    ; bencode framing unit tests
-    ├── probe-mcp-path-test.cjs               ; probe-mcp-path unit tests
     ├── stdio-roundtrip.js                    ; stdio integration test
     └── live-nrepl.js                         ; live-nREPL integration test
 ```

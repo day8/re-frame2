@@ -2,11 +2,16 @@
   "Tool: restore-epoch — time-travel undo (rf2-ee38b.18).
 
   The canonical pair-tool undo gesture per spec/Tool-Pair.md
-  §Time-travel: rewind a frame's `app-db` to a recorded prior epoch.
-  Wraps the preload runtime's `restore-epoch` primitive
-  (`(rf/restore-epoch frame-id epoch-id)`), which is itself the
-  Tool-Pair `restore-epoch` write primitive the server is the canonical
-  consumer of (000-Vision / 003-Tool-Catalogue).
+  §Time-travel: rewind a frame's whole `frame-state` — BOTH the app-db
+  and runtime-db partitions — to a recorded prior epoch's
+  `:frame-state-after` value, reinstalled atomically via
+  `replace-frame-state!` (machine snapshots, the route slice, elision
+  declarations, and SSR metadata revive alongside app-db, not just the
+  app-db projection — EP-0001, Mike ruling #2). Wraps the preload
+  runtime's `restore-epoch` primitive (`(rf/restore-epoch frame-id
+  epoch-id)`), which is itself the Tool-Pair `restore-epoch` write
+  primitive the server is the canonical consumer of (000-Vision /
+  003-Tool-Catalogue).
 
   ## Gate (rf2-ee38b.18)
 

@@ -113,24 +113,11 @@ documented as a smoke harness. Exercises:
 Run with: `NREPL_TEST_PORT=17778 node test/live-nrepl.js`
 (after starting an nREPL on that port).
 
-#### `probe-mcp-path-test.cjs` — `~/.claude.json` drift probe (rf2-vsxgz)
-
-Unit tests for `bin/probe-mcp-path.cjs`. The probe is a pure
-Node-side artefact (read-only scan of `~/.claude.json` for stale
-`tools/pair2-mcp/` references post-#1504); no CLJS source exists, so
-the tests live as a `.cjs` sibling here. Fixture-based: each test
-writes a synthetic `.claude.json` into a temp dir, points the probe
-at it via `opts.configPath`, asserts the `{status, message, stale}`
-return shape. The real `~/.claude.json` is never read.
-
-Run with: `npm run test:probe-mcp-path` (or `node test/probe-mcp-path-test.cjs`).
-
 #### `post-merge-hook-test.cjs` — stale-binary post-merge hook (rf2-6jj3r)
 
 Unit + smoke tests for the repo's `post-merge` git hook (source lives
 under `scripts/git-hooks/`). The hook is pure POSIX sh (no CLJS source
-of truth), so its tests sit here as a `.cjs` sibling for the same
-reason as `probe-mcp-path-test.cjs`.
+of truth), so its tests sit here as a `.cjs` sibling.
 
 Two layers:
 

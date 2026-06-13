@@ -6,11 +6,15 @@
 > `register-epoch-listener!`, `restore-epoch`, `replace-app-db!`,
 > `dispatch`, `dispatch-sync`).
 
-The twenty-eight MCP tools. All twenty-eight are catalogued below; the
+The MCP tools (the live registry is the canonical count — see
+[`src/re_frame2_pair_mcp/tools/registry.cljs`](../src/re_frame2_pair_mcp/tools/registry.cljs)).
+All are catalogued below; the
 read-side ops `read-sub` (rf2-3bu3d.7 — the validated one-shot
 subscription read, no-silent-swallow parity with `dispatch`) and
 `orient` (rf2-3bu3d.8 — the app-shape orientation summary, one
-round-trip first-contact on an unfamiliar app), the
+round-trip first-contact on an unfamiliar app), the streaming-control
+diagnostic `get-stream-controls` (rf2-a0kxsb — the server-side
+resource-control read), the
 registrar-introspection pair `handler-meta` + `list-handlers` (rf2-cibp8
 / rf2-pctf8 — `list-handlers` renamed from `registry-list` per
 rf2-4y595 for NAMING.md `list-<things>` conformance), the operating-frame
@@ -1349,8 +1353,13 @@ posture (rf2-vflrg) is the same security gate.
 
 ## restore-epoch
 
-Time-travel undo — rewind a frame's `app-db` to a recorded prior
-epoch. The canonical pair-tool undo gesture per
+Time-travel undo — rewind a frame's whole **frame-state** (BOTH the
+app-db and runtime-db partitions) to a recorded prior epoch's
+`:frame-state-after` value, reinstalled atomically via
+`replace-frame-state!`. Machine snapshots, the route slice, elision
+declarations, and SSR metadata are revived alongside app-db, not just
+the app-db projection (EP-0001, Mike ruling #2). The canonical
+pair-tool undo gesture per
 [`Tool-Pair.md` §Time-travel](../../../spec/Tool-Pair.md#time-travel);
 wraps the `restore-epoch` Tool-Pair write primitive
 (`(rf/restore-epoch frame-id epoch-id)`). Walk the ring with
@@ -1359,9 +1368,9 @@ wraps the `restore-epoch` Tool-Pair write primitive
 
 **Launch-flag gate (rf2-ee38b.18)**: `--allow-writes`. Default OFF;
 calls return `{:ok? false :reason :rf.error/writes-disabled}` without
-touching the nREPL socket. A write surface — replacing `app-db`
-wholesale is qualitatively more powerful than `dispatch` (which drives
-the app's own handlers).
+touching the nREPL socket. A write surface — replacing the whole
+frame-state wholesale is qualitatively more powerful than `dispatch`
+(which drives the app's own handlers).
 
 **`epoch-id` is `:any`**: parsed as EDN, NOT assumed `string?`. The
 reference epoch runtime emits **integer** epoch-ids (Spec-Schemas
