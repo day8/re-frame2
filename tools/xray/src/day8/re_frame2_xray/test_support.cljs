@@ -4,23 +4,33 @@
   Previously every test fixture called both `preload/reset-for-test!`
   and `registry/reset-for-test!` — adding a new sentinel-bearing ns
   meant updating ~30 fixtures. This ns folds those calls into one
-  `reset-all!` so panel additions don't ripple through the test
-  corpus.
+  helper so panel additions don't ripple through the test corpus.
 
   Targets the inert `day8.re-frame2-xray.install` ns for the collector
   sentinels (rf2-5w06uu) rather than `preload`, so a fixture that only
-  needs `reset-all!` does not drag in `preload`'s side-effecting boot
-  block.
+  needs the sentinel reset does not drag in `preload`'s side-effecting
+  boot block.
 
-  rf2-sdqsla — `reset-all!` now ALSO clears the trace-collector rings.
-  Those are process-global `defonce` atoms that `registry`/`install`
-  reset do NOT touch, so a test that omitted the separate
-  `trace-collector/reset-for-test!` became order-dependent (cross-test
-  trace bleed). Folding it in means one fixture call leaves EVERY
-  Xray process-global in a clean, re-installable state. Settings /
-  localStorage state is reset by the optional `reset-runtime!` (the
-  settings atom is reset selectively because not every fixture wants
-  its persisted-config seed cleared).
+  ## The three reset surfaces (rf2-sdqsla)
+
+  A fixture has up to three process-global surfaces to clear:
+
+    1. install / registry idempotency SENTINELS — `reset-sentinels!`.
+       Safe at any point; just flips the `defonce` re-install flags so
+       a re-`register-xray-handlers!` actually re-runs.
+    2. the trace-collector RINGS — `reset-all!` adds this. The rings
+       are process-global `defonce` atoms the sentinel reset does NOT
+       touch, so a fixture that forgot the (historically separate)
+       `trace-collector/reset-for-test!` leaked trace rows into the
+       next test (order-dependent bleed).
+    3. settings / localStorage STATE — `reset-runtime!` adds this on
+       top.
+
+  Use the SMALLEST one that fits: `reset-sentinels!` for a fixture that
+  resets MID-setup (host frame already registered — clearing the rings
+  there would wipe the live frame's recording config), `reset-all!`
+  for a clean-slate fixture that resets BEFORE registering frames, and
+  `reset-runtime!` when the persisted settings also need wiping.
 
   **Test-only — never call from production code.** Per rf2-kmhvg
   cluster item 3e (audit rf2-i0veg §3e)."
@@ -29,24 +39,35 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
-(defn reset-all!
-  "Reset every process-global Xray reset surface in dependency order so
-  a single fixture-call leaves the namespaces in a re-installable
-  state. Calls (in order):
+(defn reset-sentinels!
+  "Reset ONLY the install + registry idempotency sentinels, in
+  dependency order:
 
-      install/reset-for-test!         ; trace-cb + epoch-cb reg flags
-      registry/reset-for-test!        ; per-panel reg-event/reg-sub flags
-      trace-collector/reset-for-test! ; frameless ring + per-frame rings
+      install/reset-for-test!  ; trace-cb + epoch-cb reg flags
+      registry/reset-for-test! ; per-panel reg-event/reg-sub flags
 
-  The trace-collector rings are process-global `defonce` atoms the
-  sentinel resets above do NOT touch — clearing them here closes the
-  cross-test trace-bleed gap (rf2-sdqsla). Does NOT touch the settings
-  atom — use `reset-runtime!` for that.
-
-  Test-only. Returns nil."
+  Does NOT touch the trace-collector rings or the settings atom — safe
+  to call MID-setup (after frames are registered) because it only flips
+  re-install flags. Test-only. Returns nil."
   []
   (install/reset-for-test!)
   (registry/reset-for-test!)
+  nil)
+
+(defn reset-all!
+  "`reset-sentinels!` PLUS the trace-collector rings
+  (`trace-collector/reset-for-test!`). The rings are process-global
+  `defonce` atoms the sentinel reset does NOT touch — clearing them
+  here closes the cross-test trace-bleed gap (rf2-sdqsla).
+
+  Call at the START of a fixture, BEFORE registering frames — clearing
+  the rings wipes the per-frame recording config, so a mid-setup call
+  (host frame already registered) must use `reset-sentinels!` instead.
+
+  Does NOT touch the settings atom — use `reset-runtime!` for that.
+  Test-only. Returns nil."
+  []
+  (reset-sentinels!)
   (trace-collector/reset-for-test!)
   nil)
 
