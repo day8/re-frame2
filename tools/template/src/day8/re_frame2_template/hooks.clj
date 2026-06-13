@@ -31,10 +31,15 @@
    This forces the `:include-story?` branch to be implemented as
    **separate template-source files** rather than conditional blocks
    inside one file: `_reagent/deps.edn` (default) vs
-   `_reagent/deps_with_story.edn` (with-story), and similarly for
-   `package.json`. `template-fn` picks the right source per the
-   flag. The output filename is the same (`deps.edn` / `package.json`)
-   regardless of which source ran.
+   `_reagent/deps_with_story.edn` (with-story). `template-fn` picks the
+   right source per the flag; the output filename is the same
+   (`deps.edn`) regardless of which source ran.
+
+   `package.json` is the exception. Its sole per-flag delta — the
+   `description` parenthetical naming the Story playground — is small
+   enough to carry as the `{{story-tag}}` subst var, so a single
+   `_shared/package.json` source serves both paths (rf2-sqqxj). No
+   second `package_with_story.json` source exists.
 
    The steady-state shape (see tools/template/spec/003-DepsNew-Rebuild-Plan.md
    §1) is the same matrix; additional flags (`:css`, `:include-ssr?`)

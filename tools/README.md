@@ -1,9 +1,11 @@
 # tools/
 
 This directory houses **CLJS dev / inspection tools** that consume re-frame2's
-instrumentation API. Each tool ships as its own Maven artefact, on its own
-release cadence, and is intentionally kept out of the runtime path that
-production consumers depend on.
+instrumentation API. Each tool ships independently, on its own release
+cadence, and is intentionally kept out of the runtime path that
+production consumers depend on. Most ship as their own Maven artefact;
+the publication model and its deliberate exceptions (git-coord, npm,
+source-path-only) are detailed under [Per-tool layout](#per-tool-layout).
 
 `tools/` is a sibling of `implementation/`, not part of it. The split is
 deliberate — see the bundle-isolation contract below.
@@ -58,7 +60,19 @@ tools/
 
 Each `deps.edn` carries a `:local/root` dep on `../../implementation/core`
 (plus whichever per-feature artefacts the tool legitimately consumes).
-Each tool publishes to Clojars under `day8/re-frame2-<tool>`.
+
+Most tools publish to Clojars under `day8/re-frame2-<tool>` (the
+Node-side MCP servers publish to npm instead — `@day8/re-frame2-pair-mcp`).
+Two tools are deliberate exceptions to the Clojars publish model:
+
+- **`tools/template/`** distributes by **git-coord, not Clojars**
+  (rf2-dolpf §2.5) — the published artefact is a tagged commit on the
+  template repo, invoked via `clojure -Tnew create`. See the `template`
+  entry under "Shipped" below.
+- **`tools/testbed-support/`** is **not a published jar at all** — it
+  has no `deps.edn`/Clojars coord and is consumed only as an extra
+  source path wired into the testbed builds. See its entry under
+  "Shipped" below.
 
 A top-level `tools/deps.edn` and `tools/shadow-cljs.edn` (rf2-nuuk3) act
 as build coordinators across the tool tier, matching the pattern in
