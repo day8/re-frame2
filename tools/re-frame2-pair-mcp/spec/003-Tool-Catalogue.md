@@ -583,7 +583,7 @@ CLI flags:
 | Flag                      | Default       | Effect when set |
 |---------------------------|---------------|------------------|
 | `--no-eval`               | absent (eval-cljs ON) | Disables `eval-cljs` (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture). Default is eval-cljs ENABLED — it is the REPL primitive of a pair-debug session. With this flag, `eval-cljs` returns `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
-| `--allow-sensitive-reads` | OFF           | Honours caller-supplied `:include-sensitive true` and `:elision false` on the off-box read surfaces — the direct-read tools (`snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs`) AND `dispatch-dry-run` (rf2-z7roa), whose `:db-state-after-simulation` + `:would-fire-effects[*].args` slots are app-db/fx-derived egress. Also signals the preload runtime to ship verbatim payloads through `app-db-reset!`'s `tap>` emission. Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql). |
+| `--allow-sensitive-reads` | OFF           | Honours caller-supplied `:include-sensitive true` and `:elision false` on every off-box value-egress surface — the direct-read tools (`snapshot`, `get-path`, `read-sub`, `list-subscriptions :include-values`, `subscribe`, `trace-window`, `watch-epochs`), the signal recorders (`record`/`read-recording`, `watch-until`), `dispatch`'s epoch-bearing `:trace`/`:settle` modes (rf2-olvr5 / rf2-m9duxl), AND `dispatch-dry-run` (rf2-z7roa), whose `:db-state-after-simulation` + `:would-fire-effects[*].args` slots are app-db/fx-derived egress. Also signals the preload runtime to ship verbatim payloads through `app-db-reset!`'s `tap>` emission. The control-state-only diagnostics (`get-stream-controls`, `list-streams`) carry no payloads and are ungated. Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql). |
 | `--allow-writes`          | OFF           | Enables the state-mutating tools `restore-epoch` (time-travel undo) and `replace-app-db` (state injection). Without the flag, both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the application's own handlers) is unaffected. The descriptors still appear in `tools/list`; the gate is enforced at `tools/call` time. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval-cljs can express the same writes), so for a true read-only posture compose with `--no-eval`. |
 
 ### Launch-config validation (rf2-a0kxsb)
@@ -2294,8 +2294,21 @@ value-comparison fn, no host source crosses the wire; same shapes as
 
 **Args**: `signals` (vector of signal maps / one bare signal map; EDN
 string or JSON array; required, non-empty), `stop` (map; JSON object or
-EDN string), `max-entries` (integer, default 2000), `frame` (string —
-operating frame for `:app-db` / `:sub` signals), `build` (string).
+EDN string), `max-entries` (integer, default 2000), `elision` (boolean,
+default true), `include-sensitive` (boolean, default false), `frame`
+(string — operating frame for `:app-db` / `:sub` signals), `build`
+(string).
+
+**Privacy** (rf2-8fin7.2): the `:app-db` / `:sub` sample **values** are
+walked by `re-frame.core/elide-wire-value` at sample time, **before**
+they enter the change-log read back by `read-recording` — declared-`:large?`
+slots collapse to `{:rf.size/large-elided ...}` markers and
+declared-`:sensitive?` leaves redact to `:rf/redacted`, the same off-box
+posture as `snapshot` / `get-path`. `elision` (size axis) and
+`include-sensitive` (sensitive axis) are honoured only under
+`--allow-sensitive-reads`; otherwise forced safe (`elision true`,
+`include-sensitive false`). `:dom` / `:focus` signals are content reads,
+not app-db-rooted, and ride unwalked.
 
 **Returns**: `{:ok? true :recording-id "rec-<uuid>" :signals [...]
 :frame <id> :stop {...}}`. `:reason :no-signals` when `signals` is empty;
@@ -2374,7 +2387,16 @@ sample map `{<signal-index> <value>}`:
 
 **Args**: `signals` (required, non-empty), `pred` (required — without one
 the watch can only time out), `timeout-ms` (integer, default 30000),
-`frame` (string), `build` (string).
+`elision` (boolean, default true), `include-sensitive` (boolean, default
+false), `frame` (string), `build` (string).
+
+**Privacy** (rf2-8fin7.2): the `:app-db` / `:sub` values returned in the
+`:sample` (on hold) and `:last-sample` (on timeout) slots are walked by
+`re-frame.core/elide-wire-value` server-side — same off-box posture as
+`snapshot` / `get-path` / `record`. The predicate itself evaluates over
+the **unwalked** values, so elision never changes whether the watch trips
+— only what the returned sample shows. `elision` / `include-sensitive`
+are honoured only under `--allow-sensitive-reads`; otherwise forced safe.
 
 **Returns** on the first poll where the predicate holds: `{:ok? true
 :held? true :elapsed-ms <n> :sample {<i> <v>} :t <ms>}`. On timeout:
@@ -2563,7 +2585,20 @@ vocab `watch-epochs` already accepts):
   the forwarder default-drops these events at the MCP boundary; pass
   `true` to disable the gate for this subscription. Dropped count
   surfaces as `:dropped-sensitive` on each progress payload (when
-  non-zero) and the final summary.
+  non-zero) and the final summary. Honoured only under
+  `--allow-sensitive-reads`; otherwise forced `false` (rf2-c2dtu).
+- `elision` (boolean, default `true`) — apply the size/sensitive
+  elision walker (`re-frame.core/elide-wire-value`, rf2-vr2hn) to each
+  streamed event's payload **values** server-side, before the batch
+  crosses the wire — declared-`:large?` slots collapse to
+  `{:rf.size/large-elided ...}` markers and declared-`:sensitive?`
+  leaves redact to `:rf/redacted`, the same walker `snapshot` /
+  `get-path` / `record` use. Pass `false` to stream raw values;
+  honoured only under `--allow-sensitive-reads`, otherwise forced
+  `true`. **Orthogonal** to `include-sensitive`: that governs
+  whole-event drop, `elision` governs per-value walking of the events
+  that DO ride — a gate-ON caller wanting full-raw streamed events
+  passes BOTH `elision false` and `include-sensitive true`.
 - `dedup` (boolean, default `true`) — apply structural dedup
   (rf2-obpa9) to each progress payload's `:events` vector. See
   §Structural dedup at the top of this catalogue. The cache is

@@ -210,7 +210,7 @@ your editor is the source of truth.
 | Flag                        | Default | What it does                                                                         |
 |-----------------------------|---------|--------------------------------------------------------------------------------------|
 | `--no-eval`                 | absent (eval-cljs ON) | Opt OUT of the `eval-cljs` tool. Default is eval-cljs ENABLED (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture). See "eval-cljs gate" below. |
-| `--allow-sensitive-reads`   | OFF     | Honour caller-supplied `:include-sensitive true` and `:elision false` on the off-box read surfaces — direct-read tools (`snapshot` / `get-path` / `subscribe` / `trace-window` / `watch-epochs`) AND `dispatch-dry-run` (rf2-z7roa, whose `:db-state-after-simulation` + `:would-fire-effects[*].args` are app-db/fx-derived egress). Default-OFF gate (rf2-c2dtu). Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql); see "sensitive-reads gate" below. |
+| `--allow-sensitive-reads`   | OFF     | Honour caller-supplied `:include-sensitive true` and `:elision false` on every off-box value-egress surface — the direct-read tools (`snapshot` / `get-path` / `read-sub` / `list-subscriptions :include-values` / `subscribe` / `trace-window` / `watch-epochs`), the signal recorders (`record` / `read-recording` / `watch-until`), `dispatch`'s epoch-bearing `:trace` / `:settle` modes (rf2-olvr5 / rf2-m9duxl), and `dispatch-dry-run` (rf2-z7roa, whose `:db-state-after-simulation` + `:would-fire-effects[*].args` are app-db/fx-derived egress). Default-OFF gate (rf2-c2dtu). Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql); see "sensitive-reads gate" below. |
 | `--allow-writes`            | OFF     | Enable the state-mutating tools `restore-epoch` (time-travel undo) and `replace-app-db` (state injection). Default-OFF gate (rf2-ee38b.18); without it both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the app's own handlers) is unaffected. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval can express the same writes), so for a true read-only posture compose with `--no-eval`. See "writes gate" below. |
 | `--port-file <path>`        | —       | Explicit, **cwd-independent** path to the nREPL port file. Highest precedence in port discovery (rf2-3dbwh); see "port-file flag" below. Accepts `--port-file <path>` and `--port-file=<path>`. |
 | `--http-port <n>`           | `9630`  | Shadow's web-server port for the auto-discovery probe (rf2-umoz2). Only consulted at port-discovery step 3; setting it has no effect when `--port-file` or `SHADOW_CLJS_NREPL_PORT` is present. |
@@ -288,13 +288,34 @@ default anyway). Removing it is recommended for clarity.
 
 #### sensitive-reads gate (rf2-c2dtu)
 
-The off-box read surfaces (`snapshot`, `get-path`, `subscribe`,
-`trace-window`, `watch-epochs`) can return verbatim slices of a live
-app's state. So can `dispatch-dry-run` (rf2-z7roa): it mutates nothing
-but its `:db-state-after-simulation` (the would-be app-db) and
-`:would-fire-effects[*].args` (fx-derived data) are off-box egress,
-so it is gated by the SAME posture even though it is not
-`--allow-writes`-gated. Spec 009 §Privacy mandates default-suppression:
+The off-box value-egress surfaces can return verbatim slices of a live
+app's state, so all of them honour the same gate:
+
+- **Direct app-db / sub reads** — `snapshot`, `get-path`, `read-sub`,
+  `list-subscriptions :include-values` (each sub's `:value`).
+- **Pull-mode epoch reads** — `trace-window`, `watch-epochs`, and
+  `dispatch`'s epoch-bearing `:trace` / `:settle` modes (rf2-olvr5 /
+  rf2-m9duxl): the raw `:rf/epoch-record` routes through
+  `re-frame.core/projected-record`, whose app-db sensitive axis the
+  per-call `:include-sensitive` governs. (These have no `:elision` knob —
+  they egress whole records, not per-slot values.)
+- **Streaming** — `subscribe`: top-level `:sensitive? true` events
+  default-drop (opt back in with `:include-sensitive`), and the events
+  that ride are per-value walked (`:elision`, default on).
+- **Signal recorders** — `record` / `read-recording` and `watch-until`
+  (rf2-8fin7.2): the `:app-db` / `:sub` sample values are walked before
+  entering `read-recording` or returning as `:sample` / `:last-sample`.
+- **Simulation** — `dispatch-dry-run` (rf2-z7roa): it mutates nothing,
+  but its `:db-state-after-simulation` (the would-be app-db) and
+  `:would-fire-effects[*].args` (fx-derived data) are off-box egress, so
+  it is gated by the SAME posture even though it is not
+  `--allow-writes`-gated.
+
+The reserved-frame tap surface (`app-db-reset!`, below) default-elides
+its `:previous` / `:next` payloads under the same posture. The
+control-state-only diagnostics (`get-stream-controls`, `list-streams`)
+carry no app-db / event payloads, so they are unconditionally safe — no
+gate. Spec 009 §Privacy mandates default-suppression:
 sensitive slots redact and large slots elide before any payload crosses
 the LLM-facing wire. Published builds ship with the gate **OFF**:
 
