@@ -94,13 +94,20 @@ tools/story-mcp/
         ├── egress.cljc                           ; wire-egress scrubbers (elide-app-db, scrub-assertions+count, scrub-rendered)
         ├── schemas.cljc                          ; recurring JSON-schema fragments
         ├── dev.cljc                              ; get-story-instructions, preview-variant, list-substrates
-        ├── docs.cljc                             ; list-stories, get-story, get-variant, list-tags, list-modes, list-decorators, list-assertions, variant->edn, get-docs-markdown
+        ├── docs.cljc                             ; list-stories, get-story, get-variant, list-tags, list-modes, list-decorators, list-assertions, variant->edn, explain-variant, get-docs-markdown
         ├── testing.cljc                          ; run-variant, snapshot-identity, run-a11y, read-failures
         ├── write.cljc                            ; gated: register-variant, unregister-variant
         └── recorder.cljc                         ; gated: record-as-variant
-└── test/re_frame/story_mcp/
-    ├── protocol_test.clj                         ; wire-format coverage
-    └── tools_test.clj                            ; per-tool semantics + dispatcher + run-loop
+└── test/
+    ├── fixtures/tool-names.json                  ; canonical 20-tool name list (shared JVM + Node fixture)
+    ├── stdio-roundtrip.js                        ; Node stdio JSON-RPC roundtrip (initialize → tools/list → tools/call)
+    └── re_frame/story_mcp/
+        ├── protocol_test.clj                     ; wire-format coverage
+        ├── tools_test.clj                        ; per-tool semantics + dispatcher + run-loop
+        ├── run_result_roundtrip_test.clj         ; unified run-result wire round-trip
+        └── tools/
+            ├── cursor_result_test.clj            ; pagination cursor mint / deref / staleness
+            └── dedup_test.clj                    ; wire-boundary structural-dedup eligibility + shape
 ```
 
 ## See also

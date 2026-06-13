@@ -434,7 +434,11 @@ actually sees (a dropped sensitive failure does not quietly flip
 
 ## Write tools (gated)
 
-Both tools require `:rf.story-mcp/allow-writes?` to be true; see
+Three tools form the Write category. `register-variant` and
+`unregister-variant` require `:rf.story-mcp/allow-writes?` to be true
+outright. `record-as-variant` is **partially** gated: the read-only
+recording path (snippet only) is ungated, and only the `:write-back`
+re-registration sits behind the same flag. See
 [`003-Write-Surface-Gating.md`](003-Write-Surface-Gating.md).
 
 ### `register-variant`

@@ -107,8 +107,12 @@ changes.
 
 ## Write surface gated by default
 
-The two write tools (`register-variant`, `unregister-variant`) sit
-behind `re-frame.story-mcp.config/allow-writes?` (default `false`).
+The Write category — `register-variant`, `unregister-variant`, and
+`record-as-variant` — sits behind
+`re-frame.story-mcp.config/allow-writes?` (default `false`).
+`register-variant` / `unregister-variant` are gated outright;
+`record-as-variant` is gated only on its `:write-back`
+re-registration path (the snippet-only recording read is ungated).
 Three input paths flip the gate at boot: `--allow-writes` CLI flag,
 `-Drf.story-mcp.allow-writes=true` sysprop,
 `RF_STORY_MCP_ALLOW_WRITES=true` env var. Read tools are never
@@ -208,31 +212,39 @@ The discipline applies across three axes:
   `get-*` / `<thing>->edn` tools are exempt — their return is a
   single record bounded by the body size, not a function of
   registry size; the wire-boundary cap catches overruns there.
-- **Summarisation modes for rich payloads.** Ops with rich
-  per-item shape (`run-variant`, `snapshot-identity`,
-  `variant->edn`) MUST expose a `:mode` argument with at
-  least `:count` (return totals / pass-fail counts only),
-  `:sample` (return a bounded prefix or stratified sample
-  with sizes attached), and `:full` (return everything,
-  paginated). The default MUST be `:sample` for any op whose
-  `:full` payload can exceed the cap. The self-healing loop
-  (run → read-failures → fix) naturally biases towards
-  failure-only payloads, which is the `:sample` mode under a
-  failure filter.
+- **Cap + dedup + per-call override for rich payloads.** Ops with
+  rich per-item shape (`preview-variant`, `run-variant`,
+  `record-as-variant`) re-key the same value into multiple derived
+  slots (`:app-db` + `:rendered-hiccup` + `:snapshot`; repeated event
+  records in the recorder's `:captured` vector). Those three carry
+  `:dedup-eligible? true`: their `:structuredContent` is run through
+  `day8/de-dupe` (collapsing repeated subtrees into a flat cache map
+  under the cross-MCP `{:rf.mcp/dedup-table …}` marker) BEFORE the
+  token-cap measures the payload. The per-call `:max-tokens` override
+  (integer cap; `0` disables; absent ⇒ the `mcp-base.overflow`
+  default) and the per-call `:dedup` boolean (default `true`) let a
+  caller tune the budget. When the post-dedup payload still exceeds
+  the cap, the wire pipeline replaces it with the structured
+  `{:rf.mcp/overflow …}` marker carrying a per-tool next-step hint —
+  it does NOT silently truncate. The self-healing loop
+  (run → read-failures → fix) naturally biases towards failure-only
+  payloads via `read-failures`' `:failures` filter.
 - **Streaming over batch where appropriate.** If story-mcp
   later grows a streaming tool (e.g., a long-running batch
   variant run), each notification MUST stay under the cap;
   the agent host meters consumption. Batching is reserved
   for ops whose payload is naturally bounded and small.
 
-The cap is enforced at the runtime boundary, not just
-documented. Each tool's reference entry in
-[`002-Tool-Registry.md`](002-Tool-Registry.md) carries a
-**typical-token** hint (e.g., `~0.8k`, `~3k under :sample`)
-and a **cap-reached** behaviour note (truncate-with-cursor,
-return `isError: true` with `:reason :budget-exceeded` and a
-hint to narrow the filter or switch mode). The hints surface
-in `list-tools` so the agent can plan ahead.
+The cap is enforced at the runtime boundary
+(`re-frame.story-mcp.tools.wire-pipeline/invoke-tool` →
+`re-frame.mcp-base.cap/apply-cap`), not just documented. Each tool's
+descriptor carries a `:typicalTokens` hint (the committed
+`tool-descriptors.edn` records it per row), surfaced in `tools/list`
+so the agent can plan ahead. When a response exceeds the cap the
+payload is replaced with the `{:rf.mcp/overflow …}` marker carrying
+the tool-specific next-step hint (raise `:max-tokens`, narrow a
+filter, shorten `:duration-ms`, …) — a structured signal the agent
+acts on, never a silent truncation.
 
 This is the load-bearing budget posture for story-mcp's
 agent-host workflow: keep the per-op cost predictable, push
