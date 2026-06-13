@@ -4,7 +4,7 @@ re-frame2's killer feature is also its leak: one runtime story feeds every tool 
 
 > **Mental model: data classification + taint-at-the-boundary.** If you have used Rails' filtered parameters, a logging redactor, or a DLP/data-classification scheme, the move is familiar — *but inverted from the usual mistake.* The wrong answer is to filter at each consumer ("tell every tool to drop the password"); the one that doesn't, leaks everything. re-frame2 classifies once **at the owner of the data**, projects at the **trust boundary**, and every **sink receives an already-safe record**. You declare; the framework projects; sinks consume.
 
-This leaf is the recipe and when-to-reach-for-it. The depth — the full law, the exception gap, the three sentinels, the SSR allowlist — lives in [guide chapter 23](../../../../docs/guide/23-privacy-and-large-things.md). The normative home is [`spec/015-Data-Classification.md`](../../../../spec/015-Data-Classification.md).
+This leaf is the recipe and when-to-reach-for-it. The depth — the full law, the exception gap, the three sentinels, the SSR allowlist — lives in [guide chapter 23](../../../../docs/guide/how-to/keep-secrets-out-of-traces.md). The normative home is [`spec/015-Data-Classification.md`](../../../../spec/015-Data-Classification.md).
 
 ## The one law
 
@@ -216,7 +216,7 @@ Calling any of these retired names fails the skills projection gate (it no longe
 
 ## Cross-references
 
-- [Guide ch23 — Privacy and large things](../../../../docs/guide/23-privacy-and-large-things.md): the full law, the exception gap, the SSR allowlist, `safe-throw`.
+- [Guide ch23 — Privacy and large things](../../../../docs/guide/how-to/keep-secrets-out-of-traces.md): the full law, the exception gap, the SSR allowlist, `safe-throw`.
 - [`spec/015-Data-Classification.md`](../../../../spec/015-Data-Classification.md): normative home.
 - `production-observability.md`: the listener/event/error substrate behind frame `:observability`.
 - Spec 009: privacy at the trace/emission boundary. Spec 010: per-slot Malli metadata and the schema walker.
