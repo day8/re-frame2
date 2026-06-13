@@ -310,17 +310,23 @@
   fails if any entry becomes catalogued or stops being emitted, forcing the
   co-edit so the list cannot rot into a silent blanket suppression.
 
-  CURRENT ENTRY (transitional co-edit, rf2-d8mvke.1 / rf2-d8mvke.6 finding-1):
+  CO-EDIT RESOLVED (rf2-d8mvke.1 / rf2-d8mvke.6 finding-1):
     - `:rf.error/cofx-registration-invalid` — the malformed-`reg-cofx`-metadata
       error introduced by the EP-0017 round-2 review (`reject :provided?+supplier
       contradiction; reserve `:rf.error/cofx-name-collision` for genuine
-      duplicate ownership). The Spec 009 §Error event catalogue row for it is
-      authored by the concurrent EP-0017 completeness-sync worker (rf2-d8mvke.2,
-      which owns the hot-zone 009 file); this code-side PR only EMITS the
-      error-id. Allow-listed so the emit lands green before the catalogue row
-      does. `allow-list-stays-honest` forces the co-edit: once rf2-d8mvke.2
-      catalogues the row, this entry MUST be dropped in that same PR."
-  #{:rf.error/cofx-registration-invalid})
+      duplicate ownership) — was held here transitionally while this code-side
+      PR emitted the error-id ahead of its catalogue row. The Spec 009 §Error
+      event catalogue row was authored + MERGED by the EP-0017 completeness-sync
+      worker (rf2-d8mvke.2, which owns the hot-zone 009 file). The category is
+      now CATALOGUED, so per the ratchet it has been DROPPED from this list:
+      `allow-list-stays-honest` forced exactly this co-edit (a listed entry that
+      becomes catalogued must leave the allow-list).
+
+  The list is currently EMPTY — every emitted category is catalogued or ruled
+  intentionally out-of-catalogue with a 009 note. A new uncatalogued emitted
+  category lands here with a rationale, and the coverage test fails loudly until
+  it does."
+  #{})
 
 ;; ---------------------------------------------------------------------------
 ;; Tests
