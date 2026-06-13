@@ -48,8 +48,9 @@
          day8/re-frame2-ssr-ring {:local/root "ssr-ring"}
          day8/re-frame2-epoch    {:local/root "epoch"}
          ;; rf2-p10npe — the optional Resources artefact (Spec 016,
-         ;; EP-0003 slice 2). Skeleton slice; runtime logic lands in
-         ;; later slices.
+         ;; EP-0003). Managed resource queries: reg-resource, the
+         ;; :rf.resource/* events + passive subs, work ledger,
+         ;; invalidation/GC, and hydration — runtime landed and tested.
          day8/re-frame2-resources {:local/root "resources"}}
 
  :aliases

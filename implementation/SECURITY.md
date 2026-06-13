@@ -234,5 +234,5 @@ Every concrete CLJS-reference security call recorded as a bead, with one-line ra
 - [`../spec/010-Schemas.md`](../spec/010-Schemas.md) — schema-driven privacy declaration; boundary-validation seam.
 - [`../spec/011-SSR.md`](../spec/011-SSR.md) — response-shape fx (the CRLF-check sites); `:rf.server/safe-redirect`.
 - [`../spec/014-HTTPRequests.md`](../spec/014-HTTPRequests.md) — managed-HTTP input-validation and DoS defaults.
-- [`../spec/API.md`](../spec/API.md) — public-surface signatures (the names a user types: schema `:sensitive?` / `:large?` metadata, handler `:sensitive?` meta, `elide-wire-value`).
+- [`../spec/API.md`](../spec/API.md) — public-surface signatures (the names a user types: schema `:sensitive?` / `:large?` metadata, `elide-wire-value`). Path-based sensitivity (schema-slot `:sensitive?`) is the surviving declaration; the legacy handler-meta `:sensitive?` annotation was removed (rf2-hjs2d).
 - [`../spec/Tool-Pair.md`](../spec/Tool-Pair.md) — MCP-server direct-read wire-egress contract.

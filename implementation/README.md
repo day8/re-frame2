@@ -147,7 +147,8 @@ implementation/
     src/re_frame/resources.cljc    reg-resource / clear-resource / resource-meta /
                                    resource-state / resources, :rf.resource/* events
                                    + passive subs, :resource registrar kind, work-ledger.
-    test/re_frame/                 CLJS resources skeleton tests.
+    test/re_frame/                 CLJS surface/wiring smoke + runtime behaviour tests
+                                   (ensure/refetch, work ledger, invalidation/GC, hydration).
 
   ssr-ring/                  day8/re-frame2-ssr-ring — Ring host adapter for the SSR pipeline
                              (rf2-ny6v7).

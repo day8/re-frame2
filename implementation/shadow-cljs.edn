@@ -2,12 +2,14 @@
 ;; rf2-k682, rf2-tfw3, rf2-5kpd, rf2-uo7v, rf2-3yij, rf2-lt4e, rf2-2qit,
 ;; rf2-ny6v7).
 ;;
-;; Pulls in every published artefact's source path (core/, reagent/,
-;; uix/, helix/, schemas/, machines/, routing/, flows/, http/, ssr/,
-;; epoch/) plus their test trees and the examples. The shadow build
-;; runs as a *consumer* of every artefact; the deps.edn at this level
-;; wires the classpath via :local/root for any clojure-tools-driven
-;; steps.
+;; Pulls in every published artefact's source path (the core, the
+;; per-substrate adapters, and the per-feature artefacts) plus their
+;; test trees, the cross-artefact conformance tiers, and the examples.
+;; The :source-paths vector below is the authoritative enumeration; the
+;; canonical artefact inventory lives in implementation/README.md. The
+;; shadow build runs as a *consumer* of every artefact; the deps.edn at
+;; this level wires the classpath via :local/root for any
+;; clojure-tools-driven steps.
 ;;
 ;; Per rf2-3yij the UIx adapter ships in implementation/adapters/uix;
 ;; its sources are added to :source-paths and com.pitch/uix.{core,dom}
@@ -18,7 +20,7 @@
 ;; :source-paths and lilactown/helix is added to :dependencies so the
 ;; per-example Helix builds resolve.
 ;;
-;; Per rf2-zha9 the three adapters live under
+;; Per rf2-zha9 the per-substrate adapters live under
 ;; implementation/adapters/<name>/ (renamed from substrates/ per
 ;; rf2-0imy); per-feature artefacts (schemas, machines, ...) stay flat
 ;; under implementation/<name>/.
@@ -104,10 +106,12 @@
                 "epoch/src"
                 "epoch/test"
                 ;; rf2-p10npe — the optional Resources artefact (Spec 016,
-                ;; EP-0003 slice 2). Source + test paths added so the
+                ;; EP-0003). Source + test paths added so the
                 ;; consolidated :node-test build picks up the resources
-                ;; ns's + any `*-cljs-test` suites under resources/test/.
-                ;; Skeleton slice; runtime logic lands in later slices.
+                ;; ns's + the `*-cljs-test` suites under resources/test/.
+                ;; The Resources runtime has landed (reg-resource, the
+                ;; :rf.resource/* events + passive subs, work ledger,
+                ;; invalidation/GC, hydration); the suites exercise it.
                 ;; Bundle-isolation holds: nothing under tools/ is
                 ;; required, and core never :requires re-frame.resources.
                 "resources/src"
@@ -1292,9 +1296,9 @@
   ;; event-driven ensure under an app lease, manual refresh as a cause, and
   ;; a machine-owned resource — all read through passive [:rf.resource/*]
   ;; subs. `resources/src` is already on :source-paths above (rf2-p10npe),
-  ;; so `resources.core` resolves without per-build deps. Skeleton slice:
-  ;; compiles + registers; the causal ensure/refetch bodies light up when
-  ;; the runtime slices land.
+  ;; so `resources.core` resolves without per-build deps. The Resources
+  ;; runtime has landed (EP-0003): the causal ensure/refetch bodies are
+  ;; real and operational.
   :examples/resources
   {:target     :browser
    :output-dir "out/examples/resources"
