@@ -282,16 +282,25 @@
             (str family " " situation " reply carries a host handle"))))))
 
 (deftest every-work-id-is-a-comparable-edn-tuple
+  ;; Managed-Effects.md §Work-id correlation (:184): ledger-backed async work
+  ;; MUST carry `:work/id` as the single attempt identity, and this table IS
+  ;; the shipped managed-async family set. So the assertion FAILS CLOSED on a
+  ;; missing `:work/id` — there is NO `:when (some? wid)` skip. If any family
+  ;; builder ever drops `:work/id`, the `(some? wid)` guard below goes RED
+  ;; (it would have silently skipped the tuple/head/EDN checks otherwise —
+  ;; rf2-xyn0dv finding #1). Every descriptor in this table carries a
+  ;; non-nil :work-head, so every row is held to the work-id contract.
   (doseq [{:keys [family work-head] :as f} families
           [situation builder] (select-keys f [:success :error :cancel :stale])
           :when (and builder work-head)
           :let [reply (builder)
-                wid   (:work/id reply)]
-          ;; Defensive: skip any row that legitimately produces no :work/id
-          ;; (none today — rf2-niarhz gave the machine :after timer a canonical
-          ;; [:rf.work/timer …] work-id too).
-          :when (some? wid)]
+                wid   (:work/id reply)]]
     (testing (str family " / " situation " :work/id correlation")
+      (is (some? wid)
+          (str family " " situation " reply MUST carry a :work/id — this table is "
+               "the shipped managed-async family set and Managed-Effects §Work-id "
+               "correlation requires ledger-backed async work to carry one "
+               "(a dropped :work/id is the exact regression this gate catches)"))
       (is (vector? wid) (str family " " situation " :work/id is not a vector"))
       (is (= work-head (first wid))
           (str family " " situation " :work/id head is " (first wid)
@@ -406,12 +415,54 @@
           (str family " stale reply MUST NOT carry a :value — a stale reply "
                "mutates NO app state")))))
 
+;; ---------------------------------------------------------------------------
+;; The suppress OUTCOME builders for the four suppress-DELEGATING families.
+;; Each returns the `re-frame.reply/suppress` outcome map
+;; `{:deliver? :reply :work/status :trace}` (HTTP / resources / mutations /
+;; routing all delegate to `re-frame.reply/suppress`, so the carried/current
+;; correlation rides the OUTCOME's `:trace`, not the reply). Factored so the
+;; correlation-gate assertion AND the adversarial control share one source.
+;; ---------------------------------------------------------------------------
+
+(defn- http-stale-out []
+  ;; HTTP supersession lowered through the shared substrate `suppress`, with a
+  ;; carried-vs-current HTTP work-id gate (the same shape the :http row's
+  ;; :stale builder uses — Managed-Effects §Stale suppression).
+  (reply/suppress nil
+                  {:work/id (http-reply/work-id http-ctx)}
+                  {:work/id [:rf.work/http :article/by-id 2]}
+                  {:work/id      (http-reply/work-id http-ctx)
+                   :work/kind    :http
+                   :rf.frame/id  :app/main
+                   :stale/reason :rf.http/superseded}))
+
+(defn- mutation-stale-out []
+  (rreply/stale-reply
+    {:carried {:work/id [:rf.work/resource [:rf.mutation :form/save-1] 2] :generation 2}
+     :current {:work/id [:rf.work/resource [:rf.mutation :form/save-1] 3] :generation 3}
+     :extra   {:work/id [:rf.work/resource [:rf.mutation :form/save-1] 2]
+               :work/kind :mutation :stale/reason :mutation/superseded}}))
+
+(defn- resource-stale-out []
+  (rreply/stale-reply
+    {:carried {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4] :generation 4}
+     :current {:work/id [:rf.work/resource [:rf.scope/global :r {}] 5] :generation 5}
+     :extra   {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4]
+               :work/kind :resource :stale/reason :resource/generation-mismatch}}))
+
+(defn- route-stale-out []
+  (route-reply/suppress {:route-id :route/article :nav-token "nav-1"
+                         :loader-id :article/loaded :frame :app/main}
+                        "nav-2"))
+
 (deftest stale-replies-carry-a-carried-and-current-correlation-gate
   ;; The canonical stale shape carries the carried-vs-current correlation —
   ;; either on the suppress OUTCOME's :trace (HTTP / resources / mutations /
   ;; routing, which delegate to re-frame.reply/suppress) or in the reply's
   ;; :correlation map (machines spawn + :after, which build the gate inline).
   ;; Pin the correlation presence per family at the altitude each exposes it.
+  ;; Managed-Effects §Tracing (:235) + §Stale suppression (:217-223): EVERY
+  ;; stale-suppression trace carries the carried + current correlation facts.
   (testing "machine spawn-stale carries the carried/current generation gate in :correlation"
     (let [reply (machine-stale-reply)
           corr  (:correlation reply)]
@@ -422,21 +473,64 @@
           corr  (:correlation reply)]
       (is (= {:path [:loading] :rf/after-epoch 1} (:carried corr)) "carried path + scheduled epoch")
       (is (= {:path [:loading] :rf/after-epoch 2} (:current corr)) "current path + advanced epoch")))
-  (testing "the suppress-delegating families (HTTP / resources / mutations / routing) carry carried+current on the :trace"
-    (let [route-out  (route-reply/suppress {:route-id :route/article :nav-token "nav-1"
-                                            :loader-id :article/loaded :frame :app/main}
-                                           "nav-2")
-          res-out    (rreply/stale-reply
-                       {:carried {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4] :generation 4}
-                        :current {:work/id [:rf.work/resource [:rf.scope/global :r {}] 5] :generation 5}
-                        :extra   {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4]
-                                  :work/kind :resource :stale/reason :resource/generation-mismatch}})]
-      (doseq [[family out] [[:route route-out] [:resource res-out]]]
-        (is (false? (:deliver? out))
-            (str family " stale suppression MUST NOT deliver the app target"))
-        (is (= :suppressed (:work/status out))
-            (str family " stale suppression outcome is :work/status :suppressed"))
-        (is (some? (get-in out [:trace :rf.reply/carried]))
-            (str family " stale trace carries the :rf.reply/carried correlation"))
-        (is (some? (get-in out [:trace :rf.reply/current]))
-            (str family " stale trace carries the :rf.reply/current correlation"))))))
+  (testing "ALL FOUR suppress-delegating families (HTTP / resources / mutations / routing) carry carried+current on the :trace"
+    ;; rf2-xyn0dv finding #2: the comment named four families but the loop
+    ;; checked only :route and :resource — so HTTP or a mutation losing the
+    ;; carried/current trace facts in its stale outcome would NOT have gone
+    ;; red here. All four are now exercised.
+    (doseq [[family out] [[:http     (http-stale-out)]
+                          [:resource (resource-stale-out)]
+                          [:mutation (mutation-stale-out)]
+                          [:route    (route-stale-out)]]]
+      (is (false? (:deliver? out))
+          (str family " stale suppression MUST NOT deliver the app target"))
+      (is (= :suppressed (:work/status out))
+          (str family " stale suppression outcome is :work/status :suppressed"))
+      (is (some? (get-in out [:trace :rf.reply/carried]))
+          (str family " stale trace carries the :rf.reply/carried correlation"))
+      (is (some? (get-in out [:trace :rf.reply/current]))
+          (str family " stale trace carries the :rf.reply/current correlation")))))
+
+;; ---------------------------------------------------------------------------
+;; ADVERSARIAL CONTROL (rf2-xyn0dv). The umbrella gate above is only as strong
+;; as its ability to FAIL when a family regresses. This control proves the
+;; gate fails CLOSED: a hypothetical HTTP / mutation stale helper that returns
+;; an otherwise-valid `:stale` reply outcome but OMITS the carried/current
+;; trace facts (the rf2-mn4j89-class divergence — a bespoke suppression shape
+;; that forgets the correlation) is detected. We assert the NEGATIVE:
+;; `some?` over the missing trace slots is FALSE, so the real gate's `is
+;; (some? …)` would go RED on such an outcome. If this control ever passes
+;; trivially (e.g. the trace key were renamed), the gate it guards is no
+;; longer catching the regression it claims to.
+;; ---------------------------------------------------------------------------
+
+(defn- strip-correlation-trace
+  "Simulate a non-conforming family whose stale outcome forgets the
+  carried/current correlation facts (a bespoke suppression shape). Returns a
+  conforming suppress outcome with the two correlation slots dissoc'd from
+  its :trace — everything else (delivery, :work/status, :status :stale) is
+  still valid, so ONLY the carried/current gate distinguishes it."
+  [out]
+  (update out :trace dissoc :rf.reply/carried :rf.reply/current))
+
+(deftest stale-correlation-gate-fails-closed-on-a-non-conforming-family
+  (testing "a stale outcome that omits the carried/current trace facts is DETECTED by the gate's correlation assertions"
+    (doseq [[family out] [[:http     (strip-correlation-trace (http-stale-out))]
+                          [:mutation (strip-correlation-trace (mutation-stale-out))]]]
+      ;; The outcome is otherwise a perfectly valid stale suppression …
+      (is (false? (:deliver? out))
+          (str family " control outcome still suppresses delivery"))
+      (is (= :suppressed (:work/status out))
+          (str family " control outcome is still :work/status :suppressed"))
+      (is (= :stale (get-in out [:reply :status]))
+          (str family " control reply is still :status :stale"))
+      ;; … yet the carried/current correlation facts are GONE, so the exact
+      ;; assertions the umbrella gate runs go red. This is the negative case:
+      ;; if these `nil?` checks ever failed, the gate would be passing a
+      ;; non-conforming family (a silent rf2-mn4j89-class regression).
+      (is (nil? (get-in out [:trace :rf.reply/carried]))
+          (str family " control DROPPED :rf.reply/carried — the gate's "
+               ":rf.reply/carried assertion would FAIL on this outcome"))
+      (is (nil? (get-in out [:trace :rf.reply/current]))
+          (str family " control DROPPED :rf.reply/current — the gate's "
+               ":rf.reply/current assertion would FAIL on this outcome")))))

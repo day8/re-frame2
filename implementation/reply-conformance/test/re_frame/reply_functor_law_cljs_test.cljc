@@ -1,7 +1,29 @@
 (ns re-frame.reply-functor-law-cljs-test
-  "Family-level reply-target functor/naturality law conformance for the
-  TARGET-RELOCATING families (rf2-5ha70w, EP-0011 testing-rigour audit
-  rf2-h8xw2v).
+  "SUBSTRATE-LEVEL reply-target functor/naturality law proof over the
+  RELAY SHAPES the target-relocating families use (rf2-5ha70w, EP-0011
+  testing-rigour audit rf2-h8xw2v).
+
+  ## Scope — read this before trusting the suite (rf2-xyn0dv)
+
+  This suite is NOT end-to-end family-relocation conformance. The route and
+  machine families do NOT (today) expose a `map-target`-based relocation
+  helper — there is no `re-frame.routing.reply/relay` or
+  `re-frame.machines.reply/on-done` seam in the source. So this suite
+  CANNOT exercise a real family relocation seam; instead it pins the
+  functor laws over SYNTHETIC event-transforms (`route-relay`,
+  `spawn-on-done`, `grandparent-relay` below) that MODEL THE SHAPE such a
+  relocation would take, applied to REAL family reply maps (`route-reply`,
+  `spawn-reply` are genuine route-loader / machine-spawn replies). It is a
+  substrate-shape proof, not an integration proof: it proves
+  `re-frame.reply/map-target` + `complete` obey the laws for the relay
+  SHAPES a relocating family would build — it does NOT prove that any
+  family actually wires those shapes through `map-target` end to end.
+
+  If a real route/machine target-relocation seam ever lands (a family
+  helper that calls `map-target` to relay a child continuation onto a
+  parent event), point this suite at THAT helper and the proof becomes
+  integration-level; until then, the prose above states the actual
+  altitude so future drift is not masked by an overstated claim.
 
   The reply-target functor laws —
 
@@ -21,7 +43,7 @@
   resources, mutations — `map-target` stores nothing on the target, so the
   law holds structurally) a per-family re-proof is low-value; the substrate
   + probe already cover that case. The risk — if any — is in the families
-  that RELOCATE / WRAP their target before completion:
+  that would RELOCATE / WRAP their target before completion:
 
     - a ROUTE LOADER relaying a loader continuation onto a PARENT route
       event (the child's reply re-targeted onto `[:route/parent … reply]`);
@@ -33,17 +55,19 @@
   changes MORE than the completed event, or a composition whose order
   matters — would hide. The second review judged routing/machines PASS by
   READING (the nav-token wrap reads current + suppresses before the app
-  target; spawn drives `:on-done` with `(:value reply)`), so this is a
-  belt-and-braces REGRESSION GUARD, not a known defect: it proves the laws
-  hold where the target is RELOCATED, executable rather than read.
+  target; spawn drives `:on-done` with `(:value reply)`). Because no family
+  exposes a `map-target` relocation seam to point at, this is a
+  belt-and-braces SUBSTRATE-SHAPE proof over the relay shapes those
+  families would use — NOT executable proof of a real family relocation.
 
   ## What the relocation transforms model
 
-  A relocating family builds an event-transform `f` (the role Elm's
-  `Cmd.map` plays) that wraps / relays the completed continuation. The
-  family-level law is: relocating the target via `map-target` then
+  A relocating family WOULD build an event-transform `f` (the role Elm's
+  `Cmd.map` plays) that wraps / relays the completed continuation. These
+  transforms are SYNTHETIC stand-ins for that shape (no family exports
+  them); the law proven is: relocating the target via `map-target` then
   completing equals completing then relocating — for the relay shapes the
-  two families actually use:
+  two families would use:
 
     - route-relay:   `(fn [event] [:route/parent-relay route-id event])`
                      — wrap the loader continuation under a parent route
@@ -54,7 +78,7 @@
                        `:on-done` continuation event.
 
   Pure-fn conformance over `re-frame.reply` (`map-target` / `complete`) for
-  the relocation SHAPES the relocating families use. Lives in the
+  the relocation SHAPES the relocating families would use. Lives in the
   cross-artefact `reply-conformance/` surface alongside the vocab
   conformance suite. Runs on `npm run test:cljs` (ns matches `cljs-test$`)
   AND the JVM gate (`reply-conformance/deps.edn` `:test`).
@@ -67,9 +91,12 @@
             [re-frame.machines.reply :as m-reply]))
 
 ;; ---------------------------------------------------------------------------
-;; Canonical replies for the two relocating families. Both are
-;; family-shaped (so the law is exercised over a REAL family reply, not a
-;; synthetic stub) and validate against the shared contract.
+;; Canonical replies for the two relocating families. Both are REAL family
+;; reply maps (a genuine route-loader :ok reply / a genuine machine-spawn
+;; success reply) — so the law is exercised over a real family reply, not a
+;; synthetic stub. NOTE the asymmetry the docstring calls out: the replies
+;; are real, but the TRANSFORMS below are synthetic stand-ins — no family
+;; exposes a map-target relocation seam to point at.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private route-reply
@@ -89,10 +116,12 @@
                          {:user-id "u-42"}))
 
 ;; ---------------------------------------------------------------------------
-;; The RELOCATION transforms each family uses. An event-transform receives
-;; the FULLY-COMPLETED event (the target event with the reply map already
-;; appended) and returns the relocated/rewrapped event — exactly what a
-;; relay loader / spawn :on-done routing does.
+;; The RELOCATION transforms. SYNTHETIC stand-ins (no family exports these —
+;; see the ns docstring): each models the SHAPE a relocating family would
+;; build. An event-transform receives the FULLY-COMPLETED event (the target
+;; event with the reply map already appended) and returns the
+;; relocated/rewrapped event — exactly what a relay loader / spawn :on-done
+;; routing WOULD do.
 ;; ---------------------------------------------------------------------------
 
 (defn- route-relay
@@ -128,8 +157,8 @@
 ;; the completed event. `(complete (map-target f t) r) == (f (complete t r))`.
 ;; ---------------------------------------------------------------------------
 
-(deftest naturality-holds-for-the-route-relay-relocation
-  (testing "route-loader relay: complete(map-target(relay, t), r) == relay(complete(t, r))"
+(deftest naturality-holds-for-the-route-relay-shape
+  (testing "route-loader relay SHAPE (synthetic transform, real route reply): complete(map-target(relay, t), r) == relay(complete(t, r))"
     (let [target [:article/loaded {:slug "welcome"}]
           relay  (route-relay :route/article)]
       (is (= (reply/complete (reply/map-target relay target) route-reply)
@@ -141,8 +170,8 @@
                 [:article/loaded {:slug "welcome"} route-reply]]
                (reply/complete (reply/map-target relay target) route-reply)))))))
 
-(deftest naturality-holds-for-the-spawn-on-done-relocation
-  (testing "machine-spawn :on-done: complete(map-target(on-done, t), r) == on-done(complete(t, r))"
+(deftest naturality-holds-for-the-spawn-on-done-shape
+  (testing "machine-spawn :on-done SHAPE (synthetic transform, real spawn reply): complete(map-target(on-done, t), r) == on-done(complete(t, r))"
     (let [target  [:auth/done {:flow :login}]
           on-done (spawn-on-done :auth/main)]
       (is (= (reply/complete (reply/map-target on-done target) spawn-reply)
@@ -158,7 +187,7 @@
 ;; Identity — relocating through identity is a no-op on completion.
 ;; ---------------------------------------------------------------------------
 
-(deftest identity-holds-for-both-relocating-families
+(deftest identity-holds-for-both-relay-shapes
   (testing "route relay target: map-target identity is the identity on completion"
     (let [target [:article/loaded {:slug "welcome"}]]
       (is (= (reply/complete target route-reply)
@@ -174,8 +203,8 @@
 ;; would surface.
 ;; ---------------------------------------------------------------------------
 
-(deftest composition-holds-for-the-route-relay-relocation
-  (testing "route parent-relay ∘ grandparent-relay composes in either order — map-target composes the transforms"
+(deftest composition-holds-for-the-route-relay-shape
+  (testing "route parent-relay ∘ grandparent-relay (synthetic shapes) compose in either order — map-target composes the transforms"
     (let [target  [:article/loaded {:slug "welcome"}]
           relay   (route-relay :route/article)
           grandpa (grandparent-relay :route/root)]
@@ -191,8 +220,8 @@
                  [:article/loaded {:slug "welcome"} route-reply]]]
                (reply/complete (reply/map-target (comp relay grandpa) target) route-reply)))))))
 
-(deftest composition-holds-for-the-spawn-on-done-relocation
-  (testing "spawn :on-done ∘ grandparent-relay (supervisor relay) composes in either order"
+(deftest composition-holds-for-the-spawn-on-done-shape
+  (testing "spawn :on-done ∘ grandparent-relay (synthetic supervisor-relay shapes) compose in either order"
     (let [target  [:auth/done {:flow :login}]
           on-done (spawn-on-done :auth/main)
           grandpa (grandparent-relay :auth/supervisor)]
