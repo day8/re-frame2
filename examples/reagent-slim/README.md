@@ -22,11 +22,20 @@ The example sits in its own folder with the teaching CLJS source (`core.cljs`), 
 
 ## Testing
 
-The `examples/` tree carries no tests. Reagent Slim's regression coverage is the **adapter-owned bundle-isolation gate** at [`implementation/scripts/check-reagent-slim-bundle-isolation.cjs`](../../implementation/scripts/check-reagent-slim-bundle-isolation.cjs), wired to the `cljs-reagent-slim-bundle-isolation` CI job in [`.github/workflows/test.yml`](../../.github/workflows/test.yml). From `implementation/`:
+The `examples/` tree carries no tests. Reagent Slim's regression coverage lives across four adapter-owned layers, none of them under `examples/`:
+
+1. **Compile gate** — `npm run test:examples-compile` proves the slim example builds.
+2. **Bundle-isolation grep** — the **adapter-owned bundle-isolation gate** at [`implementation/scripts/check-reagent-slim-bundle-isolation.cjs`](../../implementation/scripts/check-reagent-slim-bundle-isolation.cjs), wired to the `cljs-reagent-slim-bundle-isolation` CI job in [`.github/workflows/test.yml`](../../.github/workflows/test.yml).
+3. **Headless substrate tests** — the slim adapter's CLJS node-tests under `implementation/adapters/reagent-slim/test/` (`npm run test:cljs`), including the pure-CLJS SSR contract test that mirrors this example's value-5 inc dataflow with no DOM.
+4. **Client-runtime smoke** — the day8/reagent-slim adapter testbed at `implementation/adapters/reagent-slim/testbed/`, a standalone counter mounted through `reagent2.dom.client` that proves the live mount/inject/click path in headless Chromium (`npm run test:reagent-slim:smoke`). This is a dedicated slim gate, separate from the shared Reagent/UIx/Helix examples adapter-smoke set.
+
+From `implementation/`:
 
 ```bash
 # Release both bundles (stock + slim), then grep the slim bundle.
 npm run test:reagent-slim:bundle-isolation
+# Drive the slim substrate end-to-end in a headless browser.
+npm run test:reagent-slim:smoke
 ```
 
 Broader substrate regressions are caught by the contract tests (`npm run test:cljs`), the Xray feature-matrix gate (`npm run test:xray-feature-gate`), and the production bundle-isolation gate (`npm run test:bundle-isolation`) — not by per-example specs.
