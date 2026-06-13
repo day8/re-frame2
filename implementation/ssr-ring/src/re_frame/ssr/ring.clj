@@ -363,8 +363,14 @@
 
     (rf/init! (requiring-resolve 'ssr-ring-app/ssr-adapter))
     (def handler
-      (ssr-ring/ssr-handler {:on-create [:rf/server-init]
-                             :root-view [:app/root]
+      (ssr-ring/ssr-handler {:on-create  [:rf/server-init]
+                             :root-view  [:app/root]
+                             ;; REQUIRED, fail-closed (rf2-gtgf9). A vector
+                             ;; is an allowlist of top-level app-db keys to
+                             ;; ship; `:rf.ssr.payload/whole-app-db` opts into
+                             ;; the whole db. Omit it and construction throws
+                             ;; `:rf.error/ssr-missing-payload-policy`.
+                             :payload    [:articles :session-user]
                              :html-shell ssr-ring-app/shell}))
     (jetty/run-jetty handler {:port 3000 :join? false})"
   [raw-opts]
@@ -422,12 +428,18 @@
 
   Example:
 
+    ;; `ssr-middleware` is CURRIED: `(ssr-middleware opts)` returns a
+    ;; Ring middleware `(handler) → wrapped-handler`. Apply it to the
+    ;; fallback handler, then compose normally. `:payload` is REQUIRED
+    ;; (fail-closed, rf2-gtgf9) — the same allowlist-or-whole-db policy
+    ;; `ssr-handler` enforces.
     (def app
       (-> default-handler
-          (ssr-ring/ssr-middleware
-            {:on-create [:rf/server-init]
-             :root-view [:app/root]
-             :match? (fn [req] (= :get (:request-method req)))})
+          ((ssr-ring/ssr-middleware
+             {:on-create [:rf/server-init]
+              :root-view [:app/root]
+              :payload   [:articles :session-user]
+              :match?    (fn [req] (= :get (:request-method req)))}))
           wrap-static-assets))"
   [{:keys [match?] :as opts}]
   (let [match? (or match? (fn default-match? [req]

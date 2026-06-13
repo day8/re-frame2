@@ -47,9 +47,9 @@
             [re-frame.ssr.ring :as ssr-ring]
             [re-frame.ssr.ring.headers :as headers]
             [re-frame.ssr.ring.pipeline :as pipeline]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.ssr.ring.test-support :as ts]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each ts/reset-runtime)
 
 ;; ===========================================================================
 ;; ssr-response->ring-response — redirect target resolution (:location only)

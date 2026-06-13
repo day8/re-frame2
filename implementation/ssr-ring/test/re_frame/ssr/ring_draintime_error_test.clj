@@ -84,17 +84,17 @@
             [re-frame.core :as rf]
             [re-frame.schemas :as schemas]
             [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.ring.test-support :as ts]
-            [re-frame.ssr.test-fixture :as tf])
+            [re-frame.ssr.ring.test-support :as ts])
   (:import [java.util.concurrent CountDownLatch]
            [java.util.concurrent.atomic AtomicLong]))
 
-;; rf2-i3qc0 — canonical reset-runtime fixture; same shape every
-;; ssr-ring JVM test uses. Each test starts from a wiped registrar +
-;; reloaded SSR / routing ns-bodies so `:rf.route/handle-url-change`,
-;; `:rf.route/navigate`, the `:rf.server/request` cofx, and the always-on
-;; error-emit-projection-listener all resurrect between tests.
-(use-fixtures :each tf/reset-runtime)
+;; rf2-i3qc0 / rf2-09iktm — canonical reset-runtime fixture; same shape
+;; every ssr-ring JVM test uses. Each test starts from a reset registrar
+;; (snapshot/restore baseline) with the SSR adapter installed, so
+;; `:rf.route/handle-url-change`, `:rf.route/navigate`, the
+;; `:rf.server/request` cofx, and the always-on error-emit-projection-
+;; listener are all live between tests.
+(use-fixtures :each ts/reset-runtime)
 
 ;; ===========================================================================
 ;; Jetty + java.net.http harness

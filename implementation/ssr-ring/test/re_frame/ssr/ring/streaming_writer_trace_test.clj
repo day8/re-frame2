@@ -50,11 +50,11 @@
             [re-frame.ssr.ring.lifecycle :as lifecycle]
             [re-frame.ssr.ring.pipeline :as pipeline]
             [re-frame.ssr.ring.streaming :as streaming]
-            [re-frame.ssr.test-fixture :as tf]
+            [re-frame.ssr.ring.test-support :as ts]
             [re-frame.trace :as trace])
   (:import [java.io InputStream OutputStream PipedInputStream PipedOutputStream]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each ts/reset-runtime)
 
 (defn- with-trace-capture
   [coll-atom body-fn]

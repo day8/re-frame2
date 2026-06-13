@@ -12,24 +12,123 @@
   reads its own knobs at the call site rather than hiding them in a copy
   edit.
 
-  This is the established local pattern: the artefact already shares
-  `re-frame.ssr.test-fixture` for the per-test reset (deps.edn
-  `:extra-paths`), and `with-jetty` etc. are pure test plumbing with no
+  This is the established local pattern: the artefact also single-sources
+  the per-test reset here (`reset-runtime`, rf2-09iktm — see the section
+  below), and `with-jetty` etc. are pure test plumbing with no
   production-path coupling — so consolidating them here removes review
   surface without introducing a new abstraction style.
 
   Independence note: requiring this ns does NOT co-load any test
-  namespace (it depends only on `ring.adapter.jetty` + JDK classes), so
-  every test ns stays independently runnable under the artefact `:test`
-  alias.
+  namespace (it depends only on production `re-frame.*` source +
+  `ring.adapter.jetty` + JDK classes), so every test ns stays
+  independently runnable under the artefact `:test` alias.
 
   Contract smoke coverage for these helpers lives in
-  `test_support_contract_test.clj` (rf2-l1qgjw)."
-  (:require [ring.adapter.jetty :as jetty])
+  `test_support_contract_test.clj` (rf2-l1qgjw).
+
+  ## Per-test reset fixture (rf2-09iktm)
+
+  `reset-runtime` is the artefact-local `:each` reset for the ssr-ring
+  JVM suite. It WAS `re-frame.ssr.test-fixture/reset-runtime`, loaded by
+  putting the sibling `../ssr/test` source dir on the test classpath —
+  which the Clojure CLI now warns is a deprecated use of a path external
+  to the project. The reset is now sourced entirely from artefacts this
+  one already depends on: the published, substrate-agnostic
+  `re-frame.test-support/make-reset-runtime-fixture` (core/src) does the
+  registrar / frames / flows / schemas / machines / routing reset and
+  installs the SSR adapter; the four SSR per-request side-channel atoms
+  (Spec 011 §Per-request frame teardown) live in `re-frame.ssr.*`
+  production namespaces (ssr/src), reachable through the existing
+  `day8/re-frame2-ssr` dep with no test-path reach. The single source of
+  truth for the COMMON reset shape stays the published core fixture; only
+  the four SSR-specific atom resets are local, fired through the fixture's
+  `:init-fn` seam (runs after adapter install, under the ambient
+  `:rf/default` scope, before each test body)."
+  (:require [ring.adapter.jetty :as jetty]
+            [re-frame.ssr :as ssr]
+            [re-frame.ssr.error-listener :as error-listener]
+            [re-frame.ssr.head :as head]
+            [re-frame.ssr.request :as request]
+            [re-frame.ssr.response :as response]
+            [re-frame.test-support :as test-support])
   (:import [java.net URI]
            [java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers]
            [java.time Duration]
            [org.eclipse.jetty.server Server]))
+
+;; ===========================================================================
+;; Per-test reset fixture (rf2-09iktm — supersedes the external
+;; `../ssr/test` path to `re-frame.ssr.test-fixture`)
+;; ===========================================================================
+
+(defn- reset-ssr-runtime!
+  "The SSR-specific reset the published core fixture does NOT cover, run
+  through the fixture's `:init-fn` seam (after adapter install + the
+  fixture's registrar/listener clears, under the ambient `:rf/default`
+  scope, before each test body). Two parts:
+
+  1. Clear the four per-request SSR side-channel atoms (Spec 011
+     §Per-request frame teardown). All four are keyed by frame-id; a stale
+     entry from a prior test would otherwise bleed process-wide. Mirrors
+     what the runtime's per-request frame teardown hook
+     (`re-frame.ssr/on-frame-destroyed!`) clears at end-of-request:
+       - `request/request-slots`               — the active HTTP request
+       - `response/response-slots`             — the HTTP response accumulator
+       - `error-listener/pending-error-traces` — per-frame error-trace buffer
+       - `head/head-snapshots`                 — per-frame head-model snapshot
+
+     These atoms ship in `re-frame.ssr.*` production source, reached
+     directly (the same atoms the private façade aliases hold) — no
+     external test path needed.
+
+  2. Reinstate the ns-load-time LISTENER + late-bind registrations the
+     SSR / routing / head / machines namespaces install at load. The
+     published fixture clears the trace-tooling + event-emit listener
+     registries each test (`trace-tooling/clear-listeners!` /
+     `event-emit/clear-event-listeners!`), which drops the always-on SSR
+     `::error-projection` error-emit listener and its dev-trace twin
+     (`re-frame.ssr` ns-load, rf2-fb598) — without them a render-/drain-
+     time throw recovers to a silent HTTP 200 instead of the fail-closed
+     5xx the SSR contract mandates. A `:reload` re-runs each ns body so
+     those listeners — and the routing late-bind hooks `reg-route`
+     resolves through (`:routing/reg-route`, Spec 012) — resurrect. This
+     is exactly what the former `re-frame.ssr.test-fixture/reset-runtime`
+     did; the only change is WHERE the registrar reset comes from (the
+     published core fixture, not a sibling-test-tree clear-all!)."
+  []
+  (reset! request/request-slots {})
+  (reset! response/response-slots {})
+  (reset! error-listener/pending-error-traces {})
+  (reset! head/head-snapshots {})
+  (require 're-frame.routing  :reload)
+  (require 're-frame.ssr      :reload)
+  (require 're-frame.ssr.head :reload)
+  (require 're-frame.machines :reload))
+
+(def ^:private reset-runtime-fixture
+  "The published, substrate-agnostic per-test reset
+  (`re-frame.test-support/make-reset-runtime-fixture`) configured for the
+  ssr-ring JVM suite: it installs the SSR substrate adapter (which also
+  ensures the ordinary `:rf/default` app frame and binds it as the body's
+  ambient scope) and resets the registrar / frames / flows / schemas /
+  machines / routing around each test. `:init-fn` layers the SSR-specific
+  side-channel resets on top, fired after adapter install and before the
+  test body under the same ambient `:rf/default` scope. Built once at
+  ns-load so the registrar baseline is pinned to THIS suite's ns-load
+  registrations (run-order independence, rf2-7hwnu)."
+  (test-support/make-reset-runtime-fixture
+    {:adapter ssr/adapter
+     :init-fn reset-ssr-runtime!}))
+
+(defn reset-runtime
+  "The canonical `:each` fixture for the ssr-ring JVM suite. Drop-in for
+  the former `re-frame.ssr.test-fixture/reset-runtime` (rf2-09iktm): same
+  `(use-fixtures :each reset-runtime)` and same callable
+  `(reset-runtime (fn [] …))` shapes. Wipes the registrar, every
+  per-frame SSR side-channel atom, and installs the SSR adapter + ensures
+  the ambient `:rf/default` frame."
+  [test-fn]
+  (reset-runtime-fixture test-fn))
 
 ;; ===========================================================================
 ;; Ephemeral Jetty host
