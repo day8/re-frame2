@@ -136,7 +136,7 @@ In **development** the per-hook detail still surfaces as `:rf.warning/teardown-h
 
 ### The promoted-SSR records: `:rf.error/ssr-*` (non-event)
 
-EP-0008 (rf2-hhutya) promoted the production-reachable **SSR error categories** onto this same always-on axis. On a long-lived JVM SSR host, a shipper registered via `register-error-listener!` receives them **even under `-Dre-frame.debug=false`** — where the dev trace surface is elided, the off-box record is the only telemetry. The six categories:
+EP-0008 promoted the production-reachable **SSR error categories** onto this same always-on axis. On a long-lived JVM SSR host, a shipper registered via `register-error-listener!` receives them **even under `-Dre-frame.debug=false`** — where the dev trace surface is elided, the off-box record is the only telemetry. The six categories:
 
 - **`:rf.error/ssr-render-failed`** — a render-time `Throwable` while building the response body (slots: `:frame`, `:exception`, `:exception-message`, `:ex-class`). Projection-eligible (the wire status is stamped), so promotion does not double-stamp.
 - **`:rf.error/ssr-streaming-writer-failed`** — a streaming-SSR writer thread threw on a post-commit chunk (slots: `:frame`, `:exception`, `:ex-class`, `:phase`, `:boundary-id` on continuation phases, `:committed? true`). Non-projecting (the 200 already committed).

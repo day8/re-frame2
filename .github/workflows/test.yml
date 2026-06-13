@@ -178,6 +178,24 @@ jobs:
       - name: Verify the implementor skill partition/HTTP/API-name teaching
         run: python scripts/check_skill_implementor_partition_drift.py --verbose --ci
 
+      # No-bead-id + verification-posture drift guard for the re-frame2
+      # (authoring) skill. The existing no-bead-id guard was scoped to
+      # re-frame2-implementor only, so the authoring skill was unprotected. A
+      # senior review caught two regressions there: (1) internal `rf2-` tracker
+      # ids leaked into user-facing leaves (the skill's own spec/design.md L10
+      # bars them); (2) the verification posture drifted to instructing the
+      # AGENT to run gates (a Bash test/compile/lint allow-list + a "Verify what
+      # you changed" section), contradicting the Q14 / L3 lock that the AUTHOR
+      # runs the tests and the skill stops at writing the code. This guard fails
+      # the build on either re-introduction across SKILL.md / README.md /
+      # examples-map.md / references|patterns|decision-trees/**. The self-test
+      # proves it fires on the drift shapes before the live scan asserts clean.
+      - name: Self-test the re-frame2 no-bead-id + verify-posture guard
+        run: python scripts/check_skill_re_frame2_drift.py --self-test
+
+      - name: Verify the re-frame2 skill carries no bead-ids / agent-run gates
+        run: python scripts/check_skill_re_frame2_drift.py --verbose --ci
+
       # Distribution-completeness guard (rf2-f14su): a published skill that
       # loads a sibling `../shared/<leaf>` reference in normal operation can
       # NEVER ship that leaf in its own npm tarball / plugin bundle (a `files`

@@ -25,20 +25,10 @@ allowed-tools:
   - Write
   - Grep
   - Glob
-  # Verification surface (see SKILL.md §Verify what you changed): run the
-  # nearest relevant test / compiler / lint gate after changing code or
-  # tests. Narrow command shapes, generic to any consumer re-frame2 project
-  # (clojure CLI test aliases, shadow-cljs compile/test, the npm test:*
-  # script family, clj-kondo lint). Discover the project's actual gate
-  # names from deps.edn / shadow-cljs.edn / package.json before invoking.
-  - Bash(clojure -M:test)
-  - Bash(clojure -M:test:*)
-  - Bash(clojure -M:*:test)
-  - Bash(npm test)
-  - Bash(npm run test:*)
-  - Bash(npx shadow-cljs compile *)
-  - Bash(shadow-cljs compile *)
-  - Bash(clj-kondo --lint *)
+  # No Bash test/compile/lint surface: this is an authoring-only skill
+  # (Q14 lock — see spec/design.md L3). The skill stops at writing the
+  # code; the author runs the tests, the compiler, the app. Running gates
+  # is general software practice, not a re-frame2 binding the skill teaches.
   # story-mcp authoring-side tools (HYBRID split): re-frame2 owns the
   # AUTHOR/REFINE side — write/refine a variant body (register/unregister),
   # preview one render (preview-variant), and read it back (get-variant /
@@ -163,19 +153,7 @@ Load at most two leaves per task. If a task seems to need three, it likely spans
 - [ ] Cut-test passed on comments.
 - [ ] Shape matches the canonical declaration in the leaf.
 - [ ] If a worked example exists, the new code's shape matches it.
-- [ ] **Verified** — when you have shell/tool access and changed code or tests, you ran the nearest relevant gate (test / compiler / lint) and recorded what passed; note anything you deliberately skipped and why.
-
-## Verify what you changed
-
-If you have shell/tool access and you changed code or tests, **run the nearest relevant gate** before declaring done — do not hand off unverified changes. "Nearest relevant" means the narrowest gate that exercises the path you touched, not the whole suite:
-
-- Touched a single artefact's source/tests → run that artefact's test alias (e.g. `clojure -M:test` from the artefact dir, or the project's `npm run test:<thing>`), not the full matrix.
-- Want a fast compile/type signal without the full suite → the project's shadow-cljs / `clj-kondo` lint or a focused `cljs.test` namespace run.
-- Prefer a narrow slice gate over full-suite churn; a green slice on the changed path beats a slow full run.
-
-**Discover the project's gates first** — don't guess command names. Check, in order: nearby `deps.edn` `:aliases` (the `:test` alias), `shadow-cljs.edn` build/test ids, `package.json` `scripts` (the `test:*` family), and any gate notes in the nearest `README.md`. The testing leaf's [§Discovering a project's gates](references/cross-cutting/testing.md) carries the recipe.
-
-**No-tool / chat-only fallback.** When you have no shell access (a chat-only session), you cannot run anything — say so, and ask the user to run the specific gate you'd have run (name it concretely, e.g. "run `clojure -M:test` in `src/app/`"). That fallback is for tool-less sessions only; it is **not** the default for a tool-capable agent.
+- [ ] Hand off the project gate to run — name the nearest relevant gate concretely (e.g. "run `clojure -M:test` in `src/app/`") so the author can verify the change. This skill writes the code; the author runs the tests, the compiler, the app.
 
 ## How re-frame2 differs from re-frame v1
 

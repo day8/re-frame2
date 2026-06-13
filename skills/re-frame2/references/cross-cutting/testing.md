@@ -2,7 +2,7 @@
 
 Load when the task is **authoring a `deftest` / `cljs.test` test** against re-frame2 application code: an event-fx handler, a sub graph, a machine snapshot, a tag query, a view that reads from a frame. This leaf teaches only the **re-frame2-specific binding** — `clojure.test` / `cljs.test` themselves are assumed.
 
-This leaf teaches how to **write** re-frame2 tests so they pass when the suite runs. It is not a `cljs.test` tutorial. **Verifying** what you wrote is in scope: when you have shell/tool access and changed code or tests, run the nearest relevant gate before declaring done (see [§Discovering a project's gates](#discovering-a-projects-gates) below and SKILL.md §Verify what you changed). Only a chat-only / no-tool session hands the run off to the user — and then it names the exact gate to run.
+This leaf teaches how to **write** re-frame2 tests so they pass when the suite runs. It is not a `cljs.test` tutorial. The skill stops at writing the test; the author runs the suite. Help the hand-off by naming the nearest relevant gate concretely (see [§Discovering a project's gates](#discovering-a-projects-gates) below) so the author can run the exact command.
 
 ## The single import
 
@@ -323,14 +323,14 @@ Per-frame `:fx-overrides` in `reg-frame` accepts the same fn-value form, so a te
 
 ## Discovering a project's gates
 
-Before running anything, find the project's *actual* gate commands — don't guess names. Run the narrowest gate that exercises the path you touched, not the full matrix. Check, in order:
+Find the project's *actual* gate commands — don't guess names — so you can name the precise command for the author to run. Point at the narrowest gate that exercises the path you touched, not the full matrix. Check, in order:
 
-- **`deps.edn` `:aliases`** — the `:test` alias is the per-artefact runner (`clojure -M:test` from that artefact's dir). A consumer monorepo often has one `deps.edn` per artefact; run the alias from the dir whose source you changed.
+- **`deps.edn` `:aliases`** — the `:test` alias is the per-artefact runner (`clojure -M:test` from that artefact's dir). A consumer monorepo often has one `deps.edn` per artefact; name the alias for the dir whose source you changed.
 - **`shadow-cljs.edn`** — `:builds` keys and any `:test` build id reveal the CLJS compile/test targets (`npx shadow-cljs compile <id>`, or the project's test build).
 - **`package.json` `scripts`** — the `test:*` family (e.g. `test:cljs`, `test:browser`) is the canonical entry-point set for shadow-cljs projects; prefer the one scoped to your change.
 - **The nearest `README.md`** — examples and feature dirs often note their gate commands inline ("run `npm run test:foo`"). An example app's README is the authority for that example's gate.
 
-Pick the tightest match and run it. A green slice on the changed path is the signal; reach for a wider gate only when the change genuinely spans artefacts. If no runnable gate exists for the surface you touched (or you lack shell access), say which gate you *would* have run and ask the user to run it.
+Pick the tightest match and name it for the author. A green slice on the changed path is the signal; reach for a wider gate only when the change genuinely spans artefacts. If no gate exists for the surface you touched, say so and describe the gate the author should add.
 
 ## Checklist before declaring a test done
 
@@ -340,7 +340,7 @@ Pick the tightest match and run it. A green slice on the changed path is the sig
 - Sub assertions go through `compute-sub` (preferred) or `subscribe-once`; no bare `@(rf/subscribe ...)` left subscribed at test exit.
 - Machine assertions use `sub-machine` / `machine-has-tag?` or `(get-in (rf/runtime-db-value frame-id) [:rf.runtime/machines :snapshots id])` — runtime-db partition, not internal machine namespaces, and not `db`/app-db.
 - Schema-validation, fx-stubs, and frame-scoping each use the public surface above. No fixture lifts `registrar/clear-all!`.
-- **Verified, or said why not** — with shell/tool access, the nearest relevant gate (the new test's artefact `:test` alias / `npm run test:*` / a focused namespace run) was run and recorded; record any gate deliberately skipped and why. No-tool sessions name the gate for the user to run.
+- **Gate named for the author** — the nearest relevant gate (the new test's artefact `:test` alias / `npm run test:*` / a focused namespace run) is named concretely so the author can run it; the skill writes the test, the author runs the suite.
 
 ---
 
