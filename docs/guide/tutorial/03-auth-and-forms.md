@@ -1,11 +1,11 @@
 # Part 3: auth — login, register, and the guard
 
-In [Part 2](02-server-data.md) Conduit learned to read server data; now it learns who you are: sign-in and sign-up pages, a session that survives reload, routes that refuse to open while signed out, and a clean sign-out. Most of it lands in one new namespace, `realworld/auth.cljs`.
+In [Part 2](02-server-data.md) Conduit learned to read server data; now it learns who you are: sign-in and sign-up pages, a session that survives reload, routes that refuse to open while signed out, and a clean sign-out. Most of it lands in one new namespace, `conduit/auth.cljs`.
 
 For React readers this is React Hook Form territory (the forms) and Axios-interceptor territory (the token, the guard) — except re-frame2 deliberately ships neither a forms library nor an auth plugin: shared form components drown in props chasing every project's slightly-different needs. Instead you get a convention — one map shape, a small event lifecycle, one error-visibility rule — built from the same events and subs as everything else. The load-bearing idea: **a form is a tiny state machine wearing a trenchcoat.** Strip away the inputs and login is `idle → submitting → submitted | error` plus a draft and an error map. Build that once and every later form is a fill-in-the-blanks job.
 
 ```clojure
-(ns realworld.auth
+(ns conduit.auth
   (:require [clojure.string :as str]
             [re-frame.core :as rf])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -16,11 +16,11 @@ For React readers this is React Hook Form territory (the forms) and Axios-interc
 Two new routes first; each `:on-match` seeds its form's slice whenever the route matches, so the form always starts clean:
 
 ```clojure
-(rf/reg-route :realworld.auth/login
+(rf/reg-route :conduit.auth/login
   {:path     "/login"
    :on-match [[:auth.login-form/initialise]]})
 
-(rf/reg-route :realworld.auth/register
+(rf/reg-route :conduit.auth/register
   {:path     "/register"
    :on-match [[:auth.register-form/initialise]]})
 ```
@@ -85,7 +85,7 @@ The rule lives in one place — a sub:
 Login is a one-shot command, not cached server state — a plain managed request, not one of Part 2's resources. Validate the draft; if clean, flip to `:submitting` and hand the round-trip to `:rf.http/managed`:
 
 ```clojure
-(def api "https://api.realworld.show/api")
+(def api "https://api.realworld.io/api")
 
 (defn validate-login [{:keys [email password]}]
   (cond-> {}
@@ -133,7 +133,7 @@ On success Conduit replies `{:user {... :token "<jwt>"}}`. One handler stores th
        :fx [[:auth.session/persist {:token (:token user)}]
             [:dispatch (if return-to
                          [:rf.route/navigate (:id return-to) (:params return-to)]
-                         [:rf.route/navigate :realworld/home])]]})))
+                         [:rf.route/navigate :conduit/home])]]})))
 ```
 
 Failure sorts into two shapes — the second load-bearing rule: **structured server validation lands in `:errors`, rendered by the same view code as client errors; only unstructured transport failure lands in `:submit-error`.** Conduit's 422 body is `{"errors": {"email or password": ["is invalid"]}}` — keys naming a real field go per-field, the rest joins `:_form`:
@@ -175,7 +175,7 @@ With the rules in subs and handlers, the view is the thinnest layer — read, re
         busy?     (= status :submitting)]
     [:div.auth-page
      [:h1 "Sign in"]
-     [rf/route-link {:to :realworld.auth/register} "Need an account?"]
+     [rf/route-link {:to :conduit.auth/register} "Need an account?"]
      (when (seq form-errs)
        [:ul.error-messages (for [m form-errs] ^{:key m} [:li m])])
      [:form {:on-submit (fn [e] (.preventDefault e)
@@ -267,7 +267,7 @@ Wire it at boot, and add one more frame line: mark the token path sensitive so t
    :interceptors [auth-guard]})               ;; ← written in the next section
 
 (rf/with-frame :rf/default
-  (rf/reg-http-interceptor :realworld/bearer-auth {:before bearer-auth})
+  (rf/reg-http-interceptor :conduit/bearer-auth {:before bearer-auth})
   (rf/dispatch-sync [:app/initialise])
   (rf/dispatch-sync [:auth/initialise]))
 ```
@@ -277,7 +277,7 @@ Wire it at boot, and add one more frame line: mark the token path sensitive so t
 Settings and the editor should refuse to open while signed out. Route protection is an ordinary event interceptor — every way of *reaching* a route is an event. First tag the routes that need a user (extending Part 1's registrations):
 
 ```clojure
-(rf/reg-route :realworld.user/settings
+(rf/reg-route :conduit.user/settings
   {:path     "/settings"
    :tags     #{:requires-auth}
    :on-match [[:settings/load]]})
@@ -302,7 +302,7 @@ The one trap: navigations enter the system **three** ways — programmatic `:rf.
 
 (def auth-guard
   (rf/->interceptor
-    :id :realworld/auth-guard
+    :id :conduit/auth-guard
     :before
     (fn [ctx]
       (let [{:keys [id params]} (nav-target (get-in ctx [:coeffects :event]))
@@ -316,7 +316,7 @@ The one trap: navigations enter the system **three** ways — programmatic `:rf.
                         (assoc-in (get-in ctx [:coeffects :db])
                                   [:auth :return-to] {:id id :params params}))
               (assoc-in [:effects :fx]
-                        [[:dispatch [:rf.route/navigate :realworld.auth/login]]]))
+                        [[:dispatch [:rf.route/navigate :conduit.auth/login]]]))
           ctx)))))
 ```
 
@@ -335,7 +335,7 @@ Teardown is setup, reversed, in one event — wire `(dispatch [:auth/logout])` t
   (fn [{:keys [db]} _]
     {:db (assoc db :auth {:user nil :token nil})
      :fx [[:auth.session/persist {:token nil}]
-          [:dispatch [:rf.route/navigate :realworld/home]]]}))
+          [:dispatch [:rf.route/navigate :conduit/home]]]}))
 ```
 
 Nothing else to unhook: the bearer interceptor reads app-db per request, so the header stops the instant the token is `nil`, and the guard starts intercepting again for the same reason. State went away; behaviour followed.
@@ -344,7 +344,7 @@ Nothing else to unhook: the bearer interceptor reads app-db per request, so the 
 
 An honest closing note: this part hand-rolled the `:status` transitions, and at this size that's right. The shipped example implements the same flow as an explicit state machine — once "submitting" is enterable from three places and "error" needs retry rules, scattered status flips stop scaling. The slice stays identical; only the transition logic moves. When you feel that pull, [State machines](../concepts/machines.md) is the step up, and the example's [`auth.cljs`](../../../examples/reagent/realworld/) shows the finished machine.
 
-## You can now
+**You can now:**
 
 - Build any form as a seven-key slice with one error-visibility rule — no forms library.
 - Submit over `:rf.http/managed` and sort the reply: structured validation into `:errors`, transport failure into `:submit-error`.
