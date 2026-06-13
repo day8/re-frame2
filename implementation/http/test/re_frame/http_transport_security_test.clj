@@ -344,7 +344,7 @@
   legitimately stays nil on JVM (the JDK exposes no elapsed value)."
     (let [classify re-frame.http-transport-jvm/classify-jvm-error
           t   (java.net.http.HttpTimeoutException. "request timed out")
-          out (classify t 5000)]
+          out (classify t 5000 nil)]
       (is (= :rf.http/timeout (:kind out)))
       (is (= 5000 (:limit-ms out)) ":limit-ms is threaded from the configured timeout-ms")
       (is (nil? (:elapsed-ms out)) ":elapsed-ms stays nil on JVM"))))
@@ -358,13 +358,13 @@
 (deftest classify-jvm-error-uses-instance-checks-only
   (testing "rf2-q3ts4 — HttpTimeoutException → :rf.http/timeout (instance match)"
     (let [t (java.net.http.HttpTimeoutException. "request timed out after 30s")
-          out (classify-jvm-error t)]
+          out (classify-jvm-error t nil nil)]
       (is (= :rf.http/timeout (:kind out)))
       (is (string? (:message out)))))
 
   (testing "rf2-q3ts4 — CancellationException → :rf.http/aborted (instance match)"
     (let [t (java.util.concurrent.CancellationException. "cancelled")
-          out (classify-jvm-error t)]
+          out (classify-jvm-error t nil nil)]
       (is (= :rf.http/aborted (:kind out)))
       (is (= :user (:reason out)))))
 
@@ -377,8 +377,8 @@
           (java.io.IOException. "upstream service reported: gateway timed out at edge")
           abort-substring-trap
           (java.lang.RuntimeException. "user clicked abort on 3rd-party retry-wrapper")
-          out-1 (classify-jvm-error timed-out-substring-trap)
-          out-2 (classify-jvm-error abort-substring-trap)]
+          out-1 (classify-jvm-error timed-out-substring-trap nil nil)
+          out-2 (classify-jvm-error abort-substring-trap nil nil)]
       (is (= :rf.http/transport (:kind out-1))
           "an IOException whose message says \"timed out\" is NOT a JDK timeout — stays at :rf.http/transport")
       (is (= :rf.http/transport (:kind out-2))
@@ -389,7 +389,7 @@
   (testing "rf2-q3ts4 — wrapped causes still resolve through (.getCause t)"
     (let [inner (java.net.http.HttpTimeoutException. "inner timeout")
           outer (java.util.concurrent.CompletionException. inner)
-          out (classify-jvm-error outer)]
+          out (classify-jvm-error outer nil nil)]
       (is (= :rf.http/timeout (:kind out))
           "the JDK HttpClient wraps in CompletionException; classify- still resolves the underlying HttpTimeoutException via (.getCause t)"))))
 

@@ -327,13 +327,17 @@
      `:elapsed-ms` is a measured wall-clock delta `>= :limit-ms` by the
      scheduling margin — a consumer can compute overshoot
      (`- :elapsed-ms :limit-ms`) portably (it was the synthetic constant
-     `== :limit-ms` on CLJS before rf2-6ecc6). `elapsed-ms` is nil only
-     when no start mark was threaded (the legacy 2-arity test/synthetic
-     callers), preserving back-compat."
-     ([^Throwable t] (classify-jvm-error t nil nil))
-     ([^Throwable t timeout-ms] (classify-jvm-error t timeout-ms nil))
-     ([^Throwable t timeout-ms elapsed-ms]
-      (let [cause (or (.getCause t) t)
+     `== :limit-ms` on CLJS before rf2-6ecc6).
+
+     rf2-w59es5 — single 3-arity. The production caller (`run-attempt!`)
+     always threads the configured `timeout-ms` and the measured
+     `elapsed-ms`; the prior 1-/2-arity fallbacks existed only for
+     synthetic/test callers and have been removed (pre-alpha, no
+     back-compat). Pass `nil` explicitly for either when no value is in
+     scope — on a timeout the corresponding tag rides `nil` (the JDK
+     exposes no elapsed value on a synthetic throwable)."
+     [^Throwable t timeout-ms elapsed-ms]
+     (let [cause (or (.getCause t) t)
             msg   (.getMessage cause)
             cls   (.getName (class cause))]
         (cond
@@ -344,7 +348,7 @@
           {:kind :rf.http/aborted :reason :user :message msg}
 
           :else
-          {:kind :rf.http/transport :message msg :cause cls})))))
+          {:kind :rf.http/transport :message msg :cause cls}))))
 
 ;; ---- per-row CLJS-only-key tracing on JVM ---------------------------------
 
