@@ -83,6 +83,7 @@
   framework-internal reified continuation; the call-site target is the app's
   transport-payload continuation."
   (:require [re-frame.identity :as identity]
+            [re-frame.late-bind :as late-bind]
             [re-frame.reply :as reply]
             [re-frame.resources.state :as state]))
 
@@ -465,20 +466,70 @@
   (swap! handle-table dissoc [frame-id (work-id-id work-id)])
   nil)
 
+;; Forward declaration — `abort-handle!` reads the managed-HTTP transport
+;; marker (`managed-abort-fx-transport`, defined below alongside the
+;; in-cascade `abort-fx` builder) to decide whether to fire the
+;; `:http/abort-in-flight!` hook for a recorded slot (rf2-rak684).
+(declare managed-abort-fx-transport)
+
+(defn- abort-handle!
+  "Best-effort abort the transport request a recorded side-table `handle`
+  describes, firing whatever abort capability the slot carries:
+
+   - a DIRECT host `:abort-fn` (a future transport that hands the runtime a
+     live handle fills this slot — e.g. a non-HTTP transport), and/or
+   - for MANAGED HTTP, the frame-qualified `:request-id` the slot records
+     (`[:rf.req frame-id work-id]`) routed through the `:http/abort-in-flight!`
+     late-bind hook the http artefact publishes (rf2-rak684).
+
+  The managed-HTTP arm is THE out-of-cascade teardown seam: the resource
+  runtime does not itself hold the AbortController (the managed-HTTP
+  transport owns it, keyed by request-id), so the work-handle side-table
+  slot records ONLY the correlation `:request-id` and no live `:abort-fn`
+  (see `record-work-handle-handler`). The in-cascade lifecycle events
+  (`:rf.resource/remove`, clear-scope, refetch supersession, owner-release)
+  abort by emitting `:rf.http/managed-abort` via `abort-fx`; the
+  OUT-of-cascade lifecycle paths (`clear-resource`, frame destroy) run no
+  cascade, so they reach the SAME abort-by-request-id operation
+  (`re-frame.http-registry/abort-in-flight!`) through the published hook —
+  the same token the lower registered, so it resolves the right frame's
+  in-flight request rather than just clearing the side-table slot.
+
+  Opportunistic — a no-op when no transport is holding the request (the
+  reply already landed, or the http artefact is not on the classpath, in
+  which case the hook resolves to nil). Correctness still rests on the
+  work-id + generation stale-suppression gate, NOT on the cancel landing.
+  Never throws (a throwing abort-fn / hook is swallowed — a failed cancel
+  must not strand the teardown). Returns true iff an abort capability was
+  found and fired (a hint for the caller's trace), false otherwise."
+  [handle]
+  (let [direct? (boolean (when-let [abort-fn (:abort-fn handle)]
+                           (try (abort-fn :resource-superseded) true
+                                (catch #?(:clj Throwable :cljs :default) _ false))))
+        managed? (boolean
+                   (when (and (= (:transport handle) managed-abort-fx-transport)
+                              (:request-id handle))
+                     (try
+                       (when-let [abort! (late-bind/get-fn :http/abort-in-flight!)]
+                         (boolean (abort! (:request-id handle) :resource-superseded)))
+                       (catch #?(:clj Throwable :cljs :default) _ false))))]
+    (or direct? managed?)))
+
 (defn opportunistic-abort!
   "BEST-EFFORT cancel the host handle for `[frame-id work-id]`, then drop it
   from the side table. Per Spec 016 §Cancellation is opportunistic; stale
   suppression is mandatory: this MAY abort the in-flight request if the host
   handle exists and can be cancelled; if it cannot, correctness still rests
   on the work-id + generation stale-suppression check (NOT on the cancel
-  landing). Returns true iff an abort thunk was found and fired (a hint for
+  landing). For managed HTTP the slot records only the frame-qualified
+  `:request-id` (no live `:abort-fn`), so the abort rides the
+  `:http/abort-in-flight!` late-bind hook by that request-id (rf2-rak684) —
+  this is the out-of-cascade counterpart to the in-cascade `:rf.http/managed-abort`
+  fx. Returns true iff an abort capability was found and fired (a hint for
   the caller's trace), false otherwise. Never throws (a throwing abort-fn is
   swallowed — a failed cancel must not strand the teardown)."
   [frame-id work-id]
-  (let [handle (get-handle frame-id work-id)
-        aborted? (boolean (when-let [abort-fn (:abort-fn handle)]
-                            (try (abort-fn :resource-superseded) true
-                                 (catch #?(:clj Throwable :cljs :default) _ false))))]
+  (let [aborted? (abort-handle! (get-handle frame-id work-id))]
     (clear-handle! frame-id work-id)
     aborted?))
 
@@ -488,13 +539,15 @@
   paths iterate `(keys @handle-table)` (which are already byte-keyed pairs) and
   must NOT re-transform the work-id-id through `work-id-id` (the public
   `opportunistic-abort!` takes a work-id VECTOR and transforms it; this private
-  variant takes the table key directly). Never throws."
+  variant takes the table key directly). Aborts managed HTTP by the recorded
+  frame-qualified `:request-id` through the `:http/abort-in-flight!` hook
+  (rf2-rak684), so frame destroy cancels the underlying in-flight request
+  before dropping the generation high-water — a surviving host reply can never
+  match a future same-id frame. Never throws."
   [slot-key]
-  (let [handle (get @handle-table slot-key)]
-    (when-let [abort-fn (:abort-fn handle)]
-      (try (abort-fn :resource-superseded) (catch #?(:clj Throwable :cljs :default) _ nil)))
-    (swap! handle-table dissoc slot-key)
-    nil))
+  (abort-handle! (get @handle-table slot-key))
+  (swap! handle-table dissoc slot-key)
+  nil)
 
 ;; ---- opportunistic abort via the transport fx (transport-neutral) ---------
 ;;

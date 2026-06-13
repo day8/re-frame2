@@ -270,6 +270,7 @@
 ;; macros and the canned-stub fxs share one require gate, symmetric with
 ;; the test-support naming.
 
+(late-bind/set-fn! :http/abort-in-flight!                 registry/abort-in-flight!)
 (late-bind/set-fn! :http/abort-on-actor-destroy           abort-on-actor-destroy)
 (late-bind/set-fn! :http/clear-all-http-interceptors!     clear-all-http-interceptors!)
 (late-bind/set-fn! :http/clear-all-in-flight!             clear-all-in-flight!)

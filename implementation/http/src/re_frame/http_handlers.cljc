@@ -400,9 +400,12 @@
   (the abort-fn closure calls into it). The earlier shape pre-cleared
   the registry here AND inside `finalise-failure!`, doubling the
   `swap!` traffic per abort. Now the single source of truth lives at
-  the failure-finalise site; this handler only fires the abort-fn."
+  the failure-finalise site; this handler only fires the abort-fn.
+
+  rf2-rak684 — routes through the shared `registry/abort-in-flight!`
+  abort-by-request-id seam (the SAME seam the resources out-of-cascade
+  teardown reaches through the `:http/abort-in-flight!` late-bind hook),
+  so the fx and the teardown hook fire identical abort semantics."
   [_frame-ctx request-id]
-  (when-let [handle (registry/lookup-in-flight request-id)]
-    (try ((:abort-fn handle) :user)
-         (catch #?(:clj Throwable :cljs :default) _ nil)))
+  (registry/abort-in-flight! request-id :user)
   nil)
