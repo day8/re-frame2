@@ -499,14 +499,7 @@
     (is (= :name (frame-sub [:rf.xray.static.machines/sort-key])))
     (is (= :topology (frame-sub [:rf.xray.static.machines/sub-mode :any/id])))))
 
-;; -------------------------------------------------------------------------
-;; (13) Tab inventory still names the bead
-;; -------------------------------------------------------------------------
-
-(deftest static-tab-inventory-machines-bead
-  (testing "the :machines tab still carries its bead id even after the
-            placeholder is replaced by the live panel"
-    (is (= "rf2-o5f5f.2"
-           (-> (some #(when (= :machines (:id %)) %)
-                     (static-shell/tabs))
-               :placeholder-bead)))))
+;; rf2-sdqsla — the `static-tab-inventory-machines-bead` test was removed:
+;; the `:placeholder-bead` slot was dropped once the rf2-o5f5f roll-out
+;; completed (every Static tab ships a real panel). Inventory shape is now
+;; covered by `static-tab-inventory-shape` in the shell test.

@@ -26,15 +26,14 @@
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.popup :as popup]
             [day8.re-frame2-xray.settings.view :as view]
-            [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-collector :as trace-collector]))
+            [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 ;; ---- fixture ------------------------------------------------------------
 
 (defn- xray-init! []
-  (xray-test-support/reset-all!)
-  (trace-collector/reset-for-test!)
-  (config/reset-settings!))
+  ;; rf2-sdqsla — `reset-runtime!` folds sentinel + trace-collector +
+  ;; settings reset into one call.
+  (xray-test-support/reset-runtime!))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture

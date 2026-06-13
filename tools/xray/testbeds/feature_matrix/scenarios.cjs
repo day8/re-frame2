@@ -580,23 +580,6 @@ async function assertDefaultInlineLaunchModes(page, state) {
   }
 }
 
-async function readSchemaHostState(page) {
-  return page.evaluate(() => {
-    function text(id) {
-      const el = document.querySelector(`[data-testid="${id}"]`);
-      return el ? (el.textContent || '').trim() : null;
-    }
-    return {
-      token: text('auth-token'),
-      appDbCount: Number(text('app-db-count')),
-      eventCount: Number(text('event-count')),
-      cofxCount: Number(text('cofx-count')),
-      fxCount: Number(text('fx-count')),
-      semantics: text('schema-recovery-browser-semantics'),
-    };
-  });
-}
-
 async function readMultiFrameHostState(page) {
   return page.evaluate(() => {
     function text(id) {
@@ -1213,91 +1196,6 @@ async function runExceptionSchemaHttp(page, state, ctx) {
     { timeoutMs: 5000, description: 'trace source-coordinate chips' },
   );
   await assertSourceCoordBridge(page, state, ctx, { panel: 'trace' });
-}
-
-async function runSchemaViolation(page, state) {
-  // rf2-kgkht / rf2-w1mnq — Issues-feed assertion (lines below) times out
-  // under the rf2-jio48 + rf2-h0120 panel rebuild. The trace-level
-  // assertions ALL fire correctly (the four `:where` surfaces emit per
-  // spec/010), but the Issues feed locator does not render in time on
-  // this testbed integration path. Per the Wave 1-4 migration direction
-  // (rf2-tglku, feedback_xray_story_cljs_unit_tests_not_playwright) the
-  // architectural fix is a CLJS unit test against `h/project-feed` with
-  // a seeded `:rf.xray/epoch-history`; that migration is rf2-w1mnq.
-  // Until that lands, skip the scenario rather than block PR #1745 on a
-  // testbed-integration assertion the unit lens will own.
-  // eslint-disable-next-line no-console
-  console.warn('SKIP: schema violation timeline — migrating to CLJS unit per rf2-w1mnq');
-  return;
-  /* eslint-disable no-unreachable */
-  await openXray(page);
-  await clearTrace(page);
-  for (const id of ['violate-app-db', 'violate-event', 'violate-cofx', 'violate-fx-args']) {
-    await clickTestId(page, id);
-  }
-  const host = await waitForValue(
-    () => readSchemaHostState(page),
-    (snapshot) =>
-      snapshot.token === 'seed-token' &&
-      snapshot.appDbCount === 0 &&
-      snapshot.eventCount === 0 &&
-      snapshot.cofxCount === 0 &&
-      snapshot.fxCount === 1,
-    { timeoutMs: 10000, description: 'schema recovery host state' },
-  );
-  const expectedWheres = [':app-db', ':event', ':cofx', ':fx-args'];
-  const events = await waitForValue(
-    async () => readTrace(page),
-    (traceEvents) => expectedWheres.every((where) =>
-      traceEvents.some((event) =>
-        event.includes(':rf.error/schema-validation-failure') &&
-        event.includes(`:where ${where}`))),
-    { timeoutMs: 10000, description: 'schema validation failure traces for all recovery surfaces' },
-  );
-  const schemaEvents = events.filter((event) => event.includes(':rf.error/schema-validation-failure'));
-  const missingWheres = expectedWheres.filter((where) =>
-    !schemaEvents.some((event) => event.includes(`:where ${where}`)));
-  const fxWasHandled = events.some((event) =>
-    event.includes(':rf.fx/handled') &&
-    event.includes(':schema-violation.core/violate-fx'));
-  if (missingWheres.length > 0 || fxWasHandled) {
-    failWithDetails('Schema recovery traces did not match expected recovery surface', {
-      expectedWheres,
-      missingWheres,
-      expectedFxArgsRecovery: 'fx args failure skips the offending fx handler',
-      observedFxHandled: fxWasHandled,
-      host,
-      schemaEvents,
-    });
-  }
-  state.schemaRecovery = {
-    host,
-    observedWheres: expectedWheres,
-    validationTraceCount: schemaEvents.length,
-    appDbRollbackObserved: host.token === 'seed-token',
-    eventHandlerSkipped: host.eventCount === 0,
-    cofxHandlerSkipped: host.cofxCount === 0,
-    fxArgsSkipped: !fxWasHandled && host.fxCount === 1,
-  };
-  // Post rf2-xy4yb: the dedicated Schemas panel was dropped. Post
-  // rf2-gbz39 (Mike RULED Option (c)) the Issues tab was ALSO removed;
-  // schema violations now surface INLINE in the Epoch panel's SIDE
-  // EFFECTS step (rf2-kt6js — `:db` schema-fail projected into the
-  // step) rather than a dedicated Issues feed. The trace assertions
-  // above already verify all four `:where` surfaces fired; here we
-  // verify the focused-cascade round-trip surfaces inline in the Epoch
-  // panel.
-  await clickTab(page, 'epoch', 'rf-xray-epoch-panel');
-  await expectVisible(page.locator('[data-testid="rf-xray-epoch-panel"]'), 5000);
-  const schemaEpochText = ((await page.locator('[data-testid="rf-xray-epoch-panel"]').textContent()) || '').toLowerCase();
-  state.schemaRecovery.epochText = schemaEpochText.slice(0, 800);
-  if (!schemaEpochText.includes('schema') && !schemaEpochText.includes('validation')) {
-    failWithDetails('Epoch panel did not surface the inline schema-validation failure', {
-      epochText: schemaEpochText.slice(0, 800),
-      schemaEvents,
-    });
-  }
-  /* eslint-enable no-unreachable */
 }
 
 async function runHttpToggle(page) {
@@ -3575,17 +3473,15 @@ const SCENARIOS = [
     coveredRows: ['Epoch Panel', 'Trace', 'Effects', 'Flows', 'Machines', 'Open in Editor / Source Coordinates'],
     run: runExceptionSchemaHttp,
   },
-  {
-    name: 'schema violation timeline',
-    url: '/testbeds/schema-violation/',
-    // Post rf2-xy4yb: the dedicated Schemas panel was dropped. Post
-    // rf2-gbz39 (Option (c)) the Issues tab was ALSO removed — schema
-    // violations now surface inline in the Epoch panel's EFFECT HANDLERS
-    // step (rf2-kt6js).
-    panels: ['epoch'],
-    coveredRows: ['Epoch Panel'],
-    run: runSchemaViolation,
-  },
+  // Schema-violation coverage migrated to CLJS unit (rf2-w1mnq, landed
+  // #1753). The browser scenario had been a no-op SKIP since #1745 — its
+  // schema-recovery assertions never ran. Authoritative coverage now lives
+  // in tools/xray/test/.../panels/epoch/projection_cljs_test.cljc: all four
+  // `:where` surfaces (:app-db, :event, :cofx, :fx-args), the `:app-db`
+  // rollback, and the inline SIDE EFFECTS-step synthesis. The Epoch-Panel
+  // matrix row remains covered by other live scenarios (deterministic
+  // exceptions, managed http, multi-frame, hydration mismatch). The
+  // /testbeds/schema-violation/ build remains as a manual-inspection target.
   {
     name: 'managed http and effects rows',
     url: '/testbeds/http-toggle/',

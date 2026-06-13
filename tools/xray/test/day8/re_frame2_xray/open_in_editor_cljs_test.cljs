@@ -28,8 +28,7 @@
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-collector :as trace-collector]))
+            [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 (defn reset-editor! []
   ;; rf2-4s08ov — reset the operator-override slot too so a sibling
@@ -48,8 +47,9 @@
 ;; cheap snapshot/restore cost; the rf2-g5q8d tests below need the
 ;; clean runtime so registrations don't bleed between tests.
 (defn- xray-init! []
+  ;; rf2-sdqsla — `reset-all!` now folds the trace-collector ring reset
+  ;; in; `reset-editor!` owns the settings reset + editor re-arm.
   (xray-test-support/reset-all!)
-  (trace-collector/reset-for-test!)
   (reset-editor!))
 
 (use-fixtures :each

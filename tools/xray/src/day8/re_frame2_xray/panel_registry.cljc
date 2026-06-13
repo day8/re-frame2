@@ -55,11 +55,11 @@
     :panel  fn     — view function rendered when the tab is selected.
                      Called with no args from a hiccup `[(:panel tab)]`
                      vector so reg-view shapes resolve through their
-                     own React-context Provider.
-    :placeholder-bead opt string — sibling bead id when the tab still
-                                   renders a placeholder card (Static
-                                   tabs do this during the rf2-o5f5f
-                                   roll-out).
+                     own React-context Provider. REQUIRED + must be
+                     callable — `reg-l4-tab!` rejects a missing or
+                     non-callable `:panel` so a malformed registration
+                     fails at the registry seam, not later during UI
+                     composition (`[(:panel tab)]`).
 
   ## Idempotency
 
@@ -75,8 +75,9 @@
   `.cljc` so the JVM test corpus can exercise the pure-data
   registry surface (registration shape, ordering, mode partition)
   without spinning a CLJS runtime. Panel `:panel` views are CLJS-
-  only — JVM tests register stub `:panel` values (any value works;
-  the registry doesn't invoke `:panel`).")
+  only — the registry stores but never invokes `:panel`, so JVM
+  tests register an `(fn [] nil)` stub: the `:pre` requires `:panel`
+  to be callable but is content with any callable.")
 
 ;; ---- registry atom ------------------------------------------------------
 
@@ -152,7 +153,7 @@
   a panel belongs to exactly one mode's tab bar. The same `:id` in
   both modes is two separate registrations of two separate panels
   (e.g. Dynamic Routing vs Static Routes), keyed apart by mode."
-  [{:keys [id label mnem modes panel order placeholder-bead] :as tab}]
+  [{:keys [id label mnem modes panel order] :as tab}]
   {:pre [(keyword? id)
          (string? label)
          (or (nil? mnem) (string? mnem))
@@ -160,7 +161,7 @@
          (= 1 (count modes))
          (every? #{:dynamic :static} modes)
          (or (nil? order) (number? order))
-         (or (nil? placeholder-bead) (string? placeholder-bead))]}
+         (fn? panel)]}
   (swap! registry assoc [(first modes) id] tab)
   tab)
 

@@ -304,7 +304,6 @@
      :mnem  "i"
      :modes #{:static}
      :order 4
-     :panel Panel
-     :placeholder-bead "rf2-o5f5f.6"})
+     :panel Panel})
 
   nil)
