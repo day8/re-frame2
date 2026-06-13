@@ -139,6 +139,31 @@ Two elision layers compose:
    fails closed with `:reason :missing-key` (a partial key cannot address
    an entry).
 
+3. **Off-box egress for the TRACE-borne accessors** (`get-resource-history` /
+   `list-resource-invalidations`, rf2-e0mq7a). These two project off the
+   **trace ring**, not the live cache, so their value-bearing fields are
+   trace-event values — the scoped key's scope/params, the `:cause` (a mutation
+   may carry data), and the invalidation's `:scope` + `:matched` keys. They get
+   the **same per-slot egress posture** as the live-cache accessors, via the
+   trace-buffer peer of `resource-egress-fn`: the runtime threads
+   `egress-value` (off-box `:sensitive?` / `:large?` defaults baked in) into
+   `lifecycle-timeline` / `invalidation-graph`, which apply it to those
+   value-bearing fields **before** `summarize`. A declared-`:sensitive?` /
+   `:large?` value therefore redacts / elides **by default** and reveals only
+   under the trusted-local `:include-sensitive?` / `:include-large?` opt-ins.
+   Because these are trace values (not runtime-db `:entries` payloads) the
+   walker is the plain `egress-value`, NOT `egress-runtime-db-value` — there is
+   no runtime-db partition default to gate; the per-slot declaration posture is
+   the boundary. This composes **on top of** the upstream whole-envelope
+   default-suppress (`drop-sensitive-events` drops `:sensitive? true`
+   ENVELOPES; this scrubs the VALUES inside the survivors). The **non-PII
+   metadata** — the lifecycle shape (`:operation` / `:class` / `:resource-id` /
+   `:generation` / `:owner` / `:status`) and the invalidation identity
+   (`:tags`, `:match-count`, `:refetched`) — is **never egressed**, so the
+   `:tag` filter axis and the storm / zero-match distinction stay useful on the
+   default-redacted path (the same "redacted summary still exposes metadata"
+   contract as the live-cache accessors).
+
 The same `instance-row` per-slot egress seam carries the EP-0015 **on-box
 local-render** default (`:rf.egress/local-redacted`, Spec 015 §Projection
 profiles + §The graduation gate; `panels/local-render`). When a panel routes

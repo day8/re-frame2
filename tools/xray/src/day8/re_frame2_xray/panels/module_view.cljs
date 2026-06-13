@@ -210,11 +210,22 @@
 (defn- modules-section-body
   "The MODULES section body — every realm's modules, grouped by realm only
   when the process is multi-realm (zero-ceremony: a single-realm process
-  lists its modules with the realm dimension implicit). When NO realm carries
-  module provenance (a load-order / sugar-only process), renders the calm
-  no-module caption rather than an empty list. Pure hiccup."
+  lists its modules with the realm dimension implicit). The empty-state is a
+  THREE-WAY decision (rf2-e0mq7a):
+
+    1. some realm has module rows → render the module list.
+    2. some realm carries PROVENANCE (a constructed, installed app) but NO
+       realm has any modules (every constructed app has `:modules []`) →
+       render the zero-module-app caption — the installed-but-empty state.
+    3. no realm carries provenance at all (load-order / sugar-only) → render
+       the no-provenance caption.
+
+  Cases 2 and 3 are distinct: a zero-module constructed app must NOT render the
+  load-order caption (which falsely claims the process never installed an app).
+  Pure hiccup."
   [realms multi-realm?]
-  (if (h/any-modules? realms)
+  (cond
+    (h/any-modules? realms)
     (into [:div {:data-testid "rf-xray-module-view-modules-list"}]
           (for [{:keys [realm modules] :as _r} realms
                 :when (seq modules)]
@@ -230,6 +241,16 @@
                        (with-meta (module-row m)
                          {:key (str (:module-id m))})))]
               {:key (str realm)})))
+
+    ;; Provenance present (constructed + installed) but no modules anywhere —
+    ;; the honest installed-but-empty state, NOT the load-order caption.
+    (h/any-provenance? realms)
+    [:div {:data-testid "rf-xray-module-view-modules-zero-module-app"
+           :style       awaiting-caption-style}
+     h/zero-module-app-caption]
+
+    ;; No provenance on any realm — the load-order / sugar-only process.
+    :else
     [:div {:data-testid "rf-xray-module-view-modules-empty"
            :style       awaiting-caption-style}
      h/no-modules-caption]))
