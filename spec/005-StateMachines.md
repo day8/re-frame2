@@ -493,6 +493,8 @@ The schema's job is exactly the user-domain `:data` shape. The snapshot's `:stat
 
 **Spawn-time validation.** A spawned actor's initial `:data` is validated **before the snapshot lands in runtime-db** (rather than at the next macrostep commit). A failing spawn never installs — the actor never enters the runtime, and no parent state observes a half-installed child. The failure emits with `:phase :spawn` and `:rollback? false` (no commit to roll back).
 
+**Escape-hatch validation.** A `[:rf.machine/update-snapshot {... :rf/patch {:data {...}}}]` (the [§Snapshot-level escape hatch](#snapshot-level-escape-hatch)) is validated **before the patch merges into runtime-db** — the fx computes the would-be-merged snapshot and validates its `:data` against the actor's `:data-schema`. A failing patch is **not written** — the invalid `:data` never installs (a pre-write rejection, parity with spawn). The failure emits with `:phase :update-snapshot` and `:rollback? false` (no commit to roll back). The schema is resolved for both a singleton (`reg-machine`) and a spawned actor (its TYPE rides the snapshot's `:rf/machine-type`), so the escape hatch is covered uniformly. A machine with no `:data-schema`, or a patch that doesn't touch `:data`, writes unchanged.
+
 **Failure trace.** The boundary reuses the existing `:rf.error/schema-validation-failure` op with a new `:where` value:
 
 ```clojure
@@ -500,12 +502,12 @@ The schema's job is exactly the user-domain `:data` shape. The snapshot's `:stat
  :tags {:where           :machine-data
         :failing-id      <machine-id>           ;; uniform error-emit alias
         :machine-id      <machine-id>           ;; domain-specific synonym
-        :phase           :macrostep             ;; or :spawn
+        :phase           :macrostep             ;; or :spawn / :bootstrap / :update-snapshot
         :value           <failing-:data-map>    ;; redactable per Spec 010 §`:sensitive?`
         :received        <failing-:data-map>    ;; parallels :where :app-db
         :schema          <the registered schema verbatim>
         :explain         <validator's explainer output>
-        :rollback?       true                   ;; false for :phase :spawn
+        :rollback?       true                   ;; false for :phase :spawn / :update-snapshot
         :recovery        :no-recovery
         :reason          "Machine <id> :data failed schema..."}}
 ```
@@ -731,7 +733,7 @@ every machine callback receives a SINGLE context-map argument; the keys present 
 - `:action` / `:entry` / `:exit` / `:on-done` / `:spawn :data` → a fresh `:data` map (or, for actions, a `{:data :fx}` effects map). The runtime patches `:data` back into the snapshot. Logical state (`:loading` / `:loaded` / `:error`) is reserved for declarative transition apparatus (`:on` / `:always` / `:after`); callbacks can ONLY update working memory (the `:data` bag) — they cannot nudge the machine into a state the spec didn't declare. Matches xstate's `assign` invariant.
 - `:on-spawn` / `:after` advisory cases — `:on-spawn` returns are dropped (the runtime tracks the spawn-id at `[:rf.runtime/machines :spawned <parent> <invoke-id>]`); `:after` delay-fn returns the ms value the timer scheduler consumes.
 
-**Snapshot-level escape hatch.** If a callback NEEDS to touch `:state` / `:meta` / `:data` plus something else in one atomic write, emit `[:rf.machine/update-snapshot {:rf/machine-id <id> :rf/patch {:data {...}}}]` from inside the callback's `:fx` vector — NOT a return-shape hidden contract. `:rf/machine-id` names the actor whose snapshot at `[:rf.runtime/machines :snapshots <id>]` is patched; `:rf/patch` is merged onto that snapshot, restricted to the permitted top-level keys above (`:state` / `:meta` / `:data`). User error/status state is *user-domain working memory* and lives under `:data` (where `:data-schema` validation covers it) — not as bare snapshot-root keys. A `:db` key in the patch is the same hard-disallow as in an action's effect map (it surfaces `:rf.error/machine-action-wrote-db` and is dropped); merging into a destroyed / unknown actor is a no-op.
+**Snapshot-level escape hatch.** If a callback NEEDS to touch `:state` / `:meta` / `:data` plus something else in one atomic write, emit `[:rf.machine/update-snapshot {:rf/machine-id <id> :rf/patch {:data {...}}}]` from inside the callback's `:fx` vector — NOT a return-shape hidden contract. `:rf/machine-id` names the actor whose snapshot at `[:rf.runtime/machines :snapshots <id>]` is patched; `:rf/patch` is merged onto that snapshot, restricted to the permitted top-level keys above (`:state` / `:meta` / `:data`). User error/status state is *user-domain working memory* and lives under `:data` (where `:data-schema` validation covers it) — not as bare snapshot-root keys. The `:data` patch is **not** exempt from that validation: the fx validates the would-be-merged snapshot's `:data` against the actor's `:data-schema` **before** writing, and a violating patch is rejected — the invalid `:data` never installs (`:phase :update-snapshot`, `:rollback? false`; see [§Schema validation](#schema-validation)). A `:db` key in the patch is the same hard-disallow as in an action's effect map (it surfaces `:rf.error/machine-action-wrote-db` and is dropped); merging into a destroyed / unknown actor is a no-op.
 
 The runtime is responsible for unwrapping the snapshot before calling these fns and for patching the result back into the snapshot. **User code never names `[:data ...]` paths inside the body**; if a callback needs to read or write a field, it does so on the destructured `data` directly (e.g. `(:pending data)`, `(assoc data :pending id)`).
 

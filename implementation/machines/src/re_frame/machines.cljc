@@ -104,6 +104,10 @@
 ;; sibling validates a spawned actor's initial `:data` before install.
 (def validate-machine-data! data-validation/validate-machine-data!)
 (def validate-spawn-data!   data-validation/validate-spawn-data!)
+;; rf2-wrrvs7 — the `:rf.machine/update-snapshot` escape-hatch sibling
+;; validates the would-be-merged snapshot's `:data` BEFORE the fx writes
+;; it, closing the boundary bypass on the escape hatch.
+(def validate-update-snapshot-data! data-validation/validate-update-snapshot-data!)
 ;; The pure registration-time validator (Spec 005 §registration validators,
 ;; rf2-f9tu). Re-exported so the conformance corpus's `:reg-machine` Mode-B
 ;; call op can pin the registration-error taxonomy (Spec 009 §thrown-error
