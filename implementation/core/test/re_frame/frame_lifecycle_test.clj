@@ -707,7 +707,7 @@
           ":default does not introduce :drain-depth"))))
 
 (deftest preset-expansion-test
-  (testing ":test expansion: HTTP redirect + drain-depth 100"
+  (testing ":test expansion: HTTP redirect + drain-depth 100 + strict mint policy"
     (rf/reg-frame :p/test {:preset :test})
     (let [cfg (:config (frame/frame :p/test))]
       (is (= :test (:preset cfg)))
@@ -715,7 +715,13 @@
              (:fx-overrides cfg))
           ":test redirects the canonical Spec 014 HTTP fx to its canned-success stub")
       (is (= 100 (:drain-depth cfg))
-          ":test stamps :drain-depth 100 explicitly so tooling reads it off frame-meta"))))
+          ":test stamps :drain-depth 100 explicitly so tooling reads it off frame-meta")
+      ;; EP-0017 §6 / slice-B.8 (rf2-5spzo7): the :test preset defaults the
+      ;; cofx mint policy to :strict — a declared-absent generator-backed
+      ;; recordable fact under a test frame is missing-required, never a
+      ;; freshly-minted per-run value (strict-by-default tests are core).
+      (is (= :strict (:rf.cofx/mint-policy cfg))
+          ":test defaults the cofx mint policy to :strict"))))
 
 (deftest preset-expansion-story
   (testing ":story expansion: HTTP redirect + tighter drain-depth 16"
@@ -725,7 +731,12 @@
       (is (= {:rf.http/managed :rf.http/managed-canned-success}
              (:fx-overrides cfg)))
       (is (= 16 (:drain-depth cfg))
-          ":story tightens :drain-depth to 16 so a runaway cascade fails fast under a story"))))
+          ":story tightens :drain-depth to 16 so a runaway cascade fails fast under a story")
+      ;; EP-0017 §6 / slice-B.8 (rf2-5spzo7): a story is a live demo, NOT a
+      ;; determinism fixture — it is NOT strict-by-default and rides the
+      ;; router's :live default (no mint-policy entry on the expansion).
+      (is (nil? (:rf.cofx/mint-policy cfg))
+          ":story carries no mint-policy entry — it rides the :live router default"))))
 
 (deftest preset-expansion-ssr-server
   (testing ":ssr-server expansion: :platform :server"

@@ -660,12 +660,45 @@
                       :recovery                     :skipped})
         [:skipped nil]))))
 
-(def ^:private default-mint-policy
-  "The mint policy when the caller threads none — the router's `:live`
+(def default-mint-policy
+  "The mint policy when no binding point selects one — the router's `:live`
   default (EP-0017 §6). `:live` generates declared-absent generator-backed
-  recordable values; slice-B.8 wires the binding points that select `:strict`
-  (the `:test` preset default; hard-wired for replay) or `:explicit-live`."
+  recordable values; the binding points (`resolve-mint-policy`) select
+  `:strict` (the `:test` preset default; hard-wired for replay) or
+  `:explicit-live` (the declared-nondeterminism escape)."
   :live)
+
+(def mint-policies
+  "The closed set of EP-0017 §6 mint-policy values. `:live` (router default)
+  and `:explicit-live` (declared-nondeterminism escape) generate a
+  declared-absent generator-backed recordable fact; `:strict` (the `:test`
+  preset default; hard-wired for replay) does not. An unrecognised value is
+  treated CONSERVATIVELY as non-generating (see `mint-policy-generates?`) — an
+  unknown policy must never silently mint a nondeterministic value into the
+  durable ledger — but the registration/dispatch boundary uses this set to
+  reject typos loudly where it can."
+  #{:live :strict :explicit-live})
+
+(defn resolve-mint-policy
+  "Resolve the effective cofx mint policy for a dispatch, MOST-SPECIFIC-WINS
+  (EP-0017 §6 binding points, slice-B.8):
+
+    1. `per-call`   — the `:rf.cofx/mint-policy` dispatch opt (a Tool-Pair
+                      replay supplies `:strict`; a nondeterminism-declaring
+                      test supplies `:explicit-live`);
+    2. `frame-cfg`  — the `:rf.cofx/mint-policy` key on the frame's config
+                      (the `:test` preset expands to `:strict`);
+    3. `:live`      — the router default, when neither is present.
+
+  Returns the first non-nil of `per-call`, `frame-policy`, else
+  `default-mint-policy`. The value is NOT validated here — an unrecognised
+  policy is treated conservatively as non-generating by
+  `mint-policy-generates?` (fail-safe: an unknown policy never mints), and the
+  dispatch boundary (`known-dispatch-opts`) is where a typo'd OPT KEY is
+  surfaced. This keeps the hot satisfaction path branch-light while preserving
+  the no-silent-mint invariant."
+  [per-call frame-policy]
+  (or per-call frame-policy default-mint-policy))
 
 (defn- mint-policy-generates?
   "True when `policy` runs a generator for a declared-absent generator-backed

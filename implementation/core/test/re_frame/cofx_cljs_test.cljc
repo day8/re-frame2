@@ -1000,3 +1000,155 @@
           (is (= 1 @gen-calls) ":live generated the absent fact")
           (is (= 1 (:gen-test/strict-delta coeffects))
               "the generated value is delivered under :live"))))))
+
+;; ===========================================================================
+;; 9. Mint-policy BINDING POINTS (EP-0017 §6 / slice-B.8, rf2-5spzo7)
+;;
+;; B.7 wired the `mint-policy` arg on `deliver-declared-cofx`; B.8 wires the
+;; binding points that SELECT it. The policy resolves most-specific-wins —
+;; per-call dispatch opt ▸ frame config (the `:test` preset's `:strict`) ▸
+;; the router's `:live` default — and gates ONLY the declared-absent
+;; generator-backed branch. The four tests below exercise each binding point
+;; through the FULL dispatch path (not the seam directly), so the wiring in
+;; `build-envelope` / `assemble-initial-ctx` / the `:test` preset is covered.
+;; ===========================================================================
+
+(deftest resolve-mint-policy-precedence
+  (testing "ADVERSARIAL UNIT: `resolve-mint-policy` is most-specific-wins —
+            per-call opt beats frame config beats the `:live` default
+            (EP-0017 §6 binding points)"
+    ;; 1. Neither present → the router's :live default.
+    (is (= :live (cofx/resolve-mint-policy nil nil))
+        "no binding point → :live (the router default)")
+    ;; 2. Frame config only (the :test preset's :strict).
+    (is (= :strict (cofx/resolve-mint-policy nil :strict))
+        "frame config wins when no per-call opt is supplied")
+    ;; 3. Per-call opt only.
+    (is (= :strict (cofx/resolve-mint-policy :strict nil))
+        "the per-call opt selects the policy when the frame has none")
+    ;; 4. Per-call opt OVERRIDES the frame config (the :explicit-live escape
+    ;;    over a :test frame's :strict).
+    (is (= :explicit-live (cofx/resolve-mint-policy :explicit-live :strict))
+        "the per-call opt is the most-specific binding point — it wins")
+    (is (= cofx/default-mint-policy (cofx/resolve-mint-policy nil nil))
+        "the documented default is :live")))
+
+(deftest router-default-is-live-generates
+  (testing "ADVERSARIAL (binding point 1 — ROUTER DEFAULT): a dispatch into a
+            frame with NO mint-policy config and NO per-call opt generates a
+            declared-absent generator-backed recordable fact — the router's
+            `:live` default (EP-0017 §6). Exercised through the full dispatch
+            path into the fixture's ambient `:rf/default` frame."
+    (let [gen-calls  (atom 0)
+          seen-delta (atom nil)]
+      (rf/reg-cofx :mint-test/live-delta
+        {:recordable? true :doc "Generator-backed, exercised under :live."}
+        (fn [] (swap! gen-calls inc) 7))
+      (rf/reg-event-fx :mint-test/live-evt
+        {:rf.cofx/requires [:mint-test/live-delta]}
+        (fn [{:keys [mint-test/live-delta]} _] (reset! seen-delta live-delta) {}))
+      ;; The fixture's ambient frame is :rf/default (no preset → no mint-policy
+      ;; config); no per-call opt → the :live default applies.
+      (rf/dispatch-sync [:mint-test/live-evt])
+      (is (= 1 @gen-calls) "the router default is :live — the generator ran")
+      (is (= 7 @seen-delta) "the generated value was delivered flat"))))
+
+(deftest test-preset-default-is-strict-does-not-generate
+  (testing "ADVERSARIAL (binding point 3 — :test PRESET DEFAULT): a dispatch
+            into a `:preset :test` frame does NOT generate a declared-absent
+            generator-backed fact — the `:test` preset defaults the mint policy
+            to `:strict`, so the fact is `:rf.error/missing-required-cofx`
+            (EP-0017 §6). No host read, no fresh per-run value."
+    (let [gen-calls (atom 0)
+          fired?    (atom false)]
+      (rf/reg-frame :mint-test/strict-frame {:preset :test})
+      (rf/reg-cofx :mint-test/strict-delta
+        {:recordable? true}
+        (fn [] (swap! gen-calls inc) 3))
+      (rf/reg-event-fx :mint-test/strict-evt
+        {:rf.cofx/requires [:mint-test/strict-delta]}
+        (fn [_ _] (reset! fired? true) {}))
+      (let [ex (try (rf/dispatch-sync [:mint-test/strict-evt]
+                                      {:frame :mint-test/strict-frame})
+                    nil
+                    (catch #?(:clj clojure.lang.ExceptionInfo
+                              :cljs cljs.core/ExceptionInfo) e e))]
+        (is (zero? @gen-calls)
+            "the :test preset is strict — NO generator ran, no host read")
+        (is (false? @fired?) "the handler never ran (the cascade halted)")
+        (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data ex)))
+            "a strict-frame declared-absent generator fact is missing-required")
+        (is (= :mint-test/strict-delta (:rf.cofx/id (ex-data ex)))
+            "the error names the absent fact")))))
+
+(deftest replay-per-call-strict-does-not-generate
+  (testing "ADVERSARIAL (binding point 2 — TOOL-PAIR REPLAY): the per-call
+            `:rf.cofx/mint-policy :strict` dispatch opt (how a replay
+            re-dispatches a recorded event) does NOT generate even on a frame
+            whose config would otherwise be `:live` — replay is unconditionally
+            strict, so an incomplete record fails loudly rather than minting a
+            fresh value (EP-0017 §6 / Tool-Pair §Replay)."
+    (let [gen-calls (atom 0)
+          fired?    (atom false)]
+      (rf/reg-cofx :mint-test/replay-delta
+        {:recordable? true}
+        (fn [] (swap! gen-calls inc) 5))
+      (rf/reg-event-fx :mint-test/replay-evt
+        {:rf.cofx/requires [:mint-test/replay-delta]}
+        (fn [_ _] (reset! fired? true) {}))
+      ;; The ambient :rf/default frame is :live; the per-call :strict opt — the
+      ;; replay lever — wins over it. A record MISSING :mint-test/replay-delta
+      ;; therefore fails loudly rather than minting a divergent value.
+      (let [ex (try (rf/dispatch-sync [:mint-test/replay-evt]
+                                      {:rf.cofx/mint-policy :strict
+                                       ;; the recorded token (missing the fact)
+                                       :rf.cofx              {:rf/time-ms 1781078400123}})
+                    nil
+                    (catch #?(:clj clojure.lang.ExceptionInfo
+                              :cljs cljs.core/ExceptionInfo) e e))]
+        (is (zero? @gen-calls)
+            "per-call :strict ran NO generator — replay never re-mints")
+        (is (false? @fired?) "the handler never ran (the incomplete record halts)")
+        (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data ex)))
+            "an incomplete replay record is missing-required, not a fresh mint"))
+      (testing "the SAME event with the fact PRESENT on the record replays it
+                verbatim under :strict (supplied wins; replay re-presents)"
+        (reset! gen-calls 0)
+        (reset! fired? false)
+        (let [seen (atom nil)]
+          (rf/reg-event-fx :mint-test/replay-evt
+            {:rf.cofx/requires [:mint-test/replay-delta]}
+            (fn [{:keys [mint-test/replay-delta]} _]
+              (reset! fired? true) (reset! seen replay-delta) {}))
+          (rf/dispatch-sync [:mint-test/replay-evt]
+                            {:rf.cofx/mint-policy :strict
+                             :rf.cofx              {:rf/time-ms        1781078400123
+                                                    :mint-test/replay-delta 42}})
+          (is (zero? @gen-calls) "a present fact needs no generation, even were it :live")
+          (is (true? @fired?) "the handler ran — the record was complete")
+          (is (= 42 @seen) "the recorded value is re-presented verbatim"))))))
+
+(deftest explicit-live-overrides-strict-frame-generates
+  (testing "ADVERSARIAL (binding point 4 — :explicit-live ESCAPE): the per-call
+            `:rf.cofx/mint-policy :explicit-live` opt OVERRIDES a `:test`
+            frame's `:strict` default and DOES generate — the test has declared
+            it accepts nondeterminism, and the per-call opt is the most-specific
+            binding point (EP-0017 §6)."
+    (let [gen-calls  (atom 0)
+          seen-delta (atom nil)]
+      (rf/reg-frame :mint-test/escape-frame {:preset :test})
+      (rf/reg-cofx :mint-test/escape-delta
+        {:recordable? true}
+        (fn [] (swap! gen-calls inc) 9))
+      (rf/reg-event-fx :mint-test/escape-evt
+        {:rf.cofx/requires [:mint-test/escape-delta]}
+        (fn [{:keys [mint-test/escape-delta]} _] (reset! seen-delta escape-delta) {}))
+      ;; Without the opt this :test frame would be :strict → missing-required
+      ;; (the test above pins that). With :explicit-live the per-call opt wins.
+      (rf/dispatch-sync [:mint-test/escape-evt]
+                        {:frame               :mint-test/escape-frame
+                         :rf.cofx/mint-policy :explicit-live})
+      (is (= 1 @gen-calls)
+          ":explicit-live overrode the :test frame's :strict — the generator ran")
+      (is (= 9 @seen-delta)
+          "the generated value was delivered flat under the escape policy"))))

@@ -640,6 +640,7 @@ Use case: production single-frame app; multi-instance widgets.
 |---|---|---|
 | `:fx-overrides` | `{:rf.http/managed :rf.http/managed-canned-success}` | The canonical Spec 014 HTTP fx is redirected to its canned-success stub so test frames don't reach the network. Test code that needs richer stubbing supplies its own `:fx-overrides` per-call or per-frame; the framework does not ship `:rf.test/*` fxs in the v1 closed set. **The reserved navigation primitives `:rf.nav/push-url` / `:rf.nav/replace-url` / `:rf.nav/scroll` / `:rf.nav/capture-scroll` are OVERRIDABLE** (host-API wrappers, no frame runtime-db write — per [§Reserved fx-ids are tiered against override](#reserved-fx-id-override-tier)), so a test stubs them to no-op navigation without touching the host. Note that the *state-installing* reserved fxs (`:rf.machine/spawn`, `:rf.fx/reg-flow`, `:rf.route/with-nav-token`, …) are HARD-REJECTED — a test cannot stub those (the override is ignored and the reserved body runs). |
 | `:drain-depth` | `100` | Explicit value matches the framework default. Surfaced on the expansion so tooling can read "this is a test frame, drain bounded at 100" from `(frame-meta <id>)` without inspecting the global default. |
+| `:rf.cofx/mint-policy` | `:strict` | The cofx **mint policy** ([§Mint policies](#mint-policies)) defaults to `:strict` under a test frame: a declared-absent generator-backed recordable fact is `:rf.error/missing-required-cofx`, never a freshly-minted per-run value. Strict-by-default is **core, not polish** — a determinism feature whose path of least resistance is a fresh random per run would degrade the test culture it exists to serve, so the `:test` preset makes the deterministic path the default and nondeterminism opt-in. A test that has *declared* it accepts nondeterminism opts back in with `{:rf.cofx/mint-policy :explicit-live}` (per-call dispatch opt, or as a per-frame override — user-supplied keys win on conflict per [§Expansion algorithm](#expansion-algorithm)). |
 
 **Port-omission carve-out.** The `:fx-overrides` entry above redirects a Spec 014 fx-id. Implementations that omit Spec 014 do not register `:rf.http/managed` and therefore cannot redirect it — on such ports the `:test` preset's `:fx-overrides` expansion is `{}` (empty map). The `:drain-depth` entry is unaffected. Conformance: a port that ships Spec 014 MUST expand `:test`'s `:fx-overrides` to the exact pair above; a port that omits Spec 014 MUST expand it to `{}`. Either way, user-supplied metadata wins on conflict per [§Expansion algorithm](#expansion-algorithm).
 
@@ -884,7 +885,7 @@ Ambient host reads remain allowed for **diagnostics** (dev-only trace timestamps
 
 The schema is registered as [`:rf.cofx`](Spec-Schemas.md#rfcofx) in [Spec-Schemas](Spec-Schemas.md); it is an optional key of [`:rf/dispatch-opts`](Spec-Schemas.md#rfdispatch-opts) and a (runtime-guaranteed) key of [`:rf/dispatch-envelope`](Spec-Schemas.md#rfdispatch-envelope). `:rf.world/inputs` is **retired** with no alias and no coexistence window (the `:dispatched-at` pattern, EP-0007 rule 2): supplying it in dispatch opts is a hard error (`:rf.error/world-inputs-renamed`) naming `:rf.cofx`, in production too.
 
-**Two sampling moments are normative.** `:rf.cofx` is one causal record, not one sampling instant: `:rf/time-ms` is sampled at *enqueue* (queue latency is real causal time); generator-backed facts are sampled at *processing-start* — the declaration is only knowable once the handler is resolved, late registration is legal (the generation step is slice-B-built — see §Mint policies). Both precede the fold; a generated value postdating its token's `:rf/time-ms` is correct behavior, not a bug.
+**Two sampling moments are normative.** `:rf.cofx` is one causal record, not one sampling instant: `:rf/time-ms` is sampled at *enqueue* (queue latency is real causal time); generator-backed facts are sampled at *processing-start* — the declaration is only knowable once the handler is resolved, late registration is legal (the generation step runs under the active [mint policy](#mint-policies)). Both precede the fold; a generated value postdating its token's `:rf/time-ms` is correct behavior, not a bug.
 
 <a id="envelope-stamping"></a>
 
@@ -919,17 +920,27 @@ A handler declares the coeffects it consumes via the registration-metadata key *
 
 **Supplied values win.** Dispatch opts, replay fixtures, SSR hydration, and host integrations supply exact values via the `:rf.cofx` opt; the runtime fills only what is missing and never overwrites. A registration's `:schema` is thereby a *contract*, not merely a generation instruction — it is the type of the replay hole.
 
-#### Mint policies (contract — generation is slice-B)
+<a id="mint-policies"></a>
 
-In slice A every requirable fact is **provided** (stamped by an owner — `:rf/time-ms`, subsystem facts) or **ambient** (a supplier run at context assembly); generator-backed recordable facts do not yet exist. The generation machinery — running a recordable supplier at processing-start to fill a declared-absent fact, `:schema` validation of supplied/replayed values, and the mint policies below — is **slice-B-built**, gated on the first real generator consumer (EP-0016 optimistic temp-ids the named candidate). The contract those policies will honor:
+#### Mint policies
+
+The **mint policy** governs **recordable generation only** (ambient suppliers run at context assembly in *every* mode — they are reads, not record entries). A generator-backed recordable fact (a `reg-cofx` carrying a value-returning supplier, not `:provided?`) that a handler declares but is absent from the token consults the policy:
 
 | Mode | Behavior | Normative binding |
 |---|---|---|
-| `:live` | generate declared-absent recordable values | the router's default |
+| `:live` | generate declared-absent recordable values at processing-start | the **router's default** (when no binding point selects otherwise) |
 | `:strict` | required-but-absent is `:rf.error/missing-required-cofx`; no generator runs, no host reads | **hard-wired for replay** (Tool-Pair surface); the **default of the `:test` preset** ([§Frame presets](#frame-presets--capability-bundles-for-common-configurations)) |
-| `:explicit-live` | generates, but the test has *declared* it accepts nondeterminism | opt-in escape hatch in tests |
+| `:explicit-live` | generates, but the caller has *declared* it accepts nondeterminism | opt-in escape hatch in tests |
 
 Replay is unconditionally strict — an incomplete record MUST fail loudly rather than silently re-read the host. A *provided* recordable fact (no generator) that is absent from the token is `:rf.error/missing-required-cofx` in **every** mode; `:rf/time-ms` always succeeds (the stamp guarantees it).
+
+**Binding points.** The effective policy for a dispatch resolves **most-specific-wins**, at context assembly:
+
+1. **Per-call** — the `:rf.cofx/mint-policy` **dispatch opt** (`(rf/dispatch [:e] {:rf.cofx/mint-policy :strict})`). This is the lever a **Tool-Pair replay** uses (it re-dispatches a recorded event supplying the recorded `:rf.cofx` *and* `:rf.cofx/mint-policy :strict`, so an incomplete record fails loudly instead of minting a fresh value — see [Tool-Pair §Replay](Tool-Pair.md#replay-mint-policy)), and the lever a test uses to opt back into generation (`:explicit-live`).
+2. **Per-frame** — the `:rf.cofx/mint-policy` key on the frame's `reg-frame` / `make-frame` config (the `:test` preset expands to `:strict`).
+3. **Default** — `:live`, the router default, when neither is present.
+
+An **unrecognised** policy value is treated conservatively as **non-generating** (equivalent to `:strict`) — an unknown policy MUST NOT silently mint a nondeterministic value into the durable ledger. The policy threads through the satisfaction algorithm (the `deliver-declared-cofx` seam owned by [001 §Coeffects](001-Registration.md#coeffects--reg-cofx-value-returning-graded)); it changes only the declared-absent generator-backed branch, never the present-on-token (supplied / replayed) or ambient branches.
 
 #### `:dispatched-at` is retired
 
