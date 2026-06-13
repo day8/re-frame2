@@ -38,6 +38,8 @@ on:
       - 'scripts/check_doc_slugs.py'
       - 'scripts/_test_fixtures/check_doc_slugs/**'
       - 'scripts/check_runtime_subsystem_grading.py'
+      - 'scripts/check_inject_cofx_residue.py'
+      - 'scripts/_test_fixtures/check_inject_cofx_residue/**'
       - '.github/workflows/docs.yml'
   # PR trigger is intentionally UNFILTERED (see REQUIRED-CHECK SHAPE
   # below). The docs surface is re-applied job-side via the `detect` job.
@@ -89,7 +91,7 @@ jobs:
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             case "$file" in
-              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|requirements.txt|scripts/check_doc_slugs.py|scripts/_test_fixtures/check_doc_slugs/*|scripts/check_runtime_subsystem_grading.py|.github/workflows/docs.yml)
+              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|requirements.txt|scripts/check_doc_slugs.py|scripts/_test_fixtures/check_doc_slugs/*|scripts/check_runtime_subsystem_grading.py|scripts/check_inject_cofx_residue.py|scripts/_test_fixtures/check_inject_cofx_residue/*|.github/workflows/docs.yml)
                 docs_surface=true ;;
             esac
           done <<< "$files"
@@ -255,6 +257,28 @@ jobs:
 
       - name: Validate runtime-subsystem grading-table coherence
         run: python scripts/check_runtime_subsystem_grading.py --verbose
+
+      # EP-0017 (recordable coeffects, slice A) retired `inject-cofx` /
+      # `inject-cofx*` and renamed the `:rf.world/inputs` dispatch opt to the
+      # flat `:rf.cofx` map — no alias, both hard errors. The runtime throws,
+      # but the EP landing wave left STALE copy-pasteable teaching examples
+      # behind (live `[(rf/inject-cofx :rf.server/request)]` interceptor
+      # entries in spec/Pattern-SSR-Loaders.md + spec/Pattern-FormAction.md,
+      # rf2-d8mvke.3 finding 2). This guard scans docs/api, docs/guide, spec/,
+      # and skills/ markdown for the retired spellings as LIVE recommended API
+      # (inside fenced code blocks) with a narrow file allowlist for the
+      # migration surface (the migration guide page / re-frame-migration skill
+      # / EP docs) where a v1 "before" snippet is legitimate per
+      # docs/guide/AUTHORING.md §Delta teaching. Removed-context prose + inline
+      # code spans + masked `;` comments never fire. Self-test first (proves
+      # the gate fires on each live shape + stays green on every
+      # removed-context counterpart + the allowlist exemption), then the live
+      # scan. See scripts/check_inject_cofx_residue.py.
+      - name: Self-test the inject-cofx residue gate
+        run: python scripts/check_inject_cofx_residue.py --self-test --verbose
+
+      - name: Validate no live inject-cofx / :rf.world/inputs residue
+        run: python scripts/check_inject_cofx_residue.py --verbose
 
       # Stage the spec/ + migration/ trees under docs/ so MkDocs (which
       # requires docs_dir to be a child of the config file) can see them.
