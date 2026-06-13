@@ -98,21 +98,20 @@
   when the resolver's declared app-db inputs change mid-session
   (rf2-616xa6). A reference that resolves nil raises
   `:rf.error/resource-sub-unresolved-scope` (the \"scope unresolved\"
-  diagnostic) — never a silent global / wrong-entry read. The 1-arity is
-  kept for the direct-dispatch test path (no `{:from-db …}` scope), where
-  references resolve against an empty db (fail-closed)."
-  ([payload] (resolve-scoped-key payload nil))
-  ([{:keys [resource] :as payload} db]
-   (let [spec    (registry/require-resource-spec! resource 'rf.resource/subscribe)
-         scope   (registry/resolve-scope-for-sub
-                   resource spec (:scope payload) 'rf.resource/subscribe db)
-         ;; rf2-hgy5kf — thread `:params` presence (absent vs explicit nil) so
-         ;; the sub re-keys to the SAME identity the ensure produced (an absent
-         ;; slot defaults to `{}` at the boundary; explicit nil reaches the
-         ;; schema unchanged).
-         cparams (registry/validate+canonicalize-params
-                   resource spec (state/params-present? payload) 'rf.resource/subscribe)]
-     (state/scoped-resource-key scope resource cparams))))
+  diagnostic) — never a silent global / wrong-entry read. Every caller
+  supplies the frame `db` explicitly (rf2-bwwk6l): a caller that resolves no
+  `{:from-db …}` scope passes `{}`."
+  [{:keys [resource] :as payload} db]
+  (let [spec    (registry/require-resource-spec! resource 'rf.resource/subscribe)
+        scope   (registry/resolve-scope-for-sub
+                  resource spec (:scope payload) 'rf.resource/subscribe db)
+        ;; rf2-hgy5kf — thread `:params` presence (absent vs explicit nil) so
+        ;; the sub re-keys to the SAME identity the ensure produced (an absent
+        ;; slot defaults to `{}` at the boundary; explicit nil reaches the
+        ;; schema unchanged).
+        cparams (registry/validate+canonicalize-params
+                  resource spec (state/params-present? payload) 'rf.resource/subscribe)]
+    (state/scoped-resource-key scope resource cparams)))
 
 ;; ---- dev-mode scope-mismatch warning (Spec 016 §Subscription-side scope
 ;; ---- resolution — likely-mismatch dev warning) ----------------------------

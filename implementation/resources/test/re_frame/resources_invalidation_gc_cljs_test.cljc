@@ -310,21 +310,19 @@
             [:rf.resource/invalidate-tags
              {:scope {:cb (fn [])} :tags #{[:article "w"]}}])))))
 
-(deftest invalidate-tags-normalizes-singleton-global-scope
-  ;; rf2-hosnba / rf2-vv87xz — the historical [:rf.scope/global] singleton
-  ;; spelling normalizes to the canonical bare :rf.scope/global so it matches
-  ;; the SAME entries an explicit-global resource stored under.
-  (rf/reg-resource :ivg/article (article-spec)) ;; :rf.scope/global policy
-  (let [k (state/scoped-resource-key :rf.scope/global :ivg/article {:slug "w"})]
-    (ensure! :ivg/article :rf.scope/global "w" [:lease :g 1])
-    (succeed! k {:title "G"})
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :g 1]}])
-    (testing "the singleton-vector global spelling matches the bare-global key"
-      (rf/dispatch-sync [:rf.resource/invalidate-tags
-                         {:scope [:rf.scope/global] :tags #{[:article "w"]}}])
-      (is (some? (:invalidated-at (entry k)))
-          "entry under bare :rf.scope/global was matched via the normalized
-           singleton-vector scope"))))
+(deftest invalidate-tags-rejects-singleton-global-scope
+  ;; rf2-hosnba / rf2-bwwk6l — the historical [:rf.scope/global] singleton
+  ;; spelling is NO LONGER an accepted global alias; an invalidate-tags scope
+  ;; carrying it fails closed (the global scope IS the bare keyword). The
+  ;; back-compat normalize that silently collapsed it is removed pre-alpha.
+  (testing "the wrapped singleton-vector global spelling is rejected
+            fail-closed at the shared scope-validation boundary"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
+          (events/invalidate-tags-handler
+            (invalidate-cofx {})
+            [:rf.resource/invalidate-tags
+             {:scope [:rf.scope/global] :tags #{[:article "w"]}}])))))
 
 (deftest clear-scope-rejects-reserved-scope-typo
   (testing "rf2-hosnba / rf2-lzv9xc — clear-scope routes its scope through

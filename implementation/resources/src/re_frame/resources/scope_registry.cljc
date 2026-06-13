@@ -425,9 +425,10 @@
   `(inputs nil)` (the `ctx` arg is reserved, literal nil in this slice), then
   routes a non-nil result through the SHARED concrete-scope canonicalization
   path (`state/canonicalize-scope` — rejects a misspelled `:rf.scope/*`
-  keyword fail-closed, rejects a host/opaque value, normalizes the
-  `[:rf.scope/global]` singleton spelling). A nil result passes through as nil
-  (the fail-closed unresolved condition the use site interprets).
+  keyword fail-closed, rejects a host/opaque value, rejects the global scope
+  wrapped as the singleton `[:rf.scope/global]` in favour of the canonical
+  bare keyword). A nil result passes through as nil (the fail-closed
+  unresolved condition the use site interprets).
 
   This is the resolver EVALUATOR. Passive reads advertised as pure — the
   `resolve-resource-scope` helper and subscription key resolution — call this

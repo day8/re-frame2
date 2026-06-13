@@ -308,9 +308,10 @@
 
     - a `{:from-db <id>}` named-resolver REFERENCE (EP-0016 D3 slice 3),
       resolved against the route-entry `app-db` at use time — db-derived
-      viewer scope (session / tenant / account), the primary slice-3 form;
+      viewer scope (session / tenant / account);
     - a `(fn [route ctx] …)` resolver, evaluated against the route + entry
-      ctx (the legacy/anonymous form).
+      ctx (the route-resource resolver form — Spec 016 §Scope resolution
+      precedence tier 2).
 
   A PRESENT `:scope` that resolves to `nil` (a reference whose declared
   inputs are absent, or a fn returning nil) is a fail-closed PLANNING error
@@ -336,7 +337,7 @@
                       "§Scope resolution.")
                  {:resource-id resource :recovery :fix-scope :from-db (:from-db scope-fn)}))
         s))
-    ;; a (fn [route ctx] …) resolver — the legacy anonymous form
+    ;; a (fn [route ctx] …) resolver — the route-resource resolver form
     (fn? scope-fn)
     (let [s (scope-fn route ctx)]
       (if (nil? s)
