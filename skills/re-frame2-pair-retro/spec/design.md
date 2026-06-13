@@ -115,7 +115,7 @@ GitHub-issue drafts redact secrets, tokens, internal URLs, and unnecessary local
 
 ```
 skills/re-frame2-pair-retro/
-├── SKILL.md (~170 lines; the conversation guide + workflow)
+├── SKILL.md (the conversation guide + workflow)
 ├── README.md (human-facing intro)
 ├── LICENSE (MIT)
 ├── package.json (npm metadata)
@@ -125,9 +125,9 @@ skills/re-frame2-pair-retro/
 ├── evals/                          # repo-maintenance artifact; excluded from the npm `files` array
 │ └── evals.json (trigger-accuracy fixtures — which prompts should / should not activate)
 ├── references/
-│ ├── analysis-lenses.md (~140 lines; nine root-cause lenses + improvement shapes)
-│ ├── known-frictions.md (~120 lines; recurring re-frame2-pair pain patterns)
-│ ├── issue-template.md (~90 lines; GitHub-issue-body template, redaction rules)
+│ ├── analysis-lenses.md (nine root-cause lenses + improvement shapes)
+│ ├── known-frictions.md (recurring re-frame2-pair pain patterns)
+│ ├── issue-template.md (GitHub-issue-body template, redaction rules)
 │ └── working-style.md (diagnostic-posture rules; shipped operational home of §8)
 └── spec/
  ├── design.md (this file)
@@ -135,7 +135,7 @@ skills/re-frame2-pair-retro/
  └── authoring-prompt.md (one-shot reauthor prompt)
 ```
 
-SKILL.md (~170) + 3 references (~350) + spec (~300) ≈ ~820 LoC. Typical session reads SKILL.md (~170) + at most one or two references (`analysis-lenses.md` when classification is hard, `known-frictions.md` when the session smells recurring) = ~310-450 LoC.
+Keep SKILL.md compact (well under Anthropic's 500-line ceiling) and each reference focused. A typical session reads SKILL.md plus at most one or two references (`analysis-lenses.md` when classification is hard, `known-frictions.md` when the session smells recurring) — never the whole tree.
 
 ## 6. Discovery surface (frontmatter `description`)
 
