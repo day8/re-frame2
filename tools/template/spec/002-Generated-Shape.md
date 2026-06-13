@@ -75,8 +75,8 @@ Every variant emits a working counter:
 The app-db slice and subscription id are intentionally feature-scoped
 (`:counter/value`, not a bare `:count`) so generated applications start
 with AI-readable, non-colliding state keys. This is the same counter
-shape the developer reads about in [Guide chapter 03 — Your first
-app](../../../docs/guide/03-first-app.md) and the canonical
+shape the developer reads about in [the Guide quickstart — a counter
+in five minutes](../../../docs/guide/quickstart.md) and the canonical
 [`examples/reagent/counter`](../../../examples/reagent/counter/)
 example.
 

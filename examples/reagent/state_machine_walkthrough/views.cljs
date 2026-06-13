@@ -2,7 +2,7 @@
   "Browser entry-point for the state-machines walkthrough.
 
   The pure machine, fxs and subs live in `core.cljc` alongside
-  docs/guide/12-machines.md; the headless tests live in the framework
+  docs/guide/concepts/machines.md; the headless tests live in the framework
   test tree (the `state-machine-walkthrough-runs-headless` deftest in
   `implementation/core/test/re_frame/examples_test.clj`). This namespace
   is the CLJS-only browser layer: views + Reagent mount + a `run` fn that

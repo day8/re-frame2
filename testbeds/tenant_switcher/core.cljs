@@ -9,8 +9,8 @@
   tenant `acme`, then `globex`, then back — while the scoped-cache keeps each
   tenant's loaded dashboard structurally isolated and SIMULTANEOUSLY live.
 
-  The live demonstration of the guide's claim (docs/guide/27-resources.md
-  §\"Scope — the leak boundary other libraries do not have\"): the resolved
+  The live demonstration of the guide's claim (docs/guide/concepts/server-state.md
+  §\"The scoped key: a leak boundary that fails closed\"): the resolved
   scope is IN the cache key, so two tenants' reads of the SAME params land on
   two structurally distinct entries. After switching from `acme` to `globex`,
   the active-scope view reads GLOBEX's dashboard — never `acme`'s cached data

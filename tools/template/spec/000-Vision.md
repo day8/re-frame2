@@ -77,8 +77,8 @@ and recognises the shape. That continuity is deliberate.
   point (`core.cljs`), the view (`views.cljs`), and the substrate
   adapter coord differ.
 - **Counter as canonical example.** The generated counter is the
-  same shape the developer reads about in [Guide chapter 03
-  — Your first app](../../../docs/guide/03-first-app.md).
+  same shape the developer reads about in [the Guide quickstart
+  — a counter in five minutes](../../../docs/guide/quickstart.md).
   What the template emits is what the guide walks through.
 - **Lockstep with the reference implementation's pins.** The
   shadow-cljs / react pins the template emits track
