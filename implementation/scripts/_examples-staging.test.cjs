@@ -33,6 +33,7 @@ const {
   readShadowEdn,
   isStrictlyUnder,
   cleanStageDirs,
+  stageExample,
 } = require('../../examples/scripts/examples-staging.cjs');
 
 let failed = 0;
@@ -208,6 +209,78 @@ it('cleanStageDirs (re)creates a not-yet-existing selected dir (first run)', () 
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
+});
+
+// ---- serve-example dev-runner clean-stage boundary (rf2-rg2tze) ----------
+//
+// `npm run dev:example` / serve-example.cjs used to overlay index.html +
+// _shared onto whatever a PRIOR run left in the selected output dir — so a
+// stale main.js (or a retired asset) stayed serveable, and in watch mode the
+// browser could render that old bundle while the runner had already printed a
+// live URL. The fix pins serve-example to the SAME clean-then-stage boundary
+// the CI/Story orchestrators use: cleanStageDirs([entry.outDir], OUT_ROOT)
+// BEFORE stageExample(entry). These tests pin both the behaviour (a stale
+// main.js is removed, siblings survive, assets land) and the call-site (the
+// clean precedes the stage), so a refactor that drops the clean fails here.
+
+it('dev-runner clean-then-stage removes a stale main.js and re-stages the example (rf2-rg2tze)', () => {
+  // Seed a temp OUT_ROOT with a selected dir holding a STALE main.js + retired
+  // asset from a "prior run", plus a sibling output another build relies on.
+  // Run the EXACT sequence serve-example.cjs now performs — clean the selected
+  // dir, then stageExample — and prove the stale bundle is gone, the example's
+  // index.html landed fresh, and the sibling survived.
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-serve-'));
+  try {
+    const outRoot = path.join(tmpRoot, 'out', 'examples');
+    const sel = path.join(outRoot, 'counter-uix');
+    const sibling = path.join(outRoot, 'login-uix');
+    fs.mkdirSync(sel, { recursive: true });
+    fs.mkdirSync(sibling, { recursive: true });
+    // A stale bundle + retired asset the current source no longer produces.
+    fs.writeFileSync(path.join(sel, 'main.js'), 'STALE_BUNDLE');
+    fs.writeFileSync(path.join(sel, 'retired-asset.js'), 'RETIRED');
+    fs.writeFileSync(path.join(sibling, 'main.js'), 'SIBLING_BUNDLE');
+
+    // A real (temp) hand-written index.html for the example source.
+    const srcDir = path.join(tmpRoot, 'src');
+    fs.mkdirSync(srcDir, { recursive: true });
+    const htmlSrc = path.join(srcDir, 'index.html');
+    fs.writeFileSync(htmlSrc, '<!doctype html><title>counter-uix</title>');
+    const entry = { build: 'examples/counter-uix', outDir: sel, htmlSrc, srcDir };
+
+    // The serve-example contract: clean the SELECTED dir first, then stage.
+    cleanStageDirs([entry.outDir], outRoot);
+    stageExample(entry);
+
+    assert.ok(!fs.existsSync(path.join(sel, 'main.js')), 'the stale main.js must be removed by the clean');
+    assert.ok(!fs.existsSync(path.join(sel, 'retired-asset.js')), 'the retired asset must be removed');
+    assert.ok(fs.existsSync(path.join(sel, 'index.html')), 'the example index.html must be staged fresh');
+    assert.strictEqual(
+      fs.readFileSync(path.join(sel, 'index.html'), 'utf8'),
+      '<!doctype html><title>counter-uix</title>',
+      'the staged index.html must be the current source',
+    );
+    // The sibling output another build/run relies on must be untouched.
+    assert.ok(fs.existsSync(path.join(sibling, 'main.js')), 'a sibling output dir must survive a narrow clean');
+    assert.strictEqual(fs.readFileSync(path.join(sibling, 'main.js'), 'utf8'), 'SIBLING_BUNDLE');
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+it('serve-example.cjs calls cleanStageDirs on the selected outDir BEFORE stageExample (rf2-rg2tze)', () => {
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'examples', 'scripts', 'serve-example.cjs'),
+    'utf8',
+  );
+  assert.ok(
+    /cleanStageDirs\s*\(\s*\[\s*entry\.outDir\s*\]\s*,\s*OUT_ROOT\s*\)/.test(src),
+    'serve-example must clean the selected entry.outDir under OUT_ROOT (clean-stage boundary)',
+  );
+  const cleanAt = src.indexOf('cleanStageDirs([entry.outDir], OUT_ROOT)');
+  const stageAt = src.indexOf('stageExample(entry)');
+  assert.ok(cleanAt !== -1 && stageAt !== -1, 'both the clean call and the stage call must be present');
+  assert.ok(cleanAt < stageAt, 'the clean must precede the stage so no stale file survives into the served dir');
 });
 
 // A no-op io for the guard-refusal tests: they must throw BEFORE any fs call,
