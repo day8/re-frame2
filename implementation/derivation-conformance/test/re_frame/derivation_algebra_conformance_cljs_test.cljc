@@ -508,26 +508,30 @@
   (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "welcome"}])
   (let [g     (graph/live-derivation-graph :rf/default all-contributors)
         slice (get (:nodes g) :rf/route)]
-    ;; The route transition commits the slice synchronously under the
-    ;; plain-atom JVM substrate (the JVM gate always exercises this realized
-    ;; arm). Some substrates settle the transition across more than one
-    ;; drain, so assert the realized facts only WHEN the slice has
-    ;; materialized — never as an absence-is-failure (the law is "the live
-    ;; graph reports the realized slice", proven where the slice committed).
-    (when (some? slice)
-      (testing "the live route slice node is realized, keyed by :rf/route"
-        (is (= :route/article (:route-id slice)) "the live matched route id")
-        (is (= {:slug "welcome"} (:params slice)) "the live realized params")
-        ;; the live route fact carries the SAME fixed classifications as its
-        ;; static node — the live view does NOT re-classify.
-        (is (= :runtime-db (:storage slice)))
-        (is (= :on-route   (:evaluation slice)))
-        (is (= :frame      (:lifecycle slice)))
-        ;; the live OWNER is [:route route-id nav-token] when a nav-token has
-        ;; been allocated (Derivations §Lifecycle and owner).
-        (when-let [owner (:owner slice)]
-          (is (= [:route :route/article (:nav-token slice)] owner)
-              "the live route OWNER is [:route route-id nav-token]"))))))
+    ;; The route transition commits the slice SYNCHRONOUSLY under the
+    ;; plain-atom substrate this suite installs on BOTH the JVM gate AND the
+    ;; node CLJS gate (the suite's own fixture pins `plain-atom/adapter` and
+    ;; drives `dispatch-sync`). So the realized slice is a FAILING
+    ;; PRECONDITION (rf2-djofbh): if the live graph stops materializing the
+    ;; route node after the navigation commits, this test MUST fail — never
+    ;; silently pass by guarding the assertions behind the slice's presence.
+    ;; The earlier `(when (some? slice) …)` masked exactly that regression.
+    (testing "the navigation materialized the live route slice (failing precondition)"
+      (is (some? slice)
+          "the navigation MUST materialize the :rf/route live node — its absence is a failure, not a skip"))
+    (testing "the live route slice node is realized, keyed by :rf/route"
+      (is (= :route/article (:route-id slice)) "the live matched route id")
+      (is (= {:slug "welcome"} (:params slice)) "the live realized params")
+      ;; the live route fact carries the SAME fixed classifications as its
+      ;; static node — the live view does NOT re-classify.
+      (is (= :runtime-db (:storage slice)))
+      (is (= :on-route   (:evaluation slice)))
+      (is (= :frame      (:lifecycle slice)))
+      ;; the live OWNER is [:route route-id nav-token] when a nav-token has
+      ;; been allocated (Derivations §Lifecycle and owner).
+      (when-let [owner (:owner slice)]
+        (is (= [:route :route/article (:nav-token slice)] owner)
+            "the live route OWNER is [:route route-id nav-token]")))))
 
 ;; ---------------------------------------------------------------------------
 ;; (c+) The live graph's NON-route realized composition (rf2-k0meap.3 point-1).
@@ -705,7 +709,21 @@
       ;; the flow's :derive IS sum-cart; the subscription's wraps it — both
       ;; yield the identical whole value over the identical inputs.
       (is (= ((:derive flow) cart-items) (sum-cart cart-items))
-          "the flow's whole-value fn equals the shared sum-cart"))))
+          "the flow's whole-value fn equals the shared sum-cart"))
+    ;; rf2-djofbh — the whole-value law on the EPHEMERAL subscription PATH,
+    ;; not just the flow's `:derive` token. The namespace doc claims the suite
+    ;; proves "an EPHEMERAL derivation's read value equals the whole-value
+    ;; recompute"; the prior arms only evaluated the flow's `(:derive flow)`
+    ;; token and never READ the subscription. Seed :cart/items, then read the
+    ;; ephemeral `:cart/total` subscription through the real reactive path and
+    ;; assert its value equals `(sum-cart cart-items)` — the whole-value
+    ;; recompute over the same inputs (Derivations §The whole-value law,
+    ;; applied to the ephemeral output exactly as `d-materialized-flow-…`
+    ;; applies it to the materialized output).
+    (testing "the EPHEMERAL subscription's read value equals the whole-value recompute"
+      (rf/dispatch-sync [::seed-cart cart-items])
+      (is (= (sum-cart cart-items) @(rf/subscribe [:cart/total]))
+          "reading @(rf/subscribe [:cart/total]) after seeding equals (sum-cart cart-items) — the ephemeral whole-value law"))))
 
 (deftest d-delta-law-is-semantic-only-no-delta-support-still-conforms
   ;; Derivations §The optional delta law: slice-1 ships NO executable delta
@@ -748,27 +766,35 @@
   (rf/dispatch-sync [:upload/main [:upload/start]] {:frame :checkout/frame})
   (let [g-before (graph/live-derivation-graph :checkout/frame all-contributors)
         nodes    (:nodes g-before)]
-    ;; The arm is meaningful only WHEN the frame-owned facts materialized
-    ;; (the same materialized-only discipline the (c) live arm uses — a
-    ;; substrate that settles a transition across more than one drain is not
-    ;; a conformance failure). Where they did, the release MUST vacate them.
-    (when (and (contains? nodes :rf/route)
-               (contains? nodes [:machine :upload/main]))
-      (testing "the route slice (a :frame-lifecycle node) is owned by the frame"
-        (let [slice (get nodes :rf/route)]
-          (is (= :frame (:lifecycle slice)))
-          (is (= [:route :route/article (:nav-token slice)] (:owner slice)))))
-      (frame/destroy-frame! :checkout/frame)
-      (let [g-after (graph/live-derivation-graph :checkout/frame all-contributors)]
-        (testing "destroy-frame! releases EVERY frame-owned graph node"
-          (is (= :live (:mode g-after)) "the live graph shape survives a destroyed frame")
-          (is (= {} (:nodes g-after))
-              "no node survives the frame teardown — the route slice + machine snapshot are gone")
-          (is (= [] (:edges g-after)) "and no edge survives")
-          (is (nil? (get (:nodes g-after) :rf/route))
-              "the route owner is released (its frame is gone)")
-          (is (nil? (get (:nodes g-after) [:machine :upload/main]))
-              "the machine snapshot node is released (its frame is gone)"))))))
+    ;; The frame-owned facts commit SYNCHRONOUSLY under the plain-atom
+    ;; substrate this suite installs (the route navigation + the machine
+    ;; start both settle in their `dispatch-sync`), so their PRESENCE before
+    ;; teardown is a FAILING PRECONDITION (rf2-djofbh): if the live graph
+    ;; stops materializing the route / machine nodes after the setup
+    ;; dispatches, this test MUST fail rather than vacuously pass by guarding
+    ;; the release assertions behind the nodes' presence. The earlier
+    ;; `(when (and (contains? nodes :rf/route) (contains? nodes [:machine …])) …)`
+    ;; masked exactly that — a setup regression would skip the whole arm.
+    (testing "the setup dispatches materialized BOTH frame-owned nodes (failing precondition)"
+      (is (contains? nodes :rf/route)
+          "the navigation MUST materialize the :rf/route live node — absence is a failure, not a skip")
+      (is (contains? nodes [:machine :upload/main])
+          "the machine start MUST materialize the [:machine :upload/main] live snapshot node"))
+    (testing "the route slice (a :frame-lifecycle node) is owned by the frame"
+      (let [slice (get nodes :rf/route)]
+        (is (= :frame (:lifecycle slice)))
+        (is (= [:route :route/article (:nav-token slice)] (:owner slice)))))
+    (frame/destroy-frame! :checkout/frame)
+    (let [g-after (graph/live-derivation-graph :checkout/frame all-contributors)]
+      (testing "destroy-frame! releases EVERY frame-owned graph node"
+        (is (= :live (:mode g-after)) "the live graph shape survives a destroyed frame")
+        (is (= {} (:nodes g-after))
+            "no node survives the frame teardown — the route slice + machine snapshot are gone")
+        (is (= [] (:edges g-after)) "and no edge survives")
+        (is (nil? (get (:nodes g-after) :rf/route))
+            "the route owner is released (its frame is gone)")
+        (is (nil? (get (:nodes g-after) [:machine :upload/main]))
+            "the machine snapshot node is released (its frame is gone)")))))
 
 (deftest e-route-exit-supersession-releases-the-prior-route-owner
   ;; §Conformance Lifecycle, clause 3 ("route exit releases route owners") +
@@ -783,27 +809,37 @@
   (rf/dispatch-sync [:rf.route/navigate :route/article {:slug "welcome"}])
   (let [g-a   (graph/live-derivation-graph :rf/default all-contributors)
         slice (get (:nodes g-a) :rf/route)]
-    ;; Materialized-only discipline (mirrors the (c) live arm).
-    (when (some? slice)
-      (let [owner-a     (:owner slice)
-            nav-token-a (:nav-token slice)]
-        (testing "before supersession the live owner is route A under nav-token-A"
-          (is (= :route/article (:route-id slice)))
-          (is (= [:route :route/article nav-token-a] owner-a)))
-        ;; Supersede: a second navigation commits a new slice.
-        (rf/dispatch-sync [:rf.route/navigate :route/about {}])
-        (let [g-b      (graph/live-derivation-graph :rf/default all-contributors)
-              slice-b  (get (:nodes g-b) :rf/route)]
-          (when (some? slice-b)
-            (testing "the superseding navigation releases the prior route owner"
-              (is (= :route/about (:route-id slice-b))
-                  "the live slice now reports route B (the prior route fact is exited)")
-              (is (not= owner-a (:owner slice-b))
-                  "the route-A owner identity is no longer the live owner — released by supersession")
-              (is (not= nav-token-a (:nav-token slice-b))
-                  "a fresh nav-token owns the new route — the prior token's lease is gone")
-              (is (= [:route :route/about (:nav-token slice-b)] (:owner slice-b))
-                  "the live owner is now [:route route-B fresh-nav-token]"))))))))
+    ;; The route-A slice commits SYNCHRONOUSLY under the plain-atom substrate
+    ;; this suite installs, so its presence is a FAILING PRECONDITION
+    ;; (rf2-djofbh): the supersession arm must not vacuously pass by guarding
+    ;; the pre/post checks behind the slices' presence. The earlier
+    ;; `(when (some? slice) …)` / `(when (some? slice-b) …)` masked a setup
+    ;; regression — a route node that stopped materializing would skip the
+    ;; whole supersession-release law.
+    (testing "the first navigation materialized the route-A slice (failing precondition)"
+      (is (some? slice)
+          "navigating to route A MUST materialize the :rf/route live node — absence is a failure, not a skip"))
+    (let [owner-a     (:owner slice)
+          nav-token-a (:nav-token slice)]
+      (testing "before supersession the live owner is route A under nav-token-A"
+        (is (= :route/article (:route-id slice)))
+        (is (= [:route :route/article nav-token-a] owner-a)))
+      ;; Supersede: a second navigation commits a new slice.
+      (rf/dispatch-sync [:rf.route/navigate :route/about {}])
+      (let [g-b      (graph/live-derivation-graph :rf/default all-contributors)
+            slice-b  (get (:nodes g-b) :rf/route)]
+        (testing "the superseding navigation materialized the route-B slice (failing precondition)"
+          (is (some? slice-b)
+              "navigating to route B MUST materialize the superseding :rf/route live node — absence is a failure"))
+        (testing "the superseding navigation releases the prior route owner"
+          (is (= :route/about (:route-id slice-b))
+              "the live slice now reports route B (the prior route fact is exited)")
+          (is (not= owner-a (:owner slice-b))
+              "the route-A owner identity is no longer the live owner — released by supersession")
+          (is (not= nav-token-a (:nav-token slice-b))
+              "a fresh nav-token owns the new route — the prior token's lease is gone")
+          (is (= [:route :route/about (:nav-token slice-b)] (:owner slice-b))
+              "the live owner is now [:route route-B fresh-nav-token]"))))))
 
 (deftest e-machine-destroy-releases-the-machine-owned-snapshot-node
   ;; §Conformance Lifecycle, clause 4 ("machine destroy releases

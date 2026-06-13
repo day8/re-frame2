@@ -104,7 +104,17 @@
             ;; in the host-agnostic corpus. Mirror of the CLJS runner.
             [re-frame.derivation.graph :as dgraph]
             [re-frame.subs.tooling :as subs-tooling]
-            [re-frame.machines.tooling :as machines-tooling]))
+            [re-frame.machines.tooling :as machines-tooling]
+            ;; rf2-djofbh — the FULL contributor set so the corpus's
+            ;; `:derivation-graph` op composes the whole EP-0014 surface
+            ;; (flows / resources / routes), not just subs+machines. A
+            ;; family whose fixture registers nothing simply contributes no
+            ;; nodes (the composer's present-family-only discipline), so the
+            ;; subs+machines subset fixture is unaffected while the
+            ;; algebra-full fixture exercises every family.
+            [re-frame.flows.tooling :as flows-tooling]
+            [re-frame.resources.tooling :as resources-tooling]
+            [re-frame.routing.tooling :as routing-tooling]))
 
 ;; ---- claimed capability set -----------------------------------------------
 
@@ -201,7 +211,16 @@
     ;; EP-0014 (rf2-k0meap.3) — the cross-family derivation/process graph
     ;; (lowering / classification / edge roles / parametric markers /
     ;; :machine-selector refinement) via the `:derivation-graph` call op.
-    :derivation/algebra-graph})
+    ;; The BROAD claim: this reference build proves flows / resources /
+    ;; routes / route-owned activation / live mode / authority split
+    ;; (derivation-graph-algebra-full.edn).
+    :derivation/algebra-graph
+    ;; rf2-djofbh — the NARROW subs+machines subset claim. The subset fixture
+    ;; (derivation-graph-algebra.edn) proves only the subscription
+    ;; :derivation + machine :process members over the static graph; a host
+    ;; whose graph spans only those two families claims this and allowlists
+    ;; the broad capability as a known-skip.
+    :derivation/algebra-graph-subs-machines})
 
 ;; ---- claimed fixture spec version(s) -------------------------------------
 ;;
@@ -940,6 +959,32 @@
                              (get-in fixture [:fixture/registry :route]))]
     (rf/reg-route id meta)))
 
+(defn- register-resources!
+  "rf2-djofbh — register a fixture's `:fixture/registry :resource` entries
+  (Spec 016 §Resource registration). A resource spec needs a `:request` fn
+  (the managed-HTTP args builder), which EDN cannot carry; the corpus only
+  asserts the registration-derived STATIC graph (the `:request` rides the
+  static node as the OPAQUE `:derive` token, never run by static inspection
+  — Derivations §The don't-execute rule), so the runner synthesizes a
+  deterministic `:request` stub from the declared `:url-template` (or a
+  conventional `/api/<resource-id>` path). The fixture's data-only spec
+  carries the load-bearing `:scope` (fail-closed) + `:params-schema`; the
+  runner supplies the executable `:request`. Mirror of the CLJS runner."
+  [fixture]
+  (let [reg-resource (requiring-resolve 're-frame.resources/reg-resource)]
+    (doseq [[resource-id spec] (sort-by (comp str key)
+                                        (get-in fixture [:fixture/registry :resource]))]
+      (let [url-template (:url-template spec)
+            request-fn   (fn [params _ctx]
+                           {:request {:method :get
+                                      :url    (if url-template
+                                                (str url-template params)
+                                                (str "/api/" (name resource-id)))}})]
+        (reg-resource resource-id
+                      (-> spec
+                          (dissoc :url-template)
+                          (assoc :request request-fn)))))))
+
 (defn- realise-machine-handlers
   "Build {action-id → fn} and {guard-id → fn} from a fixture's
   :fixture/handlers :machine-action / :machine-guard buckets.
@@ -1320,24 +1365,39 @@
                          "\n    expected: " (pr-str (:expect call))
                          "\n    actual:   " (pr-str result)))}))
 
-    ;; EP-0014 (rf2-k0meap.3) — `:derivation-graph`. Compose the cross-family
-    ;; derivation/process graph over the loaded contributors (subs + machines)
-    ;; and assert NORMALIZED node + edge shapes: each `:expect-node` is a
-    ;; SUBMAP matched against the composed node at `:id` (lowering +
+    ;; EP-0014 (rf2-k0meap.3; rf2-djofbh) — `:derivation-graph`. Compose the
+    ;; cross-family derivation/process graph over the FULL contributor set
+    ;; (subs + flows + resources + routes + machines — rf2-djofbh: no longer
+    ;; hard-coded to subs+machines, which let the broad
+    ;; `:derivation/algebra-graph` claim overclaim the EP-0014 surface) and
+    ;; assert NORMALIZED node + edge shapes: each `:expect-node` is a SUBMAP
+    ;; matched against the composed node at `:id` (lowering +
     ;; storage/evaluation/lifecycle classification + `:refinement`); each
     ;; `:expect-edge` must be PRESENT and each `:expect-absent-edge` ABSENT.
-    ;; `:mode :static` (default) or `:live` (with `:frame`). Mirror of the
-    ;; CLJS runner.
+    ;; A family whose fixture registers nothing contributes no nodes (the
+    ;; composer's present-family-only discipline), so the subs+machines
+    ;; subset fixture is unaffected. `:mode :static` (default) or `:live`
+    ;; (defaulting the frame to `:rf/default`, the corpus single-frame scope,
+    ;; when the call omits `:frame`). Mirror of the CLJS runner.
     :derivation-graph
-    (let [contributors  {:subs     {:static-fn  subs-tooling/sub-algebra-view
-                                    :live-fn    subs-tooling/sub-cache-algebra-view
-                                    :live-shape :map}
-                         :machines {:static-fn        machines-tooling/machine-algebra-view
-                                    :live-fn          machines-tooling/machine-instance-algebra-view
-                                    :live-shape       :map
-                                    :selector-targets machines-tooling/machine-selector-targets}}
+    (let [contributors  {:subs      {:static-fn  subs-tooling/sub-algebra-view
+                                     :live-fn    subs-tooling/sub-cache-algebra-view
+                                     :live-shape :map}
+                         :flows     {:static-fn  flows-tooling/flow-algebra-view
+                                     :live-fn    flows-tooling/flow-algebra-view
+                                     :live-shape :map}
+                         :resources {:static-fn  resources-tooling/resource-algebra-view
+                                     :live-fn    resources-tooling/resource-cache-algebra-view
+                                     :live-shape :map}
+                         :routes    {:static-fn  routing-tooling/route-algebra-view
+                                     :live-fn    routing-tooling/route-slice-algebra-view
+                                     :live-shape :node}
+                         :machines  {:static-fn        machines-tooling/machine-algebra-view
+                                     :live-fn          machines-tooling/machine-instance-algebra-view
+                                     :live-shape       :map
+                                     :selector-targets machines-tooling/machine-selector-targets}}
           graph         (if (= :live (:mode call))
-                          (dgraph/live-derivation-graph (:frame call) contributors)
+                          (dgraph/live-derivation-graph (:frame call :rf/default) contributors)
                           (dgraph/derivation-graph contributors))
           nodes         (:nodes graph)
           edges         (set (:edges graph))
@@ -1386,6 +1446,9 @@
           err-records  (collect-error-emit-records! fid)
           _            (realise-handlers fixture)
           _            (register-routes! fixture)
+          ;; rf2-djofbh — resources register before reg-frame / dispatches so
+          ;; the route-owned activation static graph + any live fetch see them.
+          _            (register-resources! fixture)
           frame-config (or (:fixture/frame-config fixture) {})
           frames-spec  (:fixture/frames fixture)
           ;; EP-0002 (rf2-9o48ih) — the carried-invariant: registration-
