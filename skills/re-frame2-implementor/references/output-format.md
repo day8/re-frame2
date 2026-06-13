@@ -33,6 +33,7 @@ Produced at the end of the Phase 1 walkthrough. The decision record is committed
   - Q7 AI-Audit: <yes / no>
   - Q8 Flows: <yes / no>
   - Q9 managed HTTP: <yes / no>
+  - Q10 Resources: <yes / no — post-v1; presupposes Q9>
 - **Identity primitive:** <F1 mechanism>
 - **Persistent data structures:** <F2 library>
 - **Concurrency model:** <F5>
@@ -129,6 +130,7 @@ The port follows `spec/` at corpus commit <corpus-commit-hash> in https://github
 - **Cite commits and corpus hashes.** Both shift; pinning them is what makes the report reproducible.
 - **Don't bury spec gaps in narrative.** Every GitHub issue filed against `day8/re-frame2` during the work goes in the bullet list — not in prose. The issue number is the contract surface.
 - **Run the per-EP slice; leave the full gate to the engineer.** When the agent wrote an EP's code and has local tool access, it runs the smallest relevant slice from the port's own scripts before calling the EP landed, and records the exact command + result (or a clear not-run reason) — see the EP wrap-up's "Slice gate run" line. It does NOT run the full conformance harness or any release-sized suite unbidden; that stays engineer-owned, and the agent reports/diagnoses those scores only when the engineer ran (or asked it to run) the full pass. Per the skill design (L3): generic build mechanics are not the skill's job, but the skill-specific per-EP acceptance slice is.
+  - **"Local tool access" = the engineer's session granted the port's test/`git` commands, NOT the skill's baseline allow-list.** This skill's frontmatter allow-lists only the two surfaces it runs *itself everywhere*: GitHub-issue filing (`gh issue *`, cardinal rules 8–9) and the read-only spec-pin provenance check (`git -C <path-to-re-frame2> rev-parse` / `remote get-url`, cardinal rule 1). The port's own build/test runner and the commits of `DECISIONS.md` / per-EP code (cardinal rule 2; [`decision-record.md`](decision-record.md) §How to use; [`phase-1-decisions.md` §After Phase 1](phase-1-decisions.md)) are **engineer-owned** — they vary per host (Vite / shadow-cljs / sbt / dune …) so the skill cannot allow-list them, and they run under the engineer's session permissions. The agent proposes the exact command; the engineer's session executes it. If a slice command isn't runnable in the current permission context, record the not-run reason rather than assuming access.
 
 ## What the reports are for
 

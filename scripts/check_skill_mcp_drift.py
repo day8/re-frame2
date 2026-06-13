@@ -484,20 +484,31 @@ def _parse_allowed_tools(frontmatter: str, host_prefix: str) -> set[str]:
 class BashRule:
     """One cross-check for the Bash axis.
 
-    `skill_md`            — SKILL.md to inspect.
-    `body_pattern`        — regex matched against the body (post-frontmatter).
-                            If it fires anywhere, the allow-list must satisfy
-                            `required_allow`.
+    `skill_md`            — SKILL.md whose `allowed-tools:` frontmatter
+                            supplies the allow-list the rule checks.
+    `body_pattern`        — regex matched against the body (post-frontmatter)
+                            of the scan target (`body_md` if set, else
+                            `skill_md`). If it fires anywhere, the allow-list
+                            on `skill_md` must satisfy `required_allow`.
     `required_allow`      — required allow-list entry shape; `*` is a
                             wildcard. The check passes if any actual
-                            `Bash(...)` entry matches.
+                            `Bash(...)` entry on `skill_md` matches.
     `description`         — human-readable description of what the rule
                             catches, printed in the drift message.
+    `body_md`             — optional separate doc to scan for `body_pattern`.
+                            Defaults to `skill_md`. Use when a skill states
+                            the gated command in a reference leaf rather than
+                            in SKILL.md itself (e.g. re-frame2-implementor's
+                            spec-pin `git -C` provenance check lives in
+                            references/cardinal-rules.md, while the allow-list
+                            it requires lives in SKILL.md's frontmatter). The
+                            allow-list is ALWAYS read from `skill_md`.
     """
     skill_md: Path
     body_pattern: re.Pattern[str]
     required_allow: str
     description: str
+    body_md: Path | None = None
 
 
 def _allow_pattern(required: str) -> re.Pattern[str]:
@@ -543,6 +554,54 @@ BASH_RULES: list[BashRule] = [
         body_pattern=re.compile(r"\bgit\s+-C\b[^\n`]*\bremote\s+get-url\b", re.IGNORECASE),
         required_allow="git -C * remote get-url *",
         description="re-frame-migration body runs the corpus-pin `git -C … remote get-url` provenance check; allow-list must permit Bash(git -C * remote get-url *)",
+    ),
+    # rf2-fvvzxi: re-frame2-implementor cardinal rules 8–9 instruct the agent
+    # to file GitHub issues against day8/re-frame2 for spec gaps; SKILL.md
+    # body spells out `gh issue create` (and `gh issue list` for the
+    # search-before-filing dedupe), so the allow-list must permit the issue
+    # surface — the same shape as the migration rule above. The body pattern
+    # lives in SKILL.md itself here, so no `body_md` redirect is needed.
+    BashRule(
+        skill_md=REPO_ROOT / "skills" / "re-frame2-implementor" / "SKILL.md",
+        body_pattern=re.compile(
+            r"\bgh\s+issue\s+(?:create|list)\b|\bfile\s+(?:a\s+)?github\s+issue\b",
+            re.IGNORECASE,
+        ),
+        required_allow="gh issue *",
+        description="re-frame2-implementor body instructs the agent to file/search GitHub issues; allow-list must permit Bash(gh issue *)",
+    ),
+    # rf2-fvvzxi: re-frame2-implementor cardinal rule 1 (Phase 1 spec-pin
+    # preamble) instructs the agent to verify the pinned `day8/re-frame2`
+    # checkout with `git -C <path-to-re-frame2> rev-parse HEAD` /
+    # `remote get-url origin` BEFORE reading the spec — a load-bearing,
+    # read-only provenance step the skill runs ITSELF (the same shape the
+    # migration rules above guard). Unlike migration, the implementor states
+    # the commands in references/cardinal-rules.md (§1) rather than SKILL.md,
+    # so `body_md` points the body scan at that leaf while the allow-list is
+    # still read from SKILL.md's frontmatter. Scoped narrowly to the two
+    # read-only sub-surfaces; commits + the port's own build/test runner stay
+    # engineer-owned (per references/output-format.md §Discipline — they vary
+    # per host and run under the engineer's session permissions, not the
+    # skill's baseline allow-list).
+    # `rev-parse` is spelled literally in cardinal-rules.md §1; `remote
+    # get-url` is spelled literally in the phase-1-decisions.md §Spec-pin
+    # preamble (cardinal-rules.md §1 describes the origin check in prose but
+    # only spells the `rev-parse` command). Each rule's `body_md` points at
+    # the leaf that carries its literal command; both require the same
+    # SKILL.md frontmatter allow-list.
+    BashRule(
+        skill_md=REPO_ROOT / "skills" / "re-frame2-implementor" / "SKILL.md",
+        body_md=REPO_ROOT / "skills" / "re-frame2-implementor" / "references" / "cardinal-rules.md",
+        body_pattern=re.compile(r"\bgit\s+-C\b[^\n`]*\brev-parse\b", re.IGNORECASE),
+        required_allow="git -C * rev-parse *",
+        description="re-frame2-implementor cardinal-rules.md runs the spec-pin `git -C … rev-parse` provenance check; SKILL.md allow-list must permit Bash(git -C * rev-parse *)",
+    ),
+    BashRule(
+        skill_md=REPO_ROOT / "skills" / "re-frame2-implementor" / "SKILL.md",
+        body_md=REPO_ROOT / "skills" / "re-frame2-implementor" / "references" / "phase-1-decisions.md",
+        body_pattern=re.compile(r"\bgit\s+-C\b[^\n`]*\bremote\s+get-url\b", re.IGNORECASE),
+        required_allow="git -C * remote get-url *",
+        description="re-frame2-implementor phase-1-decisions.md runs the spec-pin `git -C … remote get-url` provenance check; SKILL.md allow-list must permit Bash(git -C * remote get-url *)",
     ),
 ]
 
@@ -921,7 +980,16 @@ def check_bash_rules(rules: Iterable[BashRule]) -> tuple[list[Drift], list[str]]
                 f"bash-rule: skill md '{rule.skill_md}' missing -- skipping."
             )
             continue
-        text = rule.skill_md.read_text(encoding="utf-8")
+        # Scan `body_md` (a reference leaf) for the gated command when set;
+        # otherwise scan SKILL.md's own body. The allow-list is always read
+        # from `skill_md`'s frontmatter (below) regardless of scan target.
+        scan_md = rule.body_md or rule.skill_md
+        if not scan_md.exists():
+            info.append(
+                f"bash-rule: scan md '{scan_md}' missing -- skipping."
+            )
+            continue
+        text = scan_md.read_text(encoding="utf-8")
         body = _read_body(text)
         if not rule.body_pattern.search(body):
             continue  # Body doesn't reference the gated command; no rule fires.

@@ -51,6 +51,7 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 | **Q7 — AI-Audit grading** | <yes / no> | |
 | **Q8 — Flows (013)** | <yes / no> | gates the `:flow/*` conformance family |
 | **Q9 — Managed HTTP (014)** | <yes / no> | gates the `:rf.http/managed` conformance family |
+| **Q10 — Resources (016)** | <yes / no> | post-v1; **presupposes Q9** (resource/mutation `:request` lowers onto `:rf.http/managed`). Gates the `:rf.resource/*` / `:rf.mutation/*` family — **corpus-behind** (spec-mandated but no fixtures yet; verify against `spec/016-Resources.md` + own unit tests). usually no for v1 |
 
 ## D4. Always-required realisation decisions
 
@@ -190,6 +191,8 @@ The set of capability tags this port claims:
 
 ```
 :core/*           (always)
+:identity/*       (always — v1-required: EP-0012 :rf/path algebra + CEDN-1 identity, cardinal rule 11)
+:data-classification/*  (always — v1-required: Spec 015 egress/redaction, D5b; enumerate sub-tags from fixtures)
 :fsm/flat         <yes / no>
 :fsm/hierarchical <yes / no>
 :fsm/eventless-always <yes / no>
@@ -210,9 +213,13 @@ The set of capability tags this port claims:
 :routing/*        <yes / no>
 :ssr/*            <yes / no>
 :schemas/*        <yes / no — pick yes if D5 ≠ no, regardless of mechanism; a static yes-via-host-types host puts the runtime-trace sub-tags (:schemas/runtime, :schemas/event-payload) on known-skipped-capabilities — the :fixture/dynamic-host-only? fixtures can't produce a runtime trace. See conformance.md §Static hosts and dynamic-host-only fixtures>
+:rf.resource/*    <yes / no — yes if D3 Q10 = yes (presupposes Q9). CORPUS-BEHIND: spec-mandated but no fixtures yet; verify against spec/016-Resources.md + own unit tests, claim when fixtures land>
+:rf.mutation/*    <yes / no — yes if D3 Q10 = yes; the named-causal-write half of Resources>
+:derivation/algebra-graph                <yes / no — yes if D3 Q6 = yes AND you ship the full subs/flows/resources/routes/machines graph>
+:derivation/algebra-graph-subs-machines  <yes / no — the subs+machines static subset; a graph host spanning only those claims this and known-skips the broad :derivation/algebra-graph>
 ```
 
-> **The derivation/process algebra (EP-0014) has no own capability family.** [`spec/Derivations.md`](https://day8.github.io/re-frame2/spec/Derivations/) names the one view subs / flows / resources / routes / machines lower to (inputs / output / storage class / evaluation policy / lifecycle; superkinds `:derivation` / `:process`) — but it mints **no new authoring primitive** and **no public accessor**, so there is no `:derivation/*` tag to claim. Its behaviour is verified *through* the source-form families you already claim (`:core/*` subs, `:flow/*`, resources / `:routing/*` / `:fsm/*`). The **only** EP-0014-specific conformance is the optional graph-inspection check (gated by D3 Q6 / whether you build Tool-Pair): if you ship no inspection surface, record that as a `known-skipped-capabilities` reason rather than a claimed tag.
+> **The derivation/process algebra (EP-0014) mints no authoring capability — only an optional graph-inspection one.** [`spec/Derivations.md`](https://day8.github.io/re-frame2/spec/Derivations/) names the one view subs / flows / resources / routes / machines lower to (inputs / output / storage class / evaluation policy / lifecycle; superkinds `:derivation` / `:process`) — but it mints **no new authoring primitive** and **no public accessor**, so there is no `:derivation/*` tag for the *algebra behaviour* itself. That behaviour is verified *through* the source-form families you already claim (`:core/*` subs, `:flow/*`, resources / `:routing/*` / `:fsm/*`). The **one** EP-0014-specific conformance surface is the optional **graph-inspection** check, and it DOES carry concrete fixture tags — the split pair `:derivation/algebra-graph` (broad) + `:derivation/algebra-graph-subs-machines` (subs+machines subset) listed above. Claim them only if D3 Q6 = yes (you ship Tool-Pair inspection); if you ship no inspection surface, record a `known-skipped-capabilities` reason rather than a claimed tag. A graph host spanning only subs+machines claims the subset and known-skips the broad one (so a host cannot overclaim the EP-0014 graph surface).
 
 The capability families above track the **conformance corpus** (the `spec/conformance/fixtures/*` files, which are the acceptance test). Both the Implementor-Checklist's family list and the conformance README's prose enumeration usually lag the fixtures (they omit `:flow/*` and its sub-tags, `:rf.http/managed`, `:fsm/final-states`, `:fsm/history`, `:fsm/registration-validation`); when a prose list and the fixtures diverge **for scoring** — what actually runs — the fixtures win. **But the divergence can go the other way for the *vocabulary*:** `:actor/*` is corpus-behind — `spec/conformance/README.md` + Spec 005 declare six actor tags, the fixtures back only four (`:actor/own-state` and `:actor/cross-actor-fx` are spec-mandated but fixture-less today). So `grep`-the-fixtures *under-claims* the actor axis; enumerate `:actor/*` from the README + Spec 005, and a fixture-less spec capability goes on `known-skipped-capabilities` only if you don't implement it. Enumerate the rest of the claimable vocabulary from `spec/conformance/fixtures/*` at the pinned commit (`grep -rho ':fsm/[a-z-]*' spec/conformance/fixtures/ | sort -u`, same for `:flow/`), cross-checked against the README capability table.
 

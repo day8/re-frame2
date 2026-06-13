@@ -16,6 +16,8 @@ description: >
   `re-frame2-pair`).
 allowed-tools:
   - Bash(gh issue *)
+  - Bash(git -C * rev-parse *)
+  - Bash(git -C * remote get-url *)
   - Read
   - Edit
   - Write

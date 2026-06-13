@@ -42,7 +42,7 @@ Steps:
 
 Two common amendments the engineer may add:
 
-**"Minimum viable port."** Append: *"Declare Q1 (state machines) = no, Q2 (routing) = no, Q3 (SSR) = no, Q4 = via-host-types, Q5 (stories) = no, Q6 (Tool-Pair) = no, Q7 (AI-Audit) = no, Q8 (Flows) = no, Q9 (managed HTTP) = no. I'm shipping the core only — events / subs / fx / views. Re-evaluate the optional capabilities after the `:core/*` corpus passes."*
+**"Minimum viable port."** Append: *"Declare Q1 (state machines) = no, Q2 (routing) = no, Q3 (SSR) = no, Q4 = via-host-types, Q5 (stories) = no, Q6 (Tool-Pair) = no, Q7 (AI-Audit) = no, Q8 (Flows) = no, Q9 (managed HTTP) = no, Q10 (Resources) = no. I'm shipping the core only — events / subs / fx / views. Re-evaluate the optional capabilities after the `:core/*` corpus passes."*
 
 **"Reference impl tour first."** Append: *"Before Phase 1, walk me through `references/reference-impl-tour.md`. I want to see how the CLJS reference is organised before locking my own decisions — but treat the tour as descriptive, not normative."*
 

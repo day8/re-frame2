@@ -384,7 +384,7 @@ Per the EP-0001 normative text (flows-over-runtime-db inputs) and [`spec/013-Flo
 
 **Request decoration reuses the managed-HTTP seam.** Auth/tracing/base-URL/retry for resource reads and mutations is the existing `reg-http-interceptor` / `clear-http-interceptor` (EP 014), registered once per frame and applied to every `:rf.http/managed` request — NOT a new resources surface. Retry defaults stay read-focused (a mutation arms retry only when its own `:request` declares it).
 
-**Conformance.** Claims the `:rf.resource/*` / `:rf.mutation/*` family. A Q10=yes port that implements only part of the surface puts the unimplemented capability tags on `known-skipped-capabilities`.
+**Conformance.** Claims the `:rf.resource/*` / `:rf.mutation/*` family. **Corpus-behind caveat:** Resources is post-v1 / drafting, and the corpus ships **no** resource fixtures yet (`grep -rho ':rf.resource/' spec/conformance/fixtures/` returns nothing at corpus HEAD) — the same fixture-less-but-spec-mandated shape as `:actor/own-state`. So a Q10=yes port verifies the surface against `spec/016-Resources.md` + its own unit tests today, and adds the conformance claim once fixtures land; don't read the absent tags as "Resources isn't a real conformance family." A Q10=yes port that implements only part of the surface puts the unimplemented capability tags on `known-skipped-capabilities`.
 
 ### Runtime realms + app values (EP-0013 — the app-values/realms design)
 
