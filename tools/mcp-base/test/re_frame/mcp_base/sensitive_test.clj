@@ -29,11 +29,13 @@
   ;; serialisation bug has coerced the boolean into the wrong shape.
   ;; The previous fail-OPEN posture silently leaked sensitive events
   ;; on such drift. The fix is fail-CLOSED: drop AND log.
-  (binding [*err* (java.io.StringWriter.)] ; absorb the contract-drift warning
-    (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? "true"}))
-    (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? :yes}))
-    (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? 1}))
-    (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? ["any" "truthy"]}))))
+  ;; The expected contract-drift WARN is quieted by the central quiet
+  ;; runner's stderr buffer (rf2-nrk066) — no local `*err*` sink needed;
+  ;; it stays buffered on green and replays on red.
+  (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? "true"}))
+  (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? :yes}))
+  (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? 1}))
+  (is (sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? ["any" "truthy"]})))
 
 (deftest sensitive-event?-non-map-input-passes
   (is (not (sensitive/sensitive-event? nil)))
@@ -53,14 +55,15 @@
   ;; NOT silently leak the event. The fail-closed posture drops the
   ;; malformed-truthy event (with a stderr warning) so the contract
   ;; drift is visible to operators.
-  (binding [*err* (java.io.StringWriter.)] ; absorb the warning
-    (let [evts [{:id 1 :sensitive? false}
-                {:id 2 :sensitive? "true"} ; malformed-truthy → drop
-                {:id 3}
-                {:id 4 :sensitive? :yes}]  ; malformed-truthy → drop
-          [kept dropped] (sensitive/strip-sensitive evts false)]
-      (is (= [{:id 1 :sensitive? false} {:id 3}] kept))
-      (is (= 2 dropped)))))
+  ;; Expected WARN quieted by the central quiet-runner stderr buffer
+  ;; (rf2-nrk066) — no local `*err*` sink needed.
+  (let [evts [{:id 1 :sensitive? false}
+              {:id 2 :sensitive? "true"} ; malformed-truthy → drop
+              {:id 3}
+              {:id 4 :sensitive? :yes}]  ; malformed-truthy → drop
+        [kept dropped] (sensitive/strip-sensitive evts false)]
+    (is (= [{:id 1 :sensitive? false} {:id 3}] kept))
+    (is (= 2 dropped))))
 
 ;; ---------------------------------------------------------------------------
 ;; strip-sensitive — the default-suppress filter applied per batch.
@@ -424,10 +427,11 @@
   (sensitive/reset-malformed-count!)
   (is (zero? (sensitive/malformed-count))
       "precondition: counter starts at zero after reset")
-  (binding [*err* (java.io.StringWriter.)] ; absorb the warning
-    (sensitive/sensitive-event? {:sensitive? "true"})
-    (sensitive/sensitive-event? {:sensitive? :yes})
-    (sensitive/sensitive-event? {:sensitive? 1}))
+  ;; Expected WARNs quieted by the central quiet-runner stderr buffer
+  ;; (rf2-nrk066) — no local `*err*` sink needed.
+  (sensitive/sensitive-event? {:sensitive? "true"})
+  (sensitive/sensitive-event? {:sensitive? :yes})
+  (sensitive/sensitive-event? {:sensitive? 1})
   (is (= 3 (sensitive/malformed-count))
       "every fail-closed drop bumps the counter once")
   ;; Well-formed stamps don't bump the counter.
@@ -440,8 +444,9 @@
   (sensitive/reset-malformed-count!))
 
 (deftest reset-malformed-count!-zeroes-the-counter
-  (binding [*err* (java.io.StringWriter.)]
-    (sensitive/sensitive-event? {:sensitive? "true"}))
+  ;; Expected WARN quieted by the central quiet-runner stderr buffer
+  ;; (rf2-nrk066) — no local `*err*` sink needed.
+  (sensitive/sensitive-event? {:sensitive? "true"})
   (is (pos? (sensitive/malformed-count))
       "precondition: a fail-closed drop has bumped the counter")
   (is (zero? (sensitive/reset-malformed-count!))
@@ -492,18 +497,19 @@
   ;; so a single malformed event bumped the counter ~2×. The single-pass
   ;; classifier fixes this: each event is classified exactly once, so the
   ;; counter is a faithful per-event metric.
+  ;; Expected WARNs quieted by the central quiet-runner stderr buffer
+  ;; (rf2-nrk066) — no local `*err*` sink needed.
   (sensitive/reset-malformed-count!)
-  (binding [*err* (java.io.StringWriter.)] ; absorb the warnings
-    (let [evts          [{:id 1 :sensitive? false}
-                         {:id 2 :sensitive? "true"} ; malformed → drop, bump 1
-                         {:id 3}
-                         {:id 4 :sensitive? :yes}    ; malformed → drop, bump 1
-                         {:id 5 :sensitive? true}]   ; well-formed → drop, NO bump
-          [kept dropped] (sensitive/strip-sensitive evts false)]
-      (is (= [{:id 1 :sensitive? false} {:id 3}] kept))
-      (is (= 3 dropped) "all three sensitive events drop")
-      (is (= 2 (sensitive/malformed-count))
-          "exactly one bump per MALFORMED event — not ~2× per scan")))
+  (let [evts          [{:id 1 :sensitive? false}
+                       {:id 2 :sensitive? "true"} ; malformed → drop, bump 1
+                       {:id 3}
+                       {:id 4 :sensitive? :yes}    ; malformed → drop, bump 1
+                       {:id 5 :sensitive? true}]   ; well-formed → drop, NO bump
+        [kept dropped] (sensitive/strip-sensitive evts false)]
+    (is (= [{:id 1 :sensitive? false} {:id 3}] kept))
+    (is (= 3 dropped) "all three sensitive events drop")
+    (is (= 2 (sensitive/malformed-count))
+        "exactly one bump per MALFORMED event — not ~2× per scan"))
   (sensitive/reset-malformed-count!))
 
 (deftest strip-sensitive-malformed-warning-emitted-once-per-event
@@ -527,15 +533,16 @@
   ;; `strip-sensitive`, so the per-event count guarantee must hold
   ;; through the snapshot scrubber too — one malformed trace event in a
   ;; `:traces` slice bumps the counter exactly once.
+  ;; Expected WARNs quieted by the central quiet-runner stderr buffer
+  ;; (rf2-nrk066) — no local `*err*` sink needed.
   (sensitive/reset-malformed-count!)
-  (binding [*err* (java.io.StringWriter.)]
-    (let [snap {:rf/default {:traces [{:id 1 :sensitive? "true"}  ; malformed → 1 bump
-                                      {:id 2}]
-                             :epochs [{:event-id :auth :sensitive? :yes}]}} ; malformed → 1 bump
-          [_ dropped] (sensitive/scrub-snapshot snap false)]
-      (is (= 2 dropped))
-      (is (= 2 (sensitive/malformed-count))
-          "scrub-snapshot bumps the counter exactly once per malformed event")))
+  (let [snap {:rf/default {:traces [{:id 1 :sensitive? "true"}  ; malformed → 1 bump
+                                    {:id 2}]
+                           :epochs [{:event-id :auth :sensitive? :yes}]}} ; malformed → 1 bump
+        [_ dropped] (sensitive/scrub-snapshot snap false)]
+    (is (= 2 dropped))
+    (is (= 2 (sensitive/malformed-count))
+        "scrub-snapshot bumps the counter exactly once per malformed event"))
   (sensitive/reset-malformed-count!))
 
 (deftest strip-sensitive-no-drop-preserves-identity

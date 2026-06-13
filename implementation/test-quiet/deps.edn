@@ -3,13 +3,32 @@
 ;;
 ;; A tiny, test-only library that overrides `clojure.test/report` (JVM)
 ;; and `cljs.test/report` (CLJS) so a green run of any test alias in the
-;; repository emits only the 3-line summary:
+;; repository REPORTS only the 3-line summary:
 ;;
 ;;     Ran N tests containing M assertions.
 ;;     0 failures, 0 errors.
 ;;
+;; The cross-runtime quiet contract (rf2-nrk066) is pass-through stdout +
+;; central stderr buffering, SYMMETRIC across JVM / CLJS node / browser:
+;;
+;;   - STDOUT is PASS-THROUGH, not summary-only. The reporter makes the
+;;     reporter's OWN green output the canonical summary, but the runner
+;;     forwards every other stdout byte a test/fixture/CLI emits — `-H`
+;;     usage, parse-error diagnostics, and bare `(println …)` — so runner
+;;     misuse and failure-time diagnostics stay visible (rf2-lbo79.2).
+;;     Only cognitect's own `Running tests in #{…}` discovery banner is
+;;     dropped. A green run is therefore "summary + whatever a test chose
+;;     to print", which under the repo's no-stray-println discipline is
+;;     just the summary.
+;;   - STDERR/WARNINGS are BUFFERED, replayed on red, dropped on green —
+;;     the JVM runner (`re-frame.test-quiet.runner`) and the CLJS node
+;;     runner (`re-frame.test-quiet.shadow-node`) both ring-buffer stderr
+;;     noise and replay it only when the run is RED, so warning-heavy
+;;     suites stay quiet on green WITHOUT ad-hoc local `*err*` sinks.
+;;
 ;; Failures are unchanged — a failing namespace's banner + the failure
-;; lines + the failure stack reach stdout exactly as before.
+;; lines + the failure stack reach stdout exactly as before, and a red
+;; run additionally replays the buffered stderr context.
 ;;
 ;; Wired into every per-artefact `:test` alias by replacing
 ;; `:main-opts ["-m" "cognitect.test-runner"]` with

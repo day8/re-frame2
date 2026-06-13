@@ -2,8 +2,9 @@
   "Silent-on-success test reporter.
 
   Loading this namespace installs `defmethod` overrides on
-  `clojure.test/report` (JVM) and `cljs.test/report` (CLJS) so a green
-  test run emits exactly the canonical 3-line summary:
+  `clojure.test/report` (JVM) and `cljs.test/report` (CLJS) so the
+  REPORTER's own green-run output is exactly the canonical 3-line
+  summary:
 
       Ran N tests containing M assertions.
       0 failures, 0 errors.
@@ -11,6 +12,17 @@
   Per-namespace `Testing <ns>` banners are SUPPRESSED on the success
   path; per-`deftest` `Testing <var>` banners were already silent in
   both reporters by default and stay that way.
+
+  This reporter governs only the REPORTER's output.  The cross-runtime
+  quiet contract (rf2-nrk066) is completed by the runtime entry points
+  (`re-frame.test-quiet.runner` on the JVM,
+  `re-frame.test-quiet.shadow-node` on CLJS node): stdout is
+  PASS-THROUGH (a test's bare `(println …)` reaches stdout — only
+  cognitect's discovery banner is dropped), and stderr/warning noise is
+  BUFFERED and replayed only on RED.  So a green run shows the summary
+  plus whatever a test deliberately printed, and never the expected
+  warnings warning-heavy suites emit.  See those namespaces' docstrings
+  for the runtime side of the contract.
 
   On failure or error the suppressed banner for that namespace is
   flushed lazily (once per namespace), so a red run looks like:

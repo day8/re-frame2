@@ -12,6 +12,38 @@
   load time.  By the time cognitect-test-runner discovers tests and
   starts dispatching reports, the overrides are in place.
 
+  ## The cross-runtime quiet contract (rf2-nrk066)
+
+  re-frame2 runs the same silent-on-success policy on three runtimes —
+  JVM (this runner), CLJS node (`re-frame.test-quiet.shadow-node`), and
+  browser-test.  The contract is *documented pass-through stdout +
+  central stderr buffering*, and it is SYMMETRIC across runtimes:
+
+   - STDOUT is pass-through, NOT summary-only.  The reporter
+     (`re-frame.test-quiet`) makes a green run's stdout the canonical
+     summary, but the runner forwards every OTHER byte a test, fixture,
+     or the runner's own CLI emits — `-H`/`--test-help` usage,
+     CLI parse-error diagnostics, and any bare `(println ...)` a test
+     makes.  This is deliberate (rf2-lbo79.2): a blanket stdout sink
+     made runner misuse opaque and lost failure-time diagnostics.  Only
+     cognitect's own discovery banner is dropped (see below).  The CLJS
+     node runner forwards stdout the same way.
+   - STDERR/WARNINGS are BUFFERED, replayed on red, dropped on green.
+     A green run must not flood stdout/stderr with the expected
+     warnings that warning-heavy suites emit (e.g.
+     `re-frame.mcp-base.sensitive`'s fail-closed contract-drift WARN on
+     thousands of malformed `:sensitive?` stamps).  This runner binds
+     `*err*`/`System/err` to a bounded ring buffer for the duration of
+     the delegated run; the captured stderr is REPLAYED to the real
+     stderr only when the run is RED (so a failing run keeps the
+     diagnostic context that may explain it), and DROPPED on green.
+     This mirrors the CLJS node runner's `console.warn` buffer + red
+     replay exactly — so suites no longer need ad-hoc `(binding [*err*
+     <sink>] …)` workarounds to stay quiet on green (rf2-80jyfk /
+     rf2-nrk066).  Tests that ASSERT on captured warning text still
+     capture `*err*` locally; only the noise-suppression-only sinks are
+     removed.
+
   ## The discovery-banner contract
 
   cognitect-test-runner emits exactly one stdout artefact of its own that
@@ -335,6 +367,108 @@
         (forward-partial!)
         (.flush target)))))
 
+;; ----------------------------------------------------------------------
+;; Central stderr buffer + red replay (rf2-nrk066).
+;;
+;; The symmetric counterpart to the CLJS node runner's `console.warn`
+;; ring buffer (`re-frame.test-quiet.shadow-node`).  Warning-heavy JVM
+;; suites emit expected stderr noise on the green path (e.g.
+;; `re-frame.mcp-base.sensitive` logging a contract-drift WARN for every
+;; malformed `:sensitive?` stamp it fail-closes).  Pre-rf2-nrk066 the JVM
+;; runner had NO central stderr handling — it filtered only cognitect's
+;; stdout banner — so those warnings flooded a green run unless each
+;; namespace bound `*err*` to a private sink.  We now buffer stderr in a
+;; bounded ring for the delegated run and:
+;;   - GREEN: drop the buffer silently (quiet on success);
+;;   - RED:   replay it to the real stderr from the `:summary` reporter
+;;            hook below, BEFORE cognitect computes its exit code, so a
+;;            failing run keeps the diagnostic context.
+;;
+;; clojure.test routes its assertion / FAIL / ERROR / summary output
+;; through `clojure.test/*test-out*` (bound to the real `*out*`), NOT
+;; through `*err*`, so buffering stderr never hides failure diagnostics —
+;; the red FAIL/ERROR blocks reach stdout via the `*out*` filter exactly
+;; as before.
+
+(def ^:private stderr-buffer-cap
+  "Bounded stderr ring capacity (characters).  Caps memory + replay
+  volume on a red run while keeping enough recent context to explain a
+  failure — the newest `stderr-buffer-cap` characters are retained,
+  older ones dropped.  ~256 KB is generous for diagnostic warnings
+  without risking heap pressure on a pathologically chatty suite."
+  (* 256 1024))
+
+(defn- buffering-stderr-writer
+  "A `java.io.Writer` over the shared `sb` ring that captures everything
+  written to it (trimming `sb` to the newest `stderr-buffer-cap`
+  characters) and forwards NOTHING to the real stderr.  The runner reads
+  `sb` back at `:summary` time and replays it only on red
+  (`install-summary-replay-hook!`); on green the buffer is dropped."
+  ^java.io.Writer [^StringBuilder sb]
+  (let [append! (fn [^String s]
+                  (.append sb s)
+                  ;; Trim from the FRONT once past the cap so the ring
+                  ;; keeps the most-recent context (the bytes nearest a
+                  ;; failure), matching the CLJS ring's newest-N policy.
+                  (let [n (.length sb)]
+                    (when (> n stderr-buffer-cap)
+                      (.delete sb 0 (- n stderr-buffer-cap)))))]
+    (proxy [java.io.Writer] []
+      (write
+        ([x]
+         (cond
+           (string? x)  (append! x)
+           (integer? x) (append! (String. (char-array [(char x)])))
+           (instance? (Class/forName "[C") x)
+           (append! (String. ^chars x))
+           :else (throw (IllegalArgumentException.
+                          (str "unexpected write arg: " (class x))))))
+        ([cbuf off len]
+         (append! (if (string? cbuf)
+                    (subs cbuf off (+ off len))
+                    (String. ^chars cbuf (int off) (int len))))))
+      (flush [])
+      (close []))))
+
+(defn- install-summary-replay-hook!
+  "Install a `clojure.test/report :summary` override that REPLAYS the
+  buffered stderr (`sb`) to `real-err` when the run is RED, then delegates
+  to whatever `:summary` method was installed before us so the canonical
+  summary line still prints.
+
+  `:summary` is the JVM-side counterpart to the CLJS `:end-run-tests`
+  reporter: it fires once at the end of `run-tests` from the same
+  fail/error counts cognitect reads to compute the exit code, and it runs
+  on the test-driver thread INSIDE the `binding` that rebinds `*err*` —
+  so it runs before cognitect's `System/exit` and can flush the captured
+  context.  A run is RED iff `(pos? (+ fail error))`, matching cognitect's
+  `(zero? (+ fail error))` green test.
+
+  The replay goes to the REAL stderr (the `*err*` ring is still bound at
+  this point, so we must NOT use `*err*`/`println` here or the replay
+  would feed straight back into the buffer).  Each captured chunk is
+  written verbatim; a header marks it as a red-run replay so it is
+  distinguishable from the reporter's own stdout, mirroring the CLJS
+  replay's `[test-quiet]` prefix.  On green the buffer is simply dropped
+  (never written)."
+  [^StringBuilder sb ^java.io.Writer real-err]
+  (let [prior-summary (get-method clojure.test/report :summary)]
+    (defmethod clojure.test/report :summary [m]
+      (let [{:keys [fail error]} m]
+        (when (and (pos? (+ (or fail 0) (or error 0)))
+                   (pos? (.length sb)))
+          (let [captured (.toString sb)]
+            (.write real-err
+                    (str "\n[test-quiet] buffered stderr replayed because"
+                         " the run was RED:\n"))
+            (.write real-err captured)
+            (when-not (.endsWith captured "\n")
+              (.write real-err "\n"))
+            (.flush real-err))))
+      ;; Delegate to the prior :summary so the canonical
+      ;; "Ran N tests…/K failures, J errors." line still prints.
+      (when prior-summary (prior-summary m)))))
+
 (defn -main [& args]
   ;; Bind `*out*` to a line-filtering writer over the real stdout that
   ;; drops ONLY cognitect's "\nRunning tests in #{...}" discovery banner.
@@ -355,12 +489,46 @@
   ;; wrapper and the OS — could be lost exactly when a failing run needs
   ;; it most.  The hook makes flush-on-exit deterministic rather than
   ;; relying on the runtime or cognitect to flush before exiting.
-  (let [real-out  *out*
-        filtering (java.io.PrintWriter. (banner-filtering-writer real-out))]
+  ;;
+  ;; We ALSO bind `*err*` (and `System/err`) to a bounded ring buffer for
+  ;; the delegated run (rf2-nrk066): expected stderr warnings are captured
+  ;; rather than flooding a green run, and the `:summary` reporter hook
+  ;; replays them to the real stderr only on RED — symmetric with the CLJS
+  ;; node runner's `console.warn` buffer + red replay.  `*err*` is bound on
+  ;; the test-driver thread (cognitect runs single-threaded), so library
+  ;; code that logs via `*err*` is captured; `System/err` is also swapped
+  ;; so a raw `System.err` write is buffered too.  The summary hook reads
+  ;; the buffer and writes any red replay to the REAL stderr captured here.
+  (let [real-out   *out*
+        real-err   *err*
+        sys-err    System/err
+        filtering  (java.io.PrintWriter. (banner-filtering-writer real-out))
+        stderr-sb  (StringBuilder.)
+        buffered-w (buffering-stderr-writer stderr-sb)
+        buffered-e (java.io.PrintWriter. buffered-w)]
     (.addShutdownHook (Runtime/getRuntime)
                       (Thread. ^Runnable #(.flush filtering)))
-    (binding [*out* filtering]
+    (install-summary-replay-hook! stderr-sb real-err)
+    ;; Route raw `System/err` bytes into the SAME ring as `*err*` so a
+    ;; library that writes `System.err` directly is buffered too. The
+    ;; bridge decodes each chunk as UTF-8 and appends to the ring; the
+    ;; single-arg `write` proxy arity receives an int byte.
+    (let [sys-bridge (proxy [java.io.OutputStream] []
+                       (write
+                         ([b]
+                          ;; proxy dispatches by arity; the 1-arg form is
+                          ;; write(int) — the low 8 bits are the byte (0-255),
+                          ;; so use `unchecked-byte` (a plain `byte` cast
+                          ;; throws for 128-255).
+                          (.write buffered-w (String. (byte-array [(unchecked-byte b)]))))
+                         ([b off len]
+                          (.write buffered-w (String. ^bytes b (int off) (int len))))))]
+      (System/setErr (java.io.PrintStream. sys-bridge true "UTF-8")))
+    (binding [*out* filtering
+              *err* buffered-e]
       (try
         (apply cognitect.test-runner/-main args)
         (finally
-          (.flush filtering))))))
+          (.flush filtering)
+          ;; Restore the real System/err for any post-run / shutdown code.
+          (System/setErr sys-err))))))

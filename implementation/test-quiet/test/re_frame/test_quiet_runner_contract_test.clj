@@ -31,7 +31,12 @@
      replayed on red — the documented capture-and-replay was
      unreachable and the docs now match this).
    - ERROR: exit 1; the `ERROR in` block + the thrown message reach
-     stdout."
+     stdout.
+   - STDERR BUFFER (rf2-nrk066): a GREEN run that emits expected
+     stderr warnings stays quiet (the warnings are buffered + dropped);
+     a RED run REPLAYS the buffered stderr context so a failing run
+     keeps it.  This is the JVM counterpart to the CLJS node runner's
+     `console.warn` buffer + red replay."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [clojure.java.io :as io]))
@@ -639,6 +644,78 @@
                    " got:\n" out))
           (is (str/includes? out "0 failures, 0 errors.")
               (str "the green summary must still print; got:\n" out)))))))
+
+;; ----------------------------------------------------------------------
+;; Central stderr buffer + red replay — rf2-nrk066.
+;;
+;; The JVM runner buffers everything written to `*err*` (and `System/err`)
+;; during the delegated run into a bounded ring, then:
+;;   - GREEN: drops it silently — a passing run that emits expected
+;;            warnings (e.g. a fail-closed contract-drift WARN) stays
+;;            quiet, with NO ad-hoc per-namespace `*err*` sink needed;
+;;   - RED:   replays it to the real stderr from the `:summary` reporter
+;;            hook, before cognitect's `System/exit`, so the failing run
+;;            keeps the diagnostic context.
+;; This is the symmetric JVM counterpart to the CLJS node runner's
+;; `console.warn` ring + `:end-run-tests` red replay
+;; (`re-frame.test-quiet-shadow-node-cljs-test`).  These pins can only be
+;; observed across a process boundary (the replay fires from `:summary`
+;; just before the runner exits).
+
+(deftest green-run-buffers-and-drops-expected-stderr
+  (testing "a GREEN run that writes expected stderr stays quiet — the warning is buffered, not leaked (rf2-nrk066)"
+    (with-fixture-dir
+      (fn [dir]
+        ;; A passing test that emits an expected warning to *err* — exactly
+        ;; the class warning-heavy suites used to wrap in a private *err*
+        ;; sink. With the central buffer it must be DROPPED on green.
+        (write-fixture! dir "green_warn_fixture_test" "green-warn-fixture-test"
+                        (str "(deftest a-warning-but-passing-test"
+                             " (binding [*out* *err*]"
+                             "   (println \"EXPECTED-WARN-MARKER-GREEN\"))"
+                             " (is (= 1 1)))"))
+        (let [{:keys [exit out err]} (run-runner dir)]
+          (is (zero? exit)
+              (str "the warning-but-passing suite is green; must exit 0; got "
+                   exit "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          ;; The CORE green pin: the expected warning is buffered + dropped,
+          ;; so it appears on NEITHER stdout NOR stderr.
+          (is (not (str/includes? (str out err) "EXPECTED-WARN-MARKER-GREEN"))
+              (str "an expected stderr warning on a GREEN run must be buffered"
+                   " and dropped — not leaked to stdout or stderr (rf2-nrk066);"
+                   " got\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          (is (str/includes? out "0 failures, 0 errors.")
+              (str "the green summary must still print; got:\n" out)))))))
+
+(deftest red-run-replays-buffered-stderr
+  (testing "a RED run replays the buffered stderr context to real stderr (rf2-nrk066)"
+    (with-fixture-dir
+      (fn [dir]
+        ;; A test that emits a diagnostic to *err* and then FAILS. The
+        ;; warning is buffered as the run proceeds, then replayed on the
+        ;; red exit so the failing run keeps the context.
+        (write-fixture! dir "red_warn_fixture_test" "red-warn-fixture-test"
+                        (str "(deftest a-warning-and-failing-test"
+                             " (binding [*out* *err*]"
+                             "   (println \"EXPECTED-WARN-MARKER-RED diagnostic context\"))"
+                             " (is (= :exp :act)))"))
+        (let [{:keys [exit out err]} (run-runner dir)]
+          (is (= 1 exit)
+              (str "the warning-and-failing suite is red; must exit 1; got "
+                   exit "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          ;; The failure diagnostics still reach stdout (routed via
+          ;; *test-out*, never *err*, so the buffer never hides them).
+          (is (str/includes? out "FAIL in (a-warning-and-failing-test)")
+              (str "the FAIL block must still reach stdout; got:\n" out))
+          ;; The CORE red pin: the buffered stderr is replayed (to the real
+          ;; stderr) so the failing run keeps the diagnostic context.
+          (is (str/includes? err "EXPECTED-WARN-MARKER-RED")
+              (str "the buffered stderr must be REPLAYED on a RED run"
+                   " (rf2-nrk066); got\n--- stdout ---\n" out
+                   "\n--- stderr ---\n" err))
+          (is (str/includes? err "buffered stderr replayed because the run was RED")
+              (str "the replay must be labelled so it is distinguishable from"
+                   " the reporter's own output; got stderr:\n" err)))))))
 
 ;; ----------------------------------------------------------------------
 ;; Subprocess-harness pipe-deadlock regression — rf2-spzkgo.
