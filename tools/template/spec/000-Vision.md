@@ -160,6 +160,6 @@ the split is rf2-7jgkv (rf2-dolpf §4).
 - [API.md](API.md) — the consolidated public invocation surface.
 - [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md) — WHY each major call
   was made.
-- [Guide chapter 03 — Your first app](../../../docs/guide/03-first-app.md)
+- [Quickstart — your first app](../../../docs/guide/quickstart.md)
   — the worked-example throughline the template's generated counter
   aligns with.
