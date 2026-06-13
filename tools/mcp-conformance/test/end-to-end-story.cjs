@@ -58,6 +58,7 @@ const {
   assertJsonRpcErrorCodes,
   assertDescriptorShape,
   assertClassificationRatchet,
+  assertCallCoverageRatchet,
 } = require('./_runner.cjs');
 const { resolveTrustedExe } = require('../lib/exec-safety.cjs');
 const { decodeDedupEnvelope } = require('../lib/dedup-envelope.cjs');
@@ -115,6 +116,41 @@ function structured(resp) {
   return decodeDedupEnvelope(resp.structuredContent || {});
 }
 
+// SDK callTool() coverage tracking (rf2-ke5n56). Every tool the workflow
+// drives through `Client.callTool()` records its name here; the coverage
+// ratchet at the end of the body fails if any ADVERTISED tool is neither
+// recorded here nor in the reviewed exclusion table. `track(rawClient)`
+// returns a Proxy that records the tool name on each `callTool({name,…})`
+// and otherwise transparently delegates EVERY other member (listTools,
+// getServerVersion, request, close, …) to the real SDK client — so the
+// existing call sites read unchanged. A `callTool` that bypasses the
+// proxy can't quietly erode coverage: the tool would simply go unrecorded
+// and the ratchet would catch it as uncovered.
+const CALLED = new Set();
+function track(rawClient) {
+  return new Proxy(rawClient, {
+    get(target, prop, receiver) {
+      if (prop === 'callTool') {
+        return (req, ...rest) => {
+          if (req && typeof req.name === 'string') CALLED.add(req.name);
+          return target.callTool(req, ...rest);
+        };
+      }
+      const v = Reflect.get(target, prop, receiver);
+      return typeof v === 'function' ? v.bind(target) : v;
+    },
+  });
+}
+
+// Tools intentionally NOT SDK-call-covered by THIS harness, each with the
+// rationale + where its alternative coverage lives (rf2-ke5n56). Today the
+// Story workflow below drives a probe for every advertised tool, so this
+// table is empty — but it is wired through `assertCallCoverageRatchet` so
+// a FUTURE runtime-heavy/live-only Story tool has a reviewed home instead
+// of silently dropping out of coverage. A blank rationale, a stale row, or
+// an excluded-yet-called row trips the ratchet.
+const STORY_CALL_EXCLUSIONS = {};
+
 // JVM boot is slow on a cold CI worker (~10-30s); the whole register →
 // run → read → unregister loop adds a few more seconds. 90s is
 // comfortably above that without leaving a hung process if something
@@ -130,7 +166,12 @@ runWithWatchdog(
       env: { ...process.env },
     },
   },
-  async (client) => {
+  async (rawClient) => {
+    // Wrap the SDK client in the coverage tracker (rf2-ke5n56): every
+    // `client.callTool({name,…})` below records `name` for the callTool
+    // coverage ratchet at the end of this body. All other client members
+    // delegate transparently.
+    const client = track(rawClient);
     // The SDK's `client.connect()` (invoked by the runner) already
     // validated the initialize envelope against `InitializeResultSchema`
     // — a missing / malformed `serverInfo` would have thrown there.
@@ -257,6 +298,75 @@ runWithWatchdog(
         'list-modes/list-tags) -> success envelopes',
     );
 
+    // 2f. Remaining closed-world LIST reads (rf2-ke5n56). The read loop
+    // above covered four of story-mcp's reads; `list-stories`,
+    // `list-assertions`, and `list-decorators` were advertised but never
+    // SDK-CALLED — descriptor-only in conformance, so a callTool-envelope
+    // / outputSchema / structuredContent regression on any of them shipped
+    // green. These three need no runtime and no fixture (they enumerate
+    // the canonical-vocabulary registry the server installs at boot), so
+    // each is a zero-arg success probe routed through the SDK's
+    // CallToolResultSchema + the declared outputSchema parse — the same
+    // success-path shape pin the four reads above carry.
+    for (const readTool of ['list-stories', 'list-assertions', 'list-decorators']) {
+      const r = await client.callTool({ name: readTool, arguments: {} });
+      if (r.isError) {
+        throw new Error(
+          'closed-world read ' + readTool + ' MUST succeed (isError=false) ' +
+            'with no runtime/fixture; got: ' + JSON.stringify(r),
+        );
+      }
+      if (r.structuredContent === undefined || r.structuredContent === null ||
+          typeof r.structuredContent !== 'object' ||
+          Array.isArray(r.structuredContent)) {
+        throw new Error(
+          readTool + ' success envelope MUST carry a JSON-object ' +
+            ':structuredContent slot; got: ' + JSON.stringify(r),
+        );
+      }
+    }
+    console.log(
+      'OK   closed-world reads (list-stories/list-assertions/list-decorators)' +
+        ' -> success envelopes',
+    );
+
+    // 2g. Refusal-path coverage for the two story-id read tools
+    // (rf2-ke5n56). `get-story` and `get-docs-markdown` were advertised
+    // but never SDK-called. Both REQUIRE a `:story-id` and resolve it via
+    // `safe-keyword` against the registered-stories set — an unregistered
+    // id short-circuits to a documented `Story not found` tool-execution
+    // error (isError:true, NOT a JSON-RPC protocol error). A default-off
+    // refusal probe is the cheap, fixture-free way to drive the callTool
+    // path: it pins the not-found envelope shape AND proves the tool is
+    // wired into dispatch (an unwired name would surface a different
+    // error). A success-path hit would need a registered STORY, but the
+    // conformance fixture is a VARIANT (the canonical vocabulary installs
+    // no stable story id to hit), so the refusal probe is the coverage.
+    const ABSENT_STORY = ':story.mcp-conformance/no-such-story';
+    for (const storyTool of ['get-story', 'get-docs-markdown']) {
+      const r = await client.callTool({
+        name: storyTool,
+        arguments: { 'story-id': ABSENT_STORY },
+      });
+      if (!r.isError) {
+        throw new Error(
+          storyTool + ' on an unregistered story-id MUST isError (documented ' +
+            '`Story not found` refusal); got: ' + JSON.stringify(r),
+        );
+      }
+      const text = r.content?.[0]?.text || '';
+      if (!/not found/i.test(text)) {
+        throw new Error(
+          storyTool + ' not-found envelope MUST mention "not found"; got: ' +
+            text.slice(0, 200),
+        );
+      }
+    }
+    console.log(
+      'OK   story-id refusal probes (get-story/get-docs-markdown on absent ' +
+        'id) -> isError + "not found" (tool wired, envelope shape pinned)',
+    );
+
     // 3. register-variant — body as an EDN string so JSON's lack of
     // keyword support doesn't dilute the assertion (Cheshire would
     // coerce {"doc": "..."} into a string-keyed map, which Story's
@@ -307,6 +417,69 @@ runWithWatchdog(
       throw new Error('get-variant text payload missing :doc; got: ' + getText.slice(0, 200));
     }
     console.log('OK   get-variant -> body :doc round-trips through EDN text');
+
+    // 4b. variant->edn (rf2-ke5n56). Advertised but never SDK-called —
+    // and it is the EXACT latent-defect twin of get-story-instructions:
+    // it declares an :outputSchema, so the SDK's high-level callTool
+    // REJECTS a result with no structuredContent (-32600); rf2-vyacl
+    // notes variant->edn was the only OTHER tool still text-only before
+    // the fix. Driving it against the live fixture pins that the fix
+    // stays fixed across the wire. The text slot is the byte-stable
+    // pr-str EDN; assert the fixture :doc round-trips through it AND that
+    // a JSON-object structuredContent rides alongside (the slot the SDK
+    // outputSchema parse demands).
+    const ednResp = await client.callTool({
+      name: 'variant->edn',
+      arguments: { 'variant-id': FIXTURE_VARIANT },
+    });
+    if (ednResp.isError) {
+      throw new Error('variant->edn on fixture failed: ' + JSON.stringify(ednResp));
+    }
+    const ednText = ednResp.content?.[0]?.text || '';
+    if (!/MCP-conformance harness probe variant\./.test(ednText)) {
+      throw new Error(
+        'variant->edn text payload missing :doc; got: ' + ednText.slice(0, 200),
+      );
+    }
+    if (ednResp.structuredContent === undefined || ednResp.structuredContent === null ||
+        typeof ednResp.structuredContent !== 'object' ||
+        Array.isArray(ednResp.structuredContent)) {
+      throw new Error(
+        'variant->edn MUST carry a JSON-object :structuredContent slot ' +
+          '(the SDK outputSchema parse demands it — rf2-vyacl latent-defect ' +
+          'class); got: ' + JSON.stringify(ednResp),
+      );
+    }
+    console.log('OK   variant->edn -> :doc round-trips through EDN text + structuredContent present');
+
+    // 4c. run-a11y (rf2-ke5n56). Advertised but never SDK-called. The
+    // axe-core run is CLJS-in-browser only; from this JVM-standalone boot
+    // the tool READS the (empty) violations atom and returns a success
+    // envelope with `:violations []` + a JVM-standalone `:note` — so it
+    // is a cheap, fixture-backed, runtime-free success probe (NOT a live
+    // browser dependency). Pins the callTool envelope + structuredContent
+    // shape for the testing-category read against the registered fixture.
+    const a11yResp = await client.callTool({
+      name: 'run-a11y',
+      arguments: { 'variant-id': FIXTURE_VARIANT },
+    });
+    if (a11yResp.isError) {
+      throw new Error('run-a11y on fixture failed: ' + JSON.stringify(a11yResp));
+    }
+    const a11yStruct = structured(a11yResp);
+    if (!Array.isArray(a11yStruct.violations)) {
+      throw new Error(
+        'run-a11y :violations MUST be an array (empty on a JVM-standalone ' +
+          'boot); got: ' + JSON.stringify(a11yResp),
+      );
+    }
+    if (a11yStruct.violations.length !== 0) {
+      throw new Error(
+        'run-a11y :violations expected empty on a JVM-standalone boot (no ' +
+          'in-browser axe-core run); got: ' + JSON.stringify(a11yResp),
+      );
+    }
+    console.log('OK   run-a11y -> :violations=[] (JVM-standalone read, envelope pinned)');
 
     // 5. preview-variant — exercise the full lifecycle via the preview
     // tool. With no :play events the run is vacuously passing; the
@@ -518,7 +691,23 @@ runWithWatchdog(
       'OK   JSON-RPC error codes -> MethodNotFound + (InvalidParams|InternalError)',
     );
 
-    // 12. Clean disconnect — runner handles client.close() on success.
+    // 12. callTool() coverage ratchet (rf2-ke5n56). Every advertised
+    // story-mcp tool MUST have been driven through `Client.callTool()`
+    // above (recorded in `CALLED` by the `track` proxy) or carry a
+    // reviewed exclusion in `STORY_CALL_EXCLUSIONS`. A NEW advertised
+    // tool that the workflow forgets to probe trips RED here — closing
+    // the descriptor-only false-green the senior review flagged.
+    assertCallCoverageRatchet({
+      advertised: names,
+      called: CALLED,
+      exclusions: STORY_CALL_EXCLUSIONS,
+    });
+    console.log(
+      'OK   callTool coverage ratchet -> every advertised tool SDK-called ' +
+        '(' + CALLED.size + '/' + names.length + ') or reviewed-excluded',
+    );
+
+    // 13. Clean disconnect — runner handles client.close() on success.
     console.log('\nSTORY-MCP MCP-CLIENT CONFORMANCE GREEN');
   },
 );
