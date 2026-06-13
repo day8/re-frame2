@@ -152,7 +152,18 @@
   trailing slash stripped (so `/repo/` + `sub` never yields `/repo//sub`);
   `subdir` is trimmed and any leading slash(es) removed (so callers may
   pass it with or without a leading slash). A blank / nil / slash-only
-  `subdir` collapses to the normalised root verbatim."
+  `subdir` collapses to the normalised root verbatim.
+
+  The one root that survives normalisation WITH a trailing slash is the
+  lone POSIX filesystem root `\"/\"`: `strip-trailing-slash` preserves it
+  (a lone separator is meaningful — destroying it would make the root a
+  blank relative path), so it is the only case where `normalized-root`
+  ends in `/`. We therefore add the boundary separator only when the
+  root does not already supply one, so `\"/\"` + `\"tools/xray/testbeds\"`
+  yields `/tools/xray/testbeds` (exactly one separator) rather than the
+  `//tools/xray/testbeds` the unconditional `(str root \"/\" subdir)`
+  produced — honouring the single-separator contract for every root,
+  POSIX filesystem-root included (rf2-fzgcii)."
   [root subdir]
   (let [normalized-root   (-> root str/trim to-forward-slashes strip-trailing-slash)
         normalized-subdir (-> (or subdir "")
@@ -160,7 +171,12 @@
                               to-forward-slashes
                               (str/replace #"^/+" ""))]
     (if (seq normalized-subdir)
-      (str normalized-root "/" normalized-subdir)
+      ;; Add the boundary "/" only when the root does not already end in
+      ;; one — the lone-"/" filesystem root is the sole normalised root
+      ;; that keeps a trailing slash, so this is what stops `//tools/...`.
+      (if (str/ends-with? normalized-root "/")
+        (str normalized-root normalized-subdir)
+        (str normalized-root "/" normalized-subdir))
       normalized-root)))
 
 (defn resolve-project-root

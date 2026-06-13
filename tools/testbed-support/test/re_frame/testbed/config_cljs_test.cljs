@@ -70,6 +70,24 @@
             [clojure.string :as str]
             [re-frame.testbed.config :as config]))
 
+;; ---- shared test helper: composed-editor-path --------------------------
+;;
+;; The whole point of the resolved root is that the open-in-editor resolver
+;; prepends it to a CLASSPATH-RELATIVE source coord (the form-meta `:file`
+;; slot, e.g. `standard_epochs/core.cljs`). The downstream prepend is
+;; `(str root "/" file)`; this helper reproduces that single join so the
+;; slice's unit suite can pin the end-to-end composed path (no `//`, the
+;; tool source-root segment present) without reaching into the Xray
+;; editor-uri resolver. Defined here at the top so every composition test
+;; below — the rf2-w4yw9q override form, the rf2-d01s6s Windows form, and
+;; the rf2-fzgcii lone-`"/"`-root edge — can use it.
+
+(defn- composed-editor-path
+  "Mirror the open-in-editor prepend: resolved-root + \"/\" + the
+  classpath-relative source-coord `:file`."
+  [root file]
+  (str root "/" file))
+
 ;; ---- private helper: non-blank -----------------------------------------
 
 (deftest non-blank-only-passes-real-strings
@@ -211,6 +229,80 @@
             `non-blank` gate on the root"
     (with-redefs [config/repo-root "   "]
       (is (nil? (config/resolve-project-root "tools/xray/testbeds"))))))
+
+;; ---- resolve-project-root: the lone POSIX filesystem root "/" (rf2-fzgcii)
+;;
+;; `strip-trailing-slash` DELIBERATELY preserves a lone `"/"` (the count > 1
+;; guard) so a Unix filesystem root is not destroyed into a blank relative
+;; path. That is the one normalised root that still ends in a separator — so
+;; the join must NOT then prepend a SECOND `/`. The pre-fix
+;; `(str normalized-root "/" subdir)` unconditionally did, yielding
+;; `//tools/xray/testbeds` for `root = "/"`, breaking the docstring's
+;; single-separator promise. These tests pin the edge through the FULL
+;; `resolve-project-root` surface for BOTH root tiers (build-time define and
+;; `?project-root=` override), and confirm the blank/slash-only-subdir
+;; collapse still returns the lone root verbatim.
+
+(deftest resolve-project-root-lone-root-slash-build-time-tier
+  (testing "rf2-fzgcii: a build-time `repo-root` of the lone POSIX
+            filesystem root `\"/\"` joins a nonblank subdir with EXACTLY
+            ONE separator — `/tools/xray/testbeds`, not the pre-fix
+            `//tools/xray/testbeds`"
+    (with-redefs [config/repo-root "/"]
+      (let [resolved (config/resolve-project-root "tools/xray/testbeds")]
+        (is (= "/tools/xray/testbeds" resolved)
+            "lone-root + subdir → single leading separator")
+        (is (not (str/includes? resolved "//"))
+            "no // boundary duplication"))
+      (is (= "/tools/story/testbeds"
+             (config/resolve-project-root "tools/story/testbeds"))
+          "the other tool subdir joins the same single-separator way")
+      (is (= "/tools/xray/testbeds"
+             (config/resolve-project-root "/tools/xray/testbeds"))
+          "a leading slash on the subdir is still normalised away (no ///)"))))
+
+(deftest resolve-project-root-lone-root-slash-override-tier
+  (testing "rf2-fzgcii: the SAME lone-root edge through the
+            `?project-root=` override tier — both tiers share one join, so
+            an override of `\"/\"` must also yield a single-separator path"
+    (with-redefs [config/query-param (fn [param]
+                                       (when (= param "project-root") "/"))
+                  config/repo-root ""]
+      (let [resolved (config/resolve-project-root "tools/xray/testbeds")]
+        (is (= "/tools/xray/testbeds" resolved)
+            "override lone-root + subdir → single leading separator")
+        (is (not (str/includes? resolved "//"))
+            "no // boundary duplication via the override tier")))))
+
+(deftest resolve-project-root-lone-root-slash-blank-subdir-yields-root
+  (testing "rf2-fzgcii: with the lone `\"/\"` root a blank / nil / slash-only
+            subdir still collapses to the lone root verbatim (the
+            graceful-no-subdir contract is unaffected by the join fix)"
+    (with-redefs [config/repo-root "/"]
+      (is (= "/" (config/resolve-project-root ""))
+          "blank subdir → lone root preserved")
+      (is (= "/" (config/resolve-project-root nil))
+          "nil subdir → lone root preserved")
+      (is (= "/" (config/resolve-project-root "   "))
+          "whitespace subdir → lone root preserved")
+      (is (= "/" (config/resolve-project-root "/"))
+          "slash-only subdir normalises to empty → lone root preserved"))))
+
+(deftest resolve-project-root-lone-root-composes-to-intended-on-disk-file
+  (testing "rf2-fzgcii: the lone-root case composes with a representative
+            classpath-relative source coord to a clean on-disk path —
+            `/tools/xray/testbeds/standard_epochs/core.cljs`, the tool
+            source-root segment present and no `//` anywhere (the exact
+            downstream prepend the open-in-editor resolver performs)"
+    (with-redefs [config/repo-root "/"]
+      (let [root     (config/resolve-project-root "tools/xray/testbeds")
+            composed (composed-editor-path root "standard_epochs/core.cljs")]
+        (is (= "/tools/xray/testbeds/standard_epochs/core.cljs" composed)
+            "the composed editor path reaches the real on-disk source file")
+        (is (str/includes? composed "/tools/xray/testbeds/")
+            "the tool source-root segment is present (not missing)")
+        (is (not (str/includes? composed "//"))
+            "no // boundary duplication in the composed path")))))
 
 ;; ---- query-param-from-search: the pure override parser (tier 1) --------
 ;;
@@ -367,13 +459,8 @@
 ;; override exists to provide. (The downstream prepend is `(str root "/"
 ;; file)`; we reproduce that single join here so the slice's unit suite
 ;; pins the end-to-end contract without reaching into the Xray editor-uri
-;; resolver.)
-
-(defn- composed-editor-path
-  "Mirror the open-in-editor prepend: resolved-root + \"/\" + the
-  classpath-relative source-coord `:file`."
-  [root file]
-  (str root "/" file))
+;; resolver. (`composed-editor-path` itself is defined near the top of this
+;; file so the lone-root and Windows composition tests can use it too.)
 
 (deftest documented-override-composes-to-intended-on-disk-file
   (testing "rf2-w4yw9q: pasting a CHECKOUT root into `?project-root=` (the
