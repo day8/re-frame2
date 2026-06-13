@@ -50,6 +50,7 @@
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.dedup :as dedup]
             [re-frame2-pair-mcp.tools.elision :as elision]
+            [re-frame2-pair-mcp.tools.epoch-egress :as egress]
             [re-frame2-pair-mcp.tools.sensitive :as sensitive]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.resource-controls :as resource]))
@@ -364,12 +365,16 @@
   app-side runtime."
   [sub-id topic elision? incl?]
   (let [epoch?         (= :epoch topic)
-        ;; Epoch records project on the sensitive opt-in axis (mirrors
-        ;; watch-epochs / trace-window) — independent of the large-slot
-        ;; `elision?` toggle, so a gate-ON `:elision false` caller who
-        ;; left `:include-sensitive` at its default still gets projected
-        ;; (fail-closed) epoch records rather than raw fx-arg payloads.
-        project-epoch? (and epoch? (not incl?))
+        ;; Epoch records ALWAYS project — independent of the large-slot
+        ;; `elision?` toggle AND of the sensitive opt-in (`incl?`).
+        ;; rf2-m9duxl — `:include-sensitive true` NO LONGER bypasses the
+        ;; epoch projection: it threads `{:include-sensitive? true}` INTO
+        ;; `projected-record` (app-db sensitive axis only), so the
+        ;; orthogonal fx-args / runtime-db / large axes and the app
+        ;; `:redact-fn` stay fail-closed. Mirrors watch-epochs /
+        ;; trace-window. An epoch record never crosses the wire as a raw
+        ;; fx-arg / runtime-db payload.
+        project-epoch? epoch?
         ;; The trace-event walker (`:cascades` / `:frameless` `:events`)
         ;; covers tree-shaped slots rooted at the frame's app-db. The
         ;; `:epoch` topic's `:events` are NOT trace events — they take
@@ -389,31 +394,38 @@
                             (elision/walk-required? (not elision?) incl?))
         drain-call     (ef/rt-call 'drain-subscription! sub-id)]
     (cond
-      ;; Nothing to project: gate-ON + `:elision false` on a non-epoch
-      ;; topic, OR a gate-ON epoch caller who opted into raw via
-      ;; `:include-sensitive true`. Bare drain ships raw (the
-      ;; pre-rf2-vr2hn / operator-opt-in posture).
+      ;; Nothing to project: gate-ON + `:elision false` on a NON-epoch
+      ;; topic — the full-raw trace-event opt-in. Bare drain ships raw
+      ;; (the pre-rf2-vr2hn / operator-opt-in posture). The `:epoch` topic
+      ;; NEVER reaches this arm: `project-epoch?` is `epoch?`, always true
+      ;; for it (rf2-m9duxl — epoch records always project; the sensitive
+      ;; opt-in threads INTO the projection, it does not bypass it).
       (not (or walk-trace? project-epoch?))
       (ef/emit drain-call)
 
-      ;; Epoch-only projection (no trace-event walk). Each record routes
-      ;; through `re-frame.core/projected-record` — the single normative
-      ;; off-box epoch-egress site (Security.md §Epoch privacy posture):
-      ;; fails closed on `:effects[].args`, default-redacts the
+      ;; Epoch-only projection (no trace-event walk). Each record ALWAYS
+      ;; routes through `re-frame.core/projected-record` — the single
+      ;; normative off-box epoch-egress site (Security.md §Epoch privacy
+      ;; posture): fails closed on `:effects[].args`, default-redacts the
       ;; frame-state runtime-db partition, projects every payload slot
       ;; under `:rf.egress/off-box-observability`. `projected-record`
       ;; resolves the frame off each record's own `:frame` slot, so no
       ;; `current-frame` thread is needed. Per-tool reimplementation (the
       ;; prior whole-record `elide-wire-value` walk, which left
       ;; `:effects[].args` / `:sub-runs` / runtime-db raw) is prohibited.
+      ;; rf2-m9duxl — `incl?` threads `{:include-sensitive? true}` INTO
+      ;; the projection (app-db sensitive axis only); it does NOT disable
+      ;; it. fx-args / runtime-db / large slots / `:redact-fn` stay
+      ;; fail-closed regardless of `:include-sensitive`.
       project-epoch?
-      (ef/emit
-        (ef/rt-let
-          ['drain drain-call]
-          (ef/rt-raw
-            (str "(cond-> drain"
-                 " (contains? drain :events)"
-                 " (update :events (fn [es] (mapv re-frame.core/projected-record es))))"))))
+      (let [opts-edn (egress/egress-opts-edn incl?)]
+        (ef/emit
+          (ef/rt-let
+            ['drain drain-call]
+            (ef/rt-raw
+              (str "(cond-> drain"
+                   " (contains? drain :events)"
+                   " (update :events (fn [es] (mapv (fn [e#] (re-frame.core/projected-record e# " opts-edn ")) es))))")))))
 
       ;; Trace-event walk (cascade-bundle topics `:trace`/`:fx`/`:error`
       ;; ship `:cascades`; the `:frameless` topic ships `:events`). These

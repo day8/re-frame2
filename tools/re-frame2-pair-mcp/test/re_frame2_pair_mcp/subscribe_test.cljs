@@ -713,16 +713,23 @@
     (is (str/includes? form "re-frame.core/projected-record")
         "elision? false does not disable epoch projection — sensitive axis governs")))
 
-(deftest drain-form-epoch-include-sensitive-opt-in-ships-raw
-  ;; Gate ON + `:include-sensitive true` (incl? true) — the operator's
-  ;; deliberate raw opt-in. Mirrors subscribe's bare-drain / watch-epochs
-  ;; raw path: the epoch records ship verbatim (no projection).
+(deftest drain-form-epoch-include-sensitive-routes-through-projection
+  ;; rf2-m9duxl — gate ON + `:include-sensitive true` (incl? true) does NOT
+  ;; bypass the epoch projection. The `:events` slot STILL routes through
+  ;; `projected-record`, threading `{:include-sensitive? true}` as the
+  ;; egress opt (app-db sensitive axis ONLY). fx-args / runtime-db / large
+  ;; slots stay fail-closed because their opts are NOT passed.
   (let [form (sub/drain-form "sub-epoch" :epoch false true)]
-    (is (= "(re-frame2-pair.runtime/drain-subscription! \"sub-epoch\")"
-           form)
-        "raw epoch opt-in is the bare drain form")
-    (is (not (str/includes? form "re-frame.core/projected-record"))
-        "the operator opted into raw — no projection")))
+    (is (str/includes? form "re-frame.core/projected-record")
+        "include-sensitive STILL projects epoch records — never a raw bypass")
+    (is (str/includes? form "{:include-sensitive? true}")
+        "the app-db sensitive axis is threaded INTO the projection")
+    (is (str/includes? form ":events")
+        "the projection targets the flat :events slot")
+    (is (not (str/includes? form ":include-fx-args?"))
+        "fx-args axis is NOT lifted by include-sensitive (orthogonal)")
+    (is (not (str/includes? form ":include-runtime-db?"))
+        "runtime-db axis is NOT lifted by include-sensitive (orthogonal)")))
 
 (deftest drain-form-frameless-topic-uses-wire-value-walker
   ;; The `:frameless` topic's `:events` are raw TRACE events (registration

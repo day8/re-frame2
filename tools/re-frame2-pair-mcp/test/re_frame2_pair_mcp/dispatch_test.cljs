@@ -313,12 +313,13 @@
   ;; directly, so the emitted form is the ordinary `rt-call` (NOT the
   ;; await-promise mailbox wrapper).
   ;;
-  ;; rf2-olvr5 finding 1 — raw egress requires BOTH the gate ON AND an
-  ;; explicit `:include-sensitive true` (the same two-key contract every
-  ;; other egress surface wears — see `epoch_egress`). With both, the
-  ;; settle form is the BARE call (no projection wrap), so the original
-  ;; structural `read-string` assertions hold verbatim. The default-gate
-  ;; projection is pinned by `settle-projects-epoch-by-default-when-gate-off`.
+  ;; rf2-m9duxl — gate ON + `:include-sensitive true` does NOT bypass the
+  ;; epoch projection. The settle form STILL wraps the runtime call in
+  ;; `projected-record`, threading `{:include-sensitive? true}` as the
+  ;; egress opt (app-db sensitive axis ONLY). The inner runtime fn is still
+  ;; `dispatch-and-settle!` (no mailbox wrapper — synchronous). The
+  ;; default-gate projection is pinned by
+  ;; `settle-projects-epoch-by-default-when-gate-off`.
   (async done
     (let [captured (atom nil)]
       (-> (with-captured-eval! captured {:ok? true :epoch-id 11 :settled? true
@@ -338,11 +339,14 @@
                          ":settle routes to the synchronous dispatch-and-settle!")
                      (is (not (str/includes? form "__rf2pair_await__"))
                          "NO mailbox wrapper — dispatch-and-settle! is synchronous")
-                     (is (not (str/includes? form "projected-record"))
-                         "gate ON ⇒ no projection wrap — operator opted into raw egress")
-                     (let [parsed (cljs.reader/read-string form)]
-                       (is (= 're-frame2-pair.runtime/dispatch-and-settle! (first parsed)))
-                       (is (= [:list/toggle] (second parsed)))))
+                     (is (str/includes? form "projected-record")
+                         "include-sensitive STILL projects — never a raw bypass (rf2-m9duxl)")
+                     (is (str/includes? form "{:include-sensitive? true}")
+                         "the app-db sensitive axis is threaded INTO the projection")
+                     (is (not (str/includes? form ":include-fx-args?"))
+                         "fx-args axis is NOT lifted by include-sensitive (orthogonal)")
+                     (is (not (str/includes? form ":include-runtime-db?"))
+                         "runtime-db axis is NOT lifted by include-sensitive (orthogonal)"))
                    (let [edn (read-result-text r)]
                      (is (= :settle (:mode edn)) "mode is :settle")
                      (is (true? (:settled? edn)) "the settled flag rides through"))
@@ -403,10 +407,12 @@
                          "gate OFF ⇒ :epoch routes through projected-record before egress"))
                    (done)))))))
 
-(deftest trace-ships-raw-when-gate-on
-  ;; Gate ON (--allow-sensitive-reads) AND explicit `:include-sensitive
-  ;; true` ⇒ the trace form is the bare call, no projection — the
-  ;; deliberate raw-egress opt-in, mirroring subscribe's bare-drain path.
+(deftest trace-include-sensitive-routes-through-projection-when-gate-on
+  ;; rf2-m9duxl — gate ON (--allow-sensitive-reads) AND explicit
+  ;; `:include-sensitive true` does NOT bypass the epoch projection. The
+  ;; trace form STILL wraps the runtime call in `projected-record`,
+  ;; threading `{:include-sensitive? true}` (app-db sensitive axis ONLY).
+  ;; fx-args / runtime-db / large slots stay fail-closed.
   (async done
     (let [captured (atom nil)]
       (-> (with-captured-eval! captured {:ok? true :epoch-id 7}
@@ -418,8 +424,14 @@
           (.then (fn [_]
                    (let [form @captured]
                      (is (str/includes? form "dispatch-and-collect"))
-                     (is (not (str/includes? form "projected-record"))
-                         "gate ON ⇒ raw epoch ships verbatim (operator opt-in)"))
+                     (is (str/includes? form "projected-record")
+                         "include-sensitive STILL projects — never a raw bypass (rf2-m9duxl)")
+                     (is (str/includes? form "{:include-sensitive? true}")
+                         "the app-db sensitive axis is threaded INTO the projection")
+                     (is (not (str/includes? form ":include-fx-args?"))
+                         "fx-args axis is NOT lifted by include-sensitive (orthogonal)")
+                     (is (not (str/includes? form ":include-runtime-db?"))
+                         "runtime-db axis is NOT lifted by include-sensitive (orthogonal)"))
                    (raw-state/set-allow-raw-state! false)
                    (done)))))))
 

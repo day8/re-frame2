@@ -150,8 +150,12 @@
                            "every record in the page is projected")
                        (done)))))))))
 
-(deftest trace-window-gate-on-include-sensitive-ships-raw
-  (testing "gate ON + include-sensitive true: NO projection — records ship raw (operator opted in)"
+(deftest trace-window-gate-on-include-sensitive-routes-through-projection
+  (testing "gate ON + include-sensitive true: STILL projected, threading {:include-sensitive? true} (rf2-m9duxl)"
+    ;; rf2-m9duxl — `:include-sensitive true` is NOT a raw bypass. It routes
+    ;; THROUGH `projected-record` as the `{:include-sensitive? true}` egress
+    ;; opt (app-db sensitive axis only). fx-args / runtime-db / large slots /
+    ;; `:redact-fn` stay fail-closed because we do NOT pass their opts.
     (async done
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
@@ -159,8 +163,16 @@
               (fn [] (tw/trace-window-tool nil (tu/args->js {:ms 1000 :include-sensitive true}))))
             (.then (fn [_]
                      (let [form (slice-form forms)]
-                       (is (not (str/includes? form "projected-record"))
-                           "gate-on + include-sensitive true bypasses projection — raw egress")
+                       (is (str/includes? form "re-frame.core/projected-record")
+                           "include-sensitive STILL routes through projected-record — never a raw bypass")
+                       (is (str/includes? form "{:include-sensitive? true}")
+                           "the app-db sensitive axis is threaded INTO the projection")
+                       (is (not (str/includes? form ":include-fx-args?"))
+                           "fx-args axis is NOT lifted by include-sensitive (orthogonal)")
+                       (is (not (str/includes? form ":include-runtime-db?"))
+                           "runtime-db axis is NOT lifted by include-sensitive (orthogonal)")
+                       (is (not (str/includes? form ":include-large?"))
+                           "large axis is NOT lifted by include-sensitive (orthogonal)")
                        (done)))))))))
 
 (deftest trace-window-gate-on-default-still-projects
@@ -196,8 +208,8 @@
                            "gate-off MUST route the egress page through projected-record")
                        (done)))))))))
 
-(deftest watch-epochs-gate-on-include-sensitive-ships-raw
-  (testing "gate ON + include-sensitive true: NO projection — raw records ship"
+(deftest watch-epochs-gate-on-include-sensitive-routes-through-projection
+  (testing "gate ON + include-sensitive true: STILL projected, threading {:include-sensitive? true} (rf2-m9duxl)"
     (async done
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
@@ -205,8 +217,16 @@
               (fn [] (we/watch-epochs-tool nil (tu/args->js {:include-sensitive true}))))
             (.then (fn [_]
                      (let [form (slice-form forms)]
-                       (is (not (str/includes? form "projected-record"))
-                           "gate-on + include-sensitive true ⇒ raw passes")
+                       (is (str/includes? form "re-frame.core/projected-record")
+                           "include-sensitive STILL routes through projected-record — never a raw bypass")
+                       (is (str/includes? form "{:include-sensitive? true}")
+                           "the app-db sensitive axis is threaded INTO the projection")
+                       (is (not (str/includes? form ":include-fx-args?"))
+                           "fx-args axis is NOT lifted by include-sensitive (orthogonal)")
+                       (is (not (str/includes? form ":include-runtime-db?"))
+                           "runtime-db axis is NOT lifted by include-sensitive (orthogonal)")
+                       (is (not (str/includes? form ":include-large?"))
+                           "large axis is NOT lifted by include-sensitive (orthogonal)")
                        (done)))))))))
 
 (deftest watch-epochs-gate-on-default-still-projects
@@ -412,8 +432,8 @@
                            "the :epochs slot is the projection target")
                        (done)))))))))
 
-(deftest snapshot-epochs-gate-on-include-sensitive-ships-raw
-  (testing "gate ON + include-sensitive true: NO :epochs projection — records ship raw (operator opted in)"
+(deftest snapshot-epochs-gate-on-include-sensitive-routes-through-projection
+  (testing "gate ON + include-sensitive true: :epochs STILL projected, threading {:include-sensitive? true} (rf2-m9duxl)"
     (async done
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
@@ -424,8 +444,14 @@
                                                            :include-sensitive true}))))
             (.then (fn [_]
                      (let [form (slice-form forms)]
-                       (is (not (str/includes? form "projected-record"))
-                           "gate-on + include-sensitive true bypasses :epochs projection — raw egress")
+                       (is (str/includes? form "re-frame.core/projected-record")
+                           "include-sensitive STILL routes the :epochs slice through projected-record")
+                       (is (str/includes? form "{:include-sensitive? true}")
+                           "the app-db sensitive axis is threaded INTO the projection")
+                       (is (not (str/includes? form ":include-fx-args?"))
+                           "fx-args axis is NOT lifted by include-sensitive (orthogonal)")
+                       (is (not (str/includes? form ":include-runtime-db?"))
+                           "runtime-db axis is NOT lifted by include-sensitive (orthogonal)")
                        (done)))))))))
 
 (deftest snapshot-epochs-gate-on-default-still-projects

@@ -56,8 +56,14 @@
         ;; the wire verbatim. The fix routes each egressed record through
         ;; `re-frame.core/projected-record` — the framework's single
         ;; normative off-box-egress emission site (Security.md §Epoch
-        ;; privacy posture). When `incl?` is true (gate-ON + explicit
-        ;; opt-in) the records ship raw, mirroring subscribe's bare-drain.
+        ;; privacy posture).
+        ;; rf2-m9duxl — `incl?` (gate-ON + explicit `:include-sensitive
+        ;; true`) NO LONGER bypasses projection. It is threaded as the
+        ;; `{:include-sensitive? true}` egress opt INTO `projected-record`,
+        ;; lifting ONLY the app-db sensitive axis; the orthogonal fx-args /
+        ;; runtime-db / large axes and the app `:redact-fn` stay
+        ;; fail-closed (Security.md §Off-box egress). Every egressed page
+        ;; is ALWAYS projected.
         incl?     (if (raw-state/raw-state-allowed?)
                     (args/parse-bool-arg raw-args :include-sensitive)
                     false)
@@ -87,15 +93,16 @@
                            (ef/rt-call 'epoch-history))
             ;; rf2-6wvh5 — the `:pred` filter runs on the RAW records
             ;; server-side (never egressed); the capped `:page` is the
-            ;; egress slice, projected via `projected-record` for off-box
-            ;; egress unless the operator opted in to raw (`incl?`).
-            project?       (not incl?)
+            ;; egress slice, ALWAYS projected via `projected-record` for
+            ;; off-box egress. rf2-m9duxl — `incl?` threads
+            ;; `{:include-sensitive? true}` INTO the projection (app-db
+            ;; sensitive axis only), it does NOT disable projection.
             page-src       (str "(vec (take " limit " matches))")
             form (ef/emit
                    (ef/rt-let
                      ['r             epochs-since-call
                       'matches       (ef/rt-raw matches-form)
-                      'page          (ef/rt-raw (egress/project-page-src page-src project?))
+                      'page          (ef/rt-raw (egress/project-page-src page-src incl?))
                       'next-id       (ef/rt-raw
                                        "(when (< (count page) (count matches)) (:epoch-id (last page)))")
                       ;; rf2-fb4hn: history-count surfaces the
