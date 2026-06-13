@@ -15,7 +15,7 @@
 > - `implementation/core/src/re_frame/views.cljs` (541 LoC) — reg-view wrapper + source-coord injector + plain-fn warn-once. Significant chunks fold into the renderer.
 >
 > Hard constraints (settled):
-> 1. React 19 floor (DECISION-5; Stage 1 §2.3a) — no `reagent.dom`; throw-on-call for that namespace.
+> 1. React 19 floor (DECISION-5; Stage 1 §2.3a) — no `reagent.dom`; that namespace and its React-19-removed surfaces are absent (rf2-jif0qp; not throw-on-call stubs).
 > 2. Maven coord `day8/reagent-slim` (DECISION-1).
 > 3. Namespace tree under `reagent2.*` (DECISION-4); adapter Var unchanged at `re-frame.adapter.reagent`.
 > 4. 7-key Form-3 cap (DECISION-3 + rf2-kfpf §6).
@@ -43,7 +43,6 @@ implementation/adapters/reagent-slim/
 │       ├── core.cljs                  ; user-facing compat surface
 │       ├── ratom.cljs                 ; reactive primitives
 │       ├── ratom.clj                  ; the reaction macro (CLJS-only consumer)
-│       ├── dom.cljs                   ; throw-on-call shims (Class B)
 │       ├── dom/
 │       │   ├── client.cljs            ; create-root / render / unmount / hydrate-root / flush-views!
 │       │   └── server.cljs            ; pure-CLJS render-to-static-markup
@@ -179,7 +178,7 @@ File: `implementation/adapters/reagent-slim/src/re_frame/adapter/reagent_slim.cl
 Stage 4 chose a distinct adapter ns (`re-frame.adapter.reagent-slim`) rather than overloading `re-frame.adapter.reagent`. The bridge adapter (`day8/re-frame2-reagent`) stays at the existing path; the rewrite ships alongside it as a sibling artefact (`day8/reagent-slim`). Apps select between them at boot via the explicit `(rf/init! <adapter-var>)` call — `reagent-adapter/adapter` (bridge) vs `reagent-slim-adapter/adapter` (rewrite).
 
 Public Vars (signatures unchanged from current bridge):
-- `adapter` — the substrate spec map (per `re-frame.substrate.adapter`'s 9-key contract).
+- `adapter` — the substrate spec map (per `re-frame.substrate.adapter`'s contract: 6 required + 3 optional + 1 lifecycle fn).
 - `set-hiccup-emitter!` — wires the SSR seam's render-to-string into the adapter's `:render-to-string` slot via the `:reagent/set-hiccup-emitter!` late-bind hook (`re-frame.late-bind`). Kept for compat with `re-frame.ssr` which already calls `(late-bind/get-fn :reagent/set-hiccup-emitter!)` at load time (`implementation/ssr/src/re_frame/ssr.cljc:360`).
 
 Private helpers (one each per adapter slot):
@@ -220,7 +219,7 @@ Public Vars (the audit-binding fourteen surfaces, per Stage 2 §2.7):
 
 Internal helpers (private but load-bearing): none unique — this ns is mostly re-exports.
 
-Symbols **not shipped** (per Stage 1 §2.4 + DECISION-7 + Stage 2 §2.7 audit-confirmed): `track`, `track!`, `cursor`, `wrap`, `rswap!`, `partial`, `merge-props`, `unsafe-html`, `adapt-react-class`, `reactify-component`, `create-element`, `next-tick`, `flush` (replaced by `reagent2.dom.client/flush-views!`), `dom-node` (Class B throw — see §10), `class-names`, `is-client`, `set-default-compiler!`, `create-compiler`, `with-let` (Stage 2 §4 binding decision per audit-driven scoping), `render` (deprecated stub — Class B throw, see §10).
+Symbols **not shipped** (per Stage 1 §2.4 + DECISION-7 + Stage 2 §2.7 audit-confirmed): `track`, `track!`, `cursor`, `wrap`, `rswap!`, `partial`, `merge-props`, `unsafe-html`, `adapt-react-class`, `reactify-component`, `create-element`, `next-tick`, `flush` (replaced by `reagent2.dom.client/flush-views!`), `dom-node` (React-19-removed; absent — see §10), `class-names`, `is-client`, `set-default-compiler!`, `create-compiler`, `with-let` (Stage 2 §4 binding decision per audit-driven scoping), `render` (React-19-removed; absent — see §10).
 
 ### §2.3 `reagent2.ratom` — reactive primitives
 
@@ -286,16 +285,9 @@ Public Vars:
 
 `render-to-string` is **not shipped** (DECISION-6). Apps that need hydrate-able SSR use `day8/re-frame2-ssr` via `re-frame.ssr/render-to-string`.
 
-### §2.6 `reagent2.dom` — throw-on-call shims (Class B)
+### §2.6 `reagent2.dom` — ABSENT
 
-File: `src/reagent2/dom.cljs`.
-
-Public Vars (all throw at first invocation; no React-19-removed APIs are exercised):
-- `render` `[& _]` — throws.
-- `unmount-component-at-node` `[& _]` — throws.
-- `force-update-all` `[]` — throws.
-
-See §10 for migration-message text.
+There is no `reagent2.dom` namespace. Stock Reagent's `reagent.dom/{render, unmount-component-at-node, force-update-all}` depended on React APIs removed in React 19; the rewrite drops them entirely rather than shipping throw-on-call stubs (rf2-jif0qp). See §10 for the migration recipes.
 
 ### §2.7 `reagent2.impl.template` — hiccup interpreter (internal)
 
@@ -916,18 +908,22 @@ The test diffs the outputs and asserts byte-for-byte equality, with explicit kno
 
 ### §9.1 The adapter map (UNCHANGED public path)
 
-The rewrite's `re-frame.adapter.reagent/adapter` Var emits the same 9-key map shape `re-frame.substrate.adapter` consumes (`adapter.cljc:67-120`):
+The rewrite's `re-frame.adapter.reagent/adapter` Var emits the same map shape `re-frame.substrate.adapter` consumes — 6 required + 3 optional + 1 lifecycle fn, assembled by `re-frame.substrate.spine/make-ratom-spine` (the one implementation the bridge and slim adapters share):
 
 ```clojure
 (def adapter
-  {:make-state-container      make-state-container
+  {;; required (6)
+   :make-state-container      make-state-container
    :read-container            read-container
    :replace-container!        replace-container!
-   :subscribe-container       subscribe-container
    :make-derived-value        make-derived-value
    :render                    render
    :render-to-string          render-to-string
+   ;; optional (3) — core falls back / no-ops when absent
+   :subscribe-container       subscribe-container
    :register-context-provider register-context-provider
+   :flush-render!             flush-render!
+   ;; lifecycle (1)
    :dispose-adapter!          dispose-adapter!})
 ```
 
@@ -961,45 +957,24 @@ Reg-view-wrapped components still carry `:contextType frame-context` (read into 
 
 ---
 
-## §10 Throw-on-call shims (Class B, React-19-removed)
+## §10 React-19-removed surfaces — ABSENT (not throw-on-call)
 
-Per Stage 1 §2.3a + DECISION-7 Class B. Five symbols ship as throw-on-call. Each emits a migration-message string at first invocation; static-analysis-friendly callers just delete the import.
+Per Stage 1 §2.3a + DECISION-7 + DECISION-8 (no back-compat shims). Five stock-Reagent symbols depended on React APIs that React 19 removed: `reagent.dom/render`, `reagent.dom/unmount-component-at-node`, `reagent.dom/force-update-all`, `reagent.core/render`, `reagent.core/dom-node`. The slim rewrite does **not** ship them — not as working APIs, and (per rf2-jif0qp) not as throw-on-call stubs either. They are simply absent: there is no `reagent2.dom` namespace and `reagent2.core` defines neither `render` nor `dom-node`.
 
-### §10.1 Migration messages
+The earlier Stage-4-F design shipped these as throw-on-call shims carrying a `:rf.error/react-19-removed-surface` `ex-info`. rf2-jif0qp pruned them: a throw-only stub for a removed surface is itself a back-compat shim, which the pre-alpha masterpiece stance disallows (DECISION-8). The louder, earlier signal is an **unresolved-var compile error** at the call site — the build fails before the app ever runs, rather than the call surviving to a runtime throw.
 
-The migration-message strings are fixed and visible in source. The doc URL is `https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md` (Stage 4 confirms the URL is correct at branch-cut).
+### §10.1 Migration
 
-| Shim | Migration message |
+A call site that still references one of the removed symbols fails to compile. The fix is mechanical and the same as it was under the shim era:
+
+| Removed stock symbol | Replacement |
 |---|---|
-| `reagent2.dom/render` | `"reagent.dom/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead. See https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path."` |
-| `reagent2.dom/unmount-component-at-node` | `"reagent.dom/unmount-component-at-node is removed under React 19. Use reagent2.dom.client/unmount instead. See https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path."` |
-| `reagent2.dom/force-update-all` | `"reagent.dom/force-update-all is removed (it iterated React 17 internals). If you have a legitimate use case, file an issue at https://github.com/day8/re-frame2/issues."` |
-| `reagent2.core/dom-node` | `"reagent.core/dom-node depended on findDOMNode which is removed in React 19. Use a :ref callback or React.useRef instead. See https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#dom-node-removal."` |
-| `reagent2.core/render` | `"reagent.core/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead. See https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path."` |
+| `reagent.dom/render`, `reagent.core/render` | `reagent2.dom.client/{create-root, render}` — the React 18+ root API. |
+| `reagent.dom/unmount-component-at-node` | `reagent2.dom.client/unmount`. |
+| `reagent.dom/force-update-all` | No replacement (it iterated React 17 internals). File an issue if you hit a real use case. |
+| `reagent.core/dom-node` | A `:ref` callback (or `React.useRef`) — `findDOMNode` is gone in React 19. |
 
-### §10.2 Implementation pattern
-
-Each shim is a `defn` whose body throws an `ex-info` with the migration message. ~10 LoC total across the five symbols (Stage 2 §2.4 estimate). Example:
-
-```clojure
-(defn render
-  "REMOVED under React 19. See migration message."
-  [& _]
-  (throw
-    (ex-info ":rf.error/react-19-removed-surface"
-      {:rf.error/id :rf.error/react-19-removed-surface
-       :where       'reagent2.dom/render
-       :recovery    :no-recovery
-       :reason      "reagent.dom/render is removed under React 19. Use reagent2.dom.client/{create-root, render} instead."
-       :surface     'reagent2.dom/render
-       :migration   "https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#legacy-mount-path"})))
-```
-
-The canonical `:rf.error/id` discriminator (per Spec 009) `:rf.error/react-19-removed-surface` is shared across all five shims so a try/catch-as-migration-helper can match all of them with one `(= :rf.error/react-19-removed-surface (:rf.error/id (ex-data e)))` check. The message string is the stringified discriminator kw; the human-readable explanation rides on `:reason` and the migration-guide URL on `:migration`.
-
-### §10.3 Static-analysis friendliness
-
-Because the throw is the only thing in the body, `:advanced` Closure compilation can identify these as never-returning fns. Apps that import the symbol but never call it (e.g. an old `(:require [reagent2.dom :as rdom])` where `rdom` is unused) pay zero runtime cost — the shims DCE if no call site reaches them.
+See `migration/from-re-frame-v1/README.md` (anchors `#legacy-mount-path`, `#dom-node-removal`) for the worked recipes.
 
 ---
 
@@ -1060,7 +1035,6 @@ Per the bead description and Stage 2 §5 risk register R-001..R-007.
 | `reagent2.ratom` | `ratom_test.cljs` | RAtom + Reaction lifecycle; protocol satisfaction; equality memoisation; `IDisposable` reify; cross-substrate cache-wiring contract. |
 | `reagent2.dom.client` | `dom_client_test.cljs` | create-root / render / unmount / hydrate-root happy-paths; flush-views! determinism contract per §4.6; React-19 `act` cooperation. |
 | `reagent2.dom.server` | `dom_server_test.cljs` + `parity_test.cljs` | render-to-static-markup output for representative corpus; parity against `react-dom/server` per §8.7. |
-| `reagent2.dom` (throw shims) | `dom_throw_test.cljs` | each of the 5 throw-on-call symbols throws an `ex-info` of `:rf.error/id :rf.error/react-19-removed-surface` with the migration explanation on `:reason` and the guide URL on `:migration`. |
 | `reagent2.impl.template` | `impl/template_test.cljs` | hiccup → React-element shapes; narrowed convert-prop-value (R-001); kebab-camel cache; tag parsing; sequence-children handling; `:>` / `:<>` / `:r>` / `:f>` interop. |
 | `reagent2.impl.component` | `impl/component_test.cljs` | create-class 7-key cap (R-002); throw-on-unsupported-key per banned key; lifecycle method mapping per §6.4; `:component-did-catch` error-boundary integration per §6.5; `:get-snapshot-before-update` pairing per §6.6. |
 | `reagent2.impl.batching` | `impl/batching_test.cljs` | microtask scheduling; dirty-set dedup; flush! synchronous drain; after-render queue; React 19 transition cooperation (R-005). |
@@ -1173,7 +1147,7 @@ The dropped surfaces (§2.2 list) were audit-confirmed zero-usage across re-com 
 | `r/next-tick` | Use `goog.async.nextTick` directly (re-frame2 already does — `interop.cljs:15`). |
 | `r/flush` | Use `reagent2.dom.client/flush-views!` (in tests). In production, you don't need to flush. |
 | `r/force-update` | Form-3: kept (`reagent2.core/force-update`). Form-1/2: restructure to be reactive. |
-| `r/dom-node` | Use a `:ref` callback. (Class B throw — fail loud.) |
+| `r/dom-node` | Use a `:ref` callback. (Absent — `findDOMNode` is gone in React 19; the call site fails to compile.) |
 | `r/class-names` | Userland one-liner. |
 | `r/is-client` | Use re-frame2's `(re-frame.interop/active-platform)` getter (settable at boot via `re-frame.core/init-platform`). |
 

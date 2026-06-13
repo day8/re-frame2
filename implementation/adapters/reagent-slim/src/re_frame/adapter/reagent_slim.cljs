@@ -1,13 +1,14 @@
 (ns re-frame.adapter.reagent-slim
-  "The day8/reagent-slim adapter — emits the 9-key substrate map for
-  `re-frame.substrate.adapter`. Shape-compatible with the bridge
-  adapter `re-frame.adapter.reagent`; internals route through the
-  `reagent2.*` rewrite of Reagent (no stock-Reagent dep).
+  "The day8/reagent-slim adapter — emits the substrate map for
+  `re-frame.substrate.adapter` (6 required + 3 optional + 1 lifecycle
+  fn). Shape-compatible with the bridge adapter `re-frame.adapter.reagent`;
+  internals route through the `reagent2.*` rewrite of Reagent (no
+  stock-Reagent dep).
 
       (require '[re-frame.adapter.reagent-slim :as reagent-slim])
       (rf/init! reagent-slim/adapter)
 
-  See IMPL-SPEC.md §2.1 (9-key map contract), §9 (late-bind hook table),
+  See IMPL-SPEC.md §2.1 (adapter map contract), §9 (late-bind hook table),
   §13.1 (artefact-publication shape) and DESIGN-RATIONALE.md."
   (:require [reagent2.core             :as r]
             [reagent2.ratom            :as ratom]

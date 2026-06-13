@@ -3,9 +3,10 @@
 
   The substrate-shape contract (per re-frame.substrate.adapter):
 
-    The adapter map carries 9 keys; signatures match the bridge.
-    Apps doing `(rf/init! reagent-slim/adapter)` see the same shape
-    they get from `(rf/init! reagent/adapter)`.
+    The adapter map carries the contract fns (6 required + 3 optional +
+    1 lifecycle) plus the :kind discriminator; signatures match the
+    bridge. Apps doing `(rf/init! reagent-slim/adapter)` see the same
+    shape they get from `(rf/init! reagent/adapter)`.
 
   Test strategy: we don't drive React DOM here (no jsdom in node-
   test); we exercise the adapter map's keys and the shape of the

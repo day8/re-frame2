@@ -156,12 +156,13 @@
       (rf/init! helix/adapter)
 
   See Spec 006 §CLJS reference: Helix as alternative substrate.
-  Implements the same nine-fn contract as re-frame.adapter.reagent
-  and re-frame.adapter.uix. Per rf2-agql there is no default-adapter
-  registry — adapter wiring is explicit at the call site.
+  Implements the same adapter contract as re-frame.adapter.reagent
+  and re-frame.adapter.uix (6 required + 3 optional + 1 lifecycle fn).
+  Per rf2-agql there is no default-adapter registry — adapter wiring
+  is explicit at the call site.
 
-  Assembled by `spine/make-react-adapter` (rf2-ee38b.1): the 9-key
-  substrate map, the five React-hook `route-hook!` calls, and the two
+  Assembled by `spine/make-react-adapter` (rf2-ee38b.1): the substrate
+  map, the five React-hook `route-hook!` calls, and the two
   chained installs (warn-once clear + SSR emitter) all live once in the
   spine — the Helix and UIx adapter wiring is byte-identical, so this
   single call replaces the former hand-copied block (which had drifted in
