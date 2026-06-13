@@ -3021,7 +3021,7 @@ Args of the framework-supplied `:rf.route/with-nav-token` fx wrapper, per [012 �
    [:route-id {:optional true} :any]])                                    ;; OPTIONAL captured route id (rf2-azcmd3): when present, a cross-route stale completion attributes its work-id to the route-loader attempt, not the route live at arrival
 ```
 
-Registered under spec id `:rf.fx/with-nav-token-args`. The wrapped fx receives the carried token in cofx; on receipt, the `:nav-token` cofx (a subsystem-registered coeffect a handler declares via `:rf.cofx/requires [:nav-token]` per [001 §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key)) checks the carried token against the current route slice's (`[:rf.runtime/routing :current]`) `:nav-token`. Mismatch → suppress + emit `:rf.route.nav-token/stale-suppressed` trace.
+Registered under spec id `:rf.fx/with-nav-token-args`. The wrapped fx receives the carried token in cofx; on receipt, the `:rf.route/nav-token` cofx (a subsystem-registered coeffect a handler declares via `:rf.cofx/requires [:rf.route/nav-token]` per [001 §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key)) checks the carried token against the current route slice's (`[:rf.runtime/routing :current]`) `:nav-token`. Mismatch → suppress + emit `:rf.route.nav-token/stale-suppressed` trace.
 
 ### `:rf/hydration-payload`
 
