@@ -33,7 +33,6 @@
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
-            [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
             [day8.re-frame2-xray.settings.view :as settings-view]
@@ -46,9 +45,9 @@
 ;; ---- fixture ------------------------------------------------------------
 
 (defn- xray-init! []
-  (xray-test-support/reset-all!)
-  (trace-collector/reset-for-test!)
-  (config/reset-settings!))
+  ;; rf2-sdqsla — `reset-runtime!` folds sentinel + trace-collector +
+  ;; settings reset into one call.
+  (xray-test-support/reset-runtime!))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -382,39 +381,7 @@
         (is (not (re-find #"[◉○●]" tab-text))
             "L3 tab carries no radio-circle glyph in its text")))))
 
-;; -------------------------------------------------------------------------
-;; (7) rf2-vxpq1 — static placeholder uses <h2> not <h1>
-;; -------------------------------------------------------------------------
-
-(deftest static-placeholder-uses-h2-not-h1
-  (testing "rf2-vxpq1 — Static placeholder cards drop <h1> to <h2> so
-            they don't break the host document's heading outline.
-
-            Per rf2-o5f5f.6 every Static sub-tab has shipped its real
-            panel — no placeholder cards currently mount. The
-            placeholder helper in `static/shell.cljs` still renders
-            `<h2>` if a future bead adds an unfilled tab, so this test
-            asserts the contract directly against the helper rather
-            than mounting via the surface."
-    (xray-setup!)
-    ;; The shell's `placeholder-card` defn is private; we drive the
-    ;; check through the registry's surface instead. When no
-    ;; placeholders mount, the test is trivially OK — the assertion
-    ;; bites the day a future unfilled tab regresses.
-    (rf/with-frame :rf/xray
-      (let [tree (static-shell/surface)
-            placeholders (find-all-with-pred tree
-                           (fn [n]
-                             (and (vector? n)
-                                  (map? (second n))
-                                  (when-let [tid (:data-testid (second n))]
-                                    (= 0 (.indexOf tid "rf-xray-static-placeholder-"))))))]
-        (doseq [ph placeholders]
-          (let [h1s (find-all-with-pred ph
-                     (fn [n] (and (vector? n) (= :h1 (first n)))))
-                h2s (find-all-with-pred ph
-                     (fn [n] (and (vector? n) (= :h2 (first n)))))]
-            (is (empty? h1s)
-                "placeholder card has no <h1> (would break document outline)")
-            (is (seq h2s)
-                "placeholder card uses <h2> for the title")))))))
+;; rf2-vxpq1's Static placeholder <h2>-not-<h1> test was removed in
+;; rf2-sdqsla: the rf2-o5f5f roll-out is complete (every Static sub-tab
+;; ships a real panel), so `placeholder-card` no longer exists and the
+;; test was vacuous (no placeholder ever mounts).

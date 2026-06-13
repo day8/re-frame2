@@ -138,11 +138,9 @@
 
 (defn tabs
   "Ordered Static-mode tab entries. Each entry carries `:id`,
-  `:label`, `:mnem`, `:modes`, `:order`, `:panel`, and (for tabs
-  awaiting their sibling-bead content) `:placeholder-bead`. Order
-  matches the parent-epic findings doc
-  `2026-05-19-xray-explorer-mode.md` §2.4 — machines, routes,
-  schemas, views, flows, events.
+  `:label`, `:mnem`, `:modes`, `:order`, and `:panel`. Order matches
+  the parent-epic findings doc `2026-05-19-xray-explorer-mode.md` §2.4
+  — machines, routes, schemas, views, flows, events.
 
   Default landing tab is `:machines` per Mike's call (the densest
   Static surface; opening Static on a fresh slate should land on the
@@ -369,53 +367,12 @@
        ^{:key id}
        [tab-button dispatch (assoc tab :active? (= id selected))])]))
 
-;; ---- L4 detail panel (placeholders) -------------------------------------
-
-(defn- placeholder-card
-  "Render a placeholder card for an unfilled Static sub-tab. The card
-  surfaces:
-
-    - The tab label as an `<h2>` for screen-reader navigation
-      (rf2-vxpq1 — was previously `<h1>` which nested a second top-
-      level heading inside the host document's outline; `<h2>` keeps
-      the placeholder a subheading under the host's `<h1>`).
-    - The sibling bead id ('rf2-o5f5f.<N> will fill this').
-    - A muted hint paragraph naming the upcoming content.
-
-  The card is a single `<section>` painted on `bg-2` with a thin
-  mode-`accent` stripe — mirrors the Dynamic panels' header-stripe
-  convention (`tokens/accent-stripe-style`). The runtime `:accent`
-  alias resolves to the Static-mode cyan here (the surface only
-  renders under `.mode-static`)."
-  [{:keys [label placeholder-bead id]}]
-  [:section {:data-testid (str "rf-xray-static-placeholder-" (name id))
-             :style {:padding       "16px"
-                     :background    (:bg-2 tokens)
-                     :color         (:text-primary tokens)
-                     :font-family   sans-stack
-                     :font-size     (:body type-scale)
-                     :line-height   (:line-height-tight type-scale)}}
-   ;; Per rf2-rb6js / rf2-6xezz — placeholder label renders at body
-   ;; type-scale (not `:display`) so the placeholder card matches the
-   ;; surrounding body typography. Was `[:h2]` at `:display`; now a
-   ;; non-heading `[:div]` at `:body` so it sits cleanly under the
-   ;; host's existing heading hierarchy.
-   [:div {:style {:font-size     (:body type-scale)
-                  :font-weight   600
-                  :margin        "0 0 8px 0"
-                  :padding-left  "10px"
-                  :border-left   (str "3px solid " (:accent tokens))}}
-    label]
-   [:p {:style {:color  (:text-secondary tokens)
-                :margin "0 0 12px 0"}}
-    [:strong {:style {:color (:accent tokens)}}
-     placeholder-bead]
-    " will fill this."]
-   [:p {:style {:color  (:text-tertiary tokens)
-                :margin 0
-                :font-size (:caption type-scale)}}
-    "Static mode is event-INDEPENDENT — this tab will browse what's "
-    "registered, not what just fired. See parent epic rf2-o5f5f."]])
+;; ---- L4 detail panel ----------------------------------------------------
+;;
+;; rf2-o5f5f roll-out complete (rf2-sdqsla): all five Static sub-tabs ship
+;; a real panel, so the unfilled-tab `placeholder-card` scaffold was
+;; removed. `detail-panel` always mounts the selected tab's `:panel` view;
+;; an unknown `:selected-tab` falls through to the unknown-tab stub.
 
 (rf/reg-view detail-panel
   "L4 detail panel — registry-driven mount (rf2-2moh1).

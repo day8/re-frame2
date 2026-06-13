@@ -30,9 +30,9 @@
 ;; ---- fixture ------------------------------------------------------------
 
 (defn- xray-init! []
-  (xray-test-support/reset-all!)
-  (trace-collector/reset-for-test!)
-  (config/reset-settings!)
+  ;; rf2-sdqsla — `reset-runtime!` folds sentinel + trace-collector +
+  ;; settings reset into one call.
+  (xray-test-support/reset-runtime!)
   ;; Force-cleanup any stale drag-state from a previous test (the
   ;; module-level defonce atom survives fixture reset).
   (shell/col-divider-simulate-up!))

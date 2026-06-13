@@ -382,7 +382,6 @@
      :mnem  "f"
      :modes #{:static}
      :order 3
-     :panel Panel
-     :placeholder-bead "rf2-uhsqb"})
+     :panel Panel})
 
   nil)

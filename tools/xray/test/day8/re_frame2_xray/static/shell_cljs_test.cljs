@@ -100,11 +100,6 @@
                     (= 0 (.indexOf tid prefix)))))
            (hiccup-seq tree)))
 
-(defn- text-nodes [tree]
-  (->> (hiccup-seq tree)
-       (filter string?)
-       (apply str)))
-
 ;; ---- helpers ------------------------------------------------------------
 
 (defn- xray-setup! []
@@ -257,7 +252,7 @@
             "no filter pills")))))
 
 ;; -------------------------------------------------------------------------
-;; (4) Static tab inventory — 5 sub-tabs, each with a placeholder card
+;; (4) Static tab inventory — 5 sub-tabs, each mounting a real panel
 ;; -------------------------------------------------------------------------
 
 (def ^:private expected-static-tab-ids
@@ -300,40 +295,15 @@
                    (:aria-selected attrs))
                 (str "tab " tab-id " aria-selected matches the active tab"))))))))
 
-(def ^:private filled-static-tab-ids
-  "Static tab ids that have a real panel installed — the placeholder
-  card for these tabs is no longer rendered. Sibling beads tick one
-  off each time they land."
-  ;; rf2-o5f5f.2 — :machines     mounts the Static Machines panel.
-  ;; rf2-o5f5f.3 — :routes       mounts the Static Routes panel.
-  ;; rf2-o5f5f.4 — :schemas      mounts the Static Schemas panel.
-  ;; rf2-uhsqb   — :flows        mounts the Static Flows panel.
-  ;; rf2-o5f5f.6 — :interceptors mounts the Static Interceptors panel.
-  ;; rf2-b2fif removed the Static Views + Events panels.
-  #{:machines :routes :schemas :flows :interceptors})
+;; rf2-sdqsla — the rf2-o5f5f placeholder roll-out is complete: every
+;; Static sub-tab (:machines :routes :schemas :flows :interceptors) ships
+;; a real panel, so `placeholder-card` was removed from the shell. The
+;; per-tab `*-mounts-live-panel` tests below assert each real panel mounts;
+;; there is no longer an unfilled-tab placeholder path to cover.
 
-(deftest static-placeholder-cards-name-sibling-bead
-  (testing "each placeholder card surfaces its sibling-bead id
-            (rf2-o5f5f.<N> will fill this) — except for tabs already
-            replaced by a real panel (filled-static-tab-ids)"
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (doseq [tab-id expected-static-tab-ids
-              :when (not (contains? filled-static-tab-ids tab-id))]
-        (frame-dispatch [:rf.xray.static/select-tab tab-id])
-        (let [tree (static-shell/surface)
-              card (find-by-testid tree (str "rf-xray-static-placeholder-" (name tab-id)))
-              text (text-nodes card)]
-          (is (some? card)
-              (str "placeholder card for " tab-id " rendered"))
-          (is (re-find #"rf2-o5f5f\." text)
-              (str "card text names a sibling bead id (got: " text ")"))
-          (is (re-find #"will fill this" text)
-              "card mentions 'will fill this'"))))))
-
-(deftest static-machines-mounts-live-panel-not-placeholder
+(deftest static-machines-mounts-live-panel
   (testing "rf2-o5f5f.2 — the :machines sub-tab mounts the live Static
-            Machines panel (replaces the placeholder card)"
+            Machines panel"
     (xray-setup!)
     (rf/with-frame :rf/xray
       (frame-dispatch [:rf.xray.static/select-tab :machines])
@@ -341,7 +311,7 @@
         (is (some? (find-by-testid tree "rf-xray-static-machines-panel"))
             "live Machines panel mounts")
         (is (nil? (find-by-testid tree "rf-xray-static-placeholder-machines"))
-            "placeholder card no longer renders for :machines")))))
+            "no placeholder card renders for :machines")))))
 
 ;; -------------------------------------------------------------------------
 ;; (5) Static tab routing — selection + isolation
@@ -521,19 +491,14 @@
 ;; -------------------------------------------------------------------------
 
 (deftest static-tab-inventory-shape
-  (testing "tab inventory carries id/label/mnem/placeholder-bead and
-            preserves canonical order"
+  (testing "tab inventory carries id/label/mnem/panel and preserves
+            canonical order"
     (is (= [:machines :routes :schemas :flows :interceptors]
            (mapv :id (static-shell/tabs)))
         "5 tabs in canonical order (rf2-b2fif dropped :views + :events)")
-    (doseq [{:keys [id label mnem placeholder-bead]} (static-shell/tabs)]
+    (doseq [{:keys [id label mnem panel]} (static-shell/tabs)]
       (is (keyword? id) (str "id is keyword for " id))
       (is (string? label) (str "label is a string for " id))
       (is (and (string? mnem) (= 1 (count mnem)))
           (str "mnem is one character for " id))
-      ;; Most sub-tabs are sibling beads under the rf2-o5f5f parent epic
-      ;; (rf2-o5f5f.2 / .3 / .4 / .5 / .6). The :flows tab landed under
-      ;; the standalone rf2-uhsqb bead per the parent-epic comment, so
-      ;; the regex accepts either shape.
-      (is (re-matches #"(rf2-o5f5f\.\d|rf2-[a-z0-9]+)" placeholder-bead)
-          (str "placeholder-bead names a sibling bead for " id)))))
+      (is (fn? panel) (str "panel is a callable view fn for " id)))))

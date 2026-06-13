@@ -40,12 +40,12 @@
 ;; ---- fixtures -----------------------------------------------------------
 
 (defn- xray-init! []
-  (xray-test-support/reset-all!)
-  (trace-collector/reset-for-test!)
-  ;; rf2-2thl2 — init! writes through to the persisted Settings atom;
-  ;; reset between tests so per-test mutations don't leak into the
-  ;; next test's read.
-  (config/reset-settings!))
+  ;; rf2-sdqsla — `reset-runtime!` folds the sentinel + trace-collector
+  ;; + settings reset into one call. rf2-2thl2 — the settings reset
+  ;; matters because init! writes through to the persisted Settings atom;
+  ;; reset between tests so per-test mutations don't leak into the next
+  ;; test's read.
+  (xray-test-support/reset-runtime!))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture

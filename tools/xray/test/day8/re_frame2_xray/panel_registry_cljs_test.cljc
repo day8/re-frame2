@@ -50,9 +50,11 @@
 
 (defn- stub-panel
   "A stand-in `:panel` value. The registry never invokes it (it only
-  stores it), so any sentinel works on both targets."
+  stores it) but `reg-l4-tab!`'s `:pre` requires `:panel` to be
+  callable (a real registration is always a `reg-view` render fn), so
+  the stub is an `(fn [] nil)` rather than a keyword sentinel."
   []
-  ::panel-stub)
+  (fn [] nil))
 
 (defn- dynamic-tab
   "Minimal valid Dynamic tab entry with the given id + order."
@@ -78,9 +80,9 @@
             as two SEPARATE entries (Dynamic Routing vs Static Routes —
             same :routes id, different panel)"
     (let [dyn {:id :routes :label "Routing" :mnem "r"
-               :modes #{:dynamic} :order 6 :panel ::dynamic-routing}
+               :modes #{:dynamic} :order 6 :panel (stub-panel)}
           sta {:id :routes :label "Routes" :mnem "r"
-               :modes #{:static} :order 2 :panel ::static-routes}]
+               :modes #{:static} :order 2 :panel (stub-panel)}]
       (reg/reg-l4-tab! dyn)
       (reg/reg-l4-tab! sta)
       (is (= dyn (reg/tab-by-id :dynamic :routes)))
@@ -107,33 +109,35 @@
 (deftest reg-l4-tab-rejects-malformed-entries
   (testing "the :pre contract rejects each malformed shape (the spec for
             a well-formed tab entry — kw id, string label, single-mode
-            set, optional string mnem / placeholder-bead, optional
-            number order)"
+            set, callable :panel, optional string mnem, optional number
+            order)"
     (let [throws? (fn [tab]
                     (try (reg/reg-l4-tab! tab) false
                          (catch #?(:clj Throwable :cljs :default) _ true)))]
-      (is (throws? {:id "not-a-keyword" :label "X" :modes #{:dynamic} :panel ::p})
+      (is (throws? {:id "not-a-keyword" :label "X" :modes #{:dynamic} :panel (fn [] nil)})
           "id must be a keyword")
-      (is (throws? {:id :x :label :not-a-string :modes #{:dynamic} :panel ::p})
+      (is (throws? {:id :x :label :not-a-string :modes #{:dynamic} :panel (fn [] nil)})
           "label must be a string")
-      (is (throws? {:id :x :label "X" :modes [:dynamic] :panel ::p})
+      (is (throws? {:id :x :label "X" :modes [:dynamic] :panel (fn [] nil)})
           "modes must be a set, not a vector")
-      (is (throws? {:id :x :label "X" :modes #{:dynamic :static} :panel ::p})
+      (is (throws? {:id :x :label "X" :modes #{:dynamic :static} :panel (fn [] nil)})
           "modes must be a SINGLE-element set")
-      (is (throws? {:id :x :label "X" :modes #{:bogus} :panel ::p})
+      (is (throws? {:id :x :label "X" :modes #{:bogus} :panel (fn [] nil)})
           "the mode must be :dynamic or :static")
-      (is (throws? {:id :x :label "X" :modes #{:dynamic} :order "0" :panel ::p})
+      (is (throws? {:id :x :label "X" :modes #{:dynamic} :order "0" :panel (fn [] nil)})
           "order, when present, must be a number")
-      (is (throws? {:id :x :label "X" :modes #{:dynamic}
-                    :placeholder-bead :not-a-string :panel ::p})
-          "placeholder-bead, when present, must be a string"))))
+      (is (throws? {:id :x :label "X" :modes #{:dynamic}})
+          ":panel is required — a missing panel is rejected at the seam")
+      (is (throws? {:id :x :label "X" :modes #{:dynamic} :panel :not-callable})
+          ":panel must be callable — a keyword sentinel is rejected (it
+           would throw when the shell renders [(:panel tab)])"))))
 
 (deftest reg-l4-tab-accepts-optional-slots-absent
-  (testing "mnem / order / placeholder-bead are all optional — an entry
-            omitting them still registers"
-    (let [tab {:id :minimal :label "Minimal" :modes #{:dynamic} :panel ::p}]
+  (testing "mnem / order are optional — an entry omitting them still
+            registers (a callable :panel is still required)"
+    (let [tab {:id :minimal :label "Minimal" :modes #{:dynamic} :panel (stub-panel)}]
       (is (= tab (reg/reg-l4-tab! tab))
-          "a minimal entry (no mnem / order / placeholder-bead) is valid"))))
+          "a minimal entry (no mnem / order) is valid"))))
 
 ;; ---- (4) tabs-for-mode — partition + ordering ---------------------------
 
@@ -143,7 +147,7 @@
     (reg/reg-l4-tab! (dynamic-tab :epoch 0))
     (reg/reg-l4-tab! (dynamic-tab :appdb 1))
     (reg/reg-l4-tab! {:id :catalogue :label "Catalogue" :mnem "c"
-                      :modes #{:static} :order 0 :panel ::p})
+                      :modes #{:static} :order 0 :panel (stub-panel)})
     (is (= [:epoch :appdb] (mapv :id (reg/tabs-for-mode :dynamic)))
         "only Dynamic tabs surface for :dynamic")
     (is (= [:catalogue] (mapv :id (reg/tabs-for-mode :static)))
@@ -163,7 +167,7 @@
             crash the sort)"
     (reg/reg-l4-tab! (dynamic-tab :ordered-0 0))
     (reg/reg-l4-tab! {:id :unordered :label "Unordered" :mnem "u"
-                      :modes #{:dynamic} :panel ::p})
+                      :modes #{:dynamic} :panel (stub-panel)})
     (reg/reg-l4-tab! (dynamic-tab :ordered-1 1))
     (is (= [:ordered-0 :ordered-1 :unordered]
            (mapv :id (reg/tabs-for-mode :dynamic)))
@@ -197,7 +201,7 @@
     (reg/reg-l4-tab! (dynamic-tab :epoch 0))
     (reg/reg-l4-tab! (dynamic-tab :appdb 1))
     (reg/reg-l4-tab! {:id :catalogue :label "Catalogue" :mnem "c"
-                      :modes #{:static} :order 0 :panel ::p})
+                      :modes #{:static} :order 0 :panel (stub-panel)})
     (is (= #{:epoch :appdb} (reg/tab-ids-for-mode :dynamic)))
     (is (= #{:catalogue} (reg/tab-ids-for-mode :static)))))
 
@@ -227,9 +231,9 @@
   (testing "unreg-l4-tab! removes the id's entries under EVERY mode (the
             same :routes id under both Dynamic + Static both drop)"
     (reg/reg-l4-tab! {:id :routes :label "Routing" :mnem "r"
-                      :modes #{:dynamic} :order 6 :panel ::dyn})
+                      :modes #{:dynamic} :order 6 :panel (stub-panel)})
     (reg/reg-l4-tab! {:id :routes :label "Routes" :mnem "r"
-                      :modes #{:static} :order 2 :panel ::sta})
+                      :modes #{:static} :order 2 :panel (stub-panel)})
     (reg/reg-l4-tab! (dynamic-tab :epoch 0))
     (is (= 3 (count (reg/tab-entries))) "baseline — 3 entries")
     (reg/unreg-l4-tab! :routes)

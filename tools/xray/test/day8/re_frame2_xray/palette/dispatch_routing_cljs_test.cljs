@@ -41,20 +41,18 @@
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
-            [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.palette :as palette]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.trace-collector :as trace-collector]))
+            [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 ;; ---- fixture (map shape per cljs.test/async requirement) ---------------
 
 (def ^:private fixture-snap (atom nil))
 
 (defn- setup-runtime! []
-  (xray-test-support/reset-all!)
-  (trace-collector/reset-for-test!)
-  (config/reset-settings!)
+  ;; rf2-sdqsla — `reset-runtime!` folds sentinel + trace-collector +
+  ;; settings reset into one call.
+  (xray-test-support/reset-runtime!)
   (reset! fixture-snap (test-support/snapshot-registrar))
   (reset! frame/frames {})
   (substrate-adapter/dispose-adapter!)
