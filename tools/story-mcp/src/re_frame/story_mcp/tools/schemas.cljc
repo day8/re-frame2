@@ -306,10 +306,37 @@
 (def run-variant-annotations
   "Annotations for the variant-lifecycle tools (`run-variant` and
   `preview-variant`) — both execute a variant's four-phase lifecycle
-  which dispatches events into the variant's frame. Per
+  which dispatches the AUTHOR'S events into the variant's frame. Per
   spec/Tool-Pair.md §Direct-read privacy posture the run is a write
-  to the runtime, so `:destructiveHint true`. The events fire inside
-  the JVM process — `:openWorldHint false`.
+  to the runtime, so `:destructiveHint true`.
+
+  ## Open-world (rf2-e6knrq finding 2)
+
+  `:openWorldHint true`. The events / fx these tools fire are the
+  variant author's — `:setup` / `:script` event sequences run through
+  the live re-frame2 dispatch + fx pipeline (tools/story
+  runtime.cljc run-events! / run-loaders! / play). Story's fx-stubbing
+  (`:fx-overrides` / the `:force-fx-stub` decorator / `:network`) is a
+  per-variant AUTHORING surface, NOT a universal default
+  (tools/story/spec/005-SOTA-Features.md §force-fx-stub;
+  017-Testing-Story.md §The effect-override surface): the runtime
+  installs overrides ONLY from the variant's decorator stack
+  (frames.cljc register-fx-overrides!). A variant that does not stub a
+  given fx fires the REAL handler — so a `run-variant` / `preview-variant`
+  call CAN emit HTTP, analytics, websocket, storage, navigation, or any
+  app-registered effect into the outside world. Marking these tools
+  closed-world (`openWorldHint false`) would tell an agent host the call
+  is contained on-box and let it under-gate a call that reaches external
+  systems. The open-world hint signals the truth so a host can apply the
+  appropriate confirmation ceremony.
+
+  The READ tools, the registry WRITE tools (register / unregister /
+  record-as-variant), and the static docs tools stay closed-world: none
+  of them runs the author's lifecycle. `record-as-variant` is closed-
+  world by the same logic — it RECORDS what an externally-driven canvas
+  dispatched (the agent drives the canvas separately) and optionally
+  writes the captured snippet to the on-box registry; the tool call
+  itself does not run the variant lifecycle.
 
   rf2-8h778: `preview-variant` originally shipped with
   `read-only-annotations`; the audit (rf2-3pn6c Finding #2) caught
@@ -318,7 +345,7 @@
   must match the side-effect surface, not the verb gloss
   (`preview-variant`'s rendered URL output) at the wire."
   {:destructiveHint true
-   :openWorldHint   false})
+   :openWorldHint   true})
 
 (def write-gated-output-schema
   "outputSchema for write-surface tools (`register-variant`,

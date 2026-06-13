@@ -149,7 +149,7 @@ The server uses the standard JSON-RPC 2.0 error codes:
 | Code | Meaning | When returned |
 |---|---|---|
 | `-32700` | Parse error | Malformed JSON. The reply carries `id: null`; the run-loop survives and continues reading. |
-| `-32600` | Invalid request | The frame is JSON but not a valid JSON-RPC request shape. |
+| `-32600` | Invalid request | The frame is JSON but not a valid JSON-RPC request shape, **or** a request other than `initialize` / `ping` arrives before the `initialize` handshake completes (the pre-initialize lifecycle gate — see [§Lifecycle state enforcement](#lifecycle-state-enforcement)). |
 | `-32601` | Method not found | Unknown method name. |
 | `-32602` | Invalid params | `tools/call` `name` is missing or not a string. Argument-shape failures do NOT surface here — each tool self-validates (`required-arg` / `coerce-body`) and returns an `isError: true` tool result, not a protocol error. An unknown top-level argument KEY (rf2-ovmc5e) likewise returns an `isError: true` tool result (`:rf.error :rf.story-mcp/unknown-arguments`) before dispatch, not a protocol error. |
 | `-32603` | Internal error | An unexpected exception during dispatch. |
@@ -203,6 +203,40 @@ The server replies:
 
 The agent then sends a `notifications/initialized` notification
 (silent accept); the handshake is complete.
+
+## Lifecycle state enforcement
+
+The dispatcher is **stateful**: each session (one run-loop invocation)
+tracks whether the `initialize` handshake has completed. Before a
+successful `initialize`, the **only** requests accepted are:
+
+- `initialize` — the handshake itself.
+- `ping` — a stateless liveness probe (MCP §Utilities); answering it
+  before initialize lets a host health-check a freshly-spawned server.
+
+Any **other** request before initialization — `tools/list`,
+`tools/call`, `shutdown`, an unknown method — returns
+`-32600 invalid-request` with a message naming the violation. The tool
+registry never enumerates and no tool handler ever runs before the
+handshake, closing a protocol-compliance and state-leak gap (a malformed
+or hostile client cannot probe or invoke the surface pre-handshake).
+
+**Notifications** (a request with no `id`, e.g.
+`notifications/initialized`) are accepted as silent no-ops in **every**
+lifecycle posture — the gate runs only on requests.
+
+### `notifications/initialized` is not required (deliberate relaxation)
+
+The MCP lifecycle has the client send `notifications/initialized` after
+the `initialize` response to confirm the handshake. The server does
+**not** gate the tool surface on receiving it: the session flips to
+*initialized* the moment the `initialize` **response** is built. This
+matches the reference SDK posture — the MCP Python SDK was aligned to the
+TypeScript SDK to mark the server initialized on the `initialize`
+response rather than waiting for the notification, so a client that
+pipelines `initialize` + `tools/list` does not race a refusal. The
+notification is still accepted as a no-op, so a well-behaved client sees
+no error. (rf2-e6knrq.)
 
 ## `tools/list`
 

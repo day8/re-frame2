@@ -7,10 +7,52 @@
 
   1. Server starts; reads from stdin in a loop.
   2. First message must be `initialize` — we respond with our protocol
-     version + capabilities + serverInfo.
-  3. Client sends `notifications/initialized` (no response).
+     version + capabilities + serverInfo. The session is marked
+     `initialized` the moment that response is built (see the
+     `:initialized?` relaxation below).
+  3. Client sends `notifications/initialized` (no response). Accepted
+     but NOT required — see the relaxation note.
   4. Client sends `tools/list`, `tools/call`, etc.; we dispatch.
   5. Shutdown: client closes stdin → readLine returns nil → we exit.
+
+  ## Pre-initialize state enforcement (rf2-e6knrq, finding 1)
+
+  The lifecycle prose above is a CONTRACT, not just documentation. The
+  dispatcher is stateful: each session carries a `lifecycle-state` atom
+  (created per `run-loop!` invocation) whose `:initialized?` flag gates
+  the method surface.
+
+  BEFORE a successful `initialize`, the ONLY messages accepted are:
+
+  - `initialize`  — the handshake itself.
+  - `ping`        — a protocol-level liveness probe the MCP spec lists
+                    under Utilities and which carries no session state;
+                    answering it pre-init is safe and lets a host health-
+                    check a freshly-spawned server.
+  - any NOTIFICATION (no `:id`) — silently ignored per JSON-RPC, exactly
+                    as in the initialized state. (`notifications/initialized`
+                    is the canonical one.)
+
+  Any OTHER request before initialization (`tools/list`, `tools/call`,
+  `shutdown`, an unknown method) returns `-32600 invalid-request` with a
+  message naming the violation — a malformed or hostile client cannot
+  enumerate or invoke tools before completing the handshake, closing the
+  protocol-compliance + state-leak gap the senior review flagged.
+
+  ## `notifications/initialized` relaxation (deliberate, tested)
+
+  The MCP lifecycle has the client send `notifications/initialized`
+  AFTER the `initialize` response to confirm the handshake. We do NOT
+  gate the tool surface on receiving it: the session flips to
+  `:initialized? true` the moment the `initialize` response is built.
+  This matches the reference SDK posture (the MCP Python SDK aligned to
+  the TypeScript SDK precisely to mark the server initialized on the
+  `initialize` RESPONSE rather than waiting for the notification —
+  otherwise a client that pipelines `initialize` + `tools/list` races a
+  warning/refusal). The notification is still accepted as a no-op so a
+  well-behaved client sees no error. This relaxation is pinned by
+  `dispatch-allows-tools-immediately-after-initialize` +
+  `run-loop-rejects-pre-initialize-tool-calls` in `tools_test.clj`.
 
   ## Dispatch table
 
@@ -58,17 +100,48 @@
     (println (str "[re-frame2-story-mcp] " (str/join " " (map str parts))))
     (flush)))
 
+;; ---- lifecycle state ------------------------------------------------------
+;;
+;; rf2-e6knrq finding 1: the dispatcher is now stateful. Each session
+;; (one `run-loop!` invocation) owns a lifecycle-state atom; the
+;; `:initialized?` flag gates the method surface so a client cannot
+;; enumerate/call tools before completing the `initialize` handshake.
+
+(defn new-lifecycle-state
+  "Fresh per-session lifecycle state for the stateful dispatcher. The
+  `:initialized?` flag starts `false`; `handle-initialize` flips it true
+  on a successful handshake. Public for tests that want to drive
+  `dispatch` against an explicit lifecycle posture."
+  []
+  (atom {:initialized? false}))
+
+(def ^:private lifecycle-open-methods
+  "The two REQUEST methods accepted before `initialize` succeeds:
+  `initialize` (the handshake) + `ping` (a stateless liveness probe per
+  MCP §Utilities). Notifications are handled separately (always accepted,
+  always no-response) — they are not in this set because the gate runs
+  only on requests."
+  #{"initialize" "ping"})
+
 ;; ---- handshake ------------------------------------------------------------
 
 (defn- handle-initialize
-  "Build the `initialize` response. Unconditionally advertises the
-  server's pinned protocol-version (`config/protocol-version`) and
-  ignores the client's requested `protocolVersion` entirely — `_params`
-  is never read. This is spec-acceptable: per the MCP lifecycle
-  version-negotiation rule the server replies with a version it supports
-  and the client decides whether to disconnect on a mismatch (we never
-  inspect or echo the client's version)."
-  [id _params]
+  "Build the `initialize` response and mark the session initialized.
+  Unconditionally advertises the server's pinned protocol-version
+  (`config/protocol-version`) and ignores the client's requested
+  `protocolVersion` entirely — `_params` is never read. This is
+  spec-acceptable: per the MCP lifecycle version-negotiation rule the
+  server replies with a version it supports and the client decides
+  whether to disconnect on a mismatch (we never inspect or echo the
+  client's version).
+
+  rf2-e6knrq: flips `state`'s `:initialized?` to true as a side effect —
+  the session is ready the moment the `initialize` response is built (the
+  reference-SDK relaxation; we do NOT wait for
+  `notifications/initialized`). A repeated `initialize` is idempotent on
+  the flag."
+  [state id _params]
+  (swap! state assoc :initialized? true)
   (proto/response id
                   {:protocolVersion config/protocol-version
                    :capabilities    {:tools {:listChanged false}}
@@ -124,41 +197,71 @@
   Returns a response envelope, or nil if the input is a notification
   (notifications get no response per JSON-RPC 2.0 §4.1).
 
+  Two arities:
+
+  - `(dispatch state message)` — the stateful, lifecycle-aware form
+    `run-loop!` drives. `state` is a `new-lifecycle-state` atom; before
+    a successful `initialize` only `initialize` / `ping` requests (and
+    any notification) are accepted, everything else returns
+    `-32600 invalid-request` (rf2-e6knrq finding 1).
+
+  - `(dispatch message)` — backward-compatible convenience that runs
+    the message against a FRESH, ALREADY-INITIALIZED session. Method-
+    semantics tests use this form: they exercise what a handler returns
+    GIVEN a completed handshake, not the lifecycle gate (which the
+    dedicated pre-initialize deftests drive via the 2-arity form).
+
   Public for tests."
-  [message]
-  (cond
-    (not (proto/valid-envelope? message))
-    (proto/invalid-request (:id message) "Invalid JSON-RPC envelope")
+  ([message]
+   (dispatch (atom {:initialized? true}) message))
+  ([state message]
+   (cond
+     (not (proto/valid-envelope? message))
+     (proto/invalid-request (:id message) "Invalid JSON-RPC envelope")
 
-    ;; Notifications — no response. Per the spec a notification is a
-    ;; request without an `id`. We accept the canonical handshake-
-    ;; completion notification (`notifications/initialized`) and any
-    ;; other notification silently — the absence of `:id` is the
-    ;; complete dispatch rule (`proto/notification?` is its single
-    ;; home; rf2-ee38b.17). No defensive arm needed in the method
-    ;; `case` below.
-    (proto/notification? message)
-    nil
+     ;; Notifications — no response. Per the spec a notification is a
+     ;; request without an `id`. We accept the canonical handshake-
+     ;; completion notification (`notifications/initialized`) and any
+     ;; other notification silently — the absence of `:id` is the
+     ;; complete dispatch rule (`proto/notification?` is its single
+     ;; home; rf2-ee38b.17). No defensive arm needed in the method
+     ;; `case` below. Notifications are accepted in EVERY lifecycle
+     ;; posture (the gate below runs only on requests).
+     (proto/notification? message)
+     nil
 
-    :else
-    (let [{:keys [id method params]} message]
-      (case method
-        "initialize"                     (handle-initialize id params)
-        "tools/list"                     (handle-tools-list id params)
-        "tools/call"                     (handle-tools-call id params)
-        "ping"                           (handle-ping id params)
-        "shutdown"                       (handle-shutdown id params)
-        (proto/method-not-found id method)))))
+     ;; Pre-initialize gate (rf2-e6knrq finding 1). Before the handshake
+     ;; completes, only `initialize` + `ping` requests are legal; any
+     ;; other request (tools/list, tools/call, shutdown, unknown) is a
+     ;; protocol violation — a hostile/malformed client must not be able
+     ;; to enumerate or invoke tools before initializing.
+     (and (not (:initialized? @state))
+          (not (contains? lifecycle-open-methods (:method message))))
+     (proto/invalid-request
+       (:id message)
+       (str "Method '" (:method message) "' is not allowed before the "
+            "`initialize` handshake completes (MCP lifecycle). Send "
+            "`initialize` first."))
+
+     :else
+     (let [{:keys [id method params]} message]
+       (case method
+         "initialize"                     (handle-initialize state id params)
+         "tools/list"                     (handle-tools-list id params)
+         "tools/call"                     (handle-tools-call id params)
+         "ping"                           (handle-ping id params)
+         "shutdown"                       (handle-shutdown id params)
+         (proto/method-not-found id method))))))
 
 (defn- handle-frame!
-  "Process one parsed frame: dispatch, write the response (if any) to
-  the writer. Catches handler-side throws and converts them to
-  internal-error responses so the loop survives.
+  "Process one parsed frame: dispatch (against the session `state`),
+  write the response (if any) to the writer. Catches handler-side throws
+  and converts them to internal-error responses so the loop survives.
 
   Public for tests."
-  [^java.io.Writer writer message]
+  [state ^java.io.Writer writer message]
   (try
-    (when-let [resp (dispatch message)]
+    (when-let [resp (dispatch state message)]
       (proto/write-frame! writer resp))
     (catch Throwable e
       (log! "handler threw:" (ex-message e))
@@ -184,27 +287,31 @@
     3. Dispatch. Method-level errors are responses; tool-level errors
        are wrapped in the `tools/call` result with `isError: true`."
   [^java.io.BufferedReader reader ^java.io.Writer writer]
-  (loop []
-    (let [frame (try
-                  (proto/read-frame reader)
-                  (catch Throwable e
-                    (log! "parse error:" (ex-message e))
-                    (try
-                      (proto/write-frame! writer (proto/parse-error))
-                      (catch Throwable e2
-                        (log! "write of parse-error response failed:" (ex-message e2))))
-                    ::recover))]
-      (cond
-        ;; `proto/read-frame` returns `proto/eof-sentinel` when stdin
-        ;; closes. The loop exits.
-        (= proto/eof-sentinel frame) :eof
-        ;; Recovery from a parse-error: we already wrote the error
-        ;; response; loop to the next frame.
-        (= ::recover frame)          (recur)
-        :else
-        (do
-          (handle-frame! writer frame)
-          (recur))))))
+  ;; rf2-e6knrq finding 1: one lifecycle-state atom per session. The
+  ;; pre-initialize gate in `dispatch` reads it; `handle-initialize`
+  ;; flips it. A new loop = a fresh handshake.
+  (let [state (new-lifecycle-state)]
+    (loop []
+      (let [frame (try
+                    (proto/read-frame reader)
+                    (catch Throwable e
+                      (log! "parse error:" (ex-message e))
+                      (try
+                        (proto/write-frame! writer (proto/parse-error))
+                        (catch Throwable e2
+                          (log! "write of parse-error response failed:" (ex-message e2))))
+                      ::recover))]
+        (cond
+          ;; `proto/read-frame` returns `proto/eof-sentinel` when stdin
+          ;; closes. The loop exits.
+          (= proto/eof-sentinel frame) :eof
+          ;; Recovery from a parse-error: we already wrote the error
+          ;; response; loop to the next frame.
+          (= ::recover frame)          (recur)
+          :else
+          (do
+            (handle-frame! state writer frame)
+            (recur)))))))
 
 ;; ---- -main ----------------------------------------------------------------
 

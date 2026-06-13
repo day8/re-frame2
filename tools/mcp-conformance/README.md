@@ -189,6 +189,12 @@ wire gate.
 From this directory:
 
 ```bash
+# REQUIRED in a fresh worktree — these gates drive the servers through
+# the official @modelcontextprotocol/sdk `Client`, which is NOT vendored.
+# Without this, `npm run test:story` / `test:re-frame2-pair` fail at
+# `require('@modelcontextprotocol/sdk/client/index.js')`. (Worktrees that
+# junction node_modules from the mayor checkout already have it; a clean
+# `git worktree add` does not.)
 npm install
 
 # re-frame2-pair-mcp: requires the server bundle on disk at

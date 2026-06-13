@@ -195,16 +195,36 @@ adds `:share-url` / `:rendered-hiccup` / `:effective-args`); `run-variant`
 Both speak the same unified run-result — `preview-variant` does NOT ship a
 third result dialect (rf2-ba86n.17).
 
-**Annotation (rf2-8h778).** `preview-variant` carries
-`:destructiveHint true` — the same annotation as `run-variant`.
-Both tools invoke the same `(story/run-variant vk opts)` lifecycle
-under the covers; they dispatch events into the variant's frame
-and accumulate assertions. The semantic split (`preview-variant`
-returns the share URL + rendered view; `run-variant` is the headline
-run/verdict call) does not change the side-effect surface, and the
-annotation must reflect that side-effect surface (agent hosts
-that auto-approve `readOnlyHint true` would otherwise auto-approve
-a call that mutates the frame).
+**Annotation (rf2-8h778, rf2-e6knrq).** `preview-variant` carries
+`:destructiveHint true` **and `:openWorldHint true`** — the same
+annotations as `run-variant`. Both tools invoke the same
+`(story/run-variant vk opts)` lifecycle under the covers; they dispatch
+the variant author's events into the variant's frame and accumulate
+assertions. The semantic split (`preview-variant` returns the share URL
++ rendered view; `run-variant` is the headline run/verdict call) does
+not change the side-effect surface, and the annotation must reflect that
+side-effect surface (agent hosts that auto-approve `readOnlyHint true`
+would otherwise auto-approve a call that mutates the frame).
+
+The **open-world** hint (rf2-e6knrq finding 2) is load-bearing: these
+two tools run the author's `:setup` / `:script` events through the live
+re-frame2 dispatch+fx pipeline. Story's fx-stubbing (`:fx-overrides`,
+the `:force-fx-stub` decorator, `:network`) is an **opt-in authoring
+surface, not a universal default** — a variant that does not stub a
+given effect fires the **real** fx handler, so a run **can** emit HTTP,
+analytics, websocket, storage, navigation, or any app-registered effect
+into the outside world. Marking these tools closed-world would tell a
+host the call is contained on-box and let it under-gate a call that
+reaches external systems. **Every other tool stays closed-world**
+(`:openWorldHint false`): the read tools, the registry write tools
+(`register-variant` / `unregister-variant`), the static docs tools, and
+`record-as-variant` (which records an externally-driven canvas and
+optionally writes the captured snippet to the on-box registry — it never
+runs the variant lifecycle itself). The split is pinned by the JVM
+`annotations-on-every-tool` open-world matrix and the
+`tools/mcp-conformance` classification ratchet
+(`story-classifications.json` `closed-world` list + the open-world
+value assertion in `end-to-end-story.cjs`).
 
 ### `list-substrates`
 

@@ -424,11 +424,17 @@ async function assertJsonRpcErrorCodes(client) {
 //      (rf2-94p8q)
 //
 // The two copies (~60 LoC each) differed in EXACTLY one place: the
-// annotations classification set. re-frame2-pair-mcp permits
-// `openWorldHint` as a classifier (its eval-cljs / dispatch tools touch
-// an open world); story-mcp does not (its tools are closed-world reads /
-// fixture writes). Extracting the loops here with an `allowOpenWorld`
-// flag collapses that drift to a single maintained gate; a new
+// annotations classification set — whether `openWorldHint` counts as a
+// classifier. Both servers now pass `allowOpenWorld: true`:
+// re-frame2-pair-mcp's eval-cljs / dispatch tools touch an open world,
+// and story-mcp's `run-variant` / `preview-variant` run the variant
+// author's lifecycle events/fx which can reach external systems unless
+// stubbed (rf2-e6knrq finding 2 — story-mcp is no longer wholly
+// closed-world). The PER-TOOL open-world VALUES are pinned exactly by
+// `assertClassificationRatchet`'s `closed-world` list, so `allowOpenWorld`
+// only sets the "at-least-one-classifier" floor; it does not let a
+// closed-world tool flip open undetected. Extracting the loops here with
+// the flag collapses that drift to a single maintained gate; a new
 // invariant is added once, not twice.
 //
 // Throws on the first violation with a descriptive, server-agnostic
