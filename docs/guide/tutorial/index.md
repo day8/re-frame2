@@ -1,10 +1,10 @@
 # Build RealWorld — what you'll make, and setup
 
-You're going to build **Conduit** — a working Medium-style blogging app, against the [RealWorld spec](https://github.com/gothinkster/realworld), the ecosystem's shared benchmark. The same app exists in React, Vue, Svelte, Solid, and Elm — every pattern you write here has a direct counterpart in a stack you already know. By the end of Part 5 you'll have feeds, tags, auth, favoriting, posting, tests, and a production build.
+You're going to build **Conduit** — a working Medium-style blogging app. It follows the [RealWorld spec](https://github.com/gothinkster/realworld), the ecosystem's shared benchmark. The same app exists in React, Vue, Svelte, Solid, and Elm. Every pattern you write here has a direct counterpart in a stack you already know. By the end of Part 5 you'll have feeds, tags, auth, favoriting, posting, tests, and a production build.
 
 **One real app, grown a part at a time — the same loop you ran in the [quickstart](../quickstart.md), now with a server on the other end.**
 
-This page orients (where the five parts go) and scaffolds — the real-toolchain path the quickstart deliberately hid. Budget: **five minutes from `npm install` to pixels**. If a step fails instead, the four failure modes below are the known ways it goes wrong.
+This page does two things. It orients you — where the five parts go. And it scaffolds the project on the real toolchain, the part the quickstart hid. Budget five minutes from `npm install` to pixels. If a step fails, the four failure modes below are the known ways it goes wrong.
 
 > **Haven't done the quickstart?** [Do that first](../quickstart.md) — it teaches the loop (events → app-db → subs → views) in your browser, nothing installed.
 
@@ -20,12 +20,12 @@ Each part adds one slice of the real app and teaches the machinery that slice ne
 | [Part 4](04-mutations-and-invalidation.md) | Favoriting, posting, commenting | writes, and invalidating what they stale |
 | [Part 5](05-test-and-ship.md) | Tests and a production build | testing the pieces, shipping the app |
 
-From Part 2 onward the app talks to a Conduit API — a hosted demo or an offline stub; Part 2 sets that up. The finished reference lives at [`examples/reagent/realworld/`](../../../examples/reagent/realworld/) — don't read ahead unless you're stuck.
+From Part 2 onward the app talks to a Conduit API — a hosted demo or an offline stub. Part 2 sets that up. The finished reference lives at [`examples/reagent/realworld/`](../../../examples/reagent/realworld/). Don't read ahead unless you're stuck.
 
 ## What you need
 
-- **Node.js** (18+), **a JDK** (11+), and the **Clojure CLI**: npm runs the build tool's launcher and supplies React; the ClojureScript compiler runs on the JVM; `clojure` resolves the JVM-side dependencies in `deps.edn`.
-- **A checkout of re-frame2.** Pre-alpha honesty: re-frame2 isn't on a Maven repository yet, so you depend on a local checkout, cloned next to your project. Once published, the `:local/root` entries below become ordinary `:mvn/version` coordinates.
+- **Node.js** (18+), **a JDK** (11+), and the **Clojure CLI**. npm runs the build tool's launcher and supplies React. The ClojureScript compiler runs on the JVM. `clojure` resolves the JVM-side dependencies in `deps.edn`.
+- **A checkout of re-frame2.** Pre-alpha honesty: re-frame2 isn't on a Maven repository yet. So you depend on a local checkout, cloned next to your project. Once published, the `:local/root` entries below become ordinary `:mvn/version` coordinates.
 
 ```bash
 git clone https://github.com/day8/re-frame2.git
@@ -56,7 +56,7 @@ conduit/
  {:dev {:extra-deps {day8/re-frame2-xray {:local/root "../re-frame2/tools/xray"}}}}}
 ```
 
-`thheller/shadow-cljs` is the compiler itself — the npm package below is only its launcher, and the two versions must match. Xray — the inspector you'll keep open for the whole tutorial — lives in a `:dev` alias because it's a tool, not application code.
+`thheller/shadow-cljs` is the compiler itself. The npm package below is only its launcher. The two versions must match. Xray is the inspector you'll keep open for the whole tutorial. It lives in a `:dev` alias because it's a tool, not application code.
 
 **`package.json`**:
 
@@ -70,7 +70,7 @@ conduit/
                      "elkjs": "^0.11.1"}}
 ```
 
-`@xyflow/react` and `elkjs` belong to Xray, not your app — its machine-topology canvas renders with them, and the dev build resolves them from `node_modules` like any other JS dependency. Dev-only, so they sit with `shadow-cljs` in `devDependencies`.
+`@xyflow/react` and `elkjs` belong to Xray, not your app. Its machine-topology canvas renders with them, and the dev build resolves them from `node_modules` like any other JS dependency. They're dev-only, so they sit with `shadow-cljs` in `devDependencies`.
 
 **`shadow-cljs.edn`**:
 
@@ -85,7 +85,7 @@ conduit/
         :devtools   {:preloads [day8.re-frame2-xray.preload]}}}}
 ```
 
-Two lines matter beyond boilerplate. `:init-fn` names your boot function, written below. `:preloads` injects Xray into **dev builds only** — the preload registers its collectors and auto-opens the panel once the app boots; release builds skip `:devtools` entirely, so Xray never reaches your production bundle. [Configure dev and production builds](../how-to/configure-dev-and-prod.md) covers the full split.
+Two lines matter beyond boilerplate. `:init-fn` names your boot function, written below. `:preloads` injects Xray into **dev builds only**. The preload registers its collectors and auto-opens the panel once the app boots. Release builds skip `:devtools` entirely, so Xray never reaches your production bundle. [Configure dev and production builds](../how-to/configure-dev-and-prod.md) covers the full split.
 
 **`public/index.html`** — the official Conduit theme, a mount node, and a right-hand rail reserved for Xray:
 
@@ -113,7 +113,7 @@ Two lines matter beyond boilerplate. `:init-fn` names your boot function, writte
 </html>
 ```
 
-Your page owns the layout; Xray owns the content inside `[data-rf-xray-host]` (in a release build the rail stays empty).
+Your page owns the layout. Xray owns the content inside `[data-rf-xray-host]`. In a release build the rail stays empty.
 
 ## The app's first file
 
@@ -178,19 +178,19 @@ Your page owns the layout; Xray owns the content inside `[data-rf-xray-host]` (i
      [shell]]))
 ```
 
-Events / subs / views are the quickstart's loop again. What's new is the **boot**, the part the quickstart's browser cells did for you: four moves, each with a named way of going wrong — every failure arrives as a structured error, in the console *and* as a row in Xray, under a stable `:rf.error/*` id.
+Events, subs, and views are the quickstart's loop again. What's new is the **boot** — the part the quickstart's browser cells did for you. It's four moves. Each one has a named way of going wrong. Every failure arrives as a structured error, in the console *and* as a row in Xray, under a stable `:rf.error/*` id.
 
-**Move 1 — `(rf/init! reagent-adapter/adapter)` installs the substrate** — it tells the runtime which view library's reactivity subscriptions wire into. Idempotent (hot reload is safe), and it creates *no* frame — that's the next move's job. Swapping substrates changes one require and this Var ([Use UIx, Helix, or reagent-slim](../how-to/use-uix-helix-or-slim.md)).
+**Move 1 — `(rf/init! reagent-adapter/adapter)` installs the substrate.** It tells the runtime which view library's reactivity your subscriptions wire into. It's idempotent, so hot reload is safe. It creates *no* frame — that's the next move's job. To swap substrates you change one require and this Var ([Use UIx, Helix, or reagent-slim](../how-to/use-uix-helix-or-slim.md)).
 
 > **Failure mode 1 — `:rf.error/no-adapter-installed`.** Something rendered or subscribed before any `init!` ran — usually a refactor that moved the boot and dropped the line. Install the adapter first; everything else comes after.
 
-**Move 2 — `(rf/reg-frame :rf/default {})` establishes the frame.** Every dispatch and subscription runs against a **frame** — an isolated instance of the app holding its own app-db — and the runtime *never* invents one for you: no ambient global, no silent default. A single-page app has exactly one, registered once at the root; the empty config map grows in later parts. The full story is [Frames: isolated worlds](../concepts/frames.md).
+**Move 2 — `(rf/reg-frame :rf/default {})` establishes the frame.** Every dispatch and subscription runs against a **frame** — an isolated instance of the app holding its own app-db. The runtime *never* invents one for you: no ambient global, no silent default. A single-page app has exactly one frame, registered once at the root. The empty config map grows in later parts. The full story is [Frames: isolated worlds](../concepts/frames.md).
 
-**Move 3 — `with-frame` + `dispatch-sync` seeds state.** Outside the rendered tree there's no provider in scope, so `with-frame` scopes the dispatch lexically to `:rf/default`. It's `dispatch-sync` because plain `dispatch` queues the event — the first render would race it and paint an empty app-db. Synchronous seeding at the boot boundary is one of the two legitimate uses of `dispatch-sync` (the other is tests).
+**Move 3 — `with-frame` + `dispatch-sync` seeds state.** Outside the rendered tree there's no provider in scope, so `with-frame` scopes the dispatch lexically to `:rf/default`. It's `dispatch-sync` because plain `dispatch` queues the event — the first render would race it and paint an empty app-db. Seeding synchronously at the boot boundary is one of the two legitimate uses of `dispatch-sync`. The other is tests.
 
 > **Failure mode 2 — `:rf.error/no-frame-context` (at a dispatch).** An event was dispatched with no frame in scope. The classic: a top-of-namespace `dispatch`, which runs at *load* time — before any frame exists. Boot-time events belong inside `run`, under `with-frame`, after `reg-frame`.
 
-**Move 4 — `frame-provider` wraps the tree.** The provider carries `:rf/default` down through React context; every bare `dispatch` / `subscribe` inside a `reg-view` body resolves to it without naming it. (`defonce` guards the root — a hot reload must not call `create-root` twice on the same element.)
+**Move 4 — `frame-provider` wraps the tree.** The provider carries `:rf/default` down through React context. Every bare `dispatch` / `subscribe` inside a `reg-view` body resolves to it without naming it. (`defonce` guards the root — a hot reload must not call `create-root` twice on the same element.)
 
 > **Failure mode 3 — `:rf.error/no-frame-context` (at a subscribe).** Same id, different site: the tree rendered *without* the provider, so the first `subscribe` in a view has no frame to read. No fallback exists underneath — wrap the root.
 
@@ -215,7 +215,7 @@ Xray auto-opened with the app (`Ctrl+Shift+C` toggles it). Look at what minute o
 - **The event spine** shows one row: `:app/initialise`. Not a log line you wrote — the runtime's own record of the only thing that has happened so far.
 - **app-db** shows `{:session {:user nil}}` — exactly the value the boot event returned.
 
-One event, one state, nothing else. Keep Xray open for the whole tutorial — every part runs the rhythm *do → observe → explain*, and Xray is the observe step: when something misbehaves you won't add print statements, you'll read what the app actually did. [Debug with Xray](../how-to/debug-with-xray.md) is the deeper tour.
+One event, one state, nothing else. Keep Xray open for the whole tutorial. Every part runs the rhythm *do → observe → explain*, and Xray is the observe step. When something misbehaves you won't add print statements — you'll read what the app actually did. [Debug with Xray](../how-to/debug-with-xray.md) is the deeper tour.
 
 ## You can now
 

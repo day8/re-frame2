@@ -1,12 +1,12 @@
 # app-db: the one place
 
-Where does your application's state live? In one place: a single immutable map called **app-db**. That's the whole answer, and this page is its consequences — which are the reason the rest of re-frame2 gets to be as simple as it is.
+Your application's state lives in one place. It is a single immutable map called **app-db**. That is the whole answer. The rest of this page is what follows from it, and that is the reason the rest of re-frame2 stays simple.
 
-If you know Redux, you already have the shape: app-db is the single store. The deltas are worth naming up front. There are no combined reducers and no prescribed slice shape — app-db is one ordinary Clojure map, arranged however your domain wants. Handlers don't return slice updates; they return the whole next value of the map. And the framework's own bookkeeping — the current route, state-machine snapshots, the server-data cache — does **not** live in your map at all: it lives in a second partition next door, which the last half of this page explains.
+If you know Redux, you have the shape already: app-db is the single store. A few things differ, and they are worth naming up front. There are no combined reducers and no prescribed slice shape. app-db is one ordinary Clojure map, arranged however your domain wants. Handlers don't return slice updates. They return the whole next value of the map. And the framework's own bookkeeping does not live in your map at all. The current route, state-machine snapshots, the server-data cache live in a second partition next door. The last half of this page explains it.
 
 ## One map, one writer
 
-Everything your app knows — the logged-in user, the cart, which modal is open — sits in one map:
+Everything your app knows sits in one map. The logged-in user, the cart, which modal is open:
 
 ```clojure
 {:user {:id 42 :name "Mike" :email "mike@example.com"}
@@ -14,7 +14,7 @@ Everything your app knows — the logged-in user, the cart, which modal is open 
  :ui   {:active-panel :cart :modal nil}}
 ```
 
-Nested maps, vectors, sets, keywords — ordinary data, no imposed schema (you can [add one](../how-to/validate-with-schemas.md) when you want the app to scream the instant the shape goes wrong). And exactly one thing ever changes it: an [event handler](events-and-the-cascade.md) returning a new version.
+Nested maps, vectors, sets, keywords. Ordinary data, no imposed schema. You can [add one](../how-to/validate-with-schemas.md) when you want the app to scream the instant the shape goes wrong. And exactly one thing ever changes it: an [event handler](events-and-the-cascade.md) returning a new version.
 
 ```clojure
 (rf/reg-event-db :cart/add
@@ -22,31 +22,31 @@ Nested maps, vectors, sets, keywords — ordinary data, no imposed schema (you c
     (update-in db [:cart :items] conj item)))
 ```
 
-Read that carefully, because it's the immutability story in four lines. The handler does not *change* app-db — `db` is a value, not a mutable cell. It computes a **new** map from the old one, and the runtime atomically swaps which value app-db points at. The old value still exists, untouched; the new one shares almost all of its structure with it (Clojure's persistent data structures don't copy — the new map points at the unchanged parts of the old one). Nobody ever observes anything halfway.
+Read that carefully. It is the immutability story in four lines. The handler does not *change* app-db. `db` is a value, not a mutable cell. It computes a new map from the old one. The runtime then atomically swaps which value app-db points at. The old value still exists, untouched. The new one shares almost all of its structure with the old one. Clojure's persistent data structures don't copy. The new map points at the unchanged parts of the old one. Nobody ever observes anything halfway.
 
-Here is the sentence to hold onto, the one everything else on this page restates:
+Here is the sentence to hold onto. Everything else on this page restates it:
 
 > **The app *is* the value.** A re-frame2 app at any instant is defined by a value: its app-db, together with the framework's bookkeeping next door. Two apps holding equal values are, observably, the same app at that moment — same screen, same behaviour. Everything else is machinery for getting from one value to the next.
 
 ## A database, on purpose
 
-The name is `app-db`, not `app-state`, and the `db` is load-bearing. Not in the storage sense — it's all in memory, nothing survives a reload unless you make it — but in the *mindset* sense. Think how much care you give data in PostgreSQL: a schema, invariants, deliberate queries, atomic transactions, and never some random function scribbling on a row as a side effect. Now think how much care the average frontend gives data scattered across thirty `useState`s. app-db asks you to treat your in-memory state with database care: structured data in, queries out through [subscriptions](subscriptions.md), changes only through events. The name is a discipline disguised as a noun.
+The name is `app-db`, not `app-state`, and the `db` carries weight. Not in the storage sense. It is all in memory, and nothing survives a reload unless you make it. The weight is in the mindset. Think how much care you give data in PostgreSQL: a schema, invariants, deliberate queries, atomic transactions. No random function scribbling on a row as a side effect. Now think how much care the average frontend gives data scattered across thirty `useState`s. app-db asks you to treat your in-memory state with database care. Structured data in. Queries out through [subscriptions](subscriptions.md). Changes only through events. The name is a discipline disguised as a noun.
 
 > *Well-formed data at rest is as close to perfection in programming as it gets.* — [Fogus](https://twitter.com/fogus/status/454582953067438080)
 
 ## Why one place pays for itself
 
-Most frameworks let state live anywhere — any component's `useState`, a context, a ref, an external store — and every one of those is a place state can hide, and a way two copies can quietly disagree. re-frame2 makes the opposite bet, and you get four properties that are genuinely hard to buy any other way:
+Most frameworks let state live anywhere: any component's `useState`, a context, a ref, an external store. Every one of those is a place state can hide, and a way two copies can quietly disagree. re-frame2 makes the opposite bet. You get four properties that are genuinely hard to buy any other way:
 
-1. **No synchronisation code.** When a piece of data has exactly one home, no code anywhere copies it to a second home and keeps the two in step. The "these two parts of the screen disagree" bug can't occur — there are no copies to drift. You don't write the sync code, you don't debug it, you just have less app.
+1. **No synchronisation code.** When a piece of data has exactly one home, no code copies it to a second home and keeps the two in step. The "these two parts of the screen disagree" bug can't occur. There are no copies to drift. You don't write the sync code, you don't debug it, you just have less app.
 
-2. **State changes are transactional.** Each event handler returns one new app-db, and the runtime swaps the reference atomically. There is no instant where the cart total has updated but the items haven't — no intermediate inconsistency for a subscription to read and render. Either the whole transition happened or none of it did.
+2. **State changes are transactional.** Each event handler returns one new app-db, and the runtime swaps the reference atomically. There is no instant where the cart total has updated but the items haven't. No intermediate inconsistency for a subscription to read and render. Either the whole transition happened or none of it did.
 
-3. **One schema validates the whole app.** Because all state is one map, a single schema can describe the entire application and run in one place — after every event, in dev. A schema over the *whole* map can state relationships *between* values ("if logged in, a token must be present"), which thirty scattered state cells never could. [Validate with schemas](../how-to/validate-with-schemas.md) shows how.
+3. **One schema validates the whole app.** All state is one map, so a single schema can describe the entire application and run in one place: after every event, in dev. A schema over the *whole* map can state relationships *between* values ("if logged in, a token must be present"). Thirty scattered state cells never could. [Validate with schemas](../how-to/validate-with-schemas.md) shows how.
 
-4. **Undo and time-travel come for almost nothing.** Snapshotting an immutable map is taking a *reference*, not a copy, and structural sharing makes a ring buffer of hundreds of past values nearly free. Undo is "swap the reference back". Xray's epoch history — the thing that lets you scrub a running app backwards — is literally this. You don't build undo; you discover you already have it.
+4. **Undo and time-travel come for almost nothing.** Snapshotting an immutable map takes a *reference*, not a copy. Structural sharing makes a ring buffer of hundreds of past values nearly free. Undo is "swap the reference back". Xray's epoch history, the thing that lets you scrub a running app backwards, is literally this. You don't build undo. You discover you already have it.
 
-That's the trade in full view: you give up stashing state wherever is convenient — and you give up sneaking a mutation in from some corner of the app, which is the *name of the bug you spent last Thursday on*. Less flexibility, more inspectability.
+That is the trade in full view. You give up stashing state wherever is convenient. You give up sneaking a mutation in from some corner of the app, which is the *name of the bug you spent last Thursday on*. Less flexibility, more inspectability.
 
 ## Missing is not nil
 
@@ -57,11 +57,11 @@ One small distinction matters everywhere in re-frame2, so meet it here. A key th
 (get-in {:page nil} [:page])   ;; => nil — the key is there, holding nil
 ```
 
-A bare `get` can't tell them apart, but the framework preserves the difference wherever it matters: did the server send `null`, or send nothing? Is this form field cleared, or never touched? A few surfaces deliberately treat `nil` as "not set" — routing drops a `nil` query parameter from the URL — but that's always a declared, local policy, never a silent erasure.
+A bare `get` can't tell them apart. The framework preserves the difference wherever it matters. Did the server send `null`, or send nothing? Is this form field cleared, or never touched? A few surfaces deliberately treat `nil` as "not set" — routing drops a `nil` query parameter from the URL — but that is always a declared, local policy, never a silent erasure.
 
 ## Paths, in five lines
 
-A **path** is how you name a place inside app-db, and it's the same vector you already hand to `get-in`:
+A **path** names a place inside app-db. It is the same vector you already hand to `get-in`:
 
 1. A path is a vector of segments: `[:cart :items 0 :qty]`. Vectors are the canonical form.
 2. The empty path `[]` is the root — it addresses the entire map.
@@ -71,16 +71,16 @@ A **path** is how you name a place inside app-db, and it's the same vector you a
 
 ## Yours, and the framework's next door
 
-There is exactly one category of state in a running re-frame2 app that is *not* yours: the bookkeeping the framework keeps for running processes. A state machine's snapshot. The current route. The resource cache and its in-flight work ledger. This is real, per-[frame](frames.md) state — it must time-travel and survive the wire like everything else — but it is not application data, and hand-editing it corrupts the process that owns it.
+There is exactly one category of state in a running re-frame2 app that is *not* yours: the bookkeeping the framework keeps for running processes. A state machine's snapshot. The current route. The resource cache and its in-flight work ledger. This is real, per-[frame](frames.md) state. It must time-travel and survive the wire like everything else. But it is not application data, and hand-editing it corrupts the process that owns it.
 
 So it doesn't live in app-db at all. A frame holds **two partitions**:
 
 - **app-db** — yours. Application data and *nothing else*. Every `reg-event-db` handler receives and returns it; an ordinary `:db` effect replaces it.
 - **runtime-db** — the framework's. [Machine](machines.md) snapshots, the [route](routing.md) slice, the [resource](server-state.md) cache, in-flight work records, all under reserved `:rf.runtime/*` keys. The relevant runtime writes it; you read it through that feature's subscriptions, like `[:rf/machine :checkout/flow]` or `[:rf.route/id]`.
 
-Why a separate partition instead of a reserved key in one map? Because a single map invites a footgun: a handler returning a fresh `{:user ...}` would silently wipe a machine snapshot living beside it. With two partitions, an ordinary `:db` return replaces *only* app-db — a `reg-event-db` handler never even holds runtime-db, so it cannot clobber it by accident. The boundary is structural, not a rule you have to remember.
+Why a separate partition instead of a reserved key in one map? A single map invites a footgun. A handler returning a fresh `{:user ...}` would silently wipe a machine snapshot living beside it. With two partitions, an ordinary `:db` return replaces *only* app-db. A `reg-event-db` handler never even holds runtime-db, so it cannot clobber it by accident. The boundary is structural, not a rule you have to remember.
 
-The doctrine for the framework's partition is **read, don't write**. You read a managed slice through subscriptions; you influence it by dispatching the events its process understands; you never write it directly, because the process that put it there is what keeps it correct:
+The doctrine for the framework's partition is **read, don't write**. You read a managed slice through subscriptions. You influence it by dispatching the events its process understands. You never write it directly, because the process that put it there is what keeps it correct:
 
 ```clojure
 ;; WRONG — forging the route by hand. This writes app-db; the real route
@@ -92,15 +92,15 @@ The doctrine for the framework's partition is **read, don't write**. You read a 
 (rf/dispatch [:rf.route/navigate :route/cart])
 ```
 
-The wrong version writes a decoy — an app-db `:route` key the routing runtime neither reads nor maintains — and skips everything navigation entails: no URL push, no transition lifecycle, no view change. The right version hands the work to the slice's only legitimate author. The same rule covers machines (send a trigger, don't edit the snapshot) and server data (dispatch the request, don't flip a `:loading?` flag).
+The wrong version writes a decoy. It sets an app-db `:route` key the routing runtime neither reads nor maintains, and skips everything navigation entails: no URL push, no transition lifecycle, no view change. The right version hands the work to the slice's only legitimate author. The same rule covers machines (send a trigger, don't edit the snapshot) and server data (dispatch the request, don't flip a `:loading?` flag).
 
-The two partitions compose into one **frame-state** value — `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}` — and that composite is what time-travel reverts and server-side rendering ships, as one coherent unit. Day to day you never name it: you write events against app-db, you subscribe to read either partition, and the seam stays invisible.
+The two partitions compose into one **frame-state** value — `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`. That composite is what time-travel reverts and server-side rendering ships, as one coherent unit. Day to day you never name it. You write events against app-db, you subscribe to read either partition, and the seam stays invisible.
 
 > **Coming from re-frame v1?** v1 let framework and library bookkeeping colonise app-db; v2 retires that outright — framework state lives in runtime-db, and a leftover `:rf/runtime` root in app-db is a hard error, not a warning.
 
 ## See it move
 
-Don't take the "one inspectable value" claim on faith — it's the most useful property you now own, so try it on a running app (the [quickstart](../quickstart.md) gives you one in five minutes). At the REPL:
+Don't take the "one inspectable value" claim on faith. It is the most useful property you now own, so try it on a running app (the [quickstart](../quickstart.md) gives you one in five minutes). At the REPL:
 
 ```clojure
 (require '[clojure.pprint :refer [pprint]])
@@ -108,7 +108,7 @@ Don't take the "one inspectable value" claim on faith — it's the most useful p
 (pprint (rf/app-db-value :app))   ;; read the one your app registered
 ```
 
-Your entire application state, printed top to bottom, readable as a map. Now open Xray and watch it move: dispatch an event — say `[:cart/add {:id 22 :qty 1}]` — and the App-db tab shows exactly the slices that changed in that cascade, each with its before and after value, marked added, modified, or removed. That diff is the *complete* story of what the event did to your data — there is nowhere else application state could have changed. When something is wrong, this is where you look first; [Debug with Xray](../how-to/debug-with-xray.md) makes a workflow of it.
+Your entire application state, printed top to bottom, readable as a map. Now open Xray and watch it move. Dispatch an event — say `[:cart/add {:id 22 :qty 1}]` — and the App-db tab shows exactly the slices that changed in that cascade, each with its before and after value, marked added, modified, or removed. That diff is the complete story of what the event did to your data. There is nowhere else application state could have changed. When something is wrong, this is where you look first. [Debug with Xray](../how-to/debug-with-xray.md) makes a workflow of it.
 
 ---
 

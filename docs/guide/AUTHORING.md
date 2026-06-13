@@ -20,6 +20,19 @@ Every guide page commits to all five:
 
 Mode rules, stated as what each mode *forbids*: a **tutorial** page never catalogues alternatives ("you could also…" is a how-to's job); a **how-to** page assumes competence and never teaches a concept beyond a link; an **explanation** page carries no task steps; an **index** page routes and never teaches. Quality bar for foundational pages: a concrete reader problem, a complete listing, a walkthrough, a common mistake, and a checkpoint the reader can run or reason through.
 
+## Voice
+
+Write like a calm senior engineer pair-programming at a whiteboard — not like an essayist. The test: could a tired engineer follow this at 11pm while something is broken? If a sentence needs a second read, split it.
+
+- **Short sentences, one idea each.** Break em-dash and semicolon chains into separate sentences. Full stops are free.
+- **Concrete before abstract.** Show the fact or the example first; state the general rule after, or not at all. Never open a paragraph with the generalization.
+- **Say the consequence, not the abstraction.** "A leak boundary that fails closed" becomes "forget the scope and you get a loud error, never one user quietly seeing another's data."
+- **One takeaway per page, not per paragraph.** Keep the single best memorable line — the page's load-bearing takeaway. Every other aphorism becomes a plain statement; a page of slogans has none.
+- **Cut performance and deep-cut analogies.** No showing off. Anchor to one tool the reader already knows (Redux, TanStack Query, XState, React Router), not three they might not.
+- **Repeat the load-bearing idea once, plainly.** Learning needs a little redundancy; reference does not — and the guide teaches.
+
+Voice modulates by tier. **Tutorial and how-to** are the plainest and most imperative — "Do this. Now look." **Concept** pages may carry one metaphor. The **explanation shelf** (`explanation/`, `derivations-and-algebra-views.md`) is the one place the argumentative essay voice belongs: keep the thesis, trim the excess.
+
 ## Tiers and modes
 
 | Where | Tier | Mode | Job |

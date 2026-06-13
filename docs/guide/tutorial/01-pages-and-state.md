@@ -1,8 +1,8 @@
 # Part 1: pages, state, and the first feed
 
-You left [the setup page](index.md) with an empty Conduit shell. By the end of this part it has two real pages — the home feed and the article page — rendering from canned data, and the URL decides which one you see. Type `/article/welcome-to-conduit` into the address bar and that article renders; press Back and the feed returns. Along the way you'll write your first event, subscriptions, and views — the loop everything else builds on.
+You left [the setup page](index.md) with an empty Conduit shell. By the end of this part it has two real pages: the home feed and the article page. Both render from canned data. The URL decides which one you see. Type `/article/welcome-to-conduit` into the address bar and that article renders. Press Back and the feed returns. Along the way you'll write your first event, subscriptions, and views. That loop is what everything else builds on.
 
-Real server data arrives in [Part 2](02-server-data.md). This part is deliberately offline, so you can watch the state loop with nothing else moving.
+Real server data arrives in [Part 2](02-server-data.md). This part is deliberately offline. You can watch the state loop with nothing else moving.
 
 **The takeaway: the URL is a sub; a page is just a view of it.**
 
@@ -17,9 +17,9 @@ src/conduit/core.cljs       ; routes, the root view, boot
 
 ## Step 1 — canned articles into app-db
 
-All of your app's state lives in **app-db**: one map. A feature claims one top-level key in that map and keeps everything it owns under it — we call that a **slice**. Articles get the `:articles` key.
+All of your app's state lives in **app-db**: one map. A feature claims one top-level key in that map. It keeps everything it owns under that key. We call that a **slice**. Articles get the `:articles` key.
 
-State only changes when an **event** is dispatched and its registered handler computes the next value of app-db. So even seeding canned data is an event:
+State only changes one way: an **event** is dispatched, and its registered handler computes the next value of app-db. So even seeding canned data is an event:
 
 ```clojure
 ;; src/conduit/articles.cljs
@@ -59,11 +59,11 @@ State only changes when an **event** is dispatched and its registered handler co
                 :error  nil}}))
 ```
 
-`reg-event-db` registers the simplest kind of event handler: a pure function from `(current-db, event)` to the next db. This one ignores both arguments and returns the whole initial map — that's what an initialise event is. Nothing here touches the DOM, the network, or a clock; a handler that needs the outside world graduates to a different registration form, which you'll meet in Part 2.
+`reg-event-db` registers the simplest kind of event handler: a pure function from `(current-db, event)` to the next db. This one ignores both arguments and returns the whole initial map. That's all an initialise event is. Nothing here touches the DOM, the network, or a clock. A handler that needs the outside world uses a different registration form. You'll meet it in Part 2.
 
-(This replaces the placeholder `:app/initialise` that setup put in `core.cljs` — delete that old registration now, so the two don't fight over the id. Step 4 rewrites the rest of that file anyway.)
+(This replaces the placeholder `:app/initialise` that setup put in `core.cljs`. Delete that old registration now, so the two don't fight over the id. Step 4 rewrites the rest of that file anyway.)
 
-Look at the slice's shape. It isn't a bare vector of articles — it's a map that carries the data *and* its lifecycle:
+Look at the slice's shape. It isn't a bare vector of articles. It's a map that carries the data *and* its lifecycle:
 
 ```clojure
 {:status :loaded   ; what state is this data in?
@@ -71,7 +71,7 @@ Look at the slice's shape. It isn't a bare vector of articles — it's a map tha
  :error  nil}      ; what went wrong, if anything
 ```
 
-With canned data the slice is born `:loaded` and never moves, so the shape looks like overkill today. It's here because "what state is my data in?" is the question every real page must answer — loading, loaded, failed — and Part 2 makes those states real. Start with the honest shape and you never retrofit it. (The deeper story of the one-map design: [app-db: the one place](../concepts/app-db.md).)
+With canned data the slice is born `:loaded` and never moves, so the shape looks like overkill today. Here's why it's here. Every real page must answer "what state is my data in?" — loading, loaded, failed. Part 2 makes those states real. Start with the honest shape and you never retrofit it. (The deeper story of the one-map design: [app-db: the one place](../concepts/app-db.md).)
 
 ## Step 2 — subscriptions: named questions
 
@@ -91,9 +91,9 @@ Views never reach into app-db directly. They ask **subscriptions** — named, re
     (first (filter #(= slug (:slug %)) articles))))
 ```
 
-The first reads straight from app-db. The other two use `:<-` to declare an *input subscription*: `:articles/data` derives from `:articles/slice`, and `:articles/by-slug` derives from `:articles/data`. Subscriptions form a graph, and the graph is why this is cheap: a sub recomputes only when its inputs actually change, and a view re-renders only when the sub it reads produces a new value.
+The first reads straight from app-db. The other two use `:<-` to declare an *input subscription*. `:articles/data` derives from `:articles/slice`. `:articles/by-slug` derives from `:articles/data`. Subscriptions form a graph, and the graph is what makes this cheap. A sub recomputes only when its inputs actually change. A view re-renders only when the sub it reads produces a new value.
 
-`:articles/by-slug` takes an argument. The argument rides in the query vector — a view asks for `[:articles/by-slug "welcome-to-conduit"]` and the computation function receives the whole vector, destructured here as `[_ slug]`.
+`:articles/by-slug` takes an argument. The argument rides in the query vector. A view asks for `[:articles/by-slug "welcome-to-conduit"]`, and the computation function receives the whole vector, destructured here as `[_ slug]`.
 
 (The full derivation-graph story is [Subscriptions: the derivation graph](../concepts/subscriptions.md).)
 
@@ -147,9 +147,9 @@ A view is a pure function from subscription values to hiccup. Register them with
 
 Three things to notice:
 
-- **`reg-view` defines and registers in one move.** It defs the symbol (so `[article-preview {...}]` works as plain hiccup) and injects `dispatch` and `subscribe` as lexical bindings — that's why `home-page` calls `subscribe` without an `rf/` prefix.
-- **`@` reads the current value.** `@(subscribe [:articles/data])` gives the value now, and signs the view up to re-render when it changes. That's the entire data-binding story.
-- **`article-page` already reads the route.** `:rf.route/params` is a subscription like any other; it yields the current URL's captured params (here `{:slug "..."}`), and the page chains it into `:articles/by-slug`. The `if` handles a slug that matches the route pattern but names no article — a real URL someone can type, so a real branch your view owns.
+- **`reg-view` defines and registers in one move.** It defs the symbol, so `[article-preview {...}]` works as plain hiccup. It injects `dispatch` and `subscribe` as lexical bindings. That's why `home-page` calls `subscribe` without an `rf/` prefix.
+- **`@` reads the current value.** `@(subscribe [:articles/data])` gives you the value now, and signs the view up to re-render when it changes. That's the entire data-binding story.
+- **`article-page` already reads the route.** `:rf.route/params` is a subscription like any other. It yields the current URL's captured params (here `{:slug "..."}`), and the page chains it into `:articles/by-slug`. The `if` handles a slug that matches the route pattern but names no article. That's a real URL someone can type, so it's a real branch your view owns.
 
 Those `rf/route-link`s point at a route id that doesn't exist yet. Next step.
 
@@ -157,7 +157,7 @@ Those `rf/route-link`s point at a route id that doesn't exist yet. Next step.
 
 ## Step 4 — the routing skeleton
 
-Routing ships as its own artefact so apps that don't route don't carry it. The setup page's `deps.edn` doesn't have it yet — add it beside the core and adapter entries, then restart `npm run dev` (the watcher resolves `deps.edn` only at startup):
+Routing ships as its own artefact, so apps that don't route don't carry it. The setup page's `deps.edn` doesn't have it yet. Add it beside the core and adapter entries, then restart `npm run dev` (the watcher resolves `deps.edn` only at startup):
 
 ```clojure
 {:deps    {day8/re-frame2         {:local/root "../re-frame2/implementation/core"}
@@ -166,7 +166,7 @@ Routing ships as its own artefact so apps that don't route don't carry it. The s
  :aliases {:dev {:extra-deps {day8/re-frame2-xray {:local/root "../re-frame2/tools/xray"}}}}}
 ```
 
-Now `core.cljs`. You're replacing the whole file from setup: the placeholder navbar becomes a real header, and `:app/initialise` has already moved to the articles namespace (the session state returns in Part 3, when there's someone to sign in). Routes first:
+Now `core.cljs`. You're replacing the whole file from setup. The placeholder navbar becomes a real header. `:app/initialise` has already moved to the articles namespace (the session state returns in Part 3, when there's someone to sign in). Routes first:
 
 ```clojure
 ;; src/conduit/core.cljs
@@ -196,11 +196,11 @@ Now `core.cljs`. You're replacing the whole file from setup: the placeholder nav
    :path "/_404"})
 ```
 
-(One more named failure mode for setup's collection: forget that `[re-frame.routing]` require and the first `rf/reg-route` raises `:rf.error/routing-artefact-missing` — the error names the artefact and the namespace to require.)
+(One more named failure mode for setup's collection: forget that `[re-frame.routing]` require and the first `rf/reg-route` raises `:rf.error/routing-artefact-missing`. The error names the artefact and the namespace to require.)
 
-A route is a registry entry, exactly like an event or a sub — data, not components. `:path` is a pattern; `:slug` is a named segment, and whatever it captures arrives in the `:rf.route/params` sub your article page already reads. The `:params` schema names the capture's shape; enforcement is opt-in — once the schemas artefact joins the classpath ([Validate with schemas](../how-to/validate-with-schemas.md)), a URL whose params fail validation is treated as unmatched rather than limping through your views half-parsed. Until then the schema is checked-later documentation, and a single `:string` slug has nothing to fail anyway.
+A route is a registry entry, exactly like an event or a sub: data, not components. `:path` is a pattern. `:slug` is a named segment, and whatever it captures arrives in the `:rf.route/params` sub your article page already reads. The `:params` schema names the capture's shape. Enforcement is opt-in. Once the schemas artefact joins the classpath ([Validate with schemas](../how-to/validate-with-schemas.md)), a URL whose params fail validation is treated as unmatched, instead of limping through your views half-parsed. Until then the schema is checked-later documentation, and a single `:string` slug has nothing to fail anyway.
 
-`:rf.route/not-found` is the one route id the framework reserves: whenever a URL matches nothing, the runtime routes to it with the offending URL in `:rf.route/params`. Every app must register it — it's an ordinary route, you own its page.
+`:rf.route/not-found` is the one route id the framework reserves. Whenever a URL matches nothing, the runtime routes to it with the offending URL in `:rf.route/params`. Every app must register it. It's an ordinary route, and you own its page.
 
 Then the chrome and the root view:
 
@@ -227,17 +227,17 @@ Then the chrome and the root view:
      [not-found-page])])
 ```
 
-This `case` is the whole router, and it's the heart of this part: **the root view subscribes to `:rf.route/id` and maps route ids to pages.** No route components, no outlet — a page is just the view your `case` picks for the current value of a sub.
+This `case` is the whole router, and it's the heart of this part: **the root view subscribes to `:rf.route/id` and maps route ids to pages.** No route components, no outlet. A page is just the view your `case` picks for the current value of a sub.
 
-Three route subscriptions cover most needs: `:rf.route/id` (which route), `:rf.route/params` (what it captured), and `:rf/route` (the whole route slice — id, params, query, plus the transition status and error slot you'll care about when data loading enters the picture).
+Three route subscriptions cover most needs. `:rf.route/id` tells you which route. `:rf.route/params` tells you what it captured. `:rf/route` gives you the whole route slice: id, params, query, plus the transition status and error slot you'll care about when data loading enters the picture.
 
-And navigation? `rf/route-link` renders a real `<a href="...">` and turns a plain click into a dispatched event; Cmd-click and middle-click fall through to the browser, so open-in-new-tab still works. To navigate from code — after a successful form submit, say — it's an event like everything else:
+And navigation? `rf/route-link` renders a real `<a href="...">` and turns a plain click into a dispatched event. Cmd-click and middle-click fall through to the browser, so open-in-new-tab still works. To navigate from code — after a successful form submit, say — it's an event like everything else:
 
 ```clojure
 (rf/dispatch [:rf.route/navigate :conduit.article/show {:slug "welcome-to-conduit"}])
 ```
 
-One verb, `dispatch`, whether the user clicked a link, pressed Back, or your handler decided to move — every path funnels into the same state change.
+One verb, `dispatch`, whether the user clicked a link, pressed Back, or your handler decided to move. Every path funnels into the same state change.
 
 ## Step 5 — boot: one frame that owns the URL
 
@@ -264,9 +264,9 @@ Finish `core.cljs` with the boot function your build invokes:
 Reading it top to bottom:
 
 1. `rf/init!` installs the Reagent adapter — the bridge between re-frame2 and your rendering substrate.
-2. `rf/reg-frame` creates the **frame** your app runs in: one isolated world of app-db, registrations, and subscriptions ([Frames](../concepts/frames.md)). What matters today is `:url-bound? true` — the explicit declaration that *this* frame owns the browser URL. Nothing owns the URL by default; without the declaration the address bar would never change.
+2. `rf/reg-frame` creates the **frame** your app runs in: one isolated world of app-db, registrations, and subscriptions ([Frames](../concepts/frames.md)). What matters today is `:url-bound? true`. That's the explicit declaration that *this* frame owns the browser URL. Nothing owns the URL by default. Without the declaration the address bar would never change.
 3. `dispatch-sync` runs the seed event before the first render, so the feed never renders against an empty db. `with-frame` says which frame the dispatch targets.
-4. `rf/install-history-listener!` does the initial URL→state sync — deep links work from the first paint — and turns the browser's Back/Forward into the same kind of route-change event a link click produces.
+4. `rf/install-history-listener!` does the initial URL→state sync, so deep links work from the first paint. It also turns the browser's Back/Forward into the same kind of route-change event a link click produces.
 5. `frame-provider` scopes the mounted tree to the frame, so every `subscribe` and `dispatch` inside your views resolves to it.
 
 ## See it move
@@ -274,10 +274,10 @@ Reading it top to bottom:
 With the dev build running, open the app and walk the loop you just built:
 
 1. **Click an article.** The page changes *and* the address bar now reads `/article/events-write-subs-read`. You didn't write URL-sync code — the URL is downstream of the route state.
-2. **Press Back.** The feed returns. Back isn't a special browser mystery; it arrived as an event, the route slice changed, and your `case` picked the other page.
-3. **Type a URL by hand.** Visit `/article/the-url-is-a-sub` directly — the deep link works, because boot syncs URL→state before first render. Now try `/article/nope`: the route matches, the data doesn't, and your missing-article branch renders. Then `/definitely-not-a-route`: nothing matches, and the not-found page renders. Two different failures, each owned by a view you wrote.
+2. **Press Back.** The feed returns. Back isn't a special browser mystery. It arrived as an event, the route slice changed, and your `case` picked the other page.
+3. **Type a URL by hand.** Visit `/article/the-url-is-a-sub` directly. The deep link works, because boot syncs URL→state before first render. Now try `/article/nope`: the route matches, the data doesn't, and your missing-article branch renders. Then `/definitely-not-a-route`: nothing matches, and the not-found page renders. Two different failures, each owned by a view you wrote.
 
-If you wired Xray during setup, open it while you click: each navigation shows up as an event row followed by the route state changing — link clicks, Back presses, and address-bar entries all produce the same kind of row. That's this part's claim made visible: there is no second system moving the pages around. One loop — events write state, subs read it, views render it — and the URL is just one more sub.
+If you wired Xray during setup, open it while you click. Each navigation shows up as an event row followed by the route state changing. Link clicks, Back presses, and address-bar entries all produce the same kind of row. That's this part's claim made visible: there is no second system moving the pages around. One loop — events write state, subs read it, views render it — and the URL is just one more sub.
 
 ---
 
