@@ -466,10 +466,88 @@
            (h/routing-current m5-routing-slice)))
     (is (nil? (h/routing-current nil)))
     (is (nil? (h/routing-current {}))))
-  (testing "routing-blocking-keys flattens the per-nav-token unsettled sets; nil-safe"
+  (testing "routing-blocking-keys (1-arity) flattens the per-nav-token unsettled sets; nil-safe"
     (is (= [m5-article-key] (h/routing-blocking-keys m5-routing-slice)))
     (is (= [] (h/routing-blocking-keys nil)))
-    (is (= [] (h/routing-blocking-keys {})))))
+    (is (= [] (h/routing-blocking-keys {}))))
+  (testing "routing-blocking-keys (2-arity) reads ONLY the named nav-token bucket; nil-safe"
+    (is (= [m5-article-key] (h/routing-blocking-keys m5-routing-slice m5-nav-token)))
+    ;; an unknown / superseded token resolves to its own (empty) bucket
+    (is (= [] (h/routing-blocking-keys m5-routing-slice "nav-stale")))
+    ;; nil nav-token (no active route) ⇒ no live wait point, NOT the flatten
+    (is (= [] (h/routing-blocking-keys m5-routing-slice nil)))
+    (is (= [] (h/routing-blocking-keys nil m5-nav-token)))
+    (is (= [] (h/routing-blocking-keys {} m5-nav-token)))))
+
+;; ---- (6c) cross-nav-token blocking isolation (rf2-cduftx F2) ------------
+;;
+;; The route graph's `:blocking-live` must come from the CURRENT route's
+;; nav-token bucket ONLY (Spec 024 §Route/resource graph). The bug: the
+;; helper flattened ALL coexisting nav-token buckets, so an OLD token whose
+;; bucket held a key sharing the current route's resource-id falsely
+;; reported the active route as still blocked.
+
+(def ^:private cduftx-current-token "nav-current")
+(def ^:private cduftx-stale-token "nav-stale")
+;; SAME resource-id (:article/by-slug) as the current route declares, but
+;; pinned under the SUPERSEDED token's bucket — the cross-token bleed bait.
+(def ^:private cduftx-stale-key
+  [session-scope :article/by-slug {:slug "previous-article"}])
+
+(def ^:private cduftx-multi-token-slice
+  "A multi-token routing slice: the OLD token still has an unsettled blocking
+  key for :article/by-slug; the CURRENT token's bucket is empty (the current
+  route has settled). The current route must NOT be flagged blocked."
+  {:current {:id :route/article :nav-token cduftx-current-token
+             :params {:slug "now-article"} :path "/articles/now-article"}
+   :resource-blocking {cduftx-stale-token   #{cduftx-stale-key}
+                       cduftx-current-token #{}}})
+
+(deftest project-route-graph-isolates-blocking-by-nav-token
+  (testing "an OLD token's unsettled key for the current route's resource-id
+            does NOT bleed onto the active route's :blocking-live"
+    (let [nodes (h/project-route-graph
+                  routes-map
+                  {:instance-rows []
+                   :work-rows     []
+                   :current       (h/routing-current cduftx-multi-token-slice)
+                   ;; the CORRECTED call: scoped to the current nav-token
+                   :blocking-keys (h/routing-blocking-keys
+                                    cduftx-multi-token-slice
+                                    (:nav-token (h/routing-current cduftx-multi-token-slice)))})
+          article-node (first (filter #(= :route/article (:route-id %)) nodes))]
+      (is (:current? article-node)
+          "the active route is still flagged :current?")
+      (is (= cduftx-current-token (:nav-token article-node)))
+      (is (= [] (:blocking-live article-node))
+          "the stale token's wait point must NOT surface on the current route")))
+  (testing "the bug repro: the all-token FLATTEN would have falsely flagged it"
+    ;; Demonstrate the difference is real — feeding the flattened keys
+    ;; (the pre-fix data path) DOES light up :blocking-live, which is the
+    ;; cross-token bleed this fix removes.
+    (let [nodes (h/project-route-graph
+                  routes-map
+                  {:instance-rows []
+                   :work-rows     []
+                   :current       (h/routing-current cduftx-multi-token-slice)
+                   :blocking-keys (h/routing-blocking-keys cduftx-multi-token-slice)})
+          article-node (first (filter #(= :route/article (:route-id %)) nodes))]
+      (is (= [:article/by-slug] (:blocking-live article-node))
+          "the flatten path (pre-fix) leaks the stale token's wait point —
+           proving the scoped read is load-bearing")))
+  (testing "single-token behaviour is unchanged: a CURRENT-token wait point
+            still surfaces (rf2-m5u3gt regression intact)"
+    (let [nodes (h/project-route-graph
+                  routes-map
+                  {:instance-rows []
+                   :work-rows     []
+                   :current       (h/routing-current m5-routing-slice)
+                   :blocking-keys (h/routing-blocking-keys
+                                    m5-routing-slice
+                                    (:nav-token (h/routing-current m5-routing-slice)))})
+          article-node (first (filter #(= :route/article (:route-id %)) nodes))]
+      (is (= [:article/by-slug] (:blocking-live article-node))
+          "the current nav-token's own unsettled blocking resource still surfaces"))))
 
 ;; ---- (7) timeline / invalidation / cache-growth ------------------------
 

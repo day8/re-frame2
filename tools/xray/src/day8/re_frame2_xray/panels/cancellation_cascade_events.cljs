@@ -79,11 +79,18 @@
                (conj [:dispatch [[:rf.xray/select-dispatch-id
                                   dispatch-id frame]
                                  {:frame here}]])
-               ;; Flip the visible tab to Event so the row jump lands
-               ;; in event-detail. The legacy `:rf.xray/select-panel`
+               ;; Flip the visible tab to Epoch so the row jump lands on
+               ;; the focused cascade's pipeline detail. The retired
+               ;; `:event` tab id (and its event-detail panel) folded
+               ;; into Epoch — Epoch is the cascade-pipeline master view
+               ;; the `:rf.xray/select-dispatch-id` spine pin drives
+               ;; (epoch_panel.cljs :order -1). Selecting `:event` here
+               ;; landed the shell's unknown-tab stub (rf2-cduftx F1);
+               ;; `:epoch` is a LIVE Dynamic L4 tab (focus.cljc
+               ;; `valid-panels`). The legacy `:rf.xray/select-panel`
                ;; slot is no longer read by the 4-layer shell (rf2-qy0nu).
                dispatch-id
-               (conj [:dispatch [[:rf.xray/select-tab :event]
+               (conj [:dispatch [[:rf.xray/select-tab :epoch]
                                  {:frame here}]])
                ;; Also close the popover when a row jump fires — the
                ;; user has navigated away.
