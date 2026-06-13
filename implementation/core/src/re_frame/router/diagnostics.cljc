@@ -117,10 +117,17 @@
                             (caller-supplied `:rf/time-ms` + owner-qualified
                             facts; the router fills `:rf/time-ms` when absent —
                             rf2-s9ss0t / rf2-alc1lf)
+    :rf.cofx/mint-policy    EP-0017 §6 / slice-B.8 per-call cofx mint policy
+                            (`:live` / `:strict` / `:explicit-live`); the
+                            most-specific binding point — a Tool-Pair replay
+                            supplies `:strict`, a nondeterminism-declaring test
+                            supplies `:explicit-live`. Absent ⇒ the frame
+                            config's policy, else the router's `:live` default
+                            (rf2-5spzo7)
     :rf.trace/call-site     macro-stamped invocation coord (dev-only)
     :rf.machine/internal?   machine-internal continuation flag (front-queue)"
   #{:frame :fx-overrides :interceptor-overrides :trace-id :source
-    :source-detail :origin :rf.cofx :rf.trace/call-site
+    :source-detail :origin :rf.cofx :rf.cofx/mint-policy :rf.trace/call-site
     :rf.machine/internal?})
 
 (defn reject-retired-dispatch-opts!

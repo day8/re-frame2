@@ -141,8 +141,11 @@
   (testing "the published known-opts set documents exactly the keys build-envelope honours"
     ;; A guard against drift: if build-envelope grows/drops an opt the
     ;; set must move with it. This is the canonical enumeration callers
-    ;; (and the warning message) rely on.
+    ;; (and the warning message) rely on. `:rf.cofx/mint-policy` is the
+    ;; EP-0017 §6 / slice-B.8 per-call cofx mint policy (rf2-5spzo7) —
+    ;; build-envelope reads it and threads it through to the satisfaction
+    ;; step's mint-policy resolution, so it belongs in the honoured set.
     (is (= #{:frame :fx-overrides :interceptor-overrides :trace-id :source
-             :source-detail :origin :rf.cofx :rf.trace/call-site
-             :rf.machine/internal?}
+             :source-detail :origin :rf.cofx :rf.cofx/mint-policy
+             :rf.trace/call-site :rf.machine/internal?}
            diag/known-dispatch-opts))))

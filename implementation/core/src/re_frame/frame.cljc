@@ -840,9 +840,21 @@
   ;;   :test       -> redirect :rf.http/managed to its canned-success stub
   ;;                  (Spec 014); explicit :drain-depth 100 (matches the
   ;;                  framework default — surfaced so tooling can read the
-  ;;                  bound off frame-meta without consulting the global default).
+  ;;                  bound off frame-meta without consulting the global default);
+  ;;                  :rf.cofx/mint-policy :strict (EP-0017 slice-B.8 — a
+  ;;                  declared-absent generator-backed recordable fact is
+  ;;                  missing-required rather than freshly minted, so a test's
+  ;;                  path of least resistance is supply-the-fact, not a silent
+  ;;                  per-run random; the determinism feature stays core, not
+  ;;                  polish). A test that DECLARED it accepts nondeterminism
+  ;;                  opts back into generation with
+  ;;                  `{:rf.cofx/mint-policy :explicit-live}` (per-call or
+  ;;                  per-frame).
   ;;   :story      -> same HTTP redirect as :test; tighter :drain-depth 16
   ;;                  so a runaway dispatch cascade fails fast under a story.
+  ;;                  NOT strict-by-default — a story is a live demo, not a
+  ;;                  determinism fixture, so it rides the router's :live
+  ;;                  default (no mint-policy entry).
   ;;   :ssr-server -> :platform :server (gates fx via reg-fx :platforms).
   ;; User-supplied keys win on conflict; see expand-preset.
   ;;
@@ -855,8 +867,20 @@
   ;; branch.
   (case preset
     :default    {}
-    :test       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}
-                 :drain-depth  100}
+    :test       {:fx-overrides        {:rf.http/managed :rf.http/managed-canned-success}
+                 :drain-depth         100
+                 ;; EP-0017 §6 / slice-B.8 (rf2-5spzo7): the :test preset
+                 ;; defaults the cofx MINT POLICY to :strict — a declared-absent
+                 ;; generator-backed recordable fact under a test frame is
+                 ;; `:rf.error/missing-required-cofx`, never a freshly-minted
+                 ;; per-run value. Strict-by-default tests are core: a
+                 ;; determinism feature whose path of least resistance is a
+                 ;; fresh random per run would degrade the test culture it
+                 ;; exists to serve. A test that has DECLARED it accepts
+                 ;; nondeterminism opts back in with
+                 ;; `{:rf.cofx/mint-policy :explicit-live}` (per-call dispatch
+                 ;; opt or a per-frame override — user keys win on conflict).
+                 :rf.cofx/mint-policy :strict}
     :story      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}
                  :drain-depth  16}
     :ssr-server {:platform :server}

@@ -302,7 +302,18 @@
         ;; quiescence before the next EXTERNAL event. This is a runtime
         ;; ordering guarantee — NOT a trace concern — so the flag is
         ;; carried unconditionally (never gated on interop/debug-enabled?).
-        machine-internal?  (true? (:rf.machine/internal? opts))]
+        machine-internal?  (true? (:rf.machine/internal? opts))
+        ;; EP-0017 §6 / slice-B.8 (rf2-5spzo7): the per-call cofx MINT POLICY
+        ;; — the most-specific binding point. A Tool-Pair replay supplies
+        ;; `:strict` (so an incomplete record fails loudly rather than minting
+        ;; a fresh value); a nondeterminism-declaring test supplies
+        ;; `:explicit-live`. nil here ⇒ `assemble-initial-ctx` falls back to
+        ;; the frame config's policy (the `:test` preset's `:strict`), else the
+        ;; router's `:live` default. Carried UNCONDITIONALLY (a correctness
+        ;; lever that gates durable generation, not a dev diagnostic) and only
+        ;; when supplied, so the override-free hot path keeps the envelope lean
+        ;; and `assemble-initial-ctx` reads `nil` for the common case.
+        mint-policy        (:rf.cofx/mint-policy opts)]
     (cond-> {:event                  event
              :frame                  frame
              ;; Per rf2-5uwl: merge the lexical-scope `*fx-overrides*`
@@ -351,7 +362,12 @@
       parent-dispatch-id (assoc :parent-dispatch-id parent-dispatch-id)
       ;; Per rf2-j20a7: carry the machine-internal continuation flag onto
       ;; the envelope so `dispatch!` can front-of-queue insert it.
-      machine-internal?  (assoc :rf.machine/internal? true))))
+      machine-internal?  (assoc :rf.machine/internal? true)
+      ;; EP-0017 §6 / slice-B.8 (rf2-5spzo7): carry the per-call cofx mint
+      ;; policy onto the envelope only when supplied, so `assemble-initial-ctx`
+      ;; reads it (per-call wins over the frame config). Absent ⇒ the key is
+      ;; omitted and the frame-config / `:live` fallback applies.
+      mint-policy        (assoc :rf.cofx/mint-policy mint-policy))))
 
 (defn- resolve-handler [event-id]
   (registrar/lookup :event event-id))
@@ -580,8 +596,10 @@
     ;; EP-0017 §5 step 4: deliver EXACTLY the declared facts, flat. Recordable
     ;; facts come from the token's `:rf.cofx` (validated against `:schema`);
     ;; ambient facts run their suppliers now; a declared-absent GENERATOR-BACKED
-    ;; recordable fact is GENERATED at processing-start (slice B.7) under the
-    ;; router's `:live` mint policy and written back into the record; a
+    ;; recordable fact is GENERATED at processing-start (slice B.7) UNDER THE
+    ;; RESOLVED MINT POLICY (slice B.8, rf2-5spzo7 — per-call opt ▸ frame config
+    ;; ▸ `:live`; `:strict` does NOT generate and surfaces missing-required) and
+    ;; written back into the record; a
     ;; declared-absent PROVIDED fact is `:rf.error/missing-required-cofx`; an
     ;; unregistered declared id is `:rf.error/unregistered-cofx`. Undeclared
     ;; leaves on the token are NOT staged. A supplier / generator that THROWS
@@ -596,8 +614,26 @@
     ;; EP-0017 §4). With no generators on the path the record is unchanged.
     (let [{:keys [coeffects rf/skip-handler?] :as delivered}
           (if (seq requires)
+            ;; EP-0017 §6 / slice-B.8 (rf2-5spzo7): resolve the effective cofx
+            ;; MINT POLICY for this dispatch, most-specific-wins —
+            ;;   1. the per-call `:rf.cofx/mint-policy` envelope opt (a Tool-Pair
+            ;;      replay's `:strict`; a test's `:explicit-live` escape),
+            ;;   2. else the frame config's `:rf.cofx/mint-policy` (the `:test`
+            ;;      preset expands to `:strict`),
+            ;;   3. else the router's `:live` default.
+            ;; The policy gates ONLY the declared-absent generator-backed branch
+            ;; of `deliver-declared-cofx`; supplied/replayed + ambient delivery
+            ;; are policy-independent, so the resolution lives INSIDE the
+            ;; `(seq requires)` branch — the override-free hot path (no
+            ;; declarations) pays nothing. Resolved here (not stamped on the
+            ;; envelope) so the frame-config tier reads off the live
+            ;; frame-record: a frame re-registered with a different policy takes
+            ;; effect on its next dispatch without re-stamping queued envelopes.
             (cofx/deliver-declared-cofx
-              base-cofx requires (:rf.cofx envelope) (first event) frame)
+              base-cofx requires (:rf.cofx envelope) (first event) frame
+              (cofx/resolve-mint-policy
+                (:rf.cofx/mint-policy envelope)
+                (:rf.cofx/mint-policy (:config frame-record))))
             {:coeffects base-cofx :rf.cofx (:rf.cofx envelope) :rf/skip-handler? false})
           ;; The (possibly generation-augmented) record — restamp the
           ;; always-staged `:rf.cofx` coeffect so the canonical context record
