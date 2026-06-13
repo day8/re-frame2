@@ -466,18 +466,86 @@
             a registration-time hard error — a provided fact is recordable by
             definition; the malformed grade would otherwise register as an
             ambient fact with a nil supplier and surface only as an opaque
-            host throw at delivery (rf2-cu8wet · Spec-Schemas §`:rf/cofx-meta`)"
+            host throw at delivery (rf2-cu8wet · Spec-Schemas §`:rf/cofx-meta`).
+            The taxonomy is `:rf.error/cofx-registration-invalid` (malformed
+            metadata), NOT `:rf.error/cofx-name-collision` (rf2-d8mvke.6
+            finding-1 — collision is reserved for duplicate ownership)."
     (let [ex (try (rf/reg-cofx :cofx-test/bad-grade {:provided? true})
                   nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
       (is (some? ex) "the malformed registration threw")
-      (is (= :rf.error/cofx-name-collision (:rf.error/id (ex-data ex)))
-          "rejected at the call site, not as a late delivery NPE")
+      (is (= :rf.error/cofx-registration-invalid (:rf.error/id (ex-data ex)))
+          "rejected as malformed metadata, not a name collision and not a late delivery NPE")
       (is (= :cofx-test/bad-grade (:rf.cofx/id (ex-data ex)))
           "the offending id rides the error payload")
       (is (re-find #":recordable\? true" (:reason (ex-data ex)))
           "the reason points the author at the fix")
       (is (nil? (registrar/lookup :cofx :cofx-test/bad-grade))
           "the malformed fact did NOT register"))))
+
+(deftest no-supplier-non-provided-is-registration-invalid
+  (testing "`reg-cofx` with NO supplier and no `:provided?` is
+            `:rf.error/cofx-registration-invalid` — an ambient fact must carry
+            a value-returning supplier; only a provided recordable fact may
+            omit it (rf2-d8mvke.6 finding-1 — malformed metadata, NOT a name
+            collision)"
+    (let [ex (try (rf/reg-cofx :cofx-test/no-supplier {:doc "missing supplier"})
+                  nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
+      (is (some? ex) "the no-supplier registration threw")
+      (is (= :rf.error/cofx-registration-invalid (:rf.error/id (ex-data ex)))
+          "a missing supplier is malformed metadata, not a name collision")
+      (is (= :cofx-test/no-supplier (:rf.cofx/id (ex-data ex)))
+          "the offending id rides the error payload")
+      (is (re-find #"no supplier" (:reason (ex-data ex)))
+          "the reason names the missing supplier")
+      (is (nil? (registrar/lookup :cofx :cofx-test/no-supplier))
+          "the malformed fact did NOT register"))))
+
+(deftest provided-with-supplier-is-rejected-at-registration
+  (testing "ADVERSARIAL (rf2-d8mvke.1): `reg-cofx` with `{:recordable? true
+            :provided? true}` AND a supplier is a contradictory registration —
+            a provided recordable fact has NO generator (its owner stamps the
+            token; delivery reads it verbatim), so the supplier would be
+            SILENTLY IGNORED and the first consumer would fail as
+            missing-required. It is rejected at the call site as
+            `:rf.error/cofx-registration-invalid`."
+    (let [ex (try (rf/reg-cofx :cofx-test/provided-with-fn
+                    {:recordable? true :provided? true}
+                    (fn [] "this would be silently ignored"))
+                  nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
+      (is (some? ex) "the contradictory registration threw")
+      (is (= :rf.error/cofx-registration-invalid (:rf.error/id (ex-data ex)))
+          "a provided fact carrying a supplier is malformed metadata")
+      (is (= :cofx-test/provided-with-fn (:rf.cofx/id (ex-data ex)))
+          "the offending id rides the error payload")
+      (is (re-find #"silently ignored" (:reason (ex-data ex)))
+          "the reason explains the supplier is silently ignored at delivery")
+      (is (nil? (registrar/lookup :cofx :cofx-test/provided-with-fn))
+          "the contradictory fact did NOT register"))))
+
+(deftest provided-without-supplier-registers-cleanly
+  (testing "the VALID provided shape — `{:recordable? true :provided? true}`
+            with NO supplier — still registers (rf2-d8mvke.1 keeps it valid:
+            only the supplier-bearing contradiction is rejected)"
+    (is (= :cofx-test/clean-provided
+           (rf/reg-cofx :cofx-test/clean-provided
+             {:recordable? true :provided? true})))
+    (let [meta (registrar/lookup :cofx :cofx-test/clean-provided)]
+      (is (true? (:recordable? meta)) "recordable")
+      (is (true? (:provided? meta)) "provided")
+      (is (nil? (:handler-fn meta)) "no supplier — its owner stamps the token"))))
+
+(deftest recordable-with-supplier-no-provided-registers-cleanly
+  (testing "a RECORDABLE fact WITH a supplier but no `:provided?` still
+            registers (rf2-d8mvke.1 — recordable-with-supplier is valid; the
+            generator backs the recordable fact)"
+    (is (= :cofx-test/recordable-gen
+           (rf/reg-cofx :cofx-test/recordable-gen
+             {:recordable? true}
+             (fn [] "generated"))))
+    (let [meta (registrar/lookup :cofx :cofx-test/recordable-gen)]
+      (is (true? (:recordable? meta)) "recordable")
+      (is (false? (:provided? meta)) "not provided")
+      (is (fn? (:handler-fn meta)) "carries its generator supplier"))))
 
 (deftest provided-recordable-registers-cleanly
   (testing "the well-formed provided-recordable grade
