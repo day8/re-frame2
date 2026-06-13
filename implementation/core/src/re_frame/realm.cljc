@@ -511,31 +511,55 @@
 
 (defn installed-app
   "Return the app VALUE installed in `realm-or-id` (defaults to the default
-  realm) — the realm's program as a recomputable value (EP-0013 D2 stage 5,
-  INTERNAL). When the realm STORES an `:app` (a future `install!`, stage 7),
-  that value is returned; otherwise the installed app is the recomputable
-  projection over the realm's registrar (`re-frame.app-value/app-value`,
-  reached via the `:app-value/project` late-bind hook). Returns `nil` when the
-  app-value ns is not yet loaded.
+  realm) — the realm's program as a recomputable value (EP-0013 D2 stage 5).
+  Returns `nil` when the app-value ns is not yet loaded.
 
-  This is the realm-side read seam over the D2-reserved `:app` slot: the
-  reader's contract — \"give me the realm's installed app value\" — is stable
-  across the stage-6/7 graduation; only its internals change (read the stored
-  slot, else project).
+  This is the realm-side read seam over the D2-reserved `:app` slot. EP-0013
+  makes the realm's REGISTRAR the single source of truth and reinterprets
+  `reg-*` as default-realm SUGAR that updates the installed app value in place
+  (EP-0013:138, :838), so the read ALWAYS reflects the LIVE registrar — sugar
+  AND installed registrations alike — never a frozen snapshot that could desync
+  from `app-value` / dispatch (rf2-77ewnm). Two cases:
+
+    - NO stored `:app` (pure `reg-*` sugar / load-order, or a fresh realm) —
+      the recomputable projection over the realm's registrar
+      (`re-frame.app-value/app-value`, via the `:app-value/project` hook),
+      module-less (load-order registrations declare no module).
+    - A stored `:app` (an `install!`-seated value, stage 7) — that SAME live
+      projection ENRICHED with the seated app's `:rf.app/id`, `:modules`, and
+      `:requires` provenance (via the `:app-value/reconcile-installed` hook).
+      The registrations stay the live registrar's, so coexisting sugar that
+      `install!` deliberately preserves (rf2-c6armm.7 #1) is visible here too;
+      the rich per-module provenance the Xray Module-view feeds to
+      `app-registrations` / `app-owns` / `app-requires` is preserved.
+
+  The reader's contract — \"give me the realm's live installed app value\" — is
+  stable across the stage-6/7 graduation; only its internals change (project,
+  then overlay the seated provenance when a stored app exists).
 
   PUBLICLY RE-EXPORTED as `rf/installed-app` (EP-0013 disposition 6, rf2-imquoq):
   the realm→installed-app read seam graduated from internal WHEN the Xray
   Module-view demanded the per-module provenance an `install!`-seated `:app`
   carries (`:modules` + `:owns` / `:requires` / `:owner`-stamped descriptors).
-  A STATIC read of the install-time value — it does NOT route live dispatch
-  through a non-default realm (the deferred runtime-routing slice). This var stays
-  the canonical implementation; the facade `def` re-exports it unchanged."
+  A read of the LIVE registration value (provenance from the install-time
+  snapshot) — it does NOT route live dispatch through a non-default realm (the
+  deferred runtime-routing slice). This var stays the canonical implementation;
+  the facade `def` re-exports it unchanged."
   ([] (installed-app default-realm-id))
   ([realm-or-id]
-   (let [rid (realm-id realm-or-id)]
-     (or (:app (realm rid))
-         (when-let [project (late-bind/get-fn :app-value/project)]
-           (project rid))))))
+   (let [rid    (realm-id realm-or-id)
+         stored (:app (realm rid))]
+     (if stored
+       ;; A stored `:app` exists — reconcile it with the live projection so
+       ;; coexisting sugar is visible and the seated provenance is preserved
+       ;; (rf2-77ewnm). When the reconcile hook is somehow unbound (app-value ns
+       ;; not loaded) the stored value is the best available read.
+       (if-let [reconcile (late-bind/get-fn :app-value/reconcile-installed)]
+         (reconcile rid stored)
+         stored)
+       ;; No stored `:app` — the recomputable projection IS the realm's program.
+       (when-let [project (late-bind/get-fn :app-value/project)]
+         (project rid))))))
 
 ;; ---- seating the app VALUE into the realm's :app slot (stage 7) ------------
 ;;

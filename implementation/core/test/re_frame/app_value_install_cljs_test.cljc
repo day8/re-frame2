@@ -24,8 +24,10 @@
         delta — added/changed re-registered, removed unregistered (failing
         loudly on future lookup); returns the diff value;
     (5) the installed app VALUE round-trips — after install! the realm's
-        `installed-app` returns the rich constructed value (carrying `:modules`
-        + `:owner`-stamped descriptors), in preference to the projection.
+        `installed-app` returns the LIVE registrar projection ENRICHED with the
+        seated value's rich provenance (`:modules` + `:owner`-stamped
+        descriptors), so coexisting `reg-*` sugar stays visible and the public
+        read never desyncs from `av/app-value` / dispatch (rf2-77ewnm).
 
   Dual-runtime `*_cljs_test.cljc` — the shadow-cljs `:node-test` build
   (`npm run test:cljs`) AND the JVM `clojure -M:test` runner both pick it up.
@@ -100,17 +102,18 @@
 
 (deftest install-returns-the-realm-and-seats-the-app-slot
   (testing "install! returns the realm map (its :app slot now holds the app
-            value) so the call composes, and installed-app returns the rich
-            constructed value in preference to the projection"
+            value verbatim) so the call composes, and installed-app reconciles
+            that seated value with the live projection — reporting the seated
+            identity + :modules provenance over the live registrar (rf2-77ewnm)"
     (let [cart (rf/module {:id :shop/cart :events {:cart/add {:handler cart-add}}})
           a    (rf/app {:id :shop/app :modules [cart]})
           ret  (rf/install! a)]
-      (is (= a (:app ret)) "install! returns the realm with the app in :app")
-      (is (= a (realm/installed-app))
-          "installed-app returns the stored constructed app value")
+      (is (= a (:app ret)) "install! returns the realm with the app in :app (verbatim)")
+      (is (= :shop/app (:rf.app/id (realm/installed-app)))
+          "installed-app reports the seated app's identity")
       (is (= {:shop/cart cart} (:modules (realm/installed-app)))
           "the installed app value carries its :modules (the rich constructed
-           value, not the module-less projection)"))))
+           provenance, overlaid onto the live projection)"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (2) the capability check — fail LOUD on an unmet :requires, before mutation
@@ -247,7 +250,19 @@
       (is (contains? (get-in proj [:registrations :event]) :sugar/inc)
           "the projection reflects the sugar-path registration")
       (is (contains? (get-in proj [:registrations :event]) :installed/inc)
-          "the projection reflects the installed registration"))))
+          "the projection reflects the installed registration"))
+    ;; rf2-77ewnm: the PUBLIC read seam (rf/installed-app) must see BOTH too —
+    ;; not just av/app-value. After a stored :app exists, the reconciled read is
+    ;; the live projection enriched with provenance, so it agrees with
+    ;; av/app-value on the registration set (no public-vs-internal desync).
+    (let [public-events (get-in (rf/installed-app) [:registrations :event])]
+      (is (contains? public-events :sugar/inc)
+          "rf/installed-app reflects the coexisting sugar registration")
+      (is (contains? public-events :installed/inc)
+          "rf/installed-app reflects the installed registration")
+      (is (= (set (keys (get-in (av/app-value) [:registrations :event])))
+             (set (keys public-events)))
+          "rf/installed-app and av/app-value agree on the event set (no desync)"))))
 
 (deftest install-fires-the-registration-trace-like-the-sugar-path
   (testing "install! routes through registrar/register!, so a seated descriptor
@@ -554,16 +569,25 @@
       (is (= [[:event :e]] (:removed diff))))))
 
 (deftest reinstall-stores-the-new-app-value
-  (testing "reinstall! records the new app value in the realm's :app slot"
+  (testing "reinstall! records the new app value in the realm's :app slot — the
+            stored slot is the new value verbatim, and installed-app reflects the
+            reloaded handler through the live projection (rf2-77ewnm)"
     (let [v1 (rf/app {:id :app :modules
                       [(rf/module {:id :m :events {:e {:handler cart-add}}})]})
           v2 (rf/app {:id :app :modules
                       [(rf/module {:id :m :events {:e {:handler cart-remove}}})]})]
       (rf/install! v1)
-      (is (= v1 (realm/installed-app)))
+      (is (= v1 (:app (realm/realm realm/default-realm-id)))
+          "the stored :app slot holds v1 verbatim after install")
+      (is (identical? cart-add (registrar/handler :event :e))
+          "and v1's handler resolves")
       (rf/reinstall! v2)
-      (is (= v2 (realm/installed-app))
-          "the realm now holds the reinstalled app value"))))
+      (is (= v2 (:app (realm/realm realm/default-realm-id)))
+          "the realm's stored :app slot now holds the reinstalled value verbatim")
+      (is (= :app (:rf.app/id (realm/installed-app)))
+          "installed-app reports the reinstalled app's identity")
+      (is (identical? cart-remove (registrar/handler :event :e))
+          "and the live projection reflects v2's reloaded handler"))))
 
 (deftest reinstall-rechecks-capabilities
   (testing "reinstall! re-runs the capability check — a reload that adds an
@@ -839,8 +863,10 @@
         ;; install! seated the descriptor into the registrar AND recorded the app.
         (is (identical? cart-add (get-in @(realm/registrar r) [:event :seat/e :handler-fn]))
             "install! actually seated the descriptor into the realm's registrar")
-        (is (= app (realm/installed-app r))
-            "installed-app returns the seated app — registrar + :app agree")
+        (is (= :seat/app (:rf.app/id (realm/installed-app r)))
+            "installed-app reports the seated app's identity — registrar + :app agree")
+        (is (contains? (get-in (realm/installed-app r) [:registrations :event]) :seat/e)
+            "and the seated registration is visible in the reconciled read")
         ;; reinstall! now diffs against a REAL installed app, not a phantom.
         (let [v2   (rf/app {:id :seat/app :modules
                             [(rf/module {:id :m :events {:seat/e2 {:handler cart-items}}})]})

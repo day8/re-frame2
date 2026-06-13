@@ -193,20 +193,29 @@
   `id`, and the registrar `metadata` map only — same inputs, same value.
 
   Lifts the handler out of `:handler-fn`, the source coords out of the flat
-  `:ns`/`:file`/`:line`/`:column` slots into `:source`, and keeps the rest of
-  the Spec 001 registration metadata under `:metadata` (with the handler and
-  source-coord slots removed so each fact is carried once). INTERNAL."
+  `:ns`/`:file`/`:line`/`:column` slots into `:source`, the owning-module id out
+  of `:owner` (present only when the registration was lowered from an
+  `install!`-seated MODULE — `install!` carries `:owner` through into the
+  registrar metadata, rf2-77ewnm; absent for ordinary `reg-*` sugar, which
+  declares no module), and keeps the rest of the Spec 001 registration metadata
+  under `:metadata` (with the handler, source-coord, and owner slots removed so
+  each fact is carried once). Lifting `:owner` to the top level makes a PROJECTED
+  installed descriptor structurally identical to the CONSTRUCTED one
+  `module-descriptor` emits — one app-value vocabulary, two origins (EP-0013) —
+  so a reconciled `installed-app` descriptor reads its provenance off the same
+  top-level `:owner` whether it came from sugar or from a module. INTERNAL."
   [kind id metadata]
   (let [source (descriptor-source metadata)
         ;; The remaining metadata: the Spec 001 registration map minus the
-        ;; handler slot and the lifted source-coord slots. Kind-specific
-        ;; extras (`:event/kind`, `:input-kind`, `:input-signals`,
-        ;; `:interceptors`, …) stay here — they are part of the registration's
-        ;; description, not framework-internal book-keeping.
-        rest-meta (apply dissoc metadata :handler-fn source-coord-keys)]
+        ;; handler slot, the lifted source-coord slots, and the lifted `:owner`
+        ;; provenance slot. Kind-specific extras (`:event/kind`, `:input-kind`,
+        ;; `:input-signals`, `:interceptors`, …) stay here — they are part of the
+        ;; registration's description, not framework-internal book-keeping.
+        rest-meta (apply dissoc metadata :handler-fn :owner source-coord-keys)]
     (cond-> {:kind kind
              :id   id}
       (contains? metadata :handler-fn) (assoc :handler (:handler-fn metadata))
+      (contains? metadata :owner)      (assoc :owner (:owner metadata))
       source                           (assoc :source source)
       (seq rest-meta)                  (assoc :metadata rest-meta))))
 
@@ -1141,11 +1150,20 @@
    ;; against an explicit unknown id throws `:rf.error/unknown-realm` before any
    ;; mutation, symmetric with install!. nil/default sugar is preserved.
    (let [rid     (resolve-target-realm! realm-or-id)
-         ;; The installed app — the stored `:app` if a prior install! seated
-         ;; one, else the recomputable projection of the realm's registrar
-         ;; (so the FIRST reinstall after a pure-sugar boot still diffs against
-         ;; the live program).
-         old-app (realm/installed-app rid)
+         ;; The app to diff against — the STORED `:app` a prior install!/reinstall!
+         ;; seated, else (no prior install) the recomputable projection of the
+         ;; realm's registrar, so the FIRST reinstall after a pure-sugar boot
+         ;; still diffs against the live program. Diffing against the STORED app
+         ;; (not `realm/installed-app`, which now reconciles the stored app WITH
+         ;; the live projection, rf2-77ewnm) scopes replacement to the prior
+         ;; install — coexisting `reg-*` sugar (including the framework's
+         ;; boot-seeded deferred-kind registrations) is NEVER swept into
+         ;; `:removed`, exactly as install!'s replacement step preserves it
+         ;; (rf2-c6armm.7 #1 / AC3). Reconciling here instead would land every
+         ;; coexisting sugar registration in `:removed` on a reinstall that does
+         ;; not re-list it.
+         old-app (or (stored-installed-app rid)
+                     (realm/installed-app rid))
          diff    (diff-registrations (:registrations old-app)
                                      (:registrations new-app))]
      ;; The capability invariant holds across reloads too — fail loud before
@@ -1207,17 +1225,75 @@
 ;;
 ;; The realm's `:app` slot (Spec-Schemas §`:rf/realm`, D2-reserved) is the
 ;; installed app VALUE. `re-frame.realm/installed-app` is the realm-side read
-;; seam over that slot: it returns the stored `:app` if a future `install!`
-;; (stage 7) seated one, else the recomputable projection. `re-frame.realm`
-;; requires NOTHING from this ns (this ns requires it, projecting over its
-;; registrar), so `installed-app` reaches the projection through the
-;; `:app-value/project` late-bind hook published below — a static back-require
-;; would cycle. The hook takes a realm-id and returns the projected app value;
-;; published once at ns-load and never withdrawn (drift-tested via
-;; `re-frame.late-bind.directory`).
+;; seam over that slot. `re-frame.realm` requires NOTHING from this ns (this ns
+;; requires it, projecting over its registrar), so `installed-app` reaches this
+;; ns through the late-bind hooks published below — a static back-require would
+;; cycle. Both hooks are published once at ns-load and never withdrawn
+;; (drift-tested via `re-frame.late-bind.directory`).
 ;;
-;; The projection IS the realm's app value in stage 5: with no construction
-;; (stage 6) and no install (stage 7), the realm stores no `:app`, so the
-;; recomputable projection of its registrar is exactly the program it runs.
+;; THE SOURCE-OF-TRUTH INVARIANT (rf2-77ewnm). EP-0013 makes the realm's
+;; REGISTRAR the single source of truth and reinterprets `reg-*` as default-realm
+;; SUGAR — a sugar call updates the realm's installed app value in place
+;; (EP-0013:138, :838). So `installed-app` MUST reflect every live registration,
+;; sugar OR installed, in BOTH the pure-projection case and the mixed case where
+;; `reg-*` sugar coexists with an `install!`-seated `:app`. A naive "return the
+;; stored `:app` if present" read breaks this: an `install!`-seated snapshot is
+;; frozen at install time, so coexisting sugar (registered before or after the
+;; install — which `install!` deliberately preserves, rf2-c6armm.7 #1) would be
+;; live in the registrar and visible to `app-value` / dispatch yet INVISIBLE to
+;; the public `rf/installed-app` read. That desync makes the public read seam
+;; ambiguous for Xray/tooling and weakens the source-of-truth claim.
+;;
+;; The contract (rf2-77ewnm AC2, option a): `rf/installed-app` is the LIVE
+;; registrar projection ENRICHED with the seated app's module provenance. Two
+;; cases:
+;;
+;;   - NO stored `:app` (pure sugar / load-order, or a fresh realm) — the
+;;     recomputable projection over the registrar, module-less (`:project`
+;;     hook). The honest no-provenance case; unchanged.
+;;   - A stored `:app` (an `install!`-seated app value) — the SAME live
+;;     projection, with the seated app's `:rf.app/id`, `:modules`, and
+;;     `:requires` overlaid (`:reconcile-installed` hook). The registrations are
+;;     always the live registrar's (so coexisting sugar is visible and the read
+;;     can never desync from `app-value` / dispatch); the rich install-time
+;;     provenance the Xray Module-view feeds to `app-registrations` / `app-owns`
+;;     / `app-requires` is preserved.
+;;
+;; A sugar registration that COLLIDES with an installed `(kind, id)` cannot occur
+;; (the registrar holds one entry per `(kind, id)`); the projected descriptor for
+;; an installed id carries the same `:owner` the seated app stamped, since
+;; `install!` lowers `:owner` into the registrar metadata. So a reconciled
+;; registration's `:owner` is correct whether it originated from sugar (no
+;; `:owner`) or from a module (its `:owner`), and `app-owns` resolves through the
+;; overlaid `:modules` exactly as it did for a pure install.
+
+(defn reconcile-installed-app
+  "Reconcile a realm's STORED `:app` (an `install!`-seated app value) with the
+  LIVE projection over its registrar, returning the value `re-frame.realm/
+  installed-app` exposes when a stored app exists (rf2-77ewnm). INTERNAL.
+
+  The result is the live projection (so it reflects coexisting `reg-*` sugar
+  and can never desync from `app-value` / dispatch) carrying the seated app's
+  rich provenance overlaid:
+
+    {:rf.app/id     <stored app id>             ;; the seated app's identity
+     :registrations {kind {id descriptor}}      ;; the LIVE registrar (sugar +
+                                                 ;; installed), owner-stamped
+     :requires      <stored app :requires>      ;; the seated app's capability
+                                                 ;; surface (module-declared)
+     :modules       <stored app :modules>}      ;; per-module provenance — so
+                                                 ;; app-owns / app-requires read
+
+  `:requires` and `:modules` come from the seated VALUE (load-order sugar
+  declares neither), so the Xray Module-view's per-module facts survive while
+  the enumerable registration view stays the live source of truth. Pure given
+  the registrar snapshot the projection reads."
+  [realm-id stored-app]
+  (-> (app-value realm-id)
+      (assoc :rf.app/id (:rf.app/id stored-app)
+             :requires  (get stored-app :requires #{}))
+      (cond-> (contains? stored-app :modules)
+        (assoc :modules (:modules stored-app)))))
 
 (late-bind/set-fn! :app-value/project app-value)
+(late-bind/set-fn! :app-value/reconcile-installed reconcile-installed-app)
