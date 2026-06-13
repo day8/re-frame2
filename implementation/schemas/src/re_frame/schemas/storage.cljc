@@ -562,13 +562,6 @@
 ;; and the per-slot extractors still serve the machine `:data-schema` bridge
 ;; (EP-0005) — both consult the schema directly, never this registry.
 
-(defn ^:no-doc clear-frame-reg-locks!
-  "Retained as a no-op for the test fixture's `clear-schemas-by-frame!`
-  call site. The per-frame registration linearization lock it once cleared
-  was removed with the schema→elision population (EP-0015 §8, rf2-d2r3um)."
-  []
-  nil)
-
 ;; ---- app-db schema registration -------------------------------------------
 
 (defn reg-app-schema
@@ -883,12 +876,12 @@
 (defn clear-schemas-by-frame!
   "Reset the per-frame schema registry to `{}`. Used by test fixtures
   and by `make-reset-runtime-fixture`'s `:clear-app-schemas? true`
-  path (rf2-cq1ak). Calls the now-no-op `clear-frame-reg-locks!`
-  (the per-frame registration lock was removed with the schema→elision
-  population — EP-0015 §8, rf2-d2r3um)."
+  path (rf2-cq1ak). The per-frame registry is the schemas artefact's
+  only mutable registration state — there is no companion side-table to
+  clear (the registration linearization lock was removed with the
+  schema→elision population, EP-0015 §8, rf2-d2r3um)."
   []
-  (reset! schemas-by-frame {})
-  (clear-frame-reg-locks!))
+  (reset! schemas-by-frame {}))
 
 (defn on-frame-destroyed!
   "Per Spec 002 §Destroy: drop every schema registered against the

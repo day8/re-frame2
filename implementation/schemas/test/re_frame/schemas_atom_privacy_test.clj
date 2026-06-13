@@ -8,10 +8,10 @@
   encapsulation leak worse than aesthetic (rf2-l5r974):
 
     1. `schemas-by-frame` is the authoritative store, so its rep cannot
-       evolve without breaking ad-hoc consumers — already realised:
-       rf2-naihn1 added per-frame `frame-reg-locks` companion state that
-       `clear-schemas-by-frame!` clears but raw `(reset! schemas-by-frame
-       {})` sites silently skip, leaving stale locks.
+       evolve without breaking ad-hoc consumers — a future companion
+       side-table (or a map-shape change) would have to be cleared through
+       `clear-schemas-by-frame!`, but raw `(reset! schemas-by-frame {})`
+       sites would silently skip it.
     2. The public `printer-fn` atom bypassed the never-nil invariant
        `run-printer` relies on with NO read guard — `(reset! printer-fn
        nil)` NPEs the digest path; the setters exist to coerce nil →
@@ -67,7 +67,7 @@
             `re-frame.schemas` — the migration target the swept test sites
             now use"
     (let [publics (ns-publics 're-frame.schemas)]
-      (doseq [sym '[;; registry pair + clear (also drops frame-reg-locks)
+      (doseq [sym '[;; registry pair + clear
                     snapshot-schemas-by-frame
                     restore-schemas-by-frame!
                     clear-schemas-by-frame!
