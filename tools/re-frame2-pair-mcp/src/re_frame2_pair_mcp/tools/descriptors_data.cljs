@@ -412,6 +412,13 @@
                      "setTimeout + flush! + re-read dance. SCOPE: async fx (http / timers) stay observed via "
                      "watch-epochs — `settle` only settles the synchronous cascade + render flush. `settle` wins "
                      "over await-render / trace / queued. "
+                     "PRIVACY (rf2-olvr5 / rf2-m9duxl): the epoch-bearing modes (`trace` / `settle`) return a RAW "
+                     ":rf/epoch-record and ALWAYS route it through the framework's off-box projection "
+                     "(`re-frame.core/projected-record`) before crossing the wire — declared-`:sensitive?` app-db "
+                     "slots redact to `:rf/redacted` by default. Pass `include-sensitive true` to keep those slots "
+                     "verbatim (app-db sensitive axis only; honoured ONLY under `--allow-sensitive-reads`, else "
+                     "forced false). The default sync / queued / await-render consequence shapes carry no raw "
+                     "app-db, so the knob is a no-op there. "
                      "Reproducible dispatch (rf2-q6s1nb / EP-0010 + EP-0017): set `cofx` to an EDN map of scripted "
                      "recordable coeffects — `\"{:rf/time-ms 1781078400123}\"` (and optionally owner-qualified app "
                      "facts like `:counter/delta`) — and the dispatched event carries that exact wall-clock time / "
@@ -483,6 +490,22 @@
                                                        "non-map / non-integer-:rf/time-ms / unreadable value returns "
                                                        ":reason :invalid-cofx and does NOT dispatch. Omit it for the "
                                                        "ordinary live path (the runtime stamps :rf/time-ms).")}
+                              :include-sensitive {:type "boolean"
+                                                  :description (str "Epoch-egress privacy opt-in for the :trace / :settle modes "
+                                                                    "(rf2-olvr5 / rf2-m9duxl). Those modes return a RAW "
+                                                                    ":rf/epoch-record (:db-before / :db-after / :trace-events; "
+                                                                    ":settle also :render-events) that ALWAYS routes through the "
+                                                                    "framework's off-box projection (re-frame.core/projected-record) "
+                                                                    "before crossing the wire, exactly like trace-window / "
+                                                                    "watch-epochs. Default false: declared-:sensitive? app-db slots "
+                                                                    "in the projected epoch redact to :rf/redacted. Set true to pass "
+                                                                    "them through verbatim — honoured ONLY when the server was "
+                                                                    "launched with --allow-sensitive-reads; otherwise forced false "
+                                                                    "(rf2-z7roa). Governs the app-db sensitive axis ONLY: the "
+                                                                    "orthogonal fx-args / runtime-db / large axes and the app "
+                                                                    ":redact-fn stay fail-closed regardless. Ignored by the default "
+                                                                    "sync / queued / await-render consequence shapes (they carry no "
+                                                                    "raw app-db).")}
                               :build {:type "string"}}
                  :required ["event"]
                  :additionalProperties false}})
@@ -1144,6 +1167,11 @@
                      "{:signal 0 :path [...] :equals <v>} / {:signal 0 :contains <substr>}; compiled to a pure "
                      "value-comparison fn — no host source crosses the wire). READ-ONLY: never dispatches, never mutates "
                      "app-db, never writes the DOM. "
+                     "PRIVACY (rf2-8fin7.2): the :app-db / :sub sample VALUES are walked by `re-frame.core/elide-wire-value` "
+                     "at sample time BEFORE they enter the change-log read back by read-recording — declared-`:large?` slots "
+                     "collapse to markers, declared-`:sensitive?` leaves redact — the SAME off-box posture as snapshot / "
+                     "get-path. Pass `elision false` / `include-sensitive true` (honoured only under --allow-sensitive-reads) "
+                     "to record raw values. "
                      "Examples: "
                      "1. Watch focus + a DOM count during interaction: {:signals \"[{:focus true} {:dom \\\"#count\\\"}]\" :stop {:ms 15000}} -> {:ok? true :recording-id \"rec-<uuid>\" :signals [{:focus true} {:dom \"#count\"}] :frame :rf/default :stop {:ms 15000}}; interact, then read-recording. "
                      "2. App-db path until a value lands: {:signals \"[{:app-db [:upload :status]}]\" :stop {:pred {:signal 0 :equals :done}}} -> {:ok? true :recording-id \"rec-<uuid>\" ...}. "
@@ -1168,6 +1196,27 @@
                                                 {:type "string"}]}
                               :max-entries {:type "integer"
                                             :description "Drop-oldest ring cap on the change-log (default 2000). Bounds memory on a forgotten recording."}
+                              :elision {:type "boolean"
+                                        :description (str "Apply the size/sensitive elision walker "
+                                                          "(`re-frame.core/elide-wire-value`, rf2-8fin7.2) to the "
+                                                          ":app-db / :sub sample VALUES this recorder ships back through "
+                                                          "read-recording — declared-`:large?` slots collapse to "
+                                                          "`{:rf.size/large-elided ...}` markers, declared-`:sensitive?` "
+                                                          "leaves redact to `:rf/redacted`, the SAME walker snapshot / "
+                                                          "get-path / watch-until use. The values are walked at SAMPLE "
+                                                          "time (before they enter the change-log read back by "
+                                                          "read-recording). Default true. Pass false to record raw "
+                                                          "values — honoured ONLY when the server was launched with "
+                                                          "--allow-sensitive-reads; otherwise forced true. (:dom / :focus "
+                                                          "signals are content reads, not app-db-rooted, and ride unwalked.)")}
+                              :include-sensitive {:type "boolean"
+                                                  :description (str "Pass declared-`:sensitive?` :app-db / :sub sample leaves through "
+                                                                    "verbatim instead of redacting to `:rf/redacted`. Default false. "
+                                                                    "Honoured ONLY when the server was launched with "
+                                                                    "--allow-sensitive-reads; otherwise forced false (rf2-8fin7.2). "
+                                                                    "Orthogonal to `:elision` (the size/large axis) — a gate-ON caller "
+                                                                    "wanting fully-raw samples passes both `:elision false` and "
+                                                                    "`:include-sensitive true`.")}
                               :frame   {:type "string"
                                         :description "Operating frame for :app-db / :sub signals (e.g. \":rf/default\"). Defaults to the operating frame; an :app-db / :sub signal in a multi-frame session with no resolvable frame returns :reason :ambiguous-frame."}
                               :build   {:type "string"}}
@@ -1226,6 +1275,11 @@
                      "{:signal 0 :path [...] :equals <v>} / {:signal 0 :contains <substr>} / {:signal 0} (any non-nil). "
                      "Compiled to a pure value-comparison fn — no host source crosses the wire. READ-ONLY: never "
                      "dispatches or mutates. "
+                     "PRIVACY (rf2-8fin7.2): the :app-db / :sub values returned in the `:sample` / `:last-sample` slots are "
+                     "walked by `re-frame.core/elide-wire-value` server-side — declared-`:large?` slots collapse to markers, "
+                     "declared-`:sensitive?` leaves redact — the SAME off-box posture as snapshot / get-path / record. The "
+                     "predicate evaluates over the UNWALKED values, so elision never changes whether the watch trips. Pass "
+                     "`elision false` / `include-sensitive true` (honoured only under --allow-sensitive-reads) for raw samples. "
                      "Examples: "
                      "1. Wait for an app-db flag: {:signals \"[{:app-db [:upload :status]}]\" :pred {:signal 0 :equals :done}} -> blocks, then {:ok? true :held? true :elapsed-ms 4200 :sample {0 :done} :t 1712...}. "
                      "2. Wait for focus to move into the dialog: {:signals \"[{:focus true}]\" :pred {:signal 0 :path [:id] :equals \"dialog-close\"}} -> {:ok? true :held? true :sample {0 {:tag \"button\" :id \"dialog-close\"}}}. "
@@ -1249,6 +1303,27 @@
                                                 {:type "string"}]}
                               :timeout-ms {:type "integer"
                                            :description "Max ms to wait for the predicate to hold (default 30000). On expiry returns :reason :watch-timeout with the final :last-sample."}
+                              :elision {:type "boolean"
+                                        :description (str "Apply the size/sensitive elision walker "
+                                                          "(`re-frame.core/elide-wire-value`, rf2-8fin7.2) to the :app-db / "
+                                                          ":sub VALUES returned in the `:sample` (on hold) and "
+                                                          "`:last-sample` (on timeout) slots — declared-`:large?` slots "
+                                                          "collapse to `{:rf.size/large-elided ...}` markers, "
+                                                          "declared-`:sensitive?` leaves redact to `:rf/redacted`, the SAME "
+                                                          "walker snapshot / get-path / record use. Default true. Pass false "
+                                                          "to return raw values — honoured ONLY when the server was launched "
+                                                          "with --allow-sensitive-reads; otherwise forced true. (The predicate "
+                                                          "itself evaluates over the UNWALKED values server-side, so elision "
+                                                          "never changes whether the watch trips — only what the returned "
+                                                          "sample shows.)")}
+                              :include-sensitive {:type "boolean"
+                                                  :description (str "Pass declared-`:sensitive?` :app-db / :sub sample leaves through "
+                                                                    "verbatim in the `:sample` / `:last-sample` slots instead of "
+                                                                    "redacting to `:rf/redacted`. Default false. Honoured ONLY when "
+                                                                    "the server was launched with --allow-sensitive-reads; otherwise "
+                                                                    "forced false (rf2-8fin7.2). Orthogonal to `:elision` (the size "
+                                                                    "axis) — a gate-ON caller wanting fully-raw samples passes both "
+                                                                    "`:elision false` and `:include-sensitive true`.")}
                               :frame   {:type "string"
                                         :description "Operating frame for :app-db / :sub signals (e.g. \":rf/default\"). Defaults to the operating frame."}
                               :build   {:type "string"}}
@@ -1282,7 +1357,11 @@
                      "Pass `filter` either as a JSON object or as an EDN-encoded string. "
                      "Per spec/009 §Privacy this forwarder default-drops events carrying `:sensitive? true` at the top "
                      "level; opt back in with `include-sensitive true`. Dropped count surfaces as `:dropped-sensitive` "
-                     "on each progress payload (when non-zero) and the final summary. "
+                     "on each progress payload (when non-zero) and the final summary. The events that DO ride are then "
+                     "walked by `re-frame.core/elide-wire-value` (rf2-vr2hn) server-side by default — declared-`:large?` "
+                     "slots collapse to markers, declared-`:sensitive?` leaves redact — exactly like snapshot / get-path. "
+                     "Pass `elision false` to stream raw payload values (honoured only under --allow-sensitive-reads; "
+                     "orthogonal to the `include-sensitive` whole-event drop). "
                      "Each progress payload's payload-slot is structurally deduped by default (rf2-obpa9) — "
                      "shared subtrees across the tick collapse to a `{:rf.mcp/dedup-table ...}` wrapper; "
                      "agent host reconstructs via `(de-dupe.core/expand cache-map)`. Dedup is per-tick, not "
@@ -1320,7 +1399,25 @@
                                            :description "Terminate after this many events have been delivered. Non-negative integer (>= 0); a negative value is rejected with :reason :invalid-numeric-arg. 0 = unbounded. Default 0."}
                               :dedup    knobs/dedup-property
                               :include-sensitive {:type "boolean"
-                                                   :description "Opt back in to forwarding `:sensitive? true` items. Default false."}
+                                                   :description (str "Opt back in to forwarding `:sensitive? true` items. Default false — "
+                                                                     "the spec/009 §Privacy forwarder default-drops top-level "
+                                                                     "`:sensitive? true` events (dropped count surfaces as "
+                                                                     "`:dropped-sensitive`). Honoured ONLY when the server was launched "
+                                                                     "with --allow-sensitive-reads; otherwise forced false (rf2-c2dtu). "
+                                                                     "Orthogonal to `:elision` — this governs whole-event drop, `:elision` "
+                                                                     "governs per-value walking of the events that DO ride.")}
+                              :elision  {:type "boolean"
+                                         :description (str "Apply the size/sensitive elision walker "
+                                                           "(`re-frame.core/elide-wire-value`, rf2-vr2hn) to each streamed "
+                                                           "event's payload server-side, before the batch crosses the wire — "
+                                                           "declared-`:large?` slots collapse to `{:rf.size/large-elided ...}` "
+                                                           "markers and declared-`:sensitive?` leaves redact to `:rf/redacted`, "
+                                                           "the SAME walker snapshot / get-path / record use. Default true. Pass "
+                                                           "false to stream raw values — honoured ONLY when the server was "
+                                                           "launched with --allow-sensitive-reads; otherwise forced true. "
+                                                           "Orthogonal to `:include-sensitive`: a gate-ON caller wanting full-raw "
+                                                           "streamed events passes BOTH `:elision false` and "
+                                                           "`:include-sensitive true`.")}
                               :build   {:type "string"}}
                  :required ["topic"]
                  :additionalProperties false}})

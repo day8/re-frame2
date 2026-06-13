@@ -65,14 +65,24 @@
 
 (def elision-property
   "Per-tool descriptor slot for the `:elision` opt-out (rf2-urjnc).
-  Applied to the direct-read app-db surfaces: the `:app-db` slot readers
-  (`snapshot`, `get-path`) and `list-subscriptions :include-values`'
-  per-sub `:value` (rf2-f1ose) — surfaces where a declared-`:large?`
-  slot or a declared-`:sensitive?` leaf would otherwise ride off-box
-  verbatim. Default `true`. (The pull-mode epoch tools egress whole
-  records via `projected-record`, not this per-slot walker — they have
-  no `:elision` knob; their `:include-sensitive` arg governs projection
-  there.)"
+  Applied to every surface that egresses an `:app-db`-rooted VALUE through
+  the per-slot walker: the direct-read app-db readers (`snapshot`,
+  `get-path`, `read-sub`), `list-subscriptions :include-values`' per-sub
+  `:value` (rf2-f1ose), the streaming `subscribe` payload values (rf2-vr2hn),
+  and the signal-recorder sample values — `record`'s `:app-db` / `:sub`
+  samples and `watch-until`'s `:sample` / `:last-sample` (rf2-8fin7.2) —
+  surfaces where a declared-`:large?` slot or a declared-`:sensitive?` leaf
+  would otherwise ride off-box verbatim. Default `true`. (The pull-mode
+  epoch tools — `trace-window`, `watch-epochs`, and `dispatch`'s
+  `:trace` / `:settle` modes — egress whole records via `projected-record`,
+  not this per-slot walker, so they have no `:elision` knob; their
+  `:include-sensitive` arg governs the app-db sensitive axis of that
+  projection instead.)
+
+  NOTE: this is the prose source of truth for which surfaces walk per-slot;
+  each tool declares its own inline `:elision` property in
+  `descriptors-data.cljs` rather than referencing this var, so keep the two
+  in sync (the `descriptor-elision-knob-parity` regression test pins it)."
   {:type        "boolean"
    :description (str "Apply the size-elision walker "
                      "(`re-frame.core/elide-wire-value`, rf2-v9tw2) "
