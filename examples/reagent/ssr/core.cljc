@@ -63,6 +63,17 @@
             ;; `:ssr/project-error`). Without the require the four core
             ;; re-exports raise `:rf.error/ssr-artefact-missing`.
             [re-frame.ssr :as ssr]
+            ;; The EDN-aware `<script>`-body escaper the production Ring
+            ;; host uses (`re-frame.ssr.ring.shell/payload-script-tag` →
+            ;; `escape-edn-script-body`). Server-side only — the `:clj`
+            ;; `handle-request` drops the `pr-str`'d payload inside a
+            ;; `<script type="application/edn">` body and a server-provided
+            ;; string containing `</script>` would otherwise close the
+            ;; envelope (security audit 2026-05-14 §P1, rf2-7ksyr). It lives
+            ;; in the SSR artefact (`re-frame.ssr.html-helpers`), so it ships
+            ;; with the same `day8/re-frame2-ssr` dep the example already
+            ;; requires above.
+            #?(:clj [re-frame.ssr.html-helpers :as html])
             #?(:cljs [reagent.dom.client :as rdc])
             #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
 
@@ -252,8 +263,25 @@
                  ;; environments (server logs, CDN cache keys) can read it
                  ;; without HTML parsing.
                  render-hash (rf/render-tree-hash hiccup)
+                 ;; EP-0002 (rf2-acjknb): the payload DELIBERATELY OMITS
+                 ;; `:rf/frame-id`. The server renders under a per-request
+                 ;; gensym frame (`f`), but the client hydrates a FIXED app-
+                 ;; frame (`app-frame` → `:rf/default`, below). `ssr/hydrate!`
+                 ;; VALIDATES a present payload `:rf/frame-id` against the
+                 ;; client's explicit `:frame` and raises
+                 ;; `:rf.error/hydration-frame-id-mismatch` on disagreement
+                 ;; (Spec 011 §The hydration payload — the frame-id is
+                 ;; validation evidence, NOT a target resolver). Stamping the
+                 ;; server's per-request gensym here would always conflict
+                 ;; with the client's fixed frame; an ABSENT `:rf/frame-id` is
+                 ;; explicitly NO conflict (the explicit client target
+                 ;; stands), so the dynamic server output matches the static
+                 ;; `index.html` next to this file exactly. A deployment that
+                 ;; WANTS the round-trip to carry a frame-id stamps a STABLE
+                 ;; id both sides agree on (or has the client read the
+                 ;; payload's frame-id as its hydration target) — not a
+                 ;; per-request gensym.
                  payload  {:rf/version     1
-                           :rf/frame-id    f
                            :rf/app-db      final-db        ;; app-db partition
                            :rf/runtime-db  final-runtime   ;; serializable runtime-db projection
                            :rf/render-hash render-hash}]
@@ -265,8 +293,17 @@
                    "<title>SSR demo</title>"
                    "</head><body>"
                    "<div id='app'>" html "</div>"
+                   ;; Emit the payload `<script>` through the EDN-aware
+                   ;; `</script>`-escaper the production Ring host uses
+                   ;; (security audit 2026-05-14 §P1, rf2-7ksyr): a server-
+                   ;; provided string carrying `</script>` (round-tripped
+                   ;; through app-db) can't close the envelope. The encoder
+                   ;; rewrites a less-than char to its unicode reader escape
+                   ;; ONLY inside EDN string literals, so the payload still
+                   ;; round-trips through the client's `cljs.reader/read-string`
+                   ;; unchanged.
                    "<script id='__rf_payload' type='application/edn'>"
-                   (pr-str payload)
+                   (html/escape-edn-script-body (pr-str payload))
                    "</script>"
                    "<script src='/main.js'></script>"
                    "</body></html>")}))
@@ -327,11 +364,16 @@
 ;; runtime will not infer it). It MUST be a `:client`-platform frame so the
 ;; `:rf.ssr/check-*` compatibility-check fxs the `:rf/hydrate` handler
 ;; dispatches actually fire (Spec 011 §The :rf/hydrate event — a `:server`-
-;; platform frame skips them). The static `index.html` payload carries no
-;; `:rf/frame-id` (a real server stamps it via `handle-request` above), which
-;; is NOT a hydration-frame-id conflict — the explicit `:frame` stands; a
-;; present-but-different payload `:rf/frame-id` would surface a structured
-;; `:rf.error/hydration-frame-id-mismatch` (Spec 011 §The hydration payload).
+;; platform frame skips them). BOTH the static `index.html` payload AND the
+;; dynamic `handle-request` payload above carry NO `:rf/frame-id`: the server
+;; renders under a per-request gensym frame the client can't know ahead of
+;; time, and the client hydrates this FIXED app-frame, so an absent frame-id
+;; is the correct shape (it is NOT a hydration-frame-id conflict — the
+;; explicit `:frame` stands). A present-but-different payload `:rf/frame-id`
+;; — e.g. the server's per-request gensym against this `:rf/default` client
+;; target — WOULD surface a structured `:rf.error/hydration-frame-id-mismatch`
+;; (Spec 011 §The hydration payload), which is exactly why `handle-request`
+;; omits it.
 (def app-frame :rf/default)
 
 #?(:cljs

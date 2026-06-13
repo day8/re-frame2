@@ -61,6 +61,12 @@
             ;; omitted per the resource's classification; indexes recompute on
             ;; install). Server-side only — `handle-request` (`:clj`) uses it.
             #?(:clj [re-frame.ssr.payload-policy :as payload-policy])
+            ;; The EDN-aware `<script>`-body escaper the production Ring host
+            ;; uses (`re-frame.ssr.ring.shell/payload-script-tag` →
+            ;; `escape-edn-script-body`). Server-side only — a server-provided
+            ;; string carrying `</script>` would otherwise close the payload
+            ;; `<script>` envelope (security audit 2026-05-14 §P1, rf2-7ksyr).
+            #?(:clj [re-frame.ssr.html-helpers :as html])
             #?(:cljs [reagent.dom.client :as rdc])
             #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
 
@@ -185,25 +191,54 @@
                  html          (rf/render-to-string hiccup {:doctype? true :emit-hash? true})
                  render-hash   (rf/render-tree-hash hiccup)
                  ;; (2) build the canonical payload the way the Ring host does:
-                 ;; the app-db slice through the fail-closed allowlist (empty
-                 ;; here — no app-db state to ship), and the runtime-db through
-                 ;; the SSR projection (only the allowed resource `:entries`).
-                 policy-opts   {:payload []}
+                 ;; the app-db slice through the fail-closed allowlist, and
+                 ;; the runtime-db through the SSR projection (only the allowed
+                 ;; resource `:entries`).
+                 ;;
+                 ;; The page state is the RESOURCE (it rides `:rf/runtime-db`),
+                 ;; so app-db carries nothing of its own — but `:payload` is
+                 ;; FAIL-CLOSED and an empty `[]` allowlist is treated as
+                 ;; MISSING policy (it throws `:rf.error/ssr-missing-payload-
+                 ;; policy`), not as a valid empty allowlist (Spec 011 §`:rf/app-db`
+                 ;; projection). The explicit, valid policy for "ship the whole
+                 ;; (here empty) app-db" is the `:rf.ssr.payload/whole-app-db`
+                 ;; opt-in keyword — it projects the empty app-db to `{}`
+                 ;; cleanly.
+                 policy-opts   {:payload :rf.ssr.payload/whole-app-db}
                  payload       (payload-policy/build-payload
                                  f
                                  (payload-policy/apply-policy final-db policy-opts)
                                  render-hash
                                  (assoc policy-opts
                                         :runtime-db (payload-policy/project-runtime-db
-                                                      final-runtime)))]
+                                                      final-runtime)))
+                 ;; EP-0002 (rf2-acjknb): `build-payload` stamps the per-request
+                 ;; server frame (`f`) as `:rf/frame-id`, but the client
+                 ;; hydrates a FIXED app-frame (`app-frame` → `:rf/default`,
+                 ;; below). `ssr/hydrate!` VALIDATES a present payload
+                 ;; `:rf/frame-id` against the client's explicit `:frame` and
+                 ;; raises `:rf.error/hydration-frame-id-mismatch` on
+                 ;; disagreement (Spec 011 §The hydration payload). The server's
+                 ;; per-request gensym would always conflict with the client's
+                 ;; fixed frame, so we DROP it — an absent `:rf/frame-id` is
+                 ;; explicitly NO conflict (the explicit client target stands),
+                 ;; matching the static `index.html` next to this file. A
+                 ;; deployment that wants a frame-id on the wire stamps a STABLE
+                 ;; id both sides agree on, not a per-request gensym.
+                 payload       (dissoc payload :rf/frame-id)]
              {:status  200
               :headers {"Content-Type" "text/html"}
               :body
               (str "<!DOCTYPE html><html><head><meta charset='utf-8'/>"
                    "<title>Resources SSR demo</title></head><body>"
                    "<div id='app'>" html "</div>"
+                   ;; Emit the payload `<script>` through the EDN-aware
+                   ;; `</script>`-escaper the production Ring host uses
+                   ;; (security audit 2026-05-14 §P1, rf2-7ksyr) so a server-
+                   ;; provided string carrying `</script>` can't close the
+                   ;; envelope.
                    "<script id='__rf_payload' type='application/edn'>"
-                   (pr-str payload)
+                   (html/escape-edn-script-body (pr-str payload))
                    "</script><script src='/main.js'></script>"
                    "</body></html>")}))
          (finally
@@ -222,6 +257,16 @@
 
 #?(:cljs (defonce react-root (atom nil)))
 
+;; EP-0002 (rf2-acjknb): the SSR hydration target is CARRIED — established
+;; explicitly here and threaded through both `ssr/hydrate!` and the root
+;; `frame-provider`. This example uses `:rf/default` as its FIXED client
+;; app-frame. `handle-request` above renders under a per-request gensym frame
+;; but DROPS `:rf/frame-id` from the wire payload (an absent frame-id is no
+;; conflict with this explicit target); a present-but-different stamp would
+;; raise `:rf.error/hydration-frame-id-mismatch` in `ssr/hydrate!` (Spec 011
+;; §The hydration payload). The frame MUST be `:client`-platform so the
+;; `:rf.ssr/check-*` compatibility-check fxs the `:rf/hydrate` handler
+;; dispatches actually fire.
 (def app-frame :rf/default)
 
 #?(:cljs
