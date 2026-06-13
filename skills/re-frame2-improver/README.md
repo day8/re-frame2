@@ -18,11 +18,11 @@ If 1 holds but 2 doesn't — vocabulary with no file, snippet, or named path —
 
 - `SKILL.md` — the skill itself
 - `references/` — the anti-pattern catalogue. Each leaf carries detection rule, symptom example, canonical re-frame2 idiom, suggested rewrite, and a cross-link to the matching idiom under `skills/re-frame2/patterns/` or `spec/`.
-- `evals/evals.json` — eval fixtures: 16 trigger fixtures (8 should-trigger + 8 should-not-trigger, per skill-creator's description-optimisation contract) plus 9 behavioural fixtures that grade the critique itself — right anti-pattern named, evidence cited, canonical idiom cross-linked, no false positives, Edit gate respected. See [`evals/README.md`](evals/README.md) for the coverage table and grading guidance.
+- `evals/evals.json` — eval fixtures: 26 total — 16 trigger fixtures (8 should-trigger + 8 should-not-trigger, per skill-creator's description-optimisation contract) plus 10 behavioural fixtures that grade the critique itself — right anti-pattern named, evidence cited, canonical idiom cross-linked, no false positives, Edit gate respected. See [`evals/README.md`](evals/README.md) for the coverage table and grading guidance.
 - `.claude-plugin/plugin.json` — Claude Code Plugin packaging metadata
 - `package.json` — npm packaging metadata (skill is also distributable as an Agent Skill)
 - `spec/` — skill-internal meta-docs (`design.md`, `inputs.md`, `authoring-prompt.md`) that let a future pass re-author the skill from committed inputs. Not loaded during normal operation.
-- `../shared/retro-protocol.md` — shared retro protocol (seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in bead protocol). Consumed jointly by this skill and `re-frame2-pair-retro`.
+- `../shared/retro-protocol.md` — shared retro protocol (seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in issue-filing protocol). Consumed jointly by this skill and `re-frame2-pair-retro`.
 
 ## Relationship to other skills
 
