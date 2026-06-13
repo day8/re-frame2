@@ -271,7 +271,7 @@
                 its declared state independently — driving one cell
                 does not move the others."
      :layout   :variants-grid
-     :story    :story.xray.chrome
+     :for      :story.xray.chrome
      :columns  1
      :tags     #{:dev}}))
 

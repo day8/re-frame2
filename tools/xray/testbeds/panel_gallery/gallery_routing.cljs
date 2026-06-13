@@ -144,7 +144,7 @@
                 current-route-only / from-to-transition /
                 search-filter / simulate-url-winner."
      :layout   :variants-grid
-     :story    :story.xray.routing
+     :for      :story.xray.routing
      :columns  2
      :tags     #{:dev}}))
 

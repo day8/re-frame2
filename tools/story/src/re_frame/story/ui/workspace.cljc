@@ -115,14 +115,13 @@
   cells enumerate the registry's variants for the workspace's anchor
   story. The anchor is read in precedence order (rf2-ugmrg):
 
-    1. `:for`   — the spec-authoritative auto-enumerate spelling
+    1. `:for`   — the auto-enumerate anchor story-id
                   (spec/001-Authoring.md §`:variants-grid`);
-    2. `:story` — a back-compat synonym for `:for`;
-    3. otherwise the workspace id's namespace path stripped of
+    2. otherwise the workspace id's namespace path stripped of
        `Workspace.` (e.g. `:Workspace.counter/x` → `:story.counter`).
 
-  `:for` and `:story` are mutually exclusive with `:variants` on a
-  `:variants-grid` (enforced by the schema, spec/001-Authoring.md)."
+  `:for` is mutually exclusive with `:variants` on a `:variants-grid`
+  (enforced by the schema, spec/001-Authoring.md)."
   [workspace-id workspace-body]
   (case (:layout workspace-body)
     :grid
@@ -135,7 +134,6 @@
 
     :variants-grid
     (let [anchor (or (:for workspace-body)
-                     (:story workspace-body)
                      ;; Derive `:story.<path>` from `:Workspace.<path>/<name>`.
                      (when-let [ns (namespace workspace-id)]
                        (when (and (>= (count ns) 10)

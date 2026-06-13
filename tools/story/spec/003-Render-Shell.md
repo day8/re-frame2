@@ -622,7 +622,6 @@ tools/story/
 │           │   ├── design_tokens.cljs           ; v1.1, conditional
 │           │   └── docs.cljs                    ; autodocs from :doc + schemas
 │           ├── share/
-│           │   ├── qr.cljs                      ; QR code generator
 │           │   └── transit.cljs                 ; workspace transit export
 │           ├── workspace/
 │           │   ├── grid.cljs

@@ -117,14 +117,10 @@
                        (registrar/handler-meta :story story-id))
         ;; rf2-v1ach: the `:xray-panel` slot lives directly on the
         ;; body for ergonomics (parallel to `:tags`, `:viewport`,
-        ;; `:background`). The legacy `:xray :panel` nested form is
-        ;; ALSO honoured so authors who already write a `:xray` map
-        ;; for filters / focus don't have to split it. Variant slot
-        ;; wins, then story slot, then default.
+        ;; `:background`). Variant slot wins, then story slot, then
+        ;; default.
         slot         (or (:xray-panel variant-body)
-                         (get-in variant-body [:xray :panel])
                          (:xray-panel story-body)
-                         (get-in story-body [:xray :panel])
                          default-panel)]
     (if (contains? panel-ids slot)
       slot

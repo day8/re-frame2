@@ -167,7 +167,7 @@
                 full pill management lives in the ribbon strip +
                 per-pill edit popup + mute manager modal."
      :layout   :variants-grid
-     :story    :story.xray.settings-popup
+     :for      :story.xray.settings-popup
      :columns  1
      :tags     #{:dev}}))
 

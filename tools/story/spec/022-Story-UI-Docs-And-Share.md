@@ -198,8 +198,7 @@ Share semantics:
 - the cell-overrides are encoded as one `pr-str`-printed EDN map and read
   back as one map (rf2-j0hwf), so the encode/decode round-trip is
   faithful — including string override values that carry the list
-  separator (a comma); the legacy comma-pair wire form is still decoded
-  for already-shared / bookmarked URLs;
+  separator (a comma);
 - the decoded overrides hydrate the shell under
   `[:cell-overrides <focused-variant>]` on both mount and back/forward
   (`re-frame.story.ui.url-state/apply-parsed-to-state`), so a pasted URL

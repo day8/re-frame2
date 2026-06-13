@@ -301,7 +301,7 @@
                 Mike can step through visually without context-
                 switching."
      :layout   :variants-grid
-     :story    :story.xray.diff-mode-3
+     :for      :story.xray.diff-mode-3
      :columns  2
      :tags     #{:dev}}))
 

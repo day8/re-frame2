@@ -9,7 +9,7 @@
   ## Schema (see `re-frame.story.schemas/XrayPreset`)
 
       {:xray {:open?    true                 ; auto-open the shell
-               :tab      :trace               ; pre-select tab (rf2-gbz39
+               :panel    :trace               ; pre-select panel (rf2-gbz39
                                               ; removed :issues with the
                                               ; Xray Issues tab, Option (c))
                :filters  {:out [:my/noise]    ; filter pre-population
@@ -375,14 +375,14 @@
 ;; posture (the spec carve-out in 003-Render-Shell.md was removed too).
 
 #?(:cljs
-   (defn- apply-tab!
-     "Select the Xray panel tab via `:rf.xray/select-panel`. Xray's
+   (defn- apply-panel!
+     "Select the Xray panel via `:rf.xray/select-panel`. Xray's
      registry registers this event-db handler against the `:rf/xray`
      frame."
-     [tab]
-     (when tab
+     [panel]
+     (when panel
        (safe-call! ":rf.xray/select-panel"
-                   rf/dispatch* [:rf.xray/select-panel tab] {:frame :rf/xray}))))
+                   rf/dispatch* [:rf.xray/select-panel panel] {:frame :rf/xray}))))
 
 #?(:cljs
    (defn- apply-filters!
@@ -425,7 +425,7 @@
      Steps (only those whose slot is present run):
 
        1. `:open?` true → `mount/open!`.
-       2. `:tab`   set → dispatch `:rf.xray/select-panel` into `:rf/xray`.
+       2. `:panel` set → dispatch `:rf.xray/select-panel` into `:rf/xray`.
        3. `:filters` set → `filters.config/configure!` (or warn-skip).
        4. `:focus`   set → dispatch `:rf.xray/focus-cascade` with coords.
 
@@ -436,8 +436,8 @@
        (when-let [preset (resolve-preset variant-id)]
          (when (:open? preset)
            (apply-open!))
-         (when (:tab preset)
-           (apply-tab! (:tab preset)))
+         (when (:panel preset)
+           (apply-panel! (:panel preset)))
          (when (:filters preset)
            (apply-filters! (:filters preset)))
          (when (:focus preset)

@@ -179,7 +179,7 @@
                 pill cluster + edit-popup states render side-by-side
                 with no shared-state bleed."
      :layout   :variants-grid
-     :story    :story.xray.filters
+     :for      :story.xray.filters
      :columns  1
      :tags     #{:dev}}))
 

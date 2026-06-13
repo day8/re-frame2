@@ -187,7 +187,7 @@
                 cross-frame / source-coord — each row carrying its
                 STAGE column + colour-coded left edge."
      :layout   :variants-grid
-     :story    :story.xray.trace
+     :for      :story.xray.trace
      :columns  2
      :tags     #{:dev}}))
 

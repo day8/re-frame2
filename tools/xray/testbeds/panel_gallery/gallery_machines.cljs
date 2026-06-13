@@ -221,7 +221,7 @@
                 many-transitions / UC1 Sim mid-step / UC1 Sim
                 pending-input."
      :layout   :variants-grid
-     :story    :story.xray.machines
+     :for      :story.xray.machines
      :columns  2
      :tags     #{:dev}}))
 

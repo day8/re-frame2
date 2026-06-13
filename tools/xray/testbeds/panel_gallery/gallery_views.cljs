@@ -275,7 +275,7 @@
                 render-cause + dense variants pin the rf2-bhi3t per-view
                 cause chips (← :sub-id / ← props)."
      :layout   :variants-grid
-     :story    :story.xray.reactive
+     :for      :story.xray.reactive
      :columns  2
      :tags     #{:dev}}))
 
