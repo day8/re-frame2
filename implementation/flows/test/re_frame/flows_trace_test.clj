@@ -2,12 +2,11 @@
   "JVM coverage for Spec 009 §Flow trace events / Spec 013 §Flow tracing
   — verifies the five `:rf.flow/*` lifecycle events fire with the
   documented payloads. The conformance fixture
-  `flow-lifecycle-emits-traces.edn` describes the same shapes as data;
+  `flow-lifecycle-emits-traces.edn` describes the same shapes as data and
+  is driven against the live runtime by `re-frame.flows-conformance-test`;
   this file exercises them against the JVM reference implementation
-  directly so a regression surfaces as a unit-test failure even when the
-  conformance harness is skipping the fixture (the reference harness
-  skips `:flow/basic` capability fixtures until the runner wires the
-  flow-body realiser through).
+  directly so a regression surfaces as a plain unit-test failure rather
+  than only through the data-driven gate.
 
   Per rf2-2s1o: `:flow` op-type and `:rf.flow/*` operation vocabulary
   added for re-frame-10x v2's flow panel."
