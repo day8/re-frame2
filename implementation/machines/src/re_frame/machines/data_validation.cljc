@@ -42,21 +42,34 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
+;; Phases that validate BEFORE a runtime-db commit lands — a `false`
+;; return makes the caller SKIP the install, so there is nothing to roll
+;; back (`:rollback? false`). `:spawn` is the spawn-install pre-check;
+;; `:update-snapshot` is the snapshot-level escape-hatch pre-write check
+;; (rf2-wrrvs7) — the fx merges the patch onto the live snapshot, so the
+;; validator runs against the would-be-merged snapshot and the fx skips
+;; the `swap-runtime-db!` write on failure. `:macrostep` / `:bootstrap`
+;; validate the ALREADY-committed snapshot, so a `false` rolls the
+;; cascade back (`:rollback? true`).
+(def ^:private pre-commit-phases #{:spawn :update-snapshot})
+
 (defn- emit-failure!
   "Emit `:rf.error/schema-validation-failure` with `:where :machine-data`
   per the bead's trace-event shape. `phase` is one of `:macrostep` /
-  `:spawn` / `:bootstrap` — surfaces the lifecycle position to operators.
+  `:spawn` / `:bootstrap` / `:update-snapshot` — surfaces the lifecycle
+  position to operators.
 
   The trace tag carries:
     :where           :machine-data
     :failing-id      <machine-id>           — uniform error-emit alias
     :machine-id      <machine-id>           — domain-specific synonym
-    :phase           :macrostep / :spawn / :bootstrap
+    :phase           :macrostep / :spawn / :bootstrap / :update-snapshot
     :value           the failing :data map
     :received        the failing :data map (parallels validate-app-schema!)
     :schema          the registered schema (verbatim)
     :explain         the registered explainer's output (or nil)
-    :rollback?       true (macrostep / bootstrap) / false (spawn — no commit)
+    :rollback?       true (macrostep / bootstrap) /
+                     false (spawn / update-snapshot — no commit)
     :recovery        :no-recovery
     :reason          one-sentence diagnostic
 
@@ -112,7 +125,10 @@
       (the snapshot is already in runtime-db at validation time; the
       router will restore the pre-handler db on a false return).
     - `:phase :spawn` → rollback? false (the snapshot has not yet
-      installed; the spawn-fx caller skips the install on false)."
+      installed; the spawn-fx caller skips the install on false).
+    - `:phase :update-snapshot` → rollback? false (rf2-wrrvs7 — the
+      escape-hatch fx validates the would-be-merged snapshot and skips
+      the `swap-runtime-db!` write on false; nothing was committed)."
   [machine-id snapshot schema phase]
   (if-let [validate-fn (late-bind/get-fn-cached
                          :schemas/validate-with-registered-fn)]
@@ -120,7 +136,7 @@
       (if (validate-fn schema data)
         true
         (do (emit-failure! machine-id phase data schema nil
-                           (not= phase :spawn))
+                           (not (contains? pre-commit-phases phase)))
             false)))
     true))
 
@@ -184,5 +200,58 @@
   (if interop/debug-enabled?
     (if-let [schema (:data-schema spec)]
       (validate-snapshot-data! spawned-id snapshot schema :spawn)
+      true)
+    true))
+
+(defn- resolve-data-schema
+  "Resolve the `:data-schema` for `machine-id` whose live snapshot is
+  `snapshot` (the would-be-merged value). A SINGLETON resolves through the
+  registered event handler (`:machines/machine-meta`); a SPAWNED actor has
+  NO per-instance handler — its TYPE rides the snapshot's `:rf/machine-type`
+  reserved slot, so it resolves through `:machines/spec-from-snapshot`
+  (rf2-a2sn1). Returns the schema or nil (no schema / unresolvable spec).
+
+  Both resolvers are consumed through the late-bind table to keep this
+  leaf namespace free of a require cycle through `re-frame.machines` /
+  `lifecycle-fx.resolver`. When the machines facade has not yet bound the
+  hooks (cannot happen on the live fx path — the fx is dispatched FROM the
+  loaded facade) the resolver short-circuits to nil = no validation."
+  [machine-id snapshot]
+  (or (some-> (when-let [meta-fn (late-bind/get-fn-cached :machines/machine-meta)]
+                (meta-fn machine-id))
+              :data-schema)
+      (some-> (when-let [spec-fn (late-bind/get-fn-cached :machines/spec-from-snapshot)]
+                (spec-fn snapshot))
+              :data-schema)))
+
+(defn validate-update-snapshot-data!
+  "rf2-wrrvs7 — sibling validator for the `:rf.machine/update-snapshot`
+  escape-hatch fx. Validates the WOULD-BE-MERGED `snapshot`'s `:data`
+  against the actor's resolved `:data-schema` BEFORE the fx writes the
+  patch into runtime-db. Returns true on conform / no schema / no validator
+  (the fx proceeds with the write); false on failure (the fx SKIPS the
+  write so the invalid `:data` never installs).
+
+  Spec 005 §Snapshot-level escape hatch: user error/status state lives
+  under `:data` *where `:data-schema` validation covers it* — so an
+  escape-hatch `:data` patch is NOT exempt from the `:where :machine-data`
+  boundary. The prior code merged the patch directly via `swap-runtime-db!`
+  and bypassed this boundary, letting an invalid `:data` stick.
+
+  This is a PRE-WRITE rejection (nothing committed → nothing to roll back):
+  the failure emits `:where :machine-data :phase :update-snapshot
+  :rollback? false`. Resolves the schema for both a singleton
+  (`machine-meta`) and a spawned actor (`spec-from-snapshot`) so the
+  escape hatch is covered uniformly across actor kinds.
+
+  Per Spec 009 §Production builds the body lives inside a
+  `(when interop/debug-enabled? ...)` gate so production builds
+  return `true` unconditionally — the merge proceeds unvalidated under
+  `:advanced` + `goog.DEBUG=false`, parity with the macrostep / spawn
+  boundaries."
+  [machine-id merged-snapshot]
+  (if interop/debug-enabled?
+    (if-let [schema (resolve-data-schema machine-id merged-snapshot)]
+      (validate-snapshot-data! machine-id merged-snapshot schema :update-snapshot)
       true)
     true))

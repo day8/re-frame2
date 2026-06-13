@@ -25,6 +25,7 @@
   in the patch is the same hard-disallow the action-effect path enforces
   (Spec 005:463), surfaced as `:rf.error/machine-action-wrote-db`."
   (:require [re-frame.frame :as frame]
+            [re-frame.machines.data-validation :as data-validation]
             [re-frame.machines.paths :as paths]
             [re-frame.trace :as trace]))
 
@@ -67,18 +68,34 @@
         (when (seq clean-patch)
           ;; Machine snapshots are durable runtime-db state (rf2-vzld77):
           ;; the escape-hatch patch is a runtime-db partition write.
-          ;; NOTE (adjacent to rf2-gqmrcx): this `swap-runtime-db!` write
-          ;; bypasses the `:where :machine-data` post-commit `:data`
-          ;; validation (Spec 005 §Schema validation), so a `:data` patch
-          ;; here is NOT schema-checked the way a callback-returned `:data`
-          ;; is. Out of scope for the snapshot-key fold; flagged for a
-          ;; follow-up if escape-hatch `:data` should also validate.
-          (frame/swap-runtime-db!
-            frame-id
-            (fn [runtime-db]
-              ;; No-op merge target when the snapshot is absent — never
-              ;; conjure a snapshot for a destroyed / unknown actor.
-              (if (contains? (get-in runtime-db (paths/snapshot-path)) machine-id)
-                (update-in runtime-db (paths/snapshot-path machine-id) merge clean-patch)
-                runtime-db))))))
+          ;;
+          ;; rf2-wrrvs7 — the escape-hatch `:data` patch is NOT exempt
+          ;; from the `:where :machine-data` boundary. Spec 005 §Snapshot-
+          ;; level escape hatch says user error/status state lives under
+          ;; `:data` *where `:data-schema` validation covers it*. The fx
+          ;; runs on the single drainer (Spec 002), so read-then-write is
+          ;; atomic for this actor's snapshot: read the current snapshot,
+          ;; compute the would-be-merged candidate, validate its `:data`
+          ;; against the actor's resolved `:data-schema`, and SKIP the
+          ;; write when it fails (a PRE-WRITE rejection — nothing is
+          ;; committed, so `:rollback? false`; the trace fires with
+          ;; `:phase :update-snapshot`). A valid patch — or a machine with
+          ;; no `:data-schema` — writes exactly as before. Absent actor
+          ;; (destroyed / unknown) is a no-op: nothing to merge into, and
+          ;; nothing to validate.
+          (let [snapshots (get-in (frame/frame-runtime-db-value frame-id)
+                                  (paths/snapshot-path))]
+            (when (contains? snapshots machine-id)
+              (let [merged (merge (get snapshots machine-id) clean-patch)]
+                (when (data-validation/validate-update-snapshot-data!
+                        machine-id merged)
+                  (frame/swap-runtime-db!
+                    frame-id
+                    (fn [runtime-db]
+                      ;; Re-check presence inside the swap — never conjure
+                      ;; a snapshot for an actor torn down between the read
+                      ;; and the write.
+                      (if (contains? (get-in runtime-db (paths/snapshot-path)) machine-id)
+                        (update-in runtime-db (paths/snapshot-path machine-id) merge clean-patch)
+                        runtime-db))))))))))
     nil))
