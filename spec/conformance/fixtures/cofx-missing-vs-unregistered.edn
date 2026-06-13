@@ -1,0 +1,71 @@
+;; Conformance fixture: cofx/missing-vs-unregistered
+;;
+;; EP-0017 Slice-A contract — the TWO DISTINCT cofx delivery errors are NOT
+;; conflated (Spec 002 §Satisfaction algorithm + Spec 009 §Error catalogue).
+;; A port must surface a different `:rf.error/id` for each:
+;;
+;;   - `:rf.error/missing-required-cofx` — a declared coeffect that IS
+;;     registered (here a `:recordable? :provided?` boundary fact) but whose
+;;     value is absent from the dispatch token. The fact has a registration;
+;;     the VALUE was not stamped.
+;;   - `:rf.error/unregistered-cofx` — a declared coeffect id with NO
+;;     `reg-cofx` registration at all (the typo case).
+;;
+;; Both are always-on correctness contracts that halt the cascade by throwing
+;; during context assembly (before the handler runs). The conformance dispatch
+;; carries `:expect-error <id>`; the runner asserts the dispatch threw an
+;; `ex-info` whose `:rf.error/id` ex-data slot equals the expected id (mirrors
+;; the Mode-B `:reg-machine` / `:path-instantiate` `:expect-error` convention).
+;; A port that conflated the two ids — or threw a generic error, or did not
+;; throw — FAILS; current core PASSES.
+;;
+;; Each handler reads its declared coeffect via `[:cofx-key …]` so the realised
+;; handler is the event-fx shape (the only kind that may declare
+;; `:rf.cofx/requires`). For the registered-provided fact, the read auto-wires
+;; the (registered) id; for the unregistered id, the read forces event-fx but
+;; auto-wiring withholds the unregistered id, so the explicit
+;; `:rf.cofx/requires` in the event's registry meta is what declares it.
+
+{:fixture/id           :cofx/missing-vs-unregistered
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/error}
+ :fixture/doc          "EP-0017: a declared-but-absent REGISTERED provided coeffect is `:rf.error/missing-required-cofx`; a declared coeffect with NO registration (typo) is `:rf.error/unregistered-cofx`. The two are distinct error ids — a port that conflates them, throws generically, or fails to throw FAILS this fixture."
+
+ :fixture/registry
+ {:event {:probe/missing
+          {:doc "Declares a registered provided coeffect whose value is absent from the token."}
+          :probe/typo
+          {:doc                "Declares an UNREGISTERED coeffect id (the typo case)."
+           ;; Explicit declaration — the unregistered id cannot be auto-wired
+           ;; (the auto-wire convention only declares REGISTERED ids), so the
+           ;; fixture authors `:rf.cofx/requires` directly on the event meta.
+           :rf.cofx/requires [:cofxerr/unregistered]}}
+  :cofx  {:cofxerr/required-boundary
+          ;; A PROVIDED recordable fact — no supplier; its owner stamps the
+          ;; value onto the token. Absent from the token ⇒ missing-required.
+          {:recordable? true :provided? true
+           :doc "Provided recordable boundary fact; absent from the token here."}}}
+
+ :fixture/handlers
+ {:event {:probe/missing
+          ;; Reading the registered provided fact auto-wires it onto
+          ;; `:rf.cofx/requires` and forces the event-fx shape. The handler
+          ;; body never runs — delivery throws first.
+          [[:set [:never] [:cofx-key :cofxerr/required-boundary]]]
+          :probe/typo
+          ;; Reading the unregistered id forces event-fx (so the explicit
+          ;; `:rf.cofx/requires` lands on a reg-event-fx); the read does NOT
+          ;; auto-wire it (unregistered). The handler body never runs.
+          [[:set [:never] [:cofx-key :cofxerr/unregistered]]]}}
+
+ :fixture/frame-config {}
+
+ :fixture/dispatches
+ [{:event [:probe/missing] :expect-error :rf.error/missing-required-cofx}
+  {:event [:probe/typo]    :expect-error :rf.error/unregistered-cofx}]
+
+ :fixture/expect
+ {;; The handler bodies never ran — context assembly threw first, so no
+  ;; `:never` slot was written.
+  :final-app-db-absent
+  [[:never]]}}

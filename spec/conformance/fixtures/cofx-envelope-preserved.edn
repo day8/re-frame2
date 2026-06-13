@@ -1,0 +1,53 @@
+;; Conformance fixture: cofx/envelope-preserved
+;;
+;; EP-0017 Slice-A contract — the `:rf.cofx` envelope is delivered into the
+;; event context. Per Spec 002 §4 (Event context) + EP-0017 §5, the flat
+;; recordable-coeffect map the dispatch envelope carries under `:rf.cofx`
+;; (one fact per owner-qualified key; always carrying `:rf/time-ms`, the one
+;; framework-provided recordable fact) is reachable through the coeffect
+;; context map under `:rf.cofx` — generic code that wants the whole causal
+;; record reads it there. A port that omits `:rf.cofx` from the context map
+;; would pass the WEAK dispatch-envelope fixture (whose expected output omits
+;; `:rf.cofx`), so this fixture pins the POSITIVE contract: the expected
+;; app-db INCLUDES the preserved `:rf.cofx` map.
+;;
+;; The fixture supplies `:rf.cofx {:rf/time-ms <fixed>}` on the dispatch opts
+;; so the value is deterministic — `ensure-cofx` (re-frame.router) preserves a
+;; caller-supplied `:rf/time-ms` verbatim rather than stamping a fresh host
+;; clock read, so the captured value is the literal the fixture supplied.
+;;
+;; Reading `[:cofx-key :rf.cofx]` forces the realised handler into the event-fx
+;; shape (its body reads a coeffect beyond `:db` / `:event`) so the full
+;; coeffect context — including the framework `:rf.cofx` key — is available.
+;; `:rf.cofx` is an unqualified keyword (no namespace), so the corpus
+;; `:cofx-key` auto-wiring (which only declares REGISTERED cofx ids onto the
+;; consuming handler's `:rf.cofx/requires`) does not treat it as a declarable
+;; coeffect — it is a framework context key, not a registered supplier.
+
+{:fixture/id           :cofx/envelope-preserved
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/sub}
+ :fixture/doc          "EP-0017: the dispatch envelope's `:rf.cofx` recordable-coeffect map is delivered into the event context under `:rf.cofx`, preserved verbatim. A caller-supplied `:rf/time-ms` rides through unchanged; the expected app-db INCLUDES the `:rf.cofx` map (the dispatch-envelope fixture's expected output omits it, so a port could drop the key and still pass that weaker fixture)."
+
+ :fixture/registry
+ {:event {:probe/capture-cofx {:doc "Capture the envelope's `:rf.cofx` map into app-db for inspection."}}
+  :sub   {:envelope-cofx {:doc "Read the captured `:rf.cofx` map."}}}
+
+ :fixture/handlers
+ {:event {:probe/capture-cofx
+          ;; Capture the framework `:rf.cofx` context key verbatim. Reading a
+          ;; coeffect beyond :db/:event routes this through the event-fx shape.
+          [[:set [:envelope-cofx] [:cofx-key :rf.cofx]]]}
+  :sub   {:envelope-cofx [[:get [:envelope-cofx]]]}}
+
+ :fixture/frame-config {}
+
+ :fixture/dispatches
+ [{:event [:probe/capture-cofx] :rf.cofx {:rf/time-ms 1781078400123}}]
+
+ :fixture/expect
+ {:final-app-db
+  {:envelope-cofx {:rf/time-ms 1781078400123}}
+
+  :sub-values
+  {[:envelope-cofx] {:rf/time-ms 1781078400123}}}}

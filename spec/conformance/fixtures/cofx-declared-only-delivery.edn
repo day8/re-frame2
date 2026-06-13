@@ -1,0 +1,61 @@
+;; Conformance fixture: cofx/declared-only-delivery
+;;
+;; EP-0017 Slice-A contract — DECLARED-ONLY delivery (Spec 002 §Satisfaction
+;; algorithm + EP-0017 §5). The runtime delivers EXACTLY the facts a handler
+;; declares via `:rf.cofx/requires`, flat, into the coeffect map. A REGISTERED
+;; coeffect that the handler does NOT declare is NOT delivered — nothing
+;; implicit crosses into the handler's coeffects.
+;;
+;; Two ambient coeffects are registered: `:cofxdecl/yes` and `:cofxdecl/no`.
+;; The handler declares ONLY `:cofxdecl/yes` (by reading `[:cofx-key
+;; :cofxdecl/yes]`, which the corpus auto-wires onto the handler's
+;; `:rf.cofx/requires`). Reading a fully-qualified cofx id auto-wires exactly
+;; that id — NOT every sibling in its namespace (the namespace-grouped
+;; auto-wire convention triggers only when the read key is the bare namespace
+;; keyword). So `:cofxdecl/no` is registered-but-undeclared.
+;;
+;; The handler captures the WHOLE delivered coeffect map (minus the framework
+;; context keys) under `[:delivered]` so the corpus can inspect exactly which
+;; facts crossed. Two assertions pin the contract:
+;;
+;;   - `:final-app-db` (submap) — `[:delivered :cofxdecl/yes]` IS present with
+;;     its supplied value (declared delivery works);
+;;   - `:final-app-db-absent` — `[:delivered :cofxdecl/no]` is ABSENT (the
+;;     undeclared registered fact was withheld). `submap?` tolerates extra
+;;     keys, so the POSITIVE app-db check alone could not catch a port that
+;;     over-delivers; the absent-path check is what FAILS such a port.
+
+{:fixture/id           :cofx/declared-only-delivery
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler}
+ :fixture/doc          "EP-0017 declared-only delivery: a handler receives EXACTLY its `:rf.cofx/requires` declarations, flat. A REGISTERED coeffect (`:cofxdecl/no`) the handler does NOT declare is withheld; the declared one (`:cofxdecl/yes`) is delivered. The absent-path check FAILS a port that over-delivers (submap matching alone tolerates the extra)."
+
+ :fixture/registry
+ {:event {:probe/declared-only {:doc "Capture the delivered coeffect map for declared-only inspection."}}
+  :cofx  {:cofxdecl/yes {:doc "Ambient coeffect the handler DECLARES."}
+          :cofxdecl/no  {:doc "Ambient coeffect the handler does NOT declare — must be withheld."}}}
+
+ :fixture/handlers
+ {:cofx  {:cofxdecl/yes [[:set [] "YES"]]
+          :cofxdecl/no  [[:set [] "NO"]]}
+  :event {:probe/declared-only
+          ;; Reading `[:cofx-key :cofxdecl/yes]` declares ONLY :cofxdecl/yes
+          ;; (auto-wired onto `:rf.cofx/requires`). The `:cofx-without` capture
+          ;; strips the framework context keys so `[:delivered]` holds exactly
+          ;; the user-facing coeffects that crossed.
+          [[:set [:got-yes]   [:cofx-key :cofxdecl/yes]]
+           [:set [:delivered] [:cofx-without :db :event :rf.cofx :rf.frame/id :rf.db/runtime :source :trace-id]]]}}
+
+ :fixture/frame-config {}
+
+ :fixture/dispatches
+ [[:probe/declared-only]]
+
+ :fixture/expect
+ {:final-app-db
+  {:got-yes "YES"
+   :delivered {:cofxdecl/yes "YES"}}
+
+  ;; The undeclared registered coeffect was NOT delivered flat.
+  :final-app-db-absent
+  [[:delivered :cofxdecl/no]]}}
