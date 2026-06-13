@@ -365,14 +365,6 @@
                  `:routing-demo/*` → `:routing`, etc.). The user can
                  swap at runtime via the RHS chip-row; the user's
                  manual click overrides for the session.
-  - `:tab`     — DEPRECATED in v1. Was the Xray full-shell tab-id;
-                 pre-rf2-v1ach the RHS hosted the full 4-layer shell
-                 and `:tab` pre-focused a panel inside it. Under the
-                 per-panel embed the chip-row is the panel selector;
-                 `:panel` carries the same intent. `:tab` still
-                 accepted by the preset runtime for back-compat with
-                 the popout escape hatch but new authors should use
-                 `:panel`.
   - `:filters` — `{:out [event-id ...] :in [event-id ...]}` — Xray
                  auto-filter pills to pre-populate. Both axes are
                  optional. Skipped with a console warning when
@@ -384,7 +376,6 @@
   [:map
    [:open?   {:optional true} :boolean]
    [:panel   {:optional true} :keyword]
-   [:tab     {:optional true} :keyword]
    [:filters {:optional true}
     [:map
      [:out {:optional true} [:vector :keyword]]
@@ -414,7 +405,7 @@
     dispatch console for this story / its variants (rf2-q9kv5). Toolbar
     real-estate is precious; the chrome-level toolbar chip lets the user
     flip the chrome-toggle without editing the story body.
-  - `:xray` — per-story Xray preset (auto-open, tab focus, filter
+  - `:xray` — per-story Xray preset (auto-open, panel focus, filter
     pre-population). See `XrayPreset` schema. The preset is read on
     variant mount and applied via `re-frame.story.xray-preset/
     apply-preset!`. (rf2-q9kv5).
@@ -1114,12 +1105,9 @@
     (spec/001-Authoring.md §`:columns`). rf2-ugmrg: renderer-honoured —
     when present the grid emits `repeat(N, minmax(280px,1fr))`; absent it
     keeps the responsive `auto-fit` default.
-  - `:for` — `:variants-grid` auto-enumerate anchor story-id; the
-    spec-authoritative spelling (spec/001-Authoring.md §`:variants-grid`).
-    rf2-ugmrg: `resolve-layout` reads `:for` first, then `:story`, then
-    the namespace derivation.
-  - `:story` — `:for` back-compat synonym; the renderer reads it when
-    `:for` is absent (`re-frame.story.ui.workspace/resolve-layout`).
+  - `:for` — `:variants-grid` auto-enumerate anchor story-id
+    (spec/001-Authoring.md §`:variants-grid`). rf2-ugmrg:
+    `resolve-layout` reads `:for` first, then the namespace derivation.
   - `:tags` — workspace tag set (the canonical testbed + examples author
     `:tags #{:docs}`).
 
@@ -1130,12 +1118,10 @@
     [:source    {:optional true} SourceCoords]
     [:layout    [:enum :grid :prose :variants-grid :tabs :custom]]
     [:variants  {:optional true} [:vector :keyword]]
-    ;; rf2-mantt + rf2-ugmrg — `:for` (spec-authoritative spelling) +
-    ;; `:story` (back-compat synonym) both name the `:variants-grid`
-    ;; auto-enumerate parent story; the renderer reads `:for` first,
-    ;; then `:story` (see `re-frame.story.ui.workspace/resolve-layout`).
+    ;; rf2-mantt + rf2-ugmrg — `:for` names the `:variants-grid`
+    ;; auto-enumerate parent story
+    ;; (see `re-frame.story.ui.workspace/resolve-layout`).
     [:for       {:optional true} :keyword]
-    [:story     {:optional true} :keyword]
     ;; rf2-mantt + rf2-ugmrg — `:columns` is a `:grid` / `:variants-grid`
     ;; fixed column-count (renderer-honoured; see docstring).
     [:columns   {:optional true} [:int {:min 1}]]
@@ -1156,19 +1142,18 @@
         :prose         (vector? content)
         :custom        (keyword? render)
         false))]
-   ;; rf2-mantt — `:variants` (explicit list) and `:for` / `:story`
-   ;; (auto-enumerate anchor) are ALTERNATIVES on a `:variants-grid`, not
-   ;; co-equals (spec/001-Authoring.md §`:variants-grid` — "Declaring both
-   ;; raises :rf.error/workspace-shape at registration"). Enforce that
-   ;; documented rule here. `:story` is the renderer's spelling of `:for`,
-   ;; so it counts as an auto-enumerate anchor for the exclusivity check.
+   ;; rf2-mantt — `:variants` (explicit list) and `:for` (auto-enumerate
+   ;; anchor) are ALTERNATIVES on a `:variants-grid`, not co-equals
+   ;; (spec/001-Authoring.md §`:variants-grid` — "Declaring both raises
+   ;; :rf.error/workspace-shape at registration"). Enforce that documented
+   ;; rule here.
    [:fn {:error/message
-         (str ":variants (explicit list) and :for / :story (auto-enumerate "
-              "anchor) are mutually exclusive on a :variants-grid — pick one "
+         (str ":variants (explicit list) and :for (auto-enumerate anchor) "
+              "are mutually exclusive on a :variants-grid — pick one "
               "(spec/001-Authoring.md §`:variants-grid`)")}
     (fn [body]
       (not (and (some? (:variants body))
-                (or (some? (:for body)) (some? (:story body))))))]])
+                (some? (:for body)))))]])
 
 ;; ---- :rf/mode -------------------------------------------------------------
 

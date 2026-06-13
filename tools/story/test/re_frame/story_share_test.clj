@@ -97,14 +97,12 @@
            (share/parse-modes-param "Mode.app/dark,Mode.app/mobile")))
     (is (= :uix (share/parse-substrate-param "uix")))
     (is (= {:label "Shared Label" :count 9}
-           (share/parse-overrides-param "label:\"Shared Label\",count:9")))))
+           (share/parse-overrides-param "{:label \"Shared Label\", :count 9}")))))
 
 ;; ---- rf2-j0hwf: overrides codec round-trip -------------------------------
 ;;
-;; The earlier comma-joined `k:v` wire form could not round-trip an EDN
-;; value containing the list separator — the decoder split the whole
-;; payload on every comma before reading each value. The codec now prints
-;; one EDN map (delimiter-safe) and reads it back as one map.
+;; The codec prints one EDN map (delimiter-safe) and reads it back as one
+;; map, so an EDN value containing the list separator round-trips faithfully.
 
 (defn- url-decode [t] (java.net.URLDecoder/decode (str t) "UTF-8"))
 
@@ -146,15 +144,6 @@
       (is (= (share/build-overrides-token ov)
              (share/build-overrides-token ov))))))
 
-(deftest overrides-codec-legacy-comma-pair-still-decodes
-  (testing "rf2-j0hwf — already-shared / bookmarked URLs carrying the
-            legacy comma-pair wire form still decode (back-compat)"
-    (is (= {:label "Shared Label" :count 9}
-           (share/parse-overrides-param "label:\"Shared Label\",count:9")))
-    (is (= {:label "OK"}
-           (share/parse-overrides-param "label:\"OK\",bogus"))
-        "legacy malformed-entry drop preserved")))
-
 (deftest overrides-codec-empty-and-nil
   (testing "rf2-j0hwf — empty/nil overrides produce no token, and blank
             input parses to nil"
@@ -170,36 +159,32 @@
             map as parse-overrides-param plus an empty :dropped vec for
             clean input"
     (let [{:keys [overrides dropped]}
-          (share/parse-overrides-param* "label:\"Hi\",count:9")]
+          (share/parse-overrides-param* "{:label \"Hi\", :count 9}")]
       (is (= {:label "Hi" :count 9} overrides))
       (is (= [] dropped) "no entries dropped for a clean input"))))
 
 (deftest parse-overrides-param*-mixed-input
   (testing "rf2-9jthx — parse-overrides-param* reports the SET of dropped
             entries alongside the surviving overrides — the share-import
-            hint reads :dropped to count + name what failed.
-
-            'bogus' has no separator → no key/value split → dropped.
-            'count:[unclosed' has an unparseable EDN value → dropped.
-            'label:\"OK\"' and 'size:7' parse cleanly → kept."
+            hint reads :dropped to count + name what failed. In the EDN-map
+            wire form a per-entry drop is a key that cannot coerce to a
+            keyword; the surviving entries are kept."
     (let [{:keys [overrides dropped]}
           (share/parse-overrides-param*
-            "label:\"OK\",bogus,count:[unclosed,size:7")]
+            "{:label \"OK\", :size 7, 5 :bad-key}")]
       (is (= {:label "OK" :size 7} overrides)
           "well-formed entries survive")
-      (is (= 2 (count dropped))
-          "two malformed entries — 'bogus' (no separator) and
-           'count:[unclosed' (bad EDN)")
-      (is (some #(= "bogus" %) dropped))
-      (is (some #(= "count:[unclosed" %) dropped)))))
+      (is (= 1 (count dropped))
+          "one malformed entry — the non-keywordable key `5`")
+      (is (some #(re-find #"^5 " %) dropped)))))
 
 (deftest parse-overrides-param*-all-dropped
-  (testing "rf2-9jthx — when every entry is malformed :overrides is nil and
-            :dropped names them all"
+  (testing "rf2-9jthx — when the payload is not a readable EDN map :overrides
+            is nil and the whole token is dropped"
     (let [{:keys [overrides dropped]}
-          (share/parse-overrides-param* "bogus,also-bogus")]
+          (share/parse-overrides-param* "{:label \"unterminated")]
       (is (nil? overrides))
-      (is (= 2 (count dropped))))))
+      (is (= ["{:label \"unterminated"] dropped)))))
 
 (deftest parse-overrides-param*-blank-input
   (testing "rf2-9jthx — blank/nil input returns the empty-shape map so
@@ -211,13 +196,13 @@
     (is (= {:overrides nil :dropped []}
            (share/parse-overrides-param* "   ")))))
 
-(deftest parse-overrides-param*-back-compat
-  (testing "rf2-9jthx — parse-overrides-param (legacy silent-drop) keeps
-            its signature. The share UI hydrator switches to
+(deftest parse-overrides-param*-silent-drop
+  (testing "rf2-9jthx — parse-overrides-param (silent-drop) keeps its
+            signature. The share UI hydrator switches to
             parse-overrides-param* so the dropped count surfaces; other
             call sites that don't care about it keep working"
     (is (= {:label "OK"}
-           (share/parse-overrides-param "label:\"OK\",bogus")))))
+           (share/parse-overrides-param "{:label \"OK\", 5 :bad-key}")))))
 
 (deftest parse-overrides-param*-edn-map-form
   (testing "rf2-j0hwf — parse-overrides-param* reads the EDN-map wire form

@@ -175,7 +175,7 @@
                 watched-keys / single / five-keys / nested / flat /
                 mixed-ops / reserved-keys."
      :layout   :variants-grid
-     :story    :story.xray.app-db
+     :for      :story.xray.app-db
      :columns  2
      :tags     #{:dev}}))
 

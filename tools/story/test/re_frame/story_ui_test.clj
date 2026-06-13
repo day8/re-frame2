@@ -574,13 +574,13 @@
       (is (= 2 (count cells)))
       (is (every? #(= :variant (:type %)) cells)))))
 
-(deftest variants-grid-explicit-story
-  (testing ":variants-grid honours an explicit :story override"
+(deftest variants-grid-explicit-for
+  (testing ":variants-grid honours an explicit :for anchor"
     (story/reg-variant :story.vge/a {:events []})
     (story/reg-variant :story.vge/b {:events []})
     (let [cells (workspace/resolve-layout
                   :Workspace.other/all
-                  {:layout :variants-grid :story :story.vge})]
+                  {:layout :variants-grid :for :story.vge})]
       (is (= 2 (count cells))))))
 
 (deftest prose-layout-interleaves
@@ -663,32 +663,6 @@
       (is (every? #(= :variant (:type %)) cells))
       (is (= #{:story.for-anchor/a :story.for-anchor/b}
              (set (map :variant-id cells)))))))
-
-(deftest variants-grid-for-takes-precedence-over-story
-  (testing "when both :for and :story are present, :for wins (the
-            spec-authoritative spelling — rf2-ugmrg). NOTE: the closed
-            schema rejects co-declaring them on a real reg-workspace; this
-            pins resolve-layout's precedence directly."
-    (story/reg-variant :story.prec-for/a {:events []})
-    (story/reg-variant :story.prec-for/b {:events []})
-    (story/reg-variant :story.prec-story/x {:events []})
-    (let [cells (workspace/resolve-layout
-                  :Workspace.prec/grid
-                  {:layout :variants-grid
-                   :for    :story.prec-for
-                   :story  :story.prec-story})]
-      (is (= #{:story.prec-for/a :story.prec-for/b}
-             (set (map :variant-id cells)))
-          ":for MUST take precedence over :story"))))
-
-(deftest variants-grid-story-still-honoured-without-for
-  (testing ":story remains a back-compat synonym when :for is absent"
-    (story/reg-variant :story.syn/a {:events []})
-    (story/reg-variant :story.syn/b {:events []})
-    (let [cells (workspace/resolve-layout
-                  :Workspace.unrelated2/grid
-                  {:layout :variants-grid :story :story.syn})]
-      (is (= 2 (count cells))))))
 
 (deftest grid-template-columns-honours-columns
   (testing "grid-template-columns emits a fixed repeat(N, …) template when

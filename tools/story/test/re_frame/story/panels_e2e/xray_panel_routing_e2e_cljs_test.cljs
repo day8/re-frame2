@@ -19,10 +19,6 @@
     here catches a regression where `resolve-panel` drops the variant
     body lookup or inverts the precedence.
 
-  - **Legacy `:xray :panel` nested form is honoured** — old story
-    bodies written before rf2-v1ach used `{:xray {:panel :app-db}}`;
-    we MUST still resolve them so existing testbeds keep working.
-
   - **Unknown slot falls back to default** — a typo doesn't blank
     the RHS; resolution returns `default-panel`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -95,23 +91,6 @@
             "variant with no slot inherits the story's :routing")
         (is (= :machines (xray-embed/resolve-panel :story.routing/override))
             "variant slot beats story slot")))))
-
-;; ---- legacy `:xray :panel` nested form --------------------------------
-
-(deftest legacy-xray-panel-nested-form-honoured
-  (testing "rf2-v1ach §Spec — the legacy `{:xray {:panel :app-db}}`
-            nested form is honoured for back-compat. Story bodies
-            already using this shape MUST keep resolving correctly."
-    (e2e/with-story-and-xray-frames
-      {:register-stories
-       (fn []
-         (story/reg-story :story.legacy {})
-         (story/reg-variant :story.legacy/v
-           {:xray {:panel :views}
-            :events []}))}
-      (fn []
-        (is (= :views (xray-embed/resolve-panel :story.legacy/v))
-            "legacy nested :xray :panel form resolves to :views")))))
 
 ;; ---- unknown slot falls back to default --------------------------------
 

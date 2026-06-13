@@ -229,10 +229,15 @@ iterate variants × modes without combinatorial registration).
 Per Phase 2 §5.2 #4. devcards-style multi-variant viewing has no JS
 competitor; the implementation cost is layout-only.
 
-### §qr-in-v1 — QR code in share menu — v1 polish
+### §qr-retired — QR code share affordance retired
 
-Per Phase 2 §5.2 #6. Tiny implementation, high signal. Adds `qr-code`
-dep.
+Originally proposed as a v1 polish (Phase 2 §5.2 #6, "tiny
+implementation, high signal"). Retired before ship: the security audit
+(rf2-20w5i) flagged the third-party QR-image service as an off-box leak
+of author-typed `:cell-overrides`, and rf2-ymnfx Issue B then retired
+the whole Share/QR popover as redundant with the live address-bar URL
+(Cmd-L / Cmd-A / Cmd-C copies it). No `qr-code` dep, no `share/qr`
+namespace, no QR affordance ships.
 
 ### §layout-debug-in-v1 — Layout-debug trio ships in v1
 

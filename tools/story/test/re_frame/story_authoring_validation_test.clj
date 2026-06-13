@@ -349,8 +349,8 @@
 (deftest reg-workspace-accepts-documented-grid-slots
   (testing "the documented :variants-grid / :grid slots the canonical
             testbed + examples + spec/001-Authoring.md author — :columns,
-            :for, :story, :tags — VALIDATE on the closed schema (closing
-            must not drop intended authoring, rf2-mantt triage)"
+            :for, :tags — VALIDATE on the closed schema (closing must not
+            drop intended authoring, rf2-mantt triage)"
     (is (some? (story/reg-workspace :Workspace.docslots/auto
                  {:doc     "auto-enumerated grid"
                   :layout  :variants-grid
@@ -366,13 +366,13 @@
         ":grid + :variants + :columns + :tags validates")
     (is (some? (story/reg-workspace :Workspace.docslots/anchored
                  {:layout :variants-grid
-                  :story  :story.counter}))
-        ":story (renderer-read anchor slot) validates")))
+                  :for    :story.counter}))
+        ":for (renderer-read anchor slot) validates")))
 
 (deftest reg-workspace-rejects-both-variants-and-for
-  (testing ":variants (explicit) and :for / :story (auto-enumerate anchor)
-            are mutually exclusive on a :variants-grid — declaring both
-            raises :rf.error/workspace-shape (spec/001-Authoring.md
+  (testing ":variants (explicit) and :for (auto-enumerate anchor) are
+            mutually exclusive on a :variants-grid — declaring both raises
+            :rf.error/workspace-shape (spec/001-Authoring.md
             §`:variants-grid`)"
     (try
       (story/reg-workspace :Workspace.both/variants-and-for
@@ -381,16 +381,7 @@
          :for      :story.counter})
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/workspace-shape (:rf.error/id (ex-data e))))))
-    (testing "and the :story spelling of the anchor is caught too"
-      (try
-        (story/reg-workspace :Workspace.both/variants-and-story
-          {:layout   :variants-grid
-           :variants [:story.counter/empty]
-           :story    :story.counter})
-        (is false "expected an exception")
-        (catch clojure.lang.ExceptionInfo e
-          (is (= :rf.error/workspace-shape (:rf.error/id (ex-data e)))))))))
+        (is (= :rf.error/workspace-shape (:rf.error/id (ex-data e))))))))
 
 ;; ===========================================================================
 ;; rf2-tl7zk — :plays multi-play schema contract

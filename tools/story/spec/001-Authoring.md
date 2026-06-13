@@ -397,9 +397,8 @@ no fn-slots):
  :substrates            #{:reagent :uix ...}
  :modes                 #{<mode-id> ...}         ; cell = (variant × mode)
  :xray-panel           <panel-kw>               ; (rf2-v1ach) default Xray panel for the RHS embed
- :xray                 {:panel <panel-kw>       ;   nested form (same slot, alongside other :xray keys)
-                         :open?  <bool>          ;   per-story Xray preset — see §Xray preset slot
-                         :tab    <kw>            ;   (deprecated alias for :panel)
+ :xray                 {:open?  <bool>          ;   per-story Xray preset — see §Xray preset slot
+                         :panel  <panel-kw>      ;   preset: auto-select this panel on mount
                          :filters {...}
                          :focus   {...}}}
 ```
@@ -511,36 +510,28 @@ list lives in
 the Xray-side mount surface (one `mount-<panel>!` per id) lives at
 [`day8.re-frame2-xray.panels`](../../xray/src/day8/re_frame2_xray/panels.cljs).
 
-Two equivalent forms are accepted on the variant (or story) body:
+The top-level `:xray-panel` slot names the default RHS-embed panel:
 
 ```clojure
-;; Top-level form — recommended when there's no other :xray preset.
 (story/reg-variant :story.counter/at-five
   {:setup       [[:counter/initialise 5]]
    :xray-panel  :app-db})              ; "state-shape story → app-db lens"
-
-;; Nested form — recommended when the variant also carries other
-;; :xray preset slots (`:open?` / `:filters` / `:focus`). Lets the
-;; author group all Xray-side configuration in one map.
-(story/reg-variant :story.routing/deep-link
-  {:setup [[:router/navigate "/checkout/42"]]
-   :xray  {:panel   :routing
-            :filters {:out [:router/url-change]}}})
 ```
 
-Both forms read the same logical slot — `:xray-panel` on the body
-beats `[:xray :panel]` nested. The variant body's `:xray-panel`
-also wins over the parent story's; the resolver lives in
-`re-frame.story.ui.xray-embed/resolve-panel`.
+The variant body's `:xray-panel` wins over the parent story's; the
+resolver lives in `re-frame.story.ui.xray-embed/resolve-panel`. The
+`:xray` preset's own `:panel` slot (§Xray preset slot) is a distinct
+auto-config step — it dispatches `:rf.xray/select-panel` on mount,
+alongside `:open?` / `:filters` / `:focus` — not a second spelling of
+the embed default.
 
 Both the cross-package `:rf/variant` schema in
 [`Spec-Schemas.md`](../../../spec/Spec-Schemas.md) and Story's local
 `Variant` schema (`tools/story/src/re_frame/story/schemas.cljc`) are
 open by convention — the top-level `:xray-panel` keyword passes
-validation as an open-shape addition, and the nested form rides the
-`:xray` slot's `XrayPreset` schema (whose `:panel` key is locked
-there). See [`003-Render-Shell.md`](003-Render-Shell.md) §Right-hand
-pane and §Mount lifecycle for how the RHS embed consumes the slot.
+validation as an open-shape addition. See
+[`003-Render-Shell.md`](003-Render-Shell.md) §Right-hand pane and
+§Mount lifecycle for how the RHS embed consumes the slot.
 
 ### `(reg-workspace id metadata)`
 
@@ -563,8 +554,7 @@ rejected at `reg-workspace` call-time with `:rf.error/workspace-shape`
 {:doc       "..."
  :layout    :grid | :prose | :variants-grid | :tabs | :custom
  :variants  [<variant-id> ...]                    ; for :grid / :variants-grid / :tabs (explicit list)
- :for       <story-id>                            ; for :variants-grid only — auto-enumerate anchor (canonical spelling; see note below)
- :story     <story-id>                            ; for :variants-grid only — :for synonym (back-compat; see note)
+ :for       <story-id>                            ; for :variants-grid only — auto-enumerate anchor (see note below)
  :columns   <integer>                             ; for :grid / :variants-grid — fixed column count (renderer-honoured)
  :content   [{:type :prose :body "md..."} ...]    ; for :prose; bodies render as markdown — see spec/008 §Markdown rendering
  :render    <view-id>                              ; for :custom (a registered view)
@@ -613,24 +603,18 @@ Other layouts (`:grid`, `:tabs`) take `:variants` only — they have no
 single parent-story to enumerate against. `:prose` and `:custom`
 ignore both slots.
 
-Declaring **both** `:variants` and `:for` (or its renderer-read synonym
-`:story`, below) on a `:variants-grid` raises `:rf.error/workspace-shape`
-at registration — they are alternatives, not co-equals (rf2-mantt
-enforces this documented rule on the now-closed schema).
+Declaring **both** `:variants` and `:for` on a `:variants-grid` raises
+`:rf.error/workspace-shape` at registration — they are alternatives, not
+co-equals (rf2-mantt enforces this documented rule on the now-closed
+schema).
 
-#### Workspace anchor: `:for` (authoring spelling) + `:story` (synonym) (rf2-ugmrg)
+#### Workspace anchor: `:for` (rf2-ugmrg)
 
 The `:variants-grid` auto-enumerate anchor is authored as `:for
-<story-id>` (above) — the spec-authoritative spelling. The renderer
+<story-id>` (above). The renderer
 (`re-frame.story.ui.workspace/resolve-layout`) reads the anchor in this
-precedence order: `:for`, then `:story` (a back-compat synonym), then
-deriving `:story.<path>` from the workspace id's namespace. Both `:for`
-and `:story` are declared on the schema and resolve identically; `:for`
-is the canonical authoring spelling and the recommended way to name an
-anchor explicitly. (rf2-ugmrg aligned the impl to the spec spelling,
-XState-style: pick the spec spelling as authoritative and make the
-renderer read it. The earlier divergence — renderer reads `:story`
-only — is resolved.)
+precedence order: `:for`, then deriving `:story.<path>` from the
+workspace id's namespace.
 
 #### Workspace `:columns` slot — renderer-honoured (rf2-ugmrg)
 

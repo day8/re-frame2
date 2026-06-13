@@ -48,4 +48,4 @@
     (is (= [:Mode.app/dark :Mode.app/mobile]
            (share/parse-modes-param "Mode.app/dark,Mode.app/mobile")))
     (is (= {:label "Shared" :count 7}
-           (share/parse-overrides-param "label:\"Shared\",count:7")))))
+           (share/parse-overrides-param "{:label \"Shared\", :count 7}")))))

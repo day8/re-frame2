@@ -400,7 +400,7 @@
                 inputs column, and the handler-`:db` vs flow-`:db`-diff
                 split."
      :layout   :variants-grid
-     :story    :story.xray.epoch
+     :for      :story.xray.epoch
      :columns  2
      :tags     #{:dev}}))
 

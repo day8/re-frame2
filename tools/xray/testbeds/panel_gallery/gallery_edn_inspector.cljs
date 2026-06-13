@@ -424,7 +424,7 @@
                 (zoomable / popup / card / header / header-hiccup
                 / site-id / shallow-depth / combined)."
      :layout   :variants-grid
-     :story    :story.xray.edn-inspector
+     :for      :story.xray.edn-inspector
      :columns  2
      :tags     #{:dev}}))
 
