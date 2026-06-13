@@ -244,6 +244,12 @@
             [re-frame.core :as rf]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]
+            ;; rf2-l42sg7 — expansion-state registration extracted to its
+            ;; own namespace (the `expansion-slot` key, its reg-sub, the
+            ;; toggle/set/reset events, `expansion-key`, `resolve-expanded?`).
+            ;; Re-exported below so existing call sites + tests keep
+            ;; resolving against this widget namespace unchanged.
+            [day8.re-frame2-xray.views.edn-inspector-state :as state]
             [day8.re-frame2-xray.views.edn-inspector-protocol :as ddp]
             ;; rf2-n2jig — Editscript-backed diff projection engine.
             ;; Replaces the home-grown leaf-walker classifier that
@@ -261,60 +267,32 @@
             [day8.re-frame2-xray.views.edn-inspector-default-formatters]))
 
 ;; =========================================================================
-;; expansion state — lives in :rf.xray.edn-inspector/expansion under the
-;; SURROUNDING instance frame (the shell's frame-id; `:rf/xray` for the
-;; production singleton). Per-frame so N shells keep independent expansion.
+;; expansion state — extracted to `views/edn-inspector-state` (rf2-l42sg7).
+;; The slot key, its reg-sub, the toggle/set/reset events, `expansion-key`,
+;; and `resolve-expanded?` now live there (it registers the same global
+;; event/sub ids). Re-exported here so call sites + tests keep resolving
+;; `edn-inspector/{expansion-slot,expansion-key,resolve-expanded?}`
+;; unchanged. The state ns lives in :rf.xray.edn-inspector/expansion under
+;; the SURROUNDING instance frame (the shell's frame-id; `:rf/xray` for the
+;; production singleton) — per-frame so N shells keep independent expansion.
 ;; =========================================================================
 
 (def expansion-slot
-  "App-db slot holding the per-node expansion overrides. Public so
-  the consuming panel's reset affordance can clear it.
+  "Re-export of `edn-inspector-state/expansion-slot` (rf2-l42sg7) — the
+  app-db slot holding the per-node expansion overrides. Public so the
+  consuming panel's reset affordance can clear it."
+  state/expansion-slot)
 
-  Distinct from the legacy `:rf.xray/edn-inspector-expansion` slot
-  used by `edn-inspector/render` — keeping them separate lets the old
-  engine and the new widget coexist during the phased rollout."
-  :rf.xray.edn-inspector/expansion)
+(def expansion-key
+  "Re-export of `edn-inspector-state/expansion-key` (rf2-l42sg7) — composes
+  the per-node expansion key. Pure data, JVM-portable."
+  state/expansion-key)
 
-(defn expansion-key
-  "Compose the per-node expansion key. Pure data, JVM-portable."
-  [panel-id mount-id path]
-  [panel-id mount-id (vec path)])
-
-(rf/reg-sub expansion-slot
-  (fn [db _] (get db expansion-slot)))
-
-(rf/reg-event-db :rf.xray.edn-inspector/toggle-node
-  (fn [db [_ panel-id mount-id path rendered-expanded?]]
-    ;; rf2-y59tb — first click MUST invert the currently-visible state.
-    ;;
-    ;; The widget renders `default-expanded` paths (top-level nodes,
-    ;; depth ≤ `default-expanded-depth`) open BEFORE the user clicks,
-    ;; even though no override is stored. If the reducer flipped from
-    ;; a hard-coded assumption (e.g. "first click opens") it would
-    ;; emit the same state the user already sees — a silent no-op on
-    ;; the first click.
-    ;;
-    ;; The dispatch payload now carries `rendered-expanded?` — the
-    ;; value `resolve-expanded?` returned for this path on the last
-    ;; render (i.e. what the user currently sees). When no override
-    ;; is stored the reducer flips from that visible state; when an
-    ;; override IS stored it flips the override (idempotent given a
-    ;; consistent dispatcher).
-    (let [k       (expansion-key panel-id mount-id path)
-          current (get-in db [expansion-slot k])
-          next?   (if (contains? current :expanded?)
-                    (not (boolean (:expanded? current)))
-                    (not (boolean rendered-expanded?)))]
-      (assoc-in db [expansion-slot k] {:expanded? next?}))))
-
-(rf/reg-event-db :rf.xray.edn-inspector/set-node
-  (fn [db [_ panel-id mount-id path expanded?]]
-    (assoc-in db [expansion-slot (expansion-key panel-id mount-id path)]
-              {:expanded? (boolean expanded?)})))
-
-(rf/reg-event-db :rf.xray.edn-inspector/reset-expansion
-  (fn [db _]
-    (dissoc db expansion-slot)))
+(def resolve-expanded?
+  "Re-export of `edn-inspector-state/resolve-expanded?` (rf2-l42sg7) — pure
+  projection returning whether THIS node renders expanded; the operator's
+  sticky override (if present) wins."
+  state/resolve-expanded?)
 
 ;; =========================================================================
 ;; available-width capture — per-mount measurement for the width-aware
@@ -460,17 +438,6 @@
       (let [resolved (try (get-in value path ::no-resolve)
                           (catch :default _ ::no-resolve))]
         (if (= resolved ::no-resolve) value resolved)))))
-
-(defn resolve-expanded?
-  "Pure projection — given the per-render expansion map, the path,
-  and the default-heuristic result, return whether THIS node renders
-  expanded. The operator's sticky override (if present) wins."
-  [expansion-map panel-id mount-id path default?]
-  (let [k        (expansion-key panel-id mount-id path)
-        override (get expansion-map k)]
-    (if (contains? override :expanded?)
-      (boolean (:expanded? override))
-      (boolean default?))))
 
 ;; =========================================================================
 ;; type classification — sentinels recognised as first-class types
