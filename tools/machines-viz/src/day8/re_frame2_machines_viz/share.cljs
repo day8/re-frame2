@@ -340,18 +340,31 @@
        (keyword? (:frame-id cs))
        (valid-definition? (:definition cs))))
 
+(def ^:private chart-state-keys
+  "The ONLY top-level keys a ChartState may carry (per API.md
+  §Share-URL payload schema). `valid-chart-state?` is closed over this
+  set on BOTH sides so a hand-edited URL cannot smuggle extra top-level
+  keys (`:source-coords`, `:data`, future unreviewed fields) past
+  decode. Widening this set requires the documented
+  `:rf.machines-viz.share/allow?` opt-in + operator redaction hook."
+  #{:machine-id :frame-id :definition :snapshot})
+
 (defn- valid-chart-state?
-  "Validate a fully-allowlisted ChartState shape. `:snapshot` is
-  optional; when present it must be `{:state <state-configuration>}`
-  EXACTLY (closed; `:state` only). Used on BOTH sides so encode/decode
-  stay symmetric — the encoder validates the allowlisted chart state
-  with this same predicate before serialising, so it never emits a
-  payload the decoder would reject (a hand-edited URL smuggling `:data`
-  onto `:snapshot`, or a malformed `:state` that is none of the three
-  arms, is rejected at decode; an in-process caller passing the same is
+  "Validate a fully-allowlisted ChartState shape. The top-level map is
+  CLOSED over `chart-state-keys` — any extra top-level key (e.g. a
+  hand-edited `:source-coords` / `:data` smuggled past the encoder)
+  fails validation. `:snapshot` is optional; when present it must be
+  `{:state <state-configuration>}` EXACTLY (closed; `:state` only).
+  Used on BOTH sides so encode/decode stay symmetric — the encoder
+  validates the allowlisted chart state with this same predicate before
+  serialising, so it never emits a payload the decoder would reject (a
+  hand-edited URL adding an extra top-level key, smuggling `:data` onto
+  `:snapshot`, or a malformed `:state` that is none of the three arms,
+  is rejected at decode; an in-process caller passing the same is
   rejected at encode)."
   [cs]
   (and (valid-core-chart-state? cs)
+       (every? chart-state-keys (keys cs))
        (or (not (contains? cs :snapshot))
            (valid-snapshot? (:snapshot cs)))))
 

@@ -407,6 +407,91 @@
                  (catch :default e (ex-data e)))]
       (is (= :invalid-chart-state (:reason d))))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-dplwxh — top-level ChartState is CLOSED on decode. The encoder
+;; allowlists to #{:machine-id :frame-id :definition :snapshot} before
+;; serialising, but a hand-crafted URL bypasses the encoder entirely. The
+;; decoder must therefore reject any extra top-level chart key
+;; (:source-coords, :data, or any future unreviewed field) rather than
+;; returning it in the public envelope — the viewer contract loads nothing
+;; outside the validated payload schema (API.md §Share-URL payload schema:
+;; "Anything not in the schema is silently dropped by the encoder. New
+;; top-level keys … require an explicit :rf.machines-viz.share/allow? opt-in").
+
+(deftest decoded-extra-top-level-source-coords-rejected
+  (testing "a forged URL adding a top-level :source-coords cannot survive decode"
+    (let [smuggled (envelope->url
+                     {:rf.machines-viz.share/v       "1"
+                      :rf.machines-viz.share/chart   (assoc chart-state
+                                                            :source-coords {:file "/Users/mike/secret/x.cljs"
+                                                                            :line 42})
+                      :rf.machines-viz.share/created 0})
+          d (try (share/decode-share-url smuggled)
+                 (catch :default e (ex-data e)))]
+      (is (= :invalid-chart-state (:reason d))
+          "an extra top-level :source-coords fails the closed ChartState check at decode"))))
+
+(deftest decoded-extra-top-level-data-rejected
+  (testing "a forged URL adding a top-level :data cannot survive decode"
+    (let [smuggled (envelope->url
+                     {:rf.machines-viz.share/v       "1"
+                      :rf.machines-viz.share/chart   (assoc chart-state
+                                                            :data {:token "leak-abc"
+                                                                   :form  {:password "hunter2"}})
+                      :rf.machines-viz.share/created 0})
+          d (try (share/decode-share-url smuggled)
+                 (catch :default e (ex-data e)))]
+      (is (= :invalid-chart-state (:reason d))
+          "an extra top-level :data fails the closed ChartState check at decode"))))
+
+(deftest decoded-future-unreviewed-top-level-key-rejected
+  (testing "any unknown future top-level key is rejected — the set is closed, not just the two known leaks"
+    (let [smuggled (envelope->url
+                     {:rf.machines-viz.share/v       "1"
+                      :rf.machines-viz.share/chart   (assoc chart-state
+                                                            :rf.machines-viz.share/some-future-field
+                                                            {:anything :goes})
+                      :rf.machines-viz.share/created 0})
+          d (try (share/decode-share-url smuggled)
+                 (catch :default e (ex-data e)))]
+      (is (= :invalid-chart-state (:reason d))
+          "an unreviewed top-level key requires the documented allow? opt-in, so decode fails closed"))))
+
+(deftest decoded-extra-top-level-key-rejected-safe
+  (testing "decode-share-url-safe returns {:error {:reason :invalid-chart-state}} for a forged extra key"
+    (let [smuggled (envelope->url
+                     {:rf.machines-viz.share/v       "1"
+                      :rf.machines-viz.share/chart   (assoc chart-state
+                                                            :source-coords {:file "/Users/mike/secret/x.cljs"}
+                                                            :data {:token "leak-abc"})
+                      :rf.machines-viz.share/created 0})
+          {:keys [ok error]} (share/decode-share-url-safe smuggled)]
+      (is (nil? ok) "the forged payload is NOT returned as :ok")
+      (is (= :invalid-chart-state (:reason error))
+          "the safe wrapper surfaces a banner-friendly reason rather than leaking the forged chart"))))
+
+(deftest decoded-extra-key-alongside-valid-snapshot-rejected
+  (testing "a forged top-level key is rejected even when the rest of the ChartState (incl. :snapshot) is valid"
+    (let [smuggled (envelope->url
+                     {:rf.machines-viz.share/v       "1"
+                      :rf.machines-viz.share/chart   (assoc chart-state
+                                                            :snapshot {:state :loading}  ;; legitimately valid
+                                                            :data {:token "leak"})       ;; forged extra
+                      :rf.machines-viz.share/created 0})
+          d (try (share/decode-share-url smuggled)
+                 (catch :default e (ex-data e)))]
+      (is (= :invalid-chart-state (:reason d))
+          "a valid :snapshot does not excuse an extra top-level key"))))
+
+(deftest valid-chart-state-with-exact-keys-still-decodes
+  (testing "guard against over-tightening — a legitimate ChartState (no extra keys) still round-trips"
+    (let [url  (share/encode-share-url chart-state)
+          back (:rf.machines-viz.share/chart (share/decode-share-url url))]
+      (is (= :auth/login-flow (:machine-id back)))
+      (is (= {:state :loading} (:snapshot back)))
+      (is (= #{:machine-id :frame-id :definition :snapshot} (set (keys back)))
+          "the decoded chart carries exactly the four ChartState keys"))))
+
 (deftest malformed-fragment-rejected
   (testing "a URL with no #machine= fragment throws :malformed-fragment"
     (is (thrown-with-msg? :default #"malformed-fragment"
