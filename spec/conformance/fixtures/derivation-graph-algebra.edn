@@ -1,4 +1,5 @@
-;; Conformance fixture: derivation-graph/algebra (EP-0014, rf2-k0meap.3)
+;; Conformance fixture: derivation-graph/algebra-subs-machines (EP-0014,
+;; rf2-k0meap.3; capability split rf2-djofbh)
 ;;
 ;; The host-agnostic corpus pin for the EP-0014 derivation/process ALGEBRA
 ;; GRAPH (spec/Derivations.md §Graph inspection + §Conformance; EP-0014
@@ -9,12 +10,19 @@
 ;; graph operator, so a future PORT could pass the whole corpus while missing
 ;; the lowering / node-edge shape / storage classification the EP names.
 ;;
-;; The `:derivation-graph` call op composes the cross-family graph over the
-;; host's loaded contributors (subscriptions are pattern-required; machines
-;; are the canonical :process member) and asserts NORMALIZED node + edge
-;; shapes against the spec/Derivations.md fixed-classification tables.
+;; SCOPE — the SUBS+MACHINES SUBSET (rf2-djofbh). This fixture proves the
+;; subscription `:derivation` member and the machine `:process` member ONLY,
+;; over the STATIC graph. It deliberately does NOT exercise flows, resources,
+;; routes, route-owned resource activation, the live graph, or the resource
+;; authority/local-storage split — those are pinned by the companion
+;; `derivation-graph-algebra-full.edn`. So this fixture claims the NARROW
+;; capability `:derivation/algebra-graph-subs-machines`, never the broad
+;; `:derivation/algebra-graph` (which would OVERCLAIM the EP-0014 surface a
+;; subs+machines-only graph host genuinely proves). A host whose derivation
+;; graph spans only subscriptions + machines can honestly claim this subset
+;; without falsely asserting full algebra-graph conformance.
 ;;
-;; What it pins (the EP-0014 §Conformance laws, restated portably):
+;; What it pins (the subs+machines slice of the EP-0014 §Conformance laws):
 ;;   - LOWERING        — a `reg-sub` lowers to a `:derivation` node; a
 ;;                       `reg-machine` lowers to a `:process` node refined
 ;;                       `:machine-process`. Every node's `:kind` is one of
@@ -28,15 +36,15 @@
 ;;                       to the upstream subscription node id; a node with no
 ;;                       declared `[:sub …]` input draws no spurious edge.
 ;;
-;; Capability `:derivation/algebra-graph`. A port that does not expose the
-;; algebra-view graph declares this capability in its
+;; Capability `:derivation/algebra-graph-subs-machines`. A port that does not
+;; expose the algebra-view graph declares this capability in its
 ;; `known-skipped-capabilities` allowlist; the fixture is then reported as an
 ;; out-of-claim skip rather than a failure.
 
-{:fixture/id           :derivation-graph/algebra
+{:fixture/id           :derivation-graph/algebra-subs-machines
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:core/sub :fsm/flat :derivation/algebra-graph}
- :fixture/doc          "The cross-family derivation/process algebra graph: a reg-sub lowers to a :derivation node (ephemeral / on-demand / subscription-cache-entry), a :<- chain becomes a static :input edge, and a reg-machine lowers to a :process node (runtime-db / machine-instance, refinement :machine-process). Pins EP-0014 lowering + storage classification + edge roles in the host-agnostic corpus."
+ :fixture/capabilities #{:core/sub :fsm/flat :derivation/algebra-graph-subs-machines}
+ :fixture/doc          "The subs+machines SUBSET of the derivation/process algebra graph: a reg-sub lowers to a :derivation node (ephemeral / on-demand / subscription-cache-entry), a :<- chain becomes a static :input edge, and a reg-machine lowers to a :process node (runtime-db / machine-instance, refinement :machine-process). Pins the EP-0014 lowering + storage classification + edge roles a subs+machines-only graph host genuinely proves; the broad algebra-graph claim (flows / resources / routes / route-owned activation / live mode / authority split) is the companion derivation-graph-algebra-full.edn."
 
  :fixture/registry
  {:sub {:cart/items {:doc "All items in the cart (a layer-1 :db reader)."}
