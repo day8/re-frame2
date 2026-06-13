@@ -262,6 +262,91 @@
                "rf2-985x1t).")))))
 
 ;; ---------------------------------------------------------------------------
+;; Lock — the operating-frame / registrar guidance is REALM-AWARE per the
+;; current EP-0013 (realm, frame)-address contract (rf2-wpwckr)
+;;
+;; The skills/shared review (rf2-wpwckr finding 1) found the leaf's operating-
+;; frame trio and registrar query API stale against spec/Tool-Pair.md's
+;; EP-0013 disposition-3 realm-aware semantics: the registrar pair
+;; `realm-ids` / `frame-realm` was absent, and the operating-frame trio +
+;; tier-3 resolver were described as frame-only — omitting the (realm, frame)
+;; full address, the optional `:realm` pin, realm-scoped tier-3 resolution,
+;; reset clearing the realm pin, and the inspect-result realm keys
+;; (`:realms` / `:operating-realm` / `:selected-realm` / `:frame-realms`).
+;; A consuming skill routing an upstream operating-frame / multi-realm finding
+;; from this stale leaf could under-spec or misroute it (the pair SKILL.md +
+;; the re-frame2-pair-mcp descriptor data already teach the realm-aware model).
+;; These pins fail loudly if the leaf re-narrows to the frame-only model.
+;; ---------------------------------------------------------------------------
+
+(deftest registrar-realm-pair-enumerated
+  (testing "the leaf names the realm-enumeration registrar pair realm-ids / frame-realm"
+    (let [body @surfaces-md]
+      (is (and (str/includes? body "realm-ids")
+               (str/includes? body "frame-realm"))
+          (str "tool-pair-surfaces.md no longer names the realm-enumeration "
+               "registrar pair (`realm-ids` — installed realms; `frame-realm` "
+               "— a frame's realm). Per EP-0013 disposition 3 a frame-id is "
+               "unique only within a realm; a tool resolving a frame in a "
+               "multi-realm session reads these to scope it. Their absence is "
+               "the rf2-wpwckr finding-1 drift (spec/Tool-Pair.md §Operating "
+               "frame, the registrar query API row).")))))
+
+(deftest operating-frame-trio-is-realm-aware
+  (testing "the operating-frame trio carries the (realm, frame) full address + realm pinning"
+    (let [body @surfaces-md]
+      (is (contains-any? body ["(realm, frame)" "(realm, frame) pair"
+                               "(realm, frame)` pair"])
+          (str "tool-pair-surfaces.md no longer states that the address a "
+               "tool resolves is the (realm, frame) pair (EP-0013 disposition "
+               "3). A frame-id is unique only within a realm; the frame-only "
+               "model under-specs the operating-frame trio (rf2-wpwckr)."))
+      (is (contains-any? body ["operating realm" "operating-realm"])
+          (str "tool-pair-surfaces.md no longer scopes tier-3 sole-frame "
+               "resolution to the OPERATING REALM. Two app frames in "
+               "different realms are NOT ambiguous — the frame-only resolver "
+               "wording is stale (rf2-wpwckr)."))
+      (is (contains-any? body ["optional **`:realm`**" "optional `:realm`"
+                               "optional :realm" "an optional `:realm`"
+                               "accept an optional **`:realm`**"])
+          (str "tool-pair-surfaces.md no longer states that "
+               "`set-operating-frame` MAY accept an optional `:realm` to pin "
+               "the operating realm (EP-0013 disposition 3, rf2-wpwckr).")))))
+
+(deftest operating-frame-reset-clears-realm-pin
+  (testing "the leaf states reset clears the realm pin, not just the frame pin"
+    (let [body @surfaces-md]
+      (is (contains-any? body ["clears **both**" "clears both"
+                               "frame pin and the realm pin"
+                               "frame pin **and** the realm pin"
+                               "AND the realm pin" "and the realm pin"])
+          (str "tool-pair-surfaces.md no longer states that "
+               "`reset-operating-frame` clears BOTH the frame pin and the "
+               "realm pin (the operating realm falls back to the default "
+               "realm). The frame-only reset wording is stale "
+               "(rf2-wpwckr).")))))
+
+(deftest operating-frame-inspect-returns-realm-keys
+  (testing "the leaf names the inspect-result realm keys"
+    (let [body @surfaces-md]
+      (is (and (str/includes? body ":realms")
+               (str/includes? body ":operating-realm")
+               (str/includes? body ":selected-realm")
+               (str/includes? body ":frame-realms"))
+          (str "tool-pair-surfaces.md no longer names the realm-dimension "
+               "keys the inspect op (`get-operating-frame`) returns — "
+               "`:realms` / `:operating-realm` / `:selected-realm` / "
+               "`:frame-realms`. Per spec/Tool-Pair.md §Tool-surface "
+               "obligations the inspect shape carries the realm view "
+               "alongside the frame view (EP-0013 disposition 3, rf2-wpwckr)."))
+      (is (contains-any? body ["byte-identical" "rf.realm/default"])
+          (str "tool-pair-surfaces.md no longer states the single-realm "
+               "collapse — a single-realm app (the common case) is byte-"
+               "identical to the pre-realm ladder (`:realms "
+               "[:rf.realm/default]`). Without it the realm dimension reads "
+               "as a cost every app pays (rf2-wpwckr).")))))
+
+;; ---------------------------------------------------------------------------
 ;; Lock — the four partition-aware state-injection mutators (rf2-7g9htq.2)
 ;;
 ;; The leaf used to name only `replace-app-db!` / `reset-app-db!` (the
