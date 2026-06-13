@@ -169,6 +169,99 @@
   (testing "dissoc of an absent root key ⇒ no-op"
     (is (= {:a 1} (de/apply-patches {:a 1} [[[:z] :dissoc]])))))
 
+(deftest apply-patches-nested-assoc-into-scalar-parent-is-structured-error
+  ;; rf2-glybzz — the `:assoc` PEER of the rf2-ykv9a0 dissoc guard.
+  ;; A grammar-valid patch like `[[[:a :b] :assoc 2]]` against base
+  ;; `{:a 1}` used to delegate straight to `assoc-in`, which throws a
+  ;; raw host `ClassCastException` with nil ex-data at the wire decoder
+  ;; boundary. `apply-patches` is the public wire decoder; a malformed /
+  ;; corrupt / third-party / mismatched-base diff must surface a
+  ;; DOCUMENTED structured failure, never leak a raw host exception.
+  ;; Policy: a non-associative intermediate parent is a base/patch
+  ;; MISMATCH, surfaced as `:rf.error/bad-diff-replay` (not a silent
+  ;; no-op — that would drop the requested write; not a clobber — that
+  ;; would corrupt the base into a shape neither side emitted).
+  (testing "scalar intermediate parent ⇒ structured :rf.error/bad-diff-replay (no host ClassCastException)"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf\.error/bad-diff-replay"
+          (de/apply-patches {:a 1} [[[:a :b] :assoc 2]]))
+        "was a raw host ClassCastException before the fix")
+    (try
+      (de/apply-patches {:a 1} [[[:a :b] :assoc 2]])
+      (is false "expected throw")
+      (catch clojure.lang.ExceptionInfo e
+        (let [d (ex-data e)]
+          (is (= :rf.error/bad-diff-replay (:rf.error/id d))
+              "carries the reserved :rf.error/* code")
+          (is (= 'mcp-base/apply-patches (:where d))
+              "decode-side boundary (rf2-4ypau)")
+          (is (= :no-recovery (:recovery d)))
+          (is (= [:a :b] (:patch-path d)) "reports the offending patch path")
+          (is (= [:a] (:at d)) "reports the prefix where traversal hit the non-associative node")
+          ;; value-free: the ex-data names the parent's TYPE, never its value.
+          (is (not (nil? (:parent-type d))) "carries a value-free parent-type tag")))))
+  (testing "deeper scalar intermediate parent ⇒ structured error naming the deep prefix"
+    (try
+      (de/apply-patches {:a {:b 1}} [[[:a :b :c] :assoc 5]])
+      (is false "expected throw")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= [:a :b] (:at (ex-data e)))))))
+  (testing "vector intermediate parent reached by a non-integer key ⇒ structured error (no host IllegalArgumentException)"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf\.error/bad-diff-replay"
+          (de/apply-patches {:a [1 2]} [[[:a :b] :assoc 9]]))))
+  (testing "vector intermediate parent reached by an out-of-range index ⇒ structured error (no host IndexOutOfBounds)"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf\.error/bad-diff-replay"
+          (de/apply-patches {:items [1 2]} [[[:items 5] :assoc 9]]))))
+  (testing "MISSING / nil intermediate parent still auto-vivifies (create-if-absent grammar preserved)"
+    (is (= {:a {:b 2}} (de/apply-patches {} [[[:a :b] :assoc 2]]))
+        "missing parent ⇒ map auto-vivified, not an error")
+    (is (= {:a {:b {:c 9}}} (de/apply-patches {} [[[:a :b :c] :assoc 9]]))
+        "deep missing parents ⇒ chain auto-vivified")
+    (is (= {:a {:b 2}} (de/apply-patches {:a nil} [[[:a :b] :assoc 2]]))
+        "nil parent ⇒ map auto-vivified"))
+  (testing "valid nested :assoc into a map parent still sets the slot"
+    (is (= {:a {:x 1 :y 2}} (de/apply-patches {:a {:x 1}} [[[:a :y] :assoc 2]]))))
+  (testing "valid :assoc into a vector index (in-bounds + tail-grow) still works"
+    (is (= {:items [{:qty 2}]} (de/apply-patches {:items [{:qty 1}]} [[[:items 0 :qty] :assoc 2]])))
+    (is (= {:items [10 20]} (de/apply-patches {:items [10]} [[[:items 1] :assoc 20]]))))
+  (testing "leaf-level :assoc OVERWRITING a scalar is fine (only intermediate parents are guarded)"
+    (is (= {:a 2} (de/apply-patches {:a 1} [[[:a] :assoc 2]]))))
+  (testing "root :assoc whole-value replacement still works"
+    (is (= {:y 9} (de/apply-patches {:x 1} [[[] :assoc {:y 9}]])))))
+
+(deftest decode-db-after-nested-assoc-mismatched-base-is-structured-error
+  ;; rf2-glybzz — the same guard reached via the section-decoder hot
+  ;; path. `decode-db-after` replays through the non-validating
+  ;; `apply-patches*`; a section whose `:patches` assoc into a path that
+  ;; is non-associative in THIS record's `:db-before` (a corrupt /
+  ;; mismatched-base diff) must surface the structured failure naming
+  ;; the `decode-db-after` boundary — NOT a raw host exception.
+  (let [epoch {:db-before {:a 1}
+               :db-after  {:rf.mcp/diff-from :db-before
+                           :sections [{:section-path [:a]
+                                       :section-kind :modified
+                                       :patches      [[[:a :b] :assoc 2]]}]}}]
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf\.error/bad-diff-replay"
+          (de/decode-db-after epoch)))
+    (try
+      (de/decode-db-after epoch)
+      (is false "expected throw")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/bad-diff-replay (:rf.error/id (ex-data e))))
+        (is (= 'mcp-base/decode-db-after (:where (ex-data e)))
+            "boundary attributes the section decoder, not apply-patches (rf2-4ypau)"))))
+  (testing "a well-formed diff against a matching base still round-trips"
+    (let [encoded (de/diff-encode-db-after {:db-before {:a {:x 1}}
+                                            :db-after  {:a {:x 1 :y 2}}})]
+      (is (= {:a {:x 1 :y 2}} (:db-after (de/decode-db-after encoded)))))))
+
 ;; ---------------------------------------------------------------------------
 ;; diff-encode-db-after / decode-db-after — round-trip.
 ;; ---------------------------------------------------------------------------

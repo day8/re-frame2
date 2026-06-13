@@ -434,6 +434,78 @@
           (assoc-in m parent-path (dissoc parent k))
           m)))))
 
+(defn- assoc-in-safe
+  "Set the value at `path` (a non-empty path vector) in `m` to `v`,
+  raising a structured `:rf.error/bad-diff-replay` ex-info — never a
+  raw host exception — when an intermediate parent is present but
+  non-associative (rf2-glybzz).
+
+  The spec contract for `[<path> :assoc v]` is 'set the value at
+  `path`, creating the slot if it didn't exist'. The naive `assoc-in`
+  honours the create-if-absent half — a MISSING / `nil` intermediate
+  parent auto-vivifies a map (`(assoc-in {} [:a :b] 2)` ⇒
+  `{:a {:b 2}}`), which is the intended grammar behaviour and is
+  preserved here. But when an intermediate parent is PRESENT and
+  non-associative, `assoc-in` throws a raw host exception with nil
+  `ex-data`:
+
+    - a SCALAR intermediate throws `ClassCastException`
+      (`(assoc-in {:a 1} [:a :b] 2)` — `1` can't be `assoc`ed into);
+    - a VECTOR intermediate reached by a non-integer key throws
+      `IllegalArgumentException` (`(assoc-in {:a [1 2]} [:a :b] 9)`).
+
+  This is the `:assoc` peer of `dissoc-in`'s missing-/scalar-parent
+  guard (rf2-ykv9a0): `apply-patches`'s grammar gate pins the patch
+  SHAPE but cannot prove a patch's parent path is associative in THIS
+  `base`. A malformed / corrupt / third-party diff replayed against a
+  mismatched base is exactly the case this guards — including via
+  `decode-db-after`, whose non-validating `apply-patches*` replay
+  routes here.
+
+  Policy (acceptance, rf2-glybzz): a non-associative intermediate
+  parent is a base/patch MISMATCH, not a no-op. Unlike `:dissoc`
+  (where 'remove a key from a non-map' is naturally a no-op), silently
+  dropping an `:assoc` would discard the requested change (data loss),
+  and clobbering the scalar with a manufactured map would corrupt the
+  base into a shape neither encoder side emitted (data corruption).
+  Neither silent outcome is safe, so we surface the drift as a
+  structured failure rather than guess. The ex-info names the ACTUAL
+  decode-side boundary via `where` (rf2-4ypau — `'mcp-base/apply-patches`
+  from the public validating decoder, `'mcp-base/decode-db-after` from
+  the section decoder), carries `:recovery :no-recovery`, and reports
+  the offending `:patch-path` plus the `:at` prefix where traversal hit
+  the non-associative node — without `pr-str`ing the value (the base
+  may carry sensitive payload; we report shape, not content)."
+  [m path v where]
+  ;; Walk every key in `path`; before each key is applied, verify the
+  ;; node it lands on is associable-for-that-key the way `assoc-in`
+  ;; requires — including the LEAF key's direct parent (the final
+  ;; descent `assoc-in` performs). A MISSING / `nil` node is fine
+  ;; (auto-vivified to a map). A PRESENT non-associative node is the
+  ;; mismatch we surface.
+  (loop [node    m
+         segs    (seq path)
+         crumbed []]
+    (if (empty? segs)
+      (assoc-in m path v)
+      (let [seg  (first segs)
+            ;; A map takes any key; a vector takes only an in-bounds
+            ;; (or tail) integer index. `nil`/absent auto-vivifies.
+            ok?  (or (nil? node)
+                     (map? node)
+                     (and (vector? node) (integer? seg)
+                          (<= 0 seg (count node))))]
+        (if ok?
+          (recur (get node seg) (rest segs) (conj crumbed seg))
+          (throw (ex-info ":rf.error/bad-diff-replay"
+                          {:rf.error/id :rf.error/bad-diff-replay
+                           :where       where
+                           :recovery    :no-recovery
+                           :reason      "diff :assoc replay hit a non-associative intermediate parent — patch path does not exist in this base"
+                           :patch-path  (vec path)
+                           :at          crumbed
+                           :parent-type (some-> node type pr-str)})))))))
+
 (defn- apply-patches*
   "Replay an already-validated patch vector against `base`, returning
   the reconstructed value. Patches are `[path :assoc v]` or
@@ -442,6 +514,11 @@
   convention). Nested `:dissoc` routes through `dissoc-in`, whose
   missing-/scalar-parent no-op honours the spec contract (no
   nil-branch manufacture, no host `ClassCastException` — rf2-ykv9a0).
+  Nested `:assoc` routes through `assoc-in-safe`, the `:assoc` peer
+  guard (rf2-glybzz): a missing parent auto-vivifies (intended
+  create-if-absent grammar), but a PRESENT non-associative intermediate
+  parent raises a structured `:rf.error/bad-diff-replay` ex-info rather
+  than leak the raw host `ClassCastException` `assoc-in` would throw.
 
   This is the non-validating core: callers that have ALREADY validated
   the patch grammar (e.g. `decode-db-after`, whose `validate-sections!`
@@ -449,21 +526,30 @@
   via `section-schema`) replay through here directly rather than
   re-validating the flattened list a second time on the JVM decode hot
   path (rf2-pfy8e). The public `apply-patches` validates first, then
-  delegates here."
-  [base patches]
-  (reduce
-    (fn [acc patch]
-      (let [[path op v] patch]
-        (cond
-          (empty? path)
-          (if (= op :assoc) v acc)
-          (= op :assoc)
-          (assoc-in acc path v)
-          (= op :dissoc)
-          (dissoc-in acc path)
-          :else acc)))
-    base
-    patches))
+  delegates here.
+
+  `where` (rf2-glybzz) is the boundary symbol threaded into a
+  `:rf.error/bad-diff-replay` ex-info if a nested `:assoc` lands on a
+  non-associative intermediate parent, so the error attributes the
+  ACTUAL decode-side boundary that replayed the mismatched patch
+  (rf2-4ypau) — `'mcp-base/apply-patches` from the public decoder,
+  `'mcp-base/decode-db-after` from the section decoder. The 2-arity
+  defaults to the public-decoder boundary."
+  ([base patches] (apply-patches* base patches 'mcp-base/apply-patches))
+  ([base patches where]
+   (reduce
+     (fn [acc patch]
+       (let [[path op v] patch]
+         (cond
+           (empty? path)
+           (if (= op :assoc) v acc)
+           (= op :assoc)
+           (assoc-in-safe acc path v where)
+           (= op :dissoc)
+           (dissoc-in acc path)
+           :else acc)))
+     base
+     patches)))
 
 (defn apply-patches
   "Apply a vector of patches to `base`, returning the reconstructed
@@ -607,7 +693,7 @@
             _         (validate-sections! sections 'mcp-base/decode-db-after)
             patches   (sg/sections->patches sections)
             db-before (:db-before epoch)
-            rebuilt   (apply-patches* db-before patches)]
+            rebuilt   (apply-patches* db-before patches 'mcp-base/decode-db-after)]
         (assoc epoch :db-after rebuilt)))))
 
 (defn diff-encode-epochs

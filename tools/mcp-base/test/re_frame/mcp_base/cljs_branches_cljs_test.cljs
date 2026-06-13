@@ -316,6 +316,41 @@
     (is (= {:a {:c 2}} (de/apply-patches {:a {:b 1 :c 2}} [[[:a :b] :dissoc]])))
     (is (= {:a 1} (de/apply-patches {:a 1 :b 2} [[[:b] :dissoc]])))))
 
+(deftest apply-patches-nested-assoc-scalar-parent-structured-error-cljs
+  ;; rf2-glybzz — the `:assoc` peer of the dissoc guard, on CLJS.
+  ;; CRUCIAL: this build runs WITHOUT Malli on the classpath, so the
+  ;; grammar gate (`validate-patches!`) SOFT-PASSES — yet the replay
+  ;; guard still fires. The guard is a pure structural walk during
+  ;; replay, NOT a Malli schema check, so it is independent of Malli
+  ;; presence and of the `validate-patches?` goog-define. A
+  ;; mismatched-base `:assoc` therefore raises the documented structured
+  ;; failure on CLJS too, never the raw host (`#object[TypeError]`)
+  ;; exception that `assoc-in` into a scalar would otherwise produce.
+  (testing "scalar intermediate parent ⇒ structured :rf.error/bad-diff-replay (Malli absent)"
+    (let [e (try (de/apply-patches {:a 1} [[[:a :b] :assoc 2]]) nil
+                 (catch :default ex ex))]
+      (is (some? e) "must throw — the replay guard is not Malli-gated")
+      (is (= :rf.error/bad-diff-replay (:rf.error/id (ex-data e))))
+      (is (= 'mcp-base/apply-patches (:where (ex-data e))))
+      (is (= [:a :b] (:patch-path (ex-data e))))
+      (is (= [:a] (:at (ex-data e))))))
+  (testing "vector parent reached by a non-integer key ⇒ structured error"
+    (let [e (try (de/apply-patches {:a [1 2]} [[[:a :b] :assoc 9]]) nil
+                 (catch :default ex ex))]
+      (is (= :rf.error/bad-diff-replay (:rf.error/id (ex-data e))))))
+  (testing "MISSING / nil intermediate parent still auto-vivifies (create-if-absent grammar)"
+    (is (= {:a {:b 2}} (de/apply-patches {} [[[:a :b] :assoc 2]])))
+    (is (= {:a {:b 2}} (de/apply-patches {:a nil} [[[:a :b] :assoc 2]]))))
+  (testing "decode-db-after surfaces the same structured error via its own boundary"
+    (let [epoch {:db-before {:a 1}
+                 :db-after  {:rf.mcp/diff-from :db-before
+                             :sections [{:section-path [:a] :section-kind :modified
+                                         :patches [[[:a :b] :assoc 2]]}]}}
+          e     (try (de/decode-db-after epoch) nil
+                     (catch :default ex ex))]
+      (is (= :rf.error/bad-diff-replay (:rf.error/id (ex-data e))))
+      (is (= 'mcp-base/decode-db-after (:where (ex-data e)))))))
+
 (deftest section-kind-db-before-classification-cljs
   (let [patches [[[:user :name]  :assoc "ada"]
                  [[:user :email] :assoc "x"]]]

@@ -45,7 +45,7 @@ The flat patch list is grouped into **sections** — each headed by a `:section-
 
 | Form | Meaning | Example |
 |---|---|---|
-| `[<path> :assoc <new-value>]` | Set the value at `path` to `new-value` (creates the slot if it didn't exist). `path` may end in a numeric **vector index** (`assoc-in` accepts integer indices). | `[[:user :name] :assoc "alice"]` · `[[:items 0 :qty] :assoc 2]` |
+| `[<path> :assoc <new-value>]` | Set the value at `path` to `new-value` (creates the slot if it didn't exist — a **missing / `nil` intermediate parent auto-vivifies a map**). `path` may end in a numeric **vector index** (`assoc-in` accepts integer indices). A **PRESENT non-associative intermediate parent** (a scalar, or a vector reached by a non-integer / out-of-range key) is a base/patch mismatch and raises `:rf.error/bad-diff-replay` — see the replay-safety note below. | `[[:user :name] :assoc "alice"]` · `[[:items 0 :qty] :assoc 2]` |
 | `[<path> :dissoc]` | Remove the key at `path`. A **no-op** when the key doesn't exist OR when the parent is not a map — vector-element `:dissoc` is unsupported (see vector section below). | `[[:user :temp-flag] :dissoc]` |
 
 Patches are applied **in order** within the flattened list; later patches see the state after earlier patches. The section grouping is deterministic (sorted by `:section-path`), so concatenating every section's `:patches` reproduces a stable, replayable patch list.
@@ -95,14 +95,16 @@ The `:db-after` marker carries `:sections`, so the decoder first flattens the pe
           (fn [acc patch]
             (let [[path op v] patch]
               (case op
-                :assoc  (if (empty? path) v (assoc-in acc path v))
-                :dissoc (dissoc-in acc path))))         ; missing-/scalar-parent no-op
+                :assoc  (if (empty? path) v (assoc-in-safe acc path v))  ; structured error on non-assoc parent
+                :dissoc (dissoc-in acc path))))                          ; missing-/scalar-parent no-op
           base
           patches))
       db-after)))   ; not diff-encoded; passthrough
 ```
 
 > **`:dissoc` is a no-op when the key does not exist (rf2-ykv9a0).** The decoder routes nested `:dissoc` through a `dissoc-in` helper that dissocs only when the parent path resolves to a map. A naive `(update-in acc parent dissoc k)` violated the spec contract two ways: a MISSING parent manufactured nil branches (`{} + [[[:missing :leaf] :dissoc]] ⇒ {:missing nil}`), and a SCALAR parent threw a host `ClassCastException` at the wire decoder boundary. `apply-patches` is the public decoder; a malformed / corrupt / third-party diff replayed against a mismatched base must neither corrupt the base into a shape neither side emitted nor crash — so the missing-/scalar-parent case is a no-op, honouring the contract below.
+
+> **`:assoc` raises a structured error on a non-associative intermediate parent (rf2-glybzz).** The `:assoc` peer of the `dissoc-in` guard. The decoder routes nested `:assoc` through an `assoc-in-safe` helper. A MISSING / `nil` intermediate parent auto-vivifies a map — the intended create-if-absent grammar (`{} + [[[:a :b] :assoc 2]] ⇒ {:a {:b 2}}`), preserved unchanged. But a PRESENT non-associative intermediate parent — a SCALAR (`{:a 1} + [[[:a :b] :assoc 2]]`) or a vector reached by a non-integer / out-of-range key — is a base/patch **mismatch**: the naive `assoc-in` leaks a raw host `ClassCastException` / `IllegalArgumentException` with nil `ex-data` at the wire decoder boundary. Unlike `:dissoc` (where "remove a key from a non-map" is naturally a no-op), neither silent recovery is safe for `:assoc` — a no-op would drop the requested write (data loss), and clobbering the scalar with a manufactured map would corrupt the base into a shape neither encoder side emitted (data corruption). The decoder therefore surfaces the drift as a structured `:rf.error/bad-diff-replay` ex-info (`:where` the actual decode boundary, `:recovery :no-recovery`, the offending `:patch-path`, the `:at` prefix where traversal hit the non-associative node, and a value-free `:parent-type` tag — the base may carry sensitive payload, so we report shape, not content). This is a pure structural check during replay (NOT a Malli grammar gate), so it fires on both hosts independently of Malli presence and the `validate-patches?` `goog-define`. Both `apply-patches` (public, validating) and `decode-db-after` (section decoder) route their replay through `assoc-in-safe`, so both surface the structured failure.
 
 The shipped decoder (`decode-db-after`) Malli-validates `:sections` at the decode boundary (`validate-sections!`, symmetric with the encoder's gate) then replays via the non-validating `apply-patches*` to avoid a redundant second Malli walk on the JVM decode hot path. Both story-mcp and re-frame2-pair-mcp consume this shape; the agent-host decoder is small.
 
