@@ -130,16 +130,19 @@ run "implementor order-guard self-test" "python scripts/check_skill_implementor_
 run "implementor foundation-order" "python scripts/check_skill_implementor_order.py --verbose --ci" \
   python "$repo_root/scripts/check_skill_implementor_order.py" --verbose --ci
 
-# Eval-docs drift guard (rf2-r2xswa): the re-frame2 eval harness README carries
-# a hand-maintained coverage table, total count, and per-dimension breakdown
-# that silently fell behind evals.json once (a 7th eval landed while the README
-# still said "Six evals … two per dimension").  Self-test first (proves it fires
-# on count/name/tally drift), then the live scan asserts the README agrees with
-# the JSON.
+# Eval-docs drift guard (rf2-r2xswa; generalised rf2-xw7ra9): each packaged
+# skill's eval harness README carries a hand-maintained coverage table, total
+# count, and per-axis breakdowns that silently fell behind evals.json (the
+# re-frame2 harness: a 7th eval while the README still said "Six evals …"; the
+# re-frame2-improver harness: 26/10 while prose still said "9 behavioural").
+# The gate is multi-target — it scans the re-frame2 AND re-frame2-improver
+# harnesses.  Self-test first (proves it fires on count/name/tally drift across
+# both README shapes), then the live scan asserts each README agrees with its
+# JSON.
 run "eval-docs guard self-test" "python scripts/check_skill_eval_docs.py --self-test" \
   python "$repo_root/scripts/check_skill_eval_docs.py" --self-test
 
-run "re-frame2 eval-docs match evals.json" "python scripts/check_skill_eval_docs.py --verbose --ci" \
+run "skill eval-docs match evals.json" "python scripts/check_skill_eval_docs.py --verbose --ci" \
   python "$repo_root/scripts/check_skill_eval_docs.py" --verbose --ci
 
 # README inventory ratchet (rf2-198k3): layout-map<->disk bijection +
