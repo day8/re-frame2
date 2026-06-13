@@ -127,9 +127,12 @@
 ;; registrar kind; `clear-resource-scope` is the registration-lifecycle
 ;; removal; `resolve-resource-scope` is a resolver helper that resolves a
 ;; named scope against a supplied db value (the logout coeffect-db idiom) —
-;; not an effect (no app-state / dispatch side effects), but it emits
-;; `:rf.resource/scope-resolved` dev-time trace, so it is not a pure data
-;; helper (rf2-fi6tda.7).
+;; a PURE function over the resolver registry: not an effect (no app-state /
+;; dispatch side effects) and (rf2-ru73k6) NO observability side effect
+;; either, so it does NOT emit `:rf.resource/scope-resolved` trace. The
+;; `:rf.resource/scope-resolved` evidence is emitted only at the CAUSAL
+;; resolution boundaries (`{:from-db ...}` scope, route entry, mutation
+;; settle), per Spec 016 §Named resource-scope resolvers.
 (def reg-resource-scope     scope-registry/reg-resource-scope)
 (def clear-resource-scope   scope-registry/clear-resource-scope)
 (def resolve-resource-scope scope-registry/resolve-resource-scope)
@@ -222,9 +225,32 @@
   "Return a mutation INSTANCE's durable runtime row for an explicit
   `:frame` introspection target `{:instance :frame}` (EP-0003 §Mutations),
   or nil when no instance exists under that instance id in that frame. Per
-  EP-0002 the frame target is carried explicitly; a frameless call with no
-  resolvable context fails closed."
-  [{:keys [instance frame]}]
+  EP-0002 the frame target is carried explicitly; a frameless call FAILS
+  CLOSED (rf2-a76921): an absent / nil `:frame` raises the structured
+  `:rf.error/no-frame-context` rather than passing nil through to a
+  runtime-db lookup that returns nil — a nil that is INDISTINGUISHABLE from
+  a genuinely absent instance. This mirrors `resource-state`'s explicit-frame
+  contract; the two introspection halves now fail closed symmetrically.
+
+  Frame existence is NOT a precondition: an explicit but unknown / destroyed
+  `:frame` reads as `nil` runtime-db and returns `nil` (no instance) — the
+  same result as a live frame with no instance under that id. The fail-closed
+  boundary is the MISSING explicit target, not a vanished one; a valid
+  explicit frame lookup returns `nil` only for a genuinely absent instance."
+  [{:keys [instance frame] :as opts}]
+  (when (nil? frame)
+    (throw (ex-info ":rf.error/no-frame-context"
+                    {:rf.error/id :rf.error/no-frame-context
+                     :where       'rf/mutation-state
+                     :recovery    :pass-frame
+                     :reason      (str "mutation-state requires an explicit :frame "
+                                       "introspection target. A frameless call would "
+                                       "pass nil through to the runtime-db lookup and "
+                                       "return nil — indistinguishable from a genuinely "
+                                       "absent instance. Pass {:instance … "
+                                       ":frame <frame-id>}. Per EP-0003 §Mutations / "
+                                       "EP-0002.")
+                     :opts        (dissoc opts :frame)})))
   (let [runtime-db (frame/frame-runtime-db-value frame)]
     (get-in runtime-db (mstate/instance-path instance))))
 

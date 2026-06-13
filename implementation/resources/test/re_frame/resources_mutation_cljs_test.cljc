@@ -1606,3 +1606,41 @@
       (is (= 0 (count replied-rows))))
     (testing "the stale reply WAS recorded as stale-suppressed"
       (is (= 1 (count stale-rows))))))
+
+;; ===========================================================================
+;; 14. mutation-state fails closed without an explicit frame (rf2-a76921)
+;; ===========================================================================
+
+(deftest mutation-state-fails-closed-without-frame
+  ;; rf2-a76921 — the mutation introspection half MUST be symmetric with
+  ;; `resource-state` (rf2-c8lgy3): a frameless `mutation-state` call cannot
+  ;; silently pass nil through to `frame-runtime-db-value` (which returns nil
+  ;; for a missing frame) and return a nil that is INDISTINGUISHABLE from a
+  ;; genuinely absent instance. Per EP-0002 the frame target is carried
+  ;; explicitly; the MISSING explicit target fails closed.
+  (rf/reg-mutation :m/save (save-article-spec))
+  (testing "a frameless mutation-state call raises :rf.error/no-frame-context
+            (never a silent nil that is indistinguishable from an absent
+            instance)"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"no-frame-context"
+          (rf/mutation-state {:instance :ms-no-frame}))))
+  (testing "an explicit nil :frame ALSO fails closed (nil is not a frame)"
+    (is (thrown-with-msg?
+          #?(:clj Throwable :cljs js/Error) #"no-frame-context"
+          (rf/mutation-state {:instance :ms-no-frame :frame nil}))))
+  (testing "a valid explicit frame returns nil ONLY for a genuinely absent
+            instance (the fail-closed boundary is the missing target, not a
+            vanished one)"
+    (is (nil? (rf/mutation-state {:instance :ms-absent :frame :rf/default}))))
+  (testing "an explicit but UNKNOWN / destroyed frame reads as nil runtime-db
+            and returns nil (no instance) — same result as a live frame with
+            no instance for the id, NOT a fail-closed throw"
+    (is (nil? (rf/mutation-state {:instance :ms-absent :frame :no/such-frame}))))
+  (testing "a valid explicit frame returns the instance row when present"
+    (rf/dispatch-sync [:rf.mutation/execute
+                       {:mutation :m/save :params {:slug "w"} :instance :ms-present}])
+    (reply-success! @last-managed-args {:ok true})
+    (let [row (rf/mutation-state {:instance :ms-present :frame :rf/default})]
+      (is (some? row))
+      (is (= :success (:status row))))))

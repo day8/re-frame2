@@ -7,10 +7,12 @@
   causal-write counterpart of the `:resource` kind). `reg-mutation`
   validates the spec — the REQUIRED `:request` (the Spec 014 managed-HTTP
   args map the write lowers into) and `:params-schema` — and writes the
-  entry; `clear-mutation` is a registration-lifecycle removal that ALSO
-  disposes the mutation's runtime instances (EP-0003 §Public API:
-  \"clear the mutation registration and its runtime instances, not
-  masquerade as a form-level error reset\").
+  entry; `clear-mutation` is a registration-lifecycle removal of the
+  registrar entry ONLY. Runtime-instance disposal (drop the mutation's
+  instances in each affected frame + best-effort abort their in-flight
+  work) is the CAUSAL `:rf.mutation/clear` event's job (it carries a frame
+  target), distinct from this process-level registration removal — see the
+  `clear-mutation` docstring.
 
   Mirrors `re-frame.resources.registry` (the resource registrar) so the two
   registrars read as one family; the params-validation + (optional) scope
