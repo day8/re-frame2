@@ -50,9 +50,16 @@ re-frame2 ships **eight** skills, grouped by the situation they cover:
   re-frame2 ClojureScript project by hand. Walks the author from an empty
   directory to a working `shadow-cljs watch` counter via the canonical
   seven-step path. Complementary to the generator template under
-  [`tools/template/`](../tools/template/): use the template
-  (`clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app`)
-  when you want a one-shot scaffold; reach for this skill when you're
+  [`tools/template/`](../tools/template/): use the template when you want a
+  one-shot scaffold. **Pre-split caveat:** the dedicated
+  `github.com/day8/re-frame2-template` repo isn't published yet (the template
+  still lives in-monorepo under `tools/template/`), so the published
+  `clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app`
+  form is post-split/future-only and can't auto-resolve today — pre-release,
+  scaffold via the working `:local/root` route against a checkout of this repo
+  (`clojure -Sdeps '{:deps {day8/re-frame2-template {:local/root "tools/template"}}}' -Tnew create :template day8/re-frame2-template :name acme/my-app`).
+  See [`tools/template/README.md`](../tools/template/README.md) for both routes.
+  Reach for this skill when you're
   bootstrapping greenfield — a brand-new app, or an **empty** CLJS project
   (shadow-cljs / Clojure present but **zero re-frame2 wiring**) — or when
   you want to understand each step the template performs. Adding re-frame2

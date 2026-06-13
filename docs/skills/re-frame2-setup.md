@@ -6,7 +6,7 @@
 
 The `re-frame2-setup` skill bootstraps a greenfield re-frame2 project. The author starts with nothing (or close to nothing — a `deps.edn` they intend to fill in, an empty `package.json`, no source). When the skill is done, the author has a project that compiles under `shadow-cljs watch`, mounts a working counter in the browser, and is ready to switch to the [`re-frame2`](re-frame2.md) skill for writing application code.
 
-The skill teaches **only** the re-frame2-specific wiring: which artefacts to add, the lockstep VERSION discipline (all ten ship at the same version; mixing is unsupported), the canonical `(rf/init! reagent-adapter/adapter)` entry-namespace shape, and a counter that exercises every layer end-to-end (event → handler → app-db change → sub recompute → view re-render). It does not teach `deps.edn`, `npm`, or `shadow-cljs` themselves — those are assumed.
+The skill teaches **only** the re-frame2-specific wiring: which artefacts to add, the lockstep VERSION discipline (all eleven publishable framework artefacts ship at the same version, with `day8/re-frame2-xray` riding the same line; mixing versions is unsupported), the canonical `(rf/init! reagent-adapter/adapter)` entry-namespace shape, and a counter that exercises every layer end-to-end (event → handler → app-db change → sub recompute → view re-render). It does not teach `deps.edn`, `npm`, or `shadow-cljs` themselves — those are assumed.
 
 ## When to reach for it
 
@@ -37,4 +37,4 @@ The skill walks seven steps in order: discover the current artefact VERSION, add
 
 - Source: [`skills/re-frame2-setup/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup)
 - `SKILL.md`: [`skills/re-frame2-setup/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-setup/SKILL.md)
-- Reference leaves: [`skills/re-frame2-setup/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup/reference) — `deps-versions.md` (how to discover the current VERSION; lockstep contract), `shadow-cljs.md` (the minimal `shadow-cljs.edn` and `index.html` shape), `entry-namespace.md` (the canonical `core.cljs` shape; why `rf/init!` runs first), `first-counter.md` (the worked end-to-end counter).
+- Reference leaves: [`skills/re-frame2-setup/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup/references) — `deps-versions.md` (how to discover the current VERSION; lockstep contract), `shadow-cljs.md` (the minimal `shadow-cljs.edn` and `index.html` shape), `entry-namespace.md` (the canonical `core.cljs` shape; why `rf/init!` runs first), `first-counter.md` (the worked end-to-end counter).

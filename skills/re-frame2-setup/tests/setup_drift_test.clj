@@ -737,6 +737,103 @@
                "the author runs it (rf2-agi57x).")))))
 
 ;; ---------------------------------------------------------------------------
+;; Lock 13 — the PUBLIC entry-ramp docs (docs-site setup page + top-level
+;; skills index) stay in sync with the current setup/template contract.
+;; rf2-79gtjr.
+;;
+;; The authoritative SKILL.md / setup references / template API docs are
+;; correct, but two USER-FACING discoverability surfaces had drifted:
+;;
+;;   * docs/skills/re-frame2-setup.md taught the stale "all ten ship at the
+;;     same version" lockstep count (the contract is ELEVEN publishable
+;;     framework artefacts, with day8/re-frame2-xray on the same line — see
+;;     SKILL.md cardinal rule 2 + README.md), and linked the reference
+;;     leaves to a SINGULAR `…/skills/re-frame2-setup/reference` GitHub path
+;;     that 404s (the directory is `references`, plural). check_doc_slugs.py
+;;     can't catch either: it skips external http(s) URLs and does not
+;;     validate prose artefact counts.
+;;
+;;   * skills/README.md presented the one-shot generator as the published
+;;     `io.github.day8/re-frame2-template` `-Tnew create` form with NO
+;;     pre-split caveat — but that coord can't resolve pre-split (the
+;;     external repo doesn't exist yet; the working route is `:local/root`,
+;;     per tools/template/README.md + the setup skill's own cardinal rule 4).
+;;
+;; These guards read the two public files off disk (no network) and fail if
+;; any of the three drifts reappears while check_doc_slugs.py stays green.
+;; ---------------------------------------------------------------------------
+
+(def ^:private docs-setup-page-md
+  (delay (slurp-rel repo-root "docs/skills/re-frame2-setup.md")))
+
+(def ^:private skills-index-md
+  (delay (slurp-rel repo-root "skills/README.md")))
+
+(deftest docs-setup-page-no-stale-artefact-count
+  (testing "docs/skills/re-frame2-setup.md does not re-teach the stale 'all ten' lockstep count"
+    (let [body @docs-setup-page-md]
+      (is (not (re-find #"(?i)all ten" body))
+          (str "docs/skills/re-frame2-setup.md re-teaches the stale "
+               "\"all ten ship at the same version\" lockstep count. The "
+               "current contract is ELEVEN publishable framework artefacts "
+               "shipping in lockstep, with day8/re-frame2-xray riding the "
+               "same version line (SKILL.md cardinal rule 2 / README.md). "
+               "The docs-site page must not drift back to the old count "
+               "(rf2-79gtjr)."))
+      (is (re-find #"(?i)eleven" body)
+          (str "docs/skills/re-frame2-setup.md no longer states the ELEVEN "
+               "publishable framework artefacts ship in lockstep. The "
+               "corrected lockstep wording must name the current count "
+               "consistently with SKILL.md / README.md (rf2-79gtjr).")))))
+
+(deftest docs-setup-page-references-link-is-plural
+  (testing "docs/skills/re-frame2-setup.md links the reference leaves to the real plural `references/` path"
+    (let [body @docs-setup-page-md]
+      ;; The repo directory is `skills/re-frame2-setup/references` (plural);
+      ;; a singular `…/reference` GitHub URL 404s. Fail on any singular
+      ;; self-repo path that is NOT immediately followed by the plural `s`.
+      (is (not (re-find #"skills/re-frame2-setup/reference(?!s)" body))
+          (str "docs/skills/re-frame2-setup.md links the reference leaves to "
+               "the SINGULAR `skills/re-frame2-setup/reference` GitHub path, "
+               "which 404s — the repo directory is `references` (plural). "
+               "check_doc_slugs.py skips external http(s) URLs, so this guard "
+               "is the only backstop (rf2-79gtjr)."))
+      (is (re-find #"skills/re-frame2-setup/references" body)
+          (str "docs/skills/re-frame2-setup.md no longer links the reference "
+               "leaves to the real plural `skills/re-frame2-setup/references` "
+               "path (rf2-79gtjr).")))))
+
+(deftest skills-index-template-form-carries-pre-split-caveat
+  (testing "skills/README.md does not present the io.github template form without a pre-split caveat"
+    (let [body @skills-index-md]
+      ;; Premise guard: if the io.github form is gone entirely this lock is
+      ;; moot, but it must fail loudly so the caveat requirement is revisited
+      ;; deliberately rather than silently passing on an absent string.
+      (is (str/includes? body "io.github.day8/re-frame2-template")
+          (str "skills/README.md no longer mentions the "
+               "`io.github.day8/re-frame2-template` generator coord. If the "
+               "form was removed deliberately, revisit Lock 13 (the "
+               "pre-split-caveat guard assumes the form is present) "
+               "(rf2-79gtjr)."))
+      (is (contains-any? body ["Pre-split" "pre-split" "isn't published yet"
+                               "not published yet" ":local/root"])
+          (str "skills/README.md presents the published "
+               "`io.github.day8/re-frame2-template` `-Tnew create` form with "
+               "NO pre-split caveat. That coord can't resolve pre-split (the "
+               "external repo doesn't exist yet); the index must label it "
+               "post-split/future-only and/or give the working `:local/root` "
+               "route, matching tools/template/README.md and the setup "
+               "skill's cardinal rule 4 (rf2-79gtjr)."))
+      ;; The working pre-split route must actually appear (not just the word
+      ;; "pre-split"), so a future edit can't keep the caveat noun while
+      ;; dropping the runnable alternative.
+      (is (str/includes? body ":local/root \"tools/template\"")
+          (str "skills/README.md no longer gives the working pre-split "
+               "`:local/root \"tools/template\"` generator invocation. The "
+               "caveat must be paired with the route that actually works "
+               "today (rf2-79gtjr).")))))
+
+;; ---------------------------------------------------------------------------
 ;; Run
 ;; ---------------------------------------------------------------------------
 
