@@ -41,14 +41,17 @@
                               `:handle` slot per `ElisionMarkerBody`
                               (NOT a standalone top-level marker)
 
-  story-mcp does NOT currently emit any of these markers — it operates
-  on small, structured story/variant metadata and stays under the
-  wire-cap by construction. The story-mcp `tools/*.cljc` files namespace
-  their own vocabulary under `:rf.story/*`, `:rf.assert/*`, `:rf.error/*`
-  per its own spec. The vocabulary becomes relevant on story-mcp the
-  day a tool starts returning bulk runtime state; until then the
-  conformance gate guards the *contract*: when story-mcp adopts a
-  marker it MUST use the canonical shape, not invent a near-miss.
+  story-mcp emits two of these markers today — `:rf.mcp/dedup-table`
+  (rf2-90eft, the wire-boundary structural-dedup transform) and
+  `:rf.mcp/overflow` (rf2-yxgcsz, its wire-boundary token-cap), both via
+  the shared `mcp-base` builders so the shapes stay byte-identical with
+  re-frame2-pair-mcp. Its remaining vocabulary is namespaced under
+  `:rf.story/*`, `:rf.assert/*`, `:rf.error/*` per its own spec. For
+  every marker story-mcp does NOT yet emit, the conformance gate guards
+  the *contract*: when story-mcp adopts one it MUST use the canonical
+  shape, not invent a near-miss — the `story-mcp-still-emits-zero-
+  uncontracted-cross-mcp-markers` tripwire below fires the day a NEW
+  uncontracted marker leaks in.
 
   ## What this test guards
 
@@ -629,11 +632,14 @@
   ;; `mcp-base/vocab.cljc`) trips the gate even if old docstrings still
   ;; mention the prior name.
   ;;
-  ;; story-mcp emits zero markers today — its servers entry is empty in
-  ;; `canonical-markers/:servers`, so this loop never iterates over it.
-  ;; The doc-source fallback path (spec-text-only coverage for an MCP
-  ;; server whose impl hasn't landed) is retained for any future server
-  ;; adopted into the cross-MCP family before its `src/` ships.
+  ;; story-mcp is contracted for `:rf.mcp/dedup-table` (rf2-90eft) and
+  ;; `:rf.mcp/overflow` (rf2-yxgcsz); both source their literal from
+  ;; `mcp-base/vocab.cljc` (the shared emit-source for both servers per
+  ;; `source-pins/emit-source-files`), so this loop checks the literal
+  ;; is present there for story-mcp too. The doc-source fallback path
+  ;; (spec-text-only coverage for an MCP server whose impl hasn't landed)
+  ;; is retained for any future server adopted into the cross-MCP family
+  ;; before its `src/` ships.
   (doseq [{:keys [key servers]} canonical-markers
           server                servers]
     (testing (str "marker " key " literal in " server " emit-sources")
@@ -825,10 +831,11 @@
   ;; conformance is not free.
   ;;
   ;; Markers story-mcp is ALREADY contracted to emit are skipped — the
-  ;; contract IS the green-state.  As of rf2-90eft that set is
-  ;; `#{:rf.mcp/dedup-table}` (story-mcp adopted pair-mcp's structural-
-  ;; dedup wire-boundary transform); the gate continues to fire on
-  ;; every OTHER marker.
+  ;; contract IS the green-state. As of rf2-yxgcsz that set is
+  ;; `#{:rf.mcp/dedup-table :rf.mcp/overflow}` (story-mcp adopted pair-
+  ;; mcp's structural-dedup wire-boundary transform under rf2-90eft and
+  ;; its token-cap under rf2-yxgcsz, both via the shared mcp-base
+  ;; builders); the gate continues to fire on every OTHER marker.
   ;;
   ;; Comment- and docstring-only mentions are stripped before the
   ;; check (via `strip-comments-and-strings`). story-mcp re-uses

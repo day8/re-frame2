@@ -12,7 +12,7 @@ This doc is one of eleven per-namespace contracts indexed from [`README.md`](REA
 - The `:rf.mcp/*` marker keyword catalogue.
 - The `:rf.size/*` marker keyword catalogue (shared with the framework's `rf/elide-wire-value` walker).
 - The unqualified envelope counter slots (`:dropped-sensitive`, `:elided-large`).
-- The JSON-RPC 2.0 §5.1 error codes used by every server in the triplet.
+- The JSON-RPC 2.0 §5.1 error codes used by every server in the pair.
 
 `vocab` does NOT own:
 
@@ -61,7 +61,7 @@ Both slots ride the response envelope alongside the tool's unqualified slots. **
 
 ## JSON-RPC error codes (per JSON-RPC 2.0 §5.1)
 
-The same numeric codes apply across the triplet. Owned constants:
+The same numeric codes apply across both servers. Owned constants:
 
 - `code-parse-error` (-32700)
 - `code-invalid-request` (-32600)

@@ -90,7 +90,7 @@ All six parsers are pure `.cljc`. They use:
 Per-parser fixture tests live in `tools/mcp-base/test/`. Cross-consumer convention checks live in `tools/mcp-conformance/`:
 
 - Every cross-MCP tool that accepts a finite-option arg uses `safe-keyword`. The conformance harness diffs argument schemas across consumers and asserts the same allowlist appears everywhere.
-- Default-handling parity: a sample arg that's unset on each consumer must produce identical observable behaviour across the triplet. The harness drives each tool with `{}` (no args) and asserts the response envelope matches the convention's documented defaults.
+- Default-handling parity: a sample arg that's unset on each consumer must produce identical observable behaviour across both servers. The harness drives each tool with `{}` (no args) and asserts the response envelope matches the convention's documented defaults.
 
 ## See also
 

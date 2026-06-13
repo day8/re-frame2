@@ -82,9 +82,10 @@ responses share one cumulative budget rather than per-key.
 - Positive integer ⇒ that cap applies for this call.
 
 The slot surfaces in `tools/list` on every tool descriptor so clients
-discover it automatically. Story-mcp's spec'd shape uses the same
-`:max-tokens` keyword and the same defaults — when its
-implementation passes lands the wire shape is identical.
+discover it automatically. Story-mcp uses the same `:max-tokens`
+keyword and the same defaults — the wire shape is identical, both
+servers resolving the cap through the shared
+`re-frame.mcp-base.cap/max-tokens`.
 
 ### Overflow marker (cross-server reserved key)
 
@@ -167,14 +168,36 @@ top: byte-identical second reads collapse to a sub-100-byte marker.
 Full per-mechanism documentation:
 [`tools/re-frame2-pair-mcp/spec/Principles.md` §"Tight token budget per response"](../re-frame2-pair-mcp/spec/Principles.md#tight-token-budget-per-response).
 
-### story-mcp — normative, enforcement pending
+### story-mcp — enforced at the wire boundary
 
-The cap is **normative in spec** — every catalogue entry in
-[`002-Tool-Registry.md`](../story-mcp/spec/002-Tool-Registry.md) must
-respect it — but the runtime wire-boundary check is not yet wired in
-`tools/story-mcp/src/`. The exposed surfaces (`run-variant` output,
-`list-*` enumerations on populous libraries) currently stay inside
-the cap by construction via:
+The cap is **enforced at the wire boundary** in
+`tools/story-mcp/src/re_frame/story_mcp/tools/wire_pipeline.cljc`
+(`invoke-tool` → `re-frame.mcp-base.cap/apply-cap`, rf2-90eft) — the
+SAME shared `mcp-base` algorithm re-frame2-pair-mcp runs, reified over
+story-mcp's `{:content [...] :structuredContent ...}` CLJ-map result
+shape. Per-tool functions emit the shapes they always did; the cap is a
+property of egress. When a response exceeds the per-call cap the payload
+is replaced with the canonical `{:rf.mcp/overflow {...}}` marker carrying
+the tool-specific next-step hint — a structured retry signal, never a
+silent truncation. The `:max-tokens` per-call override and `0`-disables
+sentinel ride the same way they do on re-frame2-pair-mcp.
+
+Two transforms compose at story-mcp's wire boundary, in pipeline order
+(mirroring re-frame2-pair-mcp's invariant — dedup is always the last
+transform before the cap check):
+
+1. **Structural dedup** (`:rf.mcp/dedup-table`, rf2-90eft) — opt-in via
+   `:dedup-eligible?` on `preview-variant` / `run-variant` /
+   `record-as-variant`, the surfaces where repeated subtrees (the same
+   `:app-db` slice reappearing in `:rendered-hiccup` and `:snapshot`)
+   dominate the wire cost.
+2. **Wire-boundary token-cap** (`:rf.mcp/overflow`, rf2-90eft via the
+   shared `mcp-base.cap/apply-cap`) — sizes the post-dedup payload and
+   swaps the overflow marker when over.
+
+Cap-first design still pushes each tool to bound its egress by
+construction, so the cap is the safety net rather than the primary
+mechanism for the common case:
 
 - **Pagination / cursor** on `list-variants`, `list-modes`,
   `list-assertions`, `list-stories`, `list-substrates`, `list-tags`.
@@ -188,10 +211,6 @@ keeps the typical workflow well inside the cap.
 
 Full posture text:
 [`tools/story-mcp/spec/Principles.md` §"Tight token budget per response"](../story-mcp/spec/Principles.md#tight-token-budget-per-response).
-
-When the wire-boundary check lands, it follows re-frame2-pair-mcp's shape
-(`max-tokens` arg, `:rf.mcp/overflow` marker) — the keyword namespace
-is reserved cross-server.
 
 ## Chained budgets — when agents attach multiple servers
 
@@ -229,15 +248,23 @@ The agent-host workflow Mike's skills assume:
 The contract above is shared. These differences exist today and are
 deliberate or pending alignment.
 
-### Overflow-marker slot vocabulary
+### Overflow-marker slot vocabulary — converged
+
+Both servers now emit the **identical** overflow marker body, built by
+the shared `mcp-base.cap/apply-cap` → `overflow/overflow-payload`:
 
 | Server | Slot shape |
 |---|---|
-| `re-frame2-pair-mcp` (implemented) | `{:rf.mcp/overflow {:limit :reached :token-count <int> :cap-tokens <int> :tool <str> :hint <str>}}` |
-| `story-mcp` (spec'd, generic) | `:isError true` with `:reason :budget-exceeded` + hint string (legacy path; converges to `:rf.mcp/overflow` when wire-boundary check lands) |
+| `re-frame2-pair-mcp` | `{:rf.mcp/overflow {:limit :reached :token-count <int> :cap-tokens <int> :tool <str> :hint <str>}}` |
+| `story-mcp` | `{:rf.mcp/overflow {:limit :reached :token-count <int> :cap-tokens <int> :tool <str> :hint <str>}}` (same builder; the marker rides story-mcp's `:structuredContent` slot, the `:hint` text is story-mcp's per-tool table) |
 
-The **reserved keyword** (`:rf.mcp/overflow`) and the **retry-signal
-contract** are identical today; only the slot vocabulary differs.
+The **reserved keyword** (`:rf.mcp/overflow`), the **marker body
+shape**, and the **retry-signal contract** are all identical — the
+former `:reason :budget-exceeded` legacy path is gone (it never
+shipped; the wire-boundary check converged story-mcp onto the shared
+shape per rf2-90eft). Only the per-tool `:hint` prose is
+server-authored, which the cross-MCP contract leaves to the consumer
+by design.
 
 ### Streaming-overflow surface
 
@@ -246,21 +273,23 @@ re-frame2-pair-mcp ships an **upstream-queue budget**
 subscription, with `:overflow-reason` reported per drain. story-mcp
 doesn't ship streaming.
 
-### Enforcement surface
+### Enforcement surface — both runtime-enforced
 
 | Server | Enforcement | Note |
 |---|---|---|
-| `re-frame2-pair-mcp` | Runtime — `apply-cap` at `invoke` boundary | Live in `tools.cljs`. |
-| `story-mcp` | Spec-only — pagination + summary modes are normative but no wire-boundary check yet | Cap-violating tools would currently ship. Pending wiring. |
+| `re-frame2-pair-mcp` | Runtime — `apply-cap` at the `invoke` boundary | Live in `tools.cljs` via the shared `mcp-base.cap/apply-cap`. |
+| `story-mcp` | Runtime — `apply-cap` at the `invoke-tool` wire boundary | Live in `wire_pipeline.cljc` via the same shared `mcp-base.cap/apply-cap` (rf2-90eft). |
 
-The shared **default cap (5,000)**, the **shared override slot name
-(`max-tokens`)**, and the **shared overflow keyword
-(`:rf.mcp/overflow`)** are pinned cross-server even where enforcement
-hasn't landed.
+Both servers run the **same** `mcp-base.cap/apply-cap` algorithm,
+reified over their respective result shapes (`#js {...}` for
+re-frame2-pair-mcp, CLJ maps for story-mcp). The shared **default cap
+(5,000)**, the **shared override slot name (`max-tokens`)**, and the
+**shared overflow keyword (`:rf.mcp/overflow`)** are pinned cross-server
+AND enforced at both wire boundaries.
 
 ## Recommended client-side override convention
 
-Agent hosts and skills that drive the triplet follow one
+Agent hosts and skills that drive both servers follow one
 override-pattern convention:
 
 1. **First call: defaults.** No `max-tokens` arg. The server's default

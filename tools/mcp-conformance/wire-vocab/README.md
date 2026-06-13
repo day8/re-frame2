@@ -55,14 +55,16 @@ This test is the conformance gate. It asserts:
    (`re-frame2-pair-mcp/src/`) asserts the canonical literal appears,
    and asserts that no near-miss spelling (snake_case, pluralised,
    namespace-with-underscores) appears.
-4. **story-mcp uncontracted-marker tripwire.** story-mcp emits one
-   cross-MCP marker today — `:rf.mcp/dedup-table` (rf2-90eft, mirror
-   of pair-mcp's rf2-obpa9 wire-boundary structural dedup) — and
-   otherwise uses its own `:rf.story/*` / `:rf.assert/*` /
-   `:rf.error/*` vocabularies. A test asserts that NO UNCONTRACTED
-   cross-MCP marker leaks into story-mcp source, so the day it adopts
-   another marker the test fails loud and forces the reviewer to
-   register a fixture and a source file (rather than diverge silently).
+4. **story-mcp uncontracted-marker tripwire.** story-mcp emits two
+   cross-MCP markers today — `:rf.mcp/dedup-table` (rf2-90eft, mirror
+   of pair-mcp's rf2-obpa9 wire-boundary structural dedup) and
+   `:rf.mcp/overflow` (rf2-yxgcsz, its wire-boundary token-cap, sharing
+   pair-mcp's `mcp-base.cap/apply-cap` builder) — and otherwise uses its
+   own `:rf.story/*` / `:rf.assert/*` / `:rf.error/*` vocabularies. A
+   test asserts that NO UNCONTRACTED cross-MCP marker leaks into
+   story-mcp source, so the day it adopts another marker the test fails
+   loud and forces the reviewer to register a fixture and a source file
+   (rather than diverge silently).
 
 ## Files
 
