@@ -1,21 +1,21 @@
 # The reference map
 
-The guide teaches you the model. The exact contracts live in spec. This page is the bridge between them. When you need the precise answer — the exact shape of an effect map, the full failure list, a function's complete signature — you've left the guide. This page tells you where each kind of precise answer lives. It's a map of the reference surfaces, not a copy of them.
+The guide teaches you the model; the exact contracts live in spec. This page is the bridge between them. When you need the precise answer — the exact shape of an effect map (the data an event handler returns to describe what should change), the full failure list, a function's complete signature — you've left the guide. Rather than copy all of that here, this page tells you where each kind of precise answer lives. It's a map of the reference surfaces, not a copy of them.
 
 ## Three layers, four entry points
 
-The docs come in three layers. This guide (tutorial, how-to, explanation) teaches you the model. The [API reference](../api/README.md) is the signature lookup, organised by domain. The [spec](../../spec/README.md) is the normative source — exhaustive, written for AI and implementors, and the thing every other layer is downstream of.
+The docs come in three layers, and it helps to know which one you're standing in. This guide (tutorial, how-to, explanation) teaches you the model. The [API reference](../api/README.md) is the signature lookup, organised by domain — go there once you know the concept and just need the call shape. The [spec](../../spec/README.md) is the normative source: exhaustive, written for AI and implementors, and the thing every other layer is downstream of. So when two sources seem to disagree, the spec wins.
 
-Four spec documents are entry points, not contracts. Know them by name:
+Four spec documents are entry points, not contracts. They're worth knowing by name:
 
-- [Ownership](../../spec/Ownership.md) — the "where does X live?" matrix. Every contract surface maps to exactly one owning spec document. When you don't know which document answers your question, start here.
-- [Conventions](../../spec/Conventions.md) — the reserved `:rf/*` namespace scheme, reserved fx-ids, reserved app-db keys, packaging conventions.
-- [Principles](../../spec/Principles.md) — the nine practical principles the design serves.
-- [The spec index](../../spec/README.md) — the full catalogue. It includes the `Pattern-*` documents, which name canonical shapes (app boot, websockets, stale-reply detection, the nine render states, and more) for when your problem matches a recurring one.
+- [Ownership](../../spec/Ownership.md) — the "where does X live?" matrix. Every contract surface maps to exactly one owning spec document, so when you don't know which document answers your question, start here.
+- [Conventions](../../spec/Conventions.md) — the reserved `:rf/*` namespace scheme, reserved fx-ids, reserved app-db keys (app-db is your app's single state map), and packaging conventions.
+- [Principles](../../spec/Principles.md) — the nine practical principles the design serves, so you can see the reasoning behind a rule, not just the rule.
+- [The spec index](../../spec/README.md) — the full catalogue. It includes the `Pattern-*` documents, which name canonical shapes (app boot, websockets, stale-reply detection, the nine render states, and more) — handy when your problem turns out to be a recurring one.
 
 ## The API surface, by domain
 
-Every public surface, one row each. The API page gives signatures with intuition notes. The owning spec gives the normative contract.
+Every public surface gets one row below. The API page gives signatures with intuition notes; the owning spec gives the normative contract when intuition isn't enough.
 
 | Domain | What it covers | API page | Owning spec |
 |---|---|---|---|
@@ -40,7 +40,7 @@ Want the same surface on one page — every signature, status, and tier in one `
 
 ## The test-helper namespaces
 
-Three test namespaces, split by what they assert against. The first two ship in the core artefact. The third ships with the HTTP artefact.
+There are three test namespaces, split by what each one asserts against — the split tells you which to require. The first two ship in the core artefact; the third ships with HTTP.
 
 | Namespace | Asserts against | Representative helpers |
 |---|---|---|
@@ -48,17 +48,19 @@ Three test namespaces, split by what they assert against. The first two ship in 
 | `re-frame.test-helpers` | The view tree — hiccup data, `:data-testid` selectors, attached handlers | the `find-by-testid` family, `text-content`, `extract-handler` / `invoke-handler`, the `with-app-fixture` / `expect-text` / `wait-until` trio, `testid` |
 | `re-frame.http-test-support` | The HTTP boundary | canned-reply stub fxs, `with-managed-request-stubs` |
 
-The full inventory is in [10 — Testing](../api/10-testing.md). The working recipes are [Test an event handler](how-to/test-an-event-handler.md) and [Test a full cascade](how-to/test-a-cascade.md).
+The full inventory is in [10 — Testing](../api/10-testing.md), and the working recipes are [Test an event handler](how-to/test-an-event-handler.md) and [Test a full cascade](how-to/test-a-cascade.md).
 
 ## Realms: what is public today
 
-A **realm** is the container your registrations live in — the registrar, the adapter selection, the capability map, the frame registry. A single-realm app never names one. No realm means the default realm, by rule. The public constructors — `rf/realm`, `rf/module`, `rf/app`, `rf/install!`, `rf/reinstall!`, `rf/dispose-realm!` — plus the realm-targeted registrar queries ship from `re-frame.core` today. A constructed realm isolates installation and queries: its own registrar and capability map make it the natural unit for hermetic tests and multi-program inspection.
+A **realm** is the container your registrations live in — the registrar, the adapter selection, the capability map, the frame registry (a frame is an isolated instance of your app's state and loop). A single-realm app never names one, because no realm means the default realm, by rule. The public constructors — `rf/realm`, `rf/module`, `rf/app`, `rf/install!`, `rf/reinstall!`, `rf/dispose-realm!` — plus the realm-targeted registrar queries ship from `re-frame.core` today. A constructed realm isolates installation and queries: its own registrar and capability map make it the natural unit for hermetic tests and multi-program inspection.
 
-> **Honesty note.** Live dispatch through a non-default realm is a future slice. For now, dispatch and subscribe still resolve through the default realm. Treat a constructed realm as an isolated registrar-and-capability container, not yet a second running program. The contract rows are in [spec/API.md §App values and composition](../../spec/API.md#app-values-and-composition-ep-0013); the model is owned by [Runtime-Subsystems](../../spec/Runtime-Subsystems.md).
+!!! note "What a realm can't do yet"
+
+    Live dispatch through a non-default realm is a future slice. For now, dispatch (sending an event into the loop) and subscribe (reading a derived value) still resolve through the default realm. So treat a constructed realm as an isolated registrar-and-capability container, not yet a second running program. The contract rows are in [spec/API.md §App values and composition](../../spec/API.md#app-values-and-composition-ep-0013); the model is owned by [Runtime-Subsystems](../../spec/Runtime-Subsystems.md).
 
 ## The worked examples
 
-The [examples catalogue](../../examples/README.md) is the runnable canon. Fork the one closest to what you're building. The tree:
+The [examples catalogue](../../examples/README.md) is the runnable canon. When you're starting something new, the fastest path is usually to fork the one closest to what you're building. The tree:
 
 - **Pedagogical sketches** — [`counter`](../../examples/reagent/counter/), [`login`](../../examples/reagent/login/), `routing`, `ssr`, `managed_http_counter`, `state_machine_walkthrough`, `boot`, `flows`, `websocket`, `long_running_work`. Each isolates one surface, composed end-to-end.
 - **Benchmarks** — `todomvc`, the `seven_guis` cluster, `nine_states`. Same primitives, fuller compositions.
@@ -76,7 +78,7 @@ The [skills](../skills/index.md) are Claude Code skills for putting an agent to 
 
 ## Coming from re-frame v1
 
-[From re-frame v1](25-from-re-frame-v1.md) is the narrative delta — what carries over (almost everything), what changed and why. The mechanical rule set is the [migration reference](../../migration/from-re-frame-v1/README.md). The [`re-frame-migration`](../../skills/re-frame-migration/) skill is the recommended driver for any real port. And [15 — Removed](../api/15-removed.md) answers "a name I remember has vanished."
+[From re-frame v1](25-from-re-frame-v1.md) is the narrative delta — what carries over (almost everything), what changed and why. The mechanical rule set is the [migration reference](../../migration/from-re-frame-v1/README.md), and for any real port the [`re-frame-migration`](../../skills/re-frame-migration/) skill is the recommended driver. When a name you remember has simply vanished, [15 — Removed](../api/15-removed.md) is where to look.
 
 ---
 
@@ -86,5 +88,3 @@ You can now:
 - look up any public function by domain in the API reference
 - name which test-helper namespace a given test should require
 - pick the worked example closest to what you're building, and know where Xray, Story, and the skills are documented
-
-Next: [How-to guides](how-to/index.md) · [The spec index](../../spec/README.md)

@@ -84,6 +84,10 @@ theme:
     # Back-to-top affordance on long pages (spec chapters run thousands of
     # lines).
     - navigation.top
+    # Previous/Next page links at the foot of each page, derived from nav
+    # order — so guide pages don't need a hand-written "Next:" paragraph
+    # (the left nav + these buttons carry navigation).
+    - navigation.footer
     # Keep the TOC sidebar scrolled to the active heading on long pages.
     - toc.follow
     # Richer search — search is load-bearing for this corpus (see the
@@ -155,10 +159,19 @@ nav:
     # navigation.indexes: the section label IS the Guide overview page (no
     # redundant "Overview" child) — see theme.features (rf2-qgpkm).
     - guide/README.md
-    # Human-first rebuild (Diataxis tiers): quickstart -> one threaded
-    # RealWorld tutorial -> concepts (explanation) -> how-to recipes ->
-    # explanation shelf -> v1 migration -> a thin index into spec/.
+    # Human-first structure: quickstart (a taste) -> Core concepts (the loop,
+    # on the counter) -> the RealWorld tutorial (build something real) -> the
+    # deeper/feature concepts -> how-to recipes -> explanation shelf -> v1
+    # migration -> a thin index into spec/. The fundamentals come BEFORE the
+    # tutorial so the reader meets the one-way loop before a real domain.
     - "Quickstart": guide/quickstart.md
+    - "Core concepts: the loop":
+      - guide/concepts/index.md
+      - "Events and the cascade": guide/concepts/events-and-the-cascade.md
+      - "app-db": guide/concepts/app-db.md
+      - "Subscriptions": guide/concepts/subscriptions.md
+      - "Views": guide/concepts/views.md
+      - "Effects and coeffects": guide/concepts/effects-and-coeffects.md
     - "Tutorial: Build RealWorld":
       - guide/tutorial/index.md
       - "1. Pages and state": guide/tutorial/01-pages-and-state.md
@@ -166,13 +179,7 @@ nav:
       - "3. Auth and forms": guide/tutorial/03-auth-and-forms.md
       - "4. Mutations and invalidation": guide/tutorial/04-mutations-and-invalidation.md
       - "5. Test and ship": guide/tutorial/05-test-and-ship.md
-    - "Concepts":
-      - guide/concepts/index.md
-      - "Events and the cascade": guide/concepts/events-and-the-cascade.md
-      - "app-db": guide/concepts/app-db.md
-      - "Subscriptions": guide/concepts/subscriptions.md
-      - "Views": guide/concepts/views.md
-      - "Effects and coeffects": guide/concepts/effects-and-coeffects.md
+    - "More concepts":
       - "Interceptors": guide/concepts/interceptors.md
       - "Frames": guide/concepts/frames.md
       - "Flows": guide/concepts/flows.md

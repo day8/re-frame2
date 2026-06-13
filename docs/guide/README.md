@@ -1,6 +1,6 @@
 # The re-frame2 Guide
 
-re-frame2 is a data-first framework for building React applications in ClojureScript. One state map. Events as data. Views last. This page routes you to the right entry point and shows the guide's shape. Nothing here teaches; everything here points.
+re-frame2 is a data-first framework for building React applications in ClojureScript. The whole app reads from one state map (app-db), you describe what happened as plain data (events), and views render last from that state. This page won't teach you any of that — its only job is to point you at the right entry point and show you how the guide is laid out, so you can skip straight to what you need.
 
 > **Start by running the counter in five minutes; everything else is one click deeper.**
 
@@ -12,11 +12,11 @@ re-frame2 is a data-first framework for building React applications in ClojureSc
 | **A re-frame v1 veteran.** Most instincts survive. The global assumptions don't. | [From re-frame v1](25-from-re-frame-v1.md) — deltas, not basics. | [Frames: isolated worlds](concepts/frames.md) — the biggest new idea. |
 | **An AI agent** working on a re-frame2 app. | [The reference map](reference.md), which indexes down into the [spec](../../spec/README.md) — the normative contract. | Guide pages are self-contained and use the spec's terminology, so they chunk cleanly. Where guide and spec differ, the spec wins. |
 
-This guide doesn't serve one persona: someone learning UI programming from scratch. It teaches re-frame2 by difference from tools you already know.
+One reader this guide deliberately doesn't serve: someone learning UI programming from scratch. It teaches re-frame2 by difference from tools you already know, which means it assumes you've shipped something with React or Redux before.
 
 ## The shape of the guide
 
-Seven tiers, ordered by how much you need:
+The guide comes in seven tiers, ordered by how much you need to read before you can do anything useful:
 
 | Tier | Its job | Entry |
 |---|---|---|
@@ -28,12 +28,14 @@ Seven tiers, ordered by how much you need:
 | **Migration** | What changed from re-frame v1, and how to port | [From re-frame v1](25-from-re-frame-v1.md) |
 | **Reference** | The map down into the spec, tools, and skills — every shape, every option | [The reference map](reference.md) |
 
-Two habits the guide leans on throughout:
+Two habits run through every tier, and they're worth knowing up front because they shape how the pages read:
 
-- **Do, observe, explain.** The runtime is inspectable by design. So most pages follow an action with "now open Xray and watch what it caused" before explaining why it happened.
-- **Link down, never duplicate.** Guide pages teach the model and the happy path. The complete contract lives in the [spec](../../spec/README.md), and pages link into it rather than restating it.
+- **Do, observe, explain.** The runtime is inspectable by design, so most pages follow an action with "now open Xray and watch what it caused" before they explain why it happened. You see the effect before you read the theory, which tends to stick better.
+- **Link down, never duplicate.** Guide pages teach the model and the happy path; the complete contract lives in the [spec](../../spec/README.md). Rather than restate it, pages link into it — so when you want the exhaustive list of options, you follow the link.
 
-re-frame2 is pre-alpha. Surfaces are still settling. The guide marks deferred features and client-only paths where it matters, instead of rounding up.
+!!! note "Pre-alpha, and honest about it"
+
+    re-frame2 is pre-alpha — surfaces are still settling, and a few features aren't here yet. The guide flags deferred features and client-only paths wherever they matter, so you won't build on something that turns out to be a placeholder.
 
 ---
 
@@ -41,5 +43,3 @@ re-frame2 is pre-alpha. Surfaces are still settling. The guide marks deferred fe
 
 - pick your entry point — the quick start if you're new, the v1 deltas page if you're migrating, the reference map if you're an agent
 - name which tier answers a question: learning (tutorial, concepts), doing (how-to), wondering (explanation), checking (reference)
-
-**Next:** [Quick start: a counter in five minutes](quickstart.md) · [The model: six dominoes, one loop](concepts/index.md)

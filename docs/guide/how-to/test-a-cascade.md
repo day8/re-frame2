@@ -1,14 +1,14 @@
 # Test a full cascade
 
-You have a handler that does real work. It stamps state, fires an HTTP request, gets the reply back as another event, and folds the result in with follow-up dispatches. You want to test the whole journey: dispatch in, settled `app-db` out. This recipe tests that journey on the JVM. No browser, no mock library, milliseconds per test.
+You have an event handler — the function that decides how state changes in response to something happening — and it does real work. It stamps state, fires an HTTP request, gets the reply back as another event, and folds the result in along with follow-up dispatches. What you want to test is the whole journey: an event goes in, and settled `app-db` (your app's single state map) comes out the other side. This recipe tests that journey on the JVM. No browser, no mock library, milliseconds per test.
 
-Your JavaScript anchor is **MSW**. With MSW you don't mock your own modules. You intercept at the network boundary and answer with canned responses, so the code under test runs unmodified. re-frame2 keeps that idea and moves the boundary earlier. An effect is data the handler returns. The request is a description before it is a connection. So the test never touches network traffic at all. It redirects the effect's id to a different answerer for one dispatch. No service worker, no patched `fetch`, no module-mock hoisting.
+Your JavaScript anchor here is **MSW**. With MSW you don't mock your own modules; you intercept at the network boundary and answer with canned responses, so the code under test runs unmodified. re-frame2 keeps that idea and moves the boundary earlier. An effect — a description of work the handler wants done, returned as plain data — is just that: data the handler returns. The request is a description before it's ever a connection. Which means the test never touches network traffic at all. It redirects the effect's id to a different answerer for one dispatch, and that's it. No service worker, no patched `fetch`, no module-mock hoisting.
 
 > **You don't mock, you redirect.** The handler under test runs unmodified and produces the same effect data it produces in production; the test changes only who answers it.
 
 ## The shape
 
-Every cascade test is the same three moves: a fresh frame, a `dispatch-sync`, an assertion against the frame's `app-db`.
+Every cascade test is the same three moves: a fresh frame, a `dispatch-sync`, an assertion against the frame's `app-db`. (A frame is one isolated instance of your running app — its own `app-db`, its own event queue. A `dispatch` is how you send an event into it.)
 
 ```clojure
 (rf/reg-event-db :counter/inc
@@ -21,15 +21,15 @@ Every cascade test is the same three moves: a fresh frame, a `dispatch-sync`, an
     (is (= 2 (:count (rf/app-db-value f))))))
 ```
 
-`with-new-frame` gives the test its own isolated frame and destroys it on exit. `dispatch-sync` **drains to fixed point**: the event settles, every follow-up `:dispatch` its handlers queue settles, and (below) every stubbed HTTP reply settles, all before the call returns. The assertion on the next line reads committed state. No `act()`, no fake timer to advance, nothing to `await`.
+`with-new-frame` gives the test its own isolated frame and destroys it on exit, so nothing leaks between tests. `dispatch-sync` **drains to fixed point**: the event settles, every follow-up `:dispatch` its handlers queue settles, and (as you'll see below) every stubbed HTTP reply settles too — all before the call returns. So the assertion on the next line reads committed state. No `act()`, no fake timer to advance, nothing to `await`.
 
 > **Coming from re-frame v1?** `dispatch-sync` drains the follow-up dispatches too, so the `wait-for` choreography from the v1 test library is gone.
 
-To test one handler as the pure function it is, see [Test an event handler](test-an-event-handler.md). This page is for when the interesting behaviour is the chain.
+If instead you want to test one handler as the pure function it is, see [Test an event handler](test-an-event-handler.md). This page is for when the interesting behaviour is the chain itself.
 
 ## What's under test
 
-A RealWorld-style login. The handlers live in a `.cljc` file so the JVM test can load them. Same code, both platforms.
+We'll use a RealWorld-style login. The handlers live in a `.cljc` file so the JVM test can load them — same code, both platforms.
 
 ```clojure
 ;; src/my_app/session.cljc
@@ -61,7 +61,7 @@ A RealWorld-style login. The handlers live in a `.cljc` file so the JVM test can
               :session/error  (:kind failure))))
 ```
 
-Both seams the test will use are already visible. The handler **declares** the clock with `:rf.cofx/requires [:rf/time-ms]` and reads it as a delivered fact instead of calling the host. So a test can hand it an exact value. And the HTTP request is an **effect description** in the returned map. So a test can answer it without a network. The model behind both is [Effects and coeffects](../concepts/effects-and-coeffects.md).
+Both seams the test will use are already visible in that code. First, the handler **declares** the clock with `:rf.cofx/requires [:rf/time-ms]` and reads it as a delivered fact — a coeffect, an input the world hands the handler — instead of calling the host directly. That's what lets a test hand it an exact value. Second, the HTTP request is an **effect description** in the returned map, which is what lets a test answer it without a network. The model behind both is [Effects and coeffects](../concepts/effects-and-coeffects.md).
 
 ## The test
 
@@ -97,23 +97,23 @@ Both seams the test will use are already visible. The handler **declares** the c
       (is (= :rf.http/http-4xx (:session/error  (rf/app-db-value f)))))))
 ```
 
-Run it with your project's JVM test runner (`clojure -M:test`). Both tests cover the full chain: request out, reply in, reply handler folds. Each runs in about a millisecond. Three pieces carry the recipe.
+Run it with your project's JVM test runner (`clojure -M:test`). Both tests cover the full chain: request out, reply in, reply handler folds the result. Each runs in about a millisecond. Three pieces carry the recipe, so let's take them one at a time.
 
 ### Supply the facts: `{:rf.cofx {...}}`
 
-`:rf/time-ms` is stamped onto every dispatch automatically, so the second test runs fine without mentioning it. But its value would be the live clock, and an assertion on `:session/attempted-at` would flake. The first test pins it. Facts supplied under `:rf.cofx` in the dispatch opts **win**. The runtime fills only what's missing and never overwrites. With the clock supplied there is no ambient time left to read. The test gives the same answer at 14:00 and at 23:59:59.
+`:rf/time-ms` is stamped onto every dispatch automatically, which is why the second test runs fine without ever mentioning it. But left alone its value would be the live clock, and an assertion on `:session/attempted-at` would flake. So the first test pins it. Facts supplied under `:rf.cofx` in the dispatch opts **win**: the runtime fills only what's missing and never overwrites. With the clock supplied there's no ambient time left to read, which means the test gives the same answer at 14:00 and at 23:59:59.
 
-Delivery is declared-only, the clock included. A handler receives exactly the facts its `:rf.cofx/requires` names, flat in the coeffects map, and nothing else. So the `requires` vector is the test's **fixture checklist**. Read it off `(rf/handler-meta :event :session/login)`. A declared fact the runtime cannot satisfy fails loudly with `:rf.error/missing-required-cofx`, never a silent `nil`. And note the handler form: needing the world is what graduates a handler from `reg-event-db` to `reg-event-fx`. A db handler takes no delivery.
+Delivery is declared-only — the clock included. A handler receives exactly the facts its `:rf.cofx/requires` names, flat in the coeffects map, and nothing else. So that `requires` vector is effectively the test's **fixture checklist**; you can read it off `(rf/handler-meta :event :session/login)`. This part trips people up, so it's worth saying plainly: a declared fact the runtime can't satisfy fails loudly with `:rf.error/missing-required-cofx`, never a silent `nil`. And note the handler form — needing the world is exactly what graduates a handler from `reg-event-db` to `reg-event-fx`. A db handler takes no delivery.
 
 ### Answer the HTTP: canned replies by method + URL
 
-`with-managed-request-stubs` (from `re-frame.http-test-support`) takes a route map of `[method url]` → reply. For the body's extent, it answers every `:rf.http/managed` description that matches. `{:reply {:ok value}}` synthesises the canonical success envelope. `{:reply {:failure {:kind ... :status ...}}}` synthesises the canonical failure. The synthesised reply is the same canonical envelope a live request produces, and it rides the same dispatch path. Your reply handler cannot tell the difference, which is exactly why the test proves something. The reply lands inside the same `dispatch-sync` drain, so the assertion on the next line sees it.
+`with-managed-request-stubs` (from `re-frame.http-test-support`) takes a route map of `[method url]` → reply. For the body's extent, it answers every `:rf.http/managed` description that matches. `{:reply {:ok value}}` synthesises the canonical success envelope; `{:reply {:failure {:kind ... :status ...}}}` synthesises the canonical failure. The point is that the synthesised reply is the same canonical envelope a live request produces, and it rides the same dispatch path — so your reply handler can't tell the difference, which is precisely why the test proves something real. The reply lands inside the same `dispatch-sync` drain, so the assertion on the next line sees it.
 
 > **Coming from MSW?** The route map is your request-handler table — minus the service worker, because the request is intercepted as data before anything touches a network stack.
 
 ### Redirect anything: `:fx-overrides`
 
-The stub table is sugar over the general seam. A per-dispatch `:fx-overrides` map redirects any effect id for that one dispatch. You can point it at a function, or at another registered effect:
+The stub table is sugar over a more general seam. A per-dispatch `:fx-overrides` map redirects any effect id for that one dispatch — you can point it at a function, or at another registered effect:
 
 ```clojure
 (deftest login-sends-the-right-request
@@ -126,13 +126,15 @@ The stub table is sugar over the general seam. A per-dispatch `:fx-overrides` ma
       (is (= "/api/users/login" (get-in @sent [:request :url]))))))
 ```
 
-This is redirect-not-mock in one frame. The override receives the **exact args map the handler built** — the same data production would interpret — so you assert on the request without performing it. Nothing about the handler was faked. Only the answerer changed. The same seam silences a logger, captures your own custom effects, or swaps in `:rf.http/managed-canned-success` by keyword.
+This is redirect-not-mock in a single frame. The override receives the **exact args map the handler built** — the same data production would interpret — so you assert on the request without ever performing it. Nothing about the handler was faked; only the answerer changed. The same seam silences a logger, captures your own custom effects, or swaps in `:rf.http/managed-canned-success` by keyword.
 
-> **Frames isolate `app-db`, not registrations.** Handlers live in a process-global registry. If your tests register handlers in their bodies (rather than requiring app namespaces), add `(use-fixtures :each (ts/make-reset-runtime-fixture))` — from `re-frame.test-support` — once per file so one test's registrations can't leak into the next.
+!!! note "Frames isolate `app-db`, not registrations"
+
+    Handlers live in a process-global registry. If your tests register handlers in their bodies (rather than requiring app namespaces), add `(use-fixtures :each (ts/make-reset-runtime-fixture))` — from `re-frame.test-support` — once per file, so one test's registrations can't leak into the next.
 
 ## Replay a bug as a regression test
 
-A user reports: "I favorited an article, then unfavorited it, and the count stuck." That description **is an event-ledger excerpt**. `app-db` is the fold of the events, so a fresh frame fed the same rows lands in the same state. If Xray was open when it happened, don't reconstruct from prose. Read the exact event rows (and each one's `:rf.cofx` facts) off the epoch ledger and paste them in. The test is the excerpt replayed with the right answer pinned:
+A user reports: "I favorited an article, then unfavorited it, and the count stuck." Here's the thing — that description **is an event-ledger excerpt**. Because `app-db` is the fold of the events, a fresh frame fed the same rows lands in the same state. If Xray was open when it happened, don't reconstruct from prose; read the exact event rows (and each one's `:rf.cofx` facts) off the epoch ledger and paste them in. The test is just that excerpt replayed with the right answer pinned:
 
 ```clojure
 (ns my-app.regression-test
@@ -151,11 +153,11 @@ A user reports: "I favorited an article, then unfavorited it, and the count stuc
                      [:articles "ten-tips" :favorites-count])))))
 ```
 
-`ts/dispatch-sequence` runs the rows through `dispatch-sync` in order and returns the final `app-db`. A row whose handler declares facts gets its own `dispatch-sync` with the recorded `:rf.cofx` supplied. Replay means recorded inputs, never fresh ones. Today the replay reproduces the bug (red). Fix the handler and the same replay proves the fix (green). The report has become a permanent regression guard that cannot flake, because every input is pinned.
+`ts/dispatch-sequence` runs the rows through `dispatch-sync` in order and returns the final `app-db`. A row whose handler declares facts gets its own `dispatch-sync` with the recorded `:rf.cofx` supplied — replay means recorded inputs, never fresh ones. Today the replay reproduces the bug (red); fix the handler and the same replay proves the fix (green). The report has become a permanent regression guard that can't flake, because every input is pinned.
 
 ## Opts bend the edges, never the middle
 
-The dispatch opts this page used are not a grab-bag. They are the complete set of legal bends, and they share a boundary:
+The dispatch opts this page used aren't a grab-bag. They're the complete set of legal bends, and they share a boundary:
 
 | Opt | Edge |
 |---|---|
@@ -163,7 +165,7 @@ The dispatch opts this page used are not a grab-bag. They are the complete set o
 | `:rf.cofx` | **inputs** — what the world said |
 | `:fx-overrides` | **outputs** — who answers the effects |
 
-What dispatch opts can never touch is the **middle**: the handler and its interceptor chain. The middle is the program under test. Because the middle can't be bent, a green test means the production step function — fed those inputs, asked for those outputs — really behaves that way. It's also why replay is trustworthy. Same program plus recorded inputs is the framework's own definition of state, and your cascade test is just that definition, run on demand.
+What dispatch opts can never touch is the **middle**: the handler and its interceptor chain. The middle is the program under test. And because the middle can't be bent, a green test means the production step function — fed those inputs, asked for those outputs — really behaves that way. That's also why replay is trustworthy: same program plus recorded inputs is the framework's own definition of state, and your cascade test is simply that definition, run on demand.
 
 ---
 
@@ -174,5 +176,3 @@ What dispatch opts can never touch is the **middle**: the handler and its interc
 - answer `:rf.http/managed` with canned replies routed by method + URL — and redirect any effect with `:fx-overrides`
 - turn a bug report into a deterministic replay that becomes its own regression test
 - say what dispatch opts may bend (frame, facts, effects — the edges) and what they never touch (the handler — the middle)
-
-**Next:** capture ledger excerpts from a live session in [Debug with Xray](debug-with-xray.md), or read the model behind both seams in [Effects and coeffects: the world at the boundary](../concepts/effects-and-coeffects.md).

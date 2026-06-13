@@ -1,18 +1,18 @@
 # One graph: derivations and their algebra views
 
-You're reading a re-frame2 app you didn't write. A tool has just drawn its dependency graph — subscriptions, a flow, a resource cache, a machine — as one picture. You want to know what you're looking at. This page is the model that makes the picture legible. It fits in one sentence:
+You're reading a re-frame2 app you didn't write. A tool has just drawn its dependency graph — subscriptions, a flow, a resource cache, a machine — as one picture, and you want to know what you're looking at. This page is the model that makes the picture legible. It fits in one sentence:
 
 > **A subscription, a flow, a resource, and a machine are the same thing seen four ways** — one node in one dependency graph rooted at your state, distinguished only by *where its value is kept* and *when it's recomputed*.
 
-You don't need this page to *write* an app. [Where should this value live?](where-state-lives.md) routes any value to the right home with four questions and no theory. This page is for *reading* apps: yours six months later, or somebody else's tomorrow, when the graph a tool draws has to be legible without opening every source file.
+You don't need this page to *write* an app. [Where should this value live?](where-state-lives.md) routes any value to the right home with four questions and no theory. This page is for *reading* apps — yours six months later, or somebody else's tomorrow, when the graph a tool draws has to make sense without opening every source file.
 
-The anchor is a spreadsheet. Every cell is either an entered value or a formula over other cells. The engine recalculates exactly the cells downstream of an edit. The JavaScript world rediscovered this as the **signals graph** — Solid's `createMemo`, Vue's `computed`, Preact signals. Derived values declare their inputs and recompute when those inputs move. re-frame2's [subscriptions](concepts/subscriptions.md) are exactly that.
+The anchor here is a spreadsheet. Every cell is either an entered value or a formula over other cells, and the engine recalculates exactly the cells downstream of an edit. The JavaScript world rediscovered this as the **signals graph** — Solid's `createMemo`, Vue's `computed`, Preact signals — where a derived value declares its inputs and recomputes when those inputs move. re-frame2's [subscriptions](concepts/subscriptions.md) (the read side of your app, pure derivations over your state) are exactly that.
 
-This page adds one bigger claim, and it's the deliberate divergence from the signals world: **flows, resources, route state, and machines are nodes in the same graph.** A flow is a cell that writes its result back into the sheet. A resource is a cell whose authoritative value lives on a server — locally you hold a copy that can go stale. A machine is a cell with memory: its next value depends on its current one. The signals ecosystem never wrote that unification down as one model. re-frame2 does. It's called the **derivation/process algebra**, and the normative contract is [`spec/Derivations.md`](../../spec/Derivations.md). This page is the tour.
+This page adds one bigger claim, and it's the deliberate divergence from the signals world: **flows, resources, route state, and machines are nodes in the same graph.** A flow is a cell that writes its result back into the sheet. A resource is a cell whose authoritative value lives on a server — locally you hold a copy that can go stale. A machine is a cell with memory, where its next value depends on its current one. The signals ecosystem never wrote that unification down as one model; re-frame2 does. It's called the **derivation/process algebra**, and its normative contract is [`spec/Derivations.md`](../../spec/Derivations.md). This page is the tour.
 
 ## The five questions every node answers
 
-A **derivation** computes a fact from declared inputs with a pure function. A **process** is a derivation that also has state, a lifecycle, and commands over time — it can react to events, async replies, route changes, and timers. Every declared fact in re-frame2 — every subscription, flow, resource read, route fact, and machine selector — is one or the other. Each answers the same five questions:
+A **derivation** computes a fact from declared inputs with a pure function. A **process** is a derivation that also has state, a lifecycle, and commands over time — it can react to events (the data messages your app dispatches when something happens), async replies, route changes, and timers. Every declared fact in re-frame2 — subscription, flow, resource read, route fact, machine selector — is one or the other, and each answers the same five questions:
 
 | Question | Field | Possible answers |
 |---|---|---|
@@ -24,11 +24,13 @@ A **derivation** computes a fact from declared inputs with a pure function. A **
 
 That's the whole vocabulary. The five source forms you actually write — `reg-sub`, `reg-flow`, `reg-resource`, `reg-route`, `reg-machine` — each **lower** to this one shape, called the node's **algebra view**.
 
-> **You never write the algebra view.** There is no `reg-fact` and no `reg-derivation`. The view is *derived* from the registration you already wrote. That's the point: a tool can answer "where does this value come from, when does it run, where does it live, who owns it?" without reading your function bodies. The source forms stay the things humans write.
+!!! note "You never write the algebra view"
+
+    There is no `reg-fact` and no `reg-derivation`. The view is *derived* from the registration you already wrote, and that's the point: a tool can answer "where does this value come from, when does it run, where does it live, who owns it?" without reading your function bodies. The source forms stay the things humans write.
 
 ## The keystone: one function, two policies
 
-Here is the example that makes the idea click. A cart total, expressed twice, with the identical formula:
+Here is the example that makes the idea click — a cart total, expressed twice, with the identical formula:
 
 ```clojure
 ;; Source form A — a subscription.
@@ -56,7 +58,7 @@ Here is the example that makes the idea click. A cart total, expressed twice, wi
 | `:lifecycle` | `:subscription-cache-entry` | `:frame` |
 | `:derive` | `#'app.cart/sum-cart` | `#'app.cart/sum-cart` |
 
-The difference between a subscription and a flow is **not the function; it is policy over the same dependency graph.** That is the entire reason the algebra exists. Extend it across the homes and you have the whole page. A subscription stores nothing and recomputes on demand. A [flow](concepts/flows.md) stores into app-db and recomputes after each event, in the same commit as the event that moved its inputs. A resource stores a runtime-db cache entry and recomputes on cause and staleness. A machine stores a snapshot and recomputes on transition. Same graph, different storage-and-evaluation policy per node.
+The difference between a subscription and a flow is **not the function; it is policy over the same dependency graph.** That's the entire reason the algebra exists, and extending it across the homes gives you the whole page. A subscription stores nothing and recomputes on demand. A [flow](concepts/flows.md) stores into app-db (your app's single state map) and recomputes after each event, in the same commit as the event that moved its inputs. A resource stores a runtime-db cache entry and recomputes on cause and staleness. A machine stores a snapshot and recomputes on transition. Same graph, different storage-and-evaluation policy per node.
 
 ## One node, opened up
 
@@ -76,11 +78,11 @@ Here is the complete algebra view of that subscription — the shape every node 
  :derive      #'app.cart/sum-cart}             ;; opaque token, never serialized code
 ```
 
-Two fields earn a comment. `:kind` is one of exactly two closed superkinds — `:derivation` or `:process`. A tool that understands only those two can still classify every node. The finer labels you'll meet below (`:resource-process`, `:machine-selector`, …) ride on a separate, informative `:refinement` field. And `:derive` is an opaque token. The graph contract is about dependencies, storage, evaluation, and ownership. It never requires serializing your functions.
+Two fields earn a comment. `:kind` is one of exactly two closed superkinds — `:derivation` or `:process` — so a tool that understands only those two can still classify every node. The finer labels you'll meet below (`:resource-process`, `:machine-selector`, …) ride on a separate `:refinement` field. And `:derive` is an opaque token, because the graph contract is about dependencies, storage, evaluation, and ownership; it never requires serializing your functions.
 
 ### Parametric nodes and the don't-execute rule
 
-When a subscription's inputs come from an input function, the static graph can't know the edges before a concrete query vector exists. And it must not guess. Static inspection reports `:parametric` and names the producer. The live graph reports the realized edges per concrete cache entry:
+When a subscription's inputs come from an input function, the static graph can't know the edges before a concrete query vector exists — and it must not guess. Static inspection reports `:parametric` and names the producer, while the live graph reports the realized edges per concrete cache entry:
 
 ```clojure
 ;; STATIC — derived from registrations alone
@@ -97,11 +99,11 @@ When a subscription's inputs come from an input function, the static graph can't
  :lifecycle :subscription-cache-entry}
 ```
 
-This is the **don't-execute rule**: static inspection never runs your input, param, or scope functions. It reads declarations only. That's what makes a static graph safe to compute anywhere — tests, docs, an editor — with no side effects and no runtime assumptions. A `:parametric` edge set contributes no static edges; the realized ones appear only in the live graph, observed from the running app.
+This is the **don't-execute rule**: static inspection never runs your input, param, or scope functions. It reads declarations only, which is what makes a static graph safe to compute anywhere — tests, docs, an editor — with no side effects and no runtime assumptions. A `:parametric` edge set contributes no static edges; the realized ones appear only in the live graph, observed from the running app.
 
 ## Processes: nodes with state and a lifecycle
 
-A resource is the first **process**. One `reg-resource` declaration ([Server state: resources](concepts/server-state.md)) lowers to *more than one* node: a process node for the cache entry, plus its read selectors (`:rf.resource/state`, `:rf.resource/data`, `:rf.resource/loading?`, …), each an ordinary on-demand derivation over that entry. Reading a selector never starts resource work.
+A resource (a fact whose authoritative value lives on a server, with a local cached copy) is the first **process**. One `reg-resource` declaration ([Server state: resources](concepts/server-state.md)) lowers to *more than one* node: a process node for the cache entry, plus its read selectors (`:rf.resource/state`, `:rf.resource/data`, `:rf.resource/loading?`, …), each an ordinary on-demand derivation over that entry. Reading a selector never starts work.
 
 ```clojure
 ;; STATIC ALGEBRA VIEW of (rf/reg-resource :article/by-slug {…})
@@ -120,9 +122,13 @@ A resource is the first **process**. One `reg-resource` declaration ([Server sta
                :rf.resource/loading? :rf.resource/error :rf.resource/has-data?]}
 ```
 
-The view makes a split explicit that folklore usually muddles. **`:storage` always names the local home** — here, the runtime-db cache entry. **`:authority` names whose fact it really is** — an external server. "Remote" is never a storage class. Locally you always hold a representation, and the graph says exactly where. (The non-serializable leftovers — an in-flight request handle, a timer — are `:host-transient`: outside durable frame state, torn down at their lifecycle boundary.)
+The view makes a split explicit that folklore usually muddles. **`:storage` always names the local home** — here, the runtime-db cache entry. **`:authority` names whose fact it really is** — an external server. This trips people up: "remote" is never a storage class. Locally you always hold a representation, and the graph says exactly where.
 
-A machine is the algebra's canonical process — the surface that motivates the `:process` superkind at all. Its snapshot is durable runtime-db state, written only by its own transitions. Its `:inputs` are the event ids its transition table listens for. Its `:evaluation` is `:on-transition` (plus `:scheduled` if it declares an `:after` delay). And its *selectors* — how views actually consume it — are ordinary subscriptions:
+!!! note "Where the non-serializable leftovers go"
+
+    An in-flight request handle or a timer can't be serialized into durable state, so they're classed `:host-transient`: outside durable frame state, torn down at their lifecycle boundary.
+
+A machine (a stateful node whose next value depends on its current one) is the algebra's canonical process — the surface that motivates the `:process` superkind at all. Its snapshot is durable runtime-db state, written only by its own transitions. Its `:inputs` are the event ids its transition table listens for, its `:evaluation` is `:on-transition` (plus `:scheduled` if it declares an `:after` delay), and its *selectors* — how views (your UI functions that render from subscriptions) consume it — are ordinary subscriptions:
 
 ```clojure
 (rf/reg-sub :upload/progress
@@ -130,7 +136,7 @@ A machine is the algebra's canonical process — the surface that motivates the 
   (fn [snapshot _] (get-in snapshot [:data :progress] 0)))
 ```
 
-That selector's algebra view is an `:ephemeral`, `:on-demand` derivation like any other. It carries the `:machine-selector` refinement and an edge back to the machine it reads. Machines do not become a second subscription system. The graph shows one machine process node feeding ordinary derivation nodes ([State machines](concepts/machines.md)).
+That selector's algebra view is an `:ephemeral`, `:on-demand` derivation like any other. It carries the `:machine-selector` refinement and an edge back to the machine it reads, so machines never become a second subscription system. The graph shows one machine process node feeding ordinary derivation nodes ([State machines](concepts/machines.md)).
 
 A route lowers the same way. Every route materializes the *same* route fact — `:rf/route`, the one consumer-facing name for the route slice in runtime-db — with the per-route id recorded in `:source-form` and evaluation `:on-route`. A route's `:resources` declaration becomes a route-owned **activation edge** into the resource it ensures ([Routing: the URL is a sub](concepts/routing.md)). The edge's concrete target stays `:parametric` in the static graph — the don't-execute rule again — and the concrete scoped key appears only live.
 
@@ -158,15 +164,17 @@ A tool stitches the per-family views into one value — a map of `:nodes` and a 
 
 Read it with three rules.
 
-First, **a node's key is its canonical id, not its output address** — `[:sub <query>]`, `[:resource <scoped-key>]`, `:rf/route` for the live route slice. The runtime path a node writes to is recorded *inside* the node as `:output`. The key is how you look it up.
+First, **a node's key is its canonical id, not its output address** — `[:sub <query>]`, `[:resource <scoped-key>]`, `:rf/route` for the live route slice. The runtime path a node writes to is recorded *inside* the node as `:output`, so the key is purely how you look it up.
 
-Second, **redaction preserves structure**. Graph payloads carry source coordinates and value *summaries*, never raw sensitive values. A redacted param is still an edge, so connectivity survives even when content is hidden.
+Second, **redaction preserves structure**. Graph payloads carry source coordinates and value *summaries*, never raw sensitive values, so a redacted param is still an edge and connectivity survives even when content is hidden.
 
 Third, **the whole-value law**: every derivation must be correct as a function that recomputes its entire output from its declared inputs. Memoization, equality pruning, and (someday) deltas are optimizations that must not change the observed value. That law lets conformance tests verify a node by recomputing it, and lets a tool trust declared edges and classifications without executing your app code. What you trust in a graph is the *structure* — who reads what, where it lives, when it runs — never a promise that any node can be re-executed on demand.
 
 To see one live, open Xray on a running app. The panel that draws the dependency graph renders exactly this assembled view — one node per algebra view, one arrow per edge record — even though the mechanisms underneath are a subscription cache, a flow, a resource cache, a route slice, and a machine snapshot. [Debug with Xray](how-to/debug-with-xray.md) shows the workflow.
 
-One pre-alpha note. There is no public graph-accessor function yet. The assembled shape is consumed internally — by Xray and the conformance fixtures — and a public name ships only once the shape survives real use. What you can rely on today is the model: the classifications on this page are normative, and they are what the tools render.
+!!! note "No public graph-accessor yet (pre-alpha)"
+
+    The assembled shape is consumed internally — by Xray and the conformance fixtures — and a public name ships only once the shape survives real use. What you can rely on today is the model: the classifications on this page are normative, and they are what the tools render.
 
 ## The rule worth carrying
 
@@ -184,5 +192,3 @@ When you want the full normative contract — the node schema, every classificat
 - explain why a subscription and a flow with the same formula are one derivation under two policies
 - say why "remote" is an `:authority`, never a `:storage` class — and where a resource's value actually lives
 - state what a tool may trust about a graph (declared structure, under the don't-execute rule) and what it may not (re-executing nodes)
-
-**Next:** [Debug with Xray](how-to/debug-with-xray.md) puts this graph on screen for a live app · [Observability: one wire, every tool](concepts/observability.md) explains the instrumentation it rides on.

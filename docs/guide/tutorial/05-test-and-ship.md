@@ -2,7 +2,7 @@
 
 Your Conduit slice works. You watched it in the browser through [Parts 1–4](index.md): the feed loads, login guards the editor, favoriting [invalidates and refetches](04-mutations-and-invalidation.md). Now prove it. You'll write tests that run on the JVM in milliseconds, with no browser anywhere. Then you'll cut the production bundle and see exactly what ships.
 
-> **Coming from Vitest, React Testing Library, and MSW?** That stack exists because in most React apps the logic is fused to rendering and the network. To test a decision you must render a component, so you stand up JSDOM. To test a fetch you interpose a mock service worker. To see the result you flush with `act()`. None of that has a counterpart here — not because re-frame2 ships better mocks, but because there is nothing to mock. Your handlers are pure functions. What they need from the world arrives as **values** (coeffects). What they do to the world leaves as **data** (effects). So a test supplies values and asserts on values.
+> **Coming from Vitest, React Testing Library, and MSW?** That stack exists because in most React apps the logic is fused to rendering and the network. To test a decision you must render a component, so you stand up JSDOM. To test a fetch you interpose a mock service worker. To see the result you flush with `act()`. None of that has a counterpart here — not because re-frame2 ships better mocks, but because there is nothing to mock. Your handlers — the functions that decide what happens when an event fires — are pure. What they need from the world arrives as **values** (coeffects, the facts a handler reads in). What they do to the world leaves as **data** (effects, the changes a handler asks for). So a test supplies values and asserts on values.
 
 Here's the one sentence to carry out of this page:
 
@@ -12,7 +12,7 @@ You never patch `js/Date`. You never intercept `fetch`. You never replace a modu
 
 ## 1. Set up the JVM test runner
 
-re-frame2's core is `.cljc`. The same artefact your browser build uses also loads on the JVM, where tests run in milliseconds with no DOM. Your registration namespaces from Parts 1–4 (events, subs, the auth machine, resources, mutations) contain no browser code, so they're portable too. If you created them as `.cljs`, rename them to `.cljc`. Views stay in `.cljs` — they require React, and nothing on this page needs them.
+re-frame2's core is `.cljc`, which means the same artefact your browser build uses also loads on the JVM — where tests run in milliseconds with no DOM. Your registration namespaces from Parts 1–4 (events, subs, the auth machine, resources, mutations) contain no browser code, so they're portable too. If you created them as `.cljs`, rename them to `.cljc`. Views — the components that render app-db, your app's single state map, into UI — stay in `.cljs`, because they require React, and nothing on this page needs them.
 
 Add a `:test` alias to your `deps.edn`. Your re-frame2 deps are already there from [the setup](index.md); the only addition is a runner:
 
@@ -44,11 +44,13 @@ Then create the test namespace. One fixture resets the whole runtime — registr
      :ambient-frame nil}))   ;; nil: our tests create their own frames
 ```
 
-Keep `re-frame.http-test-support` out of production and SSR code — never require it there. That's what guarantees the canned stubs can't ship to users.
+!!! warning "Keep the test stubs out of production"
+
+    Keep `re-frame.http-test-support` out of production and SSR code — never require it there. That's what guarantees the canned stubs can't ship to users.
 
 ## 2. Test a handler: it's a function, so call it
 
-Start with the smallest possible test. A `reg-event-db` handler is `(db, event) → db`. Pull it out of the registry with `handler-meta` and call it:
+Start with the smallest possible test. A `reg-event-db` handler is `(db, event) → db` — give it the current state and the event (a vector naming what happened), and it returns the next state. Pull it out of the registry with `handler-meta` and call it:
 
 ```clojure
 (deftest edit-field-updates-the-draft
@@ -60,7 +62,7 @@ Start with the smallest possible test. A `reg-event-db` handler is `(db, event) 
 
 No frame, no dispatch, no runtime. A map went in. You assert on the map that came out.
 
-Now the interesting case: a handler that needs something from the world. Recall the boot handler from [Part 3](03-auth-and-forms.md). The saved JWT is a fact from outside the event, so it's registered as a **provided recordable coeffect**. The boot site reads localStorage once and stamps the value onto the dispatch. The handler **declares** it:
+Now the interesting case: a handler that needs something from the world. Recall the boot handler from [Part 3](03-auth-and-forms.md). The saved JWT is a fact from outside the event, so it's registered as a **provided recordable coeffect** — a coeffect being one of those facts-from-the-world a handler reads in. The boot site reads localStorage once and stamps the value onto the dispatch. The handler **declares** it:
 
 ```clojure
 ;; src/conduit/auth.cljc — from Part 3 (abridged)
@@ -77,7 +79,7 @@ Now the interesting case: a handler that needs something from the world. Recall 
      :fx [[:dispatch [:auth/flow [:auth/restore token]]]]}))
 ```
 
-A `reg-event-fx` handler is also just a function — from a **coeffects map** to an effects map. Delivery is flat and declared-only, so you know exactly what the input map contains: `:db`, `:event`, plus precisely the facts in `:rf.cofx/requires`. So the fixture is a literal:
+A `reg-event-fx` handler is also just a function — from a **coeffects map** (the facts coming in) to an effects map (the changes going out, where an effect is a piece of data describing something the runtime should do). Delivery is flat and declared-only, so you know exactly what the input map contains: `:db`, `:event`, plus precisely the facts in `:rf.cofx/requires`. So the fixture is a literal:
 
 ```clojure
 (deftest initialise-seeds-the-session-and-kicks-restore
@@ -90,7 +92,7 @@ A `reg-event-fx` handler is also just a function — from a **coeffects map** to
            (:fx result)))))
 ```
 
-Look at the second assertion. The handler *did not* dispatch anything. It returned a description of what should happen, and you asserted on the description. The HTTP request behind login tests the same way: the handler returns data naming the request. No network is mocked because no network was involved.
+Look at the second assertion. The handler *did not* dispatch anything — dispatch being the act of sending an event into the runtime. It returned a description of what should happen, and you asserted on the description. The HTTP request behind login tests the same way: the handler returns data naming the request. No network is mocked because no network was involved.
 
 The declaration also serves as the **fixture checklist**. Writing a test for an unfamiliar handler? Ask the registry what it must be fed:
 
@@ -101,13 +103,15 @@ The declaration also serves as the **fixture checklist**. Writing a test for an 
 
 Whatever appears there is what your literal map (or your dispatch, below) supplies. Nothing else is delivered, so nothing else can secretly matter.
 
-> **Freezing the clock.** Time is a declared fact like any other. There is no implicit clock. A handler that stamps a timestamp declares `:rf.cofx/requires [:rf/time-ms]` and reads it flat. A test supplies `{:rf/time-ms 1781078400123}` in the literal map, and the answer is identical at 14:00 and at 23:59:59. There's no `js/Date` to monkey-patch because the handler never reads one. (And a `reg-event-db` handler can't declare requires at all — needing the world is exactly what graduates a handler to the fx form.)
+??? note "Freezing the clock"
+
+    Time is a declared fact like any other. There is no implicit clock. A handler that stamps a timestamp declares `:rf.cofx/requires [:rf/time-ms]` and reads it flat. A test supplies `{:rf/time-ms 1781078400123}` in the literal map, and the answer is identical at 14:00 and at 23:59:59. There's no `js/Date` to monkey-patch because the handler never reads one. (And a `reg-event-db` handler can't declare requires at all — needing the world is exactly what graduates a handler to the fx form.)
 
 > **Coming from re-frame v1?** The interceptor-based coeffect injection is gone: declaration moved into registration metadata, and tests supply values on the dispatch instead of stubbing handlers. The full delta is in [From re-frame v1](../25-from-re-frame-v1.md).
 
 ## 3. Test the cascade: one dispatch, end to end
 
-Pure handler tests catch most bugs. But Part 3's login is a *flow*: an event hits the machine, the machine fires a managed HTTP request, the reply re-enters as another event, the session lands in `app-db`. Test that as one piece. Drive a real dispatch through a real frame, and bend only the edges:
+Pure handler tests catch most bugs. But Part 3's login is a *flow*: an event hits the machine, the machine fires a managed HTTP request, the reply re-enters as another event, the session lands in `app-db` — your app's single state map. Test that as one piece. Drive a real dispatch through a real frame — an isolated, self-contained runtime instance — and bend only the edges:
 
 ```clojure
 (deftest cold-boot-with-saved-token-lands-authed
@@ -144,9 +148,11 @@ The unhappy path — the one your users will actually hit — is the same shape 
     (is (some?    (rf/compute-sub [:auth/error] (rf/frame-state-value f))))))
 ```
 
-`compute-sub` runs a subscription's derivation as a plain function against a state value. No reactive machinery, so it works headlessly on the JVM, including the machine-backed subs. These two tests are the pattern for every flow in your slice. The complete test surface — every helper, fixture shape, and the exact JVM/CLJS boundary — is catalogued in [Spec 008 — Testing](../../../spec/008-Testing.md).
+`compute-sub` runs a subscription's derivation — a subscription being a read-only, derived view of app-db — as a plain function against a state value. No reactive machinery, so it works headlessly on the JVM, including the machine-backed subs. These two tests are the pattern for every flow in your slice. The complete test surface — every helper, fixture shape, and the exact JVM/CLJS boundary — is catalogued in [Spec 008 — Testing](../../../spec/008-Testing.md).
 
-One JVM footnote. Client-only effects — like Part 3's localStorage persist fx, gated `:platforms #{:client}` — simply skip on the server platform with a trace note. That's by design. Your test asserts the durable outcome, not the host write.
+!!! note "Client-only effects skip on the server"
+
+    Client-only effects — like Part 3's localStorage persist fx, gated `:platforms #{:client}` — simply skip on the server platform with a trace note. That's by design. Your test asserts the durable outcome, not the host write.
 
 Run the suite:
 
@@ -166,7 +172,7 @@ Now cut the production bundle — same build id you've been running with `watch`
 npx shadow-cljs release app
 ```
 
-`release` compiles with `:advanced` optimizations and `goog.DEBUG` set to `false`. That flag is the hinge of re-frame2's production story. Everything diagnostic is gated behind it. The Closure compiler constant-folds the gate and dead-code-eliminates what's behind it. **What's gone from the file you just built:**
+`release` compiles with `:advanced` optimizations and `goog.DEBUG` set to `false`. That flag is the hinge of re-frame2's production story. Everything diagnostic is gated behind it, so the Closure compiler constant-folds the gate and dead-code-eliminates what's behind it. **What's gone from the file you just built:**
 
 - **Every schema check.** The validations that screamed at you in dev compile out entirely. Zero hot-path cost — which is why you could afford to write them everywhere.
 - **The entire trace channel.** The epoch ledger you scrolled in Xray, the per-frame trace ring, every emit site. Not switched off — *absent*. Open Xray against the release build and there's nothing for it to attach to. That silence is your verification that the elision is real.
@@ -191,7 +197,9 @@ That second survivor needs one piece of wiring before you deploy. Declare a sink
 
 The runtime projects each record through the frame's classification before your sink sees it, so the sink does no redaction of its own. The full recipe — choosing a backend, what the records contain — is [Report errors in production](../how-to/report-errors-in-production.md), and the dev/prod build knobs are [Configure dev and production builds](../how-to/configure-dev-and-prod.md).
 
-One honest closing note. re-frame2 is pre-alpha. The shape of what you ship is stable in the ways this page describes, but there is no back-compat covenant yet. Expect to track changes between releases.
+!!! note "Pre-alpha: no back-compat covenant yet"
+
+    re-frame2 is pre-alpha. The shape of what you ship is stable in the ways this page describes, but there is no back-compat covenant yet. Expect to track changes between releases.
 
 ---
 
@@ -204,8 +212,3 @@ That's the tutorial. You built a real app — pages, server data, auth, writes �
 - run the suite on the JVM in milliseconds, with per-test frame isolation and no DOM emulation
 - cut a release bundle and state precisely what elided (schemas, the trace channel) and what survived (the causal channel, the always-on error axis)
 - wire a production error sink that receives already-projected records
-
-**Next:**
-
-- [How-to guides](../how-to/index.md) — task-shaped recipes, including deeper handler-testing and cascade-testing patterns
-- [The model: six dominoes, one loop](../concepts/index.md) — the concepts behind everything you just built
