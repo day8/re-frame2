@@ -30,8 +30,13 @@ cycle re-runs without double-registration:
    when the `day8/re-frame2-epoch` artefact is absent).
 4. Installs the dev-only browser API on `window.day8.re_frame2_xray.*`
    (`open!`, `toggle!`, `popout!`, `status`, …).
-5. Attaches the global keydown listener — `Ctrl+Shift+C` (toggle
-   shell).
+5. Attaches the global keydown listener. The shipped chords (the
+   `keybinding.cljs` predicates are the source of truth; UX rationale
+   in `spec/007-UX-IA.md` §Global shortcuts): `Ctrl+Shift+C` (toggle
+   shell), `Ctrl/Cmd+K` (command palette), `Ctrl/Cmd+Shift+M`
+   (Dynamic ↔ Static mode toggle), and `Esc` (dismiss the
+   open-in-editor hint). Inside the shell the LIVE-feed spine binds
+   bare `Space` / `L` / `j` / `k` / `G`.
 6. Auto-opens the shell **true-inline** into the host app's
    normal-flow layout host (`[data-rf-xray-host]` by default) once
    the substrate adapter is ready — per rf2-eehov, this is the

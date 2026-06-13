@@ -204,12 +204,19 @@ missing-host diagnostic when no host exists.
 | Suppress auto-open on tool-only pages | `(xray-config/configure! {:rf.xray/auto-open? false})` before `rf/init!` |
 | Hide/show | `Ctrl+Shift+C` |
 | Close | `Esc` or `Ctrl+Shift+C` again |
+| Open command palette | `Ctrl+K` (`Cmd+K` on macOS) |
+| Toggle Dynamic ↔ Static mode | `Ctrl+Shift+M` (`Cmd+Shift+M` on macOS) |
 | Pop out to second window | Programmatic `(xray/popout!)`; same-runtime/in-process where same-origin `window.opener` is available |
 
-One keybinding ships today (`Ctrl+Shift+C`). The pop-out and
-command-palette keys some early drafts named are not wired pre-alpha —
-use `(xray/popout!)` for pop-out, and reach the palette through the
-top-strip control once it lands.
+The global keydown listener ships several chords (the
+`keybinding.cljs` predicates are the source of truth; the UX rationale
+lives in [`spec/007-UX-IA.md`](spec/007-UX-IA.md) §Global shortcuts):
+`Ctrl+Shift+C` (toggle shell), `Ctrl/Cmd+K` (command palette),
+`Ctrl/Cmd+Shift+M` (Dynamic ↔ Static mode), and `Esc` (dismiss the
+open-in-editor hint). Inside the shell, the LIVE-feed spine binds bare
+`Space` / `L` / `j` / `k` / `G`. Pop-out is launched from the chrome's
+`⛶` button or programmatically via `(xray/popout!)` — it is not bound
+to a global chord.
 
 ### Disable
 

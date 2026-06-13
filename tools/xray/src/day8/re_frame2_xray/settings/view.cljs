@@ -212,12 +212,12 @@
   follow-on.
 
   Buffer (rf2-ttnst; rf2-pu9sb consolidation) surfaces the
-  epoch-history slider + cascades-retained + inspector-collapse-
-  threshold knobs plus a 'Clear buffer now' button with a
-  confirmation modal (destructive action). The epoch-history slider
-  lived on General pre-pu9sb; the slot stays `:general :epoch-
-  history` and only the visual home moved into the spec-canonical
-  Buffer category."
+  cascades-retained + inspector-collapse-threshold knobs plus a
+  'Clear buffer now' button with a confirmation modal (destructive
+  action). The epoch-history slider is NOT here: rf2-pu9sb moved it
+  into Buffer, but Mike relocated it back to General on 2026-05-27
+  (it renders in `general-section`). The slot stays
+  `:general :epoch-history` throughout — only the visual home moved."
   [{:id :general     :label "General"     :mnemonic "g"}
    {:id :keybindings :label "Keybindings" :mnemonic "k"}
    {:id :buffer      :label "Buffer"      :mnemonic "b"}
@@ -563,16 +563,17 @@
      ;; uses the override URI without a reload.
      (editor-override-section dispatch editor-override host-editor)
 
-     ;; ── Epoch history slider (rf2-3zyyx; relocated rf2-pu9sb) ──
+     ;; ── (epoch-history slider housekeeping, rf2-3zyyx) ──
      ;;
-     ;; Categorically a buffer-capacity knob — moved to the Buffer
-     ;; tab (`buffer-section`). The settings slot stays
-     ;; `:general :epoch-history` (the slot is what `apply-epoch-
-     ;; history!` reads + restores), so no state migration; only the
-     ;; visual home changed. The dead `:buffer :retained-epochs`
-     ;; numeric input (no substrate consumer) was also removed in the
-     ;; same cleanup — pre-pu9sb the popup carried two fields for the
-     ;; same conceptual knob, one wired and one not.
+     ;; The epoch-history slider RENDERS HERE in General (above), not in
+     ;; Buffer: rf2-pu9sb moved it to Buffer as a buffer-capacity knob,
+     ;; then Mike relocated it back to General on 2026-05-27. The slot
+     ;; stays `:general :epoch-history` (what `apply-epoch-history!`
+     ;; reads + restores) throughout — only the visual home moved. The
+     ;; dead `:buffer :retained-epochs` numeric input (no substrate
+     ;; consumer) was removed in the rf2-pu9sb cleanup — pre-pu9sb the
+     ;; popup carried two fields for the same conceptual knob, one wired
+     ;; and one not.
 
      ;; ── Power user divider + show-tool-frames toggle (rf2-ttnst) ─
      ;;

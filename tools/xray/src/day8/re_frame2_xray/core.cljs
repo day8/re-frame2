@@ -142,9 +142,9 @@
   discovery policy) selects one; Xray does NOT default the target to
   `:rf/default` (Spec 002 §Frame target resolution — the carried invariant).
 
-  Wires the four foundation side-effects (registry, trace-cb, epoch-cb,
-  keybinding listener), then threads each supplied opt through to its
-  backing surface:
+  Wires the five foundation side-effects (registry, trace-cb, epoch-cb,
+  browser-API exports, keybinding listener), then threads each supplied
+  opt through to its backing surface:
 
   - `:target-frame` — dispatches `:rf.xray/set-target-frame` so the
     scrubber + every dependent panel re-fire on the standard reactive
@@ -175,6 +175,19 @@
    (registry/register-xray-handlers!)
    (install/register-trace-collector!)
    (install/register-epoch-collector!)
+   ;; rf2-xxo3zz — install the browser-API exports on
+   ;; `window.day8.re_frame2_xray.*` (same call the preload's boot
+   ;; block makes). The palette pop-out fx + the Settings panel-position
+   ;; effect late-bind their mount calls through these exports to break
+   ;; the `mount → shell → palette/settings → mount` require cycle (see
+   ;; palette/events §mount-popout! + settings/effects §late-bind). Until
+   ;; this call landed, manual `init!` registered every handler but left
+   ;; the exports uninstalled, so those late-bound actions (palette
+   ;; Ctrl+Enter pop-out, Settings panel-position → fullscreen / back-to-
+   ;; inline, fullscreen, right-rail) silently no-op'd under the manual
+   ;; install path while the preload path worked. Idempotent: re-exports
+   ;; the same fn values.
+   (install/install-browser-api-exports!)
    (keybinding/attach!)
    ;; EP-0002 (rf2-bd4div) — select the explicit inspected TARGET frame in
    ;; Xray's OWN (`:rf/xray`) frame. Absent → leave unselected (the picker

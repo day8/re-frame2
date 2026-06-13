@@ -190,6 +190,38 @@
     (is (not (mount/mounted?))
         "init! did not mount the shell — host must call open! explicitly")))
 
+(deftest init!-installs-browser-api-exports-for-late-bound-actions
+  (testing "rf2-xxo3zz — manual core/init! installs the browser-API exports on
+            window.day8.re_frame2_xray.*, the SAME exports the preload boot
+            block installs. The palette pop-out fx (palette/events §mount-popout!
+            → popout_BANG_) and the Settings panel-position effect
+            (settings/effects/apply-panel-position! → open_BANG_ / open_overlay_BANG_,
+            visible-shell? → status) late-bind their mount calls through these
+            exports to break the mount→shell→palette/settings→mount require cycle.
+            Before this fix init! registered every handler but left the exports
+            uninstalled, so those late-bound actions silently no-op'd under the
+            manual install path while the preload path worked."
+    (with-stub-dom*
+      (fn [{:keys [window]}]
+        ;; Baseline: clear-world! ran in the fixture; the stub window is a
+        ;; bare object with no day8 namespace yet.
+        (is (nil? (aget window "day8"))
+            "no browser exports before init!")
+        (core/init!)
+        (let [day8 (aget window "day8")
+              xray (when day8 (aget day8 "re_frame2_xray"))]
+          (is (some? xray)
+              "init! installed window.day8.re_frame2_xray")
+          ;; The exact export names the late-bind call sites resolve:
+          (is (fn? (aget xray "popout_BANG_"))
+              "palette Ctrl+Enter pop-out (mount-popout! → popout_BANG_) resolves")
+          (is (fn? (aget xray "open_BANG_"))
+              "Settings panel-position :right-rail (apply-panel-position! → open_BANG_) resolves")
+          (is (fn? (aget xray "open_overlay_BANG_"))
+              "Settings panel-position :fullscreen (apply-panel-position! → open_overlay_BANG_) resolves")
+          (is (fn? (aget xray "status"))
+              "Settings visible-shell? probe (status export) resolves"))))))
+
 ;; ---- (2) configure! before init! wins deterministically ------------------
 
 (deftest configure!-before-init!-suppresses-keybinding

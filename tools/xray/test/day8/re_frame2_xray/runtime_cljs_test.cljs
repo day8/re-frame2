@@ -193,6 +193,69 @@
       (is (= :no-frame-resolved (:reason result))))))
 
 ;; ---------------------------------------------------------------------------
+;; (4a) rf2-xxo3zz — an explicit-but-UNREGISTERED frame id fails consistently
+;;      with `:no-such-frame` across every read / dispatch / mutation
+;;      accessor, instead of being returned verbatim from `resolve-frame`
+;;      (which let reads report `{:ok? true :value nil}` — indistinguishable
+;;      from a legitimate nil — and let mutations report success against a
+;;      frame that does not exist).
+;; ---------------------------------------------------------------------------
+
+(deftest explicit-bogus-frame-fails-no-such-frame
+  (testing "rf2-xxo3zz — every frame-scoped accessor refuses an explicit
+            frame id that is not in `rf/frame-ids` with a distinct
+            `:no-such-frame` reason; the implicit / sole-frame path is
+            unaffected (the registry still holds :rf/default)."
+    (rf/reg-event-db :test/seed-db (fn [_ _] {:seeded? true}))
+    (rf/dispatch-sync [:test/seed-db])
+    (let [bogus :app/does-not-exist
+          ;; The frame-scoped accessors that take an explicit `:frame`:
+          ;; reads + dispatch + mutations. A bogus id must fail closed on
+          ;; all of them with `:no-such-frame`, never `:ok? true`.
+          results {:get-app-db          (runtime/get-app-db {:frame bogus})
+                   :get-trace-buffer    (runtime/get-trace-buffer {:frame bogus})
+                   :get-epoch-history   (runtime/get-epoch-history {:frame bogus})
+                   :get-app-db-diff     (runtime/get-app-db-diff {:frame bogus :epoch-id (random-uuid)})
+                   :get-machine-state   (runtime/get-machine-state {:frame bogus :machine-id :m})
+                   :list-resource-instances (runtime/list-resource-instances {:frame bogus})
+                   :get-resource-state  (runtime/get-resource-state {:frame bogus :resource-id :r :scope :s :params {}})
+                   :get-resource-history (runtime/get-resource-history {:frame bogus})
+                   :list-resource-invalidations (runtime/list-resource-invalidations {:frame bogus})
+                   :dispatch!           (runtime/dispatch! [:noop] {:frame bogus})
+                   :restore-epoch!      (runtime/restore-epoch! {:frame bogus :epoch-id (random-uuid)})
+                   :replace-app-db!     (runtime/replace-app-db! {:frame bogus :value {}})}]
+      (doseq [[accessor result] results]
+        (is (false? (:ok? result))
+            (str accessor " refuses a bogus explicit frame (not :ok? true)"))
+        (is (= :no-such-frame (:reason result))
+            (str accessor " reports :no-such-frame for a bogus explicit frame"))
+        (is (= bogus (:frame result))
+            (str accessor " echoes the offending frame id back to the caller"))))))
+
+(deftest explicit-bogus-frame-precedence-over-arg-validation
+  (testing "rf2-xxo3zz — the frame guard fires BEFORE arg-shape validation
+            so a bogus frame + a missing required arg still reports
+            :no-such-frame (the frame is the more fundamental error; an
+            agent fixes the frame id first)."
+    ;; :rf/default is registered by the fixture; pass a bogus frame AND omit
+    ;; the required :machine-id / :epoch-id / :value.
+    (is (= :no-such-frame (:reason (runtime/get-machine-state {:frame :app/nope})))
+        "get-machine-state: bogus frame wins over missing :machine-id")
+    (is (= :no-such-frame (:reason (runtime/restore-epoch! {:frame :app/nope})))
+        "restore-epoch!: bogus frame wins over missing :epoch-id")
+    (is (= :no-such-frame (:reason (runtime/replace-app-db! {:frame :app/nope})))
+        "replace-app-db!: bogus frame wins over missing :value")))
+
+(deftest dispatch!-event-vector-validation-precedes-frame-guard
+  (testing "rf2-xxo3zz — dispatch! keeps its event-vector shape check ahead
+            of the frame guard (a non-vector event is the first thing the
+            caller must fix), so a bogus frame + non-vector event reports
+            :not-an-event-vector."
+    (is (= :not-an-event-vector
+           (:reason (runtime/dispatch! "not-a-vector" {:frame :app/nope})))
+        "non-vector event reported before the frame guard")))
+
+;; ---------------------------------------------------------------------------
 ;; (4b) get-machine-state reports the LIVE FSM position, not the spec.
 ;; ---------------------------------------------------------------------------
 ;;
