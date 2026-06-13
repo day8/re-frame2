@@ -31,6 +31,7 @@
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.preload]
             [day8.re-frame2-xray.registry :as registry]
+            [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cc]))
@@ -222,6 +223,46 @@
       (rf/dispatch-sync [:rf.xray/focus-trace-entry
                          {:dispatch-id 7 :frame :rf/default :trace-id 1}])
       (is (true? true)))))
+
+(deftest focus-trace-entry-lands-on-a-live-tab
+  ;; rf2-cduftx F1 — the row-jump used to `[:rf.xray/select-tab :event]`,
+  ;; but `:event` is a RETIRED tab id (the event-detail panel folded into
+  ;; Epoch). Selecting it landed the shell's `rf-xray-tab-unknown` stub
+  ;; instead of the cascade detail. This locks the row-jump's tab onto a
+  ;; LIVE Dynamic L4 tab — and never onto an unregistered id.
+  (testing "a row jump (with a dispatch-id) selects a LIVE Dynamic L4 tab"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-trace! cancel-cascade-buffer)
+      (rf/dispatch-sync [:rf.xray/focus-trace-entry
+                         {:dispatch-id 7 :frame :rf/default :trace-id 1}])
+      (let [selected   @(rf/subscribe [:rf.xray/selected-tab])
+            live-tabs  (panel-registry/tab-ids-for-mode :dynamic)]
+        (is (contains? live-tabs selected)
+            (str "row-jump selected " (pr-str selected)
+                 " which is NOT a live Dynamic L4 tab "
+                 (pr-str live-tabs) " — it would render the unknown-tab stub"))
+        (is (not= :event selected)
+            "the retired `:event` tab id must never be selected again")
+        ;; Lock the specific live replacement: Epoch is the cascade-
+        ;; pipeline master surface the `:rf.xray/select-dispatch-id` pin
+        ;; drives. If the row-jump target moves, this assertion is the
+        ;; deliberate update point.
+        (is (= :epoch selected)
+            "the row jump lands on the Epoch tab (the focused-cascade detail)")))))
+
+(deftest focus-trace-entry-without-dispatch-id-does-not-switch-tab
+  ;; The tab flip is gated on `dispatch-id` — a row with no addressable
+  ;; dispatch (e.g. an actor-destroy abort outside a drain) must NOT
+  ;; switch the tab at all (so it certainly can't land an unknown tab).
+  (testing "a no-dispatch-id row jump leaves the selected tab unchanged"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-trace! cancel-cascade-buffer)
+      (let [before @(rf/subscribe [:rf.xray/selected-tab])]
+        (rf/dispatch-sync [:rf.xray/focus-trace-entry {:trace-id 1}])
+        (is (= before @(rf/subscribe [:rf.xray/selected-tab]))
+            "no dispatch-id ⇒ the tab selection is untouched")))))
 
 ;; ---- (5) collapse / expand ---------------------------------------------
 

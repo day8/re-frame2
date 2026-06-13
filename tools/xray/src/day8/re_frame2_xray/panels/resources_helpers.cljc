@@ -702,13 +702,37 @@
 (defn routing-blocking-keys
   "Extract the live UNSETTLED-blocking scoped keys from the routing-runtime
   subtree. `[:resource-blocking <nav-token>]` is a map of per-nav-token sets
-  of scoped keys whose blocking ensure has not yet settled; this flattens
-  them to a single vector of scoped keys (the live SSR/route wait points the
-  graph flags on the current route — rf2-m5u3gt). Pure; nil/missing ⇒ `[]`."
-  [routing-slice]
-  (let [by-token (when (map? routing-slice)
-                   (get routing-slice routing-blocking-key))]
-    (into [] (mapcat seq) (vals (or by-token {})))))
+  of scoped keys whose blocking ensure has not yet settled.
+
+  TWO arities (rf2-cduftx F2):
+
+  - `[routing-slice nav-token]` — the SCOPED read: returns ONLY the scoped
+    keys still unsettled for `nav-token`. This is the form the route graph
+    must use for the CURRENT route's `:blocking-live`, per Spec 024
+    §Route/resource graph (\"the declared blocking resources whose scoped
+    keys are still in the PER-nav-token unsettled-blocking set\"). A nil
+    `nav-token` (no active route) ⇒ `[]` — a route with no live navigation
+    has no live wait point.
+
+  - `[routing-slice]` — the ALL-TOKEN flatten: every unsettled key across
+    every coexisting nav-token bucket. Retained for an all-routes / global
+    wait-point diagnostic; it must NOT be used to flag a single route's
+    `:blocking-live`, because an OLD token's bucket can still hold a key
+    that shares a resource-id with the current route, which would falsely
+    report the active route as blocked by a wait point belonging to a
+    superseded navigation (the rf2-cduftx F2 cross-token bleed).
+
+  Pure; nil/missing ⇒ `[]`."
+  ([routing-slice]
+   (let [by-token (when (map? routing-slice)
+                    (get routing-slice routing-blocking-key))]
+     (into [] (mapcat seq) (vals (or by-token {})))))
+  ([routing-slice nav-token]
+   (let [by-token (when (map? routing-slice)
+                    (get routing-slice routing-blocking-key))]
+     (if (some? nav-token)
+       (into [] (get by-token nav-token #{}))
+       []))))
 
 (defn- resource-liveness
   "Aggregate the LIVE state of one declared resource-id across the projected
@@ -807,6 +831,14 @@
        :work-rows      <projected work-ledger rows>
        :current        {:id <route-id> :nav-token <token>}   ; routing slice
        :blocking-keys  [<scoped-key> …]}  ; the live unsettled-blocking set
+                                          ;   SCOPED to the current route's
+                                          ;   nav-token (rf2-cduftx F2) — the
+                                          ;   caller passes
+                                          ;   `(routing-blocking-keys slice
+                                          ;     (:nav-token current))`, not the
+                                          ;   all-token flatten, so an older
+                                          ;   token's wait point cannot bleed
+                                          ;   onto the active route.
 
   Each resource node gains a `:live` freshness rollup; the active route's
   node is flagged `:current? true` with its `:nav-token`, and its

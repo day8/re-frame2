@@ -907,12 +907,21 @@
          :live-work     (reply/live-work ledger trace-buffer)
          :stale-races   (reply/races-by-work-id trace-buffer)
          :stale-tally   (reply/stale-tally-by-kind trace-buffer)
-         :route-graph   (h/project-route-graph
-                          routes-map
-                          {:instance-rows instance-rows
-                           :work-rows     work-rows
-                           :current       (h/routing-current routing-slice)
-                           :blocking-keys (h/routing-blocking-keys routing-slice)})
+         :route-graph   (let [current (h/routing-current routing-slice)]
+                          (h/project-route-graph
+                            routes-map
+                            {:instance-rows instance-rows
+                             :work-rows     work-rows
+                             :current       current
+                             ;; rf2-cduftx F2 — scope the live wait points to
+                             ;; the CURRENT route's nav-token bucket only.
+                             ;; Flattening all coexisting nav-token buckets
+                             ;; let an OLD token's unsettled key bleed onto
+                             ;; the active route's `:blocking-live`, falsely
+                             ;; reporting it as blocked (Spec 024 §Route/
+                             ;; resource graph: per-nav-token unsettled set).
+                             :blocking-keys (h/routing-blocking-keys
+                                              routing-slice (:nav-token current))}))
          :timeline      (h/lifecycle-timeline trace-buffer)
          :invalidations (h/invalidation-graph trace-buffer)
          ;; EP-0016 D3 (slice 8): the named-scope-resolver RESOLUTION timeline
