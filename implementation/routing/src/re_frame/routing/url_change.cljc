@@ -248,6 +248,13 @@
            ;; rf2-oosjmh: host-side counter snapshot threaded through so
            ;; the nav-token is minted purely + the bump rides an fx.
            :nav-counters nav-counters
+           ;; rf2-dbmj6x: the carried frame stamp (validated at the handler
+           ;; top, threaded into `url-change-fx`). `commit-navigation` stamps
+           ;; it on the nav-token-allocated + activated/deactivated lifecycle
+           ;; traces so the URL-driven `:rf.route/transitioned` /
+           ;; `:rf.route/handle-url-change` paths frame-attribute them too,
+           ;; consistent with the route-miss diagnostics already tagged above.
+           :frame        frame
            ;; EP-0016 D3 slice 3: route-entry app-db for `{:from-db …}` scope.
            :app-db       app-db})))))
 

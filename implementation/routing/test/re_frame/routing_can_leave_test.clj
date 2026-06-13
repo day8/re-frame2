@@ -5,6 +5,7 @@
   routing_test.clj per rf2-u8qe7y finding 3."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.late-bind :as late-bind]
             [re-frame.routing :as routing]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]))
@@ -435,3 +436,131 @@
             "trace carries the offending non-boolean value")
         (is (= :blocked-navigation (-> nb-traces first :recovery))
             "trace hoists :recovery :blocked-navigation (Spec 009 §error contract)")))))
+
+;; ============================================================================
+;; rf2-dbmj6x — can-leave / external-url diagnostics carry :frame
+;; ============================================================================
+;;
+;; The finding: `can_leave.cljc` had `frame` / `frame-id` in hand at every
+;; emit site but did not stamp it — `:rf.error/can-leave-non-boolean`,
+;; `:rf.warning/can-leave-subs-artefact-missing`,
+;; `:rf.route/navigation-blocked`, and `:rf.route/external-url-requested`
+;; all emitted untagged. Because `re-frame.epoch.capture/capture-event!`
+;; admits ONLY frame-tagged traces (capture.cljc §168-221) and the
+;; frame-level trace-disable gate (`re-frame.trace/emit!` §397-398) keys off
+;; `:tags :frame`, those frame-known diagnostics dropped from epoch / Xray
+;; AND leaked past a `:rf.trace/frame-no-emit?` tool frame. These tests use
+;; a NON-DEFAULT frame so a regression that drops the tag fails here.
+
+(deftest navigation-blocked-trace-carries-frame-rf2-dbmj6x
+  (testing "rf2-dbmj6x: :rf.route/navigation-blocked stamps :frame for a
+            non-default frame"
+    (rf/reg-frame :rf/default {})
+    (rf/reg-frame :route/owner {})
+    (rf/reg-route :editor/article
+                  {:path      "/editor/articles/:id"
+                   :params    [:map [:id :string]]
+                   :can-leave :editor/can-leave?})
+    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-event-db :editor/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-sub :editor/can-leave?
+                (fn [db _] (not (get-in db [:editor :dirty?]))))
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"] {:frame :route/owner})
+    (rf/dispatch-sync [:editor/dirty true] {:frame :route/owner})
+    (let [traces (atom [])]
+      (rf/register-listener! ::dbmj6x-blocked (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf/url-requested {:url "/cart"}] {:frame :route/owner})
+      (rf/unregister-listener! ::dbmj6x-blocked)
+      (is (some (fn [ev]
+                  (and (= :rf.route/navigation-blocked (:operation ev))
+                       (= :editor/can-leave? (-> ev :tags :rejecting-guard))
+                       (= :route/owner (-> ev :tags :frame))))
+                @traces)
+          ":rf.route/navigation-blocked carries :frame :route/owner (pre-fix: absent)"))))
+
+(deftest can-leave-non-boolean-trace-carries-frame-rf2-dbmj6x
+  (testing "rf2-dbmj6x: :rf.error/can-leave-non-boolean stamps :frame for a
+            non-default frame (the guard already resolves the sub against it)"
+    (rf/reg-frame :rf/default {})
+    (rf/reg-frame :route/owner {})
+    (rf/reg-route :editor/article
+                  {:path      "/editor/articles/:id"
+                   :params    [:map [:id :string]]
+                   :can-leave [:editor/leave?]})
+    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-event-db :editor/set-dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    ;; Polarity bug: return the dirty-flag directly → truthy non-boolean.
+    (rf/reg-sub :editor/leave? (fn [db _] (get-in db [:editor :dirty?])))
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"] {:frame :route/owner})
+    (rf/dispatch-sync [:editor/set-dirty 42] {:frame :route/owner})
+    (let [traces (atom [])]
+      (rf/register-listener! ::dbmj6x-nb (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf/url-requested {:url "/cart"}] {:frame :route/owner})
+      (rf/unregister-listener! ::dbmj6x-nb)
+      (is (some (fn [ev]
+                  (and (= :rf.error/can-leave-non-boolean (:operation ev))
+                       (= 42 (-> ev :tags :value))
+                       (= :route/owner (-> ev :tags :frame))))
+                @traces)
+          ":rf.error/can-leave-non-boolean carries :frame :route/owner (pre-fix: absent)"))))
+
+(deftest can-leave-subs-artefact-missing-trace-carries-frame-rf2-dbmj6x
+  (testing "rf2-dbmj6x: :rf.warning/can-leave-subs-artefact-missing stamps
+            :frame for a non-default frame when the subs hook is unbound"
+    (rf/reg-frame :rf/default {})
+    (rf/reg-frame :route/owner {})
+    (rf/reg-route :editor/article
+                  {:path      "/editor/articles/:id"
+                   :params    [:map [:id :string]]
+                   :can-leave :editor/can-leave?})
+    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"] {:frame :route/owner})
+    ;; Unbind the subs hook so `can-leave?` falls through to the
+    ;; subs-artefact-missing warning branch (the consumer-opted-out path).
+    (let [prior (late-bind/get-fn :subs/subscribe-once)]
+      (try
+        (late-bind/set-fn! :subs/subscribe-once nil)
+        (let [traces (atom [])]
+          (rf/register-listener! ::dbmj6x-missing (fn [ev] (swap! traces conj ev)))
+          (rf/dispatch-sync [:rf/url-requested {:url "/cart"}] {:frame :route/owner})
+          (rf/unregister-listener! ::dbmj6x-missing)
+          (is (some (fn [ev]
+                      (and (= :rf.warning/can-leave-subs-artefact-missing (:operation ev))
+                           (= :route/owner (-> ev :tags :frame))))
+                    @traces)
+              ":rf.warning/can-leave-subs-artefact-missing carries :frame :route/owner"))
+        (finally
+          ;; Restore the hook (it lives in core/subs.cljc, which the routing
+          ;; fixture does NOT reload, so it must be put back explicitly).
+          (late-bind/set-fn! :subs/subscribe-once prior))))))
+
+(deftest external-url-requested-trace-carries-frame-rf2-dbmj6x
+  (testing "rf2-dbmj6x: :rf/url-requested external-URL branch stamps :frame
+            for a non-default frame (symmetric with the programmatic
+            `:rf.route/navigate {:url ...}` external path, which already tags)"
+    (rf/reg-frame :rf/default {})
+    (rf/reg-frame :route/owner {})
+    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf.route/transitioned "/"] {:frame :route/owner})
+    (let [traces (atom [])]
+      (rf/register-listener! ::dbmj6x-external (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf/url-requested {:url "https://example.invalid/cart"}]
+                        {:frame :route/owner})
+      (rf/unregister-listener! ::dbmj6x-external)
+      (is (some (fn [ev]
+                  (and (= :rf.route/external-url-requested (:operation ev))
+                       (= :route/owner (-> ev :tags :frame))))
+                @traces)
+          ":rf.route/external-url-requested carries :frame :route/owner (pre-fix: absent)"))))

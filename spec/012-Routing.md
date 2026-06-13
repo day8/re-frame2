@@ -88,8 +88,8 @@ Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 
 - `:rf.route/registered` — first-time `reg-route`. Re-registration rides the cross-kind `:rf.registry/handler-replaced` trace; not re-emitted here. Mirrors the `:rf.flow/registered` symmetry.
 - `:rf.route/cleared` — explicit `unregister-route!`. Mirrors the `:rf.flow/cleared` symmetry.
-- `:rf.route/activated` / `:rf.route/deactivated` — fire on every cross-route navigation commit, in `deactivated → activated` order. Same-id navigation (path/query change with no route-id shift) emits neither. First-ever navigation emits `:rf.route/activated` only (no prior route).
-- `:rf.route.nav-token/allocated` — fresh nav-token cascade begins.
+- `:rf.route/activated` / `:rf.route/deactivated` — fire on every cross-route navigation commit, in `deactivated → activated` order. Same-id navigation (path/query change with no route-id shift) emits neither. First-ever navigation emits `:rf.route/activated` only (no prior route). Both carry `:tags {:route-id <id> :frame <navigating-frame>}`.
+- `:rf.route.nav-token/allocated` — fresh nav-token cascade begins. Carries `:tags {:route-id <id> :nav-token <token> :frame <navigating-frame>}`.
 - `:rf.route.nav-token/stale-suppressed` — async result carrying a now-superseded token.
 - `:rf.route/fragment-changed` — fragment-only URL update (the URL changed only in its `#fragment`; `:on-match` did not re-fire). Distinct from the runtime URL-change events `:rf.route/transitioned` / `:rf.route/handle-url-change`, which carry a full route transition. The op-name says what fires it (only a `#fragment` differed) and disambiguates from those runtime events.
 - `:rf.route/navigation-blocked` — `:can-leave` guard rejected a navigation.
@@ -99,6 +99,8 @@ Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 - `:rf.error/navigate-arity-misuse` — `[:rf.route/navigate target params opts]` was dispatched with an opts-only key (`:replace?` / `:scroll` / `:fragment` / `:bypass-leave-guard?`) in the **params** slot that the target route does not declare as a path-param (the classic params/opts swap). Navigation rejected; `:where :event`. See [§Arities — params is 2nd, opts is 3rd](#arities--params-is-2nd-opts-is-3rd).
 - `:rf.warning/route-shadowed-by-equal-score` — registration-time warning when ranking ties on rule 6.
 - `:rf.warning/no-not-found-route` — runtime fell back to the built-in placeholder because `:rf.route/not-found` is not registered (per [§Route-not-found](#route-not-found--rfroutenot-found-canonical)).
+
+**Frame attribution (rf2-dbmj6x).** Every routing trace emitted from inside a known navigation cascade carries `:tags :frame` — the in-flight cascade's frame, validated at the handler boundary by `frame/require-frame-stamp!` and threaded to the emit site. This is load-bearing, not cosmetic: `re-frame.epoch.capture` admits ONLY frame-tagged traces into a cascade's `:trace-events` (an untagged trace silently drops from epoch history / Xray), and the frame-level trace-disable gate (a `:rf.trace/frame-no-emit?` tool frame) keys suppression off `:tags :frame` (an untagged trace leaks into the very ring the inspector reads). The frame-known emit sites are the lifecycle / nav-token traces (`:rf.route/activated`, `:rf.route/deactivated`, `:rf.route.nav-token/allocated`), the leave-guard / blockage diagnostics (`:rf.error/can-leave-non-boolean`, `:rf.warning/can-leave-subs-artefact-missing`, `:rf.route/navigation-blocked`), and the external-URL diagnostic (`:rf.route/external-url-requested`, on both the `:rf/url-requested` and programmatic `:rf.route/navigate {:url …}` paths). The route-miss / malformed-URL diagnostics already carried `:frame` (rf2-w3qgc / rf2-7d30s).
 
 ## Pattern-level contract
 
@@ -724,7 +726,7 @@ Suppression alone fixes the user-visible bug — the older load *does* complete 
 
 Two trace events surround the nav-token lifecycle (added to the trace-op vocabulary per [Spec-Schemas.md](Spec-Schemas.md#rftrace-event)):
 
-- **`:rf.route.nav-token/allocated`** — emitted when a navigation cascade allocates a fresh token. `:tags {:route-id <id> :nav-token <token>}`.
+- **`:rf.route.nav-token/allocated`** — emitted when a navigation cascade allocates a fresh token. `:tags {:route-id <id> :nav-token <token> :frame <navigating-frame>}` (the `:frame` per rf2-dbmj6x — see the frame-attribution note under [§Trace events](#trace-events)).
 - **`:rf.route.nav-token/stale-suppressed`** — emitted when an async result arrives carrying a now-superseded token. `:tags {:carried-token <t1> :current-token <t2> :event-id <id> :work/id <route-work-id>}`. The handler does NOT run. The `:work/id` tag is the route-loader work-id `[:rf.work/route route-id nav-token loader-id]`, joining the suppression to the superseded attempt's identity (see [§Lowering onto the uniform reply envelope](#lowering-onto-the-uniform-reply-envelope) below).
 
 Naming follows the `<feature>/<reason>` convention used by `:rf.machine.timer/stale-after`. See [Pattern-StaleDetection.md](Pattern-StaleDetection.md) for the cross-cutting pattern.
@@ -765,7 +767,7 @@ Classification is **origin-based**, not match-based — a same-host URL that hap
 - **Client (browser `Location` available).** The URL is resolved against the document origin (`new URL(url, location.href)`) and classed external when its protocol is not `http(s):` or its origin differs from the document's.
 - **JVM / SSR / no-`window` (and any client resolution failure).** There is no browser `Location` to origin-compare against, so the runtime cannot *prove* same-origin — it falls back to a **fail-closed** lexical check. A URL is in-app only when, after rejecting any embedded whitespace or ASCII control character (which browsers strip mid-URL before parsing), it is a single-leading-`/` rooted path **not** followed by `/` or `\` (a protocol-relative authority a browser reads as off-origin), or a pure `?query` / `#fragment` reference. A leading `//`, a `/\`, a scheme (`name:`), a bare relative segment, and the empty string all class **external**. This is a deliberate client/server asymmetry: the client proves same-origin against the live origin; the server defaults to deny.
 
-An external classification emits `:rf.route/external-url-requested` (carrying `:url`) and performs no push; an in-app classification normalises the URL to its origin-relative form and continues into the `:can-leave` / push / `:rf.route/transitioned` path above.
+An external classification emits `:rf.route/external-url-requested` (carrying `:tags {:url <url> :frame <navigating-frame>}` — the `:frame` per rf2-dbmj6x, so the diagnostic enters the navigating frame's epoch trace-events and obeys the frame trace-disable gate, symmetric across the link-click `:rf/url-requested` and programmatic `:rf.route/navigate {:url …}` paths) and performs no push; an in-app classification normalises the URL to its origin-relative form and continues into the `:can-leave` / push / `:rf.route/transitioned` path above.
 
 `route-link` ships in the routing artefact as a registered view at id `:route/link`. The body:
 
@@ -1083,7 +1085,7 @@ A standard pending-navigation slot in `runtime-db`, three named events, and an o
 
 The sub returns `true` when the route is OK to leave; `false` to block. The convention: the *sub's name* describes the positive case (`:can-leave`), so `false` means "can NOT leave" — block.
 
-**Closed contract.** The runtime accepts only the literals `true` and `false` from the guard sub. Any other value (`42`, a non-empty string, `nil`, a map) BLOCKS the navigation and emits the structured trace `:rf.error/can-leave-non-boolean` with `:tags {:route-id :query :value :reason :recovery :blocked-navigation}` The closed contract forces the route author to write `(boolean ...)` / `(not ...)` rather than warn-and-let-through. Pre-alpha posture: no shim, no soft transition; the warning slot is removed entirely.
+**Closed contract.** The runtime accepts only the literals `true` and `false` from the guard sub. Any other value (`42`, a non-empty string, `nil`, a map) BLOCKS the navigation and emits the structured trace `:rf.error/can-leave-non-boolean` with `:tags {:route-id :query :value :reason :recovery :blocked-navigation :frame <navigating-frame>}` (the `:frame` per rf2-dbmj6x). The closed contract forces the route author to write `(boolean ...)` / `(not ...)` rather than warn-and-let-through. Pre-alpha posture: no shim, no soft transition; the warning slot is removed entirely.
 
 ### Default flow
 
@@ -1095,7 +1097,7 @@ The sub returns `true` when the route is OK to leave; `false` to block. The conv
    b. Write `:rf/pending-navigation` with `{:id <id> :requested-by-event <ev> :requested-url <url> :rejecting-route <id> :rejecting-guard <sub-id>}`.
    c. **The URL does not change.** No `pushState`, no `:rf/route` slice update, no `:on-match`. For a **forward** nav (`:rf/url-requested` / `:rf.route/navigate` / `:rf.route/transitioned`) the browser URL has not moved yet, so declining to push is sufficient. A **popstate** block (the triggering event is `:rf.route/handle-url-change` — Back / Forward) is different: the browser has *already* moved the address bar to the rejected URL. To keep "the URL does not change" true, the runtime emits a `:rf.nav/replace-url` that **restores the address bar to the current route slice's URL** (rebuilt via `route-url` from the slice's `:id`/`:params`/`:query`/`:fragment`) — a history *replace*, not a push, so no entry is added. URL and slice agree again; `:rf.route/cancel` then leaves nothing else to do.
    d. Dispatch `[:rf.route/navigation-blocked pending-nav]`. Apps may register their own handler (default is a no-op trace; the value is in the slot, which a sub reads).
-   e. Emit `:rf.route/navigation-blocked` trace event.
+   e. Emit `:rf.route/navigation-blocked` trace event with `:tags {:requested-url <url> :rejecting-route <id> :rejecting-guard <sub-id> :frame <navigating-frame>}` (the `:frame` per rf2-dbmj6x, so a multi-frame app can filter the block to the frame that caused it).
 5. UI renders the confirmation dialog by subscribing to `:rf/pending-navigation`.
 6. User chooses:
    - **Continue** → dispatch `[:rf.route/continue pending-nav-id]`. Runtime clears the slot and re-issues the original navigation, **bypassing** the leave-guard for this one shot.

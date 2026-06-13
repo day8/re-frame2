@@ -71,7 +71,15 @@
 
   `route-id` is the active route's id keyword — threaded in so the
   `:rf.error/can-leave-non-boolean` trace tags the real id rather than
-  the route's `:path` pattern string."
+  the route's `:path` pattern string.
+
+  rf2-dbmj6x — `frame` is BOTH the live frame the `:can-leave` sub
+  resolves against AND the in-flight cascade's frame stamp the diagnostic
+  traces tag under `:tags :frame`. The guard already had `frame` in hand;
+  stamping the `:rf.error/can-leave-non-boolean` /
+  `:rf.warning/can-leave-subs-artefact-missing` emits with it means they
+  enter the emitting frame's epoch and obey the frame trace-disable gate,
+  closing the same drop/leak this finding fixes on the lifecycle traces."
   [frame route-id route-meta]
   (if-let [query (can-leave-query route-meta)]
     (if-let [subscribe-once (late-bind/get-fn :subs/subscribe-once)]
@@ -81,19 +89,22 @@
           (false? v) false
           :else
           ;; rf2-5pyyl closed contract: non-boolean BLOCKs + emits
-          ;; `:rf.error/can-leave-non-boolean`.
+          ;; `:rf.error/can-leave-non-boolean`. rf2-dbmj6x: stamp the
+          ;; carried `:frame` so the error reaches epoch capture / Xray.
           (do (trace/emit-error! :rf.error/can-leave-non-boolean
-                                 {:route-id route-id
-                                  :query    query
-                                  :value    v
-                                  :reason   (str "Non-boolean returned from :can-leave sub; "
-                                                 "the contract requires true (allow) or "
-                                                 "false (block). Did you mean (boolean ...) "
-                                                 "or (not ...)?")
-                                  :recovery :blocked-navigation})
+                                 (cond-> {:route-id route-id
+                                          :query    query
+                                          :value    v
+                                          :reason   (str "Non-boolean returned from :can-leave sub; "
+                                                         "the contract requires true (allow) or "
+                                                         "false (block). Did you mean (boolean ...) "
+                                                         "or (not ...)?")
+                                          :recovery :blocked-navigation}
+                                   frame (assoc :frame frame)))
               false)))
       (do (trace/emit! :warning :rf.warning/can-leave-subs-artefact-missing
-                       {:query query})
+                       (cond-> {:query query}
+                         frame (assoc :frame frame)))
           true))
     true))
 
@@ -188,11 +199,16 @@
                           guard-id      (assoc :rejecting-guard guard-id)
                           url-restored? (assoc :url-restored? true))]
         ;; Per Spec 012 §Navigation blocking §Default flow step 4e: the
-        ;; trace marks the blocked transition for tools.
+        ;; trace marks the blocked transition for tools. rf2-dbmj6x: stamp
+        ;; the carried `frame-id` so the block diagnostic enters the
+        ;; emitting frame's epoch + obeys the frame trace-disable gate — in
+        ;; a multi-frame app a block can otherwise not be filtered to the
+        ;; frame that caused it.
         (trace/emit! :rf.event :rf.route/navigation-blocked
-                     {:requested-url   requested-url
-                      :rejecting-route (:id current-route)
-                      :rejecting-guard guard-id})
+                     (cond-> {:requested-url   requested-url
+                              :rejecting-route (:id current-route)
+                              :rejecting-guard guard-id}
+                       frame-id (assoc :frame frame-id)))
         ;; Per Spec 012 §Navigation blocking §Default flow step 4d and the
         ;; Events table: `:rf.route/navigation-blocked` is a USER event the
         ;; runtime dispatches when a `:can-leave` guard rejects — apps may
@@ -296,8 +312,14 @@
       (cond
         external?
         (do
+          ;; rf2-dbmj6x: stamp the carried `frame` so the external-url
+          ;; diagnostic enters the emitting frame's epoch + obeys the frame
+          ;; trace-disable gate — symmetric with the sibling programmatic
+          ;; external path (`navigate.cljc` `:rf.route/external-url-requested`),
+          ;; which already frame-tags.
           (trace/emit! :rf.event :rf.route/external-url-requested
-                       {:url url})
+                       (cond-> {:url url}
+                         frame (assoc :frame frame)))
           {})
 
         blocked
