@@ -86,13 +86,15 @@ signal, colour is never alone):
 | Routes | `r` | `🌐` | `:yellow` |
 | Resources | `s` | — | (family-tinted rows; no single stripe) |
 | Graph | `g` | — | `:magenta` (violet — the algebra lens) |
+| Modules | `u` | — | (family-tinted rows; no single stripe) |
 
-Eight Dynamic tabs (Epoch is `:order -1`, the leftmost / default-landing
-slot; **Resources** `:order 7` and **Graph** `:order 8` are the two
-cross-feature lenses, each self-registered through `reg-l4-tab!`). There
-is **no Issues tab** and **no Event tab** (replaced by Epoch) — issues
-surface inline in the Epoch cascade, the L2 pink-wash, and the
-issues-ribbon signal.
+Nine Dynamic tabs (Epoch is `:order -1`, the leftmost / default-landing
+slot; **Resources** `:order 7`, **Graph** `:order 8`, and **Modules**
+`:order 9` are the three cross-feature lenses, each self-registered
+through `reg-l4-tab!`; the **Modules** and **Graph** tabs are L4-only —
+focusable, no standalone mount facade). There is **no Issues tab** and
+**no Event tab** (replaced by Epoch) — issues surface inline in the Epoch
+cascade, the L2 pink-wash, and the issues-ribbon signal.
 
 L2 row badges (live impl `l2_timeline.cljc`): `⚠` issue · `◆` machine
 transition · `🌐` HTTP activity · `⚡` fx-emit child dispatch · `⏲` timer

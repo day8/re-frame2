@@ -2,7 +2,7 @@
  "skill_name": "re-frame2-xray",
  "schema_version": "2",
  "convention": "anthropics/skills/skill-creator evals.json — per references/schemas.md. Two-layer fixture: every entry carries `should_trigger` so skill-creator's description-optimisation loop can score train/held-out trigger accuracy; the high-drift positives ALSO carry `expected_output` + `expectations[]` (answer-quality assertions) so a description-optimisation pass that keeps the skill firing cannot mask an answer that has drifted behind the shipped Xray UI. Negatives keep `rationale` (no answer-quality layer — there is no right answer to assert).",
- "notes": "Positives (should_trigger: true) target the launch + tab-routing + first-screen-chrome surface of SKILL.md across both modes (Dynamic event-spine + Static registry browse). The launch positives exercise the FULL public mount-verb set — the default true-inline panel (launch-default), the open-overlay! no-layout-host fallback (launch-overlay), the popout! pop-out window via both the visible chrome `⛶` top-bar button (launch-popout-button — a no-code question whose answer must name the shipped button, not a programmatic-only or future-right-click path) and the programmatic API (launch-popout), and the programmatic init! (launch-programmatic) — plus the init!/configure!-vs-Settings boot-config contract (config-init-boot, config-init-vs-settings). The high-drift entries carry expectations[] that PIN current elegant-v2 guidance (visible pop-out button canonical / open-overlay! fallback-only / init! installs-but-does-not-open / Settings override order / passive inspect vs explicit Reset / Static Machines for full topology / redacted-by-default Snapshot / no standalone Issues|Hydration|Schemas Dynamic tab) AND reject stale guidance (wired r/R/* rewind keys, density radio in Settings, raw app-db snapshot by default, a re-frame-10x compatibility path). Negatives target adjacent surfaces (re-frame2-pair drives Xray; re-frame2 authors host apps; spec discussion belongs to SKILL-REDIRECT) so the loop catches over-triggering. NB: density is NOT a Settings-popup control (the radio was removed 2026-05-27); config-init-vs-settings exercises the boot-default-vs-runtime-override contract through epoch-history, a slot the popup actually surfaces.",
+ "notes": "Positives (should_trigger: true) target the launch + tab-routing + first-screen-chrome surface of SKILL.md across both modes (Dynamic event-spine + Static registry browse). The launch positives exercise the FULL public mount-verb set — the default true-inline panel (launch-default), the open-overlay! no-layout-host fallback (launch-overlay), the popout! pop-out window via both the visible chrome `⛶` top-bar button (launch-popout-button — a no-code question whose answer must name the shipped button, not a programmatic-only or future-right-click path) and the programmatic API (launch-popout), and the programmatic init! (launch-programmatic) — plus the init!/configure!-vs-Settings boot-config contract (config-init-boot, config-init-vs-settings). The tab-inventory positives PIN the current 9-tab Dynamic surface: panel-route-modules routes the EP-0013 module/realm/app-value question to the Modules tab (:module-view, mnem u, :order 9, L4-only — no standalone mount facade), and tab-inventory-count asserts the full ordered 9-tab list (Epoch·app-db·Views·Trace·Machine·Routes·Resources·Graph·Modules, mnemonics e a v t m r s g u) matching focus.cljc's valid-panels set — so a future drift that drops Modules or reverts to 8 tabs fails answer-quality. The high-drift entries carry expectations[] that PIN current elegant-v2 guidance (visible pop-out button canonical / open-overlay! fallback-only / init! installs-but-does-not-open / Settings override order / passive inspect vs explicit Reset / Static Machines for full topology / redacted-by-default Snapshot / 9 Dynamic tabs incl. Modules / no standalone Issues|Hydration|Schemas Dynamic tab) AND reject stale guidance (wired r/R/* rewind keys, density radio in Settings, raw app-db snapshot by default, a re-frame-10x compatibility path, an 8-tab inventory). Negatives target adjacent surfaces (re-frame2-pair drives Xray; re-frame2 authors host apps; spec discussion belongs to SKILL-REDIRECT) so the loop catches over-triggering. NB: density is NOT a Settings-popup control (the radio was removed 2026-05-27); config-init-vs-settings exercises the boot-default-vs-runtime-override contract through epoch-history, a slot the popup actually surfaces.",
  "evals": [
  {
  "id": 1,
@@ -142,6 +142,30 @@
  "The output says the Settings popup value wins over the init!/configure! boot default for epoch-history depth.",
  "The output states (or clearly implies) the layered merge order: defaults < configure! < Settings.",
  "The output does NOT claim density is a Settings-popup control (the density radio was removed 2026-05-27 — density is a boot/configure! concern only)."
+ ]
+ },
+ {
+ "id": 28,
+ "name": "panel-route-modules",
+ "should_trigger": true,
+ "prompt": "Which Xray tab shows me what realms and frames are installed and which modules / app values each realm composed in?",
+ "expected_output": "The agent routes to the Dynamic Modules tab (internal id :module-view, mnemonic u, :order 9) — the EP-0013 module / realm / app-value lens that projects the (realm, frame) topology (rf/realm-ids · rf/frame-ids · rf/frame-realm) plus the per-module provenance read off each realm's installed app value (rf/installed-app). It names Modules as one of the 9 Dynamic tabs, NOT a Static tab, and NOT an omitted/absent tab. It may note Modules is an L4-only registry tab (focusable, no standalone mount facade).",
+ "expectations": [
+ "The output routes the 'what realms / frames / modules / app values are installed' question to the Dynamic Modules tab (the :module-view / EP-0013 module-realm-app-value lens).",
+ "The output treats Modules as a SHIPPED Dynamic tab — it does NOT say Xray has no such tab, and does NOT misroute it to Static mode or to the Graph tab as the same thing.",
+ "The output does NOT invent a public mount-module-view! / standalone mount call (Modules is an L4-only registry tab — focusable, no standalone mount facade)."
+ ]
+ },
+ {
+ "id": 29,
+ "name": "tab-inventory-count",
+ "should_trigger": true,
+ "prompt": "List every tab Xray's Dynamic mode ships, in order.",
+ "expected_output": "The agent enumerates the 9 Dynamic L4 tabs in :order — Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph · Modules (mnemonics e a v t m r s g u) — matching focus.cljc's valid-panels set (#{:epoch :app-db :views :trace :machines :routing :resources :derivation-graph :module-view}). It does NOT report 8 tabs / omit Modules, and does NOT list a removed tab (Issues / Event / Chrome A11y / a standalone Machines-Canvas).",
+ "expectations": [
+ "The output lists exactly the 9 Dynamic tabs (Epoch, app-db, Views, Trace, Machine, Routes, Resources, Graph, Modules) — Modules is present, and the count is 9, not 8.",
+ "The output orders them correctly (Epoch first via :order -1; Resources :order 7, Graph :order 8, Modules :order 9 last).",
+ "The output does NOT include a removed tab (Issues, Event, Chrome A11y, or a standalone Dynamic Machines-Canvas) in the Dynamic inventory."
  ]
  },
  {"id": 13, "name": "neg-drive-xray", "should_trigger": false, "prompt": "Use Xray to dispatch [:cart/apply-coupon \"SPRING25\"] and tell me what happens.", "rationale": "Driving Xray from a REPL is re-frame2-pair's surface, not the read-only tour."},

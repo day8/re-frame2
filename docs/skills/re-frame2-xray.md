@@ -1,21 +1,22 @@
 # re-frame2-xray
 
-> A read-only tour of **Xray**, the re-frame2 in-app devtools panel. Answers two questions and only two: *how do I launch Xray?* and *which tab — across its Dynamic and Static modes — shows X?*
+> A read-only tour of **Xray**, the re-frame2 in-app devtools panel. Answers three questions and only three: *how do I launch Xray?*, *which tab — across its Dynamic and Static modes — shows X?*, and *what's the chrome around the tabs for?*
 
 ## What it does
 
 The `re-frame2-xray` skill is a tour guide for [Xray](../xray/index.md), the human-facing devtools panel that ships with re-frame2. Xray is preloaded into dev builds via shadow-cljs `:preloads` and renders true-inline on the right side of the host app; production builds elide it entirely through the `interop/debug-enabled?` gate.
 
-The skill answers two questions:
+The skill answers three questions:
 
-1. **How do I launch Xray?** — the inline panel, the pop-out (`(xray/popout!)`), the programmatic `(xray/init! opts)` path, the wired hotkeys, and the Dynamic ↔ Static mode toggle.
+1. **How do I launch Xray?** — the inline panel, the overlay fallback (`(xray/open-overlay!)`, for hosts that can't give Xray a layout column), the pop-out (`(xray/popout!)`), the programmatic `(xray/init! opts)` path, the wired hotkeys, and the Dynamic ↔ Static mode toggle.
 2. **Which tab shows X?** — a one-line purpose for each tab, across both modes.
+3. **What's the chrome around the tabs for?** — the first-screen navigation primitives: time-travel inspect / `Reset`-rewind, the filter pills, the command palette, and the Settings popup.
 
 ## Two modes
 
 Xray runs in one of two modes, flipped by the L1 mode pill or `Cmd/Ctrl+Shift+M`:
 
-- **Dynamic** — the event-coupled spine (4-layer chrome). Every tab is a lens on the *one focused event*. 8 tabs: **Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph** (mnemonics `e a v t m r s g`) — the core six plus the cross-feature **Resources** (declarative server-state) and **Graph** (Xray's UI over the EP-0014 derivation/process graph) lenses. There is **no Issues tab** — issues surface inline (in the Epoch cascade, the L2 event-row pink-wash, and the always-on issues-ribbon signal).
+- **Dynamic** — the event-coupled spine (4-layer chrome). Every tab is a lens on the *one focused event*. 9 tabs: **Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph · Modules** (mnemonics `e a v t m r s g u`) — the core six plus the cross-feature **Resources** (declarative server-state), **Graph** (Xray's UI over the EP-0014 derivation/process graph), and **Modules** (the EP-0013 module / realm / app-value lens) lenses. There is **no Issues tab** — issues surface inline (in the Epoch cascade, the L2 event-row pink-wash, and the always-on issues-ribbon signal).
 - **Static** — event-INDEPENDENT registry browse (3-layer chrome, no spine). Every tab is a catalogue of what's *registered* in the picked frame's **realm** (the registrar is realm-owned, not frame-owned — in the common single-realm app this is just the picked frame's registrations). 5 tabs: **Machines · Routes · Schemas · Flows · Interceptors**.
 
 When the user wants to inspect a single dispatch, that's Dynamic; when they want to browse the whole registry, that's Static.
@@ -33,7 +34,7 @@ Four hotkey families have keydown listeners installed:
 
 ## When to reach for it
 
-Load this skill when the user wants to *read* the Xray panel — "open Xray", "where is X in Xray", "which Xray tab shows…", "Xray Static mode", "browse registered machines/routes/schemas in Xray", "Ctrl+Shift+C", "Xray popout", "Xray machine inspector".
+Load this skill when the user wants to *read* the Xray panel — "open Xray", "where is X in Xray", "which Xray tab shows…", "Xray Static mode", "browse registered machines/routes/schemas in Xray", "Ctrl+Shift+C", "Xray popout", "Xray machine inspector", "Xray Modules tab", "what realms/frames are installed in Xray".
 
 Do **not** use this skill for:
 
