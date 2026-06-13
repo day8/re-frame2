@@ -479,10 +479,10 @@
   — the WHOLE frame-state, reinstalling app-db AND runtime-db as two
   separate partitions in ONE atomic write (EP-0001 rf2-3aizt1: reviving
   machine snapshots, the route slice, elision declarations, and SSR
-  metadata, not just the app-db partition). The retained `:db-after` is
-  an OPTIONAL app-db projection used only as a legacy fallback for
-  records that carry no `:frame-state-after`. Emits `:rf.epoch/restored`
-  on success.
+  metadata, not just the app-db partition). `:frame-state-after` is the
+  only restore source — every record `build-record` emits carries it; the
+  retained `:db-after` is an OPTIONAL app-db projection for tool diffs,
+  never a restore source. Emits `:rf.epoch/restored` on success.
 
   Failure modes (each is a no-op on the frame-state and emits a
   structured error trace):
