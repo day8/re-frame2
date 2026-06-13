@@ -115,15 +115,46 @@ suites (see below). Bundle-isolation holds: nothing under
 
 ## How to test
 
-Both `config_cljs_test.cljs` (the resolver) and `story_host_cljs_test.cljs`
-(the host harness's listener lifecycle / hot-reload behaviour) run as part
-of the always-on CLJS gate: `npm run test:cljs` from `implementation/`
-compiles the `:node-test` build, whose `:ns-regexp "cljs-test$"` discovers
-both namespaces through this slice's wired `../tools/testbed-support/test`
-source path. There is no standalone test alias for this directory (no
-`deps.edn`); the suites live under a dedicated `test/` root — the same
-src/test split every other tool/artefact uses — and the wired test source
-path picks them up.
+Three suites under `test/`:
+
+- `config_cljs_test.cljs` — the resolver: param parsing, cross-platform
+  path joining (Windows / POSIX, including the lone-`/` filesystem-root
+  edge — rf2-fzgcii), and the build-time-vs-`?project-root=` tier
+  precedence.
+- `story_host_cljs_test.cljs` — the host harness's `hashchange`-listener
+  lifecycle / hot-reload idempotence and the project-root config contract,
+  with the mount switch stubbed to count-only no-ops (listener-identity
+  focus, runs under `:node-test`).
+- `story_host_dom_cljs_test.cljs` — a **browser-level** handoff test
+  (rf2-fzgcii) that drives the host through `#/` → `#/stories` → `#/`
+  (plus a hot-reload re-run) on a real `#app` node with **real React
+  roots**, asserting the live ↔ shell root handoff leaks no root and emits
+  no `createRoot`-reuse warning. ns ends in `-dom-cljs-test`, so the
+  `:browser-test` build runs the real-DOM assertions; under `:node-test`
+  its body gates on `(browser?)` and no-ops.
+
+### The always-on gate
+
+`npm run test:cljs` from `implementation/` compiles the `:node-test` build,
+whose `:ns-regexp "cljs-test$"` discovers all three namespaces through this
+slice's wired `../tools/testbed-support/test` source path; `npm run
+test:browser` runs the DOM suite's real-React assertions. The slice rides
+both on every PR.
+
+### The focused gate (rf2-fzgcii)
+
+There is no `deps.edn` here (the library is consumed purely as a source
+path), but workers no longer need the full ~3500-test consolidated build to
+verify this slice. `npm run test:testbed-support` from `implementation/`
+compiles a dedicated `:node-test-testbed-support` build whose
+`:ns-regexp "^re-frame\.testbed\..+-cljs-test$"` matches ONLY the
+`re-frame.testbed.*` test namespaces, then runs it on Node — a cheap,
+named, slice-scoped gate. (It still needs the shared shadow-cljs binary
+`npm install` provides; it does not depend on the rest of the node suite
+compiling.) The DOM suite's real-React-root assertions still require the
+`:browser-test` runner — the focused node build exercises only the
+node-runnable bodies. The suites live under a dedicated `test/` root — the
+same src/test split every other tool/artefact uses.
 
 ## See also
 
