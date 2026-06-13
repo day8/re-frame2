@@ -2557,7 +2557,7 @@
 
 (deftest replace-app-db!-failure-during-drain
   (testing "replace-app-db! called from inside a drain returns false and
-            emits :rf.epoch/replace-app-db-during-drain; app-db unchanged
+            emits :rf.epoch/replace-during-drain; app-db unchanged
             by the rejected call"
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
@@ -2577,17 +2577,17 @@
       (is (= {:n 0} (rf/app-db-value :test/main))
           "app-db unchanged — the in-drain reset was rejected")
       (let [ev (some (fn [ev]
-                       (when (= :rf.epoch/replace-app-db-during-drain
+                       (when (= :rf.epoch/replace-during-drain
                                 (:operation ev))
                          ev))
                      @recorded)]
-        (is (some? ev) ":rf.epoch/replace-app-db-during-drain fired")
+        (is (some? ev) ":rf.epoch/replace-during-drain fired")
         (is (= :test/main (:frame (:tags ev))))))))
 
 (deftest replace-app-db!-failure-schema-mismatch
   (testing "replace-app-db! with a new-db that fails the frame's
             registered schemas returns false; emits
-            :rf.epoch/replace-app-db-schema-mismatch; app-db unchanged"
+            :rf.epoch/replace-schema-mismatch; app-db unchanged"
     (rf/reg-frame :test/main {})
     ;; Per Spec 010 §Per-frame schemas — schema is frame-scoped.
     (rf/reg-app-schema [:n] [:int] {:frame :test/main})
@@ -2601,11 +2601,11 @@
       (is (= pre (rf/app-db-value :test/main))
           "app-db unchanged after a rejected reset")
       (let [ev (some (fn [ev]
-                       (when (= :rf.epoch/replace-app-db-schema-mismatch
+                       (when (= :rf.epoch/replace-schema-mismatch
                                 (:operation ev))
                          ev))
                      @recorded)]
-        (is (some? ev) ":rf.epoch/replace-app-db-schema-mismatch fired")
+        (is (some? ev) ":rf.epoch/replace-schema-mismatch fired")
         (is (= :test/main (:frame (:tags ev))))
         (is (vector? (:failing-paths (:tags ev)))
             "trace carries the failing schema paths")
@@ -2779,7 +2779,7 @@
 
 (deftest replace-runtime-db!-failure-during-drain
   (testing "replace-runtime-db! called from inside a drain returns false and
-            emits :rf.epoch/replace-app-db-during-drain (the shared
+            emits :rf.epoch/replace-during-drain (the shared
             four-mutator failure op); runtime-db unchanged by the rejected call"
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
@@ -2797,17 +2797,17 @@
       (is (nil? (get (rf/runtime-db-value :test/main) :rf.runtime/machines))
           "runtime-db unchanged — the in-drain injection was rejected")
       (let [ev (some (fn [ev]
-                       (when (= :rf.epoch/replace-app-db-during-drain
+                       (when (= :rf.epoch/replace-during-drain
                                 (:operation ev))
                          ev))
                      @recorded)]
-        (is (some? ev) ":rf.epoch/replace-app-db-during-drain fired")
+        (is (some? ev) ":rf.epoch/replace-during-drain fired")
         (is (= :test/main (:frame (:tags ev))))))))
 
 (deftest replace-runtime-db!-failure-schema-mismatch
   (testing "replace-runtime-db! with a runtime-db whose machine snapshot :data
             violates its registered :data-schema returns false; emits
-            :rf.epoch/replace-app-db-schema-mismatch; runtime-db unchanged"
+            :rf.epoch/replace-schema-mismatch; runtime-db unchanged"
     (rf/reg-frame :test/main {})
     ;; Register a machine carrying a :data-schema; the framework-owned
     ;; runtime-db validator (the machine-data boundary) validates each
@@ -2828,11 +2828,11 @@
       (is (= pre (rf/runtime-db-value :test/main))
           "runtime-db unchanged after a rejected injection")
       (let [ev (some (fn [ev]
-                       (when (= :rf.epoch/replace-app-db-schema-mismatch
+                       (when (= :rf.epoch/replace-schema-mismatch
                                 (:operation ev))
                          ev))
                      @recorded)]
-        (is (some? ev) ":rf.epoch/replace-app-db-schema-mismatch fired")
+        (is (some? ev) ":rf.epoch/replace-schema-mismatch fired")
         (is (= :test/main (:frame (:tags ev))))
         (is (vector? (:failing-paths (:tags ev)))
             "trace carries the failing paths")))))
@@ -2992,8 +2992,8 @@
 
 (deftest replace-app-db-failure-does-not-leak-into-next-cascade
   (testing "the two replace-app-db! failure-mode emits
-            (:rf.epoch/replace-app-db-during-drain,
-             :rf.epoch/replace-app-db-schema-mismatch) fire outside a
+            (:rf.epoch/replace-during-drain,
+             :rf.epoch/replace-schema-mismatch) fire outside a
             cascade with :frame tags. They MUST be filtered out of
             capture-event!'s buffering — otherwise a failed
             replace-app-db! attempt leaks a phantom event into the next
@@ -3006,7 +3006,7 @@
     (rf/dispatch-sync [:seed] {:frame :test/sm})
 
     ;; This fails — new-db doesn't validate. Emits
-    ;; :rf.epoch/replace-app-db-schema-mismatch with :frame :test/sm.
+    ;; :rf.epoch/replace-schema-mismatch with :frame :test/sm.
     (is (false? (rf/replace-app-db! :test/sm {:n "not-an-int"})))
 
     ;; Next cascade — should NOT carry the failure emit.
@@ -3016,7 +3016,7 @@
       (is (= :bump (:event-id post-fail)))
       (is (= [:bump] (:trigger-event post-fail)))
       (is (not-any? (fn [ev]
-                      (= :rf.epoch/replace-app-db-schema-mismatch
+                      (= :rf.epoch/replace-schema-mismatch
                          (:operation ev)))
                     (:trace-events post-fail))
           "failure-mode emit is filtered from the next cascade's trace stream"))))
@@ -3070,8 +3070,8 @@
                      :rf.epoch/restore-during-drain
                      :rf.epoch/restore-non-ok-record    ;; rf2-v0jwt
                      :rf.epoch/db-replaced
-                     :rf.epoch/replace-app-db-during-drain
-                     :rf.epoch/replace-app-db-schema-mismatch
+                     :rf.epoch/replace-during-drain
+                     :rf.epoch/replace-schema-mismatch
                      ;; rf2-wp70d: redact-fn exception warning emits
                      ;; AFTER `harvest-buffer!` has emptied this
                      ;; frame's cascade buffer, so it must be skipped

@@ -243,11 +243,11 @@ const ARTEFACTS = [
       { source: 're-frame.epoch replace-app-db! (rf.epoch/db-replaced)',
         sentinel: 'rf.epoch/db-replaced' },
       // epoch.cljc — replace-app-db! drain-in-flight rejection.
-      { source: 're-frame.epoch replace-app-db! (rf.epoch/replace-app-db-during-drain)',
-        sentinel: 'rf.epoch/replace-app-db-during-drain' },
+      { source: 're-frame.epoch replace-app-db! (rf.epoch/replace-during-drain)',
+        sentinel: 'rf.epoch/replace-during-drain' },
       // epoch.cljc — replace-app-db! schema-mismatch rejection.
-      { source: 're-frame.epoch replace-app-db! (rf.epoch/replace-app-db-schema-mismatch)',
-        sentinel: 'rf.epoch/replace-app-db-schema-mismatch' },
+      { source: 're-frame.epoch replace-app-db! (rf.epoch/replace-schema-mismatch)',
+        sentinel: 'rf.epoch/replace-schema-mismatch' },
     ],
     // One consumer-side string: `epoch/settle!` — the late-bind hook
     // key the router calls into at drain-empty (router.cljc). Core

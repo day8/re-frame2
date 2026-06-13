@@ -64,8 +64,8 @@
     ;; tool writes). All three fire after the synthetic record
     ;; has been built and the cascade-buffer (if any) has been harvested.
     :rf.epoch/db-replaced
-    :rf.epoch/replace-app-db-during-drain
-    :rf.epoch/replace-app-db-schema-mismatch
+    :rf.epoch/replace-during-drain
+    :rf.epoch/replace-schema-mismatch
     ;; Redact-fn exception warning (EP-0015 §15 + open-issue 6, RULED /
     ;; Tool-Pair §Time-travel §Redaction hook). Emitted by
     ;; `assembly/apply-redact-fn` at PROJECTION time (`projected-record`),

@@ -174,7 +174,7 @@ Three write accessors. Every mutation tags the runtime cascade with `:tags :orig
   ```clojure
   (replace-app-db! opts) → {:ok? true/false :frame <id> :origin <kw>}
   ```
-- **Description**: Inject `:value` into a frame's `app-db`. Schema-validates via `rf/replace-app-db!`; the three failure rows (`:rf.error/no-such-handler` / `:rf.epoch/replace-app-db-during-drain` / `:rf.epoch/replace-app-db-schema-mismatch`) surface on the trace bus; the accessor projects `:reason :rf.epoch/reset-failed` + a hint.
+- **Description**: Inject `:value` into a frame's `app-db`. Schema-validates via `rf/replace-app-db!`; the three failure rows (`:rf.error/no-such-handler` / `:rf.epoch/replace-during-drain` / `:rf.epoch/replace-schema-mismatch`) surface on the trace bus; the accessor projects `:reason :rf.epoch/reset-failed` + a hint.
 
 The three together compose the Tool-Pair time-travel surface: read an epoch, restore to that epoch, or directly inject a known-good state for "try anyway" recovery.
 

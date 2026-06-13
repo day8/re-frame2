@@ -732,7 +732,7 @@
       ;; (2) In-flight drain?
       (drain-in-flight? (:frame-record frame-result))
       {:outcome :fail
-       :op      :rf.epoch/replace-app-db-during-drain
+       :op      :rf.epoch/replace-during-drain
        :tags    {:frame frame-id}}
 
       :else
@@ -743,7 +743,7 @@
       (let [failing (failing-schema-paths frame-id new-db)]
         (if (seq failing)
           {:outcome :fail
-           :op      :rf.epoch/replace-app-db-schema-mismatch
+           :op      :rf.epoch/replace-schema-mismatch
            :tags    {:frame         frame-id
                      :failing-paths failing}}
           {:outcome :ok})))))
@@ -756,7 +756,7 @@
   emitted from here; emission is the caller's job.
 
   Per Tool-Pair §Pair-tool writes the four injection mutators share the
-  identical failure-mode shape — the same `:rf.epoch/replace-app-db-*`
+  identical failure-mode shape — the same `:rf.epoch/replace-*`
   trace ops cover all four (Spec 009 §Trace events explicitly lists
   `replace-runtime-db!` / `replace-frame-state!` under those ops). The
   only difference is the schema check targets the runtime-db partition
@@ -772,7 +772,7 @@
       ;; (2) In-flight drain?
       (drain-in-flight? (:frame-record frame-result))
       {:outcome :fail
-       :op      :rf.epoch/replace-app-db-during-drain
+       :op      :rf.epoch/replace-during-drain
        :tags    {:frame frame-id}}
 
       :else
@@ -783,7 +783,7 @@
       (let [failing (failing-runtime-paths frame-id new-runtime-db)]
         (if (seq failing)
           {:outcome :fail
-           :op      :rf.epoch/replace-app-db-schema-mismatch
+           :op      :rf.epoch/replace-schema-mismatch
            :tags    {:frame         frame-id
                      :failing-paths failing}}
           {:outcome :ok})))))
@@ -811,7 +811,7 @@
       ;; (2) In-flight drain?
       (drain-in-flight? (:frame-record frame-result))
       {:outcome :fail
-       :op      :rf.epoch/replace-app-db-during-drain
+       :op      :rf.epoch/replace-during-drain
        :tags    {:frame frame-id}}
 
       :else
@@ -826,7 +826,7 @@
                               (failing-runtime-paths frame-id runtime-db))]
         (if (seq failing)
           {:outcome :fail
-           :op      :rf.epoch/replace-app-db-schema-mismatch
+           :op      :rf.epoch/replace-schema-mismatch
            :tags    {:frame         frame-id
                      :failing-paths failing}}
           {:outcome :ok})))))

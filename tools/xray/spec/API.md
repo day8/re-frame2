@@ -908,7 +908,7 @@ call with no resolvable context fails closed (`{:ok? false :reason
 |---|---|---|---|
 | `dispatch!` | `dispatch` | `{:ok? true :event-id <kw> :frame <id> :origin <kw> :mode :queued/:sync}` | Fire `event-vec` tagged `:origin *current-origin*`. Modes: `:queued` (default — non-blocking `rf/dispatch`) or `:sync` (`rf/dispatch-sync`). Frame resolution mirrors the read-side accessors. |
 | `restore-epoch!` | `restore-epoch` | `{:ok? true/false :frame <id> :epoch-id <uuid> :origin <kw>}` | Rewinds a frame's `app-db` to the named epoch's `:db-after` via `rf/restore-epoch`. Failures (per Tool-Pair §Time-travel — Restore, seven documented failure modes) emit a structured `:rf.epoch/*` trace and leave `app-db` unchanged; the accessor surfaces `:reason :rf.epoch/restore-failed` + a hint pointing to the trace bus. |
-| `replace-app-db!` | `replace-app-db` | `{:ok? true/false :frame <id> :origin <kw>}` | Inject `:value` into a frame's `app-db`. Schema-validates via `rf/replace-app-db!`; the three failure rows (`:rf.error/no-such-handler` / `:rf.epoch/replace-app-db-during-drain` / `:rf.epoch/replace-app-db-schema-mismatch`) surface on the trace bus; the accessor projects `:reason :rf.epoch/reset-failed` + a hint. |
+| `replace-app-db!` | `replace-app-db` | `{:ok? true/false :frame <id> :origin <kw>}` | Inject `:value` into a frame's `app-db`. Schema-validates via `rf/replace-app-db!`; the three failure rows (`:rf.error/no-such-handler` / `:rf.epoch/replace-during-drain` / `:rf.epoch/replace-schema-mismatch`) surface on the trace bus; the accessor projects `:reason :rf.epoch/reset-failed` + a hint. |
 
 ### Streaming band (3 accessors — subscription bookkeeping)
 

@@ -88,8 +88,8 @@
   error trace):
 
     :rf.error/no-such-handler                   — frame not registered
-    :rf.epoch/replace-app-db-during-drain       — drain in flight
-    :rf.epoch/replace-app-db-schema-mismatch    — `new-db` fails the
+    :rf.epoch/replace-during-drain       — drain in flight
+    :rf.epoch/replace-schema-mismatch    — `new-db` fails the
                                                    frame's app-schema set
 
   Dev-only — gated on `interop/debug-enabled?`. Production builds
@@ -134,8 +134,8 @@
   error trace — the shared four-mutator failure surface):
 
     :rf.error/no-such-handler                   — frame not registered
-    :rf.epoch/replace-app-db-during-drain       — drain in flight
-    :rf.epoch/replace-app-db-schema-mismatch    — `runtime-db` fails the
+    :rf.epoch/replace-during-drain       — drain in flight
+    :rf.epoch/replace-schema-mismatch    — `runtime-db` fails the
                                                    framework-owned runtime-db
                                                    validator (reg-runtime-schema)
 
@@ -165,8 +165,8 @@
   error trace — the shared four-mutator failure surface):
 
     :rf.error/no-such-handler                   — frame not registered
-    :rf.epoch/replace-app-db-during-drain       — drain in flight
-    :rf.epoch/replace-app-db-schema-mismatch    — the app-db partition fails
+    :rf.epoch/replace-during-drain       — drain in flight
+    :rf.epoch/replace-schema-mismatch    — the app-db partition fails
                                                    the frame's app-schema set
                                                    OR the runtime-db partition
                                                    fails the framework-owned

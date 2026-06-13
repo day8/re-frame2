@@ -582,7 +582,7 @@
    Failure modes (each is a no-op on app-db; corresponding
    `:rf.epoch/*` or `:rf.error/*` trace fires per Spec 009):
      :no-such-frame                  — frame not registered
-     :replace-app-db-during-drain    — drain in flight
+     :replace-during-drain           — drain in flight
      :schema-mismatch                — v fails the frame's app-schema
      :epoch-artefact-missing         — re-frame2-epoch artefact not loaded"
   ([v] (app-db-reset! v (current-frame)))
@@ -604,14 +604,14 @@
        ;; replace-app-db! returns false on the soft-failure modes
        ;; (unknown frame, in-drain, schema-mismatch). The structured
        ;; reason is in the trace stream (`:rf.error/no-such-handler`,
-       ;; `:rf.epoch/replace-app-db-during-drain`,
-       ;; `:rf.epoch/replace-app-db-schema-mismatch`); we surface a
+       ;; `:rf.epoch/replace-during-drain`,
+       ;; `:rf.epoch/replace-schema-mismatch`); we surface a
        ;; `:reset-rejected` umbrella so callers know the call did
        ;; not land without having to interpret the trace.
        {:ok?    false
         :frame  frame-id
         :reason :reset-rejected
-        :hint   "rf/replace-app-db! returned false. Inspect (re-frame.trace.tooling/trace-buffer {:op-type :error}) and {:op-type :rf.epoch} for the structured reason — :rf.error/no-such-handler, :rf.epoch/replace-app-db-during-drain, or :rf.epoch/replace-app-db-schema-mismatch. (rf/trace-buffer is JVM-only; CLJS callers use the re-frame.trace.tooling ns.)"})
+        :hint   "rf/replace-app-db! returned false. Inspect (re-frame.trace.tooling/trace-buffer {:op-type :error}) and {:op-type :rf.epoch} for the structured reason — :rf.error/no-such-handler, :rf.epoch/replace-during-drain, or :rf.epoch/replace-schema-mismatch. (rf/trace-buffer is JVM-only; CLJS callers use the re-frame.trace.tooling ns.)"})
      (catch :default e
        (let [{:keys [reason] :as data} (ex-data e)]
          {:ok?     false

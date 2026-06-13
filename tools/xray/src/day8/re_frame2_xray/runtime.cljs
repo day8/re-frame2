@@ -1341,8 +1341,8 @@
   `rf/replace-app-db!` (renamed from `rf/reset-frame-db!`, EP-0001
   rf2-tfepxu); the framework's wrapper returns `true` on success and
   `false` on any of the three documented failure rows
-  (`:rf.error/no-such-handler`, `:rf.epoch/replace-app-db-during-drain`,
-  `:rf.epoch/replace-app-db-schema-mismatch` — each emits a structured
+  (`:rf.error/no-such-handler`, `:rf.epoch/replace-during-drain`,
+  `:rf.epoch/replace-schema-mismatch` — each emits a structured
   trace and leaves `app-db` unchanged).
 
   Returns `{:ok? true :frame <id> :origin <kw>}` on success;
