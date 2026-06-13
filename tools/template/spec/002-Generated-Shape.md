@@ -94,11 +94,25 @@ identically across all three substrates:
   `:devtools` only under `watch` / `compile`, never `release`, so the
   preload is automatically absent from production bundles — no manual
   guarding needed.
-- **index.html + app.css** reserve the layout: a
-  `[data-rf-xray-host]` `<aside>` column inside a `.rf2-app-shell`
-  flex container, with `.rf2-xray-host` fixed at `420px` and `#app`
-  taking the remaining width. Once `rf/init!` installs the adapter,
-  Xray auto-mounts into that column.
+- **index.html + app.css** reserve the layout: a `.rf2-app-shell`
+  flex container holding `<main id="app">` **first**, then a
+  `[data-rf-xray-host]` `<aside class="rf2-xray-host">` **second** — so
+  flex flow lays the host to the **right** of the app mount. `#app`
+  takes `flex: 1; min-width: 0` (the remaining width); the host takes
+  `flex: 0 0 var(--rf-xray-inline-width, 560px)` with `min-width: 320px`
+  and `box-sizing: border-box` (the `1px border-left` separator stays
+  inside the documented width). The `flex-basis` reads the
+  `--rf-xray-inline-width` custom property (Xray's host-owned resize
+  knob, default 560px) so a persisted drag-resize width and
+  cascade-level overrides take effect — a literal width would ignore
+  them. `.rf2-xray-host:empty { display: none }` collapses the host when
+  it is empty, so release builds (which drop the Xray preload) don't
+  ship a blank gutter and `#app` spans the full viewport. Once
+  `rf/init!` installs the adapter, the `day8.re-frame2-xray.preload`
+  auto-mounts Xray into the `<aside>`, making it non-empty. This matches
+  the published right-side host contract
+  ([tools/xray/spec/011-Launch-Modes.md](../../xray/spec/011-Launch-Modes.md)
+  §Layout host contract).
 
 Xray is default-on because the scaffold's headline promise is
 "save and see it live" — the dispatch log, app-db diff, causality

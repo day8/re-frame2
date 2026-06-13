@@ -630,6 +630,87 @@
       (finally
         (delete-recursively tmp)))))
 
+;; --- Normative spec-prose Xray-host drift guard (rf2-7s8ou3) ----------------
+;;
+;; `assert-xray-host-contract!` pins the RUNTIME shape of the EMITTED
+;; index.html / app.css, and `assert-no-stale-xray-wording!` scans the
+;; EMITTED text tree. But the template's OWN normative capability doc —
+;; `tools/template/spec/002-Generated-Shape.md` §Xray devtools — is not an
+;; emitted artefact, so it escaped both nets. It shipped a stale contract
+;; long after the runtime moved to the right-side host: a `[data-rf-xray-host]`
+;; `<aside>` "inside a .rf2-app-shell with .rf2-xray-host fixed at 420px and
+;; #app taking the remaining width". That left the user-facing scaffold spec
+;; describing a layout the scaffold no longer emits, while the emitted-file
+;; tests stayed green. This guard scans the spec prose directly so the stale
+;; 420px / left-side wording cannot be reintroduced into the normative doc.
+;;
+;; The doc must match the published right-side host contract
+;; (tools/xray/spec/011-Launch-Modes.md §Layout host contract), which the
+;; emitted CSS/HTML already implement and the runtime audit above pins.
+
+(defn- xray-devtools-section
+  "The §Xray devtools section of 002-Generated-Shape.md (from its `## Xray`
+  heading to the next `## ` heading). Scoping the greps to this section
+  keeps an honest mention of `420px` elsewhere in the doc (none today)
+  from tripping the guard, and makes the failure message point at the
+  right place."
+  [^String doc]
+  (let [start (.indexOf doc "## Xray devtools")]
+    (when-not (neg? start)
+      (let [end (let [i (.indexOf doc "\n## " (inc start))]
+                  (if (neg? i) (count doc) i))]
+        (subs doc start end)))))
+
+(deftest spec-002-xray-host-prose-current-test
+  ;; rf2-7s8ou3 — normative scaffold-contract doc must describe the
+  ;; CURRENT right-side Xray layout host, not the stale fixed-420px /
+  ;; left-column shape the scaffold shipped before rf2-29zmf.
+  (testing "002-Generated-Shape.md §Xray devtools matches the emitted right-side host contract"
+    (let [doc-file (io/file (repo-root)
+                            "tools/template/spec/002-Generated-Shape.md")]
+      (is (.isFile doc-file)
+          "tools/template/spec/002-Generated-Shape.md exists")
+      (when (.isFile doc-file)
+        (let [doc     (slurp doc-file)
+              section (xray-devtools-section doc)]
+          (is (some? section)
+              "002-Generated-Shape.md has a `## Xray devtools` section to audit")
+          (when section
+            ;; --- the stale contract must be gone -------------------------
+            (is (not (re-find #"420px" section))
+                (str "002-Generated-Shape.md §Xray devtools still claims the "
+                     "Xray host is fixed at `420px`. The emitted app.css uses "
+                     "`flex: 0 0 var(--rf-xray-inline-width, 560px)` (pinned by "
+                     "assert-xray-host-contract! above) — a literal 420px width "
+                     "ignores the host-owned resize knob. Remove the stale "
+                     "420px claim (rf2-7s8ou3 / tools/xray/spec/011-Launch-Modes.md)."))
+            (is (not (re-find #"(?i)left[- ]?(layout )?column" section))
+                (str "002-Generated-Shape.md §Xray devtools still describes the "
+                     "Xray host as a left column. The emitted index.html orders "
+                     "`<main id=\"app\">` BEFORE `<aside data-rf-xray-host>`, so "
+                     "the host is a RIGHT-side layout host. Match the emitted "
+                     "layout + the Xray spec (rf2-7s8ou3)."))
+            ;; --- the current contract must be stated --------------------
+            ;; Positive assertions so the negatives can't pass vacuously by
+            ;; deleting/emptying the section.
+            (is (re-find #"var\(--rf-xray-inline-width,\s*560px\)" section)
+                (str "002-Generated-Shape.md §Xray devtools must document the "
+                     "current flex-basis `var(--rf-xray-inline-width, 560px)` "
+                     "(host-owned resize knob, 560px default — matches the "
+                     "emitted app.css)."))
+            (is (re-find #"(?i)min-width.{0,4}320px" section)
+                "002-Generated-Shape.md §Xray devtools must document the `min-width: 320px` floor")
+            (is (re-find #"(?i)box-sizing.{0,4}border-box" section)
+                "002-Generated-Shape.md §Xray devtools must document `box-sizing: border-box`")
+            (is (re-find #"(?i)border-left" section)
+                "002-Generated-Shape.md §Xray devtools must document the `border-left` separator")
+            (is (re-find #"(?i):empty" section)
+                "002-Generated-Shape.md §Xray devtools must document the `:empty` collapse")
+            (is (re-find #"(?i)right" section)
+                (str "002-Generated-Shape.md §Xray devtools must describe the "
+                     "host as a RIGHT-side layout host (DOM order `<main "
+                     "id=\"app\">` first, `<aside data-rf-xray-host>` second)."))))))))
+
 ;; --- Tests -----------------------------------------------------------------
 
 (deftest reagent-emission-static-parse-test
