@@ -226,25 +226,73 @@
               ($ :span.dash-chip-dot {:class (str "tag-" (name id))})
               label))))))
 
+(defn- radio-key->step
+  "Map a keydown event's key to the radio-group navigation step, or nil
+   when the key is not a navigation key. The WAI-ARIA radio-group pattern
+   moves selection on the four arrow keys: Right/Down advance, Left/Up
+   retreat (both axes, because the group can wrap either way)."
+  [k]
+  (case k
+    ("ArrowRight" "ArrowDown") 1
+    ("ArrowLeft"  "ArrowUp")  -1
+    nil))
+
 (defui range-picker []
   ;; SINGLE-select mode control: exactly one range is active. This is the
-  ;; radio idiom, not a set of independent toggles, so it gets
-  ;; `role="radiogroup"` on the container and `role="radio"` +
-  ;; `aria-checked` on each chip — assistive tech announces it as a
-  ;; one-of-N choice. The `is-on` class stays presentation-only.
+  ;; real WAI-ARIA radio-group idiom — not just the roles, but the
+  ;; keyboard contract a radio group promises:
+  ;;
+  ;;   - `role="radiogroup"` on the row, `role="radio"` + `aria-checked`
+  ;;     on each chip, so it announces as a one-of-N choice.
+  ;;   - ROVING TABINDEX: exactly the checked radio is in the tab order
+  ;;     (`tabIndex 0`); the rest are `tabIndex -1`. Tab lands on the
+  ;;     selection, not on each chip in turn.
+  ;;   - ARROW-KEY NAVIGATION: Left/Up and Right/Down move the selection
+  ;;     (with wrap). Per the pattern, selection FOLLOWS focus in a radio
+  ;;     group, so an arrow both dispatches the range change and moves
+  ;;     DOM focus to the newly-selected chip.
+  ;;
+  ;; The `is-on` class stays presentation-only — `aria-checked` is the
+  ;; state assistive tech reads.
   (let [active-range-id (uix-adapter/use-subscribe [:dashboard/range])
-        dispatch        (:dispatch (rf/frame-handle))]
+        dispatch        (:dispatch (rf/frame-handle))
+        n               (count ranges)
+        active-idx      (or (some (fn [[i {:keys [id]}]]
+                                    (when (= active-range-id id) i))
+                                  (map-indexed vector ranges))
+                            0)
+        select!         (fn [idx]
+                          (let [idx (mod idx n)
+                                {:keys [id]} (nth ranges idx)]
+                            (dispatch [:dashboard/set-range id])
+                            ;; Selection follows focus: move DOM focus to
+                            ;; the chip we just selected so the visible
+                            ;; focus ring tracks the radio state.
+                            (when (exists? js/document)
+                              (some-> (js/document.querySelector
+                                        (str "[data-testid=\"dashboard-range-"
+                                             (name id) "\"]"))
+                                      (.focus)))))]
     ($ :div.dash-chips {:role "radiogroup" :aria-label "Time range"}
-       (for [{:keys [id label]} ranges]
-         (let [on? (= active-range-id id)]
-           ($ :button {:key id
-                       :type "button"
-                       :role "radio"
-                       :class (str "dash-chip " (when on? "is-on"))
-                       :aria-checked (if on? "true" "false")
-                       :data-testid (str "dashboard-range-" (name id))
-                       :on-click #(dispatch [:dashboard/set-range id])}
-              label))))))
+       (map-indexed
+         (fn [idx {:keys [id label]}]
+           (let [on? (= active-range-id id)]
+             ($ :button {:key id
+                         :type "button"
+                         :role "radio"
+                         ;; Roving tabindex: only the checked radio is
+                         ;; tabbable; arrows move within the group.
+                         :tabIndex (if (= idx active-idx) 0 -1)
+                         :class (str "dash-chip " (when on? "is-on"))
+                         :aria-checked (if on? "true" "false")
+                         :data-testid (str "dashboard-range-" (name id))
+                         :on-click #(dispatch [:dashboard/set-range id])
+                         :on-key-down (fn [e]
+                                        (when-let [step (radio-key->step (.-key e))]
+                                          (.preventDefault e)
+                                          (select! (+ active-idx step))))}
+                label)))
+         ranges))))
 
 (defui dashboard []
   (let [visible-metrics (uix-adapter/use-subscribe [:dashboard/visible-metrics])
