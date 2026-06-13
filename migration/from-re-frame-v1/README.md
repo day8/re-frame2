@@ -509,7 +509,7 @@ The v1 process-wide `reg-event-error-handler` is dropped in v2. There is **no ap
 
 **What to do:** flag for review. The v1 handler's **observability** half (logging, monitoring fan-out) moves to `register-error-listener!`; its **recovery-steering** half (swallow / substitute) has no v2 equivalent — drop it and rely on the framework's typed per-category default, moving any genuine recovery for *expected* failures to the source (managed-HTTP `:retry`, optional-read fallback).
 
-**Why:** v1's single-slot global error-handler did not compose with multi-frame architectures and was silently override-prone. Frame-level `:on-error` makes ownership explicit; the trace listener API gives observer-shaped tools the cross-frame view they need without modifying recovery.
+**Why:** v1's single-slot global error-handler did not compose with multi-frame architectures and was silently override-prone. v2 splits its two concerns cleanly: recovery is framework-owned (the typed per-category default — not an app-config slot; the earlier per-frame `:on-error` recovery policy was removed per rf2-hiqtk8), and observability rides the listener API (`register-error-listener!` always-on, `register-listener!` dev-only) — giving observer-shaped tools the cross-frame view they need without an app-steering recovery knob.
 
 ---
 
@@ -1731,7 +1731,7 @@ The CLJS implementations of `subscribe`, `subscribe-once`, `unsubscribe`, and th
 
 **Reagent prop-conversion bypass.** Stock Reagent's `convert-prop-value` (`reagent.impl.template`) stringifies named values when they pass as React props — and `(name kw)` is lossy for namespaced keywords (`(name :foo/bar)` → `"bar"`). The canonical user-facing surface (`rf/frame-provider`) mounts the Provider via Reagent's `:r>` interop head, which passes the props map to React as a raw JS object and bypasses `convert-prop-value` entirely. The Provider's `:value` therefore reaches React unchanged — namespaced frame-ids (`:tenant/admin`) survive the React-context round trip on every adapter. A user who writes `[:> (.-Provider frame-context) {:value :tenant}]` directly (raw `:>` interop, not `rf/frame-provider`) still passes through `convert-prop-value` under the classic adapter; the shared `re-frame.adapter.context/coerce-context-value` rounds the stringified shape back to a keyword as defensive cover. Raw-hiccup mounts that need namespaced frame-ids should switch to `rf/frame-provider` or `re-frame.adapter.context/provider-element`.
 
-**Test-side note.** `:rf.warning/plain-fn-under-non-default-frame-once` (M-11) continues to fire correctly. Plain fns lack the routing wiring that reg-view'd components carry; their subscribe calls still route to `:rf/default` (the warning's contract). Reg-view'd components route correctly to the surrounding provider — the M-41 fix narrowed the warning to apply only to the actual plain-fn footgun, which is what the warning was always supposed to mean.
+**Plain-fn boundary (M-11).** Plain (non-`reg-view`) fns lack the `:contextType` wiring that `reg-view`'d components carry, so they **cannot read the surrounding `frame-provider`'s frame**; a bare ambient `subscribe`/`dispatch` in one resolves to no frame and raises `:rf.error/no-frame-context` (EP-0002 — there is **no** `:rf/default` fall-through, and the old `:rf.warning/plain-fn-under-non-default-frame-once` warn-once is superseded by this loud error). `reg-view`'d components DO read the surrounding provider correctly. So the M-41 context-tier fix benefits registered views; the plain-fn footgun it does not paper over — the loud error is the contract (see [M-11](#m-11-plain-reagent-fns-that-depend-on-the-surrounding-frame--flag-for-human-review)).
 
 ---
 
@@ -2793,7 +2793,7 @@ Apply only when the user wants the richer metadata. Don't make this change whole
 
 ### O-2. Convert plain Reagent view fns to `reg-view` for multi-frame readiness
 
-Plain Reagent fns target only `:rf/default`. If the codebase plans to introduce multi-frame use (devcards, isolated widgets, Storybook stories, etc.), views that may be rendered inside a non-default `frame-provider` should be registered via `reg-view` so they pick up the surrounding frame.
+A plain Reagent fn carries no `:contextType` wiring, so it cannot read a surrounding `frame-provider`'s frame; a bare ambient `subscribe`/`dispatch` in one raises `:rf.error/no-frame-context` (EP-0002 — no silent `:rf/default` routing; see [M-11](#m-11-plain-reagent-fns-that-depend-on-the-surrounding-frame--flag-for-human-review)). If the codebase plans to introduce multi-frame use (devcards, isolated widgets, Storybook stories, etc.), views that may be rendered inside a non-default `frame-provider` should be registered via `reg-view` so they pick up the surrounding frame. (M-11 is the *required* boundary — a plain fn that ambiently reads the frame is already broken under any provider; O-2 here is the *modernisation* that makes a clean view multi-frame-ready.)
 
 **Transformation:**
 
