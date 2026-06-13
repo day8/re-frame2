@@ -104,7 +104,7 @@ the time-travel scrubber, and the per-frame target selection.
 | `:rf.xray/target-frame` | `db` | Keyword frame-id (default `:rf/default`). | On `db` write to `:target-frame`. |
 | `:rf.xray/epoch-history` | `db` | Vector of `:rf/epoch-record`, oldest-first (cached snapshot of `(rf/epoch-history target)`). | On `:rf.xray/epoch-recorded` dispatch. |
 | `:rf.xray/target-frame-db` | `:rf.xray/target-frame`, `:rf.xray/epoch-history` | The host frame's current `app-db` value (via `rf/app-db-value`). | Every settled epoch on the target frame. |
-| `:rf.xray/cascades` | `:rf.xray/trace-buffer` | Vector of grouped cascade entries (per `projection/group-cascades`). Shared substrate for any panel that needs the cascade grouping without re-projecting (`:rf.xray/event-detail`, etc. declare the dep via `:<-` so the projection runs once per buffer change). | On `:rf.xray/trace-buffer` recompute. |
+| `:rf.xray/cascades` | `:rf.xray/trace-buffer` | Vector of grouped cascade entries (per `projection/group-cascades`). Shared substrate for any panel that needs the cascade grouping without re-projecting (`:rf.xray/focused-cascade-detail`, etc. declare the dep via `:<-` so the projection runs once per buffer change). | On `:rf.xray/trace-buffer` recompute. |
 
 ### Events
 
@@ -128,7 +128,7 @@ discipline as the rest of the registry.
 | `:rf.xray/trace-collector` | `rf/register-listener!` | Xray's trace consumer listener. Drops self-noise (`:frame :rf/xray`), applies the privacy gate, pushes frameless events into Xray's secondary ring, and requests a coalesced microtask sync into `:rf/xray`'s `:trace-buffer` slot — the framework's per-frame rings own the frame-bound data plane (per rf2-43koh). Idempotent per preload installation. |
 | `:rf.xray/epoch-collector` | `rf/register-epoch-listener!` | Xray's epoch-settle pump. Dispatches `:rf.xray/epoch-recorded` per settled epoch so the cached `:rf.xray/epoch-history` snapshot stays consistent with `(rf/epoch-history target)`. Short-circuits when Xray is not mounted. |
 
-## Cross-panel focused-cascade primitives (relocated from the retired event-detail panel · rf2-5gl5r)
+## Cross-panel focused-cascade primitives (relocated from the retired event-detail panel · rf2-5gl5r; sub renamed off the retired-panel name · rf2-7ed9ms)
 
 Spec: [`007-UX-IA.md`](./007-UX-IA.md) §The default landing view.
 rf2-5gl5r retired the Event/Handler panel in favour of the Epoch
@@ -145,7 +145,7 @@ which was also a consumer.)
 
 | Sub | Inputs | Returns | When recomputes |
 |---|---|---|---|
-| `:rf.xray/event-detail` | `:rf.xray/cascades`, `:rf.xray/focus` | `{:cascades [...] :selected-dispatch-id ... :selected-dispatch-frame ... :selected-cascade ...}` — composite. Derives the focused cascade off the spine `:rf.xray/focus` (rf2-ee38b.2 removed the standalone `:rf.xray/selected-dispatch-id` / `-frame` shim subs — focus is the single source of truth; the `:selected-dispatch-id`/`-frame` KEYS in this composite's return map remain live). `:selected-cascade` is `nil` when no selection OR when the id is no longer in the buffer. | Cascades or focus change. |
+| `:rf.xray/focused-cascade-detail` | `:rf.xray/cascades`, `:rf.xray/focus` | `{:cascades [...] :selected-dispatch-id ... :selected-dispatch-frame ... :selected-cascade ...}` — composite. **rf2-7ed9ms** renamed this sub from `:rf.xray/event-detail` (retired-panel vocabulary) to the behaviour name `:rf.xray/focused-cascade-detail`: it means "the focused cascade's detail record", not "the Event Detail panel's data". Derives the focused cascade off the spine `:rf.xray/focus` (rf2-ee38b.2 removed the standalone `:rf.xray/selected-dispatch-id` / `-frame` shim subs — focus is the single source of truth; the `:selected-dispatch-id`/`-frame` KEYS in this composite's return map remain live). `:selected-cascade` is `nil` when no selection OR when the id is no longer in the buffer. | Cascades or focus change. |
 
 ### Events
 

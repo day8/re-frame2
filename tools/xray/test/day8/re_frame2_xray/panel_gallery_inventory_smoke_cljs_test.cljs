@@ -34,8 +34,10 @@
   `:node-test` build's `cljs-test$` regex via the `-cljs-test` ns
   suffix (`xray/test/` is on shadow's `:source-paths`)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.set]
             [re-frame.story :as story]
             [re-frame.story.schemas :as schemas]
+            [day8.re-frame2-xray.focus :as focus]
             ;; rf2-nozqw — per-gallery register-all! drive. Each
             ;; namespace's bottom-of-file `(register-all!)` fires at
             ;; namespace load, but the smoke test calls each one
@@ -130,6 +132,48 @@
       (is (seq variants) "registrar's variants-of reports non-empty")
       (is (= 5 (count variants))
           "every :state/* tag drove a variant — no :rf.error/unknown-tag aborts"))))
+
+;; ---- Dynamic-tab gallery coverage + documented exclusions (rf2-1sddi6 F3) ----
+;;
+;; The panel-gallery is the visual-design harness for the six CORE L4
+;; lenses. The three cohesive-sub-domain / runtime-structure tabs added
+;; later (Resources · Graph · Modules) are INTENTIONALLY not galleried —
+;; their shipped-surface + focusability coverage lives in the
+;; feature-matrix browser sweep (PANEL_HANDOFFS walks all nine live tabs)
+;; + their own per-panel CLJS unit tests. This test locks that split:
+;; the galleried set + the documented-exclusion set must EXACTLY partition
+;; the live Dynamic tab inventory (`focus/valid-panels`, which mirrors the
+;; registry). Adding a new Dynamic tab therefore forces an explicit choice
+;; — gallery it, or add it to the excluded set with a rationale — rather
+;; than silently rotting into an unexplained gap (the rf2-1sddi6 finding).
+
+(def ^:private galleried-dynamic-tabs
+  "Live Dynamic L4 tab ids the panel-gallery covers with a per-tab
+  visual gallery (one `gallery-*` ns each). The Routing tab's id is
+  `:routing` (renders as \"Routes\")."
+  #{:epoch :app-db :views :trace :machines :routing})
+
+(def ^:private intentionally-ungalleried-dynamic-tabs
+  "Live Dynamic L4 tab ids deliberately NOT galleried — see
+  `panel_gallery/core.cljs` §Intentional gallery exclusions (rf2-1sddi6
+  F3). Coverage lives in the feature-matrix browser sweep + per-panel
+  unit tests."
+  #{:resources :derivation-graph :module-view})
+
+(deftest gallery-coverage-partitions-the-live-dynamic-inventory
+  (testing "galleried + intentionally-excluded tabs exactly partition the
+            live Dynamic L4 inventory — no shipped tab is silently missing
+            from BOTH the gallery and the documented-exclusion list"
+    (is (empty? (clojure.set/intersection galleried-dynamic-tabs
+                                           intentionally-ungalleried-dynamic-tabs))
+        "a tab is either galleried OR documented-excluded, never both")
+    (is (= focus/valid-panels
+           (clojure.set/union galleried-dynamic-tabs
+                              intentionally-ungalleried-dynamic-tabs))
+        (str "the galleried + documented-excluded tab sets must cover every "
+             "live Dynamic tab (focus/valid-panels). A mismatch means a new "
+             "Dynamic tab shipped without a gallery entry OR a documented "
+             "exclusion — resolve it in panel_gallery/core.cljs."))))
 
 ;; ---- per-gallery register-all! drive (rf2-nozqw) ---------------------
 

@@ -22,7 +22,7 @@ shipped to consumers.
 Xray consumes the re-frame2 instrumentation surface (Spec 009 trace
 bus, Tool-Pair epoch history, the registrar query API) — it adds
 nothing the framework didn't already expose. The chrome is one tool in
-two modes: a **6-tab Dynamic detail panel** (event-coupled) and a
+two modes: a **9-tab Dynamic detail panel** (event-coupled) and a
 **5-tab Static mode** (registry browse). The tabs are *presentation* of
 an already-structured runtime.
 
@@ -43,16 +43,28 @@ plus the event list are the scrubber; there is no bottom rail. Issues are
 not a tab — they surface inline in the Epoch panel, the L2 event-row
 pink-wash, and the always-on issues ribbon signal (per rf2-gbz39).
 
-### Dynamic mode — the 6 tabs (lenses on the focused event)
+### Dynamic mode — the 9 tabs (lenses on the focused event)
 
-| Tab | What it shows for the focused event |
-|---|---|
-| **Epoch** (`e`) | Lands on every open. The numbered cascade — dispatch · coeffects · handler · flow · fx · effects — plus inline issues (per-step pass/fail + the "Exception Thrown" block). Answers the canonical questions on first paint. |
-| **App-db** (`a`) | The slice-centric `:db-before → :db-after` diff for this event; pinned slices; full-tree escape hatch. Read-only. |
-| **Views** (`v`) | The subs recomputed because of this event + the components that re-rendered. |
-| **Trace** (`t`) | The raw trace stream filtered to this event's cascade, with the wall-clock axis for timers / retries / deferred dispatches. |
-| **Machine** (`m`) | The transitions this event triggered + spawn/destroy cascades. Stately-quality state-chart per machine; embeds `tools/machines-viz/`. |
-| **Routes** (`r`) | The matched route + params/query/fragment + Simulate-URL, for the focused event. |
+The tab-bar render order + the registry `:id` each tab lands on
+`:rf.xray/selected-tab` (the host-facing `focus!` panel id; the
+`focus.cljc` `valid-panels` set mirrors this exact inventory):
+
+| Tab (label · mnemonic) | Registry id | What it shows for the focused event |
+|---|---|---|
+| **Epoch** (`e`) | `:epoch` | Lands on every open. The numbered cascade — dispatch · coeffects · handler · flow · fx · effects — plus inline issues (per-step pass/fail + the "Exception Thrown" block). Answers the canonical questions on first paint. |
+| **app-db** (`a`) | `:app-db` | The slice-centric `:db-before → :db-after` diff for this event; pinned slices; full-tree escape hatch. Read-only. |
+| **Views** (`v`) | `:views` | The subs recomputed because of this event + the components that re-rendered. |
+| **Trace** (`t`) | `:trace` | The raw trace stream filtered to this event's cascade, with the wall-clock axis for timers / retries / deferred dispatches. |
+| **Machine** (`m`) | `:machines` | The transitions this event triggered + spawn/destroy cascades. Stately-quality state-chart per machine; embeds `tools/machines-viz/`. |
+| **Routes** (`r`) | `:routing` | The matched route + params/query/fragment + Simulate-URL, for the focused event. (Host-friendly alias: `focus!` accepts `:routes`, normalised to `:routing`.) |
+| **Resources** (`s`) | `:resources` | The server-state / resource cache for this event — registry · instances · in-flight work · invalidations · the route→resource graph. |
+| **Graph** | `:derivation-graph` | The unified derivation/process graph across all algebra-view families (EP-0014). L4-only — registry tab, no standalone `mount-*!` facade. |
+| **Modules** (`u`) | `:module-view` | The (realm, frame) address space + the demand-trigger surface (EP-0013). L4-only — registry tab, no standalone `mount-*!` facade. |
+
+All nine ids are focusable via `focus!`. The standalone-mountable `Panel`
+re-views (per [`spec/API.md`](./spec/API.md) §Additional public surfaces)
+are the first six; **Graph** and **Modules** are L4-only registry tabs
+(shell-internal, focusable but not independently mountable).
 
 ### Static mode — the 5 browse surfaces (registry catalogue, event-independent)
 
@@ -220,7 +232,7 @@ that the tool could be one-shotted from it.
 
 | File | Covers |
 |---|---|
-| [`spec/000-Vision.md`](./spec/000-Vision.md) | Why Xray exists; the two-mode chrome (6-tab Dynamic + 5-tab Static); the bar it sets. |
+| [`spec/000-Vision.md`](./spec/000-Vision.md) | Why Xray exists; the two-mode chrome (9-tab Dynamic + 5-tab Static); the bar it sets. |
 | [`spec/002-Time-Travel.md`](./spec/002-Time-Travel.md) | Epoch scrubber; replay semantics; read-only posture. |
 | [`spec/003-Machine-Inspector.md`](./spec/003-Machine-Inspector.md) | Embeds `tools/machines-viz/`; transition history; source jumps. |
 | [`spec/004-App-DB-Diff.md`](./spec/004-App-DB-Diff.md) | Slice-centric diff; pinned slices; full-tree escape hatch. |
@@ -313,7 +325,7 @@ Required GitHub secrets (configured at the repository level):
 
 ## Status
 
-Pre-alpha. Running shell with the full two-mode chrome (6-tab Dynamic
+Pre-alpha. Running shell with the full two-mode chrome (9-tab Dynamic
 detail panel + 5-tab Static mode), one wired keybinding
 (`Ctrl+Shift+C` toggle), default true-inline mount under
 `[data-rf-xray-host]`, programmatic pop-out via `(xray/popout!)`,
@@ -340,7 +352,9 @@ deliberately-simple single-frame driving surface (`standard_epochs`,
 rf2-gsr6z: one frame · a tall column of numbered buttons, each bumping
 a shared baseline counter + exercising exactly one more feature, so
 clicking top-to-bottom completely exercises any one Xray panel —
-Epoch / App-db / Views / Trace / Issues; no tabs, no routing, no
+Epoch / App-db / Views / Trace + the inline issue surfacing (Epoch
+issue blocks · L2 event-row wash · issues ribbon signal; the standalone
+Issues tab was removed per rf2-gbz39); no tabs, no routing, no
 machines/SSR; supersedes the old `step_deck`. App-db coverage here is
 the scalar bump + a flow-derived slot; the rich App-db DIFF shapes
 — added / removed-to-empty / changed (diff-mode-3) — moved to the

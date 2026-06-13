@@ -101,7 +101,8 @@
   Reversing frame and epoch would let the epoch pin resolve against the
   wrong frame's ring."
   (:require [re-frame.core :as rf]
-            [day8.re-frame2-xray.defaults :as defaults]))
+            [day8.re-frame2-xray.defaults :as defaults]
+            [day8.re-frame2-xray.panel-registry :as panel-registry]))
 
 ;; ---------------------------------------------------------------------------
 ;; The panel vocabulary
@@ -112,21 +113,82 @@
 ;; panel-registry inventory). The `:rf.xray/select-tab` event itself
 ;; does NOT guard the id (it writes any keyword onto `:selected-tab`,
 ;; and the L4 detail panel renders an unknown-tab stub for a stale id);
-;; this set is the published, host-facing vocabulary so a host can
+;; this vocabulary is the published, host-facing set so a host can
 ;; validate a panel selector before sending — and so the focus API
 ;; rejects a typo'd panel with a useful diagnostic rather than silently
 ;; selecting a tab that renders the unknown-tab stub.
+;;
+;; ## Single source of truth: the live L4 tab registry (rf2-1sddi6 / rf2-7ed9ms)
+;;
+;; `valid-panels` below MIRRORS the live Dynamic L4 tab registry
+;; (`panel-registry/tab-ids-for-mode :dynamic`) — the SAME inventory the
+;; L3 tab bar, the L4 detail panel mount (`shell.cljs` `detail-panel`),
+;; and the command palette (`palette/subs.cljs` `palette-panels`) all
+;; read from. It is repeated here as a static `.cljc`/JVM-runnable def
+;; because the registry atom is populated at CLJS install time and this
+;; namespace is JVM-portable (the pure `focus-command->dispatches`
+;; translator runs under the JVM test corpus with no runtime). The
+;; CLJS `focus!` validation (`apply-focus!`) guards against the LIVE
+;; registry directly so it can never drift; `valid-panels` is the
+;; published/JVM-testable shadow of that set, and a registry-driven
+;; cross-check test (`registry_cljs_test.cljs`) fails the build if the
+;; two ever disagree. So adding/removing a Dynamic tab means a single
+;; `reg-l4-tab!` edit in the panel's `install!` + this mirror line.
 
 (def valid-panels
   "The canonical host-facing Xray panel (L4 tab) ids a focus command
-  may target. Matches the spine's 6-tab inventory (Epoch · app-db ·
-  Views · Trace · Machine · Routes) — internal registry keys
-  `:views` / `:routes` per `tools/xray/spec/007-UX-IA.md`. The Issues
-  tab was removed per rf2-gbz39 (Option (c) — issues surface inline in
-  the Epoch + the L2 event-row pink-wash + the always-on issues ribbon
-  signal), so `:issues` is no longer a focusable panel. `:derivation-graph`
-  (EP-0014 prop-3, rf2-9ett2d) is the unified derivation/process graph tab."
-  #{:epoch :app-db :views :trace :machines :routes :derivation-graph})
+  may target — one entry per LIVE Dynamic L4 tab registered via
+  `panel-registry/reg-l4-tab!`:
+
+      Epoch · app-db · Views · Trace · Machines · Routing · Resources ·
+      Graph (derivation-graph) · Modules (module-view)
+
+  Internal registry ids (`:views` renders as \"Views\", `:routing`
+  renders as \"Routes\", `:derivation-graph` as \"Graph\",
+  `:module-view` as \"Modules\") — the id is not a user contract, the
+  label is. Host callers who prefer the display-noun spelling can pass
+  `:routes` (normalised to `:routing` via `panel-aliases`).
+
+  History: the Issues tab was removed per rf2-gbz39 (Option (c) —
+  issues surface inline in the Epoch + the L2 event-row pink-wash + the
+  always-on issues ribbon signal), so `:issues` is no longer a
+  focusable panel. `:derivation-graph` (EP-0014 prop-3, rf2-9ett2d) and
+  `:module-view` (EP-0013, rf2-wtg9z4) are the runtime-structure tabs.
+
+  This set MIRRORS `panel-registry/tab-ids-for-mode :dynamic` (the live
+  registry) — see the ns comment above; a cross-check test fails the
+  build if they drift (rf2-1sddi6 / rf2-7ed9ms)."
+  #{:epoch :app-db :views :trace :machines :routing
+    :resources :derivation-graph :module-view})
+
+;; ---------------------------------------------------------------------------
+;; Host-friendly panel aliases (rf2-7ed9ms finding 1)
+;; ---------------------------------------------------------------------------
+;;
+;; A host (Story beat, docs link, assertion) naturally reaches for the
+;; visible display-noun. The Routing tab's internal registry id is
+;; `:routing` but it RENDERS as "Routes" (matching the Static Routes
+;; catalogue tab so the two tab sets share one plural-domain-noun
+;; vocabulary). A host that sends `{:panel :routes}` is asking for that
+;; visible tab, so we translate the alias to the live registry id rather
+;; than rejecting it or landing the unknown-tab stub. The translation
+;; happens in `focus-command->dispatches` (pure / JVM-testable) so a
+;; raw `:routes` never reaches `:rf.xray/select-tab`.
+
+(def panel-aliases
+  "Host-facing panel-id aliases → live Dynamic L4 tab id. Lets a caller
+  use the visible display-noun spelling. Currently `:routes` → the
+  `:routing` tab (which renders as \"Routes\"). Applied by
+  `focus-command->dispatches` before the tab is selected and by
+  `focus!`'s validation, so every alias resolves to an installed tab."
+  {:routes :routing})
+
+(defn normalize-panel
+  "Resolve a host-facing `panel` id to its live Dynamic L4 tab id,
+  translating through `panel-aliases` (e.g. `:routes` → `:routing`).
+  A non-aliased id passes through unchanged. nil → nil."
+  [panel]
+  (get panel-aliases panel panel))
 
 ;; ---------------------------------------------------------------------------
 ;; Pure command → dispatches translation (JVM-runnable)
@@ -158,7 +220,10 @@
        cascade pin wins — it carries the frame and the spine resolves
        the settling epoch from it; an explicit `:epoch-id` is the
        lighter selector for callers that only have the epoch.)
-    4. `[:rf.xray/select-tab <panel>]` — when `:panel` present.
+    4. `[:rf.xray/select-tab <panel>]` — when `:panel` present. The
+       panel id is normalised through `panel-aliases` first
+       (`:routes` → `:routing`) so a host-friendly display-noun alias
+       lands the real live tab, not the unknown-tab stub.
     5. `[:rf.xray/focus-slice-path <path>]` — when `:path` present
        (App-db panel slice highlight).
 
@@ -166,9 +231,10 @@
   back via `focus!`'s return map; it never mutates Xray state.
 
   Note this fn does NOT validate `:panel` against `valid-panels` — it
-  is a faithful translator. Validation is `focus!`'s job (it owns the
-  diagnostic return shape); a caller wanting the raw translation can
-  pass any panel keyword here."
+  is a faithful translator (it DOES alias-normalise so the emitted
+  `:rf.xray/select-tab` id is always a live registry id). Validation is
+  `focus!`'s job (it owns the diagnostic return shape); a caller wanting
+  the raw translation can pass any panel keyword here."
   [{:keys [frame panel epoch-id dispatch-id path] :as _command}]
   (cond-> []
     (some? frame)       (conj [:rf.xray/select-frame frame])
@@ -176,12 +242,27 @@
     (and (some? epoch-id)
          (nil? dispatch-id))
     (conj [:rf.xray/focus-epoch epoch-id])
-    (some? panel)       (conj [:rf.xray/select-tab panel])
+    (some? panel)       (conj [:rf.xray/select-tab (normalize-panel panel)])
     (some? path)        (conj [:rf.xray/focus-slice-path path])))
 
 ;; ---------------------------------------------------------------------------
 ;; Host-facing focus entry point (CLJS — fires into the Xray frame)
 ;; ---------------------------------------------------------------------------
+
+#?(:cljs
+   (defn- focusable-panel?
+     "Is `panel` a focusable Dynamic tab id? True when it is a live
+     registered Dynamic L4 tab (`panel-registry/tab-ids-for-mode
+     :dynamic` — the single source of truth) OR a host-friendly alias
+     (`panel-aliases`). Falls back to the static `valid-panels` mirror
+     when the registry has not been populated yet (headless / partial
+     test fixtures), so validation never spuriously rejects in a
+     no-runtime context."
+     [panel]
+     (let [live (panel-registry/tab-ids-for-mode :dynamic)
+           inventory (if (seq live) live valid-panels)]
+       (or (contains? inventory panel)
+           (contains? panel-aliases panel)))))
 
 #?(:cljs
    (defn- apply-focus!
@@ -190,13 +271,15 @@
      public `focus!` arities both funnel through here after resolving
      the positional host-frame."
      [{:keys [panel source sync?] :as command}]
-     (if (and (some? panel) (not (contains? valid-panels panel)))
+     (if (and (some? panel) (not (focusable-panel? panel)))
        {:ok?    false
         :reason :unknown-panel
         :given  panel
         :valid  valid-panels
         :hint   (str "Unknown Xray panel " (pr-str panel)
-                     ". Use one of " (pr-str valid-panels) ".")}
+                     ". Use one of " (pr-str valid-panels)
+                     " (or the alias " (pr-str (set (keys panel-aliases)))
+                     ").")}
        (let [dispatches (focus-command->dispatches command)]
          ;; Fire into Xray's own shell frame (the host never sees it —
          ;; the channel is the command, not the frame split). Mirrors

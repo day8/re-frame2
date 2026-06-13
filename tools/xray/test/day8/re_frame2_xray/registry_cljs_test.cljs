@@ -59,6 +59,8 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [day8.re-frame2-xray.config :as config]
+            [day8.re-frame2-xray.focus :as focus]
+            [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.self-noise :as self-noise]
@@ -89,6 +91,31 @@
   []
   (registry/register-xray-handlers!)
   (frame/reg-frame :rf/xray {}))
+
+;; ---- focus ↔ registry single-source-of-truth cross-check ----------------
+;;
+;; rf2-1sddi6 / rf2-7ed9ms — `focus/valid-panels` (the host-facing
+;; focus vocabulary) is a static `.cljc` mirror of the LIVE Dynamic L4
+;; tab registry. This test fails the build the instant the two drift:
+;; adding/removing a `reg-l4-tab!` Dynamic tab without updating
+;; `valid-panels` (or vice-versa) breaks here. The drift this guards is
+;; exactly the rf2-1sddi6 / rf2-7ed9ms finding — focus published `:routes`
+;; (no such tab) while omitting shipped `:resources` / `:module-view`.
+
+(deftest focus-valid-panels-mirrors-live-dynamic-registry
+  (testing "focus/valid-panels == panel-registry/tab-ids-for-mode :dynamic"
+    (setup-xray-frame!)
+    (is (= focus/valid-panels
+           (panel-registry/tab-ids-for-mode :dynamic))
+        (str "focus/valid-panels drifted from the live Dynamic L4 tab "
+             "registry. Reconcile focus.cljc `valid-panels` with the "
+             "shipped `reg-l4-tab!` ids."))
+    (testing "every focus alias target is a live registered tab"
+      (let [live (panel-registry/tab-ids-for-mode :dynamic)]
+        (doseq [[alias target] focus/panel-aliases]
+          (is (contains? live target)
+              (str "focus alias " alias " → " target
+                   " must resolve to an installed Dynamic tab")))))))
 
 (defn- xray-id?
   "True when `id` is a Xray-namespaced keyword. Used to filter the
@@ -183,7 +210,9 @@
    ;; `:rf.xray.epoch/subs-value-diff-mode`, `:rf.xray.app-db/diff-mode`,
    ;; `:rf.xray.machine-inspector/diff-mode`) are gone — FULL+DIFF is
    ;; the single rendering across every consumer surface.
-   :rf.xray/event-detail
+   ;; rf2-7ed9ms — renamed off the retired-panel name `:rf.xray/event-detail`
+   ;; to the behaviour name `:rf.xray/focused-cascade-detail`.
+   :rf.xray/focused-cascade-detail
    :rf.xray/filtered-cascades
    ;; rf2-jvghz — model behind the L2 'N hidden by filters' indicator
    ;; (raw vs filtered visible counts + the active filter cause).
@@ -1282,11 +1311,11 @@
 
 ;; ---- (3) high-value composite sub shapes --------------------------------
 
-(deftest sub-event-detail-shape-on-empty-buffer
-  (testing ":rf.xray/event-detail returns the canonical shape on an empty buffer"
+(deftest sub-focused-cascade-detail-shape-on-empty-buffer
+  (testing ":rf.xray/focused-cascade-detail returns the canonical shape on an empty buffer"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
-      (let [data @(rf/subscribe [:rf.xray/event-detail])]
+      (let [data @(rf/subscribe [:rf.xray/focused-cascade-detail])]
         (is (contains? data :cascades))
         (is (contains? data :selected-dispatch-id))
         (is (contains? data :selected-cascade))
@@ -1588,7 +1617,7 @@
       ;; Each `is` proves the subscribe + deref completes without throwing.
       ;; The contract is that the registry's composites tolerate empty
       ;; inputs; per-panel tests cover the populated cases.
-      (doseq [sub-id [:rf.xray/event-detail
+      (doseq [sub-id [:rf.xray/focused-cascade-detail
                       ;; rf2-p53m2 — `:rf.xray/app-db-diff` pruned (dead
                       ;; surface); the app-db tab's composite is now
                       ;; `:rf.xray/app-db-current+diff` → `:rf.xray/app-db-state`.

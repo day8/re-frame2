@@ -5,16 +5,35 @@
 
   ## What this testbed is
 
-  A visual gallery of the six L4 tab panels (Epoch · App-db · Reactive
-  · Trace · Machines · Routing) plus the full 4-layer Xray chrome,
-  framed exactly like Storybook frames UI components. Issues is NOT a
-  tab (rf2-gbz39 — Option (c)): issue surfacing folds INLINE into the
-  Epoch panel + the L2 event-row pink-wash + the always-on issues
+  A visual gallery of the six original L4 tab panels (Epoch · App-db ·
+  Reactive · Trace · Machines · Routing) plus the full 4-layer Xray
+  chrome, framed exactly like Storybook frames UI components. Issues is
+  NOT a tab (rf2-gbz39 — Option (c)): issue surfacing folds INLINE into
+  the Epoch panel + the L2 event-row pink-wash + the always-on issues
   ribbon signal, so there is no standalone Issues panel to gallery.
   Scroll the workspace; see what each panel looks like under varying
   state magnitude / payload shape / privacy posture. The gallery IS
   the surface a developer (Mike first) reaches for when asking 'what
   does this look like under load X?'.
+
+  ## Intentional gallery exclusions (rf2-1sddi6 F3)
+
+  The three cohesive-sub-domain / runtime-structure tabs added after
+  this gallery's original six — **Resources** (`:resources`, EP-0016),
+  **Graph** (`:derivation-graph`, EP-0014), and **Modules**
+  (`:module-view`, EP-0013) — are deliberately NOT galleried here. They
+  are visual *design* surfaces whose shipped-surface + focusability
+  coverage lives in the feature-matrix browser sweep
+  (`testbeds/feature_matrix/scenarios.cjs` `PANEL_HANDOFFS` — walks all
+  nine live Dynamic tabs and asserts a real panel root, never the
+  unknown-tab stub) and their own per-panel CLJS unit tests
+  (`resources_cljs_test`, `derivation_graph_cljs_test`,
+  `module_view_cljs_test`). The panel-gallery is the magnitude/payload
+  *visual-design* harness for the six core lenses; adding the three is
+  tracked separately if/when a Figma-design pass needs them. The
+  exclusion is locked by an explicit assertion in
+  `panel_gallery_inventory_smoke_cljs_test.cljs` so it can't silently
+  rot into an unexplained gap.
 
   The standout is the **edn-inspector** widget gallery — the single
   CLJS-value renderer behind every panel (App-db, Trace payloads,
@@ -24,8 +43,10 @@
 
   Per `tools/xray/spec/018-Event-Spine.md` the chrome is four stacked
   layers — top ribbon + event list + tab bar + detail panel — with
-  six L4 tabs replacing the legacy sidebar's 16+ panels (Issues folded
-  inline per rf2-gbz39). Time Travel is folded into the spine.
+  nine L4 tabs replacing the legacy sidebar's 16+ panels (Issues folded
+  inline per rf2-gbz39; this gallery covers the six core lenses and
+  intentionally excludes Resources / Graph / Modules — see the
+  exclusions note above). Time Travel is folded into the spine.
 
   ## Per-variant frame isolation (de-singletoned shell — rf2-1w07r)
 
