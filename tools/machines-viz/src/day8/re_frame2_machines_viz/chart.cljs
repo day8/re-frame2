@@ -1672,15 +1672,9 @@
                    :data-theme theme-name
                    ;; rf2-g2svr (G1) — the FULL active set surfaces as a
                    ;; sorted, space-joined attr so hosts + DOM tests can
-                   ;; read every active leaf (N for a parallel snapshot).
-                   ;; `data-highlight-id` is kept as the single-active
-                   ;; convenience: the lone id when the set is a
-                   ;; singleton, "" otherwise (flat/compound stay
-                   ;; observationally identical to pre-G1).
+                   ;; read every active leaf (one for a flat/compound
+                   ;; snapshot, N for a parallel one).
                    :data-highlight-ids (str/join " " (sort highlight-ids))
-                   :data-highlight-id (if (= 1 (count highlight-ids))
-                                        (first highlight-ids)
-                                        "")
                    :data-from-highlight-id (or from-highlight-id "")
                    :data-to-highlight-id (or to-highlight-id "")
                    ;; rf2-qeemm (G3) — the fired-this-epoch edge-id set

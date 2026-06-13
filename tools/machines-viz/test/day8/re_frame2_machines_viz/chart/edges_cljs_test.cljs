@@ -2,8 +2,8 @@
   "CLJS tests for the MachineChart edge path-selection (rf2-cz8v6, G2).
 
   `chart.edges/edge-path` is the pure source-of-truth for the SVG path a
-  transition edge renders: self-loop → elk bend-point route → bezier
-  fallback. The renderer (`transition-edge`) calls it, so pinning the
+  transition edge renders: elk bend-point route → bezier fallback. The
+  renderer (`transition-edge`) calls it, so pinning the
   helper pins the rendered geometry without racing the async elkjs
   layout pass (the full-mount DOM suite can't await elk).
 
@@ -336,8 +336,7 @@
           ;; (0,0) → (0,120) → (160,120) → (160,200)
           points (array (pt 0 0) (pt 0 120) (pt 160 120) (pt 160 200))
           {:keys [d routed?]} (edges/edge-path
-                                (assoc base-coords
-                                       :self-loop? false :points points))]
+                                (assoc base-coords :points points))]
       (is (true? routed?) "a multi-point route is :routed?")
       (is (str/starts-with? d "M 0,0")
           "the path starts at the route's first point")
@@ -359,7 +358,7 @@
             midpoint floating away from the bends"
     (let [points (array (pt 0 0) (pt 0 100) (pt 100 100) (pt 100 200))
           {:keys [label-x label-y routed?]}
-          (edges/edge-path (assoc base-coords :self-loop? false :points points))]
+          (edges/edge-path (assoc base-coords :points points))]
       (is (true? routed?))
       ;; middle segment is (0,100)→(100,100): midpoint (50,100).
       (is (= 50 label-x))
@@ -375,7 +374,6 @@
           ;; (140, 60) — the label MUST honour ELK's position.
           {:keys [label-x label-y routed?]}
           (edges/edge-path (assoc base-coords
-                                  :self-loop? false
                                   :points points
                                   :label-pos {:x 140 :y 60}))]
       (is (true? routed?))
@@ -389,7 +387,6 @@
     (let [points (array (pt 0 0) (pt 0 120) (pt 160 120) (pt 160 200))
           {:keys [label-x label-y]}
           (edges/edge-path (assoc base-coords
-                                  :self-loop? false
                                   :points points
                                   :cross-hierarchy? true
                                   :label-pos {:x 200 :y 10}))]
@@ -404,7 +401,6 @@
     (let [points (array (pt 0 0) (pt 0 100) (pt 100 100) (pt 100 200))
           {:keys [label-x label-y]}
           (edges/edge-path (assoc base-coords
-                                  :self-loop? false
                                   :points points
                                   :label-pos nil))]
       (is (= 50 label-x) "no ELK label → middle-segment midpoint x")
@@ -415,7 +411,7 @@
             renders a straight M…L… line, still flagged :routed?"
     (let [points (array (pt 10 10) (pt 90 90))
           {:keys [d routed?]}
-          (edges/edge-path (assoc base-coords :self-loop? false :points points))]
+          (edges/edge-path (assoc base-coords :points points))]
       (is (true? routed?))
       (is (= "M 10,10 L 90,90" d)))))
 
@@ -426,7 +422,7 @@
             the bezier path (xyflow `getBezierPath` → a single C curve),
             and is NOT flagged :routed?"
     (let [{:keys [d routed?]}
-          (edges/edge-path (assoc base-coords :self-loop? false :points nil))]
+          (edges/edge-path (assoc base-coords :points nil))]
       (is (false? routed?) "no points → not routed (bezier fallback)")
       (is (string? d))
       (is (str/includes? d "C")
@@ -436,102 +432,9 @@
   (testing "rf2-cz8v6 — a single-point (or empty) route is not a real
             route; the edge falls back to the bezier"
     (let [{:keys [routed?]}
-          (edges/edge-path (assoc base-coords :self-loop? false
+          (edges/edge-path (assoc base-coords
                                   :points (array (pt 5 5))))]
       (is (false? routed?) "a one-point route is too degenerate to route"))))
-
-;; ---- self-loop (unchanged) ---------------------------------------------
-
-(deftest edge-path-self-loop-keeps-its-loop-path
-  (testing "rf2-cz8v6 — a self-loop keeps its dedicated small-loop path
-            and is NEVER routed, even if elk emitted bend-points for it"
-    (let [{:keys [d routed?]}
-          (edges/edge-path (assoc base-coords
-                                  :self-loop? true
-                                  ;; elk route present but must be ignored
-                                  :points (array (pt 0 0) (pt 9 9) (pt 18 0))))]
-      (is (false? routed?) "self-loops are never routed")
-      ;; the loop path is the shipped cubic loop off the source handle.
-      (is (str/starts-with? d "M 0,0") "loop starts at the source handle")
-      (is (str/includes? d "C") "the self-loop is a cubic loop")
-      (is (not (str/includes? d "Q"))
-          "the self-loop is NOT the routed poly-path"))))
-
-;; ---- self-loop fan (rf2-shv82, Issue 2) --------------------------------
-;;
-;; Multiple self-loops on one node fan around the perimeter so each
-;; label gets its own slot (the bug: 3 self-loops on `:disconnected` in
-;; the testdeck rendered overlapping garbled text). The projector
-;; assigns each a per-source `loop-index` (0..N-1); `edge-path` rotates
-;; the loop's anchor + label to a distinct slot per ordinal.
-
-(deftest edge-path-self-loop-zero-index-is-historical-slot
-  (testing "rf2-shv82 — loop-index 0 (the single-self-loop case) renders
-            in the historical top-right slot: same start point, label
-            roughly to the right of the source handle"
-    (let [{:keys [d label-x label-y routed?]}
-          (edges/edge-path (assoc base-coords
-                                  :self-loop? true
-                                  :loop-index 0))]
-      (is (false? routed?))
-      (is (str/starts-with? d "M 0,0"))
-      ;; slot 0 is top-right (angle = -π/4) — label has positive x, negative y
-      (is (pos? label-x) "slot 0 label sits to the right of the source")
-      (is (neg? label-y) "slot 0 label sits above the source (top-right)"))))
-
-(deftest edge-path-multi-self-loops-fan-to-distinct-slots
-  (testing "rf2-shv82 (Issue 2) — three self-loops on the same source
-            (loop-indexes 0/1/2) get DISTINCT label positions so their
-            labels don't stack and garble"
-    (let [labels-at (fn [i]
-                     (-> (edges/edge-path (assoc base-coords
-                                                 :self-loop? true
-                                                 :loop-index i))
-                         (select-keys [:label-x :label-y])))
-          slot-0 (labels-at 0)
-          slot-1 (labels-at 1)
-          slot-2 (labels-at 2)]
-      (is (not= slot-0 slot-1) "slot 0 != slot 1")
-      (is (not= slot-1 slot-2) "slot 1 != slot 2")
-      (is (not= slot-0 slot-2) "slot 0 != slot 2 (no collision)"))))
-
-(deftest edge-path-self-loop-fan-label-separation
-  (testing "rf2-shv82 (Issue 2) — adjacent fan slots have non-trivial
-            Euclidean separation so labels DO NOT overlap (catches a
-            regression to a tiny offset that would still read garbled)"
-    (let [d-of (fn [a b]
-                 (js/Math.hypot (- (:label-x a) (:label-x b))
-                                (- (:label-y a) (:label-y b))))
-          slot (fn [i] (edges/edge-path (assoc base-coords
-                                               :self-loop? true
-                                               :loop-index i)))
-          ;; The minimum label-anchor separation: ~radius worth of motion
-          ;; between adjacent slots. 24px is generous enough for the
-          ;; backplate width (~one event-label segment).
-          min-sep 24]
-      (is (> (d-of (slot 0) (slot 1)) min-sep))
-      (is (> (d-of (slot 1) (slot 2)) min-sep))
-      (is (> (d-of (slot 0) (slot 2)) min-sep)))))
-
-(deftest edge-path-self-loop-fan-wraps-past-eight-slots
-  (testing "rf2-shv82 (Issue 2) — > 8 self-loops on one node (rare; >8
-            distinct events on a single state is a code-smell the user
-            owns) wraps via mod, so an out-of-range index does not crash"
-    (let [{:keys [routed?]}
-          (edges/edge-path (assoc base-coords :self-loop? true :loop-index 9))]
-      (is (false? routed?))
-      ;; If the slot lookup blew up the test would throw before this.
-      (is true "loop-index past the slot count wraps cleanly"))))
-
-(deftest edge-path-self-loop-nil-index-treated-as-zero
-  (testing "rf2-shv82 (Issue 2) — a nil loop-index (a non-self-loop
-            edge accidentally going down the self-loop branch, or pre-
-            projector callers) treats it as slot 0 so behaviour stays
-            historical"
-    (let [a (edges/edge-path (assoc base-coords :self-loop? true :loop-index nil))
-          b (edges/edge-path (assoc base-coords :self-loop? true :loop-index 0))]
-      (is (= (:label-x a) (:label-x b)))
-      (is (= (:label-y a) (:label-y b))))))
 
 ;; ---- cross-hierarchy label placement (rf2-shv82, Issue 3) --------------
 
@@ -546,10 +449,8 @@
           ;; sit near (0, 120), NOT (80, 120).
           points (array (pt 0 0) (pt 0 120) (pt 160 120) (pt 160 200))
           plain  (edges/edge-path (assoc base-coords
-                                         :self-loop? false
                                          :points points))
           xhier  (edges/edge-path (assoc base-coords
-                                         :self-loop? false
                                          :points points
                                          :cross-hierarchy? true))]
       (is (true? (:routed? plain)))
@@ -563,17 +464,6 @@
       (is (< (js/Math.abs (- (:label-y xhier) 120)) 10)
           "cross-hierarchy label hugs the source-side bend's y"))))
 
-(deftest edge-path-cross-hierarchy-flag-does-not-affect-self-loop
-  (testing "rf2-shv82 (Issue 3) — :cross-hierarchy? on a self-loop is a
-            no-op (a self-loop is never cross-hierarchy per the
-            projector); the self-loop branch still wins"
-    (let [a (edges/edge-path (assoc base-coords :self-loop? true))
-          b (edges/edge-path (assoc base-coords :self-loop? true
-                                    :cross-hierarchy? true))]
-      (is (= (:d a) (:d b)) "self-loop path is identical")
-      (is (= (:label-x a) (:label-x b))
-          "self-loop label is identical (cross-hierarchy is ignored)"))))
-
 (deftest edge-path-cross-hierarchy-two-point-route-falls-back-to-mid
   (testing "rf2-shv82 (Issue 3) — a routed cross-hierarchy edge with a
             degenerate two-point route (no interior bend to anchor on)
@@ -582,7 +472,6 @@
     (let [points (array (pt 10 10) (pt 90 90))
           {:keys [label-x label-y routed?]}
           (edges/edge-path (assoc base-coords
-                                  :self-loop? false
                                   :points points
                                   :cross-hierarchy? true))]
       (is (true? routed?))
@@ -594,9 +483,9 @@
             (the bezier fallback before elk resolves) takes the same
             bezier path as a same-parent edge — cross-hierarchy only
             matters for the routed label anchor"
-    (let [plain (edges/edge-path (assoc base-coords :self-loop? false
+    (let [plain (edges/edge-path (assoc base-coords
                                         :points nil))
-          xhier (edges/edge-path (assoc base-coords :self-loop? false
+          xhier (edges/edge-path (assoc base-coords
                                         :points nil
                                         :cross-hierarchy? true))]
       (is (false? (:routed? plain)))
@@ -692,7 +581,6 @@
       ;; the path string is a poly-path (Q segments), not a bezier (C).
       (let [{:keys [d routed?]}
             (edges/edge-path (assoc base-coords
-                                    :self-loop? false
                                     :points (apply array
                                                    (map #(pt (:x %) (:y %))
                                                         (:points (:data xy-out))))))]

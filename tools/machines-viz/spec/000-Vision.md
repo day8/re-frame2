@@ -291,7 +291,7 @@ this tool jar per rf2-sqhqu — pure text-to-SVG via the Mermaid DSL):
 
 **One model, four surfaces.** All four consume the same
 `reg-machine` body (EDN). The interactive three share the
-`MachineChart` component + the ELK + hand-rolled-SVG renderer; the
+`MachineChart` component + the `@xyflow/react` + elkjs renderer; the
 fourth shares the model but emits Mermaid DSL instead of SVG. The
 shared model is the lever — features that arrive on the
 interactive surfaces (state tags, `:spawn-all` join condition
@@ -312,11 +312,13 @@ The v1.0 `MachineChart` is built on:
   §License chain decision-trace row.
 - **Interactive renderer: `@xyflow/react` (React Flow).**
   Production-grade React graph renderer. The same engine Stately
-  Studio uses for its commercial editor. Custom node + edge
-  components (`chart.nodes` + `chart.edges`) recover the Xray
-  visual identity (rounded-rect bodies, state-tag pills, final-
-  state double border, active-state cyan tint + emphasised
-  stroke, mono typography). xyflow handles pan / zoom / fit /
+  Studio uses for its commercial editor (the paradigm reference is
+  Stately's graph view — see the tracked reference screenshot
+  [`design-reference/stately-graph-view.png`](../design-reference/stately-graph-view.png)).
+  Custom node + edge components (`chart.nodes` + `chart.edges`)
+  recover the Xray visual identity (rounded-rect bodies, state-tag
+  pills, final-state double border, active-state cyan tint +
+  emphasised stroke, mono typography). xyflow handles pan / zoom / fit /
   minimap natively; elk.js runs as xyflow's layout backend
   inside the chart component. Per the **2026-05-21 override**
   recorded in §Decision trace §Interactive renderer below

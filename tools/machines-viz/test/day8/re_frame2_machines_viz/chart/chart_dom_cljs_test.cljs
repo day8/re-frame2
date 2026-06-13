@@ -928,15 +928,11 @@
             (is (contains? ids (layout/region-scoped-id :display [:off]))
                 ":display region's active leaf is in the active set — SIMULTANEOUSLY")
             (is (= 2 (count ids))
-                "exactly the two active region leaves, no more")
-            ;; single-active convenience attr is "" for a multi-active set
-            (is (= "" (.getAttribute root "data-highlight-id"))
-                "data-highlight-id is empty for a multi-active (parallel) set")))))))
+                "exactly the two active region leaves, no more")))))))
 
 (deftest chart-flat-current-state-single-active-back-compat
-  (testing "rf2-g2svr — a flat (single-active) :current-state still
-            surfaces ONE id on both data-highlight-ids + the single-
-            active data-highlight-id convenience attr (no regression)"
+  (testing "rf2-g2svr — a flat (single-active) :current-state surfaces
+            ONE id on data-highlight-ids (no regression)"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
@@ -944,9 +940,8 @@
          :current-state :loading}
         (fn [root _node]
           (let [loading-id (layout/node-id [:loading])]
-            (is (= loading-id (.getAttribute root "data-highlight-ids")))
-            (is (= loading-id (.getAttribute root "data-highlight-id"))
-                "single-active convenience attr carries the lone id")))))))
+            (is (= loading-id (.getAttribute root "data-highlight-ids"))
+                "the lone active leaf surfaces on data-highlight-ids")))))))
 
 ;; ---- fired-this-epoch edge highlight (rf2-qeemm, G3) --------------------
 ;;

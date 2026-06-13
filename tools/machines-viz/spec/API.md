@@ -612,21 +612,20 @@ event-node" unless explicitly stated otherwise.
 > `[source target]` event-node grouping, if ever wanted, would be a new
 > explicit feature — it is not reimplemented here.
 
-### Self-loop fan — `:loopIndex` (rf2-shv82 Issue 2 — SUPERSEDED)
+### Self-loop fan — `:loopIndex` (rf2-shv82 Issue 2 — REMOVED, rf2-hstzzj)
 
-> **SUPERSEDED.** The historical multi-self-loop perimeter fan
+> **REMOVED (rf2-hstzzj).** The historical multi-self-loop perimeter fan
 > (rf2-shv82, Issue 2) rotated N self-loops around a node's perimeter so
-> their labels did not stack. Under the rf2-qo5xy events-as-nodes
-> paradigm each self-event is its own event-node, so multiple self-loops
-> on one state are multiple distinct event-nodes — there is no fan and no
-> collapse to reconcile. The fan geometry survives only in
-> `chart.edges/edge-path` for direct callers that want explicit per-loop
-> rotation (no projection callers exist); every self-loop edge carries
-> `:loopIndex 0`. (The rf2-o6vh7 retirement removed the `:siblingIndex` /
-> `:siblingCount` machinery this section once referenced.)
-
-The chart still surfaces `data-loop-index` on every self-loop edge
-label for DOM tests; a non-self-loop edge carries no `data-loop-index`.
+> their labels did not stack. The rf2-qo5xy events-as-nodes paradigm
+> superseded it: a self-transition projects as `state → event-node →
+> state` (two ordinary ELK-routed edges), so multiple self-loops on one
+> state are multiple distinct event-nodes — there was never a fan or a
+> collapse to reconcile. The projector emitted `:selfLoop false` on every
+> edge, so the fan geometry (`self-loop-geometry`, the `:selfLoop` /
+> `:loopIndex` edge-`:data` keys, the `edge-path` self-loop branch, and
+> the `data-loop-index` DOM attr) was unreachable dead code; rf2-hstzzj
+> pruned it. (The rf2-o6vh7 retirement had already removed the related
+> `:siblingIndex` / `:siblingCount` collapse machinery.)
 
 ### Label rendering — padded backgrounds (rf2-j10sm Phase 1, D)
 
@@ -688,19 +687,11 @@ label so DOM tests + hosts can pin the convention.
 
 ### Post-render label-collision avoidance — RETIRED (rf2-0xbgx)
 
-The `chart.overlays.label-collisions/LabelCollisionsOverlay`
-post-render pass (rf2-r7vsr · Phase 3) is **retired**. It swept
-edge-label elements (`[data-testid^="rf-mv-chart-edge-"]`) reading
-`data-edge-path-d` / `data-label-anchor-x/y`, but after the
-events-as-nodes paradigm shift (rf2-qo5xy) the event/guard/action
-label rides on the event **node** — the structural in/out transition
-edges carry an empty `:eventLabel`, so no edge-label element with
-those data-attrs is emitted and the sweep always found zero labels.
-With elk layout + events-as-nodes, label-on-node-body collisions are
-a non-issue, so the overlay + its pure geometry resolver
-(`label-collision-geometry`), the `data-edge-path-d` /
-`data-label-anchor-x/y` data-attrs, and the `data-label-collisions` /
-`data-label-collision-ids` chart-root attrs are all removed.
+There is no post-render label-collision pass. Under elk layout +
+events-as-nodes (rf2-qo5xy) the event/guard/action label rides on the
+event **node**, so label-on-node-body collisions are a non-issue and
+elk reserves a channel for the rare painted edge label. The historical
+`LabelCollisionsOverlay` sweep (rf2-r7vsr) was removed in rf2-0xbgx.
 
 ### Parallel multi-active highlight (rf2-yoe6e, rf2-g2svr)
 
@@ -741,9 +732,10 @@ The resolution is pure and JVM-tested, in two layers:
   (`:from-highlight` / `:to-highlight`), which is genuinely single-state.
 
 - **`chart.projection/xyflow-graph`** threads the set as the
-  `:highlight-ids` option; a node is `:active` when its id ∈ the set.
-  The scalar `:highlight-id` option remains as a convenience that folds
-  into the set as a singleton (both supplied → the union). An edge is
+  `:highlight-ids` option; a node is `:active` when its id ∈ the set. A
+  flat / compound snapshot resolves (via `highlight-ids`) to a singleton
+  set, so `:highlight-ids` is the single active-state option (rf2-hstzzj
+  removed the legacy scalar `:highlight-id` convenience). An edge is
   `:active` when its **source** state is in the active set (rf2-vd3q1i —
   **source-active only**, not incident-to-active): the outgoing
   "transitions available from here" fan lights, while an **incoming**
@@ -754,10 +746,9 @@ The resolution is pure and JVM-tested, in two layers:
   rule loses no "what just happened" cue.
 
 The chart root surfaces the full active set as `data-highlight-ids` (a
-sorted, space-joined list of node-ids); `data-highlight-id` is kept as a
-single-active convenience (the lone id when the set is a singleton, `""`
-otherwise) so flat / compound charts stay observationally identical to
-the pre-G1 single-active behaviour.
+sorted, space-joined list of node-ids) — one id for a flat / compound
+snapshot, N for a parallel one. (The focused-event lens surfaces
+separately as `data-from-highlight-id` / `data-to-highlight-id`.)
 
 **Colour delegated to Figma.** This contract fixes *which* nodes are
 active and that *all* of them light up at once; the active palette + the

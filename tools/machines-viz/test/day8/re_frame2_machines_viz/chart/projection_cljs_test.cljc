@@ -67,8 +67,9 @@
                                                :other {}}}}}}})
 
 (def self-loop-machine
-  "A machine with a self-transition (:idle --ping--> :idle) so the
-  `:selfLoop` flag has a positive case."
+  "A machine with a self-transition (:idle --ping--> :idle), which
+  dissolves through an event-node (`state → event-node → state`) under
+  the events-as-nodes paradigm."
   {:initial :idle
    :states  {:idle {:on {:ping :idle :go :busy}}
              :busy {:on {:done :idle}}}})
@@ -329,7 +330,7 @@
             :data — the two signals compose, neither clobbers the other"
     (let [parsed (layout/project-definition success-and-error-finals)
           hi     (layout/node-id [:boom])
-          graph  (projection/xyflow-graph parsed {} {:highlight-id hi})
+          graph  (projection/xyflow-graph parsed {} {:highlight-ids #{hi}})
           boom   (node-by-id graph hi)]
       (is (true? (:active     (:data boom))) "the error final is active")
       (is (true? (:errorFinal (:data boom))) "AND it is an error terminal")
@@ -470,11 +471,11 @@
 ;; ---- xyflow-graph :data flag derivation (G1) ---------------------------
 
 (deftest xyflow-graph-active-flag
-  (testing "the node whose id == highlight-id gets `:active true`; all
+  (testing "the node whose id ∈ highlight-ids gets `:active true`; all
             others `:active false`"
     (let [parsed   (layout/project-definition idle-loading)
           hi       (layout/node-id [:loading])
-          graph    (projection/xyflow-graph parsed {} {:highlight-id hi})
+          graph    (projection/xyflow-graph parsed {} {:highlight-ids #{hi}})
           loading  (node-by-id graph hi)
           idle     (node-by-id graph (layout/node-id [:idle]))]
       (is (true?  (:active (:data loading))))
@@ -500,9 +501,9 @@
             never gets `:sim` regardless of sim?"
     (let [parsed   (layout/project-definition idle-loading)
           hi       (layout/node-id [:loading])
-          sim      (projection/xyflow-graph parsed {} {:highlight-id hi :sim? true})
-          no-sim   (projection/xyflow-graph parsed {} {:highlight-id hi :sim? false})
-          inactive (projection/xyflow-graph parsed {} {:highlight-id hi :sim? true})]
+          sim      (projection/xyflow-graph parsed {} {:highlight-ids #{hi} :sim? true})
+          no-sim   (projection/xyflow-graph parsed {} {:highlight-ids #{hi} :sim? false})
+          inactive (projection/xyflow-graph parsed {} {:highlight-ids #{hi} :sim? true})]
       (is (true?  (:sim (:data (node-by-id sim hi)))))
       (is (false? (:sim (:data (node-by-id no-sim hi)))))
       (is (false? (:sim (:data (node-by-id inactive (layout/node-id [:idle])))))))))
@@ -512,8 +513,9 @@
 ;; A PARALLEL machine's snapshot `:state` is a region-map — N
 ;; simultaneously-active leaves (one per region). `:highlight-ids` (a
 ;; SET) marks EVERY active leaf `:active` so the chart lights up all
-;; regions at once (the §1.2 parity bar). The scalar `:highlight-id`
-;; stays as a single-active convenience that folds into the set.
+;; regions at once (the §1.2 parity bar). A flat / compound snapshot
+;; resolves to a singleton set, so `:highlight-ids` is the single
+;; active-state option.
 
 (deftest xyflow-graph-highlight-ids-marks-every-active-leaf
   (testing "rf2-g2svr (THE PARITY CAPABILITY) — passing a SET of two
@@ -557,28 +559,16 @@
                (layout/region-scoped-id :video [:shown])} active-states)
           "exactly the two active region leaves are marked active"))))
 
-(deftest xyflow-graph-scalar-highlight-id-still-works
-  (testing "rf2-g2svr — the scalar `:highlight-id` is back-compat: it
-            folds into the active set as a singleton, so flat/compound
-            callers (and existing tests) need no set"
+(deftest xyflow-graph-flat-snapshot-singleton-highlight-ids
+  (testing "rf2-g2svr — a flat/compound snapshot resolves to a singleton
+            `:highlight-ids` set, marking exactly the one active leaf"
     (let [parsed  (layout/project-definition idle-loading)
           hi      (layout/node-id [:loading])
-          graph   (projection/xyflow-graph parsed {} {:highlight-id hi})
+          graph   (projection/xyflow-graph parsed {} {:highlight-ids #{hi}})
           loading (node-by-id graph hi)
           idle    (node-by-id graph (layout/node-id [:idle]))]
       (is (true?  (:active (:data loading))))
       (is (false? (:active (:data idle)))))))
-
-(deftest xyflow-graph-highlight-id-and-ids-union
-  (testing "rf2-g2svr — when BOTH `:highlight-id` and `:highlight-ids`
-            are supplied the active set is their union"
-    (let [parsed (layout/project-definition parallel-machine)
-          a      (layout/region-scoped-id :audio [:playing])
-          b      (layout/region-scoped-id :video [:shown])
-          graph  (projection/xyflow-graph
-                   parsed {} {:highlight-id a :highlight-ids #{b}})]
-      (is (true? (:active (:data (node-by-id graph a)))))
-      (is (true? (:active (:data (node-by-id graph b))))))))
 
 ;; ---- xyflow-graph active-region CONTAINER chrome (rf2-80rm2, G4) ---------
 ;;
@@ -670,7 +660,7 @@
             set is exactly the active leaf(s); no spurious node lights"
     (let [parsed   (layout/project-definition idle-loading)
           hi       (layout/node-id [:loading])
-          graph    (projection/xyflow-graph parsed {} {:highlight-id hi})
+          graph    (projection/xyflow-graph parsed {} {:highlight-ids #{hi}})
           flagged  (filter #(contains? (:data %) :active) (:nodes graph))
           actives  (set (map :id (filter #(:active (:data %)) flagged)))]
       (is (= #{hi} actives)
@@ -686,9 +676,9 @@
           "no highlight → the compound container is inactive"))))
 
 (deftest xyflow-graph-no-highlight-leaves-all-inactive
-  (testing "rf2-g2svr — neither `:highlight-id` nor `:highlight-ids` →
-            no state/region node is active (empty set, never
-            nil-comparison surprises). Initial-marker nodes carry no
+  (testing "rf2-g2svr — no `:highlight-ids` → no state/region node is
+            active (empty set, never nil-comparison surprises).
+            Initial-marker nodes carry no
             `:active` key at all (they are not states), so the check
             scopes to nodes that carry the flag."
     (let [parsed (layout/project-definition parallel-machine)
@@ -741,9 +731,9 @@
                            (first (filter #(= (:source %) idle-id)
                                           (:edges graph))))
           ;; TARGET active → incoming edge stays quiet.
-          tgt-active   (projection/xyflow-graph parsed {} {:highlight-id loading-id})
+          tgt-active   (projection/xyflow-graph parsed {} {:highlight-ids #{loading-id}})
           ;; SOURCE active → outgoing edge lights.
-          src-active   (projection/xyflow-graph parsed {} {:highlight-id idle-id})]
+          src-active   (projection/xyflow-graph parsed {} {:highlight-ids #{idle-id}})]
       (is (false? (:active (:data (edge-from-idle tgt-active))))
           "incoming edge (only its target is active) is NOT lit")
       (is (true? (:active (:data (edge-from-idle src-active))))
@@ -808,7 +798,7 @@
     ;; the graph stays idle, giving a clean active/inactive split.
     (let [parsed   (layout/project-definition idle-loading)
           hi       (layout/node-id [:idle])
-          graph    (projection/xyflow-graph parsed {} {:highlight-id hi})
+          graph    (projection/xyflow-graph parsed {} {:highlight-ids #{hi}})
           active   (first (filter #(:active (:data %)) (:edges graph)))
           inactive (first (filter #(not (:active (:data %))) (:edges graph)))]
       (is (some? active) "fixture has at least one active edge")
@@ -2132,9 +2122,9 @@
             other transition: source-state → event-node → source-state.
             The structural self-loop becomes a TWO-edge fork — the
             event-node sits beside the state, both edges anchor on it.
-            Pre-rf2-qo5xy a self-loop was a single edge with selfLoop
-            true; the events-as-nodes paradigm dissolves that special
-            case (the visible loop arc is now the route around the
+            Pre-rf2-qo5xy a self-loop was a single dedicated-loop edge;
+            the events-as-nodes paradigm dissolves that special case
+            (the visible loop arc is now the route around the
             event-node)."
     (let [parsed   (layout/project-definition self-loop-machine)
           graph    (projection/xyflow-graph parsed {} {})
@@ -2466,7 +2456,7 @@
                        first)
           route   [{:x 0 :y 0} {:x 0 :y 40} {:x 60 :y 40}]
           graph   (projection/xyflow-graph
-                    parsed {} {:highlight-id hi
+                    parsed {} {:highlight-ids #{hi}
                                :edge-points  {(str (:id start) "__out") route}})
           out-edge (outbound-edge-for graph (:id start))]
       (is (true? (:active (:data out-edge))))
@@ -2493,7 +2483,7 @@
           open-id    (layout/node-id [:open])
           closed-id  (layout/node-id [:closed])
           locked-id  (layout/node-id [:locked])
-          graph      (projection/xyflow-graph parsed {} {:highlight-id open-id})
+          graph      (projection/xyflow-graph parsed {} {:highlight-ids #{open-id}})
           ;; A projected transition is split into __in (src→event) and
           ;; __out (event→tgt) halves that share the from-active? flag.
           ;; Identify each parsed transition by its source/target node-ids
@@ -2631,7 +2621,7 @@
                        first)
           route   [{:x 0 :y 0} {:x 0 :y 40} {:x 60 :y 40}]
           graph   (projection/xyflow-graph
-                    parsed {} {:highlight-id   hi
+                    parsed {} {:highlight-ids  #{hi}
                                :edge-points    {(str (:id start) "__out") route}
                                :fired-edge-ids #{(:id start)}})
           out-edge (outbound-edge-for graph (:id start))]
@@ -2808,7 +2798,7 @@
           ;; :open is active → its exits are affordance-blue; :door/close is
           ;; ALSO guard-blocked, so its arrowhead must read PINK, not blue.
           graph      (projection/xyflow-graph
-                       parsed {} {:highlight-id (layout/node-id [:open])
+                       parsed {} {:highlight-ids #{(layout/node-id [:open])}
                                   :guard-blocked-edge-ids #{close-id}})
           blocked-in (inbound-edge-for graph close-id)]
       (is (true? (:active (:data blocked-in)))
@@ -3066,15 +3056,17 @@
 
 (deftest xyflow-graph-entry-edges-carry-cross-hierarchy-false
   (testing "rf2-shv82 — entry edges keep the every-edge :data shape
-            whole: they carry :crossHierarchy false + :loopIndex nil"
+            whole: they carry :crossHierarchy false"
     (let [parsed (layout/project-definition cross-hierarchy-machine)
           graph  (projection/xyflow-graph parsed {} {})
           entry  (first (filter #(:entry (:data %)) (:edges graph)))]
       (is (some? entry))
       (is (false? (:crossHierarchy (:data entry))))
-      (is (nil?   (:loopIndex (:data entry))))
       ;; rf2-o6vh7 — sibling-collapse retired: no :siblingIndex/:siblingCount
-      ;; on any edge :data, entry edges included.
+      ;; on any edge :data, entry edges included. rf2-hstzzj — the
+      ;; self-loop-fan keys (:selfLoop / :loopIndex) are likewise gone.
+      (is (not (contains? (:data entry) :selfLoop)))
+      (is (not (contains? (:data entry) :loopIndex)))
       (is (not (contains? (:data entry) :siblingIndex)))
       (is (not (contains? (:data entry) :siblingCount))))))
 

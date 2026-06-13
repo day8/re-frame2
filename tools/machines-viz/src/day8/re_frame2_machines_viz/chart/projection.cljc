@@ -477,7 +477,6 @@
                             ;; every-edge :data shape whole.
                             :guardBlocked false
                             :afterMs nil :guard nil :action nil
-                            :selfLoop false :loopIndex nil
                             :crossHierarchy false
                             ;; Straight handle-to-handle dotted line — no
                             ;; ELK route (the connector was never in the ELK
@@ -1124,13 +1123,9 @@
                            snapshot `:state` via
                            `chart.layout/highlight-ids` (handles all
                            three `:state` arms: flat / compound /
-                           region-map).
-    :highlight-id        — node-id of the active state (the SINGLE-
-                           active convenience). Folded into
-                           `:highlight-ids` as a singleton so flat /
-                           compound callers need not build a set; when
-                           both are supplied the union is used. Resolve
-                           it via `chart.layout/highlight-id`.
+                           region-map). A flat / compound snapshot
+                           resolves to a singleton set, so this is the
+                           single option for active-state highlighting.
     :from-highlight-id   — node-id of the focused-event lens's
                            origin state.
     :to-highlight-id     — node-id of the focused-event lens's
@@ -1283,7 +1278,7 @@
                            caller still resolves the dark surface."
   [{:keys [nodes edges parallel?]}
    positions
-   {:keys [highlight-id highlight-ids from-highlight-id to-highlight-id sim?
+   {:keys [highlight-ids from-highlight-id to-highlight-id sim?
            on-state-click on-edge-click edge-points edge-labels
            fired-edge-ids guard-blocked-edge-ids chart palette
            machine-id machine-data machine-data-inferred?]
@@ -1306,16 +1301,12 @@
         ;; 3-way; absent (→ nil) for every non-fork event, so a single
         ;; transition carries no badge.
         fork-order (fork-order-by-edge-id edges)
-        ;; rf2-g2svr (G1) — the active set unifies the single-active
-        ;; (`:highlight-id`) and multi-active (`:highlight-ids`) cases.
-        ;; A PARALLEL machine's snapshot has N simultaneously-active
-        ;; leaves; `:highlight-ids` carries them all so EVERY active
-        ;; region lights up at once. The scalar `:highlight-id` folds in
-        ;; as a singleton so flat/compound callers (and the focused-edge
-        ;; logic below) need no set. A node is active when its id ∈ the
-        ;; union.
-        active-ids (cond-> (set highlight-ids)
-                     (some? highlight-id) (conj highlight-id))
+        ;; rf2-g2svr (G1) — the active set. A PARALLEL machine's snapshot
+        ;; has N simultaneously-active leaves; `:highlight-ids` carries
+        ;; them all so EVERY active region lights up at once. A flat /
+        ;; compound snapshot resolves (via `chart.layout/highlight-ids`)
+        ;; to a singleton set. A node is active when its id ∈ this set.
+        active-ids (set highlight-ids)
         ;; rf2-80rm2 (G4) — container ACTIVE chrome. The active set above
         ;; holds active LEAF ids; a parallel-region (or compound) CONTAINER
         ;; reads as active when ANY descendant leaf is active, so an active
@@ -1648,7 +1639,6 @@
                       ;; below gates the per-half overlay to `:in` only), so
                       ;; the onward arrow does not imply the no-op progressed.
                       blocked?     (contains? guard-blocked-edge-ids (:id e))
-                      self-loop?   (= src tgt)
                       internal?    (boolean (:internal? e))
                       ;; rf2-9dj21r — the EXTERNAL restart axis (`:reenter?
                       ;; true`). A targeted transition is internal by default
@@ -1710,7 +1700,6 @@
                    :fired?    fired?
                    :blocked?  blocked?
                    :from-active? from-active?
-                   :self-loop? self-loop?
                    :internal? internal?
                    :reenter?  reenter?
                    :cross-hier? cross-hier?
@@ -1889,8 +1878,6 @@
                          :afterMs    nil
                          :guard      nil
                          :action     nil
-                         :selfLoop   false
-                         :loopIndex  nil
                          :crossHierarchy cross-hier?
                          ;; rf2-r636q — the elk route for THIS half
                          ;; (`__in`: source-state → event-node; `__out`:
@@ -2013,12 +2000,11 @@
                                ;; keeps the every-edge :data shape whole.
                                :guardBlocked false
                                :afterMs nil
-                               :guard nil :action nil :selfLoop false
-                               ;; rf2-shv82 — entry edges are never self-
-                               ;; loops nor cross-hierarchy (a marker→leaf
-                               ;; hop inside one container); nil/false so
-                               ;; the every-edge :data shape stays whole.
-                               :loopIndex nil
+                               :guard nil :action nil
+                               ;; rf2-shv82 — entry edges are never cross-
+                               ;; hierarchy (a marker→leaf hop inside one
+                               ;; container); false keeps the every-edge
+                               ;; :data shape whole.
                                :crossHierarchy false
                                ;; rf2-cz8v6 (G2) — entry edges keep the
                                ;; bezier (a short marker→state hop never
