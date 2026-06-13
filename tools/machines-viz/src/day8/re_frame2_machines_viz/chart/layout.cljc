@@ -152,8 +152,9 @@
   289-294`):
 
   - `:target :same-state` — the **external** self-transition sentinel.
-    Resolve to `source-path` so the edge is a true self-loop
-    (source == target) and renders via the existing `:selfLoop` path.
+    Resolve to `source-path` so the edge is a true self-transition
+    (source == target); it dissolves through an event-node under the
+    events-as-nodes paradigm (`state → event-node → state`).
   - a plain keyword target — resolve relative to the parent path.
   - a vector-path target — take it verbatim.
   - nil (no `:target`) — returns nil. The **internal** self-transition
@@ -639,8 +640,8 @@
   guard only) on the canvas with the action as a `+ <action>` pill
   below it (Stately graph view convention). This text-composed form
   remains the canonical `data-event` value + edge-id-collision tie-
-  break + host-side label-collision-overlay testing surface; consumers
-  that want the visible-line variant call `event-line` directly.
+  break; consumers that want the visible-line variant call `event-line`
+  directly.
 
   Pure data → string."
   [{:keys [action] :as edge}]
