@@ -458,10 +458,17 @@
     ;; `known-skipped-capabilities`).
     (let [all-cofx-ids (into #{} (concat (keys cofx-bodies) (keys cofx-registry)))]
       (doseq [cofx-id all-cofx-ids]
-        (let [body     (get cofx-bodies cofx-id [[:noop]])
-              meta     (get cofx-registry cofx-id {})
-              supplier (realise-cofx-supplier body)]
-          (rf/reg-cofx cofx-id meta supplier))))
+        (let [body (get cofx-bodies cofx-id [[:noop]])
+              meta (get cofx-registry cofx-id {})]
+          ;; A `:provided?` cofx is a boundary-supplied fact with NO supplier —
+          ;; its VALUE rides the dispatch token via `:rf.cofx`, not a generator.
+          ;; Post-#4104, `reg-cofx` rejects `provided? true` + a supplier as
+          ;; `:rf.error/cofx-registration-invalid`, so register without one. The
+          ;; `cofx/missing-vs-unregistered` fixture relies on this: the value is
+          ;; absent from the token ⇒ `missing-required-cofx` at delivery.
+          (if (:provided? meta)
+            (rf/reg-cofx cofx-id meta)
+            (rf/reg-cofx cofx-id meta (realise-cofx-supplier body))))))
     ;; event registrations
     ;;
     ;; EP-0017 model (rf2-mrp8jg): a body that reads `[:cofx-key K]` declares
