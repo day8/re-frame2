@@ -132,6 +132,31 @@
   (when request-id
     (get @in-flight request-id)))
 
+(defn abort-in-flight!
+  "Best-effort abort the in-flight managed request registered under
+  `request-id`, firing its `:abort-fn` with `reason` (default `:user`).
+  No-op when nothing is registered under `request-id` (the reply already
+  landed, or the id is unknown / nil) — cancellation is opportunistic.
+
+  Per rf2-plngk the in-flight registry cleanup is owned by
+  `finalise-failure!` (the abort-fn closure calls into it), so this fn
+  only fires the abort-fn and never touches the index directly. Never
+  throws (a throwing abort-fn is swallowed). Returns true iff a handle was
+  found and its abort-fn fired, false otherwise.
+
+  This is the shared abort-by-request-id seam: the `:rf.http/managed-abort`
+  fx handler routes through it (`managed-abort-handler`), AND the resources
+  out-of-cascade teardown paths (clear-resource / frame destroy) reach it
+  through the published `:http/abort-in-flight!` late-bind hook so they can
+  abort a managed request by its frame-qualified request-id without the
+  resources artefact statically `:require`ing the http transport (rf2-rak684)."
+  ([request-id] (abort-in-flight! request-id :user))
+  ([request-id reason]
+   (boolean
+     (when-let [handle (lookup-in-flight request-id)]
+       (try ((:abort-fn handle) reason) true
+            (catch #?(:clj Throwable :cljs :default) _ false))))))
+
 ;; ---- per-request-id issuance generation (rf2-azcmd3) -----------------------
 ;;
 ;; EP-0011 §Work-id correlation: "one attempt has one work id". HTTP has no
