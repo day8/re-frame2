@@ -3055,25 +3055,36 @@
   (testing (str name " — use-subscribe 1-arg resolves via frame-provider (rf2-518sp / rf2-z7hfp)")
     (with-browser-act
      (fn [act-fn]
-      (reset! probe-frame-provider-observed [])
-      (rf/reg-frame frame-provider-frame {:doc "use-subscribe frame-provider probe frame"})
-      (rf/reg-event-db ::frame-provider-seed (fn [_ _] {:k :wrapped}))
-      (rf/dispatch-sync [::frame-provider-seed] {:frame frame-provider-frame})
-      (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
-      (let [mount-node (make-mount-node!)
-            root       (react-dom-client/createRoot mount-node)]
-        (try
-          (act-fn
-            (fn []
-              ;; The NATIVE frame-provider component mounted via the
-              ;; substrate's documented `$` shape (rf2-z7hfp).
-              (.render root
-                (frame-provider-mount-element
-                  frame-provider-frame (probe-frame-provider-element)))))
-          (is (some #{:wrapped} @probe-frame-provider-observed)
-              "use-subscribe 1-arg form read from the wrapped frame, not :rf/default")
-          (finally
-            (try (.unmount root) (catch :default _ nil)))))))))
+      ;; rf2-4mi2zj: CLEAR the fixture's ambient `:rf/default` dynamic scope.
+      ;; The 1-arg `use-subscribe` resolves dynamic-var FIRST (tier 1), then
+      ;; the React-context tier (tier 2). With the fixture's ambient
+      ;; `*current-frame*` :rf/default left bound, tier 1 ALWAYS wins and the
+      ;; provider tier is never the decider — the sub would read :rf/default's
+      ;; app-db (no :k → nil), MASKING the very provider-resolution this test
+      ;; means to prove. (The prior raw-`use-context` spine resolved provider-
+      ;; first, so this passed by accident; under the carried-invariant chain
+      ;; the dynamic var legitimately shadows the provider.) Clearing it makes
+      ;; the React-context tier the genuine decider. Per the bead's masking note.
+      (binding [frame/*current-frame* nil]
+        (reset! probe-frame-provider-observed [])
+        (rf/reg-frame frame-provider-frame {:doc "use-subscribe frame-provider probe frame"})
+        (rf/reg-event-db ::frame-provider-seed (fn [_ _] {:k :wrapped}))
+        (rf/dispatch-sync [::frame-provider-seed] {:frame frame-provider-frame})
+        (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
+        (let [mount-node (make-mount-node!)
+              root       (react-dom-client/createRoot mount-node)]
+          (try
+            (act-fn
+              (fn []
+                ;; The NATIVE frame-provider component mounted via the
+                ;; substrate's documented `$` shape (rf2-z7hfp).
+                (.render root
+                  (frame-provider-mount-element
+                    frame-provider-frame (probe-frame-provider-element)))))
+            (is (some #{:wrapped} @probe-frame-provider-observed)
+                "use-subscribe 1-arg form read from the wrapped frame, not :rf/default")
+            (finally
+              (try (.unmount root) (catch :default _ nil))))))))))
 
 (defn assert-use-subscribe-2-arg-pins-explicit-frame
   "rf2-rcgsc / rf2-y0db2: use-subscribe's 2-arg form
@@ -3114,6 +3125,198 @@
               "tenant-b probe did NOT leak tenant-a's value")
           (finally
             (try (.unmount root) (catch :default _ nil)))))))))
+
+;; ===========================================================================
+;; rf2-4mi2zj — use-subscribe 1-arg FULL frame-resolution chain.
+;;
+;; The shared spine's 1-arg `use-subscribe` used to short-circuit through
+;; `(use-subscribe-2 (use-current-frame) query-v)`: it took the NARROW raw
+;; `use-context` read (React-context tier ONLY) and fed it straight into
+;; the EXPLICIT 2-arg path. Two correctness breaks followed (Spec 006 §734
+;; / §1058; EP-0002):
+;;
+;;   1. A surrounding `frame-provider` beat a `with-frame` /
+;;      `frame-bound-fn` dynamic scope — INVERTING the tier order
+;;      (dynamic-var MUST win over React-context).
+;;   2. With no provider, `use-context` returns the no-provider sentinel
+;;      (`:rf.frame/no-provider`), NOT nil. The explicit path subscribed
+;;      against that sentinel as a literal frame — surfacing a bad/
+;;      destroyed-frame outcome instead of the specified
+;;      `:rf.error/no-frame-context`.
+;;
+;; The existing `assert-use-subscribe-frame-provider-resolution` proves
+;; provider resolution under the fixture's ambient `:rf/default` dynamic
+;; scope — which MASKS the tier order (the dynamic var is always bound, so
+;; the React-context tier is never the decider). These three assertions
+;; clear the ambient scope (`binding [frame/*current-frame* nil]`) so the
+;; chain's real tier order is exercised, and add the two cases the prior
+;; coverage never had: dynamic-var precedence, and no-scope failure.
+;; ===========================================================================
+
+(defn assert-use-subscribe-provider-tier-resolution-ambient-cleared
+  "rf2-4mi2zj — provider-tier resolution with the AMBIENT dynamic scope
+  CLEARED. The 1-arg `use-subscribe` under a `frame-provider`, with
+  `frame/*current-frame*` bound to nil, must still resolve to the
+  provider's frame via the React-context tier (tier 2). The fixture's
+  default `:rf/default` ambient scope would mask this — with it cleared,
+  the React-context tier is genuinely the decider, so this proves the
+  spine consults it (and is not, e.g., resolving everything to the dynamic
+  var or to the no-provider sentinel).
+
+  Reuses the 1-arg ProbeFrameProvider (`:frame-provider-query`)
+  observation surface; isolates onto its own frame id so it can't collide
+  with `assert-use-subscribe-frame-provider-resolution`.
+
+  cfg keys:
+    :frame-provider-mount-element   thunk (fn [frame-kw child-el])
+    :probe-frame-provider-element   thunk → 1-arg ProbeFrameProvider
+    :probe-frame-provider-observed  atom the probe pushes observed values into
+    :provider-tier-frame            frame-id for the wrapped frame
+    :frame-provider-query           query-v keyword the probe subscribes to"
+  [{:keys [name frame-provider-mount-element probe-frame-provider-element
+           probe-frame-provider-observed provider-tier-frame frame-provider-query]}]
+  (testing (str name " — use-subscribe 1-arg provider-tier resolution, ambient scope cleared (rf2-4mi2zj)")
+    (with-browser-act
+     (fn [act-fn]
+      ;; Clear the fixture's ambient :rf/default dynamic scope so the
+      ;; React-context tier is the genuine decider, not a shadowing
+      ;; dynamic var (the masking the bead flags).
+      (binding [frame/*current-frame* nil]
+        (reset! probe-frame-provider-observed [])
+        (rf/reg-frame provider-tier-frame {:doc "rf2-4mi2zj provider-tier (ambient cleared) frame"})
+        (rf/reg-event-db ::provider-tier-seed (fn [_ _] {:k :from-provider}))
+        (rf/dispatch-sync [::provider-tier-seed] {:frame provider-tier-frame})
+        (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
+        (let [mount-node (make-mount-node!)
+              root       (react-dom-client/createRoot mount-node)]
+          (try
+            (act-fn
+              (fn []
+                (.render root
+                  (frame-provider-mount-element
+                    provider-tier-frame (probe-frame-provider-element)))))
+            (is (some #{:from-provider} @probe-frame-provider-observed)
+                "use-subscribe 1-arg resolved via the React-context tier (provider frame)
+                 even with the dynamic var cleared — tier 2 is live")
+            (is (not (some #{:rf.frame/no-provider} @probe-frame-provider-observed))
+                "the no-provider sentinel never leaked into the subscription")
+            (finally
+              (try (.unmount root) (catch :default _ nil))))))))))
+
+(defn assert-use-subscribe-dynamic-var-precedence-over-provider
+  "rf2-4mi2zj — the ADVERSARIAL precedence case. With BOTH a dynamic-var
+  scope (`frame/*current-frame*` bound to the dynamic frame) AND a
+  surrounding `frame-provider` naming a DIFFERENT frame, the 1-arg
+  `use-subscribe` MUST resolve to the DYNAMIC frame (tier 1 wins over tier
+  2). The buggy spine — raw `use-context` fed into the explicit path —
+  read the PROVIDER's frame, inverting the spec tier order; this is the
+  case the fix is for.
+
+  Both frames register the same query so the only signal that
+  distinguishes them is which frame's app-db the subscription read. The
+  dynamic frame is seeded `:from-dynamic`; the provider frame
+  `:from-provider`. The mount render runs synchronously inside the dynamic
+  binding (React 18 `act()` flushes the component body on the calling
+  stack), so the bound dynamic var is in scope for the render's
+  `require-current-frame!` resolution.
+
+  cfg keys:
+    :frame-provider-mount-element   thunk (fn [frame-kw child-el])
+    :probe-frame-provider-element   thunk → 1-arg ProbeFrameProvider
+    :probe-frame-provider-observed  atom the probe pushes observed values into
+    :dynamic-precedence-provider-frame  provider (loser) frame-id
+    :dynamic-precedence-dynamic-frame   dynamic-var (winner) frame-id
+    :frame-provider-query           query-v keyword the probe subscribes to"
+  [{:keys [name frame-provider-mount-element probe-frame-provider-element
+           probe-frame-provider-observed dynamic-precedence-provider-frame
+           dynamic-precedence-dynamic-frame frame-provider-query]}]
+  (testing (str name " — use-subscribe 1-arg: dynamic-var beats provider (rf2-4mi2zj)")
+    (with-browser-act
+     (fn [act-fn]
+      (reset! probe-frame-provider-observed [])
+      (rf/reg-frame dynamic-precedence-provider-frame {:doc "rf2-4mi2zj provider (precedence loser)"})
+      (rf/reg-frame dynamic-precedence-dynamic-frame  {:doc "rf2-4mi2zj dynamic-var (precedence winner)"})
+      (rf/reg-event-db ::precedence-seed (fn [_ [_ v]] {:k v}))
+      (rf/dispatch-sync [::precedence-seed :from-provider] {:frame dynamic-precedence-provider-frame})
+      (rf/dispatch-sync [::precedence-seed :from-dynamic]  {:frame dynamic-precedence-dynamic-frame})
+      (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
+      (let [mount-node (make-mount-node!)
+            root       (react-dom-client/createRoot mount-node)]
+        (try
+          ;; Bind the DYNAMIC frame around the synchronous mount render. The
+          ;; probe sits under a provider naming the OTHER frame; the chain
+          ;; must pick the dynamic var (tier 1).
+          (binding [frame/*current-frame* dynamic-precedence-dynamic-frame]
+            (act-fn
+              (fn []
+                (.render root
+                  (frame-provider-mount-element
+                    dynamic-precedence-provider-frame (probe-frame-provider-element))))))
+          (is (some #{:from-dynamic} @probe-frame-provider-observed)
+              "1-arg use-subscribe resolved to the DYNAMIC frame (tier 1 wins over the provider)")
+          (is (not (some #{:from-provider} @probe-frame-provider-observed))
+              "the surrounding provider's frame did NOT win — tier order is dynamic-var → React-context")
+          (finally
+            (try (.unmount root) (catch :default _ nil)))))))))
+
+(defn assert-use-subscribe-no-provider-no-dynamic-raises-no-frame-context
+  "rf2-4mi2zj — the second ADVERSARIAL case. A 1-arg `use-subscribe` with
+  NO surrounding `frame-provider` and NO dynamic scope must resolve to nil
+  and emit `:rf.error/no-frame-context` (EP-0002 — no `:rf/default`
+  floor), NOT subscribe against the no-provider sentinel
+  `:rf.frame/no-provider` (which the buggy spine did, surfacing a
+  bad/destroyed-frame outcome instead).
+
+  Proof shape: clear the ambient dynamic scope, register the sub but mount
+  the 1-arg probe with NO provider, and assert a `:rf.error/no-frame-context`
+  trace fired during the render. The render itself will throw (the error is
+  emitted then re-thrown by `require-current-frame!`); React surfaces that
+  through the act() commit, so we tolerate the throw and assert on the
+  captured trace — the load-bearing signal that the chain failed CLOSED on
+  the specified error rather than silently subscribing to the sentinel.
+
+  cfg keys:
+    :substrate-kw                   keyword fragment for the listener key
+    :probe-frame-provider-element   thunk → 1-arg ProbeFrameProvider
+    :probe-frame-provider-observed  atom the probe pushes observed values into
+    :no-scope-frame                 frame-id the sub is registered under
+                                    (never resolved — proves the sentinel
+                                    is NOT used as the frame)
+    :frame-provider-query           query-v keyword the probe subscribes to"
+  [{:keys [name substrate-kw probe-frame-provider-element probe-frame-provider-observed
+           no-scope-frame frame-provider-query]}]
+  (testing (str name " — use-subscribe 1-arg with no scope raises no-frame-context (rf2-4mi2zj)")
+    (with-browser-act
+     (fn [act-fn]
+      (binding [frame/*current-frame* nil]
+        (let [lk     (keyword "re-frame.adapter.react-shared-suite"
+                              (str "no-scope-" (clojure.core/name substrate-kw)))
+              traces (atom [])]
+          (trace-tooling/register-listener! lk (fn [ev] (swap! traces conj ev)))
+          (reset! probe-frame-provider-observed [])
+          ;; Register the sub + a frame so the ONLY reason resolution can
+          ;; fail is the absent scope — not a missing sub/frame.
+          (rf/reg-frame no-scope-frame {:doc "rf2-4mi2zj no-scope frame (must never be resolved-to)"})
+          (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
+          (let [mount-node (make-mount-node!)
+                root       (react-dom-client/createRoot mount-node)]
+            (try
+              ;; The render throws :rf.error/no-frame-context out of
+              ;; require-current-frame!; React funnels it through act().
+              ;; Tolerate the throw — the captured trace is the contract.
+              (try
+                (act-fn (fn [] (.render root (probe-frame-provider-element))))
+                (catch :default _ nil))
+              (let [no-frame-errs (filterv #(= :rf.error/no-frame-context (:operation %)) @traces)]
+                (is (pos? (count no-frame-errs))
+                    "a :rf.error/no-frame-context trace fired — the 1-arg read failed
+                     CLOSED on the specified error (no :rf/default floor)"))
+              (is (not (some #{:rf.frame/no-provider} @probe-frame-provider-observed))
+                  "the no-provider sentinel was NEVER used as a frame id (the buggy
+                   spine subscribed against :rf.frame/no-provider instead of erroring)")
+              (finally
+                (trace-tooling/unregister-listener! lk)
+                (try (.unmount root) (catch :default _ nil)))))))))))
 
 (defn assert-use-subscribe-cleanup-decrements-refcount
   "rf2-7g959: use-subscribe pairs subscribe with subs/unsubscribe on
