@@ -15,16 +15,23 @@ palette tokens, density. Tab order is set declaratively via `reg-l4-tab!`
 `:order` and rendered by `shell.cljs` (Dynamic) / `static/shell.cljs`
 (Static). The live Dynamic `:order` values are Epoch `-1` · app-db `1` ·
 Views `2` · Trace `3` · Machine `4` · Routes `6` · Resources `7` ·
-Graph `8` — eight Dynamic tabs in all (the core six plus the two
-cross-feature lenses, **Resources** and **Graph**, each registered by its
-own panel through the `reg-l4-tab!` seam).
+Graph `8` · Modules `9` — nine Dynamic tabs in all (the core six plus the
+three cross-feature lenses, **Resources**, **Graph**, and **Modules**,
+each registered by its own panel through the `reg-l4-tab!` seam). (`:order
+5` is unallocated — it was the retired Issues tab's slot.) The canonical
+inventory lives in `focus.cljc`'s `valid-panels` def (`#{:epoch :app-db
+:views :trace :machines :routing :resources :derivation-graph
+:module-view}`), which mirrors the live `panel-registry/tab-ids-for-mode
+:dynamic` set — a cross-check test fails the build if the two drift, so
+that def is the authoritative count when this leaf and the source ever
+disagree.
 
 ## Two modes
 
 The two-mode model (Dynamic event-spine 4-layer chrome · Static registry
 3-layer chrome, flipped by the L1 mode pill or `Cmd/Ctrl+Shift+M`) is
 covered in [`SKILL.md` §Two modes](../SKILL.md#two-modes). This leaf is
-the per-panel tour: the 8 Dynamic tabs in §Panel-by-panel below, the 5
+the per-panel tour: the 9 Dynamic tabs in §Panel-by-panel below, the 5
 Static tabs in §Static mode — registry browse. One binding constraint to
 restate: **no cross-epoch L4 panels** — every Dynamic L4 tab is a lens on
 the one focused epoch; aggregate signal lives on L2 badges only (§021
@@ -75,15 +82,17 @@ tab-bar ribbon, which rewinds the observed frame's live
 
 ## Panel-by-panel (Dynamic mode)
 
-Eight Dynamic tabs, left-to-right by `:order` (mnemonics
-`e a v t m r s g`): **Epoch · app-db · Views · Trace · Machine · Routes ·
-Resources · Graph.** The first six are the core spine lenses (§018 §5 +
-§021 §9.1); **Resources** (`:order 7`) and **Graph** (`:order 8`) are the
-two cross-feature lenses that landed last, each self-registered through
-the `reg-l4-tab!` seam (`panels/resources.cljs`,
-`panels/derivation_graph.cljs`). (Internal tab ids stay `:epoch :app-db
-:views :trace :machines :routing :resources :derivation-graph` — the
-display labels rebased over a rename history but the ids are stable.) The
+Nine Dynamic tabs, left-to-right by `:order` (mnemonics
+`e a v t m r s g u`): **Epoch · app-db · Views · Trace · Machine · Routes ·
+Resources · Graph · Modules.** The first six are the core spine lenses
+(§018 §5 + §021 §9.1); **Resources** (`:order 7`), **Graph** (`:order 8`),
+and **Modules** (`:order 9`) are the three cross-feature lenses that
+landed last, each self-registered through the `reg-l4-tab!` seam
+(`panels/resources.cljs`, `panels/derivation_graph.cljs`,
+`panels/module_view.cljs`). (Internal tab ids stay `:epoch :app-db
+:views :trace :machines :routing :resources :derivation-graph
+:module-view` — the display labels rebased over a rename history but the
+ids are stable.) The
 pre-rebuild **Event** panel was retired (2026-05-27 —
 `panels/event_detail.cljs` is deleted) and the **Issues** tab was retired
 (2026-05-31 — `panels/issues_ribbon.cljs` is deleted); see §What's
@@ -600,6 +609,61 @@ implementation at
 [`panels/derivation_graph.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/derivation_graph.cljs)
 + [`panels/derivation_graph_helpers.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/derivation_graph_helpers.cljc).
 
+### Modules — cross-feature · mnem `u` · `:order 9`
+
+Question: **What's installed, and how is the process partitioned into
+realms / frames / modules?** (Display label **Modules**; internal tab id
+`:module-view`.) Xray's UI over the **EP-0013 module / realm / app-value**
+address space — the structural counterpart to the Graph tab (Graph is the
+per-fact derivation/process view; Modules is the per-(realm, frame)
+topology + per-module provenance view). Registered at `:order 9`, after
+the Graph tab (`:order 8`), keeping the cross-feature runtime-structure
+tabs adjacent.
+
+The panel projects the `(realm, frame)` address space plus the
+per-module provenance read off each realm's installed app value:
+
+- **The realm / frame topology** — every installed **realm**
+ (`rf/realm-ids`), the **frames** each realm owns
+ (`rf/frame-ids` + `rf/frame-realm` mapping each frame to its owning
+ realm). In a single-realm app this is one realm holding every frame; a
+ multi-realm process shows the partition.
+- **Per-module provenance** — read off each realm's **installed app
+ value** (`rf/installed-app`, EP-0013 disposition 6) — the modules /
+ app-value composed into the realm at install time.
+
+The projection runs through the pure
+`module_view_helpers/project-module-view` over those public seams.
+
+> **`:module-view` is an L4-only registry tab — no standalone mount
+> facade.** Like the Graph tab, Modules registers through `reg-l4-tab!`
+> but exposes **no** `mount-*!` facade (it is **not** in `panel-enum`,
+> which carries only the standalone-mountable surface) — it is a
+> shell-internal tab, focusable via `focus!` / the command palette but not
+> independently mountable the way the other seven Dynamic panels are.
+> Route users to **open the Modules tab**; do not tell them to call a
+> `mount-module-view!` — there isn't one.
+
+**Does not compose off an `:rf.xray/*` app-db slot.** The address space is
+a process-global fact (realms + frames live in the framework's registries,
+not Xray's app-db); the sub reads them directly at recompute time, and a
+tab activation re-renders the panel which re-derefs (a browse-on-open
+shape matching the other Static-style surfaces).
+
+**Read-only** — enumerating realms / frames and reading installed app
+values pins nothing and dispatches nothing (`rf/installed-app` is a STATIC
+read of the install-time value, not a routing path).
+
+**Open when:** "what realms exist?", "which frames belong to which
+realm?", "what modules / app values are installed?", "how is this process
+partitioned?"
+
+Spec: [`007-UX-IA.md` §EP-0013 realm-awareness](../../../tools/xray/spec/007-UX-IA.md)
++ [`026-Module-View-Panel.md`](../../../tools/xray/spec/026-Module-View-Panel.md);
+implementation at
+[`panels/module_view.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/module_view.cljs)
++ [`panels/module_view_helpers.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/module_view_helpers.cljc).
+
 ### Issues — no longer a Dynamic tab
 
 There is **no dedicated Issues tab**. Mike ruled it out (#2540,
@@ -686,9 +750,11 @@ Per §021 §15 (Dynamic mode) + §007 §Static mode:
 - **No Event tab.** Retired (2026-05-27 —
  `panels/event_detail.cljs` deleted). The **Epoch** panel (numbered
  cascade, `:order -1`) is the canonical "what happened" surface.
-- **No extra Dynamic L4 lens.** The 6-tab Dynamic set is the contract;
- sub-layer surfaces inline in Views + the app-db hover popover (no peer
- Subs panel).
+- **No peer Subscriptions L4 tab.** The reactive cascade surfaces inline
+ in Views + the app-db hover popover, not as its own Dynamic tab. (The
+ Dynamic set is open through the `reg-l4-tab!` seam — Resources, Graph,
+ and Modules each registered their own cross-feature tab — but there is
+ no separate Subs lens.)
 - **No Chrome A11y tab.** Removed; a11y dogfooding is Story's domain.
 - **No standalone Dynamic "Machines Canvas" tab.** Removed;
  the spine-INDEPENDENT browse-all machine canvas lives under Static
@@ -702,8 +768,8 @@ Per §021 §15 (Dynamic mode) + §007 §Static mode:
  §1.6); switch focus via the L1 frame picker.
 - **No legacy panels.** Subscriptions, Effects, Flows, Performance,
  Schemas, Hydration are NOT separate Dynamic tabs. Their content is
- surfaced through the Dynamic 6 above — and the registry catalogues live
- in Static mode:
+ surfaced through the Dynamic tabs above — and the registry catalogues
+ live in Static mode:
  - Subscriptions → Views (cascade tree) + app-db (hover popover)
  - Effects → Epoch EFFECT HANDLERS step (flat ledger) + Trace (raw `:rf.fx/*` ops)
  - Flows → Epoch FLOW step (one per flow) · Static → Flows (registry)

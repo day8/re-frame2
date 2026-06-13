@@ -40,8 +40,8 @@ when the eval shape changes in a way that breaks readers.
 
 ## Coverage
 
-27 evals — **19 positives** (skill should fire) and **8 negatives** (skill
-should stay quiet). **11 positives** carry the Layer-2 answer-quality
+29 evals — **21 positives** (skill should fire) and **8 negatives** (skill
+should stay quiet). **13 positives** carry the Layer-2 answer-quality
 `expectations[]`; they target the prompts whose answer drifts fastest as
 the Xray UI moves:
 
@@ -58,6 +58,8 @@ the Xray UI moves:
 | 23 | `chrome-palette` | yes | Palette source kinds + representative command verbs; `Cmd/Ctrl+K` is wired (not struck). |
 | 24 | `launch-overlay` | yes | `open-overlay!` is the supported FALLBACK for no-layout-host; floats above `document.body`; not the primary path. |
 | 26 | `config-init-vs-settings` | yes | Settings popup wins over the `init!` boot default; merge order `defaults < configure! < Settings`; density is NOT a popup control. |
+| 28 | `panel-route-modules` | yes | The realms / frames / modules / app-values question → the Dynamic **Modules** tab (`:module-view`, EP-0013 lens); Modules is SHIPPED, not absent, not Static, not the same as Graph; no `mount-module-view!` (L4-only). |
+| 29 | `tab-inventory-count` | yes | The full ordered **9-tab** Dynamic list incl. Modules (count is 9, not 8); correct `:order`; no removed tab (Issues / Event / Chrome A11y / Machines-Canvas). |
 | 4, 5, 6, 7, 9, 10, 22, 25 | `launch-hotkey` … `config-init-boot` | no | Trigger-only positives (lower drift; covered by the body's quick-reference). |
 | 13–20 | `neg-*` | no | Negatives — adjacent surfaces (drive→pair, implement→spec, author→re-frame2, setup, migration, implementor, vocab-only). |
 
@@ -66,7 +68,10 @@ launch-default, launch-overlay, launch-popout-button, launch-programmatic,
 config-init-vs-settings, chrome-rewind, chrome-palette,
 panel-route-machine-canvas, panel-route-schema, panel-route-hydration —
 plus launch-popout (the paired programmatic counterpart to the button
-prompt).
+prompt), and the tab-inventory pair **panel-route-modules** +
+**tab-inventory-count** that pin the 9-tab Dynamic surface (incl. Modules)
+so a future drop / misroute of Modules, or a revert to 8 tabs, fails the
+answer-quality layer.
 
 ## How to run
 
@@ -113,3 +118,50 @@ as the discipline of updating them alongside the product.
 > the `skills/re-frame2/` harness specifically; this README has no
 > automated count/coverage gate, so the table above is maintained by hand —
 > keep it in step with `evals.json` when you add or rename an entry.
+
+## Keeping the tab inventory in sync (the source of truth)
+
+The tour skill's Dynamic tab inventory (the `e a v t m r s g u` set across
+`SKILL.md`, `README.md`, `references/panels.md`,
+`references/shared-components.md`, `package.json`, and
+`.claude-plugin/plugin.json`) is **hand-maintained against the live Xray
+registry** — there is no in-tree script that diffs it for this skill. When
+an Xray tab is added, removed, or reordered, re-verify the skill against
+the **single source of truth** in this order:
+
+1. **`tools/xray/src/day8/re_frame2_xray/focus.cljc` — `valid-panels`.**
+   This `#{…}` set MIRRORS the live `panel-registry/tab-ids-for-mode
+   :dynamic` registry (a cross-check test, `registry_cljs_test.cljs`,
+   fails the Xray build if they drift) and is the JVM-runnable, single
+   authoritative count. Today it is
+   `#{:epoch :app-db :views :trace :machines :routing :resources
+   :derivation-graph :module-view}` — **9 tabs.** The internal ids map to
+   display labels: `:views`→Views, `:routing`→Routes,
+   `:derivation-graph`→Graph, `:module-view`→Modules.
+2. **The per-panel `reg-l4-tab!` calls** under
+   `tools/xray/src/day8/re_frame2_xray/panels/*.cljs` — confirm each tab's
+   `:label`, `:mnem`, and `:order` (e.g. `module_view.cljs` →
+   `{:id :module-view :label "Modules" :mnem "u" :order 9}`). An L4-only
+   tab (Graph, Modules) registers via `reg-l4-tab!` but is **not** in
+   `panel-enum` (it has no standalone `mount-*!` facade).
+3. **`tools/xray/spec/API.md`** (the §Public surfaces table + §Panel
+   reg-views) — the normative published surface, which also enumerates
+   which tabs are standalone-mountable vs L4-only registry tabs.
+
+A quick CLI cross-check (count the skill's claimed tabs vs the source):
+
+```bash
+# The authoritative set (one id per shipped Dynamic L4 tab):
+grep -A2 'def valid-panels' tools/xray/src/day8/re_frame2_xray/focus.cljc
+
+# Where the skill states the count — keep every hit at the same number:
+grep -rnE '[0-9]+ Dynamic|[0-9]+ lenses|[0-9]+ tabs|e a v t m r s g' \
+  skills/re-frame2-xray/
+```
+
+If the source moves and the skill doesn't, the Layer-2 `tab-inventory-count`
++ `panel-route-modules` evals are designed to catch it on the next
+answer-quality run — but they only fire when run, so this manual cross-check
+is the front-line discipline. Update the skill body, the matching reference
+leaf, and the corresponding `expectations[]` in the same PR (per §Keeping
+evals + skill in sync above).

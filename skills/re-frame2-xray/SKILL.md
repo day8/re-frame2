@@ -16,7 +16,9 @@ description: >
  [data-rf-xray-host] / full-screen canvas", "Xray machine inspector",
  "Xray epoch cascade", "where do Xray issues show up", "Xray Graph
  tab", "Xray derivation/process graph", "where does this value come
- from in Xray", "Xray Resources tab", and similar.
+ from in Xray", "Xray Resources tab", "Xray Modules tab", "Xray
+ module-view", "what realms/frames/app-values are installed in Xray",
+ and similar.
  **Do not use** for: driving Xray
  programmatically from a live REPL (that's `re-frame2-pair`), authoring
  the host app (`re-frame2`), bootstrapping a new project
@@ -68,10 +70,10 @@ This skill answers three questions, and only three:
  programmatic entry points, the wired hotkeys, the Dynamic ↔ Static
  mode toggle.
 2. **Which tab shows X?** — a one-line purpose for each tab Xray ships,
- across both modes: the 8 Dynamic event-spine tabs (the 6 in
- spec/018 §5 + spec/021 §9.1, plus the cross-feature **Resources**
- and **Graph** tabs) and the 5 Static registry-browse tabs (per
- spec/007-UX-IA.md §Static mode).
+ across both modes: the 9 Dynamic event-spine tabs (the 6 in
+ spec/018 §5 + spec/021 §9.1, plus the cross-feature **Resources**,
+ **Graph**, and **Modules** tabs) and the 5 Static registry-browse tabs
+ (per spec/007-UX-IA.md §Static mode).
 3. **What's the chrome around the tabs for?** — the first-screen
  navigation primitives the user meets immediately: the time-travel
  inspect / `Reset`-rewind, the filter-pill cluster, the command
@@ -121,8 +123,8 @@ the `Cmd/Ctrl+Shift+M` chord:
 - **Dynamic** — the event-coupled spine. A 4-layer chrome (L1 ribbon ·
  L2 event list · L3 tab bar · L4 detail). Every tab is a *lens on the
  one focused event* — pick an event in the L2 list and every tab
- rebinds. This is "what happened in **this** epoch?". 8 tabs (the
- core 6 plus the cross-feature Resources + Graph lenses).
+ rebinds. This is "what happened in **this** epoch?". 9 tabs (the
+ core 6 plus the cross-feature Resources + Graph + Modules lenses).
 - **Static** — event-INDEPENDENT browse of what's *registered*. A
  3-layer chrome (no L2 spine — Static has no event focus). Every tab is
  a registry catalogue: every machine, every route, every schema, every
@@ -237,15 +239,16 @@ Static (about the whole registry) — then route to the tab. For per-tab
 layout, iconography, stripe tokens, and "open it when…" depth see
 [`references/panels.md`](references/panels.md).
 
-### Dynamic mode — 8 lenses on the focused event
+### Dynamic mode — 9 lenses on the focused event
 
-The L3 tab bar holds **8 lenses on the focused event**, left-to-right
-(mnemonics `e a v t m r s g`): **Epoch · app-db · Views · Trace ·
-Machine · Routes · Resources · Graph**. The first six are the core spine
-lenses (spec/018 §5 + spec/021 §9.1); **Resources** and **Graph** are the
-two cross-feature lenses that landed last (the registry-driven L4 tab
-seam lets a panel register its own tab — see `panels/resources.cljs` and
-`panels/derivation_graph.cljs`). Cross-epoch signal lives on the L2
+The L3 tab bar holds **9 lenses on the focused event**, left-to-right
+(mnemonics `e a v t m r s g u`): **Epoch · app-db · Views · Trace ·
+Machine · Routes · Resources · Graph · Modules**. The first six are the
+core spine lenses (spec/018 §5 + spec/021 §9.1); **Resources**, **Graph**,
+and **Modules** are the three cross-feature lenses that landed last (the
+registry-driven L4 tab seam lets a panel register its own tab — see
+`panels/resources.cljs`, `panels/derivation_graph.cljs`, and
+`panels/module_view.cljs`). Cross-epoch signal lives on the L2
 timeline above (badges + stripes); every tab answers "what happened in
 **this** epoch?" through its own lens. To browse a machine's full
 topology cold (spine-INDEPENDENT — picker + zoom / pan / fit, regardless
@@ -265,6 +268,7 @@ inline (see *Where issues surface now* below).
 | **Routes** | `r` · `🌐` · yellow | Flat focused-event lens: current matched route + params/query/fragment + a **Simulate-URL** input that ranks every registered route, with per-event glyphs `◉ TO` / `◇ FROM` / `● HERE`. Silent when no routes registered. (Display label **Routes**, plural-noun convention; internal tab id `:routing`.) | "What route am I on?" / "Did the route change this epoch?" / "What params resolved?" |
 | **Resources** | `s` · cross-feature | The declarative server-state lens (Spec 016 §Xray and AI tooling): the static resource registry, per-frame **live instances** (state · generation · owners · freshness), the **work ledger** of live fetch attempts, the route/resource graph, lifecycle/invalidation/cache-growth, and a scope audit + lints. It is also the EP-0016 mutation-completion lens — **mutation `:reply-to` continuations** (the `:rf.mutation/replied` trace), **descriptor-level invalidation evidence** (the `:invalidation` facet on the mutation settlement op — per-descriptor resolved scope / tags / `:refetch-populated?`, plus the fail-closed `:unresolved` and `:populate-exempt` sets), and the **named scope resolver resolution timeline** (`:rf.resource/scope-resolved` — resolver id, declared inputs, resolved scope). **Read-only** — observing pins nothing; values are summarized (params/scopes/data redaction-aware), never raw. Reads the runtime-db resource slices decoupled — Xray does **not** `:require` the optional resources artefact, so the panel renders cleanly even when the host has no resources. | "Where's my server state, what owns it, and is it stale?" / "What fetches are in flight?" / "Did my mutation's `:reply-to` fire, and did it invalidate the right scopes?" / "Why didn't this read refetch?" |
 | **Graph** | `g` · cross-feature (violet — the algebra lens) | Xray's UI over the **EP-0014 derivation/process graph** — the one node-and-edge view where every declared fact and process across **all five contributor families** (subscriptions, flows, resources, route facts, machine processes + selectors) is a node over the frame fold. Every node is classified by its two closed superkinds (`:derivation` / `:process`) read off `:kind` alone; the refined kinds tint the family accent. Each node carries its storage / evaluation / lifecycle (owner) classifications, plus an **authority chip** for remote-backed nodes (an *authority* axis, not a storage class — see below). A per-panel **static ↔ live** toggle (its own toggle, distinct from the L1 mode pill) flips between the registration-derived graph (parametric subs marked, no edge — the don't-execute rule) and the frame-realized graph (concrete query vectors, active resource keys, live machine instances, the materialized route slice with its nav-token owner). **On-box raw, off-box redacted.** | "Where does this value come from / when is it evaluated / where does it live / who owns it?" — across families, in one place |
+| **Modules** *(`:order 9`)* | `u` · cross-feature | Xray's UI over the **EP-0013 module / realm / app-value** address space: the projected `(realm, frame)` topology — every installed **realm** (`rf/realm-ids`), the **frames** it owns (`rf/frame-ids` · `rf/frame-realm`), and the **per-module provenance** read off each realm's installed app value (`rf/installed-app`). It answers "what's installed, and how is the process partitioned into realms / frames / modules?" — the structural counterpart to the Graph tab's per-fact view. **Read-only** — enumerating realms / frames and reading installed app values pins nothing and dispatches nothing (a static read of the install-time value, not a routing path). Like the Graph tab it does not compose off an `:rf.xray/*` app-db slot — the address space is a process-global fact (realms + frames live in the framework's registries). | "What realms exist, which frames belong to each, and what modules / app values are installed?" |
 
 #### What the Graph tab contributes (all five families)
 
@@ -303,6 +307,18 @@ views.)
 > API from their app code — there isn't one. Source of truth:
 > [`spec/Derivations.md` §Graph inspection — internal but structured](../../spec/Derivations.md#graph-inspection--internal-but-structured)
 > + [`docs/EP/EP-0014-derivation-and-process-algebra.md`](../../docs/EP/EP-0014-derivation-and-process-algebra.md).
+
+> **Modules + Graph are L4-only registry tabs.** Both `:module-view`
+> (Modules) and `:derivation-graph` (Graph) register through the
+> `reg-l4-tab!` seam but expose **no standalone `mount-*!` facade** — they
+> are shell-internal tabs, focusable via the command palette / `focus!`
+> but not independently mountable the way the other seven Dynamic panels
+> are. Route users to **open the Modules tab** (it ships); do not tell them
+> to call a `mount-module-view!` — there isn't one. The Modules tab reads
+> the **public** EP-0013 realm / frame seams (`rf/realm-ids`,
+> `rf/frame-ids`, `rf/frame-realm`) and the realm→installed-app read seam
+> (`rf/installed-app`); these are framework-public reads, but the tab is
+> still a shell-internal surface, not a public mount API.
 
 #### Where issues surface now (no Issues tab)
 
