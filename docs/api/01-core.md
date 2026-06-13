@@ -69,7 +69,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-sub id ?metadata input-fn? computation-fn)
   ```
-- **Description**: "Computed view over `app-db` and other subs." `reg-sub` supports **three input-production modes** — every subscription has an *input query-vector producer*: a layer-1 app-db reader has no producer, `:<-` is the literal producer, and a parametric `input-fn` is the query-parametric producer. The optional first fn is a v2 **`input-fn`** — a *pure* function from the outer `query-v` to a **vector of query vectors**; it is **not** a v1 reaction-returning signal fn (it must not call `subscribe`, deref `app-db`, dispatch, or perform IO, and it must not return live reactions). The runtime resolves each returned query vector in the *same frame* as the outer subscription. This is the only sub-registration form in v2 — `reg-sub-raw` is gone (see [15 — Removed](15-removed.md) for the replacement guidance). Full contract, input grammar, and error ids: [spec API §`reg-sub` input-production modes](../../spec/API.md#reg-sub-input-production-modes) and [spec 006 — Reactive Substrate](../../spec/006-ReactiveSubstrate.md). The teaching walkthrough is [Guide ch.05 §Three ways a sub names its inputs](../guide/05-subscriptions.md#three-ways-a-sub-names-its-inputs).
+- **Description**: "Computed view over `app-db` and other subs." `reg-sub` supports **three input-production modes** — every subscription has an *input query-vector producer*: a layer-1 app-db reader has no producer, `:<-` is the literal producer, and a parametric `input-fn` is the query-parametric producer. The optional first fn is a v2 **`input-fn`** — a *pure* function from the outer `query-v` to a **vector of query vectors**; it is **not** a v1 reaction-returning signal fn (it must not call `subscribe`, deref `app-db`, dispatch, or perform IO, and it must not return live reactions). The runtime resolves each returned query vector in the *same frame* as the outer subscription. This is the only sub-registration form in v2 — `reg-sub-raw` is gone (see [15 — Removed](15-removed.md) for the replacement guidance). Full contract, input grammar, and error ids: [spec API §`reg-sub` input-production modes](../../spec/API.md#reg-sub-input-production-modes) and [spec 006 — Reactive Substrate](../../spec/006-ReactiveSubstrate.md). The teaching walkthrough is [Guide ch.05 §Three ways a sub names its inputs](../guide/concepts/subscriptions.md).
 
 | Mode | Form | Where the inputs come from |
 |---|---|---|
@@ -124,7 +124,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-cofx id ?metadata handler)
   ```
-- **Description**: "Inject something into the handler's coeffect map." A `:now` cofx hands the current time; an `:rf.server/request` cofx hands the active HTTP request. Reading a sub from a handler is also done by cofx-wrapping — see [Guide ch.06 §Reading a subscription from a handler](../guide/07-effects-and-coeffects.md#reading-a-subscription-from-a-handler).
+- **Description**: "Inject something into the handler's coeffect map." A `:now` cofx hands the current time; an `:rf.server/request` cofx hands the active HTTP request. Reading a sub from a handler is also done by cofx-wrapping — see [Guide ch.06 §Reading a subscription from a handler](../guide/concepts/effects-and-coeffects.md).
 - **Example**:
   ```clojure
   (rf/reg-cofx :app/now
@@ -139,7 +139,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   ```clojure
   (reg-frame id metadata)
   ```
-- **Description**: Atomic create-and-register. A frame is the scoping unit — one `app-db`, one event queue, one cascade — and `reg-frame` minted it with metadata you can later read via `frame-meta`. The frame is also where **durable `app-db` data classification** lives (EP-0015): `:sensitive` / `:large` `:app-db` path maps, frame-local HTTP carrier names, and `:observability` sink policy are declared here and projected at every wire boundary. See [08 — Schemas §Data classification](08-schemas.md#data-classification) and [Guide ch.23 — Privacy and large things](../guide/23-privacy-and-large-things.md).
+- **Description**: Atomic create-and-register. A frame is the scoping unit — one `app-db`, one event queue, one cascade — and `reg-frame` minted it with metadata you can later read via `frame-meta`. The frame is also where **durable `app-db` data classification** lives (EP-0015): `:sensitive` / `:large` `:app-db` path maps, frame-local HTTP carrier names, and `:observability` sink policy are declared here and projected at every wire boundary. See [08 — Schemas §Data classification](08-schemas.md#data-classification) and [Guide ch.23 — Privacy and large things](../guide/how-to/keep-secrets-out-of-traces.md).
 - **Example**:
   ```clojure
   ;; User-defined fxs sit under a user-feature prefix per

@@ -445,7 +445,7 @@ The path-marked declarations redact at the **five observation boundaries** named
 | `(throw (ex-info (str "User " email " failed login") {:user/email email :reason :invalid-credentials}))` — leaks email into `:exception-message` and `:exception-data` | `(throw (ex-info "Invalid credentials" {:reason :invalid-credentials}))` — name the category in the message; correlate via `:dispatch-id` against the (correctly redacted) `:db-before` snapshot |
 | Author-named `ex-data` keys carrying the sensitive value | Substitute `:rf/redacted` at the assembly site, or omit the key entirely |
 
-The framework deliberately does NOT ship a `safe-throw` helper — the call-site knowledge of *which ex-data keys correspond to sensitive paths in this specific app* is author knowledge, not framework knowledge. A twelve-line per-app `safe-throw` helper is the recommended shape; worked example at [docs/guide §24.08 — Exceptions under `:sensitive?`](../docs/guide/24-config-and-safety.md).
+The framework deliberately does NOT ship a `safe-throw` helper — the call-site knowledge of *which ex-data keys correspond to sensitive paths in this specific app* is author knowledge, not framework knowledge. A twelve-line per-app `safe-throw` helper is the recommended shape; worked example at [docs/guide §24.08 — Exceptions under `:sensitive?`](../docs/guide/how-to/configure-dev-and-prod.md).
 
 ---
 
@@ -493,7 +493,7 @@ Surfaces that previously lived in this matrix and have been removed. Listed here
 
 ### Author-side guide
 
-- [docs/guide §23a — Privacy: keeping secrets out of traces](../docs/guide/23-privacy-and-large-things.md) — guide-side worked-example tour for declaring `:sensitive?` on schema slots.
-- [docs/guide §23b — Large blobs](../docs/guide/23-privacy-and-large-things.md) — guide-side companion for `:large?` declarations.
-- [docs/guide §24.07 — Privacy and elision in practice](../docs/guide/24-config-and-safety.md) — operational config walkthrough.
-- [docs/guide §24.08 — Exceptions under `:sensitive?`](../docs/guide/24-config-and-safety.md) — the per-app `safe-throw` convention and the three patterns for the exception-path residual.
+- [docs/guide §23a — Privacy: keeping secrets out of traces](../docs/guide/how-to/keep-secrets-out-of-traces.md) — guide-side worked-example tour for declaring `:sensitive?` on schema slots.
+- [docs/guide §23b — Large blobs](../docs/guide/how-to/keep-secrets-out-of-traces.md) — guide-side companion for `:large?` declarations.
+- [docs/guide §24.07 — Privacy and elision in practice](../docs/guide/how-to/configure-dev-and-prod.md) — operational config walkthrough.
+- [docs/guide §24.08 — Exceptions under `:sensitive?`](../docs/guide/how-to/configure-dev-and-prod.md) — the per-app `safe-throw` convention and the three patterns for the exception-path residual.

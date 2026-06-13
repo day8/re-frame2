@@ -1,0 +1,183 @@
+# Add authentication
+
+You're adding auth: a login form, requests that carry the user's token, routes only signed-in users can reach, and a logout that doesn't leak the previous user's data into the next session. Every piece is an event, an interceptor, or an effect you already know.
+
+The ecosystem anchor is the **axios auth interceptor**, plus a `<RequireAuth>` route wrapper, plus a logout that clears whatever you remember to clear. re-frame2 keeps all three ideas with deliberate differences: request decoration is a registered HTTP interceptor reading the token from the frame's `app-db` — one seam, no token threading, no module-level mutable token; the route guard is an ordinary event [interceptor](../concepts/interceptors.md) attached frame-wide; and logout is *causal* — clearing the departing user's cached server data is one named, traced event, not a checklist you maintain.
+
+> **Auth is a slice, a guard, and a teardown — not a library.**
+
+You need [routing](../concepts/routing.md) (`day8/re-frame2-routing`) and [managed HTTP](../concepts/http.md) (`day8/re-frame2-http`); step 6 also touches [resources](../concepts/server-state.md) if you cache server state. Step 2 builds on [Build a form](build-a-form.md) and doesn't repeat its mechanics.
+
+## 1. The token slice — and its one persistence seam
+
+Session state is two `app-db` paths: `[:auth :user]` (the signed-in user, `nil` when anonymous) and `[:auth :token]` (the credential requests carry). The guard checks `:user`, the request decorator reads `:token`, logout clears both.
+
+The token is a secret, so two protections ship with the slice: declare the path `:sensitive` on the frame (step 4's `reg-frame` carries it) so the raw token never leaves the box in traces, Xray captures, or SSR payloads ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md)); and give persistence exactly **one seam** — a single effect that writes on a truthy token and removes on `nil` — so login, logout, and tests all hit the same edge:
+
+```clojure
+;; Adapted from examples/reagent/realworld/auth.cljs
+;; Requires: [re-frame.core :as rf] [re-frame.http-managed] [re-frame.routing]
+;; — requiring each artefact namespace registers its surface at load.
+(rf/reg-fx :auth.session/persist
+  {:doc       "Persist (truthy :token) or clear (nil) the session token in localStorage."
+   :platforms #{:client}}
+  (fn [_frame-ctx {:keys [token]}]
+    (when-let [ls (.-localStorage js/globalThis)]
+      (if token
+        (.setItem    ls "auth-token" token)
+        (.removeItem ls "auth-token")))))
+```
+
+Two honest caveats: this effect is **client-only** — under SSR a session rides an http-only cookie instead — and a localStorage token is readable by any script on your page, so if XSS is in your threat model, use the cookie and drop this effect (the rest of the recipe stands). Reading the saved token *back* at boot is a world read — a [coeffect](../concepts/effects-and-coeffects.md) — wired end to end in [Part 3 of the tutorial](../tutorial/03-auth-and-forms.md).
+
+## 2. Wire the login form
+
+The form — slice shape, seven events, error-visibility rule — is exactly [Build a form](build-a-form.md), whose running example is already this login form at `[:auth :login]`. Auth changes one thing: **success establishes a session**. Upgrade that page's `:form.login/submit-success` to an fx handler that stores the user and token, persists, and bounces:
+
+```clojure
+(rf/reg-event-fx :form.login/submit-success
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    (let [user (:user value)]            ;; server reply: {:user {... :token "..."}}
+      {:db (-> db
+               (assoc-in [:auth :login :status]    :submitted)
+               (assoc-in [:auth :login :submitted] ;; keep the form recipe's dirty-check snapshot
+                         (get-in db [:auth :login :draft]))
+               (assoc-in [:auth :user]  user)
+               (assoc-in [:auth :token] (:token user)))
+       :fx [[:auth.session/persist {:token (:token user)}]
+            [:dispatch [:auth/post-login-redirect]]]})))
+```
+
+The failure handler is unchanged from the form recipe. Login deliberately does **not** retry — one submission per click; a transient 5xx surfaces as an error and the user clicks again. Register is the same wiring with a different URL and draft. When login, register, and session restore start sharing transitions ("can't submit while restoring"), graduate to a five-state [machine](../concepts/machines.md) — `idle → submitting/restoring → authed | error` — as the RealWorld example does ([auth.cljs](../../../examples/reagent/realworld/)).
+
+## 3. Decorate requests once, at the frame seam
+
+Don't thread the token through request builders. One HTTP interceptor's `:before` reads the token from the frame's `app-db` and stamps every outbound managed request crossing that frame:
+
+```clojure
+;; Adapted from examples/reagent/realworld/core.cljs
+(defn- bearer-auth [ctx]
+  (let [token (some-> (rf/app-db-value (:frame ctx)) :auth :token)]
+    (cond-> ctx
+      token (assoc-in [:request :headers "Authorization"]
+                      (str "Token " token)))))  ;; "Token" is RealWorld's scheme; yours may be "Bearer"
+
+;; Register at app boot, before the first authenticated request can fire.
+(rf/reg-http-interceptor :my-app/bearer-auth
+  {:before bearer-auth})
+```
+
+This is the production shape because: it reads `(:frame ctx)` — the frame the cascade actually runs under, never a hard-coded id — so it survives renamed and multi-frame mounts; it returns the ctx unchanged when there's no token, so login and public reads are untouched; and `Authorization` is on the framework's built-in redaction denylist ([Spec 014 — privacy](../../../spec/014-HTTPRequests.md)) — the live request carries it, off-box traces never do.
+
+> **Coming from re-frame v1?** This was a wrapper fn around every `http-xhrio` map — one forgotten call site, one unauthenticated request; here the frame seam is the single write site.
+
+## 4. Guard the protected routes
+
+Route-level auth is an interceptor over the navigation events, not a special routing mechanism ([Spec 012 — redirects and guards](../../../spec/012-Routing.md)). Tag the routes that need a session:
+
+```clojure
+(rf/reg-route :app/login    {:path "/login"})
+(rf/reg-route :app/settings {:path "/settings" :tags #{:requires-auth}})
+```
+
+Then the guard. The one thing it must get right: **gate every navigation entry point**. Guarding `:rf.route/navigate` alone fails *open* on the most common path — a logged-out user who types `/settings` into the URL bar, reloads a protected page, or clicks a link gets in anyway. Normalise all three entry points to one target and redirect identically:
+
+```clojure
+;; Adapted from examples/reagent/realworld/routing.cljs
+(defn- nav-target
+  "Normalise a navigation event to {:id <route-id> :params <map>}; nil for
+   non-navigation events (the guard short-circuits)."
+  [[ev-id a b]]
+  (case ev-id
+    :rf.route/navigate          {:id a :params (or b {})}            ;; programmatic nav
+    :rf/url-requested           (let [{:keys [to params url]} a]     ;; route-link click
+                                  (cond
+                                    to  {:id to :params (or params {})}
+                                    url (when-let [{:keys [route-id params]} (rf/match-url url)]
+                                          {:id route-id :params (or params {})})))
+    :rf.route/handle-url-change (when-let [{:keys [route-id params]} (rf/match-url a)]
+                                  {:id route-id :params (or params {})})  ;; URL bar / reload / back-forward
+    nil))
+
+(def auth-guard
+  {:id     :my-app/auth-guard
+   :before (fn [ctx]
+             (if-let [{:keys [id params]} (nav-target (get-in ctx [:coeffects :event]))]
+               (let [needs-auth? (contains? (:tags (rf/handler-meta :route id)) :requires-auth)
+                     logged-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
+                 (if (and needs-auth? (not logged-in?))
+                   (-> ctx
+                       (assoc :rf/skip-handler? true)        ;; the protected route never commits
+                       (assoc-in [:effects :db]              ;; stash the target for the bounce-back
+                                 (assoc-in (get-in ctx [:coeffects :db])
+                                           [:auth :return-to] {:id id :params params}))
+                       (assoc-in [:effects :fx]
+                                 [[:dispatch [:rf.route/navigate :app/login]]]))
+                   ctx))
+               ctx))})
+```
+
+The redirect is *skip-and-dispatch*: `:rf/skip-handler?` stops the original handler — the protected slice never commits, its `:on-match` loads never fire — and the guard dispatches the login navigation itself. (Rewriting the event in place would run the wrong handler: the runtime picks the handler from the *original* event id.) The target is stashed in `app-db`, not on navigate opts, because the navigate handler drops unknown opts.
+
+Wire it frame-wide; it short-circuits in one `case` lookup for every non-navigation event:
+
+```clojure
+;; Adapted from examples/reagent/realworld/core.cljs
+(rf/reg-frame :rf/default
+  {:doc          "The app frame."
+   :url-bound?   true                           ;; this frame owns the browser URL
+   :sensitive    {:app-db [[:auth :token]]}     ;; step 1's egress protection
+   :interceptors [auth-guard]})
+```
+
+## 5. Bounce back after login
+
+An auth guard's headline feature is returning the user to where they were headed. Step 2's success handler already dispatches the bounce; it reads **and clears** the stash in one step, so a later plain login can't bounce to a stale target:
+
+```clojure
+;; Adapted from examples/reagent/realworld/auth.cljs
+(rf/reg-event-fx :auth/post-login-redirect
+  (fn [{:keys [db]} _]
+    (let [return-to (get-in db [:auth :return-to])]
+      {:db (update db :auth dissoc :return-to)
+       :fx [[:dispatch (if return-to
+                         [:rf.route/navigate (:id return-to) (:params return-to)]
+                         [:rf.route/navigate :app/home])]]})))
+```
+
+## 6. Logout is a teardown
+
+Logout must clear the session slice, the persisted token, *and* the departing user's cached server reads — otherwise the next account sees the previous account's feed. With [resources](../concepts/server-state.md), that last part is one causal event, `:rf.resource/clear-scope` — with a subtlety: resolve the *old* scope from the coeffect `db` **before** clearing the auth slice; after the clear, the identity the scope derives from is gone.
+
+```clojure
+;; Scope resolution per Spec 016; :my-app/session is your reg-resource-scope resolver.
+(rf/reg-event-fx :auth/logout
+  (fn [{:keys [db]} _]
+    (let [old-scope (rf/resolve-resource-scope db :my-app/session)]
+      {:db (-> db
+               (assoc-in [:auth :user]  nil)
+               (assoc-in [:auth :token] nil))
+       :fx [[:auth.session/persist {:token nil}]
+            [:dispatch [:rf.resource/clear-scope {:scope old-scope :cause :logout}]]
+            [:dispatch [:rf.route/navigate :app/home]]]})))
+```
+
+`clear-scope` removes that scope's cache entries, releases their owners, aborts in-flight requests nothing else owns, and suppresses late replies — leaving every other scope intact. No hand-maintained list of keys to forget ([Spec 016 — Resources](../../../spec/016-Resources.md)). If you don't use resources, drop that one `:fx` row; the rest stands.
+
+## Observe it in Xray
+
+- Logged out, click a link to a guarded route: the navigation event's row shows the guard skipping the handler and a follow-on dispatch to login — the protected route never reaches the route slice.
+- Logged in, find an authenticated request: the live request carried `Authorization`, the captured trace shows it redacted — as is `[:auth :token]` in the app-db view.
+- Dispatch `:auth/logout`: one clear-scope row lists what was removed, what was aborted, and what was left alone.
+
+---
+
+You can now:
+
+- hold a session as two `app-db` paths — one persistence seam, token declared `:sensitive`
+- wire login success into store-persist-redirect, with no retry it shouldn't have
+- stamp the auth header once, at the frame's HTTP seam, instead of per call site
+- guard all three navigation entry points, with a bounce-back that can't go stale
+- tear down a session causally — slice, persisted token, and cached reads
+
+**Next:** see the full flow — register, session restore, and the guard — in [Part 3: auth — login, register, and the guard](../tutorial/03-auth-and-forms.md), or harden the egress side in [Keep secrets and large things out of traces](keep-secrets-out-of-traces.md).

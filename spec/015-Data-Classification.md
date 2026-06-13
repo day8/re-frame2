@@ -506,7 +506,7 @@ The residual surface is the intersection of *the handler read a sensitive value*
 
 - **Name the *category* of failure in the message, not the value.** A category-only message plus a `:dispatch-id` correlation against the (correctly projected) pending-app-db snapshot recovers the failing identity for the dev without leaking it.
 - **If the failing structure is essential, substitute `:rf/redacted` at the assembly site** so the dev's mental model stays uniform.
-- **Pick a per-app convention.** The framework deliberately does **not** ship a `rf/safe-throw` helper — which `ex-data` keys are sensitive is author knowledge, not framework knowledge. Worked patterns live in [docs/guide §24.08 — Exceptions under `:sensitive?`](../docs/guide/24-config-and-safety.md).
+- **Pick a per-app convention.** The framework deliberately does **not** ship a `rf/safe-throw` helper — which `ex-data` keys are sensitive is author knowledge, not framework knowledge. Worked patterns live in [docs/guide §24.08 — Exceptions under `:sensitive?`](../docs/guide/how-to/configure-dev-and-prod.md).
 
 ## Scope
 
@@ -569,7 +569,7 @@ Per-artefact unit tests cover implementation-specific propagation mechanism; the
 - [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — the `:rf.egress/*`, `:rf.observe/*`, `:rf.size/*` reservations and the namespacing rule.
 - [Privacy](Privacy.md) — the cross-artefact discoverability index for the whole privacy surface.
 - [Security §Privacy / secret handling](Security.md#privacy--secret-handling) — the pattern-level threat model this Spec grounds.
-- [docs/guide §24.08 — Exceptions under `:sensitive?`](../docs/guide/24-config-and-safety.md) — author-side exception-path worked patterns.
+- [docs/guide §24.08 — Exceptions under `:sensitive?`](../docs/guide/how-to/configure-dev-and-prod.md) — author-side exception-path worked patterns.
 
 ## HTTP response bodies
 

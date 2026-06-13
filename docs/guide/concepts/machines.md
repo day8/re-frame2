@@ -1,0 +1,290 @@
+# State machines
+
+Some flows aren't "set a flag" — they're "what state are we even *in*?" A login that can be idle, submitting, authed, error-shown, or locked-out. A websocket that's connecting, connected, dropped, reconnecting. For those, the load-bearing question isn't what value is in app-db; it's which of a fixed set of **named states** you occupy, and which events move you to which other state. re-frame2 makes that shape first-class.
+
+The ecosystem anchor here is [**XState v5**](https://stately.ai/docs) — re-frame2's machine grammar deliberately converges on its vocabulary and behaviour (transition tables, guards, actions, tags, `:after`, run-to-completion), with one big deliberate divergence: **a machine is not an actor object you create and `send` to. It's an event handler.** The full delta is a five-row table below.
+
+> **Deciding where a value should live?** A machine is the right home when a value has a *lifecycle* — named states, timers, retries, cancellation — rather than just a value you read. [Where should this value live?](../where-state-lives.md) has the full decision procedure.
+
+## The flow hiding in your `cond`s
+
+You already write state machines; you call them other things. The keyword you stuffed into app-db — `:idle`, `:submitting`, `:authed` — plus the unwritten rules in your head about which states can legally follow which. Here's a login flow written the way everybody writes it first:
+
+```clojure
+(rf/reg-event-fx :auth/submit
+  (fn [{:keys [db]} [_ creds]]
+    (cond
+      (= :submitting (:auth/state db))
+      {}                                          ;; ignore — already submitting
+
+      (>= (:auth/attempts db) 3)
+      {:db (assoc db :auth/state :locked-out)}
+
+      :else
+      {:db (-> db (assoc :auth/state :submitting) (update :auth/attempts inc))
+       :fx [[:rf.http/managed
+             {:request    {:method :post :url "/api/login" :body creds
+                           :request-content-type :json}
+              :on-success [:auth/login-success]
+              :on-failure [:auth/login-error]}]]})))
+
+(rf/reg-event-db :auth/login-error
+  (fn [db [_ {:keys [failure]}]]
+    (if (>= (:auth/attempts db) 3)
+      (assoc db :auth/state :locked-out)
+      (-> db (assoc :auth/state :error-shown) (assoc :auth/error failure)))))
+
+;; ... plus :auth/login-success, :auth/dismiss, :auth/reset ...
+```
+
+This works. And it has three diseases that all metastasize:
+
+1. **The transition rules are scattered.** That `:submitting` is reachable from `:idle` but not from `:locked-out` is implicit in cond clauses. To know the full state graph you must read every handler that touches `:auth/state`.
+2. **Shared logic duplicates.** "3 attempts" appears in two handlers. Change it to 5 and you'd better remember both.
+3. **Adding a state is a chore.** A `:two-factor` step between `:submitting` and `:authed` means a new keyword, a new handler, *and* edits to every handler carrying assumptions about which states are valid where.
+
+The fix isn't better `cond` clauses. It's noticing the shape and writing it down.
+
+## The same flow as a transition table
+
+```clojure
+;; Adapted from examples/reagent/state_machine_walkthrough/core.cljc
+(def login-flow
+  {:initial :idle
+   :data    {:attempts 0 :error nil}
+
+   :guards
+   {:under-retry-limit
+    (fn [{data :data}] (< (:attempts data) 3))}
+
+   :actions
+   {:clear-error
+    (fn [_] {:data {:error nil}})
+
+    :issue-request
+    (fn [{[_ creds] :event}]
+      {:fx [[:rf.http/managed
+             {:request    {:method :post :url "/api/login" :body creds
+                           :request-content-type :json}
+              :decode     :json
+              :on-success [:auth.login/flow [:auth.login/success]]
+              :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
+
+    :record-error
+    (fn [{data :data [_ {:keys [failure]}] :event}]
+      {:data (-> data
+                 (update :attempts inc)
+                 (assoc :error (or (:message failure) "Login failed.")))})
+
+    :store-session
+    (fn [{[_ {:keys [value]}] :event}]
+      {:fx [[:auth.session/store {:token (:token value)}]]})}
+
+   :states
+   {:idle
+    {:on {:auth.login/submit {:target :submitting :action :clear-error}}}
+
+    :submitting
+    {:tags  #{:auth/busy}
+     :entry :issue-request
+     :on    {:auth.login/success {:target :authed :action :store-session}
+             :auth.login/failure [{:target :error-shown
+                                   :guard  :under-retry-limit
+                                   :action :record-error}
+                                  {:target :locked-out}]}}
+
+    :error-shown
+    {:on {:auth.login/dismiss {:target :idle}
+          :auth.login/submit  {:target :submitting}}}
+
+    ;; Persistent sinks — no outgoing transitions; :meta is tooling-only.
+    ;; (:final? true would auto-destroy the machine; omit it to persist.)
+    :authed     {:meta {:terminal? true}}
+    :locked-out {:meta {:terminal? true}}}})
+```
+
+Read it top to bottom: five states; `:idle` starts; submit takes `:idle` to `:submitting`; from there success goes to `:authed`, failure to `:error-shown` *if* the `:under-retry-limit` guard passes, otherwise `:locked-out`. Guards and actions are referenced by id; the implementations live once, up top.
+
+Watch the three diseases vanish: the transition rules are all in one place, the retry limit lives in exactly one guard, and adding `:two-factor` is one new state node plus the arrows in and out — the existing nodes don't move. The whole flow is *one piece of data*: pretty-print it, render it as a diagram, or hand it to an AI with "add a two-factor state" and the AI has the entire context in one form.
+
+## `reg-machine`, demystified
+
+Registering the table is one line — and there's no new runtime concept behind it:
+
+```clojure
+(rf/reg-machine :auth.login/flow login-flow)
+;; exactly equivalent to:
+;; (rf/reg-event-fx :auth.login/flow (rf/make-machine-handler login-flow))
+```
+
+> **One-time setup.** Machines ship in their own artefact, `day8/re-frame2-machines`, so apps without machines build a bundle clean of them. Add the dep and require `re-frame.machines` once at app boot — that registers the hooks through which `rf/reg-machine`, `rf/machine-transition`, and `rf/sub-machine` resolve.
+
+A machine **is** an event handler — a `reg-event-fx` whose body interprets the transition table: look up the snapshot, compute the transition, write it back, return the action's effects. Every event reaches it through the same `dispatch` and the same [cascade](events-and-the-cascade.md) as everything else; no actor object, no second messaging system. (`reg-machine` is a macro that also stamps dev-only source coordinates so tools can jump from a diagram arrow to your code; production builds elide them.)
+
+Dispatching routes through the machine's id, wrapping an inner event vector:
+
+```clojure
+(rf/dispatch [:auth.login/flow [:auth.login/submit credentials]])
+```
+
+An event the current state has no transition for is a **silent no-op** — nothing throws (XState v5 dropped strict mode too), but the runtime emits a benign `:rf.machine.event/unhandled-no-op` trace so a debugger can show the event arrived and was ignored.
+
+The snapshot — `{:state :submitting :data {:attempts 1 :error nil}}` — lives in the frame's **runtime-db** at `[:rf.runtime/machines :snapshots :auth.login/flow]`, not interleaved with your app data. Because it's just a value riding the [frame](frames.md), undo, time-travel, persistence, and SSR hydration extend to machines for free. Views read it through a sub:
+
+```clojure
+@(rf/sub-machine :auth.login/flow)
+;; => {:state :submitting :data {:attempts 1 :error nil}}  (nil before the first event)
+```
+
+Named projections chain off the underlying framework sub — `(rf/reg-sub :auth.login/error :<- [:rf/machine :auth.login/flow] ...)` — like any other [subscription](subscriptions.md).
+
+Notice the async wiring in `:issue-request`: `:on-success [:auth.login/flow [:auth.login/success]]` is a two-element template. The HTTP effect appends its reply payload and the runtime folds it onto the *inner* event, so `:store-session` sees `[:auth.login/success {:kind :success :value v}]` — the payload [managed HTTP](http.md) actually sends. Machines and async effects compose with no adapter layer.
+
+**Do, then observe.** Dispatch one event with Xray open: the transition shows up as an ordinary event row, snapshot before and after riding the same trace stream as everything else — see [Debug with Xray](../how-to/debug-with-xray.md).
+
+## Coming from XState v5? The five-row delta
+
+XState v5 is the behaviour re-frame2 aligns to; the *expression* is re-frame-native. The rows that matter:
+
+| XState v5 | re-frame2 | The difference, and why |
+|---|---|---|
+| `context` (extended state) | `:data` | Same idea; "context" is already overloaded in re-frame2 (interceptor context, React context). |
+| `createActor(machine).start()`, then `actor.send({type: ...})` | the machine **is an event handler**; `(rf/dispatch [machine-id [event]])` | **The big one.** No actor object, no separate send mechanism — one router queue, one cascade. |
+| actions that imperatively `assign(...)` / fire effects | actions **return** `{:data ... :fx ...}` | The same data-shaped return as any `reg-event-fx` handler; effects are data, actioned by the runtime. |
+| state lives in the actor; `actor.getSnapshot()` | the snapshot is a value in runtime-db, read via `@(rf/sub-machine id)` | Time-travel, undo, persistence, and SSR hydration extend to machines for free. |
+| `setup({guards, actions})` | machine-local `:guards` / `:actions` maps inside the spec | Each machine carries its own, validated at registration; cross-machine reuse is ordinary Clojure vars, not a string registry. |
+
+The convergences run deeper than the renames: run-to-completion, transition tables as data, tags, delayed transitions, final states, and v5's internal-by-default self-transitions (re-frame2's `:reenter? true` is v5's `reenter: true`). An XState v5 author ports their intuitions directly; the full divergence ledger is in the [machine construction guide](../../../spec/CP-5-MachineGuide.md).
+
+> **Coming from re-frame v1?** Machines don't exist there — the keyword-in-app-db + `cond` pattern above *is* the v1 shape this replaces. Nothing to unlearn; see [From re-frame v1](../25-from-re-frame-v1.md).
+
+## See one run
+
+A turnstile with two states and a counter riding in `:data`, live in your browser. Click into the cell and press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to re-evaluate after edits. This is the real `rf/reg-machine` — the same call you'd write in your own app.
+
+```cljs-rf2
+(require '[reagent2.core :as r]
+         '[re-frame.core :as rf])
+
+(def turnstile
+  {:initial :locked
+   :data    {:coins 0 :pushes 0}
+   :actions {:take-coin  (fn [{data :data}] {:data (update data :coins  inc)})
+             :count-push (fn [{data :data}] {:data (update data :pushes inc)})}
+   :states
+   {:locked   {:on {:coin {:target :unlocked :action :take-coin}
+                    :push {:target :locked   :action :count-push}}}  ;; blocked: stays locked
+    :unlocked {:on {:push {:target :locked}
+                    :coin {:target :unlocked :action :take-coin}}}}})
+
+(rf/reg-machine :turnstile/flow turnstile)
+
+;; sub-machine returns nil until the first event; render :initial until then.
+(defn turnstile-view []
+  (let [{:keys [state data]} (or @(rf/sub-machine :turnstile/flow)
+                                 {:state (:initial turnstile) :data (:data turnstile)})
+        open? (= state :unlocked)]
+    [:div {:style {:font-family "sans-serif"}}
+     [:p "state: " [:strong {:style {:color (if open? "green" "crimson")}} (str state)]]
+     [:p "coins: " (:coins data) " · pushes: " (:pushes data)]
+     [:button {:on-click #(rf/dispatch [:turnstile/flow [:coin]])} "insert coin"]
+     [:button {:on-click #(rf/dispatch [:turnstile/flow [:push]])} "push"]]))
+
+[turnstile-view]
+```
+
+> **Try it.** Push while `:locked` — nothing opens, but the push counter climbs (a self-transition running an action). Then add a third state: give `:unlocked` an `:on {:break {:target :broken}}`, add `:broken {:on {}}` to `:states`, add a button dispatching `[:turnstile/flow [:break]]`, re-evaluate. You added a reachable state by editing *one piece of data* — no new handler, no `cond` surgery.
+
+## Guards, actions, tags, `:after` — the recognition kit
+
+**Guards and actions receive one context map** — `{:data :event :state :meta}` — and destructure what they need. A guard returns a boolean; an action returns `{:data ...}` (merged into the data slot), `:fx` (effects), both, or `nil` — the same contract as a `reg-event-fx` return. Each slot takes one fn or one keyword reference into the machine's own `:guards` / `:actions` map; there's no `{:and ...}` combinator DSL — compound logic is a named function, because the *name* is what a visualiser or an AI reads on the transition arrow.
+
+**Facts from the world are declared, not grabbed.** A guard or action that needs the time (or a random draw) must not call `(js/Date.now)` — that puts nondeterminism where replay can't reach it. It declares the fact on a *named* entry and destructures it from the context map:
+
+```clojure
+:guards
+{:within-retry-window?
+ {:rf.cofx/requires [:rf/time-ms]
+  :fn (fn [{:keys [data rf/time-ms]}]
+        (< (- time-ms (:first-attempt-at data)) 60000))}}
+```
+
+The fact arrives recorded on the event's causal token, so the decision replays deterministically under time-travel and SSR hydration — [Effects and coeffects](effects-and-coeffects.md) has the general mechanism.
+
+**Tags answer the any-of-many question.** Once a machine has several "loading-ish" states, views stop asking "which exact state?" and start asking a predicate: *is it busy?* A state declares `:tags #{:auth/busy}` (as `:submitting` does above); at every transition the runtime stamps the union of active states' tags onto the snapshot:
+
+```clojure
+(when @(rf/machine-has-tag? :auth.login/flow :auth/busy)
+  [spinner])
+```
+
+Add a fifth busy state later and it's one `:tags` entry on the new node — zero view changes. Use a plain `case` on `:state` when the question really is "which exact state?".
+
+**`:after` is the declarative timer.** A state-node key mapping delay → transition: enter the state, the timer arms; leave it, the timer cancels (stale timers from a prior visit are epoch-detected and ignored). No `dispatch-later` to wire, no cancellation flag to remember:
+
+```clojure
+:reconnecting {:after {5000 {:target :connecting}}     ;; retry in 5s
+               :on    {:net/give-up :failed}}
+```
+
+That one key replaces the `setTimeout`-plus-cancel-flag pattern behind most reconnect/timeout/debounce bugs. Full grammar in [Spec 005 §Delayed `:after` transitions](../../../spec/005-StateMachines.md#delayed-after-transitions).
+
+## Testing: transitions are pure function calls
+
+`machine-transition` runs one transition with no frame, no browser, no mocks — table in, snapshot in, event in; result out:
+
+```clojure
+(ns my-app.login-flow-test
+  (:require [clojure.test :refer [deftest is]]
+            [re-frame.core :as rf]
+            [re-frame.machines.result :as result]
+            [my-app.login :refer [login-flow]]))
+
+(deftest login-flow-test
+  ;; happy path: :idle --submit--> :submitting (fires the request fx)
+  (let [s0 {:state :idle :data {:attempts 0 :error nil}}
+        {s1 ::result/snap fx1 ::result/fx}
+        (rf/machine-transition login-flow s0
+                               [:auth.login/submit {:email "a@b.com" :password "secret"}])]
+    (is (= :submitting (:state s1)))
+    (is (= :rf.http/managed (ffirst fx1)))      ;; :entry ran :issue-request
+
+    ;; at the retry limit the guard rejects :error-shown; :locked-out wins
+    (let [{s2 ::result/snap}
+          (rf/machine-transition login-flow
+                                 {:state :submitting :data {:attempts 3 :error nil}}
+                                 [:auth.login/failure {:failure {:message "bad creds"}}])]
+      (is (= :locked-out (:state s2))))))
+```
+
+The return value is a result map — destructure `::result/snap` and `::result/fx`, or discriminate with `result/ok?` / `result/fail?` (a throwing action surfaces as a failure value, not an exception out of your test). These run on the JVM in microseconds — exactly the testing experience you want for the flows where testing usually gets hard. The complete login flow with these tests lives at [`examples/reagent/state_machine_walkthrough/`](https://github.com/day8/re-frame2/tree/main/examples/reagent/state_machine_walkthrough) and runs on every CI pass.
+
+## When the machine grows
+
+The flat grammar above carries most machines. When a flow gets richer, the grammar grows without changing the model — each of these is the same transition-table data, one more key. Recognition is all you need here; the contracts live in [Spec 005](../../../spec/005-StateMachines.md):
+
+- **Hierarchical states** — a compound state contains sub-states; entering the parent cascades to its `:initial` child. (An `:authenticated` super-state over `:browsing` / `:checkout`.) [§Hierarchical compound states](../../../spec/005-StateMachines.md#hierarchical-compound-states).
+- **Eventless `:always`** — fires when a guard becomes true, no event needed. [§Eventless `:always` transitions](../../../spec/005-StateMachines.md#eventless-always-transitions).
+- **Parallel regions** — one machine, several orthogonal axes active at once (`:type :parallel` + `:regions`) sharing one `:data`; the snapshot's `:state` becomes a map of region → state, tags union across regions. Three axes of 3 states each is 3 regions, not 27 cross-product states. [§Parallel regions](../../../spec/005-StateMachines.md#parallel-regions); when the axes *don't* share data, prefer N separate machines — the trade-off is worked in the [CP-5 guide](../../../spec/CP-5-MachineGuide.md).
+- **History states** — re-enter a compound at the substate it was in when you left (a paused player resumes mid-track), via a `:type :history` pseudo-state. The recording rides the snapshot, so it survives undo and hydration for free. [§History states](../../../spec/005-StateMachines.md#history-states-type-history--shallow--deep--default-target).
+- **Spawned actors** — machines that aren't long-lived singletons: a per-request protocol machine, a wizard's per-step subprocess. The declarative `:spawn` key spawns a child on state entry and destroys it on exit (XState's `invoke`, deliberately renamed). [§Declarative `:spawn`](../../../spec/005-StateMachines.md#declarative-spawn).
+
+## When to reach for a machine — and when not
+
+**Reach for one when:** the flow has named, mutually-exclusive stages (handlers that `cond` on a state field are the tell); transitions are conditional (`(when (ready? db) ...)` scattered across handlers are guards in disguise); the flow is worth drawing on a whiteboard — the diagram *is* the machine.
+
+**Don't reach for one when:** the "state" is just data (a counter, a list); there are only two stages (a `:loading?` boolean is fine); the lifecycle belongs to server data — fetching, caching, invalidation is what [resources](server-state.md) already manage, and hand-building that machine is re-implementing the framework; or you're enforcing a *sequence of operations* rather than a set of states — chained events handle the simple cases.
+
+**Reach for machines when named states are the load-bearing concept — not when named operations are.**
+
+---
+
+**You can now:**
+
+- spot a state machine hiding in scattered `cond` clauses, and say which three diseases the transition-table rewrite cures
+- register a machine (`reg-machine` — sugar over an event handler), dispatch into it, and read it with `sub-machine` and `machine-has-tag?`
+- map your XState v5 vocabulary onto re-frame2's five deltas
+- test transitions as pure function calls with `machine-transition`
+- recognise when you need hierarchy, parallel regions, history, or spawned actors — and where their contracts live
+
+**Onward:** [Part 3 of the tutorial](../tutorial/03-auth-and-forms.md) puts a login machine to work in a real app · [Server state: resources](server-state.md) covers the lifecycle you should *not* hand-build as a machine.

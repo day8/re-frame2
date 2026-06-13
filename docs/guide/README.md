@@ -1,44 +1,45 @@
 # The re-frame2 Guide
 
-This is the human tutorial for re-frame2. It is the place to build intuition: counters first, then the cascade, then subscriptions, views, effects, schemas, frames, HTTP, routing, tests, SSR, privacy, and the operational habits that keep a real app from becoming haunted furniture.
+re-frame2 is a data-first framework for building React applications in ClojureScript: one state map, events as data, views last. This page routes you to the right entry point and shows the guide's shape — nothing here teaches; everything here points.
 
-If you want signatures, use the [API reference](../api/README.md). If you want the normative contract, use the [spec](../../spec/README.md). If you want Story or Xray in depth, use their dedicated sections. This guide teaches the application model and hands off to those references when the topic stops being a tutorial.
+> **Start by running the counter in five minutes; everything else is one click deeper.**
 
-## Who This Is For
+## Pick your entry point
 
-JavaScript programmers should start here to understand why re-frame2 is not just another state library with a Clojure accent. The short answer is that events, effects, subscriptions, schemas, frames, and evidence are all data-shaped and tool-readable.
+| You are… | Start at | Then |
+|---|---|---|
+| **A React/JS developer.** You know the ecosystem — Redux, TanStack Query, XState, React Router — but maybe not Clojure. | [Quick start: a counter in five minutes](quickstart.md) | The [RealWorld tutorial](tutorial/index.md). Each concept page opens by naming the tool you already know and teaching the difference. |
+| **A re-frame v1 veteran.** Your instincts mostly survive; the global assumptions don't. | [From re-frame v1](25-from-re-frame-v1.md) — deltas, not basics. | [Frames: isolated worlds](concepts/frames.md) — the biggest new idea. |
+| **An AI agent** working on a re-frame2 app. | [The reference map](reference.md), which indexes down into the [spec](../../spec/README.md) — the normative contract. | Guide pages are self-contained and use the spec's terminology, so they chunk cleanly; where guide and spec differ, the spec wins. |
 
-ClojureScript developers can move quickly through the first few chapters, but should not skip the v2 substrate: frames, schema boundaries, trace/epoch evidence, adapters, Story, Xray, and MCP change what the framework can explain.
+One persona this guide doesn't serve: someone learning UI programming from scratch. It teaches re-frame2 by difference from tools you already know.
 
-re-frame v1 users should read the main guide, then [25 - From re-frame v1](25-from-re-frame-v1.md). The old instincts mostly survive. The old global assumptions do not.
+## The shape of the guide
 
-## How To Read It
+Seven tiers, ordered by how much you need:
 
-Read chapters 01-08 in order if you are new. They teach the core loop: event, app-db, subscription, view, effect, schema.
+| Tier | Its job | Entry |
+|---|---|---|
+| **Quick start** | Pixels in five minutes; nothing explained yet | [Quick start](quickstart.md) |
+| **Tutorial** | Build RealWorld — pages, server data, auth, writes, tests — one app, end to end | [Build RealWorld](tutorial/index.md) |
+| **Concepts** | The mental model, one page per piece | [The model: six dominoes, one loop](concepts/index.md) |
+| **How-to** | Recipes: one task, the steps, complete code | [How-to guides](how-to/index.md) |
+| **Explanation** | The why behind the design — for when you're curious, not blocked | [Inside out: why views come last](explanation/inside-out.md) |
+| **Migration** | What changed from re-frame v1, and how to port | [From re-frame v1](25-from-re-frame-v1.md) |
+| **Reference** | The map down into the spec, tools, and skills — every shape, every option | [The reference map](reference.md) |
 
-After that, use the guide by problem:
+Two habits the guide leans on throughout:
 
-- Not sure where a value belongs — a sub, a flow, a resource, or a machine? Read [Where should this value live?](where-state-lives.md).
-- Building real forms? Read [11 - Forms](11-forms.md).
-- Talking to a server? Read [10 - HTTP](10-http.md).
-- Caching server-state (TanStack-Query-style reads)? Read [27 - Server-state and resources](27-resources.md).
-- Modeling a process? Read [12 - State machines](12-machines.md).
-- Adding tests? Read [13 - Testing](13-testing.md).
-- Fighting routing? Read [19 - Routing](19-routing.md).
-- Debugging weird behavior? Read [16 - Observability](16-observability.md) and [17 - Tooling](17-tooling.md), then use the Xray docs.
+- **Do, observe, explain.** The runtime is inspectable by design, so most pages follow an action with "now open Xray and watch what it caused" before explaining why it happened.
+- **Link down, never duplicate.** Guide pages teach the model and the happy path; the complete contract lives in the [spec](../../spec/README.md), and pages link into it rather than restating it.
 
-All code in the guide is ClojureScript. If you can read Clojure data structures, you are close enough to begin; if not, the [ClojureScript reading guide](../cljs/index.md) is the better first stop.
+re-frame2 is pre-alpha. Surfaces are still settling, and the guide says so where it matters: pages mark deferred features and client-only paths instead of rounding up.
 
-## The Example Spine
+---
 
-The guide uses a few small examples repeatedly instead of inventing a new toy for every chapter.
+**You can now:**
 
-- **The counter** teaches the architecture: one state value, events, subscriptions, views, the cascade, effects, tests, and eventually HTTP bolted onto something you already understand.
-- **The login/form flow** teaches real application shape: draft state, validation, submission, server failure, retry, and the point where a form starts wanting a state machine.
-- **The runtime/tooling examples** teach operations: trace events, epoch records, frames, SSR requests, privacy marks, adapters, and the tools that read those facts.
+- pick your entry point — the quick start if you're new, the v1 deltas page if you're migrating, the reference map if you're an agent
+- name which tier answers a question: learning (tutorial, concepts), doing (how-to), wondering (explanation), checking (reference)
 
-This is a tutorial, so the examples are small on purpose. The claim is not that counters are interesting. The claim is that the shape that keeps a counter legible is the same shape that keeps a real application legible after the tenth feature and the third person on the team.
-
-## What The Guide Believes
-
-The guide is opinionated because the framework is opinionated. A single application state value is a good idea. Effects should be data. Views should be derivative. Runtime evidence should be structured enough that humans and tools can both read it. You can disagree with those claims, but re-frame2 is built around them, so the tutorial argues for them directly instead of pretending to be a neutral catalog.
+**Next:** [Quick start: a counter in five minutes](quickstart.md) · [The model: six dominoes, one loop](concepts/index.md)
