@@ -7,7 +7,6 @@ const {
 } = require('../../../../examples/scripts/spec-helpers.cjs');
 const {
   clearTraceBus,
-  readEpochHistoryAsEdn,
   readTraceEventsAsEdn,
 } = require('../../../../testbeds/spec-helpers.cjs');
 
@@ -87,12 +86,15 @@ const STAGED_SURFACES = [
     html: ['testbeds', 'deliberate_throw', 'index.html'],
     servedPath: 'testbeds/deliberate-throw',
   },
-  {
-    build: 'testbeds/schema-violation',
-    bundleDir: ['out', 'testbeds', 'schema-violation'],
-    html: ['testbeds', 'schema_violation', 'index.html'],
-    servedPath: 'testbeds/schema-violation',
-  },
+  // ---- retired with the migrated scenario (rf2-w1mnq / rf2-fxnszc) -----
+  //
+  // The `testbeds/schema-violation` surface had been a no-op SKIP since
+  // #1745 and its schema-recovery assertions moved to CLJS unit
+  // (`tools/xray/test/.../panels/epoch/projection_cljs_test.cljc`, landed
+  // #1753). No live SCENARIOS entry navigated to `/testbeds/schema-
+  // violation/`, so staging it only paid a dead compile + serve. The
+  // testbed source remains under `testbeds/schema_violation/` as a manual-
+  // inspection target.
   {
     build: 'testbeds/http-toggle',
     bundleDir: ['out', 'testbeds', 'http-toggle'],
@@ -117,18 +119,18 @@ const STAGED_SURFACES = [
     html: ['testbeds', 'deep_machine', 'index.html'],
     servedPath: 'testbeds/deep-machine',
   },
-  {
-    build: 'testbeds/long-flow-w-failure',
-    bundleDir: ['out', 'testbeds', 'long-flow-w-failure'],
-    html: ['testbeds', 'long_flow_w_failure', 'index.html'],
-    servedPath: 'testbeds/long-flow-w-failure',
-  },
-  {
-    build: 'testbeds/drain-depth-trigger',
-    bundleDir: ['out', 'testbeds', 'drain-depth-trigger'],
-    html: ['testbeds', 'drain_depth_trigger', 'index.html'],
-    servedPath: 'testbeds/drain-depth-trigger',
-  },
+  // ---- retired with the dropped panels (rf2-xy4yb / rf2-fxnszc) -------
+  //
+  // `testbeds/long-flow-w-failure` (Flows panel) and `testbeds/drain-depth-
+  // trigger` (Performance panel) staged surfaces drove scenarios that were
+  // retired when the 4-layer chrome refactor (rf2-xy4yb) dropped both
+  // panels — there is no UI handoff left to assert. No live SCENARIOS
+  // entry navigates to either served path, so both were dead staged
+  // surfaces paying a compile + serve for nothing. The flow-failure trace
+  // evidence stays covered by the `deterministic exceptions` scenario; the
+  // `:halted-depth` epoch record stays observable via the substrate's
+  // host-side epoch-history probe. The testbed sources remain under
+  // `testbeds/{long_flow_w_failure,drain_depth_trigger}/`.
   // ---- retired with the converted scenario (rf2-rviu8) ----------------
   //
   // The `testbeds/non-trivial-app-db` build was driven by the
@@ -150,12 +152,14 @@ const STAGED_SURFACES = [
     html: ['testbeds', 'ssr_hydration_mismatch', 'index.html'],
     servedPath: 'testbeds/ssr-hydration-mismatch',
   },
-  {
-    build: 'testbeds/ssr-multi-frame',
-    bundleDir: ['out', 'examples', 'testbed-ssr-multi-frame'],
-    html: ['testbeds', 'ssr_multi_frame', 'index.html'],
-    servedPath: 'testbeds/ssr-multi-frame',
-  },
+  // ---- retired: never wired to a live scenario (rf2-fxnszc) -----------
+  //
+  // The `testbeds/ssr-multi-frame` surface was staged but no SCENARIOS
+  // entry ever navigated to `/testbeds/ssr-multi-frame/` — a dead staged
+  // surface that compiled + served a bundle nothing hit. The SSR
+  // multi-frame isolation invariant is covered as pure JVM coverage at
+  // `implementation/ssr/test/re_frame/ssr_multi_frame_isolation_test.clj`.
+  // The testbed source remains under `testbeds/ssr_multi_frame/`.
   // rf2-azfct — panel-gallery testbed staged for the theme-token CSS-
   // variable resolution probe. The gallery embeds bare Xray widgets
   // without mounting the Xray shell, so its boot path must call
@@ -1607,35 +1611,6 @@ async function runDeepMachine(page, state) {
   }
   state.deepMachine = state.deepMachine || {};
   state.deepMachine.chartProjection = chartProjection;
-}
-
-async function runLongFlow(page) {
-  await openXray(page);
-  await clearTrace(page);
-  await page.locator('[data-testid="fail-at"]').fill('3');
-  await page.locator('[data-testid="total-ticks"]').fill('6');
-  await clickTestId(page, 'start');
-  await expectTextEquals(page.locator('[data-testid="status"]'), 'done', 10000);
-  await waitForTraceMatch(page, /rf\.flow\/failed|flow-eval-exception|long-flow-w-failure \/ :flow-b/, 'flow failure trace');
-  await clickSidebar(page, 'flows', 'rf-xray-flows');
-  await expectVisible(page.locator('[data-testid="rf-xray-flows"]'), 5000);
-}
-
-async function runDrainDepth(page) {
-  await openXray(page);
-  await clearTrace(page);
-  await page.locator('[data-testid="drain-depth"]').fill('5');
-  await clickTestId(page, 'start');
-  await expectTextEquals(page.locator('[data-testid="depth-reached"]'), '0', 5000);
-  const history = await waitForValue(
-    () => readEpochHistoryAsEdn(page),
-    (probe) => probe.ok && probe.records.some((record) => record.includes(':halted-depth')),
-    { timeoutMs: 10000, description: ':halted-depth epoch record' },
-  );
-  await waitForTraceMatch(page, /drain-depth-exceeded|halted-depth|:rf\.error\/drain-depth-exceeded/, 'drain-depth trace');
-  await clickSidebar(page, 'performance', 'rf-xray-performance');
-  await expectVisible(page.locator('[data-testid="rf-xray-performance"]'), 5000);
-  return { haltedEpochs: history.records.filter((record) => record.includes(':halted-depth')).length };
 }
 
 async function runAppDbPrivacyLarge(page) {
@@ -3628,20 +3603,15 @@ const SCENARIOS = [
   },
   // ---- retired by rf2-xy4yb (4-layer chrome refactor) -------------------
   //
-  // 'long flow failure substrate' — the dedicated Flows panel was
-  // dropped (spec/018 §5: Flows fold into the Views tab as derived
-  // state). The Views tab itself is a stub pending its full impl;
-  // re-instate this scenario once the Views tab projects per-flow
-  // rows. Surviving evidence (flow-failure trace events) is covered
-  // by `deterministic exceptions and issue/trace surfacing`.
-  //
-  // 'drain-depth load failure substrate' — the Performance panel was
-  // dropped per Mike's call; Chrome DevTools' Performance tab is the
-  // v2 replacement. The `:halted-depth` epoch record is still
-  // observable via the substrate's host-side `readEpochHistoryAsEdn`
-  // probe, but there is no Xray UI handoff to assert against.
-  // Scenario retired; runDrainDepth / runLongFlow stay in place for
-  // any future revival.
+  // 'long flow failure substrate' (Flows panel) and 'drain-depth load
+  // failure substrate' (Performance panel) were retired when the 4-layer
+  // chrome refactor dropped both panels — Flows folds into the Views tab
+  // as derived state (spec/018 §5) and Performance is replaced by Chrome
+  // DevTools' Performance tab (Mike's call). With no UI handoff to assert,
+  // their runners + staged surfaces were removed (rf2-fxnszc). Surviving
+  // flow-failure trace evidence is covered by `deterministic exceptions
+  // and inline/trace surfacing`; the `:halted-depth` epoch record stays
+  // observable via the substrate's host-side epoch-history probe.
   //
   // ---- converted to multi-frame e2e CLJS (rf2-rviu8) --------------------
   //
