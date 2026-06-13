@@ -12,11 +12,13 @@
  *   5. MCP conformance tools/story-mcp           (SDK Client driver, rf2-cum40)
  *   6. MCP conformance wire-vocab  (rf2-j2z7o + rf2-6m8tq + rf2-zvv65)
  *
- * Gates #4 + #5 ride on `tools/mcp-conformance/npm test` (which itself
- * dispatches via `scripts/test-all.cjs` — exec-safety + re-frame2-pair +
- * live-overflow SKIP + live-subscribe SKIP + story + flag-gates). The
- * re-frame2-pair conformance harness drives the compiled
- * `out/server.js` Node bundle, so this script also runs
+ * Gates #4 + #5 ride on `tools/mcp-conformance/npm test`, which dispatches
+ * via `tools/mcp-conformance/scripts/test-all.cjs`. That orchestrator's
+ * `TESTS` array IS the authoritative conformance inventory (exec-safety +
+ * runner/hermetic unit gates + re-frame2-pair end-to-end + the SKIP-gated
+ * live-* probes + story end-to-end + flag-gates) — this wrapper does not
+ * re-enumerate it. The re-frame2-pair conformance harness drives the
+ * compiled `out/server.js` Node bundle, so this script also runs
  * `shadow-cljs compile server` from `tools/re-frame2-pair-mcp/`
  * before invoking the conformance suite — matching what
  * `mcp-conformance-re-frame2-pair` does in CI.
@@ -34,11 +36,14 @@
  *   - Rich output formatting / unified report
  *   - Incremental `--changed-only` mode
  *
- * Hermetic live-overflow (which boots shadow-cljs + Playwright Chromium
- * against `skills/re-frame2-pair/tests/fixture/`) is intentionally NOT
- * chained here — that gate lives in CI's `mcp-conformance-re-frame2-pair`
- * job and burns ~2 min of wall-clock on a cold-cache run. Operators who
- * want it run `cd tools/mcp-conformance && npm run test:re-frame2-pair-live-overflow-hermetic`
+ * The hermetic live conformance gate (which boots shadow-cljs + Playwright
+ * Chromium against `skills/re-frame2-pair/tests/fixture/` and runs the
+ * SKIP-gated live probes against it — its `INNER_TESTS` array in
+ * `tools/mcp-conformance/scripts/run-live-re-frame2-pair-overflow-hermetic.cjs`
+ * is the authoritative list) is intentionally NOT chained here. That gate
+ * lives in CI's `mcp-conformance-re-frame2-pair` job and burns ~2 min of
+ * wall-clock on a cold-cache run. Operators who want it run
+ * `cd tools/mcp-conformance && npm run test:re-frame2-pair-live-overflow-hermetic`
  * directly.
  */
 'use strict';

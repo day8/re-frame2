@@ -538,16 +538,11 @@ test('PR + nightly Story/Xray jobs cache the shadow-cljs compile output (rf2-og3
   assert.match(nightly, /story-xray-shadow-/);
 });
 
-// rf2-t5slp — the framework-testbeds gate was retired after all four
-// rf2-tglku migration waves moved every framework + top-level testbed
-// Playwright spec.cjs to CLJS/JVM unit tests. The classifier no longer
-// emits a `framework_testbeds` output; testbed source diffs only light
-// `cljs_browser` (for the transitive CLJS compile coverage).
-
-test('framework_testbeds output is no longer emitted (rf2-t5slp)', () => {
-  const result = classify('testbeds/ssr_basic/core.cljs');
-  assert.equal(result.framework_testbeds, undefined);
-});
+// Testbed Playwright specs were migrated to CLJS/JVM unit tests
+// (rf2-tglku waves), so a testbed source diff only needs the transitive
+// CLJS compile coverage: top-level testbeds light `cljs_browser`, Xray
+// testbeds light `story_xray_browser`, and only adapter testbeds (which
+// keep a live Playwright smoke) light `adapter_testbed_smokes`.
 
 test('top-level testbed .cljs change fires cljs_browser only (rf2-t5slp)', () => {
   const result = classify('testbeds/ssr_basic/core.cljs');
@@ -634,17 +629,11 @@ test('examples/scripts static-only scanners stay on the always-on JS harness pat
   }
 });
 
-test('framework-testbeds workflow job is removed (rf2-t5slp)', () => {
-  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  assert.doesNotMatch(workflow, /^\s*framework-testbeds:/m);
-  assert.doesNotMatch(workflow, /framework_testbeds/);
-});
-
 test('adapter-testbed-smokes workflow remains scoped to EXAMPLES_FILTER=adapters/ (rf2-t5slp)', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  // Find the adapter-testbed-smokes job block and verify it still
-  // passes the narrow adapters/ filter — the only Playwright surface
-  // under the examples orchestrator after framework-testbeds retired.
+  // Verify the adapter-testbed-smokes job still passes the narrow
+  // adapters/ filter — adapter testbeds are the only Playwright surface
+  // under the examples orchestrator.
   assert.match(
     workflow,
     /adapter-testbed-smokes:[\s\S]*EXAMPLES_FILTER:\s*"adapters\/"/,
