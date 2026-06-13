@@ -43,7 +43,7 @@
    `:rf.resource/release-owner` event bodies are all real and operational.
    This example covers the READ side only; mutations (`reg-mutation` /
    `:rf.mutation/execute`) have also landed but live in the guide
-   (docs/guide/27-resources.md §Mutations) and the migration walkthrough.
+   (docs/guide/concepts/server-state.md §Writes invalidate by tag) and the migration walkthrough.
    GraphQL is a deferred later phase. The example tree is test-free
    (rf2-8cevm); resource-contract coverage lives in
    `implementation/resources/test/` and the conformance fixtures."
