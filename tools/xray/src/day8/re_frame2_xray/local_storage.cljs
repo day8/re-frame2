@@ -45,10 +45,20 @@
 (defn available?
   "True when `js/window.localStorage` is reachable. Node / JVM test
   runtimes without jsdom return false so the read/write/remove
-  primitives no-op silently."
+  primitives no-op silently.
+
+  The `js/window.localStorage` PROPERTY read is itself wrapped in a
+  try: a sandboxed iframe (`sandbox` without `allow-same-origin`) or a
+  cross-origin / cookie-blocked context throws a `SecurityError` on
+  the property ACCESS — before any method is called. Per the :33
+  posture that access throw must never propagate into the dispatch
+  chain that drove the read/write; it degrades to `false` (unavailable)
+  exactly like the absent-window branch."
   []
   (and (exists? js/window)
-       (some? (.-localStorage js/window))))
+       (try
+         (some? (.-localStorage js/window))
+         (catch :default _ false))))
 
 (defn get-item
   "Read the raw string stored under `k`. Returns nil when the slot is
