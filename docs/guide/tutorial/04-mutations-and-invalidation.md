@@ -19,33 +19,33 @@ In Part 2, each resource declared `:tags` on its cached data: the article detail
 One read is still missing: the **personal feed** (`GET /articles/feed`). Part 2 left it out because what it returns depends on *who is asking*, so its cache must be keyed per user. That key is a **named scope resolver**:
 
 ```clojure
-;; src/realworld/scope.cljs
+;; src/conduit/scope.cljs
 ;; cf. examples/reagent/realworld_resources/scope.cljs
-(rf/reg-resource-scope :realworld/session
+(rf/reg-resource-scope :conduit/session
   {:doc     "The session's cache scope — nil when logged out (fail-closed)."
    :inputs  {:username [:db [:auth :user :username]]}
    :resolve (fn [{:keys [username]} _ctx]
               (when username [:rf.scope/session {:username username}]))})
 ```
 
-Now register `:realworld/feed` exactly like Part 2's resources — tagged `#{[:feed]}` — but with `:scope {:from-db :realworld/session}` instead of `:rf.scope/global`. Its cache entries are keyed by the signed-in username; signed out, the scope resolves `nil` and the read fails closed — never a silent serving of the previous user's feed.
+Now register `:conduit/feed` exactly like Part 2's resources — tagged `#{[:feed]}` — but with `:scope {:from-db :conduit/session}` instead of `:rf.scope/global`. Its cache entries are keyed by the signed-in username; signed out, the scope resolves `nil` and the read fails closed — never a silent serving of the previous user's feed.
 
 ## Register the write
 
 A mutation is the write-side counterpart of a resource, registered with `reg-mutation`:
 
 ```clojure
-;; src/realworld/mutations.cljs
+;; src/conduit/mutations.cljs
 ;; cf. examples/reagent/realworld_resources/mutations.cljs
-(ns realworld.mutations
+(ns conduit.mutations
   (:require [re-frame.core :as rf]
             [re-frame.resources]      ;; reg-mutation + the :rf.mutation/* surface
             [re-frame.http-managed]   ;; the transport mutations lower through
             ;; Part 3's api base in a helper: (defn full-url [path] (str api path))
-            [realworld.http :as rh]
-            [realworld.schema :as schema]))
+            [conduit.http :as rh]
+            [conduit.schema :as schema]))
 
-(rf/reg-mutation :realworld/favorite
+(rf/reg-mutation :conduit/favorite
   {:doc           "Favorite an article. POST /articles/:slug/favorite."
    :params-schema [:map [:slug :string]]
    :scope         :rf.scope/global
@@ -56,24 +56,24 @@ A mutation is the write-side counterpart of a resource, registered with `reg-mut
    ;; Seed the cached article detail from the write's own reply — the heart
    ;; flips the moment the server confirms.
    :populates     (fn [{:keys [slug]} result]
-                    {{:resource :realworld/article :params {:slug slug} :scope :rf.scope/global}
+                    {{:resource :conduit/article :params {:slug slug} :scope :rf.scope/global}
                      result})
    ;; The reads this write breaks: article + lists (global scope), and the
    ;; signed-in user's feed (session scope).
    :invalidates   (fn [{:keys [slug]} _result]
                     [{:scope :rf.scope/global
                       :tags  #{[:article slug] [:article-list]}}
-                     {:scope {:from-db :realworld/session}
+                     {:scope {:from-db :conduit/session}
                       :tags  #{[:feed]}}])})
 ```
 
 Three keys do the work:
 
 - **`:request`** describes the HTTP write like a resource's read — and it must *not* supply `:on-success` / `:on-failure` / `:request-id`; the runtime owns reply addressing, and that's what makes stale-reply suppression possible below. One asymmetry from reads: **writes never retry by default**. Re-sending a POST because the reply was slow is the classic double-submit bug, so a mutation retries only if its `:request` explicitly opts in (this one doesn't).
-- **`:invalidates`** declares which tags the write makes stale on success. A single-scope write can use a bare tag set — `#{[:article slug]}` — but favoriting breaks reads in *two* scopes: the article and lists are global, your feed is keyed by session. So it returns a vector of descriptors, each naming its own scope, the second through the `:realworld/session` resolver above, resolved at settle time. One write, both scopes, declared once.
-- **`:populates`** seeds an exact cache entry from the write's own reply, *before* the invalidation runs. The favorite endpoint replies with the full updated article, so we write it straight into the `:realworld/article` entry — the populated value must be the resource's stored shape (the same `{:article …}` envelope a normal load produces — hence `result` whole). A populated entry counts as freshly loaded, so this mutation's own invalidation won't refetch the key it just learned.
+- **`:invalidates`** declares which tags the write makes stale on success. A single-scope write can use a bare tag set — `#{[:article slug]}` — but favoriting breaks reads in *two* scopes: the article and lists are global, your feed is keyed by session. So it returns a vector of descriptors, each naming its own scope, the second through the `:conduit/session` resolver above, resolved at settle time. One write, both scopes, declared once.
+- **`:populates`** seeds an exact cache entry from the write's own reply, *before* the invalidation runs. The favorite endpoint replies with the full updated article, so we write it straight into the `:conduit/article` entry — the populated value must be the resource's stored shape (the same `{:article …}` envelope a normal load produces — hence `result` whole). A populated entry counts as freshly loaded, so this mutation's own invalidation won't refetch the key it just learned.
 
-Register `:realworld/unfavorite` the same way — same shape, `:method :delete`. The full registration surface lives in [Spec 016](../../../spec/016-Resources.md).
+Register `:conduit/unfavorite` the same way — same shape, `:method :delete`. The full registration surface lives in [Spec 016](../../../spec/016-Resources.md).
 
 > **Honest limits.** `:populates` is a *forward-only* seed — optimistic rollback is a deferred feature, not a current one. Here that's harmless: populate runs only on success. But don't reach for populate expecting TanStack-style optimistic updates that revert on failure; that shape isn't available yet.
 
@@ -82,15 +82,15 @@ Register `:realworld/unfavorite` the same way — same shape, `:method :delete`.
 If a resource is "a sub you read and a cause you fire," a mutation is **a cause you fire and an instance you watch**. The UI never calls the mutation directly — it dispatches `:rf.mutation/execute`:
 
 ```clojure
-;; src/realworld/views.cljs
+;; src/conduit/views.cljs
 ;; cf. examples/reagent/realworld_resources/views.cljs
 (rf/reg-event-fx :ui/favorite
   (fn [{:keys [db]} [_ slug favorited?]]
     (if (nil? (get-in db [:auth :user]))
       ;; Logged out, a favorite click goes to login instead of a 401.
-      {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]}
+      {:fx [[:dispatch [:rf.route/navigate :conduit.auth/login]]]}
       {:fx [[:dispatch [:rf.mutation/execute
-                        {:mutation (if favorited? :realworld/unfavorite :realworld/favorite)
+                        {:mutation (if favorited? :conduit/unfavorite :conduit/favorite)
                          :params   {:slug slug}
                          :instance [:favorite slug]
                          :cause    [:click :ui/favorite slug]}]]]})))
@@ -121,9 +121,9 @@ Watching an instance is right for *rendering* — the button disables itself. Bu
 First, the write — create and edit share one mutation that switches POST/PUT on whether a slug exists yet:
 
 ```clojure
-;; src/realworld/mutations.cljs
+;; src/conduit/mutations.cljs
 ;; cf. examples/reagent/realworld_resources/article_editor.cljs
-(rf/reg-mutation :realworld/save-article
+(rf/reg-mutation :conduit/save-article
   {:doc           "Create (POST /articles) or update (PUT /articles/:slug)."
    :params-schema [:map
                    [:slug  {:optional true} [:maybe :string]]
@@ -143,16 +143,16 @@ First, the write — create and edit share one mutation that switches POST/PUT o
                     [{:scope :rf.scope/global
                       :tags  (cond-> #{[:article-list]}
                                slug (conj [:article slug]))}
-                     {:scope {:from-db :realworld/session}
+                     {:scope {:from-db :conduit/session}
                       :tags  #{[:feed]}}])})
 ```
 
 The editor's `app-db` slice is an ordinary form in Part 3's mold — a `:draft` the inputs edit — plus a `:baseline` (the article as loaded, or blank) so we can tell whether anything actually changed. Note what's *not* here: no `:status` field — the submission lifecycle Part 3 hand-rolled lives on the mutation instance instead.
 
 ```clojure
-;; src/realworld/editor.cljs
+;; src/conduit/editor.cljs
 ;; cf. examples/reagent/realworld_resources/article_editor.cljs
-(ns realworld.editor
+(ns conduit.editor
   (:require [clojure.string :as str]
             [re-frame.core :as rf]))
 
@@ -203,7 +203,7 @@ Submit validates, then fires the mutation — with the continuation named at the
 
         :else
         {:fx [[:dispatch [:rf.mutation/execute
-                          {:mutation :realworld/save-article
+                          {:mutation :conduit/save-article
                            :params   (cond-> (-> (select-keys draft [:title :description :body])
                                                  (assoc :tagList (parse-tag-list (:tagList draft))))
                                        slug (assoc :slug slug))
@@ -226,7 +226,7 @@ When the runtime accepts the write's reply, it dispatches `[:editor/replied repl
       (let [article (:article value)]
         {:db (assoc db :editor (editor-slice (:slug article) (draft-from-article article)))
          :fx [[:dispatch [:rf.mutation/clear {:instance :editor/save}]]
-              [:dispatch [:rf.route/navigate :realworld.article/show {:slug (:slug article)}]]]}))))
+              [:dispatch [:rf.route/navigate :conduit.article/show {:slug (:slug article)}]]]}))))
 ```
 
 Three rules make `:reply-to` trustworthy:
@@ -244,7 +244,7 @@ And the point this part exists to land: `[:editor/replied]` is **data**. It's no
 One gap left: write half an article, click the site logo, and the draft silently vanishes. Routes close this with a `:can-leave` guard — a subscription, consulted by the router before navigating away:
 
 ```clojure
-;; src/realworld/editor.cljs
+;; src/conduit/editor.cljs
 (rf/reg-sub :editor/dirty?
   (fn [db _]
     (let [{:keys [draft baseline]} (:editor db)]
@@ -254,8 +254,8 @@ One gap left: write half an article, click the site logo, and the draft silently
   :<- [:editor/dirty?]
   (fn [dirty? _] (not dirty?)))
 
-;; src/realworld/routing.cljs — a new route for the editor, with the guard.
-(rf/reg-route :realworld.editor/new
+;; src/conduit/routing.cljs — a new route for the editor, with the guard.
+(rf/reg-route :conduit.editor/new
   {:path      "/editor"
    :tags      #{:requires-auth}
    :on-match  [[:editor/initialise]]
@@ -269,7 +269,7 @@ The contract is strict: `true` allows the navigation, `false` blocks, and anythi
 When the guard blocks, the runtime parks the blocked navigation in a **pending-navigation slot** and leaves the decision to your UI, which reads it from the `:rf/pending-navigation` sub:
 
 ```clojure
-;; src/realworld/core.cljs — rendered once in the app shell.
+;; src/conduit/core.cljs — rendered once in the app shell.
 ;; cf. examples/reagent/realworld_resources/core.cljs
 (reg-view pending-nav-dialog []
   (when-let [pending @(subscribe [:rf/pending-navigation])]

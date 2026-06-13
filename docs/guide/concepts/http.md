@@ -134,6 +134,8 @@ The envelope has two pieces: a **reply target** (where completion is dispatched 
 | `:cancelled` | Intentionally cancelled while still correlated with the target. `:cancel/reason` present. |
 | `:stale` | Completed *after* its correlation became obsolete. The app target is never dispatched; **no app-state mutation happens**. |
 
+The `{:kind :success …}` / `{:kind :failure …}` payloads your `:on-success` / `:on-failure` handlers receive above are this same envelope in HTTP's public clothing: `:kind :success` is `:status :ok`, and `:kind :failure` is `:status :error` with the failure category under `:error`. One contract; HTTP just hands your handlers the friendlier spelling.
+
 Timeout is not a status — it's `:status :error` with an error of `:kind :rf.http/timeout`. One fact, named once.
 
 Four rules complete the tour:
