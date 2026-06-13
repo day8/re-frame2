@@ -61,10 +61,9 @@
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
             [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.ring.test-support :as ts]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.ssr.ring.test-support :as ts]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each ts/reset-runtime)
 
 ;; ===========================================================================
 ;; Jetty + java.net.http harness

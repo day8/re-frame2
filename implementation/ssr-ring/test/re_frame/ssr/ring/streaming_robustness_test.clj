@@ -83,13 +83,12 @@
             [re-frame.interop :as interop]
             [re-frame.ssr.ring :as ssr-ring]
             [re-frame.ssr.ring.streaming :as streaming]
-            [re-frame.ssr.ring.test-support :as ts]
-            [re-frame.ssr.test-fixture :as tf])
+            [re-frame.ssr.ring.test-support :as ts])
   (:import [java.io InputStream IOException OutputStream
                     PipedInputStream PipedOutputStream]
            [java.net.http HttpResponse$BodyHandlers]))
 
-(use-fixtures :each tf/reset-runtime)
+(use-fixtures :each ts/reset-runtime)
 
 ;; ===========================================================================
 ;; Shared test scaffolding — handlers, view registrations, helpers

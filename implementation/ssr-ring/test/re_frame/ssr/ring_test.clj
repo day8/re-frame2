@@ -6,8 +6,9 @@
   Ring response, then on the frame-lifecycle side-effects (destroyed?,
   trace events).
 
-  Each test resets the runtime exactly the way the ssr artefact's
-  test fixture does (registrar/clear-all! → reload ns)."
+  Each test resets the runtime via the artefact-local
+  `re-frame.ssr.ring.test-support/reset-runtime` (registrar snapshot/
+  restore + SSR adapter install + SSR side-channel atom clears)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -15,12 +16,14 @@
             [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.ssr.ring.test-support :as ts]))
 
-;; rf2-i3qc0 — the canonical reset-runtime fixture lives in
-;; `re-frame.ssr.test-fixture` (loadable here via the ssr artefact's
-;; test path; see this artefact's deps.edn :test alias `:extra-paths`).
-(use-fixtures :each tf/reset-runtime)
+;; rf2-i3qc0 / rf2-09iktm — the canonical reset-runtime fixture is
+;; artefact-local in `re-frame.ssr.ring.test-support`. It wraps the
+;; published `re-frame.test-support/make-reset-runtime-fixture` and layers
+;; the four SSR per-request side-channel atom resets, so no external
+;; `../ssr/test` path is required.
+(use-fixtures :each ts/reset-runtime)
 
 ;; ===========================================================================
 ;; Cookie serialisation (RFC 6265)

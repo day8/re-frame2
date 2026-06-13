@@ -84,13 +84,12 @@
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.ring.test-support :as ts]
-            [re-frame.ssr.test-fixture :as tf]))
+            [re-frame.ssr.ring.test-support :as ts]))
 
-;; rf2-i3qc0 — canonical reset-runtime fixture; same shape as
-;; `ring_test.clj`. Each test starts from a wiped registrar + reloaded
-;; SSR ns-bodies so the per-test registrations don't bleed.
-(use-fixtures :each tf/reset-runtime)
+;; rf2-i3qc0 / rf2-09iktm — canonical reset-runtime fixture; same shape as
+;; `ring_test.clj`. Each test starts from a reset registrar with the SSR
+;; adapter installed so the per-test registrations don't bleed.
+(use-fixtures :each ts/reset-runtime)
 
 ;; The NUL byte as a one-char string. Defined once here so the wire-
 ;; scan helper below reads as obvious set membership.

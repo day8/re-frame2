@@ -17,12 +17,12 @@
             [re-frame.ssr :as ssr]
             [re-frame.ssr.ring :as ssr-ring]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
-            [re-frame.ssr.test-fixture :as tf])
+            [re-frame.ssr.ring.test-support :as ts])
   (:import [java.io InputStream]))
 
 (defn- reset+reg-test-handlers
   [test-fn]
-  (tf/reset-runtime
+  (ts/reset-runtime
     (fn []
       (rf/reg-event-db :rf.test/seed-articles
         (fn [_ [_ arts]] {:articles arts}))
