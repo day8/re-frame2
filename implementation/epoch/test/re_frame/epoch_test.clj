@@ -860,9 +860,9 @@
           (late-bind/set-fn! hook-key original))))))
 
 (deftest reconcile-runtime-db-on-restore-noop-on-app-db-only-record
-  (testing "rf2-7r5mc2 — a legacy / synthetic frame-state with only the app-db
-            partition (no :rf.db/runtime key) passes through unchanged even when
-            the hook is present (nothing to reconcile)."
+  (testing "rf2-7r5mc2 — a frame-state with only the app-db partition (no
+            :rf.db/runtime key) passes through unchanged even when the hook
+            is present (nothing to reconcile)."
     (let [hook-key :resources/reconcile-on-restore
           original (late-bind/get-fn hook-key)
           called?  (atom false)]

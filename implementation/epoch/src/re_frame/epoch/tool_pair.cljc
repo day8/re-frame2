@@ -390,7 +390,7 @@
 
     {:outcome :ok :epoch <epoch>}
                  — all checks passed; `:epoch` is the resolved history
-                   record whose `:db-after` is the restore target.
+                   record whose `:frame-state-after` is the restore target.
     {:outcome :fail :op <kw> :tags <map>}
                  — first failing check; `:op` is the trace operation
                    the caller must emit, `:tags` are its tags. No
@@ -444,16 +444,16 @@
           :else
           (let [;; EP-0001 (rf2-3aizt1, decision #2): the canonical restore
                 ;; target is the whole frame-state. The app-db partition
-                ;; (`:db-after` is its retained projection — equal to
-                ;; `(:rf.db/app frame-state-after)`) feeds the schema check;
-                ;; the runtime-db partition feeds the machine / route
-                ;; reference + version checks (rf2-k4xe7u — snapshots + route
-                ;; slice are runtime-db state). Read both off the canonical
-                ;; `:frame-state-after`, falling back to the `:db-after`
-                ;; projection for the app-db slice (always present alongside).
+                ;; feeds the schema check; the runtime-db partition feeds
+                ;; the machine / route reference + version checks (rf2-k4xe7u
+                ;; — snapshots + route slice are runtime-db state). Both are
+                ;; read off the canonical `:frame-state-after` — the only
+                ;; restore target `build-record` ever emits (the `:db-after`
+                ;; slot is a retained app-db PROJECTION for tool diffs, never
+                ;; a restore source). A record with no `:frame-state-after`
+                ;; is malformed/unreachable on the current build path.
                 frame-state-target (:frame-state-after epoch)
-                db-target          (or (get frame-state-target frame/app-partition-key)
-                                       (:db-after epoch))
+                db-target          (get frame-state-target frame/app-partition-key)
                 runtime-target     (get frame-state-target frame/runtime-partition-key)]
             ;; Each helper is called once and its result bound, so the
             ;; failure path walks the recorded db / schema set / machine
@@ -561,8 +561,8 @@
   `:resources/reconcile-on-restore` hook (Spec 016 §Restore and replay). Returns
   the frame-state with its `:rf.db/runtime` partition reconciled — or
   `frame-state` unchanged when no resources artefact is loaded (the hook is nil),
-  or when the frame-state carries no runtime-db partition (a legacy / app-db-only
-  record). The runtime-db value is passed with the carried `frame-id` so the
+  or when the frame-state carries no runtime-db partition (a `:frame-state-after`
+  whose runtime-db is empty). The runtime-db value is passed with the carried `frame-id` so the
   reconcile can stamp its trace. Other runtime subsystems (machines, routing)
   reconcile their own snapshots through their own contracts; this seam is the
   resources-first extension point, mirroring SSR hydration's single
@@ -583,9 +583,8 @@
   `:settled-at` from that causal input rather than the live install clock
   (`now-ms`). A durable frame-state field MUST come from a causal input, never
   an ambient world read at install (EP-0010 §Restore/Replay). The 2-arity
-  passes a nil causal time (a legacy / app-db-only record carries no mutation
-  instances to stamp; the reconcile then falls back to its own clock for the
-  no-token case)."
+  passes a nil causal time (a frame-state with no mutation instances to stamp;
+  the reconcile then falls back to its own clock for the no-token case)."
   ([frame-id frame-state] (reconcile-runtime-db-on-restore frame-id frame-state nil))
   ([frame-id frame-state restore-time-ms]
    (if-let [reconcile (late-bind/get-fn :resources/reconcile-on-restore)]
@@ -625,10 +624,11 @@
   snapshots, the route slice, elision declarations, and SSR metadata
   (runtime-db state) — not just the app-db partition. Without this, a
   rewind past a machine spawn / destroy left the actor's snapshot un-reverted
-  (the Goal-2 revertibility leak the actor-revertibility tests pin). Falls
-  back to the retained `:db-after` projection (app-db only) for legacy
-  records that carry no `:frame-state-after` — those install runtime-db nil,
-  matching the pre-EP behaviour.
+  (the Goal-2 revertibility leak the actor-revertibility tests pin).
+  `:frame-state-after` is the only restore source — every record
+  `build-record` emits carries it. The `:db-after` slot is a retained
+  app-db PROJECTION for tool diffs, never a restore source; a record with
+  no `:frame-state-after` is malformed/unreachable on the current build path.
 
   Per rf2-7i872 (validate-then-destroy race): re-resolves the container at
   the write boundary via `live-container-or-fail`. If the frame was
@@ -671,11 +671,12 @@
     (if (= :fail outcome)
       (do (emit-precondition-failure! op tags)
           false)
-      (let [frame-state-target
-            (or (:frame-state-after epoch)
-                ;; Legacy / synthetic record with only the app-db projection:
-                ;; install it as the app-db partition; runtime-db installs nil.
-                {frame/app-partition-key (:db-after epoch)})
+      (let [;; EP-0001 (rf2-3aizt1): the canonical, only restore source is
+            ;; the whole `:frame-state-after`. The `:db-after` slot is a
+            ;; retained app-db projection for tool diffs, never installed —
+            ;; a record with no `:frame-state-after` is malformed/unreachable
+            ;; on the current build path.
+            frame-state-target (:frame-state-after epoch)
             ;; rf2-7r5mc2: reconcile the runtime-db partition's runtime
             ;; subsystems (Resources, first writer) BEFORE the atomic install,
             ;; the same way SSR hydration reconciles its installed slice — so a
