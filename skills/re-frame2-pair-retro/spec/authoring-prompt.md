@@ -21,7 +21,7 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 >
 > ```
 > skills/re-frame2-pair-retro/
-> ├── SKILL.md (~170 lines; conversation guide + 6-step workflow)
+> ├── SKILL.md (conversation guide + 6-step workflow)
 > ├── README.md (human-facing intro)
 > ├── LICENSE (MIT)
 > ├── package.json (npm metadata)
@@ -31,9 +31,9 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 > ├── evals/                          # repo-maintenance artifact; excluded from the npm `files` array
 > │ └── evals.json (trigger-accuracy fixtures — which prompts should / should not activate)
 > ├── references/
-> │ ├── analysis-lenses.md (~140 lines; nine root-cause lenses)
-> │ ├── known-frictions.md (~120 lines; recurring pain patterns)
-> │ ├── issue-template.md (~90 lines; GitHub-issue-body template + redaction)
+> │ ├── analysis-lenses.md (nine root-cause lenses)
+> │ ├── known-frictions.md (recurring pain patterns)
+> │ ├── issue-template.md (GitHub-issue-body template + redaction)
 > │ └── working-style.md (diagnostic-posture rules; the SHIPPED operational home of design.md §8)
 > └── spec/
 > ├── design.md
@@ -41,7 +41,7 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 > └── authoring-prompt.md
 > ```
 >
-> *Every reference is ≤250 lines (target ~120). SKILL.md is ~170 lines (well under Anthropic's 500-line ceiling).*
+> *Keep each reference focused and self-contained, and keep SKILL.md compact — well under Anthropic's 500-line ceiling.*
 >
 > ***Preserve the shipped load paths.** `SKILL.md` MUST cross-link `references/working-style.md` (the diagnostic-posture rules) and `references/issue-template.md` — both are packaged `references/` leaves that load during normal operation. Do NOT relegate the diagnostic-posture rules back into `spec/`: `spec/` is excluded from the npm package / plugin bundle and is not loaded during normal operation, so a `SKILL.md → spec/design.md §8` link breaks in every packaged / plugin / vendored install. `.claude-plugin/plugin.json` and `agents/openai.yaml` are shipped slice files — keep them in the package `files` array. `evals/evals.json` (the trigger fixtures) is a re-authoring slice too — keep it on disk so the description-optimisation loop can score the activation boundary — but, like `spec/`, it is a **repo-maintenance artifact deliberately excluded from the npm `files` array** (it runs from a full clone, not from a packaged consumer's install); do NOT add `evals/` to `files`. This matches the sibling `re-frame2` / `re-frame2-setup` / `re-frame2-pair` skills.*
 >
