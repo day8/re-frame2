@@ -63,13 +63,17 @@ skills/re-frame-migration/
 │   ├── setup.md                   # M-0 detail: dep-coord swap, substrate adapter picker
 │   ├── xray-replaces-10x.md       # Devtools swap: re-frame-10x → Xray (preload, host, keybindings, parity)
 │   ├── breaking-changes.md        # Rule index keyed to v1 trigger surfaces
+│   ├── async-flow-to-machines.md  # O-16: async-flow-fx async sequences → reg-machine state machines
+│   ├── http-fx-to-managed-http.md # O-17: http-fx / :http-xhrio → :rf.http/managed
 │   ├── sequencing.md              # Recommended rule order
 │   ├── auto-call-site-rewrites.md # Type A: per-call-site mechanical rewrites
 │   ├── auto-cross-cutting.md      # Type A: cross-cutting renames, views, init, artefacts
 │   ├── guided-handlers-state.md   # Type B: handler / view / db-seeding walkthroughs
 │   ├── guided-interceptors-subs.md# Type B: interceptor / sub / payload walkthroughs
-│   ├── output-format.md           # The migration-summary shape
-│   └── error-events.md            # Pointer to Spec 009's error-event catalogue (single source)
+│   ├── error-events.md            # Pointer to Spec 009's error-event catalogue (single source)
+│   ├── causal-world-inputs.md     # EP-0010 recording rule + EP-0017 reshape (M-72): ambient durable host reads → declared coeffects
+│   ├── runtime-smoke-test.md      # Phase 4: "compiles" isn't done — silent-fail checklist + live-app-db boot smoke-test
+│   └── output-format.md           # The migration-summary shape
 └── spec/
     ├── design.md                  # Locked design decisions
     ├── inputs.md                  # Canonical inputs the skill leans on

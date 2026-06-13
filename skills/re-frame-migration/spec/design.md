@@ -110,8 +110,9 @@ skills/re-frame-migration/
 │   ├── guided-handlers-state.md    (~255 lines; Type B — handler / view / db-seeding / error-handler / machine-spawn / Reagent-surface)
 │   ├── guided-interceptors-subs.md (~240 lines; Type B — interceptor / sub / payload / observer)
 │   ├── runtime-smoke-test.md       (~55 lines; Phase 4 — "compiles" is not the done-bar; the silent-fail checklist + live-app-db boot smoke-test loop)
-│   ├── output-format.md            (~115 lines)
-│   └── error-events.md             (~125 lines; pointer to Spec 009's error-event catalogue)
+│   ├── error-events.md             (~125 lines; pointer to Spec 009's error-event catalogue)
+│   ├── causal-world-inputs.md      (~115 lines; EP-0010 recording rule + EP-0017 reshape (M-72) — ambient durable host reads → declared recordable coeffects)
+│   └── output-format.md            (~115 lines)
 └── spec/
     ├── design.md                  (this file)
     ├── inputs.md                  (the canonical inputs the skill leans on)
@@ -119,18 +120,18 @@ skills/re-frame-migration/
     └── authoring-prompt.md        (one-shot reauthor prompt)
 ```
 
-**Totals**: SKILL.md (~160) + 15 reference leaves (~2,840) + 4 spec files (~430) ≈ ~3,430 LoC across 20 markdown files. (The 4th `spec/` file, `improving.md`, is the maintenance-methodology meta-doc — the friction-loop + quality-bar for *finding* skill improvements, distinct from `inputs.md` §6's mechanical update procedure for *applying a known* corpus change.) Most leaves sit at or under the 250-line soft ceiling; the two Type A catalogues (`auto-call-site-rewrites.md` ~280, `auto-cross-cutting.md` ~350) run over because their shape-catalogue content resists further splitting. SKILL.md is well under the 500-line Anthropic guideline. *(Line counts are approximate — they drift as leaves are edited; the authoritative count is `wc -l skills/re-frame-migration/{references,spec}/*.md`.)*
+**Totals**: SKILL.md (~160) + 16 reference leaves (~2,955) + 4 spec files (~430) ≈ ~3,545 LoC across 21 markdown files. (The 4th `spec/` file, `improving.md`, is the maintenance-methodology meta-doc — the friction-loop + quality-bar for *finding* skill improvements, distinct from `inputs.md` §6's mechanical update procedure for *applying a known* corpus change.) Most leaves sit at or under the 250-line soft ceiling; the two Type A catalogues (`auto-call-site-rewrites.md` ~280, `auto-cross-cutting.md` ~350) run over because their shape-catalogue content resists further splitting. SKILL.md is well under the 500-line Anthropic guideline. *(Line counts are approximate — they drift as leaves are edited; the authoritative count is `wc -l skills/re-frame-migration/{references,spec}/*.md`.)*
 
 **Type A / Type B split into two leaves each.** The 365L `automated-transforms.md` and 300L `guided-checklist.md` originals violated the 250-line soft ceiling. They've been split along natural cluster boundaries: Type A divides into per-call-site rewrites (ns / effect-map / dispatch shapes) and cross-cutting (keyword renames / interceptor cleanup / views / init / artefact adds); Type B divides into handler-state-shaped (M-3, M-5, M-10, M-11, M-12, M-13, M-14, M-15) and interceptor-sub-payload-shaped (M-17, M-18, M-19, M-21, M-23, M-26). All four leaves remain one level deep from SKILL.md — no SKILL → A → B chains.
 
 ## 6. Why the leaf split
 
-The fifteen reference leaves are sized to load on demand without spending context budget on irrelevant detail. Typical migration session loads:
+The sixteen reference leaves are sized to load on demand without spending context budget on irrelevant detail. Typical migration session loads:
 
 - **Phase 0a + 0b + Phase 2 (bump-only success)**: `inventory-and-plan.md` (the inventory umbrella) + `setup.md` (floor gate + coord swap) + `output-format.md`. ~445 LoC.
 - **Phase 3 (sweep with Type A only)**: `auto-call-site-rewrites.md` + `auto-cross-cutting.md` + `breaking-changes.md` + `sequencing.md` + `output-format.md`. ~960 LoC.
 - **Phase 3 (sweep with Type A + Type B)**: add the relevant `guided-*.md` (typically one; both for cross-surface migrations). ~1,120–1,280 LoC.
-- **Full migration (rare)**: all fifteen reference leaves. ~2,840 LoC.
+- **Full migration (rare)**: all sixteen reference leaves. ~2,955 LoC.
 
 Even the worst case is well under any reasonable context budget; the median case is ~25% of the total skill content. The Type A split lets a Phase-3 sweep that only trips per-call-site rules load `auto-call-site-rewrites.md` (~250L) without dragging in the cross-cutting catalogue (and vice versa). Likewise the Type B split lets a sub-only migration load just `guided-interceptors-subs.md`.
 
