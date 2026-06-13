@@ -189,8 +189,9 @@
   pure-data slots. The `:wrap` closure on `:hiccup` decorators is
   not transported — only a `:has-wrap?` boolean — because closures
   don't survive EDN serialisation; agents inspecting the rendered
-  result use `preview-variant` instead. This is the read-only peer
-  of the deferred `register-decorator` write surface.
+  result use `preview-variant` instead. There is no decorator WRITE
+  tool: decorators carry closures JSON-RPC can't transport, so the
+  enumeration is read-only.
 
   Optional `args`:
 
@@ -575,9 +576,9 @@
                          "`:id`, `:kind`, `:doc` plus the kind-specific pure-data slots: `:has-wrap?` "
                          "for `:hiccup` decorators (the `:wrap` closure itself doesn't transport over "
                          "MCP); `:init` + `:app-db-patch` for `:frame-setup`; `:fx-id` + `:response` "
-                         "for `:fx-override`. The read-only peer of the deferred `register-decorator` "
-                         "write surface — closures don't transport, so the write side stays out of "
-                         "scope, but the read side is cheap. Optional `:kind` arg narrows to one "
+                         "for `:fx-override`. There is no decorator WRITE tool — decorators carry "
+                         "closures JSON-RPC can't transport, so the enumeration is read-only. "
+                         "Optional `:kind` arg narrows to one "
                          "decorator kind. Paginated per rf2-76sf6 (`:limit` default 25, optional "
                          "`:cursor`). "
                          "Examples: "

@@ -17,11 +17,6 @@
 > [`../../story/spec/022-Story-UI-Docs-And-Share.md`](../../story/spec/022-Story-UI-Docs-And-Share.md)
 > §4.
 
-Two deferred tool sections (`subscribe` / `unsubscribe` and
-`evaluate-cljs`) appear at the end of the Docs category for forward-
-visibility only; they are NOT in the shipped 20 and are explicitly
-flagged "Status: deferred to a future drop."
-
 ## The unified run-result (run/read tools speak ONE result vocabulary)
 
 The Testing run/read tools (`run-variant`, `read-failures`) and the Dev
@@ -275,12 +270,12 @@ Read-only `(story/registrations :decorator)` enumeration. Each entry carries
 `:id`, `:kind`, `:doc` plus the kind-specific pure-data slots —
 `:has-wrap?` for `:hiccup` decorators (the closure itself doesn't
 transport over MCP); `:init` + `:app-db-patch` for `:frame-setup`;
-`:fx-id` + `:response` for `:fx-override`. The read-only peer of the
-deferred `register-decorator` write surface — closures don't
-transport, so the write side stays out of scope at v1, but the read
-side is cheap and lets an agent enumerate the decoration vocabulary
-the same way it enumerates tags / modes / assertions. Optional
-`:kind` arg narrows to one kind.
+`:fx-id` + `:response` for `:fx-override`. There is no decorator
+WRITE tool — decorators carry closures (the `:wrap` slot) that JSON-RPC
+cannot transport (see §What's NOT in the registry). The read side is
+cheap and lets an agent enumerate the decoration vocabulary the same
+way it enumerates tags / modes / assertions. Optional `:kind` arg
+narrows to one kind.
 
 ### `list-assertions`
 
@@ -309,87 +304,6 @@ high-level `callTool` rejects an outputSchema-declaring tool that
 returns no `structuredContent` (JSON-RPC -32600), so the structured
 slot rides alongside. The text slot stays the byte-stable source of
 truth for round-tripping.
-
-### Deferred Docs tools (not part of the shipped 20)
-
-The two sections below sketch additions that are NOT in the
-shipped registry — they appear here for forward-visibility while the
-implementation is pending.
-
-### `subscribe` / `unsubscribe` (rf2-p8u13, deferred)
-
-**Status: deferred to a future drop.** Pair2-MCP has streaming
-`subscribe` / `unsubscribe` — long-running `tools/call` that emits
-matching events as `notifications/progress` notifications (push
-mode). Story-MCP's read tools are all pull-mode today. An agent
-watching for "the next time variant X fails an assertion" or "the
-next variant registered" has to poll `run-variant` / `list-stories`
-repeatedly.
-
-**v2 sketch (not implemented).** Add `subscribe` / `unsubscribe`
-mirroring re-frame2-pair-mcp's shape — same wire-protocol slot
-(`notifications/progress` correlated by the call's
-`progressToken`), same idempotent `unsubscribe`, same
-`list-subscriptions` peer for the "what streams are open?"
-diagnostic (renamed from `subscription-info` in pair-mcp per
-rf2-4y595).
-
-Topics to expose:
-
-- `:next-variant-failure` — fire when any variant assertion fails
-  (filter by `:variant-id` to narrow to one).
-- `:variant-registered` — fire on `reg-variant` (filter by
-  `:story-id-prefix` to scope to one story or a subtree).
-- `:mode-changed` — fire when the active mode set changes.
-- `:story-reloaded` — fire on hot-reload (boundary aligns with
-  `re-frame.story/clear-all!` + re-registration).
-
-Open questions: how Story-side state changes (run-variant
-assertions, registrar mutations) surface as observable events
-without the runtime's epoch ring (re-frame2-pair-mcp's substrate is rich;
-Story-MCP runs on the JVM with no equivalent today), whether the
-streaming machinery shares an abstraction with re-frame2-pair-mcp's
-`subscribe` (likely yes — extracting the queue + progress-callback
-plumbing into a shared `tools/mcp-base/streaming` ns is the
-implementation-first step), and what the wire-cap / dedup posture
-looks like for these payloads (assertion records and variant
-bodies are bounded, so the per-tick cap likely matches re-frame2-pair-mcp's
-5,000-token default without further per-tool tuning).
-
-### `evaluate-cljs` (rf2-vilu3, deferred)
-
-**Status: deferred to a future drop.** Pair2-MCP has `eval-cljs`
-(arbitrary form, evaluated in the connected CLJS runtime).
-Story-MCP doesn't. An agent that needs to peek at a Story-side
-slice the curated tool surface doesn't expose has no recourse but
-to file an RFE.
-
-**v2 sketch (not implemented).** Add `evaluate-cljs` /
-`evaluate-cljs-in-story` MCP tool. Bridges the JVM-side story-mcp
-through to a running CLJS Story session over the same nREPL
-transport re-frame2-pair-mcp uses today. The same posture:
-
-- Bounded — `max-tokens` cap, no `:tools/list` discoverability of
-  the escape hatch in production deploys (gate on
-  `:rf.story/expert-mode? true` in `config.cljc`).
-- Posture TBD when implemented — re-frame2-pair-mcp's eval-cljs gate
-  flipped to default-ON in rf2-a0z0h (the threat-model rationale: a
-  default-OFF eval gate did not add a protection separable from
-  `--allow-writes`, because eval expresses every write the writes-gate
-  blocks). A future story-mcp `evaluate-cljs` should evaluate the same
-  trade-off rather than auto-inheriting the older default-OFF stance.
-- Tagged — every fired event / fx carries `:origin :story-mcp`
-  so the runtime distinguishes agent-driven slices from user-driven
-  ones.
-
-Open questions: which Story session does the form attach to (the
-implicit "active variant frame"? all frames? caller picks?), how
-the JVM-standalone deploy degrades when no CLJS session is reachable
-(today: `list-substrates` returns `[]`; `evaluate-cljs` would need
-the same posture), and whether the existing re-frame2-pair-mcp `eval-cljs`
-satisfies the need when a session co-installs both servers (likely
-yes, which is the argument for keeping this deferred until the
-single-server need materialises in the wild).
 
 ### `get-docs-markdown` (rf2-i0kyy)
 
