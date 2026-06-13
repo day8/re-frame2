@@ -310,9 +310,9 @@ Standard route-related fx (canonical detail in [012-Routing.md](012-Routing.md))
 
 Standard route-related cofx (canonical detail in [012-Routing.md](012-Routing.md)):
 
-| Cofx | Injects | Spec |
+| Cofx | Delivers | Spec |
 |---|---|---|
-| `:nav-token` | The active navigation epoch token (read from `[:rf.runtime/routing :current :nav-token]`) under the coeffect key `:nav-token` — declare via `(inject-cofx :nav-token)` in an `:on-match`-reached handler to capture the epoch live at scheduling time for stale-result suppression. Per [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression). | 012 |
+| `:rf.route/nav-token` | The active navigation epoch token (read from `[:rf.runtime/routing :current :nav-token]`), delivered flat under the coeffect key `:rf.route/nav-token` — declare via `{:rf.cofx/requires [:rf.route/nav-token]}` in an `:on-match`-reached handler to capture the epoch live at scheduling time for stale-result suppression. Per [012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression). | 012 |
 
 ---
 
