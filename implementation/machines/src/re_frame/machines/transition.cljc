@@ -754,10 +754,14 @@
   arrives. `carried-decl-path` (the scheduling node's absolute path) is
   carried by the runtime so the staleness check is per scheduling node —
   the per-level tracking the normative external contract (005 §Hierarchy
-  interaction) requires. Legacy 3-element events (no decl-path) fall back
-  to a leaf→root walk for the delay-key, resolving against the matched
-  node's per-path epoch — sufficient when delay-keys do not collide
-  across hierarchy levels.
+  interaction) requires. Per Spec 005 §Hierarchy interaction (invariant
+  2202) the node's epoch AND its declaring path travel with EVERY timer:
+  the synthetic event is the 4-element `[delay-key epoch decl-path]`
+  shape the runtime always emits, so a `nil` `carried-decl-path` is a
+  malformed event (a hand-rolled / pre-decl-path dispatch). It resolves
+  to nil — no transition, the benign unhandled-no-op signal. There is no
+  legacy 3-element leaf→root fallback (rf2-wtw3rw): the decl-path is
+  contractual, not optional.
 
   A timer is **live** iff its scheduling node is still on the active path
   (its `carried-decl-path` is a prefix of the current path) AND the
@@ -869,37 +873,13 @@
            :scheduled-epoch carried-epoch
            :current-epoch   cur-epoch}))
 
-      ;; Legacy 3-element event — resolve via the leaf→root walk.
-      :else
-      (let [hit
-            (path-walk/walk-path-leaf-to-root
-              machine path
-              (fn [prefix n]
-                (when-let [t (get-in n [:after delay-key])]
-                  (let [cur-epoch (node-epoch machine snapshot prefix)]
-                    (if (= carried-epoch cur-epoch)
-                      (resolve-hit prefix t)
-                      {:stale?          true
-                       :state           (last prefix)
-                       :decl-path       (vec prefix)
-                       :delay           delay-key
-                       :scheduled-epoch carried-epoch
-                       :current-epoch   cur-epoch})))))]
-        (cond
-          hit    hit
-          ;; No `:after` table matched along any level of the path — the
-          ;; timer carried in from a state the machine has since exited.
-          ;; Surface it as stale so the lifecycle emits
-          ;; `:rf.machine.timer/stale-after`. No `:after` table matched
-          ;; along any level, so there is no live declaring node — the
-          ;; carried path is the timer's only address (`:current-epoch`
-          ;; nil signals the absent live counterpart).
-          :else  {:stale?          true
-                  :state           (last path)
-                  :decl-path       carried-decl-path
-                  :delay           delay-key
-                  :scheduled-epoch carried-epoch
-                  :current-epoch   nil})))))
+      ;; A malformed event with no carried decl-path (rf2-wtw3rw): the
+      ;; runtime always emits the 4-element `[delay-key epoch decl-path]`
+      ;; shape (Spec 005 §Hierarchy interaction), so a nil decl-path can
+      ;; only be a hand-rolled / pre-decl-path dispatch. There is no
+      ;; legacy leaf→root fallback — resolve to nil (no transition, the
+      ;; benign unhandled-no-op).
+      :else nil)))
 
 (defn ns-wildcard-key
   "Per Spec 005 §Wildcard transitions §Namespaced (partial) event

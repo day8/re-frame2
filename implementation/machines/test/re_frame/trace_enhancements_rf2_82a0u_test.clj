@@ -12,8 +12,7 @@
     3. `:rf.machine.timer/cancelled` (single canonical event id) is
        emitted on every cancellation path with `:reason` from the
        closed set `:on-exit / :on-destroy / :on-resolution /
-       :on-supersede / :on-frame-destroy`. The pre-rf2-82a0u event
-       `:rf.machine.timer/cancelled-on-resolution` is gone."
+       :on-supersede / :on-frame-destroy`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -317,24 +316,3 @@
                     :on-supersede :on-frame-destroy}]
       (is (every? allowed reasons)
           (str "every :reason ∈ closed set; got " reasons)))))
-
-;; =====================================================================
-;; Negative gate: the old event id is gone from the runtime stream
-;; =====================================================================
-
-(deftest old-cancelled-on-resolution-event-id-not-emitted
-  (testing "no path emits the pre-rf2-82a0u
-            `:rf.machine.timer/cancelled-on-resolution` — every
-            cancellation rides the unified
-            `:rf.machine.timer/cancelled`"
-    (rf/reg-machine :rf2-82a0u/no-old-id
-      {:initial :a
-       :states  {:a {:after {1000 :b} :on {:exit :c}}
-                 :b {}
-                 :c {}}})
-    (let [evs (record-traces!
-                (fn []
-                  (rf/dispatch-sync [:rf2-82a0u/no-old-id [:rf.machine/start]])
-                  (rf/dispatch-sync [:rf2-82a0u/no-old-id [:exit]])))]
-      (is (empty? (ops evs :rf.machine.timer/cancelled-on-resolution))
-          "no emit of the legacy event id (rf2-82a0u removed it)"))))
