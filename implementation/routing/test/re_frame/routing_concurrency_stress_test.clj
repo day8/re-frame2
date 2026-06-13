@@ -53,8 +53,6 @@
   is tight."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             ;; rf2-k682: this test lives in the routing artefact's test
             ;; classpath, so requiring re-frame.routing here is the
@@ -63,33 +61,19 @@
             ;; reg-sub installations, and registers the framework
             ;; `:rf.nav/*` fxs. Without this require the rf/reg-route
             ;; calls below would throw :rf.error/routing-artefact-missing.
-            [re-frame.routing :as routing]
-            [re-frame.schemas :as schemas]
-            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.routing]
+            [re-frame.routing-test-support :as rts]
             [re-frame.trace :as trace])
   (:import [java.util.concurrent CountDownLatch]
            [java.util.concurrent.atomic AtomicLong]))
 
+;; rf2-6qclsc: wrap the shared `reset-runtime` fixture rather than keeping a
+;; drifting local copy. This suite's only extra is clearing trace listeners
+;; (the stress invariants register/deref listeners), so layer that on top of
+;; the shared registrar/runtime/cache reset.
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
   (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
-  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`, and
-  ;; routing/nav fxs require a carried frame stamp. Register `:rf/default`
-  ;; explicitly as the conventional app frame; URL ownership is now an
-  ;; explicit declaration, so opt in via `{:url-bound? true}`. Pin it as the
-  ;; ambient scope for the body.
-  (rf/reg-frame :rf/default {:url-bound? true
-                             :doc "concurrency-stress suite default app frame (explicit URL owner)."})
-  ;; Framework events / fx (routing.cljc) are registered at ns-load;
-  ;; clear-all! wiped them. Reload to resurrect.
-  (require 're-frame.routing :reload)
-  (routing/reset-counters!)
-  (rf/with-frame :rf/default
-    (test-fn)))
+  (rts/reset-runtime test-fn))
 
 (use-fixtures :each reset-runtime)
 
@@ -113,7 +97,7 @@
 
 ;; ---- Scenario 1: N concurrent :rf.route/transitioned from N frames -------------
 
-(deftest ^:stress url-changed-cross-frame-stress
+(deftest ^:stress transitioned-cross-frame-stress
   ;; rf2-ksbur scenario 1.
   ;;
   ;; Each thread owns its own frame and fires `stress-iters` `:rf.route/transitioned`
@@ -266,7 +250,7 @@
   ;; ID drove it, with no popstate-vs-push reordering visible at the
   ;; counter level.
   (testing (str n-threads " threads × " stress-iters
-                " iters mixed url-changed/handle-url-change "
+                " iters mixed transitioned/handle-url-change "
                 "— exact on-match count, no double-process")
     (let [global-counter      (AtomicLong. 0)
           per-thread-counters (vec (repeatedly n-threads #(atom 0)))
@@ -324,7 +308,7 @@
                    ". Per-thread breakdown: " per-thread-totals))
           (is (every? #(= stress-iters %) per-thread-totals)
               (str "Each thread must have processed exactly "
-                   stress-iters " on-match events (mixed url-changed "
+                   stress-iters " on-match events (mixed transitioned "
                    "+ handle-url-change); got " per-thread-totals)))
 
         ;; --- Invariant 2: global atomic exact ---------------------

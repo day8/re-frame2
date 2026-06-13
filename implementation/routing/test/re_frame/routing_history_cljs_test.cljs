@@ -186,30 +186,25 @@
 
 (def ^:dynamic *history-state* nil)
 
-;; Real-browser detection. node-runtime starts with no `js/window`; the
-;; stub's `install-window-stub!` builds one on `js/globalThis`. In a
-;; real browser (shadow-cljs `:browser-test` headless Chromium runner)
-;; `js/window` IS the actual `Window` object — its `History` API can't
-;; be js-deleted + replaced, so the in-memory `*history-state*` atom
-;; can't observe real-browser pushState calls. Defer browser-runtime
-;; coverage to a future real-history-wrapping harness; for now scope
-;; this ns to node-runtime via fixture-level skip.
-(def ^:private real-browser?
-  (and (exists? js/window)
-       (some? (.-history js/window))
-       (identical? js/window js/globalThis)))
-
+;; Node-runtime only by design (rf2-6qclsc). This ns ends in `-cljs-test`,
+;; so shadow-cljs discovers it under the `:node-test` build (`:ns-regexp
+;; "cljs-test$"`) ONLY — the `:browser-test` build is narrowed to
+;; `-dom-cljs-test$` namespaces (rf2-2hrj8, implementation/shadow-cljs.edn).
+;; The fixture installs an in-memory `js/window` / history stub on
+;; `js/globalThis` (a real browser's `Window` / `History` cannot be
+;; replaced, so the in-memory `*history-state*` atom could not observe
+;; real pushState calls there anyway). A real-browser harness would be a
+;; separate `*_dom_cljs_test.cljs` namespace; until one exists there is no
+;; silent browser no-op to guard against — the gates never run this ns in
+;; a browser.
 (defn- with-window-stub-fixture
   [f]
-  (if real-browser?
-    ;; Real browser — fixture skips body; tests run as no-ops.
-    nil
-    (let [state (install-window-stub!)]
-      (try
-        (binding [*history-state* state]
-          (f))
-        (finally
-          (uninstall-window-stub!))))))
+  (let [state (install-window-stub!)]
+    (try
+      (binding [*history-state* state]
+        (f))
+      (finally
+        (uninstall-window-stub!)))))
 
 (use-fixtures :each
   with-window-stub-fixture
@@ -732,7 +727,7 @@
 ;; handler — when only the URL fragment changes (the route-id,
 ;; :params, and :query are unchanged) the runtime updates
 ;; [:rf.runtime/routing :current :fragment] and emits :rf.route/fragment-changed (rf2-cj9fn,
-;; pre-rename: `:rf.route/fragment-changed`) instead of re-firing :on-match.
+;; pre-rename: `:rf.route/url-changed`) instead of re-firing :on-match.
 ;; That's the framework's hashchange surface.
 
 (deftest hashchange-fragment-only-cljs

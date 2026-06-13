@@ -24,32 +24,16 @@
   `route-link` row."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.routing :as routing]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.routing-test-support :as rts]))
 
-(defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
-  ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`, and
-  ;; routing/nav fxs require a carried frame stamp. Register `:rf/default`
-  ;; explicitly as the conventional app frame; URL ownership is now an
-  ;; explicit declaration, so opt in via `{:url-bound? true}`. Pin it as the
-  ;; ambient scope for the body.
-  (rf/reg-frame :rf/default {:url-bound? true
-                             :doc "route-link suite default app frame (explicit URL owner)."})
-  (require 're-frame.routing :reload)
-  (routing/reset-counters!)
-  (rf/with-frame :rf/default
-    (test-fn)))
-
-(use-fixtures :each reset-runtime)
+;; rf2-6qclsc: use the shared `reset-runtime` fixture directly rather than a
+;; drifting local copy. The route-link suite has no suite-specific reset
+;; extras, so the shared fixture (which additionally reloads ssr /
+;; test-support and drops the host-side scroll / nav-counter caches) applies
+;; verbatim.
+(use-fixtures :each rts/reset-runtime)
 
 ;; ---- registry registration ----------------------------------------------
 

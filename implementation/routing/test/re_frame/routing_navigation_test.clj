@@ -147,7 +147,7 @@
 ;; `navigate-url-form-preserves-fragment` (above) only covers the MATCHING
 ;; URL-string case; the not-found fallback through the programmatic
 ;; URL-string entry point (distinct from the URL-driven
-;; `:rf.route/transitioned` path that `url-changed-unmatched-url-routes-to-
+;; `:rf.route/transitioned` path that `transitioned-unmatched-url-routes-to-
 ;; not-found` covers) was unpinned.
 
 (deftest navigate-url-form-unmatched-routes-to-not-found
@@ -266,7 +266,7 @@
            link/popstate, so the address bar already shows the requested url
            (this path is unchanged by rf2-0zr2o)"))))
 
-(deftest url-changed-validation-fail-routes-to-not-found-with-reason
+(deftest transitioned-validation-fail-routes-to-not-found-with-reason
   (testing ":rf.route/transitioned for a structurally-matched URL whose params
             fail schema validation routes to :rf.route/not-found with
             `:reason :validation` in :params (Spec 012 §Param validation)"
@@ -409,7 +409,7 @@
 ;; page; leaving the previous slice intact (pre-fix) showed the previous
 ;; route's UI through a navigation to a nonexistent URL.
 
-(deftest url-changed-unmatched-url-routes-to-not-found
+(deftest transitioned-unmatched-url-routes-to-not-found
   (testing ":rf.route/transitioned for an unmatched URL writes the
             :rf.route/not-found slice with {:url url} in :params"
     (rf/reg-route :route/home {:path "/"})
@@ -433,7 +433,7 @@
       (is (some? (:nav-token slice))
           "a fresh nav-token is allocated even for not-found navigation"))))
 
-(deftest url-changed-not-found-without-route-registered-warns
+(deftest transitioned-not-found-without-route-registered-warns
   (testing "when :rf.route/not-found is NOT registered, an unmatched URL
             still rewrites the slice AND emits :rf.warning/no-not-found-route"
     (rf/reg-route :route/home {:path "/"})
@@ -464,7 +464,7 @@
 ;; URLs from bare misses ({:url url}) and validation failures
 ;; ({:url url :reason :validation}).
 
-(deftest url-changed-malformed-url-routes-to-not-found-with-reason
+(deftest transitioned-malformed-url-routes-to-not-found-with-reason
   (testing ":rf.route/transitioned for a malformed-%-encoded URL writes the
             :rf.route/not-found slice with `:reason :malformed-url`"
     (rf/reg-route :route/home    {:path "/"})
@@ -497,7 +497,7 @@
       (is (= :rf.route/not-found (:id slice)) "malformed fragment → not-found")
       (is (= :malformed-url (get-in slice [:params :reason]))))))
 
-(deftest url-changed-malformed-url-emits-structured-trace
+(deftest transitioned-malformed-url-emits-structured-trace
   (testing ":rf.route/transitioned emits :rf.warning/malformed-url alongside the
             standard :rf.error/no-such-handler when the URL is malformed"
     (rf/reg-route :route/home {:path "/"})
@@ -522,7 +522,7 @@
                 @traces)
           ":rf.error/no-such-handler carries `:reason :malformed-url`"))))
 
-(deftest url-changed-forward-nav-traces-carry-frame-rf2-w3qgc
+(deftest transitioned-forward-nav-traces-carry-frame-rf2-w3qgc
   (testing "rf2-w3qgc: forward URL-driven nav (`:rf.route/transitioned`)
             threads the active `frame` through `url-change-fx`, so the
             route-miss / malformed-url / no-not-found diagnostics carry
@@ -590,7 +590,7 @@
             "default-frame dispatch tags :rf/default (not nil) — matches the
              popstate/SSR sibling and the programmatic path")))))
 
-(deftest url-changed-well-formed-url-does-not-emit-malformed-trace
+(deftest transitioned-well-formed-url-does-not-emit-malformed-trace
   (testing "the regular happy path emits NO :rf.warning/malformed-url"
     (rf/reg-route :route/home    {:path "/"})
     (rf/reg-route :route/search  {:path "/search"})
@@ -613,7 +613,7 @@
 ;; Pre-fix the URL-driven handler hardcoded :idle, so URL-driven loaders
 ;; never observed the :loading state.
 
-(deftest url-changed-transition-loading-when-on-match-fires
+(deftest transitioned-transition-loading-when-on-match-fires
   (testing ":rf.route/transitioned sets :transition :loading when the route
             declares :on-match events"
     (rf/reg-event-db :prefs/loaded (fn [db _] (assoc db :prefs/loaded? true)))
@@ -716,7 +716,7 @@
           ":rf.nav/push-url pushed the REQUESTED (over-cap) url VERBATIM —
            NOT the not-found route's /404 (rf2-0zr2o address-bar parity)")
       ;; rf2-2zyvj: the SAME hostile-URL signal the URL-driven path emits
-      ;; (url-changed-over-cap → :rf.warning/malformed-url) MUST also fire on
+      ;; (`:rf.route/transitioned` over-cap → :rf.warning/malformed-url) MUST also fire on
       ;; the programmatic `{:url ...}` fail-closed path, or the over-cap
       ;; navigate attack is invisible to the security dashboards / SSR
       ;; error-projections the DoS cap feeds (spec/012 §Keyword-interning
