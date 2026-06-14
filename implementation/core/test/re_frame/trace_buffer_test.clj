@@ -621,13 +621,13 @@
 
 (deftest hot-reload-unchanged-handler-emits-zero-traces
   (testing "re-registering an identical handler emits ZERO traces (B4 dedup)"
-    (let [handler-fn (fn [db _] db)]
-      (rf/reg-event-db :ev/hot {:doc "hot"} handler-fn)
+    (let [handler-fn (fn [{:keys [db]} _] {:db db})]
+      (rf/reg-event :ev/hot {:doc "hot"} handler-fn)
       (rf/clear-trace-buffer! :rf/default)
       ;; Identical re-registration — same fn, same meta. B4: zero emits.
-      (rf/reg-event-db :ev/hot {:doc "hot"} handler-fn)
-      (rf/reg-event-db :ev/hot {:doc "hot"} handler-fn)
-      (rf/reg-event-db :ev/hot {:doc "hot"} handler-fn)
+      (rf/reg-event :ev/hot {:doc "hot"} handler-fn)
+      (rf/reg-event :ev/hot {:doc "hot"} handler-fn)
+      (rf/reg-event :ev/hot {:doc "hot"} handler-fn)
       (is (= [] (rf/trace-buffer :rf/default {:flat true
                                               :op-type :rf.registry}))
           "no :rf.registry/* traces from idempotent hot-reload"))))
@@ -651,11 +651,11 @@
 
 (deftest hot-reload-dedup-clears-on-reset
   (testing "clear-listeners! (and clear-trace-rings!) reset the dedup table"
-    (let [handler-fn (fn [db _] db)
+    (let [handler-fn (fn [{:keys [db]} _] {:db db})
           recv (atom [])]
       ;; Register, then identical re-register — dedup suppresses.
-      (rf/reg-event-db :ev/cycle {:doc "doc"} handler-fn)
-      (rf/reg-event-db :ev/cycle {:doc "doc"} handler-fn) ;; suppressed
+      (rf/reg-event :ev/cycle {:doc "doc"} handler-fn)
+      (rf/reg-event :ev/cycle {:doc "doc"} handler-fn) ;; suppressed
       ;; Reset dedup state, then re-register the SAME handler — should
       ;; now emit again because the table is fresh.
       (rf/clear-listeners!)
@@ -664,7 +664,7 @@
                                (when (and (= :rf.registry (:op-type ev))
                                           (= :ev/cycle (-> ev :tags :id)))
                                  (swap! recv conj ev))))
-      (rf/reg-event-db :ev/cycle {:doc "doc"} handler-fn)
+      (rf/reg-event :ev/cycle {:doc "doc"} handler-fn)
       (rf/unregister-listener! ::probe)
       (is (seq @recv)
           "post-clear re-registration emits at least one registry trace"))))

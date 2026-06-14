@@ -1,9 +1,16 @@
 (ns re-frame.events-test
-  "Per rf2-bpmszk (the rf2-iczn3 resolution, Mike 2026-06-10) — the
-  `reg-event-*` metadata-map carries a RESERVED `:interceptors` key, making
-  the map the ONE superset middle-slot shape. The historical positional
-  interceptor vector middle slot is retired; the chain belongs in metadata
-  `:interceptors`. The front-porch `(reg-event-db :id handler)` is unchanged.
+  "Per EP-0018 Slice Z (rf2-xhfxcs.14) — re-frame2 event registration is
+  collapsed to the ONE public form `reg-event` (coeffects in, a closed
+  effects map out). The metadata-map carries a RESERVED `:interceptors` key,
+  making the map the ONE superset middle-slot shape; the historical positional
+  interceptor vector middle slot is retired (the chain belongs in metadata
+  `:interceptors`).
+
+  The retired public names `reg-event-db` / `reg-event-fx` / `reg-event-ctx`
+  survive ONLY as throwing stubs (`:rf.error/reg-event-db-removed` /
+  `-fx-removed` / `-ctx-removed`); they register nothing. There is ONE
+  handler-wrapping interceptor `:rf/event-handler` (`:rf/default? true`) on
+  every event, and the historical `:event/kind` sub-tag is gone.
 
   This SUPERSEDES the former rf2-bbea warning
   (`:rf.warning/interceptors-in-metadata-map`): `:interceptors` inside the
@@ -72,39 +79,29 @@
 ;; ---- tests ----------------------------------------------------------------
 
 (deftest metadata-map-interceptors-is-the-superset-form
-  ;; Per rf2-bpmszk — `:interceptors` inside the metadata-map is now THE
-  ;; superset middle-slot shape: the registrar carries it on the effective
-  ;; `:interceptors` chain (user chain + the framework wrapper).
-  (testing "reg-event-db with metadata-map :interceptors threads the chain (NOT dropped)"
-    (let [recorded (record-traces! ::db-super)]
-      (rf/reg-event-db :test.bpmszk/db-super
+  ;; Per rf2-bpmszk — `:interceptors` inside the metadata-map is THE superset
+  ;; middle-slot shape: the registrar carries it on the effective
+  ;; `:interceptors` chain (user chain + the framework wrapper). Per EP-0018
+  ;; Slice Z there is ONE form (`reg-event`) and ONE wrapper id
+  ;; (`:rf/event-handler`); the former per-kind db/fx/ctx variants collapse
+  ;; into this one test.
+  (testing "reg-event with metadata-map :interceptors threads the chain (NOT dropped)"
+    (let [recorded (record-traces! ::super)]
+      (rf/reg-event :test.bpmszk/super
         {:doc "Superset form." :interceptors [noop-icpt]}
-        (fn [db _] db))
+        (fn [{:keys [db]} _] {:db db}))
       (is (empty? (warning-events recorded :rf.warning/interceptors-in-metadata-map))
           "the superset form does NOT fire the retired metadata-misuse warning")
-      (let [meta (rf/handler-meta :event :test.bpmszk/db-super)
+      (let [meta (rf/handler-meta :event :test.bpmszk/super)
             ids  (mapv :id (:interceptors meta))]
         (is (= "Superset form." (:doc meta))
             "the reflection metadata is retained on the registry entry")
         (is (not (contains? meta :interceptors-as-raw))
             "the raw key is not duplicated under another name")
-        (is (= [:test/noop :rf/db-handler] ids)
+        (is (= [:test/noop :rf/event-handler] ids)
             "the metadata-map :interceptors chain sits before the runtime wrapper")
-        (is (= :db (:event/kind meta))))))
-
-  (testing "reg-event-fx with metadata-map :interceptors threads the chain"
-    (rf/reg-event-fx :test.bpmszk/fx-super
-      {:interceptors [noop-icpt]}
-      (fn [_ _] {:db {}}))
-    (let [ids (mapv :id (:interceptors (rf/handler-meta :event :test.bpmszk/fx-super)))]
-      (is (= [:test/noop :rf/fx-handler] ids))))
-
-  (testing "reg-event-ctx with metadata-map :interceptors threads the chain"
-    (rf/reg-event-ctx :test.bpmszk/ctx-super
-      {:interceptors [noop-icpt]}
-      (fn [ctx] ctx))
-    (let [ids (mapv :id (:interceptors (rf/handler-meta :event :test.bpmszk/ctx-super)))]
-      (is (= [:test/noop :rf/ctx-handler] ids)))))
+        (is (not (contains? meta :event/kind))
+            "the :event/kind sub-tag is gone (one form, no kind)")))))
 
 (deftest metadata-map-interceptors-runs-the-chain-identically
   ;; The chain registered via the metadata-map MUST run with the interceptor
@@ -116,9 +113,9 @@
                   {:id     (keyword "test.bpmszk" (str "ord-" (name tag)))
                    :before (fn [ctx] (swap! order conj [:before tag]) ctx)
                    :after  (fn [ctx] (swap! order conj [:after tag]) ctx)})]
-      (rf/reg-event-db :test.bpmszk/ordered
+      (rf/reg-event :test.bpmszk/ordered
         {:interceptors [(mk :a) (mk :b)]}
-        (fn [db _] (swap! order conj [:handler]) db))
+        (fn [{:keys [db]} _] (swap! order conj [:handler]) {:db db}))
       (rf/dispatch-sync [:test.bpmszk/ordered])
       (is (= [[:before :a] [:before :b] [:handler] [:after :b] [:after :a]]
              @order)
@@ -128,77 +125,64 @@
   ;; The positional interceptor vector middle slot is retired. The chain's
   ;; home is the metadata-map `:interceptors` key.
   (testing "two-arg positional vector middle slot throws bad-middle-slot"
-    (let [ex (try (rf/reg-event-db :test.bpmszk/vector-middle
+    (let [ex (try (rf/reg-event :test.bpmszk/vector-middle
                     [noop-icpt]
-                    (fn [db _] db))
+                    (fn [{:keys [db]} _] {:db db}))
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex))
       (is (= ":rf.error/reg-event-bad-middle-slot" (ex-message ex)))
       (let [data (ex-data ex)]
         (is (= :rf.error/reg-event-bad-middle-slot (:rf.error/id data)))
+        (is (= 'rf/reg-event (:where data)))
         (is (= :fix-registration (:recovery data)))
         (is (= [noop-icpt] (:got data)))
         (is (re-find #"positional interceptor vector is retired" (:reason data)))
         (is (re-find #":interceptors" (:expected data))))))
 
   (testing "the vector-middle rejection happens BEFORE the registry slot is written"
-    (try (rf/reg-event-db :test.bpmszk/vector-no-side-effect
+    (try (rf/reg-event :test.bpmszk/vector-no-side-effect
            [noop-icpt]
-           (fn [db _] db))
+           (fn [{:keys [db]} _] {:db db}))
          (catch clojure.lang.ExceptionInfo _ nil))
     (is (nil? (registrar/lookup :event :test.bpmszk/vector-no-side-effect))
         "registry slot is untouched when the vector-middle guard throws"))
 
-  (testing "the rejection covers reg-event-fx and reg-event-ctx"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/reg-event-bad-middle-slot"
-          (rf/reg-event-fx :test.bpmszk/fx-vector
-            [noop-icpt]
-            (fn [_ _] {}))))
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/reg-event-bad-middle-slot"
-          (rf/reg-event-ctx :test.bpmszk/ctx-vector
-            [noop-icpt]
-            (fn [ctx] ctx)))))
-
   (testing "metadata plus positional vector is the retired three-tail shape"
-    (let [ex (try (rf/reg-event-db :test.bpmszk/meta-plus-vector
+    (let [ex (try (rf/reg-event :test.bpmszk/meta-plus-vector
                     {:doc "old three-tail shape"}
                     [noop-icpt]
-                    (fn [db _] db))
+                    (fn [{:keys [db]} _] {:db db}))
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex))
       (is (= ":rf.error/reg-event-bad-arity" (ex-message ex)))
       (is (= :rf.error/reg-event-bad-arity (:rf.error/id (ex-data ex))))
-      (is (re-find #"metadata :interceptors" (:reason (ex-data ex)))))))
+      (is (re-find #"interceptor chains in metadata :interceptors" (:reason (ex-data ex)))))))
 
 (deftest malformed-metadata-map-interceptors-is-rejected-loudly
   ;; Per rf2-bpmszk malformed-value guard: a non-vector :interceptors value, or
   ;; a vector carrying a non-interceptor entry, is a LOUD
   ;; :rf.error/reg-event-bad-interceptors.
   (testing "a non-vector :interceptors value throws"
-    (let [ex (try (rf/reg-event-db :test.bpmszk/bad-nonvec
+    (let [ex (try (rf/reg-event :test.bpmszk/bad-nonvec
                     {:interceptors noop-icpt}     ;; a bare map, not a vector
-                    (fn [db _] db))
+                    (fn [{:keys [db]} _] {:db db}))
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex))
       (is (= ":rf.error/reg-event-bad-interceptors" (ex-message ex)))
       (let [data (ex-data ex)]
         (is (= :rf.error/reg-event-bad-interceptors (:rf.error/id data)))
-        (is (= "reg-event-db" (:reg-fn data)))
+        (is (= "reg-event" (:reg-fn data)))
         (is (= :test.bpmszk/bad-nonvec (:id data)))
         (is (= :fix-registration (:recovery data)))
         (is (re-find #"non-vector" (:reason data))))))
 
   (testing "a vector with a non-interceptor entry (keyword) throws"
-    (let [ex (try (rf/reg-event-db :test.bpmszk/bad-entry
+    (let [ex (try (rf/reg-event :test.bpmszk/bad-entry
                     {:interceptors [noop-icpt :not-an-interceptor]}
-                    (fn [db _] db))
+                    (fn [{:keys [db]} _] {:db db}))
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex))
@@ -206,34 +190,34 @@
       (is (re-find #"non-interceptor" (:reason (ex-data ex))))))
 
   (testing "the malformed rejection happens BEFORE the registry slot is written"
-    (try (rf/reg-event-db :test.bpmszk/bad-no-side-effect
+    (try (rf/reg-event :test.bpmszk/bad-no-side-effect
            {:interceptors :nope}
-           (fn [db _] db))
+           (fn [{:keys [db]} _] {:db db}))
          (catch clojure.lang.ExceptionInfo _ nil))
     (is (nil? (registrar/lookup :event :test.bpmszk/bad-no-side-effect))
         "registry slot is untouched when the malformed guard throws"))
 
   (testing "an empty :interceptors vector is legitimate (no chain), not malformed"
     (is (= :test.bpmszk/empty-ok
-           (rf/reg-event-db :test.bpmszk/empty-ok
+           (rf/reg-event :test.bpmszk/empty-ok
              {:doc "no chain" :interceptors []}
-             (fn [db _] db))))
+             (fn [{:keys [db]} _] {:db db}))))
     (let [ids (mapv :id (:interceptors (rf/handler-meta :event :test.bpmszk/empty-ok)))]
-      (is (= [:rf/db-handler] ids) "no user interceptors; only the runtime wrapper"))))
+      (is (= [:rf/event-handler] ids) "no user interceptors; only the runtime wrapper"))))
 
 (deftest canonical-metadata-form-stays-silent
-  (testing "reg-event-db with metadata-map :interceptors does NOT warn"
+  (testing "reg-event with metadata-map :interceptors does NOT warn"
     (let [recorded (record-traces! ::db-quiet)]
-      (rf/reg-event-db :test.bbea/db-good
+      (rf/reg-event :test.bbea/db-good
         {:interceptors [noop-icpt]}
-        (fn [db _] db))
+        (fn [{:keys [db]} _] {:db db}))
       (is (empty? (warning-events recorded :rf.warning/interceptors-in-metadata-map)))))
 
-  (testing "reg-event-db with metadata-map alone (no interceptors anywhere) does NOT warn"
+  (testing "reg-event with metadata-map alone (no interceptors anywhere) does NOT warn"
     (let [recorded (record-traces! ::db-good-3)]
-      (rf/reg-event-db :test.bbea/db-good-3
+      (rf/reg-event :test.bbea/db-good-3
         {:doc "Plain metadata-only registration."}
-        (fn [db _] db))
+        (fn [{:keys [db]} _] {:db db}))
       (is (empty? (warning-events recorded :rf.warning/interceptors-in-metadata-map))))))
 
 ;; ---- clear-event round-trip (rf2-6z20) -----------------------------------
@@ -252,7 +236,7 @@
 (deftest clear-event-removes-a-single-handler
   (testing "(rf/clear-event id) removes the registered :event slot;
             a subsequent dispatch traces :rf.error/no-such-handler"
-    (rf/reg-event-db :test.6z20/foo (fn [db _] (assoc db :touched? true)))
+    (rf/reg-event :test.6z20/foo (fn [{:keys [db]} _] {:db (assoc db :touched? true)}))
     ;; Pre-clear: reachable via lookup AND dispatch.
     (is (some? (registrar/lookup :event :test.6z20/foo))
         "the event handler is reachable via registrar/lookup pre-clear")
@@ -280,9 +264,9 @@
     ;; Per events.cljc:227, the no-arg form is documented:
     ;;   ([] (registrar/clear-kind! :event))
     ;; This tests confirms the contract.
-    (rf/reg-event-db :test.6z20/a (fn [db _] db))
-    (rf/reg-event-db :test.6z20/b (fn [db _] db))
-    (rf/reg-event-fx :test.6z20/c (fn [_ _] {}))
+    (rf/reg-event :test.6z20/a (fn [{:keys [db]} _] {:db db}))
+    (rf/reg-event :test.6z20/b (fn [{:keys [db]} _] {:db db}))
+    (rf/reg-event :test.6z20/c (fn [_ _] {}))
     (is (some? (registrar/lookup :event :test.6z20/a)))
     (is (some? (registrar/lookup :event :test.6z20/b)))
     (is (some? (registrar/lookup :event :test.6z20/c)))
@@ -297,7 +281,7 @@
 (deftest clear-event-leaves-other-kinds-untouched
   (testing "clear-event only touches :event; :sub, :fx, :cofx are preserved"
     ;; Defence-in-depth: confirm clear-event is narrow.
-    (rf/reg-event-db :test.6z20/ev (fn [db _] db))
+    (rf/reg-event :test.6z20/ev (fn [{:keys [db]} _] {:db db}))
     (rf/reg-sub :test.6z20/sub (fn [_ _] :stub))
     (rf/reg-fx :test.6z20/fx (fn [_ _] nil))
     (rf/reg-cofx :test.6z20/cofx (fn [ctx] ctx))
@@ -311,9 +295,9 @@
     (is (some? (registrar/lookup :cofx :test.6z20/cofx))
         ":cofx kind is untouched")))
 
-;; ---- reg-event-fx bad return (rf2-k3bj) ----------------------------------
+;; ---- reg-event bad return (rf2-k3bj) -------------------------------------
 ;;
-;; Per rf2-k3bj — a `reg-event-fx` handler is contracted to return a map
+;; Per rf2-k3bj — a `reg-event` handler is contracted to return a map
 ;; (or nil, the documented no-op). Any other return type (vector, number,
 ;; string, ...) is a thinko: the runtime cannot extract `:db` / `:fx` and
 ;; cannot guess the handler's intent. Pre-fix the body silently no-opped.
@@ -323,7 +307,7 @@
 (deftest reg-event-fx-non-map-return-traces-bad-return-error
   (testing "handler returning a string emits :rf.error/effect-handler-bad-return; app-db unchanged"
     (let [recorded (record-traces! ::bad-string)]
-      (rf/reg-event-fx :test.k3bj/string-return
+      (rf/reg-event :test.k3bj/string-return
         (fn [_ _] "hello"))
       (let [db-before (rf/app-db-value :rf/default)]
         (rf/dispatch-sync [:test.k3bj/string-return])
@@ -343,7 +327,7 @@
 
   (testing "handler returning a number emits :rf.error/effect-handler-bad-return"
     (let [recorded (record-traces! ::bad-number)]
-      (rf/reg-event-fx :test.k3bj/number-return
+      (rf/reg-event :test.k3bj/number-return
         (fn [_ _] 42))
       (rf/dispatch-sync [:test.k3bj/number-return])
       (let [errs (error-events recorded :rf.error/effect-handler-bad-return)]
@@ -352,7 +336,7 @@
 
   (testing "handler returning a vector emits :rf.error/effect-handler-bad-return"
     (let [recorded (record-traces! ::bad-vector)]
-      (rf/reg-event-fx :test.k3bj/vector-return
+      (rf/reg-event :test.k3bj/vector-return
         (fn [_ _] [[:dispatch [:other]]]))
       (rf/dispatch-sync [:test.k3bj/vector-return])
       (let [errs (error-events recorded :rf.error/effect-handler-bad-return)]
@@ -362,7 +346,7 @@
 (deftest reg-event-fx-nil-return-stays-silent
   (testing "handler returning nil is a documented legal no-op; no :rf.error/effect-handler-bad-return"
     (let [recorded (record-traces! ::nil-quiet)]
-      (rf/reg-event-fx :test.k3bj/nil-return
+      (rf/reg-event :test.k3bj/nil-return
         (fn [_ _] nil))
       (let [db-before (rf/app-db-value :rf/default)]
         (rf/dispatch-sync [:test.k3bj/nil-return])
@@ -374,7 +358,7 @@
 (deftest reg-event-fx-map-return-still-works
   (testing "handler returning a well-shaped {:db ...} effect-map still applies"
     (let [recorded (record-traces! ::map-good)]
-      (rf/reg-event-fx :test.k3bj/map-return
+      (rf/reg-event :test.k3bj/map-return
         (fn [_ _] {:db {:k3bj/touched? true}}))
       (rf/dispatch-sync [:test.k3bj/map-return])
       (is (empty? (error-events recorded :rf.error/effect-handler-bad-return))
@@ -387,9 +371,9 @@
 ;; Per the `reg-event-db` docstring (events.cljc), the variadic tail accepts
 ;; two shapes:
 ;;
-;;   (reg-event-db :id                       handler)             ;; tail = 1
-;;   (reg-event-db :id {:doc "..."}          handler)             ;; tail = 2 (meta)
-;;   (reg-event-db :id {:interceptors [icpt]} handler)             ;; tail = 2 (meta)
+;;   (reg-event :id                       handler)             ;; tail = 1
+;;   (reg-event :id {:doc "..."}          handler)             ;; tail = 2 (meta)
+;;   (reg-event :id {:interceptors [icpt]} handler)             ;; tail = 2 (meta)
 ;;
 ;; `normalise-args` dispatches on the *tail* count via `case`. This deftest
 ;; locks in the canonical shapes: each must register cleanly, surface the
@@ -399,95 +383,89 @@
 (deftest normalise-args-accepts-documented-shapes
   (let [recorded (record-traces! ::shapes)
         marker   {:id :test.fuudi/marker :before identity :after identity}]
-    (testing "shape 1 — bare handler: (reg-event-db :id handler)"
-      (rf/reg-event-db :test.fuudi/shape-1
-        (fn [db _] (assoc db :test.fuudi/touched-1? true)))
+    (testing "shape 1 — bare handler: (reg-event :id handler)"
+      (rf/reg-event :test.fuudi/shape-1
+        (fn [{:keys [db]} _] {:db (assoc db :test.fuudi/touched-1? true)}))
       (rf/dispatch-sync [:test.fuudi/shape-1])
       (is (true? (:test.fuudi/touched-1? (rf/app-db-value :rf/default))))
       (let [meta (rf/handler-meta :event :test.fuudi/shape-1)]
-        (is (= :db (:event/kind meta)))
+        (is (not (contains? meta :event/kind))
+            "the :event/kind sub-tag is gone")
         (is (= 1 (count (:interceptors meta)))
-            "no user interceptors; chain holds only the runtime :rf/db-handler wrapper")))
+            "no user interceptors; chain holds only the runtime :rf/event-handler wrapper")))
 
-    (testing "shape 2 — metadata middle: (reg-event-db :id {:doc \"...\"} handler)"
-      (rf/reg-event-db :test.fuudi/shape-2
+    (testing "shape 2 — metadata middle: (reg-event :id {:doc \"...\"} handler)"
+      (rf/reg-event :test.fuudi/shape-2
         {:doc "metadata-only middle slot"}
-        (fn [db _] (assoc db :test.fuudi/touched-2? true)))
+        (fn [{:keys [db]} _] {:db (assoc db :test.fuudi/touched-2? true)}))
       (rf/dispatch-sync [:test.fuudi/shape-2])
       (is (true? (:test.fuudi/touched-2? (rf/app-db-value :rf/default))))
       (let [meta (rf/handler-meta :event :test.fuudi/shape-2)]
         (is (= "metadata-only middle slot" (:doc meta))
             ":doc from the metadata-map is retained on the registry entry")
         (is (= 1 (count (:interceptors meta)))
-            "no user interceptors; chain holds only the runtime :rf/db-handler wrapper")))
+            "no user interceptors; chain holds only the runtime :rf/event-handler wrapper")))
 
-    (testing "shape 3 — metadata :interceptors: (reg-event-db :id {:interceptors [icpt]} handler)"
-      (rf/reg-event-db :test.fuudi/shape-3
+    (testing "shape 3 — metadata :interceptors: (reg-event :id {:interceptors [icpt]} handler)"
+      (rf/reg-event :test.fuudi/shape-3
         {:interceptors [marker]}
-        (fn [db _] (assoc db :test.fuudi/touched-3? true)))
+        (fn [{:keys [db]} _] {:db (assoc db :test.fuudi/touched-3? true)}))
       (rf/dispatch-sync [:test.fuudi/shape-3])
       (is (true? (:test.fuudi/touched-3? (rf/app-db-value :rf/default))))
       (let [meta (rf/handler-meta :event :test.fuudi/shape-3)
             ids  (mapv :id (:interceptors meta))]
-        (is (= [:test.fuudi/marker :rf/db-handler] ids)
+        (is (= [:test.fuudi/marker :rf/event-handler] ids)
             "the user interceptor sits before the runtime wrapper in registration order")))
 
     (testing "shape 4 — metadata and interceptors in one map"
-      (rf/reg-event-db :test.fuudi/shape-4
+      (rf/reg-event :test.fuudi/shape-4
         {:doc "metadata AND interceptors" :interceptors [marker]}
-        (fn [db _] (assoc db :test.fuudi/touched-4? true)))
+        (fn [{:keys [db]} _] {:db (assoc db :test.fuudi/touched-4? true)}))
       (rf/dispatch-sync [:test.fuudi/shape-4])
       (is (true? (:test.fuudi/touched-4? (rf/app-db-value :rf/default))))
       (let [meta (rf/handler-meta :event :test.fuudi/shape-4)
             ids  (mapv :id (:interceptors meta))]
         (is (= "metadata AND interceptors" (:doc meta))
             ":doc from the metadata-map is retained on the registry entry")
-        (is (= [:test.fuudi/marker :rf/db-handler] ids)
+        (is (= [:test.fuudi/marker :rf/event-handler] ids)
             "the user interceptor sits before the runtime wrapper in registration order")))
 
     (testing "none of the canonical shapes fire :rf.warning/interceptors-in-metadata-map"
       (is (empty? (warning-events recorded :rf.warning/interceptors-in-metadata-map))
           "canonical shapes are well-formed; no metadata-misuse warning expected"))))
 
-(deftest normalise-args-fx-and-ctx-also-accept-metadata-interceptors
-  (testing "reg-event-fx accepts metadata :interceptors"
-    (let [marker {:id :test.fuudi/fx-marker :before identity :after identity}]
-      (rf/reg-event-fx :test.fuudi/fx-shape-4
-        {:doc "fx-handler, metadata interceptors" :interceptors [marker]}
-        (fn [_ _] {:db {:test.fuudi/fx-touched? true}}))
-      (rf/dispatch-sync [:test.fuudi/fx-shape-4])
-      (is (true? (:test.fuudi/fx-touched? (rf/app-db-value :rf/default))))
-      (let [meta (rf/handler-meta :event :test.fuudi/fx-shape-4)
-            ids  (mapv :id (:interceptors meta))]
-        (is (= :fx (:event/kind meta)))
-        (is (= "fx-handler, metadata interceptors" (:doc meta)))
-        (is (= [:test.fuudi/fx-marker :rf/fx-handler] ids)))))
-
-  (testing "reg-event-ctx accepts metadata :interceptors"
-    (let [marker {:id :test.fuudi/ctx-marker :before identity :after identity}]
-      (rf/reg-event-ctx :test.fuudi/ctx-shape-4
-        {:doc "ctx-handler, metadata interceptors" :interceptors [marker]}
-        (fn [ctx]
-          ;; reach into the context properly via the interceptor API, then
-          ;; set a :db effect so we can assert the handler actually ran
-          (let [db (interceptor/get-coeffect ctx :db)]
-            (interceptor/assoc-effect ctx :db
-                                      (assoc db :test.fuudi/ctx-touched? true)))))
+(deftest reg-event-interceptor-can-set-effects-via-the-interceptor-api
+  ;; Full-context work that the retired `reg-event-ctx` form once expressed is
+  ;; now done with an interceptor (`->interceptor`) on a `reg-event`
+  ;; registration. This pins that an interceptor :before can read a coeffect
+  ;; and set a :db effect via the public interceptor API, threaded ahead of the
+  ;; one `:rf/event-handler` wrapper.
+  (testing "an interceptor :before reads :db coeffect and sets the :db effect"
+    (let [marker {:id     :test.fuudi/ctx-marker
+                  :before (fn [ctx]
+                            (let [db (interceptor/get-coeffect ctx :db)]
+                              (interceptor/assoc-coeffect
+                                ctx :db (assoc db :test.fuudi/ctx-touched? true))))
+                  :after  identity}]
+      (rf/reg-event :test.fuudi/ctx-shape-4
+        {:doc "interceptor, metadata interceptors" :interceptors [marker]}
+        (fn [{:keys [db]} _] {:db db}))
       (rf/dispatch-sync [:test.fuudi/ctx-shape-4])
-      (is (true? (:test.fuudi/ctx-touched? (rf/app-db-value :rf/default))))
+      (is (true? (:test.fuudi/ctx-touched? (rf/app-db-value :rf/default)))
+          "the interceptor :before ran and its db mutation committed via the handler")
       (let [meta (rf/handler-meta :event :test.fuudi/ctx-shape-4)
             ids  (mapv :id (:interceptors meta))]
-        (is (= :ctx (:event/kind meta)))
-        (is (= "ctx-handler, metadata interceptors" (:doc meta)))
-        (is (= [:test.fuudi/ctx-marker :rf/ctx-handler] ids))))))
+        (is (not (contains? meta :event/kind)))
+        (is (= "interceptor, metadata interceptors" (:doc meta)))
+        (is (= [:test.fuudi/ctx-marker :rf/event-handler] ids))))))
 
 (deftest normalise-args-rejects-overlong-and-malformed
   (testing "tail count > 3 throws the arity error"
     (let [ex (try
-               (rf/reg-event-db :test.fuudi/too-many
+               (rf/reg-event :test.fuudi/too-many
                  {:doc "..."}
                  [{:id :a :before identity :after identity}]
-                 (fn [db _] db)
+                 (fn [{:keys [db]} _] {:db db})
                  :surplus)
                nil
                (catch clojure.lang.ExceptionInfo e e))]
@@ -495,13 +473,13 @@
       (is (= ":rf.error/reg-event-bad-arity" (ex-message ex))
           "message is the stringified discriminator kw")
       (is (= :rf.error/reg-event-bad-arity (:rf.error/id (ex-data ex))))
-      (is (re-find #"reg-event-\*" (:reason (ex-data ex)))
+      (is (re-find #"reg-event expects" (:reason (ex-data ex)))
           ":reason names the arity error")))
   (testing "two-arg middle slot that is neither a map nor a vector throws"
     (let [ex (try
-               (rf/reg-event-db :test.fuudi/bad-middle
+               (rf/reg-event :test.fuudi/bad-middle
                  "not-a-map-or-vector"
-                 (fn [db _] db))
+                 (fn [{:keys [db]} _] {:db db}))
                nil
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex))
@@ -511,51 +489,36 @@
 
 ;; ---- rf2-twt7m Change 3 — :rf/default? tag on auto-wrappers ---------------
 ;;
-;; The framework auto-wraps the user handler into a kind-appropriate
-;; interceptor (:rf/db-handler / :rf/fx-handler / :rf/ctx-handler).
+;; The framework auto-wraps the user handler into the ONE handler-wrapping
+;; interceptor `:rf/event-handler` (EP-0018 Slice Z — the per-kind
+;; :rf/db-handler / :rf/fx-handler / :rf/ctx-handler ids are gone).
 ;; Pre-rf2-twt7m a tool wanting to distinguish "framework default" from
-;; "user supplied" had to maintain a hardcoded allowlist of these three
-;; ids. Per rf2-twt7m Change 3 the auto-wrapper carries `:rf/default?
-;; true` on the interceptor map itself; self-describing.
+;; "user supplied" had to maintain a hardcoded allowlist. Per rf2-twt7m
+;; Change 3 the auto-wrapper carries `:rf/default? true` on the interceptor
+;; map itself; self-describing.
 ;;
 ;; Xray, Story, and the Event lens redesign (rf2-zh2qc) read
 ;; `(rf/handler-meta :event id) :interceptors` and filter
 ;; `(remove :rf/default?)` to surface only the user's interceptor chain.
 
 (deftest auto-wrapper-carries-rf-default-tag
-  (testing "reg-event-db auto-wrapper has :rf/default? true"
-    (rf/reg-event-db :test.twt7m/db-handler (fn [db _] db))
-    (let [interceptors (-> (rf/handler-meta :event :test.twt7m/db-handler)
+  (testing "reg-event auto-wrapper has :rf/default? true"
+    (rf/reg-event :test.twt7m/handler (fn [{:keys [db]} _] {:db db}))
+    (let [interceptors (-> (rf/handler-meta :event :test.twt7m/handler)
                            :interceptors)
           auto-wrapper (last interceptors)]
-      (is (= :rf/db-handler (:id auto-wrapper))
+      (is (= :rf/event-handler (:id auto-wrapper))
           "the auto-wrapper sits at the tail of the interceptor chain")
       (is (= true (:rf/default? auto-wrapper))
-          "the auto-wrapper carries :rf/default? true")))
-
-  (testing "reg-event-fx auto-wrapper has :rf/default? true"
-    (rf/reg-event-fx :test.twt7m/fx-handler (fn [_ _] {}))
-    (let [interceptors (-> (rf/handler-meta :event :test.twt7m/fx-handler)
-                           :interceptors)
-          auto-wrapper (last interceptors)]
-      (is (= :rf/fx-handler (:id auto-wrapper)))
-      (is (= true (:rf/default? auto-wrapper)))))
-
-  (testing "reg-event-ctx auto-wrapper has :rf/default? true"
-    (rf/reg-event-ctx :test.twt7m/ctx-handler (fn [ctx] ctx))
-    (let [interceptors (-> (rf/handler-meta :event :test.twt7m/ctx-handler)
-                           :interceptors)
-          auto-wrapper (last interceptors)]
-      (is (= :rf/ctx-handler (:id auto-wrapper)))
-      (is (= true (:rf/default? auto-wrapper))))))
+          "the auto-wrapper carries :rf/default? true"))))
 
 (deftest user-supplied-interceptors-do-not-carry-rf-default-tag
   (testing "user-supplied interceptors do NOT carry :rf/default? true —
    only the framework-auto-wrapper at the chain tail does"
     (let [user-icpt {:id :test.twt7m/user :before identity :after identity}]
-      (rf/reg-event-db :test.twt7m/with-user-icpt
+      (rf/reg-event :test.twt7m/with-user-icpt
         {:interceptors [user-icpt]}
-        (fn [db _] db))
+        (fn [{:keys [db]} _] {:db db}))
       (let [interceptors (-> (rf/handler-meta :event :test.twt7m/with-user-icpt)
                              :interceptors)
             user-slot    (first interceptors)
@@ -574,9 +537,9 @@
    interceptors only"
     (let [a {:id :test.twt7m/a :before identity}
       b {:id :test.twt7m/b :after identity}]
-      (rf/reg-event-db :test.twt7m/filtering
+      (rf/reg-event :test.twt7m/filtering
         {:interceptors [a b]}
-        (fn [db _] db))
+        (fn [{:keys [db]} _] {:db db}))
       (let [interceptors (-> (rf/handler-meta :event :test.twt7m/filtering)
                              :interceptors)
             user-only    (vec (remove :rf/default? interceptors))]
@@ -597,8 +560,8 @@
 ;; developer learns immediately, regardless of dev/prod gate.
 ;;
 ;; These tests live alongside `events_test.clj` because the policing happens
-;; inside `register-event!` (the common body of the three `reg-event-*`
-;; surfaces), independently of the optional `day8/re-frame2-schemas`
+;; inside `register-event!` (the common body of the one `reg-event`
+;; surface), independently of the optional `day8/re-frame2-schemas`
 ;; artefact — the rejection is structural ("you attached a boundary
 ;; interceptor but declared no schema"), not a Malli validation. The
 ;; schemas-artefact test file carries the dispatch-time companion test.
@@ -620,7 +583,7 @@
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf\.error/at-boundary-missing-schema"
-            (rf/reg-event-fx :test.iftj4/no-schema-2
+            (rf/reg-event :test.iftj4/no-schema-2
               {:interceptors [at-boundary-stub]}
               (fn [_ _] {})))))
 
@@ -628,45 +591,31 @@
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf\.error/at-boundary-missing-schema"
-            (rf/reg-event-fx :test.iftj4/no-schema-3
+            (rf/reg-event :test.iftj4/no-schema-3
               {:doc "metadata-map but no :schema"
                :interceptors [at-boundary-stub]}
               (fn [_ _] {})))))
 
     (testing "ex-data carries actionable diagnostic slots"
-      (let [data (try (rf/reg-event-fx :test.iftj4/data-probe
+      (let [data (try (rf/reg-event :test.iftj4/data-probe
                         {:interceptors [at-boundary-stub]}
                         (fn [_ _] {}))
                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
         (is (= :rf.error/at-boundary-missing-schema (:rf.error/id data))
             ":rf.error/id matches the catalogued :rf.error/* category")
-        (is (= "reg-event-fx" (:reg-fn data)))
+        (is (= "reg-event" (:reg-fn data)))
         (is (= :test.iftj4/data-probe (:id data)))
         (is (string? (:reason data)))
         (is (re-find #":rf\.schema/at-boundary" (:reason data)))
         (is (re-find #":schema" (:reason data)))
         (is (= :no-recovery (:recovery data)))))
 
-    (testing "rejection covers reg-event-db and reg-event-ctx as well"
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf\.error/at-boundary-missing-schema"
-            (rf/reg-event-db :test.iftj4/db-no-schema
-              {:interceptors [at-boundary-stub]}
-              (fn [db _] db))))
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf\.error/at-boundary-missing-schema"
-            (rf/reg-event-ctx :test.iftj4/ctx-no-schema
-              {:interceptors [at-boundary-stub]}
-              (fn [ctx] ctx)))))
-
     (testing "rejection happens BEFORE the registry slot is written"
       ;; Belt-and-braces: a failed registration must leave no partial
       ;; trace in the registrar. The `reject-...!` call is sequenced
       ;; before `registrar/register!` in `register-event!`, so the
       ;; handler-id should be absent from the :event kind after the throw.
-      (try (rf/reg-event-fx :test.iftj4/no-side-effect
+      (try (rf/reg-event :test.iftj4/no-side-effect
              {:interceptors [at-boundary-stub]}
              (fn [_ _] {}))
            (catch clojure.lang.ExceptionInfo _ nil))
@@ -678,7 +627,7 @@
             `:schema` metadata key completes registration without error.
             The check fires only when the schema is absent."
     (is (= :test.iftj4/with-schema
-           (rf/reg-event-fx :test.iftj4/with-schema
+           (rf/reg-event :test.iftj4/with-schema
              {:schema [:cat [:= :test.iftj4/with-schema] :int]
               :interceptors [at-boundary-stub]}
              (fn [_ _] {})))
@@ -686,21 +635,21 @@
 
   (testing "registration without validate-at-boundary-interceptor is unaffected by the check"
     (is (= :test.iftj4/no-boundary
-           (rf/reg-event-fx :test.iftj4/no-boundary
+           (rf/reg-event :test.iftj4/no-boundary
              (fn [_ _] {})))
         "no validate-at-boundary-interceptor, no schema, no error"))
 
   (testing "metadata-map without :schema is fine when validate-at-boundary-interceptor isn't attached"
     (is (= :test.iftj4/just-meta
-           (rf/reg-event-fx :test.iftj4/just-meta
+           (rf/reg-event :test.iftj4/just-meta
              {:doc "no boundary, no schema"}
              (fn [_ _] {}))))))
 
 ;; ---- rf2-3ut12 — a BARE interceptor is rejected loudly at registration ----
 ;;
-;; Field-confirmed via the rf8 migration: `reg-event-db` / `reg-event-fx`
-;; require the interceptor chain to live in metadata `:interceptors`. A bare interceptor —
-;; `(reg-event-db id mw/some-interceptor handler)` — used to be SILENTLY
+;; Field-confirmed via the rf8 migration: `reg-event` requires the
+;; interceptor chain to live in metadata `:interceptors`. A bare interceptor —
+;; `(reg-event id mw/some-interceptor handler)` — used to be SILENTLY
 ;; dropped: an interceptor is a map (`{:id … :before … :after …}`), so the
 ;; two-arg branch of `normalise-args` read it as the metadata-map, the chain
 ;; never reached the registrar, and the interceptor never ran (no error, no
@@ -710,7 +659,7 @@
 ;; (ERROR, not warn — the chain cannot be honoured and a silent drop is a
 ;; dishonest signal; see Conventions §No silent swallow). We do NOT coerce
 ;; `bare → {:interceptors [bare]}`; the caller must wrap it. These tests assert: (1) a bare
-;; interceptor across db / fx / ctx throws; (2) a metadata `:interceptors`
+;; interceptor throws; (2) a metadata `:interceptors`
 ;; vector still works; (3) empty / absent
 ;; interceptors still works.
 
@@ -725,46 +674,31 @@
   (testing "Per rf2-3ut12 — a bare interceptor (not in metadata :interceptors) throws
             :rf.error/reg-event-bare-interceptor rather than being silently
             dropped."
-    (testing "two-arg form: (reg-event-db id bare-icpt handler)"
+    (testing "two-arg form: (reg-event id bare-icpt handler)"
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf\.error/reg-event-bare-interceptor"
-            (rf/reg-event-db :test.3ut12/db-bare-2
+            (rf/reg-event :test.3ut12/bare-2
               bare-icpt
-              (fn [db _] db)))))
-
-    (testing "two-arg form covers reg-event-fx"
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf\.error/reg-event-bare-interceptor"
-            (rf/reg-event-fx :test.3ut12/fx-bare-2
-              bare-icpt
-              (fn [_ _] {})))))
-
-    (testing "two-arg form covers reg-event-ctx"
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf\.error/reg-event-bare-interceptor"
-            (rf/reg-event-ctx :test.3ut12/ctx-bare-2
-              bare-icpt
-              (fn [ctx] ctx)))))
+              (fn [{:keys [db]} _] {:db db})))))
 
     (testing "a bare interceptor that carries ONLY :before is still caught"
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf\.error/reg-event-bare-interceptor"
-            (rf/reg-event-db :test.3ut12/before-only
+            (rf/reg-event :test.3ut12/before-only
               {:id :test.3ut12/before-only :before identity}
-              (fn [db _] db)))))
+              (fn [{:keys [db]} _] {:db db})))))
 
     (testing "ex-data carries actionable diagnostic slots"
-      (let [data (try (rf/reg-event-db :test.3ut12/data-probe
+      (let [data (try (rf/reg-event :test.3ut12/data-probe
                         bare-icpt
-                        (fn [db _] db))
+                        (fn [{:keys [db]} _] {:db db}))
                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
         (is (= :rf.error/reg-event-bare-interceptor (:rf.error/id data))
             ":rf.error/id matches the catalogued :rf.error/* category")
-        (is (= "reg-event-db" (:reg-fn data)))
+        (is (= "reg-event" (:reg-fn data)))
+        (is (= 'rf/reg-event (:where data)))
         (is (= :middle (:slot data)))
         (is (= :fix-registration (:recovery data)))
         (is (string? (:reason data)))
@@ -772,9 +706,9 @@
         (is (re-find #":interceptors" (:reason data)))))
 
     (testing "rejection happens BEFORE the registry slot is written"
-      (try (rf/reg-event-db :test.3ut12/no-side-effect
+      (try (rf/reg-event :test.3ut12/no-side-effect
              bare-icpt
-             (fn [db _] db))
+             (fn [{:keys [db]} _] {:db db}))
            (catch clojure.lang.ExceptionInfo _ nil))
       (is (nil? (registrar/lookup :event :test.3ut12/no-side-effect))
           "registry slot is untouched when the bare-interceptor check throws"))))
@@ -783,9 +717,9 @@
   (testing "Per rf2-3ut12 — the fix must NOT regress the legitimate shapes."
     (testing "metadata :interceptors registers cleanly and the chain runs"
       (is (= :test.3ut12/good-interceptors
-             (rf/reg-event-db :test.3ut12/good-interceptors
+             (rf/reg-event :test.3ut12/good-interceptors
                {:interceptors [bare-icpt]}
-               (fn [db _] db))))
+               (fn [{:keys [db]} _] {:db db}))))
       (let [{:keys [interceptors]} (rf/handler-meta :event :test.3ut12/good-interceptors)
             ids (set (map :id interceptors))]
         (is (contains? ids :test.3ut12/bare)
@@ -793,7 +727,7 @@
 
     (testing "metadata-map can carry reflection metadata and interceptors together"
       (is (= :test.3ut12/good-meta-interceptors
-             (rf/reg-event-fx :test.3ut12/good-meta-interceptors
+             (rf/reg-event :test.3ut12/good-meta-interceptors
                {:doc "metadata + interceptor vector"
                 :interceptors [bare-icpt]}
                (fn [_ _] {}))))
@@ -802,22 +736,75 @@
 
     (testing "absent interceptors (bare handler) still works"
       (is (= :test.3ut12/no-icpt
-             (rf/reg-event-db :test.3ut12/no-icpt
-               (fn [db _] db)))))
+             (rf/reg-event :test.3ut12/no-icpt
+               (fn [{:keys [db]} _] {:db db})))))
 
     (testing "metadata-map alone (no interceptors anywhere) still works"
       (is (= :test.3ut12/meta-only
-             (rf/reg-event-db :test.3ut12/meta-only
+             (rf/reg-event :test.3ut12/meta-only
                {:doc "plain metadata"}
-               (fn [db _] db)))))
+               (fn [{:keys [db]} _] {:db db})))))
 
     (testing "an empty metadata :interceptors vector (legitimate) still works"
       (is (= :test.3ut12/empty-vec
-             (rf/reg-event-db :test.3ut12/empty-vec
+             (rf/reg-event :test.3ut12/empty-vec
                {:interceptors []}
-               (fn [db _] db))))
+               (fn [{:keys [db]} _] {:db db}))))
       (is (= :test.3ut12/empty-vec-3
-             (rf/reg-event-fx :test.3ut12/empty-vec-3
+             (rf/reg-event :test.3ut12/empty-vec-3
                {:doc "meta + empty interceptor vector"
                 :interceptors []}
                (fn [_ _] {})))))))
+
+;; ---- EP-0018 Slice Z — the retired public names are throwing stubs --------
+;;
+;; `reg-event-db` / `reg-event-fx` are REMOVED (no alias, EP-0007 rule 2) and
+;; public `reg-event-ctx` is DEMOTED to a framework-internal primitive. The
+;; facade names survive ONLY as `^:no-doc` throwing stubs so a stale call site
+;; fails LOUDLY with an actionable hard error naming the replacement — never an
+;; opaque "no such var". They register NOTHING. The -db / -fx errors name
+;; `reg-event`; the -ctx error names `->interceptor`.
+
+(defn- stub-throw-id
+  "Call `reg-fn` (one of the retired throwing stubs) and return the
+  `:rf.error/id` it raises, or `:no-throw` if it did not throw."
+  [reg-fn]
+  (try (reg-fn)
+       :no-throw
+       (catch clojure.lang.ExceptionInfo e
+         (:rf.error/id (ex-data e)))))
+
+(deftest retired-reg-event-names-throw-their-removal-stubs
+  (testing "Per EP-0018 Slice Z — the three retired public event-registration
+            names are throwing stubs that register nothing and raise their
+            naming hard error."
+    (is (= :rf.error/reg-event-db-removed
+           (stub-throw-id #(rf/reg-event-db :test.slice-z/db (fn [_ _] nil))))
+        "reg-event-db raises :rf.error/reg-event-db-removed")
+    (is (= :rf.error/reg-event-fx-removed
+           (stub-throw-id #(rf/reg-event-fx :test.slice-z/fx (fn [_ _] nil))))
+        "reg-event-fx raises :rf.error/reg-event-fx-removed")
+    (is (= :rf.error/reg-event-ctx-removed
+           (stub-throw-id #(rf/reg-event-ctx :test.slice-z/ctx (fn [_ _] nil))))
+        "reg-event-ctx raises :rf.error/reg-event-ctx-removed"))
+
+  (testing "the stubs register NOTHING — no registry slot is written"
+    (try (rf/reg-event-db :test.slice-z/db-noreg (fn [_ _] nil))
+         (catch clojure.lang.ExceptionInfo _ nil))
+    (try (rf/reg-event-fx :test.slice-z/fx-noreg (fn [_ _] nil))
+         (catch clojure.lang.ExceptionInfo _ nil))
+    (try (rf/reg-event-ctx :test.slice-z/ctx-noreg (fn [_ _] nil))
+         (catch clojure.lang.ExceptionInfo _ nil))
+    (is (nil? (registrar/lookup :event :test.slice-z/db-noreg)))
+    (is (nil? (registrar/lookup :event :test.slice-z/fx-noreg)))
+    (is (nil? (registrar/lookup :event :test.slice-z/ctx-noreg))))
+
+  (testing "the removal errors name the replacement surface in :reason"
+    (let [db-reason  (try (rf/reg-event-db :test.slice-z/r-db (fn [_ _] nil))
+                          (catch clojure.lang.ExceptionInfo e (:reason (ex-data e))))
+          ctx-reason (try (rf/reg-event-ctx :test.slice-z/r-ctx (fn [_ _] nil))
+                          (catch clojure.lang.ExceptionInfo e (:reason (ex-data e))))]
+      (is (re-find #"reg-event" db-reason)
+          "the reg-event-db error names reg-event as the replacement")
+      (is (re-find #"->interceptor" ctx-reason)
+          "the reg-event-ctx error names ->interceptor as the replacement"))))

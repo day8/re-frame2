@@ -300,9 +300,14 @@
                              (seq interceptors)
                              (update :interceptors (fnil into []) interceptors))]
         (case kind
-          :db (if (seq meta')
-                (rf/reg-event-db id meta' handler)
-                (rf/reg-event-db id handler))
+          ;; EP-0018 Slice Z: one public `reg-event` (cofx-in, effects-map-out).
+          ;; A :db-kind fixture handler is `(fn [db event] new-db)`; adapt it to
+          ;; the single form by reading db from the coeffects and lowering the
+          ;; returned db into a `{:db …}` effect — same observable behaviour.
+          :db (let [h (fn [{:keys [db]} ev] {:db (handler db ev)})]
+                (if (seq meta')
+                  (rf/reg-event id meta' h)
+                  (rf/reg-event id h)))
           :fx (if (seq meta')
                 (rf/reg-event id meta' handler)
                 (rf/reg-event id handler)))))

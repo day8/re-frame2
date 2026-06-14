@@ -66,10 +66,13 @@
             boundary is JVM-benign but lands ~12 orders of magnitude low here."
     (rf/reg-frame :wi.clk/cofx {:doc "ctx"})
     (let [captured (atom nil)]
-      ;; reg-event-ctx so we read the FULL coeffect map the handler saw —
-      ;; :rf.cofx is a framework coeffect alongside :db / :event.
-      (rf/reg-event-ctx :wi.clk/capture
-        (fn [ctx] (reset! captured (:coeffects ctx)) ctx))
+      ;; A full-context interceptor :before so we read the FULL coeffect map the
+      ;; handler saw — :rf.cofx is a framework coeffect alongside :db / :event.
+      (rf/reg-event :wi.clk/capture
+        {:interceptors [(rf/->interceptor
+                         :id :wi.clk/capture-probe
+                         :before (fn [ctx] (reset! captured (:coeffects ctx)) ctx))]}
+        (fn [_ _] {}))
       (let [before (js/Date.now)]
         ;; intentionally UNSCRIPTED — no :rf.cofx opt — so the router's
         ;; build-envelope performs the live host-clock read under test.

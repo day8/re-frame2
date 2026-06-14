@@ -1,19 +1,19 @@
 (ns re-frame.reg-event-cljs-test
-  "EP-0018 Slice B-add (rf2-xhfxcs.2): narrow tests for the new one public
-  event form `reg-event` — semantically `reg-event-fx` (coeffects in, a closed
-  effects map out), under the bare name. Per Spec 002 §Event handlers, Spec 001
-  §Registry model, and EP-0018 §1/§4/§5.
+  "EP-0018 Slice Z (rf2-xhfxcs.14): narrow tests for the ONE public event form
+  `reg-event` — coeffects in, a closed effects map out, under the bare name.
+  Per Spec 002 §Event handlers, Spec 001 §Registry model, and EP-0018 §1/§4/§5.
 
-  This slice is ADDITIVE: `reg-event` is added; `reg-event-db` / `reg-event-fx`
-  / `reg-event-ctx` remain fully working for the additive window (their removal
-  is a later slice, Z = rf2-xhfxcs.14). The coexistence test below asserts both
-  the new form and the old forms register and dispatch side-by-side.
+  Slice Z COLLAPSED registration to this one form: `reg-event-db` /
+  `reg-event-fx` are REMOVED and public `reg-event-ctx` is demoted — the three
+  retired names survive only as throwing stubs (this suite was the additive-
+  window coexistence suite; that premise is gone, so the coexistence assertions
+  are replaced by stub-removal assertions).
 
-  `reg-event` shares the `reg-event-fx` registration path verbatim, so it
-  registers under registry kind :event with `:event/kind :fx` and the
-  `:rf/fx-handler` wrapper (the additive-window internals are unchanged). These
-  tests pin that shape plus the :db/:fx effect semantics and uniform
-  `:rf.cofx/requires` support (the EP-0017 hole the collapse closes).
+  `reg-event` registers under registry kind :event with the ONE framework
+  wrapper `:rf/event-handler` (`:rf/default? true`); the historical
+  `:event/kind` sub-tag is gone. These tests pin that shape plus the :db/:fx
+  effect semantics and uniform `:rf.cofx/requires` support (the EP-0017 hole
+  the collapse closes).
 
   `.cljc` so the suite runs under BOTH the bounded core JVM gate and
   `npm run test:cljs`. Harness mirrors `cofx_cljs_test.cljc` — the shared
@@ -32,19 +32,20 @@
 ;; 1. Registration shape — registers under :event with the fx wrapper
 ;; ===========================================================================
 
-(deftest reg-event-registers-under-event-kind-fx
-  (testing "reg-event registers under registry kind :event with :event/kind :fx
-            and the :rf/fx-handler wrapper (it shares the reg-event-fx path
-            verbatim during the additive window)"
+(deftest reg-event-registers-under-event-kind
+  (testing "reg-event registers under registry kind :event with the ONE
+            framework wrapper :rf/event-handler and NO :event/kind sub-tag
+            (EP-0018 Slice Z — the per-kind ids and the :event/kind tag are
+            gone)"
     (rf/reg-event :reg-event-test/shape
       (fn [{:keys [db]} _] {:db (assoc db :marker :v)}))
     (let [meta (rf/handler-meta :event :reg-event-test/shape)]
       (is (some? meta)
           "reg-event registers under registry kind :event")
-      (is (= :fx (:event/kind meta))
-          "reg-event registers under :event/kind :fx (shares the reg-event-fx path)")
-      (is (= [:rf/fx-handler] (mapv :id (:interceptors meta)))
-          "the framework wrapper is the one :rf/fx-handler interceptor"))))
+      (is (not (contains? meta :event/kind))
+          "the :event/kind sub-tag is gone (one form, no kind)")
+      (is (= [:rf/event-handler] (mapv :id (:interceptors meta)))
+          "the framework wrapper is the one :rf/event-handler interceptor"))))
 
 (deftest reg-event-metadata-interceptors-thread-the-chain
   (testing "reg-event honours the metadata-map :interceptors superset slot —
@@ -56,7 +57,7 @@
       (let [meta (rf/handler-meta :event :reg-event-test/with-icpt)]
         (is (= "doc" (:doc meta))
             "the reflection metadata is retained on the registry entry")
-        (is (= [:reg-event-test/noop :rf/fx-handler] (mapv :id (:interceptors meta)))
+        (is (= [:reg-event-test/noop :rf/event-handler] (mapv :id (:interceptors meta)))
             "the metadata-map :interceptors chain sits before the runtime wrapper")))))
 
 (deftest reg-event-returns-id
@@ -157,37 +158,41 @@
           "the parsed entry vector is stored for the satisfaction step"))))
 
 ;; ===========================================================================
-;; 4. Additive coexistence — reg-event sits beside the old forms (this slice)
+;; 4. The retired names are throwing stubs (EP-0018 Slice Z removal)
 ;; ===========================================================================
 
-(deftest additive-window-old-forms-still-work
-  (testing "EP-0018 Slice B-add: reg-event coexists with reg-event-db /
-            reg-event-fx / reg-event-ctx — all four register and dispatch"
+(defn- stub-throw-id
+  "Call `f` (one of the retired throwing stubs) and return the `:rf.error/id`
+  it raises, or `:no-throw` if it did not throw."
+  [f]
+  (try (f)
+       :no-throw
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+         (:rf.error/id (ex-data e)))))
+
+(deftest retired-reg-event-names-throw-their-removal-stubs
+  (testing "EP-0018 Slice Z: the former additive coexistence is gone —
+            reg-event-db / reg-event-fx are REMOVED and public reg-event-ctx is
+            demoted; the three retired names are throwing stubs that register
+            nothing and raise their naming hard error"
+    (is (= :rf.error/reg-event-db-removed
+           (stub-throw-id #(rf/reg-event-db :reg-event-test/via-db (fn [_ _] nil))))
+        "reg-event-db raises :rf.error/reg-event-db-removed")
+    (is (= :rf.error/reg-event-fx-removed
+           (stub-throw-id #(rf/reg-event-fx :reg-event-test/via-fx (fn [_ _] nil))))
+        "reg-event-fx raises :rf.error/reg-event-fx-removed")
+    (is (= :rf.error/reg-event-ctx-removed
+           (stub-throw-id #(rf/reg-event-ctx :reg-event-test/via-ctx (fn [_ _] nil))))
+        "reg-event-ctx raises :rf.error/reg-event-ctx-removed"))
+
+  (testing "the retired-name stubs register NOTHING; only reg-event commits"
     (rf/reg-sub :reg-event-test/tally (fn [db _] (:tally db [])))
     (rf/reg-event :reg-event-test/via-reg-event
       (fn [{:keys [db]} _] {:db (update db :tally (fnil conj []) :reg-event)}))
-    (rf/reg-event-db :reg-event-test/via-db
-      (fn [db _] (update db :tally (fnil conj []) :db)))
-    (rf/reg-event-fx :reg-event-test/via-fx
-      (fn [{:keys [db]} _] {:db (update db :tally (fnil conj []) :fx)}))
-    (rf/reg-event-ctx :reg-event-test/via-ctx
-      (fn [ctx]
-        (update-in ctx [:effects :db]
-                   (fn [db] (update (or db (get-in ctx [:coeffects :db]))
-                                    :tally (fnil conj []) :ctx)))))
+    ;; The retired-name calls throw and register nothing.
+    (stub-throw-id #(rf/reg-event-db :reg-event-test/db-noreg (fn [_ _] nil)))
+    (stub-throw-id #(rf/reg-event-fx :reg-event-test/fx-noreg (fn [_ _] nil)))
+    (stub-throw-id #(rf/reg-event-ctx :reg-event-test/ctx-noreg (fn [_ _] nil)))
     (rf/dispatch-sync [:reg-event-test/via-reg-event])
-    (rf/dispatch-sync [:reg-event-test/via-db])
-    (rf/dispatch-sync [:reg-event-test/via-fx])
-    (is (= [:reg-event :db :fx]
-           @(rf/subscribe [:reg-event-test/tally]))
-        "reg-event, reg-event-db and reg-event-fx all committed in order")
-    (let [db-meta  (rf/handler-meta :event :reg-event-test/via-db)
-          fx-meta  (rf/handler-meta :event :reg-event-test/via-fx)
-          ctx-meta (rf/handler-meta :event :reg-event-test/via-ctx)]
-      (is (= :db (:event/kind db-meta)) "reg-event-db keeps :event/kind :db")
-      (is (= :fx (:event/kind fx-meta)) "reg-event-fx keeps :event/kind :fx")
-      (is (= :ctx (:event/kind ctx-meta)) "reg-event-ctx keeps :event/kind :ctx")
-      (is (= [:rf/db-handler] (mapv :id (:interceptors db-meta)))
-          "reg-event-db keeps the :rf/db-handler wrapper id")
-      (is (= [:rf/ctx-handler] (mapv :id (:interceptors ctx-meta)))
-          "reg-event-ctx keeps the :rf/ctx-handler wrapper id"))))
+    (is (= [:reg-event] @(rf/subscribe [:reg-event-test/tally]))
+        "only the reg-event handler committed; the retired-name stubs registered nothing")))

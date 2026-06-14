@@ -62,9 +62,8 @@
     (let [meta (rf/handler-meta :event :counter/inc)]
       (is (some? meta))
       (is (fn? (:handler-fn meta)))
-      ;; reg-event shares the reg-event-fx path during the EP-0018 additive
-      ;; window, so :event/kind is :fx.
-      (is (= :fx (:event/kind meta))))))
+      ;; EP-0018 collapsed the event family to one form — no :event/kind sub-tag.
+      (is (not (contains? meta :event/kind))))))
 
 ;; ---- end-to-end dispatch --------------------------------------------------
 
@@ -343,8 +342,8 @@
 (deftest sub-topology-glitch-free-diamond-jvm
   (testing "diamond: app-db -> {a,b} -> c — c reads the post-swap state under compute-sub"
     (rf/reg-event :diamond/init (fn [{:keys [db]} _] {:db {:x 1 :y 2}}))
-    (rf/reg-event-db :diamond/swap (fn [{:keys [x y] :as db} _]
-                                     (assoc db :x y :y x)))
+    (rf/reg-event :diamond/swap (fn [{{:keys [x y] :as db} :db} _]
+                                  {:db (assoc db :x y :y x)}))
     (rf/reg-sub :diamond/a (fn [db _] (:x db)))
     (rf/reg-sub :diamond/b (fn [db _] (:y db)))
     (rf/reg-sub :diamond/c
@@ -999,8 +998,8 @@
       (let [m (rf/handler-meta :event :rf2-o1bp/evt1)]
         (is (map? m))
         (is (fn? (:handler-fn m)))
-        (is (= :db (:event/kind m))
-            ":event metadata carries :event/kind (set by reg-event-db)"))
+        (is (not (contains? m :event/kind))
+            ":event metadata carries NO :event/kind sub-tag (EP-0018 — one form)"))
       ;; A machine carries :rf/machine? true and :rf/machine <spec>.
       (let [m (rf/handler-meta :event :rf2-o1bp/mach1)]
         (is (true? (:rf/machine? m))

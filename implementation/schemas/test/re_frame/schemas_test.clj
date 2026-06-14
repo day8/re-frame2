@@ -1810,7 +1810,7 @@
                :interceptors [rf/validate-at-boundary-interceptor]}
               (fn [_ _] {})))))
 
-    (testing "rejection covers reg-event-db and reg-event-ctx as well"
+    (testing "rejection covers a db-shaped handler and a full-context interceptor as well"
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf\.error/at-boundary-missing-schema"
@@ -1820,9 +1820,11 @@
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf\.error/at-boundary-missing-schema"
-            (rf/reg-event-ctx :api/ctx-no-schema
-              {:interceptors [rf/validate-at-boundary-interceptor]}
-              (fn [ctx] ctx)))))
+            (rf/reg-event :api/ctx-no-schema
+              {:interceptors [rf/validate-at-boundary-interceptor
+                              (rf/->interceptor
+                                :id :api/ctx-probe :before (fn [ctx] ctx))]}
+              (fn [_ _] {})))))
 
     (testing "registration with `:schema` + validate-at-boundary-interceptor completes silently"
       (is (= :api/with-schema

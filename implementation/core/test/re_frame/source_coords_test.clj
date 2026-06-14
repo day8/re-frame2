@@ -108,9 +108,12 @@
                    :event :rf2-k84s/reg-event-fx-sample)))
 
 (deftest source-coords-on-reg-event-ctx
-  (testing "reg-event-ctx stamps :ns / :line / :file"
-    (rf/reg-event-ctx :rf2-k84s/reg-event-ctx-sample
-                      (fn [ctx] ctx))
+  (testing "reg-event with a full-context interceptor stamps :ns / :line / :file"
+    (rf/reg-event :rf2-k84s/reg-event-ctx-sample
+                  {:interceptors [(rf/->interceptor
+                                   :id :rf2-k84s/ctx-probe
+                                   :before (fn [ctx] ctx))]}
+                  (fn [_ _] {}))
     (assert-coords (rf/handler-meta :event :rf2-k84s/reg-event-ctx-sample)
                    :event :rf2-k84s/reg-event-ctx-sample)))
 
