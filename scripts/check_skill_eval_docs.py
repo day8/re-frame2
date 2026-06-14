@@ -38,11 +38,14 @@ and asserts the README agrees on three axes:
                          read as number-words OR digits.
 
 Each target declares its own conventions (which evals appear in the table, how
-its total-count sentence reads, which tally axes it asserts), so two harnesses
-with different README shapes are both gated correctly. The `re-frame2` target
-keeps its original single-axis (per-dimension) semantics verbatim; the
+its total-count sentence reads, which tally axes it asserts), so harnesses with
+different README shapes are all gated correctly. The `re-frame2` target keeps
+its original single-axis (per-dimension) semantics verbatim; the
 `re-frame2-improver` target adds the two-axis (per-kind + per-behavioural-
-dimension) shape and a behavioural-only coverage table.
+dimension) shape and a behavioural-only coverage table; the `re-frame2-xray`
+target tabulates only its Layer-2 answer-quality evals (those carrying
+`expectations[]`) and tallies a boolean `should_trigger` axis rendered to prose
+(positives / negatives).
 
 The gate is pure-Python-stdlib (no PyYAML / Node) to stay fast and
 CI-portable, mirroring the sibling `scripts/check_skill_*.py` gates. It does
@@ -117,13 +120,19 @@ def _count_token(n: int) -> str:
 class TallyAxis:
     """One per-axis count breakdown the README must state in prose.
 
-    `field_name` is the eval field this axis tallies (e.g. "dimension" or
-    "kind"). `eval_filter`, if given, restricts the tally to a subset of evals
-    (e.g. only the behavioural evals for the improver's dimension axis). The
-    axis is matched against README prose as `<count> … <item-name>` within a
-    short window; the coverage TABLE is stripped first so a table row (which
-    carries a digit id AND a dimension/kind name) cannot satisfy the prose
-    check vacuously.
+    `field_name` is the eval field this axis tallies (e.g. "dimension",
+    "kind", or a boolean like "should_trigger"). `eval_filter`, if given,
+    restricts the tally to a subset of evals (e.g. only the behavioural evals
+    for the improver's dimension axis). The axis is matched against README
+    prose as `<count> … <item-name>` within a short window; the coverage TABLE
+    is stripped first so a table row (which carries a digit id AND a
+    dimension/kind name) cannot satisfy the prose check vacuously.
+
+    `value_label`, if given, maps a raw axis value to the noun the README uses
+    for it — needed when the field's raw values are not themselves the prose
+    item (e.g. a boolean `should_trigger`: `True`→"positive", `False`→
+    "negative", so the gate looks for "21 … positive" not "21 … True"). Values
+    absent from the map fall back to their stringified form.
     """
 
     field_name: str
@@ -132,6 +141,14 @@ class TallyAxis:
     # Items intentionally NOT asserted in prose (e.g. an axis value with no
     # narrative count sentence). Empty == assert every item the JSON produces.
     skip_items: frozenset[str] = field(default_factory=frozenset)
+    # Map raw axis values → the prose noun the README states for them. Default
+    # (empty) == use the value's stringified form directly (the dimension/kind
+    # case, where the value IS the prose item).
+    value_label: dict = field(default_factory=dict)
+
+    def item_text(self, value) -> str:
+        """The prose token the README is expected to use for an axis value."""
+        return self.value_label.get(value, str(value))
 
 
 @dataclass(frozen=True)
@@ -190,7 +207,27 @@ _IMPROVER = Target(
     ),
 )
 
-TARGETS: tuple[Target, ...] = (_REFRAME2, _IMPROVER)
+# The `re-frame2-xray` tour harness: a single "<N> evals, covering …" total
+# sentence (the `re-frame2` shape), a coverage table that individually tabulates
+# only the Layer-2 answer-quality entries (those carrying `expectations[]`; the
+# trigger-only positives and the negatives are listed in collapsed multi-id
+# rows the parser intentionally ignores), and a per-`should_trigger` tally
+# (21 positives / 8 negatives). The boolean axis is rendered to prose via
+# `value_label` (`True`→"positive", `False`→"negative").
+_XRAY = Target(
+    slug="re-frame2-xray",
+    total_count_re=re.compile(r"\b([A-Za-z]+|\d+)\s+evals,\s+covering"),
+    table_filter=lambda e: bool(e.get("expectations")),
+    tally_axes=(
+        TallyAxis(
+            field_name="should_trigger",
+            label="trigger class",
+            value_label={True: "positive", False: "negative"},
+        ),
+    ),
+)
+
+TARGETS: tuple[Target, ...] = (_REFRAME2, _IMPROVER, _XRAY)
 
 
 # ---------------------------------------------------------------------------
@@ -274,9 +311,10 @@ def check_axis_sentence(text: str, axis: TallyAxis, tally: Counter) -> list[str]
     # Any count token (digit or number-word) — used to forbid a NEARER count
     # between the asserted count and the item name.
     any_count = r"(?:\d+|" + "|".join(re.escape(w) for w in _WORD_TO_INT) + r")"
-    for item, n in sorted(tally.items()):
+    for item, n in sorted(tally.items(), key=lambda kv: str(kv[0])):
         if item in axis.skip_items:
             continue
+        prose_item = axis.item_text(item)
         tok = _count_token(n)
         # `<count>` then up to ~60 chars (containing NO other count token) then
         # the item name. The window absorbs phrasing like "three
@@ -284,15 +322,15 @@ def check_axis_sentence(text: str, axis: TallyAxis, tally: Counter) -> list[str]
         # routing-correctness" while rejecting a count that belongs to a
         # neighbouring item.
         pat = re.compile(
-            rf"{tok}\b(?:(?!{any_count}\b)[^.]){{0,60}}?{re.escape(item)}",
+            rf"{tok}\b(?:(?!{any_count}\b)[^.]){{0,60}}?{re.escape(prose_item.lower())}",
             re.IGNORECASE,
         )
         if not pat.search(low):
             problems.append(
-                f"{label} '{item}' has {n} eval(s) in evals.json but the "
+                f"{label} '{prose_item}' has {n} eval(s) in evals.json but the "
                 f"README's per-{label} breakdown does not state a count of "
                 f"{n} for it (looked for '{n}'/'{_INT_TO_WORD.get(n, n)}' "
-                f"near '{item}')"
+                f"near '{prose_item}')"
             )
     return problems
 
@@ -515,6 +553,77 @@ def _run_self_test() -> int:
             failures += 1
             print(
                 f"SELF-TEST FAIL [two-axis]: {label!r} expected "
+                f"{'clean' if want_clean else 'drift'}, got "
+                f"{'clean' if is_clean else findings}"
+            )
+
+    # --- boolean value_label axis (xray shape) fixtures ---------------------
+    # A coverage table over only the `expectations[]`-carrying evals; a
+    # per-`should_trigger` tally rendered to prose via value_label
+    # (True→"positive", False→"negative"); trigger-only evals are NOT tabulated.
+    xray_json = {
+        "evals": [
+            {"id": 1, "name": "launch-default", "should_trigger": True,
+             "expectations": ["x"]},
+            {"id": 2, "name": "panel-route", "should_trigger": True,
+             "expectations": ["y"]},
+            {"id": 3, "name": "trigger-only", "should_trigger": True},
+            {"id": 4, "name": "neg-adjacent", "should_trigger": False},
+        ]
+    }
+    xray_readme = (
+        "## Coverage\n\n"
+        "Four evals, covering trigger and answer quality: 3 positives "
+        "and 1 negative. 2 positives carry expectations[].\n\n"
+        "| ID | Name | Layer 2? | What |\n|---:|---|:---:|---|\n"
+        "| 1 | `launch-default` | yes | x |\n"
+        "| 2 | `panel-route` | yes | y |\n"
+        "| 3, 4 | `trigger-only` … `neg-adjacent` | no | collapsed |\n"
+    )
+    xray_target = Target(
+        slug="<self-test-xray>",
+        total_count_re=_XRAY.total_count_re,
+        table_filter=_XRAY.table_filter,
+        tally_axes=_XRAY.tally_axes,
+    )
+
+    xray_cases: list[tuple[str, dict, str, bool]] = [
+        ("clean xray", xray_json, xray_readme, True),
+        # Stale total count.
+        ("bad total", xray_json,
+         xray_readme.replace("Four evals", "Five evals"), False),
+        # Stale positive tally (boolean True → "positive").
+        ("bad positive tally", xray_json,
+         xray_readme.replace("3 positives", "4 positives"), False),
+        # Stale negative tally (boolean False → "negative").
+        ("bad negative tally", xray_json,
+         xray_readme.replace("1 negative", "2 negative"), False),
+        # A Layer-2 (expectations) eval absent from the table.
+        ("missing layer-2 row", {
+            "evals": xray_json["evals"] + [
+                {"id": 5, "name": "chrome-rewind", "should_trigger": True,
+                 "expectations": ["z"]}],
+        }, xray_readme
+            .replace("Four evals", "Five evals")
+            .replace("3 positives", "4 positives")
+            .replace("2 positives carry", "3 positives carry"), False),
+        # A trigger-only positive must NOT be required in the table: adding one
+        # (and bumping the count + positive tally) stays clean.
+        ("trigger-only not tabulated", {
+            "evals": xray_json["evals"] + [
+                {"id": 5, "name": "config-init", "should_trigger": True}],
+        }, xray_readme
+            .replace("Four evals", "Five evals")
+            .replace("3 positives", "4 positives"), True),
+    ]
+
+    for label, jobj, rtext, want_clean in xray_cases:
+        findings = run_target(xray_target, jobj, rtext)
+        is_clean = not findings
+        if is_clean != want_clean:
+            failures += 1
+            print(
+                f"SELF-TEST FAIL [bool-axis]: {label!r} expected "
                 f"{'clean' if want_clean else 'drift'}, got "
                 f"{'clean' if is_clean else findings}"
             )
