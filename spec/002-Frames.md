@@ -488,7 +488,8 @@ This section is the **canonical grammar** for `reg-frame` metadata. Subsequent s
    :on-create    [:todo/initialise]             ;; single event dispatched after creation
    :on-destroy   [:todo/cleanup]                ;; single event dispatched before teardown
    :fx-overrides {:my-app/http http-stub-fn}    ;; per-frame fx replacements
-   :interceptors [recorder validator]           ;; prepended to every event in this frame
+   :interceptors [:my-app/recorder              ;; interceptor REFS prepended to every event in this frame
+                  :my-app/validator]            ;;   (refs, never inline interceptor values — EP-0022)
    :drain-depth  100                            ;; depth limit for run-to-completion drain
    :platform     :server                        ;; active platform for this frame per [011-SSR.md](011-SSR.md); typically preset-supplied
    :rf.trace/cascades-retained 200              ;; per-frame trace-ring cascade count (default 50); per [009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only); 
@@ -571,7 +572,7 @@ Hooks 2 / 5's per-artefact entries are **best-effort**: an artefact whose hook i
 
 - `:fx-overrides` map — applied to envelopes built *after* re-registration.
 - `:interceptor-overrides` map — applied to envelopes built after re-registration.
-- `:interceptors` vector — applied to events handled after re-registration.
+- `:interceptors` vector of interceptor refs — applied to events handled after re-registration.
 - `:doc`, `:ns`/`:line`/`:file` metadata.
 - `:drain-depth` — applied to subsequent drains.
 - `:on-create` / `:on-destroy` — recorded for future `reset-frame!` / `destroy-frame!` calls; not re-fired on surgical update.
@@ -1879,15 +1880,15 @@ This per-event drain is the canonical place every other piece of the runtime hoo
 >
 > **Asymmetry (explicit, locked):** other-language implementations need only support **id-valued** overrides — that's the conformance contract. The CLJS reference accepting function values is a local ergonomic affordance, not a pattern-level contract. AI scaffolding (Construction-Prompts) and the conformance corpus generate id-valued overrides. The `:rf/dispatch-envelope` schema's `:fx-overrides` value is `[:map-of :keyword :any]` rather than `[:map-of :keyword :keyword]` precisely because the CLJS reference admits the function-valued form; non-CLJS implementations narrow the value type to id-only.
 
-Three things can be overridden per-call (via the dispatch opts map) and per-frame (via `reg-frame` keys):
+Two things can be overridden per-call (via the dispatch opts map) and per-frame (via `reg-frame` keys); a third — the authored interceptor chain — is a **frame-only** addition, not a per-call one (EP-0022):
 
-| Envelope key             | What it does                                  | Source: per-call            | Source: per-frame                       |
-|--------------------------|-----------------------------------------------|-----------------------------|------------------------------------------|
-| `:fx-overrides`          | Replace registered fx handlers (by id)        | dispatch opts               | `reg-frame :fx-overrides`                |
-| `:interceptor-overrides` | Replace interceptors in the event's chain (by `:id`) | dispatch opts        | `reg-frame :interceptor-overrides`       |
-| `:interceptors`          | *Add* interceptors to the chain (prepend)     | dispatch opts (rare)        | `reg-frame :interceptors`                |
+| Envelope key             | What it does                                                              | Source: per-call            | Source: per-frame                       |
+|--------------------------|--------------------------------------------------------------------------|-----------------------------|------------------------------------------|
+| `:fx-overrides`          | Replace registered fx handlers (by id)                                    | dispatch opts               | `reg-frame :fx-overrides`                |
+| `:interceptor-overrides` | Replace / remove interceptors in the event's chain (by **exact reference**) | dispatch opts             | `reg-frame :interceptor-overrides`       |
+| `:interceptors`          | The frame-level interceptor **ref** chain prepended to every event in the frame ("global within this frame") | — (not a dispatch opt — EP-0022) | `reg-frame :interceptors`                |
 
-All three flow through the dispatch envelope. Per-call and per-frame merge with **per-call winning** on key conflict.
+`:fx-overrides` and `:interceptor-overrides` flow through the dispatch envelope and merge per-call over per-frame on key conflict. **Additive per-dispatch `:interceptors` is removed** ([EP-0022](../docs/EP/EP-0022-registered-interceptors.md) — per-dispatch anonymous program behaviour is exactly the shape the EP removes): authored behaviour has two homes (event metadata and frame metadata), and per-call variation is expressed by `:interceptor-overrides` (substitute or remove a named ref). Supplying `:interceptors` in a dispatch opts map is rejected — see [§Registered interceptors and the chain grammar §Dispatch-option restrictions](#dispatch-option-restrictions).
 
 ### `:fx-overrides` — replace fx handlers
 
@@ -1945,7 +1946,9 @@ A `:fx-overrides` entry may target a **reserved** fx-id, and the framework tiers
 
 (`:raise` is machine-internal — it never reaches the effect interpreter — so it is not in either tier.)
 
-### `:interceptor-overrides` — replace interceptors in the chain by id
+### `:interceptor-overrides` — replace or remove interceptors by exact reference
+
+Override matching is by **canonical interceptor reference**, not by an interceptor value's `:id` (EP-0022). Keys are interceptor references (a bare keyword matches that keyword; a parameterized reference matches the full `[id arg]` vector); values are either another reference (to replace the matched interceptor) or `nil` (to remove it). The full grammar and the exact-reference rationale live in [§`:interceptor-overrides` — exact-reference substitution](#interceptor-overrides--exact-reference-substitution); the per-frame / per-call placement and precedence are summarised here.
 
 ```clojure
 ;; per-call — turn off the logging interceptor for this dispatch
@@ -1958,34 +1961,25 @@ A `:fx-overrides` entry may target a **reserved** fx-id, and the framework tiers
    :interceptor-overrides {:my-app/logging nil}})
 ```
 
-When the router builds the interceptor chain for the event, a small step walks it and substitutes by `:id`:
-
-```clojure
-(defn- apply-icpt-overrides [chain overrides]
-  (->> chain
-       (mapv #(if (contains? overrides (:id %))
-                (get overrides (:id %))
-                %))
-       (filter some?)))   ;; nil-substituted entries are removed
-```
-
 Use cases (all testing-flavoured):
 
 - **Turn off a logging interceptor in tests** — `{:my-app/logging nil}` removes it for the test's events.
-- **Swap a custom audit interceptor for a recording stub** — `{:my-app/audit (constantly recording-icpt)}`. (Deterministic *time* is not an interceptor override under EP-0017 — supply the exact fact in the envelope: `(dispatch-sync [:e] {:rf.cofx {:rf/time-ms fixed-ms}})`; see [§Recordable coeffects](#recordable-coeffects).)
+- **Swap a custom audit interceptor for a recording stub** — `{:my-app/audit :story/record-events}` (the replacement is itself a registered ref, resolved through the same registrar). (Deterministic *time* is not an interceptor override under EP-0017 — supply the exact fact in the envelope: `(dispatch-sync [:e] {:rf.cofx {:rf/time-ms fixed-ms}})`; see [§Recordable coeffects](#recordable-coeffects).)
 - **Replace a remote-call validator with a relaxed one** for stories that intentionally violate the schema for visualisation.
-- **Wrap a specific interceptor with timing** for a perf test.
+- **Remove one instance of a parameterized interceptor** — `{[:rf.interceptor/path [:cart]] nil}` removes only that exact reference, leaving any other `[:rf.interceptor/path …]` in the chain intact.
 
-Caveat: **interceptors must have stable `:id`s** for override-by-id to find them. Anonymous interceptors (created via `->interceptor` without `:id`) cannot be overridden. Tooling can warn when an override targets an id that isn't present in any chain.
+Precedence: **frame overrides < dispatch-opts overrides** — per-call overrides win on key conflict. A `nil` value removes the matching ref; a replacement ref is resolved through the same registrar before execution. The serializable, exact-reference shape keeps SSR, story, test, and tool override state inspectable; value-valued overrides are retired from public surfaces.
 
-### `:interceptors` — *add* interceptors to a frame's events
+<a id="interceptors--add-interceptors-to-a-frames-events"></a>
 
-Distinct from override: `:interceptors` *prepends* interceptors to the chain rather than replacing existing ones. Useful for monitoring/recording without modifying registered behaviour.
+### `:interceptors` — the frame-level interceptor ref chain ("global within this frame")
+
+`:interceptors` is the frame-level interceptor **ref** chain prepended to every event handled in the frame. It carries interceptor references (bare keywords or `[id arg]` parameterized refs), never inline interceptor values — the full grammar is in [§Event and frame chain grammar](#event-and-frame-chain-grammar).
 
 ```clojure
 (rf/reg-frame :Dev.Recorder/active
-  {:interceptors [event-recorder-icpt
-                  app-db-validator-icpt]})
+  {:interceptors [:dev/event-recorder
+                  :dev/app-db-validator]})
 ```
 
 Use cases:
@@ -1995,7 +1989,9 @@ Use cases:
 - **Tracing decorator** — emit fine-grained trace events scoped to a particular frame.
 - **Effect recorder** — capture but don't fire effects, for dry-run/documentation modes (often combined with `:fx-overrides` to also disable real firing).
 
-**Frame-level `:interceptors` is the canonical "global within this frame" mechanism.** There is no cross-frame interceptor concept in v2 — the v1 `reg-global-interceptor` / `clear-global-interceptor` surface is not shipped (per [MIGRATION §M-17](../migration/from-re-frame-v1/README.md)). For cross-frame *observation* (audit logging, performance instrumentation, schema-validation-via-trace) use `register-listener!` per [009-Instrumentation](009-Instrumentation.md). For cross-frame *behaviour modification* (rare, usually an architectural smell), declare the interceptor on each frame's `:interceptors` vector explicitly. Single-frame apps (only `:rf/default` in play) recover v1's global semantics by adding the interceptor to the default frame's `:interceptors`.
+Each behaviour is registered once with `reg-interceptor` ([001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar)) and referenced here by id.
+
+**Frame-level `:interceptors` is the canonical "global within this frame" mechanism.** There is no cross-frame or process-global interceptor concept in v2 — the v1 `reg-global-interceptor` / `clear-global-interceptor` surface is not shipped (per [MIGRATION §M-17](../migration/from-re-frame-v1/README.md)). For cross-frame *observation* (audit logging, performance instrumentation, schema-validation-via-trace) use `register-listener!` per [009-Instrumentation](009-Instrumentation.md). For cross-frame *behaviour modification* (rare, usually an architectural smell), declare the interceptor ref on each frame's `:interceptors` vector explicitly. Single-frame apps (only `:rf/default` in play) recover v1's global feel by adding the interceptor ref to the default frame's `:interceptors`.
 
 ### Cascade propagation
 
@@ -2005,7 +2001,188 @@ Per [rf2-ejtpd](https://github.com/day8/re-frame2/issues/rf2-ejtpd), `:source` i
 
 ### Discoverability
 
-`(rf/frame-meta :my-frame)` returns the override and interceptor maps, so 10x and agents can see what's been scoped and why a particular fx or interceptor didn't behave as expected.
+`(rf/frame-meta :my-frame)` returns the override and interceptor-ref maps, so 10x and agents can see what's been scoped and why a particular fx or interceptor didn't behave as expected.
+
+## Registered interceptors and the chain grammar
+
+[EP-0018](../docs/EP/EP-0018-one-event-registration.md) makes interceptors the public application full-context (`context -> context`) mechanism; [EP-0022](../docs/EP/EP-0022-registered-interceptors.md) makes them first-class **registered** program members and changes the event/frame `:interceptors` surfaces to carry interceptor **references**, not inline interceptor values. The registrar half — the `:interceptor` registry kind, `reg-interceptor`, descriptors, metadata, and `handler-meta :interceptor` — is owned by [001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar). This section owns the runtime half: the reference shape, the event/frame chain grammar, dispatch-option restrictions, `:interceptor-overrides`, effective ordering, validation/resolution timing, the standard `:rf.interceptor/path` interceptor, and the no-standard-`unwrap` decision. The interceptor **execution model** (`:before` in order, handler, `:after` in reverse; the short-circuit / always-runs rules) is unchanged — see [§Interceptor chain execution](#interceptor-chain-execution--before-short-circuit-after-always-runs).
+
+### Interceptor references
+
+An interceptor reference is one of two shapes:
+
+```clojure
+:auth/required                    ;; bare keyword — references a static registered interceptor
+[:rf.interceptor/path [:cart]]    ;; [id arg] vector — references a parameterized interceptor factory
+```
+
+A bare keyword references a static interceptor (`{:before}` / `{:after}` / `{:before :after}` descriptor). A two-element `[interceptor-id arg]` vector references a `:factory` interceptor; **parameterized references take exactly one argument**. A factory that needs multiple inputs takes them as a single composite arg (a vector or map):
+
+```clojure
+[:rf.interceptor/path [:cart :items]]
+[:app/role {:role :admin :redirect [:login/show]}]
+```
+
+The `arg` MUST be EDN-serializable when the reference appears in any serialized program-description surface — an app value, frame config, story, replay fixture, or SSR artifact. Exact-reference matching (for overrides, below) uses the EP-0012 / CEDN-1 canonical form ([Conventions §Canonical byte encoding](Conventions.md#canonical-byte-encoding-cedn-1)); the reference shape is [`:rf/interceptor-ref`](Spec-Schemas.md#rfinterceptor-ref-the-interceptor-reference-ep-0022) in Spec-Schemas. A chain entry that is neither a keyword id nor an `[id arg]` 2-vector is `:rf.error/invalid-interceptor-ref`; a parameterized ref whose id is not a `:factory` interceptor (or whose factory cannot build for the arg) is `:rf.error/interceptor-factory-arity`.
+
+### Event and frame chain grammar
+
+The two public `:interceptors` surfaces are **event metadata** and **frame metadata**. Both accept a vector of interceptor references:
+
+```clojure
+(rf/reg-event :cart/add
+  {:interceptors [[:rf.interceptor/path [:cart]]
+                  :auth/required]}
+  (fn [{:keys [db]} [_ sku]]
+    {:db (update db :items conj sku)}))
+
+(rf/reg-frame :story/cart
+  {:interceptors [:story/record-events]})
+```
+
+Inline interceptor maps, interceptor values, or Vars in a public `:interceptors` chain are a registration error — `:rf.error/inline-interceptor-removed`. The recovery is to register the behaviour with `reg-interceptor` and reference it by id. (This sharpens the existing `reg-event` middle-slot policing: where the prior model accepted a vector of interceptor *maps*, the chain now carries refs only. The malformed-`:interceptors`-value and bare-interceptor `reg-event` errors are owned by [001 §Allowed forms of the middle slot](001-Registration.md#allowed-forms-of-the-middle-slot); the inline-value-in-a-public-chain error is the EP-0022 addition.)
+
+### Dispatch-option restrictions
+
+Dispatch opts do **not** accept an additive `:interceptors` key under EP-0022 ([§Per-frame and per-call overrides](#per-frame-and-per-call-overrides)). Authored interceptor behaviour has exactly two homes — event metadata and frame metadata — and per-dispatch variation is expressed through `:interceptor-overrides`, which substitutes or removes named refs. This keeps one-off anonymous program behaviour out of the dispatch call site while preserving the story/test need to disable or swap behaviour. Supplying `:interceptors` in a dispatch opts map is recognised-but-unhonourable input and therefore signals per [Conventions §No silent swallow](Conventions.md#no-silent-swallow--recognised-input-must-signal) (the precise error-id and severity land with the runtime slice — see [§Error model](#interceptor-error-model)).
+
+### `:interceptor-overrides` — exact-reference substitution
+
+`:interceptor-overrides` remains the per-frame / per-call mechanism for replacing or removing interceptors in a chain, but the map is **reference-based** (EP-0022):
+
+```clojure
+{:interceptor-overrides
+ {:auth/required :story/skip-auth      ;; replace the matched interceptor with another ref
+  :audit/record-event nil}}            ;; remove the matched interceptor
+```
+
+Keys are interceptor references. Values are either another interceptor reference (replace) or `nil` (remove). **Value-valued overrides are retired from public surfaces** — keeping SSR, story, test, and tool override state serializable and inspectable.
+
+Matching is by **canonical interceptor reference**, not just by id. A bare keyword matches that keyword; a parameterized reference matches the full `[id arg]` vector (canonicalized under CEDN-1). This disambiguates the case where one chain holds multiple instances of the same factory:
+
+```clojure
+{:interceptors [[:rf.interceptor/path [:cart]]
+                [:rf.interceptor/path [:cart :items]]
+                :auth/required]
+ :interceptor-overrides
+ {[:rf.interceptor/path [:cart]] nil   ;; removes ONLY the exact [:rf.interceptor/path [:cart]] reference
+  :auth/required :story/skip-auth}}
+```
+
+An id-only override could not say which `[:rf.interceptor/path …]` it meant; exact-reference matching is slightly more verbose but precise, serializable, and stable under CEDN-1. Precedence is unchanged — **frame overrides < dispatch-opts overrides** (per-call wins). A malformed key or replacement is `:rf.error/interceptor-override-invalid`.
+
+### Effective chain ordering
+
+The effective interceptor chain for one dispatch is assembled in this order:
+
+```text
+1. frame metadata :interceptors refs
+2. event metadata :interceptors refs
+3. the framework event-handler wrapper
+4. framework dispatch-time interceptors owned by their specs
+```
+
+Groups 1 and 2 are **authored references** and resolve through the same registrar that resolved the event handler — today the default registrar; when realm-aware live dispatch is in play ([EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md), rf2-a15n62), the owning frame's realm registrar (the envelope's `:rf.realm/id`, [§Routing — the dispatch envelope](#routing-the-dispatch-envelope)). This EP records the lookup direction without adding a realm-patching API.
+
+After refs resolve, the runtime applies the merged override map (frame `:interceptor-overrides` < dispatch-opts `:interceptor-overrides`): a replacement ref is resolved through the same registrar before execution; a `nil` replacement removes the matching ref from the chain.
+
+Framework dispatch-time interceptors that are **not** authored program members remain governed by their owning specs — flow transformation, for instance, still wraps after the authored chain in the position [013](013-Flows.md) requires (the outermost `:after`, per [§Drain-loop pseudocode](#drain-loop-pseudocode)). EP-0022 changes authored interceptor naming, not subsystem-owned dispatch machinery.
+
+### Validation and resolution timing
+
+Event and frame metadata store interceptor **references**, not resolved interceptor maps. The runtime resolves references when assembling the dispatch chain.
+
+- **Registration-time validation.** A live `reg-event` / `reg-frame` that references an interceptor id with no registration fails at registration — `:rf.error/unregistered-interceptor`. Typos die before dispatch semantics apply.
+- **App-value validation.** App values ([EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md)) validate refs at construction or install — whichever already owns cross-kind validation for the constructed program.
+- **Dispatch-time guard.** A dispatch-time unknown-ref failure exists only as a defensive guard against corrupt state or a hot-reload race.
+
+Resolving at dispatch time preserves **hot reload**: re-registering `:auth/required` with a new descriptor takes effect on the next dispatch of any event whose chain references it — the event does not have to be re-registered just because an interceptor implementation changed ([001 §Interceptors — Hot reload](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar)). Implementations MAY cache resolved chains, but cache invalidation MUST observe interceptor re-registration, event re-registration, frame re-registration, and per-call override changes.
+
+### Standard `:rf.interceptor/path`
+
+v2 keeps exactly **one** framework-standard interceptor, referenced as:
+
+```clojure
+[:rf.interceptor/path path-vector]
+```
+
+`path-vector` is an EDN vector naming a concrete app-db path. It is the canonical standard `:factory` consumer (the factory receives the path-vector as its one arg) — there is no public `rf/path` value constructor; the public chain language stays uniform (keywords and `[id arg]` refs). It focuses an event handler on an app-db sub-slice and re-widens the returned slice back into full app-db:
+
+```clojure
+(rf/reg-event :cart/add
+  {:interceptors [[:rf.interceptor/path [:cart]]]}
+  (fn [{:keys [db]} [_ sku]]
+    {:db (update db :items conj sku)}))
+```
+
+The standard path interceptor:
+
+1. records the original full app-db object **and** the original focused slice;
+2. stages the focused slice as the handler's `:db` coeffect;
+3. if the handler emits **no** `:db` effect, emits no synthetic `:db` effect;
+4. if the handler emits a `:db` effect whose focused value is **`identical?`** to the original focused slice, rewrites the effect back to the **original full app-db object** (not an `assoc-in` allocation);
+5. otherwise widens the focused value into the original app-db at `path-vector`.
+
+**Rule 4 is normative.** It preserves the frame-commit `identical?` no-op optimization (per [§One physical container, two projection reactions](#one-physical-container-two-projection-reactions) and the commit no-op family documented in [EP-0018 §Commit / no-op family](../docs/EP/EP-0018-one-event-registration.md), tracked by rf2-ekq28v): when an event returns the same app-db object, the runtime skips the container write and the projection reactions do not propagate. A naive widen — `(assoc-in original-db path unchanged-slice)` — allocates a new top-level map, defeating the `identical?` check even though the handler did no real work. Because the standard path interceptor knows both the original full app-db object and the original focused slice, an unchanged focused slice widens back to the original app-db object, keeping the no-op commit no-op. This identity-fast-path coupling is the strongest reason `path` belongs in the framework rather than being app-vendored (an app copy is likely to preserve value equality but miss the identity fast path).
+
+A non-vector or otherwise malformed `path-vector` argument is `:rf.error/path-interceptor-bad-path`.
+
+### No standard `unwrap`
+
+There is **no** standard `unwrap` interceptor (EP-0022 §No standard `unwrap`; a non-goal). The old `unwrap-interceptor` rewrote the `:event` coeffect from an `[id payload-map]` vector to the bare payload map for the whole chain. The same local ergonomics are available through ordinary handler destructuring, which keeps the `:event` coeffect **stable** as the original dispatched event vector throughout the chain — and stability matters for tracing, replay, diagnostics, and other interceptors:
+
+```clojure
+(rf/reg-event :cart/add
+  (fn [{:keys [db]} [_ {:keys [sku qty]}]]
+    {:db (add-cart-line db sku qty)}))
+```
+
+A project that genuinely wants chain-wide event reshaping registers its own interceptor (`(rf/reg-interceptor :app/unwrap {:doc "…"} {:before … :after …})`); it does not need to be a framework standard. (The retirement of the v1 `unwrap` / `trim-v` standard helpers is catalogued in [API.md §Standard interceptors](API.md#standard-interceptors) and [MIGRATION §M-21](../migration/from-re-frame-v1/README.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors).)
+
+### App values and modules
+
+An app value may carry interceptor descriptors, so a module owns interceptors exactly as it owns events and subs ([EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md)):
+
+```clojure
+(defmodule cart
+  {:rf.module/owns {:app-db [[:cart]]}
+   :reg-interceptor [[:cart/auth-required
+                      {:doc "Cart auth gate."}
+                      {:before require-cart-auth}]]
+   :reg-event       [[:cart/add
+                      {:interceptors [:cart/auth-required
+                                      [:rf.interceptor/path [:cart]]]}
+                      cart-add]]})
+```
+
+This keeps the app-as-value rule intact: the program contains named members, not anonymous runtime objects embedded in other members. Realm-aware lookup is not specified here, but the ref model composes with per-realm registrars (the effective-ordering note above).
+
+### Tooling and metadata
+
+`handler-meta` for an event exposes its authored interceptor **refs** (not resolved values):
+
+```clojure
+(rf/handler-meta :event :cart/add)
+;; => {:interceptors [:auth/required [:rf.interceptor/path [:cart]]] ...}
+```
+
+`handler-meta :interceptor` exposes a referenced interceptor's own metadata and source coordinate ([001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar)). Trace / Xray surfaces SHOULD distinguish: authored refs; the resolved executable chain; per-frame override substitutions; per-call override substitutions; removed refs; and missing-ref failures (per [009 §Instrumentation](009-Instrumentation.md)).
+
+<a id="interceptor-error-model"></a>
+
+### Error model
+
+The structured-error sites EP-0022 defines. These land on the always-on / dev surfaces with the runtime slice (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)); they are catalogued here so the contract is pinned at spec time:
+
+| Error | Meaning |
+|---|---|
+| `:rf.error/invalid-interceptor` | `reg-interceptor` received a malformed descriptor (owned by [001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar)). |
+| `:rf.error/unregistered-interceptor` | A chain references an interceptor id not present in the registrar. |
+| `:rf.error/invalid-interceptor-ref` | A chain entry is neither a keyword id nor `[id arg]`. |
+| `:rf.error/inline-interceptor-removed` | A public chain contains an interceptor map / value / Var. |
+| `:rf.error/interceptor-override-invalid` | An override map contains a malformed key or replacement. |
+| `:rf.error/interceptor-factory-arity` | A parameterized ref targets a non-factory interceptor, or a factory cannot build for the arg. |
+| `:rf.error/path-interceptor-bad-path` | `:rf.interceptor/path` received a non-vector or malformed path argument. |
 
 ## State machines are just event handlers
 
@@ -2122,6 +2299,7 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 | The CLJS reference's `frame-provider` (React context) is an *ergonomic optimisation* atop the pattern-level explicit-frame contract; observable behaviour matches explicit-frame addressing; SSR bypasses context | [§View ergonomics](#view-ergonomics-the-hard-part), [011-SSR.md](011-SSR.md) |
 | Plain Reagent fns can't read the surrounding `frame-provider`'s frame; an ambient `subscribe`/`dispatch` in one raises `:rf.error/no-frame-context` (EP-0002 — no `:rf/default` fall-through; supersedes the old warn-once) | [004-Views §Plain Reagent fns](004-Views.md#plain-reagent-fns-staged-adoption-the-footgun-is-now-a-loud-error) |
 | Per-instance frames via anonymous `make-frame` for per-mount lifecycles | [§Per-instance frames — anonymous `make-frame`](#per-instance-frames--anonymous-make-frame) |
-| Per-frame and per-call overrides via `:fx-overrides`, `:interceptor-overrides`, `:interceptors` | [§Per-frame and per-call overrides](#per-frame-and-per-call-overrides) |
+| Per-frame and per-call overrides via `:fx-overrides`, `:interceptor-overrides`; frame-level `:interceptors` ref chain (per-call additive `:interceptors` removed — EP-0022) | [§Per-frame and per-call overrides](#per-frame-and-per-call-overrides) |
+| Registered interceptors (EP-0022): event/frame `:interceptors` carry serializable interceptor **refs** (bare keyword or `[id arg]`), not inline values; `:interceptor-overrides` matches by exact canonical reference (replace with another ref, or `nil` to remove); effective ordering frame-refs → event-refs → handler-wrapper → subsystem dispatch-time interceptors; refs resolve at chain assembly (registration-time + app-value validation; dispatch-time defensive guard); one standard interceptor `[:rf.interceptor/path path-vector]` (the canonical `:factory` consumer) preserving the frame-commit `identical?` no-op; no standard `unwrap` | [§Registered interceptors and the chain grammar](#registered-interceptors-and-the-chain-grammar), [001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar) |
 | `destroy-frame!` is the single normative teardown boundary every per-feature artefact (flows, machines, schemas, SSR, epoch) hangs its frame-scoped cleanup off; each artefact publishes a teardown hook the core invokes during destroy | [§Destroy](#destroy), [013 §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown) |
 | Per-frame trace rings, cascade-keyed retention — each frame owns an independent ring sized by cascade count (`:rf.trace/cascades-retained`, default 50); trace events route to the in-flight frame; frameless events bypass rings and stream live only; hot-reload re-emits dedup by shape | [§What lives in a frame](#what-lives-in-a-frame), [009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only) |

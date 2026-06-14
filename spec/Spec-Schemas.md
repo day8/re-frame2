@@ -181,6 +181,46 @@ The registration-metadata value declaring a handler's (or machine named-entry's)
 
 A malformed value (a non-vector, or an entry that is neither a keyword nor an `[id arg]` tuple) is `:rf.error/cofx-request-invalid` at registration; a referenced id with no `reg-cofx` registration is `:rf.error/unregistered-cofx`; declaring the same id twice (any args) in one consumer scope is `:rf.error/cofx-name-collision`. The key lives uniformly on `reg-event` — with the one event form (EP-0018) there is no db-only handler exempt from coeffect declaration (per [001 §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key)).
 
+### `:rf/interceptor-ref` (the interceptor reference, EP-0022)
+
+> **Layer:** Public
+> **Owner:** [002-Frames §Interceptor references](002-Frames.md#interceptor-references)
+> **Status:** v1-required
+
+The shape of one entry in a public event/frame `:interceptors` chain ([EP-0022](../docs/EP/EP-0022-registered-interceptors.md)). A chain is a `[:vector InterceptorRef]`. An entry is one of two shapes: a bare keyword id (a static registered interceptor) or a 2-vector `[id arg]` (a parameterized `:factory` interceptor). **Parameterized refs carry exactly ONE argument** (per [EP-0012](../docs/EP/EP-0012-path-optics-and-canonical-forms.md)); a factory needing multiple inputs takes a single composite vector/map arg. The `arg` MUST be an EDN/CEDN-1 value when the ref appears in any serialized program-description surface (app value, frame config, story, replay fixture, SSR artifact); **exact-reference override matching depends on canonical argument identity** (CEDN-1, [Conventions §Canonical byte encoding](Conventions.md#canonical-byte-encoding-cedn-1)).
+
+```clojure
+(def InterceptorRef
+  ;; One entry in a public :interceptors chain (event metadata or frame metadata).
+  ;; A bare keyword id, or an [id arg] parameterized-factory reference. EP-0022.
+  [:or
+   :keyword                                          ;; static registered interceptor id
+   [:tuple :keyword InterceptorArg]])                ;; [id arg] — parameterized factory; exactly ONE arg
+
+(def InterceptorArg
+  ;; The single factory argument. EDN/CEDN-1 when the ref is serialized; the
+  ;; canonical identity of this value is what exact-reference override matching
+  ;; compares (CEDN-1, Conventions §Canonical byte encoding). A factory needing
+  ;; multiple inputs takes them as one composite vector/map here.
+  :any)
+
+(def InterceptorChain
+  ;; The :interceptors value on event metadata and frame metadata. Refs only —
+  ;; an inline interceptor map / value / Var is :rf.error/inline-interceptor-removed.
+  [:vector InterceptorRef])
+
+(def InterceptorOverrides
+  ;; The :interceptor-overrides map (frame metadata + dispatch opts). Keys are
+  ;; interceptor references (matched by canonical identity); a value is another
+  ;; reference (replace) or nil (remove). Value-valued overrides are retired
+  ;; from public surfaces (EP-0022).
+  [:map-of InterceptorRef [:maybe InterceptorRef]])
+```
+
+A chain entry that is neither a keyword nor an `[id arg]` 2-vector is `:rf.error/invalid-interceptor-ref`; a parameterized ref whose id is not a `:factory` (or whose factory cannot build for the arg) is `:rf.error/interceptor-factory-arity`; an id with no registration is `:rf.error/unregistered-interceptor`; an inline value in the chain is `:rf.error/inline-interceptor-removed`; a malformed override key/replacement is `:rf.error/interceptor-override-invalid` (the full error model lives at [002 §Error model](002-Frames.md#interceptor-error-model)). The standard `:rf.interceptor/path` ref's path-vector arg is an [`:rf/path`](#rfpath-rfpath-template-the-path-algebra-ep-0012) (a non-vector/malformed arg is `:rf.error/path-interceptor-bad-path`).
+
+> **Envelope schemas (`:rf/dispatch-envelope` / `:rf/dispatch-opts`) above carry `[:interceptor-overrides {:optional true} [:map-of :keyword :any]]`** as a deliberately wide upper bound. The narrowed public shape is `InterceptorOverrides` (refs as keys; ref-or-`nil` values); the dispatch-envelope's `[:interceptors {:optional true} [:vector :any]]` slot is the **frame-level** ref chain copied onto the envelope, NOT a per-call additive surface — additive dispatch-opts `:interceptors` is removed (EP-0022, [002 §Dispatch-option restrictions](002-Frames.md#dispatch-option-restrictions)).
+
 ### `:rf/registration-metadata`
 
 > **Layer:** Public
@@ -204,11 +244,11 @@ Common shape for the metadata map every `reg-*` accepts in its middle slot.
    ])
 ```
 
-Per-kind extensions (sub-specific, fx-specific, view-specific) are additive maps that conform to RegistrationMetadata's open shape. Each kind has its own narrowed schema enumerated below — `:rf/event-handler-meta`, `:rf/sub-meta`, `:rf/fx-meta`, `:rf/cofx-meta`, `:rf/view-meta`, `:rf/machine-meta`, `:rf/flow-meta`, `:rf/app-schema-meta`, `:rf/head-meta`, `:rf/error-projector-meta`, `:rf/http-interceptor-meta`, and the route-shaped `:rf/route-metadata` further below — and tools that need the per-kind shape look up the schema by registered id (e.g. via `(app-schema-at [:rf/event-handler-meta])`).
+Per-kind extensions (sub-specific, fx-specific, view-specific) are additive maps that conform to RegistrationMetadata's open shape. Each kind has its own narrowed schema enumerated below — `:rf/event-handler-meta`, `:rf/sub-meta`, `:rf/fx-meta`, `:rf/cofx-meta`, `:rf/interceptor-meta`, `:rf/view-meta`, `:rf/machine-meta`, `:rf/flow-meta`, `:rf/app-schema-meta`, `:rf/head-meta`, `:rf/error-projector-meta`, `:rf/http-interceptor-meta`, and the route-shaped `:rf/route-metadata` further below — and tools that need the per-kind shape look up the schema by registered id (e.g. via `(app-schema-at [:rf/event-handler-meta])`).
 
 `:doc` is `{:optional true}` in the schema but normatively SHOULD appear on every registration. The dev runtime surfaces missing-`:doc` registrations through `:rf.warning/missing-doc` (emitted at most once per `(kind, id)` pair; production-elided) — see [001 §`:doc` is dev-warned when absent](001-Registration.md#doc-is-dev-warned-when-absent) and [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives) for the emission contract. The schema stays `{:optional true}` so programmatic re-registration paths and tooling that compose metadata maps without `:doc` still validate; the warning is the nudge, not a structural gate.
 
-The `reg-event` metadata-map carries a reserved `:interceptors` key — the map is the one superset middle-slot shape and the only supported home for per-event interceptor chains. The historical positional interceptor vector is retired. Per [001-Registration §Allowed forms of the middle slot](001-Registration.md#allowed-forms-of-the-middle-slot) and [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event): a malformed value is `:rf.error/reg-event-bad-interceptors`, and positional-vector legacy calls are rejected loudly. (`reg-frame`'s metadata-map *also* carries an `:interceptors` key — a per-kind extension defined in [Spec 002 §`:interceptors`](002-Frames.md#interceptors--add-interceptors-to-a-frames-events).)
+The `reg-event` metadata-map carries a reserved `:interceptors` key — the map is the one superset middle-slot shape and the only supported home for per-event interceptor chains. Under EP-0022 the value is a vector of interceptor **references** ([`:rf/interceptor-ref`](#rfinterceptor-ref-the-interceptor-reference-ep-0022)), not inline interceptor values; the historical positional interceptor vector is retired. Per [001-Registration §Allowed forms of the middle slot](001-Registration.md#allowed-forms-of-the-middle-slot) and [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event): a malformed value is `:rf.error/reg-event-bad-interceptors`, an inline value in the chain is `:rf.error/inline-interceptor-removed`, and positional-vector legacy calls are rejected loudly. (`reg-frame`'s metadata-map *also* carries an `:interceptors` key — the same ref-chain shape, per [Spec 002 §`:interceptors`](002-Frames.md#interceptors--the-frame-level-interceptor-ref-chain-global-within-this-frame).)
 
 ### Per-kind refinements
 
@@ -225,7 +265,7 @@ The metadata map accepted by `reg-event` — the one public event-registration f
   [:merge
    RegistrationMetadata
    [:map
-    [:interceptors     {:optional true} [:vector :map]]                      ;; the interceptor chain (superset middle slot; rf2-bpmszk / rf2-iczn3)
+    [:interceptors     {:optional true} [:ref :rf/interceptor-ref]]          ;; the interceptor-REF chain (superset middle slot; refs not inline values — EP-0022; rf2-bpmszk / rf2-iczn3). The [:ref :rf/interceptor-ref] resolves to InterceptorChain ([:vector InterceptorRef])
     [:rf.cofx/requires {:optional true} [:ref :rf.cofx/requires]]            ;; EP-0017 — declared consumed coeffects (uniform on reg-event; no db-handler exception per EP-0018)
     [:rf/machine?      {:optional true} :boolean]                            ;; true iff this :event entry is a machine handler (reg-machine path)
     [:rf/machine       {:optional true} [:ref :rf/machine-spec]]             ;; the captured machine spec (when :rf/machine? true); see [005](005-StateMachines.md)
@@ -291,6 +331,19 @@ The metadata map accepted by `reg-cofx`. Carries the EP-0017 **grade** keys (`:r
 ```
 
 `:provided? true` without `:recordable? true` is meaningless (an ambient coeffect always has a supplier); the framework's one built-in registration is `:rf/time-ms` (`{:recordable? true :provided? true}`).
+
+#### `:rf/interceptor-meta`
+
+> **Layer:** Public
+
+The metadata map accepted by `reg-interceptor` ([EP-0022](../docs/EP/EP-0022-registered-interceptors.md), [001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar)). The standard registration-metadata keys only — `reg-interceptor` adds no per-kind metadata keys beyond the base shape. The interceptor **descriptor** (`{:before}` / `{:after}` / `{:before :after}` / `{:factory}`) is the registration's stored body, not a metadata-map key; `handler-meta :interceptor` returns this metadata-map plus the source coordinate.
+
+```clojure
+(def InterceptorMeta
+  [:merge
+   RegistrationMetadata
+   [:map]])                                                                   ;; standard keys only; the descriptor body is stored alongside, not in the metadata map
+```
 
 #### `:rf/view-meta`
 

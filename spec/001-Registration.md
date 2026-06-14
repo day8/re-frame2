@@ -94,6 +94,7 @@ The registrar is a `(kind, id) → metadata` map. The `kind` keyword identifies 
 | `:sub` | All subscriptions | `reg-sub` |
 | `:fx` | Registered effect handlers | `reg-fx` |
 | `:cofx` | Coeffect suppliers (value-returning, graded ambient / recordable — §Coeffects) | `reg-cofx` |
+| `:interceptor` | Registered interceptors — named full-context (`context -> context`) program behaviour referenced by id from event/frame `:interceptors` chains (per [EP-0022](../docs/EP/EP-0022-registered-interceptors.md), §`reg-interceptor` — the `:interceptor` registrar). Application ids are application-owned; framework standard refs live under `:rf.interceptor/*`. | `reg-interceptor` (also `reg-interceptor*`) |
 | `:view` | Registered views | `reg-view` |
 | `:frame` | Registered frames | `reg-frame` (also `make-frame`) |
 | `:route` | Routes | `reg-route` (Spec 012) |
@@ -274,6 +275,7 @@ The kinds are listed in the order they appear in [§Registry model — the canon
 | `:sub` | Replace the sub body and `:<-` chain. Dispose the cache slot for this query in every frame. | Subscribers reading the old reaction get the old value once more; next deref recomputes through the new body | Cache slot is disposed; sub-cache reference counting carries new readers | `:rf.registry/handler-replaced` + `:sub/disposed` per cleared cache slot |
 | `:fx` | Replace the fx handler fn | `:fx` walks already in `do-fx` finish against the old fn (rule 1); subsequent walks see the new fn | None | `:rf.registry/handler-replaced` |
 | `:cofx` | Replace the cofx supplier fn (and its grade metadata) | A supplier already consulted during an in-flight context assembly is bound to the old fn for that event; subsequent events resolve the new supplier | None | `:rf.registry/handler-replaced` |
+| `:interceptor` | Replace the interceptor descriptor (`:before` / `:after` / `:factory`) | Chains already resolved for an in-flight dispatch run to completion against the resolved (pre-replacement) entry; the next dispatch of an event/frame whose chain *references* this id resolves the new descriptor at chain-assembly time (chains store refs, not values — per [002 §Validation and resolution timing](002-Frames.md#validation-and-resolution-timing)) | None (implementations MAY cache resolved chains, but the cache MUST invalidate on interceptor / event / frame re-registration and per-call override changes — [002 §Validation and resolution timing](002-Frames.md#validation-and-resolution-timing)) | `:rf.registry/handler-replaced` |
 | `:view` | Replace the view fn | Currently-rendering views finish against the old fn; the substrate's next render cycle picks up the new fn | None | `:rf.registry/handler-replaced` |
 | `:frame` | Surgical update of the frame's metadata; live `app-db`, sub-cache, queue all preserved | Per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update) | None disposed | `:rf.registry/handler-replaced` (frame metadata semantics owned by 002) |
 | `:route` | Replace the route handler fn / pattern | Currently-handling navigation finishes against the old route handler; next navigation resolves the new one | None | `:rf.registry/handler-replaced` |
@@ -331,6 +333,7 @@ A pointer-only summary of the registration functions and the per-Spec docs that 
 | Subscription | `reg-sub` | [006-ReactiveSubstrate.md](006-ReactiveSubstrate.md) |
 | Effect | `reg-fx` | [002-Frames.md](002-Frames.md), [011-SSR.md](011-SSR.md) (for `:platforms`) |
 | Cofx | `reg-cofx` | [001 §Coeffects](#coeffects--reg-cofx-value-returning-graded) (registrar contract + grades + `:rf.cofx/requires`); [002 §Recordable coeffects](002-Frames.md#recordable-coeffects) (envelope + delivery) |
+| Interceptor | `reg-interceptor` (macro) / `reg-interceptor*` (plain fn) | [001 §Interceptors](#interceptors--reg-interceptor-the-interceptor-registrar) (registrar kind + descriptor + metadata); [002 §Registered interceptors and the chain grammar](002-Frames.md#registered-interceptors-and-the-chain-grammar) (by-reference chains + overrides + standard path) |
 | View | `reg-view` (defn-shape macro) / `reg-view*` (plain fn) | [004-Views.md](004-Views.md) |
 | Frame | `reg-frame` | [002-Frames.md](002-Frames.md) |
 | App-db schema (not a registrar kind — schemas live in the schemas artefact's per-frame side-table, rf2-cq1ak) | `reg-app-schema` | [010-Schemas.md](010-Schemas.md) |
@@ -431,6 +434,81 @@ A coeffect id registration colliding with another registered coeffect id (one re
 
 The owner-qualified fact-naming rule — application coeffect ids MUST NOT register under an `rf.`-prefixed namespace ([Conventions §Recordable-coeffect fact naming](Conventions.md#recordable-coeffect-fact-naming-rfcofx)) — is a **lint/tooling diagnostic, not a registration-time guard**: `reg-cofx` does **not** reject an `rf.`-prefixed id, because the framework and its subsystems legitimately register many `:rf.*` coeffect ids and the registration site cannot structurally tell an app id from a framework/subsystem one. The recommended cofx lint ([EP-0017 §9](../docs/EP/EP-0017-recordable-coeffects.md#9-reflection-trace-and-tooling)) is the enforcement surface — the same status the `(random-uuid)`-in-payload idiom has today.
 
+## Interceptors — `reg-interceptor` (the `:interceptor` registrar)
+
+After [EP-0018](../docs/EP/EP-0018-one-event-registration.md) collapses event registration to one public `reg-event` form and moves application full-context work to interceptors, an interceptor is **load-bearing program structure**: it can rewrite coeffects, replace the event, skip the handler, add or remove effects, rewrite `:db`, redact trace payloads, and change the error surface. [EP-0022](../docs/EP/EP-0022-registered-interceptors.md) makes that behaviour a first-class **registered** program member — keyed by a qualified-keyword id, carrying source coordinates, metadata, an app-value representation, hot-reload behaviour, trace/Xray visibility, and test/story override semantics — exactly the properties every other `reg-*` member has. The 001-owned half of the contract (the registrar kind, the public authoring form, source-coord capture, metadata, and `handler-meta :interceptor`) lives here; the by-reference event/frame chain grammar, override semantics, effective ordering, validation/resolution timing, and the standard `:rf.interceptor/path` interceptor are owned by [002 §Registered interceptors and the chain grammar](002-Frames.md#registered-interceptors-and-the-chain-grammar).
+
+### The `:interceptor` registry kind
+
+The registrar gains the kind `:interceptor` (§Registry model table above). An interceptor registration is keyed by a **qualified keyword id** and stores an interceptor **descriptor** plus the normal registration metadata (§The metadata map). It sits in the same id-namespace discipline as every other `reg-*` id: application ids are application-owned; framework standard refs are reserved under `:rf.interceptor/*` ([Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)).
+
+Registration is the invariant; application **ownership** is not. A framework-registered interceptor (the standard `:rf.interceptor/path`, per [002](002-Frames.md#standard-rfinterceptorpath)) satisfies "if it is in the program, it is registered" exactly as an application-registered interceptor does.
+
+### `reg-interceptor`
+
+The public authoring form is:
+
+```clojure
+(reg-interceptor id ?metadata descriptor)
+```
+
+```clojure
+(rf/reg-interceptor :audit/record-event
+  {:doc "Append each event id to the audit trail."}
+  {:before
+   (fn [ctx]
+     (update-in ctx [:coeffects :db :audit/events]
+                (fnil conj [])
+                (first (rf/get-coeffect ctx :event))))})
+```
+
+`metadata` is the standard Spec 001 registration-metadata map (`:doc`, `:schema`, `:tags`, `:platforms`, the auto-captured source coordinates, and future common keys — §The metadata map). `descriptor` is one of:
+
+```clojure
+{:before before-fn}
+{:after after-fn}
+{:before before-fn :after after-fn}
+{:factory factory-fn}
+```
+
+- The first three forms define a **static interceptor** — `:before` runs before the handler; `:after` runs after the handler in reverse chain order (the execution model is unchanged, per [002 §Interceptor chain execution](002-Frames.md#interceptor-chain-execution--before-short-circuit-after-always-runs)).
+- The `:factory` form defines a **parameterized interceptor family**: `factory-fn` receives **one** argument (the ref's `arg`, per [002 §Interceptor references](002-Frames.md#interceptor-references)) and returns a static descriptor or an executable interceptor implementation for that argument. The factory mechanism is not speculative — the framework's standard `:rf.interceptor/path` is its canonical consumer (`[:rf.interceptor/path [:cart :items]]`, per [002 §Standard `:rf.interceptor/path`](002-Frames.md#standard-rfinterceptorpath)).
+
+A malformed descriptor (none of the four shapes above) is `:rf.error/invalid-interceptor` at registration.
+
+`reg-interceptor` returns its primary id (§Return value).
+
+**Migration boundary — interceptor *values* are accepted only here.** For migration, `descriptor` MAY also be an existing interceptor **value** carrying implementation-private slots. If that value carries an `:id`, it MUST match the positional registration id:
+
+```clojure
+(rf/reg-interceptor :legacy.audit/record
+  {:doc "Wrapped legacy audit interceptor."}
+  legacy.audit/record-interceptor)
+```
+
+This value-at-the-boundary compatibility is confined to the `reg-interceptor` call site. **Public event/frame chains carry refs, never inline interceptor values** ([002 §Registered interceptors and the chain grammar](002-Frames.md#registered-interceptors-and-the-chain-grammar)). The internal interceptor constructor that lowers a descriptor into an executable chain entry (`->interceptor*`, [§Source-coordinate capture](#source-coordinate-capture-cljs-reference)) is **not** a public application-authoring form and MUST NOT be accepted in a public chain.
+
+A programmatic **`reg-interceptor*`** MAY exist for tooling / REPL use without macro source-coordinate capture, following the existing `*`-suffix convention ([Conventions §`*`-suffix naming](Conventions.md#-suffix-naming-for-fn-versions-of-macros)).
+
+### Source coordinates, metadata, and `handler-meta`
+
+`reg-interceptor` captures source coordinates at the registration site exactly as the other `reg-*` macros do (§Source-coordinate capture), and the captured `:ns` / `:line` / `:column` / `:file` ride the registration metadata under the same two-sink production-elision policy (§Production elision contract). `handler-meta` exposes an interceptor's metadata and source coordinate by `(kind, id)`:
+
+```clojure
+(rf/handler-meta :interceptor :auth/required)
+;; => {:doc "Require a logged-in user." :ns ... :line ... :file ...}
+```
+
+`handler-meta :event` for an event exposes the event's authored interceptor **refs** (not resolved interceptor values), per [002 §Tooling and metadata](002-Frames.md#tooling-and-metadata). The two halves compose: a tool reads the authored refs off the event, then resolves each ref's source and metadata via `handler-meta :interceptor`.
+
+### Hot reload
+
+`:interceptor` is an ordinary registry kind under the §Hot-reload semantics contract: re-registering the same id replaces the descriptor; in-flight chains run to completion against the resolved (pre-replacement) entry; the re-registration emits `:rf.registry/handler-replaced`. Because event/frame chains store **refs** and resolve them at dispatch-chain assembly ([002 §Validation and resolution timing](002-Frames.md#validation-and-resolution-timing)), the next dispatch of an event whose chain references the re-registered id picks up the new descriptor — the event does not have to be re-registered just because an interceptor implementation changed. See the per-kind rules row for `:interceptor` in §Per-kind rules.
+
+### `->interceptor` is not the application authoring form
+
+The public application-authoring surface for interceptors is `reg-interceptor`, **not** `->interceptor` ([EP-0022](../docs/EP/EP-0022-registered-interceptors.md) §`->interceptor`). The implementation MAY retain an internal interceptor constructor (`->interceptor*`) for lowering descriptors into executable chain entries and for stamping the definition-site coord (§Source-coordinate capture); that constructor is framework-internal and never appears in a public event/frame chain. The retired `reg-event-ctx` names its replacement as the public `context -> context` primitive — the **interceptor** (authored with `reg-interceptor`), not a `->interceptor` call (per §The retired event-registration names; the error-message wording is owned by [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)).
+
 ## `:doc` is dev-warned when absent
 
 The `:doc` key SHOULD appear on every `reg-*` registration. The metadata-map shape itself does **not** structurally require it (the registration succeeds without `:doc`; the schema marks the key `{:optional true}` per [Spec-Schemas §`:rf/registration-metadata`](Spec-Schemas.md#rfregistration-metadata)). What the runtime does require, in dev builds only, is **visibility** — every registration that omits `:doc` MUST emit `:rf.warning/missing-doc` exactly once per `(kind, id)` pair so the omission surfaces in tooling without silently accumulating undocumented handlers.
@@ -440,7 +518,7 @@ Normative obligations:
 1. **Emission gate.** The warning is emitted on every `reg-*` call whose final metadata-map (after macro merge of source coords) carries no `:doc` key, or where `:doc` is `nil` or an empty string. The emission goes through the trace surface defined in [009-Instrumentation §The trace event model](009-Instrumentation.md#the-trace-event-model) and carries `:op-type :warning`.
 2. **Suppression.** The warning fires at most once per `(kind, id)` pair within a given runtime process. Re-registering the same id (hot-reload save→re-eval) does not re-fire the warning; a different id under the same kind does. The suppression cache lives alongside the existing one-shot warning caches (`:rf.warning/plain-fn-under-non-default-frame-once`); destruction-recreation of the frame resets it as the others do.
 3. **Production elision.** Per [009 §Production builds: zero overhead, zero code](009-Instrumentation.md#production-builds-zero-overhead-zero-code), the dev-only trace surface is gated on `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`). The closure compiler eliminates the gated branch in `:advanced` production builds. Production binaries carry no `:rf.warning/missing-doc` machinery.
-4. **Kind coverage.** Every kind in the §Registry model table (`:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:frame`, `:route`, `:head`, `:error-projector`, `:flow`, and the late-bound optional-artefact kinds `:resource` / `:mutation` / `:resource-scope`) is in scope, plus `reg-app-schema` (which writes to the schemas artefact's per-frame side-table, not the registrar — rf2-cq1ak). Programmatic re-registrations through the internal helper (`re-frame.core/-reg-event`) that bypasses the public macro path are out of scope — the warning fires from the macro layer, where the registration metadata is first composed.
+4. **Kind coverage.** Every kind in the §Registry model table (`:event`, `:sub`, `:fx`, `:cofx`, `:interceptor`, `:view`, `:frame`, `:route`, `:head`, `:error-projector`, `:flow`, and the late-bound optional-artefact kinds `:resource` / `:mutation` / `:resource-scope`) is in scope, plus `reg-app-schema` (which writes to the schemas artefact's per-frame side-table, not the registrar — rf2-cq1ak). Programmatic re-registrations through the internal helper (`re-frame.core/-reg-event`) that bypasses the public macro path are out of scope — the warning fires from the macro layer, where the registration metadata is first composed.
 5. **Trace envelope.** The trace event carries `:operation :rf.warning/missing-doc`, `:tags {:kind <kind> :id <id> :source-coords <captured-coords>}`. Per [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives) the emission site is the macro-expanded `reg-*` body in `registrar.cljc`. The recovery classification is `:ignored` — the registration completes normally; the warning is a diagnostic surface, not a gate.
 
 The dev nudge is deliberate: documented handlers are the difference between a registry an agent can navigate and a registry it cannot. Making the warning one-shot per `(kind, id)` keeps the dev stream readable while ensuring the omission is visible in 10x, re-frame-pair, and any other consumer of the trace bus.
@@ -466,7 +544,8 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 | Machine guards and actions are NOT registry kinds — they are machine-local declarations inside each `make-machine-handler` spec's `:guards` / `:actions` maps; hot-reload flows through the enclosing machine's `:event` slot | [§Canonical ownership boundaries](#canonical-ownership-boundaries), [§Registry model — the canonical `kind` keyword set](#registry-model--the-canonical-kind-keyword-set) |
 | `reg-cofx` is a value-returning supplier (`(fn [] v)` / `(fn [arg] v)`), graded ambient (default) or recordable (`:recordable? true`, optionally `:provided? true`); `:rf.cofx/requires` declares a handler's consumed coeffects; `inject-cofx` is removed (hard error `:rf.error/inject-cofx-removed`) — EP-0017 slice A | [§Coeffects](#coeffects--reg-cofx-value-returning-graded), [002 §Recordable coeffects](002-Frames.md#recordable-coeffects) |
 | One public event-registration form: `reg-event` (coeffects in, closed effects map out; two-arg handler). `reg-event-db` / `reg-event-fx` are removed; `reg-event-ctx` is demoted to a framework-internal `context -> context` primitive (interceptors own the public niche). Retired public names raise their naming hard errors (`:rf.error/reg-event-db-removed` / `-fx-removed` / `-ctx-removed`). No public `:event/kind` sub-kind. `:rf.cofx/requires` now lives uniformly on `reg-event` (no db-handler exception) — EP-0018 | [§The one event form](#the-one-event-form--coeffects-in-effects-out), [§The retired event-registration names](#the-retired-event-registration-names), [002 §The event handler contract](002-Frames.md#the-event-handler-contract) |
-| Per-kind metadata schemas — the metadata map is open, but each kind has a documented set of keys it cares about; the catalogue ships per-kind narrowed schemas (`:rf/event-handler-meta`, `:rf/sub-meta`, `:rf/fx-meta`, `:rf/cofx-meta`, `:rf/view-meta`, `:rf/machine-meta`, `:rf/flow-meta`, `:rf/app-schema-meta`, `:rf/head-meta`, `:rf/error-projector-meta`, and the route-shaped `:rf/route-metadata`), each `:merge`-composed with the base `:rf/registration-metadata` open shape | [Spec-Schemas §Per-kind refinements](Spec-Schemas.md#per-kind-refinements) |
+| Per-kind metadata schemas — the metadata map is open, but each kind has a documented set of keys it cares about; the catalogue ships per-kind narrowed schemas (`:rf/event-handler-meta`, `:rf/sub-meta`, `:rf/fx-meta`, `:rf/cofx-meta`, `:rf/interceptor-meta`, `:rf/view-meta`, `:rf/machine-meta`, `:rf/flow-meta`, `:rf/app-schema-meta`, `:rf/head-meta`, `:rf/error-projector-meta`, and the route-shaped `:rf/route-metadata`), each `:merge`-composed with the base `:rf/registration-metadata` open shape | [Spec-Schemas §Per-kind refinements](Spec-Schemas.md#per-kind-refinements) |
+| `:interceptor` is a first-class registrar kind; `reg-interceptor` (macro) / `reg-interceptor*` (plain fn) is the public application-authoring form (`(reg-interceptor id ?metadata descriptor)`, descriptor one of `{:before}` / `{:after}` / `{:before :after}` / `{:factory}`); interceptors capture source coords, carry metadata, and surface via `handler-meta :interceptor`; `->interceptor` is NOT the public authoring form (internal lowering constructor only). Event/frame chains carry refs (002) — EP-0022 | [§Interceptors — `reg-interceptor`](#interceptors--reg-interceptor-the-interceptor-registrar), [002 §Registered interceptors and the chain grammar](002-Frames.md#registered-interceptors-and-the-chain-grammar) |
 
 ## Cross-references
 
