@@ -55,10 +55,13 @@
       (is (str/includes? src ":db {:n 0}")))))
 
 (deftest reg-event-ctx-captures-form-source-cljs
-  (testing "rf2-xgfuy: CLJS reg-event-ctx stamps :rf.handler/source under DEBUG=true"
-    (rf/reg-event-ctx :rf2-xgfuy.cljs/event-ctx
-                      (fn [ctx] ctx))
+  (testing "rf2-xgfuy: CLJS reg-event with a full-context interceptor stamps :rf.handler/source under DEBUG=true"
+    (rf/reg-event :rf2-xgfuy.cljs/event-ctx
+                  {:interceptors [(rf/->interceptor
+                                   :id :rf2-xgfuy.cljs/ctx-probe
+                                   :before (fn [ctx] ctx))]}
+                  (fn [_ _] {}))
     (let [src (:rf.handler/source
                (rf/handler-meta :event :rf2-xgfuy.cljs/event-ctx))]
       (is (string? src))
-      (is (str/includes? src "reg-event-ctx")))))
+      (is (str/includes? src "reg-event")))))

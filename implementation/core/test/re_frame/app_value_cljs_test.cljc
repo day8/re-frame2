@@ -76,15 +76,13 @@
       (is (identical? (:handler d)
                       (:handler-fn (registrar/lookup :event :av/add)))
           "the lifted handler IS the registrar's :handler-fn")
-      ;; The Spec 001 metadata is preserved under :metadata, including the
-      ;; kind-specific :event/kind extra — those are part of the registration's
-      ;; DESCRIPTION, not framework book-keeping.
+      ;; The Spec 001 metadata is preserved under :metadata — part of the
+      ;; registration's DESCRIPTION, not framework book-keeping. EP-0018 dropped
+      ;; the `:event/kind` sub-tag, so no such extra is carried.
       (is (= "Add an item." (get-in d [:metadata :doc]))
           ":doc is preserved under :metadata")
-      (is (= :fx (get-in d [:metadata :event/kind]))
-          "the kind-specific :event/kind extra is preserved under :metadata
-           (reg-event shares the reg-event-fx path during the EP-0018 additive
-           window, so :event/kind is :fx)")
+      (is (not (contains? (:metadata d) :event/kind))
+          "no :event/kind sub-tag — EP-0018 collapsed the event family to one form")
       ;; The handler and source-coord slots are NOT double-carried in :metadata.
       (is (not (contains? (:metadata d) :handler-fn))
           ":handler-fn is removed from :metadata (carried under :handler)")
@@ -182,14 +180,14 @@
 (deftest projection-reflects-hot-reload-re-registration
   (testing "re-registering an id (hot-reload) is reflected by the next
             projection for free — the descriptor carries the NEW handler"
-    (let [h1 (fn handler-1 [db _] (assoc db :v 1))
-          h2 (fn handler-2 [db _] (assoc db :v 2))]
-      (rf/reg-event-db :av/reload {:doc "v1"} h1)
+    (let [h1 (fn handler-1 [{:keys [db]} _] {:db (assoc db :v 1)})
+          h2 (fn handler-2 [{:keys [db]} _] {:db (assoc db :v 2)})]
+      (rf/reg-event :av/reload {:doc "v1"} h1)
       (is (identical? h1 (get-in (av/app-value)
                                  [:registrations :event :av/reload :handler]))
           "the projection carries the first handler")
       ;; Hot-reload: re-register the same id with a different handler.
-      (rf/reg-event-db :av/reload {:doc "v2"} h2)
+      (rf/reg-event :av/reload {:doc "v2"} h2)
       (is (identical? h2 (get-in (av/app-value)
                                  [:registrations :event :av/reload :handler]))
           "the next projection carries the new handler — no invalidation step")

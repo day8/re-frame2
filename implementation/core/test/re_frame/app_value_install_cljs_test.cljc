@@ -60,7 +60,7 @@
     (clear-realm-app!)))
 
 ;; Handler stand-ins — value identity is what install! must seat + resolve.
-(defn- cart-add   [db _] (update db :items (fnil conj []) :x))
+(defn- cart-add   [{:keys [db]} _] {:db (update db :items (fnil conj []) :x)})
 (defn- cart-items [db _] (:items db))
 (defn- cart-remove [db _] (update db :items pop))
 (defn- auth-login [db _] (assoc db :user :alice))
@@ -235,7 +235,7 @@
             the SAME registrar lookup — install! is the explicit seating path,
             the ordinary sugar path is unchanged"
     ;; Sugar path: ordinary reg-event-db writes the default realm's registrar.
-    (rf/reg-event-db :sugar/inc {:doc "sugar"} cart-add)
+    (rf/reg-event :sugar/inc {:doc "sugar"} cart-add)
     ;; Explicit path: install! seats a descriptor into the SAME registrar.
     (rf/install! (rf/app {:id :a :modules
                           [(rf/module {:id :m :events {:installed/inc {:handler cart-add}}})]}))
@@ -272,7 +272,7 @@
     (rf/reg-frame :install/app {:doc "install app"})
     (rf/install! (rf/app {:id :a :modules
                           [(rf/module {:id :m
-                                       :events {:install/set {:handler (fn [db [_ v]] (assoc db :n v))}}
+                                       :events {:install/set {:handler (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)})}}
                                        :subs   {:install/read {:handler (fn [db _] (:n db))}}})]}))
     (rf/dispatch-sync [:install/set 42] {:frame :install/app})
     (is (= {:n 42} (rf/app-db-value :install/app))
@@ -333,7 +333,7 @@
     (rf/install! :rf.realm/default
                  (rf/app {:id :q4x5zz/app :modules
                           [(rf/module {:id :m
-                                       :events {:q4x5zz/ev {:handler (fn [db _] (assoc db :ran? true))}}})]}))
+                                       :events {:q4x5zz/ev {:handler (fn [{:keys [db]} _] {:db (assoc db :ran? true)})}}})]}))
     (rf/dispatch-sync [:q4x5zz/ev] {:frame :q4x5zz/app})
     (is (true? (:ran? (rf/app-db-value :q4x5zz/app)))
         "the installed handler ran while registered")
@@ -341,7 +341,7 @@
     (let [diff (rf/reinstall! :rf.realm/default
                               (rf/app {:id :q4x5zz/app :modules
                                        [(rf/module {:id :m
-                                                    :events {:q4x5zz/other {:handler (fn [db _] db)}}})]}))]
+                                                    :events {:q4x5zz/other {:handler (fn [_ _] {})}}})]}))]
       (is (= [[:event :q4x5zz/ev]] (:removed diff)) ":q4x5zz/ev is dropped"))
     ;; Structural proxy (what the existing test asserts): the slot is gone.
     (is (nil? (registrar/lookup :event :q4x5zz/ev))
@@ -389,7 +389,7 @@
     (let [ed (try (rf/reinstall! :rf.realm/default
                                  (rf/app {:id :fr0/app :modules
                                           [(rf/module {:id :m2
-                                                       :events {:fr0/ev {:handler (fn [db _] db)}}})]}))
+                                                       :events {:fr0/ev {:handler (fn [_ _] {})}}})]}))
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
       (is (= :rf.error/live-frame-removal-unsupported (:error/id ed))
@@ -421,7 +421,7 @@
     (let [diff (rf/reinstall! :rf.realm/default
                               (rf/app {:id :fr1/app :modules
                                        [(rf/module {:id :m2
-                                                    :events {:fr1/ev {:handler (fn [db _] db)}}})]}))]
+                                                    :events {:fr1/ev {:handler (fn [_ _] {})}}})]}))]
       ;; The :frame is :removed (its registrar slot dropped) — no live container
       ;; blocks it, so the reinstall applies the delta cleanly.
       (is (some #{[:frame :fr1/live]} (:removed diff))
@@ -474,7 +474,7 @@
         (let [ed (try (rf/reinstall! :rf.realm/default
                                      (rf/app {:id :cquy9u/app :modules
                                               [(rf/module {:id :m
-                                                           :events {ev-id {:handler (fn [db _] db)}}})]}))
+                                                           :events {ev-id {:handler (fn [_ _] {})}}})]}))
                       (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                         (ex-data e)))]
           (is (= :rf.error/unsupported-descriptor-kind (:error/id ed))
@@ -614,7 +614,7 @@
             projection (no prior install! stored an :app) — so a hot-reload of a
             sugar-booted app still computes a correct delta"
     ;; Pure-sugar boot: no install!, just reg-*.
-    (rf/reg-event-db :boot/a {:doc "a"} cart-add)
+    (rf/reg-event :boot/a {:doc "a"} cart-add)
     ;; Reinstall a new app value derived FROM the live projection: drop the
     ;; sugar-booted :boot/a event and add :boot/b, leaving every other projected
     ;; slot in place. Building from the projection (rather than a fresh `rf/app`)
@@ -707,31 +707,28 @@
       (is (contains? (registrar/lookup :event :xms/ev) :interceptors)
           ":event seated the kind-appropriate interceptor chain (real reg-* logic ran)"))))
 
-(deftest install-event-kind-tag-routes-through-reg-event
-  (testing "EP-0018 D (rf2-xhfxcs.4): a module event entry tagged {:event/kind
-            :fx} lowers through the ONE public `reg-event` runtime fn (the
-            install-descriptor! :event/kind read now routes the fx shape onto
-            `reg-event` rather than `reg-event-fx` directly). `reg-event` IS
-            reg-event-fx semantics, so this is behaviour-preserving — the entry
-            is still seated as a resolvable :event/kind :fx handler with the
-            interceptor chain (rf2-xmslkr × EP-0018 D)"
+(deftest install-event-descriptor-lowers-through-reg-event
+  (testing "EP-0018 Z (rf2-xhfxcs.14): a module event descriptor lowers straight
+            through the ONE public `reg-event` runtime fn — the former
+            `:event/kind` sub-discriminator is gone, so every module event seats
+            through the one shape with the unified `:rf/event-handler` wrapper
+            and the interceptor chain (rf2-xmslkr × EP-0018 Z)"
     (rf/install! (rf/app {:id :xms/evfx :modules
                           [(rf/module {:id :m
-                                       :events {:xms/evfx {:event/kind :fx
-                                                           :handler (fn [_cofx _ev] {})}}})]}))
+                                       :events {:xms/evfx {:handler (fn [_cofx _ev] {})}}})]}))
     (is (some? (registrar/handler :event :xms/evfx))
-        "the :event/kind :fx entry is seated as a resolvable event handler")
-    (is (= :fx (:event/kind (registrar/lookup :event :xms/evfx)))
-        "it registered under :event/kind :fx — byte-for-byte reg-event-fx semantics")
+        "the event descriptor is seated as a resolvable event handler")
+    (is (not (contains? (registrar/lookup :event :xms/evfx) :event/kind))
+        "no :event/kind sub-tag — EP-0018 dropped it")
     (is (contains? (registrar/lookup :event :xms/evfx) :interceptors)
         "it ran through reg-event (interceptor chain seated), not the flat path")))
 
-(deftest install-fx-descriptor-lowers-through-the-reg-event-runtime-fn
-  (testing "EP-0018 D (rf2-xhfxcs.4) ADVERSARIAL: an fx-shape event descriptor's
-            install lowering reaches the ONE public `reg-event` runtime fn — a
-            spy over `events/reg-event` records the call (delegating to the real
-            fn so the handler is genuinely seated), proving the install seam
-            routes through `reg-event`, not the flat fallback."
+(deftest install-event-descriptor-lowers-through-the-reg-event-runtime-fn
+  (testing "EP-0018 Z (rf2-xhfxcs.14) ADVERSARIAL: an event descriptor's install
+            lowering reaches the ONE public `reg-event` runtime fn — a spy over
+            `events/reg-event` records the call (delegating to the real fn so the
+            handler is genuinely seated), proving the install seam routes through
+            `reg-event`, not the flat fallback."
     (let [calls          (atom 0)
           real-reg-event events/reg-event]
       (with-redefs [events/reg-event (fn [id & args]
@@ -739,39 +736,33 @@
                                        (apply real-reg-event id args))]
         (rf/install! (rf/app {:id :xhfxcs/d :modules
                               [(rf/module {:id :m
-                                           :events {:xhfxcs/ev {:event/kind :fx
-                                                                :handler (fn [{:keys [db]} _] {:db db})}}})]})))
+                                           :events {:xhfxcs/ev {:handler (fn [{:keys [db]} _] {:db db})}}})]})))
       (is (= 1 @calls)
-          "the install seam lowered the fx descriptor through events/reg-event")
+          "the install seam lowered the event descriptor through events/reg-event")
       ;; The spy delegated to the real `reg-event`, so the handler is genuinely
       ;; seated + dispatch-ready (behaviour-preserving end-to-end).
       (is (some? (registrar/handler :event :xhfxcs/ev))
           "the descriptor is a real, resolvable event registration after lowering"))))
 
-(deftest install-fx-descriptor-seats-reg-event-fx-semantics-not-db
-  (testing "EP-0018 D (rf2-xhfxcs.4) ADVERSARIAL (behavioural discriminator): an
-            fx-shape module event descriptor lowered through `reg-event` seats
-            byte-for-byte `reg-event-fx` semantics — `:event/kind :fx` and the
-            `:rf/fx-handler` framework wrapper — NOT the `:rf/db-handler` /
-            `:event/kind :db` shape `reg-event-db` would seat. This is the
-            runtime-independent counterpart of the spy test: a regression that
-            routes the fx descriptor back through `reg-event-db` would flip BOTH
-            the sub-kind tag and the wrapper id and fail here, and the handler is
-            proven dispatch-ready with the cofx-in / effects-out contract."
-    (rf/reg-frame :xhfxcs.d/app {:doc "fx-lowering app"})
+(deftest install-event-descriptor-seats-reg-event-semantics
+  (testing "EP-0018 Z (rf2-xhfxcs.14) ADVERSARIAL (behavioural discriminator): a
+            module event descriptor lowered through `reg-event` seats the one
+            `:rf/event-handler` framework wrapper and NO `:event/kind` sub-tag —
+            the coeffects-in / closed-effects-map-out contract. A regression that
+            re-introduced a per-kind wrapper or the `:event/kind` tag would fail
+            here, and the handler is proven dispatch-ready end-to-end."
+    (rf/reg-frame :xhfxcs.d/app {:doc "event-lowering app"})
     (rf/install! (rf/app {:id :xhfxcs.d/app :modules
                           [(rf/module {:id :m
                                        :events {:xhfxcs.d/set
-                                                {:event/kind :fx
-                                                 :handler (fn [{:keys [db]} [_ v]]
+                                                {:handler (fn [{:keys [db]} [_ v]]
                                                             {:db (assoc db :n v)})}}})]}))
     (let [meta (registrar/lookup :event :xhfxcs.d/set)]
-      (is (= :fx (:event/kind meta))
-          "seated under :event/kind :fx (reg-event = reg-event-fx semantics), not :db")
-      ;; The framework wrapper interceptor is the per-kind tell: reg-event/-fx
-      ;; seat :rf/fx-handler; reg-event-db seats :rf/db-handler.
-      (is (some #(= :rf/fx-handler (:id %)) (:interceptors meta))
-          "the :rf/fx-handler wrapper is seated — the install path used the fx shape, not :rf/db-handler"))
+      (is (not (contains? meta :event/kind))
+          "no :event/kind sub-tag — EP-0018 dropped it")
+      ;; The framework wrapper interceptor is the one unified `:rf/event-handler`.
+      (is (some #(= :rf/event-handler (:id %)) (:interceptors meta))
+          "the one :rf/event-handler wrapper is seated"))
     ;; End-to-end: the seated handler dispatches with fx-shape semantics
     ;; (coeffects-in, effects-out — `{:db …}`), confirming the lowering produced
     ;; a working reg-event registration, not just a tagged slot.
@@ -887,8 +878,7 @@
                              [(rf/module
                                 {:id :m
                                  :frames {:iso/f {:doc "shared id"}}
-                                 :events {:iso/e {:event/kind :fx
-                                                  :rf.cofx/requires [:iso/c]
+                                 :events {:iso/e {:rf.cofx/requires [:iso/c]
                                                   :handler (fn [{:keys [db iso/c]} _]
                                                              {:db (assoc db :tag tag :seen-cofx c)
                                                               :fx [[:iso/fx tag]]})}}
@@ -1034,7 +1024,7 @@
     (rf/install! (rf/app {:id :xms/frame-prog :modules
                           [(rf/module {:id :m :frames {:xms/frame {:doc "constructed frame"}}})
                            (rf/module {:id :m2
-                                       :events {:xms/frame-set {:handler (fn [db [_ v]] (assoc db :n v))}}
+                                       :events {:xms/frame-set {:handler (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)})}}
                                        :subs   {:xms/frame-read {:handler (fn [db _] (:n db))}}})]}))
     (rf/dispatch-sync [:xms/frame-set 7] {:frame :xms/frame})
     (is (= {:n 7} (rf/app-db-value :xms/frame))
@@ -1180,7 +1170,7 @@
             clear diffs against the realm's STORED :app only, so the load-order
             sugar program is never swept."
     ;; Sugar registration into the default realm (NOT an installed app value).
-    (rf/reg-event-db :coexist/sugar {:doc "sugar"} cart-add)
+    (rf/reg-event :coexist/sugar {:doc "sugar"} cart-add)
     ;; install! app1 (its own event), then install! app2 dropping app1's event.
     (rf/install! (rf/app {:id :coexist/app1 :modules
                           [(rf/module {:id :m :events {:coexist/a1 {:handler cart-add}}})]}))

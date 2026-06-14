@@ -82,10 +82,13 @@
           ":rf.handler/source should include the effect-map keyword"))))
 
 (deftest reg-event-ctx-captures-form-source
-  (testing "rf2-xgfuy: reg-event-ctx stamps :rf.handler/source on JVM"
-    (rf/reg-event-ctx :rf2-xgfuy/event-ctx-sample
-                      (fn [ctx] ctx))
-    (assert-source :event :rf2-xgfuy/event-ctx-sample "reg-event-ctx")))
+  (testing "rf2-xgfuy: reg-event with a full-context interceptor stamps :rf.handler/source on JVM"
+    (rf/reg-event :rf2-xgfuy/event-ctx-sample
+                  {:interceptors [(rf/->interceptor
+                                   :id :rf2-xgfuy/ctx-probe
+                                   :before (fn [ctx] ctx))]}
+                  (fn [_ _] {}))
+    (assert-source :event :rf2-xgfuy/event-ctx-sample "reg-event")))
 
 ;; ---- middle slot: metadata-map / metadata :interceptors -------------------
 ;;

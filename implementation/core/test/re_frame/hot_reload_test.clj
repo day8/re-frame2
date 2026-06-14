@@ -67,7 +67,7 @@
           ;; continue. The handler then finishes against its captured fn.
           enter-latch   (CountDownLatch. 1)
           proceed-latch (CountDownLatch. 1)
-          v1-fn (fn [db [_ tag]]
+          v1-fn (fn [{:keys [db]} [_ tag]]
                   (swap! observations conj [:v1-start tag])
                   (.countDown enter-latch)
                   ;; Wait for the test thread to perform the re-registration.
@@ -76,11 +76,11 @@
                   ;; registry. The interceptor closure has v1-fn captured —
                   ;; the body keeps running v1, proving non-destructive.
                   (swap! observations conj [:v1-end tag])
-                  (assoc db :ran-version :v1))
-          v2-fn (fn [db [_ tag]]
+                  {:db (assoc db :ran-version :v1)})
+          v2-fn (fn [{:keys [db]} [_ tag]]
                   (swap! observations conj [:v2 tag])
-                  (assoc db :ran-version :v2))]
-      (rf/reg-event-db :step v1-fn)
+                  {:db (assoc db :ran-version :v2)})]
+      (rf/reg-event :step v1-fn)
       ;; Run the dispatch on a worker thread so the test thread can
       ;; re-register while the handler is parked at proceed-latch.
       (let [drain-thread
@@ -93,7 +93,7 @@
         ;; Mid-flight re-registration. After this swap, the registry's
         ;; :step entry is v2; but the running handler's interceptor
         ;; closure still points at v1.
-        (rf/reg-event-db :step v2-fn)
+        (rf/reg-event :step v2-fn)
         ;; Release the handler so it can finish its captured body.
         (.countDown proceed-latch)
         (.join drain-thread 5000))
@@ -117,7 +117,7 @@
     ;; the handler mutates its own registry slot during its run and the
     ;; rest of the same handler invocation must continue with the old fn.
     (let [observations (atom [])
-          v1-fn (fn v1 [db [_ n]]
+          v1-fn (fn v1 [{:keys [db]} [_ n]]
                   (swap! observations conj [:v1-pre n])
                   ;; Mid-handler self re-registration.
                   (rf/reg-event :tick
@@ -126,8 +126,8 @@
                       {:db (assoc db :seen-version :v2)}))
                   ;; The remainder of THIS invocation runs in the v1 closure.
                   (swap! observations conj [:v1-post n])
-                  (assoc db :seen-version :v1))]
-      (rf/reg-event-db :tick v1-fn)
+                  {:db (assoc db :seen-version :v1)})]
+      (rf/reg-event :tick v1-fn)
       (rf/dispatch-sync [:tick 1] {:frame :rf/default})
       (is (= [[:v1-pre 1] [:v1-post 1]] @observations)
           "handler's body completes against its captured v1 fn")

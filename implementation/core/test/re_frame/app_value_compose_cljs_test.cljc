@@ -40,7 +40,7 @@
     {:adapter plain-atom/adapter}))
 
 ;; Two handler stand-ins — value identity is what the descriptor must carry.
-(defn- cart-add  [db _] (update db :items (fnil conj []) :x))
+(defn- cart-add  [{:keys [db]} _] {:db (update db :items (fnil conj []) :x)})
 (defn- cart-items [db _] (:items db))
 (defn- auth-login [db _] (assoc db :user :alice))
 
@@ -375,7 +375,7 @@
             projection's (one app-value vocabulary, two origins) — kind / id /
             handler / metadata are the same keys, with the only addition being
             :owner (which the projection never carries)"
-    (rf/reg-event-db :av/proj {:doc "projected"} cart-add)
+    (rf/reg-event :av/proj {:doc "projected"} cart-add)
     (let [proj-d (get-in (av/app-value) [:registrations :event :av/proj])
           cons-d (get-in (rf/app {:id :a :modules
                                   [(rf/module {:id :m :events

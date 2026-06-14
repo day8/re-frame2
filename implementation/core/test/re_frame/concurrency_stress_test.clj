@@ -300,9 +300,9 @@
     ;; Two structurally-identical handler bodies. Either may be active
     ;; when an event is processed; both produce the same effect so the
     ;; final count is deterministic.
-    (let [v1 (fn [db _] (update db :n (fnil inc 0)))
-          v2 (fn [db _] (update db :n (fnil inc 0)))]
-      (rf/reg-event-db :rgj.reload/tick {:frame :rgj.reload/main} v1)
+    (let [v1 (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))})
+          v2 (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))})]
+      (rf/reg-event :rgj.reload/tick {:frame :rgj.reload/main} v1)
 
       (let [stop    (atom false)
             ;; Hot-reload churn thread: re-register :rgj.reload/tick on
@@ -316,9 +316,9 @@
                 (let [toggle (atom false)]
                   (while (not @stop)
                     (let [body (if (swap! toggle not) v2 v1)]
-                      (rf/reg-event-db :rgj.reload/tick
-                                       {:frame :rgj.reload/main}
-                                       body))
+                      (rf/reg-event :rgj.reload/tick
+                                    {:frame :rgj.reload/main}
+                                    body))
                     (Thread/yield)))))]
         (.start reload-thread)
         ;; Dispatch the stress stream. Each dispatch-sync settles before

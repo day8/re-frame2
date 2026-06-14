@@ -349,8 +349,8 @@
 (deftest sub-topology-glitch-free-diamond
   (testing "diamond: app-db -> {a,b} -> c — c never sees a half-propagated state"
     (rf/reg-event :diamond/init (fn [{:keys [db]} _] {:db {:x 1 :y 2}}))
-    (rf/reg-event-db :diamond/swap (fn [{:keys [x y] :as db} _]
-                                     (assoc db :x y :y x)))
+    (rf/reg-event :diamond/swap (fn [{{:keys [x y] :as db} :db} _]
+                                  {:db (assoc db :x y :y x)}))
     (rf/reg-sub :diamond/a (fn [db _] (:x db)))
     (rf/reg-sub :diamond/b (fn [db _] (:y db)))
     (rf/reg-sub :diamond/c

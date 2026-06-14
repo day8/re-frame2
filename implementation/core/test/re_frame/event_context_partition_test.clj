@@ -69,8 +69,11 @@
     (rf/reg-event :ctx/seed (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:ctx/seed {:user/id 42}] {:frame :ctx/db-is-app-db})
     (let [captured (atom nil)]
-      (rf/reg-event-ctx :ctx/capture
-        (fn [ctx] (reset! captured (:coeffects ctx)) ctx))
+      (rf/reg-event :ctx/capture
+        {:interceptors [(rf/->interceptor
+                         :id :ctx/capture-probe
+                         :before (fn [ctx] (reset! captured (:coeffects ctx)) ctx))]}
+        (fn [_ _] {}))
       (rf/dispatch-sync [:ctx/capture] {:frame :ctx/db-is-app-db})
       (let [cofx @captured]
         (is (= {:user/id 42} (:db cofx))
@@ -86,8 +89,11 @@
   (testing ":rf.db/runtime and :rf.frame/id are threaded into the event context"
     (rf/reg-frame :ctx/partitions {:doc "ctx"})
     (let [captured (atom nil)]
-      (rf/reg-event-ctx :ctx/capture
-        (fn [ctx] (reset! captured (:coeffects ctx)) ctx))
+      (rf/reg-event :ctx/capture
+        {:interceptors [(rf/->interceptor
+                         :id :ctx/capture-probe
+                         :before (fn [ctx] (reset! captured (:coeffects ctx)) ctx))]}
+        (fn [_ _] {}))
       (rf/dispatch-sync [:ctx/capture] {:frame :ctx/partitions})
       (let [cofx @captured]
         (is (contains? cofx :rf.db/runtime)
@@ -367,38 +373,52 @@
         (is (true? (:downstream? db))
             "the drain survived the in-band rejection — downstream event still ran")))))
 
-;; ---- reg-event-ctx final-effects policing ---------------------------------
+;; ---- full-context (interceptor) final-effects policing --------------------
+;;
+;; EP-0018 (rf2-xhfxcs.14): full-context work is now an INTERCEPTOR `:before`
+;; on a `reg-event` registration (the removed `reg-event-ctx` form's
+;; `context -> context` shape transplants verbatim). These pin that effects a
+;; full-context interceptor writes onto the context are policed at the final
+;; boundary exactly as a handler-returned effects map would be.
 
-(deftest reg-event-ctx-malformed-fx-is-policed
-  (testing "a reg-event-ctx handler whose returned context carries a non-sequential :fx is policed at the boundary"
+(deftest full-context-interceptor-malformed-fx-is-policed
+  (testing "a full-context interceptor whose context carries a non-sequential :fx is policed at the boundary"
     (rf/reg-frame :ctx/ctx-bad-fx {:doc "ctx"})
     (let [recorded (record-traces! ::ctx-bad-fx)]
-      (rf/reg-event-ctx :ctx/ctx-writes
-        (fn [ctx]
-          (-> ctx
-              (interceptor/assoc-effect :db (assoc (interceptor/get-coeffect ctx :db) :committed? true))
-              (interceptor/assoc-effect :fx {:dispatch [:nope]}))))
+      (rf/reg-event :ctx/ctx-writes
+        {:interceptors [(rf/->interceptor
+                         :id :ctx/ctx-writes-probe
+                         :before
+                         (fn [ctx]
+                           (-> ctx
+                               (interceptor/assoc-effect :db (assoc (interceptor/get-coeffect ctx :db) :committed? true))
+                               (interceptor/assoc-effect :fx {:dispatch [:nope]}))))]}
+        (fn [_ _] {}))
       (rf/dispatch-sync [:ctx/ctx-writes] {:frame :ctx/ctx-bad-fx})
       (let [errs (error-events recorded :rf.error/effect-map-shape)]
         (is (= 1 (count errs))
-            "the reg-event-ctx malformed :fx is policed — reg-event-fx is not the only path that gets shape policing")
+            "the full-context interceptor's malformed :fx is policed — the reg-event handler return is not the only path that gets shape policing")
         (is (= :fx (:offending-key (:tags (first errs))))))
       (is (true? (:committed? (rf/app-db-value :ctx/ctx-bad-fx)))
           "the :db effect still committed; only the bad :fx was dropped"))))
 
-(deftest reg-event-ctx-foreign-key-is-policed
-  (testing "a reg-event-ctx handler whose returned context carries a foreign top-level effect key is policed at the boundary"
+(deftest full-context-interceptor-foreign-key-is-policed
+  (testing "a full-context interceptor whose context carries a foreign top-level effect key is policed at the boundary"
     (rf/reg-frame :ctx/ctx-foreign {:doc "ctx"})
     (let [recorded (record-traces! ::ctx-foreign)]
-      (rf/reg-event-ctx :ctx/ctx-foreign-writes
-        (fn [ctx]
-          (-> ctx
-              (interceptor/assoc-effect :db (assoc (interceptor/get-coeffect ctx :db) :ok? true))
-              (interceptor/assoc-effect :dispatch [:legacy/event]))))
+      (rf/reg-event :ctx/ctx-foreign-writes
+        {:interceptors [(rf/->interceptor
+                         :id :ctx/ctx-foreign-writes-probe
+                         :before
+                         (fn [ctx]
+                           (-> ctx
+                               (interceptor/assoc-effect :db (assoc (interceptor/get-coeffect ctx :db) :ok? true))
+                               (interceptor/assoc-effect :dispatch [:legacy/event]))))]}
+        (fn [_ _] {}))
       (rf/dispatch-sync [:ctx/ctx-foreign-writes] {:frame :ctx/ctx-foreign})
       (let [errs (error-events recorded :rf.error/effect-map-shape)]
         (is (= 1 (count errs))
-            "the reg-event-ctx foreign :dispatch key is policed")
+            "the full-context interceptor's foreign :dispatch key is policed")
         (is (= :dispatch (:offending-key (:tags (first errs))))))
       (is (true? (:ok? (rf/app-db-value :ctx/ctx-foreign)))
           "the legal :db still committed; the foreign top-level key was dropped"))))

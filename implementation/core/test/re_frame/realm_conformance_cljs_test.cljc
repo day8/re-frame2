@@ -87,8 +87,8 @@
 
 ;; Handler stand-ins — value identity is what install! seats + the per-realm
 ;; query surface resolves.
-(defn- add-a    [db _] (assoc db :who :a))
-(defn- add-b    [db _] (assoc db :who :b))
+(defn- add-a    [{:keys [db]} _] {:db (assoc db :who :a)})
+(defn- add-b    [{:keys [db]} _] {:db (assoc db :who :b)})
 (defn- read-who [db _] (:who db))
 
 ;; A second, synthetic adapter SELECTION — value identity is all the
@@ -384,7 +384,7 @@
             process-global registrar — the EP-0013 hermetic-test acceptance
             (install exactly the program you need without clearing a global)"
     ;; Seed the default realm via the ordinary sugar path.
-    (rf/reg-event-db :default/seed {:doc "seed"} add-a)
+    (rf/reg-event :default/seed {:doc "seed"} add-a)
     (let [before (registrar/registrations :event)
           r      (rf/realm {:id :conf/hermetic})]
       (rf/install! r (rf/app {:id :h :modules
@@ -571,9 +571,8 @@
                        :frames {:child/f {:doc "x"}}
                        ;; :parent emits a child :dispatch (NO explicit realm) — it
                        ;; must inherit the parent's realm so :child resolves HERE.
-                       :events {:parent {:event/kind :fx
-                                         :handler (fn [_ _] {:fx [[:dispatch [:child]]]})}
-                                :child  {:handler (fn [db _] (assoc db :child-ran :child/r))}}})]}))
+                       :events {:parent {:handler (fn [_ _] {:fx [[:dispatch [:child]]]})}
+                                :child  {:handler (fn [{:keys [db]} _] {:db (assoc db :child-ran :child/r)})}}})]}))
         (rf/dispatch-sync [:parent] {:realm :child/r :frame :child/f})
         ;; The child event ran IN the constructed realm (its handler wrote app-db).
         (is (= :child/r (frame/call-with-realm :child/r

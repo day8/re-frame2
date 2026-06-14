@@ -920,33 +920,36 @@
   {:id :test/noop :before identity :after identity})
 
 (defn assert-reg-event-meta-interceptors-threads-the-chain
-  "reg-event-{db,fx,ctx} thread the metadata-map `:interceptors` superset
-  chain into the registrar's effective chain — observed under the installed
-  adapter (rf2-bpmszk, the rf2-iczn3 resolution; supersedes rf2-bbea /
-  rf2-ta4b5). Pins the registrar + trace tier compose with the React
-  adapter's late-bind hook stack."
+  "reg-event threads the metadata-map `:interceptors` superset chain into the
+  registrar's effective chain — observed under the installed adapter
+  (rf2-bpmszk, the rf2-iczn3 resolution; supersedes rf2-bbea / rf2-ta4b5).
+  EP-0018 collapsed the db/fx/ctx triple to ONE form whose handler wraps under
+  the single `:rf/event-handler` interceptor id, and full-context work is an
+  interceptor `:before`. Pins the registrar + trace tier compose with the
+  React adapter's late-bind hook stack."
   [{:keys [substrate-kw name]}]
   (let [db-id  (mint-kw substrate-kw "events-db-super")
         fx-id  (mint-kw substrate-kw "events-fx-super")
         ctx-id (mint-kw substrate-kw "events-ctx-super")]
-    (testing (str name " — reg-event-db metadata-map :interceptors threads the chain")
+    (testing (str name " — reg-event metadata-map :interceptors threads the chain (db-shaped handler)")
       (rf/reg-event db-id
         {:doc "Superset form." :interceptors [noop-icpt]}
         (fn [{:keys [db]} _] {:db db}))
       (let [meta (rf/handler-meta :event db-id)]
         (is (= "Superset form." (:doc meta)))
-        (is (= [:test/noop :rf/db-handler] (mapv :id (:interceptors meta))))))
-    (testing (str name " — reg-event-fx metadata-map :interceptors threads the chain")
+        (is (= [:test/noop :rf/event-handler] (mapv :id (:interceptors meta))))))
+    (testing (str name " — reg-event metadata-map :interceptors threads the chain (fx-shaped handler)")
       (rf/reg-event fx-id
         {:interceptors [noop-icpt]}
         (fn [_ _] {:db {}}))
-      (is (= [:test/noop :rf/fx-handler]
+      (is (= [:test/noop :rf/event-handler]
              (mapv :id (:interceptors (rf/handler-meta :event fx-id))))))
-    (testing (str name " — reg-event-ctx metadata-map :interceptors threads the chain")
-      (rf/reg-event-ctx ctx-id
-        {:interceptors [noop-icpt]}
-        (fn [ctx] ctx))
-      (is (= [:test/noop :rf/ctx-handler]
+    (testing (str name " — reg-event metadata-map :interceptors threads the chain (full-context interceptor)")
+      (rf/reg-event ctx-id
+        {:interceptors [noop-icpt
+                        (rf/->interceptor :id :test/ctx-probe :before identity)]}
+        (fn [_ _] {}))
+      (is (= [:test/noop :test/ctx-probe :rf/event-handler]
              (mapv :id (:interceptors (rf/handler-meta :event ctx-id))))))))
 
 (defn assert-reg-event-positional-vector-rejected
