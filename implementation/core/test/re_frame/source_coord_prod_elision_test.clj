@@ -127,9 +127,9 @@
             programmatic registrations carry no `:ns` / `:line` /
             `:file` on `handler-meta`."
     (with-redefs [interop/debug-enabled? false]
-      (let [reg-fn (requiring-resolve 're-frame.events/reg-event-db)]
+      (let [reg-fn (requiring-resolve 're-frame.events/reg-event)]
         (reg-fn :rf2-3un2g/programmatic
-                (fn [_db _]
+                (fn [_cofx _]
                   (throw (ex-info "boom" {})))))
       (let [seen (atom nil)]
         (rf/register-error-listener!

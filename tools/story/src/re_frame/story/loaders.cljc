@@ -371,10 +371,10 @@
 
   The event handler signature:
 
-      (rf/reg-event-db :my.fixture/ready?
-        (fn [db _]
-          (assoc db :rf.story/loaders-complete?
-                 (boolean (:loaded? db)))))
+      (rf/reg-event :my.fixture/ready?
+        (fn [{:keys [db]} _]
+          {:db (assoc db :rf.story/loaders-complete?
+                      (boolean (:loaded? db)))}))
 
   Authors set the slot to `true` when their custom condition is
   satisfied. The Story runtime polls by dispatching then reading."

@@ -190,7 +190,7 @@
 
   Internal usage (no longer a public `rf/` surface):
 
-      (rf/reg-event-fx :auth/login
+      (rf/reg-event :auth/login
         {:interceptors [(privacy/redact-interceptor [[:password] [:token]])]}
         (fn [{:keys [db]} [_ {:keys [username password token]}]]
           ;; password + token visible HERE (unredacted via :event coeffect)

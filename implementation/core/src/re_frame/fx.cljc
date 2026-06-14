@@ -75,7 +75,7 @@
           (js/window.toast level message)))
 
       ;; Consumed from an event handler:
-      (rf/reg-event-fx :user/login-failed
+      (rf/reg-event :user/login-failed
         (fn [_ [_ reason]]
           {:fx [[:my/notify {:level :error :message (str \"Login failed: \" reason)}]]}))
 

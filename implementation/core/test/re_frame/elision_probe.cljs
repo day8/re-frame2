@@ -91,7 +91,7 @@
 ;; ---- registrar trace emit -------------------------------------------------
 
 (defn ^:export touch-registrar! []
-  ;; reg-event-db / dispatch-sync exercise registrar/register! and the
+  ;; reg-event / dispatch-sync exercise registrar/register! and the
   ;; router/events/fx trace emit sites in one shot.
   (rf/reg-event :probe/init  (fn [{:keys [db]} _ev] {:db {:counter 0}}))
   (rf/reg-event :probe/inc   (fn [{:keys [db]} _ev] {:db (update db :counter inc)}))
@@ -501,19 +501,19 @@
 ;; kind id)` carries no `:doc` in production.
 ;;
 ;; The DCE of the dev-only `:doc` STRING bytes from the bundle rides the
-;; existing `re-frame.events/merge-form-source` gate: a `reg-event-db` call
+;; existing `re-frame.events/merge-form-source` gate: a `reg-event` call
 ;; with a `:doc` carries the WHOLE form (including the `:doc` string) into
 ;; `:rf.handler/source` under `(if interop/debug-enabled? ~src-string nil)`,
 ;; so under `goog.DEBUG=false` the macro-emitted gate DCEs the form-source
 ;; literal — including its `:doc "…"` bytes — entirely. The distinctive
-;; sentinel below is minted ONLY inside a `reg-event-db` form-source so the
+;; sentinel below is minted ONLY inside a `reg-event` form-source so the
 ;; control build (DEBUG=true) contains it (via the captured form-source) and
 ;; the production build (DEBUG=false) must DCE it.
 
 (defn ^:export touch-doc-metadata! []
   ;; The `:doc` value carries a distinctive byte sequence
   ;; (`rf2-9wwkcm-doc-elision-sentinel`) so a global grep is unambiguous.
-  ;; Under DEBUG=true the reg-event-db macro captures the whole form's
+  ;; Under DEBUG=true the reg-event macro captures the whole form's
   ;; `pr-str` into `:rf.handler/source`, so the sentinel lands in the
   ;; control bundle; under DEBUG=false the form-source gate DCEs it.
   (rf/reg-event :probe/doc-event

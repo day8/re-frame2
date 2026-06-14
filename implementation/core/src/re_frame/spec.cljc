@@ -24,7 +24,7 @@
   (ns my-app.api
     (:require [re-frame.core :as rf]))
 
-  (rf/reg-event-fx :api/response-received
+  (rf/reg-event :api/response-received
     {:schema ApiResponseSchema
      :interceptors [rf/validate-at-boundary-interceptor]}
     (fn [_ [_ payload]] ...))
