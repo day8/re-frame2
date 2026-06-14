@@ -1,0 +1,30 @@
+;; EP-0018 Slice E — v1 -> v2 `reg-event` migration tooling.
+;;
+;; Standalone, self-contained artefact: scanner + conservative codemod for the
+;; `reg-event-db` / `reg-event-fx` / `reg-event-ctx` collapse onto the one
+;; public `reg-event` form (EP-0018; D7). It is deliberately decoupled from the
+;; `implementation/` classpath — the codemod operates on SOURCE TEXT via
+;; rewrite-clj (zippers over the node tree, formatting + comments preserved) and
+;; never loads, requires, or executes re-frame2 itself. That keeps it runnable
+;; against any v1 corpus on a bare JVM, with no re-frame2 build in the loop.
+;;
+;; Programmatic entry points (the atomic-flip slice calls these corpus-wide):
+;;   (re-frame.migration.reg-event-codemod/scan-file  path)   -> [finding ...]
+;;   (re-frame.migration.reg-event-codemod/scan-paths  paths) -> [finding ...]
+;;   (re-frame.migration.reg-event-codemod/rewrite-string s)  -> {:source .. :findings ..}
+;;   (re-frame.migration.reg-event-codemod/rewrite-file! path opts) -> {:changed? .. :findings ..}
+{:paths ["src"]
+ :deps  {org.clojure/clojure {:mvn/version "1.12.4"}
+         rewrite-clj/rewrite-clj {:mvn/version "1.1.49"}}
+ :aliases
+ {;; `clojure -M:test` — the migration tests over representative v1 snippets.
+  ;; Plain cognitect test-runner (NOT re-frame2 test-quiet) so the artefact
+  ;; stays self-contained and the test JVM never pulls the implementation tree.
+  :test {:extra-paths ["test"]
+         :extra-deps  {io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "cognitect.test-runner"]}
+
+  ;; `clojure -M:run <path> ...` — scan a file set and print findings.
+  ;; `clojure -M:run --rewrite <path> ...` — apply the conservative codemod.
+  :run {:main-opts ["-m" "re-frame.migration.reg-event-codemod"]}}}
