@@ -28,6 +28,7 @@
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.recordable :as recordable]
             [re-frame.registrar :as registrar]
             [re-frame.router :as router]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -207,6 +208,139 @@
                       :rf.cofx)]
         (is (= 1 (:todo/id cofx)) "the supplied fact rides through")
         (is (number? (:rf/time-ms cofx)) "the missing :rf/time-ms is filled")))))
+
+;; ===========================================================================
+;; Structural-EDN-always recordable cofx-value validation (rf2-rmroo4 slice A)
+;; ===========================================================================
+;;
+;; EP-0017:386 — a recordable coeffect value rides the durable causal record
+;; (epoch ledger, replay, SSR payload, Xray) and MUST be ordinary EDN data. A
+;; host handle (DOM node, Promise, function, atom, Date, JS / Java object)
+;; supplied as a recordable coeffect breaks that contract silently. Slice A
+;; closes the supplied-value gap at the dispatch boundary, AFTER the map-shape
+;; check and BEFORE the per-supplier `:schema` validation. Reuses
+;; `:rf.error/cofx-value-invalid` with reason `:non-edn-recordable-value`.
+
+(deftest recordable-predicate-accepts-edn-rejects-host-handles
+  (testing "recordable-edn-value? accepts the full EDN data domain"
+    (doseq [v [nil true false 0 1 -7 3.14 1/3 1000000000000000000000N
+               "s" :k :ns/k 'sym \c
+               #uuid "00000000-0000-0000-0000-000000000000"
+               #inst "2026-06-14T00:00:00.000Z"
+               [] [1 2 3] '(1 2) #{1 2} {:a 1 :b [2 {:c 3}]}
+               {:nested {:deep [#{:a :b} {:k "v"}]}}]]
+      (is (recordable/recordable-edn-value? v)
+          (str (pr-str v) " is recordable EDN data"))))
+  (testing "recordable-edn-value? REJECTS non-data host handles"
+    (doseq [v [(fn [] 1)                       ;; a function
+               +                               ;; a var-bound fn
+               (atom 1)                         ;; an atom (IDeref)
+               (java.util.regex.Pattern/compile "x") ;; a host object
+               (Object.)                        ;; a bare host object
+               (java.io.StringWriter.)]]        ;; a host writer
+      (is (not (recordable/recordable-edn-value? v))
+          (str (type v) " is NOT recordable EDN data"))))
+  (testing "a host handle BURIED in a collection is rejected (deep walk)"
+    (is (not (recordable/recordable-edn-value? {:ok 1 :bad [:a (atom 2)]}))
+        "an atom nested in a vector under a map key is found")
+    (is (not (recordable/recordable-edn-value? #{:a (fn [] 1)}))
+        "a function inside a set is found")
+    (is (not (recordable/recordable-edn-value? {(Object.) :v}))
+        "a host-object MAP KEY is found")))
+
+(deftest explain-non-recordable-reports-path-and-type
+  (testing "explain-non-recordable returns the failing path + safe type"
+    (let [bad (recordable/explain-non-recordable {:ok 1 :nope {:deep (atom 9)}})]
+      (is (some? bad) "a descriptor is returned for a non-recordable value")
+      (is (= [:nope :deep] (:path bad)) "the path locates the bad leaf")
+      (is (string? (:bad-type bad)) "a printable host-type string is reported")
+      (is (re-find #"(?i)atom" (:bad-type bad))
+          "the type names the atom host class")))
+  (testing "explain-non-recordable is nil for clean EDN"
+    (is (nil? (recordable/explain-non-recordable {:a [1 2 {:b :c}]}))))
+  (testing "safe-preview round-trips EDN and refuses host handles"
+    (is (= "{:a 1}" (recordable/safe-preview {:a 1}))
+        "a preview of EDN data is its pr-str")
+    (is (nil? (recordable/safe-preview (atom 1)))
+        "no preview for a non-recordable value (never the raw host object)")))
+
+(deftest supplied-non-edn-cofx-value-is-cofx-value-invalid
+  ;; THE adversarial acceptance leg: a non-EDN supplied cofx value throws
+  ;; :rf.error/cofx-value-invalid; an EDN one passes.
+  (testing "a supplied host-handle cofx value throws cofx-value-invalid (dev mode)"
+    (rf/reg-frame :wi/edn-bad {:doc "ctx"})
+    (let [ex   (try
+                 (build-envelope [:noop] {:frame   :wi/edn-bad
+                                          :rf.cofx {:rf/time-ms 1781078400123
+                                                    :app/handle (atom :host)}})
+                 nil
+                 (catch clojure.lang.ExceptionInfo e e))
+          data (ex-data ex)]
+      (is (some? ex) "an exception was thrown for a non-EDN recordable value")
+      (is (= :rf.error/cofx-value-invalid (:rf.error/id data))
+          "reuses the EP-0017 cofx error id (not :rf.error/invalid-cofx)")
+      (is (= :non-edn-recordable-value (:reason data))
+          "the structural reason is :non-edn-recordable-value")
+      (is (= :app/handle (:rf.cofx/id data))
+          "names the failing recordable fact id")
+      (is (= [:app/handle] (:path data))
+          "the path is rooted at the failing fact key")
+      (is (string? (:bad-type data)) "a safe host-type string is carried")
+      (is (re-find #"(?i)atom" (:bad-type data))
+          "the bad-type names the host class — NEVER the raw object")
+      (is (= :no-recovery (:recovery data)) "no recovery")))
+  (testing "the bad value is BURIED — the path locates it inside the fact"
+    (rf/reg-frame :wi/edn-buried {:doc "ctx"})
+    (let [ex   (try
+                 (build-envelope [:noop]
+                                 {:frame   :wi/edn-buried
+                                  :rf.cofx {:rf/time-ms 1781078400123
+                                            :app/blob {:items [{:dom (Object.)}]}}})
+                 nil
+                 (catch clojure.lang.ExceptionInfo e e))
+          data (ex-data ex)]
+      (is (= :rf.error/cofx-value-invalid (:rf.error/id data)))
+      (is (= [:app/blob :items 0 :dom] (:path data))
+          "the path threads the fact id, vector index, and map keys")))
+  (testing "an EDN supplied cofx value PASSES the structural check"
+    (rf/reg-frame :wi/edn-ok {:doc "ctx"})
+    (let [cofx (get (build-envelope [:noop]
+                                    {:frame   :wi/edn-ok
+                                     :rf.cofx {:rf/time-ms 1781078400123
+                                               :user/id    42
+                                               :user/prefs {:theme :dark
+                                                            :tags  #{:a :b}}
+                                               :session/at #inst "2026-06-14T00:00:00.000Z"}})
+                    :rf.cofx)]
+      (is (= 42 (:user/id cofx)) "an integer fact rides through")
+      (is (= {:theme :dark :tags #{:a :b}} (:user/prefs cofx))
+          "a nested EDN map fact rides through unchanged")
+      (is (inst? (:session/at cofx)) "an #inst fact rides through"))))
+
+(deftest structural-edn-check-is-dev-mode-only
+  ;; The structural walker is DEV-MODE (the bug is a dev-time author error; the
+  ;; value is identical in prod, so dev-time catching suffices). With the dev
+  ;; gate OFF the per-value walk DCEs / no-ops — production never pays a
+  ;; per-dispatch deep walk; the declared-:schema check stays the always-on
+  ;; production causal-token contract.
+  (testing "with the dev gate OFF a non-EDN supplied value is NOT structurally rejected"
+    (rf/reg-frame :wi/edn-prod {:doc "ctx"})
+    (with-redefs [interop/debug-enabled? false]
+      (let [cofx (get (build-envelope [:noop]
+                                      {:frame   :wi/edn-prod
+                                       :rf.cofx {:rf/time-ms 1781078400123
+                                                 :app/handle (atom :host)}})
+                      :rf.cofx)]
+        (is (instance? clojure.lang.IAtom (:app/handle cofx))
+            "the structural walk is skipped in prod — the value rides through (the
+             always-on :schema check is the prod contract, not this dev guard)"))))
+  (testing "the MAP-SHAPE check stays always-on even with the dev gate OFF"
+    (rf/reg-frame :wi/edn-prod2 {:doc "ctx"})
+    (with-redefs [interop/debug-enabled? false]
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (build-envelope [:noop] {:frame :wi/edn-prod2
+                                            :rf.cofx "not-a-map"}))
+          "the structural slice-A guard is dev-mode, but the map-shape guard is not"))))
 
 (deftest invalid-world-inputs-rejected-before-clock-read
   ;; Mirrors retired-dispatched-at-rejected-before-world-input-clock-read: the
