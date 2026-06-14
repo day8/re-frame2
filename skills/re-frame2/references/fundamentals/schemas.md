@@ -10,24 +10,26 @@ Registering a Malli schema for a path in `app-db` with `reg-app-schema`, or atta
 
 ## Canonical signatures
 
+The `reg-app-schema` / `reg-app-schemas` **registration macros** stay on the `re-frame.core` façade (`rf/`). The **query + validator-install helpers** live on the owning `re-frame.schemas` namespace — `(:require [re-frame.schemas :as schemas])` — they are no longer re-exported from `re-frame.core` (front-porch shrink, rf2-wad2fl).
+
 ```clojure
 (rf/reg-app-schema path schema)
 (rf/reg-app-schema path schema opts)              ;; opts :: {:frame :rf/default}
 
-(rf/app-schema-at      path)                       ;; -> schema or nil
-(rf/app-schemas)                                   ;; -> {path schema ...}
-(rf/app-schemas-digest)                            ;; -> stable digest string
+(schemas/app-schema-at      path)                  ;; -> schema or nil
+(schemas/app-schemas)                              ;; -> {path schema ...}
+(schemas/app-schemas-digest)                       ;; -> stable digest string
 
-(rf/set-schema-validator!  validate-fn-or-nil)     ;; swap in non-Malli validator (fn or nil ONLY)
-(rf/set-schema-explainer!  explain-fn)
-(rf/set-schema-fns!  {:validate validate-fn       ;; install the validator/explainer/printer bundle atomically
-                      :explain  explain-fn
-                      :print    print-fn})
+(schemas/set-schema-validator!  validate-fn-or-nil) ;; swap in non-Malli validator (fn or nil ONLY)
+(schemas/set-schema-explainer!  explain-fn)
+(schemas/set-schema-fns!  {:validate validate-fn  ;; install the validator/explainer/printer bundle atomically
+                           :explain  explain-fn
+                           :print    print-fn})
 ```
 
 > **Bundle maps must NOT go to `set-schema-validator!`.** It accepts a validator **fn or `nil`** only — it does no map-shape inspection. Because maps are invokable in Clojure, passing `{:validate ... :explain ...}` installs the *map itself* as the validator (it is called as `(the-map schema value)`, looking up `schema` as a key — almost always returning `nil`/falsey or a stray value), so validation silently mis-validates instead of running the intended fn. The bundle map belongs to `set-schema-fns!`.
 
-Verified against `implementation/core/src/re_frame/core.cljc`: the `reg-app-schema` macro (and `reg-app-schemas` plural form), the `app-schema-at` / `app-schemas` / `app-schemas-digest` query aliases, and the `set-schema-validator!` / `set-schema-fns!` validator seam — all `def`-aliased onto the `re-frame.schemas` artefact.
+Verified against `implementation/core/src/re_frame/core.cljc`: the `reg-app-schema` macro (and `reg-app-schemas` plural form) are `def`-aliased onto `re-frame.schemas` and stay on the `re-frame.core` façade; the `app-schema-at` / `app-schemas` / `app-schemas-digest` query aliases and the `set-schema-validator!` / `set-schema-fns!` validator seam are reached on `re-frame.schemas` directly (no longer façade-re-exported, per rf2-wad2fl).
 
 Registrations are **frame-scoped** — the schema attaches to a path inside one frame's `app-db`. Default frame is `(current-frame-id)`; pass `{:frame :other}` in `opts` to target another.
 
@@ -95,14 +97,14 @@ The `reg-app-schema` validates `app-db` shape at the `[:flight]` path; the `:sch
 
 ```clojure
 ;; Validator only — explainer/printer untouched.
-(rf/set-schema-validator! (fn [schema value] (my-validator schema value)))
+(schemas/set-schema-validator! (fn [schema value] (my-validator schema value)))
 
 ;; All three at once, atomically.
-(rf/set-schema-fns!
+(schemas/set-schema-fns!
   {:validate (fn [schema value] (my-validator schema value))
    :explain  (fn [schema value] (my-explainer schema value))})
 
-(rf/set-schema-validator! nil)         ;; disable validation entirely
+(schemas/set-schema-validator! nil)    ;; disable validation entirely
 ```
 
 ## Common gotchas

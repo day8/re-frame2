@@ -37,9 +37,11 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
 
 ## Canonical declaration
 
+`make-machine-handler` lives on `re-frame.machines` (`(:require [re-frame.machines :as machines])`) — it is no longer re-exported from `re-frame.core` (front-porch shrink, rf2-wad2fl). The `reg-machine` / `defmachine` registration macros stay on the `rf/` façade.
+
 ```clojure
 (rf/reg-event-fx :ws/connection
-  (rf/make-machine-handler
+  (machines/make-machine-handler
     {:initial :disconnected
      ;; NOTE :cred-ref is an opaque pointer; the bearer is fetched
      ;; client-side at actor spawn via your app's :auth.cred/fetch cofx

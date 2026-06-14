@@ -158,7 +158,7 @@ Then `npm install` (after the author has approved the resolved `package.json`).
 
 | If the author writes... | Add to `deps.edn`... |
 |---|---|
-| `(rf/reg-machine ...)` or `(rf/make-machine-handler ...)` | `day8/re-frame2-machines` |
+| `(rf/reg-machine ...)` or `(re-frame.machines/make-machine-handler ...)` | `day8/re-frame2-machines` |
 | `(rf/reg-route ...)` or dispatches `:rf.route/handle-url-change` | `day8/re-frame2-routing` |
 | `(rf/reg-flow ...)` | `day8/re-frame2-flows` |
 | `[:rf.http/managed ...]` as an `:fx` entry | `day8/re-frame2-http` |
