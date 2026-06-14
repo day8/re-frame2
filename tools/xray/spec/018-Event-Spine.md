@@ -773,9 +773,10 @@ sections that read top-to-bottom as the developer scans.
    (the section is ABSENT entirely, NOT '(none)'). Reads
    `(rf/handler-meta :event id) :interceptors` and filters out anything
    carrying `:rf/default? true` (rf2-twt7m Change 3) plus the known
-   auto-wrapper ids (`:rf/db-handler` / `:rf/fx-handler` /
-   `:rf/ctx-handler`) as a belt-and-braces fallback.
-5. **HANDLER** — `reg-event-<kind> · src/file.cljs:N [code]`. Per
+   auto-wrapper id (`:rf/event-handler` — EP-0018 unified the former
+   per-kind `:rf/db-handler` / `:rf/fx-handler` / `:rf/ctx-handler` ids)
+   as a belt-and-braces fallback.
+5. **HANDLER** — `reg-event · src/file.cljs:N [code]`. Per
    Q2: does NOT duplicate the event-id (already shown in §2). Reads
    `(rf/handler-meta :event id)`.
 6. **FLOWS** — silent-by-default when no flows fired (rf2-lo37i —

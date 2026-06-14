@@ -58,21 +58,22 @@
 
 ;; ---- fixture data -------------------------------------------------------
 
+;; EP-0018: every event registers under the ONE form — the framework
+;; handler-wrapping interceptor is the single `:rf/event-handler` (the former
+;; per-kind `:rf/db-handler` / `:rf/fx-handler` / `:rf/ctx-handler` ids + the
+;; `:event/kind` sub-tag are gone). The fixture models that registrar shape.
 (def sample-events-with-chains
   {:counter/inc
-   {:event/kind   :db
-    :interceptors [{:id :my/logging :before identity}
-                   {:id :rf/db-handler :rf/default? true :before identity}]}
+   {:interceptors [{:id :my/logging :before identity}
+                   {:id :rf/event-handler :rf/default? true :before identity}]}
 
    :user/save
-   {:event/kind   :fx
-    :interceptors [{:id :my/logging :before identity}
+   {:interceptors [{:id :my/logging :before identity}
                    {:id :rf/path    :before identity}
-                   {:id :rf/fx-handler :rf/default? true :before identity}]}
+                   {:id :rf/event-handler :rf/default? true :before identity}]}
 
    :anon/no-chain
-   {:event/kind   :db
-    :interceptors []}})
+   {:interceptors []}})
 
 ;; -------------------------------------------------------------------------
 ;; (1) pure helpers
@@ -81,21 +82,22 @@
 (deftest collect-interceptors-collapses-by-id
   (let [rows (panel/collect-interceptors sample-events-with-chains)
         by-id (into {} (map (juxt :id identity) rows))]
-    ;; 4 distinct interceptors: :my/logging, :rf/db-handler,
-    ;; :rf/path, :rf/fx-handler
-    (is (= 4 (count rows)))
+    ;; 3 distinct interceptors: :my/logging, :rf/event-handler, :rf/path
+    ;; (EP-0018 — the one framework wrapper :rf/event-handler is shared by both
+    ;; chains, so it collapses to a single row with chain-count 2).
+    (is (= 3 (count rows)))
     (is (= 2 (get-in by-id [:my/logging :chain-count]))
         ":my/logging appears on 2 chains")
+    (is (= 2 (get-in by-id [:rf/event-handler :chain-count]))
+        ":rf/event-handler appears on both chains")
     (is (= 1 (get-in by-id [:rf/path :chain-count]))
         ":rf/path appears on 1 chain")))
 
 (deftest collect-interceptors-flags-default-marker
   (let [rows  (panel/collect-interceptors sample-events-with-chains)
         by-id (into {} (map (juxt :id identity) rows))]
-    (is (true?  (get-in by-id [:rf/db-handler :default?]))
-        "rf/db-handler is framework-default")
-    (is (true?  (get-in by-id [:rf/fx-handler :default?]))
-        "rf/fx-handler is framework-default")
+    (is (true?  (get-in by-id [:rf/event-handler :default?]))
+        "rf/event-handler is framework-default")
     (is (false? (get-in by-id [:my/logging :default?]))
         "user-attached interceptor is NOT default")))
 
@@ -114,7 +116,7 @@
 
 (deftest project-data-shape
   (let [data (panel/project-data sample-events-with-chains nil)]
-    (is (= 4 (:total data)))
+    (is (= 3 (:total data)))
     (is (false? (:silent? data)))
     (is (true? (:silent? (panel/project-data {} nil)))
         "no events → silent")))
@@ -142,7 +144,7 @@
       [:rf.xray.static.interceptors/set-registry-override-for-test
        sample-events-with-chains])
     (let [data @(rf/subscribe [:rf.xray.static.interceptors/tab-data])]
-      (is (= 4 (:total data)))
+      (is (= 3 (:total data)))
       (is (false? (:silent? data))))))
 
 ;; -------------------------------------------------------------------------
@@ -165,7 +167,7 @@
        sample-events-with-chains])
     (let [tree (panel/Panel)
           rows (find-all-by-testid-prefix tree "rf-xray-static-interceptors-row-")]
-      (is (= 4 (count rows)) "four collapsed interceptor rows rendered"))))
+      (is (= 3 (count rows)) "three collapsed interceptor rows rendered"))))
 
 (deftest panel-renders-filtered-state-on-no-match
   (setup-xray!)
