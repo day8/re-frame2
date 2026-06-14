@@ -175,6 +175,8 @@ If the interceptor list becomes empty after dropping `debug`/`trim-v`, drop the 
 (rf/reg-event :foo <handler>)
 ```
 
+The surviving `<other-interceptors>` are **not** carried into the metadata chain as inline values — under EP-0022 the chain holds references. Each survivor that is an inline interceptor value runs through M-70 (register it once with `reg-interceptor`, then reference it by id); a survivor that is already a ref (a bare keyword id or `[:rf.interceptor/path [...]]`) stays as-is.
+
 **`trim-v` reaches M-19 territory** (the handler may have positional destructure). Flag the handler shape — the M-19 sweep handles destructure rewriting separately.
 
 `on-changes` / `enrich` / `after` → Type B, see [`guided-interceptors-subs.md`](guided-interceptors-subs.md).
@@ -183,17 +185,19 @@ If the interceptor list becomes empty after dropping `debug`/`trim-v`, drop the 
 
 ## Event interceptor chains → metadata `:interceptors` (M-70 — mechanical; loud-at-runtime, not loud-at-compile)
 
-v2's `reg-event` puts per-event interceptor chains in the registration metadata map under `:interceptors`. Bare interceptors, positional vectors, and metadata-plus-vector forms all compile but throw at registration / ns-load. Move each chain into metadata:
+v2's `reg-event` puts per-event interceptor chains in the registration metadata map under `:interceptors` — and under EP-0022 that chain carries **interceptor references**, never inline interceptor values. Bare interceptors, positional vectors, and metadata-plus-vector forms all compile but throw at registration / ns-load; an inline value anywhere in the metadata chain throws `:rf.error/inline-interceptor-removed`. So the rewrite is two-step: **register each interceptor value once with `reg-interceptor` (under a qualified id), then reference it by that id in the chain.** Move each chain into metadata, by reference:
 
 ```clojure
 ;; SEARCH — bare interceptor (Var, inline ->interceptor, path, …)
 (rf/reg-event-db :save-progress mw/with-progress-completion
  <handler>)
 
-;; REWRITE — db handler reshapes under the one form reg-event:
+;; REWRITE — register the interceptor value once, then reference it by id.
+;; The db handler also reshapes under the one form reg-event:
 ;;   (fn [db ev] new-db) → (fn [{:keys [db]} ev] {:db new-db})
+(rf/reg-interceptor :app/with-progress-completion mw/with-progress-completion)
 (rf/reg-event :save-progress
- {:interceptors [mw/with-progress-completion]}
+ {:interceptors [:app/with-progress-completion]}    ;; ref by id — NOT the inline value
  (fn [{:keys [db]} ev] {:db <handler-body>}))
 
 ;; SEARCH — positional vector
@@ -201,9 +205,11 @@ v2's `reg-event` puts per-event interceptor chains in the registration metadata 
  [mw/with-progress-completion audit]
  <handler>)
 
-;; REWRITE — db handler reshapes to the {:db ...} return under reg-event
+;; REWRITE — register both values once, then reference both by id, in order
+(rf/reg-interceptor :app/with-progress-completion mw/with-progress-completion)
+(rf/reg-interceptor :app/audit audit)
 (rf/reg-event :save-progress
- {:interceptors [mw/with-progress-completion audit]}
+ {:interceptors [:app/with-progress-completion :app/audit]}   ;; refs, not values
  (fn [{:keys [db]} ev] {:db <handler-body>}))
 
 ;; SEARCH — metadata + positional vector
@@ -212,14 +218,15 @@ v2's `reg-event` puts per-event interceptor chains in the registration metadata 
  [mw/with-progress-completion]
  <handler>)
 
-;; REWRITE — db handler reshapes to the {:db ...} return under reg-event
+;; REWRITE — merge the chain into the existing metadata map, as a ref
+(rf/reg-interceptor :app/with-progress-completion mw/with-progress-completion)
 (rf/reg-event :save-progress
  {:doc "Track save progress."
-  :interceptors [mw/with-progress-completion]}
+  :interceptors [:app/with-progress-completion]}    ;; ref by id
  (fn [{:keys [db]} ev] {:db <handler-body>}))
 ```
 
-The rewrite is mechanical (`mw/x` / `[mw/x]` / `{:doc ...} [mw/x]` → metadata `:interceptors`), and **this rule is loud-at-runtime — but NOT loud-at-compile**. The throw fires at ns-load / first page-load, so a missed site **compiles clean** and only detonates when the app boots — where it **aborts the offending ns's load** (everything after it, incl. a boot machine's `reg-machine`, never registers → the app hangs). So the *compiler* can't find them: **grep every `reg-event-*` site up front and inspect the post-id SHAPES at each** — do NOT march-the-wall (the compiler never points you at the next occurrence), and the **boot smoke-test** ([`runtime-smoke-test.md`](runtime-smoke-test.md)) surfaces any survivor's throw on the console:
+The rewrite is mechanical (`mw/x` / `[mw/x]` / `{:doc ...} [mw/x]` → `reg-interceptor :app/x mw/x` + metadata `:interceptors [:app/x]`), and **this rule is loud-at-runtime — but NOT loud-at-compile**. The throw fires at ns-load / first page-load, so a missed site **compiles clean** and only detonates when the app boots — where it **aborts the offending ns's load** (everything after it, incl. a boot machine's `reg-machine`, never registers → the app hangs). So the *compiler* can't find them: **grep every `reg-event-*` site up front and inspect the post-id SHAPES at each** — do NOT march-the-wall (the compiler never points you at the next occurrence), and the **boot smoke-test** ([`runtime-smoke-test.md`](runtime-smoke-test.md)) surfaces any survivor's throw on the console:
 
 ```bash
 # Surface every reg-event-* registration; a hit = bare interceptor, positional

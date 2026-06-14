@@ -111,7 +111,7 @@ Same for `uix` / `helix` variants.
 ;; REWRITE — remove the require; rewrite each call site:
 (reg :event-fx :id ...)              → (reg-event :id ...)        ; the one event form
 (reg :event-db :id ...)              → (reg-event :id ...)        ; + the {:keys [db]} / {:db BODY} reshape, per M-73
-(reg :event-ctx :id ...)             → an ->interceptor + (reg-event :id ...), per M-73
+(reg :event-ctx :id ...)             → a reg-interceptor + (reg-event :id ...) referencing it by id, per M-73
 (reg :sub :id ...)                   → (reg-sub :id ...)
 (reg :fx :id ...)                    → (reg-fx :id ...)
 (reg :cofx :id ...)                  → (reg-cofx :id ...)
@@ -398,7 +398,7 @@ The three public event registrars collapse to one — **`reg-event`**, semantica
   (fn [{:keys [db]} [_ text]] {:db (assoc-in db [:todos text] true)}))
 ```
 
-**Simple `reg-event-db` → `reg-event` — destructure `db`, wrap the body.** The first handler param (`db`) becomes a `{:keys [db]}` destructure of the coeffects map, and the body — which always evaluates to the new app-db — is wrapped as the `{:db BODY}` effect. Any path-interceptor metadata in the middle slot is preserved verbatim.
+**Simple `reg-event-db` → `reg-event` — destructure `db`, wrap the body.** The first handler param (`db`) becomes a `{:keys [db]}` destructure of the coeffects map, and the body — which always evaluates to the new app-db — is wrapped as the `{:db BODY}` effect. Any path-interceptor metadata in the middle slot is rewritten to the by-reference form: under EP-0022 a public `:interceptors` chain carries **references**, never inline interceptor values, so the inline `(rf/path :counter)` value becomes the standard `[:rf.interceptor/path [:counter]]` factory ref. (There is no public `rf/path` value constructor; an inline value in the chain now throws `:rf.error/inline-interceptor-removed` at registration.)
 
 ```clojure
 ;; before
@@ -407,7 +407,7 @@ The three public event registrars collapse to one — **`reg-event`**, semantica
   (fn [db _] (update db :value inc)))
 ;; after
 (rf/reg-event :counter/inc
-  {:interceptors [(rf/path :counter)]}
+  {:interceptors [[:rf.interceptor/path [:counter]]]}   ;; inline (rf/path ...) value → standard factory ref
   (fn [{:keys [db]} _] {:db (update db :value inc)}))
 ```
 
@@ -415,7 +415,7 @@ The **Type B** cases the codemod flags rather than rewrites (resolve each by han
 
 - **nil-capable `reg-event-db` body** — a body that can evaluate to `nil` (a `when` / `if`-without-else / `cond` / `and` / `or` / bare `get` / `some->` tail, a literal `nil`). Faithfully wrapping it (`{:db BODY}`) preserves v1's "write nil to app-db" footgun, but under the one form a bare `nil` is a no-op and `{:db nil}` coerces to `{:db {}}` — so the author chooses the intended reading.
 - **complex `reg-event-db`** — a non-literal handler (a var, a higher-order construction, a multi-arity `fn`) or a first param that is itself destructured; the safe `db`-rebind can't be proven.
-- **every `reg-event-ctx`** — withdrawn from the public surface; rewrite to an interceptor (`->interceptor`) by hand.
+- **every `reg-event-ctx`** — withdrawn from the public surface; register the full-context behaviour with `reg-interceptor` and reference it by id from the rewritten `reg-event`'s `:interceptors` chain (the public authoring form is `reg-interceptor`, not `->interceptor`, per EP-0022).
 
 A retired name left in place is **loud-at-registration** (a hard error names the replacement), so survivors surface at the boot smoke-test rather than silently.
 

@@ -95,7 +95,7 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | Order | Rule | Why here |
 |---|---|---|
 | 19 | **M-21** | Drop `debug` / `trim-v` (mechanical). Flag `on-changes` / `enrich` / `after` (Type B). |
-| 19a | **M-70** | Event interceptor chains outside metadata `:interceptors` → merge into `{:interceptors [...]}`. Mechanical (Type A), but **loud-at-RUNTIME, not loud-at-compile** — bare/retired positional shapes throw at ns-load while the compile passes. So it can't ride march-the-wall: it's found by the **Phase-0a up-front structural grep** (scan every `reg-event-*` post-id shape; flag bare, vector, and metadata-plus-vector chain shapes by *shape*, not identity) and confirmed by the boot smoke-test. Pairs with M-21 (same interceptor-chain surface). See [`auto-cross-cutting.md` §M-70](auto-cross-cutting.md#event-interceptor-chains--metadata-interceptors-m-70--mechanical-loud-at-runtime-not-loud-at-compile). |
+| 19a | **M-70** | Event interceptor chains outside metadata `:interceptors` → register each value with `reg-interceptor` and reference it by id in `{:interceptors [...]}` (chains are reference-only under EP-0022 — an inline value throws `:rf.error/inline-interceptor-removed`). Mechanical (Type A), but **loud-at-RUNTIME, not loud-at-compile** — bare/retired positional shapes throw at ns-load while the compile passes. So it can't ride march-the-wall: it's found by the **Phase-0a up-front structural grep** (scan every `reg-event-*` post-id shape; flag bare, vector, and metadata-plus-vector chain shapes by *shape*, not identity) and confirmed by the boot smoke-test. Pairs with M-21 (same interceptor-chain surface). See [`auto-cross-cutting.md` §M-70](auto-cross-cutting.md#event-interceptor-chains--metadata-interceptors-m-70--mechanical-loud-at-runtime-not-loud-at-compile). |
 | 20 | **M-17** | `reg-global-interceptor` / `clear-global-interceptor` removed. Single-frame: mechanical. Multi-frame: ask. |
 | 21 | **M-7** | `reg-fx` / `reg-cofx` `:platforms` default; add `:platforms #{:client}` for browser-only fx. |
 | 21a | **M-58** | Trace-redaction factory rename. `with-redacted` → `redact-interceptor`. Single-symbol mechanical rename. v2-pre-rename only. |
@@ -160,7 +160,7 @@ Order of presentation within the batch (most-blocking first):
 3. **M-71** — the **v1 signal-function `reg-sub` form** → v2 `input-fn`: the agent must learn whether the signal fn's inputs are query-dependent (else prefer `:<-`) and which return shape it has (vector / map / single-signal) before picking the rewrite — a map return forces an explicit input-order choice; an `app-db`-reading signal fn must thread the param through the outer query vector.
 4. **M-11** — plain-Reagent fns under non-default frames: each component-frame pair.
 5. **M-17** — multi-frame `reg-global-interceptor`: each-frame vs trace-listener vs default-only.
-6. **M-21** — `on-changes` / `enrich` / `after`: flow / schema / `->interceptor` / fx routing.
+6. **M-21** — `on-changes` / `enrich` / `after`: flow / schema / registered-interceptor (`reg-interceptor` + ref by id) / fx routing.
 7. **M-10** — reserved-namespace collisions.
 8. **M-5** Var-aliasing — refactor to direct invocation.
 9. **M-13** — `reg-event-error-handler` policy.
