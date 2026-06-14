@@ -115,7 +115,7 @@ For delegating the migration to a fresh Claude session: [`references/kickoff-pro
 
 ## Done checklist
 
-- [ ] Inventory-and-plan produced (Phase 0a): every v1 re-frame add-on (incl. transitives, git/source deps, vendored) and every v1 re-frame app feature inventoried, each add-on's source scanned for v2-broken surfaces (off-contract `re-frame.*`, removed `console`, `unwrap`→`unwrap-interceptor`, React-19 coupling, classpath collision), and a per-item plan written (item → rule(s) → forced-vs-optional → disposition → replacement target → ordering).
+- [ ] Inventory-and-plan produced (Phase 0a): every v1 re-frame add-on (incl. transitives, git/source deps, vendored) and every v1 re-frame app feature inventoried, each add-on's source scanned for v2-broken surfaces (off-contract `re-frame.*`, removed `console`, a removed `re-frame.core/unwrap` `:refer` — v2 destination is handler destructuring or a project-registered interceptor, React-19 coupling, classpath collision), and a per-item plan written (item → rule(s) → forced-vs-optional → disposition → replacement target → ordering).
 - [ ] React-19 / Reagent-2 floor gate cleared (Phase 0b): downstream React-lib compat audited, component-library React-19 support confirmed — a *declared* React-19 (Reagent-2) release, **or** an *empirically-verified* runtime pass under forced React 19 (the four-option go/no-go: declared / empirical / replace-vendor-wait / hold), legacy `ReactDOM.render` call sites flagged, CLJS/shadow-cljs/Closure toolchain skew checked (shadow-cljs bumped to the reference version if older), go/no-go recorded.
 - [ ] `re-frame/re-frame` removed from every dep file; `day8/re-frame2` + adapter at a matching VERSION.
 - [ ] Project compiles cleanly with re-frame2 on the classpath.
