@@ -234,7 +234,7 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
          (save-scroll-position! frame-id url pos)))
      :clj
      (trace/emit! :rf.fx :rf.fx/skipped-on-platform
-                  {:fx-id :rf.nav/capture-scroll :url url})))
+                  {:rf.fx/id :rf.nav/capture-scroll :url url})))
 
 (def scroll-fx-meta
   "Metadata for the `:rf.nav/scroll` fx registration."
@@ -264,4 +264,4 @@ unknown strategies as :preserve (no-op)."})
        nil)
      :clj
      (trace/emit! :rf.fx :rf.fx/skipped-on-platform
-                  {:fx-id :rf.nav/scroll :strategy strategy})))
+                  {:rf.fx/id :rf.nav/scroll :strategy strategy})))

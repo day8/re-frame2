@@ -1146,8 +1146,8 @@
       (let [tags (first failures)]
         (is (= :rf.fx/replace-url-failed (:operation tags))
             "the failure trace operation is :rf.fx/replace-url-failed")
-        (is (= :rf.nav/replace-url (:fx-id tags))
-            "the trace carries :fx-id :rf.nav/replace-url")
+        (is (= :rf.nav/replace-url (:rf.fx/id tags))
+            "the trace carries :rf.fx/id :rf.nav/replace-url")
         (is (= "/checkout" (:url tags))
             "the trace carries the attempted :url")
         (is (= "boom-replace" (:error tags))
@@ -1174,8 +1174,8 @@
       (let [tags (first failures)]
         (is (= :rf.fx/push-url-failed (:operation tags))
             "the failure trace operation is :rf.fx/push-url-failed")
-        (is (= :rf.nav/push-url (:fx-id tags))
-            "the trace carries :fx-id :rf.nav/push-url")
+        (is (= :rf.nav/push-url (:rf.fx/id tags))
+            "the trace carries :rf.fx/id :rf.nav/push-url")
         (is (= "/cart" (:url tags))
             "the trace carries the attempted :url")
         (is (= "boom-push" (:error tags))

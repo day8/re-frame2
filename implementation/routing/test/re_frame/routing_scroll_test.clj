@@ -7,6 +7,8 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.routing :as routing]
+            [re-frame.routing.nav-fx :as nav-fx]
+            [re-frame.routing.scroll :as scroll]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rts]))
 
@@ -387,3 +389,91 @@
       (rf/dispatch-sync [:rf.route/navigate :route/custom])
       (is (= {:behavior :smooth :block :center} (-> @calls first :strategy))
           "a map-form :scroll strategy flows into :rf.nav/scroll's :strategy arg unchanged"))))
+
+;; ---- rf2-ukv4ck: nav-fx identity trace tags use canonical :rf.fx/id -------
+;;
+;; The routing/nav fx skip & failure traces stamp the fx identity under the
+;; CANONICAL `:rf.fx/id` tag — the same spelling core `re-frame.fx` uses for
+;; `:rf.fx/skipped-on-platform` / `:rf.error/fx-handler-exception` and that
+;; Spec 009's error catalogue + Spec-Schemas' `FxSkippedOnPlatformTags`
+;; document. Previously these emitted a bare `:fx-id`, drifting from core,
+;; the spec, and the epoch projection's `(:rf.fx/id tags)` read (which would
+;; have seen nil). These tests pin the corrected tag on the JVM `:clj`
+;; skip-on-platform branch of each of the four `:rf.nav/*` fxs (the CLJS
+;; push/replace `-failed` traces are pinned in routing_history_cljs_test).
+;; They invoke the production handlers directly so a regression in THIS emit
+;; surfaces without routing around it through a re-registered test fx.
+
+(defn- capture-fx-traces
+  "Run `thunk` while collecting every `:rf.fx/skipped-on-platform` trace's
+  tags (with the operation folded in). Returns the captured vector."
+  [thunk]
+  (let [captured (atom [])
+        k        (keyword (gensym "fx-id-tag-"))]
+    (rf/register-listener! k
+      (fn [ev]
+        (when (= :rf.fx/skipped-on-platform (:operation ev))
+          (swap! captured conj (:tags ev)))))
+    (try (thunk) (finally (rf/unregister-listener! k)))
+    @captured))
+
+(deftest nav-fx-skip-traces-use-canonical-rf-fx-id-tag
+  (testing ":rf.nav/scroll's JVM skip-on-platform trace stamps :rf.fx/id, not bare :fx-id"
+    (let [tags (capture-fx-traces
+                 #(scroll/scroll-fx-handler nil {:strategy :top}))]
+      (is (= 1 (count tags))
+          "the JVM :rf.nav/scroll handler emits exactly one skip trace")
+      (is (= :rf.nav/scroll (:rf.fx/id (first tags)))
+          "the skip trace carries :rf.fx/id :rf.nav/scroll (canonical identity tag)")
+      (is (not (contains? (first tags) :fx-id))
+          "no bare :fx-id tag remains (drift removed)")))
+
+  (testing ":rf.nav/capture-scroll's JVM skip-on-platform trace stamps :rf.fx/id"
+    (let [tags (capture-fx-traces
+                 #(scroll/capture-scroll-handler {:frame :rf/default}
+                                                 {:url "/articles/intro"}))]
+      (is (= 1 (count tags))
+          "the JVM :rf.nav/capture-scroll handler emits exactly one skip trace")
+      (is (= :rf.nav/capture-scroll (:rf.fx/id (first tags)))
+          "the skip trace carries :rf.fx/id :rf.nav/capture-scroll")
+      (is (not (contains? (first tags) :fx-id))
+          "no bare :fx-id tag remains")))
+
+  (testing ":rf.nav/push-url's JVM owner-skip trace stamps :rf.fx/id"
+    ;; :rf/default is the URL owner in this suite (reset-runtime declares
+    ;; {:url-bound? true}); the owner path hits the JVM :clj skip branch
+    ;; (history.pushState is browser-only), emitting :rf.fx/skipped-on-platform.
+    (let [tags (capture-fx-traces
+                 #(nav-fx/push-url-handler {:frame :rf/default} "/articles"))]
+      (is (= 1 (count tags))
+          "the JVM :rf.nav/push-url handler emits exactly one skip trace")
+      (is (= :rf.nav/push-url (:rf.fx/id (first tags)))
+          "the skip trace carries :rf.fx/id :rf.nav/push-url")
+      (is (not (contains? (first tags) :fx-id))
+          "no bare :fx-id tag remains")))
+
+  (testing ":rf.nav/replace-url's JVM owner-skip trace stamps :rf.fx/id"
+    (let [tags (capture-fx-traces
+                 #(nav-fx/replace-url-handler {:frame :rf/default} "/articles"))]
+      (is (= 1 (count tags))
+          "the JVM :rf.nav/replace-url handler emits exactly one skip trace")
+      (is (= :rf.nav/replace-url (:rf.fx/id (first tags)))
+          "the skip trace carries :rf.fx/id :rf.nav/replace-url")
+      (is (not (contains? (first tags) :fx-id))
+          "no bare :fx-id tag remains")))
+
+  (testing ":rf.nav/push-url's frame-not-url-bound skip trace also stamps :rf.fx/id"
+    ;; A non-URL-bound frame skips the history push with :reason
+    ;; :frame-not-url-bound — the OTHER routing skip path. It must carry
+    ;; the canonical identity tag too.
+    (rf/reg-frame :story/variant {})              ;; no :url-bound?
+    (let [tags (capture-fx-traces
+                 #(nav-fx/push-url-handler {:frame :story/variant} "/articles"))]
+      (is (= 1 (count tags))
+          "a non-URL-bound frame's :rf.nav/push-url emits exactly one skip trace")
+      (is (= :rf.nav/push-url (:rf.fx/id (first tags)))
+          "the frame-not-url-bound skip trace carries :rf.fx/id :rf.nav/push-url")
+      (is (= :frame-not-url-bound (:reason (first tags)))
+          "it is the frame-not-url-bound skip path (not the platform skip)")
+      (is (not (contains? (first tags) :fx-id))
+          "no bare :fx-id tag remains"))))

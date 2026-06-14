@@ -69,6 +69,22 @@
                 @traces)
           "expected :rf.route.nav-token/stale-suppressed trace for the A response")
 
+      ;; rf2-ejitk8 — the suppressed continuation's event-id rides under the
+      ;; CANONICAL `:rf.trace/event-id` tag (the spelling Spec 012 + Spec 009's
+      ;; error catalogue now document), NOT a bare `:event-id`. Pin the
+      ;; spec↔impl alignment so the just-corrected drift cannot re-open: the
+      ;; raw `:tags` must never carry a bare `:event-id` (that bare spelling is
+      ;; legitimate ONLY in the error-slice / projection record layers, not in
+      ;; raw trace tags — see Conventions §identity key spellings).
+      (let [stale (->> @traces
+                       (filter #(= :rf.route.nav-token/stale-suppressed (:operation %)))
+                       first)]
+        (is (some? stale) "a stale-suppressed trace fired")
+        (is (= :article/loaded (-> stale :tags :rf.trace/event-id))
+            "the canonical :rf.trace/event-id tag carries the suppressed event-id")
+        (is (not (contains? (:tags stale) :event-id))
+            "no bare :event-id tag in the raw trace :tags (drift removed)"))
+
       ;; rf2-zqefg3.5 — the suppression trace is joined to the route
       ;; work-id `[:rf.work/route route-id nav-token loader-id]`
       ;; (EP-0011 §Route Loader Completion). rf2-azcmd3 — the route-id is the
