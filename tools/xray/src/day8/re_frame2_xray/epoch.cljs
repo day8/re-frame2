@@ -62,7 +62,7 @@
 
   ;; rf2-hga49 — `restore-epoch` is a side-effecting framework call (it
   ;; rewinds an OBSERVED frame's `app-db` to a past epoch's `:db-after`),
-  ;; so it lives in an fx, not a `reg-event-db` reducer. `rf/restore-epoch!`
+  ;; so it lives in an fx, not a plain `reg-event` `:db` reducer. `rf/restore-epoch!`
   ;; returns `false` on any of the seven documented failure modes (per
   ;; Tool-Pair §Time-travel — Restore, including
   ;; `:rf.epoch/restore-non-ok-record`) leaving the frame unchanged; on

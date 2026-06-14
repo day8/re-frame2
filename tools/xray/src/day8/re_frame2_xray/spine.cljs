@@ -805,7 +805,7 @@
   `:rf.xray/show-ungrouped?` sub in `settings/subs.cljs`.
 
   Public (rf2-nugvv) so cross-panel spine-shim events that need to
-  resolve the composed focus inside a `reg-event-db` handler — e.g.
+  resolve the composed focus inside a `reg-event` handler — e.g.
   the Machine Inspector's per-machine prev/next nav — can pass the
   same opt-in into `compose-focus` / `focus-cascade-reducer` rather
   than re-deriving it."

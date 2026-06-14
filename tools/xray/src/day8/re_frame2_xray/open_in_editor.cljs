@@ -11,7 +11,7 @@
        presentation. The `:on-click` fires the OS scheme handler
        directly via `Location.assign` (per rf2-muvs8).
 
-    2. `:rf.xray/open-in-editor` reg-event-fx — the panel-side
+    2. `:rf.xray/open-in-editor` reg-event — the panel-side
        dispatch shape (`[:rf.xray/open-in-editor coord]` or
        `[:rf.xray/open-in-editor {:source-coord coord}]`). Panels
        render their own button/code/span affordance and dispatch this
@@ -28,7 +28,7 @@
        replay) can share the gate.
 
   Per rf2-g5q8d (P0 — the panel chip was a no-op previously). The
-  earlier wiring routed clicks to a stub `reg-event-db` that recorded
+  earlier wiring routed clicks to a stub `reg-event` that recorded
   the coord into app-db and did nothing else; this ns now owns the
   full data-driven path end-to-end.
 
@@ -363,7 +363,7 @@
 
   Registers two framework primitives:
 
-    - `:rf.xray/open-in-editor` reg-event-fx — the dispatch shape the
+    - `:rf.xray/open-in-editor` reg-event — the dispatch shape the
       four panels (trace, issues-ribbon, mcp-server, hydration-
       debugger) use when their source-coord affordance is clicked.
       The handler unwraps the payload, resolves the URI, and returns
@@ -406,7 +406,7 @@
 
   ;; ---- :rf.xray/open-in-editor ----
   ;;
-  ;; Pre-rf2-g5q8d this was a `reg-event-db` stub that recorded the
+  ;; Pre-rf2-g5q8d this was a `reg-event` stub that recorded the
   ;; coord into app-db and did nothing else; the editor never opened.
   ;; The handler now resolves the URI through the allowlist seam and
   ;; routes it to `:rf.editor/open`.

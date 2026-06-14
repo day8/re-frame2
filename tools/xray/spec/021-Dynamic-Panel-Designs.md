@@ -1694,7 +1694,7 @@ unhandled-no-op branch is never reached and NO `:no-op` row fires: its transitio
 microsteps > 0 / an action cascade) is preserved untouched. The
 no-op row also makes the cascade's handler-flavour `:reg-machine` even when
 no action ran, so the EVENT HANDLER machine section renders the notice
-rather than collapsing to a plain `reg-event-db` handler.
+rather than collapsing to a plain `reg-event` handler.
 
 **Per-row chrome.** Each row carries:
 
@@ -2134,7 +2134,7 @@ body — cancellations are housekeeping; the chip routes to the
 `:after`-bearing state node).
 
 **Empty-state correctness** (acceptance #4 — rf2-u69j7). A vanilla
-`reg-event-db` cascade (or any non-`:reg-machine` flavour) renders
+`reg-event` cascade (or any non-`:reg-machine` flavour) renders
 the existing pipeline UNCHANGED — the cascade view is gated on
 `:flavour = :reg-machine`. The redesign is machine-specific.
 
@@ -2477,7 +2477,7 @@ the verb so the affordance is read inline with the cascade rhythm
 
 - **Source-coord read.** Pulls `(rf/handler-meta :event event-id)` for
   ALL flavours — including `:reg-machine` (rf2-ge6uj ISSUE 1). A machine
-  is registered as a `reg-event-fx` carrying `:rf/machine? true`, so its
+  is registered as an `:event` handler carrying `:rf/machine? true`, so its
   registration meta (with the top-level `reg-machine` call-site `:file` /
   `:line`) lives under the `:event` kind. There is NO `:machine`
   registrar kind (`registrar/kinds` is the closed ten `:event :sub :fx
@@ -2636,7 +2636,7 @@ available. (rf2-evgf5 / rf2-g5q8d decision.)
 Where `coord-chip` is the **icon-only** affordance (a glyph appended
 after an id), `coord-link` is the **label-as-link** companion — the
 verb / label TEXT itself is the hyperlink, with the `external-link`
-glyph appended (`reg-event-fx ↗`). Before rf2-vw5pi this shape was
+glyph appended (`reg-event ↗`). Before rf2-vw5pi this shape was
 hand-rolled ~11 times across `panels/epoch/view.cljs` (the HANDLER
 verb-link, the DISPATCH source label, the COEFFECT / FLOW verb ids,
 the machine cascade verb-link + state-path, the schema-violation
@@ -2675,7 +2675,7 @@ asserts the `dispatch [:rf.xray/open-in-editor …]` CALL appears ONLY
 in `coord_chip.cljs` + `coord_link.cljs` — a future hand-rolled button
 trips it. (The guard keys on the dispatch-CALL shape, not the bare
 keyword, so docstrings / comments naming the event — and the
-`open_in_editor.cljs` reg-event-fx receiver + static-page `<a href>`
+`open_in_editor.cljs` reg-event receiver + static-page `<a href>`
 anchor, excluded by design — do not false-positive.)
 
 #### §9.1.6.3 DISPATCH source-kind enrichment (rf2-5qp4g · consuming rf2-ejtpd)
@@ -2753,7 +2753,7 @@ contract is the closed set documented in §9.1.10.1's table.
 #### §9.1.6.4 Machine-event EVENT HANDLER orientation line (rf2-akvfe, supersedes rf2-18oe3)
 
 A re-frame2 machine **is** an event handler addressed by its id
-(`reg-machine :door/main spec` ≈ `reg-event-fx :door/main …`);
+(`reg-machine :door/main spec` ≈ `reg-event :door/main …`);
 dispatching `[:door/main [:door/close]]` routes the **inner trigger**
 `[:door/close]` through the machine's `:on` map. The raw event vector
 reads as opaque nesting — `[:machine-id [inner-trigger]]` — so the
@@ -3235,18 +3235,20 @@ name, rendered UPPERCASE (`BEFORE` / `AFTER`) as a grey chip
 jump-to-source coord rides the projection row's `:coord` slot, resolved
 from the `:rf.error/interceptor-exception` trace's `:source-coord` tag
 (threaded by the router from the throwing interceptor's map). The
-**`->interceptor` macro** (framework, rf2-siheh) captures that coord from
-`(meta &form)` — before rf2-siheh `->interceptor` was a plain fn and the
-row had no coord to render (yz57h's `handler-meta :interceptor` lookup was
-unsatisfiable: interceptors are not a registry kind). The id renders via
+**`reg-interceptor` macro** (the public interceptor-authoring form under
+EP-0022) captures that coord at the registration site; an interceptor
+registered via the plain `reg-interceptor*` fn carries no captured coord,
+so its row has nothing to render (`handler-meta :interceptor` resolves the
+registration meta — `:interceptor` is a first-class registrar kind under
+EP-0022). The id renders via
 the shared **`coord-link`**, which ALREADY emits `name ↗` — **a SINGLE
 go-to-source glyph** (rf2-rvxem FIX 1: the row formerly ALSO appended a
 standalone `coord-chip`, producing TWO `↗`; the HANDLER / COEFFECTS rows
 use `coord-link` alone, and only the plain-label SUBS / VIEWS /
 SIDE-EFFECTS rows pair a label with a `coord-chip` — the interceptor row
 had conflated the two). The id hyperlinks when a coord is present and
-degrades to plain text + no glyph when the interceptor was built via the
-`->interceptor*` fn, is a framework interceptor, or the bundle elided the
+degrades to plain text + no glyph when the interceptor was registered via the
+`reg-interceptor*` fn, is a framework interceptor, or the bundle elided the
 coord in production. rf2-oqi0c **DROPPED** the badge's "N interceptor(s)
 threw" summary verb — redundant with the per-row id + the inline card
 below; the `:INTERCEPTOR` badge stands alone (it pulls the `:accent`
@@ -3430,7 +3432,7 @@ present] + [:fx rows, in order] + [other rows]`:
   no duplication). The marker is clickable: it jumps to the App-db panel
   for the focused epoch (a `[:rf.xray/select-tab :app-db]` dispatch; the
   App-db panel reads the same shared focus). The `:db` row appears
-  whenever a `:db` commit happened, **including a plain reg-event-db that
+  whenever a `:db` commit happened, **including a plain reg-event that
   returns only `:db`** (no `:fx`); it is **ABSENT** when the handler
   returned only `:fx` / only `:rf.db/runtime` / only other / nothing, or
   THREW (no phantom `:db`, rf2-wnvid). Reconciles with rf2-4wywy: this is
@@ -3495,7 +3497,7 @@ exception-under-step rendering.
 
 **ALWAYS APPEARS.** Unlike the pre-rf2-kt6js `:fx` step (which showed
 only when an `:fx` fired), the SIDE EFFECTS step appears whenever ANY
-side effect occurred (a `:db` commit — including a bare reg-event-db —
+side effect occurred (a `:db` commit — including a bare reg-event —
 and/or a runtime-db (`:rf.db/runtime`) commit — including a runtime-ONLY
 commit — and/or `:fx` and/or other). The `:db`-commit signal is the
 framework's `:rf.event/db-changed` trace (a second one with
@@ -3510,7 +3512,7 @@ Neither is a fx-id-less
 handled!` always stamps `:rf.fx/id`, and the `:db` install path
 `re-frame.router/commit-db-effect!` routes through `:rf.event/db-changed`,
 not the fx pipeline). The pre-rf2-kt6js heuristic looked for that
-non-existent emit, so a clean reg-event-db surfaced no side-effects step
+non-existent emit, so a clean reg-event surfaced no side-effects step
 at all — the bug rf2-kt6js fixes tool-side.
 
 **Settle-first (rf2-kt6js — confirmed against the live substrate; NO

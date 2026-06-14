@@ -39,7 +39,7 @@
   static page). The button chip here dispatches via the trace bus so
   the click is observable as a first-class operation on the
   `:rf/xray` frame, and the URI resolution happens inside the
-  `:rf.xray/open-in-editor` reg-event-fx → `:rf.editor/open` reg-fx
+  `:rf.xray/open-in-editor` reg-event → `:rf.editor/open` reg-fx
   pipeline. Both surfaces co-exist by design (rf2-evgf5 / rf2-g5q8d
   decision)."
   (:require [day8.re-frame2-xray.panels.event.icons :as icons]

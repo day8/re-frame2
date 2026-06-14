@@ -36,7 +36,7 @@
   interceptor that appears on many chains shows up once with the count
   of chains it appears on. A REFERENCE entry contributes its referenced
   id (a `[id arg]` ref contributes the head keyword); an inline value
-  with no `:id` (rare — `->interceptor` requires one) falls under
+  with no `:id` (rare — `reg-interceptor` requires one) falls under
   `::unnamed`. Reference rows are enriched by resolving the authored ref
   through `(rf/handler-meta :interceptor id)` — the `:interceptor`
   registrar kind reg-interceptor populates (EP-0022) — so the catalogue

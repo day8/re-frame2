@@ -12,7 +12,7 @@
 
       +0.0  DISPATCH         EVENT     dispatched   [:counter-inc]      —
       +0.1  COEFFECT         COEFFECT  run          :now -> #inst      0.1 ms
-      +0.2  EVENT HANDLER    EVENT     handler ran  reg-event-db       0.2 ms
+      +0.2  EVENT HANDLER    EVENT     handler ran  reg-event          0.2 ms
       +0.3  FLOW             FLOW      computed     :totals            1.5 ms
       +1.8  EFFECT HANDLERS  DB        changed      [:counter] 1 -> 2   —
       +1.9  EFFECT HANDLERS  FX        :http-xhrio  GET /api/data       —
