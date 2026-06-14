@@ -954,11 +954,24 @@
   Change traces (per Spec 009 §Canonical per-event trace sequence):
     - `:rf.event/db-changed` — APP-DB-ONLY (Mike ruling #6): fires only when
       the app-db partition changed; NEVER for a runtime-only commit;
+    - `:rf.event/db-noop` (rf2-ekq28v) — APP-DB-ONLY: fires when a `:db`
+      effect was present but app-db did NOT change (the handler returned an
+      unchanged db; the `identical?`-noop fast-path in
+      `commit-frame-transition!` skipped the write, or a distinct-but-`=`
+      value collapsed to no change). Makes the no-op visible — \"event
+      returned an unchanged db; nothing committed\" — rather than silent;
     - `:rf.event/frame-state-changed` — fires when EITHER partition changed,
       partition-tagged (`#{:app-db}` / `#{:runtime-db}` / both).
   A runtime-only commit emits ONLY frame-state-changed (`#{:runtime-db}`);
   an app-only commit emits both (db-changed + frame-state-changed
-  `#{:app-db}`).
+  `#{:app-db}`); an unchanged-db `:db` commit emits db-noop (and no
+  frame-state-changed for the app-db partition).
+
+  nil-coercion (rf2-ekq28v): a `:db nil` effect is coerced to `{}` HERE —
+  at the `:db` effect → `:rf.db/app` partition mapping, before the commit —
+  so the partition layer never sees a nil app-db (app-db is always a map).
+  The coercion emits a dev-mode `:rf.warning/db-nil-coerced` diagnostic for
+  accidental-wipe visibility; a deliberate clear (`{:db {}}`) does not.
 
   Per Spec 013 §Drain integration (rf2-u0zz5): `(:db effects)` here is the
   FLOW-AUGMENTED app-db value — the OUTERMOST flows-after-interceptor has
@@ -985,16 +998,40 @@
   `:rf/flow-last-inputs-before`; the rollback arm restores it through the
   frame-scoped `:flows/restore-last-inputs!` hook."
   [effects event-id event frame ctx db-before runtime-before]
-  (let [app-effect? (contains? effects :db)
-        rt-effect?  (contains? effects :rf.db/runtime)]
+  (let [app-effect?  (contains? effects :db)
+        rt-effect?   (contains? effects :rf.db/runtime)
+        ;; nil-coercion (rf2-ekq28v): app-db is ALWAYS a map, never nil. A
+        ;; `:db nil` effect is coerced to `{}` HERE — at the `:db` effect →
+        ;; `:rf.db/app` partition mapping, BEFORE `commit-frame-transition!` —
+        ;; so the partition layer never sees a nil app-db. This removes the v1
+        ;; nil-footgun (a db handler returning nil wiping app-db to nil)
+        ;; structurally, at the commit boundary. A `:db nil` return is more
+        ;; often a BUG (a handler accidentally computed nil) than a deliberate
+        ;; clear, so the coercion emits a dev-mode `:rf.warning/db-nil-coerced`
+        ;; diagnostic for accidental-wipe visibility; a DELIBERATE clear writes
+        ;; `{:db {}}` directly (a distinct, non-nil empty map — no diagnostic).
+        nil-db?      (and app-effect? (nil? (:db effects)))
+        new-db       (if nil-db? {} (:db effects))]
+    (when (and nil-db? interop/debug-enabled?)
+      (trace/emit! :warning :rf.warning/db-nil-coerced
+                   {:rf.trace/event-id (when (vector? event) (first event))
+                    :rf.event/v        event
+                    :frame             frame
+                    :recovery          :warned
+                    :reason
+                    (str "Event `" (when (vector? event) (first event)) "` returned `{:db nil}`. "
+                         "app-db is always a map, never nil — the nil was coerced to `{}` "
+                         "at the commit boundary (the v1 nil-footgun is removed structurally). "
+                         "A `{:db nil}` return is usually a BUG (a handler accidentally computed "
+                         "nil); for a deliberate clear, return `{:db {}}` (which emits no "
+                         "diagnostic).")}))
     (if (or app-effect? rt-effect?)
-      (let [new-db     (:db effects)
-            emit-event (privacy/redacted-event-from-ctx ctx)
+      (let [emit-event (privacy/redacted-event-from-ctx ctx)
             ;; Map the EFFECT keys (:db / :rf.db/runtime) to the frame-state
             ;; PARTITION keys (:rf.db/app / :rf.db/runtime). `:db` scopes to
             ;; the app-db partition; `:rf.db/runtime` to runtime-db. A
             ;; partition not present is carried forward unchanged by
-            ;; `commit-frame-transition!`.
+            ;; `commit-frame-transition!`. `new-db` is the nil-coerced value.
             partitions (cond-> {}
                          app-effect? (assoc frame/app-partition-key     new-db)
                          rt-effect?  (assoc frame/runtime-partition-key (:rf.db/runtime effects)))
@@ -1007,6 +1044,18 @@
         ;; partition actually changed. A runtime-only commit never fires it.
         (when app-changed?
           (trace/emit! :rf.event :rf.event/db-changed
+                       {:rf.trace/event-id event-id :rf.event/v emit-event :frame frame}))
+        ;; db-noop (rf2-ekq28v): a `:db` effect that left app-db UNCHANGED — the
+        ;; handler returned an unchanged db (the `identical?`-noop fast-path in
+        ;; `commit-frame-transition!` skipped the write, OR a distinct-but-`=`
+        ;; value collapsed to no change). The forward commit is a genuine
+        ;; no-op for the app-db partition, so make it VISIBLE rather than
+        ;; silent: Xray can show "event returned an unchanged db; nothing
+        ;; committed." Fires only when a `:db` effect was present AND app-db did
+        ;; not change; suppressed when app-db changed (the `db-changed` signal
+        ;; covers that) and when no `:db` effect was returned at all.
+        (when (and app-effect? (not app-changed?))
+          (trace/emit! :rf.event :rf.event/db-noop
                        {:rf.trace/event-id event-id :rf.event/v emit-event :frame frame}))
         ;; Partition-tagged frame-state-changed — when EITHER partition changed.
         (emit-frame-state-changed! event-id emit-event frame changed)

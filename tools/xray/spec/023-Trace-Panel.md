@@ -67,6 +67,7 @@ The op → stage mapping (the coarse projection of the §3 area badge onto the 7
 | `:rf.flow/*` (FLOW) | FLOW |
 | `:rf.machine/*` (machine-as-handler) | EVENT HANDLER |
 | `:rf.event/db-changed` (DB) | EFFECT HANDLERS |
+| `:rf.event/db-noop` (DB) | EFFECT HANDLERS |
 | `:rf.fx/*` (FX) | EFFECT HANDLERS |
 | `:rf.route/*` (ROUTING) | EFFECT HANDLERS |
 | `:rf.resource/*` (RESOURCE) | EFFECT HANDLERS |
@@ -251,6 +252,7 @@ Every Spec-009 trace operation → its row. The **Stage** column is the Epoch pi
 | `:rf.cofx/skipped-on-platform` | COEFFECT | COEFFECT | skipped-on-platform | cofx-id | — |
 | `:rf.event/run-start`+`run-end` | EVENT HANDLER | EVENT | handler ran | handler flavour (`:rf.event/sync?` flag if dispatch-sync) | dur (run-end−run-start) |
 | `:rf.event/db-changed` | EFFECT HANDLERS | DB | changed | path old → new | — |
+| `:rf.event/db-noop` | EFFECT HANDLERS | DB | unchanged | returned unchanged db — nothing committed | — |
 | `:rf.machine/event-received` | EVENT HANDLER | MACHINE | event-received | event | — |
 | `:rf.machine/guard-evaluated` | EVENT HANDLER | MACHINE | guard-evaluated | guard-id ✓/✗ | — |
 | `:rf.machine.microstep/transition` · `:rf.machine/transition` | EVENT HANDLER | MACHINE | transition (×microsteps) | from → to | — |

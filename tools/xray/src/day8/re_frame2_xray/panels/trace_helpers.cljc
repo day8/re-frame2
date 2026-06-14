@@ -97,6 +97,7 @@
       (= op-type :error)                 :error
       (= op-type :warning)               :warning
       (= operation :rf.event/db-changed) :db
+      (= operation :rf.event/db-noop)    :db
       (= op-ns "rf.epoch")               :epoch
       (= op-ns "rf.cofx")                :coeffect
       (= op-ns "rf.flow")                :flow
@@ -438,6 +439,7 @@
    :rf.event/run-start    "handler ran"
    :rf.event/run-end      "handler ran"
    :rf.event/db-changed   "changed"
+   :rf.event/db-noop      "unchanged"
    :rf.epoch/snapshotted  "snapshotted"
    :rf.epoch/outcome      "outcome"
    :rf.cofx/run           "run"

@@ -650,10 +650,20 @@
                            (not= next-rt (get current runtime-partition-key)))
                       (conj runtime-partition-key))]
       ;; ONE atomic frame-state install — both partitions in one write, per
-      ;; Spec 006 §Commit boundary. Even a no-op (changed empty) re-installs
-      ;; the equal value; the projection reactions' `=`-memoisation collapses
-      ;; the downstream notification so a value-equal commit costs nothing.
-      (adapter/replace-container! container next-fs)
+      ;; Spec 006 §Commit boundary.
+      ;;
+      ;; identical?-noop short-circuit (rf2-ekq28v): when the next frame-state
+      ;; would carry forward each partition's CURRENT OBJECT unchanged
+      ;; (`identical?`, not merely `=`), the install is a genuine no-op — the
+      ;; common `(if cond (assoc db …) db)` else-arm returns the same object —
+      ;; so skip the `replace-container!` write entirely rather than re-install
+      ;; an equal value. `=` stays the deeper change-DETECTION above (a
+      ;; different-object-but-equal-value commit still writes, so the install
+      ;; honours value equality and downstream `=`-memoisation collapses it).
+      ;; The cheap fast-path is reference identity; deeper equality is `=`.
+      (when-not (and (identical? next-app (get current app-partition-key))
+                     (identical? next-rt  (get current runtime-partition-key)))
+        (adapter/replace-container! container next-fs))
       changed)))
 
 (defn replace-app-db!
