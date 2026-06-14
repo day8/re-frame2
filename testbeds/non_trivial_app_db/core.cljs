@@ -109,9 +109,9 @@
                :sub-runs     0
                :flow-evals   0}})
 
-(rf/reg-event-db ::initialise
-  (fn [_db _ev]
-    initial-db))
+(rf/reg-event ::initialise
+  (fn [_cofx _ev]
+    {:db initial-db}))
 
 ;; ----------------------------------------------------------------------------
 ;; Six handlers — one for each structural diff shape a consumer must
@@ -123,39 +123,39 @@
 ;; should highlight the single leaf and leave the surrounding 7 leaves
 ;; of :settings collapsed.
 
-(rf/reg-event-db ::toggle-theme
-  (fn [db _ev]
+(rf/reg-event ::toggle-theme
+  (fn [{:keys [db]} _ev]
     ;; HOT PATH — single-leaf scalar swap at depth 2.
-    (update-in db [:settings :theme]
-               {:dark :light :light :dark})))
+    {:db (update-in db [:settings :theme]
+                    {:dark :light :light :dark})}))
 
 ;; --- 2 · Map merge at depth 3 ---
 ;; Flips two leaves of :settings :notifications in one write. Verifies
 ;; the diff renderer can show two simultaneously-changed siblings
 ;; without collapsing them under a single "this map changed" line.
 
-(rf/reg-event-db ::toggle-notifications
-  (fn [db _ev]
-    (update-in db [:settings :notifications]
-               (fn [m]
-                 (-> m
-                     (update :email     not)
-                     (update :marketing not))))))
+(rf/reg-event ::toggle-notifications
+  (fn [{:keys [db]} _ev]
+    {:db (update-in db [:settings :notifications]
+                    (fn [m]
+                      (-> m
+                          (update :email     not)
+                          (update :marketing not))))}))
 
 ;; --- 3 · Vector append (cart line item) ---
 ;; Adds a new cart line item. Tests vector-as-collection diffing —
 ;; the renderer should show the new index without re-marking the
 ;; existing items as changed.
 
-(rf/reg-event-db ::add-cart-item
-  (fn [db _ev]
+(rf/reg-event ::add-cart-item
+  (fn [{:keys [db]} _ev]
     (let [new-item {:sku   "BK-099"
                     :title "Patterns of Distributed Systems"
                     :qty   1
                     :price {:currency :AUD :amount 55.00}}]
-      (-> db
-          (update-in [:cart :items] (fnil conj []) new-item)
-          (update-in [:cart :total] (fnil + 0) 55.00)))))
+      {:db (-> db
+               (update-in [:cart :items] (fnil conj []) new-item)
+               (update-in [:cart :total] (fnil + 0) 55.00))})))
 
 ;; --- 4 · Vector swap-by-index ---
 ;; Mutates an existing cart line's :qty AND its nested :price :amount.
@@ -163,41 +163,41 @@
 ;; element without flagging siblings, AND that the descendant change
 ;; on the price subtree is rendered as part of the same item's diff.
 
-(rf/reg-event-db ::bump-first-item-qty
-  (fn [db _ev]
-    (-> db
-        (update-in [:cart :items 0 :qty] inc)
-        (update-in [:cart :items 0 :price :amount] + 42.50)
-        (update-in [:cart :total] + 42.50))))
+(rf/reg-event ::bump-first-item-qty
+  (fn [{:keys [db]} _ev]
+    {:db (-> db
+             (update-in [:cart :items 0 :qty] inc)
+             (update-in [:cart :items 0 :price :amount] + 42.50)
+             (update-in [:cart :total] + 42.50))}))
 
 ;; --- 5 · Set add (deepest, level 5) ---
 ;; Adds a SKU to :catalog :categories :books :groups :tech :skus.
 ;; This is the deepest mutation in the surface — exercises the
 ;; diff renderer's vertical compression at five levels of nesting.
 
-(rf/reg-event-db ::register-new-sku
-  (fn [db _ev]
+(rf/reg-event ::register-new-sku
+  (fn [{:keys [db]} _ev]
     ;; HOT PATH — five-level-deep set mutation.
-    (update-in db [:catalog :categories :books :groups :tech :skus]
-               (fnil conj #{})
-               "BK-099")))
+    {:db (update-in db [:catalog :categories :books :groups :tech :skus]
+                    (fnil conj #{})
+                    "BK-099")}))
 
 ;; --- 6 · Set remove + flag flip in one drain ---
 ;; Removes a scope from :session :auth :scopes AND flips
 ;; :session :ui :sidebar-open?. Tests sibling-key diffs at two
 ;; distinct sub-paths of :session.
 
-(rf/reg-event-db ::revoke-write-and-collapse-sidebar
-  (fn [db _ev]
-    (-> db
-        (update-in [:session :auth :scopes]
-                   (fnil disj #{}) :write)
-        (update-in [:session :ui :sidebar-open?] not))))
+(rf/reg-event ::revoke-write-and-collapse-sidebar
+  (fn [{:keys [db]} _ev]
+    {:db (-> db
+             (update-in [:session :auth :scopes]
+                        (fnil disj #{}) :write)
+             (update-in [:session :ui :sidebar-open?] not))}))
 
 ;; --- Reset ---
-(rf/reg-event-db ::reset
-  (fn [_db _ev]
-    initial-db))
+(rf/reg-event ::reset
+  (fn [_cofx _ev]
+    {:db initial-db}))
 
 ;; ----------------------------------------------------------------------------
 ;; Subs — one per top-level slice so a consumer can re-render only the

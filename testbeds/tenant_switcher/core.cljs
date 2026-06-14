@@ -154,22 +154,22 @@
 ;; Events
 ;; ----------------------------------------------------------------------------
 
-(rf/reg-event-db ::initialise
-  (fn [_db _ev]
+(rf/reg-event ::initialise
+  (fn [_cofx _ev]
     ;; Boot with `acme` as the active tenant (the admin starts impersonating
     ;; acme). No dashboard is ensured yet — the active-scope view reads idle
     ;; until the operator clicks Load.
-    {:viewer {:active-tenant "acme"}}))
+    {:db {:viewer {:active-tenant "acme"}}}))
 
-(rf/reg-event-db ::switch-tenant
-  (fn [db [_ tenant]]
+(rf/reg-event ::switch-tenant
+  (fn [{:keys [db]} [_ tenant]]
     ;; The impersonation switch — one ordinary app-db write. The named scope
     ;; resolver re-derives `[:rf.scope/tenant {:tenant-id tenant}]` from this
     ;; on the next resolution, so every downstream ensure + active-scope sub
     ;; re-points at the new tenant's entry.
-    (assoc-in db [:viewer :active-tenant] tenant)))
+    {:db (assoc-in db [:viewer :active-tenant] tenant)}))
 
-(rf/reg-event-fx ::load-active-dashboard
+(rf/reg-event ::load-active-dashboard
   (fn [_ctx _ev]
     ;; Ensure the dashboard for the CURRENTLY-ACTIVE tenant. No explicit
     ;; :scope — it is derived from app-db via the resource's {:from-db

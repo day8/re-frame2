@@ -99,21 +99,21 @@
 ;; App-db
 ;; ----------------------------------------------------------------------------
 
-(rf/reg-event-db ::initialise
-  (fn [_db _ev]
-    {;; The single numeric input every flow watches.
-     :input        0
-     ;; Bookkeeping for the failure injection.
-     :tick-count   0
-     :fail-at      default-fail-at
-     :total-ticks  default-total-ticks
-     :status       :idle                 ;; :idle | :running | :done
-     ;; The runtime writes :a-result / :b-result / :c-result via
-     ;; the flows' :path slots — declared here only so the initial
-     ;; state is observable before the first drain.
-     :a-result     0
-     :b-result     0
-     :c-result     0}))
+(rf/reg-event ::initialise
+  (fn [_cofx _ev]
+    {:db {;; The single numeric input every flow watches.
+          :input        0
+          ;; Bookkeeping for the failure injection.
+          :tick-count   0
+          :fail-at      default-fail-at
+          :total-ticks  default-total-ticks
+          :status       :idle                 ;; :idle | :running | :done
+          ;; The runtime writes :a-result / :b-result / :c-result via
+          ;; the flows' :path slots — declared here only so the initial
+          ;; state is observable before the first drain.
+          :a-result     0
+          :b-result     0
+          :c-result     0}}))
 
 ;; ----------------------------------------------------------------------------
 ;; Out-of-band closure capture for the failure threshold
@@ -252,7 +252,7 @@
 ;; Tick handler — the cascade engine
 ;; ----------------------------------------------------------------------------
 
-(rf/reg-event-fx ::tick
+(rf/reg-event ::tick
   (fn [{:keys [db]} _ev]
     (let [next-tick (inc (:tick-count db))
           total     (:total-ticks db)]
@@ -266,7 +266,7 @@
                (cond->
                  (>= next-tick total) (assoc :status :done)))})))
 
-(rf/reg-event-fx ::start
+(rf/reg-event ::start
   (fn [{:keys [db]} _ev]
     (let [total   (:total-ticks db)
           tick-ms default-tick-ms]
@@ -285,18 +285,18 @@
                   [:dispatch-later
                    {:ms (* i tick-ms) :event [::tick]}]))})))
 
-(rf/reg-event-fx ::reset
+(rf/reg-event ::reset
   (fn [_ctx _ev]
     {:fx [[:dispatch [::initialise]]]}))
 
-(rf/reg-event-db ::set-fail-at
-  (fn [db [_ new-fail-at]]
+(rf/reg-event ::set-fail-at
+  (fn [{:keys [db]} [_ new-fail-at]]
     (reset! fail-at-atom new-fail-at)
-    (assoc db :fail-at new-fail-at)))
+    {:db (assoc db :fail-at new-fail-at)}))
 
-(rf/reg-event-db ::set-total-ticks
-  (fn [db [_ new-total]]
-    (assoc db :total-ticks new-total)))
+(rf/reg-event ::set-total-ticks
+  (fn [{:keys [db]} [_ new-total]]
+    {:db (assoc db :total-ticks new-total)}))
 
 ;; ----------------------------------------------------------------------------
 ;; Subs + view

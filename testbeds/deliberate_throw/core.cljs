@@ -32,18 +32,18 @@
 ;; [:click-count :handler] stay at 0 after a Button-A click has positive
 ;; evidence the handler threw (the `:db` effect did not commit).
 
-(rf/reg-event-db ::initialise
-  (fn [_db _ev]
-    {:click-count {:handler 0 :fx 0 :flow 0 :machine 0}
-     ;; Flow input — bumping this triggers Button C's flow recompute.
-     :flow-input  0}))
+(rf/reg-event ::initialise
+  (fn [_cofx _ev]
+    {:db {:click-count {:handler 0 :fx 0 :flow 0 :machine 0}
+          ;; Flow input — bumping this triggers Button C's flow recompute.
+          :flow-input  0}}))
 
 ;; ----------------------------------------------------------------------------
 ;; Button A — synchronous throw in event handler
 ;; ----------------------------------------------------------------------------
 
-(rf/reg-event-db ::throw-in-handler
-  (fn [_db _ev]
+(rf/reg-event ::throw-in-handler
+  (fn [_cofx _ev]
     ;; HOT PATH — the throw site for :rf.error/handler-exception.
     ;; The runtime's outer interceptor catches; emits the structured
     ;; error event with this fn's :handler-id and the original message.
@@ -63,7 +63,7 @@
     ;; HOT PATH — the throw site for :rf.error/fx-handler-exception.
     (throw (ex-info "deliberate-throw / fx" {:where :fx}))))
 
-(rf/reg-event-fx ::throw-in-fx
+(rf/reg-event ::throw-in-fx
   (fn [{:keys [db]} _ev]
     {:db (update-in db [:click-count :fx] inc)
      :fx [[::boom {}]]}))
@@ -110,13 +110,13 @@
      :path   [:flow-output]
      :doc    "Flow :output that throws every recompute."}))
 
-(rf/reg-event-db ::throw-in-flow
-  (fn [db _ev]
-    (-> db
-        (update-in [:click-count :flow] inc)
-        ;; Bumping :flow-input is what causes the flow to recompute.
-        ;; The flow's :output throws — see ::throws above.
-        (update :flow-input inc))))
+(rf/reg-event ::throw-in-flow
+  (fn [{:keys [db]} _ev]
+    {:db (-> db
+             (update-in [:click-count :flow] inc)
+             ;; Bumping :flow-input is what causes the flow to recompute.
+             ;; The flow's :output throws — see ::throws above.
+             (update :flow-input inc))}))
 
 ;; ----------------------------------------------------------------------------
 ;; Button D — throw inside machine action
@@ -131,7 +131,7 @@
 ;; :fx from earlier slots in the cascade is dropped; :always does not
 ;; fire on the failed cascade.
 
-(rf/reg-event-fx ::throw-in-machine
+(rf/reg-event ::throw-in-machine
   (machines/make-machine-handler
     {:initial :idle
      :actions {:throw

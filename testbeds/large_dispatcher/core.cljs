@@ -88,32 +88,33 @@
 ;; App-db
 ;; ----------------------------------------------------------------------------
 
-(rf/reg-event-db ::initialise
-  (fn [_db _ev]
-    {;; The four slots one button per. All start as nil; clicks
-     ;; commit the appropriate large or small value.
-     :auto-large-value     nil
-     :declared-large-value nil
-     :fx-declared-value    nil
-     :schema-bag           {:schema-large-value nil}
-     ;; A counter per button — tracks how many times each was
-     ;; clicked. Allows a Playwright spec to confirm the handler
-     ;; body actually ran (the elision is wire-boundary; the
-     ;; handler always sees the unredacted value).
-     :click-count          {:auto 0 :declared 0 :fx 0 :schema 0}}))
+(rf/reg-event ::initialise
+  (fn [_cofx _ev]
+    {:db
+     {;; The four slots one button per. All start as nil; clicks
+      ;; commit the appropriate large or small value.
+      :auto-large-value     nil
+      :declared-large-value nil
+      :fx-declared-value    nil
+      :schema-bag           {:schema-large-value nil}
+      ;; A counter per button — tracks how many times each was
+      ;; clicked. Allows a Playwright spec to confirm the handler
+      ;; body actually ran (the elision is wire-boundary; the
+      ;; handler always sees the unredacted value).
+      :click-count          {:auto 0 :declared 0 :fx 0 :schema 0}}}))
 
 ;; ----------------------------------------------------------------------------
 ;; Button A — unschema'd warning-only path
 ;; ----------------------------------------------------------------------------
 
-(rf/reg-event-db ::write-auto-large
-  (fn [db _ev]
+(rf/reg-event ::write-auto-large
+  (fn [{:keys [db]} _ev]
     ;; HOT PATH — commits a 20 KiB value to an undeclared path. The
     ;; schema-first walker warns about unschema'd large values but does
     ;; not substitute a marker unless a schema declares the path.
-    (-> db
-        (assoc :auto-large-value kib-20-string)
-        (update-in [:click-count :auto] inc))))
+    {:db (-> db
+             (assoc :auto-large-value kib-20-string)
+             (update-in [:click-count :auto] inc))}))
 
 ;; ----------------------------------------------------------------------------
 ;; Button B — schema-declared flat slot
@@ -122,42 +123,42 @@
 ;; The schema marks `[:declared-large-value]` as `:large? true`; the
 ;; small payload proves declaration, not byte size, drives elision.
 
-(rf/reg-event-db ::write-declared-large
-  (fn [db _ev]
-    (-> db
-        (assoc :declared-large-value chars-200-string)
-        (update-in [:click-count :declared] inc))))
+(rf/reg-event ::write-declared-large
+  (fn [{:keys [db]} _ev]
+    {:db (-> db
+             (assoc :declared-large-value chars-200-string)
+             (update-in [:click-count :declared] inc))}))
 
 ;; ----------------------------------------------------------------------------
 ;; Button C — second schema-declared flat slot
 ;; ----------------------------------------------------------------------------
 
-(rf/reg-event-db ::write-fx-declared-large
-  (fn [db _ev]
-    (-> db
-        (assoc :fx-declared-value chars-200-string)
-        (update-in [:click-count :fx] inc))))
+(rf/reg-event ::write-fx-declared-large
+  (fn [{:keys [db]} _ev]
+    {:db (-> db
+             (assoc :fx-declared-value chars-200-string)
+             (update-in [:click-count :fx] inc))}))
 
 ;; ----------------------------------------------------------------------------
 ;; Button D — frame-classification-driven (boot-time frame `:large` decl)
 ;; ----------------------------------------------------------------------------
 
-(rf/reg-event-db ::write-schema-large
-  (fn [db _ev]
+(rf/reg-event ::write-schema-large
+  (fn [{:keys [db]} _ev]
     ;; HOT PATH — writes a small payload to a path the FRAME declares
     ;; `:large` (EP-0015 §8). The runtime seeded
     ;; [:rf.runtime/elision :declarations [:schema-bag :schema-large-value]]
     ;; with :source :frame at `reg-frame` time (see `run`). Elision fires
     ;; on this path regardless of value size.
-    (-> db
-        (assoc-in [:schema-bag :schema-large-value] chars-200-string)
-        (update-in [:click-count :schema] inc))))
+    {:db (-> db
+             (assoc-in [:schema-bag :schema-large-value] chars-200-string)
+             (update-in [:click-count :schema] inc))}))
 
 ;; ----------------------------------------------------------------------------
 ;; Reset
 ;; ----------------------------------------------------------------------------
 
-(rf/reg-event-fx ::reset
+(rf/reg-event ::reset
   (fn [_ctx _ev]
     {:fx [[:dispatch [::initialise]]]}))
 
