@@ -71,12 +71,21 @@
       :states      {:anon  {:on {:login :authed}}
                     :authed {}}})))
 
-(defn- machine-transition-event
+(defn- machine-transition-event*
   "Build a `:rf.machine/transition` trace event whose `:before` / `:after`
-  snapshots carry a populated `:data` (token + blob + a plain sibling)."
-  [machine-id]
+  snapshots carry a populated `:data` (token + blob + a plain sibling), with
+  the addressed id keyed under `id-key`.
+
+  `project-machine-tags` resolves marks via `(or (:actor-id tags)
+  (:machine-id tags))` (marks.cljc:1341) — every LIVE-runtime snapshot row
+  addresses the instance under `:actor-id` (transition.cljc:348/1681; the
+  PREFERRED branch production hits), reserving `:machine-id` for the
+  registered TYPE / birth signal (the FALLBACK). Parameterising `id-key`
+  lets each redaction row be proven on BOTH branches (rf2-sxmeqs — the
+  `:actor-id` branch previously had no synthesized-fixture coverage)."
+  [id-key machine-id]
   {:operation :rf.machine/transition
-   :tags      {:machine-id machine-id
+   :tags      {id-key      machine-id
                :frame      :rf/default
                :before     {:state :anon
                             :data  {:retries 0
@@ -86,6 +95,11 @@
                             :data  {:retries 1
                                     :token   "secret-jwt-after"
                                     :blob    "huge-after"}}}})
+
+(defn- machine-transition-event
+  "The `:machine-id`-keyed transition event (the FALLBACK lookup branch)."
+  [machine-id]
+  (machine-transition-event* :machine-id machine-id))
 
 ;; ---- (1) per-slot extraction + rooting under [:data …] --------------------
 
@@ -303,6 +317,170 @@
           out  (marks/project-trace-event ev)]
       (is (= "not-secret" (get-in out [:tags :data :token]))
           "no marks → :data slot verbatim"))))
+
+;; ---- (2c) :actor-id PREFERRED-branch coverage (rf2-sxmeqs) ----------------
+;;
+;; Every fixture above keys the addressed id under :machine-id — the FALLBACK
+;; branch of `(or (:actor-id tags) (:machine-id tags))`. But after the
+;; :machine-id -> :actor-id rename, every LIVE snapshot/started/guard/action/
+;; cascade emit addresses the running instance under :actor-id (the PREFERRED
+;; branch production hits — transition.cljc:348/1681). These mirror the
+;; redaction rows above on the :actor-id key so the privacy-critical preferred
+;; branch is proven to redact identically. The :machine-id fallback cases above
+;; are retained (the birth signal / registered-type rows still ride it).
+
+(deftest sensitive-slot-redacted-in-egress-actor-id
+  (testing "rf2-sxmeqs — an :actor-id-keyed transition (the PREFERRED lookup
+            branch, the one production emits) redacts the :sensitive? slot in
+            :before / :after exactly like the :machine-id case"
+    (reg-auth-machine!)
+    (let [out  (marks/project-trace-event
+                 (machine-transition-event* :actor-id auth-id))
+          tags (:tags out)]
+      (is (= :rf/redacted (get-in tags [:before :data :token])))
+      (is (= :rf/redacted (get-in tags [:after :data :token])))
+      (is (= 0 (get-in tags [:before :data :retries])) "plain sibling untouched")
+      (is (= 1 (get-in tags [:after :data :retries])))
+      (is (not (.contains (pr-str out) "secret-jwt"))
+          "no raw token leaked via the :actor-id branch"))))
+
+(deftest large-slot-marked-in-egress-actor-id
+  (testing "rf2-sxmeqs — an :actor-id-keyed transition elides the :large? slot
+            to the size marker on the preferred branch"
+    (reg-auth-machine!)
+    (let [out  (marks/project-trace-event
+                 (machine-transition-event* :actor-id auth-id))
+          tags (:tags out)]
+      (is (contains? (get-in tags [:before :data :blob]) :rf.size/large-elided))
+      (is (contains? (get-in tags [:after :data :blob]) :rf.size/large-elided))
+      (is (not (.contains (pr-str out) "huge-before"))))))
+
+(deftest snapshot-slot-redacted-in-egress-actor-id
+  (testing "rf2-sxmeqs — the :snapshot slot on an :actor-id-keyed
+            :rf.machine/snapshot-updated redacts on the preferred branch"
+    (reg-auth-machine!)
+    (let [ev   {:operation :rf.machine/snapshot-updated
+                :tags      {:actor-id auth-id
+                            :frame    :rf/default
+                            :snapshot {:state :authed
+                                       :data  {:retries 2
+                                               :token   "secret-jwt-snap"
+                                               :blob    nil}}}}
+          out  (marks/project-trace-event ev)]
+      (is (= :rf/redacted (get-in out [:tags :snapshot :data :token])))
+      (is (not (.contains (pr-str out) "secret-jwt-snap"))))))
+
+(deftest started-data-slot-redacted-in-egress-actor-id
+  (testing "rf2-sxmeqs — an :actor-id-keyed :rf.machine/started redacts the
+            :sensitive? :data slot and elides the :large? slot on the preferred
+            branch (NOTE: a real :rf.machine/started BIRTH row keys the TYPE id
+            under :machine-id — the fallback case above pins that; this proves
+            the lookup itself honours :actor-id when present)"
+    (reg-auth-machine!)
+    (let [ev   {:operation :rf.machine/started
+                :tags      {:actor-id auth-id
+                            :frame    :rf/default
+                            :state    :anon
+                            :data     {:retries 0
+                                       :token   "secret-jwt-started"
+                                       :blob    "huge-started"}}}
+          out  (marks/project-trace-event ev)
+          tags (:tags out)]
+      (is (= :rf/redacted (get-in tags [:data :token])))
+      (is (contains? (get-in tags [:data :blob]) :rf.size/large-elided))
+      (is (= 0 (get-in tags [:data :retries])) "plain sibling verbatim")
+      (is (not (.contains (pr-str out) "secret-jwt-started"))))))
+
+(deftest guard-evaluated-input-data-redacted-in-egress-actor-id
+  (testing "rf2-sxmeqs — an :actor-id-keyed :rf.machine/guard-evaluated redacts
+            the :input :data sub-slot on the preferred branch"
+    (reg-auth-machine!)
+    (let [ev   {:operation :rf.machine/guard-evaluated
+                :tags      {:actor-id auth-id
+                            :frame    :rf/default
+                            :guard-id :ready?
+                            :state    :anon
+                            :outcome  :pass
+                            :input    {:data  {:retries 0
+                                               :token   "secret-jwt-guard"
+                                               :blob    "huge-guard"}
+                                       :event [:login]}}}
+          out  (marks/project-trace-event ev)
+          tags (:tags out)]
+      (is (= :rf/redacted (get-in tags [:input :data :token])))
+      (is (contains? (get-in tags [:input :data :blob]) :rf.size/large-elided))
+      (is (= [:login] (get-in tags [:input :event])) ":input :event passes through")
+      (is (not (.contains (pr-str out) "secret-jwt-guard"))))))
+
+(deftest action-ran-input-data-redacted-in-egress-actor-id
+  (testing "rf2-sxmeqs — an :actor-id-keyed :rf.machine/action-ran redacts the
+            :input :data sub-slot on the preferred branch"
+    (reg-auth-machine!)
+    (let [ev   {:operation :rf.machine/action-ran
+                :tags      {:actor-id  auth-id
+                            :frame     :rf/default
+                            :action-id :tap
+                            :phase     :transition
+                            :outcome   :ok
+                            :input     {:data  {:retries 1
+                                                :token   "secret-jwt-action"
+                                                :blob    "huge-action"}
+                                        :event [:login]}}}
+          out  (marks/project-trace-event ev)
+          tags (:tags out)]
+      (is (= :rf/redacted (get-in tags [:input :data :token])))
+      (is (contains? (get-in tags [:input :data :blob]) :rf.size/large-elided))
+      (is (not (.contains (pr-str out) "secret-jwt-action"))))))
+
+(deftest transition-cascade-data-deltas-redacted-in-egress-actor-id
+  (testing "rf2-sxmeqs — an :actor-id-keyed transition's :cascade redacts each
+            step's :data-delta on the preferred branch"
+    (reg-auth-machine!)
+    (let [ev   {:operation :rf.machine/transition
+                :tags      {:actor-id auth-id
+                            :frame    :rf/default
+                            :before   {:state :anon  :data {:retries 0 :token nil :blob nil}}
+                            :after    {:state :authed :data {:retries 1
+                                                             :token "secret-jwt-after"
+                                                             :blob "huge-after"}}
+                            :microsteps 0
+                            :cascade  [{:kind   :action
+                                        :state  []
+                                        :region nil
+                                        :action :authenticate
+                                        :data-delta {:token "secret-jwt-delta"
+                                                     :blob  "huge-delta"
+                                                     :retries 1}}
+                                       {:kind   :entry
+                                        :state  [:authed]
+                                        :region nil
+                                        :action nil
+                                        :data-delta {}}]}}
+          out     (marks/project-trace-event ev)
+          cascade (get-in out [:tags :cascade])
+          step0   (first cascade)]
+      (is (= :rf/redacted (get-in step0 [:data-delta :token])))
+      (is (contains? (get-in step0 [:data-delta :blob]) :rf.size/large-elided))
+      (is (= 1 (get-in step0 [:data-delta :retries])) "plain :data-delta key verbatim")
+      (is (= {} (get-in cascade [1 :data-delta])) "empty :data-delta unchanged")
+      (is (= :rf/redacted (get-in out [:tags :after :data :token])))
+      (is (not (.contains (pr-str out) "secret-jwt-delta")))
+      (is (not (.contains (pr-str out) "secret-jwt-after"))))))
+
+(deftest actor-id-takes-precedence-over-machine-id-in-snapshot-egress
+  (testing "rf2-sxmeqs — when a transition carries BOTH ids the lookup PREFERS
+            :actor-id: :actor-id on the marked (auth) machine redacts even
+            though :machine-id points at an UNMARKED machine (proves precedence,
+            not the fallback)"
+    (reg-auth-machine!)
+    (rf/reg-machine :rf.machine-redaction/unmarked-sibling
+      {:initial :idle :data {:n 0} :data-schema [:map [:n :int]] :states {:idle {}}})
+    (let [ev   (-> (machine-transition-event* :actor-id auth-id)
+                   (assoc-in [:tags :machine-id] :rf.machine-redaction/unmarked-sibling))
+          out  (marks/project-trace-event ev)]
+      (is (= :rf/redacted (get-in out [:tags :after :data :token]))
+          "redacted via the PREFERRED :actor-id (marked), not the :machine-id sibling")
+      (is (not (.contains (pr-str out) "secret-jwt"))))))
 
 ;; ---- (3) UNION with a manual register-marks! (Mike ruling #3) -------------
 
