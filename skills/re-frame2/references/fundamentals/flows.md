@@ -44,12 +44,12 @@ Use a **subscription** when the value is consumed only by views. Use a **state m
    :doc    "Rectangle area from :width and :height."   ;; optional
    :schema [:int]})                     ;; optional Malli schema for the output
 
-(rf/reg-flow flow {:frame :scratch})    ;; optional 2nd arg: explicit frame
-(rf/clear-flow :rectangle/area)         ;; dissoc-in's the output :path
-(rf/clear-flow :rectangle/area {:frame :scratch})
+(rf/reg-flow flow {:frame :scratch})       ;; optional 2nd arg: explicit frame
+(flows/clear-flow :rectangle/area)         ;; dissoc-in's the output :path
+(flows/clear-flow :rectangle/area {:frame :scratch})
 ```
 
-`:inputs` order matches the positional args to `:output`. `reg-flow` returns the flow's `:id` (family-wide reg-* convention). Flows ship in `day8/re-frame2-flows` — the consuming ns must `(:require [re-frame.flows])` to publish the artefact's late-bind hooks, or `rf/reg-flow` raises `:rf.error/flows-artefact-missing` (same require-to-register convention as schemas / machines / routing).
+`:inputs` order matches the positional args to `:output`. `reg-flow` returns the flow's `:id` (family-wide reg-* convention). Flows ship in `day8/re-frame2-flows` — the consuming ns must `(:require [re-frame.flows :as flows])` to publish the artefact's late-bind hooks, or `rf/reg-flow` raises `:rf.error/flows-artefact-missing` (same require-to-register convention as schemas / machines / routing). The `reg-flow` **registration macro** stays on the `re-frame.core` façade (`rf/`); the `clear-flow` **lifecycle helper** lives on `re-frame.flows` — it is no longer re-exported from `re-frame.core` (front-porch shrink, rf2-wad2fl).
 
 ## Input partition — bare = app-db, `[:rf.db/runtime …]` = runtime-db
 

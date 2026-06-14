@@ -17,7 +17,7 @@ Greppable signals — flag when **any** of these match AND no production gate is
 - `reg-event-db` named `:*/loaded`, `:*/received`, `:*/decoded`, `:*/synced`, `:*/rehydrated`, `:*/restored` whose handler writes `(assoc db :foo/bar payload)` where `payload` originated outside the application's own dispatches.
 - Events that take an unstructured second arg — `(fn [db [_ data]] (assoc db :remote data))` — where `data` is the raw boundary payload.
 - Handlers that read `js/window.location.search`, `js/localStorage`, `js/sessionStorage`, `js/postMessage`, or `IndexedDB` results in their bodies (often via fx) and write the result to `app-db`.
-- New handlers introduced in a feature whose `app-db` writes use paths absent from `(rf/app-schemas)`.
+- New handlers introduced in a feature whose `app-db` writes use paths absent from `(re-frame.schemas/app-schemas)` (the `app-schemas` query lives on `re-frame.schemas` — no longer re-exported from `re-frame.core`, per rf2-wad2fl).
 
 Detection logic (apply for each candidate handler):
 

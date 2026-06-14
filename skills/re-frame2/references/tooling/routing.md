@@ -13,14 +13,14 @@ Do **not** load this leaf to learn what routing is — that is training knowledg
 
 ## Canonical signatures
 
-The routing artefact ships separately in `day8/re-frame2-routing`. `re-frame.core` does **not** require it; the consuming app must `:require [re-frame.routing]` at boot, or `reg-route` throws `:rf.error/routing-artefact-missing`. Once required, the surface lives on `re-frame.core` (via the late-bind table).
+The routing artefact ships separately in `day8/re-frame2-routing`. `re-frame.core` does **not** require it; the consuming app must `:require [re-frame.routing :as routing]` at boot, or `reg-route` throws `:rf.error/routing-artefact-missing`. The `reg-route` **registration macro** stays on the `re-frame.core` façade (`rf/`); the **URL-codec query helpers** `route-url` / `match-url` (and `current-url` / `clear-route`) live on the owning `re-frame.routing` namespace — they are no longer re-exported from `re-frame.core` (front-porch shrink, rf2-wad2fl).
 
 ```clojure
-(rf/reg-route id metadata)                            ;; metadata keys below
-(rf/route-url route-id path-params)                   ;; pure; build URL from id + params
-(rf/route-url route-id path-params query-params)
-(rf/route-url route-id path-params query-params fragment)  ;; 4-arity adds #fragment
-(rf/match-url url)                      ;; pure; => {:route-id :params :query :fragment} or nil
+(rf/reg-route id metadata)                                  ;; metadata keys below
+(routing/route-url route-id path-params)                    ;; pure; build URL from id + params
+(routing/route-url route-id path-params query-params)
+(routing/route-url route-id path-params query-params fragment)  ;; 4-arity adds #fragment
+(routing/match-url url)                 ;; pure; => {:route-id :params :query :fragment} or nil
 ```
 
 The 4-arity `route-url` appends the `#fragment` part. A `nil` (or empty-string) fragment is **omitted** from the URL — `route-url` percent-encodes a present fragment, `match-url` decodes it back and normalises absence to `nil`, so the fragment round-trips lawfully (EP-0012 route-prism law). Build fragment links through this arity; do **not** hand-concatenate `(str url "#" frag)`.
@@ -64,7 +64,7 @@ Distilled from `examples/reagent/routing/core.cljs`.
 ```clojure
 (ns app.core
   (:require [re-frame.core :as rf]
-            [re-frame.routing])              ;; load-time hook + reg-sub registrations
+            [re-frame.routing :as routing])  ;; load-time hook + reg-sub registrations; route-url / match-url
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 (rf/reg-route :route/home
@@ -84,7 +84,7 @@ Distilled from `examples/reagent/routing/core.cljs`.
 
 ;; Anchor that routes through the framework (not a full page reload).
 (reg-view route-link [{:keys [to params]} & children]
-  (let [url (rf/route-url to (or params {}))]
+  (let [url (routing/route-url to (or params {}))]
     [:a {:href url
          :on-click (fn [e]
                      (when (and (zero? (.-button e))
