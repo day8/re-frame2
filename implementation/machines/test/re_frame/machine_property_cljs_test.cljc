@@ -418,17 +418,73 @@
       state)
     (leaf-node? (transition/node-at machine (transition/state-path state)))))
 
+;; ---- INVARIANT 2 oracle: an INDEPENDENT tag computation -------------------
+;;
+;; The oracle must NOT recompute the expected tag union via
+;; `transition/compute-tags` — that is the SAME fn the engine's commit-tags
+;; calls (`transition.cljc` `commit-tags` → `compute-tags`), so reusing it
+;; only cross-checks the elision rule + state/tag consistency, never the
+;; union math itself (rf2-ln2ctp). Instead, walk the active-state ancestor
+;; chain HERE — descending the machine spec's `:states` map directly along
+;; the state path and reading each node's declared `:tags` slot by hand — so
+;; the expected union is derived by a genuinely independent method. The
+;; parallel branch already cross-checks the engine's `commit-tags-parallel`
+;; independently; both branches are reimplemented below for symmetry.
+
+(defn- declared-tags
+  "Coerce a node's `:tags` slot to a set — independently of the engine's
+  `node-tags` (same canonical-form tolerance, reimplemented by hand)."
+  [node]
+  (let [t (:tags node)]
+    (cond
+      (nil? t)        #{}
+      (set? t)        t
+      (sequential? t) (set t)
+      (keyword? t)    #{t}
+      :else           #{})))
+
+(defn- path->vec
+  "Normalise a single-machine `:state` (keyword or vector path) to a vector
+  path — reimplemented here so the oracle does not lean on
+  `transition/state-path`."
+  [state]
+  (cond
+    (vector? state)  state
+    (keyword? state) [state]
+    :else            (throw (ex-info "oracle: bad state form" {:state state}))))
+
+(defn- ancestor-chain-tags
+  "INDEPENDENT walk: descend `states-map` (a machine's `:states`) along the
+  vector `path`, collecting the `:tags` declared on EVERY node from root to
+  leaf. Returns the union. Does NOT call `compute-tags` / `nodes-along-path`
+  / `node-at` — it threads `:states` by hand, so it is a true cross-check of
+  the engine's projection rather than a re-run of the same code."
+  [states-map path]
+  (loop [m states-map, p path, acc #{}]
+    (if (empty? p)
+      acc
+      (let [node (get m (first p))]
+        (if (nil? node)
+          acc                                   ;; unresolvable: stop (defensive)
+          (recur (:states node) (rest p)
+                 (set/union acc (declared-tags node))))))))
+
 (defn- expected-tags
   "INVARIANT 2 oracle. Independently recompute the active-configuration tag
-  union for `machine` + `state` (the projection the engine must stamp).
-  For parallel, union across regions; for flat/compound, walk the path."
+  union for `machine` + `state` (the projection the engine must stamp), via
+  a HAND-WRITTEN ancestor-chain walk over the machine spec — NOT via
+  `transition/compute-tags` (which the engine itself uses, so reusing it
+  would be circular; rf2-ln2ctp). For parallel, union the independent walk
+  across every region; for flat/compound, walk the single path."
   [machine state]
   (if (map? state)
+    ;; parallel: independently walk each region's own :states by its leaf path
     (transduce
       (map (fn [[rn rstate]]
-             (transition/compute-tags (parallel/region-machine machine rn) rstate)))
+             (let [rbody (parallel/region-machine machine rn)]
+               (ancestor-chain-tags (:states rbody) (path->vec rstate)))))
       set/union #{} state)
-    (transition/compute-tags machine state)))
+    (ancestor-chain-tags (:states machine) (path->vec state))))
 
 ;; ---- INVARIANT 1: state is always a leaf ----------------------------------
 
@@ -579,8 +635,16 @@
             keys (only reserved :rf/* captures are added)"
     (let [counter-total (fn [snap]
                           (reduce + 0 (vals (:rf/spawn-counter snap))))
-          ;; user-domain keys the actions touch
+          ;; user-domain keys the generated actions write (`:a/bump` → :n,
+          ;; `:a/tag` → :touched) plus the initial `{:n 0}`. The KEY-
+          ;; PRESERVATION oracle: the engine never silently DROPS one of
+          ;; these user keys once it is present — it adds only reserved
+          ;; `:rf/*` captures, never orphaning / discarding a user key. (The
+          ;; generated actions themselves only ever `update`/`assoc` these
+          ;; keys; none removes one — so any disappearance is the engine's.)
           user-keys     #{:n :touched}
+          user-keys-of  (fn [d] (when (map? d)
+                                  (set/intersection user-keys (set (keys d)))))
           failure
           (loop [i 0, s 5005]
             (if (= i 400)
@@ -588,7 +652,7 @@
               (let [[m _ s1] (gen-machine s)
                     [evs s2] (gen-events s1)
                     snap0    (initial-snapshot m)
-                    steps    (run-sequence m evs)
+                    steps    (cons {:snap snap0} (run-sequence m evs))
                     ;; monotone check over the running counter total
                     [_ mono-bad]
                     (reduce
@@ -599,15 +663,28 @@
                             [now nil])))
                       [(counter-total snap0) nil]
                       steps)
-                    ;; data-non-corrupt: every user-domain key ever present
-                    ;; stays a plain value (the engine adds only :rf/* keys,
-                    ;; never mutates / orphans a user key into a non-value).
-                    data-bad
-                    (some (fn [{snap :snap}]
-                            (let [d (:data snap)]
-                              (when-not (map? d)
-                                {:why :data-not-a-map :data d})))
-                          steps)]
+                    ;; data-non-corrupt: `:data` stays a map, AND every
+                    ;; user-domain key (`#{:n :touched}`) the engine has ever
+                    ;; carried survives into EVERY subsequent step — the engine
+                    ;; never silently drops a user key (only `:rf/*` captures
+                    ;; are added). `seen` accumulates the user keys observed so
+                    ;; far; a later step missing one of them is corruption.
+                    [_ data-bad]
+                    (reduce
+                      (fn [[seen _] {snap :snap}]
+                        (let [d (:data snap)]
+                          (cond
+                            (not (map? d))
+                            (reduced [seen {:why :data-not-a-map :data d}])
+                            ;; a previously-present user key vanished
+                            (not (set/subset? seen (set (keys d))))
+                            (reduced [seen {:why :user-key-dropped
+                                            :dropped (set/difference seen (set (keys d)))
+                                            :data d}])
+                            :else
+                            [(set/union seen (user-keys-of d)) nil])))
+                      [#{} nil]
+                      steps)]
                 (cond mono-bad [:monotone m evs mono-bad]
                       data-bad [:data m evs data-bad]
                       :else    (recur (inc i) (lcg-next s2))))))]
