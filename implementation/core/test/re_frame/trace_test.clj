@@ -397,7 +397,9 @@
           (is (has-op? events :rf.machine :rf.machine/transition)
               "expected :rf.machine :rf.machine/transition")
           (let [t (:tags (find-op events :rf.machine :rf.machine/transition))]
-            (is (keyword? (:machine-id t)))
+            ;; rf2-ws5thu — the transition row addresses the LIVE actor instance
+            ;; under :actor-id (:machine-id reserved for the registered TYPE).
+            (is (keyword? (:actor-id t)))
             (is (vector?  (:event t)))
             (is (map?     (:before t)))
             (is (map?     (:after t)))))

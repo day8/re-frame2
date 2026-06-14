@@ -31,10 +31,10 @@ Spec 005 §Declarative `:spawn` §Worked example (verbatim shape). While the par
 | `:on-done` | `(fn [{:keys [data result]}] new-data)` — fires when the child enters a **non-error** `:final?` state; `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil`). See [§Final states](#final-states--final--on-done--output-key) below. | optional |
 | `:on-error` | an **`:on`-shaped transition spec** — keyword target, vector-path target, single map `{:target :guard :action}`, or guarded candidate vector — fired when the child **FAILS** (reaches an `:error? true` `:final?` leaf, or one of its actions throws). re-frame2's spelling of XState v5 `invoke onError`: a transition (control flow), not just a callback. The target resolves at the `:spawn`-bearing state's own level (a keyword is a sibling). See [§`:on-error`](#on-error--child-failure-control-flow) below. | optional |
 | `:start` | event vector dispatched to the newborn after spawn | optional |
-| `:fixed-actor-id` | explicit actor-address input instead of gensym (per-state singleton) — the explicit-address identity (rf2-0ggtr5; was the overloaded `:spawn-id`) | optional |
+| `:fixed-actor-id` | explicit actor-address input instead of gensym (per-state singleton) — the explicit-address identity (was the overloaded `:spawn-id`) | optional |
 | `:id-prefix` | base for the gensym'd actor id; defaults to `:machine-id` | optional |
 
-Verbatim from Spec 005 §Spec-spec keys. The runtime stamps `:rf/parent-id` (the parent's registration id) + `:rf/invoke-id` (the declarative invocation path — the absolute prefix-path of the `:spawn`-bearing state node; rf2-0ggtr5, was `:rf/spawn-id`) onto the spawn args so the destroy fx can locate the actor on exit.
+Verbatim from Spec 005 §Spec-spec keys. The runtime stamps `:rf/parent-id` (the parent's registration id) + `:rf/invoke-id` (the declarative invocation path — the absolute prefix-path of the `:spawn`-bearing state node; was `:rf/spawn-id`) onto the spawn args so the destroy fx can locate the actor on exit.
 
 ## Final states — `:final?` / `:on-done` / `:output-key`
 
