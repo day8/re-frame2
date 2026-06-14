@@ -11,7 +11,7 @@
 
     (1) the app value projects correctly over the default-realm registrar —
         the descriptor shape (kind / id / handler / source / metadata), the
-        top-level shape (`:rf.app/id` / `:registrations` / `:requires`), and
+        top-level shape (`:rf.app/id` / `:registrations` / `:rf.app/requires`), and
         the source-coord lifting + non-double-carry;
     (2) the SUGAR PATH updates it — an ordinary `reg-*` is reflected by the
         next projection, with no invalidation step (the registrar is the
@@ -47,14 +47,14 @@
 
 (deftest app-value-top-level-shape
   (testing "the projection carries the app-value top-level shape — the app id
-            (the realm's id), the :registrations grouping, and the :requires
-            set (empty in stage 5 — declared on modules, D3)"
+            (the realm's id), the :registrations grouping, and the
+            :rf.app/requires set (empty in stage 5 — declared on modules, D3)"
     (let [v (av/app-value)]
       (is (= :rf.realm/default (:rf.app/id v))
           "the app id is the default realm's id — the app it carries")
       (is (map? (:registrations v))
           "registrations is a kind → id → descriptor map")
-      (is (= #{} (:requires v))
+      (is (= #{} (:rf.app/requires v))
           "requires is empty in stage 5 (capability requirements are module/D3)")
       (is (not (contains? v :modules))
           ":modules is D3-reserved, never produced in stage 5")
@@ -203,7 +203,7 @@
       (is (= :rf.realm/default (:rf.app/id v)))
       (is (= {} (:registrations v))
           "an empty registrar projects an empty registrations map")
-      (is (= #{} (:requires v))))))
+      (is (= #{} (:rf.app/requires v))))))
 
 ;; ---------------------------------------------------------------------------
 ;; (4) the realm-side installed-app seam (the late-bind bridge)
@@ -224,16 +224,16 @@
 (deftest installed-app-reconciles-stored-app-with-live-projection
   (testing "installed-app reconciles a STORED :app slot WITH the live registrar
             projection (rf2-77ewnm): the seated value's identity / :modules /
-            :requires provenance is overlaid, but the registrations are always
-            the LIVE registrar's, so the public read never desyncs from the
+            :rf.app/requires provenance is overlaid, but the registrations are
+            always the LIVE registrar's, so the public read never desyncs from the
             registrar / av/app-value. (Was: stored slot returned verbatim,
             precedence over projection — the desync the reconcile fix closes.)"
     ;; Seat a sentinel :app on a fresh test realm — the shape a stage-7 install!
-    ;; would write. Its :rf.app/id + :requires must overlay the live projection.
+    ;; would write. Its :rf.app/id + :rf.app/requires must overlay the live projection.
     (let [sentinel {:rf.app/id :av/sentinel
-                    :modules   {:av/m {:rf.module/id :av/m :owns {} :requires #{}}}
+                    :modules   {:av/m {:rf.module/id :av/m :rf.module/owns {} :rf.module/requires #{}}}
                     :registrations {}
-                    :requires  #{:rf.capability/example}}
+                    :rf.app/requires  #{:rf.capability/example}}
           test-rid :av/test-realm]
       (swap! realm/realms assoc test-rid
              (assoc (realm/make-realm test-rid) :app sentinel))
@@ -241,10 +241,10 @@
             proj (av/app-value test-rid)]
         (is (= :av/sentinel (:rf.app/id read))
             "the seated app's identity is overlaid")
-        (is (= {:av/m {:rf.module/id :av/m :owns {} :requires #{}}} (:modules read))
+        (is (= {:av/m {:rf.module/id :av/m :rf.module/owns {} :rf.module/requires #{}}} (:modules read))
             "the seated app's :modules provenance is overlaid")
-        (is (= #{:rf.capability/example} (:requires read))
-            "the seated app's :requires is overlaid")
+        (is (= #{:rf.capability/example} (:rf.app/requires read))
+            "the seated app's :rf.app/requires is overlaid")
         (is (= (:registrations proj) (:registrations read))
             "the registrations are the LIVE projection's — not the frozen
              sentinel's empty map (the source-of-truth reconcile)"))

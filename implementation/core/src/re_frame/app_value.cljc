@@ -114,12 +114,16 @@
 ;;                  app this is the re-grouping of the realm's registrar; for
 ;;                  a constructed app it is the composition of its modules'
 ;;                  descriptors (collision-checked, owner-stamped).
-;;   :requires      the set of `:rf.capability/*` requirements the program
+;;   :rf.app/requires the set of `:rf.capability/*` requirements the program
 ;;                  declares. EMPTY for a projected app (capability
 ;;                  requirements are declared on MODULE values — the
 ;;                  default realm's load-order registrations carry none). For
 ;;                  a constructed app it is the union of its modules'
-;;                  `:requires`. The slot is always present.
+;;                  `:rf.module/requires`. The slot is always present. Owner-
+;;                  qualified (`:rf.app/requires`) per EP-0007 one-name-per-
+;;                  fact + the EP-0017 v5 line: a FACT about the app gets an
+;;                  owner-qualified key (parallel to `:rf.app/id`); structural
+;;                  section keys stay bare.
 ;;   :modules       (CONSTRUCTED apps only) the module map keyed by module id:
 ;;                  `module-id → module value`. A projected app carries no
 ;;                  modules (the load-order registrar has no module grouping),
@@ -127,17 +131,22 @@
 ;;                  modules carries an empty `:modules` map.
 ;;
 ;; A module value (stage 6, `module`) is a composable app-value FRAGMENT — the
-;; same descriptor-grouped shape, plus a module id, the `:owns` ownership
-;; declarations, and the `:requires` capability set:
+;; same descriptor-grouped shape, plus a module id, the `:rf.module/owns`
+;; ownership declarations, and the `:rf.module/requires` capability set. Both
+;; ownership and requirements are FACTS about the module, so their keys are
+;; owner-qualified (`:rf.module/*`) per EP-0007 one-name-per-fact + the EP-0017
+;; v5 line — parallel to `:rf.cofx/requires`, `:rf.scope/*`, `:rf.capability/*`;
+;; the structural section keys (`:id`, `:events`, `:subs`, `:routes`, …) stay
+;; bare:
 ;;
 ;;   :rf.module/id  the module's id (stamped onto each descriptor's :owner).
 ;;   :registrations the module's own descriptors grouped by kind.
-;;   :owns          the ownership declarations (`{:app-db [...] :routes [...]
+;;   :rf.module/owns the ownership declarations (`{:app-db [...] :routes [...]
 ;;                  :resources [...] ...}`) — not merely documentation;
 ;;                  composition surfaces them for tooling (overlap validation
 ;;                  beyond same-(kind,id) collision is a later slice).
-;;   :requires      the module's `:rf.capability/*` requirements (empty set
-;;                  when none declared).
+;;   :rf.module/requires the module's `:rf.capability/*` requirements (empty
+;;                  set when none declared).
 ;;   :source        the module's own source-coordinate envelope, when the
 ;;                  caller supplies one (absent otherwise — issue 8: absence
 ;;                  never changes behaviour).
@@ -255,9 +264,9 @@
   and no possibility of desync.
 
   Returns:
-    {:rf.app/id     <realm-id>            ;; the app the realm carries
-     :registrations {kind {id descriptor}} ;; normalized descriptors by kind
-     :requires      #{}}                  ;; capability requirements — always
+    {:rf.app/id       <realm-id>          ;; the app the realm carries
+     :registrations   {kind {id descriptor}} ;; normalized descriptors by kind
+     :rf.app/requires #{}}                ;; capability requirements — always
                                           ;; empty for a projected app
                                           ;; (requirements are declared on
                                           ;; MODULE values; load-order
@@ -274,9 +283,9 @@
    (let [rid       (realm/realm-id realm-or-id)
          registrar (realm/registrar (realm/realm rid))
          snapshot  (if registrar @registrar {})]
-     {:rf.app/id     rid
-      :registrations (registrations->descriptors snapshot)
-      :requires      #{}})))
+     {:rf.app/id       rid
+      :registrations   (registrations->descriptors snapshot)
+      :rf.app/requires #{}})))
 
 ;; ---- public construction + composition (EP-0013 D2 stage 6) ---------------
 ;;
@@ -319,11 +328,13 @@
    :mutations       :mutation
    :resource-scopes :resource-scope})
 
-(def ^:private module-source-coord-keys
+(def ^:private module-reserved-keys
   "Reserved top-level module keys that are NOT registration sections — lifted
-  out before the section scan so a module's own `:id` / `:owns` / `:requires`
-  / `:source` are never mistaken for a registration kind."
-  #{:id :owns :requires :source})
+  out before the section scan so a module's own `:id` / `:rf.module/owns` /
+  `:rf.module/requires` / `:source` are never mistaken for a registration kind.
+  `:rf.module/owns` and `:rf.module/requires` are owner-qualified FACT keys
+  (EP-0007 / EP-0017 v5); `:id` and `:source` are structural slots."
+  #{:id :rf.module/owns :rf.module/requires :source})
 
 (defn- module-descriptor
   "Normalize one module registration entry into an app-value registration
@@ -353,29 +364,36 @@
 
   `descriptor-map` carries:
 
-    :id        the module id (required) — stamped onto every descriptor's
-               `:owner` so composition can name the colliding source.
-    :owns      ownership declarations (`{:app-db [[:cart]] :routes […]
+    :id                 the module id (required) — stamped onto every
+               descriptor's `:owner` so composition can name the colliding
+               source. Structural section key, BARE.
+    :rf.module/owns     ownership declarations (`{:app-db [[:cart]] :routes […]
                :resources […] …}`) — the feature surfaces the module owns.
                Carried through to the app value for tooling (overlap
                validation beyond same-(kind,id) collision is a later slice).
-    :requires  the set of `:rf.capability/*` requirements (defaults to `#{}`).
+               A FACT about the module, so owner-qualified (EP-0007 /
+               EP-0017 v5) — parallel to `:rf.cofx/requires`, `:rf.scope/*`.
+    :rf.module/requires the set of `:rf.capability/*` requirements (defaults
+               to `#{}`). A FACT about the module — owner-qualified, naming
+               the capability contract (as `:rf.cofx/requires` names the cofx
+               contract). Values are already `:rf.capability/*`-qualified;
+               this owner-qualifies the KEY.
     :source    the module's own source-coordinate envelope, when the host
                supplies one (optional — issue 8: absence never changes
-               behaviour).
+               behaviour). Structural envelope slot, BARE.
     <sections> registration sections keyed by the plural section name
                (`:events {id entry} :subs {…} :routes {…} …`, per the EP
                module form); each `entry` is a `{:doc … :schema … :handler …
-               :source …}` handler-and-metadata map. The section→kind map is
-               the Spec 001 registry taxonomy.
+               :source …}` handler-and-metadata map. Structural section keys,
+               BARE. The section→kind map is the Spec 001 registry taxonomy.
 
   Returns a module value:
 
-    {:rf.module/id  <id>
-     :registrations {kind {id descriptor}}  ;; descriptors, :owner-stamped
-     :owns          <owns or {}>
-     :requires      <requires set>
-     :source        <source>}               ;; present only when supplied
+    {:rf.module/id       <id>
+     :registrations      {kind {id descriptor}}  ;; descriptors, :owner-stamped
+     :rf.module/owns     <owns or {}>
+     :rf.module/requires <requires set>
+     :source             <source>}          ;; present only when supplied
 
   PURE — no realm, no registrar, no side effect. Throws `:rf.error/invalid-module`
   (an ex-info whose ex-data IS the diagnostic) when `:id` is missing — the one
@@ -398,7 +416,7 @@
                                   entries))
                 ;; A non-section, non-reserved top-level key is a malformed
                 ;; module — fail loudly rather than silently dropping it.
-                (if (contains? module-source-coord-keys section)
+                (if (contains? module-reserved-keys section)
                   acc
                   (throw (ex-info (str "rf/module: unknown section key " section)
                                   {:error/id :rf.error/invalid-module
@@ -407,10 +425,10 @@
                                    :recovery :remove-or-correct-the-section-key})))))
             {}
             descriptor-map)]
-      (cond-> {:rf.module/id  id
-               :registrations registrations
-               :owns          (get descriptor-map :owns {})
-               :requires      (set (get descriptor-map :requires #{}))}
+      (cond-> {:rf.module/id       id
+               :registrations      registrations
+               :rf.module/owns     (get descriptor-map :rf.module/owns {})
+               :rf.module/requires (set (get descriptor-map :rf.module/requires #{}))}
         (seq (:source descriptor-map)) (assoc :source (:source descriptor-map))))))
 
 ;; ---- composition: modules → an app value ----------------------------------
@@ -470,11 +488,11 @@
 
   Returns an app value:
 
-    {:rf.app/id     <id>
-     :modules       {module-id module}        ;; the composed modules by id
-     :registrations {kind {id descriptor}}    ;; every module's descriptors,
+    {:rf.app/id       <id>
+     :modules         {module-id module}      ;; the composed modules by id
+     :registrations   {kind {id descriptor}}  ;; every module's descriptors,
                                                ;; collision-checked + owner-stamped
-     :requires      #{:rf.capability/* …}}     ;; union of module :requires
+     :rf.app/requires #{:rf.capability/* …}}   ;; union of module :rf.module/requires
 
   DETERMINISTIC + ORDER-STABLE: the same modules compose to the same app value
   regardless of order, and a same-(kind,id) collision across modules THROWS
@@ -541,15 +559,15 @@
           ;; exact-equal duplicate does not double-fold (which would otherwise
           ;; trip the same-(kind,id) collision check spuriously).
           deduped (vals by-id)]
-      {:rf.app/id     id
-       :modules       by-id
-       :registrations (reduce (fn [acc m]
-                                (merge-module-registrations acc (:registrations m)))
-                              {}
-                              deduped)
-       :requires      (reduce (fn [acc m] (into acc (:requires m)))
-                              #{}
-                              deduped)})))
+      {:rf.app/id       id
+       :modules         by-id
+       :registrations   (reduce (fn [acc m]
+                                  (merge-module-registrations acc (:registrations m)))
+                                {}
+                                deduped)
+       :rf.app/requires (reduce (fn [acc m] (into acc (:rf.module/requires m)))
+                                #{}
+                                deduped)})))
 
 ;; ---- public inspection over an app value (EP-0013 §Examples) --------------
 ;;
@@ -572,25 +590,26 @@
 
 (defn app-requires
   "Return the set of `:rf.capability/*` requirements an app value declares —
-  the union of its modules' `:requires` (EP-0013 §Capability Maps). The
-  explicit dependency surface a realm must satisfy before a stage-7 `install!`
-  succeeds. PUBLIC (`rf/app-requires`). Pure — returns `#{}` for a projected
-  app (load-order registrations declare no requirements)."
+  the union of its modules' `:rf.module/requires` (EP-0013 §Capability Maps),
+  read off the app value's `:rf.app/requires` slot. The explicit dependency
+  surface a realm must satisfy before a stage-7 `install!` succeeds. PUBLIC
+  (`rf/app-requires`). Pure — returns `#{}` for a projected app (load-order
+  registrations declare no requirements)."
   [app-value]
-  (get app-value :requires #{}))
+  (get app-value :rf.app/requires #{}))
 
 (defn app-owns
   "Return the module id that owns app-db `path` in an app value, or `nil` when
   no module declares it (EP-0013 §Module Values And Feature Ownership /
   §Examples `(rf/app-owns app [:cart])`). PUBLIC (`rf/app-owns`).
 
-  Resolves against the modules' `:owns {:app-db [...]}` declarations: returns
-  the id of the module whose `:owns :app-db` vector contains exactly `path`.
-  Pure; returns `nil` for a projected app (no modules, hence no ownership
-  declarations)."
+  Resolves against the modules' `:rf.module/owns {:app-db [...]}` declarations:
+  returns the id of the module whose `:rf.module/owns :app-db` vector contains
+  exactly `path`. Pure; returns `nil` for a projected app (no modules, hence no
+  ownership declarations)."
   [app-value path]
   (some (fn [[mid m]]
-          (when (some #(= % path) (get-in m [:owns :app-db]))
+          (when (some #(= % path) (get-in m [:rf.module/owns :app-db]))
             mid))
         (:modules app-value)))
 
@@ -603,7 +622,7 @@
 ;; container you install it into (stage 7).
 ;;
 ;; Two responsibilities, in order (EP-0013 §Installation):
-;;   1. CAPABILITY CHECK — the app value's `:requires` (its `:rf.capability/*`
+;;   1. CAPABILITY CHECK — the app value's `:rf.app/requires` (its `:rf.capability/*`
 ;;      dependency surface) must be satisfiable by the realm's `:capabilities`
 ;;      map. Fail LOUD (`:rf.error/missing-capability`) on the FIRST unmet
 ;;      capability, BEFORE any registrar mutation — installation must validate
@@ -694,7 +713,7 @@
 
 (defn- check-capabilities!
   "Validate that `realm-id`'s capability map satisfies every `:rf.capability/*`
-  the app value `:requires`. Throws `:rf.error/missing-capability` (an ex-info
+  the app value `:rf.app/requires`. Throws `:rf.error/missing-capability` (an ex-info
   whose ex-data IS the diagnostic — issue 7) on the FIRST unmet capability,
   naming the realm + the missing capability, BEFORE any registrar mutation
   (EP-0013 §Installation step 2 / §Capability maps). A no-op when the app
@@ -1098,7 +1117,7 @@
   (`:reason` echoes `opts`' `:reason`, defaulting to `:hot-reload`), so a dev
   tool can show what a save changed.
 
-  Re-running the capability check on the new app (its `:requires` must still be
+  Re-running the capability check on the new app (its `:rf.app/requires` must still be
   satisfiable) preserves the install invariant across the reload — a reinstall
   that adds an unmet capability requirement THROWS `:rf.error/missing-capability`
   before any mutation, exactly as `install!` would.
@@ -1253,7 +1272,7 @@
 ;;     hook). The honest no-provenance case; unchanged.
 ;;   - A stored `:app` (an `install!`-seated app value) — the SAME live
 ;;     projection, with the seated app's `:rf.app/id`, `:modules`, and
-;;     `:requires` overlaid (`:reconcile-installed` hook). The registrations are
+;;     `:rf.app/requires` overlaid (`:reconcile-installed` hook). The registrations are
 ;;     always the live registrar's (so coexisting sugar is visible and the read
 ;;     can never desync from `app-value` / dispatch); the rich install-time
 ;;     provenance the Xray Module-view feeds to `app-registrations` / `app-owns`
@@ -1276,22 +1295,22 @@
   and can never desync from `app-value` / dispatch) carrying the seated app's
   rich provenance overlaid:
 
-    {:rf.app/id     <stored app id>             ;; the seated app's identity
-     :registrations {kind {id descriptor}}      ;; the LIVE registrar (sugar +
+    {:rf.app/id       <stored app id>           ;; the seated app's identity
+     :registrations   {kind {id descriptor}}    ;; the LIVE registrar (sugar +
                                                  ;; installed), owner-stamped
-     :requires      <stored app :requires>      ;; the seated app's capability
-                                                 ;; surface (module-declared)
-     :modules       <stored app :modules>}      ;; per-module provenance — so
+     :rf.app/requires <stored app :rf.app/requires> ;; the seated app's
+                                                 ;; capability surface (module-declared)
+     :modules         <stored app :modules>}    ;; per-module provenance — so
                                                  ;; app-owns / app-requires read
 
-  `:requires` and `:modules` come from the seated VALUE (load-order sugar
+  `:rf.app/requires` and `:modules` come from the seated VALUE (load-order sugar
   declares neither), so the Xray Module-view's per-module facts survive while
   the enumerable registration view stays the live source of truth. Pure given
   the registrar snapshot the projection reads."
   [realm-id stored-app]
   (-> (app-value realm-id)
-      (assoc :rf.app/id (:rf.app/id stored-app)
-             :requires  (get stored-app :requires #{}))
+      (assoc :rf.app/id       (:rf.app/id stored-app)
+             :rf.app/requires (get stored-app :rf.app/requires #{}))
       (cond-> (contains? stored-app :modules)
         (assoc :modules (:modules stored-app)))))
 

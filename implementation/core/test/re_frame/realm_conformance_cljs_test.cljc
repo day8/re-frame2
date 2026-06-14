@@ -405,7 +405,7 @@
     (let [r  (rf/realm {:id :conf/needs-caps})
           a  (rf/app {:id :c :modules
                       [(rf/module {:id :m
-                                   :requires #{:rf.capability/http}
+                                   :rf.module/requires #{:rf.capability/http}
                                    :events {:c/e {:handler add-a}}})]})
           ed (try (rf/install! r a)
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
@@ -421,7 +421,7 @@
                          :capabilities {:rf.capability/http {:request! identity}}})]
         (rf/install! r (rf/app {:id :c2 :modules
                                 [(rf/module {:id :m
-                                             :requires #{:rf.capability/http}
+                                             :rf.module/requires #{:rf.capability/http}
                                              :events {:c/e {:handler add-a}}})]}))
         (is (= add-a (get-in @(realm/registrar r) [:event :c/e :handler-fn]))
             "the descriptor is seated once the capability is satisfied")))))

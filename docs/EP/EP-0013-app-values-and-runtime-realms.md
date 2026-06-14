@@ -95,6 +95,35 @@ final-review verdict (`rf2-g41gz6`).
   `:rf.error/*` categories carry Spec 009 Error-event catalogue rows (the
   final-review corrective).
 
+### Erratum — module/app fact keys are owner-qualified (`:rf.module/*` / `:rf.app/*`)
+
+- **The module form's `:owns` / `:requires` keys are owner-qualified to
+  `:rf.module/owns` / `:rf.module/requires`; the app value's union key is
+  `:rf.app/requires` (rf2-yk6u2x, 2026-06-14).** The exploratory examples in
+  this EP below (§The Shape At A Glance, §App Values, §Module Values And Feature
+  Ownership, and the worked snippets) spell the module ownership and capability
+  facts with the BARE keys `:owns` / `:requires` and the app union as `:requires`.
+  Those spellings are **superseded.** Per [EP-0007 one-name-per-fact](EP-0007-one-name-per-fact.md)
+  and the [EP-0017](EP-0017-recordable-coeffects.md) v5 ruling (Mike, 2026-06-12)
+  — *structural/section keys stay bare; FACT keys get owner-qualified* — these
+  are facts ABOUT the module/app, so the **KEYS** are owner-qualified (the values
+  were already `:rf.capability/*`-qualified):
+  - module ownership declaration: `:owns` → **`:rf.module/owns`**;
+  - module capability requirement: `:requires` → **`:rf.module/requires`**
+    (parallel to `:rf.cofx/requires` over coeffects — naming the contract);
+  - app-value union capability set: `:requires` → **`:rf.app/requires`**
+    (parallel to `:rf.app/id`).
+
+  The structural section keys (`:id`, `:events`, `:subs`, `:routes`, `:source`,
+  `:modules`, `:registrations`) stay **bare**. The shipped constructor
+  (`re-frame.app-value/module` / `app`) and the normative spec
+  ([API §App values and composition](../../spec/API.md#app-values-and-composition-ep-0013),
+  [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned)
+  — the `:rf.module/*` + `:rf.app/*` rows) carry the qualified spelling; **where
+  this EP's illustrative snippets and the spec differ, the spec governs.** The
+  EP text is retained for design rationale; read the bare keys in the snippets
+  below as the qualified spelling above.
+
 ### Deferred — realm-aware live-dispatch routing
 
 - **Realm-routed LIVE dispatch / subscribe / fx / cofx — DEFERRED
@@ -450,10 +479,10 @@ At the source level, an application can be described explicitly:
 (def cart-module
   (rf/module
     {:id :shop/cart
-     :owns {:app-db [[:cart]]
-            :resources [:shop.cart/items]
-            :routes [:shop.route/cart]}
-     :requires #{:rf.capability/http}
+     :rf.module/owns {:app-db [[:cart]]
+                      :resources [:shop.cart/items]
+                      :routes [:shop.route/cart]}
+     :rf.module/requires #{:rf.capability/http}
      :events
      {:cart/add
       {:doc "Add an item to the cart."
@@ -615,13 +644,13 @@ feature surfaces it owns and the runtime capabilities it requires.
 (def billing-module
   (rf/module
     {:id :billing/invoices
-     :owns {:app-db [[:billing :invoices]]
-            :paths [:billing.invoice/customer-email]
-            :resources [:billing.invoice/list]
-            :routes [:billing.route/invoice-show]
-            :effects [:rf.http/managed]}
-     :requires #{:rf.capability/http
-                 :rf.capability/schemas}
+     :rf.module/owns {:app-db [[:billing :invoices]]
+                      :paths [:billing.invoice/customer-email]
+                      :resources [:billing.invoice/list]
+                      :routes [:billing.route/invoice-show]
+                      :effects [:rf.http/managed]}
+     :rf.module/requires #{:rf.capability/http
+                           :rf.capability/schemas}
      :privacy {:sensitive-paths [:billing.invoice/customer-email]}
      :events
      {:invoice/open

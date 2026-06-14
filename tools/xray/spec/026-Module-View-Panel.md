@@ -80,17 +80,21 @@ realm (`project-realm-row`), and classifies single vs multi-realm
 ## §4 MODULES section — the disposition-6 demand trigger (shipped)
 
 The per-module facts EP-0013 disposition 6 rules public — **ownership**
-(`:owns`), **capability requirements** (`:requires`), and **descriptor
-provenance** (which module owns which descriptors, owner-stamped; source
-coords) — read off each realm's installed app value via the public
+(`:rf.module/owns`), **capability requirements** (`:rf.module/requires`), and
+**descriptor provenance** (which module owns which descriptors, owner-stamped;
+source coords) — read off each realm's installed app value via the public
 `rf/installed-app` read seam (graduated by rf2-imquoq → rf2-at0oen, PR #4061).
+The module FACT keys are owner-qualified (`:rf.module/*`, EP-0007 / EP-0017 v5 —
+rf2-yk6u2x); the panel's internal module-row shape keeps the bare row keys
+`:owns` / `:requires`.
 
 The seam yields a running realm's installed app value **without installing
 anything**:
 
 - a realm seated via `rf/install!` returns the **rich constructed value**
-  whose `:modules` map (`{module-id module}`) carries each module's `:owns` /
-  `:requires` and its `:owner`-stamped `:registrations`;
+  whose `:modules` map (`{module-id module}`) carries each module's
+  `:rf.module/owns` / `:rf.module/requires` and its `:owner`-stamped
+  `:registrations`;
 - a realm seated only through the `reg-*` sugar / load-order path returns the
   registrar **projection** — registrations by kind, but **no `:modules`**
   (load-order registrations declare no module). That is the honest
@@ -171,7 +175,8 @@ Cmd-K palette picks it up automatically (the palette reads
   (`rf/installed-app` is a *static* read of the install-time value, not a
   routing path).
 - The surface carries realm/frame/module **ids and declarations** — realm ids,
-  frame ids, module ids, `:owns` paths/routes, `:requires` capability keywords,
+  frame ids, module ids, `:rf.module/owns` paths/routes, `:rf.module/requires`
+  capability keywords,
   registry kinds, and source coordinates (ns/line). These are **structural
   descriptors**, not app-db values. No handler values or app-db data egress
   through this surface. (Should a future slice surface value-bearing module

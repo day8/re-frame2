@@ -527,7 +527,7 @@
       module-less (load-order registrations declare no module).
     - A stored `:app` (an `install!`-seated value, stage 7) — that SAME live
       projection ENRICHED with the seated app's `:rf.app/id`, `:modules`, and
-      `:requires` provenance (via the `:app-value/reconcile-installed` hook).
+      `:rf.app/requires` provenance (via the `:app-value/reconcile-installed` hook).
       The registrations stay the live registrar's, so coexisting sugar that
       `install!` deliberately preserves (rf2-c6armm.7 #1) is visible here too;
       the rich per-module provenance the Xray Module-view feeds to
@@ -540,7 +540,8 @@
   PUBLICLY RE-EXPORTED as `rf/installed-app` (EP-0013 disposition 6, rf2-imquoq):
   the realm→installed-app read seam graduated from internal WHEN the Xray
   Module-view demanded the per-module provenance an `install!`-seated `:app`
-  carries (`:modules` + `:owns` / `:requires` / `:owner`-stamped descriptors).
+  carries (`:modules` + `:rf.module/owns` / `:rf.module/requires` /
+  `:owner`-stamped descriptors).
   A read of the LIVE registration value (provenance from the install-time
   snapshot) — it does NOT route live dispatch through a non-default realm (the
   deferred runtime-routing slice). This var stays the canonical implementation;
