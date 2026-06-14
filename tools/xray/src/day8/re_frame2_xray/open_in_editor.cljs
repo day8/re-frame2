@@ -56,7 +56,8 @@
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack]]
-            [re-frame.source-coords.editor-uri :as editor-uri]))
+            [re-frame.source-coords.editor-uri :as editor-uri]
+            [re-frame.source-coords.open-endpoint :as open-endpoint]))
 
 ;; ---- styling -------------------------------------------------------------
 
@@ -228,6 +229,35 @@
     (@navigator uri)
     nil))
 
+;; ---- Option B: prefer the dev-server endpoint (rf2-wn3bh) -----------------
+;;
+;; The JS-ecosystem-standard jump-to-source path (Vite /__open-in-editor,
+;; react-dev-utils, Next) is a dev-server endpoint that resolves the
+;; (classpath-relative) source-coord against the live source-paths on the
+;; dev machine at runtime and launches the editor via launch-editor. This
+;; is ADDITIVE: `open-coord!` first tries the endpoint
+;; (`open-endpoint/try-endpoint!`); on any failure (no dev server, network
+;; error, non-2xx — static export / non-shadow host / production
+;; inspection) it falls back to navigating the historic `editor://` URI via
+;; `open!`. The URI path is never removed.
+
+(defn open-coord!
+  "Open `source-coord` in the configured editor, PREFERRING the dev-server
+  endpoint (Option B, rf2-wn3bh) and FALLING BACK to the `editor://` URI
+  navigation (`open!`) when no dev server is present.
+
+  The source-coord is sent verbatim to the endpoint (the server resolves a
+  classpath-relative `:file` at runtime); the URI fallback resolves the
+  coord through `resolve-uri` (rf2-wvsxg absolutisation + the allowlist
+  gate). When the coord cannot produce a usable URI either, the fallback is
+  a harmless no-op. Returns nothing."
+  [source-coord]
+  (open-endpoint/open-coord!
+    source-coord
+    (config/get-editor)
+    (fn [] (open! (resolve-uri source-coord))))
+  nil)
+
 ;; ---- click routing: configured/hint decision (rf2-r4q6y3) ----------------
 
 (defn chip-click!
@@ -245,8 +275,10 @@
   Two-tier behaviour:
 
     1. **Editor configured** (`config/editor-configured?` true — host
-       set `:rf.xray/editor` OR a valid operator override exists): fire
-       `open!` exactly as before. The hint never enters the path.
+       set `:rf.xray/editor` OR a valid operator override exists): open
+       the editor via `open-coord!`, which PREFERS the dev-server
+       endpoint (Option B, rf2-wn3bh) and FALLS BACK to the `editor://`
+       URI. The hint never enters the path.
 
     2. **Editor NOT configured.** The chip needs a dispatch target for
        the hint toast, which lives on the `:rf/xray` shell frame:
@@ -259,22 +291,21 @@
 
          - **No `:rf/xray` frame** (the standalone fallback — a static
            page / non-Xray host rendering the chip with no shell runtime,
-           so no toast can mount): fall back to the direct `open!`. This
-           is the documented standalone contract — there is nowhere for
-           the hint to land, so the historic best-effort navigation is
-           the only sensible behaviour. The `console.log` in `open!`
-           still gives the developer a diagnostic trail.
+           so no toast can mount): fall back to `open-coord!` (endpoint
+           then URI). This is the documented standalone contract — there
+           is nowhere for the hint to land, so the historic best-effort
+           launch is the only sensible behaviour.
 
-  `uri` may be nil — `open!` is a no-op for nil, and tier 1's `open!`
-  call carries that guard, so an unresolvable coord in the configured
-  case is a harmless no-op."
-  [uri]
+  `source-coord` may be unresolvable — `open-coord!`'s URI fallback is a
+  no-op for a coord with no usable `:file`, so an unresolvable coord in
+  the configured case is a harmless no-op."
+  [source-coord]
   (if (config/editor-configured?)
-    (open! uri)
+    (open-coord! source-coord)
     (if (frame/frame defaults/default-frame-id)
       (rf/dispatch [:rf.xray/editor-hint-show] {:frame defaults/default-frame-id})
       ;; Standalone fallback — no shell frame to host the hint toast.
-      (open! uri)))
+      (open-coord! source-coord)))
   nil)
 
 ;; ---- public: the open-in-editor chip ------------------------------------
@@ -316,9 +347,13 @@
                           ;; configured/hint decision applies (rf2-r4q6y3)
                           ;; — an unconfigured host shows the hint toast
                           ;; instead of silently navigating to the
-                          ;; implicit `vscode:` URI.
+                          ;; implicit `vscode:` URI. `chip-click!` opens
+                          ;; via `open-coord!`, which prefers the
+                          ;; dev-server endpoint (Option B, rf2-wn3bh)
+                          ;; and falls back to this `:href`'s `editor://`
+                          ;; URI when no dev server is present.
                           (.preventDefault e)
-                          (chip-click! uri))}
+                          (chip-click! source-coord))}
        "open"])))
 
 ;; ---- registration: the data-driven open-in-editor path ------------------
@@ -351,23 +386,23 @@
   []
   ;; ---- :rf.editor/open ----
   ;;
-  ;; The side-effect handler. Two arg shapes are accepted:
+  ;; The side-effect handler. Arg shapes accepted:
   ;;
-  ;;   {:uri "vscode://..."}                — pre-resolved URI
-  ;;   {:source-coord {:file ... :line ...}} — resolve via
-  ;;                                            `resolve-uri` first
+  ;;   {:source-coord {:file ... :line ...}} — PREFERRED (rf2-wn3bh):
+  ;;       opens via `open-coord!`, which tries the dev-server endpoint
+  ;;       first (Option B) then falls back to the `editor://` URI.
+  ;;   {:uri "vscode://..."}                 — pre-resolved URI only;
+  ;;       navigates the URI directly via `open!` (the endpoint needs
+  ;;       the structured coord, so a uri-only arg uses the URI path).
   ;;
-  ;; The pre-resolved form is the canonical shape the
-  ;; `:rf.xray/open-in-editor` event-fx emits (handler does the
-  ;; resolution); the `:source-coord` form is a convenience for
-  ;; callers that want one-step dispatch and don't need the resolve
-  ;; step visible in the trace.
+  ;; Per rf2-wn3bh the event-fx now emits `:source-coord` (not `:uri`)
+  ;; so the endpoint is preferred; the `:uri` shape stays for callers
+  ;; that hold a pre-resolved URI (e.g. an MCP-side open-uri replay).
   (rf/reg-fx :rf.editor/open
     (fn [_ctx args]
-      (let [uri (or (:uri args)
-                    (when-let [coord (:source-coord args)]
-                      (resolve-uri coord)))]
-        (open! uri))))
+      (if-let [coord (:source-coord args)]
+        (open-coord! coord)
+        (open! (:uri args)))))
 
   ;; ---- :rf.xray/open-in-editor ----
   ;;
@@ -398,11 +433,15 @@
       ;; never fires.
       (if-not (config/editor-configured?)
         {:fx [[:dispatch [:rf.xray/editor-hint-show]]]}
-        (let [coord (coerce-coord payload)
-              uri   (resolve-uri coord)]
-          ;; Always emit the fx — even when uri is nil. `open!` is a
-          ;; no-op for nil, and routing through the fx (rather than
+        (let [coord (coerce-coord payload)]
+          ;; Always emit the fx — even when the coord is unresolvable.
+          ;; `open-coord!`'s URI fallback is a no-op for a coord with no
+          ;; usable `:file`, and routing through the fx (rather than
           ;; short-circuiting in the handler) keeps the side-effect
           ;; bookkeeping in one place + makes the fx the single
           ;; instrumentable seam for replay/dev-tools.
-          {:fx [[:rf.editor/open {:uri uri}]]})))))
+          ;;
+          ;; Per rf2-wn3bh emit the structured `:source-coord` (not a
+          ;; pre-resolved `:uri`) so `:rf.editor/open` can prefer the
+          ;; dev-server endpoint and fall back to the URI.
+          {:fx [[:rf.editor/open {:source-coord coord}]]})))))

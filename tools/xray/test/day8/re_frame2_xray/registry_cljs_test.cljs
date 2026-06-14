@@ -1494,9 +1494,11 @@
                            {:file "src/x.cljs" :line 10 :column 5}])
         (is (= 1 (count @captured))
             "the event-fx emits exactly one :rf.editor/open fx")
-        (is (= "vscode://file/src/x.cljs:10:5"
-               (:uri (first @captured)))
-            "the fx carries the resolved URI")
+        (is (= {:file "src/x.cljs" :line 10 :column 5}
+               (:source-coord (first @captured)))
+            "rf2-wn3bh — the fx carries the structured :source-coord so
+             :rf.editor/open can prefer the dev-server endpoint and fall
+             back to the editor:// URI")
         (is (nil? (:last-open-in-editor-coord
                     (frame/frame-app-db-value :rf/xray)))
             "Xray's app-db is NOT written — the stub's

@@ -8,6 +8,7 @@
     "cross-spawn": "^7.0.6",
     "elkjs": "^0.11.1",
     "http-server": "14.1.1",
+    "launch-editor": "^2.14.1",
     "markdown-it": "^14.1.0",
     "markdown-it-block-image": "^0.0.3",
     "markdown-it-footnote": "^3.0.3",

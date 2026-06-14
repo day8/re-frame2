@@ -24,11 +24,28 @@
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
+            [re-frame.source-coords.open-endpoint :as open-endpoint]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
+
+;; ---- Option B endpoint seam (rf2-wn3bh) ---------------------------------
+;;
+;; `open-coord!` (the new click launcher) PREFERS the dev-server endpoint
+;; and FALLS BACK to the `editor://` URI navigation. To keep the URI /
+;; navigator assertions below deterministic (no real `fetch` round-trip),
+;; the per-test fixture swaps the endpoint launcher for a synchronous stub
+;; that always invokes the fallback — exercising exactly the URI path these
+;; tests pin. The endpoint-preference path itself is covered separately in
+;; the rf2-wn3bh block at the bottom of this file.
+
+(defn- always-fall-back!
+  "Stub endpoint launcher: ignore the URL, invoke the fallback synchronously.
+  Mirrors the 'no dev server present' runtime case."
+  [_url fallback!]
+  (fallback!))
 
 (defn reset-editor! []
   ;; rf2-4s08ov — reset the operator-override slot too so a sibling
@@ -50,7 +67,12 @@
   ;; rf2-sdqsla — `reset-all!` now folds the trace-collector ring reset
   ;; in; `reset-editor!` owns the settings reset + editor re-arm.
   (xray-test-support/reset-all!)
-  (reset-editor!))
+  (reset-editor!)
+  ;; rf2-wn3bh — pin the endpoint launcher to the synchronous always-fall-back
+  ;; stub so the URI / navigator assertions below exercise the deterministic
+  ;; fallback path (no real fetch). The endpoint-preference path is covered
+  ;; in its own block at the bottom of this file.
+  (open-endpoint/set-launcher! always-fall-back!))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -321,13 +343,27 @@
   handlers, allocate the `:rf/xray` frame, and replace the
   `:rf.editor/open` reg-fx with a capture stub so assertions can
   inspect the fx args without touching `window.location`. Mirrors the
-  fx-replacement pattern in `time_travel_cljs_test.cljs`."
+  fx-replacement pattern in `time_travel_cljs_test.cljs`.
+
+  Per rf2-wn3bh the event-fx now emits the structured `:source-coord`
+  (so the fx can prefer the dev-server endpoint). The capture stub
+  resolves the coord through the SAME `resolve-uri` helper the chip
+  uses and records the resolved URI under `:uri` so the existing
+  URI-equivalence assertions keep their meaning — the resolution is
+  exactly what the URI-fallback path would build."
   []
   (reset! captured-editor-fx [])
   (registry/register-xray-handlers!)
   (frame/reg-frame :rf/xray {})
   (rf/reg-fx :rf.editor/open
-    (fn [_ctx args] (swap! captured-editor-fx conj args))))
+    (fn [_ctx args]
+      ;; Record the raw fx args AND the URI the coord resolves to, so
+      ;; tests can assert either the new `:source-coord` shape or the
+      ;; equivalent resolved `:uri`.
+      (swap! captured-editor-fx conj
+             (assoc args
+                    :uri (when-let [coord (:source-coord args)]
+                           (open-in-editor/resolve-uri coord)))))))
 
 (deftest open-in-editor-event-emits-fx-with-resolved-uri
   (testing "rf2-g5q8d — dispatching `:rf.xray/open-in-editor` with
@@ -452,20 +488,22 @@
                `:last-open-in-editor-coord` etc. (the prior stub
                reg-event-db's behaviour, removed by rf2-g5q8d)"))))))
 
-(deftest open-in-editor-fx-receives-uri-key-not-source-coord
-  (testing "rf2-g5q8d — `:rf.editor/open` invoked via the canonical
-            pre-resolved shape `{:uri \"...\"}`. The handler in this
-            test is the capture stub; the assertion here pins the
-            contract that the producer event-fx passes a `:uri` key
-            (vs `:source-coord`)."
+(deftest open-in-editor-fx-receives-source-coord-key-rf2-wn3bh
+  (testing "rf2-wn3bh — `:rf.editor/open` is invoked with the structured
+            `{:source-coord {...}}` shape (NOT a pre-resolved `:uri`) so
+            the fx can prefer the dev-server endpoint and fall back to the
+            `editor://` URI. The resolution is deferred to the fx /
+            `open-coord!`, not done in the event-fx."
     (setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/open-in-editor
                          {:file "src/x.cljs" :line 1}])
-      (is (contains? (first @captured-editor-fx) :uri)
-          "fx arg shape: `{:uri <string-or-nil>}`")
-      (is (not (contains? (first @captured-editor-fx) :source-coord))
-          "the resolve step happens in the event-fx, not the fx"))))
+      (is (contains? (first @captured-editor-fx) :source-coord)
+          "fx arg shape: `{:source-coord <coord-map>}`")
+      (is (= {:file "src/x.cljs" :line 1}
+             (:source-coord (first @captured-editor-fx)))
+          "the structured coord rides the fx verbatim — the endpoint
+           resolves the relative :file at runtime on the server"))))
 
 (deftest open-in-editor-event-resolves-through-shared-resolve-uri-helper
   (testing "rf2-g5q8d — the event-fx's URI matches what `open-chip`
@@ -702,17 +740,19 @@
   (config/update-setting! :general :editor-override nil))
 
 (deftest chip-click-navigates-when-editor-configured
-  (testing "rf2-r4q6y3 — with an editor configured, a direct chip click
-            navigates via the navigator seam exactly as before; the hint
-            never enters the path"
+  (testing "rf2-r4q6y3 / rf2-wn3bh — with an editor configured, a direct
+            chip click opens via `open-coord!`; with the endpoint launcher
+            stubbed to fall back (the fixture default), it navigates via
+            the navigator seam exactly as the URI path always did. The
+            hint never enters the path."
     (setup!)
     (config/set-editor! :cursor)          ; explicit set = configured
     (is (true? (config/editor-configured?)))
     (let [[nav calls] (capturing-navigator)]
       (with-stub-navigator nav
-        #(open-in-editor/chip-click! "cursor://file/src/x.cljs:1:1"))
+        #(open-in-editor/chip-click! {:file "src/x.cljs" :line 1 :column 1}))
       (is (= ["cursor://file/src/x.cljs:1:1"] @calls)
-          "configured editor → direct navigation"))))
+          "configured editor → endpoint preferred, URI fallback navigates"))))
 
 (deftest chip-click-does-not-navigate-when-unconfigured-with-frame
   (testing "rf2-r4q6y3 — with NO editor configured and a live :rf/xray
@@ -724,7 +764,7 @@
     (is (some? (frame/frame :rf/xray)) "precondition: shell frame present")
     (let [[nav calls] (capturing-navigator)]
       (with-stub-navigator nav
-        #(open-in-editor/chip-click! "vscode://file/src/x.cljs:1:1"))
+        #(open-in-editor/chip-click! {:file "src/x.cljs" :line 1 :column 1}))
       (is (= [] @calls)
           "unconfigured + frame → no silent navigation"))
     (config/update-setting! :general :editor-override nil)))
@@ -744,7 +784,7 @@
     (let [dispatched (atom [])]
       (with-redefs [rf/dispatch* (fn [ev & opts]
                                    (swap! dispatched conj {:event ev :opts (vec opts)}))]
-        (open-in-editor/chip-click! "vscode://file/src/x.cljs:1:1"))
+        (open-in-editor/chip-click! {:file "src/x.cljs" :line 1 :column 1}))
       (is (= 1 (count @dispatched))
           "exactly one dispatch — the hint, no navigation dispatch")
       (is (= [:rf.xray/editor-hint-show] (:event (first @dispatched)))
@@ -766,6 +806,63 @@
     (is (false? (config/editor-configured?)))
     (let [[nav calls] (capturing-navigator)]
       (with-stub-navigator nav
-        #(open-in-editor/chip-click! "vscode://file/src/x.cljs:1:1"))
+        #(open-in-editor/chip-click! {:file "src/x.cljs" :line 1 :column 1}))
       (is (= ["vscode://file/src/x.cljs:1:1"] @calls)
           "unconfigured + no frame → standalone best-effort navigation"))))
+
+;; ---- rf2-wn3bh — Option B: dev-server endpoint preferred over URI -------
+;;
+;; `open-coord!` prefers the dev-server endpoint and falls back to the
+;; `editor://` URI navigation. The URI-fallback path is exercised
+;; throughout the file above (via the `always-fall-back!` launcher stub in
+;; the fixture). This block pins the ENDPOINT-PREFERENCE half of the
+;; additive contract: when the launcher reports success (a dev server
+;; answered), the URI fallback does NOT fire — and the endpoint URL the
+;; client builds carries the structured coord + editor hint the server
+;; resolves at runtime.
+
+(deftest endpoint-url-carries-coord-and-editor-hint
+  (testing "rf2-wn3bh — `build-url` projects (coord, editor) to the
+            endpoint query: file (encoded), line, column, editor keyword"
+    (is (= (str open-endpoint/endpoint-path
+                "?file=panel_gallery%2Ffoo.cljs&line=42&column=7&editor=cursor")
+           (open-endpoint/build-url
+             {:file "panel_gallery/foo.cljs" :line 42 :column 7}
+             :cursor))
+        "relative :file is sent verbatim (URL-encoded) for runtime
+         resolution; the editor keyword rides as the launch hint")
+    (is (nil? (open-endpoint/build-url {:line 1} :vscode))
+        "no :file → no endpoint URL (the chip is hidden upstream)")
+    (is (= (str open-endpoint/endpoint-path "?file=src%2Fx.cljs")
+           (open-endpoint/build-url {:file "src/x.cljs"} {:custom "x://{path}"}))
+        "{:custom …} editor ships no hint (server auto-detects)")))
+
+(deftest open-coord-prefers-endpoint-when-it-succeeds
+  (testing "rf2-wn3bh — when the endpoint launcher reports success (a dev
+            server answered), the URI fallback does NOT fire"
+    (let [fallback-calls (atom 0)
+          ;; Stub launcher: 'endpoint succeeded' → never call fallback.
+          prev (open-endpoint/set-launcher! (fn [_url _fallback!] nil))]
+      (try
+        (open-in-editor/open-coord! {:file "src/x.cljs" :line 1})
+        ;; the fallback thunk would bump this; it must stay 0
+        (is (zero? @fallback-calls)
+            "endpoint preferred → no editor:// URI navigation")
+        (finally
+          (open-endpoint/set-launcher! prev))))))
+
+(deftest open-coord-falls-back-to-uri-when-no-endpoint
+  (testing "rf2-wn3bh — when the endpoint launcher invokes the fallback
+            (no dev server), the `editor://` URI navigates via the
+            navigator seam — the additive contract: B never removes the
+            URI path"
+    (setup!)                              ; configured :vscode
+    (let [prev (open-endpoint/set-launcher! always-fall-back!)
+          [nav calls] (capturing-navigator)]
+      (try
+        (with-stub-navigator nav
+          #(open-in-editor/open-coord! {:file "src/x.cljs" :line 9 :column 2}))
+        (is (= ["vscode://file/src/x.cljs:9:2"] @calls)
+            "no dev server → URI fallback navigates exactly as before")
+        (finally
+          (open-endpoint/set-launcher! prev))))))
