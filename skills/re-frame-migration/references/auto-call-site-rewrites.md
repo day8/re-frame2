@@ -25,6 +25,7 @@ Per-file confirmation is not required — the author has already invoked the mig
 - Dep-coord and namespace rewrites (M-0, M-1, M-38, M-23, M-25 — incl. the async-test recipe `run-test-async` / `wait-for-event`, M-50, M-52)
 - Effect-map consolidation (M-8)
 - Dispatch-shape rewrites (M-4, M-9, M-16)
+- Event-registration collapse (M-73 — the `reg-event` codemod)
 
 ---
 
@@ -377,6 +378,46 @@ There is no automatic rewrite. Surface every M-16b hit and let the operator pick
 **Don't silently pick (i):** if the v1 author depended on the paint tick, (i) breaks the call site in a hard-to-debug way. The choice is a one-line judgement the operator owns — flag it.
 
 > **Worked contrast — same metadata, different treatment.** A handler returning `{:dispatch ^:flush-dom [:next-step] :db …}` is **M-16a** → mechanically becomes `{:db … :fx [[:dispatch-later {:ms 0 :event [:next-step]}]]}`, applied without asking. A top-level `(rf/dispatch ^:flush-dom [:bootstrap])` is **M-16b** → no `:fx` rewrite exists for it; surface it and pick (i) drop or (ii) trampoline. Applying the M-16a `:fx` shape to the M-16b call site (or porting it to a non-existent `(rf/dispatch-later …)` fn) produces invalid or runtime-throwing code — which is exactly why the two sub-cases are split.
+
+---
+
+## Event-registration collapse (M-73)
+
+### M-73 — one event-registration form (`reg-event`)
+
+The three public event registrars collapse to one — **`reg-event`**, semantically the former `reg-event-fx` (coeffects in, a closed effects map out). A scanner + conservative codemod ships with the migration guide at [`migration/from-re-frame-v1/codemod/`](../../../migration/from-re-frame-v1/codemod/README.md); prefer running it over hand-editing — it preserves formatting and comments (rewrite-clj) and emits the Type-B flags below. The mechanical (Type A) cases:
+
+**`reg-event-fx` → `reg-event` — pure rename.** The handler is byte-for-byte unchanged.
+
+```clojure
+;; before
+(rf/reg-event-fx :todo/add {:rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db]} [_ text]] {:db (assoc-in db [:todos text] true)}))
+;; after
+(rf/reg-event :todo/add {:rf.cofx/requires [:rf/time-ms]}
+  (fn [{:keys [db]} [_ text]] {:db (assoc-in db [:todos text] true)}))
+```
+
+**Simple `reg-event-db` → `reg-event` — destructure `db`, wrap the body.** The first handler param (`db`) becomes a `{:keys [db]}` destructure of the coeffects map, and the body — which always evaluates to the new app-db — is wrapped as the `{:db BODY}` effect. Any path-interceptor metadata in the middle slot is preserved verbatim.
+
+```clojure
+;; before
+(rf/reg-event-db :counter/inc
+  {:interceptors [(rf/path :counter)]}
+  (fn [db _] (update db :value inc)))
+;; after
+(rf/reg-event :counter/inc
+  {:interceptors [(rf/path :counter)]}
+  (fn [{:keys [db]} _] {:db (update db :value inc)}))
+```
+
+The **Type B** cases the codemod flags rather than rewrites (resolve each by hand):
+
+- **nil-capable `reg-event-db` body** — a body that can evaluate to `nil` (a `when` / `if`-without-else / `cond` / `and` / `or` / bare `get` / `some->` tail, a literal `nil`). Faithfully wrapping it (`{:db BODY}`) preserves v1's "write nil to app-db" footgun, but under the one form a bare `nil` is a no-op and `{:db nil}` coerces to `{:db {}}` — so the author chooses the intended reading.
+- **complex `reg-event-db`** — a non-literal handler (a var, a higher-order construction, a multi-arity `fn`) or a first param that is itself destructured; the safe `db`-rebind can't be proven.
+- **every `reg-event-ctx`** — withdrawn from the public surface; rewrite to an interceptor (`->interceptor`) by hand.
+
+A retired name left in place is **loud-at-registration** (a hard error names the replacement), so survivors surface at the boot smoke-test rather than silently.
 
 ---
 
