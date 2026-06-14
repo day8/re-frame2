@@ -61,6 +61,37 @@
     (keyword? id)           (str ":" (name id))
     :else                   (str id)))
 
+(def inline-verb-label
+  "The synthetic verb a cascade row paints for an ANONYMOUS (inline-fn)
+  action / guard (rf2-982212). An inline `(fn …)` declared directly in an
+  `:on` / `:always` / `:entry` / `:exit` / `:after` slot has a FUNCTION
+  OBJECT — not a keyword — as its `:action-id` / `:guard-id` (the runtime
+  carries the bare fn; impl: `re-frame.machines.transition` resolve-guard /
+  resolve-action), so `ns-keyword`'s `str` fallthrough rendered the raw
+  fn-object toString (`#object[Function …]` / a minified blob). Inline fns
+  are first-class in every slot (Spec 005), so the case is common; this
+  legible placeholder stands in for the un-nameable fn. The row's
+  KIND+PHASE badge, per-row outcome chip, and (in dev builds) the
+  interleaved SOURCE BODY + click-to-source still carry WHAT it is — the
+  verb only needs to read as 'an inline declaration', not garbage."
+  "⟨inline⟩")
+
+(defn verb-label
+  "Render a cascade row's VERB id (an `:action-id` / `:guard-id`) as a
+  legible label (rf2-982212). A keyword (a NAMED action/guard registered in
+  the machine's `:actions` / `:guards` map) renders cleanly via `ns-keyword`
+  (`:my-guard` / `:my-ns/foo`). A non-keyword id — an ANONYMOUS inline `(fn
+  …)` carried bare by the runtime — renders the synthetic
+  `inline-verb-label` placeholder rather than the raw fn-object toString
+  (`#object[Function …]` / minified blob). nil renders an empty string so a
+  slot that legitimately carries no verb (the pill + chip carry it) stays
+  blank rather than printing `\"\"`-ish garbage. Pure-data."
+  [id]
+  (cond
+    (nil? id)     ""
+    (keyword? id) (ns-keyword id)
+    :else         inline-verb-label))
+
 (defn truncate
   "Truncate a string to `n` chars with an ellipsis. Pure fn used by
   the view layer for long arg displays in the FX table."
@@ -248,12 +279,17 @@
     ;; GUARD), so it is dropped. The state the guard gates rides the
     ;; `for <state>` clause (the item-6 pattern; `cascade-guard-for-state`)
     ;; rendered alongside the verb in the view — `[GUARD] for :open :may-close?`.
-    :guard       (ns-keyword guard-id)
+    ;; rf2-982212 — a NAMED guard renders its keyword; an INLINE `(fn …)`
+    ;; guard (a bare fn id) renders the `⟨inline⟩` placeholder via
+    ;; `verb-label` rather than the raw fn-object toString.
+    :guard       (verb-label guard-id)
     ;; rf2-nhovk — the ACTION kind-pill + phase chip already convey kind +
-    ;; phase, so the verb is JUST the action-id (empty for an anonymous
-    ;; action — the pill + chip + source body carry it). The redundant
-    ;; "{phase} action " prefix is dropped.
-    :action      (ns-keyword action-id)
+    ;; phase, so the verb is JUST the action-id (the pill + chip + source body
+    ;; carry the rest). rf2-982212 — a NAMED action renders its keyword; an
+    ;; INLINE `(fn …)` action renders the `⟨inline⟩` placeholder via
+    ;; `verb-label` (was: the raw fn-object toString); a nil action-id renders
+    ;; empty. The redundant "{phase} action " prefix is dropped.
+    :action      (verb-label action-id)
     ;; rf2-ge6uj ISSUE 3 — the TRANSITION row's verb is JUST the state
     ;; change `<before> → <after>`, made the focal point. The redundant
     ;; leading "transition" word (the KIND pill already says TRANSITION)

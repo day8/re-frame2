@@ -152,6 +152,23 @@ below; the three render states are:
    bespoke summary that diverged from the Epoch panel's richer microstep
    view — sharing the one renderer fixes that permanently.
 
+   **Cascade-row VERB rendering (rf2-982212).** Each `:guard` / `:action`
+   cascade row paints a VERB beside its KIND+PHASE badge. A NAMED
+   action/guard — a keyword into the machine's `:actions` / `:guards` map —
+   renders its keyword verbatim (`:may-close?` / `:my-ns/count-open`). An
+   INLINE action/guard — an anonymous `(fn …)` declared directly in an
+   `:on` / `:always` / `:entry` / `:exit` / `:after` slot — carries a bare
+   FUNCTION OBJECT (not a keyword) as its `:action-id` / `:guard-id` (the
+   runtime carries the fn; impl: `re-frame.machines.transition` resolve-guard
+   / resolve-action). Such rows render the synthetic placeholder `⟨inline⟩`
+   for the verb — NOT the raw fn-object toString (`#object[Function …]` / a
+   minified blob), which is what leaked before rf2-982212
+   (`format/verb-label` replaced the `ns-keyword` `str` fallthrough at the
+   cascade-row label site). The row's KIND+PHASE badge, per-row outcome chip,
+   and (in dev builds) the interleaved SOURCE BODY + click-to-source via the
+   derived spec-path still carry WHAT the inline declaration is; the
+   `⟨inline⟩` verb reads as "an anonymous declaration" rather than garbage.
+
 The header carries:
 - A **prev/next nav** (`◀ Prev` / `Next ▶`) that walks the spine's
   epoch history to the prior/next epoch whose cascade ALSO touched
@@ -673,13 +690,22 @@ transition does, with these differences:
   active state's exits affordance-blue and gave ZERO rejection signal.)
 - **No snapshot drill-in.** The no-op trace carries no `:before` / `:after`
   snapshot pair (`:data` did not change), so the drill-in suppresses cleanly.
-- **No guards / actions LIST in the lens.** The lens's GUARDS-RUN / ACTIONS-RUN
-  forensic LIST is still driven off the cascade projection (the no-op trace is
-  its sole signal there), so no rows attach to the lens list. (The CHART,
-  however, DOES surface the failing guard — it consumes the
-  `:rf.machine/guard-evaluated` fail/threw trace directly; see the rf2-fzrzlw
-  section. A follow-on bead may surface the failing guard in the lens LIST too;
-  the record shape stays stable.)
+- **The blocking guard IS surfaced in the lens cascade LIST (rf2-35mwxv).**
+  The lens's GUARDS-RUN / ACTIONS-RUN forensic list is the SHARED machine
+  cascade — the Machine Inspector lens (via `:rf.xray/machine-focused-epoch-
+  cascade`) and the Epoch panel's EVENT HANDLER mini-pipeline both render the
+  one `machine-cascade-rows` projection over the focused epoch's RAW
+  `:trace-events` (rf2-g2axio). A guard-blocked no-op emits BOTH the
+  `:rf.machine/guard-evaluated` fail/threw trace (during the candidate walk)
+  AND the `:rf.machine.event/unhandled-no-op` trace; BOTH ops are members of
+  `machine-cascade-trace-ops`, so the cascade carries a `[GUARD]` row NAMING
+  the blocking guard with its `fail` / `threw` outcome chip, AHEAD of the
+  `[NO OP]` row (canonical rank: guard → no-op). The operator's most common
+  guard-block question — "my event did nothing, which guard blocked it?" — is
+  answerable from the LIST, not only the chart. (The CHART independently
+  surfaces the same failing guard by painting the rejected edge PINK — it
+  consumes the `:rf.machine/guard-evaluated` fail/threw trace directly; see
+  the rf2-fzrzlw section.)
 
 A machine that BOTH transitioned (or was born) AND no-op'd in the same cascade
 surfaces only its transition / birth record — a no-op is single-signalled

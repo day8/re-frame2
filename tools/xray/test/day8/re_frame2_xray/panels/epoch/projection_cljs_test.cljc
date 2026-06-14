@@ -921,6 +921,74 @@
       (is (some? (:machine r)))
       (is (= [:no-op] (mapv :kind (-> r :machine :cascade)))))))
 
+;; ---- rf2-35mwxv — a GUARD-BLOCKED no-op surfaces the blocking guard ------
+;;
+;; When a guard FAILS and blocks a transition (a clause for the event-id
+;; exists but its `:guard` returned false / threw, and no unguarded
+;; fallback matched), the runtime emits BOTH:
+;;
+;;   1. `:rf.machine/guard-evaluated {:outcome :fail|:threw …}` — during the
+;;      candidate walk in `pick-transition` → `evaluate-guard`
+;;      (transition.cljc), and
+;;   2. `:rf.machine.event/unhandled-no-op {…}` — the `:else` no-op branch,
+;;      since no candidate passed (transition.cljc ~3760).
+;;
+;; BOTH ops are members of `machine-cascade-trace-ops`, so the cascade
+;; projection (consumed by the Epoch panel HANDLER mini-pipeline AND the
+;; Machine Inspector lens via `:rf.xray/machine-focused-epoch-cascade`,
+;; rf2-g2axio) surfaces the failing guard as a `[GUARD ✗]` row NAMING the
+;; blocking guard + its fail/threw outcome — NOT just a bare `[NO OP]`. This
+;; resolved the follow-on the spec's §guard-blocked flagged; the test pins
+;; it so the shared-cascade wiring cannot silently regress back to a
+;; guard-blind no-op.
+
+(deftest guard-blocked-no-op-surfaces-blocking-guard-test
+  (testing "rf2-35mwxv — a guard-blocked no-op cascade carries a :guard
+            fail row NAMING the blocking guard alongside the :no-op row;
+            the guard's fail outcome renders (not just a bare [NO OP])."
+    ;; The two traces the runtime emits for a guard-blocked no-op, in the
+    ;; order they occur (guard eval during pick, then the no-op resolution).
+    (let [evs  [(machine-guard-ev :may-close? :fail)
+                (machine-unhandled-no-op-ev :door/main [:door/close] :open)]
+          rows (proj/machine-cascade-rows evs)
+          by-kind (group-by :kind rows)
+          guard-row (first (:guard by-kind))
+          no-op-row (first (:no-op by-kind))]
+      ;; BOTH rows are present — the failing guard is NOT swallowed.
+      (is (= [:guard :no-op] (mapv :kind rows))
+          "guard(0) → no-op(2) canonical order; the blocking guard leads the no-op")
+      ;; The guard row NAMES the blocking guard + carries the fail outcome.
+      (is (some? guard-row) "a :guard row attaches to the guard-blocked no-op")
+      (is (= :may-close? (:guard-id guard-row)) "the row names the blocking guard")
+      (is (= :fail (:outcome guard-row)) "the row carries the :fail outcome")
+      (is (= ":may-close?" (fmt/cascade-row-label guard-row))
+          "the LIST row identifies the blocking guard (not a bare [NO OP])")
+      (is (= "fail" (fmt/cascade-outcome-label guard-row))
+          "the fail outcome renders on the guard row's chip")
+      ;; The no-op row is still present (the consequence: stayed put).
+      (is (= "staying in :open" (fmt/cascade-row-label no-op-row)))))
+
+  (testing "rf2-35mwxv — a guard that THREW while blocking surfaces a :threw
+            outcome row naming the guard."
+    (let [evs  [(machine-guard-ev :may-close? :threw)
+                (machine-unhandled-no-op-ev :door/main [:door/close] :open)]
+          rows (proj/machine-cascade-rows evs)
+          guard-row (first (filter #(= :guard (:kind %)) rows))]
+      (is (= :threw (:outcome guard-row)))
+      (is (= "threw" (fmt/cascade-outcome-label guard-row))
+          "a throwing blocking guard surfaces its :threw outcome in the LIST")))
+
+  (testing "rf2-35mwxv — the SHARED projection feeds the Machine Inspector
+            lens cascade identically (rf2-g2axio): the handler-row's machine
+            cascade carries the guard fail row + the no-op row."
+    (let [r (proj/handler-row
+              [(machine-guard-ev :may-close? :fail)
+               (machine-unhandled-no-op-ev :door/main [:door/close] :open)]
+              :door/main)]
+      (is (= :reg-machine (:flavour r)))
+      (is (= [:guard :no-op] (mapv :kind (-> r :machine :cascade)))
+          "the shared machine cascade (lens + Epoch panel) carries BOTH rows"))))
+
 ;; ---- rf2-it4vt — the machine's [START] badge -----------------------------
 
 (deftest machine-started-projects-to-start-row-test
@@ -3066,6 +3134,68 @@
     (is (= ":foo"       (fmt/ns-keyword :foo)))
     (is (= ":my/foo"    (fmt/ns-keyword :my/foo)))
     (is (= "non-kw"     (fmt/ns-keyword "non-kw")))))
+
+;; ---- rf2-982212 — inline action/guard verb label ------------------------
+;;
+;; An INLINE `(fn …)` declared directly in an `:on` / `:always` / `:entry` /
+;; `:exit` / `:after` slot has a FUNCTION OBJECT — not a keyword — as its
+;; `:action-id` / `:guard-id` (the runtime carries the bare fn). The prior
+;; `(ns-keyword <fn>)` fell through to `(str <fn>)`, rendering the raw
+;; fn-object toString (`#object[Function …]` / a minified blob) as the
+;; cascade-row VERB. `verb-label` renders the `⟨inline⟩` placeholder for a
+;; non-keyword id; named (keyword) ids render unchanged.
+
+(deftest verb-label-test
+  (testing "rf2-982212 — `verb-label` renders a NAMED id (keyword) cleanly,
+            an INLINE (non-keyword fn) id as the `⟨inline⟩` placeholder, and
+            nil as the empty string."
+    (is (= ":may-close?" (fmt/verb-label :may-close?))
+        "named keyword guard/action → its keyword, unchanged")
+    (is (= ":my/foo" (fmt/verb-label :my/foo))
+        "qualified keyword → its full keyword, unchanged")
+    (is (= "⟨inline⟩" (fmt/verb-label (fn [_] true)))
+        "inline fn → the legible synthetic placeholder, NOT the fn-object str")
+    (is (= "" (fmt/verb-label nil))
+        "nil id → empty string (pill + chip carry it)")
+    ;; The defect: the placeholder must NOT be the fn-object toString — no
+    ;; `#object` / `$` / `@` host-runtime garbage leaks into the verb.
+    (let [inline-fn (fn [_] true)]
+      (is (not= (str inline-fn) (fmt/verb-label inline-fn))
+          "verb-label must NOT be the raw fn-object toString (the rf2-982212 defect)")
+      (is (not (str/includes? (fmt/verb-label inline-fn) "object"))
+          "no `#object[...]` blob leaks into the verb"))))
+
+(deftest cascade-row-label-inline-verb-test
+  (testing "rf2-982212 — an INLINE-declared guard AND an INLINE-declared
+            action cascade row render a LEGIBLE verb (`⟨inline⟩`), not a
+            fn-object / minified blob; NAMED rows are unchanged."
+    (let [inline-guard  (fn [_ctx] true)
+          inline-action (fn [_ctx] {})]
+      ;; INLINE guard — was the raw fn-object str; now the legible placeholder.
+      (is (= "⟨inline⟩"
+             (fmt/cascade-row-label {:kind :guard :guard-id inline-guard}))
+          "inline guard verb is legible, not a fn-object blob")
+      ;; INLINE action — same defect on the action arm (format.cljc :256).
+      (is (= "⟨inline⟩"
+             (fmt/cascade-row-label {:kind :action :action-id inline-action
+                                     :phase :entry}))
+          "inline action verb is legible, not a fn-object blob")
+      ;; Regression guard: the rendered verb must carry NO host-runtime
+      ;; fn-object garbage (the symptom Mike observed live, 2026-06-14).
+      (doseq [row [{:kind :guard :guard-id inline-guard}
+                   {:kind :action :action-id inline-action :phase :exit}]]
+        (let [verb (fmt/cascade-row-label row)]
+          (is (not (str/includes? verb "object")) "no `#object` blob")
+          (is (not (str/includes? verb "@"))       "no host fn-object `@hash` suffix")
+          (is (not (str/includes? verb "$"))       "no munged fn-object `$` separator")))
+      ;; NAMED rows are untouched — the keyword still renders verbatim.
+      (is (= ":may-close?"
+             (fmt/cascade-row-label {:kind :guard :guard-id :may-close?}))
+          "named guard verb unchanged")
+      (is (= ":open-socket"
+             (fmt/cascade-row-label {:kind :action :action-id :open-socket
+                                     :phase :entry}))
+          "named action verb unchanged"))))
 
 (deftest machine-event-orientation-test
   (testing "rf2-akvfe — the EVENT HANDLER orientation triple is projected off
