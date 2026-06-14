@@ -210,7 +210,7 @@ Project off the snapshot with ordinary `reg-sub`:
 
 ## As an event-fx handler
 
-When a machine drives a discrete event-fx flow (boot, websocket-connection lifecycle), wrap its declaration with `re-frame.machines/make-machine-handler` and register the result under `rf/reg-event-fx`. (The `make-machine-handler` wrapper lives on the owning `re-frame.machines` namespace — it is no longer re-exported from `re-frame.core`, per the front-porch shrink rf2-wad2fl; the `reg-machine` / `defmachine` registration macros stay on the `rf/` façade.) The wrapper produces the event-fx handler fn that dispatches into the machine on every invocation:
+When a machine drives a discrete event-fx flow (boot, websocket-connection lifecycle), wrap its declaration with `re-frame.machines/make-machine-handler` and register the result under `rf/reg-event-fx`. (The `make-machine-handler` wrapper lives on the owning `re-frame.machines` namespace — it is no longer re-exported from `re-frame.core`, per the front-porch shrink; the `reg-machine` / `defmachine` registration macros stay on the `rf/` façade.) The wrapper produces the event-fx handler fn that dispatches into the machine on every invocation:
 
 ```clojure
 (rf/reg-event-fx :app/boot
