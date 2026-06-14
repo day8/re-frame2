@@ -145,7 +145,8 @@
   ;; macros`, so `(:require [re-frame.core :as rf])` is the only import
   ;; CLJS apps need.
   #?(:cljs (:require-macros
-             [re-frame.core :refer [reg-event-db reg-event-fx reg-event-ctx
+             [re-frame.core :refer [reg-event
+                                    reg-event-db reg-event-fx reg-event-ctx
                                     reg-sub reg-fx reg-cofx reg-frame
                                     reg-flow reg-route reg-app-schema reg-app-schemas
                                     reg-resource reg-mutation reg-resource-scope
@@ -170,6 +171,12 @@
 
 #?(:cljs
    (do
+     (def ^{:doc "Fn-alias of the `reg-event` macro for HoF / programmatic
+  registration (no source-coord capture). Register a
+  `(fn [coeffects event-vec] effect-map)` event handler under `id` — the
+  one public event form (EP-0018), semantically `reg-event-fx`. See
+  `re-frame.events/reg-event` and spec/API.md §Registration."}
+       reg-event       events/reg-event)
      (def ^{:doc "Fn-alias of the `reg-event-db` macro for HoF / programmatic
   registration (no source-coord capture). Register a
   `(fn [db event-vec] new-db)` event handler under `id`. See
@@ -270,6 +277,22 @@
 
 #?(:clj
    (do
+     (rm/defreg-event-macro reg-event events/reg-event
+       "Register a `(fn [coeffects event-vec] effect-map)` event handler
+       under `id` — the ONE public event-registration form (EP-0018),
+       semantically the former `reg-event-fx` (coeffects in, a closed
+       effects map out). The effect-map is a closed shape —
+       `#{:db :rf.db/runtime :fx}` at the top level; app handlers return
+       only `:db` / `:fx`, while `:rf.db/runtime` (the runtime-db
+       partition) is reserved by convention for framework /
+       runtime-extension authority. Coeffects are declared uniformly via
+       `:rf.cofx/requires`. Captures source-coords (Spec 001) at this
+       call site. Additionally captures the whole `(reg-event :id ...)`
+       form as a string under the handler's `:rf.handler/source` meta
+       (Spec 009, rf2-xgfuy) — DEBUG-gated, elided in CLJS `:advanced` +
+       `goog.DEBUG=false` production builds. See
+       `re-frame.events/reg-event` for the full signature.")
+
      (rm/defreg-event-macro reg-event-db events/reg-event-db
        "Register a `(fn [db event-vec] new-db)` event handler under `id`.
        Captures source-coords (Spec 001) at this call site. Additionally

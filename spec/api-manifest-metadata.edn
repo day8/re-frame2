@@ -329,6 +329,14 @@
   ;; re-frame.core — the user-facing façade.
   ;; =========================================================================
   ;; Registration (spec/API.md §Registration).
+  ;; EP-0018 (rf2-xhfxcs.2, Slice B-add): `reg-event` is the ONE public event
+  ;; form — semantically `reg-event-fx` (coeffects in, a closed effects map
+  ;; out), now under the bare name. Front-porch (the canonical event
+  ;; registrar). `:status "EP-0018"` marks the new surface. During the additive
+  ;; window the former `reg-event-db` / `reg-event-fx` / `reg-event-ctx` rows
+  ;; below remain on the façade unchanged; their removal is a later slice
+  ;; (Z = rf2-xhfxcs.14).
+  ["re-frame.core" "reg-event"]           {:tier :front-porch :owner "002" :status "EP-0018"}
   ["re-frame.core" "reg-event-db"]        {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
   ["re-frame.core" "reg-event-fx"]        {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
   ["re-frame.core" "reg-event-ctx"]       {:tier :advanced    :owner "002" :status "v1 (preserved + extended)"}

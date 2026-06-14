@@ -2,13 +2,26 @@
   "Event-handler registration. Per Spec 002 §Event handlers and Spec 001
   §Registry model.
 
-  Three kinds of event handlers:
+  The one public event form is `reg-event` — pure (cofx, event) → a closed
+  effects map (EP-0018, ruled 2026-06-14). It is semantically `reg-event-fx`:
+  coeffects in, a closed effects map out.
+
+  During the EP-0018 ADDITIVE WINDOW (Slice B-add, rf2-xhfxcs.2) the former
+  three forms remain fully working alongside `reg-event`:
+    reg-event      — pure (cofx, event) → effects-map ({:db ... :fx [...]})
     reg-event-db   — pure (db, event) → new-db
     reg-event-fx   — pure (cofx, event) → effects-map ({:db ... :fx [...]})
     reg-event-ctx  — full-context handler returns context (advanced)
 
-  All three register under registry kind :event with an :event/kind sub-tag
-  recording which form was used. The runtime treats all three uniformly
+  `reg-event` shares the `reg-event-fx` registration path verbatim (it
+  registers under `:event/kind :fx` with the `:rf/fx-handler` wrapper), so
+  there is no second-class form and no behavioural divergence — only the
+  spelling differs. The FINAL REMOVAL of `reg-event-db` / `reg-event-fx` /
+  public `reg-event-ctx` + `:event/kind` + the per-kind wrapper ids is a
+  LATER slice (Z = rf2-xhfxcs.14); this slice adds, it does not remove.
+
+  All register under registry kind :event with an :event/kind sub-tag
+  recording which form was used. The runtime treats them uniformly
   during drain — the difference is only in the wrapping shape.
 
   Per Spec 015 §1. Event handlers — the registration meta-map accepts
@@ -982,6 +995,89 @@
   [id & args]
   (register-event! :fx "reg-event-fx" id args))
 
+(defn reg-event
+  "Register a `(fn [coeffects event-vec] effect-map)` event handler under
+  `id` — the ONE public event-registration form (EP-0018, ruled
+  2026-06-14). Semantically the former `reg-event-fx`: coeffects in, a
+  closed effects map out.
+
+  The handler is **pure** — it receives a coeffect map (carrying `:db`,
+  `:event`, plus exactly the facts it declared via `:rf.cofx/requires`,
+  delivered flat) and the event vector, and returns the effect-map (or
+  `nil`). The runtime walks the effects in order:
+
+  1. `:db`  — atomic swap to the frame's `app-db` (Spec 002 §`:fx`
+     ordering, rule 1). The db write is an explicit effect like any other;
+     there is no db-only return shape.
+  2. `:fx`  — vector of `[fx-id args]` pairs, processed in source order
+     by the registered fx handlers (see `reg-fx`).
+
+  The effect-map is a **closed shape** — `#{:db :rf.db/runtime :fx}` at
+  the top level (per migration M-8 + EP-0001). App handlers return only
+  `:db` and `:fx`; `:rf.db/runtime` (the runtime-db partition) is
+  reserved by convention for framework / runtime-extension authority and
+  is not part of an ordinary handler's vocabulary. Legacy v1 top-level
+  keys (`:dispatch`, `:dispatch-later`, `:http`, ...) wrap as `:fx`
+  entries — `{:fx [[:dispatch event] ...]}`.
+
+  The handler is **two-arg** `(fn [coeffects event-vec] …)` (EP-0018 D4).
+  Handlers that do not need the event use `_` for the second argument;
+  `(:event coeffects)` is the same value.
+
+  Shapes (the optional middle slot is the **superset** metadata map —
+  it carries reflection metadata **and** a reserved `:interceptors`
+  chain in one map):
+
+      (reg-event :id                              (fn [cofx ev] {...}))
+      (reg-event :id {:doc \"...\"}                 (fn [cofx ev] {...}))
+      (reg-event :id {:rf.cofx/requires [:rf/time-ms]}
+                                                 (fn [cofx ev] {...}))
+      (reg-event :id {:doc \"...\" :interceptors [(path :a)]}
+                                                 (fn [cofx ev] {...}))
+
+  Coeffects are declared via `:rf.cofx/requires` on the metadata map (the
+  value arrives FLAT in the cofx map under its id) — now uniformly
+  available to every event (the EP-0017 hole closed). `inject-cofx` is
+  removed (EP-0017). The historical positional interceptor vector middle
+  slot is removed; put the chain under metadata `:interceptors`.
+
+  Returns `id`. Returning `nil` from the handler is a documented no-op.
+
+  EP-0018 additive window (rf2-xhfxcs.2): `reg-event` shares the
+  `reg-event-fx` registration path verbatim — it registers under `:event`
+  with `:event/kind :fx` and the `:rf/fx-handler` wrapper, so it is
+  byte-for-byte a `reg-event-fx` registration under the bare name. The
+  former `reg-event-db` / `reg-event-fx` / `reg-event-ctx` remain working
+  for the additive window; their removal is a later slice.
+
+  Example — a pure db update (the common case):
+
+      (rf/reg-event :counter/inc
+        (fn [{:keys [db]} _]
+          {:db (update db :n inc)}))
+
+      (rf/dispatch [:counter/inc])
+
+  Example — coeffects + effects:
+
+      (rf/reg-event :user/save
+        {:rf.cofx/requires [:rf/time-ms]}
+        (fn [{:keys [db rf/time-ms]} [_ user]]
+          {:db (assoc db :user/pending? true :user/saved-at time-ms)
+           :fx [[:dispatch [:analytics/track :user-save]]
+                [:rf.http/managed {:method :post
+                                   :url    \"/api/users\"
+                                   :body   user
+                                   :on-success [:user/saved]
+                                   :on-failure [:user/save-failed]}]]}))
+
+  See also: `reg-fx` (register a custom fx), `reg-cofx` (register a
+  coeffect supplier; declare consumption via `:rf.cofx/requires`),
+  `->interceptor` (the public `context -> context` primitive for
+  full-context work), `dispatch`, `dispatch-sync`."
+  [id & args]
+  (register-event! :fx "reg-event" id args))
+
 (defn reg-event-ctx
   "Register a `(fn [context] context)` full-context event handler under
   `id`. **Advanced** — most handlers want `reg-event-db` or
@@ -1028,6 +1124,6 @@
   Hot-reload tools and test fixtures call this between rebuilds to
   drop stale handlers; production code rarely needs it. Returns nil.
 
-  See also: `reg-event-db`, `reg-event-fx`, `reg-event-ctx`."
+  See also: `reg-event`, `reg-event-db`, `reg-event-fx`, `reg-event-ctx`."
   ([] (registrar/clear-kind! :event))
   ([id] (registrar/unregister! :event id)))
