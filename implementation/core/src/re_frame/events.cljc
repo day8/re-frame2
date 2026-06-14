@@ -2,27 +2,26 @@
   "Event-handler registration. Per Spec 002 §Event handlers and Spec 001
   §Registry model.
 
-  The one public event form is `reg-event` — pure (cofx, event) → a closed
-  effects map (EP-0018, ruled 2026-06-14). It is semantically `reg-event-fx`:
-  coeffects in, a closed effects map out.
+  The ONE public event form is `reg-event` — pure (cofx, event) → a closed
+  effects map (EP-0018, ruled 2026-06-14; final removal flip rf2-xhfxcs.14).
+  Coeffects in, a closed effects map out.
 
-  During the EP-0018 ADDITIVE WINDOW (Slice B-add, rf2-xhfxcs.2) the former
-  three forms remain fully working alongside `reg-event`:
-    reg-event      — pure (cofx, event) → effects-map ({:db ... :fx [...]})
-    reg-event-db   — pure (db, event) → new-db
-    reg-event-fx   — pure (cofx, event) → effects-map ({:db ... :fx [...]})
-    reg-event-ctx  — full-context handler returns context (advanced)
+  EP-0018 collapsed the historical three-form family to one. `reg-event-db` /
+  `reg-event-fx` are REMOVED and public `reg-event-ctx` is demoted to a
+  framework-internal `context -> context` primitive; calling any of the
+  retired public names is a hard error naming the replacement (the
+  facade-exported throwing stubs `re-frame.events/reg-event-db` /
+  `reg-event-fx` / `reg-event-ctx` raise
+  `:rf.error/reg-event-db-removed` / `-fx-removed` / `-ctx-removed`, per
+  EP-0007 rule 2 — no working alias). Full-context work in application code
+  is expressed with interceptors (the public `context -> context` primitive,
+  `->interceptor`).
 
-  `reg-event` shares the `reg-event-fx` registration path verbatim (it
-  registers under `:event/kind :fx` with the `:rf/fx-handler` wrapper), so
-  there is no second-class form and no behavioural divergence — only the
-  spelling differs. The FINAL REMOVAL of `reg-event-db` / `reg-event-fx` /
-  public `reg-event-ctx` + `:event/kind` + the per-kind wrapper ids is a
-  LATER slice (Z = rf2-xhfxcs.14); this slice adds, it does not remove.
-
-  All register under registry kind :event with an :event/kind sub-tag
-  recording which form was used. The runtime treats them uniformly
-  during drain — the difference is only in the wrapping shape.
+  All event registrations register under registry kind `:event` and share the
+  ONE handler-wrapping interceptor `:rf/event-handler` (`:rf/default? true`);
+  the historical `:event/kind` sub-tag and the per-kind `:rf/db-handler` /
+  `:rf/fx-handler` / `:rf/ctx-handler` ids are gone (EP-0018 §5). The runtime
+  treats every event uniformly during drain.
 
   Per Spec 015 §1. Event handlers — the registration meta-map accepts
   optional `:sensitive [paths]` and `:large [paths]` keys that index
@@ -42,7 +41,7 @@
 
 ;; ---- metadata-map `:interceptors` — the superset middle slot (rf2-bpmszk) -
 ;;
-;; The `reg-event-*` metadata-map carries a RESERVED `:interceptors` key,
+;; The `reg-event` metadata-map carries a RESERVED `:interceptors` key,
 ;; making the map the ONE superset middle-slot shape:
 ;; `{:doc … :schema … :sensitive … :interceptors [i1 i2]}`.
 ;; The historical positional interceptor VECTOR form (`[i1 i2]`) is retired:
@@ -82,7 +81,7 @@
   (throw (ex-info
            ":rf.error/reg-event-bad-interceptors"
            {:rf.error/id :rf.error/reg-event-bad-interceptors
-            :where       'rf/reg-event-db
+            :where       'rf/reg-event
             :reg-fn      reg-fn-name
             :id          id
             :recovery    :fix-registration
@@ -154,7 +153,7 @@
              (not (and (map? meta) (contains? meta :schema))))
     (throw (ex-info ":rf.error/at-boundary-missing-schema"
                     {:rf.error/id :rf.error/at-boundary-missing-schema
-                     :where    'rf/reg-event-db
+                     :where    'rf/reg-event
                      :reg-fn   reg-fn-name
                      :id       id
                      :reason
@@ -173,7 +172,7 @@
 ;; ---- effect-map shape policing (Spec migration M-8) -----------------------
 ;;
 ;; Per migration/from-re-frame-v1/README.md §M-8 and Spec-Schemas.md §:rf/effect-map,
-;; the effect-map a reg-event-fx handler returns is a CLOSED shape: only :db,
+;; the effect-map a reg-event handler returns is a CLOSED shape: only :db,
 ;; :rf.db/runtime, and :fx live at the top level. Legacy v1 top-level keys
 ;; (:dispatch, :dispatch-later, :dispatch-n, :http, etc.) must move into :fx
 ;; as [[fx-id args] ...] entries.
@@ -195,7 +194,7 @@
 ;; (NOT merged silently nor routed through the fx machinery).
 
 (def ^:private closed-effect-map-keys
-  "The closed set of top-level effect-map keys a `reg-event-fx` handler may
+  "The closed set of top-level effect-map keys a `reg-event` handler may
   return. Per Spec-Schemas §:rf/effect-map — `:db` (app-db partition),
   `:rf.db/runtime` (runtime-db partition, framework-authority by convention,
   EP-0001 rf2-bvwoi4), and `:fx` (everything else). Widening this set is a
@@ -286,25 +285,23 @@
 ;; ---- final-effects boundary policing (rf2-u1kdvg) -------------------------
 ;;
 ;; `commit-fx-effects` (below) polices the effect-map shape + the whole-`:fx`
-;; value for a `reg-event-fx` HANDLER RETURN — at the moment of the fx-kind
-;; `:commit`, i.e. inside the handler-wrapping interceptor's `:before`. That
-;; is BEFORE the `:after` interceptor pass runs (`execute-chain` runs every
-;; `:before` then every `:after` — see `re-frame.interceptor/execute-chain`).
+;; value for a `reg-event` HANDLER RETURN — at the moment the handler-wrapping
+;; interceptor's `:before` commits the returned effects map. That is BEFORE the
+;; `:after` interceptor pass runs (`execute-chain` runs every `:before` then
+;; every `:after` — see `re-frame.interceptor/execute-chain`).
 ;;
 ;; So the per-handler-return checks DO NOT cover effects that arrive at the
-;; commit boundary by any OTHER route:
-;;   - a `reg-event-ctx` handler returns a context directly (the `:ctx`
-;;     `:commit` is `(or new-ctx ctx)` — no effect-map validation);
-;;   - a framework / user `:after` interceptor mutates `[:effects …]` after
-;;     the handler-return checks have already run (docs/guide §09 documents
-;;     `:after` interceptors adding/modifying `:effects`/`:fx`).
+;; commit boundary by another route: a framework / user `:after` interceptor
+;; mutates `[:effects …]` after the handler-return checks have already run
+;; (docs/guide §09 documents `:after` interceptors adding/modifying
+;; `:effects`/`:fx`).
 ;;
 ;; The router consumes the FINAL `(:effects final-ctx)` after the whole chain
 ;; (every `:before` AND every `:after`) has run. `police-final-effects!` is
 ;; the single authoritative shape gate applied THERE, so the closed
 ;; effect-map + whole-`:fx` contract holds uniformly regardless of how an
-;; effect reached the final context (reg-event-fx, reg-event-ctx, framework
-;; interceptors, or user `:after`). It returns the CLEANED effects map —
+;; effect reached the final context (the handler return, framework
+;; interceptors, or a user `:after`). It returns the CLEANED effects map —
 ;; foreign top-level keys dropped, a non-sequential `:fx` dropped — so a
 ;; malformed final effect never reaches `commit-frame-effects!` (silent
 ;; ignore of a foreign key) nor `fx/do-fx` (a raw host throw after the db
@@ -320,9 +317,9 @@
   each drop emits `:rf.error/effect-map-shape` (`:logged-and-skipped`).
 
   This is the boundary gate covering effects that bypass the
-  `commit-fx-effects` per-handler-return checks — a `reg-event-ctx` return
-  or an `:after`-interceptor mutation (rf2-u1kdvg). `nil` / a non-map
-  effects value (no effects produced) passes through untouched.
+  `commit-fx-effects` per-handler-return checks — an `:after`-interceptor
+  mutation (rf2-u1kdvg). `nil` / a non-map effects value (no effects
+  produced) passes through untouched.
 
   Hot-path short-circuit: when the effects map is already well-shaped (the
   overwhelming majority — `{}`, `{:db …}`, `{:fx [...]}`, `{:db … :fx …}`),
@@ -338,18 +335,21 @@
         cleaned
         (dissoc cleaned :fx)))))
 
-;; ---- handler-as-interceptor wrappers --------------------------------------
+;; ---- handler-as-interceptor wrapper ---------------------------------------
 ;;
-;; The three reg-event-* forms share a single :before shape:
-;;   1. honour :rf/skip-handler? (Spec 010 §Validation order, rf2-7leq/jwm4),
-;;   2. invoke the user handler with the kind-appropriate inputs,
-;;   3. project the return into the context.
-;;
-;; The differences are purely data: which inputs to read, which interceptor
-;; :id to stamp, and how the return commits back. The shared shape lives in
-;; `wrap-event-handler` below; per-kind specs live in `kind-spec` as a small
-;; dispatch table. This collapses the historical db/fx/ctx triple into one
-;; well-named primitive — adding a new event kind becomes a one-row edit.
+;; EP-0018 (rf2-xhfxcs.14): the historical db/fx/ctx triple collapsed to ONE
+;; event form, so the handler-wrapping interceptor is ONE shape too. Its
+;; `:before`:
+;;   1. honours :rf/skip-handler? (Spec 010 §Validation order, rf2-7leq/jwm4),
+;;   2. invokes the user handler with the coeffects map + the event vector
+;;      (`(fn [coeffects event] effect-map)`),
+;;   3. projects the returned closed effects map into the context via
+;;      `commit-fx-effects` (the :db / :rf.db/runtime / :fx commit + shape
+;;      policing).
+;; The interceptor stamps the single id `:rf/event-handler` and carries
+;; `:rf/default? true` so tools filter the framework auto-wrapper without an
+;; id allowlist. (The former per-kind `:rf/db-handler` / `:rf/fx-handler` /
+;; `:rf/ctx-handler` ids + the `:event/kind` sub-tag are gone.)
 
 (defn- police-runtime-effect-authority!
   "EP-0001 (rf2-bvwoi4): when `effects` carries a `:rf.db/runtime` effect AND
@@ -431,7 +431,7 @@
   [event]
   (let [event-id (when (vector? event) (first event))]
     {:rf.error/id   :rf.error/legacy-runtime-root
-     :where         'rf/reg-event-db
+     :where         'rf/reg-event
      :event-id      event-id
      :event         event
      :recovery      :no-recovery
@@ -499,7 +499,7 @@
                             :event         event
                             :returned      effects
                             :returned-type (type effects)
-                            :reason        "reg-event-fx handler returned a non-map; expected {:db ... :fx [...]}."
+                            :reason        "reg-event handler returned a non-map; expected {:db ... :fx [...]}."
                             :recovery      :no-recovery})
         ctx)
     :else
@@ -516,79 +516,55 @@
         (and (contains? effects :fx)
              (fx-value-ok? effects event)) (interceptor/assoc-effect :fx (:fx effects))))))
 
-(def ^:private kind-spec
-  "Per-kind hooks for `wrap-event-handler`. Each entry carries:
-    :interceptor-id  the stamped :rf/* id (observable in traces)
-    :invoke          (fn [handler-fn ctx event]) → handler return value
-    :commit          (fn [ctx event return]) → new ctx
-  The shared `:before` body composes invoke → commit around the
-  :rf/skip-handler? short-circuit (Spec 010 steps 1-2 recovery).
-
-  Notes per kind:
-    :db   — handler is (fn [db event]) → new-db; commits via assoc-effect :db.
-    :fx   — handler is (fn [cofx event]) → effect-map; commits via
-            `commit-fx-effects` which enforces the closed :db/:fx shape
-            (M-8) and polices bad returns (rf2-k3bj).
-    :ctx  — handler is (fn [context]) → context; commits the return value
-            directly, defaulting to the inbound ctx on nil return."
-  {:db  {:interceptor-id :rf/db-handler
-         :invoke         (fn [handler-fn ctx event]
-                           (handler-fn (interceptor/get-coeffect ctx :db) event))
-         :commit         (fn [ctx _event new-db]
-                           (interceptor/assoc-effect ctx :db new-db))}
-   :fx  {:interceptor-id :rf/fx-handler
-         :invoke         (fn [handler-fn ctx event]
-                           (handler-fn (interceptor/get-coeffect ctx) event))
-         :commit         commit-fx-effects}
-   :ctx {:interceptor-id :rf/ctx-handler
-         :invoke         (fn [handler-fn ctx _event]
-                           (handler-fn ctx))
-         :commit         (fn [ctx _event new-ctx]
-                           (or new-ctx ctx))}})
+(def event-handler-interceptor-id
+  "The single `:id` the framework stamps on the handler-wrapping interceptor
+  (the terminal `:before` that invokes the user event handler). One id since
+  EP-0018 collapsed the db/fx/ctx triple to one form — a captured
+  `:rf/interceptor-error` whose `:id` is this is the EVENT HANDLER itself
+  throwing (vs. a user interceptor). A stable framework-owned contract."
+  :rf/event-handler)
 
 (defn- wrap-event-handler
-  "Wrap `handler-fn` into an interceptor whose :before runs the handler.
+  "Wrap `handler-fn` into the ONE event-handler interceptor whose :before
+  runs the handler (EP-0018 — the historical per-kind db/fx/ctx wrappers
+  collapsed to this single shape).
 
-  The body is uniform across event kinds:
-    (a) honour :rf/skip-handler? (Spec 010 steps 1-2 recovery — schema
+  The :before:
+    (a) honours :rf/skip-handler? (Spec 010 steps 1-2 recovery — schema
         validation has already emitted its failure trace);
-    (b) pull the event vector from the coeffects (used by every kind's
-        invoke + commit);
-    (c) invoke the user handler with kind-appropriate inputs;
-    (d) commit the return into the context.
+    (b) pulls the event vector from the coeffects;
+    (c) invokes the user handler with the coeffects map + the event vector
+        (`(fn [coeffects event] effect-map)`);
+    (d) commits the returned closed effects map via `commit-fx-effects`.
 
-  See `kind-spec` for the per-kind :invoke / :commit pair.
-
-  Per rf2-twt7m Change 3: the produced interceptor carries
-  `:rf/default? true` so tools (Xray, Story, the Event lens
-  redesign rf2-zh2qc) can filter out the framework's auto-wrappers
-  without a hardcoded allowlist of `:rf/db-handler` /
-  `:rf/fx-handler` / `:rf/ctx-handler` interceptor ids. Self-
-  describing: the meta lives on the interceptor map itself."
-  [kind handler-fn]
-  (let [{:keys [interceptor-id invoke commit]} (get kind-spec kind)]
-    (interceptor/->interceptor*
-      :id         interceptor-id
-      :rf/default? true
-      :before
-      (fn [ctx]
-        (if (:rf/skip-handler? ctx)
-          ctx
-          (let [event   (interceptor/get-coeffect ctx :event)
-                new-ctx (commit ctx event (invoke handler-fn ctx event))]
-            ;; EP-0001 (rf2-tfepxu, decision #8): a `:db` effect carrying the
-            ;; retired `:rf/runtime` app-db root is a HARD ERROR — reject it
-            ;; at the single post-commit chokepoint covering all three event
-            ;; kinds. No-op (cheap) when the legacy key is absent.
-            (reject-legacy-runtime-root! (interceptor/get-effect new-ctx :db) event)
-            new-ctx))))))
+  The interceptor stamps `:rf/event-handler` and carries `:rf/default? true`
+  (rf2-twt7m Change 3) so tools (Xray, Story, the Event lens) can filter the
+  framework's auto-wrapper without a hardcoded id allowlist. Self-describing:
+  the meta lives on the interceptor map itself."
+  [handler-fn]
+  (interceptor/->interceptor*
+    :id          event-handler-interceptor-id
+    :rf/default? true
+    :before
+    (fn [ctx]
+      (if (:rf/skip-handler? ctx)
+        ctx
+        (let [event   (interceptor/get-coeffect ctx :event)
+              new-ctx (commit-fx-effects ctx event
+                                         (handler-fn (interceptor/get-coeffect ctx) event))]
+          ;; EP-0001 (rf2-tfepxu, decision #8): a `:db` effect carrying the
+          ;; retired `:rf/runtime` app-db root is a HARD ERROR — reject it at
+          ;; the single post-commit chokepoint. No-op (cheap) when the legacy
+          ;; key is absent.
+          (reject-legacy-runtime-root! (interceptor/get-effect new-ctx :db) event)
+          new-ctx)))))
 
 (defn event-handler-meta
-  "Build the registrar-shaped handler-meta map for an `:fx`-kind event
-  handler from a raw `handler-fn`, WITHOUT registering it. Returns the
-  same shape `register-event!` installs: `meta` merged with
-  `:event/kind :fx`, `:handler-fn`, and the `:interceptors` vector
-  carrying the handler-wrapping interceptor at its tail.
+  "Build the registrar-shaped handler-meta map for an event handler from a
+  raw `handler-fn`, WITHOUT registering it. Returns the same shape
+  `register-event!` installs: `meta` merged with `:handler-fn` and the
+  `:interceptors` vector carrying the `:rf/event-handler` wrapping
+  interceptor at its tail.
 
   Per rf2-a2sn1 — the single source of truth for the handler-meta shape,
   shared by `register-event!` (the registration path) AND the machines
@@ -604,9 +580,8 @@
   ([handler-fn] (event-handler-meta {} [] handler-fn))
   ([meta interceptors handler-fn]
    (assoc meta
-          :event/kind   :fx
           :handler-fn   handler-fn
-          :interceptors (-> [] (into interceptors) (conj (wrap-event-handler :fx handler-fn))))))
+          :interceptors (-> [] (into interceptors) (conj (wrap-event-handler handler-fn))))))
 
 (defn framework-authority?
   "True when a handler's registration `meta` carries framework-write
@@ -619,7 +594,7 @@
   true` registration-meta key (see Conventions §Reserved registration
   meta). Spec 002 §Write authority names machines, routing, elision, and
   ssr as the legitimate runtime-db writers; each framework registrar
-  stamps the key (the routing façade stamps it on its `reg-event-fx`
+  stamps the key (the routing façade stamps it on its `reg-event`
   registrations; elision / ssr write the partition through privileged
   frame-state helpers, not event effects, so they need no event-handler
   authority — they never reach this predicate).
@@ -639,58 +614,28 @@
 ;; ---- :rf.cofx/requires parsing (EP-0017 §4 / Spec 001 §The declaration key) -
 ;;
 ;; `:rf.cofx/requires` is a standard registration-metadata key (Spec 001 middle
-;; slot) on `reg-event-fx` and `reg-event-ctx` declaring the handler's consumed
-;; coeffect ids. The runtime delivers EXACTLY the declared facts, flat, into the
-;; handler's coeffects map (declared-only delivery — Spec 002 §Satisfaction).
-;;
-;; On `reg-event-db` it is a REGISTRATION-TIME ERROR
-;; (`:rf.error/cofx-request-invalid`): a db handler receives only the db and
-;; cannot take delivery. Needing the world is what graduates a handler to the
-;; fx form. The parsing / shape validation / duplicate-id check lives in
-;; `re-frame.cofx/parse-requires`; the parsed entries are stored on the
-;; registration under `:rf.cofx/requires-parsed` for the satisfaction step
+;; slot) on `reg-event` declaring the handler's consumed coeffect ids. The
+;; runtime delivers EXACTLY the declared facts, flat, into the handler's
+;; coeffects map (declared-only delivery — Spec 002 §Satisfaction). Since
+;; EP-0018 collapsed to the one coeffects-in form, `:rf.cofx/requires` is
+;; uniformly available to every event (the EP-0017 hole — a db handler that
+;; structurally could not take delivery — is closed). The parsing / shape
+;; validation / duplicate-id check lives in `re-frame.cofx/parse-requires`; the
+;; parsed entries are stored on the registration under
+;; `:rf.cofx/requires-parsed` for the satisfaction step
 ;; (`assemble-initial-ctx`) and the raw value is retained under
 ;; `:rf.cofx/requires` so `handler-meta` surfaces it exactly as authored
 ;; (Spec 009 §9).
-
-(defn- reject-db-handler-requires!
-  "Raise `:rf.error/cofx-request-invalid` when a `reg-event-db` registration
-  carries `:rf.cofx/requires`: a db handler is `(fn [db event] new-db)` and
-  cannot take coeffect delivery. Per Spec 001 §The declaration key + EP-0017
-  §4. A no-op for any other kind, or when the key is absent."
-  [kind id meta]
-  (when (and (= kind :db) (contains? meta :rf.cofx/requires))
-    (trace/emit-error! :rf.error/cofx-request-invalid
-                       {:failing-id id
-                        :received   (:rf.cofx/requires meta)
-                        :reason     (str "`reg-event-db` for `" id "` carried "
-                                         "`:rf.cofx/requires`, but a db handler "
-                                         "receives only the db and cannot take "
-                                         "coeffect delivery.")
-                        :recovery   :no-recovery})
-    (throw (ex-info ":rf.error/cofx-request-invalid"
-                    {:rf.error/id :rf.error/cofx-request-invalid
-                     :failing-id  id
-                     :received    (:rf.cofx/requires meta)
-                     :where       'rf/reg-event-db
-                     :recovery    :no-recovery
-                     :reason
-                     (str "`reg-event-db` for `" id "` declared "
-                          "`:rf.cofx/requires`. A db handler `(fn [db event] "
-                          "new-db)` cannot take coeffect delivery — a handler "
-                          "that needs world facts graduates to `reg-event-fx`. "
-                          "Move the declaration to a `reg-event-fx` "
-                          "registration.")}))))
 
 ;; ---- registration ---------------------------------------------------------
 
 ;; ---- bare-interceptor detection (rf2-3ut12) -------------------------------
 ;;
-;; The `reg-event-*` interceptor chain lives under metadata `:interceptors`
+;; The `reg-event` interceptor chain lives under metadata `:interceptors`
 ;; and MUST be a VECTOR (per Spec 001 §Allowed forms of the middle slot).
 ;; A BARE interceptor —
-;; `(reg-event-db id mw/some-interceptor handler)` rather than
-;; `(reg-event-db id {:interceptors [mw/some-interceptor]} handler)` — used to be SILENTLY
+;; `(reg-event id mw/some-interceptor handler)` rather than
+;; `(reg-event id {:interceptors [mw/some-interceptor]} handler)` — used to be SILENTLY
 ;; dropped: an interceptor built by `->interceptor` / `->interceptor*` is a
 ;; *map* (`{:id … :before … :after …}`), so `normalise-args`' two-arg branch
 ;; read it as the metadata-map, the chain never reached the registrar, and
@@ -723,14 +668,14 @@
 
 (defn- throw-bare-interceptor!
   "Raise `:rf.error/reg-event-bare-interceptor` (ex-info) for a bare
-  interceptor handed to `reg-event-*` where a metadata map was required.
+  interceptor handed to `reg-event` where a metadata map was required.
   Loud-fail at registration per Conventions §No silent swallow — the
   interceptor would otherwise be silently dropped and never run."
   [reg-fn-name slot offending args]
   (throw (ex-info
            ":rf.error/reg-event-bare-interceptor"
            {:rf.error/id :rf.error/reg-event-bare-interceptor
-            :where       'rf/reg-event-db
+            :where       'rf/reg-event
             :reg-fn      reg-fn-name
             :slot        slot
             :recovery    :fix-registration
@@ -746,7 +691,7 @@
             :args        args})))
 
 (defn- normalise-args
-  "Accept the two documented shapes for the variadic tail of reg-event-*:
+  "Accept the two documented shapes for the variadic tail of `reg-event`:
     (handler)          — bare handler
     (metadata handler) — metadata-map, optionally carrying `:interceptors`
   Per Spec 001 §Allowed forms of the middle slot. Returns
@@ -755,7 +700,7 @@
   Loud-fails on a BARE interceptor (rf2-3ut12): an interceptor map handed
   where a metadata-map was expected is rejected with
   `:rf.error/reg-event-bare-interceptor` rather than silently dropped — the
-  two-arg branch catches `(reg-event-* id bare-icpt handler)` (a map with
+  two-arg branch catches `(reg-event id bare-icpt handler)` (a map with
   `:before` / `:after`)."
   [reg-fn-name args]
   (case (count args)
@@ -768,18 +713,18 @@
           :else            (throw (ex-info
                                     ":rf.error/reg-event-bad-middle-slot"
                                     {:rf.error/id :rf.error/reg-event-bad-middle-slot
-                                     :where       'rf/reg-event-db
+                                     :where       'rf/reg-event
                                      :recovery    :fix-registration
-                                     :reason      "the middle slot of a reg-event-* call must be a metadata-map (e.g. {:doc \"...\" :interceptors [(path :a)]}); the positional interceptor vector is retired"
+                                     :reason      "the middle slot of a reg-event call must be a metadata-map (e.g. {:doc \"...\" :interceptors [(path :a)]}); the positional interceptor vector is retired"
                                      :args        args
                                      :got         middle
                                      :expected    "metadata-map (e.g. {:doc \"...\" :interceptors [(path :a)]})"}))))
     (throw (ex-info
              ":rf.error/reg-event-bad-arity"
              {:rf.error/id :rf.error/reg-event-bad-arity
-              :where       'rf/reg-event-db
+              :where       'rf/reg-event
               :recovery    :fix-registration
-              :reason      "reg-event-* expects (id handler) or (id metadata handler); put interceptor chains in metadata :interceptors"
+              :reason      "reg-event expects (id handler) or (id metadata handler); put interceptor chains in metadata :interceptors"
               :args        args
               :count       (count args)}))))
 
@@ -834,27 +779,26 @@
       [(dissoc meta :interceptors) meta-interceptors])))
 
 (defn- register-event!
-  "Common registration body for the three reg-event-* forms.
+  "Registration body for `reg-event` — the one public event form (EP-0018).
 
-  Steps (uniform across :db / :fx / :ctx kinds):
+  Steps:
     1. parse the variadic tail into [metadata handler];
     2. resolve the interceptor chain from metadata `:interceptors` via
        `resolve-interceptors` (rf2-bpmszk): validates the map value and strips
        the raw key from the stored meta;
-    3. wrap the user handler into the kind-appropriate interceptor via
-       `wrap-event-handler` (see `kind-spec`);
-    4. register under `:event` with `:event/kind` recording which form was
-       used, `:handler-fn` retained for tooling introspection, and
-       `:rf.handler/source` carrying the macro-captured form-source
-       string when present (Spec 009, rf2-xgfuy);
+    3. wrap the user handler into the `:rf/event-handler` interceptor via
+       `wrap-event-handler`;
+    4. register under `:event` with `:handler-fn` retained for tooling
+       introspection and `:rf.handler/source` carrying the macro-captured
+       form-source string when present (Spec 009, rf2-xgfuy);
     5. return the event id. Path-D schema-first privacy has no
        user-facing redaction interceptor to police at registration time.
 
   Returns the event id."
-  [kind reg-fn-name id args]
+  [reg-fn-name id args]
   (let [[raw-meta handler-fn] (normalise-args reg-fn-name args)
         [meta interceptors] (resolve-interceptors reg-fn-name id raw-meta)
-        wrapped (wrap-event-handler kind handler-fn)]
+        wrapped (wrap-event-handler handler-fn)]
     ;; Per Spec 010 §Production builds + rf2-iftj4: reject the
     ;; registration when `:rf.schema/at-boundary` is attached but no
     ;; `:schema` is declared on the metadata-map. The boundary
@@ -863,17 +807,15 @@
     ;; (always — both dev and prod) rather than waiting for the first
     ;; dispatch in production.
     (reject-at-boundary-without-schema! reg-fn-name id meta interceptors)
-    ;; EP-0017 §4: parse + validate `:rf.cofx/requires`. On `reg-event-db` the
-    ;; key is a registration-time error (a db handler cannot take delivery);
-    ;; otherwise parse into the normalised entry vector the satisfaction step
-    ;; consumes (`cofx/deliver-declared-cofx`, via `assemble-initial-ctx`),
-    ;; raising `:rf.error/cofx-request-invalid` / `:rf.error/cofx-name-collision`
-    ;; on a malformed / duplicate declaration.
-    (reject-db-handler-requires! kind id meta)
+    ;; EP-0017 §4: parse + validate `:rf.cofx/requires` into the normalised
+    ;; entry vector the satisfaction step consumes (`cofx/deliver-declared-cofx`,
+    ;; via `assemble-initial-ctx`), raising `:rf.error/cofx-request-invalid` /
+    ;; `:rf.error/cofx-name-collision` on a malformed / duplicate declaration.
+    ;; EP-0018: `:rf.cofx/requires` is uniformly available (the former
+    ;; db-handler exception is gone — the one form is coeffects-in).
     (let [requires-parsed (cofx/parse-requires id (:rf.cofx/requires meta))]
       (registrar/register! :event id
         (cond-> (assoc (-> meta source-coords/merge-coords merge-form-source)
-                       :event/kind   kind
                        :handler-fn   handler-fn
                        :interceptors (-> [] (into interceptors) (conj wrapped)))
           (seq requires-parsed)
@@ -900,106 +842,10 @@
         (register! :event id meta)))
     id))
 
-(defn reg-event-db
-  "Register a `(fn [db event-vec] new-db)` event handler under `id`.
-
-  The handler is **pure** — it receives the current `app-db` value and
-  the event vector that triggered the dispatch, and returns the next
-  `app-db` value. The runtime atomically swaps the frame's `app-db` to
-  the returned value before any `:fx` are walked. For side-effecting
-  handlers reach for `reg-event-fx`; for full-context manipulation reach
-  for `reg-event-ctx`.
-
-  Shapes (the optional middle slot is the **superset** metadata map —
-  it carries reflection metadata (`:doc`, `:schema`, …) **and** a
-  reserved `:interceptors` chain in one map):
-
-      (reg-event-db :id                            (fn [db ev] new-db))
-      (reg-event-db :id {:doc \"...\" :schema ...} (fn [db ev] new-db))
-      (reg-event-db :id {:doc \"...\" :interceptors [(path :counter)]}
-                                                    (fn [slice ev] new-slice))
-
-  The historical positional interceptor vector middle slot is removed.
-  Put the chain under metadata `:interceptors`.
-
-  Returns `id`.
-
-  Example:
-
-      (rf/reg-event-db :counter/inc
-        (fn [db _]
-          (update db :n inc)))
-
-      (rf/dispatch [:counter/inc])
-
-  See also: `reg-event-fx` (effect-map handlers), `reg-event-ctx`
-  (advanced — context manipulation), `dispatch`, `dispatch-sync`."
-  [id & args]
-  (register-event! :db "reg-event-db" id args))
-
-(defn reg-event-fx
-  "Register a `(fn [cofx event-vec] effect-map)` event handler under `id`.
-
-  The handler is **pure** — it receives a coeffect map (carrying `:db`,
-  `:event`, plus exactly the facts it declared via `:rf.cofx/requires`,
-  delivered flat) and the event vector, and returns an effect-map. The
-  runtime walks the effects in order:
-
-  1. `:db`  — atomic swap to the frame's `app-db` (Spec 002 §`:fx`
-     ordering, rule 1).
-  2. `:fx`  — vector of `[fx-id args]` pairs, processed in source order
-     by the registered fx handlers (see `reg-fx`).
-
-  The effect-map is a **closed shape** — `#{:db :rf.db/runtime :fx}` at
-  the top level (per migration M-8 + EP-0001). App handlers return only
-  `:db` and `:fx`; `:rf.db/runtime` (the runtime-db partition) is
-  reserved by convention for framework / runtime-extension authority and
-  is not part of an ordinary handler's vocabulary. Legacy v1 top-level
-  keys (`:dispatch`, `:dispatch-later`, `:http`, ...) wrap as `:fx`
-  entries — `{:fx [[:dispatch event] ...]}`.
-
-  Shapes (the optional middle slot is the **superset** metadata map —
-  it carries reflection metadata **and** a reserved `:interceptors`
-  chain in one map):
-
-      (reg-event-fx :id                              (fn [cofx ev] {...}))
-      (reg-event-fx :id {:doc \"...\"}                 (fn [cofx ev] {...}))
-      (reg-event-fx :id {:rf.cofx/requires [:rf/time-ms]}
-                                                     (fn [cofx ev] {...}))
-      (reg-event-fx :id {:doc \"...\" :interceptors [(path :a)]}
-                                                     (fn [cofx ev] {...}))
-
-  Coeffects are declared via `:rf.cofx/requires` on the metadata map (the
-  value arrives FLAT in the cofx map under its id); `inject-cofx` is removed
-  (EP-0017). The historical positional interceptor vector middle slot is
-  removed; put the chain under metadata `:interceptors`.
-
-  Returns `id`. Returning `nil` from the handler is a documented no-op.
-
-  Example:
-
-      (rf/reg-event-fx :user/save
-        (fn [{:keys [db]} [_ user]]
-          {:db (assoc db :user/pending? true)
-           :fx [[:dispatch [:analytics/track :user-save]]
-                [:rf.http/managed {:method :post
-                                   :url    \"/api/users\"
-                                   :body   user
-                                   :on-success [:user/saved]
-                                   :on-failure [:user/save-failed]}]]}))
-
-  See also: `reg-event-db` (pure db-only handlers), `reg-event-ctx`
-  (advanced — context manipulation), `reg-fx` (register a custom fx),
-  `reg-cofx` (register a coeffect supplier; declare consumption via
-  `:rf.cofx/requires`)."
-  [id & args]
-  (register-event! :fx "reg-event-fx" id args))
-
 (defn reg-event
   "Register a `(fn [coeffects event-vec] effect-map)` event handler under
   `id` — the ONE public event-registration form (EP-0018, ruled
-  2026-06-14). Semantically the former `reg-event-fx`: coeffects in, a
-  closed effects map out.
+  2026-06-14). Coeffects in, a closed effects map out.
 
   The handler is **pure** — it receives a coeffect map (carrying `:db`,
   `:event`, plus exactly the facts it declared via `:rf.cofx/requires`,
@@ -1036,19 +882,16 @@
                                                  (fn [cofx ev] {...}))
 
   Coeffects are declared via `:rf.cofx/requires` on the metadata map (the
-  value arrives FLAT in the cofx map under its id) — now uniformly
-  available to every event (the EP-0017 hole closed). `inject-cofx` is
+  value arrives FLAT in the cofx map under its id) — uniformly available
+  to every event (the EP-0017 hole closed by EP-0018). `inject-cofx` is
   removed (EP-0017). The historical positional interceptor vector middle
   slot is removed; put the chain under metadata `:interceptors`.
 
   Returns `id`. Returning `nil` from the handler is a documented no-op.
 
-  EP-0018 additive window (rf2-xhfxcs.2): `reg-event` shares the
-  `reg-event-fx` registration path verbatim — it registers under `:event`
-  with `:event/kind :fx` and the `:rf/fx-handler` wrapper, so it is
-  byte-for-byte a `reg-event-fx` registration under the bare name. The
-  former `reg-event-db` / `reg-event-fx` / `reg-event-ctx` remain working
-  for the additive window; their removal is a later slice.
+  Full-context work that a `(fn [context] context)` handler once expressed
+  is done with an interceptor (`->interceptor`, the public `context ->
+  context` primitive) on a `reg-event` registration.
 
   Example — a pure db update (the common case):
 
@@ -1076,46 +919,80 @@
   `->interceptor` (the public `context -> context` primitive for
   full-context work), `dispatch`, `dispatch-sync`."
   [id & args]
-  (register-event! :fx "reg-event" id args))
+  (register-event! "reg-event" id args))
 
-(defn reg-event-ctx
-  "Register a `(fn [context] context)` full-context event handler under
-  `id`. **Advanced** — most handlers want `reg-event-db` or
-  `reg-event-fx` instead.
+;; ---- retired public names — facade-exported throwing stubs ----------------
+;;
+;; EP-0018 §2/§3 + EP-0007 rule 2: `reg-event-db` / `reg-event-fx` are REMOVED
+;; and public `reg-event-ctx` is demoted to a framework-internal primitive.
+;; There is NO working alias (an alias would preserve exactly the vocabulary
+;; the EP removes). Instead the retired public NAMES survive ONLY as throwing
+;; stubs so a stale `(rf/reg-event-db …)` call site fails LOUDLY with an
+;; actionable error naming the replacement — never an opaque "no such var".
+;;
+;; These are FACADE-EXPORTED (resolvable as `rf/reg-event-db` / `-fx` / `-ctx`
+;; via the `re-frame.core` `def` aliases below) but `^:no-doc`, so the API
+;; manifest generator + the CLJS publics probe DROP them — they carry no
+;; manifest row and do not appear in the public API surface. They register
+;; nothing; calling one raises its naming hard error. Each error rides the
+;; always-on observability channel (Spec 009 catalogue) — it is a correctness
+;; contract that fires in production too.
 
-  Use this when the handler needs to manipulate the interceptor context
-  directly: read or assoc multiple coeffects, build effects keyed off
-  pre-existing context state, short-circuit downstream interceptors, or
-  perform context-level work that the `{:db ... :fx [...]}` shape can't
-  express.
+(defn- raise-removed-reg-event!
+  "Fan out + throw the EP-0018 retired-name hard error `error-kw` for a stale
+  call to a removed public event registrar `reg-fn-name` (a string like
+  \"reg-event-db\"), naming `replacement` and showing `fix` (the actionable
+  conversion). Mirrors the `inject-cofx` removed-stub shape: surface on the
+  always-on error-emit listener (production-survivable) AND the dev trace bus,
+  then throw the ex-info carrying the same `:rf.error/id`."
+  [error-kw reg-fn-name where id replacement fix]
+  (let [reason (str "`" reg-fn-name "` is REMOVED in EP-0018 (no alias). "
+                    "Use `" replacement "` instead — " fix)]
+    (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
+      (dispatch-on-error! error-kw nil id nil nil 0 (interop/now-ms)))
+    (trace/emit-error! error-kw
+                       (cond-> {:recovery :no-recovery :reason reason}
+                         (some? id) (assoc :id id)))
+    (throw (ex-info (str error-kw)
+                    (cond-> {:rf.error/id error-kw
+                             :where       where
+                             :recovery    :no-recovery
+                             :reason      reason}
+                      (some? id) (assoc :id id))))))
 
-  Returns `id`. Returning `nil` from the handler leaves the inbound
-  context unchanged (documented no-op).
+(defn ^:no-doc reg-event-db
+  "REMOVED in EP-0018 (no alias). Calling `reg-event-db` is the hard error
+  `:rf.error/reg-event-db-removed`, naming `reg-event` as the replacement.
+  See spec/001-Registration.md §The retired event-registration names."
+  [& args]
+  (raise-removed-reg-event! :rf.error/reg-event-db-removed "reg-event-db"
+                            'rf/reg-event-db (first args) "reg-event"
+                            (str "destructure `:db` from the coeffects map and "
+                                 "wrap the return in `{:db …}`: "
+                                 "`(reg-event id (fn [{:keys [db]} ev] {:db BODY}))`.")))
 
-  Shapes (the optional middle slot is the **superset** metadata map —
-  it carries reflection metadata **and** a reserved `:interceptors`
-  chain in one map):
+(defn ^:no-doc reg-event-fx
+  "REMOVED in EP-0018 (no alias). Calling `reg-event-fx` is the hard error
+  `:rf.error/reg-event-fx-removed`, naming `reg-event` as the replacement
+  (the identical shape under the bare name). See spec/001-Registration.md
+  §The retired event-registration names."
+  [& args]
+  (raise-removed-reg-event! :rf.error/reg-event-fx-removed "reg-event-fx"
+                            'rf/reg-event-fx (first args) "reg-event"
+                            "it is the identical shape — just rename the call."))
 
-      (reg-event-ctx :id                  (fn [ctx] new-ctx))
-      (reg-event-ctx :id {:doc \"...\"}     (fn [ctx] new-ctx))
-      (reg-event-ctx :id {:rf.cofx/requires [:rf/time-ms]}
-                                          (fn [ctx] new-ctx))
-      (reg-event-ctx :id {:doc \"...\" :interceptors [icpt1 icpt2]}
-                                          (fn [ctx] new-ctx))
-
-  Coeffects are declared via `:rf.cofx/requires` on the metadata map, the
-  same as `reg-event-fx` (EP-0017 §4): each declared value arrives FLAT in
-  the context's `:coeffects` map under its id, and the whole recordable
-  envelope is reachable as `:rf.cofx` through the context (EP-0017 §5).
-  `inject-cofx` is removed.
-
-  The historical positional interceptor vector middle slot is removed;
-  put the chain under metadata `:interceptors`.
-
-  See also: `reg-event-db`, `reg-event-fx`, `reg-cofx` (register a
-  coeffect supplier), `->interceptor`, `assoc-coeffect`, `assoc-effect`."
-  [id & args]
-  (register-event! :ctx "reg-event-ctx" id args))
+(defn ^:no-doc reg-event-ctx
+  "DEMOTED to a framework-internal primitive in EP-0018 (off the public
+  surface). Calling public `reg-event-ctx` is the hard error
+  `:rf.error/reg-event-ctx-removed`, naming `->interceptor` as the public
+  replacement for application full-context work. See spec/001-Registration.md
+  §The retired event-registration names."
+  [& args]
+  (raise-removed-reg-event! :rf.error/reg-event-ctx-removed "reg-event-ctx"
+                            'rf/reg-event-ctx (first args) "->interceptor"
+                            (str "express full-context work as an interceptor "
+                                 "(`rf/->interceptor` with `:before` / `:after`) "
+                                 "on a `reg-event` registration.")))
 
 (defn clear-event
   "Unregister an event handler. Zero-arity clears every registered
@@ -1124,6 +1001,6 @@
   Hot-reload tools and test fixtures call this between rebuilds to
   drop stale handlers; production code rarely needs it. Returns nil.
 
-  See also: `reg-event`, `reg-event-db`, `reg-event-fx`, `reg-event-ctx`."
+  See also: `reg-event`."
   ([] (registrar/clear-kind! :event))
   ([id] (registrar/unregister! :event id)))

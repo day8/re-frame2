@@ -995,7 +995,7 @@
         meta       (assoc opts
                           :rf/machine? true
                           :rf/machine  machine)]
-    (events/reg-event-fx machine-id meta handler-fn)
+    (events/reg-event machine-id meta handler-fn)
     ;; EP-0005 — bridge the `:data-schema`'s per-slot `:sensitive?` / `:large?`
     ;; markers into snapshot-egress redaction. Per rf2-qpibk0 the schema marks
     ;; are recorded in a SEPARATE table that `marks-for :event machine-id`

@@ -273,7 +273,7 @@
 ;; (Conventions §Reserved registration meta) — without it, every hydrate
 ;; dispatch would trip the `:rf.warning/app-handler-runtime-effect`
 ;; ownership diagnostic in dev (reserved BY CONVENTION, Mike ruling #4).
-(events/reg-event-fx :rf/hydrate
+(events/reg-event :rf/hydrate
                      {:rf/framework-authority? true}
                      hydrate/hydrate-event-handler)
 

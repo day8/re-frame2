@@ -173,8 +173,8 @@
 ;;             lifted out of the flat metadata (nil when the host captured
 ;;             none — programmatic / non-macro registrations)
 ;;   :metadata the remaining Spec 001 registration metadata — `:doc`,
-;;             `:schema`, `:tags`, and the kind-specific extras (`:event/kind`,
-;;             `:input-kind`, `:input-signals`, …) — with the handler and the
+;;             `:schema`, `:tags`, and the kind-specific extras (`:input-kind`,
+;;             `:input-signals`, …) — with the handler and the
 ;;             lifted source-coord slots removed so the descriptor does not
 ;;             double-carry them.
 ;;
@@ -218,7 +218,7 @@
   (let [source (descriptor-source metadata)
         ;; The remaining metadata: the Spec 001 registration map minus the
         ;; handler slot, the lifted source-coord slots, and the lifted `:owner`
-        ;; provenance slot. Kind-specific extras (`:event/kind`, `:input-kind`,
+        ;; provenance slot. Kind-specific extras (`:input-kind`,
         ;; `:input-signals`, `:interceptors`, …) stay here — they are part of the
         ;; registration's description, not framework-internal book-keeping.
         rest-meta (apply dissoc metadata :handler-fn :owner source-coord-keys)]

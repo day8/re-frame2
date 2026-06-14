@@ -110,11 +110,11 @@
 ;; ---- test-only fixture event registration --------------------------------
 ;;
 ;; Per the namespace docstring: the gate is "explicit test-support
-;; import". This (events/reg-event-fx ...) call fires iff some namespace
+;; import". This (events/reg-event ...) call fires iff some namespace
 ;; in the require closure pulled `re-frame.routing.test-support` in.
 ;; Production / SSR app code must NOT. Spec 012 §Navigation tokens —
 ;; stale-result suppression documents the production `:rf.route/with-nav-token`
 ;; counterpart; this fixture event is test-runner-internal (`:rf.test/*`).
 
-(events/reg-event-fx :rf.test/simulate-http-resolution
+(events/reg-event :rf.test/simulate-http-resolution
                      simulate-http-resolution-handler)

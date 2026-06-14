@@ -671,16 +671,18 @@
         skip-handler? (assoc :rf/skip-handler? true)))))
 
 (def ^:private handler-wrapping-interceptor-ids
-  "The `:id`s the three `reg-event-*` forms stamp on the handler-wrapping
-  interceptor (the terminal `:before` that invokes the user handler). Per
-  `re-frame.events/kind-spec` — `:rf/db-handler` / `:rf/fx-handler` /
-  `:rf/ctx-handler`. A captured `:rf/interceptor-error` whose `:id` is in
-  this set is the EVENT HANDLER itself throwing (vs. a coeffect injector
-  or a user interceptor); it keeps the `:rf.error/handler-exception`
-  category attributed to the event. Held here (not imported from
-  `events`) to keep the router's classification cycle-free; the ids are
-  a stable framework-owned contract."
-  #{:rf/db-handler :rf/fx-handler :rf/ctx-handler})
+  "The `:id`(s) the event registrar stamps on the handler-wrapping
+  interceptor (the terminal `:before` that invokes the user handler). Since
+  EP-0018 collapsed the event family to one form, this is the single
+  `:rf/event-handler` id (per `re-frame.events/event-handler-interceptor-id`;
+  the former per-kind `:rf/db-handler` / `:rf/fx-handler` / `:rf/ctx-handler`
+  ids are gone). A captured `:rf/interceptor-error` whose `:id` is in this set
+  is the EVENT HANDLER itself throwing (vs. a coeffect injector or a user
+  interceptor); it keeps the `:rf.error/handler-exception` category attributed
+  to the event. Held here (not imported from `events`) to keep the router's
+  classification cycle-free; the id is a stable framework-owned contract.
+  Kept as a set so the `contains?` membership check is unchanged."
+  #{:rf/event-handler})
 
 (defn- classify-pipeline-exception
   "Classify a captured `:rf/interceptor-error` into the true failing
@@ -1744,13 +1746,12 @@
   (let [error          (:rf/interceptor-error final-ctx)
         flow-error     (:rf/flow-error final-ctx)
         ;; FINAL-effects boundary policing (rf2-u1kdvg). `commit-fx-effects`
-        ;; polices a `reg-event-fx` HANDLER RETURN during the chain's
+        ;; polices a `reg-event` HANDLER RETURN during the chain's
         ;; `:before` pass — BEFORE the `:after` interceptors run. By the
         ;; time the router consumes `(:effects final-ctx)` the whole chain
         ;; (every `:before` AND every `:after`) has run, so an effect can
         ;; arrive here malformed by a route the per-handler-return checks
-        ;; never saw: a `reg-event-ctx` return (no effect-map validation) or
-        ;; an `:after`-interceptor mutation. `police-final-effects!` is the
+        ;; never saw: an `:after`-interceptor mutation. `police-final-effects!` is the
         ;; single authoritative shape gate applied to the FINAL map — it
         ;; drops foreign top-level keys (so a foreign key is no longer
         ;; SILENTLY ignored at the partition commit) and drops a
