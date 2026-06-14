@@ -365,9 +365,9 @@
   (per spec/002 §reg-frame).
 
   Each `:fx-override` decorator carries `{:fx-id <id> :response <data>}`.
-  We synthesise a per-decorator replacement event-fx id of the form
+  We synthesise a per-decorator replacement event id of the form
   `:rf.story.fx-stub/<decorator-id>` and the runtime registers the
-  replacement event-fx as `(reg-event-fx that-id (fn [_ _] ...))`
+  replacement event as `(reg-event that-id (fn [_ _] ...))`
   before the variant frame's `reg-frame` call. Last-wins on `:fx-id`
   collision (the inner-most decorator wins).
 
@@ -375,7 +375,7 @@
             :registrations [{:event-id <stub-event-id>
                              :response <data>} ...]}`.
 
-  The Stage 3 runtime walks `:registrations` and calls `reg-event-fx`
+  The Stage 3 runtime walks `:registrations` and calls `reg-event`
   for each before `reg-frame`-ing the variant; then threads the
   `:overrides` map onto the frame's config."
   [fx-override-decorators]
