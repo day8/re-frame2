@@ -213,8 +213,9 @@
 ;; The reserved slot a resolved chain entry carries so its AUTHORED reference
 ;; survives resolution — `:interceptor-overrides` exact-reference matching
 ;; (EP-0022 Slice C) keys on this. A bare-keyword ref stamps the keyword; an
-;; `[id arg]` ref stamps the full vector. Inline interceptor values (additive
-;; window) carry NO authored ref, so they match overrides by `:id` only.
+;; `[id arg]` ref stamps the full vector. An entry without an authored ref
+;; (the framework default-wrapper, which is the only inline value a chain
+;; carries since the reference-only flip) matches overrides by `:id` only.
 
 (def authored-ref-key
   "The reserved key under which a resolved chain entry carries its AUTHORED
@@ -244,8 +245,8 @@
   §`:interceptor-overrides` exact-reference matching:
 
     - a bare KEYWORD key matches when it equals the entry's AUTHORED ref (a
-      bare-keyword ref) OR the entry's `:id` (covers inline values + the
-      `:id` the resolver stamps);
+      bare-keyword ref) OR the entry's `:id` (the `:id` the resolver stamps —
+      so a bare-keyword key can match a `[id arg]`-resolved entry by its id);
     - an `[id arg]` VECTOR key matches ONLY the entry whose AUTHORED ref is
       `ref=` to that exact `[id arg]` vector — so `{[:rf.interceptor/path
       [:cart]] nil}` removes only that exact reference and leaves a sibling
