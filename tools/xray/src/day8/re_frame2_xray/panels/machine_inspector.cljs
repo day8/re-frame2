@@ -859,21 +859,21 @@
 
   ;; ---- Machine Inspector panel events -----------------------------
 
-  (rf/reg-event-db :rf.xray/select-machine-id
-    (fn [db [_ machine-id]]
-      (assoc db :selected-machine-id machine-id)))
+  (rf/reg-event :rf.xray/select-machine-id
+    (fn [{:keys [db]} [_ machine-id]]
+      {:db (assoc db :selected-machine-id machine-id)}))
 
-  (rf/reg-event-db :rf.xray/clear-machine-selection
-    (fn [db _event]
-      (dissoc db :selected-machine-id)))
+  (rf/reg-event :rf.xray/clear-machine-selection
+    (fn [{:keys [db]} _event]
+      {:db (dissoc db :selected-machine-id)}))
 
   (rf/reg-event-db :rf.xray/machine-state-clicked
     (fn [db [_ _payload]]
       db))
 
-  (rf/reg-event-db :rf.xray/machine-chart-layout-pulse
-    (fn [db _event]
-      (update db :machine-inspector/elk-pulse-tick (fnil inc 0))))
+  (rf/reg-event :rf.xray/machine-chart-layout-pulse
+    (fn [{:keys [db]} _event]
+      {:db (update db :machine-inspector/elk-pulse-tick (fnil inc 0))}))
 
   ;; ---- per-machine prev/next nav (rf2-y9xmf · fixed rf2-nugvv) ----
   ;;

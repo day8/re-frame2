@@ -198,16 +198,16 @@
   ;; definition so the event handler doesn't need to reach back through
   ;; `rf/machine-meta` (which would be re-resolved per step; sim wants
   ;; the definition pinned at start time).
-  (rf/reg-event-db :rf.xray.static.machines/sim-start
-    (fn [db [_ {:keys [machine-id definition]}]]
-      (assoc-in db [:rf.xray.static.machines/sim-by-machine machine-id]
-        (sim-h/make-sim-state machine-id definition))))
+  (rf/reg-event :rf.xray.static.machines/sim-start
+    (fn [{:keys [db]} [_ {:keys [machine-id definition]}]]
+      {:db (assoc-in db [:rf.xray.static.machines/sim-by-machine machine-id]
+        (sim-h/make-sim-state machine-id definition))}))
 
   ;; Stop sim for `machine-id`. Removes the per-machine slot so the
   ;; clone is GC'd; production registry was never touched.
-  (rf/reg-event-db :rf.xray.static.machines/sim-stop
-    (fn [db [_ {:keys [machine-id]}]]
-      (update db :rf.xray.static.machines/sim-by-machine dissoc machine-id)))
+  (rf/reg-event :rf.xray.static.machines/sim-stop
+    (fn [{:keys [db]} [_ {:keys [machine-id]}]]
+      {:db (update db :rf.xray.static.machines/sim-by-machine dissoc machine-id)}))
 
   ;; Reset sim for `machine-id` — rewind to the initial snapshot,
   ;; clear the trail, but stay in sim mode.

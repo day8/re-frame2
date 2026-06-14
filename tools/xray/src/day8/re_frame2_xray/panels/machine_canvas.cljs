@@ -163,7 +163,7 @@
   ;; rf2-3d987 issue #4 — toggle the per-machine chart-collapsed flag.
   ;; `mode` is :collapsed / :expanded / :toggle. Persists the post-mutation
   ;; map to localStorage so the operator's choice survives reloads.
-  (rf/reg-event-fx :rf.xray.machine-canvas/set-chart-collapsed
+  (rf/reg-event :rf.xray.machine-canvas/set-chart-collapsed
     (fn [{:keys [db]} [_ {:keys [machine-id mode]}]]
       (let [current (chart-collapsed-of db machine-id)
             next    (case mode
@@ -177,9 +177,9 @@
         {:db db'
          :rf.xray.machine-canvas/persist-chart-collapsed by-id})))
 
-  (rf/reg-event-db :rf.xray.machine-canvas/hydrate-chart-collapsed
-    (fn [db [_ by-id]]
-      (assoc-in db [slot-root :chart-collapsed-by-id] (or by-id {})))))
+  (rf/reg-event :rf.xray.machine-canvas/hydrate-chart-collapsed
+    (fn [{:keys [db]} [_ by-id]]
+      {:db (assoc-in db [slot-root :chart-collapsed-by-id] (or by-id {}))})))
 
 ;; ---- fx -----------------------------------------------------------------
 

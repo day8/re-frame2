@@ -446,7 +446,7 @@
   ;; recognises (bare map, `{:source-coord ...}` wrapper, or a
   ;; `"file:line"` display string). Resolves the URI through the
   ;; allowlist seam and routes it to `:rf.editor/open`.
-  (rf/reg-event-fx :rf.story/open-in-editor
+  (rf/reg-event :rf.story/open-in-editor
     (fn [_ctx [_event-id payload]]
       (let [coord (coerce-coord payload)]
         ;; Always emit the fx — even when the coord is unresolvable.

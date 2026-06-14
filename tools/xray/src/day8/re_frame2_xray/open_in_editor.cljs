@@ -416,7 +416,7 @@
   ;; shape, omitting `:db` from the return leaves Xray's app-db
   ;; untouched. The trace bus still records the dispatch so the
   ;; "click → open" trail is observable.
-  (rf/reg-event-fx :rf.xray/open-in-editor
+  (rf/reg-event :rf.xray/open-in-editor
     (fn [_ctx [_event-id payload]]
       ;; rf2-4s08ov — DX hint when no editor is effectively configured.
       ;; A host that wired only the bare preload (never called

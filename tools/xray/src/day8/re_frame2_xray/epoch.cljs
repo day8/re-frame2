@@ -178,9 +178,9 @@
   ;; when the user picks an epoch (rf2-uy7nz retired the `:selected-
   ;; epoch-id` mirror). Symmetric with `:rf.xray/select-dispatch-id` (in
   ;; registry.cljs post rf2-5gl5r).
-  (rf/reg-event-db :rf.xray/select-epoch
-    (fn [db [_ epoch-id]]
-      (assoc-in db [:focus :epoch-id] epoch-id)))
+  (rf/reg-event :rf.xray/select-epoch
+    (fn [{:keys [db]} [_ epoch-id]]
+      {:db (assoc-in db [:focus :epoch-id] epoch-id)}))
 
   ;; `:rf.xray/reset-to-epoch` (rf2-hga49) — the UI rewind affordance.
   ;; The tab ribbon's `Reset` button dispatches this with the OBSERVED
@@ -207,7 +207,7 @@
   ;; prior failure, and the fx re-sets the flash only when THIS attempt
   ;; also fails. The dissoc runs before the fx so a failure that fires
   ;; `:rf.xray/reset-flash-failed` synchronously still wins.
-  (rf/reg-event-fx :rf.xray/reset-to-epoch
+  (rf/reg-event :rf.xray/reset-to-epoch
     (fn [{:keys [db]} [_ frame epoch-id]]
       {:db (dissoc db :reset-flash)
        :fx [[:rf.xray.fx/restore-epoch {:frame frame :epoch-id epoch-id}]]}))
@@ -216,19 +216,19 @@
   ;; flash. Dispatched from `:rf.xray.fx/restore-epoch` when
   ;; `rf/restore-epoch!` returns false. `:rf.trace/no-emit? true` keeps
   ;; Xray's own chrome event off the trace bus it is inspecting.
-  (rf/reg-event-db :rf.xray/reset-flash-failed
+  (rf/reg-event :rf.xray/reset-flash-failed
     {:rf.trace/no-emit? true}
-    (fn [db _event]
-      (assoc db :reset-flash "Reset failed — epoch unavailable (see Trace)")))
+    (fn [{:keys [db]} _event]
+      {:db (assoc db :reset-flash "Reset failed — epoch unavailable (see Trace)")}))
 
   ;; `:rf.xray/clear-reset-flash` (rf2-hga49) — clear the inline flash.
   ;; The steady-state clear path is `:rf.xray/reset-to-epoch` dissoc-ing
   ;; the slot on every fresh attempt (rf2-wa7tk); this event remains the
   ;; explicit imperative clear (tests + any future dismiss affordance).
   ;; `:rf.trace/no-emit? true` per the sibling rationale.
-  (rf/reg-event-db :rf.xray/clear-reset-flash
+  (rf/reg-event :rf.xray/clear-reset-flash
     {:rf.trace/no-emit? true}
-    (fn [db _event]
-      (dissoc db :reset-flash)))
+    (fn [{:keys [db]} _event]
+      {:db (dissoc db :reset-flash)}))
 
   nil)

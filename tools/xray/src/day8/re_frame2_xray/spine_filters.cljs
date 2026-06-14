@@ -587,21 +587,21 @@
   ;; lands in localStorage in one place (no fx-per-handler duplication;
   ;; mirrors the filters subsystem's pattern).
 
-  (rf/reg-event-fx :rf.xray/mute-event-id
+  (rf/reg-event :rf.xray/mute-event-id
     (fn [{:keys [db]} [_ event-id]]
       (let [next-muted (mute-event-id (get db :muted-event-ids) event-id)
             next-db    (assoc db :muted-event-ids next-muted)]
         {:db next-db
          :fx [[:rf.xray.spine-filters/persist next-muted]]})))
 
-  (rf/reg-event-fx :rf.xray/unmute-event-id
+  (rf/reg-event :rf.xray/unmute-event-id
     (fn [{:keys [db]} [_ event-id]]
       (let [next-muted (unmute-event-id (get db :muted-event-ids) event-id)
             next-db    (assoc db :muted-event-ids next-muted)]
         {:db next-db
          :fx [[:rf.xray.spine-filters/persist next-muted]]})))
 
-  (rf/reg-event-fx :rf.xray/clear-muted-event-ids
+  (rf/reg-event :rf.xray/clear-muted-event-ids
     (fn [{:keys [db]} _event]
       (let [next-muted (clear-muted (get db :muted-event-ids))
             next-db    (assoc db :muted-event-ids next-muted)]
@@ -610,15 +610,15 @@
 
   ;; ---- events: manager modal open / close -----------------------------
 
-  (rf/reg-event-db :rf.xray/open-mute-manager
+  (rf/reg-event :rf.xray/open-mute-manager
     {:rf.trace/no-emit? true}
-    (fn [db _event]
-      (assoc db :mute-manager-open? true)))
+    (fn [{:keys [db]} _event]
+      {:db (assoc db :mute-manager-open? true)}))
 
-  (rf/reg-event-db :rf.xray/close-mute-manager
+  (rf/reg-event :rf.xray/close-mute-manager
     {:rf.trace/no-emit? true}
-    (fn [db _event]
-      (assoc db :mute-manager-open? false)))
+    (fn [{:keys [db]} _event]
+      {:db (assoc db :mute-manager-open? false)}))
 
   ;; ---- events: row context menu open / close --------------------------
   ;;
@@ -639,17 +639,17 @@
                    :y        (or y 0)})
         db)))
 
-  (rf/reg-event-db :rf.xray/close-row-context-menu
+  (rf/reg-event :rf.xray/close-row-context-menu
     {:rf.trace/no-emit? true}
-    (fn [db _event]
-      (dissoc db :row-context-menu)))
+    (fn [{:keys [db]} _event]
+      {:db (dissoc db :row-context-menu)}))
 
   ;; ---- events: hydrate from localStorage ------------------------------
 
-  (rf/reg-event-db :rf.xray/hydrate-muted-event-ids
+  (rf/reg-event :rf.xray/hydrate-muted-event-ids
     {:rf.trace/no-emit? true}
-    (fn [db [_ muted]]
-      (assoc db :muted-event-ids (set (or muted #{})))))
+    (fn [{:keys [db]} [_ muted]]
+      {:db (assoc db :muted-event-ids (set (or muted #{})))}))
 
   ;; NO hydrate on install (rf2-swclw). The muted-event-ids set is a
   ;; TRANSIENT exploration filter — it resets to empty on every page

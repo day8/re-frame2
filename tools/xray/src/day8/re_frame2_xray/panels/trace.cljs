@@ -950,19 +950,19 @@
     (fn [db _query]
       (get db :trace-expanded-row-ids #{})))
 
-  (rf/reg-event-db :rf.xray/toggle-trace-row-expand
-    (fn [db [_ row-id]]
-      (let [current (get db :trace-expanded-row-ids #{})]
+  (rf/reg-event :rf.xray/toggle-trace-row-expand
+    (fn [{:keys [db]} [_ row-id]]
+      {:db (let [current (get db :trace-expanded-row-ids #{})]
         (assoc db :trace-expanded-row-ids
                (if (contains? current row-id)
                  (disj current row-id)
-                 (conj current row-id))))))
+                 (conj current row-id))))}))
 
   ;; rf2-aqusw — the flat list lost the collapsible phase bands; the
   ;; expand set is the only per-row UI state left to clear.
-  (rf/reg-event-db :rf.xray/clear-trace-expand
-    (fn [db _event]
-      (dissoc db :trace-expanded-row-ids)))
+  (rf/reg-event :rf.xray/clear-trace-expand
+    (fn [{:keys [db]} _event]
+      {:db (dissoc db :trace-expanded-row-ids)}))
 
   ;; rf2-2moh1 — register the Dynamic Trace tab with the internal L4
   ;; tab registry. The tab keeps its `t` mnemonic + order-3 placement.

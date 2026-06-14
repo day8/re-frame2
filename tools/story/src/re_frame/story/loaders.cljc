@@ -284,10 +284,10 @@
   Idempotent."
   []
   (when config/enabled?
-    (rf/reg-event-db
+    (rf/reg-event
       ::set-lifecycle-state-mirror
-      (fn [db [_ state]]
-        (assoc db :rf.story/lifecycle state)))))
+      (fn [{:keys [db]} [_ state]]
+        {:db (assoc db :rf.story/lifecycle state)}))))
 
 ;; ---- public driver helpers -----------------------------------------------
 ;;

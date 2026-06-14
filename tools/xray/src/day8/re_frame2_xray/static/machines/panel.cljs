@@ -171,30 +171,30 @@
 ;; ---- events -------------------------------------------------------------
 
 (defn- install-events! []
-  (rf/reg-event-fx :rf.xray.static.machines/select
+  (rf/reg-event :rf.xray.static.machines/select
     (fn [{:keys [db]} [_ machine-id]]
       (let [next-db (assoc db :rf.xray.static.machines/selected-id machine-id)]
         {:db next-db
          :fx [[:rf.xray.static.machines/persist-selection machine-id]]})))
 
-  (rf/reg-event-db :rf.xray.static.machines/set-search
-    (fn [db [_ query]]
-      (assoc db :rf.xray.static.machines/search (or query ""))))
+  (rf/reg-event :rf.xray.static.machines/set-search
+    (fn [{:keys [db]} [_ query]]
+      {:db (assoc db :rf.xray.static.machines/search (or query ""))}))
 
-  (rf/reg-event-db :rf.xray.static.machines/clear-search
-    (fn [db _event]
-      (dissoc db :rf.xray.static.machines/search)))
+  (rf/reg-event :rf.xray.static.machines/clear-search
+    (fn [{:keys [db]} _event]
+      {:db (dissoc db :rf.xray.static.machines/search)}))
 
-  (rf/reg-event-db :rf.xray.static.machines/cycle-sort
-    (fn [db _event]
-      (let [current (h/normalise-sort-key
+  (rf/reg-event :rf.xray.static.machines/cycle-sort
+    (fn [{:keys [db]} _event]
+      {:db (let [current (h/normalise-sort-key
                       (get db :rf.xray.static.machines/sort-key))
             ix      (.indexOf h/sort-keys current)
             next-ix (mod (inc ix) (count h/sort-keys))
             next-k  (nth h/sort-keys next-ix)]
-        (assoc db :rf.xray.static.machines/sort-key next-k))))
+        (assoc db :rf.xray.static.machines/sort-key next-k))}))
 
-  (rf/reg-event-fx :rf.xray.static.machines/set-sub-mode
+  (rf/reg-event :rf.xray.static.machines/set-sub-mode
     (fn [{:keys [db]} [_ machine-id sub-mode]]
       (let [normed  (h/normalise-sub-mode sub-mode)
             next-db (assoc-in db [:rf.xray.static.machines/sub-mode-by-id

@@ -155,25 +155,25 @@
     (fn [db _]
       (get db :rf.xray.static.routes/sim-url)))
 
-  (rf/reg-event-db :rf.xray.static.routes/toggle-row
-    (fn [db [_ route-id]]
-      (let [expanded (or (:rf.xray.static.routes/expanded db) #{})]
+  (rf/reg-event :rf.xray.static.routes/toggle-row
+    (fn [{:keys [db]} [_ route-id]]
+      {:db (let [expanded (or (:rf.xray.static.routes/expanded db) #{})]
         (assoc db :rf.xray.static.routes/expanded
                (if (contains? expanded route-id)
                  (disj expanded route-id)
-                 (conj expanded route-id))))))
+                 (conj expanded route-id))))}))
 
   (rf/reg-sub :rf.xray.static.routes/expanded
     (fn [db _]
       (or (:rf.xray.static.routes/expanded db) #{})))
 
-  (rf/reg-event-db :rf.xray.static.routes/toggle-sim-nav
-    (fn [db [_ route-id]]
-      (let [open (or (:rf.xray.static.routes/sim-nav-open db) #{})]
+  (rf/reg-event :rf.xray.static.routes/toggle-sim-nav
+    (fn [{:keys [db]} [_ route-id]]
+      {:db (let [open (or (:rf.xray.static.routes/sim-nav-open db) #{})]
         (assoc db :rf.xray.static.routes/sim-nav-open
                (if (contains? open route-id)
                  (disj open route-id)
-                 (conj open route-id))))))
+                 (conj open route-id))))}))
 
   (rf/reg-sub :rf.xray.static.routes/sim-nav-open
     (fn [db _]
@@ -185,7 +185,7 @@
   ;; Dynamic + opens the Routing lens. No route-id is plumbed down to
   ;; the Dynamic side — the lens IS the focused-event slice; the
   ;; orientation comes from whatever event is currently focused.
-  (rf/reg-event-fx :rf.xray.static.routes/jump-to-dynamic
+  (rf/reg-event :rf.xray.static.routes/jump-to-dynamic
     (fn [_ [_ _route-id]]
       {:fx [[:dispatch [:rf.xray/set-mode :dynamic]]
             [:dispatch [:rf.xray/select-tab :routing]]]}))

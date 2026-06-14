@@ -150,13 +150,13 @@
 (defn install-events!
   "Register the rings event family. Idempotent."
   []
-  (rf/reg-event-db :rf.xray/timer-tick
+  (rf/reg-event :rf.xray/timer-tick
     ;; Per rf2-qsjda — `:rf.trace/no-emit?` keeps the rAF tick from
     ;; bombing Xray's own trace buffer 60 times per second. The tick
     ;; is an internal animation pulse, not user-visible signal.
     {:rf.trace/no-emit? true}
-    (fn [db [_ t]]
-      (assoc db :rings/now-ms (or t (.now js/Date)))))
+    (fn [{:keys [db]} [_ t]]
+      {:db (assoc db :rings/now-ms (or t (.now js/Date)))}))
 
   (rf/reg-event-db :rf.xray/timer-hover
     (fn [db [_ payload]]

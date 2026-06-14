@@ -15,13 +15,13 @@
 (defn install!
   "Install the App-DB Diff events and effects."
   []
-  (rf/reg-event-db :rf.xray/focus-slice-path
-    (fn [db [_ path]]
-      (assoc db :focused-slice-path path)))
+  (rf/reg-event :rf.xray/focus-slice-path
+    (fn [{:keys [db]} [_ path]]
+      {:db (assoc db :focused-slice-path path)}))
 
-  (rf/reg-event-db :rf.xray/clear-slice-focus
-    (fn [db _event]
-      (dissoc db :focused-slice-path)))
+  (rf/reg-event :rf.xray/clear-slice-focus
+    (fn [{:keys [db]} _event]
+      {:db (dissoc db :focused-slice-path)}))
 
   ;; ---- App-DB panel diff-mode toggle — RETIRED 2026-05-29 (rf2-vv3m6) -----
   ;;
@@ -61,7 +61,7 @@
   ;; on the inspected frame, not the Xray chrome frame the affordance
   ;; dispatches from). A nil / unregistered observed frame degrades to a
   ;; bare (current-frame-resolved) egress — still fail-closed.
-  (rf/reg-event-fx :rf.xray/copy-value-to-clipboard
+  (rf/reg-event :rf.xray/copy-value-to-clipboard
     (fn [{:keys [db]} [_ value]]
       (let [observed (or (get-in db [:focus :frame]) (get db :target-frame))
             elided   (if (and (some? observed) (some? (frame/frame observed)))
@@ -71,6 +71,6 @@
 
   ;; The path-copy variant copies ONLY the path vector (key names, no
   ;; values) so there is nothing to elide — it is not a value-egress site.
-  (rf/reg-event-fx :rf.xray/copy-path-to-clipboard
+  (rf/reg-event :rf.xray/copy-path-to-clipboard
     (fn [_ctx [_ path]]
       {:fx [[:rf.xray.fx/copy-to-clipboard {:text (pr-str path)}]]})))

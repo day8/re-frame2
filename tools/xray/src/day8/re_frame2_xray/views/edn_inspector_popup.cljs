@@ -198,18 +198,18 @@
   click/keydown context pop doesn't leak the event to `:rf/default`
   (same fix as the App-DB segment-inspector + settings popup)."
   []
-  (rf/reg-event-db :rf.xray.edn-inspector-popup/open
-    (fn [db [_ mount-id payload]]
+  (rf/reg-event :rf.xray.edn-inspector-popup/open
+    (fn [{:keys [db]} [_ mount-id payload]]
       ;; payload shape: {:value <any> :opts <map>}
-      (-> db
+      {:db (-> db
           (update stack-slot push-entry mount-id)
-          (assoc-in [entries-slot mount-id] payload))))
+          (assoc-in [entries-slot mount-id] payload))}))
 
-  (rf/reg-event-db :rf.xray.edn-inspector-popup/close
-    (fn [db [_ mount-id]]
-      (-> db
+  (rf/reg-event :rf.xray.edn-inspector-popup/close
+    (fn [{:keys [db]} [_ mount-id]]
+      {:db (-> db
           (update stack-slot pop-entry mount-id)
-          (update entries-slot dissoc mount-id))))
+          (update entries-slot dissoc mount-id))}))
 
   (rf/reg-event-db :rf.xray.edn-inspector-popup/close-top
     ;; Esc handler — close the topmost popup only. No-op when stack
@@ -222,11 +222,11 @@
               (update entries-slot dissoc top))
           db))))
 
-  (rf/reg-event-db :rf.xray.edn-inspector-popup/close-all
-    (fn [db _]
-      (-> db
+  (rf/reg-event :rf.xray.edn-inspector-popup/close-all
+    (fn [{:keys [db]} _]
+      {:db (-> db
           (assoc stack-slot [])
-          (assoc entries-slot {})))))
+          (assoc entries-slot {}))})))
 
 (defn install!
   "Idempotent install for the popup's Xray-side registrations.

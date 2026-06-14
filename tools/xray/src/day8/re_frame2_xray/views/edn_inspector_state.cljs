@@ -46,8 +46,8 @@
 (rf/reg-sub expansion-slot
   (fn [db _] (get db expansion-slot)))
 
-(rf/reg-event-db :rf.xray.edn-inspector/toggle-node
-  (fn [db [_ panel-id mount-id path rendered-expanded?]]
+(rf/reg-event :rf.xray.edn-inspector/toggle-node
+  (fn [{:keys [db]} [_ panel-id mount-id path rendered-expanded?]]
     ;; rf2-y59tb — first click MUST invert the currently-visible state.
     ;;
     ;; The widget renders `default-expanded` paths (top-level nodes,
@@ -63,21 +63,21 @@
     ;; is stored the reducer flips from that visible state; when an
     ;; override IS stored it flips the override (idempotent given a
     ;; consistent dispatcher).
-    (let [k       (expansion-key panel-id mount-id path)
+    {:db (let [k       (expansion-key panel-id mount-id path)
           current (get-in db [expansion-slot k])
           next?   (if (contains? current :expanded?)
                     (not (boolean (:expanded? current)))
                     (not (boolean rendered-expanded?)))]
-      (assoc-in db [expansion-slot k] {:expanded? next?}))))
+      (assoc-in db [expansion-slot k] {:expanded? next?}))}))
 
-(rf/reg-event-db :rf.xray.edn-inspector/set-node
-  (fn [db [_ panel-id mount-id path expanded?]]
-    (assoc-in db [expansion-slot (expansion-key panel-id mount-id path)]
-              {:expanded? (boolean expanded?)})))
+(rf/reg-event :rf.xray.edn-inspector/set-node
+  (fn [{:keys [db]} [_ panel-id mount-id path expanded?]]
+    {:db (assoc-in db [expansion-slot (expansion-key panel-id mount-id path)]
+              {:expanded? (boolean expanded?)})}))
 
-(rf/reg-event-db :rf.xray.edn-inspector/reset-expansion
-  (fn [db _]
-    (dissoc db expansion-slot)))
+(rf/reg-event :rf.xray.edn-inspector/reset-expansion
+  (fn [{:keys [db]} _]
+    {:db (dissoc db expansion-slot)}))
 
 (defn resolve-expanded?
   "Pure projection — given the per-render expansion map, the path,
