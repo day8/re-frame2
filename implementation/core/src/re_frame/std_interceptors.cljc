@@ -12,8 +12,17 @@
 
   The principle: keep helpers that do specific, non-trivial work; drop
   those that are just (->interceptor :before f) or (->interceptor :after f)
-  with no other logic. Custom before/after work uses ->interceptor directly."
+  with no other logic. Custom before/after work uses ->interceptor directly.
+
+  EP-0022 (rf2-0adhqs.2, Slice B additive): this ns also registers the
+  framework-standard `:rf.interceptor/path` interceptor as a `:factory`
+  (a MINIMAL stub — it reuses the existing `path` fn, which already preserves
+  the frame-commit `identical?` no-op). The full standard path contract
+  (Spec 002 §Standard `:rf.interceptor/path`) and `:rf.error/path-interceptor-bad-path`
+  validation are a LATER slice; this registration only makes the
+  `[:rf.interceptor/path <path-vector>]` by-reference resolve."
   (:require [re-frame.interceptor :as interceptor]
+            [re-frame.interceptor-registry :as icpt-reg]
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -74,6 +83,52 @@
                 (assoc-in [:effects :db]
                           (assoc-in original-db path-vec
                                     (get-in ctx [:effects :db])))))))))))
+
+;; ---- standard :rf.interceptor/path registration (EP-0022, MINIMAL) --------
+;;
+;; Register the framework-standard `:rf.interceptor/path` as a `:factory`
+;; interceptor so `[:rf.interceptor/path <path-vector>]` references resolve
+;; (Spec 002 §Standard `:rf.interceptor/path`). MINIMAL stub for the additive
+;; slice: the factory builds an interceptor by delegating to the existing
+;; `path` fn (whose `:after` already preserves the frame-commit `identical?`
+;; no-op via the no-`:db` short-circuit). The full standard-path contract
+;; (rules 1-5, the `identical?`-rewrite-to-original-object) and the
+;; `:rf.error/path-interceptor-bad-path` validation are a LATER slice. A
+;; non-vector arg here is rejected as an `:rf.error/interceptor-factory-arity`
+;; build failure (the factory throws) until the dedicated path error lands.
+
+(defn- path-factory
+  "The `:rf.interceptor/path` factory: receives the one `path-vector` arg and
+  returns the focusing interceptor. MINIMAL — delegates to `path`. The
+  returned interceptor's `:id` is stamped `:rf.interceptor/path` by the
+  registry resolver."
+  [path-vector]
+  (when-not (vector? path-vector)
+    (throw (ex-info "path-vector must be a vector"
+                    {:got path-vector :expected "a vector app-db path"})))
+  (apply path path-vector))
+
+(defn register-standard-interceptors!
+  "Register the framework-standard interceptors (currently only
+  `:rf.interceptor/path`) into the active registrar. Idempotent — called at
+  namespace load AND from `re-frame.core/init!` so the standard refs survive a
+  test fixture's `registrar/clear-all!` (which wipes the `:interceptor` kind
+  along with everything else). Mirrors how the reserved fx survive via
+  defmethod — the standard interceptors re-seed here on every boot."
+  []
+  (icpt-reg/reg-interceptor*
+    :rf.interceptor/path
+    {:doc "Framework-standard path interceptor (EP-0022). Focuses an event
+          handler on an app-db sub-slice at the given path-vector; the handler
+          sees/returns only the slice, spliced back into full app-db.
+          Referenced as `[:rf.interceptor/path <path-vector>]`."}
+    {:factory path-factory})
+  nil)
+
+;; Register at namespace load so standalone require'rs (no init!) get the
+;; standard refs; `init!` re-registers (idempotent) for the post-clear-all!
+;; test path.
+(register-standard-interceptors!)
 
 ;; ---- unwrap ---------------------------------------------------------------
 ;;

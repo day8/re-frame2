@@ -179,15 +179,30 @@
         (is (= :fix-registration (:recovery data)))
         (is (re-find #"non-vector" (:reason data))))))
 
-  (testing "a vector with a non-interceptor entry (keyword) throws"
+  (testing "a vector with a structurally-malformed entry (a string — neither ref nor value) throws bad-interceptors"
+    ;; EP-0022 (rf2-0adhqs.2): a bare keyword is now a valid interceptor
+    ;; REFERENCE, so it is NO LONGER a `:rf.error/reg-event-bad-interceptors`
+    ;; entry (an UNREGISTERED keyword throws `:rf.error/unregistered-interceptor`
+    ;; instead — covered below). A string / number is the unambiguous
+    ;; malformed-entry tell (neither a ref nor an inline interceptor value).
     (let [ex (try (rf/reg-event :test.bpmszk/bad-entry
-                    {:interceptors [noop-icpt :not-an-interceptor]}
+                    {:interceptors [noop-icpt "not-an-interceptor"]}
                     (fn [{:keys [db]} _] {:db db}))
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex))
       (is (= ":rf.error/reg-event-bad-interceptors" (ex-message ex)))
-      (is (re-find #"non-interceptor" (:reason (ex-data ex))))))
+      (is (re-find #"reference" (:reason (ex-data ex))))))
+
+  (testing "EP-0022: a bare-keyword ref to an UNREGISTERED interceptor throws unregistered-interceptor"
+    (let [ex (try (rf/reg-event :test.0adhqs/bad-ref
+                    {:interceptors [:not/registered]}
+                    (fn [{:keys [db]} _] {:db db}))
+                  nil
+                  (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex))
+      (is (= ":rf.error/unregistered-interceptor" (ex-message ex)))
+      (is (= :rf.error/unregistered-interceptor (:rf.error/id (ex-data ex))))))
 
   (testing "the malformed rejection happens BEFORE the registry slot is written"
     (try (rf/reg-event :test.bpmszk/bad-no-side-effect

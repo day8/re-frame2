@@ -12,6 +12,7 @@
             [re-frame.realm :as realm]
             [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
+            [re-frame.interceptor-registry :as icpt-reg]
             [re-frame.error-emit :as error-emit]
             [re-frame.events :as events]
             [re-frame.cofx :as cofx]
@@ -491,21 +492,39 @@
        :icpt-overrides     (merge per-frame-icpt per-call-icpt)
        :extra-interceptors (vec frame-interceptors)})))
 
-(defn- apply-icpt-overrides
-  "Per Spec 002 §`:interceptor-overrides` (lines 1124-1130): walk
-  `chain` and substitute interceptors by `:id` against `overrides`.
-  Entries whose `:id` is a key in `overrides` are replaced by the
-  override's value; `nil`-valued overrides remove the interceptor from
-  the chain.
+(defn- override-replacement
+  "Resolve an `:interceptor-overrides` replacement VALUE to an executable
+  interceptor (or nil to remove). ADDITIVE under EP-0022 (rf2-0adhqs.2): a
+  replacement may be an interceptor REFERENCE (keyword / `[id arg]`) — resolved
+  through the registrar — or (the additive window) an inline interceptor value,
+  or nil. A keyword replacement is resolved as a ref (the new EP-0022 shape:
+  `{:auth/required :story/skip-auth}`)."
+  [replacement]
+  (cond
+    (nil? replacement)                    nil
+    (icpt-reg/interceptor-value? replacement) replacement
+    (icpt-reg/interceptor-ref? replacement)   (icpt-reg/resolve-ref replacement)
+    :else                                 replacement))
 
-  HOT PATH no-op: when `overrides` is empty the chain is returned
-  unchanged."
+(defn- apply-icpt-overrides
+  "Per Spec 002 §`:interceptor-overrides`: walk `chain` and substitute
+  interceptors by `:id` against `overrides`. Entries whose `:id` is a key in
+  `overrides` are replaced by the override's value; `nil`-valued overrides
+  remove the interceptor from the chain.
+
+  `chain` carries EXECUTABLE interceptor values here (refs have already been
+  resolved by `prepare-handler-ctx`). Override-map VALUES may still be refs —
+  resolved via `override-replacement` (EP-0022 additive). Matching keys are
+  interceptor ids (keywords); exact-reference `[id arg]` key matching is a
+  later slice (the by-id match is the existing additive behaviour).
+
+  HOT PATH no-op: when `overrides` is empty the chain is returned unchanged."
   [chain overrides]
   (if (empty? overrides)
     chain
     (->> chain
          (mapv #(if (and (map? %) (contains? overrides (:id %)))
-                  (get overrides (:id %))
+                  (override-replacement (get overrides (:id %)))
                   %))
          (filterv some?))))
 
@@ -1599,7 +1618,18 @@
         prepended-chain (if (seq extra-interceptors)
                           (vec (concat extra-interceptors (:interceptors handler-meta)))
                           (:interceptors handler-meta))
-        base-chain      (apply-icpt-overrides prepended-chain icpt-overrides)
+        ;; Per Spec 002 §Validation and resolution timing + §Effective chain
+        ;; ordering (EP-0022, rf2-0adhqs.2): resolve interceptor REFERENCES
+        ;; (frame `:interceptors` refs ++ event `:interceptors` refs) to their
+        ;; registered executable values at chain assembly. ADDITIVE — inline
+        ;; interceptor values (and the appended framework handler-wrapper) flow
+        ;; through `resolve-chain` unchanged. Hot-path skip: when the chain
+        ;; carries no refs (the common pre-EP-0022 / all-inline shape) the walk
+        ;; is bypassed. Refs resolve through the active (realm-aware) registrar.
+        resolved-chain  (if (icpt-reg/chain-has-ref? prepended-chain)
+                          (icpt-reg/resolve-chain prepended-chain)
+                          prepended-chain)
+        base-chain      (apply-icpt-overrides resolved-chain icpt-overrides)
         redaction-paths (privacy/schema-redaction-paths frame base-chain)
         ;; Per rf2-461sp — user-installed `(rf/redact-interceptor paths)`
         ;; interceptors expose their paths on the interceptor map so the

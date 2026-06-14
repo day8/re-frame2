@@ -37,6 +37,7 @@
             [re-frame.subs :as subs]
             [re-frame.subs.cache :as subs-cache]
             [re-frame.interceptor :as interceptor]
+            [re-frame.interceptor-registry :as icpt-reg]
             [re-frame.std-interceptors :as std-interceptors]
             [re-frame.privacy :as privacy]
             [re-frame.spec :as spec]
@@ -147,6 +148,7 @@
   #?(:cljs (:require-macros
              [re-frame.core :refer [reg-event
                                     reg-sub reg-fx reg-cofx reg-frame
+                                    reg-interceptor
                                     reg-flow reg-route reg-app-schema reg-app-schemas
                                     reg-resource reg-mutation reg-resource-scope
                                     reg-error-projector reg-head
@@ -191,6 +193,14 @@
   [id]`). See `re-frame.cofx/reg-cofx` (grades: `:recordable?` /
   `:provided?`) and spec/API.md §Registration."}
        reg-cofx        cofx/reg-cofx)
+     (def ^{:doc "Fn-alias of the `reg-interceptor` macro for HoF /
+  programmatic registration (no source-coord capture). Register an
+  interceptor DESCRIPTOR (`{:before}` / `{:after}` / `{:before :after}` /
+  `{:factory}`) under `id` — the public interceptor-authoring form (EP-0022).
+  Event/frame `:interceptors` chains reference it by id. See
+  `re-frame.interceptor-registry/reg-interceptor*` and spec/API.md
+  §Registration."}
+       reg-interceptor  icpt-reg/reg-interceptor*)
      (def ^{:doc "Fn-alias of the `reg-frame` macro for HoF / programmatic
   registration (no source-coord capture). Atomically create + register
   a frame under `id` with the given metadata. See
@@ -336,6 +346,21 @@
        Captures source-coords (Spec 001) at this call site. See
        `re-frame.cofx/reg-cofx` for the grades (`:recordable?` /
        `:provided?`) and full signature.")
+
+     (rm/defreg-macro reg-interceptor icpt-reg/reg-interceptor*
+       "Register an interceptor DESCRIPTOR under `id` — the public
+       interceptor-authoring form (EP-0022). `descriptor` is one of
+       `{:before f}` / `{:after f}` / `{:before f :after g}` (a static
+       interceptor) or `{:factory f}` (a parameterized family — `f` receives
+       ONE arg and returns a descriptor/interceptor; the standard
+       `:rf.interceptor/path` is the canonical factory consumer). The optional
+       middle slot is the standard registration-metadata map (`:doc`,
+       `:schema`, `:tags`, …). Event/frame `:interceptors` chains reference a
+       registered interceptor by id (a bare keyword, or `[id arg]` for a
+       factory) — not by inline value. Captures source-coords (Spec 001) at
+       this call site. See `re-frame.interceptor-registry/reg-interceptor*`
+       for the full signature."
+       {:arglists '([id descriptor] [id metadata descriptor])})
 
      (rm/defreg-macro reg-frame frame/reg-frame
        "Register a frame. Captures source-coords (Spec 001) at this
@@ -1390,9 +1415,10 @@
 
   Arities:
     `(handler-meta kind id)` — the default-realm (process-global) metadata for
-      `[kind id]`. For the registrar kinds (`:event :sub :fx :cofx :view
-      :frame :route :head :error-projector :flow :resource`) this is
-      `registrar/lookup`.
+      `[kind id]`. For the registrar kinds (`:event :sub :fx :cofx :interceptor
+      :view :frame :route :head :error-projector :flow :resource`) this is
+      `registrar/lookup`. For `:interceptor` the metadata carries the registered
+      `:rf/interceptor-descriptor` plus source coords + `:doc` (EP-0022).
     `(handler-meta {:realm r :kind k :id id})` — REALM-TARGETED (EP-0013 stage
       8): the metadata for `[k id]` in realm `r`'s OWN registrar — only THAT
       realm's registration. `:realm` is a realm map, a realm-id keyword, or
@@ -1951,6 +1977,15 @@
   installed-app realm/installed-app)
 
 ;; ---- interceptors --------------------------------------------------------
+
+(def ^{:doc "Programmatic / REPL form of `reg-interceptor` (the `*`-suffix
+  fn, per Conventions §`*`-suffix naming) — no macro source-coordinate
+  capture. Register an interceptor DESCRIPTOR (`{:before}` / `{:after}` /
+  `{:before :after}` / `{:factory}`) under `id` (arities `(id descriptor)` /
+  `(id metadata descriptor)`). The public ergonomic surface is the
+  `reg-interceptor` macro (captures source coords). Per EP-0022 and
+  spec/API.md §Registration."}
+  reg-interceptor* icpt-reg/reg-interceptor*)
 
 (def ^{:doc "Fn-form of `->interceptor` (HoF / programmatic / REPL
   callers) — no definition-site source-coord capture. Build an
@@ -2552,6 +2587,10 @@
     (do
       (when-not (adapter/current-adapter)
         (adapter/install-adapter! adapter-map))
+      ;; EP-0022 (rf2-0adhqs.2): re-seed the framework-standard interceptors
+      ;; (`:rf.interceptor/path`) so the standard refs survive a test fixture's
+      ;; `registrar/clear-all!`. Idempotent.
+      (std-interceptors/register-standard-interceptors!)
       nil)))
 
 (defn init-platform
