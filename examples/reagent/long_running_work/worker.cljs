@@ -426,7 +426,7 @@
 ;; INITIALISATION
 ;; ============================================================================
 
-(rf/reg-event-fx :work/initialise
+(rf/reg-event :work/initialise
   {:doc "Boot the parent machine to its :idle state."}
   (fn handler-work-initialise [_ _]
     {:fx [[:dispatch [:work/flow [:reset]]]]}))

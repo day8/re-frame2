@@ -51,10 +51,10 @@
 ;; EVENTS
 ;; ============================================================================
 
-(rf/reg-event-db :temp/initialise
+(rf/reg-event :temp/initialise
   {:doc "Seed the temperature slice."}
-  (fn handler-temp-initialise [db _]
-    (assoc db :temp {:celsius 0.0 :input-source :celsius :typing "0"})))
+  (fn handler-temp-initialise [{:keys [db]} _]
+    {:db (assoc db :temp {:celsius 0.0 :input-source :celsius :typing "0"})}))
 
 (defn parse-num [s]
   (let [trimmed (str/trim s)]
@@ -62,22 +62,22 @@
       (let [n (js/parseFloat trimmed)]
         (when-not (js/isNaN n) n)))))
 
-(rf/reg-event-db :temp/edit-celsius
+(rf/reg-event :temp/edit-celsius
   {:doc "User edited the Celsius input."}
-  (fn handler-temp-edit-celsius [db [_ raw]]
-    (assoc db :temp {:celsius      (parse-num raw)
+  (fn handler-temp-edit-celsius [{:keys [db]} [_ raw]]
+    {:db (assoc db :temp {:celsius      (parse-num raw)
                      :input-source :celsius
-                     :typing       raw})))
+                     :typing       raw})}))
 
-(rf/reg-event-db :temp/edit-fahrenheit
+(rf/reg-event :temp/edit-fahrenheit
   {:doc "User edited the Fahrenheit input. We store Celsius canonically;
          conversion happens here so the rest of the app reads from one path."}
-  (fn handler-temp-edit-fahrenheit [db [_ raw]]
-    (let [f (parse-num raw)
+  (fn handler-temp-edit-fahrenheit [{:keys [db]} [_ raw]]
+    {:db (let [f (parse-num raw)
           c (when f (* (- f 32) (/ 5.0 9.0)))]
       (assoc db :temp {:celsius      c
                        :input-source :fahrenheit
-                       :typing       raw}))))
+                       :typing       raw}))}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS

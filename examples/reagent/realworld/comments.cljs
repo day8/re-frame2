@@ -36,25 +36,25 @@
 ;; INITIALISATION
 ;; ============================================================================
 
-(rf/reg-event-db :article/initialise
-  (fn [db _]
-    (assoc db :article {:status :idle :data nil :error nil
-                        :loaded-at nil :attempt 0})))
+(rf/reg-event :article/initialise
+  (fn [{:keys [db]} _]
+    {:db (assoc db :article {:status :idle :data nil :error nil
+                        :loaded-at nil :attempt 0})}))
 
-(rf/reg-event-db :comments/initialise
-  (fn [db _]
-    (assoc db :comments {:status :idle :data [] :error nil
-                         :loaded-at nil :attempt 0})))
+(rf/reg-event :comments/initialise
+  (fn [{:keys [db]} _]
+    {:db (assoc db :comments {:status :idle :data [] :error nil
+                         :loaded-at nil :attempt 0})}))
 
-(rf/reg-event-db :comment-form/initialise
-  (fn [db _]
-    (assoc db :comment-form (comment-form-defaults))))
+(rf/reg-event :comment-form/initialise
+  (fn [{:keys [db]} _]
+    {:db (assoc db :comment-form (comment-form-defaults))}))
 
 ;; ============================================================================
 ;; ARTICLE
 ;; ============================================================================
 
-(rf/reg-event-fx :article/load
+(rf/reg-event :article/load
   {:doc "Load the article matching `[:rf.runtime/routing :current :params :slug]`
          (EP-0001: the route slice is durable runtime-db state).
 
@@ -100,7 +100,7 @@
 ;; COMMENTS
 ;; ============================================================================
 
-(rf/reg-event-fx :comments/load
+(rf/reg-event :comments/load
   {:doc "Load comments for the current article. Uses explicit success /
          failure handlers (cf. :article/load above which uses default
          reply addressing) — both shapes are valid Spec 014; pick whichever
@@ -122,7 +122,7 @@
                           :on-success [:comments/loaded]
                           :on-failure [:comments/load-failed]})]]})))
 
-(rf/reg-event-fx :comments/loaded
+(rf/reg-event :comments/loaded
   {:rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
     {:db (-> db
@@ -131,23 +131,23 @@
              (assoc-in [:comments :error] nil)
              (assoc-in [:comments :loaded-at] time-ms))}))
 
-(rf/reg-event-db :comments/load-failed
-  (fn [db [_ {:keys [failure]}]]
-    (-> db
+(rf/reg-event :comments/load-failed
+  (fn [{:keys [db]} [_ {:keys [failure]}]]
+    {:db (-> db
         (assoc-in [:comments :status] :error)
-        (assoc-in [:comments :error] (rh/failure->message failure)))))
+        (assoc-in [:comments :error] (rh/failure->message failure)))}))
 
 ;; ============================================================================
 ;; COMMENT FORM
 ;; ============================================================================
 
-(rf/reg-event-db :comment-form/edit-field
-  (fn [db [_ field value]]
-    (-> db
+(rf/reg-event :comment-form/edit-field
+  (fn [{:keys [db]} [_ field value]]
+    {:db (-> db
         (assoc-in [:comment-form :draft field] value)
-        (update-in [:comment-form :touched] (fnil conj #{}) field))))
+        (update-in [:comment-form :touched] (fnil conj #{}) field))}))
 
-(rf/reg-event-fx :comment-form/submit
+(rf/reg-event :comment-form/submit
   {:doc "Optimistically post a new comment. NO retry — the user clicked
          once. The temp-id correlates the optimistic UI card with the
          eventual save / rollback (Spec 014 - explicit on-success/on-failure
@@ -194,9 +194,9 @@
                             :on-success [:comment-form/submit-success temp-id]
                             :on-failure [:comment-form/submit-error temp-id]})]]}))))
 
-(rf/reg-event-db :comment-form/submit-success
-  (fn [db [_ temp-id {:keys [value]}]]
-    (let [saved (:comment value)]
+(rf/reg-event :comment-form/submit-success
+  (fn [{:keys [db]} [_ temp-id {:keys [value]}]]
+    {:db (let [saved (:comment value)]
       (-> db
           (assoc-in [:comment-form] (comment-form-defaults))
           ;; Replace the optimistic temp card IN PLACE with the saved
@@ -208,19 +208,19 @@
                      (fn [comments]
                        (mapv (fn [comment]
                                (if (= temp-id (:id comment)) saved comment))
-                             (or comments []))))))))
+                             (or comments []))))))}))
 
-(rf/reg-event-db :comment-form/submit-error
-  (fn [db [_ temp-id {:keys [failure]}]]
-    (-> db
+(rf/reg-event :comment-form/submit-error
+  (fn [{:keys [db]} [_ temp-id {:keys [failure]}]]
+    {:db (-> db
         (update-in [:comments :data]
                    (fn [comments]
                      (vec (remove #(= temp-id (:id %)) comments))))
         (assoc-in [:comment-form :status] :idle)
         (assoc-in [:comment-form :submit-error]
-                  (rh/failure->message failure)))))
+                  (rh/failure->message failure)))}))
 
-(rf/reg-event-fx :comment/delete
+(rf/reg-event :comment/delete
   {:doc "Optimistically remove a comment, then DELETE. On failure, the
          rollback handler re-inserts the comment at its original index."}
   (fn [{:keys [db] rt :rf.db/runtime} [_ id]]
@@ -239,12 +239,12 @@
                           :on-success [:comment/delete-success id]
                           :on-failure [:comment/delete-rollback prior]})]]})))
 
-(rf/reg-event-db :comment/delete-success
-  (fn [db _] db))
+(rf/reg-event :comment/delete-success
+  (fn [{:keys [db]} _] {:db db}))
 
-(rf/reg-event-db :comment/delete-rollback
-  (fn [db [_ {:keys [index comment]} _failure-payload]]
-    (if (and (some? index) comment)
+(rf/reg-event :comment/delete-rollback
+  (fn [{:keys [db]} [_ {:keys [index comment]} _failure-payload]]
+    {:db (if (and (some? index) comment)
       (update-in db [:comments :data]
                  (fn [xs]
                    ;; Clamp to the CURRENT length: the captured index is from
@@ -257,7 +257,7 @@
                      (vec (concat (subvec xs 0 i)
                                   [comment]
                                   (subvec xs i))))))
-      db)))
+      db)}))
 
 ;; ============================================================================
 ;; ARTICLE-DETAIL SOCIAL CONTROLS  (rf2-2xi8sr)
@@ -271,7 +271,7 @@
 ;; distinct from profile.cljs's `:profile/follow` which targets the profile-page
 ;; banner slice.
 
-(rf/reg-event-fx :article/toggle-follow-author
+(rf/reg-event :article/toggle-follow-author
   {:doc "Optimistically toggle following the article's author, then POST/DELETE
          /profiles/:username/follow. On failure the prior flag is restored.
          Auth-gated (same rationale as :article/toggle-favorite): a logged-out
@@ -294,17 +294,17 @@
                               :on-success [:article/author-follow-synced]
                               :on-failure [:article/author-follow-rollback following?]})]]})))))
 
-(rf/reg-event-db :article/author-follow-synced
-  (fn [db [_ {:keys [value]}]]
-    (if-let [profile (:profile value)]
+(rf/reg-event :article/author-follow-synced
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    {:db (if-let [profile (:profile value)]
       (assoc-in db [:article :data :author] profile)
-      db)))
+      db)}))
 
-(rf/reg-event-db :article/author-follow-rollback
-  (fn [db [_ previous-following _failure-payload]]
-    (assoc-in db [:article :data :author :following] previous-following)))
+(rf/reg-event :article/author-follow-rollback
+  (fn [{:keys [db]} [_ previous-following _failure-payload]]
+    {:db (assoc-in db [:article :data :author :following] previous-following)}))
 
-(rf/reg-event-fx :article/delete
+(rf/reg-event :article/delete
   {:doc "Delete the current article from the DETAIL page (author only). No
          retry — destructive, one click. On success navigate home; the editor's
          own Delete path (article_editor.cljs) remains reachable too."}
@@ -319,13 +319,13 @@
                             :on-success [:article/delete-success]
                             :on-failure [:article/delete-failed]})]]}))))
 
-(rf/reg-event-fx :article/delete-success
+(rf/reg-event :article/delete-success
   (fn [_ _]
     {:fx [[:dispatch [:rf.route/navigate :realworld/home]]]}))
 
-(rf/reg-event-db :article/delete-failed
-  (fn [db [_ {:keys [failure]}]]
-    (assoc-in db [:article :error] (rh/failure->message failure))))
+(rf/reg-event :article/delete-failed
+  (fn [{:keys [db]} [_ {:keys [failure]}]]
+    {:db (assoc-in db [:article :error] (rh/failure->message failure))}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS

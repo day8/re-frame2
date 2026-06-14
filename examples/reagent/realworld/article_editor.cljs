@@ -207,7 +207,7 @@
 ;; EVENTS
 ;; ============================================================================
 
-(rf/reg-event-fx :editor/initialise
+(rf/reg-event :editor/initialise
   {:doc "Reset the editor slice + machine, and register the
          `:editor/can-submit?` flow against the dispatching frame (Spec
          013 §Dynamic toggle via fx). The flow's first walk fires on the
@@ -218,7 +218,7 @@
      :fx [[:dispatch [:ui/article-editor [:reset]]]
           [:rf.fx/reg-flow can-submit-flow]]}))
 
-(rf/reg-event-fx :editor/load-article
+(rf/reg-event :editor/load-article
   {:doc "Load an existing article into the editor in :edit mode.
          data-fetch retry policy applies (Spec 014). Broadcasts
          `:use-edit` so the :mode region tracks the edit-load and
@@ -239,29 +239,29 @@
                           :on-success [:editor/loaded]
                           :on-failure [:editor/load-failed]})]]})))
 
-(rf/reg-event-fx :editor/loaded
+(rf/reg-event :editor/loaded
   (fn [{:keys [db]} [_ {:keys [value]}]]
     (let [article (:article value)
           draft   (draft-from-article article)]
       {:db (assoc db :editor (editor-slice (:slug article) draft))
        :fx [[:dispatch [:ui/article-editor [:fetch-succeeded]]]]})))
 
-(rf/reg-event-fx :editor/load-failed
+(rf/reg-event :editor/load-failed
   (fn [{:keys [db]} [_ {:keys [failure]}]]
     {:db (assoc-in db [:editor :submit-error] (rh/failure->message failure))
      :fx [[:dispatch [:ui/article-editor [:fetch-failed]]]]}))
 
-(rf/reg-event-db :editor/edit-field
-  (fn [db [_ field value]]
-    (-> db
+(rf/reg-event :editor/edit-field
+  (fn [{:keys [db]} [_ field value]]
+    {:db (-> db
         (assoc-in [:editor :draft field] value)
-        (update-in [:editor :touched] (fnil conj #{}) field))))
+        (update-in [:editor :touched] (fnil conj #{}) field))}))
 
-(rf/reg-event-db :editor/blur-field
-  (fn [db [_ field]]
-    (update-in db [:editor :touched] (fnil conj #{}) field)))
+(rf/reg-event :editor/blur-field
+  (fn [{:keys [db]} [_ field]]
+    {:db (update-in db [:editor :touched] (fnil conj #{}) field)}))
 
-(rf/reg-event-fx :editor/submit
+(rf/reg-event :editor/submit
   {:doc "Save the article (POST for create, PUT for edit). NO retry — the
          user's intent is one submission per click; surface errors so the
          user can decide whether to retry (Spec 014).
@@ -321,7 +321,7 @@
                             :on-success [:editor/submit-success]
                             :on-failure [:editor/submit-error]})]]}))))
 
-(rf/reg-event-fx :editor/submit-success
+(rf/reg-event :editor/submit-success
   (fn [{:keys [db]} [_ {:keys [value]}]]
     (let [article (:article value)
           draft   (draft-from-article article)]
@@ -330,12 +330,12 @@
             [:dispatch [:ui/article-editor [:submit-succeeded]]]
             [:dispatch [:rf.route/navigate :realworld.article/show {:slug (:slug article)}]]]})))
 
-(rf/reg-event-fx :editor/submit-error
+(rf/reg-event :editor/submit-error
   (fn [{:keys [db]} [_ {:keys [failure]}]]
     {:db (assoc-in db [:editor :submit-error] (rh/failure->message failure))
      :fx [[:dispatch [:ui/article-editor [:submit-failed]]]]}))
 
-(rf/reg-event-fx :editor/delete
+(rf/reg-event :editor/delete
   {:doc "Delete the article. No retry — destructive action, one click.
          Broadcasts `:submit-started` so the lifecycle region advances
          to :submitting (which carries the :editor/busy tag)."}
@@ -351,13 +351,13 @@
                           :on-success [:editor/delete-success]
                           :on-failure [:editor/delete-error]})]]})))
 
-(rf/reg-event-fx :editor/delete-success
+(rf/reg-event :editor/delete-success
   (fn [{:keys [db]} _]
     {:db (assoc db :editor (editor-slice))
      :fx [[:dispatch [:ui/article-editor [:reset]]]
           [:dispatch [:rf.route/navigate :realworld/home]]]}))
 
-(rf/reg-event-fx :editor/delete-error
+(rf/reg-event :editor/delete-error
   (fn [{:keys [db]} [_ {:keys [failure]}]]
     {:db (assoc-in db [:editor :submit-error] (rh/failure->message failure))
      :fx [[:dispatch [:ui/article-editor [:submit-failed]]]]}))

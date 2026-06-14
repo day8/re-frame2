@@ -146,7 +146,7 @@
 ;; INITIALISATION
 ;; ============================================================================
 
-(rf/reg-event-fx :profile/initialise
+(rf/reg-event :profile/initialise
   (fn [{:keys [db]} _]
     {:db (-> db
              (assoc :profile (request-slice))
@@ -158,7 +158,7 @@
 ;; LOADS
 ;; ============================================================================
 
-(rf/reg-event-fx :profile/load
+(rf/reg-event :profile/load
   {:doc "Load the public profile (username, bio, image, following).
          Public endpoint; data-fetch retry.
 
@@ -183,7 +183,7 @@
                           :on-success [:profile/loaded]
                           :on-failure [:profile/load-failed]})]]})))
 
-(rf/reg-event-fx :profile/loaded
+(rf/reg-event :profile/loaded
   {:rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
     {:db (-> db
@@ -193,7 +193,7 @@
              (assoc-in [:profile :loaded-at] time-ms))
      :fx [[:dispatch [:ui/profile [:fetch-succeeded]]]]}))
 
-(rf/reg-event-fx :profile/load-failed
+(rf/reg-event :profile/load-failed
   (fn [{:keys [db]} [_ {:keys [failure]}]]
     (let [message (rh/failure->message failure)]
       {:db (-> db
@@ -201,7 +201,7 @@
                (assoc-in [:profile :error] message))
        :fx [[:dispatch [:ui/profile [:fetch-failed {:failure message}]]]]})))
 
-(rf/reg-event-fx :profile.articles/load
+(rf/reg-event :profile.articles/load
   {:doc "Load the profile's authored articles. Public; data-fetch retry.
          Also broadcasts `:show-articles` so the `:ui/profile` :tab
          region tracks the active tab. `?page=` paginates the list via
@@ -225,7 +225,7 @@
                           :on-success [:profile.articles/loaded]
                           :on-failure [:profile.articles/load-failed]})]]})))
 
-(rf/reg-event-fx :profile.articles/loaded
+(rf/reg-event :profile.articles/loaded
   {:rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
     {:db (-> db
@@ -235,13 +235,13 @@
                        (or (:articlesCount value) (count (:articles value))))
              (assoc-in [:profile.articles :loaded-at] time-ms))}))
 
-(rf/reg-event-db :profile.articles/load-failed
-  (fn [db [_ {:keys [failure]}]]
-    (-> db
+(rf/reg-event :profile.articles/load-failed
+  (fn [{:keys [db]} [_ {:keys [failure]}]]
+    {:db (-> db
         (assoc-in [:profile.articles :status] :error)
-        (assoc-in [:profile.articles :error] (rh/failure->message failure)))))
+        (assoc-in [:profile.articles :error] (rh/failure->message failure)))}))
 
-(rf/reg-event-fx :profile.favorites/load
+(rf/reg-event :profile.favorites/load
   {:doc "Load the profile's favorited articles. Public; data-fetch retry.
          Also broadcasts `:show-favorites` so the `:ui/profile` :tab
          region tracks the active tab. `?page=` paginates the list via
@@ -265,7 +265,7 @@
                           :on-success [:profile.favorites/loaded]
                           :on-failure [:profile.favorites/load-failed]})]]})))
 
-(rf/reg-event-fx :profile.favorites/loaded
+(rf/reg-event :profile.favorites/loaded
   {:rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
     {:db (-> db
@@ -275,17 +275,17 @@
                        (or (:articlesCount value) (count (:articles value))))
              (assoc-in [:profile.favorites :loaded-at] time-ms))}))
 
-(rf/reg-event-db :profile.favorites/load-failed
-  (fn [db [_ {:keys [failure]}]]
-    (-> db
+(rf/reg-event :profile.favorites/load-failed
+  (fn [{:keys [db]} [_ {:keys [failure]}]]
+    {:db (-> db
         (assoc-in [:profile.favorites :status] :error)
-        (assoc-in [:profile.favorites :error] (rh/failure->message failure)))))
+        (assoc-in [:profile.favorites :error] (rh/failure->message failure)))}))
 
 ;; ============================================================================
 ;; FOLLOW / UNFOLLOW
 ;; ============================================================================
 
-(rf/reg-event-fx :profile/follow
+(rf/reg-event :profile/follow
   {:doc "Optimistically mark the profile as followed; reconcile on reply.
 
          Auth-gated (same rationale as favorites.cljs/:article/toggle-favorite):
@@ -305,11 +305,11 @@
                             :on-success [:profile/followed]
                             :on-failure [:profile/follow-rollback false]})]]}))))
 
-(rf/reg-event-db :profile/followed
-  (fn [db [_ {:keys [value]}]]
-    (assoc-in db [:profile :data] (:profile value))))
+(rf/reg-event :profile/followed
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    {:db (assoc-in db [:profile :data] (:profile value))}))
 
-(rf/reg-event-fx :profile/unfollow
+(rf/reg-event :profile/unfollow
   {:doc "Optimistically clear the followed flag; reconcile on reply.
          Auth-gated like `:profile/follow` above."
    :rf.http/decode-schemas [schema/ProfileResponse]}
@@ -325,13 +325,13 @@
                             :on-success [:profile/unfollowed]
                             :on-failure [:profile/follow-rollback true]})]]}))))
 
-(rf/reg-event-db :profile/unfollowed
-  (fn [db [_ {:keys [value]}]]
-    (assoc-in db [:profile :data] (:profile value))))
+(rf/reg-event :profile/unfollowed
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    {:db (assoc-in db [:profile :data] (:profile value))}))
 
-(rf/reg-event-db :profile/follow-rollback
-  (fn [db [_ previous-value _failure-payload]]
-    (assoc-in db [:profile :data :following] previous-value)))
+(rf/reg-event :profile/follow-rollback
+  (fn [{:keys [db]} [_ previous-value _failure-payload]]
+    {:db (assoc-in db [:profile :data :following] previous-value)}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS
@@ -425,7 +425,7 @@
   (fn sub-profile-page-count [total _]
     (rh/page-count total)))
 
-(rf/reg-event-fx :profile/show-page
+(rf/reg-event :profile/show-page
   {:doc "Navigate to a 1-indexed pagination page for the active profile tab.
          Stays on the current profile route (authored vs favorited) and
          username; changing `?page=` re-fires the route `:on-match`, re-running

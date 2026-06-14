@@ -220,7 +220,7 @@
 ;; lease MUST have a matching `:rf.resource/release-owner` path, or the
 ;; lease pins the entry alive (Xray lints an orphaned lease).
 
-(rf/reg-event-fx :resources.app/preview-opened
+(rf/reg-event :resources.app/preview-opened
   {:doc "Open a lightweight article preview from the list — ensure the
          detail under a releaseable lease, and record the open slug in
          app-db so the view can render the preview panel."}
@@ -232,7 +232,7 @@
                        :owner    [:lease :resources.app/preview slug]
                        :cause    [:event :resources.app/preview-opened]}]]]}))
 
-(rf/reg-event-fx :resources.app/preview-closed
+(rf/reg-event :resources.app/preview-closed
   {:doc "Close the preview — release the lease so the entry can GC, and
          clear the open slug from app-db."}
   (fn [{:keys [db]} [_ slug]]
@@ -244,7 +244,7 @@
 ;; work happened): clicking "Refresh" wants fresh data but does NOT intend
 ;; to keep the resource alive — that's the route's job. So it dispatches
 ;; `:rf.resource/refetch` with `:cause` and omits `:owner`.
-(rf/reg-event-fx :resources.app/refresh-articles
+(rf/reg-event :resources.app/refresh-articles
   {:doc "Manual refresh of the articles list."}
   (fn [_ _]
     {:fx [[:dispatch [:rf.resource/refetch
@@ -295,14 +295,14 @@
 ;; affordance. Stopping emits the reserved `[:rf.machine/destroy …]` fx,
 ;; which runs the actor's `:exit` cascade and releases its `[:machine …]`
 ;; resource owner so the entry can GC, then clears the slice.
-(rf/reg-event-fx :resources.app/start-reader
+(rf/reg-event :resources.app/start-reader
   {:doc "Start the reader workflow that owns the given article for its lifetime."}
   (fn [{:keys [db]} [_ slug]]
     (let [instance-id (str "reader-" slug)]
       {:db (assoc db :resources.app/reader {:slug slug :instance-id instance-id})
        :fx [[:dispatch [:resources.app/reader [:rf.machine/start slug instance-id]]]]})))
 
-(rf/reg-event-fx :resources.app/stop-reader
+(rf/reg-event :resources.app/stop-reader
   {:doc "Destroy the reader actor — releases its machine-owned resource."}
   (fn [{:keys [db]} _]
     {:db (dissoc db :resources.app/reader)

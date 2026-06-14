@@ -177,13 +177,13 @@
 ;; running, the component unmounts → with-let's finally → dispatch
 ;; :cancel → parent exits :working → cascade tears every child down.
 
-(rf/reg-event-db :ui/initialise
-  (fn [db _]
-    (assoc db :ui {:show-bench? true})))
+(rf/reg-event :ui/initialise
+  (fn [{:keys [db]} _]
+    {:db (assoc db :ui {:show-bench? true})}))
 
-(rf/reg-event-db :ui/toggle-bench
-  (fn [db _]
-    (update-in db [:ui :show-bench?] not)))
+(rf/reg-event :ui/toggle-bench
+  (fn [{:keys [db]} _]
+    {:db (update-in db [:ui :show-bench?] not)}))
 
 (rf/reg-sub :ui/show-bench?
   (fn [db _] (get-in db [:ui :show-bench?] true)))

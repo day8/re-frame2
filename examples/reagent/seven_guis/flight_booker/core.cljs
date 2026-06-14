@@ -48,35 +48,35 @@
 ;; EVENTS
 ;; ============================================================================
 
-(rf/reg-event-db :flight/initialise
+(rf/reg-event :flight/initialise
   {:doc "Seed the flight slice."}
-  (fn handler-flight-initialise [db _]
+  (fn handler-flight-initialise [{:keys [db]} _]
     ;; Seed both date fields to a fixed valid ISO date. The original 7GUIs
     ;; spec seeds "today"; we use a constant so the example is
     ;; deterministic (and not silently wrong on any given day).
-    (assoc db :flight {:trip-type   :one-way
+    {:db (assoc db :flight {:trip-type   :one-way
                        :start-text  "2026-05-06"
-                       :return-text "2026-05-06"})))
+                       :return-text "2026-05-06"})}))
 
-(rf/reg-event-db :flight/set-trip-type
+(rf/reg-event :flight/set-trip-type
   {:doc "User changed the trip-type combo."
    :schema [:cat [:= :flight/set-trip-type] [:enum :one-way :return]]}
-  (fn handler-flight-set-trip-type [db [_ trip-type]]
-    (assoc-in db [:flight :trip-type] trip-type)))
+  (fn handler-flight-set-trip-type [{:keys [db]} [_ trip-type]]
+    {:db (assoc-in db [:flight :trip-type] trip-type)}))
 
-(rf/reg-event-db :flight/set-start
+(rf/reg-event :flight/set-start
   {:doc "User edited the start-date input."
    :schema [:cat [:= :flight/set-start] :string]}
-  (fn handler-flight-set-start [db [_ raw]]
-    (assoc-in db [:flight :start-text] raw)))
+  (fn handler-flight-set-start [{:keys [db]} [_ raw]]
+    {:db (assoc-in db [:flight :start-text] raw)}))
 
-(rf/reg-event-db :flight/set-return
+(rf/reg-event :flight/set-return
   {:doc "User edited the return-date input."
    :schema [:cat [:= :flight/set-return] :string]}
-  (fn handler-flight-set-return [db [_ raw]]
-    (assoc-in db [:flight :return-text] raw)))
+  (fn handler-flight-set-return [{:keys [db]} [_ raw]]
+    {:db (assoc-in db [:flight :return-text] raw)}))
 
-(rf/reg-event-fx :flight/book
+(rf/reg-event :flight/book
   {:doc "User clicked Book. Emits a confirmation effect."}
   (fn handler-flight-book [{:keys [db]} _]
     (let [{:keys [trip-type start-text return-text]} (:flight db)]

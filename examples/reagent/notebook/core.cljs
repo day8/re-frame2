@@ -57,23 +57,23 @@
 ;; EVENTS  (CP-1)
 ;; ============================================================================
 
-(rf/reg-event-db :notebook/initialise
-  (fn [_db _event]
-    {:notebook/documents   initial-documents
-     :notebook/selected-id :welcome}))
+(rf/reg-event :notebook/initialise
+  (fn [{:keys [db]} _event]
+    {:db {:notebook/documents   initial-documents
+     :notebook/selected-id :welcome}}))
 
-(rf/reg-event-db :notebook/select
-  (fn [db [_ id]]
-    (assoc db :notebook/selected-id id)))
+(rf/reg-event :notebook/select
+  (fn [{:keys [db]} [_ id]]
+    {:db (assoc db :notebook/selected-id id)}))
 
-(rf/reg-event-db :notebook/edit-body
-  (fn [db [_ text]]
-    (let [id (:notebook/selected-id db)]
+(rf/reg-event :notebook/edit-body
+  (fn [{:keys [db]} [_ text]]
+    {:db (let [id (:notebook/selected-id db)]
       (update db :notebook/documents
               (fn [docs]
                 (mapv (fn [d]
                         (if (= (:id d) id) (assoc d :body text) d))
-                      docs))))))
+                      docs))))}))
 
 ;; EP-0010 (Causal World Inputs): the new document's id is written into durable
 ;; app-db (`:notebook/documents`), so it must be a function of prior frame-state
@@ -96,13 +96,13 @@
                      (apply max 0))]
     (keyword (str "doc-" (inc used-ns)))))
 
-(rf/reg-event-db :notebook/new
-  (fn [db _event]
-    (let [id  (allocate-next-doc-id (:notebook/documents db))
+(rf/reg-event :notebook/new
+  (fn [{:keys [db]} _event]
+    {:db (let [id  (allocate-next-doc-id (:notebook/documents db))
           doc {:id id :title "Untitled" :body "# Untitled\n\nStart writing…"}]
       (-> db
           (update :notebook/documents (fnil conj []) doc)
-          (assoc :notebook/selected-id id)))))
+          (assoc :notebook/selected-id id)))}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS  (CP-2)

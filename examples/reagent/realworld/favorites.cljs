@@ -48,11 +48,11 @@
 ;; FEED
 ;; ============================================================================
 
-(rf/reg-event-db :feed/initialise
-  (fn [db _]
-    (assoc db :feed (request-slice))))
+(rf/reg-event :feed/initialise
+  (fn [{:keys [db]} _]
+    {:db (assoc db :feed (request-slice))}))
 
-(rf/reg-event-fx :feed/load
+(rf/reg-event :feed/load
   {:doc "Fetch the authenticated user's feed. Tagged with
          `:request-id :feed/load` so :feed/cancel can abort an in-flight
          load when the user navigates away (Spec 014 §Aborts).
@@ -84,13 +84,13 @@
                           :on-success [:feed/loaded]
                           :on-failure [:feed/load-failed]})]]})))
 
-(rf/reg-event-fx :feed/cancel
+(rf/reg-event :feed/cancel
   {:doc "Abort an in-flight :feed/load. Useful when the user navigates
          away mid-load (Spec 014 §Aborts)."}
   (fn [_ _]
     {:fx [[:rf.http/managed-abort :feed/load]]}))
 
-(rf/reg-event-fx :feed/loaded
+(rf/reg-event :feed/loaded
   {:doc "Successful user-feed fetch. Folds the new count into the home
          machine via `:fetch-succeeded`; the `:data` region's
          `:resolving` `:always`-cascade picks `:empty` or `:some`."
@@ -106,7 +106,7 @@
        :fx [[:dispatch [:realworld/articles-home
                         [:fetch-succeeded {:items items}]]]]})))
 
-(rf/reg-event-fx :feed/load-failed
+(rf/reg-event :feed/load-failed
   {:doc "Failed user-feed fetch. Folds the failure into the home machine
          via `:fetch-failed`; the `:data` region advances to `:error`."}
   (fn [{:keys [db]} [_ {:keys [failure]}]]
@@ -143,7 +143,7 @@
 ;; by `:comment-form/submit-success`'s in-place swap. So: shared where it
 ;; helps, distinct where the data shapes genuinely differ — not an oversight.
 
-(rf/reg-event-fx :article/toggle-favorite
+(rf/reg-event :article/toggle-favorite
   {:doc "Optimistically flip the favorited flag and bump the count, then
          POST or DELETE the favorite. On failure the prior state is
          restored (rollback).
@@ -176,22 +176,22 @@
                               :on-failure [:article/favorite-rollback slug prior]})]]})
         {}))))
 
-(rf/reg-event-db :article/favorite-synced
-  (fn [db [_ slug {:keys [value]}]]
-    (if-let [article (:article value)]
+(rf/reg-event :article/favorite-synced
+  (fn [{:keys [db]} [_ slug {:keys [value]}]]
+    {:db (if-let [article (:article value)]
       (patch-article-everywhere db slug
                                 (fn [_]
                                   (select-keys article
                                                [:slug :title :description :body :tagList
                                                 :createdAt :updatedAt :favorited
                                                 :favoritesCount :author])))
-      db)))
+      db)}))
 
-(rf/reg-event-db :article/favorite-rollback
-  (fn [db [_ slug {:keys [favorited favoritesCount]} _failure-payload]]
-    (patch-article-everywhere db slug
+(rf/reg-event :article/favorite-rollback
+  (fn [{:keys [db]} [_ slug {:keys [favorited favoritesCount]} _failure-payload]]
+    {:db (patch-article-everywhere db slug
                               #(assoc % :favorited favorited
-                                        :favoritesCount favoritesCount))))
+                                        :favoritesCount favoritesCount))}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS

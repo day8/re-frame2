@@ -76,7 +76,7 @@
 ;; INITIALISATION
 ;; ============================================================================
 
-(rf/reg-event-fx :app/initialise
+(rf/reg-event :app/initialise
   {:doc "App boot. Fans out to per-feature initialisers. `:auth/initialise` is
          NOT in this fan-out — it consumes the RECORDABLE+PROVIDED
          `:auth.session/token` coeffect, whose value the host boundary
@@ -259,7 +259,7 @@
                      "| --- | --- |\n"
                      "| markdown | CommonMark |\n"
                      "| links | scheme-allowlisted |\n\n"
-                     "```clojure\n(rf/reg-event-db :hello (fn [db _] db))\n```\n\n"
+                     "```clojure\n(rf/reg-event :hello (fn [{:keys [db]} _] {:db db}))\n```\n\n"
                      "> A blockquote, for good measure.")
           :tagList ["intro" "demo"]
           :createdAt "2026-01-01T00:00:00Z"

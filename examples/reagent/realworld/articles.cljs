@@ -209,7 +209,7 @@
 ;; INITIALISATION
 ;; ============================================================================
 
-(rf/reg-event-fx :articles/initialise
+(rf/reg-event :articles/initialise
   {:doc "Seed the global-articles slice to the standard idle shape and
          reset the home machine to its initial configuration."}
   (fn [{:keys [db]} _]
@@ -220,7 +220,7 @@
 ;; GLOBAL FEED
 ;; ============================================================================
 
-(rf/reg-event-fx :articles/load
+(rf/reg-event :articles/load
   {:doc "Fetch the global articles list, optionally filtered by the route's
          `?tag=` query parameter. Uses :rf.http/managed (Spec 014) with
          a Malli-decoded response and the standard data-fetch retry policy.
@@ -261,7 +261,7 @@
                           :on-success [:articles/loaded]
                           :on-failure [:articles/load-failed]})]]})))
 
-(rf/reg-event-fx :articles/loaded
+(rf/reg-event :articles/loaded
   {:doc "Successful fetch. Replace the list and clear any prior error.
          Receives `{:kind :success :value <ArticlesResponse>}` from
          Spec 014's reply-addressing. Folds the new count into the home
@@ -283,7 +283,7 @@
        :fx [[:dispatch [:realworld/articles-home
                         [:fetch-succeeded {:items items}]]]]})))
 
-(rf/reg-event-fx :articles/load-failed
+(rf/reg-event :articles/load-failed
   {:doc "Failed fetch. Keep prior data when present and surface a
          human-readable error message (projected from the Spec 014
          failure map). Folds the failure into the home machine via
@@ -296,13 +296,13 @@
        :fx [[:dispatch [:realworld/articles-home
                         [:fetch-failed {:failure message}]]]]})))
 
-(rf/reg-event-fx :articles/cancel
+(rf/reg-event :articles/cancel
   {:doc "Abort an in-flight :articles/load. Useful when the user navigates
          away from the home page mid-fetch (Spec 014 §Aborts)."}
   (fn [_ _]
     {:fx [[:rf.http/managed-abort :articles/load]]}))
 
-(rf/reg-event-fx :articles/reset
+(rf/reg-event :articles/reset
   (fn [{:keys [db]} _]
     {:db (assoc db :articles (request-slice []))
      :fx [[:dispatch [:realworld/articles-home [:reset]]]]}))

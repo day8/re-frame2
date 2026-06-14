@@ -93,13 +93,13 @@
 ;; EVENTS
 ;; ============================================================================
 
-(rf/reg-event-db :drawer/initialise
+(rf/reg-event :drawer/initialise
   {:doc "Seed an empty canvas. `:next-id` is the deterministic id allocator
          (EP-0010) — circles take monotonic int ids starting at 1."}
-  (fn handler-drawer-initialise [db _]
-    (assoc db :drawer {:circles [] :next-id 1 :dialog nil :undo [] :redo []})))
+  (fn handler-drawer-initialise [{:keys [db]} _]
+    {:db (assoc db :drawer {:circles [] :next-id 1 :dialog nil :undo [] :redo []})}))
 
-(rf/reg-event-db :drawer/add-circle
+(rf/reg-event :drawer/add-circle
   {:doc "Click on canvas. Adds a circle of default radius. The id is minted
          deterministically from the db-held `:next-id` counter (EP-0010 causal
          world inputs — a durable id must be a function of prior frame-state,
@@ -107,37 +107,37 @@
          counter is NOT in the undoable `:circles` snapshot, so it advances
          monotonically across undo/redo and never re-mints a live id."
    :interceptors [undoable]}
-  (fn handler-drawer-add-circle [db [_ x y]]
-    (let [id (get-in db [:drawer :next-id])]
+  (fn handler-drawer-add-circle [{:keys [db]} [_ x y]]
+    {:db (let [id (get-in db [:drawer :next-id])]
       (-> db
           (update-in [:drawer :circles] conj {:id id :x x :y y :radius 30})
-          (assoc-in  [:drawer :next-id] (inc id))))))
+          (assoc-in  [:drawer :next-id] (inc id))))}))
 
-(rf/reg-event-db :drawer/open-dialog
+(rf/reg-event :drawer/open-dialog
   {:doc "Right-clicked a circle. Opens the adjust-diameter dialog. Not undoable."}
-  (fn handler-drawer-open-dialog [db [_ circle-id]]
-    (let [{:keys [radius]} (->> (get-in db [:drawer :circles])
+  (fn handler-drawer-open-dialog [{:keys [db]} [_ circle-id]]
+    {:db (let [{:keys [radius]} (->> (get-in db [:drawer :circles])
                                 (filter #(= circle-id (:id %)))
                                 first)]
       (assoc-in db [:drawer :dialog] {:circle-id      circle-id
                                       :initial-radius radius
-                                      :draft-radius   radius}))))
+                                      :draft-radius   radius}))}))
 
-(rf/reg-event-db :drawer/dialog-drag
+(rf/reg-event :drawer/dialog-drag
   {:doc "Slider movement during the dialog. Updates the draft radius only;
          the circle itself is not mutated until the dialog commits.
          Continuous; does NOT push undo."}
-  (fn handler-drawer-dialog-drag [db [_ new-radius]]
-    (assoc-in db [:drawer :dialog :draft-radius] new-radius)))
+  (fn handler-drawer-dialog-drag [{:keys [db]} [_ new-radius]]
+    {:db (assoc-in db [:drawer :dialog :draft-radius] new-radius)}))
 
-(rf/reg-event-db :drawer/close-dialog
+(rf/reg-event :drawer/close-dialog
   {:doc "Dialog closed (committing the new radius). The :circles vector
          was untouched while the slider moved, so the undoable
          interceptor's prior-snapshot is exactly the pre-dialog state —
          the whole edit collapses into a single undo step."
    :interceptors [undoable]}
-  (fn handler-drawer-close-dialog [db _]
-    (let [{:keys [circle-id draft-radius]} (get-in db [:drawer :dialog])]
+  (fn handler-drawer-close-dialog [{:keys [db]} _]
+    {:db (let [{:keys [circle-id draft-radius]} (get-in db [:drawer :dialog])]
       (-> db
           (update-in [:drawer :circles]
                      (fn [cs]
@@ -145,29 +145,29 @@
                                 (assoc % :radius draft-radius)
                                 %)
                              cs)))
-          (assoc-in [:drawer :dialog] nil)))))
+          (assoc-in [:drawer :dialog] nil)))}))
 
-(rf/reg-event-db :drawer/undo
+(rf/reg-event :drawer/undo
   {:doc "Pop one snapshot from :undo, push current :circles to :redo."}
-  (fn handler-drawer-undo [db _]
-    (let [{:keys [undo redo circles]} (:drawer db)]
+  (fn handler-drawer-undo [{:keys [db]} _]
+    {:db (let [{:keys [undo redo circles]} (:drawer db)]
       (if (empty? undo)
         db
         (-> db
             (assoc-in [:drawer :circles] (peek undo))
             (update-in [:drawer :undo] pop)
-            (update-in [:drawer :redo] (fnil conj []) circles))))))
+            (update-in [:drawer :redo] (fnil conj []) circles))))}))
 
-(rf/reg-event-db :drawer/redo
+(rf/reg-event :drawer/redo
   {:doc "Pop one snapshot from :redo, push current :circles to :undo."}
-  (fn handler-drawer-redo [db _]
-    (let [{:keys [undo redo circles]} (:drawer db)]
+  (fn handler-drawer-redo [{:keys [db]} _]
+    {:db (let [{:keys [undo redo circles]} (:drawer db)]
       (if (empty? redo)
         db
         (-> db
             (assoc-in [:drawer :circles] (peek redo))
             (update-in [:drawer :redo] pop)
-            (update-in [:drawer :undo] (fnil conj []) circles))))))
+            (update-in [:drawer :undo] (fnil conj []) circles))))}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS

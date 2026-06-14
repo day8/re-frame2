@@ -53,11 +53,11 @@
 ;; route-id. The route-registry and reg-sub registries are independent,
 ;; but keeping the sub-id + app-db-key separate from the route-id makes
 ;; the example easier to scan.
-(rf/reg-event-db :routing.app/initialise
-  (fn [_ _]
-    {:routing.app/articles-list
+(rf/reg-event :routing.app/initialise
+  (fn [{:keys [db]} _]
+    {:db {:routing.app/articles-list
      [{:id "intro" :title "Intro to re-frame2" :body "..."}
-      {:id "ssr"   :title "Server rendering"  :body "..."}]}))
+      {:id "ssr"   :title "Server rendering"  :body "..."}]}}))
 
 (rf/reg-sub :routing.app/articles-list
   (fn [db _] (:routing.app/articles-list db)))

@@ -112,11 +112,11 @@
 ;; SESSION SUPPORT EVENTS
 ;; ============================================================================
 
-(rf/reg-event-db :auth/store-session
-  (fn [db [_ user]]
-    (-> db
+(rf/reg-event :auth/store-session
+  (fn [{:keys [db]} [_ user]]
+    {:db (-> db
         (assoc-in [:auth :user] user)
-        (assoc-in [:auth :token] (:token user)))))
+        (assoc-in [:auth :token] (:token user)))}))
 
 ;; ----------------------------------------------------------------------------
 ;; PRINCIPAL-SWITCH RE-ENSURE  (the qiv160-review footgun, rf2-mdmjix)
@@ -158,7 +158,7 @@
    across switches; released on logout."
   [:lease :auth/session-feed])
 
-(rf/reg-event-fx :auth/ensure-session-feed
+(rf/reg-event :auth/ensure-session-feed
   {:doc "Re-ensure the session feed under the CURRENT principal so a principal
          switch with no route change (cold-boot session restore) actually
          loads it — the `{:from-db :realworld/session}` re-key alone is passive
@@ -178,7 +178,7 @@
                          :owner    session-feed-owner
                          :cause    [:principal-switch :realworld/feed]}]]]})))
 
-(rf/reg-event-fx :auth/clear-session
+(rf/reg-event :auth/clear-session
   {:doc "Clear the auth slice AND drop the session-scoped resource cache. The
          personalised feed is cached under the session scope (Spec 016
          §Scope); logout MUST clear it (`:rf.resource/clear-scope`) so the next
@@ -207,7 +207,7 @@
              old-scope (conj [:dispatch [:rf.resource/clear-scope
                                          {:scope old-scope :cause :logout}]]))})))
 
-(rf/reg-event-fx :auth/post-login-redirect
+(rf/reg-event :auth/post-login-redirect
   {:doc "Bounce the user who INTERACTIVELY logged in / registered to the route
          the auth guard intercepted (`[:auth :return-to]`), or home. Dispatched
          ONLY by the `:store-session` action (the interactive `:submitting →
@@ -341,7 +341,7 @@
 ;; INITIALISATION + SESSION RESTORE
 ;; ============================================================================
 
-(rf/reg-event-fx :auth/initialise
+(rf/reg-event :auth/initialise
   {:rf.cofx/requires [:realworld-resources.session/token]}
   (fn [{:keys [db realworld-resources.session/token]} _]
     ;; Dispatch `:auth/restore` UNCONDITIONALLY (even with a nil token) so the
@@ -357,30 +357,30 @@
 (def login-form-defaults    {:email "" :password ""})
 (def register-form-defaults  {:username "" :email "" :password ""})
 
-(rf/reg-event-db :auth.login-form/initialise
-  (fn [db _] (assoc-in db [:auth :login-form] {:draft login-form-defaults :touched #{}})))
+(rf/reg-event :auth.login-form/initialise
+  (fn [{:keys [db]} _] {:db (assoc-in db [:auth :login-form] {:draft login-form-defaults :touched #{}})}))
 
-(rf/reg-event-db :auth.login-form/edit-field
+(rf/reg-event :auth.login-form/edit-field
   {:schema [:cat [:= :auth.login-form/edit-field] :keyword :string]}
-  (fn [db [_ field value]]
-    (-> db
+  (fn [{:keys [db]} [_ field value]]
+    {:db (-> db
         (assoc-in [:auth :login-form :draft field] value)
-        (update-in [:auth :login-form :touched] (fnil conj #{}) field))))
+        (update-in [:auth :login-form :touched] (fnil conj #{}) field))}))
 
-(rf/reg-event-fx :auth.login-form/submit
+(rf/reg-event :auth.login-form/submit
   (fn [{:keys [db]} _]
     {:fx [[:dispatch [:auth/flow [:auth/login (get-in db [:auth :login-form :draft])]]]]}))
 
-(rf/reg-event-db :auth.register-form/initialise
-  (fn [db _] (assoc-in db [:auth :register-form] {:draft register-form-defaults :touched #{}})))
+(rf/reg-event :auth.register-form/initialise
+  (fn [{:keys [db]} _] {:db (assoc-in db [:auth :register-form] {:draft register-form-defaults :touched #{}})}))
 
-(rf/reg-event-db :auth.register-form/edit-field
-  (fn [db [_ field value]]
-    (-> db
+(rf/reg-event :auth.register-form/edit-field
+  (fn [{:keys [db]} [_ field value]]
+    {:db (-> db
         (assoc-in [:auth :register-form :draft field] value)
-        (update-in [:auth :register-form :touched] (fnil conj #{}) field))))
+        (update-in [:auth :register-form :touched] (fnil conj #{}) field))}))
 
-(rf/reg-event-fx :auth.register-form/submit
+(rf/reg-event :auth.register-form/submit
   (fn [{:keys [db]} _]
     {:fx [[:dispatch [:auth/flow [:auth/register (get-in db [:auth :register-form :draft])]]]]}))
 

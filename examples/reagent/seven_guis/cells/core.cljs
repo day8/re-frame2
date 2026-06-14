@@ -186,28 +186,28 @@
 ;; EVENTS
 ;; ============================================================================
 
-(rf/reg-event-db :cells/initialise
+(rf/reg-event :cells/initialise
   {:doc "Seed an empty spreadsheet."}
-  (fn handler-cells-initialise [db _]
-    (assoc db :cells {:cells {} :selected-id "A1" :editing-id nil})))
+  (fn handler-cells-initialise [{:keys [db]} _]
+    {:db (assoc db :cells {:cells {} :selected-id "A1" :editing-id nil})}))
 
-(rf/reg-event-db :cells/select
+(rf/reg-event :cells/select
   {:doc "User clicked a cell. Marks it selected (without opening the editor)."}
-  (fn handler-cells-select [db [_ id]]
-    (assoc-in db [:cells :selected-id] id)))
+  (fn handler-cells-select [{:keys [db]} [_ id]]
+    {:db (assoc-in db [:cells :selected-id] id)}))
 
-(rf/reg-event-db :cells/start-editing
+(rf/reg-event :cells/start-editing
   {:doc "Open the inline editor for cell `id` (also selects it)."}
-  (fn handler-cells-start-editing [db [_ id]]
-    (-> db
+  (fn handler-cells-start-editing [{:keys [db]} [_ id]]
+    {:db (-> db
         (assoc-in [:cells :selected-id] id)
-        (assoc-in [:cells :editing-id]  id))))
+        (assoc-in [:cells :editing-id]  id))}))
 
-(rf/reg-event-db :cells/commit
+(rf/reg-event :cells/commit
   {:doc "Commit the user's edit. Parses formulas and stores deps."
    :schema [:cat [:= :cells/commit] :string :string]}
-  (fn handler-cells-commit [db [_ id raw]]
-    (let [formula? (and (string? raw) (str/starts-with? raw "="))
+  (fn handler-cells-commit [{:keys [db]} [_ id raw]]
+    {:db (let [formula? (and (string? raw) (str/starts-with? raw "="))
           ast      (when formula? (parse-formula raw))
           deps     (when formula? (collect-deps ast))
           entry    (cond
@@ -221,7 +221,7 @@
           (update-in [:cells :cells]
                      (fn [m] (if entry
                                (assoc m id entry)
-                               (dissoc m id))))))))
+                               (dissoc m id))))))}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS

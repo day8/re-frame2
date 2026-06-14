@@ -39,7 +39,7 @@
 ;; EVENTS
 ;; ============================================================================
 
-(rf/reg-event-fx :rf/server-init
+(rf/reg-event :rf/server-init
   {:doc       "Per-request server-side init. In a real app the cards' data
                loads would dispatch :rf.http/managed fetches against three
                microservices; here we synchronously seed three card values

@@ -70,20 +70,20 @@
 ;; EVENTS
 ;; ============================================================================
 
-(rf/reg-event-db :dashboard/initialise
-  (fn [_db _event]
-    {:dashboard/metrics      initial-metrics
+(rf/reg-event :dashboard/initialise
+  (fn [{:keys [db]} _event]
+    {:db {:dashboard/metrics      initial-metrics
      :dashboard/active-tags  #{:money :perf :usage}
-     :dashboard/range         :w14}))
+     :dashboard/range         :w14}}))
 
-(rf/reg-event-db :dashboard/toggle-tag
-  (fn [db [_ tag]]
-    (update db :dashboard/active-tags
-            (fn [s] (if (contains? s tag) (disj s tag) (conj s tag))))))
+(rf/reg-event :dashboard/toggle-tag
+  (fn [{:keys [db]} [_ tag]]
+    {:db (update db :dashboard/active-tags
+            (fn [s] (if (contains? s tag) (disj s tag) (conj s tag))))}))
 
-(rf/reg-event-db :dashboard/set-range
-  (fn [db [_ range-id]]
-    (assoc db :dashboard/range range-id)))
+(rf/reg-event :dashboard/set-range
+  (fn [{:keys [db]} [_ range-id]]
+    {:db (assoc db :dashboard/range range-id)}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS

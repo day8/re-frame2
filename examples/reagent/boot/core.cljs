@@ -80,7 +80,7 @@
       (str/includes? u "/user.json")   demo-user
       :else                            {})))
 
-(rf/reg-event-fx :boot.demo/schedule-reply
+(rf/reg-event :boot.demo/schedule-reply
   {:doc "Private — entered via dispatch from :boot.demo/http-stub. Uses
          `:dispatch-later` so framework time controls (Tool-Pair
          time-travel, the documented `:dispatch-later` nil-override
@@ -91,7 +91,7 @@
            {:ms    60
             :event [:boot.demo/deliver-reply args-map payload]}]]}))
 
-(rf/reg-event-fx :boot.demo/deliver-reply
+(rf/reg-event :boot.demo/deliver-reply
   {:doc "Private — fired by the :dispatch-later scheduled in
          :boot.demo/schedule-reply. Delegates to the framework-shipped
          `:rf.http/managed-canned-success` with the per-URL canned

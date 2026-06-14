@@ -190,7 +190,7 @@
 ;; stamps `:loaded-at` declares `:rf.cofx/requires [:rf/time-ms]` and reads the
 ;; `time-ms` value FLAT from its coeffects map (EP-0017 §4):
 ;;
-;;     (rf/reg-event-fx :feed/loaded
+;;     (rf/reg-event :feed/loaded
 ;;       {:rf.cofx/requires [:rf/time-ms]}
 ;;       (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
 ;;         {:db (assoc-in db [:feed :loaded-at] time-ms)}))
