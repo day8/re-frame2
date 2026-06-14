@@ -1,0 +1,82 @@
+;; re-frame2 EP-0018 one-form event-MODEL conformance tier
+;; (rf2-xhfxcs.6; EP-0018 §Conformance + Bead Plan item 7).
+;;
+;; This is NOT a published Maven artefact — it has no `src/`. It is a
+;; cross-artefact TEST surface (the precedent is `reply-conformance/` and
+;; `derivation-conformance/`) that holds the umbrella REGRESSION LOCK on
+;; the one-form event-registration PUBLIC CONTRACT EP-0018 settled:
+;;
+;;   - `reg-event` is the SINGLE public event-registration form, with
+;;     reg-event-fx semantics (coeffects in / a closed effects map out;
+;;     `{:db …}` is the db-write effect; `:rf.cofx/requires` works
+;;     uniformly — the EP-0017 hole closed).
+;;   - the THREE retired public names (`reg-event-db` / `reg-event-fx` /
+;;     `reg-event-ctx`) survive ONLY as facade-exported `^:no-doc`
+;;     throwing stubs that raise their exact hard errors
+;;     (`:rf.error/reg-event-{db,fx,ctx}-removed`) — production-survivable
+;;     (fan out on the always-on error channel, THEN throw).
+;;   - ONE unified `:rf/event-handler` wrapper (`:rf/default? true`); the
+;;     `:event/kind` sub-tag is GONE; `reg-event-ctx` is NOT a public
+;;     (doc'd) facade var.
+;;   - realm-routing is PRESERVED for `reg-event` — the public registrar
+;;     resolves through the owning frame's realm registrar (a15n62).
+;;
+;; Where the in-core `re-frame.reg-event-cljs-test` carries the narrow
+;; per-feature unit checks, this tier is the ADVERSARIAL umbrella LOCK:
+;; every assertion is shaped so a future RE-INTRODUCTION of an old form
+;; (a working `reg-event-db`/`-fx`/`-ctx`), a SECOND wrapper id, a
+;; re-appearing `:event/kind` sub-tag, or a `reg-event-ctx` promotion back
+;; onto the public facade would turn it RED. It lives in its own
+;; cross-artefact surface because the contract spans the events runtime,
+;; the public facade, the error-emit channel, and the realm registrar.
+;;
+;; ## Why this deps.edn exists
+;;
+;; The conformance namespaces are `.cljc` and run in BOTH runtimes. They
+;; ride the always-on CLJS `:node-test` gate (`npm run test:cljs`, ns
+;; matches `cljs-test$`) via the cross-artefact source path the top-level
+;; `implementation/shadow-cljs.edn` lists. This alias is the JVM
+;; counterpart: it runs the SAME `.cljc` namespaces under the JVM so the
+;; `:clj` reader-conditional arms (the `:no-doc`-meta facade probe, which
+;; reads `(meta (var …))` and is JVM-only) AND the `:clj` host throw type
+;; (`clojure.lang.ExceptionInfo`) are exercised — mirroring why
+;; `reply-conformance/deps.edn` and `derivation-conformance/deps.edn`
+;; exist. Wired into `scripts/test-jvm-implementation.sh`.
+;;
+;; ## Why test-only deps, not :local/root in :deps
+;;
+;; This artefact ships nothing, so the top-level `:deps` is empty. The
+;; cross-artefact source the test namespaces `:require`
+;; (`re-frame.core` — the public facade; plus the internal
+;; `re-frame.events` / `re-frame.error-emit` / `re-frame.realm` /
+;; `re-frame.registrar` / `re-frame.frame` / `re-frame.test-support` /
+;; `re-frame.substrate.plain-atom` from core) is pulled in under the
+;; `:test` alias only. `:extra-paths` is JUST `["test"]` so the cognitect
+;; test-runner scans ONLY this tier's test dir — the `:local/root` core
+;; dep contributes its `src` (never its `:test`), so core's own tests do
+;; not run here.
+;;
+;; ## Bundle isolation (tools/README.md)
+;;
+;; No tool deps; this is a pure conformance surface. The dependency arrow
+;; flows event-conformance(test) → core, never the reverse. Nothing under
+;; `implementation/` production `src/` `:require`s anything here, so no
+;; production bundle is widened.
+{:paths []
+ :deps  {}
+
+ :aliases
+ {:test
+  {:extra-paths ["test"]
+   ;; core carries the WHOLE one-form event contract: the public facade
+   ;; (`re-frame.core`), the events runtime + retired stubs
+   ;; (`re-frame.events`), the always-on error channel
+   ;; (`re-frame.error-emit`), the realm registrar
+   ;; (`re-frame.realm` / `re-frame.registrar` / `re-frame.frame`), the
+   ;; default substrate, and the shared test harness.
+   :extra-deps  {day8/re-frame2 {:local/root "../core"}
+                 ;; rf2-try1x — silent-on-success reporter.
+                 day8/re-frame2-test-quiet {:local/root "../test-quiet"}
+                 io.github.cognitect-labs/test-runner
+                 {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+   :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}

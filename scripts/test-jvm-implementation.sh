@@ -46,6 +46,21 @@ artefacts=(
   # classification / graph edges / whole-value) across all five families
   # through the graph composer.
   implementation/derivation-conformance
+  # rf2-xhfxcs.6 — the EP-0018 one-form event-MODEL conformance tier is
+  # `.cljc` and runs in BOTH runtimes. Its own `:test` alias
+  # (implementation/event-conformance/deps.edn) runs the SAME `.cljc`
+  # namespaces under the JVM so the `:clj`-only arms are exercised: the
+  # `^:no-doc`-meta facade probe (which reads `(meta (var …))` over the
+  # public `re-frame.core` vars — JVM-only, since CLJS has no runtime
+  # vars) and the `:clj` host throw type (`clojure.lang.ExceptionInfo`)
+  # for the retired-name removal errors — previously only the CLJS side
+  # (the always-on `:node-test` gate) ever ran the tier. It locks the
+  # one-form event PUBLIC contract: `reg-event` as the single form with
+  # reg-event-fx semantics, the three retired names as throwing stubs
+  # raising their exact hard errors (production-survivable), the single
+  # `:rf/event-handler` wrapper (no `:event/kind`), and preserved
+  # realm-routing.
+  implementation/event-conformance
 )
 
 for artefact in "${artefacts[@]}"; do
