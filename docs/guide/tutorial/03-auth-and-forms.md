@@ -30,16 +30,16 @@ Add two routes first. Each `:on-match` seeds its form's slice — its little cor
 Every form lives at one app-db path with one standard shape. The initialise event — an event being just a named thing-that-happened your app reacts to — doubles as its own documentation:
 
 ```clojure
-(rf/reg-event-db :auth.login-form/initialise
-  (fn [db _]
-    (assoc-in db [:auth :login-form]
-              {:draft             {:email "" :password ""}  ;; what's being typed
-               :submitted         nil      ;; last server-accepted draft
-               :status            :idle    ;; :idle | :submitting | :submitted | :error
-               :errors            {}       ;; {field ["msg" ...]}; :_form for form-level
-               :touched           #{}      ;; fields the user has touched
-               :submit-attempted? false    ;; latches on the first submit click
-               :submit-error      nil})))  ;; transport failure (network down)
+(rf/reg-event :auth.login-form/initialise
+  (fn [{:keys [db]} _]
+    {:db (assoc-in db [:auth :login-form]
+                   {:draft             {:email "" :password ""}  ;; what's being typed
+                    :submitted         nil      ;; last server-accepted draft
+                    :status            :idle    ;; :idle | :submitting | :submitted | :error
+                    :errors            {}       ;; {field ["msg" ...]}; :_form for form-level
+                    :touched           #{}      ;; fields the user has touched
+                    :submit-attempted? false    ;; latches on the first submit click
+                    :submit-error      nil})}))  ;; transport failure (network down)
 ```
 
 A quick tour of the seven keys, because each earns its place. `:status` is the machine under the trenchcoat. `:errors` holds renderable validation results — they can be client- or server-produced, and the view won't care which. `:_form` is reserved for complaints that no single field owns. And `:submit-error` stays separate, because a transport failure has nothing field-shaped to render.
@@ -47,12 +47,12 @@ A quick tour of the seven keys, because each earns its place. `:status` is the m
 Every keystroke is one event. It updates the draft and marks the field touched in one step:
 
 ```clojure
-(rf/reg-event-db :auth.login-form/edit-field
+(rf/reg-event :auth.login-form/edit-field
   {:schema [:cat [:= :auth.login-form/edit-field] :keyword :string]}
-  (fn [db [_ field value]]
-    (-> db
-        (assoc-in  [:auth :login-form :draft field] value)
-        (update-in [:auth :login-form :touched] (fnil conj #{}) field))))
+  (fn [{:keys [db]} [_ field value]]
+    {:db (-> db
+             (assoc-in  [:auth :login-form :draft field] value)
+             (update-in [:auth :login-form :touched] (fnil conj #{}) field))}))
 ```
 
 > **Coming from React Hook Form?** `register`, `handleSubmit`, and `formState.errors` collapse into this one map and a handful of events you own outright.
@@ -94,7 +94,7 @@ Login is a one-shot command, not cached server state. So it's a plain managed re
     (not (re-find #".+@.+" email)) (assoc :email ["is invalid"])
     (str/blank? password)          (assoc :password ["can't be blank"])))
 
-(rf/reg-event-fx :auth.login-form/submit
+(rf/reg-event :auth.login-form/submit
   (fn [{:keys [db]} _]
     (let [draft  (get-in db [:auth :login-form :draft])
           errors (validate-login draft)
@@ -122,7 +122,7 @@ The `:submit-attempted?` latch flips on *every* submit click, valid or not — t
 On success Conduit replies `{:user {... :token "<jwt>"}}`. One handler — the plain function that runs when an event fires — stores the session, snapshots the draft, persists the token, and sends the user on. Where to? To wherever the guard intercepted them (the stash is below), or home if nothing was stashed:
 
 ```clojure
-(rf/reg-event-fx :auth.login-form/submit-success
+(rf/reg-event :auth.login-form/submit-success
   (fn [{:keys [db]} [_ {:keys [value]}]]
     (let [user      (:user value)
           return-to (get-in db [:auth :return-to])]
@@ -155,13 +155,13 @@ Failure sorts into two shapes, and here's the second rule the part leans on. **S
                          (update m :_form (fnil into []) msgs))))
                    {} errs)))))
 
-(rf/reg-event-db :auth.login-form/submit-failed
-  (fn [db [_ {:keys [failure]}]]
+(rf/reg-event :auth.login-form/submit-failed
+  (fn [{:keys [db]} [_ {:keys [failure]}]]
     (let [structured (failure->form-errors failure)]
-      (cond-> (assoc-in db [:auth :login-form :status] :error)
-        structured       (assoc-in [:auth :login-form :errors] structured)
-        (not structured) (assoc-in [:auth :login-form :submit-error]
-                                   "Couldn't reach the server — please try again.")))))
+      {:db (cond-> (assoc-in db [:auth :login-form :status] :error)
+             structured       (assoc-in [:auth :login-form :errors] structured)
+             (not structured) (assoc-in [:auth :login-form :submit-error]
+                                        "Couldn't reach the server — please try again."))})))
 ```
 
 ## The login page
@@ -224,7 +224,7 @@ A login that evaporates on reload isn't really a session. You need three pieces:
   (fn []
     (some-> (.-localStorage js/globalThis) (.getItem "jwtToken"))))
 
-(rf/reg-event-fx :auth/initialise
+(rf/reg-event :auth/initialise
   {:rf.cofx/requires [:auth.session/token]}
   (fn [{:keys [db auth.session/token]} _]
     (cond-> {:db (assoc db :auth {:user nil :token token})}
@@ -234,17 +234,17 @@ A login that evaporates on reload isn't really a session. You need three pieces:
                           :on-success [:auth/session-restored]
                           :on-failure [:auth/session-expired]}]]))))
 
-(rf/reg-event-db :auth/session-restored
-  (fn [db [_ {:keys [value]}]]
-    (assoc-in db [:auth :user] (:user value))))
+(rf/reg-event :auth/session-restored
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    {:db (assoc-in db [:auth :user] (:user value))}))
 
-(rf/reg-event-fx :auth/session-expired
+(rf/reg-event :auth/session-expired
   (fn [{:keys [db]} _]
     {:db (update db :auth assoc :user nil :token nil)  ;; targeted: form slices survive
      :fx [[:auth.session/persist {:token nil}]]}))
 ```
 
-Delivery is declared-only: a handler receives exactly the facts in `:rf.cofx/requires`, and nothing it didn't ask for. Even the framework clock works this way — `:rf/time-ms` rides every dispatch, but a handler must declare it to read it. One detail worth knowing: this token read registers as an *ambient* coeffect, meaning it's re-read live, never recorded, and tests stub it by re-registering the supplier. Ambient is safe here only because the read runs once at boot, before any epoch you'd replay. A fact folded into durable state mid-session would instead register `:recordable? true`, so replay re-presents the recorded value rather than re-reading the world. One more thing about the registration: it had to be `reg-event-fx`, because a `reg-event-db` handler sees only db and event — needing the world is exactly what graduates a handler to the fx form. Dispatch `[:auth/initialise]` from boot, after Part 1's `[:app/initialise]`.
+Delivery is declared-only: a handler receives exactly the facts in `:rf.cofx/requires`, and nothing it didn't ask for. Even the framework clock works this way — `:rf/time-ms` rides every dispatch, but a handler must declare it to read it. One detail worth knowing: this token read registers as an *ambient* coeffect, meaning it's re-read live, never recorded, and tests stub it by re-registering the supplier. Ambient is safe here only because the read runs once at boot, before any epoch you'd replay. A fact folded into durable state mid-session would instead register `:recordable? true`, so replay re-presents the recorded value rather than re-reading the world. One more thing about the registration: declaring `:rf.cofx/requires` is just a line of metadata on an ordinary `reg-event` — the same form every handler uses — so reaching for a world fact never changes the handler's shape. Dispatch `[:auth/initialise]` from boot, after Part 1's `[:app/initialise]`.
 
 > **Coming from re-frame v1?** The injection helper is gone — declare `:rf.cofx/requires` on the registration and the runtime assembles the value before the handler runs.
 
@@ -341,7 +341,7 @@ Watch it fire. Signed out, click *Settings*. In Xray the navigation's event row 
 Teardown is just setup reversed, in one event. Wire `(dispatch [:auth/logout])` to the navbar:
 
 ```clojure
-(rf/reg-event-fx :auth/logout
+(rf/reg-event :auth/logout
   (fn [{:keys [db]} _]
     {:db (assoc db :auth {:user nil :token nil})
      :fx [[:auth.session/persist {:token nil}]

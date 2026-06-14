@@ -49,7 +49,7 @@ Handlers read the request the way they read any outside fact — through a decla
 
 ```clojure
 ;; Adapted from examples/reagent/ssr/core.cljc
-(rf/reg-event-fx :rf/server-init
+(rf/reg-event :rf/server-init
   {:platforms        #{:server}
    :rf.cofx/requires [:rf.server/request]}
   (fn [{:keys [db rf.server/request]} _]

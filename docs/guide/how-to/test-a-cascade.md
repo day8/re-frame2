@@ -11,8 +11,8 @@ Your JavaScript anchor here is **MSW**. With MSW you don't mock your own modules
 Every cascade test is the same three moves: a fresh frame, a `dispatch-sync`, an assertion against the frame's `app-db`. (A frame is one isolated instance of your running app — its own `app-db`, its own event queue. A `dispatch` is how you send an event into it.)
 
 ```clojure
-(rf/reg-event-db :counter/inc
-  (fn [db _] (update db :count (fnil inc 0))))
+(rf/reg-event :counter/inc
+  (fn [{:keys [db]} _] {:db (update db :count (fnil inc 0))}))
 
 (deftest counter-walk
   (rf/with-new-frame [f (rf/make-frame {})]
@@ -37,7 +37,7 @@ We'll use a RealWorld-style login. The handlers live in a `.cljc` file so the JV
   (:require [re-frame.core :as rf]
             [re-frame.http-managed]))   ;; registers :rf.http/managed
 
-(rf/reg-event-fx :session/login
+(rf/reg-event :session/login
   {:doc "Submit credentials; record when we tried."
    :rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} [_ {:keys [email password]}]]
@@ -50,15 +50,15 @@ We'll use a RealWorld-style login. The handlers live in a `.cljc` file so the JV
             :on-success [:session/login-ok]
             :on-failure [:session/login-failed]}]]}))
 
-(rf/reg-event-db :session/login-ok
-  (fn [db [_ {:keys [value]}]]
-    (assoc db :session/status :authed
-              :session/user   (:user value))))
+(rf/reg-event :session/login-ok
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    {:db (assoc db :session/status :authed
+                   :session/user   (:user value))}))
 
-(rf/reg-event-db :session/login-failed
-  (fn [db [_ {:keys [failure]}]]
-    (assoc db :session/status :error
-              :session/error  (:kind failure))))
+(rf/reg-event :session/login-failed
+  (fn [{:keys [db]} [_ {:keys [failure]}]]
+    {:db (assoc db :session/status :error
+                   :session/error  (:kind failure))}))
 ```
 
 Both seams the test will use are already visible in that code. First, the handler **declares** the clock with `:rf.cofx/requires [:rf/time-ms]` and reads it as a delivered fact — a coeffect, an input the world hands the handler — instead of calling the host directly. That's what lets a test hand it an exact value. Second, the HTTP request is an **effect description** in the returned map, which is what lets a test answer it without a network. The model behind both is [Effects and coeffects](../concepts/effects-and-coeffects.md).
@@ -103,7 +103,7 @@ Run it with your project's JVM test runner (`clojure -M:test`). Both tests cover
 
 `:rf/time-ms` is stamped onto every dispatch automatically, which is why the second test runs fine without ever mentioning it. But left alone its value would be the live clock, and an assertion on `:session/attempted-at` would flake. So the first test pins it. Facts supplied under `:rf.cofx` in the dispatch opts **win**: the runtime fills only what's missing and never overwrites. With the clock supplied there's no ambient time left to read, which means the test gives the same answer at 14:00 and at 23:59:59.
 
-Delivery is declared-only — the clock included. A handler receives exactly the facts its `:rf.cofx/requires` names, flat in the coeffects map, and nothing else. So that `requires` vector is effectively the test's **fixture checklist**; you can read it off `(rf/handler-meta :event :session/login)`. This part trips people up, so it's worth saying plainly: a declared fact the runtime can't satisfy fails loudly with `:rf.error/missing-required-cofx`, never a silent `nil`. And note the handler form — needing the world is exactly what graduates a handler from `reg-event-db` to `reg-event-fx`. A db handler takes no delivery.
+Delivery is declared-only — the clock included. A handler receives exactly the facts its `:rf.cofx/requires` names, flat in the coeffects map, and nothing else. So that `requires` vector is effectively the test's **fixture checklist**; you can read it off `(rf/handler-meta :event :session/login)`. This part trips people up, so it's worth saying plainly: a declared fact the runtime can't satisfy fails loudly with `:rf.error/missing-required-cofx`, never a silent `nil`. And note that this is the same `reg-event` as a pure state handler — declaring a world fact is metadata, not a different registration form.
 
 ### Answer the HTTP: canned replies by method + URL
 

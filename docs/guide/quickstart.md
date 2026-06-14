@@ -4,7 +4,7 @@ You'll build the classic counter, and then you'll give it something most counter
 
 **The takeaway: state changes only through events, handlers stay pure, world facts arrive recorded — and time travel falls out for free.**
 
-> **Coming from Redux?** `reg-event-db` is your reducer — but there's no store to wire, no action creators, and no `useSelector` memo dance: subscriptions *are* the selector layer, built in and cached by input.
+> **Coming from Redux?** A `reg-event` handler is your reducer — but there's no store to wire, no action creators, and no `useSelector` memo dance: subscriptions *are* the selector layer, built in and cached by input. The one shape difference: a re-frame2 handler returns `{:db next-state}` — the next state *and* anything else to do — rather than returning the state bare.
 
 ## Beat 1 — the whole machine in 20 lines
 
@@ -15,15 +15,21 @@ Here's the entire app. Read it once top to bottom, then we'll walk through what 
   (:require [re-frame.core :as rf])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
-;; EVENTS — the only way state changes. Plain data in, new state out.
-(rf/reg-event-db :counter/initialise
-  (fn [_db _event] {:counter/value 0}))
+;; STATE TRANSITIONS — pure functions of state, easy to read and to test.
+(defn inc-value [db] (update db :counter/value inc))
+(defn dec-value [db] (update db :counter/value dec))
 
-(rf/reg-event-db :counter/inc
-  (fn [db _event] (update db :counter/value inc)))
+;; EVENTS — the only way state changes. A handler takes the coeffects (the
+;; facts it's given — :db is one) and returns a map: the next state under
+;; :db, plus anything else to do. Here the only thing to do is update state.
+(rf/reg-event :counter/initialise
+  (fn [_cofx _event] {:db {:counter/value 0}}))
 
-(rf/reg-event-db :counter/dec
-  (fn [db _event] (update db :counter/value dec)))
+(rf/reg-event :counter/inc
+  (fn [{:keys [db]} _event] {:db (inc-value db)}))
+
+(rf/reg-event :counter/dec
+  (fn [{:keys [db]} _event] {:db (dec-value db)}))
 
 ;; SUBSCRIPTION — a named, derived read. Views never touch app-db directly.
 (rf/reg-sub :counter/value
@@ -38,7 +44,9 @@ Here's the entire app. Read it once top to bottom, then we'll walk through what 
    [:button {:on-click #(dispatch [:counter/inc])} "+"]])
 ```
 
-A few words on the moving parts. An **event** is a plain-data message describing something that happened — here, `[:counter/inc]`. To **dispatch** is to drop that message onto the queue. A **handler** is the pure function that receives it and computes the next state. The **app-db** is your app's single state map, the one place all state lives. A **subscription** is a named, derived read of that state, and a **view** is a component that renders from subscriptions and dispatches events back.
+A few words on the moving parts. An **event** is a plain-data message describing something that happened — here, `[:counter/inc]`. To **dispatch** is to drop that message onto the queue. A **handler** is the pure function that receives it and returns a map describing what should happen next: `{:db next-state}` here, where `:db` is the new value of app-db. Read that map as *"the next state, and anything else to do"* — for the counter there's nothing else, so it's just `:db`, but the same shape grows to carry an HTTP request or a follow-up event without changing the handler's signature. The **app-db** is your app's single state map, the one place all state lives. A **subscription** is a named, derived read of that state, and a **view** is a component that renders from subscriptions and dispatches events back.
+
+Notice the two little `inc-value` / `dec-value` functions above the events. The pure state transition lives in a plain `(fn [db] …)` — "events are pure functions of state" stated literally — and the handler is the thin wrapper that hands it `:db` and wraps the result as `{:db …}`. You don't have to factor it out for something this small, but it's a habit worth forming early: the bare function is trivially testable (`(inc-value {:counter/value 5})` → `{:counter/value 6}`, no runtime), and the handler stays one obvious line.
 
 Now click a button and watch what happens. The loop you just ran is this: **a view dispatches an event → a pure handler computes the next state → the subscription delivers the change back to the view.** That one-way loop is the whole framework. Everything else in this guide just refines it.
 
@@ -48,15 +56,19 @@ Now click a button and watch what happens. The loop you just ran is this: **a vi
 (require '[reagent2.core :as r]
          '[re-frame.core :as rf])
 
-;; Events
-(rf/reg-event-db :counter/initialise
-  (fn [_db _event] {:counter/value 0}))
+;; State transitions — pure functions of state
+(defn inc-value [db] (update db :counter/value inc))
+(defn dec-value [db] (update db :counter/value dec))
 
-(rf/reg-event-db :counter/inc
-  (fn [db _event] (update db :counter/value inc)))
+;; Events — coeffects in, an effects map out ({:db next-state} here)
+(rf/reg-event :counter/initialise
+  (fn [_cofx _event] {:db {:counter/value 0}}))
 
-(rf/reg-event-db :counter/dec
-  (fn [db _event] (update db :counter/value dec)))
+(rf/reg-event :counter/inc
+  (fn [{:keys [db]} _event] {:db (inc-value db)}))
+
+(rf/reg-event :counter/dec
+  (fn [{:keys [db]} _event] {:db (dec-value db)}))
 
 ;; Subscription
 (rf/reg-sub :counter/value
@@ -103,7 +115,7 @@ Let's show when a button was last clicked. It looks like a throwaway bit of deco
 Here's the constraint. A pure handler must not read the clock — because if it did, replaying the same event tomorrow would compute different state, and the history you're about to inspect in Beat 4 would be a lie. So re-frame2 reads the time once, as the event enters the queue, and stamps it **onto the event** itself. A handler that wants the time then *declares* it:
 
 ```clojure
-(rf/reg-event-fx :counter/inc
+(rf/reg-event :counter/inc
   {:rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} _event]
     {:db (-> db
@@ -121,9 +133,9 @@ And at the bottom of the view:
   [:p "last clicked " (.toLocaleTimeString (js/Date. t))])
 ```
 
-Two things changed here, and they're worth naming. First, the handler became `reg-event-fx`. It now receives the **coeffects** map — the bundle of outside-world facts a handler is allowed to know, like the current time or a random seed. A `reg-event-db` handler sees only db and event; the moment a handler needs the world, it graduates to the fx form. Second, it **declares** `:rf.cofx/requires [:rf/time-ms]`. Delivery is declared-only, so `time-ms` arrives flat in the coeffects map, already read at the instant the click entered the system and frozen onto the event's record. Replay this event next week and `last-clicked-at` comes out byte-for-byte identical. Notice the recorded fact is the raw milliseconds — formatting with `.toLocaleTimeString` lives in the view, because pretty-printing is presentation, not state.
+One thing changed, and it's worth naming what *didn't*. The handler is still a `reg-event` — same registration, same `(fn [coeffects event] {:db …})` shape. All we added is a line of metadata: `:rf.cofx/requires [:rf/time-ms]`. That's the payoff of one event form — needing the world is adding a key to a map, not converting to a different registration. The first argument, the `{:keys [db]}` you've been destructuring all along, is the **coeffects** map: the bundle of outside-world facts a handler is allowed to know, like the current time or a random seed. `:db` and `:event` are always there; everything else is declared. Delivery is declared-only, so once we ask for `:rf/time-ms` it arrives flat in that map, already read at the instant the click entered the system and frozen onto the event's record. Replay this event next week and `last-clicked-at` comes out byte-for-byte identical. Notice the recorded fact is the raw milliseconds — formatting with `.toLocaleTimeString` lives in the view, because pretty-printing is presentation, not state.
 
-> **Coming from re-frame v1?** You'd reach for `(inject-cofx :now)` — same purity instinct, but it was opt-in per handler and the value wasn't recorded, so replay re-rolled it. Declaring `:rf/time-ms` makes the same idea a recorded guarantee.
+> **Coming from re-frame v1?** You'd reach for `(inject-cofx :now)` — same purity instinct, but it was opt-in per handler and the value wasn't recorded, so replay re-rolled it. Declaring `:rf/time-ms` makes the same idea a recorded guarantee. (And there's no `reg-event-db`/`reg-event-fx` fork to navigate any more — `reg-event` is the one form, with `:db` returned in the effects map.)
 
 ## Beat 4 — open the inspector: your app has a history
 
@@ -161,7 +173,7 @@ A **frame** is one isolated world — its own app-db, registrations, and subscri
 
 **You can now:**
 
-- change state with events and pure handlers (`reg-event-db` / `reg-event-fx`)
+- change state with events and pure handlers (`reg-event`, returning `{:db …}`)
 - derive values instead of storing them (`reg-sub`, `:<-`)
 - record a world fact the replay-safe way (`:rf.cofx/requires [:rf/time-ms]`)
 - read your app's history in Xray and travel in it

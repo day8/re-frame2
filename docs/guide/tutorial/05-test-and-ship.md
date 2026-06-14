@@ -50,17 +50,17 @@ Then create the test namespace. One fixture resets the whole runtime — registr
 
 ## 2. Test a handler: it's a function, so call it
 
-Start with the smallest possible test. A `reg-event-db` handler is `(db, event) → db` — give it the current state and the event (a vector naming what happened), and it returns the next state. Pull it out of the registry with `handler-meta` and call it:
+Start with the smallest possible test. An event handler is a pure function from the coeffects (the facts handed in — `:db`, the current state, is one) and the event (a vector naming what happened) to an effects map. Give the simplest one a coeffects map and the event, and it returns `{:db next-state}`. Pull it out of the registry with `handler-meta` and call it:
 
 ```clojure
 (deftest edit-field-updates-the-draft
   (let [handler (:handler-fn (rf/handler-meta :event :auth.login-form/edit-field))
-        db'     (handler {:auth {:login-form {:draft {:email "" :password ""}}}}
+        result  (handler {:db {:auth {:login-form {:draft {:email "" :password ""}}}}}
                          [:auth.login-form/edit-field :email "ada@example.com"])]
-    (is (= "ada@example.com" (get-in db' [:auth :login-form :draft :email])))))
+    (is (= "ada@example.com" (get-in result [:db :auth :login-form :draft :email])))))
 ```
 
-No frame, no dispatch, no runtime. A map went in. You assert on the map that came out.
+No frame, no dispatch, no runtime. A coeffects map went in — `:db` holds the current state. You assert on the effects map that came out: its `:db` is the next state.
 
 Now the interesting case: a handler that needs something from the world. Recall the boot handler from [Part 3](03-auth-and-forms.md). The saved JWT is a fact from outside the event, so it's registered as a **provided recordable coeffect** — a coeffect being one of those facts-from-the-world a handler reads in. The boot site reads localStorage once and stamps the value onto the dispatch. The handler **declares** it:
 
@@ -72,14 +72,14 @@ Now the interesting case: a handler that needs something from the world. Recall 
    :doc "The saved JWT (or nil). Read once at the boot boundary and stamped
          onto the boot dispatch — never read ambiently by a handler."})
 
-(rf/reg-event-fx :auth/initialise
+(rf/reg-event :auth/initialise
   {:rf.cofx/requires [:auth.session/token]}
   (fn [{:keys [db auth.session/token]} _]
     {:db (assoc db :auth {:user nil :token token})
      :fx [[:dispatch [:auth/flow [:auth/restore token]]]]}))
 ```
 
-A `reg-event-fx` handler is also just a function — from a **coeffects map** (the facts coming in) to an effects map (the changes going out, where an effect is a piece of data describing something the runtime should do). Delivery is flat and declared-only, so you know exactly what the input map contains: `:db`, `:event`, plus precisely the facts in `:rf.cofx/requires`. So the fixture is a literal:
+A handler that declares coeffects tests exactly the same way — it's the same `reg-event`, just with more facts in the input map. It's a function from a **coeffects map** (the facts coming in) to an effects map (the changes going out, where an effect is a piece of data describing something the runtime should do). Delivery is flat and declared-only, so you know exactly what the input map contains: `:db`, `:event`, plus precisely the facts in `:rf.cofx/requires`. So the fixture is a literal:
 
 ```clojure
 (deftest initialise-seeds-the-session-and-kicks-restore
@@ -105,7 +105,7 @@ Whatever appears there is what your literal map (or your dispatch, below) suppli
 
 ??? note "Freezing the clock"
 
-    Time is a declared fact like any other. There is no implicit clock. A handler that stamps a timestamp declares `:rf.cofx/requires [:rf/time-ms]` and reads it flat. A test supplies `{:rf/time-ms 1781078400123}` in the literal map, and the answer is identical at 14:00 and at 23:59:59. There's no `js/Date` to monkey-patch because the handler never reads one. (And a `reg-event-db` handler can't declare requires at all — needing the world is exactly what graduates a handler to the fx form.)
+    Time is a declared fact like any other. There is no implicit clock. A handler that stamps a timestamp declares `:rf.cofx/requires [:rf/time-ms]` and reads it flat. A test supplies `{:rf/time-ms 1781078400123}` in the literal map, and the answer is identical at 14:00 and at 23:59:59. There's no `js/Date` to monkey-patch because the handler never reads one. (Every `reg-event` can declare requires — there's no second-class form that needing the world forces you to convert away from.)
 
 > **Coming from re-frame v1?** The interceptor-based coeffect injection is gone: declaration moved into registration metadata, and tests supply values on the dispatch instead of stubbing handlers. The full delta is in [From re-frame v1](../25-from-re-frame-v1.md).
 

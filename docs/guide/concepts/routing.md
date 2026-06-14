@@ -41,7 +41,7 @@ Everything else on this page is a refinement of those three moves: query strings
 
 ## A route is a registry entry
 
-`reg-route` registers a route the same way `reg-event-db` registers an event: an id plus a metadata map. The `:path` grammar is deliberately small enough to parse in your head — literal segments (`/articles`), named params (`:id`), an optional group (`{/:slug}?`), a catch-all splat (`*rest`), and the root (`/`). The `:params` and `:query` keys take schemas, which validate and coerce for you, so `?page=2` arrives as the integer `2` rather than the string `"2"`. That coercion is the part people forget to do by hand, so it's worth letting the schema own it.
+`reg-route` registers a route the same way `reg-event` registers an event: an id plus a metadata map. The `:path` grammar is deliberately small enough to parse in your head — literal segments (`/articles`), named params (`:id`), an optional group (`{/:slug}?`), a catch-all splat (`*rest`), and the root (`/`). The `:params` and `:query` keys take schemas, which validate and coerce for you, so `?page=2` arrives as the integer `2` rather than the string `"2"`. That coercion is the part people forget to do by hand, so it's worth letting the schema own it.
 
 ```clojure
 (rf/reg-route :app/search

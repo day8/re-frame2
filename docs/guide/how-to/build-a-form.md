@@ -15,16 +15,16 @@ The running example is a login form, and it lives at `[:auth :login]`. A form sl
 ```clojure
 (def login-defaults {:email "" :password ""})
 
-(rf/reg-event-db :form.login/initialise
-  (fn [db _]
-    (assoc-in db [:auth :login]
-              {:draft             login-defaults ;; what the user is typing
-               :submitted         nil       ;; last server-accepted snapshot
-               :submit-attempted? false     ;; latches true on first submit, stays true
-               :status            :idle     ;; :idle | :submitting | :submitted | :error
-               :errors            {}        ;; {<field> ["msg" ...]}; :_form for form-level
-               :touched           #{}       ;; fields the user has interacted with
-               :submit-error      nil})))   ;; transport failure (network down, timeout)
+(rf/reg-event :form.login/initialise
+  (fn [{:keys [db]} _]
+    {:db (assoc-in db [:auth :login]
+                   {:draft             login-defaults ;; what the user is typing
+                    :submitted         nil       ;; last server-accepted snapshot
+                    :submit-attempted? false     ;; latches true on first submit, stays true
+                    :status            :idle     ;; :idle | :submitting | :submitted | :error
+                    :errors            {}        ;; {<field> ["msg" ...]}; :_form for form-level
+                    :touched           #{}       ;; fields the user has interacted with
+                    :submit-error      nil})}))  ;; transport failure (network down, timeout)
 ```
 
 Each key earns its place — drop one and the user notices. Three of them carry nuance the comments alone can't. `:submitted` turns the fuzzy question "is this form dirty?" into a plain value comparison. `:errors` holds renderable validation outcomes, whichever validator produced them. And `:submit-error` is deliberately kept separate, because it's for failures that aren't about any single field — the network being down, say, rather than a bad email address.
@@ -68,22 +68,22 @@ With those bound, a `:status` outside the enum, or a malformed draft, now fails 
 The keystroke handler does both of its jobs in one atomic step — it updates the draft and marks the field touched together, so the two never drift apart. (A handler is the function that runs in response to an event.)
 
 ```clojure
-(rf/reg-event-db :form.login/edit-field
+(rf/reg-event :form.login/edit-field
   {:schema [:cat [:= :form.login/edit-field] :keyword :string]}
-  (fn [db [_ field value]]
-    (-> db
-        (assoc-in  [:auth :login :draft field] value)
-        (update-in [:auth :login :touched] (fnil conj #{}) field))))
+  (fn [{:keys [db]} [_ field value]]
+    {:db (-> db
+             (assoc-in  [:auth :login :draft field] value)
+             (update-in [:auth :login :touched] (fnil conj #{}) field))}))
 ```
 
 `:blur-field` and `:reset` are mechanical, but here they are once so the set is complete:
 
 ```clojure
-(rf/reg-event-db :form.login/blur-field
-  (fn [db [_ field]]
-    (update-in db [:auth :login :touched] (fnil conj #{}) field)))
+(rf/reg-event :form.login/blur-field
+  (fn [{:keys [db]} [_ field]]
+    {:db (update-in db [:auth :login :touched] (fnil conj #{}) field)}))
 
-(rf/reg-event-fx :form.login/reset
+(rf/reg-event :form.login/reset
   (fn [_ _] {:fx [[:dispatch [:form.login/initialise]]]}))
 ```
 
@@ -100,7 +100,7 @@ Validation itself is a pure function. The convention fixes only the *result* sha
 Submit validates and latches. Only when the draft is clean does it fire the request through [managed HTTP](../concepts/http.md) — an effect that performs the network call for you and dispatches a result event when it returns. (An effect is a description of a side-effect the framework runs on your behalf, which keeps your handler pure and easy to test.)
 
 ```clojure
-(rf/reg-event-fx :form.login/submit
+(rf/reg-event :form.login/submit
   (fn [{:keys [db]} _]
     (let [draft  (get-in db [:auth :login :draft])
           errors (validate LoginForm draft)
@@ -123,12 +123,12 @@ Submit validates and latches. Only when the draft is clean does it fire the requ
 When the call succeeds, the reply arrives as the event's last argument, shaped `{:kind :success :value <decoded body>}`:
 
 ```clojure
-(rf/reg-event-db :form.login/submit-success
-  (fn [db [_ {:keys [value]}]]
-    (-> db
-        (assoc-in [:auth :login :status]    :submitted)
-        (assoc-in [:auth :login :submitted] (get-in db [:auth :login :draft]))
-        (assoc-in [:auth :user]             (:user value)))))
+(rf/reg-event :form.login/submit-success
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    {:db (-> db
+             (assoc-in [:auth :login :status]    :submitted)
+             (assoc-in [:auth :login :submitted] (get-in db [:auth :login :draft]))
+             (assoc-in [:auth :user]             (:user value)))}))
 ```
 
 ### The validation-vs-transport split
@@ -150,12 +150,12 @@ The failure handler has to sort two genuinely different kinds of failure, and th
         (when (map? errors) errors))
       (catch :default _ nil))))
 
-(rf/reg-event-db :form.login/submit-error
-  (fn [db [_ {:keys [failure]}]]
+(rf/reg-event :form.login/submit-error
+  (fn [{:keys [db]} [_ {:keys [failure]}]]
     (let [errors (server-field-errors failure)]
-      (cond-> (assoc-in db [:auth :login :status] :error)
-        errors       (assoc-in [:auth :login :errors] errors)
-        (not errors) (assoc-in [:auth :login :submit-error] failure)))))
+      {:db (cond-> (assoc-in db [:auth :login :status] :error)
+             errors       (assoc-in [:auth :login :errors] errors)
+             (not errors) (assoc-in [:auth :login :submit-error] failure))})))
 ```
 
 The payoff is that the view never learns which validator complained. Client schema and server rejection flow through one code path, so the markup that renders an error doesn't care where the error came from.

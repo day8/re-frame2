@@ -36,17 +36,17 @@ flowchart LR
 
 One pass through the pipeline is one **epoch**. Dominoes and epoch are the same picture under two names — you'll hear both, so it's worth knowing they point at the same thing.
 
-In code, the simplest handler just returns a new state. `reg-event-db` is the spelling for that:
+In code, every handler is registered with `reg-event`, and it returns a map: the next state under `:db`, plus anything else to do. The simplest handler only touches state, so the map has only `:db`:
 
 ```clojure
-(rf/reg-event-db :counter/inc
-  (fn [db _event] (update db :counter/value inc)))
+(rf/reg-event :counter/inc
+  (fn [{:keys [db]} _event] {:db (update db :counter/value inc)}))
 ```
 
-When the event also needs the world to do something, the handler graduates to `reg-event-fx` and returns the full effects map — still pure, still just data:
+When the event also needs the world to *do* something, you add an `:fx` vector to the same map — same registration, same signature, still pure, still just data:
 
 ```clojure
-(rf/reg-event-fx :feed/refresh
+(rf/reg-event :feed/refresh
   (fn [{:keys [db]} _event]
     {:db (assoc db :feed/loading? true)
      :fx [[:rf.http/managed
@@ -56,7 +56,7 @@ When the event also needs the world to do something, the handler graduates to `r
             :on-failure [:feed/load-failed]}]]}))
 ```
 
-These are one machine in two spellings: `reg-event-db` is sugar for `reg-event-fx` whose bare return gets wrapped as `{:db ...}`. The server's reply comes back as a new event — `[:feed/loaded ...]` — which walks the same six dominoes itself. And the world coming *in* is symmetric. A handler that needs a fact from the world — the current time, a stored token — declares it and receives it as an input (that incoming fact is a **coeffect**), rather than reaching out for it mid-function. Both directions live in [Effects and coeffects](effects-and-coeffects.md).
+One form, one map: a db update is the effect `{:db …}`, and everything else rides in `:fx` beside it. The server's reply comes back as a new event — `[:feed/loaded ...]` — which walks the same six dominoes itself. And the world coming *in* is symmetric. A handler that needs a fact from the world — the current time, a stored token — declares it with `:rf.cofx/requires` and receives it as an input (that incoming fact is a **coeffect**), rather than reaching out for it mid-function. Both directions live in [Effects and coeffects](effects-and-coeffects.md).
 
 > **Coming from Redux?** Dominoes 3–4 replace the entire middleware question — thunks, sagas, observables — with a plain map the reducer-equivalent returns.
 

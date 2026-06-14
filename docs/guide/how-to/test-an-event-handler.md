@@ -10,7 +10,7 @@ Here's the one idea to hold on to as you read:
 
 ## 1. Pluck the handler and call it
 
-When you register a handler, it lands in a registry — a process-wide table that maps an event id to the function you wrote. `handler-meta` reads those registrations back, and its `:handler-fn` is your function, exactly as you wrote it. Your test namespace needs three requires: `clojure.test`, `re-frame.core`, and the app namespace whose load performs the registrations. That last one matters, because requiring the namespace is what runs the `reg-event-*` calls and puts your handler in the registry in the first place.
+When you register a handler, it lands in a registry — a process-wide table that maps an event id to the function you wrote. `handler-meta` reads those registrations back, and its `:handler-fn` is your function, exactly as you wrote it. Your test namespace needs three requires: `clojure.test`, `re-frame.core`, and the app namespace whose load performs the registrations. That last one matters, because requiring the namespace is what runs the `reg-event` calls and puts your handler in the registry in the first place.
 
 ```clojure
 (ns my-app.articles-test
@@ -20,22 +20,22 @@ When you register a handler, it lands in a registry — a process-wide table tha
             [my-app.articles]))   ;; loading the ns registers the handlers
 ```
 
-Start with a plain `reg-event-db` handler — the simplest kind, which takes the current app-db (your app's single state map) and returns the next one:
+Start with the simplest handler — one that only touches state. It takes the **coeffects** (the facts it's handed; `:db`, the current app-db, is one) and returns an effects map whose `:db` is the next state:
 
 ```clojure
 ;; my-app/articles.cljs
-(rf/reg-event-db :articles/page-changed
-  (fn [db [_ page]]
-    (assoc-in db [:articles :page] page)))
+(rf/reg-event :articles/page-changed
+  (fn [{:keys [db]} [_ page]]
+    {:db (assoc-in db [:articles :page] page)}))
 ```
 
-The test plucks it, calls it with a db value and an event vector, and asserts on the db it returns:
+The test plucks it, calls it with a coeffects map and an event vector, and asserts on the `:db` it returns:
 
 ```clojure
 (deftest page-changed-sets-page
   (let [handler (:handler-fn (rf/handler-meta :event :articles/page-changed))
-        after   (handler {:articles {:page 1}} [:articles/page-changed 3])]
-    (is (= 3 (get-in after [:articles :page])))))
+        result  (handler {:db {:articles {:page 1}}} [:articles/page-changed 3])]
+    (is (= 3 (get-in result [:db :articles :page])))))
 ```
 
 There's no frame, no dispatch, no runtime here — it's just a function call. Which means these tests run wherever your test runner runs. That includes the JVM, where most re-frame2 suites live, because nothing in them touches a browser.
@@ -46,7 +46,7 @@ Some handlers need to know things about the outside world — the current time, 
 
 ```clojure
 ;; my-app/articles.cljs — adapted from examples/reagent/realworld/articles.cljs
-(rf/reg-event-fx :articles/refresh
+(rf/reg-event :articles/refresh
   {:doc "User asked for a fresh feed: stamp when, issue the request."
    :rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} _event]
@@ -56,7 +56,7 @@ Some handlers need to know things about the outside world — the current time, 
                              :on-failure [:articles/load-failed]}]]}))
 ```
 
-`:rf.cofx/requires` lists the coeffects — the world facts the handler reads in — that this handler consumes. Here that's just the clock. They arrive **flat** in its first argument, the coeffects map, alongside `:db`. One thing worth knowing: only the fx form can declare requires. A `reg-event-db` handler receives the db and nothing else, so the moment a handler needs the world, it graduates to `reg-event-fx`.
+`:rf.cofx/requires` lists the coeffects — the world facts the handler reads in — that this handler consumes. Here that's just the clock. They arrive **flat** in its first argument, the coeffects map, alongside `:db`. Note that this handler is registered with the very same `reg-event` as the one above — declaring a world fact is just a line of metadata and an `:fx` vector when there's an effect to issue, not a different registration form.
 
 That declaration doubles as your fixture checklist — the list of facts the test must hand in. You can read it straight off the registry:
 
@@ -108,7 +108,7 @@ Two dispatch options do the work that the literal coeffects map did back in step
 
 ## 4. The trap: frames don't isolate registrations
 
-There's a footgun here worth slowing down for. `with-new-frame` gives each test its own app-db, but it does **not** give each test its own registry. `reg-event-fx` and its siblings register into a process-global registrar — one table shared across the whole test run.
+There's a footgun here worth slowing down for. `with-new-frame` gives each test its own app-db, but it does **not** give each test its own registry. `reg-event` and its siblings register into a process-global registrar — one table shared across the whole test run.
 
 !!! warning "Same id, last load wins"
 

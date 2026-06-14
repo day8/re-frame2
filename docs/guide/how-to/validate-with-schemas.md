@@ -62,16 +62,16 @@ These compose. A status field is an `:enum`. A form draft is a `[:map …]` of c
 
 ## Put a schema on the event too
 
-Every `reg-event-*` takes an optional metadata map between the id and the handler. The `:schema` key there describes the **event vector**, positionally, with `[:cat …]`:
+`reg-event` takes an optional metadata map between the id and the handler. The `:schema` key there describes the **event vector**, positionally, with `[:cat …]`:
 
 ```clojure
 ;; examples/reagent/realworld/auth.cljs
-(rf/reg-event-db :auth.login-form/edit-field
+(rf/reg-event :auth.login-form/edit-field
   {:schema [:cat [:= :auth.login-form/edit-field] :keyword :string]}
-  (fn [db [_ field value]]
-    (-> db
-        (assoc-in [:auth :login-form :draft field] value)
-        (update-in [:auth :login-form :touched] (fnil conj #{}) field))))
+  (fn [{:keys [db]} [_ field value]]
+    {:db (-> db
+             (assoc-in [:auth :login-form :draft field] value)
+             (update-in [:auth :login-form :touched] (fnil conj #{}) field))}))
 ```
 
 The first position is the event id itself, pinned with `[:= …]`. Then a keyword, then a string. So if you dispatch `[:auth.login-form/edit-field "email" 42]`, the check fails *before* the handler runs: you get `:where :event`, the handler never runs, and the rest of the event queue keeps draining. Here's the contrast worth holding onto: app-db schemas check writes after the fact, while event schemas refuse bad input up front.
@@ -92,28 +92,28 @@ Here's a counter whose count must never go below zero — live. The rule appears
    [:count   [:int {:min 0}]]
    [:history [:vector [:int {:min 0}]]]])
 
-(rf/reg-event-db :howto.schema/initialise
+(rf/reg-event :howto.schema/initialise
   {:schema [:cat [:= :howto.schema/initialise]]}
-  (fn [db _] (assoc db :howto.schema/counter {:count 3 :history [3]})))
+  (fn [{:keys [db]} _] {:db (assoc db :howto.schema/counter {:count 3 :history [3]})}))
 
-(rf/reg-event-db :howto.schema/inc
+(rf/reg-event :howto.schema/inc
   {:schema [:cat [:= :howto.schema/inc]]}
-  (fn [db _]
+  (fn [{:keys [db]} _]
     (let [n (inc (get-in db [:howto.schema/counter :count]))]
-      (-> db
-          (assoc-in  [:howto.schema/counter :count] n)
-          (update-in [:howto.schema/counter :history] conj n)))))
+      {:db (-> db
+               (assoc-in  [:howto.schema/counter :count] n)
+               (update-in [:howto.schema/counter :history] conj n))})))
 
 ;; The handler OWNS the never-below-zero rule — this guard ships to production.
-(rf/reg-event-db :howto.schema/dec
+(rf/reg-event :howto.schema/dec
   {:schema [:cat [:= :howto.schema/dec]]}
-  (fn [db _]
+  (fn [{:keys [db]} _]
     (let [n (get-in db [:howto.schema/counter :count])]
-      (if (pos? n)
-        (-> db
-            (assoc-in  [:howto.schema/counter :count] (dec n))
-            (update-in [:howto.schema/counter :history] conj (dec n)))
-        db))))
+      {:db (if (pos? n)
+             (-> db
+                 (assoc-in  [:howto.schema/counter :count] (dec n))
+                 (update-in [:howto.schema/counter :history] conj (dec n)))
+             db)})))
 
 (rf/reg-sub :howto.schema/count
   (fn [db _] (get-in db [:howto.schema/counter :count])))
@@ -147,7 +147,7 @@ Dev builds check every registered schema at every validation point. That's the w
 One place does want production validation, though: untrusted data crossing a system boundary, like an HTTP response, a websocket message, or a `postMessage` payload. For those handlers, add the boundary interceptor, which forces the handler's own `:schema` check regardless of the build flags:
 
 ```clojure
-(rf/reg-event-fx :api/tags-received
+(rf/reg-event :api/tags-received
   {:schema [:cat [:= :api/tags-received] [:map [:tags [:vector :string]]]]
    :interceptors [rf/validate-at-boundary-interceptor]}
   (fn [{:keys [db]} [_ body]]

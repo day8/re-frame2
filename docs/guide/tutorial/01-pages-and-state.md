@@ -50,16 +50,16 @@ State only ever changes one way here. An **event** — a named record that somet
     :createdAt   "2026-06-03T09:00:00Z"
     :author      {:username "octocat"}}])
 
-(rf/reg-event-db :app/initialise
+(rf/reg-event :app/initialise
   {:doc "Seed app-db at boot. Part 2 replaces the canned articles
          with a real fetch."}
-  (fn [_db _event]
-    {:articles {:status :loaded
-                :data   seed-articles
-                :error  nil}}))
+  (fn [_cofx _event]
+    {:db {:articles {:status :loaded
+                     :data   seed-articles
+                     :error  nil}}}))
 ```
 
-`reg-event-db` registers the simplest kind of event handler: a pure function from `(current-db, event)` to the next db. This one ignores both arguments and returns the whole initial map, which is all an initialise event really is. Notice that nothing here touches the DOM, the network, or a clock. A handler that needs the outside world uses a different registration form, and you'll meet it in Part 2.
+`reg-event` registers an event handler: a pure function from the **coeffects** (the facts it's handed — `:db`, the current app-db, is one) and the event, to a map describing what should happen next. That map's `:db` key is the new app-db. Read it as *"the next state, and anything else to do"* — this handler only seeds state, so it returns `{:db …}` and nothing else. It ignores both arguments and hands back the whole initial map, which is all an initialise event really is. Notice that nothing here touches the DOM, the network, or a clock. A handler that needs the outside world adds a line of metadata to declare it — same `reg-event`, you'll meet that in Part 2.
 
 This replaces the placeholder `:app/initialise` that setup put in `core.cljs`. Delete that old registration now, so the two don't fight over the same id — Step 4 rewrites the rest of that file anyway.
 

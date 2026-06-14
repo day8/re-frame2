@@ -10,9 +10,9 @@ The input half follows one rule: a handler reads only what was recorded, never t
 
 ## The way out: effects are descriptions
 
-A pure function can't *perform* a side-effect, but it can *return a description of one* and let the runtime do the dirty work. Computing a description is pure; doing the thing is not. You've already relied on this: when a `reg-event-db` handler returns a new `db` (the next value of `app-db`, your app's single state map), your handler didn't mutate anything — the runtime did. Effects generalise that one trade to every side-effect.
+A pure function can't *perform* a side-effect, but it can *return a description of one* and let the runtime do the dirty work. Computing a description is pure; doing the thing is not. You've already relied on this: when a handler returns `{:db new-db}` (the next value of `app-db`, your app's single state map), your handler didn't mutate anything — the runtime read that `:db` effect and swapped it in. Effects generalise that one trade to every side-effect.
 
-A `reg-event-fx` handler returns a map with two top-level keys — the entire grammar for application handlers:
+A `reg-event` handler returns a map with two top-level keys — the entire grammar for application handlers:
 
 | Key | Meaning |
 |---|---|
@@ -20,7 +20,7 @@ A `reg-event-fx` handler returns a map with two top-level keys — the entire gr
 | `:fx` | A vector of `[fx-id args]` pairs. *Every* other effect — a dispatch, an HTTP request, a navigation, a storage write, one you wrote yourself — rides in here. |
 
 ```clojure
-(rf/reg-event-fx :counter/save
+(rf/reg-event :counter/save
   (fn [{:keys [db]} _event]
     {:db (assoc db :counter/saved? true)
      :fx [[:rf.http/managed
@@ -39,7 +39,7 @@ That's a state change, an HTTP POST, a storage write, and a follow-up dispatch �
 
 > **Coming from Redux?** `:fx` is what thunks/sagas/middleware do, minus the machinery: no middleware ordering, no generator runtime — the handler returns data and one interpreter loop executes it.
 
-`reg-event-db` is sugar for `reg-event-fx` with the return value auto-wrapped as `{:db ...}` — same machinery underneath. And if you came from re-frame v1: the top-level `:dispatch` / `:dispatch-later` / `:dispatch-n` effect keys are gone. Everything rides in `:fx` as ordinary rows now, so you learn one grammar instead of two.
+There's exactly one event form — `reg-event` — and a db update is just the `:db` effect in the map every handler returns. There's no separate db-only registration: the "I only touch state" case is `{:db …}` and nothing else, the same map shape as a handler that also fires three effects. And if you came from re-frame v1: the top-level `:dispatch` / `:dispatch-later` / `:dispatch-n` effect keys are gone. Everything rides in `:fx` as ordinary rows now, so you learn one grammar instead of two.
 
 ### Your own effects: `reg-fx`
 
@@ -63,9 +63,9 @@ Effects handle impurity going *out*; the second category sneaks in on the way *i
 
 ```clojure
 ;; ❌ Don't do this
-(rf/reg-event-db :todo/add
-  (fn [db [_ title]]
-    (assoc-in db [:todos] {:title title :created-at (js/Date.)})))
+(rf/reg-event :todo/add
+  (fn [{:keys [db]} [_ title]]
+    {:db (assoc-in db [:todos] {:title title :created-at (js/Date.)})}))
 ```
 
 Now the handler isn't pure: same inputs, a different output every call. No test can pin it down without monkey-patching the global clock, and — worse — replay breaks, for a reason the next section makes precise. These inputs-from-the-world are **coeffects**. Hold onto the symmetry: an effect is data the handler *outputs* for the runtime to perform; a coeffect is data the runtime *delivers* for the handler to read.
@@ -77,7 +77,7 @@ Now the handler isn't pure: same inputs, a different output every call. No test 
 | **You opt in per handler with** | `:rf.cofx/requires` | (returned in the effect map) |
 | **The impure work happens in** | the cofx supplier | the fx handler |
 
-That `{:keys [db]}` you destructure in every `reg-event-fx` handler *is* the coeffects map. `:db` and `:event` are staged automatically; every other world fact is opt-in, through one declaration key.
+That `{:keys [db]}` you destructure in every handler *is* the coeffects map. `:db` and `:event` are staged automatically; every other world fact is opt-in, through one declaration key.
 
 ### Two grades: ambient and recordable
 
@@ -104,7 +104,7 @@ The framework ships exactly one built-in entry: **`:rf/time-ms`**. It's wall-clo
 Nothing reaches a handler implicitly — **not even the time**. A handler declares the facts it consumes as registration metadata, and the runtime hands it exactly those, flat in the coeffects map beside `:db`:
 
 ```clojure
-(rf/reg-event-fx :todo/add
+(rf/reg-event :todo/add
   {:rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} [_ {:keys [id title]}]]
     {:db (assoc-in db [:todos id]
@@ -115,7 +115,7 @@ Delivery is **declared-only**: a fact on the token that this handler didn't decl
 
 Two consequences worth pinning:
 
-- **`reg-event-db` can't declare requires.** Its handler receives only the db, so `:rf.cofx/requires` on it is a registration-time error. Needing the world is what graduates a handler to the fx form.
+- **Every handler can declare requires — there's no second-class form.** Because there is exactly one `reg-event`, and it always receives the coeffects map, *any* event can carry `:rf.cofx/requires`. Adding a world fact is adding a line of metadata to a handler you already wrote; its signature and return shape never change. (This is the EP-0018 collapse: re-frame once had a db-only registration that structurally couldn't declare coeffects — that hole is gone.)
 - **`inject-cofx` is gone.** re-frame v1's coeffect-injection interceptor is removed, with no alias — calling it is a hard error that names `:rf.cofx/requires` as the replacement. Coeffect delivery is no longer a chain member you order relative to other interceptors; it's the construction of the chain's input. So v1's wart — an early interceptor blind to a later injection — can't even be expressed.
 
 > **Coming from re-frame v1?** `[(rf/inject-cofx :local-store "k")]` in the interceptor vector becomes `:rf.cofx/requires [[:local-store "k"]]` in the metadata map, and your cofx handler drops the ctx wrapper — see the [migration guide](../25-from-re-frame-v1.md).
@@ -131,7 +131,7 @@ Two consequences worth pinning:
   (fn [storage-key]
     (some-> (.-localStorage js/globalThis) (.getItem storage-key))))
 
-(rf/reg-event-fx :prefs/apply-theme
+(rf/reg-event :prefs/apply-theme
   {:rf.cofx/requires [[:ui/local-theme "ui-theme"]]}
   (fn [{:keys [db ui/local-theme]} _]
     {:db (assoc db :ui/theme (or local-theme "system"))}))
@@ -168,13 +168,13 @@ Recorded coeffects are the last rung, not the default. The `:todo/add` handler a
 ```clojure
 ;; ❌ BROKEN REPLAY — the clock is an ambient read the ledger never recorded.
 ;;    Replay this event tomorrow and :created-at is tomorrow's date. The log lies.
-(rf/reg-event-db :todo/add
-  (fn [db [_ title]]
-    (assoc-in db [:todos] {:title title :created-at (js/Date.)})))
+(rf/reg-event :todo/add
+  (fn [{:keys [db]} [_ title]]
+    {:db (assoc-in db [:todos] {:title title :created-at (js/Date.)})}))
 
 ;; ✅ HONEST REPLAY — the clock is the recorded :rf/time-ms fact the runtime supplies.
 ;;    Replay re-presents the same value; the same log reproduces the same state.
-(rf/reg-event-fx :todo/add
+(rf/reg-event :todo/add
   {:rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} [_ title]]
     {:db (assoc-in db [:todos] {:title title :created-at time-ms})}))
@@ -193,7 +193,7 @@ A live todo-adder. The durable facts — *when* each todo was created, *what* it
 ;; A PURE handler: the clock arrives as the declared :rf/time-ms recordable
 ;; coeffect; the fresh id rides the event from the dispatch site (minting
 ;; ladder, rung 2). Both facts are durable — both are recorded.
-(rf/reg-event-fx :demo.todo/add
+(rf/reg-event :demo.todo/add
   {:rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} [_ {:keys [id]}]]
     {:db (assoc-in db [:demo.todo/items id]
@@ -201,8 +201,8 @@ A live todo-adder. The durable facts — *when* each todo was created, *what* it
                     :title (str "Todo #" (inc (count (:demo.todo/items db))))
                     :created-at time-ms})}))
 
-(rf/reg-event-db :demo.todo/initialise
-  (fn [_db _event] {:demo.todo/items {}}))
+(rf/reg-event :demo.todo/initialise
+  (fn [_cofx _event] {:db {:demo.todo/items {}}}))
 
 (rf/reg-sub :demo.todo/items
   (fn [db _query] (vals (:demo.todo/items db))))

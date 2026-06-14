@@ -88,11 +88,11 @@ Both slots are optional. An interceptor is just a map carrying `:id`, `:before`,
 Attach it where the event is registered: the metadata map's `:interceptors` key. The historical positional vector has been removed, so interceptor chains always live alongside the rest of the registration metadata:
 
 ```clojure
-(rf/reg-event-db :cart.item/add
+(rf/reg-event :cart.item/add
   {:doc          "Add an item to the cart."
    :interceptors [logger]}
-  (fn [db [_ item]]
-    (update db :cart/items conj item)))
+  (fn [{:keys [db]} [_ item]]
+    {:db (update db :cart/items conj item)}))
 ```
 
 Dispatch `[:cart.item/add ...]` and the console shows the trip in and the timed trip out. Now open Xray and focus the event's epoch: the pipeline lists your chain by `:id` with a jump-to-source link, and the after-interceptors stage shows the way out. (In a real app the [trace wire](observability.md) already records every event with timings — this logger is the teaching shape.)
@@ -171,47 +171,47 @@ The most satisfying interceptor is undo. Hand-rolled, it smears "remember the ol
 Read it through the two-key lens. `:before` reads the *inputs* (`:coeffects`, where `:db` is the pre-handler value) and stashes the prior circles on the context. `:after` reads the *outputs* (`:effects`, where `:db` is the post-handler value — absent if nothing changed), compares, and only then pushes an undo step and clears redo. Which events are undoable is decided entirely by inclusion: both consuming events tag the chain, and the continuous one opts out by omission.
 
 ```clojure
-(rf/reg-event-db :drawer/add-circle
+(rf/reg-event :drawer/add-circle
   {:doc "Click on canvas — add a circle of default radius."
    :interceptors [undoable]}
-  (fn [db [_ x y]]
+  (fn [{:keys [db]} [_ x y]]
     (let [id (get-in db [:drawer :next-id])]
-      (-> db
-          (update-in [:drawer :circles] conj {:id id :x x :y y :radius 30})
-          (assoc-in  [:drawer :next-id] (inc id))))))
+      {:db (-> db
+               (update-in [:drawer :circles] conj {:id id :x x :y y :radius 30})
+               (assoc-in  [:drawer :next-id] (inc id)))})))
 
-(rf/reg-event-db :drawer/dialog-drag
+(rf/reg-event :drawer/dialog-drag
   {:doc "Slider movement — updates the draft radius only. Continuous; NOT undoable."}
-  (fn [db [_ new-radius]]
-    (assoc-in db [:drawer :dialog :draft-radius] new-radius)))
+  (fn [{:keys [db]} [_ new-radius]]
+    {:db (assoc-in db [:drawer :dialog :draft-radius] new-radius)}))
 
-(rf/reg-event-db :drawer/close-dialog
+(rf/reg-event :drawer/close-dialog
   {:doc "Commit the dialog's draft radius onto its circle. One undo step."
    :interceptors [undoable]}
-  (fn [db _]
+  (fn [{:keys [db]} _]
     (let [{:keys [circle-id draft-radius]} (get-in db [:drawer :dialog])]
-      (-> db
-          (update-in [:drawer :circles]
-                     (fn [cs] (mapv #(if (= circle-id (:id %))
-                                       (assoc % :radius draft-radius)
-                                       %)
-                                    cs)))
-          (assoc-in [:drawer :dialog] nil)))))
+      {:db (-> db
+               (update-in [:drawer :circles]
+                          (fn [cs] (mapv #(if (= circle-id (:id %))
+                                            (assoc % :radius draft-radius)
+                                            %)
+                                         cs)))
+               (assoc-in [:drawer :dialog] nil))})))
 ```
 
 The drag handler mutates only the dialog's draft, so a hundred slider moves never touch `:circles`. When `:drawer/close-dialog` commits, the snapshot `undoable` took is exactly the pre-dialog state, and the whole edit collapses into one undo step, for free. Closing the loop, undo itself is an ordinary event — no interceptor needed, just state moving between stacks (redo mirrors it with the stacks swapped):
 
 ```clojure
-(rf/reg-event-db :drawer/undo
+(rf/reg-event :drawer/undo
   {:doc "Pop one snapshot from :undo, push current :circles to :redo."}
-  (fn [db _]
+  (fn [{:keys [db]} _]
     (let [{:keys [undo circles]} (:drawer db)]
-      (if (empty? undo)
-        db
-        (-> db
-            (assoc-in [:drawer :circles] (peek undo))
-            (update-in [:drawer :undo] pop)
-            (update-in [:drawer :redo] (fnil conj []) circles))))))
+      {:db (if (empty? undo)
+             db
+             (-> db
+                 (assoc-in [:drawer :circles] (peek undo))
+                 (update-in [:drawer :undo] pop)
+                 (update-in [:drawer :redo] (fnil conj []) circles)))})))
 ```
 
 One interceptor, plus which chains include it: that's the entire undo feature.

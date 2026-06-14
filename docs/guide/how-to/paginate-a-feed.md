@@ -58,7 +58,7 @@ Now route entry loads the right page, owns it while you're there, and releases i
 Here's the mental shift: changing pages is a navigation, not a fetch. Swap only `?page=`. Drop it for page 1 so the first page has one canonical URL, rather than `/` and `/?page=1` both pointing at the same list:
 
 ```clojure
-(rf/reg-event-fx :home/go-to-page
+(rf/reg-event :home/go-to-page
   (fn [_ [_ page]]
     {:fx [[:dispatch [:rf.route/navigate :app/home {}
                       {:query (if (> page 1) {:page page} {})}]]]}))
@@ -113,7 +113,7 @@ Now watch it work. Click through to page 2 with Xray open. The navigation event 
 A load-more feed breaks the cache model on purpose, so it's worth understanding why before you reach for resources here. What's on screen is no longer "the server's page N". It's everything this user has loaded so far this session. That accumulated list is a session fact, and facts live in app-db. So don't contort resources into this shape. Instead, use a [managed HTTP request](../concepts/http.md) — an effect the framework runs and routes the reply back through an event — whose reply event appends:
 
 ```clojure
-(rf/reg-event-fx :feed/load-more
+(rf/reg-event :feed/load-more
   (fn [{:keys [db]} _]
     (if (:feed/loading-more? db)
       {}                                       ;; already in flight — ignore the click
@@ -129,18 +129,18 @@ A load-more feed breaks the cache model on purpose, so it's worth understanding 
 
 ;; The runtime APPENDS the reply payload as the final event argument —
 ;; the continuation is data on the event tape, not a callback.
-(rf/reg-event-db :feed/page-loaded
-  (fn [db [_ {:keys [value]}]]
-    (-> db
-        (update :feed/articles (fnil into []) (:articles value))
-        (assoc  :feed/total (:total value))
-        (dissoc :feed/loading-more? :feed/load-error))))
+(rf/reg-event :feed/page-loaded
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    {:db (-> db
+             (update :feed/articles (fnil into []) (:articles value))
+             (assoc  :feed/total (:total value))
+             (dissoc :feed/loading-more? :feed/load-error))}))
 
-(rf/reg-event-db :feed/load-failed
-  (fn [db [_ {:keys [failure]}]]
-    (-> db
-        (assoc  :feed/load-error failure)
-        (dissoc :feed/loading-more?))))
+(rf/reg-event :feed/load-failed
+  (fn [{:keys [db]} [_ {:keys [failure]}]]
+    {:db (-> db
+             (assoc  :feed/load-error failure)
+             (dissoc :feed/loading-more?))}))
 ```
 
 That `:on-success` target — an event, the thing your handler reacts to — receives the uniform reply envelope, appended for you. Every managed effect completes through this same no-`await` shape, explained in [No await: continuations are data](../explanation/continuations-are-data.md). And the *next* page needs no counter, because the offset is derived from how many rows are already loaded.

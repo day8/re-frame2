@@ -11,7 +11,7 @@ The anchor here is [**XState v5**](https://stately.ai/docs). re-frame2's machine
 You already write state machines. You just call them other things. The keyword you stuffed into app-db — `:idle`, `:submitting`, `:authed` — plus the rules in your head about which states can legally follow which: that's a machine, written informally. Here's a login flow written the way most people write it first:
 
 ```clojure
-(rf/reg-event-fx :auth/submit
+(rf/reg-event :auth/submit
   (fn [{:keys [db]} [_ creds]]
     (cond
       (= :submitting (:auth/state db))
@@ -28,11 +28,11 @@ You already write state machines. You just call them other things. The keyword y
               :on-success [:auth/login-success]
               :on-failure [:auth/login-error]}]]})))
 
-(rf/reg-event-db :auth/login-error
-  (fn [db [_ {:keys [failure]}]]
-    (if (>= (:auth/attempts db) 3)
-      (assoc db :auth/state :locked-out)
-      (-> db (assoc :auth/state :error-shown) (assoc :auth/error failure)))))
+(rf/reg-event :auth/login-error
+  (fn [{:keys [db]} [_ {:keys [failure]}]]
+    {:db (if (>= (:auth/attempts db) 3)
+           (assoc db :auth/state :locked-out)
+           (-> db (assoc :auth/state :error-shown) (assoc :auth/error failure)))}))
 
 ;; ... plus :auth/login-success, :auth/dismiss, :auth/reset ...
 ```
@@ -114,12 +114,12 @@ Registering the table is one line, and this is where people sometimes brace for 
 ```clojure
 (rf/reg-machine :auth.login/flow login-flow)
 ;; exactly equivalent to (machines/make-machine-handler is in re-frame.machines):
-;; (rf/reg-event-fx :auth.login/flow (machines/make-machine-handler login-flow))
+;; (rf/reg-event :auth.login/flow (machines/make-machine-handler login-flow))
 ```
 
 > **One-time setup.** Machines ship in their own artefact, `day8/re-frame2-machines`, so apps without machines build a bundle clean of them. Add the dep and require `re-frame.machines` once at app boot — that registers the hooks through which `rf/reg-machine`, `rf/machine-transition`, and `rf/sub-machine` resolve.
 
-A machine **is** an event handler. It's a `reg-event-fx` whose body interprets the transition table: look up the snapshot, compute the transition, write it back, return the action's effects (the effects being the data describing what should happen in the world — the HTTP call, the storage write). Every event reaches it through the same `dispatch` — the call that sends an event into the system — and the same [cascade](events-and-the-cascade.md) as everything else. There's no actor object and no second messaging system, which is the point: one mechanism, used everywhere. (`reg-machine` is a macro that also stamps dev-only source coordinates so tools can jump from a diagram arrow to your code; production builds elide them.)
+A machine **is** an event handler. It's a `reg-event` whose body interprets the transition table: look up the snapshot, compute the transition, write it back, return the action's effects (the effects being the data describing what should happen in the world — the HTTP call, the storage write). Every event reaches it through the same `dispatch` — the call that sends an event into the system — and the same [cascade](events-and-the-cascade.md) as everything else. There's no actor object and no second messaging system, which is the point: one mechanism, used everywhere. (`reg-machine` is a macro that also stamps dev-only source coordinates so tools can jump from a diagram arrow to your code; production builds elide them.)
 
 Dispatching routes through the machine's id, wrapping an inner event vector:
 
@@ -150,7 +150,7 @@ XState v5 is the behaviour re-frame2 matches; the *expression* is re-frame-nativ
 |---|---|---|
 | `context` (extended state) | `:data` | Same idea; "context" is already overloaded in re-frame2 (interceptor context, React context). |
 | `createActor(machine).start()`, then `actor.send({type: ...})` | the machine **is an event handler**; `(rf/dispatch [machine-id [event]])` | **The big one.** No actor object, no separate send mechanism — one router queue, one cascade. |
-| actions that imperatively `assign(...)` / fire effects | actions **return** `{:data ... :fx ...}` | The same data-shaped return as any `reg-event-fx` handler; effects are data, actioned by the runtime. |
+| actions that imperatively `assign(...)` / fire effects | actions **return** `{:data ... :fx ...}` | The same data-shaped return as any `reg-event` handler; effects are data, actioned by the runtime. |
 | state lives in the actor; `actor.getSnapshot()` | the snapshot is a value in runtime-db, read via `@(rf/sub-machine id)` | Time-travel, undo, persistence, and SSR hydration extend to machines for free. |
 | `setup({guards, actions})` | machine-local `:guards` / `:actions` maps inside the spec | Each machine carries its own, validated at registration; cross-machine reuse is ordinary Clojure vars, not a string registry. |
 
@@ -197,7 +197,7 @@ Here's a turnstile with two states and a counter riding in `:data`, live in your
 
 ## Guards, actions, tags, `:after` — the recognition kit
 
-**Guards and actions receive one context map** — `{:data :event :state :meta}` — and destructure what they need. A guard returns a boolean. An action returns `{:data ...}` (merged into the data slot), `:fx` (effects), both, or `nil` — the same contract as a `reg-event-fx` return. Each slot takes one fn or one keyword reference into the machine's own `:guards` / `:actions` map. There's deliberately no `{:and ...}` combinator DSL — compound logic is a named function instead, because the *name* is what a visualiser or an AI reads on the transition arrow.
+**Guards and actions receive one context map** — `{:data :event :state :meta}` — and destructure what they need. A guard returns a boolean. An action returns `{:data ...}` (merged into the data slot), `:fx` (effects), both, or `nil` — the same contract as a `reg-event` return. Each slot takes one fn or one keyword reference into the machine's own `:guards` / `:actions` map. There's deliberately no `{:and ...}` combinator DSL — compound logic is a named function instead, because the *name* is what a visualiser or an AI reads on the transition arrow.
 
 **Facts from the world are declared, not grabbed.** This one trips people up. A guard or action that needs the time (or a random draw) must not call `(js/Date.now)`, because that buries nondeterminism where replay can't reach it — and replay is what makes time-travel and SSR hydration work. Instead, declare the fact on a *named* entry and destructure it from the context map:
 

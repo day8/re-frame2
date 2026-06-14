@@ -17,12 +17,12 @@ Everything your app knows sits in one map — the logged-in user, the cart, whic
 Nested maps, vectors, sets, keywords. Ordinary data, no imposed schema. You can [add one](../how-to/validate-with-schemas.md) when you want the app to scream the instant the shape goes wrong. And exactly one thing ever changes it: an [event handler](events-and-the-cascade.md) — the function that runs in response to something happening — returning a new version of the map.
 
 ```clojure
-(rf/reg-event-db :cart/add
-  (fn [db [_event item]]
-    (update-in db [:cart :items] conj item)))
+(rf/reg-event :cart/add
+  (fn [{:keys [db]} [_event item]]
+    {:db (update-in db [:cart :items] conj item)}))
 ```
 
-Read that carefully, because it is the immutability story in four lines. The handler does not *change* app-db. `db` is a value, not a mutable cell, so it computes a new map from the old one rather than editing in place. The runtime then atomically swaps which value app-db points at. The old value still exists, untouched. The new one shares almost all of its structure with the old one — Clojure's persistent data structures don't copy, which means the new map just points at the unchanged parts of the old one. Nobody ever observes anything halfway.
+Read that carefully, because it is the immutability story in four lines. The handler does not *change* app-db. `db` — handed in via the coeffects map — is a value, not a mutable cell, so it computes a new map from the old one and returns it as the `:db` effect rather than editing in place. The runtime then atomically swaps which value app-db points at. The old value still exists, untouched. The new one shares almost all of its structure with the old one — Clojure's persistent data structures don't copy, which means the new map just points at the unchanged parts of the old one. Nobody ever observes anything halfway.
 
 Here is the sentence to hold onto. Everything else on this page restates it:
 
@@ -79,22 +79,22 @@ There is exactly one category of state in a running re-frame2 app that is *not* 
 
 So it doesn't live in app-db at all. A frame holds **two partitions**:
 
-- **app-db** — yours. Application data and *nothing else*. Every `reg-event-db` handler receives and returns it; an ordinary `:db` effect replaces it.
+- **app-db** — yours. Application data and *nothing else*. Every event handler receives it (as the `:db` coeffect) and replaces it (by returning a `:db` effect).
 - **runtime-db** — the framework's. [Machine](machines.md) snapshots, the [route](routing.md) slice, the [resource](server-state.md) cache, in-flight work records, all under reserved `:rf.runtime/*` keys. The relevant runtime writes it; you read it through that feature's subscriptions, like `[:rf/machine :checkout/flow]` or `[:rf.route/id]`.
 
 Why a separate partition instead of a reserved key in one map? Because a single map invites a footgun.
 
 !!! warning "Why the partition is structural, not a convention"
 
-    In a single map, a handler returning a fresh `{:user ...}` would silently wipe a machine snapshot living beside it. With two partitions, an ordinary `:db` return replaces *only* app-db, and a `reg-event-db` handler never even holds runtime-db — so it cannot clobber it by accident. The boundary is structural, not a rule you have to remember.
+    In a single map, a handler returning a fresh `{:user ...}` would silently wipe a machine snapshot living beside it. With two partitions, a `:db` effect replaces *only* app-db, and an ordinary event handler never even holds runtime-db — so it cannot clobber it by accident. The boundary is structural, not a rule you have to remember.
 
 The doctrine for the framework's partition is **read, don't write**. You read a managed slice through subscriptions, and you influence it by dispatching — handing off — the events its process understands. You never write it directly, because the process that put it there is what keeps it correct:
 
 ```clojure
 ;; WRONG — forging the route by hand. This writes app-db; the real route
 ;; slice lives in runtime-db, and no navigation actually happens.
-(rf/reg-event-db :go-to-cart
-  (fn [db _] (assoc db :route :route/cart)))
+(rf/reg-event :go-to-cart
+  (fn [{:keys [db]} _] {:db (assoc db :route :route/cart)}))
 
 ;; RIGHT — speak the process's language; the routing runtime writes its own slice.
 (rf/dispatch [:rf.route/navigate :route/cart])

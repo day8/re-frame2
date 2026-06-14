@@ -74,14 +74,14 @@ Here is a `defn` view doing its whole job: subscribe in, dispatch out, hiccup be
          '[re-frame.core :as rf])
 
 ;; Adapted from examples/reagent/counter/core.cljs (defn spelling for the cell).
-(rf/reg-event-db :views.counter/initialise
-  (fn [db _event] (assoc db :views.counter/value 5)))
+(rf/reg-event :views.counter/initialise
+  (fn [{:keys [db]} _event] {:db (assoc db :views.counter/value 5)}))
 
-(rf/reg-event-db :views.counter/inc
-  (fn [db _event] (update db :views.counter/value inc)))
+(rf/reg-event :views.counter/inc
+  (fn [{:keys [db]} _event] {:db (update db :views.counter/value inc)}))
 
-(rf/reg-event-db :views.counter/dec
-  (fn [db _event] (update db :views.counter/value dec)))
+(rf/reg-event :views.counter/dec
+  (fn [{:keys [db]} _event] {:db (update db :views.counter/value dec)}))
 
 (rf/reg-sub :views.counter/value
   (fn [db _query] (:views.counter/value db)))

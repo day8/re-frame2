@@ -45,7 +45,7 @@ Reading the saved token *back* at boot is a world read — a [coeffect](../conce
 The form is exactly [Build a form](build-a-form.md) — same slice shape, same seven events, same error-visibility rule. That recipe's running example is already this login form at `[:auth :login]`. Auth changes just one thing: **success establishes a session**. So upgrade that page's `:form.login/submit-success` to an fx handler — a handler is the function that runs when an event is dispatched — that stores the user and token, persists, and bounces the user onward:
 
 ```clojure
-(rf/reg-event-fx :form.login/submit-success
+(rf/reg-event :form.login/submit-success
   (fn [{:keys [db]} [_ {:keys [value]}]]
     (let [user (:user value)]            ;; server reply: {:user {... :token "..."}}
       {:db (-> db
@@ -154,7 +154,7 @@ An auth guard's headline feature is returning the user to exactly where they wer
 
 ```clojure
 ;; Adapted from examples/reagent/realworld/auth.cljs
-(rf/reg-event-fx :auth/post-login-redirect
+(rf/reg-event :auth/post-login-redirect
   (fn [{:keys [db]} _]
     (let [return-to (get-in db [:auth :return-to])]
       {:db (update db :auth dissoc :return-to)
@@ -169,7 +169,7 @@ Logout has to clear three things: the session slice, the persisted token, *and* 
 
 ```clojure
 ;; Scope resolution per Spec 016; :my-app/session is your reg-resource-scope resolver.
-(rf/reg-event-fx :auth/logout
+(rf/reg-event :auth/logout
   (fn [{:keys [db]} _]
     (let [old-scope (rf/resolve-resource-scope db :my-app/session)]
       {:db (-> db
