@@ -1580,7 +1580,7 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:counter {:n 0}}}))
     (rf/reg-event :inc
                      {:interceptors [(rf/path :counter)]}
-                     (fn [{:keys [db]} _] {:db (update c :n inc)}))
+                     (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-flow {:id     :counter/doubled
                   :inputs [[:counter :n]]
                   :output (fn [n] (* 2 (or n 0)))

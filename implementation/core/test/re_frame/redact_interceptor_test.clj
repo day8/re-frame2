@@ -228,7 +228,7 @@
                         (privacy/redact-interceptor [[:token]])]}
         (fn [{:keys [db]} [_ payload]]
           (reset! seen payload)
-          {:db (assoc auth :last payload)}))
+          {:db (assoc db :last payload)}))
       (let [evs        (record-traces
                          #(rf/dispatch-sync
                             [:auth/login+token {:username "ada"

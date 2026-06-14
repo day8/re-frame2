@@ -1158,7 +1158,7 @@
                   :path   [:auth :derived-user]})
     (rf/reg-event :auth/signed-in
                      {:interceptors [(rf/path :auth)]}
-                     (fn [{:keys [db]} [_ token]] {:db (assoc auth :token token)}))
+                     (fn [{:keys [db]} [_ token]] {:db (assoc db :token token)}))
     (reset! *captured* [])
     (rf/dispatch-sync [:auth/signed-in "secret-token"])
     (let [computes (by-op :rf.flow/computed)]
@@ -1178,7 +1178,7 @@
                   :path   [:auth :derived-user]})
     (rf/reg-event :auth/signed-in
                      {:interceptors [(rf/path :auth)]}
-                     (fn [{:keys [db]} [_ token]] {:db (assoc auth :token token)}))
+                     (fn [{:keys [db]} [_ token]] {:db (assoc db :token token)}))
     (reset! *captured* [])
     (rf/dispatch-sync [:auth/signed-in "secret-token"])
     (let [failures (by-op :rf.flow/failed)]
@@ -1197,7 +1197,7 @@
                   :path   [:auth :derived-user]})
     (rf/reg-event :auth/signed-in
                      {:interceptors [(rf/path :auth)]}
-                     (fn [{:keys [db]} [_ token]] {:db (assoc auth :token token)}))
+                     (fn [{:keys [db]} [_ token]] {:db (assoc db :token token)}))
     ;; First sign-in computes; second sign-in with the SAME token leaves
     ;; the input value-equal → `:rf.flow/skip` fires, still inside the
     ;; frame-sensitive handler scope.
@@ -1225,7 +1225,7 @@
                   :path   [:profile :greeting]})
     (rf/reg-event :profile/rename
                      {:interceptors [(rf/path :profile)]}
-                     (fn [{:keys [db]} [_ name]] {:db (assoc profile :name name)}))
+                     (fn [{:keys [db]} [_ name]] {:db (assoc db :name name)}))
     (reset! *captured* [])
     (rf/dispatch-sync [:profile/rename "ada"])
     (let [computes (by-op :rf.flow/computed)]
@@ -1250,7 +1250,7 @@
                   :path   [:auth :derived-token]})
     (rf/reg-event :auth/signed-in
                      {:interceptors [(rf/path :auth)]}
-                     (fn [{:keys [db]} [_ token]] {:db (assoc auth :token token)}))
+                     (fn [{:keys [db]} [_ token]] {:db (assoc db :token token)}))
     (reset! *captured* [])
     (rf/dispatch-sync [:auth/signed-in "secret-token"])
     (let [ev   (first (by-op :rf.flow/computed))
