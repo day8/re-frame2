@@ -2,7 +2,7 @@
   "Public API surface for re-frame2. Per spec/API.md.
 
   Users `(:require [re-frame.core :as rf])` and call `rf/dispatch`,
-  `rf/reg-event-fx`, etc. Internal namespaces are not part of the
+  `rf/reg-event`, etc. Internal namespaces are not part of the
   contract; per-namespace docs carry the design rationale.
 
   Topology — this ns is a thin façade:
@@ -13,14 +13,14 @@
       the late-bind hook table so requiring this ns does NOT pull
       the feature artefacts.
     - Macro-helper code is factored into three siblings —
-      `core-reg-macros` (reg-event-db/fx, reg-sub, reg-fx, reg-cofx
+      `core-reg-macros` (reg-event, reg-sub, reg-fx, reg-cofx
       expansion), `core-call-site-macros` (dispatch / dispatch-sync /
       subscribe call-site expansion), `core-reg-view-macro`
       (reg-view + view-component expansion). The boundary is the
       *responsibility* — call-site vs registration vs view-registration
       — so each helper ns owns one cohesive expansion family. The
       user-facing `defmacro`s themselves stay in THIS ns (so
-      `rf/reg-event-db` etc. resolve alias-qualified per Clojure's
+      `rf/reg-event` etc. resolve alias-qualified per Clojure's
       standard `ns-alias/Var` lookup); each is a one-line shell that
       delegates to the sibling-ns expansion helper.
 
@@ -146,7 +146,6 @@
   ;; CLJS apps need.
   #?(:cljs (:require-macros
              [re-frame.core :refer [reg-event
-                                    reg-event-db reg-event-fx reg-event-ctx
                                     reg-sub reg-fx reg-cofx reg-frame
                                     reg-flow reg-route reg-app-schema reg-app-schemas
                                     reg-resource reg-mutation reg-resource-scope
@@ -174,25 +173,9 @@
      (def ^{:doc "Fn-alias of the `reg-event` macro for HoF / programmatic
   registration (no source-coord capture). Register a
   `(fn [coeffects event-vec] effect-map)` event handler under `id` — the
-  one public event form (EP-0018), semantically `reg-event-fx`. See
-  `re-frame.events/reg-event` and spec/API.md §Registration."}
+  ONE public event form (EP-0018). See `re-frame.events/reg-event` and
+  spec/API.md §Registration."}
        reg-event       events/reg-event)
-     (def ^{:doc "Fn-alias of the `reg-event-db` macro for HoF / programmatic
-  registration (no source-coord capture). Register a
-  `(fn [db event-vec] new-db)` event handler under `id`. See
-  `re-frame.events/reg-event-db` and spec/API.md §Registration."}
-       reg-event-db    events/reg-event-db)
-     (def ^{:doc "Fn-alias of the `reg-event-fx` macro for HoF / programmatic
-  registration (no source-coord capture). Register a
-  `(fn [cofx event-vec] effect-map)` event handler under `id`. See
-  `re-frame.events/reg-event-fx` and spec/API.md §Registration."}
-       reg-event-fx    events/reg-event-fx)
-     (def ^{:doc "Fn-alias of the `reg-event-ctx` macro for HoF / programmatic
-  registration (no source-coord capture). Register a
-  `(fn [context] context)` full-context event handler under `id`. Advanced
-  — most handlers want `reg-event-db` / `reg-event-fx`. See
-  `re-frame.events/reg-event-ctx` and spec/API.md §Registration."}
-       reg-event-ctx   events/reg-event-ctx)
      (def ^{:doc "Fn-alias of the `reg-sub` macro for HoF / programmatic
   registration (no source-coord capture). Register a subscription under
   `id`. See `re-frame.subs/reg-sub` and spec/API.md §Registration."}
@@ -267,10 +250,45 @@
 ;; through `re-frame.machines/reg-machine*`. The `reg-machine` / `defmachine`
 ;; MACROS stay on the façade (per-element source-coord stamping).
 
+;; ---- EP-0018 retired public names — facade-exported throwing stubs --------
+;;
+;; `reg-event-db` / `reg-event-fx` are REMOVED and public `reg-event-ctx` is
+;; demoted to a framework-internal primitive (EP-0018 §2/§3 + EP-0007 rule 2).
+;; They survive on the façade ONLY as `^:no-doc` aliases to the
+;; `re-frame.events` throwing stubs, so a stale `(rf/reg-event-db …)` call site
+;; resolves to a real var and fails LOUDLY with an actionable hard error naming
+;; the replacement (`:rf.error/reg-event-db-removed` / `-fx-removed` names
+;; `reg-event`; `-ctx-removed` names `->interceptor`) — NOT an opaque "no such
+;; var", NOT a working alias. They are plain `def` aliases (no macro / no
+;; source-coord capture — they register nothing), platform-neutral so the stub
+;; throws identically on JVM and CLJS. `^:no-doc` drops them from the API
+;; manifest generator + the CLJS publics probe: they carry no manifest row and
+;; are not part of the documented public surface. See spec/001-Registration.md
+;; §The retired event-registration names + docs/api/15-removed.md.
+(def ^{:no-doc true
+       :doc "REMOVED in EP-0018 (no alias). Calling `reg-event-db` raises
+  `:rf.error/reg-event-db-removed`, naming `reg-event` as the replacement.
+  See `re-frame.events/reg-event-db` and spec/001-Registration.md §The
+  retired event-registration names."}
+  reg-event-db  events/reg-event-db)
+(def ^{:no-doc true
+       :doc "REMOVED in EP-0018 (no alias). Calling `reg-event-fx` raises
+  `:rf.error/reg-event-fx-removed`, naming `reg-event` (the identical shape
+  under the bare name). See `re-frame.events/reg-event-fx` and
+  spec/001-Registration.md §The retired event-registration names."}
+  reg-event-fx  events/reg-event-fx)
+(def ^{:no-doc true
+       :doc "DEMOTED to framework-internal in EP-0018. Calling public
+  `reg-event-ctx` raises `:rf.error/reg-event-ctx-removed`, naming
+  `->interceptor` as the public replacement for application full-context
+  work. See `re-frame.events/reg-event-ctx` and spec/001-Registration.md
+  §The retired event-registration names."}
+  reg-event-ctx events/reg-event-ctx)
+
 ;; ---- reg-* macros (JVM-only; CLJS sees them via :require-macros) --------
 ;;
 ;; Each `defreg-macro` form below expands to a `defmacro` IN THIS ns
-;; — so `rf/reg-event-db` resolves alias-qualified per Clojure's
+;; — so `rf/reg-event` resolves alias-qualified per Clojure's
 ;; `ns-alias/Var` lookup. The expansion captures source-coords at the
 ;; user's call site and splices args through to the fully-qualified
 ;; delegate fn.
@@ -279,51 +297,19 @@
    (do
      (rm/defreg-event-macro reg-event events/reg-event
        "Register a `(fn [coeffects event-vec] effect-map)` event handler
-       under `id` — the ONE public event-registration form (EP-0018),
-       semantically the former `reg-event-fx` (coeffects in, a closed
-       effects map out). The effect-map is a closed shape —
-       `#{:db :rf.db/runtime :fx}` at the top level; app handlers return
-       only `:db` / `:fx`, while `:rf.db/runtime` (the runtime-db
+       under `id` — the ONE public event-registration form (EP-0018):
+       coeffects in, a closed effects map out. The effect-map is a closed
+       shape — `#{:db :rf.db/runtime :fx}` at the top level; app handlers
+       return only `:db` / `:fx`, while `:rf.db/runtime` (the runtime-db
        partition) is reserved by convention for framework /
        runtime-extension authority. Coeffects are declared uniformly via
-       `:rf.cofx/requires`. Captures source-coords (Spec 001) at this
-       call site. Additionally captures the whole `(reg-event :id ...)`
+       `:rf.cofx/requires`. Full-context work is expressed with an
+       interceptor (`->interceptor`). Captures source-coords (Spec 001) at
+       this call site. Additionally captures the whole `(reg-event :id ...)`
        form as a string under the handler's `:rf.handler/source` meta
        (Spec 009, rf2-xgfuy) — DEBUG-gated, elided in CLJS `:advanced` +
        `goog.DEBUG=false` production builds. See
        `re-frame.events/reg-event` for the full signature.")
-
-     (rm/defreg-event-macro reg-event-db events/reg-event-db
-       "Register a `(fn [db event-vec] new-db)` event handler under `id`.
-       Captures source-coords (Spec 001) at this call site. Additionally
-       captures the whole `(reg-event-db :id ...)` form as a string under
-       the handler's `:rf.handler/source` meta (Spec 009, rf2-xgfuy) —
-       DEBUG-gated, elided in CLJS `:advanced` + `goog.DEBUG=false`
-       production builds. See `re-frame.events/reg-event-db` for the
-       full signature.")
-
-     (rm/defreg-event-macro reg-event-fx events/reg-event-fx
-       "Register a `(fn [cofx event-vec] effect-map)` event handler under
-       `id`. Effect-map is a closed shape — `#{:db :rf.db/runtime :fx}`
-       at the top level; app handlers return only `:db` / `:fx`, while
-       `:rf.db/runtime` (the runtime-db partition) is reserved by
-       convention for framework / runtime-extension authority. Captures
-       source-coords (Spec 001) at this call site.
-       Additionally captures the whole `(reg-event-fx :id ...)` form as
-       a string under the handler's `:rf.handler/source` meta (Spec 009,
-       rf2-xgfuy) — DEBUG-gated, elided in CLJS `:advanced` +
-       `goog.DEBUG=false` production builds. See
-       `re-frame.events/reg-event-fx` for the full signature.")
-
-     (rm/defreg-event-macro reg-event-ctx events/reg-event-ctx
-       "Register a `(fn [context] context)` full-context event handler
-       under `id`. Advanced — most handlers want `reg-event-db` or
-       `reg-event-fx` instead. Captures source-coords (Spec 001) at
-       this call site. Additionally captures the whole `(reg-event-ctx
-       :id ...)` form as a string under the handler's `:rf.handler/
-       source` meta (Spec 009, rf2-xgfuy) — DEBUG-gated, elided in CLJS
-       `:advanced` + `goog.DEBUG=false` production builds. See
-       `re-frame.events/reg-event-ctx` for the full signature.")
 
      (rm/defreg-macro reg-sub subs/reg-sub
        "Register a subscription under `id`. Every sub is one of three
@@ -338,7 +324,7 @@
 
      (rm/defreg-macro reg-fx fx/reg-fx
        "Register an effect handler under `id`. Handler signature is
-       `(fn [ctx args] ...)`; runs when a `reg-event-fx` returns an
+       `(fn [ctx args] ...)`; runs when a `reg-event` handler returns an
        effect-map carrying `[id args]` inside its `:fx` vector.
        Captures source-coords (Spec 001) at this call site. See
        `re-frame.fx/reg-fx` for the full signature.")
@@ -481,7 +467,7 @@
      validates the dispatched OUTER event vector at the `:where :event`
      boundary, so a machine that needs BOTH a live `:data-schema` AND an
      event-vector schema (the login / realworld auth shape) is expressible
-     through this blessed surface — no hand-stamped `reg-event-fx` +
+     through this blessed surface — no hand-stamped `reg-event` +
      `make-machine-handler` composition. The framework-owned `:rf/machine?` /
      `:rf/machine` keys are stamped by the registration home and MUST NOT
      appear in `opts`."
@@ -1640,12 +1626,12 @@
 ;; ---- the kind-aware descriptor lowering seam (the install! bridge) --------
 ;;
 ;; A CONSTRUCTED app value's descriptor (from `module`) carries the HIGH-LEVEL
-;; registration form — a raw `:handler` + the `:doc`/`:schema`/`:event/kind`
-;; metadata — NOT the wrapped, dispatch-ready registrar metadata (the event
-;; interceptor chain, the sub `:input-kind`/`:input-signals`). To make a seated
-;; descriptor actually DISPATCHABLE/RESOLVABLE, `install!` must lower it through
-;; the SAME kind-specific registration logic the `reg-*` sugar path uses —
-;; `register-event!` wraps the handler into the kind-appropriate interceptor;
+;; registration form — a raw `:handler` + the `:doc`/`:schema` metadata — NOT
+;; the wrapped, dispatch-ready registrar metadata (the event interceptor chain,
+;; the sub `:input-kind`/`:input-signals`). To make a seated descriptor
+;; actually DISPATCHABLE/RESOLVABLE, `install!` must lower it through the SAME
+;; kind-specific registration logic the `reg-*` sugar path uses —
+;; `register-event!` wraps the handler into the `:rf/event-handler` interceptor;
 ;; `reg-sub` parses input signals; `reg-fx`/`reg-cofx` stamp their slots. That
 ;; logic lives in `re-frame.events` / `re-frame.subs` / `re-frame.fx` /
 ;; `re-frame.cofx` / `re-frame.frame`, which `re-frame.app-value` must NOT
@@ -1698,12 +1684,10 @@
   lowers through `reg-frame` (atomic create-and-register: a frame container,
   `:on-create`, classification install), so a seated frame is a REAL frame that
   appears in `frame-ids` — not the malformed flat slot the registrar-only path
-  produced (rf2-chc8vs). The `:event/kind` is read from the descriptor metadata
-  (defaulting to `:db`), so a module event entry tagged `{:event/kind :fx}`
-  lowers through the one public `reg-event` runtime fn (EP-0018 D,
-  rf2-xhfxcs.4 — `reg-event` IS `reg-event-fx` semantics, so behaviour-
-  preserving); a `:ctx` entry through `reg-event-ctx`; an untagged entry
-  through `reg-event-db`.
+  produced (rf2-chc8vs). EP-0018 (rf2-xhfxcs.14): an `:event` descriptor
+  lowers straight through the ONE public `reg-event` runtime fn (coeffects in,
+  a closed effects map out); the former `:event/kind` sub-discriminator is
+  gone, so every module event seats through the one shape.
 
   For the step-8-DEFERRED kinds (`install-deferred-kinds`) THROWS
   `:rf.error/unsupported-descriptor-kind` (the ex-data IS the diagnostic —
@@ -1740,27 +1724,11 @@
 
       :else
       (case kind
-        :event (do (case (:event/kind meta)
-                     ;; EP-0018 D (rf2-xhfxcs.4): the fx-shape event descriptor
-                     ;; lowers through the ONE public `reg-event` runtime fn
-                     ;; rather than `reg-event-fx` directly. `reg-event` IS
-                     ;; `reg-event-fx` semantics (coeffects in, a closed
-                     ;; effects map out — registers `:event/kind :fx` with the
-                     ;; `:rf/fx-handler` wrapper), so this is byte-for-byte
-                     ;; behaviour-preserving; it just routes the install seam
-                     ;; through the surface the EP collapses onto. The legacy
-                     ;; `:db` (the untagged module-descriptor default) and
-                     ;; `:ctx` shapes keep their own reg fns through the
-                     ;; additive window (their db-handler / ctx-handler
-                     ;; semantics differ from `reg-event`'s fx shape, so routing
-                     ;; them through `reg-event` would NOT be behaviour-
-                     ;; preserving); dropping `:event/kind` so EVERY module
-                     ;; event lowers through the one `reg-event` shape is the
-                     ;; later removal slice (Z = rf2-xhfxcs.14).
-                     :fx  (events/reg-event     id meta handler)
-                     :ctx (events/reg-event-ctx id meta handler)
-                     (events/reg-event-db id meta handler))
-                   true)
+        ;; EP-0018 (rf2-xhfxcs.14): an event descriptor lowers straight through
+        ;; the ONE public `reg-event` runtime fn (coeffects in, a closed effects
+        ;; map out). The former `:event/kind` sub-discriminator + the per-kind
+        ;; reg fns are gone — every module event seats through the one shape.
+        :event (do (events/reg-event id meta handler) true)
         :sub   (do (subs/reg-sub id meta handler) true)
         :fx    (do (fx/reg-fx id meta handler) true)
         :cofx  (do (cofx/reg-cofx id meta handler) true)
@@ -2046,14 +2014,14 @@
   app-db sub-slice at the given path — the handler receives the slice
   value as `:db` (not the full app-db); its returned `:db` is spliced
   back. Usage:
-  `(reg-event-db :inc {:interceptors [(path :counter)]} (fn [n _] (inc n)))`.
+  `(reg-event :inc {:interceptors [(path :counter)]} (fn [{:keys [db]} _] {:db (inc db)}))`.
   Per spec/API.md §Interceptors."}
   path            std-interceptors/path)
 
 (def ^{:doc "Pre-registered interceptor (a value, not a fn) that asserts
   the dispatched event has shape `[<id> <payload-map>]` and replaces
   the `:event` coeffect with the payload map itself. Usage:
-  `(reg-event-fx :foo {:interceptors [unwrap-interceptor]} (fn [_ {:keys [a b]}] ...))`.
+  `(reg-event :foo {:interceptors [unwrap-interceptor]} (fn [_ {:keys [a b]}] ...))`.
   Per Conventions §Canonical event-vector shape (M-19) and §Value-vs-fn
   naming."}
   unwrap-interceptor std-interceptors/unwrap-interceptor)
@@ -2075,7 +2043,7 @@
   sensitive?           privacy/sensitive?)
 
 (def ^{:doc "Production-side schema validation interceptor. Add to a
-  `reg-event-*` handler's metadata `:interceptors` vector to force `:schema`
+  `reg-event` handler's metadata `:interceptors` vector to force `:schema`
   validation against the dispatched event vector even in production
   builds where dev-time validation is elided. The verb `validate-`
   telegraphs the time/build-mode axis the interceptor lives on (no-op in

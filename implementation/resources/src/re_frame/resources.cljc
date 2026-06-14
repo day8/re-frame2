@@ -338,22 +338,22 @@
          :rf.cofx/requires [:rf.resource/generation-allocation]))
 
 ;; Public resource events (map payloads). Per Spec 016 §Events.
-(events/reg-event-fx :rf.resource/ensure
+(events/reg-event :rf.resource/ensure
                      generation-meta
                      resource-events/ensure-handler)
-(events/reg-event-fx :rf.resource/refetch
+(events/reg-event :rf.resource/refetch
                      generation-meta
                      resource-events/refetch-handler)
-(events/reg-event-fx :rf.resource/invalidate-tags
+(events/reg-event :rf.resource/invalidate-tags
                      framework-authority-meta
                      resource-events/invalidate-tags-handler)
-(events/reg-event-fx :rf.resource/release-owner
+(events/reg-event :rf.resource/release-owner
                      framework-authority-meta
                      resource-events/release-owner-handler)
-(events/reg-event-fx :rf.resource/clear-scope
+(events/reg-event :rf.resource/clear-scope
                      framework-authority-meta
                      resource-events/clear-scope-handler)
-(events/reg-event-fx :rf.resource/remove
+(events/reg-event :rf.resource/remove
                      framework-authority-meta
                      resource-events/remove-handler)
 
@@ -367,31 +367,31 @@
 ;; themselves (only `:rf.resource/refetch` dispatches), but carry the
 ;; framework-authority stamp for family uniformity. User code MUST NOT
 ;; dispatch them directly.
-(events/reg-event-fx :rf.resource/window-focused
+(events/reg-event :rf.resource/window-focused
                      framework-authority-meta
                      resource-events/window-focused-handler)
-(events/reg-event-fx :rf.resource/network-reconnected
+(events/reg-event :rf.resource/network-reconnected
                      framework-authority-meta
                      resource-events/network-reconnected-handler)
 
 ;; Framework-internal reply handlers. Per Spec 016 §Events / §Transport.
 ;; User code MUST NOT dispatch these.
-(events/reg-event-fx :rf.resource.internal/succeeded
+(events/reg-event :rf.resource.internal/succeeded
                      framework-authority-meta
                      resource-events/succeeded-handler)
-(events/reg-event-fx :rf.resource.internal/failed
+(events/reg-event :rf.resource.internal/failed
                      framework-authority-meta
                      resource-events/failed-handler)
-(events/reg-event-fx :rf.resource.internal/aborted
+(events/reg-event :rf.resource.internal/aborted
                      framework-authority-meta
                      resource-events/aborted-handler)
-(events/reg-event-fx :rf.resource.internal/stale-fired
+(events/reg-event :rf.resource.internal/stale-fired
                      framework-authority-meta
                      resource-events/stale-fired-handler)
-(events/reg-event-fx :rf.resource.internal/gc-fired
+(events/reg-event :rf.resource.internal/gc-fired
                      framework-authority-meta
                      resource-events/gc-fired-handler)
-(events/reg-event-fx :rf.resource.internal/stale-suppressed
+(events/reg-event :rf.resource.internal/stale-suppressed
                      framework-authority-meta
                      resource-events/stale-suppressed-handler)
 
@@ -412,16 +412,16 @@
 ;; replay for free. The internal replies carry the verification payload
 ;; (instance id + work-id + generation). User code MUST NOT dispatch the
 ;; internal replies.
-(events/reg-event-fx :rf.mutation/execute
+(events/reg-event :rf.mutation/execute
                      generation-meta
                      mutation-events/execute-handler)
-(events/reg-event-fx :rf.mutation/clear
+(events/reg-event :rf.mutation/clear
                      framework-authority-meta
                      mutation-events/clear-handler)
-(events/reg-event-fx :rf.mutation.internal/succeeded
+(events/reg-event :rf.mutation.internal/succeeded
                      framework-authority-meta
                      mutation-events/succeeded-handler)
-(events/reg-event-fx :rf.mutation.internal/failed
+(events/reg-event :rf.mutation.internal/failed
                      framework-authority-meta
                      mutation-events/failed-handler)
 

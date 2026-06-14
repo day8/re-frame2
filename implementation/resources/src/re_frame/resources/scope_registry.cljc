@@ -489,7 +489,7 @@
   EP-0010-coherent causal input) and pass it to `:rf.resource/clear-scope`
   concretely:
 
-      (rf/reg-event-fx :auth/logout
+      (rf/reg-event :auth/logout
         (fn [{:keys [db]} _]
           (let [old (rf/resolve-resource-scope db :realworld/session)]
             {:db (dissoc db :auth)

@@ -158,13 +158,13 @@
 ;; :rf.route.internal/settle-transition — Spec 012 §Per-route data
 ;; loading §2 FIFO settle. EP-0001 (rf2-vzld77): the route slice is durable
 ;; runtime-db state, so this is a runtime-db event-fx handler.
-(events/reg-event-fx :rf.route.internal/settle-transition
+(events/reg-event :rf.route.internal/settle-transition
                      framework-authority-meta
                      routing-events/settle-transition-handler)
 
 ;; :rf.route.internal/on-match-error — Spec 012 §Per-route error
 ;; handling.
-(events/reg-event-fx :rf.route.internal/on-match-error
+(events/reg-event :rf.route.internal/on-match-error
                      framework-authority-meta
                      on-match-error/on-match-error-handler)
 
@@ -227,33 +227,33 @@
 ;; mints a pending-nav id on a block), so it declares the recordable
 ;; pending-nav allocation cofx; `:rf.route/continue` / `:rf.route/cancel` /
 ;; `:rf.route/navigation-blocked` never allocate, so they don't.
-(events/reg-event-fx :rf/url-requested
+(events/reg-event :rf/url-requested
                      url-requested-meta
                      can-leave/url-requested-handler)
-(events/reg-event-fx :rf.route/navigation-blocked
+(events/reg-event :rf.route/navigation-blocked
                      framework-authority-meta
                      can-leave/navigation-blocked-handler)
-(events/reg-event-fx :rf.route/continue
+(events/reg-event :rf.route/continue
                      framework-authority-meta
                      can-leave/continue-handler)
-(events/reg-event-fx :rf.route/cancel
+(events/reg-event :rf.route/cancel
                      framework-authority-meta
                      can-leave/cancel-handler)
 
 ;; :rf.route/navigate — Spec 012 §Navigation is an event. Declares both
 ;; recordable allocation cofx (mints the nav-token on commit + any block's
 ;; pending-nav id).
-(events/reg-event-fx :rf.route/navigate
+(events/reg-event :rf.route/navigate
                      nav-commit-meta
                      navigate/navigate-handler)
 
 ;; :rf.route/transitioned + :rf.route/handle-url-change — Spec 012 §URL
 ;; changes are events. Both declare both recordable allocation cofx (mint the
 ;; nav-token on commit + any block's pending-nav id).
-(events/reg-event-fx :rf.route/transitioned
+(events/reg-event :rf.route/transitioned
                      nav-commit-meta
                      url-change/transitioned-handler)
-(events/reg-event-fx :rf.route/handle-url-change
+(events/reg-event :rf.route/handle-url-change
                      nav-commit-meta
                      url-change/handle-url-change-handler)
 

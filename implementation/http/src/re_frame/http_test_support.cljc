@@ -315,7 +315,7 @@
 
 (def ^:private deliver-canned-reply-id :rf.http/deliver-canned-reply)
 
-(events/reg-event-fx deliver-canned-reply-id
+(events/reg-event deliver-canned-reply-id
   {:doc "Framework-private (rf2-j1mo4). Delivers a canned HTTP reply, optionally
          after an `:after-ms` delay. Dispatched by the `:rf.http/managed-canned-*`
          fxs when their args-map carries a positive `:after-ms`; self-recurses
