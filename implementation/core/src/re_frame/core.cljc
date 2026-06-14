@@ -152,7 +152,7 @@
                                     reg-error-projector reg-head
                                     reg-http-interceptor
                                     reg-view reg-machine defmachine
-                                    dispatch dispatch-sync subscribe inject-cofx
+                                    dispatch dispatch-sync subscribe
                                     ->interceptor
                                     with-frame with-new-frame frame-bound-fn
                                     with-fx-overrides
@@ -838,14 +838,15 @@
   ([query-v]            (subs/subscribe query-v))
   ([frame-id query-v]   (subs/subscribe frame-id query-v)))
 
-(defn inject-cofx*
-  "REMOVED in EP-0017 (no alias). The fn form of the removed `inject-cofx`;
-  calling it is the hard error `:rf.error/inject-cofx-removed` naming
-  `:rf.cofx/requires` as the replacement (fires in production too). Declare
-  coeffects on the handler's registration metadata
-  (`{:rf.cofx/requires [...]}`) instead. See `re-frame.cofx/inject-cofx`."
-  [& args]
-  (apply cofx/inject-cofx args))
+;; `inject-cofx` / `inject-cofx*` are NOT on the public facade (EP-0017,
+;; rf2-w9xyx1). The interceptor idiom was removed; coeffect delivery is
+;; declared with `:rf.cofx/requires`. The migration alarm survives as the
+;; private hard-error thrower `re-frame.cofx/inject-cofx` (a stale call to
+;; that namespace-internal var still raises `:rf.error/inject-cofx-removed`,
+;; an always-on catalogue error naming `:rf.cofx/requires`), but a removed
+;; surface no longer occupies the canonical public API — no facade var, no
+;; api-manifest row. See spec/001-Registration.md §`inject-cofx` is removed
+;; and docs/api/15-removed.md.
 
 #?(:clj
    (defmacro dispatch
@@ -901,23 +902,8 @@
       (csm/build-subscribe-form (meta &form) (symbol (str (ns-name *ns*))) *file*
                                 frame-id query-v))))
 
-#?(:clj
-   (defmacro inject-cofx
-     "REMOVED in EP-0017 (no alias). Was the interceptor-vector idiom for
-     consuming a registered cofx; calling it is now the hard error
-     `:rf.error/inject-cofx-removed` naming `:rf.cofx/requires` as the
-     replacement (fires in production too). Declare the coeffect on the
-     handler's registration metadata instead —
-     `(rf/reg-event-fx :id {:rf.cofx/requires [:your/cofx]} (fn [{:keys [...]} ev] ...))`
-     — and the value arrives flat under its id in the coeffects map. See
-     `re-frame.cofx/inject-cofx` and spec/001-Registration.md §`inject-cofx`
-     is removed.
-
-     The macro expands to a call of the throwing `inject-cofx*` stub so a
-     stale call site fails loudly with the actionable retirement error rather
-     than an opaque \"no such var\"."
-     [& args]
-     `(re-frame.core/inject-cofx* ~@args)))
+;; (`inject-cofx` macro removed from the public facade — rf2-w9xyx1; see the
+;; comment by `subscribe*` above.)
 
 ;; ---- frame-handle (the keystone) + frame-aware closures ------------------
 ;;

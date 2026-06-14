@@ -98,8 +98,10 @@
        (gate stamped plain))))
 
 ;; `build-inject-cofx-form` was retired with `inject-cofx` (EP-0017 slice
-;; A.3): the macro now expands directly to the throwing `inject-cofx*` stub
-;; (no call-site interceptor to build), so the dedicated builder is gone.
+;; A.3): there was no call-site interceptor to build, so the dedicated builder
+;; is gone. rf2-w9xyx1 then removed the `inject-cofx` macro / `inject-cofx*`
+;; fn from the public facade entirely (the migration alarm survives on the
+;; private thrower `re-frame.cofx/inject-cofx`).
 
 ;; ---- ->interceptor (definition-site coord capture, rf2-siheh) ------------
 ;;
@@ -112,7 +114,8 @@
 ;; didn't exist — `handler-meta :interceptor` resolves nothing, interceptors
 ;; not being a registrar kind).
 ;;
-;; The fix mirrors the `inject-cofx` (macro) / `inject-cofx*` (fn) pair:
+;; The fix mirrors the macro / `*`-fn pair pattern used across the facade
+;; (`dispatch` / `dispatch*`, `subscribe` / `subscribe*`):
 ;; `->interceptor` becomes a macro that captures `(meta &form)` →
 ;; `:source-coord` (riding the SAME `coords-form` / `prod-coords-form`
 ;; absolutise path — rf2-wvsxg — as every other reg-* / call-site coord)

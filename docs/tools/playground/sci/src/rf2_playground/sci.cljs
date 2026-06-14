@@ -52,7 +52,7 @@
   exposes the machine aliases under their plain names; the SCI
   `re-frame.core` namespace below adds a `reg-machine` entry bound to
   the `reg-machine*` fn-alias (same pattern as the
-  `dispatch`/`subscribe`/`inject-cofx` macro→fn shims) so the guide's
+  `dispatch`/`subscribe` macro→fn shims) so the guide's
   ch12 cells can write `(rf/reg-machine ...)` exactly as in real code
   rather than the macro-less `reg-machine*` variant."
   (:require [sci.core :as sci]
@@ -103,15 +103,17 @@
 ;; that includes the reg-* fn-aliases (reg-event-db, reg-event-fx,
 ;; reg-sub, reg-fx, reg-cofx, ...), plus init!, configure, clear-event,
 ;; current-frame-id, frame-handle, frame-bound-fn*, app-db-value, etc.
-;; The macro-only public names (dispatch/dispatch-sync/subscribe/
-;; inject-cofx) have no same-named runtime var so they are NOT in the
-;; copy; we add them below.
+;; The macro-only public names (dispatch/dispatch-sync/subscribe) have no
+;; same-named runtime var so they are NOT in the copy; we add them below.
+;; (`inject-cofx` was removed from the public facade in EP-0017 / rf2-w9xyx1
+;; — coeffect delivery is the `:rf.cofx/requires` declaration — so there is
+;; no public surface for a cell to reach and no SCI binding for it.)
 ;;
 ;; Machines (rf2-ldgpd): `reg-machine` is also a JVM-only macro on the
 ;; public surface (per-element source-coord stamping at expansion time);
 ;; CLJS code reaches it via the plain-fn alias `reg-machine*`. For cells
 ;; the source-coord story doesn't apply, so we bind `reg-machine` to
-;; `reg-machine*` exactly as we do for `dispatch`/`subscribe`/`inject-cofx`.
+;; `reg-machine*` exactly as we do for `dispatch`/`subscribe`.
 ;; A cell calls `(rf/reg-machine :auth/flow login-flow)` and resolves to
 ;; the runtime fn — same shape as the chapter's prose.
 (def re-frame-core-namespace
@@ -120,7 +122,6 @@
    {'dispatch      (sci/copy-var playground-dispatch rf-ns)
     'dispatch-sync (sci/copy-var playground-dispatch-sync rf-ns)
     'subscribe     (sci/copy-var playground-subscribe rf-ns)
-    'inject-cofx   (sci/copy-var rf/inject-cofx* rf-ns)
     'reg-machine   (sci/copy-var rf/reg-machine* rf-ns)}))
 
 (def r-ns (sci/create-ns 'reagent2.core nil))
