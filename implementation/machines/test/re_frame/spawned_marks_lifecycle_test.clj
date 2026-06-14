@@ -200,15 +200,33 @@
             ":sensitive? slot rehydrated, snapshot-rooted")
         (is (= #{[:data :blob]} (set (:large m)))
             ":large? slot rehydrated"))
-      ;; And a sensitive :data slot redacts again post-restore.
+      ;; And a sensitive :data slot redacts again post-restore. A spawned
+      ;; instance's live transition row addresses itself under :actor-id (the
+      ;; PREFERRED `(or (:actor-id …) (:machine-id …))` branch production hits —
+      ;; transition.cljc:348/1681), so the post-restore redaction is asserted on
+      ;; the realistic :actor-id key (rf2-sxmeqs); a parallel :machine-id row
+      ;; below pins the fallback branch resolves the SAME rehydrated marks.
+      (let [ev  {:operation :rf.machine/transition
+                 :tags      {:actor-id spawned-id
+                             :frame    :rf/default
+                             :after    {:state :authed
+                                        :data  {:retries 1
+                                                :token   "secret-jwt-restored"
+                                                :blob    nil}}}}
+            out (marks/project-trace-event ev)]
+        (is (= :rf/redacted (get-in out [:tags :after :data :token]))
+            "the rehydrated marks redact the sensitive slot post-restore (:actor-id branch)")
+        (is (not (.contains (pr-str out) "secret-jwt-restored"))))
+      ;; FALLBACK branch: the same rehydrated per-instance marks also resolve
+      ;; when the row is keyed under :machine-id (the legacy id key).
       (let [ev  {:operation :rf.machine/transition
                  :tags      {:machine-id spawned-id
                              :frame      :rf/default
                              :after      {:state :authed
                                           :data  {:retries 1
-                                                  :token   "secret-jwt-restored"
+                                                  :token   "secret-jwt-fallback"
                                                   :blob    nil}}}}
             out (marks/project-trace-event ev)]
         (is (= :rf/redacted (get-in out [:tags :after :data :token]))
-            "the rehydrated marks redact the sensitive slot post-restore")
-        (is (not (.contains (pr-str out) "secret-jwt-restored")))))))
+            "the rehydrated marks redact via the :machine-id fallback branch too")
+        (is (not (.contains (pr-str out) "secret-jwt-fallback")))))))

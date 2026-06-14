@@ -126,14 +126,22 @@
   ;; Plain machine — no marks at all.
   (marks/register-marks! :event plain-machine-id {}))
 
-(defn- machine-action-exception-event
+(defn- machine-action-exception-event*
   "Build a realistic `:rf.error/machine-action-exception` trace envelope
-  (the shape `trace/build-event` produces) carrying `machine-id` and the
-  sentinel-bearing `:exception-data`."
-  [machine-id]
+  (the shape `trace/build-event` produces) carrying the sentinel-bearing
+  `:exception-data`, with the addressed id keyed under `id-key`.
+
+  `project-machine-error-tags` resolves the schema lookup via
+  `(or (:actor-id tags) (:machine-id tags))` (rf2-yyvtk5): a LIVE actor's
+  exception row addresses the throwing instance under `:actor-id` (the
+  preferred branch every production emit site now hits —
+  registration.cljc:99), while `:machine-id` is the legacy fallback. We
+  parameterise `id-key` so BOTH branches of that `or` are exercised
+  (rf2-sxmeqs — the `:actor-id` branch had zero coverage)."
+  [id-key machine-id]
   {:operation :rf.error/machine-action-exception
    :op-type   :error
-   :tags      {:machine-id        machine-id
+   :tags      {id-key             machine-id
                :action-id         :do/thing
                :state-path        [:running]
                :event             [machine-id [:tick]]
@@ -141,6 +149,12 @@
                :exception-data    {:user-token sentinel :doc-id [sentinel]}
                :reason            "Machine action threw."
                :recovery          :no-recovery}})
+
+(defn- machine-action-exception-event
+  "The legacy `:machine-id`-keyed envelope (the `:machine-id` FALLBACK
+  branch of the `(or (:actor-id …) (:machine-id …))` lookup)."
+  [machine-id]
+  (machine-action-exception-event* :machine-id machine-id))
 
 (deftest machine-exception-data-redacted-for-sensitive-machine
   (testing "rf2-zsm03 — a sensitive machine's :exception-data is elided to
@@ -183,6 +197,64 @@
       (is (not (contains? tags :sensitive?)) "no :sensitive? stamp"))))
 
 ;; ---------------------------------------------------------------------------
+;; SITE 1 — :actor-id PREFERRED branch (rf2-sxmeqs).
+;;
+;; Every production emit of :rf.error/machine-action-exception addresses the
+;; throwing LIVE actor instance under :actor-id (registration.cljc:99); the
+;; schema lookup `(or (:actor-id tags) (:machine-id tags))` (marks.cljc:1419)
+;; PREFERS that branch. The fixtures above only exercise the :machine-id
+;; FALLBACK; these mirror them on the :actor-id key so the privacy-critical
+;; preferred branch is proven to redact identically.
+;; ---------------------------------------------------------------------------
+
+(deftest machine-exception-data-redacted-for-sensitive-actor
+  (testing "rf2-sxmeqs — an :actor-id-keyed sensitive-machine exception (the
+            PREFERRED lookup branch, the one production emits) has its
+            :exception-data elided to :rf/redacted at the egress chokepoint,
+            :sensitive? stamped, and the sentinel never survives"
+    (declare-machine-marks!)
+    (let [out  (marks/project-trace-event
+                 (machine-action-exception-event* :actor-id sensitive-machine-id))
+          tags (:tags out)]
+      (is (= :rf/redacted (:exception-data tags)) ":exception-data redacted")
+      (is (true? (:sensitive? tags)) ":sensitive? stamped on the tags")
+      (is (not (contains-sentinel? out))
+          (str "the sentinel leaked into the :actor-id-keyed exception trace: "
+               (pr-str tags)))
+      ;; The :actor-id structural slot survives — consumers locate the failure.
+      (is (= sensitive-machine-id (:actor-id tags)) ":actor-id kept")
+      (is (= :do/thing (:action-id tags)) ":action-id kept")
+      (is (= "boom" (:exception-message tags)) ":exception-message kept"))))
+
+(deftest machine-exception-data-verbatim-for-plain-actor
+  (testing "rf2-sxmeqs — an :actor-id-keyed machine with NO :sensitive mark
+            rides :exception-data verbatim on the preferred branch (the seam
+            is precise, not a blanket scrub)"
+    (declare-machine-marks!)
+    (let [out  (marks/project-trace-event
+                 (machine-action-exception-event* :actor-id plain-machine-id))
+          tags (:tags out)]
+      (is (map? (:exception-data tags)) ":exception-data NOT redacted")
+      (is (not (contains? tags :sensitive?))
+          "no :sensitive? stamp when the machine declares nothing sensitive"))))
+
+(deftest actor-id-takes-precedence-over-machine-id
+  (testing "rf2-sxmeqs — when BOTH keys are present the schema lookup PREFERS
+            :actor-id: an :actor-id pointing at the SENSITIVE machine redacts
+            even though :machine-id points at the PLAIN one (proves the
+            `(or (:actor-id …) (:machine-id …))` precedence, not the fallback)"
+    (declare-machine-marks!)
+    (let [ev   (-> (machine-action-exception-event* :actor-id sensitive-machine-id)
+                   (assoc-in [:tags :machine-id] plain-machine-id))
+          out  (marks/project-trace-event ev)
+          tags (:tags out)]
+      (is (= :rf/redacted (:exception-data tags))
+          ":exception-data redacted via the PREFERRED :actor-id (sensitive)")
+      (is (true? (:sensitive? tags)) ":sensitive? stamped from the :actor-id machine")
+      (is (not (contains-sentinel? out))
+          "the sentinel never survives when :actor-id wins the lookup"))))
+
+;; ---------------------------------------------------------------------------
 ;; SITE 1 PROPERTY — across arbitrary collection/map nestings of the
 ;; sentinel inside :exception-data, a sensitive machine NEVER egresses it.
 ;; ---------------------------------------------------------------------------
@@ -208,23 +280,27 @@
       ((gen-ex-data (inc depth)) rng1))))
 
 (deftest sensitive-machine-redacts-ex-data-at-arbitrary-nesting
-  (testing "rf2-zsm03 — across arbitrary nestings of the sentinel inside
-            :exception-data, a sensitive machine elides the WHOLE slot and
-            stamps :sensitive?; the sentinel never survives"
+  (testing "rf2-zsm03 / rf2-sxmeqs — across arbitrary nestings of the sentinel
+            inside :exception-data, a sensitive machine elides the WHOLE slot
+            and stamps :sensitive?; the sentinel never survives. Run over BOTH
+            id-keys so the preferred :actor-id branch (production) AND the
+            :machine-id fallback both get property coverage."
     (declare-machine-marks!)
-    (let [result (gen/for-all
-                   gen-nested-ex-data 120 41
-                   (fn [ex-data]
-                     (let [ev   (assoc-in (machine-action-exception-event
-                                            sensitive-machine-id)
-                                          [:tags :exception-data] ex-data)
-                           out  (marks/project-trace-event ev)]
-                       (and (= :rf/redacted (-> out :tags :exception-data))
-                            (true? (-> out :tags :sensitive?))
-                            (not (contains-sentinel? out))))))]
-      (is (nil? result)
-          (str "a sensitive machine leaked :exception-data for a generated "
-               "nesting: " (pr-str (when result (dissoc result :threw))))))))
+    (doseq [id-key [:actor-id :machine-id]]
+      (let [result (gen/for-all
+                     gen-nested-ex-data 120 41
+                     (fn [ex-data]
+                       (let [ev   (assoc-in (machine-action-exception-event*
+                                              id-key sensitive-machine-id)
+                                            [:tags :exception-data] ex-data)
+                             out  (marks/project-trace-event ev)]
+                         (and (= :rf/redacted (-> out :tags :exception-data))
+                              (true? (-> out :tags :sensitive?))
+                              (not (contains-sentinel? out))))))]
+        (is (nil? result)
+            (str "a sensitive machine leaked :exception-data for a generated "
+                 "nesting under " id-key ": "
+                 (pr-str (when result (dissoc result :threw)))))))))
 
 ;; ===========================================================================
 ;; SITE 2 — :rf.route/navigate :error
