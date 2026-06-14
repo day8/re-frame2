@@ -144,7 +144,12 @@ it('slim testbed core requires the SLIM substrate, not stock Reagent', () => {
 });
 
 it('slim testbed core is idiomatic re-frame2 (app-db + events + subs)', () => {
-  assert.ok(/reg-event-db/.test(CORE_SRC), 'no reg-event-db (events) in slim testbed core');
+  // EP-0018 Z: `reg-event` is the one-form event-registration API; the
+  // per-kind `reg-event-db`/`-fx`/`-ctx` wrappers were removed (throwing
+  // stubs). Match `(reg-event <id> ...)` — the trailing `\s` requires the
+  // bare one-form symbol and is NOT satisfied by a `reg-event-db` (etc.)
+  // wrapper name slipping back in.
+  assert.ok(/reg-event\s/.test(CORE_SRC), 'no reg-event (events) in slim testbed core');
   assert.ok(/reg-sub/.test(CORE_SRC), 'no reg-sub (subs) in slim testbed core');
   assert.ok(/reg-view/.test(CORE_SRC), 'no reg-view in slim testbed core');
   // No raw atoms threaded through views — the value flows through app-db.
