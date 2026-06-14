@@ -413,17 +413,17 @@ const DEV_ONLY_SENTINELS = [
   //      the prod bundle (the assoc branch DCEs, dropping the literal
   //      from events.cljc's compiled output).
   //   2. A distinctive source-string fragment minted in the elision-
-  //      probe. The probe registers
-  //        (rf/reg-event-db :probe/cs-event (fn [db _ev] db))
+  //      probe. The probe registers (EP-0018 — the ONE reg-event form)
+  //        (rf/reg-event :probe/cs-event (fn [{:keys [db]} _ev] {:db db}))
   //      under DEBUG=true the captured form-source carries the byte
-  //      sequence `:probe/cs-event (fn [db _ev]`; under DEBUG=false
+  //      sequence `:probe/cs-event (fn [{:keys [db]} _ev]`; under DEBUG=false
   //      the macro-emitted `if interop/debug-enabled? ~src-string nil`
   //      gate DCEs the source-string literal entirely. The fragment is
   //      distinctive enough that a global grep is unambiguous.
   { source: 're-frame.events/merge-form-source (rf.handler/source slot keyword)',
     sentinel: 'rf.handler/source' },
-  { source: 're-frame.core/reg-event-db macro (form-source pr-str literal)',
-    sentinel: ':probe/cs-event (fn [db _ev]' },
+  { source: 're-frame.core/reg-event macro (form-source pr-str literal)',
+    sentinel: ':probe/cs-event (fn [{:keys [db]} _ev]' },
   // re-frame.core/reg-* macros — pure-documentation registration metadata
   // (`:doc`) elision (Spec 001 §Production elision contract, rf2-9wwkcm).
   // `:doc` is the one PURE-documentation registration-metadata key: zero
@@ -443,8 +443,8 @@ const DEV_ONLY_SENTINELS = [
   //      what the bundle grep below asserts.
   //
   // The elision-probe's `touch-doc-metadata!` registers
-  //   (rf/reg-event-db :probe/doc-event
-  //     {:doc "rf2-9wwkcm-doc-elision-sentinel: …"} (fn [db _ev] db))
+  //   (rf/reg-event :probe/doc-event
+  //     {:doc "rf2-9wwkcm-doc-elision-sentinel: …"} (fn [{:keys [db]} _ev] {:db db}))
   // Under DEBUG=true the literal-map gate's dev arm keeps the `:doc` string
   // (it also rides the form-source `pr-str`), so the sentinel lands in the
   // control bundle; under DEBUG=false BOTH the literal-map gate's dev arm and
