@@ -1,21 +1,35 @@
 # EP-0022: Registered Interceptors
 
-Status: accepted
+Status: final
 Type: standards-track
 
-> **`accepted` means the decisions are settled; the build is pending (flip
-> recorded 2026-06-15, Mike, in-session).** The chain grammar and the five
-> open-issue decisions are settled per the [§Recommendation](#recommendation);
-> the action epic that lands the changes in the normative spec is the next
-> governance step (`rf2-0adhqs`, sequenced behind EP-0018).
+> **`final` means the decisions are settled.** The five open-issue decisions are
+> ruled (see [§Open Issues](#open-issues) and the [§Recommendation](#recommendation))
+> and the normative homes named below govern (where this EP and the spec differ,
+> the spec governs).
 
 > This EP makes interceptors a first-class registered program member:
 > application-authored interceptor behavior is registered with
 > `reg-interceptor`, and event/frame interceptor chains contain serializable
 > interceptor references rather than inline interceptor values. Its normative
 > home is `spec/001-Registration.md`, `spec/002-Frames.md`,
-> `spec/Conventions.md`, `API.md`, and the v1 migration guide. The action wave
-> settles the public chain grammar and lands the spec/implementation changes.
+> `spec/Conventions.md`, `API.md`, and the v1 migration guide.
+>
+> **Graduated `accepted → final` 2026-06-15 (Mike, operator graduation; epic
+> `rf2-0adhqs`).** The five open-issue decisions are ruled (see
+> [§Open Issues](#open-issues)): **(1)** the standard set is path-only; **(2)**
+> additive dispatch-opts `:interceptors` is removed; **(3)** inline interceptor
+> values are rejected even for tiny local cases; **(4)** `->interceptor` is no
+> longer public; **(5)** `path` no-op preservation is normative. The registered-
+> interceptor surface has **shipped and is verified**: `reg-interceptor` is the
+> one public authoring form; event/frame chains carry serializable refs only
+> (inline values are removed and fail loudly with
+> `:rf.error/inline-interceptor-removed`); the standard `:rf.interceptor/path`,
+> exact-reference `:interceptor-overrides`, and `:rf.schema/at-boundary` are
+> registered; `->interceptor` is internal-only; propagation across examples,
+> skills, guide, and tools is done; the correctness review is **CLEAN**; and the
+> coverage gaps are closed. `final` asserts the **decisions are settled** and the
+> normative homes govern (where this EP and the spec differ, the spec governs).
 
 ## Abstract
 
@@ -888,8 +902,8 @@ the shape this EP removes.
 
 ### Migration-document updates required
 
-If this EP is accepted, `migration/from-re-frame-v1/README.md` needs a
-focused rewrite:
+On graduation, `migration/from-re-frame-v1/README.md` received a focused
+rewrite:
 
 - M-70 becomes "event interceptor chains use registered interceptor refs", not
   merely "chains live in metadata `:interceptors`".
@@ -900,10 +914,10 @@ focused rewrite:
 - The "What stays the same" list calls out this carve-out alongside EP-0018's
   event-registration collapse.
 
-## Bead Plan / Reference Implementation
+## Bead Plan / Reference Implementation (shipped under epic `rf2-0adhqs`)
 
-No implementation beads are filed at proposal time. If accepted, file a wave
-with these slices.
+The reference implementation shipped as the action wave below. The slices are
+retained as the implementation record.
 
 ### B1. Spec and API contract
 
@@ -971,8 +985,9 @@ program facts.
 
 ## Open Issues
 
-The design is intentionally narrow. The following are the only operator
-decisions this proposal needs before acceptance.
+The design is intentionally narrow. The following were the only operator
+decisions this proposal needed; all five were **ruled as recommended** at
+graduation (`accepted → final`, 2026-06-15, Mike).
 
 1. **Should the standard set be path-only?**
 
