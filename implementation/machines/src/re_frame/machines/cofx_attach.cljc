@@ -298,22 +298,57 @@
     (vector? target)  (vec target)
     :else             nil))
 
-(defn- always-diet-for-state
-  "The `:always` closure diet for the active state at `path` within `states`:
-  the concatenation of parsed diets across every `:always` entry's `:guard` /
-  `:action` on every node along the path (leaf→root), since an `:always`
-  declared at any active ancestor can fire after the macrostep settles on
-  this configuration. `by-entry` is the `index-named-entries` map. Returns a
-  vector of `parse-requires` entries (deduped by the caller's `add!`)."
-  [by-entry states path]
-  (let [diet (transient [])]
+(defn- always-step-for-state
+  "ONE `:always` settle step for the active state at `path` within `states`:
+  across every `:always` entry's `:guard` / `:action` on every node along the
+  path (leaf→root), accumulate (1) the parsed diets into the transient `diet`,
+  and (2) every `:always` target that hop COULD settle onto, returned as a
+  vector of absolute paths. A target is resolved from the node the `:always`
+  was DECLARED on (`prefix`), since a bare-keyword `:target` is a sibling of
+  the declaring state. `by-entry` is the `index-named-entries` map. The
+  per-hop helper `always-diet-for-state` drives to a fixed point."
+  [by-entry states path diet]
+  (let [targets (transient [])]
     (doseq [i (range (count path))]
       (let [prefix (subvec (vec path) 0 (inc i))
             node   (node-at states prefix)]
         (doseq [e (always-entries node)]
           (doseq [d (entry-diet by-entry :guards  (:guard e))]  (conj! diet d))
-          (doseq [d (entry-diet by-entry :actions (:action e))] (conj! diet d)))))
-    (persistent! diet)))
+          (doseq [d (entry-diet by-entry :actions (:action e))] (conj! diet d))
+          (when-let [tgt (resolve-target-path states prefix (:target e))]
+            (conj! targets tgt)))))
+    (persistent! targets)))
+
+(defn- always-diet-for-state
+  "The `:always` closure diet for the active state at `path` within `states`:
+  the concatenation of parsed diets across every `:always` entry's `:guard` /
+  `:action` reachable as the `:always` cascade settles to a FIXED POINT from
+  this configuration. An `:always` declared at any active ancestor can fire
+  after the macrostep settles, and — critically — an `:always` whose guard
+  passes settles to its `:target`, whose OWN `:always` may then fire, and so
+  on (`transition/drain-to-fixed-point` runs every `:always` hop within ONE
+  macrostep). The static ensure-set must therefore chase every `:always`
+  `:target` to the same fixed point the runtime settles, so a guard/action
+  reached at chain depth >=2 (A --go--> B, B :always--> C, C :always {:guard
+  g-requiring-cofx}) still has its declared `:rf.cofx/requires` ensured BEFORE
+  the macrostep runs (the ensure step runs ONCE, `registration/ensure-ctx-
+  cofx`). `by-entry` is the `index-named-entries` map; `visited` tracks
+  resolved state-paths so an `:always` cycle terminates. Returns a vector of
+  `parse-requires` entries (deduped by the caller's `add!`)."
+  [by-entry states path]
+  (let [diet (transient [])]
+    (loop [worklist [(vec path)]
+           visited  #{}]
+      (if-let [p (peek worklist)]
+        (let [rest* (pop worklist)]
+          (if (contains? visited p)
+            (recur rest* visited)
+            (let [targets (always-step-for-state by-entry states p diet)
+                  next*   (reduce (fn [wl t]
+                                    (if (contains? visited t) wl (conj wl t)))
+                                  rest* targets)]
+              (recur next* (conj visited p)))))
+        (persistent! diet)))))
 
 (defn- scope-for
   "Return the `:states` scope a snapshot state resolves within. For a flat /

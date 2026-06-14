@@ -183,6 +183,112 @@
           "the ensure-set for [:go] at :idle includes the :always-closure
            fact reachable through the :pending target"))))
 
+;; ---- multi-hop :always chain (rf2-h9gwkx) ---------------------------------
+;;
+;; The single-hop cases above reach an :always one hop from the candidate
+;; target. The runtime, however, settles :always to a MULTI-HOP fixed point
+;; in ONE macrostep (transition/drain-to-fixed-point), while the ensure step
+;; runs ONCE before that macrostep (registration/ensure-ctx-cofx). A
+;; :rf.cofx/requires declared on an :always guard/action reached at chain
+;; depth >=2 (A --go--> B, B :always--> C, C :always {:guard g-requiring-cofx})
+;; must therefore be ensured up front; before rf2-h9gwkx the static closure
+;; chased only ONE :always hop, so the depth>=2 fact was silently un-ensured
+;; (the guard read nil with no missing-required throw — replay-nondeterminism).
+
+(deftest ensure-set-for-follows-multi-hop-always-chain
+  (testing "white-box: ensure-set-for chases :always targets to a FIXED POINT,
+            so a depth>=2 :always-reached guard's :rf.cofx/requires is in the
+            ensure-set (not just the one-hop case)"
+    (rf/reg-cofx :test/deep-roll {:recordable? true} (fn [] 6))
+    (let [m (cofx-attach/index-ensure-sets
+              {:initial :a
+               :guards  {;; the deep guard sits TWO :always hops from :a's target
+                         :deep? {:rf.cofx/requires [:test/deep-roll]
+                                 :fn (fn [{cofx :rf.cofx}]
+                                       (= 6 (:test/deep-roll cofx)))}}
+               :states  {:a {:on {:go :b}}
+                         ;; hop 1: :b's :always settles onto :c (no requires)
+                         :b {:always {:target :c}}
+                         ;; hop 2: :c's :always guard requires :test/deep-roll
+                         :c {:always {:guard :deep? :target :done}}
+                         :done {}}})
+          ;; active :a, [:go] → :b → (always) :c → (always, guarded) :done.
+          es (cofx-attach/ensure-set-for m {:state :a :data {}} [:go])]
+      (is (contains? (set (map :id es)) :test/deep-roll)
+          "the ensure-set chases B:always→C, then C:always's guard — the
+           depth>=2 fact is ensured, not dropped at the one-hop boundary"))))
+
+(deftest multi-hop-always-guard-reads-ensured-fact
+  (testing "end-to-end: a guard reached at :always chain depth>=2 reads the
+            GENERATED fact (never nil) — the ensure step settled the same
+            fixed point the runtime macrostep does, so the deep guard selects
+            the right transition on the ensured value"
+    (rf/reg-cofx :test/deep-gen {:recordable? true} (fn [] 6))
+    (let [seen (atom ::unset)
+          m {:initial :a
+             :data    {}
+             :guards  {:deep-rolled-six?
+                       {:rf.cofx/requires [:test/deep-gen]
+                        :fn (fn [{cofx :rf.cofx}]
+                              (reset! seen (:test/deep-gen cofx))
+                              (= 6 (:test/deep-gen cofx)))}}
+             :states  {:a {:on {:go :b}}
+                       :b {:always {:target :c}}
+                       :c {:always {:guard :deep-rolled-six? :target :done}}
+                       :done {}}}]
+      (rf/reg-machine :attach/multi-hop-gen m)
+      ;; No :test/deep-gen on the token — the ensure step must generate it
+      ;; BEFORE the macrostep settles A→B→(always)C→(always,guarded)done.
+      (rf/dispatch-sync [:attach/multi-hop-gen [:go]]
+                        {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
+      (is (= 6 @seen)
+          "the depth>=2 :always guard read the GENERATED fact (not nil) —
+           ensured before the macrostep settled the multi-hop :always chain")
+      (is (= :done (mtest/machine-state :attach/multi-hop-gen))
+          "the deep guard fired on the ensured value, settling the chain"))))
+
+(deftest multi-hop-always-missing-provided-fact-throws
+  (testing "a PROVIDED (non-generator-backed) recordable fact required by a
+            depth>=2 :always guard, absent from the in-flight record, now
+            raises :rf.error/missing-required-cofx from the dispatch-time
+            ensure step — the depth>=2 diet IS in the ensure-set, so the
+            ensure step's missing-required check fires rather than the guard
+            SILENTLY reading nil (the rf2-h9gwkx hole). Drives the real
+            ensure path (`cofx-attach/ensure-cofx`, run by `ensure-ctx-cofx`
+            before the macrostep) so the throw surfaces verbatim rather than
+            being routed into the dispatch-sync error pipeline."
+    ;; :rf/time-ms is recordable + provided (no generator) — a strict
+    ;; required fact. Declared on a depth>=2 :always guard but NOT present on
+    ;; the record: the ensure step must surface missing-required, not nil.
+    (let [m (cofx-attach/index-ensure-sets
+              {:initial :a
+               :data    {}
+               :guards  {:needs-time?
+                         {:rf.cofx/requires [:rf/time-ms]
+                          :fn (fn [{cofx :rf.cofx}]
+                                (some? (:rf/time-ms cofx)))}}
+               :states  {:a {:on {:go :b}}
+                         :b {:always {:target :c}}
+                         :c {:always {:guard :needs-time? :target :done}}
+                         :done {}}})
+          ;; the empty record deliberately omits :rf/time-ms.
+          e (is (thrown? ExceptionInfo
+                         (cofx-attach/ensure-cofx
+                           m {:state :a :data {}} [:go]
+                           {} nil :attach/multi-hop-missing)))]
+      (is (= :rf.error/missing-required-cofx
+             (:rf.error/id (ex-data e)))
+          "the depth>=2 :always-required provided fact, absent, throws
+           missing-required (it WAS in the ensure-set) — not a silent nil")
+      ;; counter-check: before rf2-h9gwkx the depth>=2 fact was DROPPED from
+      ;; the ensure-set (one-hop closure), so this would have been an empty
+      ;; ensure-set → no-op → the guard later reads nil silently. Confirm the
+      ;; fact is now present in the derived set (the positive of the throw).
+      (is (contains? (set (map :id (cofx-attach/ensure-set-for
+                                     m {:state :a :data {}} [:go])))
+                     :rf/time-ms)
+          "the depth>=2 :always-guard's provided requires is in the ensure-set"))))
+
 (deftest no-requires-machine-ensure-set-empty
   (testing "a machine with no :rf.cofx/requires anywhere derives an empty
             ensure-set (the no-op fast path)"
