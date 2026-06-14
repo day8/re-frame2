@@ -7,7 +7,7 @@
   the manifest lookup was also keyed by bare var. The manifest carries the
   SAME bare var `adapter` for FOUR distinct namespaces
   (`re-frame.adapter.{reagent,uix,helix}` at tier `:adapter`, plus
-  `re-frame.ssr` at `:internal-public`). So a QUALIFIED row such as
+  `re-frame.ssr` at `:implementation`). So a QUALIFIED row such as
   `uix-adapter/adapter` could drift to a stale / wrong / unknown qualifier
   (`bogus-adapter/adapter`) and STILL pass, because some other manifest
   entry with bare name `adapter` carried the expected tier — a false-green
@@ -27,13 +27,13 @@
 
 ;; A minimal synthetic manifest reproducing the EXACT ambiguity the real
 ;; manifest has: the bare var `adapter` carried for four namespaces, three
-;; of them at tier :adapter and one (SSR) at :internal-public. Plus an
+;; of them at tier :adapter and one (SSR) at :implementation. Plus an
 ;; intentionally-bare var (`reg-event-db`) for the bare-row path.
 (def ^:private synthetic-rows
   [{:namespace "re-frame.adapter.reagent" :var "adapter" :tier :adapter}
    {:namespace "re-frame.adapter.uix"     :var "adapter" :tier :adapter}
    {:namespace "re-frame.adapter.helix"   :var "adapter" :tier :adapter}
-   {:namespace "re-frame.ssr"             :var "adapter" :tier :internal-public}
+   {:namespace "re-frame.ssr"             :var "adapter" :tier :implementation}
    {:namespace "re-frame.http"            :var "get"     :tier :advanced}
    {:namespace "re-frame.core"            :var "reg-event-db" :tier :front-porch}])
 
@@ -90,7 +90,7 @@
 (deftest wrong-but-real-namespace-qualifier-with-mismatched-tier-fails
   (testing "a qualifier that resolves to a REAL [ns var] pair whose tier
             disagrees with the API.md tier is a tier-mismatch, not a pass"
-    ;; re-frame.ssr/adapter exists but at :internal-public, not :adapter.
+    ;; re-frame.ssr/adapter exists but at :implementation, not :adapter.
     ;; A qualified row claiming :adapter for it must fail on tier even
     ;; though the [ns var] pair resolves.
     (let [problems (problems-for
@@ -98,7 +98,7 @@
                        :line 314 :raw "re-frame.ssr/adapter"}])]
       (is (= 1 (count problems)))
       (is (= :tier-mismatch (:kind (first problems))))
-      (is (= #{:internal-public} (:manifest-tiers (first problems)))))))
+      (is (= #{:implementation} (:manifest-tiers (first problems)))))))
 
 (deftest qualifier-does-not-mask-via-bare-name
   (testing "the qualified path NEVER falls back to bare-name latitude: a

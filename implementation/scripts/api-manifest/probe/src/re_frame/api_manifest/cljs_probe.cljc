@@ -46,12 +46,15 @@
 
   ## Why the adapters are `:fully-rowed` but the Xray mount surface is not
 
-  spec/API.md tiers the Xray `mount-*!` family `internal-public` and
-  declares the panel-helper functions beneath them \"otherwise
+  spec/API.md tiers the Xray `mount-*!` family `internal-public` (the
+  supported host-embed surface), the panel-leaf `Panel` reg-views
+  `implementation` (rf2-oekz6s — exported only so the shell composes them),
+  and declares the panel-helper functions beneath them \"otherwise
   unrowed-internal\" (§Tiering of cross-tool surfaces). So the Xray mount
   surface is a CURATED subset by design — only the rowed reads
   (`mounted?`) are manifest rows; the open/close/teardown host-embed
-  machinery is intentionally unrowed. The probe therefore verifies
+  machinery is intentionally unrowed. (The probe checks existence, not
+  tier, so these classifications do not change what it verifies.) The probe therefore verifies
   direction 1 (the curated rows still resolve) for the Xray surface but
   not direction 2 (full completeness), matching the spec's intent. The
   three adapter namespaces ARE their full documented public API, so they
