@@ -160,8 +160,8 @@
         (is (every? #(= :ten (:frame (:tags %))) cascade)
             "all events carry the destroyed frame's id")
         (is (= #{:flow/login :flow/checkout :flow/billing}
-               (set (map #(:machine-id (:tags %)) cascade)))
-            "every machine-id is signalled exactly once")
+               (set (map #(:actor-id (:tags %)) cascade)))
+            "every actor-id is signalled exactly once (rf2-ws5thu — the reaped live INSTANCE address; :machine-id reserved for the registered TYPE)")
         (is (= #{:authed :reviewing :collected}
                (set (map #(:last-state (:tags %)) cascade)))
             "each event carries that machine's last-state from the snapshot")

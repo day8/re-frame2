@@ -1467,7 +1467,13 @@
                (catch #?(:clj Throwable :cljs :default) _ nil)))
         (trace/emit! :rf.machine.lifecycle/destroyed :rf.machine.lifecycle/destroyed
                      {:frame      id
-                      :machine-id machine-id
+                      ;; rf2-ws5thu — the reaped actor's live INSTANCE address;
+                      ;; `:machine-id` is reserved for the registered TYPE. Must
+                      ;; match the machines-artefact orchestrator emit
+                      ;; (`lifecycle-fx/frame-destroy/emit-lifecycle-destroyed!`)
+                      ;; so the registrar-substrate row carries one tag shape
+                      ;; whether or not the machines artefact is loaded.
+                      :actor-id   machine-id
                       :last-state (:state snapshot)
                       :reason     :parent-frame-destroyed})))))
 
