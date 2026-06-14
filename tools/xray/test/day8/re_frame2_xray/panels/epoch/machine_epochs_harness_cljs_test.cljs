@@ -177,13 +177,28 @@
     ;; #5 — re-open, arm the hold (internal), then attempt the BLOCKED close.
     (drive! :door/main [:door/push])                    ; → :open
     (drive! :door/main [:door/hold])                    ; arm :held-open?
-    (let [rows (cascade (drive! :door/main [:door/close]))]
-      (is (= :fail (:outcome (first (rows-of-kind rows :guard))))
+    (let [rows      (cascade (drive! :door/main [:door/close]))
+          guard-row (first (rows-of-kind rows :guard))]
+      (is (= :fail (:outcome guard-row))
           "(a) :may-close? fails when held-open?")
       (is (= 1 (count (rows-of-kind rows :no-op)))
           "(b) the blocked guard is a no-op — one [NO OP] row")
       (is (empty? (rows-of-kind rows :transition))
-          "(c) blocked → NO transition row (suppressed beside the no-op)"))
+          "(c) blocked → NO transition row (suppressed beside the no-op)")
+      ;; rf2-35mwxv — the blocking guard is SURFACED in the cascade LIST (the
+      ;; shared lens + Epoch mini-pipeline), not only on the chart: the LIST
+      ;; carries a [GUARD] row NAMING the blocking guard with its fail outcome
+      ;; chip, so the operator can answer "which guard blocked my event?" from
+      ;; the list. Driven against the REAL substrate's emitted traces.
+      (is (= :may-close? (:guard-id guard-row))
+          "rf2-35mwxv — the LIST guard row NAMES the blocking guard")
+      (is (= ":may-close?" (fmt/cascade-row-label guard-row))
+          "rf2-35mwxv — the guard row renders a legible verb naming the guard")
+      (is (= "fail" (fmt/cascade-outcome-label guard-row))
+          "rf2-35mwxv — the guard row's fail outcome chip renders")
+      ;; The guard row leads the no-op (canonical rank guard(0) → no-op(2)).
+      (is (= [:guard :no-op] (mapv :kind rows))
+          "rf2-35mwxv — the blocking guard leads the [NO OP] in the LIST"))
     (is (= :open (:state (snapshot :door/main)))
         "(c) the door STAYS :open — the blocked close did not advance")))
 
@@ -898,3 +913,56 @@
       (is (= :rejected (check-branch 0 :rejected)) "(c) level 0 → :rejected (fallback)"))
     (is (= :idle (:state (snapshot :gate/main)))
         "(c) the gate is back at the :idle fork node after the three branches")))
+
+;; ============================================================================
+;; INLINE action/guard verb rendering (rf2-982212) — REAL substrate
+;; ============================================================================
+;;
+;; The deck machines all reference NAMED guards/actions (keyword → `:guards`
+;; / `:actions` map). An INLINE `(fn …)` declared DIRECTLY in an `:on` /
+;; `:entry` / `:exit` slot is first-class per Spec 005, and the runtime
+;; carries the bare fn as the trace's `:guard-id` / `:action-id`
+;; (transition.cljc resolve-guard / resolve-action). Before rf2-982212 the
+;; cascade VERB rendered that fn via `ns-keyword`'s `str` fallthrough — the
+;; raw fn-object toString (`#object[Function …]` / a minified blob). This
+;; drives a machine whose guard AND actions are inline fns through the REAL
+;; substrate and asserts the cascade rows render the legible `⟨inline⟩`
+;; placeholder, not a fn-object blob.
+
+(deftest inline-guard-and-action-render-legible-verb
+  (testing "rf2-982212 — an INLINE-declared guard AND inline-declared
+            entry/exit actions, driven through the REAL substrate, render a
+            legible `⟨inline⟩` cascade verb — NOT the raw fn-object toString."
+    (setup!)
+    ;; A tiny machine whose guard + entry + exit are ALL inline (fn …)s
+    ;; declared directly in their slots (no `:guards` / `:actions` keyword
+    ;; refs). The guard PASSES so a transition fires and its exit/entry inline
+    ;; actions run, producing inline guard + action cascade rows.
+    (rf/reg-machine :inline/probe
+      {:initial :a
+       :states
+       {:a {:exit  (fn inline-exit [{data :data}] {:data (assoc data :left-a? true)})
+            :on    {:inline/go {:target :b
+                                :guard  (fn inline-guard [_] true)}}}
+        :b {:entry (fn inline-entry [{data :data}] {:data (assoc data :in-b? true)})}}})
+    (rf/dispatch-sync [:inline/probe [:rf.machine/start]])
+    (let [rows      (cascade (drive! :inline/probe [:inline/go]))
+          guard-row (first (rows-of-kind rows :guard))
+          action-rows (rows-of-kind rows :action)]
+      (is (= :b (:state (snapshot :inline/probe))) "the inline guard passed → transitioned to :b")
+      ;; The inline GUARD row carries a fn id and renders the legible verb.
+      (is (some? guard-row) "an inline guard produced a :guard cascade row")
+      (is (fn? (:guard-id guard-row)) "the runtime carries the bare inline fn as :guard-id")
+      (is (= "⟨inline⟩" (fmt/cascade-row-label guard-row))
+          "rf2-982212 — inline guard verb is `⟨inline⟩`, not the fn-object str")
+      ;; The inline ACTION rows (exit :left-a? + entry :in-b?) render legibly.
+      (is (seq action-rows) "the inline exit/entry actions produced :action rows")
+      (doseq [a action-rows]
+        (is (fn? (:action-id a)) "the runtime carries the bare inline fn as :action-id")
+        (let [verb (fmt/cascade-row-label a)]
+          (is (= "⟨inline⟩" verb)
+              "rf2-982212 — inline action verb is `⟨inline⟩`, not the fn-object str")
+          ;; Adversarial: NO host-runtime fn-object garbage leaks into the verb.
+          (is (not (string/includes? verb "object")) "no `#object` blob")
+          (is (not (string/includes? verb "$"))      "no munged fn `$` separator")
+          (is (not (string/includes? verb "@"))      "no fn-object `@hash` suffix"))))))
