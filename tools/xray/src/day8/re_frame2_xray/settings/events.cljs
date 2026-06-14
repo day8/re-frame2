@@ -72,14 +72,14 @@
     (fn [{:keys [db]} _event]
       {:db (assoc db :settings-open? false)}))
 
-  (rf/reg-event-db :rf.xray/settings-toggle
-    (fn [db _event]
-      (if (get db :settings-open? false)
+  (rf/reg-event :rf.xray/settings-toggle
+    (fn [{:keys [db]} _event]
+      {:db (if (get db :settings-open? false)
         (assoc db :settings-open? false)
         (-> db
             (assoc :settings-open? true)
             (assoc :settings-active-tab :general)
-            (assoc :settings (config/get-settings))))))
+            (assoc :settings (config/get-settings))))}))
 
   (rf/reg-event :rf.xray/settings-select-tab
     (fn [{:keys [db]} [_ tab-id]]
@@ -95,8 +95,8 @@
   ;; After the dual-write, the matching side-effect lands so the
   ;; user sees the change immediately (text-size CSS var, theme
   ;; class, panel-position route).
-  (rf/reg-event-db :rf.xray/settings-update
-    (fn [db [_ section key value]]
+  (rf/reg-event :rf.xray/settings-update
+    (fn [{:keys [db]} [_ section key value]]
       (config/update-setting! section key value)
       (cond
         (and (= section :general) (= key :text-size))
@@ -163,9 +163,9 @@
           (effects/detach-auto-open-watcher!))
 
         :else nil)
-      (if (and (= section :theme) (nil? key))
+      {:db (if (and (= section :theme) (nil? key))
         (assoc-in db [:settings :theme] value)
-        (assoc-in db [:settings section key] value))))
+        (assoc-in db [:settings section key] value))}))
 
   ;; rf2-ttnst — Buffer tab "Clear buffer now" confirm-modal events.
   ;; The button opens a nested confirmation dialog before clearing the

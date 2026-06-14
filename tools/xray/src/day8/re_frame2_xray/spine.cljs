@@ -856,32 +856,32 @@
   ;; pre-popup-seed reads fall back to the config atom via the helper
   ;; below (mirrors the `:rf.xray/show-ungrouped?` sub).
 
-  (rf/reg-event-db :rf.xray/focus-cascade
-    (fn [db [_ dispatch-id frame-id]]
+  (rf/reg-event :rf.xray/focus-cascade
+    (fn [{:keys [db]} [_ dispatch-id frame-id]]
       ;; rf2-q8hvw — re-key `:epoch-history` onto the clicked cascade's
       ;; frame BEFORE resolving its settling epoch. With the picker
       ;; untouched the L2 list spans every frame, so a non-head-frame
       ;; row's epoch lives outside the boot-frame slot; resolving against
       ;; the stale slot yields nil. No-op when the frame is unchanged.
-      (let [db             (reseed-epoch-history-for-frame
+      {:db (let [db             (reseed-epoch-history-for-frame
                              db frame-id (rf/epoch-history frame-id))
             cascades       (db->cascades db)
             show-ungrouped? (db->show-ungrouped? db)
             head-id        (focusable-head-id cascades show-ungrouped?)
             epoch-id       (epoch-id-for-cascade (db->epoch-history db) dispatch-id)]
-        (focus-cascade-reducer db dispatch-id frame-id epoch-id head-id))))
+        (focus-cascade-reducer db dispatch-id frame-id epoch-id head-id))}))
 
-  (rf/reg-event-db :rf.xray/focus-cascade-prev
-    (fn [db _event]
-      (focus-step-reducer db (db->cascades db) (db->epoch-history db) -1
-                          (db->show-ungrouped? db))))
+  (rf/reg-event :rf.xray/focus-cascade-prev
+    (fn [{:keys [db]} _event]
+      {:db (focus-step-reducer db (db->cascades db) (db->epoch-history db) -1
+                          (db->show-ungrouped? db))}))
 
-  (rf/reg-event-db :rf.xray/focus-cascade-next
-    (fn [db _event]
-      (focus-step-reducer db (db->cascades db) (db->epoch-history db) +1
-                          (db->show-ungrouped? db))))
+  (rf/reg-event :rf.xray/focus-cascade-next
+    (fn [{:keys [db]} _event]
+      {:db (focus-step-reducer db (db->cascades db) (db->epoch-history db) +1
+                          (db->show-ungrouped? db))}))
 
-  (rf/reg-event-db :rf.xray/focus-epoch
+  (rf/reg-event :rf.xray/focus-epoch
     ;; Per rf2-5qp4g — focus the spine by epoch-id (the primary key
     ;; into the epoch ring buffer). Resolves the matching record's
     ;; settling dispatch-id via `dispatch-id-for-epoch` then defers
@@ -891,7 +891,7 @@
     ;; dispatches (the parent epoch was settled in the buffer); the
     ;; chip's click dispatches this event with the resolved
     ;; parent-epoch-id.
-    (fn [db [_ epoch-id]]
+    (fn [{:keys [db]} [_ epoch-id]]
       ;; rf2-q8hvw — if the targeted epoch's record lives in a frame
       ;; other than the slot's current `:target-frame`, re-key
       ;; `:epoch-history` onto it BEFORE resolving the settling
@@ -899,7 +899,7 @@
       ;; ring (the dispatch-id lookup walks `:epoch-history`). The frame
       ;; is read off the record in the current slot; when the slot
       ;; already holds that frame the re-seed is a no-op.
-      (let [record-frame    (:frame (some #(when (= epoch-id (:epoch-id %)) %)
+      {:db (let [record-frame    (:frame (some #(when (= epoch-id (:epoch-id %)) %)
                                           (db->epoch-history db)))
             db              (reseed-epoch-history-for-frame
                              db record-frame (rf/epoch-history record-frame))
@@ -923,27 +923,27 @@
                           :epoch-id   epoch-id
                           :mode       :retro
                           :previewing? false)
-            frame-id (assoc-in [:focus :frame] frame-id))))))
+            frame-id (assoc-in [:focus :frame] frame-id))))}))
 
-  (rf/reg-event-db :rf.xray/follow-head
-    (fn [db _event]
-      (follow-head-reducer db)))
+  (rf/reg-event :rf.xray/follow-head
+    (fn [{:keys [db]} _event]
+      {:db (follow-head-reducer db)}))
 
-  (rf/reg-event-db :rf.xray/toggle-live-pause
-    (fn [db _event]
-      (toggle-live-pause-reducer db)))
+  (rf/reg-event :rf.xray/toggle-live-pause
+    (fn [{:keys [db]} _event]
+      {:db (toggle-live-pause-reducer db)}))
 
-  (rf/reg-event-db :rf.xray/set-frame
-    (fn [db [_ frame-id]]
+  (rf/reg-event :rf.xray/set-frame
+    (fn [{:keys [db]} [_ frame-id]]
       ;; rf2-ug1r6 + rf2-thodq — re-seed `:epoch-history` from the
       ;; framework's per-frame ring at picker-change time so every
       ;; per-frame composite (App-DB Diff, Views, machine-inspector)
       ;; reads the picked frame's epochs immediately. See the reducer
       ;; docstring for the shared root cause.
-      (set-frame-reducer db frame-id (rf/epoch-history frame-id))))
+      {:db (set-frame-reducer db frame-id (rf/epoch-history frame-id))}))
 
-  (rf/reg-event-db :rf.xray/preview-cascade
-    (fn [db [_ dispatch-id]]
+  (rf/reg-event :rf.xray/preview-cascade
+    (fn [{:keys [db]} [_ dispatch-id]]
       ;; rf2-yng0y — resolve the previewed cascade's settling epoch-id
       ;; from the per-frame ring and write it in lockstep with
       ;; `:dispatch-id` so the spine's two axes never desync mid-
@@ -967,9 +967,9 @@
       ;; preview, which never commits a frame change. nil dispatch-id
       ;; (preview-clear) resolves frame to nil → epoch-id nil; the
       ;; reducer's restore-arm ignores it.
-      (let [frame-id      (:frame (cascade-by-id (db->cascades db) dispatch-id))
+      {:db (let [frame-id      (:frame (cascade-by-id (db->cascades db) dispatch-id))
             frame-history (when frame-id (rf/epoch-history frame-id))
             epoch-id      (epoch-id-for-cascade frame-history dispatch-id)]
-        (preview-cascade-reducer db dispatch-id epoch-id))))
+        (preview-cascade-reducer db dispatch-id epoch-id))}))
 
   nil)

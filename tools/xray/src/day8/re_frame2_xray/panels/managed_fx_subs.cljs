@@ -56,6 +56,6 @@
   ;; panel-side concept ('focus this event'), since the panel surfaces
   ;; an event vector and the user thinks 'jump to that event' rather
   ;; than 'jump to that cascade'. Internally same write.
-  (rf/reg-event-db :rf.xray/focus-event
-    (fn [db [_ dispatch-id frame-id]]
-      (spine/focus-cascade-reducer db dispatch-id frame-id))))
+  (rf/reg-event :rf.xray/focus-event
+    (fn [{:keys [db]} [_ dispatch-id frame-id]]
+      {:db (spine/focus-cascade-reducer db dispatch-id frame-id)})))

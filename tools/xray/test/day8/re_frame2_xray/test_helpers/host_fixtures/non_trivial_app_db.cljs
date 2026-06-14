@@ -39,46 +39,46 @@
                :ui   {:sidebar-open? true}}
    :metrics   {:requests 0 :errors 0 :renders 0 :sub-runs 0 :flow-evals 0}})
 
-(rf/reg-event-db ::initialise
-  (fn [_db _ev] initial-db))
+(rf/reg-event ::initialise
+  (fn [_ _ev] {:db initial-db}))
 
-(rf/reg-event-db ::toggle-theme
-  (fn [db _ev]
-    (update-in db [:settings :theme] {:dark :light :light :dark})))
+(rf/reg-event ::toggle-theme
+  (fn [{:keys [db]} _ev]
+    {:db (update-in db [:settings :theme] {:dark :light :light :dark})}))
 
-(rf/reg-event-db ::toggle-notifications
-  (fn [db _ev]
-    (update-in db [:settings :notifications]
+(rf/reg-event ::toggle-notifications
+  (fn [{:keys [db]} _ev]
+    {:db (update-in db [:settings :notifications]
                (fn [m]
                  (-> m
                      (update :email not)
-                     (update :marketing not))))))
+                     (update :marketing not))))}))
 
-(rf/reg-event-db ::add-cart-item
-  (fn [db _ev]
-    (let [new-item {:sku "BK-099" :title "Patterns of Distributed Systems"
+(rf/reg-event ::add-cart-item
+  (fn [{:keys [db]} _ev]
+    {:db (let [new-item {:sku "BK-099" :title "Patterns of Distributed Systems"
                     :qty 1 :price {:currency :AUD :amount 55.00}}]
       (-> db
           (update-in [:cart :items] (fnil conj []) new-item)
-          (update-in [:cart :total] (fnil + 0) 55.00)))))
+          (update-in [:cart :total] (fnil + 0) 55.00)))}))
 
-(rf/reg-event-db ::bump-first-item-qty
-  (fn [db _ev]
-    (-> db
+(rf/reg-event ::bump-first-item-qty
+  (fn [{:keys [db]} _ev]
+    {:db (-> db
         (update-in [:cart :items 0 :qty] inc)
         (update-in [:cart :items 0 :price :amount] + 42.50)
-        (update-in [:cart :total] + 42.50))))
+        (update-in [:cart :total] + 42.50))}))
 
-(rf/reg-event-db ::register-new-sku
-  (fn [db _ev]
-    (update-in db [:catalog :categories :books :groups :tech :skus]
-               (fnil conj #{}) "BK-099")))
+(rf/reg-event ::register-new-sku
+  (fn [{:keys [db]} _ev]
+    {:db (update-in db [:catalog :categories :books :groups :tech :skus]
+               (fnil conj #{}) "BK-099")}))
 
-(rf/reg-event-db ::revoke-write-and-collapse-sidebar
-  (fn [db _ev]
-    (-> db
+(rf/reg-event ::revoke-write-and-collapse-sidebar
+  (fn [{:keys [db]} _ev]
+    {:db (-> db
         (update-in [:session :auth :scopes] (fnil disj #{}) :write)
-        (update-in [:session :ui :sidebar-open?] not))))
+        (update-in [:session :ui :sidebar-open?] not))}))
 
 (rf/reg-sub :settings  (fn [db _] (:settings  db)))
 (rf/reg-sub :cart      (fn [db _] (:cart      db)))

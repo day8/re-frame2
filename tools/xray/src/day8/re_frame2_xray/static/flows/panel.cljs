@@ -311,11 +311,11 @@
 
   ;; ---- UI state ---------------------------------------------------------
 
-  (rf/reg-event-db :rf.xray.static.flows/set-query
-    (fn [db [_ q]]
-      (if (or (nil? q) (= "" q))
+  (rf/reg-event :rf.xray.static.flows/set-query
+    (fn [{:keys [db]} [_ q]]
+      {:db (if (or (nil? q) (= "" q))
         (dissoc db :rf.xray.static.flows/query)
-        (assoc db :rf.xray.static.flows/query q))))
+        (assoc db :rf.xray.static.flows/query q))}))
 
   (rf/reg-sub :rf.xray.static.flows/query
     (fn [db _]
@@ -323,11 +323,11 @@
 
   ;; ---- test-only override ----------------------------------------------
 
-  (rf/reg-event-db :rf.xray.static.flows/set-registered-flows-override-for-test
-    (fn [db [_ ov]]
-      (if (nil? ov)
+  (rf/reg-event :rf.xray.static.flows/set-registered-flows-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov)
         (dissoc db :rf.xray.static.flows/registered-flows-override)
-        (assoc db :rf.xray.static.flows/registered-flows-override ov))))
+        (assoc db :rf.xray.static.flows/registered-flows-override ov))}))
 
   (rf/reg-sub :rf.xray.static.flows/registered-flows-override
     (fn [db _]

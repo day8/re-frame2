@@ -72,10 +72,10 @@
 ;; ---- handler -----------------------------------------------------------
 
 (defn- register-counter-handler! []
-  (rf/reg-event-db
+  (rf/reg-event
     :rf.tyivx/counter-inc
-    (fn [db [_ amount]]
-      (update db :counter (fnil + 0) (or amount 1)))))
+    (fn [{:keys [db]} [_ amount]]
+      {:db (update db :counter (fnil + 0) (or amount 1))})))
 
 ;; ---- end-to-end ---------------------------------------------------------
 
@@ -152,9 +152,9 @@
 
 (defn- register-flow-bearing-handler! []
   ;; :base ++ in the handler; the flow derives :derived = 2 × :base AFTER.
-  (rf/reg-event-db
+  (rf/reg-event
     :rf.tyivx/increment-flow
-    (fn [db _] (update db :base (fnil inc 0))))
+    (fn [{:keys [db]} _] {:db (update db :base (fnil inc 0))}))
   (rf/reg-flow
     {:id     :rf.tyivx/derived
      :inputs [[:base]]

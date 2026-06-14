@@ -211,20 +211,20 @@
 
   ;; Reset sim for `machine-id` — rewind to the initial snapshot,
   ;; clear the trail, but stay in sim mode.
-  (rf/reg-event-db :rf.xray.static.machines/sim-reset
-    (fn [db [_ {:keys [machine-id]}]]
-      (if-let [sim (get-in db [:rf.xray.static.machines/sim-by-machine
+  (rf/reg-event :rf.xray.static.machines/sim-reset
+    (fn [{:keys [db]} [_ {:keys [machine-id]}]]
+      {:db (if-let [sim (get-in db [:rf.xray.static.machines/sim-by-machine
                                machine-id])]
         (assoc-in db [:rf.xray.static.machines/sim-by-machine machine-id]
           (sim-h/reset-sim-state sim))
-        db)))
+        db)}))
 
   ;; Step the sim — fire one event against the cloned snapshot.
   ;; `event` is a vector like `[:foo/bar {:x 1}]`. The step-and-store
   ;; body is shared with `:sim-chart-edge-clicked` via `step-and-store`.
-  (rf/reg-event-db :rf.xray.static.machines/sim-step
-    (fn [db [_ {:keys [machine-id event]}]]
-      (step-and-store db machine-id event)))
+  (rf/reg-event :rf.xray.static.machines/sim-step
+    (fn [{:keys [db]} [_ {:keys [machine-id event]}]]
+      {:db (step-and-store db machine-id event)}))
 
   ;; rf2-u422r — on-chart edge click → step. The chart's clickable edge
   ;; hands us the raw fireable event-id; coerce it to a step event vector
@@ -234,27 +234,27 @@
   ;; nil/non-keyword event-id (an inert auto edge) coerces to nil, which
   ;; `step-and-store`'s nil-`event-v` guard treats as a no-op so the
   ;; click never produces a malformed dispatch.
-  (rf/reg-event-db :rf.xray.static.machines/sim-chart-edge-clicked
-    (fn [db [_ {:keys [machine-id event-id]}]]
-      (step-and-store db machine-id (sim-h/edge-click->event event-id))))
+  (rf/reg-event :rf.xray.static.machines/sim-chart-edge-clicked
+    (fn [{:keys [db]} [_ {:keys [machine-id event-id]}]]
+      {:db (step-and-store db machine-id (sim-h/edge-click->event event-id))}))
 
   ;; Update the pending event-input text (controlled-input).
-  (rf/reg-event-db :rf.xray.static.machines/sim-set-pending-event
-    (fn [db [_ {:keys [machine-id text]}]]
-      (if (get-in db [:rf.xray.static.machines/sim-by-machine machine-id])
+  (rf/reg-event :rf.xray.static.machines/sim-set-pending-event
+    (fn [{:keys [db]} [_ {:keys [machine-id text]}]]
+      {:db (if (get-in db [:rf.xray.static.machines/sim-by-machine machine-id])
         (assoc-in db [:rf.xray.static.machines/sim-by-machine machine-id
                       :pending-event]
                   (or text ""))
-        db)))
+        db)}))
 
   ;; Update the pending payload-input text (controlled-input).
-  (rf/reg-event-db :rf.xray.static.machines/sim-set-pending-data
-    (fn [db [_ {:keys [machine-id text]}]]
-      (if (get-in db [:rf.xray.static.machines/sim-by-machine machine-id])
+  (rf/reg-event :rf.xray.static.machines/sim-set-pending-data
+    (fn [{:keys [db]} [_ {:keys [machine-id text]}]]
+      {:db (if (get-in db [:rf.xray.static.machines/sim-by-machine machine-id])
         (assoc-in db [:rf.xray.static.machines/sim-by-machine machine-id
                       :pending-data]
                   (or text ""))
-        db))))
+        db)})))
 
 ;; ---- pill (4-mode sub-strip) -------------------------------------------
 

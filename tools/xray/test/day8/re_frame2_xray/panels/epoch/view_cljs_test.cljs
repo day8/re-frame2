@@ -203,7 +203,7 @@
       ;; shape `projection/state-spec-path-prefix` produces:
       ;; `[:active :authenticating]` → `[:states :active :states
       ;; :authenticating]` — and reads `:source-coords` there.
-      (rf/reg-event-fx :rf2-dcsw1.view/timer-machine
+      (rf/reg-event :rf2-dcsw1.view/timer-machine
                        {:rf/machine? true
                         :rf/machine {:initial :active
                                      :states {:active
@@ -1642,7 +1642,7 @@
             extension."
     (rf/with-frame :rf/default
       (let [inline-fn (fn [_ctx] {})]
-        (rf/reg-event-fx :rf2-wwc3j.view/inline-entry
+        (rf/reg-event :rf2-wwc3j.view/inline-entry
                          {:rf/machine? true
                           :rf/machine {:initial :a
                                        :states  {:a {:entry inline-fn
@@ -1671,7 +1671,7 @@
             slot from the spec value at `[:states <s> :on <ev> :guard]`."
     (rf/with-frame :rf/default
       (let [inline-guard (fn [_ctx] true)]
-        (rf/reg-event-fx :rf2-wwc3j.view/inline-guard
+        (rf/reg-event :rf2-wwc3j.view/inline-guard
                          {:rf/machine? true
                           :rf/machine {:initial :idle
                                        :states  {:idle {:on {:submit {:target :done
@@ -1707,7 +1707,7 @@
             the defmachine-definition coord (part B-ii) DEGRADES to the
             call-site until rf2-gwj8l stamps it."
     (rf/with-frame :rf/default
-      (rf/reg-event-fx :rf2-iwy0c.view/no-source-machine
+      (rf/reg-event :rf2-iwy0c.view/no-source-machine
                        {:rf/machine? true
                         :rf/machine {:initial :idle
                                      :states  {:idle {:on {:go {:target :done}}}
@@ -1864,7 +1864,7 @@
             (the parent state-node value is too verbose to render
             verbatim)."
     (rf/with-frame :rf/default
-      (rf/reg-event-fx :rf2-wwc3j.view/timer-row
+      (rf/reg-event :rf2-wwc3j.view/timer-row
                        {:rf/machine? true
                         :rf/machine {:initial :idle
                                      :states  {:idle {:after {500 {:target :done}}}
@@ -1939,9 +1939,9 @@
             `:rf.handler/source`, the body renders it via the
             canonical `edn/code-block` widget"
     (rf/with-frame :rf/default
-      (rf/reg-event-db :rf.test.epoch.view/srctest-handler
+      (rf/reg-event :rf.test.epoch.view/srctest-handler
                        {:rf.handler/source "(reg-event-db :rf.test.epoch.view/srctest-handler\n  (fn [db _] (assoc db :ok true)))"}
-                       (fn [db _] db))
+                       (fn [{:keys [db]} _] {:db db}))
       (let [step {:step :handler :badge :HANDLER :step-number 3
                   :flavour :reg-event-db
                   :event-id :rf.test.epoch.view/srctest-handler

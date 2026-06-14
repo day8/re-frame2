@@ -237,10 +237,10 @@
   ;; pattern. `reset` keeps its single-event shape; it has no drag
   ;; cadence — one click → one mutation → one persist.
 
-  (rf/reg-event-db :rf.xray.column-widths/resize-pair-tick
+  (rf/reg-event :rf.xray.column-widths/resize-pair-tick
     {:rf.trace/no-emit? true}
-    (fn [db [_ table-id left-id left-px right-id right-px]]
-      (write-pair db table-id left-id left-px right-id right-px)))
+    (fn [{:keys [db]} [_ table-id left-id left-px right-id right-px]]
+      {:db (write-pair db table-id left-id left-px right-id right-px)}))
 
   (rf/reg-event :rf.xray.column-widths/resize-pair-commit
     {:rf.trace/no-emit? true}

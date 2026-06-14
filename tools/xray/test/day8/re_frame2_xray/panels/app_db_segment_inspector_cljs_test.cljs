@@ -55,7 +55,7 @@
   (frame/reg-frame :rf/xray {})
   (frame/reg-frame :rf/default {})
   ;; A one-off host event to plant a known db on the observed frame.
-  (rf/reg-event-db :test/seed-host-db (fn [_ [_ db]] db))
+  (rf/reg-event :test/seed-host-db (fn [_ [_ db]] {:db db}))
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:test/seed-host-db host-db]))
   ;; EP-0002 (rf2-bd4div) — the inspected target no longer defaults to
@@ -232,9 +232,9 @@
   (frame/reg-frame :rf/xray {})
   (frame/reg-frame :rf/default {})
   (rf/replace-app-db! :rf/default live-db)
-  (rf/reg-event-db :rf.xray-test/seed-history
-    (fn [db [_ records]]
-      (assoc db :epoch-history (vec records))))
+  (rf/reg-event :rf.xray-test/seed-history
+    (fn [{:keys [db]} [_ records]]
+      {:db (assoc db :epoch-history (vec records))}))
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray-test/seed-history history])))
 

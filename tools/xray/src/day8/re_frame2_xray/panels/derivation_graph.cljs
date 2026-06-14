@@ -402,10 +402,10 @@
     (fn [db _] (get db :derivation-graph-mode :static)))
 
   ;; ---- test override ----------------------------------------------------
-  (rf/reg-event-db :rf.xray/set-derivation-graph-override-for-test
-    (fn [db [_ ov]]
-      (if (nil? ov) (dissoc db :derivation-graph-override)
-          (assoc db :derivation-graph-override ov))))
+  (rf/reg-event :rf.xray/set-derivation-graph-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov) (dissoc db :derivation-graph-override)
+          (assoc db :derivation-graph-override ov))}))
   (rf/reg-sub :rf.xray/derivation-graph-override
     (fn [db _] (get db :derivation-graph-override)))
 

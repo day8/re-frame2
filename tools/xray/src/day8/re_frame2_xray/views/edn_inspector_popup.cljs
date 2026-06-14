@@ -211,16 +211,16 @@
           (update stack-slot pop-entry mount-id)
           (update entries-slot dissoc mount-id))}))
 
-  (rf/reg-event-db :rf.xray.edn-inspector-popup/close-top
+  (rf/reg-event :rf.xray.edn-inspector-popup/close-top
     ;; Esc handler — close the topmost popup only. No-op when stack
     ;; is empty.
-    (fn [db _]
-      (let [top (top-entry (get db stack-slot))]
+    (fn [{:keys [db]} _]
+      {:db (let [top (top-entry (get db stack-slot))]
         (if top
           (-> db
               (update stack-slot pop-entry top)
               (update entries-slot dissoc top))
-          db))))
+          db))}))
 
   (rf/reg-event :rf.xray.edn-inspector-popup/close-all
     (fn [{:keys [db]} _]

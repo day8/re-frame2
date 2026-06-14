@@ -289,9 +289,9 @@
                     :pill   pill})
             (assoc :edit-popup-draft draft)))}))
 
-  (rf/reg-event-db :rf.xray/close-edit-popup
-    (fn [db _event]
-      (close-popup db)))
+  (rf/reg-event :rf.xray/close-edit-popup
+    (fn [{:keys [db]} _event]
+      {:db (close-popup db)}))
 
   (rf/reg-event :rf.xray/edit-popup-set-mode
     {:rf.trace/no-emit? true}

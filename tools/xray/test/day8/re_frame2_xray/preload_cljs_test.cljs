@@ -101,14 +101,14 @@
     (registry/register-xray-handlers!)
     ;; Register a host event under :rf/default that writes a marker
     ;; into the host's db.
-    (rf/reg-event-db :test/host-write
-      (fn [db _] (assoc db :host-touched? true)))
+    (rf/reg-event :test/host-write
+      (fn [{:keys [db]} _] {:db (assoc db :host-touched? true)}))
     ;; A Xray-side event under the :rf.xray/* prefix that writes a
     ;; marker into whatever frame is active at dispatch time. Xray's
     ;; runtime always dispatches under `with-frame :rf/xray`, so the
     ;; write lands in the Xray frame.
-    (rf/reg-event-db :rf.xray/test-write
-      (fn [db _] (assoc db :xray-touched? true)))
+    (rf/reg-event :rf.xray/test-write
+      (fn [{:keys [db]} _] {:db (assoc db :xray-touched? true)}))
 
     ;; Allocate the Xray frame (the preload doesn't create it; it's
     ;; allocated lazily on first use).

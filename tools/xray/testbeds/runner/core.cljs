@@ -217,7 +217,7 @@
   `register-focus-listener!`) so each step's CHILD epoch is pinned into
   view — the 'you see the result' contract."
   [{:keys [id steps host-frame]}]
-  (rf/reg-event-fx id
+  (rf/reg-event id
     {:doc "Step driver: set app-db :step = n and dispatch step n's :event.
            The child dispatch inherits host-frame from this handler's
            envelope (the views dispatch [<this> n] {:frame host-frame}).

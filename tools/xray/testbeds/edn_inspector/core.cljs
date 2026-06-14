@@ -167,10 +167,10 @@
    :secure     {:user {:id 7}}
    :cache      {}})
 
-(rf/reg-event-db :edn-inspector/reset
+(rf/reg-event :edn-inspector/reset
   {:doc "Re-seed app-db to the matrix baseline."}
-  (fn handler-reset [_db _ev]
-    initial-db))
+  (fn handler-reset [_ _ev]
+    {:db initial-db}))
 
 ;; ============================================================================
 ;; EVENTS — the step ladder, grouped by the audit matrix
@@ -182,65 +182,65 @@
 
 ;; -- MAPS --------------------------------------------------------------------
 
-(rf/reg-event-db :edn-inspector/map-key-added
+(rf/reg-event :edn-inspector/map-key-added
   {:doc "Map: a KEY ADDED. assoc a new `:team` key under :profile — the
          App-db diff paints `+:team` (green, key-anchored)."}
-  (fn [db _] (assoc-in db [:profile :team] :platform)))
+  (fn [{:keys [db]} _] {:db (assoc-in db [:profile :team] :platform)}))
 
-(rf/reg-event-db :edn-inspector/map-key-removed
+(rf/reg-event :edn-inspector/map-key-removed
   {:doc "Map: a KEY REMOVED. dissoc `:role` from :profile — the diff paints
          a struck-through `−:role` (red, key-anchored)."}
-  (fn [db _]
-    (if (contains? (:profile db) :role)
-      (update db :profile dissoc :role)
-      (assoc-in db [:profile :role] :engineer))))
+  (fn [{:keys [db]} _]
+    {:db (if (contains? (:profile db) :role)
+           (update db :profile dissoc :role)
+           (assoc-in db [:profile :role] :engineer))}))
 
-(rf/reg-event-db :edn-inspector/map-value-changed
+(rf/reg-event :edn-inspector/map-value-changed
   {:doc "Map: a VALUE CHANGED in place. Bump :profile/name — the value-side
          `~` glyph + `← was \"…\"` annotation, key intact."}
-  (fn [db _]
-    (update-in db [:profile :name]
-               #(if (= % "Ada") "Ada Lovelace" "Ada"))))
+  (fn [{:keys [db]} _]
+    {:db (update-in db [:profile :name]
+               #(if (= % "Ada") "Ada Lovelace" "Ada"))}))
 
 ;; -- SEQUENTIALS (vector / list / set) ---------------------------------------
 
-(rf/reg-event-db :edn-inspector/seq-entry-added
+(rf/reg-event :edn-inspector/seq-entry-added
   {:doc "Sequential: ENTRY ADDED. conj a new task onto the :queue vector —
          the appended entry paints `+` green."}
-  (fn [db _]
-    (update db :queue conj (keyword (str "task-" (inc (count (:queue db))))))))
+  (fn [{:keys [db]} _]
+    {:db (update db :queue conj (keyword (str "task-" (inc (count (:queue db))))))}))
 
-(rf/reg-event-db :edn-inspector/seq-entry-removed
+(rf/reg-event :edn-inspector/seq-entry-removed
   {:doc "Sequential: ENTRY REMOVED. pop the tail off the :queue vector — the
          dropped entry renders struck-through (member-level, not a whole-key
          replace). Re-seeds when down to one so there is always a tail."}
-  (fn [db _]
-    (if (> (count (:queue db)) 1)
-      (update db :queue pop)
-      (assoc db :queue [:task-1 :task-2 :task-3]))))
+  (fn [{:keys [db]} _]
+    {:db (if (> (count (:queue db)) 1)
+           (update db :queue pop)
+           (assoc db :queue [:task-1 :task-2 :task-3]))}))
 
-(rf/reg-event-db :edn-inspector/seq-scattered-removed
+(rf/reg-event :edn-inspector/seq-scattered-removed
   {:doc "Sequential: SCATTERED / MID-VECTOR removal. Thin :lane
          `[:a :b :c :d]` → `[:a :c]` — drop :b@1 AND :d@3. The genuinely-
          removed :b and :d render struck IN PLACE; the surviving-shifted :c
          (was index 2 → now 1) must NOT be struck and carries a `(was N)`
          suffix. Toggles back to the full lane so the diff alternates."}
-  (fn [db _]
-    (if (= (:lane db) [:a :b :c :d])
-      (assoc db :lane [:a :c])
-      (assoc db :lane [:a :b :c :d]))))
+  (fn [{:keys [db]} _]
+    {:db (if (= (:lane db) [:a :b :c :d])
+           (assoc db :lane [:a :c])
+           (assoc db :lane [:a :b :c :d]))}))
 
-(rf/reg-event-db :edn-inspector/set-member-changed
+(rf/reg-event :edn-inspector/set-member-changed
   {:doc "Set: a MEMBER CHANGED (swap). Replace one member of :tags — the
          diff paints member-level `−:alpha +:delta` with the :tags KEY
          INTACT (not a 'sea of red' whole-key strike). Cycles members."}
-  (fn [db _]
-    (let [tags (:tags db)]
+  (fn [{:keys [db]} _]
+    {:db (let [tags (:tags db)]
       (assoc db :tags
              (cond
                (contains? tags :alpha) (-> tags (disj :alpha) (conj :delta))
                (contains? tags :delta) (-> tags (disj :delta) (conj :alpha))
-               :else                   #{:alpha :beta :gamma})))))
+               :else                   #{:alpha :beta :gamma})))}))
 
 ;; -- EMPTY vs REMOVAL (the subtle one) ---------------------------------------
 ;;
@@ -250,162 +250,162 @@
 ;; "remove key" step dissocs the :doomed key wholesale — a struck-through
 ;; removed KEY (the collapsed removed-ghost). The two must read DISTINCTLY.
 
-(rf/reg-event-db :edn-inspector/empty-vector
+(rf/reg-event :edn-inspector/empty-vector
   {:doc "Empty a VECTOR, key intact. `:one-vec [:only]` → `[]` — the element
          removal renders member-level inside the intact (now-empty) vector,
          NOT a whole-key `~` modify. Re-seeds when empty."}
-  (fn [db _]
-    (assoc db :one-vec (if (seq (:one-vec db)) [] [:only]))))
+  (fn [{:keys [db]} _]
+    {:db (assoc db :one-vec (if (seq (:one-vec db)) [] [:only]))}))
 
-(rf/reg-event-db :edn-inspector/empty-list
+(rf/reg-event :edn-inspector/empty-list
   {:doc "Empty a LIST, key intact. `:one-list (:only)` → `()` — member-level
          removal inside the intact list. Re-seeds."}
-  (fn [db _]
-    (assoc db :one-list (if (seq (:one-list db)) '() '(:only)))))
+  (fn [{:keys [db]} _]
+    {:db (assoc db :one-list (if (seq (:one-list db)) '() '(:only)))}))
 
-(rf/reg-event-db :edn-inspector/empty-set
+(rf/reg-event :edn-inspector/empty-set
   {:doc "Empty a SET, key intact. `:one-set #{:only}` → `#{}` — member-level
          removal inside the intact set. Re-seeds."}
-  (fn [db _]
-    (assoc db :one-set (if (seq (:one-set db)) #{} #{:only}))))
+  (fn [{:keys [db]} _]
+    {:db (assoc db :one-set (if (seq (:one-set db)) #{} #{:only}))}))
 
-(rf/reg-event-db :edn-inspector/empty-map
+(rf/reg-event :edn-inspector/empty-map
   {:doc "Empty a MAP, key intact. `:one-map {:k 1}` → `{}` — member-level
          removal inside the intact map. Re-seeds."}
-  (fn [db _]
-    (assoc db :one-map (if (seq (:one-map db)) {} {:k 1}))))
+  (fn [{:keys [db]} _]
+    {:db (assoc db :one-map (if (seq (:one-map db)) {} {:k 1}))}))
 
-(rf/reg-event-db :edn-inspector/remove-key
+(rf/reg-event :edn-inspector/remove-key
   {:doc "Remove a KEY wholesale. dissoc `:doomed` — a struck-through removed
          KEY (collapsed removed-ghost), DISTINCT from emptying a collection
          whose key stays. Re-seeds the key when gone."}
-  (fn [db _]
-    (if (contains? db :doomed)
-      (dissoc db :doomed)
-      (assoc db :doomed {:goodbye true}))))
+  (fn [{:keys [db]} _]
+    {:db (if (contains? db :doomed)
+           (dissoc db :doomed)
+           (assoc db :doomed {:goodbye true}))}))
 
 ;; -- SCALARS -----------------------------------------------------------------
 
-(rf/reg-event-db :edn-inspector/scalar-number
+(rf/reg-event :edn-inspector/scalar-number
   {:doc "Scalar: NUMBER changed in place. Increment :scalar — `~` + `← was N`."}
-  (fn [db _] (-> db (update :scalar #(if (number? %) (inc %) 5)))))
+  (fn [{:keys [db]} _] {:db (-> db (update :scalar #(if (number? %) (inc %) 5)))}))
 
-(rf/reg-event-db :edn-inspector/scalar-nil-toggle
+(rf/reg-event :edn-inspector/scalar-nil-toggle
   {:doc "Scalar: NIL ↔ VALUE. Toggle :scalar between a value and nil — both
          transitions are `:modified` leaves (nil is a real value, not absence)."}
-  (fn [db _] (-> db (update :scalar #(if (nil? %) 5 nil)))))
+  (fn [{:keys [db]} _] {:db (-> db (update :scalar #(if (nil? %) 5 nil)))}))
 
-(rf/reg-event-db :edn-inspector/scalar-type-flip
+(rf/reg-event :edn-inspector/scalar-type-flip
   {:doc "Scalar: TYPE CHANGE. Flip :scalar number↔string (`5` ↔ `\"five\"`)
          and scalar↔map — R7 renders `~` + `← was <type>` type-change suffix."}
-  (fn [db _]
-    (-> db
+  (fn [{:keys [db]} _]
+    {:db (-> db
         (update :scalar
                 (fn [v]
                   (cond
                     (number? v) "five"
                     (string? v) {:was :string}
-                    :else       5))))))
+                    :else       5))))}))
 
 ;; -- MULTI-ADJUST (add AND remove in one diff) -------------------------------
 
-(rf/reg-event-db :edn-inspector/map-multi-adjust
+(rf/reg-event :edn-inspector/map-multi-adjust
   {:doc "Map: ADD + REMOVE in ONE diff. Swap :flags `{:a 1 :b 2}` ↔
          `{:a 1 :c 3}` — `:b` removed AND `:c` added simultaneously, `:a`
          unchanged."}
-  (fn [db _]
-    (-> db
+  (fn [{:keys [db]} _]
+    {:db (-> db
         (update :flags
                 (fn [m]
-                  (if (contains? m :b) {:a 1 :c 3} {:a 1 :b 2}))))))
+                  (if (contains? m :b) {:a 1 :c 3} {:a 1 :b 2}))))}))
 
-(rf/reg-event-db :edn-inspector/vector-multi-adjust
+(rf/reg-event :edn-inspector/vector-multi-adjust
   {:doc "Vector: CHANGE + APPEND in ONE diff. Swap :slots `[1 2 3]` ↔
          `[1 9 3 4]` — index 1 modified (2→9) AND index 3 appended (4)."}
-  (fn [db _]
-    (-> db
+  (fn [{:keys [db]} _]
+    {:db (-> db
         (update :slots
-                (fn [v] (if (= v [1 2 3]) [1 9 3 4] [1 2 3]))))))
+                (fn [v] (if (= v [1 2 3]) [1 9 3 4] [1 2 3]))))}))
 
-(rf/reg-event-db :edn-inspector/set-multi-adjust
+(rf/reg-event :edn-inspector/set-multi-adjust
   {:doc "Set: MULTI-MEMBER swap in ONE diff. Swap :labels `#{:x :y :z}` ↔
          `#{:x :p :q}` — `:y :z` removed AND `:p :q` added, `:x` kept,
          member-level, key intact."}
-  (fn [db _]
-    (-> db
+  (fn [{:keys [db]} _]
+    {:db (-> db
         (update :labels
-                (fn [s] (if (contains? s :y) #{:x :p :q} #{:x :y :z}))))))
+                (fn [s] (if (contains? s :y) #{:x :p :q} #{:x :y :z}))))}))
 
 ;; -- DEEP / MIXED ------------------------------------------------------------
 
-(rf/reg-event-db :edn-inspector/deep-change
+(rf/reg-event :edn-inspector/deep-change
   {:doc "Deep: a scalar change FIVE levels deep at `[:deep :a :b :c :d]`.
          Every ancestor reads `:children` (◴ + rail); none promotes to a
          whole-key replace."}
-  (fn [db _] (-> db (update-in [:deep :a :b :c :d] (fnil inc 0)))))
+  (fn [{:keys [db]} _] {:db (-> db (update-in [:deep :a :b :c :d] (fnil inc 0)))}))
 
-(rf/reg-event-db :edn-inspector/mixed-deep-change
+(rf/reg-event :edn-inspector/mixed-deep-change
   {:doc "Mixed: a SET swap through map→map→vector→set at
          `[:mixed :a :b 0]`. Diffs member-level at the set; no ancestor
          (map or vector) is falsely promoted to a whole-key replace
          (the ancestor-non-promotion property across kinds). Cycles."}
-  (fn [db _]
-    (-> db
+  (fn [{:keys [db]} _]
+    {:db (-> db
         (update-in [:mixed :a :b 0]
-                   (fn [s] (if (contains? s :x) #{:y} #{:x}))))))
+                   (fn [s] (if (contains? s :x) #{:y} #{:x}))))}))
 
 ;; -- SENTINELS ---------------------------------------------------------------
 
-(rf/reg-event-db :edn-inspector/redacted
+(rf/reg-event :edn-inspector/redacted
   {:doc "Sentinel: :rf/redacted. Write the sentinel three levels deep at
          `[:secure :user :password]` — the inspector renders a `redacted`
          chip, never the raw value."}
-  (fn [db _] (-> db (assoc-in [:secure :user :password] :rf/redacted))))
+  (fn [{:keys [db]} _] {:db (-> db (assoc-in [:secure :user :password] :rf/redacted))}))
 
-(rf/reg-event-db :edn-inspector/large-elided
+(rf/reg-event :edn-inspector/large-elided
   {:doc "Sentinel: :rf.size/large-elided (Spec 015). Write the sentinel at
          `[:cache :report-42]` — routed through the size-chip renderer."}
-  (fn [db _]
-    (-> db
+  (fn [{:keys [db]} _]
+    {:db (-> db
         (assoc-in [:cache :report-42]
                   {:rf.size/large-elided {:source        :app-db
                                           :path          [:cache :report-42]
                                           :original-size 12480293
                                           :bytes         12480293
                                           :handle        :report/payload-42
-                                          :reason        :over-budget}}))))
+                                          :reason        :over-budget}}))}))
 
 ;; -- SHOWCASE (rendering capabilities the diff matrix doesn't exercise) ------
 
-(rf/reg-event-db :edn-inspector/large-collection
+(rf/reg-event :edn-inspector/large-collection
   {:doc "Showcase: LARGE collection → elision. Write a 50-key map at
          `[:cache :grid]` — the App-db inspector elides past its threshold +
          the body scrolls."}
-  (fn [db _]
-    (-> db
+  (fn [{:keys [db]} _]
+    {:db (-> db
         (assoc-in [:cache :grid]
                   (into {} (for [i (range 50)]
-                             [(keyword (str "metric-" i)) (str "value-" i)]))))))
+                             [(keyword (str "metric-" i)) (str "value-" i)]))))}))
 
-(rf/reg-event-db :edn-inspector/deeply-nested
+(rf/reg-event :edn-inspector/deeply-nested
   {:doc "Showcase: DEEP nesting → path render / collapse. Write a six-level
          nested map at `:cache/tenant` — deep nodes render `▸ {…N keys}`
          summaries past the depth ceiling."}
-  (fn [db _]
-    (-> db
+  (fn [{:keys [db]} _]
+    {:db (-> db
         (assoc-in [:cache :tenant]
                   {:acme {:department {:engineering {:team {:platform
                                                             {:project :xray
                                                              :status  :active
-                                                             :leads   ["Ada" "Grace"]}}}}}}))))
+                                                             :leads   ["Ada" "Grace"]}}}}}}))}))
 
-(rf/reg-event-db :edn-inspector/mixed-types
+(rf/reg-event :edn-inspector/mixed-types
   {:doc "Showcase: MIXED scalar kinds + tagged literals. Write a vector of
          every scalar kind PLUS `#uuid` + `#inst` at `:cache/scalar-mix` —
          every syntax-palette token + the default formatters' compact
          headers."}
-  (fn [db _]
-    (-> db
+  (fn [{:keys [db]} _]
+    {:db (-> db
         (assoc-in [:cache :scalar-mix]
                   [nil true false
                    42 -7 3.14159
@@ -413,7 +413,7 @@
                    :simple :ns/qualified
                    'plain-sym 'my.ns/qualified-sym
                    (random-uuid)
-                   (js/Date.)]))))
+                   (js/Date.)]))}))
 
 ;; ============================================================================
 ;; THE STEP VECTOR — code data (the single source of truth)

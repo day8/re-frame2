@@ -31,19 +31,19 @@
 (def frame-b   :counter/b)
 (def frame-log :log)
 
-(rf/reg-event-db ::counter-init
-  (fn [_db _ev] {:n 0}))
+(rf/reg-event ::counter-init
+  (fn [{:keys [db]} _ev] {:db {:n 0}}))
 
-(rf/reg-event-db ::log-init
-  (fn [_db _ev] {:entries []}))
+(rf/reg-event ::log-init
+  (fn [{:keys [db]} _ev] {:db {:entries []}}))
 
-(rf/reg-event-db ::inc
-  (fn [db _ev]
-    (update db :n (fnil inc 0))))
+(rf/reg-event ::inc
+  (fn [{:keys [db]} _ev]
+    {:db (update db :n (fnil inc 0))}))
 
-(rf/reg-event-db ::log-append
-  (fn [db [_ entry]]
-    (update db :entries (fnil conj []) entry)))
+(rf/reg-event ::log-append
+  (fn [{:keys [db]} [_ entry]]
+    {:db (update db :entries (fnil conj []) entry)}))
 
 (rf/reg-fx ::dispatch-to-frame
   (fn [_ctx {:keys [event frame]}]
@@ -56,7 +56,7 @@
     ;; fixture exists to probe) is identical either way.
     (rf/dispatch-sync event {:frame frame})))
 
-(rf/reg-event-fx ::cross-bump
+(rf/reg-event ::cross-bump
   (fn [{:keys [db]} _ev]
     {:db (update db :n (fnil inc 0))
      :fx [[::dispatch-to-frame {:event [::inc] :frame frame-b}]
