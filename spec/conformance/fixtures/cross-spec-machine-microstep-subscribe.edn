@@ -114,12 +114,12 @@
    ;; machines.lifecycle-fx.registration/commit-or-finalize). The :after
    ;; snapshot's :state is :winner (the committed end-state), not an
    ;; intermediate microstep value; the partial-match matcher confirms
-   ;; :machine-id, and :sub-values above confirms the post-commit
+   ;; :actor-id, and :sub-values above confirms the post-commit
    ;; snapshot is what subs observe.
    {:op-type   :rf.machine
     :operation :rf.machine/transition
-    :tags      {:machine-id :quiz
-                :event      [:answer-correct]}}
+    :tags      {:actor-id :quiz
+                :event    [:answer-correct]}}
    ;; Snapshot-updated rides op-type `:rf.machine` too (operation
    ;; `:rf.machine/snapshot-updated`). This emit-site previously carried
    ;; the MALFORMED slashed op-type `:rf.machine/snapshot-updated`
@@ -128,4 +128,4 @@
    ;; the snapshot (:asking → :winner).
    {:op-type   :rf.machine
     :operation :rf.machine/snapshot-updated
-    :tags      {:machine-id :quiz}}]}}
+    :tags      {:actor-id :quiz}}]}}

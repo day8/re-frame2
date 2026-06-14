@@ -824,7 +824,9 @@
   (let [before (common/tag-of ev :before)
         after  (common/tag-of ev :after)]
     {:kind         :transition
-     :machine-id   (common/tag-of ev :machine-id)
+     ;; rf2-ws5thu — the transition trace now carries the live actor instance
+     ;; under `:actor-id`; fall back to `:machine-id` for legacy fixtures.
+     :machine-id   (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
      :event        (common/tag-of ev :event)
      :before       before
      :after        after
@@ -843,7 +845,9 @@
   :on-resolution / :on-supersede / :on-frame-destroy`)."
   [ev]
   {:kind        :timer
-   :machine-id  (common/tag-of ev :machine-id)
+   ;; rf2-ws5thu — the timer/cancelled trace now carries the owning actor
+   ;; instance under `:actor-id`; fall back to `:machine-id` for legacy fixtures.
+   :machine-id  (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
    :state       (common/tag-of ev :state)
    :delay       (common/tag-of ev :delay)
    :reason      (common/tag-of ev :reason)

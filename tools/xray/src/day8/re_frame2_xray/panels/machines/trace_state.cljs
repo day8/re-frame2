@@ -86,13 +86,14 @@
 
 (defn- machine-transition?
   "True when `ev` is a `:rf.machine/transition` trace event for
-  `machine-id` (or for ANY machine when `machine-id` is nil). The
-  machine-id lives under `:tags :machine-id` per the runtime
-  `trace/emit!` of `:rf.machine/transition`."
+  `machine-id` (or for ANY machine when `machine-id` is nil). Per
+  rf2-ws5thu the addressed live actor lives under `:tags :actor-id`
+  (with a `:tags :machine-id` fallback for legacy fixtures)."
   [ev machine-id]
   (and (= :rf.machine/transition (:operation ev))
        (or (nil? machine-id)
-           (= machine-id (get-in ev [:tags :machine-id])))))
+           (= machine-id (or (get-in ev [:tags :actor-id])
+                             (get-in ev [:tags :machine-id]))))))
 
 (defn- machine-transitions
   "Filter `trace-events` to the `:rf.machine/transition` events for

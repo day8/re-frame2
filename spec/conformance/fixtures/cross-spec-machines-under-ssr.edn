@@ -80,11 +80,11 @@
   :trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :auth/probe}}
    {:operation :rf.machine.timer/skipped-on-server
-    :tags      {:machine-id   :auth/probe
+    :tags      {:actor-id     :auth/probe
                 :state        :loading
                 :delay        5000
                 :delay-source :literal
                 :platform     :server}
     :recovery  :skipped}
    {:operation :rf.machine/transition
-    :tags      {:machine-id :auth/probe}}]}}
+    :tags      {:actor-id :auth/probe}}]}}

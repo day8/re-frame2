@@ -55,9 +55,9 @@
 
   :trace-emissions
   [{:operation :rf.machine/system-id-bound
-    :tags      {:system-id :worker :machine-id :worker/proc#1}}
+    :tags      {:system-id :worker :actor-id :worker/proc#1}}
    {:operation :rf.machine/destroyed
     :tags      {:actor-id  :worker/proc#1
                 :system-id :worker}}
    {:operation :rf.machine/system-id-released
-    :tags      {:system-id :worker :machine-id :worker/proc#1}}]}}
+    :tags      {:system-id :worker :actor-id :worker/proc#1}}]}}

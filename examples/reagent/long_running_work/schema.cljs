@@ -101,7 +101,7 @@
    ;; :map is open, so they'd pass undeclared too.
    [:rf/self-id   {:optional true} :any]
    [:rf/parent-id {:optional true} :any]
-   [:rf/spawn-id  {:optional true} :any]])
+   [:rf/invoke-id {:optional true} :any]])
 
 ;; ============================================================================
 ;; SCHEMA ATTACHMENT

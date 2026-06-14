@@ -1146,7 +1146,7 @@ Every key the [§The args map](#the-args-map) surface accepts may be passed thro
           :failed    :login-failed}}
 ```
 
-The framework-reserved `:rf/*` keys the wrapper itself uses (`:rf/self-id`, `:rf/parent-id`, `:rf/spawn-id`, `:rf/result`) are stripped before the underlying fx call, so they never leak into the request envelope.
+The framework-reserved `:rf/*` keys the wrapper itself uses (`:rf/self-id`, `:rf/parent-id`, `:rf/invoke-id`, `:rf/result`) are stripped before the underlying fx call, so they never leak into the request envelope.
 
 `:on-success` / `:on-failure` are **not** passed through — the wrapper overrides them to route the reply back to itself. Apps that want explicit reply addressing should keep using the fx form directly; the machine wrapper is for the `:spawn`-orchestrated case.
 

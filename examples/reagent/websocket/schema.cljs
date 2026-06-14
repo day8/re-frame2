@@ -62,7 +62,7 @@
    ;; receives them — only spawned actors do.
    [:rf/self-id     {:optional true} :any]
    [:rf/parent-id   {:optional true} :any]
-   [:rf/spawn-id   {:optional true} :any]])
+   [:rf/invoke-id  {:optional true} :any]])
 
 ;; ============================================================================
 ;; CONNECTION MACHINE SNAPSHOT SHAPE
