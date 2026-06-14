@@ -519,7 +519,7 @@
                              [(rf/module
                                 {:id :m
                                  :frames {:live/f {:doc "shared id"}}
-                                 :events {:live/set {:handler (fn [db _] (assoc db :who tag))}}
+                                 :events {:live/set {:handler (fn [{:keys [db]} _] {:db (assoc db :who tag)})}}
                                  :subs   {:live/who {:handler (fn [db _] [tag (:who db)])}}})]}))]
       (try
         (rf/install! ra (app-for :a))
