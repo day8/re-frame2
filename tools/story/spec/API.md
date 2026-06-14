@@ -128,7 +128,7 @@ run so the runner never sees a key it does not own.
 | `list-tags` | `(list-tags)` | All registered tags (canonical + project). |
 | `list-modes` | `(list-modes)` | All registered modes. |
 | `canonical-tags` | `canonical-tags` | The seven canonical tags as a set. |
-| `canonical-assertion-ids` | `(canonical-assertion-ids)` | The eight canonical `:rf.assert/*` ids — the seven dispatched as `reg-event-fx` plus the tape-evaluated `:rf.assert/schema-error` (see [`004-Assertions.md`](004-Assertions.md) §`:rf.assert/schema-error`). |
+| `canonical-assertion-ids` | `(canonical-assertion-ids)` | The eight canonical `:rf.assert/*` ids — the seven dispatched as `reg-event` plus the tape-evaluated `:rf.assert/schema-error` (see [`004-Assertions.md`](004-Assertions.md) §`:rf.assert/schema-error`). |
 | `registered-substrates` | `(registered-substrates)` | CLJS-only. The substrate set as registered via `register-substrate!`. |
 
 ## Write helpers (used by MCP write surface and hot-reload tooling)
