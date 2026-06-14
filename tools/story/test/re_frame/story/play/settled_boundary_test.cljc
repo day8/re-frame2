@@ -126,16 +126,16 @@
     ;; :chain/a re-dispatches :chain/b (queued); :chain/b re-dispatches
     ;; :chain/c. A run-to-fixed-point drain settles all three before
     ;; dispatch-and-settle! returns.
-    (rf/reg-event-fx :chain/a
+    (rf/reg-event :chain/a
       (fn [{:keys [db]} _]
         {:db (update db :hops (fnil conj []) :a)
          :fx [[:dispatch [:chain/b]]]}))
-    (rf/reg-event-fx :chain/b
+    (rf/reg-event :chain/b
       (fn [{:keys [db]} _]
         {:db (update db :hops (fnil conj []) :b)
          :fx [[:dispatch [:chain/c]]]}))
-    (rf/reg-event-db :chain/c
-      (fn [db _] (update db :hops (fnil conj []) :c)))
+    (rf/reg-event :chain/c
+      (fn [{:keys [db]} _] {:db (update db :hops (fnil conj []) :c)}))
     (let [res (boundary/dispatch-and-settle!
                 bf [:chain/a] boundary/headless-flush-hooks :headless [:dispatch [:chain/a]])]
       (is (= :settled (:status res)))
@@ -150,8 +150,8 @@
             :cannot-run and does NOT dispatch the event (fail-closed,
             never a silent pass)"
     (let [fired (atom false)]
-      (rf/reg-event-db :dom/should-not-fire
-        (fn [db _] (reset! fired true) db))
+      (rf/reg-event :dom/should-not-fire
+        (fn [{:keys [db]} _] (reset! fired true) {:db db}))
       (let [res (boundary/dispatch-and-settle!
                   bf [:dom/should-not-fire] boundary/headless-flush-hooks
                   :dom [:click "button"])]
@@ -171,7 +171,7 @@
                    :flush!    {:headless      (fn [_] (swap! flushed conj :headless))
                                :cljs-reactive (fn [_] (swap! flushed conj :reactive))
                                :dom           (fn [_] (swap! flushed conj :dom))}}]
-      (rf/reg-event-db :dom/click (fn [db _] (assoc db :clicked true)))
+      (rf/reg-event :dom/click (fn [{:keys [db]} _] {:db (assoc db :clicked true)}))
       (let [res (boundary/dispatch-and-settle! bf [:dom/click] hooks :dom [:click "b"])]
         (is (= :settled (:status res)))
         (is (= :dom     (:boundary res)))
@@ -185,7 +185,7 @@
     (let [hooks {:provides  :dom
                  :dispatch! (fn [frame-id evec] (boundary/drain-sync! frame-id evec))
                  :flush!    {:dom (fn [_] (throw (ex-info "flush boom" {})))}}]
-      (rf/reg-event-db :dom/x (fn [db _] db))
+      (rf/reg-event :dom/x (fn [{:keys [db]} _] {:db db}))
       (let [res (boundary/dispatch-and-settle! bf [:dom/x] hooks :dom [:click "b"])]
         (is (= :error (:status res)))
         (is (re-find #"flush boom" (:error res)))
@@ -207,7 +207,7 @@
                   :flush!     {:headless      (fn [_] (swap! ran conj :headless))
                                :cljs-reactive (fn [_] (swap! ran conj :reactive))
                                :dom           (fn [_] (swap! ran conj :dom))}}]
-      (rf/reg-event-db :timeout/fired (fn [db _] (assoc db :fired true)))
+      (rf/reg-event :timeout/fired (fn [{:keys [db]} _] {:db (assoc db :fired true)}))
       (let [res (boundary/dispatch-and-settle! bf [:timeout/fired] hooks :dom [:click "b"])]
         (is (= :cannot-run    (:status res)))
         (is (= :flush-timeout (:reason res)))
@@ -231,7 +231,7 @@
                                (boundary/drain-sync! frame-id evec))
                  :flush!     {:cljs-reactive (fn [_] (swap! ran conj :reactive))
                               :dom           (fn [_] (swap! ran conj :dom))}}]
-      (rf/reg-event-db :timeout/ok (fn [db _] (assoc db :ok true)))
+      (rf/reg-event :timeout/ok (fn [{:keys [db]} _] {:db (assoc db :ok true)}))
       (let [res (boundary/dispatch-and-settle! bf [:timeout/ok] hooks :dom [:click "b"])]
         (is (= :settled (:status res)))
         (is (= :dom     (:boundary res)))
@@ -241,7 +241,7 @@
 (deftest no-timeout-ms-is-unbounded
   (testing "with no :timeout-ms the flush phase is unbounded — settlement
             completes regardless of flush duration (the headless default)"
-    (rf/reg-event-db :noop (fn [db _] db))
+    (rf/reg-event :noop (fn [{:keys [db]} _] {:db db}))
     (let [res (boundary/dispatch-and-settle!
                 bf [:noop] boundary/headless-flush-hooks :headless [:dispatch [:noop]])]
       (is (= :settled (:status res))))))
@@ -249,11 +249,11 @@
 (deftest drain-sync-settles-synchronous-redispatch
   (testing "drain-sync! (the named headless boundary) is the framework
             dispatch-sync* drain — re-dispatched events settle before return"
-    (rf/reg-event-fx :seed/start
+    (rf/reg-event :seed/start
       (fn [{:keys [db]} _]
         {:db (assoc db :n 0)
          :fx [[:dispatch [:seed/bump]]]}))
-    (rf/reg-event-db :seed/bump (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed/bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (boundary/drain-sync! bf [:seed/start])
     (is (= 1 (:n (rf/app-db-value bf)))
         "the queued :seed/bump drained synchronously within drain-sync!")))

@@ -115,7 +115,7 @@
 ;; Handler metadata is the cross-cutting escape hatch for event payloads
 ;; that cannot be represented as schema-sensitive app-db slots.
 
-(rf/reg-event-fx :auth/sign-in
+(rf/reg-event :auth/sign-in
   ;; Registration metadata — the registrar copies `:sensitive? true`
   ;; into the registry slot's meta; the runtime hoists it to the
   ;; TOP level of every trace event emitted within this handler's
@@ -140,23 +140,23 @@
                 {:email      email
                  :submitted? true})}))
 
-(rf/reg-event-db :user.avatar-pdf/set
+(rf/reg-event :user.avatar-pdf/set
   {:doc "Demo: write a synthetic large blob into the `:large?`-flagged
          schema slot. Walking app-db through `rf/elide-wire-value`
          substitutes the slot value with a `:rf.size/large-elided`
          marker, with the schema's `:hint` propagated verbatim."}
-  (fn [db [_ {:keys [bytes]}]]
-    (assoc db :user/avatar-pdf (str/join (repeat (or bytes 5000) "A")))))
+  (fn [{:keys [db]} [_ {:keys [bytes]}]]
+    {:db (assoc db :user/avatar-pdf (str/join (repeat (or bytes 5000) "A")))}))
 
-(rf/reg-event-db :user.avatar-pdf/clear
+(rf/reg-event :user.avatar-pdf/clear
   {:doc "Drop the avatar slot. Uses `dissoc` rather than `(assoc ...
          nil)` so the slot is absent from app-db rather than carrying
          a typed `nil`, matching the schema's `:string` declaration
          (Spec 010 §Optional slots: absence is the soft-pass-friendly
          shape for an optional slot)."}
-  (fn [db _] (dissoc db :user/avatar-pdf)))
+  (fn [{:keys [db]} _] {:db (dissoc db :user/avatar-pdf)}))
 
-(rf/reg-event-db :user.avatar/upload
+(rf/reg-event :user.avatar/upload
   {:doc "Demo: dispatch a 20 kB blob INLINE inside the event vector.
          The event-emit listener's `elide-wire-value` pass auto-
          detects the leaf string (over the default 16 kB threshold)
@@ -164,10 +164,10 @@
          listener receives the record. Demonstrates the runtime
          auto-detect branch of the wire walker — orthogonal to the
          schema-driven branch above."}
-  (fn [db [_ {:keys [_blob]}]]
+  (fn [{:keys [db]} [_ {:keys [_blob]}]]
     ;; We don't keep the blob; the point is the elision at the wire
     ;; boundary. Bump a counter so the UI has something to render.
-    (update db :user/uploads (fnil inc 0))))
+    {:db (update db :user/uploads (fnil inc 0))}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS  (UI plumbing only — none of these flow on the wire)

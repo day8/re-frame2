@@ -159,7 +159,7 @@
        (rf/reg-sub :login/state (fn [db _] (get-in db [:login :state])))
        (rf/reg-sub :login/message (fn [db _] (get-in db [:login :message])))
        ;; Seed a REAL app-db value distinct from the override.
-       (rf/reg-event-db ::seed (fn [_ _] {:login {:state :ok}}))
+       (rf/reg-event ::seed (fn [{:keys [db]} _] {:db {:login {:state :ok}}}))
        ;; EP-0002 (rf2-9o48ih): the dispatch + the plain-fn view's subscribe
        ;; both need a carried frame. Bind the ambient `:rf/default` scope
        ;; (the fixture ensured the frame exists) around the seed dispatch and

@@ -210,8 +210,8 @@
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!)
   (frame/reg-frame step-frame {:doc "tagged step-runner test frame"})
-  (rf/reg-event-db :step/inc (fn [db _] (update db :n (fnil inc 0))))
-  (rf/reg-event-db :step/set (fn [db [_ v]] (assoc db :v v)))
+  (rf/reg-event :step/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+  (rf/reg-event :step/set (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
   (test-fn))
 
 (use-fixtures :each reset-rf!)

@@ -290,7 +290,7 @@
             frame-provider wrap scoped to the variant id (rf2-zme7)"
     ;; Register a tiny view + variant + workspace. The view returns a
     ;; sentinel hiccup tag so we can find it in the rendered tree.
-    (rf/reg-event-db :rf2-zme7/init (fn [db _] (assoc db :marker 42)))
+    (rf/reg-event :rf2-zme7/init (fn [{:keys [db]} _] {:db (assoc db :marker 42)}))
     (rf/reg-sub :rf2-zme7/marker (fn [db _] (:marker db)))
     (rf/reg-view* :rf2-zme7/view
       {}

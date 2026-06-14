@@ -113,15 +113,15 @@
     (story/reg-decorator :centered-pane
       {:kind :hiccup :wrap (fn [body _] [:div.centered body])})
     ;; A :frame-setup decorator whose :init seeds app-db before :events.
-    (rf/reg-event-db :mock/seed
-      (fn [db _] (assoc db :mock-user {:name "alice" :role :admin})))
+    (rf/reg-event :mock/seed
+      (fn [{:keys [db]} _] {:db (assoc db :mock-user {:name "alice" :role :admin})}))
     (story/reg-decorator :seed-user
       {:kind :frame-setup :init [[:mock/seed]]})
     ;; An :fx-override decorator (the registered :rf.story/force-fx-stub
     ;; canonical) — stamps onto :fx-overrides at frame-allocate time.
-    (rf/reg-event-db :record/observed
-      (fn [db _] (assoc db :seen-user (:mock-user db))))
-    (rf/reg-event-fx :emit/track
+    (rf/reg-event :record/observed
+      (fn [{:keys [db]} _] {:db (assoc db :seen-user (:mock-user db))}))
+    (rf/reg-event :emit/track
       (fn [_ _] {:fx [[:analytics {:event :loaded}]]}))
     (story/reg-variant :story.multi-kind/v
       {:decorators [[:centered-pane]
@@ -222,11 +222,11 @@
             A leave B's app-db / :emitted-fx / :assertions / stub log
             untouched. Per spec/002 §Per-variant frame allocation."
     ;; Two :frame-setup decorators each seed a different counter start.
-    (rf/reg-event-db :seed/at-100
-      (fn [db _] (assoc db :counter 100)))
-    (rf/reg-event-db :seed/at-200
-      (fn [db _] (assoc db :counter 200)))
-    (rf/reg-event-fx :inc-and-track
+    (rf/reg-event :seed/at-100
+      (fn [{:keys [db]} _] {:db (assoc db :counter 100)}))
+    (rf/reg-event :seed/at-200
+      (fn [{:keys [db]} _] {:db (assoc db :counter 200)}))
+    (rf/reg-event :inc-and-track
       (fn [{:keys [db]} _]
         {:db (update db :counter inc)
          :fx [[:analytics {:event :inc :from (:counter db)}]]}))
@@ -303,7 +303,7 @@
 (deftest frame-isolation-pair-destroy-one-survives-other
   (testing "destroying frame A leaves frame B's app-db / state intact.
             Per spec/002 §Coexistence + §Per-variant frame allocation."
-    (rf/reg-event-db :ping (fn [db _] (update db :pings (fnil inc 0))))
+    (rf/reg-event :ping (fn [{:keys [db]} _] {:db (update db :pings (fnil inc 0))}))
     (story/reg-variant :story.iso2/A {:events [[:ping]]})
     (story/reg-variant :story.iso2/B {:events [[:ping]]})
     (async/deref-blocking (story/run-variant :story.iso2/A) 5000)

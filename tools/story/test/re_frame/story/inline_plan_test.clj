@@ -41,8 +41,8 @@
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!)
   ;; A tiny event the inline plans drive — the app under test.
-  (rf/reg-event-db :inline/set-status (fn [db [_ v]] (assoc db :status v)))
-  (rf/reg-event-db :inline/inc        (fn [db _]     (update db :n (fnil inc 0))))
+  (rf/reg-event :inline/set-status (fn [{:keys [db]} [_ v]] {:db (assoc db :status v)}))
+  (rf/reg-event :inline/inc        (fn [{:keys [db]} _]     {:db (update db :n (fnil inc 0))}))
   (test-fn))
 
 (use-fixtures :each reset-rf!)

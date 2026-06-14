@@ -395,7 +395,7 @@
   (testing "a golden captured from an artifact (replayed into a fresh frame)
             matches a re-replay of the same program — fresh-frame volatile
             drift causes no false mismatch"
-    (rf/reg-event-db :golden/inc (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :golden/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [art (artifact/make-run-artifact
                 {:event-program [[:dispatch [:golden/inc]] [:dispatch [:golden/inc]]]})
           g   (golden/capture-golden art {:keep-run-result true})]
@@ -407,7 +407,7 @@
 (deftest compare-golden-divergent-program-surfaces-app-db-facet
   (testing "a golden captured from one program does NOT match a divergent
             program, and the report surfaces a readable :app-db facet"
-    (rf/reg-event-db :golden/set (fn [db [_ v]] (assoc db :v v)))
+    (rf/reg-event :golden/set (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
     (let [a (artifact/make-run-artifact {:event-program [[:dispatch [:golden/set 1]]]})
           b (artifact/make-run-artifact {:event-program [[:dispatch [:golden/set 2]]]})
           g (golden/capture-golden a {:keep-run-result true})
@@ -427,8 +427,8 @@
             artifact + replayed into a fresh frame — its behavioural slice
             reflects the REAL run (a non-empty :app-db / :status), NOT a
             silently-frozen near-empty plan map (the rf2-vvub1 bug)"
-    (rf/reg-event-db :golden/seed (fn [db [_ v]] (assoc db :v v)))
-    (rf/reg-event-db :golden/bump (fn [db _] (update db :v inc)))
+    (rf/reg-event :golden/seed (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
+    (rf/reg-event :golden/bump (fn [{:keys [db]} _] {:db (update db :v inc)}))
     (let [plan {:variant/id :story.golden/plan
                 :world  {:setup [[:dispatch [:golden/seed 10]]]}
                 :script [[:dispatch [:golden/bump]]]}
@@ -448,7 +448,7 @@
       (is (true? (:match? (golden/compare-golden g plan))))))
 
   (testing "a golden captured from a plan does NOT match a divergent plan"
-    (rf/reg-event-db :golden/seed (fn [db [_ v]] (assoc db :v v)))
+    (rf/reg-event :golden/seed (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
     (let [plan-a {:variant/id :story.golden/a :world {} :script [[:dispatch [:golden/seed 1]]]}
           plan-b {:variant/id :story.golden/b :world {} :script [[:dispatch [:golden/seed 2]]]}
           g      (golden/capture-golden plan-a {:keep-run-result true})

@@ -224,7 +224,7 @@
   (testing "the author-facing value-form actually intercepts the fx at
             runtime — proves the round-trip from declaration to live
             redirect is unbroken"
-    (rf/reg-event-fx :do/emit-http
+    (rf/reg-event :do/emit-http
       (fn [_ _] {:fx [[:http {:url "/probe"}]]}))
     (story/reg-variant :story.authfx-rt/v
       {:decorators [[:rf.story/force-fx-stub :http {:status :ok}]]

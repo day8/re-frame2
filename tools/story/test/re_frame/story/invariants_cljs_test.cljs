@@ -77,8 +77,8 @@
 (deftest with-invariants-live-cljs
   (testing "the sentinel observes a real frame's epochs and reports once per failing epoch"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :dec  (fn [db _] (update db :n dec)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :dec  (fn [{:keys [db]} _] {:db (update db :n dec)}))
     (let [reports (with-captured-reports
                     (fn []
                       (with-invariants [(fn [e] (>= (:n (:db-after e)) 0))]
@@ -91,8 +91,8 @@
 (deftest with-invariants-pass-and-destroy-cljs
   (testing "a holding invariant reports passes; destroying the frame mid-run is tolerated"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (let [done    (atom false)
           reports (with-captured-reports
                     (fn []

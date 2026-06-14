@@ -74,9 +74,9 @@
   (uninstall-schema-seam!)
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!)
-  (rf/reg-event-db :cart/add-item
-                   (fn [db [_ item]]
-                     (update-in db [:cart :items] (fnil conj []) item)))
+  (rf/reg-event :cart/add-item
+                   (fn [{:keys [db]} [_ item]]
+                     {:db (update-in db [:cart :items] (fnil conj []) item)}))
   (test-fn))
 
 (use-fixtures :each reset-rf!)

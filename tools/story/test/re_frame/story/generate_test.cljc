@@ -114,7 +114,7 @@
 (deftest check-property-passes-and-records-num-tests
   (testing "a property that always holds passes over N seeds"
     ;; A handler that always succeeds — every generated program passes.
-    (rf/reg-event-db :gen/ok (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :gen/ok (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [res (generate/check-property!
                 (fn [_seed] [[:dispatch [:gen/ok]]])
                 {:seed 7 :num-tests 5})]
@@ -129,7 +129,7 @@
 (defn- reg-boom! []
   (rf/reg-fx :gen.fx/boom {:platforms #{:client :server}}
              (fn [_ _] (throw (ex-info "fault: boom" {}))))
-  (rf/reg-event-fx :gen/boom (fn [_ _] {:fx [[:gen.fx/boom {}]]})))
+  (rf/reg-event :gen/boom (fn [_ _] {:fx [[:gen.fx/boom {}]]})))
 
 (deftest check-property-falsifies-and-emits-seed-bearing-artifact
   (testing "a property that fails yields a seed-bearing failing artifact"
@@ -148,7 +148,7 @@
   (testing "shrinking drops irrelevant steps, keeping the minimal failing case"
     ;; :gen/noise is harmless; :gen/boom emits the failing effect. A program
     ;; with many noise steps + one boom should shrink toward just the boom.
-    (rf/reg-event-db :gen/noise (fn [db _] (update db :noise (fnil inc 0))))
+    (rf/reg-event :gen/noise (fn [{:keys [db]} _] {:db (update db :noise (fnil inc 0))}))
     (reg-boom!)
     (let [program [[:dispatch [:gen/noise]] [:dispatch [:gen/noise]]
                    [:dispatch [:gen/boom]]
@@ -209,7 +209,7 @@
     (rf/reg-fx :app.fx/save-broken {:platforms #{:client :server}}
                (fn [_ _]
                  (throw (ex-info "fault: save failed" {}))))
-    (rf/reg-event-fx :app/save (fn [_ _] {:fx [[:app.fx/save {}]]}))
+    (rf/reg-event :app/save (fn [_ _] {:fx [[:app.fx/save {}]]}))
     (let [base   [[:dispatch [:app/save]]]
           lattice {:healthy {}
                    :save-fails {:app.fx/save :app.fx/save-broken}}
@@ -236,7 +236,7 @@
     (rf/reg-fx :app.fx/save {:platforms #{:client :server}} (fn [_ _] :ok))
     (rf/reg-fx :app.fx/save-broken {:platforms #{:client :server}}
                (fn [_ _] (throw (ex-info "fault: save failed" {}))))
-    (rf/reg-event-fx :app/save (fn [_ _] {:fx [[:app.fx/save {}]]}))
+    (rf/reg-event :app/save (fn [_ _] {:fx [[:app.fx/save {}]]}))
     (let [base        [[:dispatch [:app/save]]]
           ;; The SAME lattice in both shapes, in the same cell order.
           as-map      {:healthy {} :save-fails {:app.fx/save :app.fx/save-broken}}
@@ -303,7 +303,7 @@
      (testing "check-property-gen! drives the runner from a test.check generator:
                every drawn program passes, and the run records its reproducible
                root seed exactly as the dependency-free path does"
-       (rf/reg-event-db :gen/ok (fn [db _] (update db :n (fnil inc 0))))
+       (rf/reg-event :gen/ok (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (let [program-gen (tcgen/vector
                           (tcgen/return [:dispatch [:gen/ok]]) 1 3)
              res (gen-tc/check-property-gen!
@@ -319,7 +319,7 @@
      (testing "a test.check-driven property that fails flows through the SAME
                shrink + seed-bearing-artifact + promotion bridge as the
                dependency-free path — the adapter is pure sugar over gen-fn"
-       (rf/reg-event-db :gen/noise (fn [db _] (update db :noise (fnil inc 0))))
+       (rf/reg-event :gen/noise (fn [{:keys [db]} _] {:db (update db :noise (fnil inc 0))}))
        (reg-boom!)
        ;; A generator that always includes the failing :gen/boom step amid
        ;; harmless noise — every drawn program falsifies, exercising the

@@ -98,9 +98,9 @@
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!)
   (frame/reg-frame bridge-frame {:doc "outcome-matching bridge test frame"})
-  (rf/reg-event-db ::seed
-    (fn [db [_ rec]]
-      (update db :rf.story/assertions (fnil conj []) rec)))
+  (rf/reg-event ::seed
+    (fn [{:keys [db]} [_ rec]]
+      {:db (update db :rf.story/assertions (fnil conj []) rec)}))
   (test-fn))
 
 (use-fixtures :each bridge-reset!)
@@ -198,7 +198,7 @@
   (testing "run-terminal-assertions! dispatches each handler-backed terminal
             atom through the ONE executor, recording the canonical pass/fail
             record on :rf.story/assertions — no parallel evaluator"
-    (rf/reg-event-db ::seed-db (fn [db [_ m]] (merge db m)))
+    (rf/reg-event ::seed-db (fn [{:keys [db]} [_ m]] {:db (merge db m)}))
     (seed-db! {:status :loaded})
     (re/run-terminal-assertions!
       bridge-frame
@@ -216,7 +216,7 @@
             reg-event-fx handler; the result boundary owns its verdict
             against the tape, so no handler-backed record is minted here
             (rf2-nyjoa critical guard against double-processing)"
-    (rf/reg-event-db ::seed-db (fn [db [_ m]] (merge db m)))
+    (rf/reg-event ::seed-db (fn [{:keys [db]} [_ m]] {:db (merge db m)}))
     (seed-db! {:status :loaded})
     (re/run-terminal-assertions!
       bridge-frame
@@ -231,7 +231,7 @@
 
 (deftest run-terminal-assertions-empty-is-noop
   (testing "run-terminal-assertions! with no atoms records nothing"
-    (rf/reg-event-db ::seed-db (fn [db [_ m]] (merge db m)))
+    (rf/reg-event ::seed-db (fn [{:keys [db]} [_ m]] {:db (merge db m)}))
     (seed-db! {:status :loaded})
     (re/run-terminal-assertions! bridge-frame [])
     (re/run-terminal-assertions! bridge-frame nil)
@@ -359,9 +359,9 @@
    (deftest dispatch-sync-fires-event
      (testing ":dispatch-sync step fires the event into the variant's frame"
        (let [seen (atom [])]
-         (rf/reg-event-db :rt/inc
-           (fn [db _] (swap! seen conj :hit)
-             (update db :n (fnil inc 0))))
+         (rf/reg-event :rt/inc
+           (fn [{:keys [db]} _] (swap! seen conj :hit)
+             {:db (update db :n (fnil inc 0))}))
          (story/reg-variant :story.runner/sync
            {:events []
             :play-script {:auto-run? false
@@ -380,8 +380,8 @@
               :assert-db step is rewritten to the canonical
               [:assert [:rf.assert/path-equals …]] checkpoint, so the
               recorded step type is :assert."
-       (rf/reg-event-db :rt/set-status
-         (fn [db [_ v]] (assoc db :status v)))
+       (rf/reg-event :rt/set-status
+         (fn [{:keys [db]} [_ v]] {:db (assoc db :status v)}))
        (story/reg-variant :story.runner/assert-db
          {:events      []
           :play-script {:auto-run? false
@@ -425,8 +425,8 @@
      (testing "a failing folded :assert-db step records a :passed? false
               :rf.assert/path-equals record into :rf.story/assertions so the
               slot consumers + assertions-passing? observe the failure"
-       (rf/reg-event-db :rt/set-status
-         (fn [db [_ v]] (assoc db :status v)))
+       (rf/reg-event :rt/set-status
+         (fn [{:keys [db]} [_ v]] {:db (assoc db :status v)}))
        (story/reg-variant :story.bridge/db-fail
          {:events      []
           :play-script {:auto-run? false
@@ -449,8 +449,8 @@
    (deftest assert-db-pass-lands-in-assertions-slot
      (testing "a passing folded :assert-db step records a :passed? true
               :rf.assert/path-equals entry so the slot is non-empty + passes"
-       (rf/reg-event-db :rt/set-status
-         (fn [db [_ v]] (assoc db :status v)))
+       (rf/reg-event :rt/set-status
+         (fn [{:keys [db]} [_ v]] {:db (assoc db :status v)}))
        (story/reg-variant :story.bridge/db-pass
          {:events      []
           :play-script {:auto-run? false
@@ -470,8 +470,8 @@
               folded failure as a canonical :rf.assert/path-equals record —
               the cljs.test adapter path (assertions-passing? on the result)
               is no longer false-green; and the unified :status is :fail"
-       (rf/reg-event-db :rt/set-status
-         (fn [db [_ v]] (assoc db :status v)))
+       (rf/reg-event :rt/set-status
+         (fn [{:keys [db]} [_ v]] {:db (assoc db :status v)}))
        (story/reg-variant :story.bridge/result
          {:events      []
           :play-script {:script [[:dispatch-sync [:rt/set-status :idle]]
@@ -503,10 +503,10 @@
      (testing "the unified result's :narrative attributes a re-dispatching
               step's fan-out to THAT step's span — EXACT, not the EVEN
               partition that mis-groups it (rf2-rkd14, live run path)"
-       (rf/reg-event-db :rkd/a (fn [db _] (assoc db :a true)))
+       (rf/reg-event :rkd/a (fn [{:keys [db]} _] {:db (assoc db :a true)}))
        ;; :rkd/c re-dispatches :rkd/d, so step 1 settles to 2 epochs.
-       (rf/reg-event-fx :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
-       (rf/reg-event-db :rkd/d (fn [db _] (assoc db :d true)))
+       (rf/reg-event :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
+       (rf/reg-event :rkd/d (fn [{:keys [db]} _] {:db (assoc db :d true)}))
        (story/reg-variant :story.rkd/redispatch
          {:events      []
           :play-script {:script [[:dispatch-sync [:rkd/a]]
@@ -550,9 +550,9 @@
               projection — the EXACT-attributed result's run-hash equals its
               narrative-free baseline, and the :epoch-tape slot stays raw
               (rf2-rkd14 determinism guard)"
-       (rf/reg-event-db :rkd/a (fn [db _] (assoc db :a true)))
-       (rf/reg-event-fx :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
-       (rf/reg-event-db :rkd/d (fn [db _] (assoc db :d true)))
+       (rf/reg-event :rkd/a (fn [{:keys [db]} _] {:db (assoc db :a true)}))
+       (rf/reg-event :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
+       (rf/reg-event :rkd/d (fn [{:keys [db]} _] {:db (assoc db :d true)}))
        (story/reg-variant :story.rkd/hash
          {:events      []
           :play-script {:script [[:dispatch-sync [:rkd/a]]
@@ -584,12 +584,12 @@
               epoch beat to its OWN step across the concatenated script —
               earlier-play effects are NOT lost to setup, later-play effects
               are NOT mis-credited to earlier steps (rf2-76l69l)"
-       (rf/reg-event-db :ml/a (fn [db _] (assoc db :a true)))
-       (rf/reg-event-db :ml/b (fn [db _] (assoc db :b true)))
+       (rf/reg-event :ml/a (fn [{:keys [db]} _] {:db (assoc db :a true)}))
+       (rf/reg-event :ml/b (fn [{:keys [db]} _] {:db (assoc db :b true)}))
        ;; :ml/c re-dispatches :ml/d, so the second play's second step settles
        ;; to two epochs — the discriminating re-dispatch the bead calls for.
-       (rf/reg-event-fx :ml/c (fn [_ _] {:fx [[:dispatch [:ml/d]]]}))
-       (rf/reg-event-db :ml/d (fn [db _] (assoc db :d true)))
+       (rf/reg-event :ml/c (fn [_ _] {:fx [[:dispatch [:ml/d]]]}))
+       (rf/reg-event :ml/d (fn [{:keys [db]} _] {:db (assoc db :d true)}))
        (story/reg-variant :story.ml/two-plays
          {:events []
           :plays  [{:name "alpha" :auto-run? true
@@ -673,8 +673,8 @@
    (deftest assert-db-pred-form
      (testing ":assert-db :pred folds to :rf.assert/path-matches [:fn sym];
               the symbol resolves at validation time (rf2-5x1wt.19)"
-       (rf/reg-event-db :rt/set-n
-         (fn [db [_ v]] (assoc db :n v)))
+       (rf/reg-event :rt/set-n
+         (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
        (story/reg-variant :story.runner/pred
          {:events      []
           :play-script {:auto-run? false
@@ -697,8 +697,8 @@
      (testing ":assert-db :pred accepts a fn directly (rf2-inbad —
               advanced-CLJS-safe); it folds to :rf.assert/path-matches
               [:fn fn] which Malli validates by calling the fn (rf2-5x1wt.19)"
-       (rf/reg-event-db :rt/set-n
-         (fn [db [_ v]] (assoc db :n v)))
+       (rf/reg-event :rt/set-n
+         (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
        (story/reg-variant :story.runner/pred-fn
          {:events      []
           :play-script {:auto-run? false
@@ -723,8 +723,8 @@
               it folds to :rf.assert/path-matches [:fn 'bogus]; the symbol
               cannot resolve, so the assertion reports a readable failure
               rather than an opaque sci error (rf2-5x1wt.19)"
-       (rf/reg-event-db :rt/set-n
-         (fn [db [_ v]] (assoc db :n v)))
+       (rf/reg-event :rt/set-n
+         (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
        (story/reg-variant :story.runner/pred-bogus
          {:events      []
           :play-script {:auto-run? false
@@ -741,8 +741,8 @@
 #?(:clj
    (deftest run-records-results-in-order
      (testing "results vector reflects step order"
-       (rf/reg-event-db :rt/touch
-         (fn [db _] (update db :touches (fnil inc 0))))
+       (rf/reg-event :rt/touch
+         (fn [{:keys [db]} _] {:db (update db :touches (fnil inc 0))}))
        (story/reg-variant :story.runner/order
          {:events []
           :play-script
@@ -774,8 +774,8 @@
      (testing "two consecutive public `run!`s of the same play leave the
               frame's settle-boundaries reset to THIS run's worth — `run!`
               owns the reset, so the count does not accumulate (rf2-vkdam)"
-       (rf/reg-event-db :vk/touch
-         (fn [db _] (update db :touches (fnil inc 0))))
+       (rf/reg-event :vk/touch
+         (fn [{:keys [db]} _] {:db (update db :touches (fnil inc 0))}))
        (story/reg-variant :story.vkdam/rerun
          {:events []
           :play-script {:auto-run? false
@@ -837,8 +837,8 @@
    (deftest auto-run-skips-when-disabled
      (testing "auto-run! is a no-op when :auto-run? is false"
        (let [seen (atom 0)]
-         (rf/reg-event-db :rt/touch
-           (fn [db _] (swap! seen inc) db))
+         (rf/reg-event :rt/touch
+           (fn [{:keys [db]} _] (swap! seen inc) {:db db}))
          (story/reg-variant :story.runner/no-auto
            {:events []
             :play-script {:auto-run? false
@@ -852,8 +852,8 @@
 #?(:clj
    (deftest run-state-clears-and-resets
      (testing "successive runs reset :results and re-walk every step"
-       (rf/reg-event-db :rt/touch
-         (fn [db _] (update db :touches (fnil inc 0))))
+       (rf/reg-event :rt/touch
+         (fn [{:keys [db]} _] {:db (update db :touches (fnil inc 0))}))
        (story/reg-variant :story.runner/reset
          {:events []
           :play-script {:auto-run? false
@@ -876,8 +876,8 @@
      (testing "the runner emits a :rf.story.play/step trace event per step"
        (let [trace-events (atom [])
              listener-id  ::play-trace-test]
-         (rf/reg-event-db :rt/touch
-           (fn [db _] (update db :touches (fnil inc 0))))
+         (rf/reg-event :rt/touch
+           (fn [{:keys [db]} _] {:db (update db :touches (fnil inc 0))}))
          (try
            (require '[re-frame.trace.tooling :as trace-tooling])
            (let [reg!  (resolve 're-frame.trace.tooling/register-listener!)
@@ -947,8 +947,8 @@
 #?(:clj
    (deftest variant-plays-resolves-plays-vector
      (testing "variant-plays returns a vector of parsed plays"
-       (rf/reg-event-db :rt/inc
-         (fn [db _] (update db :n (fnil inc 0))))
+       (rf/reg-event :rt/inc
+         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.multi/two
          {:events []
           :plays  [{:name "happy"
@@ -979,8 +979,8 @@
 #?(:clj
    (deftest run-play-keys-state-per-play
      (testing "running each play stores state under [variant-id play-key]"
-       (rf/reg-event-db :rt/inc
-         (fn [db _] (update db :n (fnil inc 0))))
+       (rf/reg-event :rt/inc
+         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.multi/keyed
          {:events []
           :plays  [{:name "first"  :auto-run? false
@@ -1005,8 +1005,8 @@
 #?(:clj
    (deftest run-play-sets-active-play
      (testing "run-play! also sets the active-play key the toolbar reads"
-       (rf/reg-event-db :rt/touch
-         (fn [db _] (update db :n (fnil inc 0))))
+       (rf/reg-event :rt/touch
+         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.multi/active
          {:events []
           :plays  [{:name "alpha" :auto-run? false
@@ -1020,8 +1020,8 @@
 #?(:clj
    (deftest select-play-without-running
      (testing "select-play! changes the active key but does not run"
-       (rf/reg-event-db :rt/touch
-         (fn [db _] (update db :n (fnil inc 0))))
+       (rf/reg-event :rt/touch
+         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.multi/select
          {:events []
           :plays  [{:name "one" :auto-run? false
@@ -1037,8 +1037,8 @@
 #?(:clj
    (deftest run-all-plays-sequences-runs
      (testing "run-all-plays! drives every play and resolves with per-play results"
-       (rf/reg-event-db :rt/touch
-         (fn [db _] (update db :n (fnil inc 0))))
+       (rf/reg-event :rt/touch
+         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.multi/all
          {:events []
           :plays  [{:name "a" :auto-run? false
@@ -1069,8 +1069,8 @@
 #?(:clj
    (deftest auto-run-multi-runs-only-opted-in-plays
      (testing "auto-run! runs only plays whose :auto-run? is true (per-position defaults)"
-       (rf/reg-event-db :rt/inc
-         (fn [db _] (update db :n (fnil inc 0))))
+       (rf/reg-event :rt/inc
+         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.multi/auto
          {:events []
           :plays  [{:name "first-default-true"
@@ -1176,7 +1176,7 @@
    (deftest run-stamps-token-on-state
      (testing "run! writes a :run-token onto the started state map so
               concurrent-run detection can compare loops"
-       (rf/reg-event-db :rt/touch (fn [db _] (update db :n (fnil inc 0))))
+       (rf/reg-event :rt/touch (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.runner/token
          {:events      []
           :play-script {:auto-run? false
@@ -1191,7 +1191,7 @@
      (testing "back-to-back run! calls stamp DIFFERENT tokens — the newer
               token wins and the stale loop (had it still been queued)
               would bail on mismatch"
-       (rf/reg-event-db :rt/touch (fn [db _] (update db :n (fnil inc 0))))
+       (rf/reg-event :rt/touch (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.runner/token-rotate
          {:events      []
           :play-script {:auto-run? false
@@ -1213,7 +1213,7 @@
               dispatches sneak in mid-script. Probes the legacy execute-play!
               semantics the migration accidentally lost."
        (let [n (atom 0)]
-         (rf/reg-event-db :rt/inc (fn [db _] (swap! n inc) (update db :n (fnil inc 0))))
+         (rf/reg-event :rt/inc (fn [{:keys [db]} _] (swap! n inc) {:db (update db :n (fnil inc 0))}))
          (story/reg-variant :story.runner/sync-tight
            {:events      [[:rt/inc] [:rt/inc] [:rt/inc]] ; seed: n=3
             :play-script {:auto-run? false
@@ -1274,8 +1274,8 @@
      (testing "an in-script [:assert [:rf.assert/schema-error …]] checkpoint
               is recorded as a no-op step-skip — NOT dispatched into the
               frame — so no :rf.error/no-such-handler trace lands (rf2-8y47c)"
-       (rf/reg-event-db :rt/touch
-         (fn [db _] (update db :n (fnil inc 0))))
+       (rf/reg-event :rt/touch
+         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.tape/schema-error
          {:events      []
           :play-script {:auto-run? false
@@ -1304,8 +1304,8 @@
               checkpoint (the causal family) is a no-op step-skip — NOT
               dispatched — so no :rf.error/no-such-handler trace lands
               (rf2-fh7g4)"
-       (rf/reg-event-db :rt/touch
-         (fn [db _] (update db :n (fnil inc 0))))
+       (rf/reg-event :rt/touch
+         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.tape/no-cascade
          {:events      []
           :play-script {:auto-run? false
@@ -1332,8 +1332,8 @@
      (testing "an in-script [:assert [:rf.assert/caused …]] checkpoint is a
               no-op step-skip — NOT dispatched — so no
               :rf.error/no-such-handler trace lands (rf2-fh7g4)"
-       (rf/reg-event-db :rt/touch
-         (fn [db _] (update db :n (fnil inc 0))))
+       (rf/reg-event :rt/touch
+         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
        (story/reg-variant :story.tape/caused
          {:events      []
           :play-script {:auto-run? false

@@ -66,7 +66,7 @@
   (testing "rf2-294yq5.5: a handler that throws ex-info with a value at a
             path-marked-sensitive key records :rf/redacted in :error :data,
             NOT the raw secret; the :error :message survives verbatim"
-    (rf/reg-event-db :auth/boom
+    (rf/reg-event :auth/boom
       (fn [_ _]
         (throw (ex-info "Invalid credentials"
                         {:token  "BEARER-secret-12345"
@@ -108,7 +108,7 @@
 (deftest exception-ex-data-non-sensitive-passes-through
   (testing "rf2-294yq5.5: with NO marks, the captured ex-data passes through
             unredacted (frame-scoped elision only redacts marked paths)"
-    (rf/reg-event-db :plain/boom
+    (rf/reg-event :plain/boom
       (fn [_ _]
         (throw (ex-info "boom" {:detail "not-secret"}))))
     (story/reg-variant :story.err-plain/probe

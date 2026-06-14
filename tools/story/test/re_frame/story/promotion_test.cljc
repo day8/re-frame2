@@ -266,7 +266,7 @@
   addressing). Mirrors the artifact_test helper so the round-trip exercises
   the same managed-HTTP fail-close path."
   [event-id [method url]]
-  (rf/reg-event-fx event-id
+  (rf/reg-event event-id
     (fn [{:keys [db]} [_ msg]]
       (if-let [reply (:rf/reply msg)]
         {:db (assoc db :got reply)}

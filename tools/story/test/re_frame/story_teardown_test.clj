@@ -102,13 +102,13 @@
   (testing ":teardown events dispatched at destroy reach the variant
             frame's event handlers"
     (let [fired (atom [])]
-      (rf/reg-event-db :feed/close-socket
-        (fn [db _] (swap! fired conj :feed/close-socket) db))
+      (rf/reg-event :feed/close-socket
+        (fn [{:keys [db]} _] (swap! fired conj :feed/close-socket) {:db db}))
       (story/reg-decorator :feed/live-subscription
         {:kind     :frame-setup
          :init     [[:feed/noop-init]]
          :teardown [[:feed/close-socket]]})
-      (rf/reg-event-db :feed/noop-init (fn [db _] db))
+      (rf/reg-event :feed/noop-init (fn [{:keys [db]} _] {:db db}))
       (story/reg-variant :story.feed/teardown-fires
         {:decorators [[:feed/live-subscription]]
          :events     []})
@@ -126,17 +126,17 @@
   (testing "within a single decorator's :teardown vector, events fire
             in declared order — symmetric with :init"
     (let [fired (atom [])]
-      (rf/reg-event-db :step/one
-        (fn [db _] (swap! fired conj :one) db))
-      (rf/reg-event-db :step/two
-        (fn [db _] (swap! fired conj :two) db))
-      (rf/reg-event-db :step/three
-        (fn [db _] (swap! fired conj :three) db))
+      (rf/reg-event :step/one
+        (fn [{:keys [db]} _] (swap! fired conj :one) {:db db}))
+      (rf/reg-event :step/two
+        (fn [{:keys [db]} _] (swap! fired conj :two) {:db db}))
+      (rf/reg-event :step/three
+        (fn [{:keys [db]} _] (swap! fired conj :three) {:db db}))
       (story/reg-decorator :multi-step-teardown
         {:kind     :frame-setup
          :init     [[:step/noop]]
          :teardown [[:step/one] [:step/two] [:step/three]]})
-      (rf/reg-event-db :step/noop (fn [db _] db))
+      (rf/reg-event :step/noop (fn [{:keys [db]} _] {:db db}))
       (story/reg-variant :story.feed/multi-step
         {:decorators [[:multi-step-teardown]]
          :events     []})
@@ -157,16 +157,16 @@
             variant-level decorator's :teardown runs BEFORE the story-
             level decorator's :teardown. Mirrors function-scope cleanup."
     (let [fired (atom [])]
-      (rf/reg-event-db :outer/cleanup
-        (fn [db _] (swap! fired conj :outer) db))
-      (rf/reg-event-db :inner/cleanup
-        (fn [db _] (swap! fired conj :inner) db))
+      (rf/reg-event :outer/cleanup
+        (fn [{:keys [db]} _] (swap! fired conj :outer) {:db db}))
+      (rf/reg-event :inner/cleanup
+        (fn [{:keys [db]} _] (swap! fired conj :inner) {:db db}))
       (story/reg-decorator :outer-dec
         {:kind :frame-setup :init [[:outer/noop]] :teardown [[:outer/cleanup]]})
       (story/reg-decorator :inner-dec
         {:kind :frame-setup :init [[:inner/noop]] :teardown [[:inner/cleanup]]})
-      (rf/reg-event-db :outer/noop (fn [db _] db))
-      (rf/reg-event-db :inner/noop (fn [db _] db))
+      (rf/reg-event :outer/noop (fn [{:keys [db]} _] {:db db}))
+      (rf/reg-event :inner/noop (fn [{:keys [db]} _] {:db db}))
       (story/reg-story :story.teardown.order
         {:decorators [[:outer-dec]]})
       (story/reg-variant :story.teardown.order/v
@@ -185,16 +185,16 @@
             tear down in reverse-declaration order — the resolved
             :frame-setup vector reversed is the walk order"
     (let [fired (atom [])]
-      (rf/reg-event-db :dec-a/cleanup
-        (fn [db _] (swap! fired conj :a) db))
-      (rf/reg-event-db :dec-b/cleanup
-        (fn [db _] (swap! fired conj :b) db))
+      (rf/reg-event :dec-a/cleanup
+        (fn [{:keys [db]} _] (swap! fired conj :a) {:db db}))
+      (rf/reg-event :dec-b/cleanup
+        (fn [{:keys [db]} _] (swap! fired conj :b) {:db db}))
       (story/reg-decorator :dec-a
         {:kind :frame-setup :init [[:dec-a/noop]] :teardown [[:dec-a/cleanup]]})
       (story/reg-decorator :dec-b
         {:kind :frame-setup :init [[:dec-b/noop]] :teardown [[:dec-b/cleanup]]})
-      (rf/reg-event-db :dec-a/noop (fn [db _] db))
-      (rf/reg-event-db :dec-b/noop (fn [db _] db))
+      (rf/reg-event :dec-a/noop (fn [{:keys [db]} _] {:db db}))
+      (rf/reg-event :dec-b/noop (fn [{:keys [db]} _] {:db db}))
       (story/reg-variant :story.teardown.same-level/v
         {:decorators [[:dec-a] [:dec-b]]
          :events     []})
@@ -212,11 +212,11 @@
   (testing "a teardown event that throws is caught by the runtime —
             destroy-frame! still runs. spec/002 §Loader teardown
             contract: teardown never aborts destroy-frame!"
-    (rf/reg-event-db :boom/cleanup
+    (rf/reg-event :boom/cleanup
       (fn [_ _] (throw (ex-info "teardown boom" {:why :test}))))
     (story/reg-decorator :boom-dec
       {:kind :frame-setup :init [[:boom/noop]] :teardown [[:boom/cleanup]]})
-    (rf/reg-event-db :boom/noop (fn [db _] db))
+    (rf/reg-event :boom/noop (fn [{:keys [db]} _] {:db db}))
     (story/reg-variant :story.teardown.boom/v
       {:decorators [[:boom-dec]]
        :events     []})
@@ -242,13 +242,13 @@
             copies it to a side-atom, so the test can inspect the record
             after destroy-frame! evicts the frame."
     (let [captured (atom nil)]
-      (rf/reg-event-db :boom/cleanup
+      (rf/reg-event :boom/cleanup
         (fn [_ _] (throw (ex-info "teardown boom" {:why :test}))))
-      (rf/reg-event-db :boom/noop (fn [db _] db))
-      (rf/reg-event-db ::probe-snapshot
-        (fn [db _]
+      (rf/reg-event :boom/noop (fn [{:keys [db]} _] {:db db}))
+      (rf/reg-event ::probe-snapshot
+        (fn [{:keys [db]} _]
           (reset! captured (:rf.story/assertions db))
-          db))
+          {:db db}))
       (story/reg-decorator :boom-dec
         {:kind :frame-setup :init [[:boom/noop]] :teardown [[:boom/cleanup]]})
       (story/reg-decorator :probe-dec
@@ -293,8 +293,8 @@
 (deftest decorator-without-teardown-is-untouched
   (testing "a :frame-setup decorator that declares no :teardown still
             tears down cleanly — the walk is a no-op for that decorator"
-    (rf/reg-event-db :seed/init
-      (fn [db _] (assoc db :seeded? true)))
+    (rf/reg-event :seed/init
+      (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
     (story/reg-decorator :seed-only
       {:kind :frame-setup :init [[:seed/init]]})
     (story/reg-variant :story.teardown.none/v
@@ -325,7 +325,7 @@
   (testing "after a play runs and the variant is destroyed, the play-runner's
             per-frame run-state is gone from every process-global atom — no
             leak (rf2-booyu)"
-    (rf/reg-event-db :rs/noop (fn [db _] db))
+    (rf/reg-event :rs/noop (fn [{:keys [db]} _] {:db db}))
     (story/reg-variant :story.runstate/v
       {:events      []
        :play-script [[:dispatch-sync [:rs/noop]]]})
@@ -387,7 +387,7 @@
                       (swap! live disj id)
                       (swap! @#'trace-tooling/listeners dissoc id)
                       nil)]
-        (rf/reg-event-db :lst/noop (fn [db _] db))
+        (rf/reg-event :lst/noop (fn [{:keys [db]} _] {:db db}))
         (story/reg-variant :story.listener/v {:events [[:lst/noop]]})
         (async/deref-blocking (story/run-variant :story.listener/v) 5000)
         (is (some play-listener-id? @live)
@@ -413,7 +413,7 @@
                       (swap! live disj id)
                       (swap! @#'trace-tooling/listeners dissoc id)
                       nil)]
-        (rf/reg-event-db :lst/noop2 (fn [db _] db))
+        (rf/reg-event :lst/noop2 (fn [{:keys [db]} _] {:db db}))
         (story/reg-variant :story.listener2/v {:events [[:lst/noop2]]})
         (async/deref-blocking (story/run-variant :story.listener2/v) 5000)
         (async/deref-blocking (story/run-variant :story.listener2/v) 5000)
