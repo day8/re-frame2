@@ -50,6 +50,21 @@
 ;; MUST NOT happen is the slot being present and equal to the
 ;; `\"NO_SOURCE_PATH\"` sentinel — that's the bug rf2-mdjp tracks.
 
+(deftest reg-event-file-is-not-no-source-path
+  (testing "EP-0018 C (rf2-xhfxcs.3): the ONE public `reg-event` macro emits a
+  real :file under CLJS, not NO_SOURCE_PATH — same coord-capture path as the
+  legacy reg-event-* macros (consolidated macro layer)"
+    (rf/reg-event :rf2-mdjp/reg-event-sample
+                  (fn [{:keys [db]} _] {:db db}))
+    (let [m (rf/handler-meta :event :rf2-mdjp/reg-event-sample)
+          f (:file m)]
+      (is (some? m))
+      (is (not= "NO_SOURCE_PATH" f)
+          ":file must NOT be the cljs.analyzer NO_SOURCE_PATH sentinel")
+      (when (some? f)
+        (is (file-is-real? f)
+            ":file when present must be a real source path")))))
+
 (deftest reg-event-db-file-is-not-no-source-path
   (testing "rf2-mdjp: reg-event-db emits a real :file under CLJS, not NO_SOURCE_PATH"
     (rf/reg-event-db :rf2-mdjp/reg-event-db-sample
