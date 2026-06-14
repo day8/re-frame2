@@ -38,14 +38,15 @@ Password, TOTP, recovery-code, and similar secret fields are a **different lifec
 Worked auth example — minimal diff from the slice form above:
 
 ```clojure
-;; `(rf/path :auth :login)` focuses the handler's :db onto the [:auth :login]
-;; slice — the body reads/writes slice-relative paths ([:draft], [:status]),
-;; NOT full app-db paths, and the returned :db is spliced back into the slice.
-;; The slot's `:sensitive? true` schema metadata is what drives trace/error
-;; redaction; `path` itself only focuses the slice. The handler body still
-;; sees the real password via the unredacted :event coeffect.
+;; The standard `[:rf.interceptor/path [:auth :login]]` ref focuses the
+;; handler's :db onto the [:auth :login] slice — the body reads/writes
+;; slice-relative paths ([:draft], [:status]), NOT full app-db paths, and the
+;; returned :db is spliced back into the slice. The slot's `:sensitive? true`
+;; schema metadata is what drives trace/error redaction; the path interceptor
+;; itself only focuses the slice. The handler body still sees the real
+;; password via the unredacted :event coeffect.
 (rf/reg-event :form.login/submit
-  {:interceptors [(rf/path :auth :login)]}
+  {:interceptors [[:rf.interceptor/path [:auth :login]]]}
   (fn [{:keys [db]} _]                          ;; db here IS the [:auth :login] slice
     (let [draft  (:draft db)
           errors (validate-against LoginForm draft)

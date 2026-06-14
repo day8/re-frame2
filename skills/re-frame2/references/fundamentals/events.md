@@ -23,9 +23,9 @@ Verified in `implementation/core/src/re_frame/events.cljc` (the `reg-event` fn) 
 
 - `(reg-event :id handler)`
 - `(reg-event :id {:doc "..." :schema ...} handler)`
-- `(reg-event :id {:doc "..." :interceptors [icpt1 icpt2]} handler)`  ← the superset form
+- `(reg-event :id {:doc "..." :interceptors [:icpt-ref1 :icpt-ref2]} handler)`  ← the superset form
 
-The **metadata-map** is the one superset middle slot: reflection keys (`:doc`, `:schema`, `:tags`, `:platforms`, `:rf.cofx/requires`, ...) **plus** a reserved `:interceptors` key. The historical positional interceptor vector is retired: `(reg-event :id [i1 i2] handler)` now throws `:rf.error/reg-event-bad-middle-slot`, and `(reg-event :id {:doc "..."} [i1 i2] handler)` throws `:rf.error/reg-event-bad-arity`. A malformed `:interceptors` value is `:rf.error/reg-event-bad-interceptors`.
+The **metadata-map** is the one superset middle slot: reflection keys (`:doc`, `:schema`, `:tags`, `:platforms`, `:rf.cofx/requires`, ...) **plus** a reserved `:interceptors` key. The historical positional interceptor vector is retired: `(reg-event :id [i1 i2] handler)` now throws `:rf.error/reg-event-bad-middle-slot`, and `(reg-event :id {:doc "..."} [i1 i2] handler)` throws `:rf.error/reg-event-bad-arity`. A malformed `:interceptors` value is `:rf.error/reg-event-bad-interceptors`. The `:interceptors` vector carries **interceptor references** — a bare keyword id (`:auth/required`) or an `[id arg]` factory ref (`[:rf.interceptor/path [:cart]]`) — never inline interceptor maps or values; an inline value in a public chain is `:rf.error/inline-interceptor-removed`. Register the behaviour once with `reg-interceptor`, then reference it by id (see [Interceptors as named program members](#interceptors-as-named-program-members) below).
 
 ## Event vector shape
 
@@ -84,14 +84,43 @@ The wrap is thin, but the *state transition itself* should stay a plain function
 
 Test `inc-counter` directly with no runtime; the handler stays a one-liner. This keeps the "an event is a pure function of state" model intact while every handler speaks the uniform coeffects-in/effects-out shape.
 
+## Interceptors as named program members
+
+Full-context work — rewriting coeffects, replacing the event, skipping the handler, adding or removing effects, focusing `:db` on a slice — lives in **interceptors**. An interceptor is load-bearing program structure, so it is a **registered, named** program member with the same properties as every other `reg-*` member: an id, source coordinates, metadata, hot-reload behaviour, and trace/Xray visibility. Register it once with `reg-interceptor`, then reference it by id from a chain.
+
+```clojure
+;; Register the behaviour once — it has a name, a doc, and (optionally) :before / :after.
+(rf/reg-interceptor :auth/required
+  {:doc "Require a logged-in user; short-circuit to the login flow otherwise."}
+  {:before require-auth})
+
+;; Reference it by id in any event's :interceptors chain.
+(rf/reg-event :cart/add
+  {:interceptors [:auth/required
+                  [:rf.interceptor/path [:cart]]]}
+  (fn [{:keys [db]} [_ sku]]
+    {:db (update db :items conj sku)}))         ;; db here IS the [:cart] slice
+```
+
+Two reference shapes:
+
+- a **bare keyword** id (`:auth/required`) — references a static registered interceptor;
+- an **`[id arg]` vector** (`[:rf.interceptor/path [:cart]]`) — references a parameterized interceptor **factory** with exactly one EDN-serializable argument.
+
+Inline interceptor maps, values, or Vars in a public chain are a registration error — `:rf.error/inline-interceptor-removed`; the recovery is to register the behaviour and reference it by id. `->interceptor` is **not** the public authoring form (the framework keeps an internal lowering constructor only). Because chains carry serializable refs, an event's interceptor wiring prints, diffs, moves through a story, lands in an app value, and is overridable by exact reference — `{:interceptor-overrides {:auth/required :story/skip-auth, [:rf.interceptor/path [:cart]] nil}}` swaps or removes a named ref per-frame or per-dispatch.
+
+**Standard `[:rf.interceptor/path path-vector]`** is the one framework-standard interceptor. It focuses the handler's `:db` coeffect onto the named app-db slice and re-widens the returned slice afterwards, so the handler reads and returns slice-relative state. It preserves the frame-commit `identical?` no-op: a path-focused handler that returns its slice unchanged still commits as a no-op. There is no public `rf/path` value constructor — the chain language is uniform keywords and `[id arg]` refs.
+
+**Frame-level `:interceptors`** is the "global within this frame" mechanism: `(rf/reg-frame :dev/main {:interceptors [:dev/record-events]})` applies the referenced behaviour to every event dispatched in that frame.
+
 ## Common gotchas
 
 - **`:dispatch` and `:dispatch-n` are NOT top-level effect keys in v2.** They moved into `:fx` as `[[:dispatch event]]` entries. The runtime emits `:rf.error/effect-map-shape` and drops any top-level key outside the closed set `#{:db :rf.db/runtime :fx}` (`police-effect-map-shape!` + `closed-effect-map-keys` in `events.cljc`). Note `:rf.db/runtime` is **inside** the closed set — it is the framework-authority runtime-db partition, not a shape error.
 - **A db-only handler still returns a map.** The next app-db is the `:db` effect: `{:db new-db}`, never a bare `new-db`. A bare map return that isn't the effects map is a shape error.
 - **`nil` / `{}` is the no-op return.** Returning `nil` or `{}` commits nothing. Use this (or `{:db db}` — the unchanged db `identical?`-short-circuits to a no-op) for the "I decided not to change anything" branch; you don't pay for the `else` arm.
-- **`:interceptors` lives in event metadata.** Put per-event chains in the metadata map: `{:interceptors [i1 i2]}`. The old positional vector middle slot is rejected. A `(rf/path ...)` interceptor focuses the `:db` coeffect on a slice and reinserts it after, so the handler returns `{:db slice}`.
+- **`:interceptors` lives in event metadata, and carries refs.** Put per-event chains in the metadata map: `{:interceptors [:icpt-ref1 :icpt-ref2]}`. The old positional vector middle slot is rejected, and chain entries are **references** (a bare keyword id, or an `[id arg]` factory ref), never inline interceptor values. The standard `[:rf.interceptor/path [:cart]]` ref focuses the `:db` coeffect on a slice and reinserts it after, so the handler returns `{:db slice}`.
 - **The event vector's first element is the event id.** Always destructure it as `[_ arg1 arg2]` — the id is in `args` because the whole vector is passed.
-- **Full-context work is an interceptor, not a special handler.** There is no public `reg-event-ctx`. When you need to manipulate the interceptor context itself (capture, short-circuit via `:rf/skip-handler?`, install an effect directly), write a `(rf/->interceptor {:id ... :before ... :after ...})` and add it under `:interceptors` — interceptors are the public `context -> context` primitive.
+- **Full-context work is a *registered* interceptor, not a special handler.** There is no public `reg-event-ctx`. When you need to manipulate the interceptor context itself (capture, short-circuit via `:rf/skip-handler?`, install an effect directly), register the behaviour with `(rf/reg-interceptor :my/icpt {:doc "..."} {:before ... :after ...})` and reference it by id under `:interceptors` — interceptors are the public `context -> context` primitive, and they are named program members, not anonymous values. (`->interceptor` is not the public authoring form; `reg-interceptor` is.)
 - **Metadata-map fields surface to tooling, not to the runtime.** `:doc`, `:schema`, `:tags`, `:platforms` are read by Xray, re-frame2-pair, and the dev-time validator. They do not affect runtime behaviour except where called out (`:schema` for dev validation; `:platforms` on `reg-fx`).
 
 ## Deeper material
