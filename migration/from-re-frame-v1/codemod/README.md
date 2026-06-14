@@ -21,7 +21,7 @@ on a bare JVM with `clojure` on the path — no re-frame2 build in the loop.
 | `reg-event-db` whose first param is a non-`db` symbol (e.g. a path-scoped slice `c`) | **rewrite** | `reg-event`; the param is rebound `{c :db}` — the db value back under its original name — so every body reference to `c` stays resolved while the body is left byte-for-byte unchanged. (Rebinding to `{:keys [db]}` here would orphan the body's `c` references — `rf2-xhfxcs.15`.) |
 | nil-capable `reg-event-db` | **flag** (`:nil-capable`) | left unchanged — D7: under v2 a bare `nil` is a no-op and `{:db nil}` coerces to `{:db {}}`, so the author chooses the intended reading |
 | complex `reg-event-db` | **flag** (`:complex`) | left unchanged — non-literal handler (var / higher-order / multi-arity) or a destructured first param |
-| `reg-event-ctx` | **flag** (`:ctx`) | left unchanged — withdrawn from the public surface; rewrite to an interceptor (`->interceptor`) by hand |
+| `reg-event-ctx` | **flag** (`:ctx`) | left unchanged — withdrawn from the public surface; rewrite the full-context work to a **registered interceptor** (`reg-interceptor`, referenced by id in `:interceptors`; EP-0022) by hand |
 
 Detection is **alias-agnostic**: `rf/reg-event-db`, `re-frame.core/reg-event-db`,
 and bare `reg-event-db` are all recognised, and the rename preserves whatever

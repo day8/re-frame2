@@ -16,10 +16,10 @@ re-frame2 covers the same use-case with `reg-machine` (per [005-StateMachines.md
 
 `day8.re-frame/async-flow-fx` is an **add-on lib** with a separate Maven coordinate; nothing in re-frame's core surface depends on it, and nothing in re-frame2 breaks when a project keeps using it. A v1 codebase can in principle:
 
-1. Continue to depend on `day8.re-frame/async-flow-fx` 0.4.0 (the engine itself is built on top of `reg-event-fx`, `reg-fx`, and `register-listener!`-style event observation — every surface it consumes is preserved or has a v2-canonical equivalent).
+1. **Keep `day8.re-frame/async-flow-fx` 0.4.0 for the flows you don't convert** — but this is *not* cost-free under EP-0018. The engine itself registers its `:async-flow` fx through `reg-fx` and observes events through a `register-listener!`-style hook (both preserved or with a v2-canonical equivalent), so the lib still loads. But the **handlers that return `:async-flow`** — and the success/failure handlers the flow watches — are your `reg-event-fx` handlers, and `reg-event-fx` is **removed** in v2 (a throwing stub naming `reg-event` — see [M-73](README.md#m-73-one-event-registration-form-reg-event-db--reg-event-fx-removed-reg-event-ctx-demoted-ep-0018)). Those migrate to the one public `reg-event` regardless; the `:async-flow` effect they return inside `:fx` is unchanged.
 2. Migrate flow-by-flow to `reg-machine` as part of broader v2 modernisation.
 
-The rule is opt-in (O-rule, not M-rule) because (1) is technically valid. The migration agent does NOT auto-rewrite — every flow is surfaced for operator approval per call site, because the rewrite is semantic (the FSM shape is a re-thinking of the rule-set, not a structural lift).
+The rule is opt-in (O-rule, not M-rule) because (1) remains valid for the engine itself once the surrounding handlers are on `reg-event`. The migration agent does NOT auto-rewrite — every flow is surfaced for operator approval per call site, because the rewrite is semantic (the FSM shape is a re-thinking of the rule-set, not a structural lift).
 
 The agent SHOULD recommend (2) when the codebase is otherwise adopting re-frame2 idioms — machine snapshots in `app-db` integrate with every other v2 surface (trace, epoch, schemas, SSR, 10x / Xray); async-flow's internal atom (or per-flow `:db-path`) is opaque to all of them.
 
@@ -130,7 +130,7 @@ What changed:
 - **The `:first-dispatch` becomes the initial state's `:entry`.** `:starting`'s `:entry` action dispatches `[:db/connect]` — the kickoff is explicit, addressable, and runs through the standard fx pipeline.
 - **The "both succeeded" rule becomes `:spawn-all` with `:join :all`.** The two parallel HTTP-completion events that async-flow tracked via `:seen-all-of?` are owned by two child fetcher machines; the runtime's join-bookkeeping handles "all succeeded" and "any failed" natively (per Spec 005 §Spawn-and-join via `:spawn-all`). The result is one declarative slot instead of three correlated rules.
 - **`:halt?` becomes `:final?`.** Two terminal states (`:ready`, `:failed`) sit at the bottom of the FSM; reaching either fires auto-destroy and clears `[:rf.runtime/machines :snapshots :app/boot]` from runtime-db.
-- **The fetchers (`:user/fetcher`, `:site-prefs/fetcher`) are themselves small machines.** In the async-flow shape, the user is responsible for the actual HTTP — the flow only observes the success/failure events the user's `reg-event-fx` dispatches. In the machine shape, each fetcher is a `reg-machine` whose `:final?` state's `:output-key` reports the loaded payload back to the parent via `:on-all-complete`. The agent surfaces this as a follow-on rewrite — each fetcher is a separate per-flow decision.
+- **The fetchers (`:user/fetcher`, `:site-prefs/fetcher`) are themselves small machines.** In the async-flow shape, the user is responsible for the actual HTTP — the flow only observes the success/failure events the user's event handlers (under v2, `reg-event` — EP-0018) dispatch. In the machine shape, each fetcher is a `reg-machine` whose `:final?` state's `:output-key` reports the loaded payload back to the parent via `:on-all-complete`. The agent surfaces this as a follow-on rewrite — each fetcher is a separate per-flow decision.
 
 ## Mapping notes for each async-flow concept
 
@@ -191,11 +191,11 @@ The migration agent does NOT silently rewrite the following. It presents the cal
 
 5. **Flows whose `:db-path` is read by other code** (i.e. some other event handler / sub looks at the engine's tracking state to make decisions). `[:rf.runtime/machines :snapshots <id>]` is a different location and a different shape (`{:state ... :data ...}` instead of `{:seen-events ... :rules-fired ...}`); the reading code must be rewritten to consume the snapshot, typically via `(rf/sub-machine <id>)`. Escalate so the operator can locate every reader.
 
-6. **Flows with no clear FSM modelling.** Some async-flows are essentially a flat list of "when E then dispatch F" cross-cutting rules with no notion of phase or state. These are better expressed as ordinary `reg-event-fx` handlers (one per E → F rule) than as a machine. The agent surfaces these and suggests the plainer rewrite; the operator confirms.
+6. **Flows with no clear FSM modelling.** Some async-flows are essentially a flat list of "when E then dispatch F" cross-cutting rules with no notion of phase or state. These are better expressed as ordinary `reg-event` handlers (one per E → F rule; `reg-event` is the one public event form under EP-0018) than as a machine. The agent surfaces these and suggests the plainer rewrite; the operator confirms.
 
 ## Out of scope
 
-- **`day8.re-frame/async-flow-fx` itself does not ship under a new coordinate in re-frame2.** There is no `day8/re-frame2-async-flow-fx` artefact. Operators who want to keep using the v1 add-on continue depending on `day8/re-frame-async-flow-fx` 0.4.0 as before; the fx surface it consumes (`reg-event-fx`, `reg-fx`, etc.) is preserved.
+- **`day8.re-frame/async-flow-fx` itself does not ship under a new coordinate in re-frame2.** There is no `day8/re-frame2-async-flow-fx` artefact. Operators who want to keep using the v1 add-on continue depending on `day8/re-frame-async-flow-fx` 0.4.0 as before; the *fx registration surface* the engine itself uses (`reg-fx`, plus `register-listener!`-style observation) is preserved, so the `:async-flow` fx still loads. The handlers that **return** `:async-flow` and the success/failure handlers the flow watches are your `reg-event-fx` handlers, and `reg-event-fx` is removed under EP-0018 ([M-73](README.md#m-73-one-event-registration-form-reg-event-db--reg-event-fx-removed-reg-event-ctx-demoted-ep-0018)) — they migrate to the one public `reg-event` regardless of whether you keep the add-on.
 
 - **The migration agent does not auto-detect "the right machine shape" from the rule-set.** Determining whether N rules are best expressed as N states, as `:spawn-all` children, or as `:always` guards is a design call the operator owns. The agent presents the rule-set and the candidate translation; the operator approves, edits, or skips.
 

@@ -60,8 +60,9 @@
       or anything the conservative analysis cannot prove is the simple shape.
 
   * reg-event-ctx -> ALWAYS FLAGGED, never rewritten. The full-context form is
-      removed from the public surface; the replacement is an interceptor
-      (`->interceptor`), which is a human-judgment rewrite.
+      removed from the public surface; the replacement is a registered
+      interceptor (`reg-interceptor`, referenced by id in `:interceptors`;
+      EP-0022), which is a human-judgment rewrite.
 
   ---------------------------------------------------------------------------
   PROGRAMMATIC API (the atomic-flip slice calls these corpus-wide)
@@ -304,7 +305,7 @@
 
       :reg-event-ctx
       {:finding (finding base {:action :flag :flag :ctx :target nil
-                               :note "reg-event-ctx removed from the public surface; rewrite to an interceptor (->interceptor) by hand"})
+                               :note "reg-event-ctx removed from the public surface; rewrite to a registered interceptor (reg-interceptor, referenced by id in :interceptors; EP-0022) by hand"})
        :kind :flag}
 
       :reg-event-db

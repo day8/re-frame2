@@ -14,12 +14,12 @@ re-frame2 covers the same use-case with `:rf.http/managed` (per [014-HTTPRequest
 
 ## Why the rewrite is opt-in
 
-`day8.re-frame/http-fx` is an **add-on lib** with a separate Maven coordinate; nothing in re-frame's core surface depends on it, and nothing in re-frame2 breaks when a project keeps using it. A v1 codebase can in principle:
+`day8.re-frame/http-fx` is an **add-on lib** with a separate Maven coordinate; nothing in re-frame's core surface depends on it. The lib itself registers its `:http-xhrio` fx through `reg-fx` (and dispatches your success/failure events) — `reg-fx` and `dispatch` are both preserved in v2, so the *lib's own* registration still loads. A v1 codebase can in principle:
 
-1. Continue to depend on `day8.re-frame/http-fx` (the lib is built on `reg-fx`, `reg-event-fx`, and `dispatch` — every surface it consumes is preserved in v2).
+1. **Keep `day8.re-frame/http-fx` for the requests you don't convert** — but this is *not* cost-free under EP-0018. The lib's fx still registers (`reg-fx` is preserved), but every **user event handler** that returns `:http-xhrio` is a `reg-event-fx` handler, and `reg-event-fx` is **removed** in v2 (a throwing stub naming `reg-event` — see [M-73](README.md#m-73-one-event-registration-form-reg-event-db--reg-event-fx-removed-reg-event-ctx-demoted-ep-0018)). So those handlers must migrate to the one public `reg-event` form regardless; the `:http-xhrio` effect they return inside `:fx` is unchanged. "Keep the add-on" means *keep the fx*, not *keep your handlers as `reg-event-fx`*.
 2. Migrate request-by-request to `:rf.http/managed` as part of broader v2 modernisation.
 
-The rule is opt-in (O-rule, not M-rule) because (1) is technically valid. The migration agent does NOT auto-rewrite — every `:http-xhrio` site is surfaced for operator approval per call site, because the rewrite is semantic (the failure surface is a re-thinking, not a structural lift).
+The rule is opt-in (O-rule, not M-rule) because (1) remains valid for the transport itself — the `:http-xhrio` fx keeps working once the surrounding handlers are on `reg-event`. The migration agent does NOT auto-rewrite the transport — every `:http-xhrio` site is surfaced for operator approval per call site, because the `:rf.http/managed` rewrite is semantic (the failure surface is a re-thinking, not a structural lift). The `reg-event-fx` → `reg-event` registration shape, by contrast, is the mechanical M-73 codemod and is applied either way.
 
 The agent SHOULD recommend (2) when the codebase is otherwise adopting re-frame2 idioms — managed-HTTP requests integrate with `:fx-overrides` test stubbing, the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure` per [M-31a](README.md#m-31a-managed-http-canned-stub-fxs-require-re-framehttp-test-support)), the per-frame request-side interceptor surface ([M-39](README.md#m-39-reg-http-interceptor--clear-http-interceptor--additive-http-middleware-on-rfhttpmanaged)), schema-driven decode, transport-vs-semantic retry split, and the eight-category trace surface that 10x and Xray visualise out of the box; ajax-cljs's `:on-success` / `:on-failure` dispatch surface is opaque to all of them.
 
@@ -100,7 +100,7 @@ This is the canonical `:http-xhrio` shape from a typical v1 app — a GET that f
   (:require [re-frame.core :as rf]
             [re-frame.http-managed]))                   ;; per M-31 — required so :rf.http/* fxs register
 
-(rf/reg-event-fx :article/load
+(rf/reg-event :article/load
   (fn [{:keys [db]} [_ slug]]
     {:db (-> db
              (assoc-in [:article :status] :loading)
@@ -113,25 +113,25 @@ This is the canonical `:http-xhrio` shape from a typical v1 app — a GET that f
             :on-success [:article/load-success]
             :on-failure [:article/load-failure]}]]}))
 
-(rf/reg-event-db :article/load-success
-  (fn [db [_ {:keys [value]}]]                          ;; reply lands as {:kind :success :value v}
-    (-> db
-        (assoc-in [:article :status] :loaded)
-        (assoc-in [:article :data]   value)
-        (assoc-in [:article :error]  nil))))
+(rf/reg-event :article/load-success                    ;; one public event form (EP-0018)
+  (fn [{:keys [db]} [_ {:keys [value]}]]               ;; reply lands as {:kind :success :value v}
+    {:db (-> db
+             (assoc-in [:article :status] :loaded)
+             (assoc-in [:article :data]   value)
+             (assoc-in [:article :error]  nil))}))
 
-(rf/reg-event-db :article/load-failure
-  (fn [db [_ {:keys [failure]}]]                        ;; reply lands as {:kind :failure :failure {...}}
-    (-> db
-        (assoc-in [:article :status] :error)
-        (assoc-in [:article :error]
+(rf/reg-event :article/load-failure
+  (fn [{:keys [db]} [_ {:keys [failure]}]]             ;; reply lands as {:kind :failure :failure {...}}
+    {:db (-> db
+             (assoc-in [:article :status] :error)
+             (assoc-in [:article :error]
                   (case (:kind failure)
                     :rf.http/http-4xx       {:kind :not-found  :status (:status failure)}
                     :rf.http/http-5xx       {:kind :server-err :status (:status failure)}
                     :rf.http/transport      {:kind :network    :message (:message failure)}
                     :rf.http/timeout        {:kind :timeout    :elapsed-ms (:elapsed-ms failure)}
                     :rf.http/decode-failure {:kind :bad-payload :cause (:cause failure)}
-                    {:kind :unknown :failure failure})))))
+                    {:kind :unknown :failure failure})))}))
 ```
 
 What changed:
@@ -141,6 +141,7 @@ What changed:
 - **`:response-format (ajax/json-response-format {:keywords? true})` becomes `:decode :json`.** The keywordisation default is the same; the surface vocabulary is keyword-sugar instead of a fn-valued slot.
 - **`:on-success` payload changes from `response` to `{:kind :success :value <response>}`.** The v1 handler received the decoded body as the last arg; the v2 handler receives a reply envelope. The handler body destructures `{:keys [value]}` to get the payload.
 - **`:on-failure` payload changes from `{:status :response :failure}` to `{:kind :failure :failure {:kind <:rf.http/*> ...kind-tags...}}`.** The v1 handler keyed off `:status` (HTTP status code) and `:failure` (ajax-cljs's failure enum); the v2 handler keys off `(:kind failure)`, a closed `:rf.http/*` keyword. The rewrite of the failure body is the substantial part of every per-call-site conversion — the operator decides which categories the app handles distinctly vs lumps into a single "show error UI" branch.
+- **The registrars collapse to `reg-event`.** The v1 `reg-event-fx :article/load` and the two `reg-event-db` result handlers all become the one public `reg-event` (EP-0018; [M-73](README.md#m-73-one-event-registration-form-reg-event-db--reg-event-fx-removed-reg-event-ctx-demoted-ep-0018)) — `reg-event-fx` is a pure rename, and each `reg-event-db` result handler gains a `{:keys [db]}` destructure and a `{:db …}` return wrap. This is the mechanical M-73 codemod and applies whether or not you adopt managed-HTTP.
 - **The `(:require [re-frame.http-managed])` clause is added.** Per [M-31](README.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http), the managed-HTTP namespace's load-time registrations must fire before the `[:rf.http/managed ...]` entry hits the drain; without the require, the `:fx` runner raises `:rf.error/no-such-fx`. (The `[day8.re-frame.http-fx]` require is dropped.)
 
 ### After — `:rf.http/managed` (schema-driven decode, recommended)
@@ -156,7 +157,7 @@ The like-for-like rewrite above replaces `:response-format (ajax/json-response-f
    [:body   :string]
    [:author [:map [:id :uuid] [:name :string]]]])
 
-(rf/reg-event-fx :article/load
+(rf/reg-event :article/load
   {:rf.http/decode-schemas [ArticleResponse]}            ;; optional — pair-tool reflection
   (fn [{:keys [db]} [_ slug]]
     {:db (-> db
@@ -302,7 +303,7 @@ The migration agent does NOT silently rewrite the following. It presents the cal
 
 ## Out of scope
 
-- **`day8.re-frame/http-fx` itself does not ship under a new coordinate in re-frame2.** There is no `day8/re-frame2-http-fx` artefact. Operators who want to keep using the v1 add-on continue depending on `day8/re-frame-http-fx` as before; the fx surface it consumes (`reg-fx`, `reg-event-fx`, `dispatch`) is preserved.
+- **`day8.re-frame/http-fx` itself does not ship under a new coordinate in re-frame2.** There is no `day8/re-frame2-http-fx` artefact. Operators who want to keep using the v1 add-on continue depending on `day8/re-frame-http-fx` as before; the *fx registration surface* the lib itself uses (`reg-fx`, `dispatch`) is preserved, so the `:http-xhrio` fx still loads. The handlers that **return** `:http-xhrio`, however, are your `reg-event-fx` handlers — and `reg-event-fx` is removed under EP-0018 ([M-73](README.md#m-73-one-event-registration-form-reg-event-db--reg-event-fx-removed-reg-event-ctx-demoted-ep-0018)), so those migrate to the one public `reg-event` regardless of whether you keep the add-on.
 
 - **Streaming, SSE, WebSocket, long-poll, chunked-transfer responses.** Managed-HTTP is single-request / single-reply per [014 §Abstract](../../spec/014-HTTPRequests.md#abstract). Sites that lean on `XhrIo`'s streaming events (rare in `:http-xhrio` v1 code — usually written against a different lib) escalate to a future streaming-aware spec.
 
