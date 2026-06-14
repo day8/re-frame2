@@ -1745,19 +1745,19 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 
 (def FxSkippedOnPlatformTags
   [:map
-   [:category             :keyword]
-   [:fx-id                :keyword]
-   [:fx-args              :any]
-   [:frame                {:optional true} :keyword]
-   [:platform             :keyword]
-   [:registered-platforms [:set :keyword]]])
+   [:category                   :keyword]
+   [:rf.fx/id                   :keyword]
+   [:rf.fx/args                 {:optional true} :any]
+   [:frame                      {:optional true} :keyword]
+   [:rf.fx/platform             {:optional true} :keyword]
+   [:rf.fx/registered-platforms {:optional true} [:set :keyword]]])
 
 (def FxHandledTags
   [:map
-   [:category :keyword]
-   [:fx-id    :keyword]
-   [:fx-args  :any]
-   [:frame    {:optional true} :keyword]])
+   [:category   :keyword]
+   [:rf.fx/id   :keyword]
+   [:rf.fx/args :any]
+   [:frame      {:optional true} :keyword]])
 
 ;; --- frame-lifecycle event (op-type :frame, not error/warning) ---
 

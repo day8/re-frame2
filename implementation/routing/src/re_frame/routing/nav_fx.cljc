@@ -66,7 +66,7 @@
 ;; history (CLJS) or emit the standard `:rf.fx/skipped-on-platform`
 ;; trace (JVM / non-owner). The ONLY per-fx variation is the history
 ;; method (`history.pushState` vs `history.replaceState`) and the
-;; `:fx-id` tag, so the body lives once in `history-mutation-handler`
+;; `:rf.fx/id` tag, so the body lives once in `history-mutation-handler`
 ;; and each handler closes over its method + fx-id.
 
 #?(:cljs
@@ -88,7 +88,7 @@
        (mutate!)
        (catch :default e
          (trace/emit! :rf.fx failed-trace-id
-                      (cond-> {:fx-id fx-id :url url :error (.-message e)}
+                      (cond-> {:rf.fx/id fx-id :url url :error (.-message e)}
                         frame (assoc :frame frame)))))))
 
 (defn- history-mutation-handler
@@ -108,12 +108,12 @@
   (if (url-bound-frame? frame)
     #?(:cljs (run-history-mutation! failed-trace-id fx-id frame url mutate!)
        :clj  (trace/emit! :rf.fx :rf.fx/skipped-on-platform
-                          {:fx-id fx-id :url url}))
+                          {:rf.fx/id fx-id :url url}))
     (trace/emit! :rf.fx :rf.fx/skipped-on-platform
-                 {:fx-id  fx-id
-                  :url    url
-                  :frame  frame
-                  :reason :frame-not-url-bound})))
+                 {:rf.fx/id fx-id
+                  :url      url
+                  :frame    frame
+                  :reason   :frame-not-url-bound})))
 
 (def push-url-meta
   "Metadata for the `:rf.nav/push-url` fx registration. Spec 012

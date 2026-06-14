@@ -695,7 +695,7 @@ When a route is loading and the user navigates away before the load completes, t
 
 4. **Validation.** On receipt, the carried token is checked against the *current* `:rf/route` slice's `:nav-token`. Path (b) — `:rf.route/with-nav-token` — performs this check for you; path (a) hands the captured token to the receiving handler, which compares it against its own freshly-declared `:rf.route/nav-token` coeffect and short-circuits on mismatch:
    - **Match.** The token is current; the result is committed normally.
-   - **Mismatch.** The token has been superseded; the runtime emits `:rf.route.nav-token/stale-suppressed` (with `:tags {:carried-token <t1> :current-token <t2> :event-id <id>}`) and the wrapped `:do` (path b) or the receiving handler's commit (path a) does NOT run — no `:db` write, no `:fx`, no transition.
+   - **Mismatch.** The token has been superseded; the runtime emits `:rf.route.nav-token/stale-suppressed` (with `:tags {:carried-token <t1> :current-token <t2> :rf.trace/event-id <id>}`) and the wrapped `:do` (path b) or the receiving handler's commit (path a) does NOT run — no `:db` write, no `:fx`, no transition.
 
 The two halves are shared infrastructure: the `:rf.route/nav-token` cofx supplies the capture-side token to any handler that declares `{:rf.cofx/requires [:rf.route/nav-token]}`, and `:rf.route/with-nav-token` performs the receipt-side check for any continuation routed through it. A handler can use both (declare to capture, wrap to validate) or compare the declared `:rf.route/nav-token` coeffect directly.
 
@@ -727,7 +727,7 @@ Suppression alone fixes the user-visible bug — the older load *does* complete 
 Two trace events surround the nav-token lifecycle (added to the trace-op vocabulary per [Spec-Schemas.md](Spec-Schemas.md#rftrace-event)):
 
 - **`:rf.route.nav-token/allocated`** — emitted when a navigation cascade allocates a fresh token. `:tags {:route-id <id> :nav-token <token> :frame <navigating-frame>}` (the `:frame` per rf2-dbmj6x — see the frame-attribution note under [§Trace events](#trace-events)).
-- **`:rf.route.nav-token/stale-suppressed`** — emitted when an async result arrives carrying a now-superseded token. `:tags {:carried-token <t1> :current-token <t2> :event-id <id> :work/id <route-work-id>}`. The handler does NOT run. The `:work/id` tag is the route-loader work-id `[:rf.work/route route-id nav-token loader-id]`, joining the suppression to the superseded attempt's identity (see [§Lowering onto the uniform reply envelope](#lowering-onto-the-uniform-reply-envelope) below).
+- **`:rf.route.nav-token/stale-suppressed`** — emitted when an async result arrives carrying a now-superseded token. `:tags {:carried-token <t1> :current-token <t2> :rf.trace/event-id <id> :work/id <route-work-id>}`. The handler does NOT run. The `:work/id` tag is the route-loader work-id `[:rf.work/route route-id nav-token loader-id]`, joining the suppression to the superseded attempt's identity (see [§Lowering onto the uniform reply envelope](#lowering-onto-the-uniform-reply-envelope) below).
 
 Naming follows the `<feature>/<reason>` convention used by `:rf.machine.timer/stale-after`. See [Pattern-StaleDetection.md](Pattern-StaleDetection.md) for the cross-cutting pattern.
 
