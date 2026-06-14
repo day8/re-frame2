@@ -28,7 +28,7 @@ disturbing the live app** — picking an epoch is *passive INSPECTION*
 **`Reset` button** on the far-right of the L3 tab-bar ribbon:
 it dispatches `:rf.xray/reset-to-epoch` against the *observed* app frame +
 the focused epoch, rewinding that frame's live `app-db` to the epoch's
-`:db-after` via `(rf/restore-epoch …)` — disabled when no epoch is focused;
+`:db-after` via `(rf/restore-epoch! …)` — disabled when no epoch is focused;
 on the rare framework failure (epoch aged out) it shows a brief inline
 flash, never a modal.
 

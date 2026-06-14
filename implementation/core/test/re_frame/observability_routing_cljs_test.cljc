@@ -66,7 +66,7 @@
     (let [seen (atom [])]
       ;; The app registers the concrete sink fn against the id the frame
       ;; policy names. The sink does NO redaction — it just records.
-      (rf/reg-observability-sink! :test.sinks/datadog
+      (rf/register-observability-sink! :test.sinks/datadog
                                   (fn [record] (swap! seen conj record)))
       ;; The frame declares the sink under :observability, AND classifies
       ;; [:auth :token] sensitive (so the projector has policy to apply).
@@ -101,7 +101,7 @@
             the frame's classification — the sink never re-implements
             redaction"
     (let [seen (atom [])]
-      (rf/reg-observability-sink! :test.sinks/local
+      (rf/register-observability-sink! :test.sinks/local
                                   (fn [record] (swap! seen conj record)))
       ;; A sink on the local-raw boundary keeps :event but the projector
       ;; STILL applies frame policy to the event's tree slots — proving the
@@ -132,7 +132,7 @@
             record to the frame's declared :errors sink, with the sensitive
             token inside the error's :event redacted"
     (let [seen (atom [])]
-      (rf/reg-observability-sink! :test.sinks/sentry
+      (rf/register-observability-sink! :test.sinks/sentry
                                   (fn [record] (swap! seen conj record)))
       (rf/reg-frame :obs/err
         {:observability
@@ -168,7 +168,7 @@
   (testing "a frame with no :observability policy routes nothing (the sink
             is never called) even though a sink is registered"
     (let [seen (atom [])]
-      (rf/reg-observability-sink! :test.sinks/unused
+      (rf/register-observability-sink! :test.sinks/unused
                                   (fn [record] (swap! seen conj record)))
       (rf/reg-frame :obs/none {})
       (rf/reg-event-db :evt/noop {:frame :obs/none} (fn [db _] db))
@@ -181,7 +181,7 @@
   (testing "routing against an unresolved frame is a NO-OP — it does not
             synthesise :rf/default, does not borrow another frame's policy"
     (let [seen (atom [])]
-      (rf/reg-observability-sink! :test.sinks/datadog
+      (rf/register-observability-sink! :test.sinks/datadog
                                   (fn [record] (swap! seen conj record)))
       ;; Call the routing fn directly against a frame id that was never
       ;; registered. Fail-closed: nil frame record ⇒ no policy ⇒ no-op.
@@ -201,9 +201,9 @@
   (testing "a throwing sink is dropped; the sibling sink on the same stream
             still receives the projected record"
     (let [seen (atom [])]
-      (rf/reg-observability-sink! :test.sinks/boom
+      (rf/register-observability-sink! :test.sinks/boom
                                   (fn [_record] (throw (ex-info "sink bug" {}))))
-      (rf/reg-observability-sink! :test.sinks/good
+      (rf/register-observability-sink! :test.sinks/good
                                   (fn [record] (swap! seen conj record)))
       (rf/reg-frame :obs/sib
         {:observability

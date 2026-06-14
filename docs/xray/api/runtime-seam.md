@@ -166,7 +166,7 @@ Three write accessors. Every mutation tags the runtime cascade with `:tags :orig
   ```clojure
   (restore-epoch! opts) → {:ok? true/false :frame <id> :epoch-id <uuid> :origin <kw>}
   ```
-- **Description**: Rewind a frame to the named epoch's canonical `:frame-state-after` via `rf/restore-epoch` — app-db and runtime-db reinstalled atomically as one frame-state (so machine snapshots and the route slice rewind alongside app-db, not just the app-db partition). Failures (six documented modes — see [Tool-Pair §Time-travel — Restore](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md)) emit a structured `:rf.epoch/*` trace and leave the frame-state unchanged; the accessor surfaces `:reason :rf.epoch/restore-failed` + a hint pointing to the trace bus.
+- **Description**: Rewind a frame to the named epoch's canonical `:frame-state-after` via `rf/restore-epoch!` — app-db and runtime-db reinstalled atomically as one frame-state (so machine snapshots and the route slice rewind alongside app-db, not just the app-db partition). Failures (six documented modes — see [Tool-Pair §Time-travel — Restore](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md)) emit a structured `:rf.epoch/*` trace and leave the frame-state unchanged; the accessor surfaces `:reason :rf.epoch/restore-failed` + a hint pointing to the trace bus.
 
 ### `replace-app-db!`
 

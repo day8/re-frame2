@@ -493,7 +493,7 @@ accepts an `epochs-mode` arg:
   `:db-before` and `:db-after` carried verbatim. Required
   for agent workflows that drive time-travel restore directly
   off the wire response rather than via the runtime's
-  `rf/restore-epoch` path; the framework's restore path stays
+  `rf/restore-epoch!` path; the framework's restore path stays
   the canonical surface, so this is the rare case.
 
 The selected mode surfaces on the tool's result as

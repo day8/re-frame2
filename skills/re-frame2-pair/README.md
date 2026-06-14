@@ -54,7 +54,7 @@ You don't need to change your application *code* to use it — the MCP server (N
 
 ## No re-frame-10x dependency
 
-re-frame2-pair does not require, recommend, or fall back to re-frame-10x. Where v1 read 10x's epoch buffer, v2 reads `(rf/epoch-history frame-id)`. Where v1 stepped through 10x's internal navigation events, v2 calls `(rf/restore-epoch frame-id epoch-id)`. Where v1 detected a 10x trace callback, v2 registers its own listener under id `:re-frame2-pair` (multi-tool coexistence is the expected default per [Spec 009 §Listener ordering](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md)). The underlying "these surfaces are first-class in re-frame2, superseding 10x" claim is stated once for the whole skills corpus in [`../shared/tool-pair-surfaces.md` §Supersedes re-frame-10x](../shared/tool-pair-surfaces.md); this section is the re-frame2-pair-specific framing of it.
+re-frame2-pair does not require, recommend, or fall back to re-frame-10x. Where v1 read 10x's epoch buffer, v2 reads `(rf/epoch-history frame-id)`. Where v1 stepped through 10x's internal navigation events, v2 calls `(rf/restore-epoch! frame-id epoch-id)`. Where v1 detected a 10x trace callback, v2 registers its own listener under id `:re-frame2-pair` (multi-tool coexistence is the expected default per [Spec 009 §Listener ordering](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md)). The underlying "these surfaces are first-class in re-frame2, superseding 10x" claim is stated once for the whole skills corpus in [`../shared/tool-pair-surfaces.md` §Supersedes re-frame-10x](../shared/tool-pair-surfaces.md); this section is the re-frame2-pair-specific framing of it.
 
 If your app uses both re-frame2-pair and Xray, they coexist as parallel listeners over re-frame2's Tool-Pair surfaces. Xray's default UI is the app-provided `[data-rf-xray-host]` true-inline panel; re-frame2-pair has no UI panel and neither tool depends on the other.
 
@@ -134,7 +134,7 @@ Here's the kinds of conversations you can have with Claude.
 
 > **You**: When I first enter the Dashboard panel, the global reset button doesn't work. Fix it, then return to the previous state and fire the same event again, iterating until it works.
 >
-> **Claude**: I called `(rf/restore-epoch :rf/default <pre-click-epoch-id>)` — the restore returned `true`, so the whole frame-state is back (both partitions: app-db *and* runtime-db, so any machine snapshots / route slice / elision declarations are rewound too). (Caveat: any HTTP requests or navigation that already fired during the original cascade are *not* reversed — restore rewinds durable frame-state, not side effects or transient host state.) The panel-level subscription was wrong; I patched it. Re-ran the event, `app-db` now updates as expected. Want me to put the patch into the source code?
+> **Claude**: I called `(rf/restore-epoch! :rf/default <pre-click-epoch-id>)` — the restore returned `true`, so the whole frame-state is back (both partitions: app-db *and* runtime-db, so any machine snapshots / route slice / elision declarations are rewound too). (Caveat: any HTTP requests or navigation that already fired during the original cascade are *not* reversed — restore rewinds durable frame-state, not side effects or transient host state.) The panel-level subscription was wrong; I patched it. Re-ran the event, `app-db` now updates as expected. Want me to put the patch into the source code?
 
 ### Stub an effect for a what-if
 

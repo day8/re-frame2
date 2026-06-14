@@ -120,7 +120,7 @@ Sink policy is the other thing you declare. Production observability — the alw
    :sensitive {:app-db [[:auth :token]]}
    :on-create [:app/init]})
 
-(rf/reg-observability-sink! :my-app.sinks/datadog
+(rf/register-observability-sink! :my-app.sinks/datadog
   (fn [projected-record]
     ;; Already projected. No sink-local redaction.
     (datadog/send projected-record)))

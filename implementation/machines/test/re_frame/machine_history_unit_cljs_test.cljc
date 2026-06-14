@@ -326,7 +326,7 @@
 ;; the recording is part of the snapshot VALUE, not a side-table. Proven
 ;; structurally: capture snapshot S1 (history H1), advance to S2 (history H2);
 ;; re-running the engine from the EARLIER captured value S1 resolves against
-;; H1 — exactly what restore-epoch does when it rewinds the snapshot value.
+;; H1 — exactly what restore-epoch! does when it rewinds the snapshot value.
 ;; Plus the EDN round-trip (pr-str / read-string) the SSR-serialisation path
 ;; and time-axis both ride.
 ;; ===========================================================================
@@ -346,7 +346,7 @@
       ;; "Reverting" = re-using the earlier value as the engine's input — no
       ;; external history side-table is consulted, so a restore off S1 resolves
       ;; H1 and a restore off S2 resolves H2, totally independently. This is
-      ;; exactly what restore-epoch does when it rewinds the snapshot value.
+      ;; exactly what restore-epoch! does when it rewinds the snapshot value.
       (is (= [:player :playing :mid-track] (:state (step m s1 [:play])))
           "restore off the reverted S1 value resolves S1's recorded leaf (H1)")
       (is (= [:player :playing :at-start]  (:state (step m s2 [:play])))

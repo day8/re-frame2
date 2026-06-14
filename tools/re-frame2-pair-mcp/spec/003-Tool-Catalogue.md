@@ -1362,7 +1362,7 @@ the app-db projection (EP-0001, Mike ruling #2). The canonical
 pair-tool undo gesture per
 [`Tool-Pair.md` §Time-travel](../../../spec/Tool-Pair.md#time-travel);
 wraps the `restore-epoch` Tool-Pair write primitive
-(`(rf/restore-epoch frame-id epoch-id)`). Walk the ring with
+(`(rf/restore-epoch! frame-id epoch-id)`). Walk the ring with
 `trace-window` / `snapshot` (`:epochs` slice) to pick a target
 `:epoch-id`, then rewind to it.
 
@@ -1561,7 +1561,7 @@ and decodable without reference to siblings. Round-trip is exact.
 Pass `epochs-mode "full"` for the legacy full-pair shape — only
 needed if your workflow drives time-travel restore off the wire
 response rather than via the runtime (the framework's
-`rf/restore-epoch` path is the canonical restore surface).
+`rf/restore-epoch!` path is the canonical restore surface).
 
 See [`Principles.md` §Diff-encoded `:db-after`](Principles.md#diff-encoded-db-after-on-epoch-slices-rf2-1wdzp)
 for the full wire shape, decoder algorithm, and design rationale. The
@@ -1814,7 +1814,7 @@ against its own `:db-before` by default — `pr-str` doesn't preserve
 structural sharing across records, so the legacy full-pair shape
 otherwise carries ~2× app-db per record. Pass `epochs-mode "full"` for
 the legacy shape (rare — only needed if you drive time-travel restore
-off the wire response rather than via `rf/restore-epoch`). See
+off the wire response rather than via `rf/restore-epoch!`). See
 `trace-window` above for the wire shape and rationale.
 
 **Full-mode record cap (rf2-lbm21).** When the `:epochs` slice resolves

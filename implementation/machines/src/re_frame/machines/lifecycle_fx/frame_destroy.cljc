@@ -35,7 +35,7 @@
   Source-of-truth on order: a process-side
   `re-frame.machines.spawn-order` atom records each spawned actor at
   install time. Snapshots that landed via direct `[:rf.runtime/machines :snapshots]` assoc
-  (test fixtures, hydration payloads, `replace-runtime-db!`, `restore-epoch`)
+  (test fixtures, hydration payloads, `replace-runtime-db!`, `restore-epoch!`)
   are not tracked in the transient channel but DO live in the durable
   runtime-db — the walker covers them as a stragglers pass after the
   recorded vector drains.

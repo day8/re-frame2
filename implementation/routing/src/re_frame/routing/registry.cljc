@@ -5,7 +5,7 @@
   Owns:
     - the canonical thrown-error shape (`route-error` helper);
     - the route-table cache (pre-sorted by `:rf.route/rank` descending);
-    - `reg-route` / `unregister-route!` (registry mutation);
+    - `reg-route` / `clear-route` (registry mutation);
     - `match-url` (URL → slice) and `route-url` (slice → URL);
     - query-coercion / fragment-decode / param-validation helpers;
     - `default-max-decoded-keys` keyword-interning DoS guard;
@@ -285,7 +285,7 @@
                       :path     pattern})))
     id))
 
-(defn unregister-route!
+(defn clear-route
   "Remove a registered route. Emits `:rf.route/cleared` so tools
   subscribing to route lifecycle observe the removal; symmetric with
   `:rf.flow/cleared`. Per Spec 012 §Trace events. No-op

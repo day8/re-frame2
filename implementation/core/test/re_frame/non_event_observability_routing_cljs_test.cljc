@@ -83,7 +83,7 @@
             listener STILL receives it (the two routes are parallel)."
     (let [sink-seen     (atom [])
           listener-seen (atom [])]
-      (rf/reg-observability-sink! :test.sinks/sentry
+      (rf/register-observability-sink! :test.sinks/sentry
                                   (fn [record] (swap! sink-seen conj record)))
       (rf/register-error-listener! :test/listener
                                    (fn [record] (swap! listener-seen conj record)))
@@ -128,7 +128,7 @@
     (let [sink-seen     (atom [])
           listener-seen (atom [])
           secret        "S3CR3T-rf2-ntv9i9-DO-NOT-LEAK-TO-SINK"]
-      (rf/reg-observability-sink! :test.sinks/sentry
+      (rf/register-observability-sink! :test.sinks/sentry
                                   (fn [record] (swap! sink-seen conj record)))
       (rf/register-error-listener! :test/listener
                                    (fn [record] (swap! listener-seen conj record)))
@@ -173,7 +173,7 @@
             client-safe projection never carries internal raw values), while
             the structural slots survive."
     (let [sink-seen (atom [])]
-      (rf/reg-observability-sink! :test.sinks/public
+      (rf/register-observability-sink! :test.sinks/public
                                   (fn [record] (swap! sink-seen conj record)))
       (rf/reg-frame :obs/public
         {:observability
@@ -203,7 +203,7 @@
             corpus listener still fires — that's not frame-policy gated)."
     (let [sink-seen     (atom [])
           listener-seen (atom [])]
-      (rf/reg-observability-sink! :test.sinks/unused
+      (rf/register-observability-sink! :test.sinks/unused
                                   (fn [record] (swap! sink-seen conj record)))
       (rf/register-error-listener! :test/listener
                                    (fn [record] (swap! listener-seen conj record)))
@@ -225,7 +225,7 @@
     (let [sink-seen     (atom [])
           listener-seen (atom [])]
       ;; A sink exists, but no frame owns the frameless record.
-      (rf/reg-observability-sink! :test.sinks/sentry
+      (rf/register-observability-sink! :test.sinks/sentry
                                   (fn [record] (swap! sink-seen conj record)))
       (rf/register-error-listener! :test/listener
                                    (fn [record] (swap! listener-seen conj record)))
@@ -250,7 +250,7 @@
             the corpus-wide listener."
     (let [sink-seen     (atom [])
           listener-seen (atom [])]
-      (rf/reg-observability-sink! :test.sinks/sentry
+      (rf/register-observability-sink! :test.sinks/sentry
                                   (fn [record] (swap! sink-seen conj record)))
       (rf/register-error-listener! :test/listener
                                    (fn [record] (swap! listener-seen conj record)))
@@ -275,9 +275,9 @@
             listener still receive the record."
     (let [good-seen     (atom [])
           listener-seen (atom [])]
-      (rf/reg-observability-sink! :test.sinks/boom
+      (rf/register-observability-sink! :test.sinks/boom
                                   (fn [_record] (throw (ex-info "sink bug" {}))))
-      (rf/reg-observability-sink! :test.sinks/good
+      (rf/register-observability-sink! :test.sinks/good
                                   (fn [record] (swap! good-seen conj record)))
       (rf/register-error-listener! :test/listener
                                    (fn [record] (swap! listener-seen conj record)))

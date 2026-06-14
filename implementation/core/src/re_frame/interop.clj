@@ -229,7 +229,7 @@
 ;; always-dev posture keeps the trace
 ;; surface live in SSR (per-frame `:trace-cb` listeners, the 200-entry
 ;; retain-N ring buffer, registry trace emits, source-coord metadata) AND
-;; keeps the epoch-history dev surfaces (`restore-epoch`, `replace-app-db!`,
+;; keeps the epoch-history dev surfaces (`restore-epoch!`, `replace-app-db!`,
 ;; the per-frame ring buffer of `:db-before`/`:db-after`/`:trace-events`)
 ;; reachable from any in-process code. Those carry secrets that should not
 ;; live in a production server's heap, crash dumps, or log files.
@@ -255,7 +255,7 @@
 ;; the flag at its default (`true`, dev-on, matching the historical
 ;; behaviour). Setting the flag to a recognised false-y value disables
 ;; trace emission, trace-buffer retention, epoch-history capture,
-;; `restore-epoch`, `replace-app-db!`, and the source-coord trace
+;; `restore-epoch!`, `replace-app-db!`, and the source-coord trace
 ;; enrichment — the same surfaces that Closure DCE elides in CLJS
 ;; `:advanced` + `goog.DEBUG=false` builds.
 ;;

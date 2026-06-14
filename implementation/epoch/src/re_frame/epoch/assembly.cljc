@@ -131,7 +131,7 @@
   inside `re-frame.epoch.tool-pair/projected-record`, AFTER the
   frame/profile `re-frame.projection/project-egress` projection. The ring
   buffer + every `register-epoch-listener!` listener deliver the RAW
-  record so on-box devtools (Xray diff, REPL, `restore-epoch`) reason
+  record so on-box devtools (Xray diff, REPL, `restore-epoch!`) reason
   about exact state.
 
   The fn is the rare advanced escape for material the declaration-driven
@@ -140,7 +140,7 @@
   classification (EP-0015 §3) plus the per-slot schema props machine /
   resource data carry, which `project-egress` already applies. Because it runs
   on the projected egress COPY (the off-box record), it cannot affect
-  `restore-epoch` fidelity — that hazard the §15 'may affect restore
+  `restore-epoch!` fidelity — that hazard the §15 'may affect restore
   fidelity' warning flagged is gone by construction.
 
   Per Tool-Pair §Time-travel §Redaction hook (spec/Tool-Pair.md:101):
@@ -386,7 +386,7 @@
   ([frame-id frame-state-before frame-state-after events committed-at outcome halt-reason]
    ;; EP-0001 (rf2-3aizt1, decision #2): the CANONICAL snapshot unit is the
    ;; whole frame-state (`{:rf.db/app … :rf.db/runtime …}`) — both partitions.
-   ;; `restore-epoch` rewinds to `:frame-state-after`, reviving machines /
+   ;; `restore-epoch!` rewinds to `:frame-state-after`, reviving machines /
    ;; routes / elision / SSR runtime-db state, not just app-db. The
    ;; `:db-before` / `:db-after` slots are kept as the OPTIONAL app-db
    ;; PROJECTION (`(:rf.db/app frame-state-…)`) so pair tools can render

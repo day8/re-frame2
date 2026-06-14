@@ -1,32 +1,32 @@
 (ns re-frame.actor-revertibility-restore-test
-  "Per rf2-a2sn1 — the genuine end-to-end `restore-epoch` repros for the
+  "Per rf2-a2sn1 — the genuine end-to-end `restore-epoch!` repros for the
   dynamically-spawned-actor revertibility leak (Goal 2).
 
   These are the two live repros the bead pinned as the acceptance bar,
-  run against the REAL epoch `restore-epoch` path (the epoch artefact
+  run against the REAL epoch `restore-epoch!` path (the epoch artefact
   test-deps machines):
 
-    rewind-past-spawn  — register/spawn an actor, restore-epoch to BEFORE
+    rewind-past-spawn  — register/spawn an actor, restore-epoch! to BEFORE
                          it existed; assert NO orphaned handler survives
                          (the `{:handler-survived-restore? true}` leak is
                          closed) and a dispatch to the gone actor is a
                          clean :rf.error/no-such-handler.
 
-    rewind-past-destroy (the key fix) — spawn → destroy → restore-epoch to
+    rewind-past-destroy (the key fix) — spawn → destroy → restore-epoch! to
                          when it was alive; assert a dispatch to the actor
                          now RESOLVES via the lazy resolver and drives a
                          transition (NOT :rf.error/no-such-handler).
 
   Before the fix, a spawned actor's liveness lived in the registrar
-  (outside the frame value), so `restore-epoch` could not revert it. After
+  (outside the frame value), so `restore-epoch!` could not revert it. After
   the fix (LAZY-RESOLVER), spawn/destroy are pure frame-state writes and an
   actor's liveness IS its snapshot's presence in the (revertible) runtime-db
-  partition — so `restore-epoch` reverts it perfectly.
+  partition — so `restore-epoch!` reverts it perfectly.
 
   EP-0001 (rf2-vzld77 / rf2-3aizt1): machine snapshots are runtime-db
   partition state at `[:rf.runtime/machines :snapshots <id>]`; the epoch now
   captures the whole frame-state (`:frame-state-before/-after`, decision #2)
-  and `restore-epoch` reinstalls both partitions via `replace-frame-state!`,
+  and `restore-epoch!` reinstalls both partitions via `replace-frame-state!`,
   so reverting a spawn / destroy reverts the runtime-db liveness. These three
   end-to-end repros (deferred by rf2-vzld77) are re-enabled here.
 
@@ -91,14 +91,14 @@
 ;; ---- rewind PAST A SPAWN — no orphaned handler ----------------------------
 
 ;; EP-0001 (rf2-vzld77) re-enabled by bead 7 (rf2-3aizt1). These end-to-end
-;; restore-epoch repros revert actor LIVENESS, which is a spawned actor's
+;; restore-epoch! repros revert actor LIVENESS, which is a spawned actor's
 ;; snapshot presence in the runtime-db partition (rf2-vzld77 moved snapshots
 ;; there). bead 7 made the epoch capture the whole frame-state
-;; (`:frame-state-before/-after`) and `restore-epoch` reinstall BOTH partitions
+;; (`:frame-state-before/-after`) and `restore-epoch!` reinstall BOTH partitions
 ;; via `replace-frame-state!`, so reverting/restoring runtime-db state works
 ;; end-to-end.
 (deftest restore-past-spawn-leaves-no-orphan
-  (testing "rf2-a2sn1 — restore-epoch to BEFORE a spawn reverts the
+  (testing "rf2-a2sn1 — restore-epoch! to BEFORE a spawn reverts the
             actor's liveness; no orphaned handler survives (the
             {:handler-survived-restore? true} leak is closed)"
     (rf/reg-frame :test/main {})
@@ -115,8 +115,8 @@
       (is (nil? (registrar/lookup :event :rev/child#1))
           "spawned actor never registered a per-instance handler")
       ;; Rewind PAST the spawn.
-      (let [ok? (rf/restore-epoch :test/main pre-spawn-epoch)]
-        (is (true? ok?) "restore-epoch to the pre-spawn epoch succeeded")
+      (let [ok? (rf/restore-epoch! :test/main pre-spawn-epoch)]
+        (is (true? ok?) "restore-epoch! to the pre-spawn epoch succeeded")
         (is (nil? (snapshot :rev/child#1))
             "rewind-past-spawn: the actor's snapshot is gone")
         ;; The repro's headline assertion — inverted to the post-fix value.
@@ -134,7 +134,7 @@
 
 ;; EP-0001 (rf2-vzld77) re-enabled by bead 7 (rf2-3aizt1): see note above.
 (deftest restore-past-destroy-rematerialises-liveness
-  (testing "rf2-a2sn1 (the key fix) — restore-epoch to when an actor was
+  (testing "rf2-a2sn1 (the key fix) — restore-epoch! to when an actor was
             ALIVE re-materialises its liveness: a dispatch to it RESOLVES
             via the lazy resolver and drives a transition (NOT
             :rf.error/no-such-handler)"
@@ -155,9 +155,9 @@
       ;; destroyed actor is a clean no-such-handler (no stale state).
       ;; Rewind to when the actor was alive (the snapshot recorded at the
       ;; spawn epoch carries :n 0).
-      (let [ok? (rf/restore-epoch :test/main alive-epoch)]
+      (let [ok? (rf/restore-epoch! :test/main alive-epoch)]
         (is (true? ok?)
-            "restore-epoch to the alive epoch SUCCEEDED — the spawned-actor
+            "restore-epoch! to the alive epoch SUCCEEDED — the spawned-actor
              snapshot is a valid restore target (its TYPE resolves), NOT a
              :rf.epoch/restore-missing-handler")
         (is (some? (snapshot :rev/child#1))
@@ -174,7 +174,7 @@
 ;; EP-0001 (rf2-vzld77) re-enabled by bead 7 (rf2-3aizt1): see note above.
 (deftest restore-with-missing-type-still-fails-missing-handler
   (testing "rf2-a2sn1 — a spawned-actor snapshot whose TYPE was
-            unregistered is NOT restorable: restore-epoch fires
+            unregistered is NOT restorable: restore-epoch! fires
             :rf.epoch/restore-missing-handler (the singleton-style
             missing-reference contract still holds)"
     (rf/reg-frame :test/main {})
@@ -188,7 +188,7 @@
       (registrar/unregister! :event :rev/child)
       (let [errs (record-trace!)
             pre  (rf/app-db-value :test/main)
-            ok?  (rf/restore-epoch :test/main alive-epoch)]
+            ok?  (rf/restore-epoch! :test/main alive-epoch)]
         (rf/unregister-listener! ::rec)
         (is (false? ok?) "restore refused — the actor's TYPE is gone")
         (is (= pre (rf/app-db-value :test/main)) "app-db unchanged on refusal")
@@ -204,7 +204,7 @@
 ;; SPAWNED actor the key is an instance id (`:rev/child#1`) with NO per-instance
 ;; registration — the actor's TYPE rides the snapshot under `:rf/machine-type`.
 ;; So a hot-reloaded spawned-actor TYPE's `:rf/snapshot-version` bump was NEVER
-;; observed: an older, incompatible snapshot was accepted by `restore-epoch`
+;; observed: an older, incompatible snapshot was accepted by `restore-epoch!`
 ;; reporting success. The fix resolves the current definition the same way
 ;; dispatch does — singleton by key, spawned actor by `:rf/machine-type` —
 ;; so the drift fires `:rf.epoch/restore-version-mismatch` (false, frame-state
@@ -240,7 +240,7 @@
       (is (= :rev/child (:rf/machine-type (snapshot :rev/child#1)))
           "spawned actor's snapshot carries its registered TYPE keyword")
       (is (= 1 (get-in (snapshot :rev/child#1) [:meta :rf/snapshot-version])))
-      (let [ok? (rf/restore-epoch :test/main alive-epoch)]
+      (let [ok? (rf/restore-epoch! :test/main alive-epoch)]
         (is (true? ok?) "version matches → restore succeeds")
         (is (some? (snapshot :rev/child#1)) "actor snapshot restored")))))
 
@@ -259,7 +259,7 @@
       (rf/reg-machine :rev/child (versioned-child 2))
       (let [errs (record-trace!)
             pre  (rf/app-db-value :test/main)
-            ok?  (rf/restore-epoch :test/main alive-epoch)]
+            ok?  (rf/restore-epoch! :test/main alive-epoch)]
         (rf/unregister-listener! ::rec)
         (is (false? ok?) "restore refused — spawned-actor TYPE version drifted")
         (is (= pre (rf/app-db-value :test/main)) "frame-state unchanged on refusal")
@@ -286,7 +286,7 @@
       (is (map? (:rf/machine-type snap))
           "inline-definition spawn carries the spec MAP on the snapshot")
       (is (= 1 (get-in snap [:meta :rf/snapshot-version])))
-      (let [ok? (rf/restore-epoch :test/main alive-epoch)]
+      (let [ok? (rf/restore-epoch! :test/main alive-epoch)]
         (is (true? ok?)
             "inline definition's version == recorded → restore succeeds")
         (is (some? (snapshot :rev/child#1)))))))
@@ -319,7 +319,7 @@
       (let [drift-epoch (last-epoch-id)
             errs        (record-trace!)
             pre         (rf/app-db-value :test/main)
-            ok?         (rf/restore-epoch :test/main drift-epoch)]
+            ok?         (rf/restore-epoch! :test/main drift-epoch)]
         (rf/unregister-listener! ::rec)
         (is (false? ok?) "inline-definition version drift refuses restore")
         (is (= pre (rf/app-db-value :test/main)) "frame-state unchanged on refusal")
@@ -344,7 +344,7 @@
       (is (some? (snapshot :rev/child#1)))
       (registrar/unregister! :event :rev/child)   ;; clear the TYPE
       (let [errs (record-trace!)
-            ok?  (rf/restore-epoch :test/main alive-epoch)]
+            ok?  (rf/restore-epoch! :test/main alive-epoch)]
         (rf/unregister-listener! ::rec)
         (is (false? ok?) "restore refused")
         (is (some #(= :rf.epoch/restore-missing-handler (:operation %)) @errs)

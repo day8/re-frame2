@@ -48,7 +48,7 @@
       (get db :epoch-history [])))
 
   ;; rf2-hga49 — transient `reset-to-event` failure flash. Holds a short
-  ;; message string when a `rf/restore-epoch` rewind fails (epoch aged
+  ;; message string when a `rf/restore-epoch!` rewind fails (epoch aged
   ;; out of the buffer, or a restore-during-drain rejection). nil =
   ;; nothing to show. The flash is INLINE on the tab ribbon — never a
   ;; modal — and clears on the next reset attempt (`:rf.xray/reset-to-
@@ -62,7 +62,7 @@
 
   ;; rf2-hga49 — `restore-epoch` is a side-effecting framework call (it
   ;; rewinds an OBSERVED frame's `app-db` to a past epoch's `:db-after`),
-  ;; so it lives in an fx, not a `reg-event-db` reducer. `rf/restore-epoch`
+  ;; so it lives in an fx, not a `reg-event-db` reducer. `rf/restore-epoch!`
   ;; returns `false` on any of the seven documented failure modes (per
   ;; Tool-Pair §Time-travel — Restore, including
   ;; `:rf.epoch/restore-non-ok-record`) leaving the frame unchanged; on
@@ -74,7 +74,7 @@
   (rf/reg-fx :rf.xray.fx/restore-epoch
     (fn [_ctx {:keys [frame epoch-id]}]
       (when (and frame epoch-id)
-        (let [ok? (rf/restore-epoch frame epoch-id)]
+        (let [ok? (rf/restore-epoch! frame epoch-id)]
           (when-not ok?
             (rf/dispatch [:rf.xray/reset-flash-failed]))))))
 
@@ -189,7 +189,7 @@
   ;; epoch-id. The view supplies both from `:rf.xray/observed-frame` +
   ;; `:rf.xray/focus-epoch-id` so this event stays a thin trampoline into
   ;; the `:rf.xray.fx/restore-epoch` effect (which calls the framework's
-  ;; `rf/restore-epoch`, targeting the epoch's `:db-after` — "if the
+  ;; `rf/restore-epoch!`, targeting the epoch's `:db-after` — "if the
   ;; event still exists, app state must be as if the event happened").
   ;; No dialog, no confirmation — the button just does it (programmers
   ;; are power users). A nil frame / epoch-id is a guarded no-op (the
@@ -214,7 +214,7 @@
 
   ;; `:rf.xray/reset-flash-failed` (rf2-hga49) — set the inline failure
   ;; flash. Dispatched from `:rf.xray.fx/restore-epoch` when
-  ;; `rf/restore-epoch` returns false. `:rf.trace/no-emit? true` keeps
+  ;; `rf/restore-epoch!` returns false. `:rf.trace/no-emit? true` keeps
   ;; Xray's own chrome event off the trace bus it is inspecting.
   (rf/reg-event-db :rf.xray/reset-flash-failed
     {:rf.trace/no-emit? true}

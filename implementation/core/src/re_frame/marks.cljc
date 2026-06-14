@@ -535,7 +535,7 @@
 
   The destroy / finalize / frame-teardown lifecycle clears a SPAWNED
   INSTANCE's per-instance schema marks here (rf2-egvm4t) so a destroyed
-  actor leaves no marks-table residue, and `restore-epoch` / replay re-runs
+  actor leaves no marks-table residue, and `restore-epoch!` / replay re-runs
   the spawn bridge to rehydrate them — the marks table tracks live
   spawned-actor liveness in lock-step with the (revertible) snapshot. Safe
   to call for an id with no entry (no-op)."

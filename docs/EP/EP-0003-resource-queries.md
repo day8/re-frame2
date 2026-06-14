@@ -1644,7 +1644,7 @@ frame-state as a structural advantage, and [EP-0002](EP-0002-frame-target-resolu
 makes replay determinism the framework's decisive argument. Resources are
 runtime-managed read models over an in-flight work ledger, so a claimed
 "time-travel-safe" capability is not credible until it specifies what
-`restore-epoch` (EP-0001 epoch restore / time travel, and the same install path
+`restore-epoch!` (EP-0001 epoch restore / time travel, and the same install path
 SSR hydration uses) means for `:rf.runtime/resources` and
 `:rf.runtime/work-ledger`. Without that contract, restore is a load-bearing hole:
 the EP sells revertibility but leaves resource state undefined after a rewind.
@@ -3024,7 +3024,7 @@ Initial conformance fixtures should cover:
   status;
 - the generation allocator is monotonic across restore: a post-restore
   allocation strictly exceeds any pre-restore generation;
-- a pre-restore in-flight reply that lands after `restore-epoch` is suppressed by
+- a pre-restore in-flight reply that lands after `restore-epoch!` is suppressed by
   the work-id + generation check and cannot mutate a post-restore entry;
 - restore does not eagerly refetch; restored entries refetch only on the next
   live-owner `ensure`, and a restored epoch double-fetches nothing;

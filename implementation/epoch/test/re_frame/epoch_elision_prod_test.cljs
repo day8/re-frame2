@@ -15,7 +15,7 @@
   - `capture-event!`          — `(when interop/debug-enabled? ...)` —
                                 trace events do not accumulate in the
                                 per-cascade capture buffer.
-  - `restore-epoch`           — `(if-not interop/debug-enabled? false ...)`
+  - `restore-epoch!`           — `(if-not interop/debug-enabled? false ...)`
                                 — returns `false` and never invokes
                                 the restore machinery.
   - `replace-app-db!`         — `(if-not interop/debug-enabled? false ...)`
@@ -93,20 +93,20 @@
            :advanced + goog.DEBUG=false")
       (rf/unregister-epoch-listener! ::prod-epoch-listener))))
 
-;; ---- restore-epoch is a no-op returning false under prod -----------------
+;; ---- restore-epoch! is a no-op returning false under prod -----------------
 
 (deftest restore-epoch-returns-false-under-prod
-  (testing "Per Spec 009 §Production builds: `restore-epoch` is gated
+  (testing "Per Spec 009 §Production builds: `restore-epoch!` is gated
             on `interop/debug-enabled?` via an `(if-not …)`
             early-return. Under prod it returns `false` for every
             (frame-id, epoch-id) pair — the precondition checks and
             perform-restore branch DCE entirely."
-    (is (false? (rf/restore-epoch :rf/default 0))
-        "restore-epoch returns false under prod for a never-recorded epoch")
-    (is (false? (rf/restore-epoch :rf/default 999999))
-        "restore-epoch returns false under prod for any epoch-id")
-    (is (false? (rf/restore-epoch :rf.nonexistent/frame 0))
-        "restore-epoch returns false under prod even for an unknown frame")))
+    (is (false? (rf/restore-epoch! :rf/default 0))
+        "restore-epoch! returns false under prod for a never-recorded epoch")
+    (is (false? (rf/restore-epoch! :rf/default 999999))
+        "restore-epoch! returns false under prod for any epoch-id")
+    (is (false? (rf/restore-epoch! :rf.nonexistent/frame 0))
+        "restore-epoch! returns false under prod even for an unknown frame")))
 
 ;; ---- replace-app-db! is a no-op returning false under prod ---------------
 

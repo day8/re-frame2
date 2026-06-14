@@ -76,7 +76,7 @@
             [re-frame.frame-classification]
             ;; EP-0015 §9 (rf2-t55hxg.7): frame-owned observability sink
             ;; routing — the central §9 claim made production-live. Required
-            ;; for BOTH its public façade exports (`reg-observability-sink!`
+            ;; for BOTH its public façade exports (`register-observability-sink!`
             ;; et al., re-exported below) AND its ns-load side-effect: it
             ;; publishes the `:observability/route-handled-event` /
             ;; `:observability/route-error` late-bind hooks the router +
@@ -1215,7 +1215,7 @@
   tools subscribing to route lifecycle observe the removal; symmetric
   with `:rf.flow/cleared`. Per Spec 012 §Trace events.
   Implementation ships in `day8/re-frame2-routing`."}
-  unregister-route!  rf-routing/unregister-route!)
+  clear-route        rf-routing/clear-route)
 
 (def ^{:doc "Registered view at `:route/link` — renders an `<a href=...>`
   from a route-id and intercepts plain primary-button clicks to dispatch
@@ -2257,7 +2257,7 @@
   integration-library concern. Survives `:advanced` + `goog.DEBUG=false` —
   the frame `:observability` stream is the production observation stream.
   Per Spec 015 §Frame-owned observability sink policy."}
-  reg-observability-sink!          observability/reg-observability-sink!)
+  register-observability-sink!     observability/register-observability-sink!)
 
 (def ^{:doc "Drop the observability sink registered under `sink-id`.
   Returns nil. Per Spec 015 §Frame-owned observability sink policy."}
@@ -2355,8 +2355,8 @@
   (`:db-after`). Returns `true` on success, `false` on any of the seven
   documented failure modes (each emits a structured `:rf.epoch/*` error
   trace) or when the epoch artefact is absent. Per Tool-Pair
-  §Time-travel. Late-bound via `:epoch/restore-epoch`."}
-  restore-epoch      rf-epoch/restore-epoch)
+  §Time-travel. Late-bound via `:epoch/restore-epoch!`."}
+  restore-epoch!     rf-epoch/restore-epoch!)
 
 (def ^{:doc "Register a callback fired once per drain-settle with the
   assembled `:rf/epoch-record`. Same-id replaces; listener exceptions
@@ -2384,7 +2384,7 @@
 ;;   live runtime-db — the app-db sibling of the whole-frame `reset-frame!`.
 ;; - `replace-runtime-db!` / `replace-frame-state!` are epoch-backed
 ;;   Tool-Pair injection writes (rf2-szbzei): each records a synthetic
-;;   `:rf/epoch-record` so `restore-epoch` can rewind past the injection,
+;;   `:rf/epoch-record` so `restore-epoch!` can rewind past the injection,
 ;;   returns a boolean, shares the drain-guard + the framework-owned
 ;;   runtime-db schema-validation contract, and raises
 ;;   `:rf.error/epoch-artefact-missing` when the epoch artefact is absent.
@@ -2395,7 +2395,7 @@
   bypassing the dispatch loop. The canonical Tool-Pair write surface for
   app-db state injection — pair tools, story fixtures, conformance
   harnesses, and time-travel from JSON repros. Records a synthetic
-  `:rf/epoch-record` so `restore-epoch` can rewind. Returns `true` on
+  `:rf/epoch-record` so `restore-epoch!` can rewind. Returns `true` on
   success, `false` on a documented failure (unknown frame, drain in
   flight, schema mismatch). Dev-only (gated on `interop/debug-enabled?`).
   Raises `:rf.error/epoch-artefact-missing` when the epoch artefact is
@@ -2425,7 +2425,7 @@
   `runtime-db` — the framework-owned subsystem state (machine snapshots,
   route slice, …). Privileged runtime / full-frame Tool-Pair injection
   surface; app-db is untouched. Records a synthetic `:rf/epoch-record` so
-  `restore-epoch` can rewind. Returns `true` on success, `false` on a
+  `restore-epoch!` can rewind. Returns `true` on success, `false` on a
   documented failure (unknown frame, drain in flight, runtime-db schema
   mismatch). Dev-only (gated on `interop/debug-enabled?`). Raises
   `:rf.error/epoch-artefact-missing` when the epoch artefact is absent.
@@ -2442,7 +2442,7 @@
   travel, SSR hydration, frame reset, test-fixture install). A db-shaped
   name never silently replaces runtime-db — this is the explicit full-frame
   surface (Mike ruling #10). Records a synthetic `:rf/epoch-record` so
-  `restore-epoch` can rewind. Returns `true` on success, `false` on a
+  `restore-epoch!` can rewind. Returns `true` on success, `false` on a
   documented failure (unknown frame, drain in flight, app-db OR runtime-db
   schema mismatch). Dev-only (gated on `interop/debug-enabled?`). Raises
   `:rf.error/epoch-artefact-missing` when the epoch artefact is absent.

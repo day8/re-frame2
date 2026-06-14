@@ -63,7 +63,7 @@ here as a closed record; they no longer reopen any ruling:
   are now lifecycle-managed: every destroy trigger (explicit destroy, final-state
   auto-destroy, frame teardown of spawned actors) CLEARS the per-instance entry, and
   the lazy actor-handler resolver REHYDRATES it from the restored snapshot's spec on
-  the first dispatch after a `restore-epoch` / replay — so the marks table tracks the
+  the first dispatch after a `restore-epoch!` / replay — so the marks table tracks the
   revertible snapshot in lock-step and epoch restore stays safe.
 
 (The declared-over-inferred context-shape gap for empty/closed/wrapped map schemas,

@@ -163,7 +163,7 @@ Then `npm install` (after the author has approved the resolved `package.json`).
 | `(rf/reg-flow ...)` | `day8/re-frame2-flows` |
 | `[:rf.http/managed ...]` as an `:fx` entry | `day8/re-frame2-http` |
 | Server-side `render-to-string` for SSR | `day8/re-frame2-ssr` |
-| `(rf/epoch-history ...)` or `(rf/restore-epoch ...)` directly | `day8/re-frame2-epoch` |
+| `(rf/epoch-history ...)` or `(rf/restore-epoch! ...)` directly | `day8/re-frame2-epoch` |
 
 (The `re-frame2-pair` skill pulls `-epoch` in transitively so live-inspection time-travel works; if the app uses `re-frame2-pair` but doesn't call the epoch surface itself, the author still doesn't need to add `-epoch` to their own `deps.edn` — the skill injects its runtime over nREPL.)
 

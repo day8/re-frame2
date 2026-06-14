@@ -87,7 +87,7 @@
                                           :nav-token "nav-1"}}}]
 
       ;; Epoch restore: replace the runtime-db partition WHOLESALE (the
-      ;; mechanism `restore-epoch` / time-travel uses — frame/replace-
+      ;; mechanism `restore-epoch!` / time-travel uses — frame/replace-
       ;; runtime-db!). This REWINDS the runtime-db route slice to nav-1.
       (frame/replace-runtime-db! :rf/default restored-runtime-db)
       (is (= "nav-1" (get-in (rf/runtime-db-value :rf/default)

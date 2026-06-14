@@ -537,7 +537,7 @@
 ;; The two write-authority tools `restore-epoch` + `replace-app-db` are the
 ;; CANONICAL path for time-travel undo + state injection — both are
 ;; allow-listed (the server's `--allow-writes` gate, not the allow-list, is
-;; the write boundary). The raw eval forms (`(rf/restore-epoch …)` /
+;; the write boundary). The raw eval forms (`(rf/restore-epoch! …)` /
 ;; `app-db-reset!`) are the BACKSTOP only. These guards fail if the skill
 ;; regresses to teaching the eval form as the default-reachable write path,
 ;; or drops the two tools from the allow-list.

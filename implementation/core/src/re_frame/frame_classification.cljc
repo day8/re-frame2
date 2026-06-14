@@ -66,7 +66,7 @@
     `error-emit/dispatch-on-error!` fires `:observability/route-error` per
     `:rf.error/*` site, each projecting the record through `project-egress`
     under THIS frame's classification + the entry's `:rf.egress/profile`
-    before the declared sink (registered via `reg-observability-sink!`)
+    before the declared sink (registered via `register-observability-sink!`)
     sees it. This slice owns the `:config` shape the router reads.
 
   ## Sensitive wins over large

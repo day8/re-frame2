@@ -13,7 +13,7 @@
     5. Listener — `register-epoch-listener!` fires per drain-settle with the
        assembled record; same-key replaces; remove unhooks; exception
        isolation.
-    6. Restore happy path — `restore-epoch` rewinds app-db.
+    6. Restore happy path — `restore-epoch!` rewinds app-db.
     7. The seven documented failure modes (Tool-Pair §Time-travel
        restore-failure-modes table) — six fire under `:rf.epoch/*`,
        plus `:rf.error/no-such-handler` (kind `:frame`) for an
@@ -704,7 +704,7 @@
 ;; ---- restore happy path ----------------------------------------------------
 
 (deftest restore-rewinds-app-db
-  (testing "restore-epoch sets app-db to the named epoch's :db-after"
+  (testing "restore-epoch! sets app-db to the named epoch's :db-after"
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
@@ -718,7 +718,7 @@
           target      (nth history 1)        ;; the :inc that landed n=1
           target-eid  (:epoch-id target)
           recorded    (record-trace!)
-          ok?         (rf/restore-epoch :test/main target-eid)]
+          ok?         (rf/restore-epoch! :test/main target-eid)]
       (is (true? ok?) "restore returned true")
       (is (= {:n 1} (rf/app-db-value :test/main))
           "app-db rewound to the named epoch's :db-after")
@@ -761,7 +761,7 @@
           ":db-before is the app-db projection of :frame-state-before"))))
 
 (deftest restore-rewinds-whole-frame-state-revives-runtime-db
-  (testing "restore-epoch reinstalls BOTH partitions (decision #9): a rewind to
+  (testing "restore-epoch! reinstalls BOTH partitions (decision #9): a rewind to
             an epoch whose runtime-db carried a machine snapshot revives that
             snapshot, not just the app-db partition. The machine TYPE is
             registered so the restored snapshot reference resolves (it is a
@@ -792,7 +792,7 @@
                         [:rf.runtime/machines :snapshots :m/x]))
           "the machine snapshot was dropped from runtime-db")
       ;; Rewind to the alive epoch.
-      (is (true? (rf/restore-epoch :test/main alive-epoch))
+      (is (true? (rf/restore-epoch! :test/main alive-epoch))
           "restore to the alive epoch succeeded")
       ;; BOTH partitions are rewound.
       (is (= {:state :live :data {} :meta {}}
@@ -906,7 +906,7 @@
         (rf/dispatch-sync [:put-resource] {:frame :test/main})
         (let [mid-epoch (:epoch-id (last (rf/epoch-history :test/main)))]
           (rf/dispatch-sync [:clear] {:frame :test/main})
-          (is (true? (rf/restore-epoch :test/main mid-epoch))
+          (is (true? (rf/restore-epoch! :test/main mid-epoch))
               "restore to the mid-flight epoch succeeded")
           (let [rdb (rf/runtime-db-value :test/main)]
             (is (true? (:rf.runtime/restore-reconciled? rdb))
@@ -958,7 +958,7 @@
           ;; sourced :restore-time-ms from now-ms would stamp the sentinel here.
           (with-redefs [interop/now-ms       (constantly clock-time)
                         interop/epoch-now-ms (constantly clock-time)]
-            (is (true? (rf/restore-epoch :test/main mid-epoch))
+            (is (true? (rf/restore-epoch! :test/main mid-epoch))
                 "restore to the mid-flight epoch succeeded"))
           (is (= token-time (:restore-time-ms @seen-opts))
               ":restore-time-ms is the RESTORED epoch's causal :committed-at — replay-stable")
@@ -970,9 +970,9 @@
 ;; ---- restore failure modes -------------------------------------------------
 
 (deftest restore-failure-unknown-frame
-  (testing "restore-epoch on an unknown frame fires :rf.error/no-such-handler (kind :frame)"
+  (testing "restore-epoch! on an unknown frame fires :rf.error/no-such-handler (kind :frame)"
     (let [recorded (record-trace!)
-          ok?      (rf/restore-epoch :no.such/frame :ignored)]
+          ok?      (rf/restore-epoch! :no.such/frame :ignored)]
       (is (false? ok?))
       (let [events @recorded]
         (is (has-error-op? events :rf.error/no-such-handler))
@@ -981,14 +981,14 @@
           (is (= :no.such/frame (:frame (:tags ev)))))))))
 
 (deftest restore-failure-unknown-epoch
-  (testing "restore-epoch with an epoch-id not in history fires :rf.epoch/restore-unknown-epoch"
+  (testing "restore-epoch! with an epoch-id not in history fires :rf.epoch/restore-unknown-epoch"
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
     (let [pre        (rf/app-db-value :test/main)
           recorded   (record-trace!)
-          ok?        (rf/restore-epoch :test/main :no-such-epoch)]
+          ok?        (rf/restore-epoch! :test/main :no-such-epoch)]
       (is (false? ok?))
       (is (= pre (rf/app-db-value :test/main)) "app-db unchanged")
       (let [events @recorded
@@ -998,7 +998,7 @@
         (is (number? (:history-size (:tags ev))))))))
 
 (deftest restore-failure-schema-mismatch
-  (testing "restore-epoch on a db that no longer validates fires :rf.epoch/restore-schema-mismatch"
+  (testing "restore-epoch! on a db that no longer validates fires :rf.epoch/restore-schema-mismatch"
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/reg-event-db :set-bad
@@ -1016,7 +1016,7 @@
 
     ;; Now register a schema that the bad-record's :db-after fails.
     ;; Per Spec 010 §Per-frame schemas reg-app-schema is frame-scoped;
-    ;; restore-epoch runs on :test/main so the schema must register
+    ;; restore-epoch! runs on :test/main so the schema must register
     ;; against that frame, not the (current-frame)-default :rf/default.
     (rf/reg-app-schema [:n] [:int] {:frame :test/main})
 
@@ -1027,7 +1027,7 @@
                              r))
                          history)
           recorded (record-trace!)
-          ok?      (rf/restore-epoch :test/main (:epoch-id target))]
+          ok?      (rf/restore-epoch! :test/main (:epoch-id target))]
       (is (some? target) "we recorded the bad-db cascade")
       (is (false? ok?)   "restore rejected")
       (is (= pre (rf/app-db-value :test/main)) "app-db unchanged")
@@ -1063,7 +1063,7 @@
                              r))
                          history)
           recorded (record-trace!)
-          _        (rf/restore-epoch :test/main (:epoch-id target))
+          _        (rf/restore-epoch! :test/main (:epoch-id target))
           ev       (some (fn [ev]
                            (when (= :rf.epoch/restore-schema-mismatch (:operation ev))
                              ev))
@@ -1098,7 +1098,7 @@
           "record's stamp matches the live digest at record time"))))
 
 (deftest restore-failure-missing-handler-route
-  (testing "restore-epoch on a db referencing a now-unregistered route fires :rf.epoch/restore-missing-handler"
+  (testing "restore-epoch! on a db referencing a now-unregistered route fires :rf.epoch/restore-missing-handler"
     (rf/reg-frame :test/main {})
     ;; Register a route so the recorded route reference resolves; we'll
     ;; later unregister it to trigger the missing-handler failure.
@@ -1119,7 +1119,7 @@
 
       (let [recorded (record-trace!)
             pre      (rf/app-db-value :test/main)
-            ok?      (rf/restore-epoch :test/main (:epoch-id target))]
+            ok?      (rf/restore-epoch! :test/main (:epoch-id target))]
         (is (false? ok?))
         (is (= pre (rf/app-db-value :test/main)) "app-db unchanged")
         (let [ev (some (fn [ev]
@@ -1138,7 +1138,7 @@
 ;; runtime-db state), and `tool_pair/missing-references` reads the recorded
 ;; runtime-db partition (rf2-k4xe7u). See machine-raise note above.
 (deftest restore-failure-missing-handler-machine
-  (testing "restore-epoch on a frame-state referencing a machine snapshot whose
+  (testing "restore-epoch! on a frame-state referencing a machine snapshot whose
   machine is no longer registered fires :rf.epoch/restore-missing-handler. Per
   rf2-ocg1: machine resolution goes through the public event registry
   (:rf/machine? metadata), NOT the internal :head registrar kind."
@@ -1163,7 +1163,7 @@
 
       (let [recorded (record-trace!)
             pre      (rf/app-db-value :test/main)
-            ok?      (rf/restore-epoch :test/main (:epoch-id target))]
+            ok?      (rf/restore-epoch! :test/main (:epoch-id target))]
         (is (false? ok?))
         (is (= pre (rf/app-db-value :test/main)) "app-db unchanged")
         (let [ev (some (fn [ev]
@@ -1198,7 +1198,7 @@
       (rf/reg-event-db :machine/tl (fn [db _] db)) ;; replace with non-machine handler
 
       (let [recorded (record-trace!)
-            ok?      (rf/restore-epoch :test/main (:epoch-id target))]
+            ok?      (rf/restore-epoch! :test/main (:epoch-id target))]
         (is (false? ok?))
         (let [ev (some (fn [ev]
                          (when (= :rf.epoch/restore-missing-handler (:operation ev))
@@ -1210,7 +1210,7 @@
                     (:missing (:tags ev)))))))))
 
 (deftest restore-failure-version-mismatch
-  (testing "restore-epoch on a db whose machine snapshot version drifts fires
+  (testing "restore-epoch! on a db whose machine snapshot version drifts fires
   :rf.epoch/restore-version-mismatch. Per rf2-ocg1: the recorded snapshot's
   [:meta :rf/snapshot-version] is compared against the registered machine's
   [:meta :rf/snapshot-version], both via the public Spec 005 surface."
@@ -1240,7 +1240,7 @@
 
       (let [recorded (record-trace!)
             pre      (rf/app-db-value :test/main)
-            ok?      (rf/restore-epoch :test/main (:epoch-id target))]
+            ok?      (rf/restore-epoch! :test/main (:epoch-id target))]
         (is (false? ok?))
         (is (= pre (rf/app-db-value :test/main)))
         (let [ev (some (fn [ev]
@@ -1253,7 +1253,7 @@
           (is (= 2 (:version-current  (:tags ev)))))))))
 
 (deftest restore-failure-during-drain
-  (testing "restore-epoch called from inside a drain fires :rf.epoch/restore-during-drain"
+  (testing "restore-epoch! called from inside a drain fires :rf.epoch/restore-during-drain"
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -1261,10 +1261,10 @@
     (let [target   (last (rf/epoch-history :test/main))
           recorded (record-trace!)
           attempt  (atom nil)]
-      ;; A handler that calls restore-epoch synchronously during a drain.
+      ;; A handler that calls restore-epoch! synchronously during a drain.
       (rf/reg-event-db :try-restore
         (fn [db _]
-          (reset! attempt (rf/restore-epoch :test/main (:epoch-id target)))
+          (reset! attempt (rf/restore-epoch! :test/main (:epoch-id target)))
           (assoc db :n 99)))
       (rf/dispatch-sync [:try-restore] {:frame :test/main})
 
@@ -1581,7 +1581,7 @@
           "listener observed the trailing :halted-depth outcome"))))
 
 (deftest restore-non-ok-record-refused
-  (testing "restore-epoch refuses non-:ok records — halted records are
+  (testing "restore-epoch! refuses non-:ok records — halted records are
             for devtools introspection, not valid restore targets.
             Emits :rf.epoch/restore-non-ok-record and leaves app-db
             unchanged."
@@ -1597,11 +1597,11 @@
     (let [history     (rf/epoch-history :test/main)
           halted      (last history)
           recorded    (record-trace!)
-          result      (rf/restore-epoch :test/main (:epoch-id halted))]
+          result      (rf/restore-epoch! :test/main (:epoch-id halted))]
       (is (= :halted-depth (:outcome halted))
           "sanity — the trailing record in history is the halted one")
       (is (false? result)
-          "restore-epoch returned false — refusal is observable to callers")
+          "restore-epoch! returned false — refusal is observable to callers")
       (is (has-error-op? @recorded :rf.epoch/restore-non-ok-record)
           ":rf.epoch/restore-non-ok-record fired so listeners can surface
            the refusal to the user"))))
@@ -2178,15 +2178,15 @@
           "the value-change lives only in an ELIDED record — the scan stops at
            the boundary and reports no hit (the elided record cannot match)"))))
 
-;; ---- restore-epoch reactive surfaces (rf2-2fat) ---------------------------
+;; ---- restore-epoch! reactive surfaces (rf2-2fat) ---------------------------
 ;;
 ;; Bead rf2-2fat coverage. Tool-Pair §Time-travel says restore "rewinds the
 ;; frame's app-db to the named epoch's :db-after value." Spec 006 §Subscription
-;; cache pins invalidation to :replace-container! — and restore-epoch goes
+;; cache pins invalidation to :replace-container! — and restore-epoch! goes
 ;; through the same adapter/replace-container! choke point used by the drain
 ;; loop's :db commit. The two together imply: every reactive surface that
 ;; observes app-db (subscriptions, flows materialised at :path, route slice
-;; reads) must reflect the rewound value after restore-epoch returns true,
+;; reads) must reflect the rewound value after restore-epoch! returns true,
 ;; without a separate cache-invalidation call.
 ;;
 ;; These tests pin that downstream contract on the JVM with the plain-atom
@@ -2197,7 +2197,7 @@
 ;; reaction must observe the rewound value.
 
 (deftest restore-rewinds-subscriptions-via-subscribe-once
-  (testing "after restore-epoch, subscribe-once reflects the restored db
+  (testing "after restore-epoch!, subscribe-once reflects the restored db
   for both layer-1 and layer-2 subs (no manual cache invalidation)."
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
@@ -2216,7 +2216,7 @@
     (let [history (rf/epoch-history :test/main)
           ;; Pick the epoch where :n landed at 1 (second :inc dispatch).
           target  (some (fn [r] (when (= 1 (:n (:db-after r))) r)) history)]
-      (is (true? (rf/restore-epoch :test/main (:epoch-id target))))
+      (is (true? (rf/restore-epoch! :test/main (:epoch-id target))))
       (is (= 1 (rf/subscribe-once :test/main [:n]))
           "layer-1 sub now sees the restored value (no manual invalidation)")
       (is (= 2 (rf/subscribe-once :test/main [:n*2]))
@@ -2224,7 +2224,7 @@
 
 (deftest restore-rewinds-pinned-reaction
   (testing "a subscription held across restore re-derefs to the restored
-  value. Pins the contract that restore-epoch goes through the same
+  value. Pins the contract that restore-epoch! goes through the same
   app-db write path as the drain loop, so any consumer holding a
   subscription before the restore observes the rewind on the next deref
   without re-subscribing."
@@ -2241,7 +2241,7 @@
           _       (is (= 2 @pinned) "pinned reaction sees current value")
           history (rf/epoch-history :test/main)
           target  (some (fn [r] (when (= 1 (:n (:db-after r))) r)) history)]
-      (is (true? (rf/restore-epoch :test/main (:epoch-id target))))
+      (is (true? (rf/restore-epoch! :test/main (:epoch-id target))))
       (is (= 1 @pinned)
           "the same reaction handle now derefs to the restored value")
       (rf/unsubscribe :test/main [:n]))))
@@ -2266,7 +2266,7 @@
     (let [a-history (rf/epoch-history :frame/a)
           ;; The epoch where A's n landed at 1 (first :inc).
           a-target  (some (fn [r] (when (= 1 (:n (:db-after r))) r)) a-history)]
-      (is (true? (rf/restore-epoch :frame/a (:epoch-id a-target))))
+      (is (true? (rf/restore-epoch! :frame/a (:epoch-id a-target))))
       (is (= 1   (rf/subscribe-once :frame/a [:n]))
           "frame A's sub sees the rewound value")
       (is (= 101 (rf/subscribe-once :frame/b [:n]))
@@ -2291,14 +2291,14 @@
     (let [history (rf/epoch-history :test/main)
           target  (some (fn [r] (when (= 1 (:n (:db-after r))) r)) history)
           target-eid (:epoch-id target)]
-      (is (true? (rf/restore-epoch :test/main target-eid)) "first restore ok")
+      (is (true? (rf/restore-epoch! :test/main target-eid)) "first restore ok")
       (let [db-after-1 (rf/app-db-value :test/main)
             sub-1      (rf/subscribe-once :test/main [:n])]
         (is (= {:n 1} db-after-1))
         (is (= 1     sub-1))
 
         ;; Restore again to the SAME epoch.
-        (is (true? (rf/restore-epoch :test/main target-eid)) "second restore ok")
+        (is (true? (rf/restore-epoch! :test/main target-eid)) "second restore ok")
         (is (= db-after-1 (rf/app-db-value :test/main))
             "app-db unchanged across the second restore")
         (is (= sub-1 (rf/subscribe-once :test/main [:n]))
@@ -2306,7 +2306,7 @@
 
 (deftest restore-rewinds-flow-output-in-app-db
   (testing "Per Spec 013 — a flow's value lives in app-db at :path, where
-  it 'survives ... time-travel revert.' After restore-epoch, the flow's
+  it 'survives ... time-travel revert.' After restore-epoch!, the flow's
   output reads through the restored db match the recorded epoch's output."
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :init (fn [_ _]      {:w 2 :h 3}))
@@ -2328,7 +2328,7 @@
           target  (some (fn [r] (when (= 15 (get-in (:db-after r) [:rect :area])) r))
                         history)]
       (is (some? target))
-      (is (true? (rf/restore-epoch :test/main (:epoch-id target))))
+      (is (true? (rf/restore-epoch! :test/main (:epoch-id target))))
       (is (= 15 (get-in (rf/app-db-value :test/main) [:rect :area]))
           "the restored db carries the flow's value at :path"))))
 
@@ -2355,7 +2355,7 @@
     (let [history (rf/epoch-history :test/main)
           target  (some (fn [r] (when (= 4 (get-in (:db-after r) [:rect :area])) r))
                         history)]
-      (is (true? (rf/restore-epoch :test/main (:epoch-id target))))
+      (is (true? (rf/restore-epoch! :test/main (:epoch-id target))))
       (is (= 4 (get-in (rf/app-db-value :test/main) [:rect :area]))
           "restored db carries the flow output value at :path")
 
@@ -2407,7 +2407,7 @@
                             r))
                         history)]
       (is (some? target))
-      (is (true? (rf/restore-epoch :test/main (:epoch-id target))))
+      (is (true? (rf/restore-epoch! :test/main (:epoch-id target))))
       (is (= :route/home
              (get-in (rf/runtime-db-value :test/main) [:rf.runtime/routing :current :route-id]))
           "the runtime-db route slice is rewound by the full-frame-state restore"))))
@@ -2419,7 +2419,7 @@
 ;; cover the contract the spec commits to:
 ;;
 ;; 1. Replaces the frame's app-db with new-db.
-;; 2. Records a synthetic :rf/epoch-record so restore-epoch can rewind.
+;; 2. Records a synthetic :rf/epoch-record so restore-epoch! can rewind.
 ;; 3. Drain-check: rejects a call from inside a drain.
 ;; 4. Schema validation: rejects a new-db that fails the frame's
 ;;    registered app-schemas.
@@ -2474,7 +2474,7 @@
       (is (= {} (:db-after head)) "db-after is the {} reset value"))))
 
 (deftest replace-app-db!-records-undo-epoch
-  (testing "replace-app-db! records a synthetic epoch so restore-epoch
+  (testing "replace-app-db! records a synthetic epoch so restore-epoch!
             can rewind to the prior state"
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 7}))
@@ -2493,14 +2493,14 @@
       (is (= {:n 7}   (:db-before fresh-record)) "db-before captured")
       (is (= {:n 999} (:db-after fresh-record))  "db-after captured")
 
-      ;; restore-epoch on the synthetic record rewinds to db-after of
+      ;; restore-epoch! on the synthetic record rewinds to db-after of
       ;; the synthetic record (not its db-before). To rewind PAST the
       ;; injection, the caller restores an earlier epoch in the history.
       (let [pre-injection (some (fn [r]
                                   (when (= :seed (:event-id r)) r))
                                 history)]
         (is (some? pre-injection))
-        (is (true? (rf/restore-epoch :test/main (:epoch-id pre-injection))))
+        (is (true? (rf/restore-epoch! :test/main (:epoch-id pre-injection))))
         (is (= {:n 7} (rf/app-db-value :test/main))
             "restoring the seed epoch rewinds past the pair-tool injection")))))
 
@@ -2627,7 +2627,7 @@
 (deftest replace-app-db!-subs-re-fire
   (testing "Subscribers route off the post-reset app-db value (the
             substrate's reactive container drives sub re-evaluation,
-            same as restore-epoch's happy path)"
+            same as restore-epoch!'s happy path)"
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/reg-sub :n (fn [db _] (:n db)))
@@ -2648,7 +2648,7 @@
             rf/replace-app-db! raises :rf.error/epoch-artefact-missing
             when the :epoch/replace-app-db! late-bind hook is nil
             (i.e. the day8/re-frame2-epoch artefact is not loaded).
-            Unlike restore-epoch / register-epoch-listener! (which degrade
+            Unlike restore-epoch! / register-epoch-listener! (which degrade
             silently), replace-app-db! cannot — its caller's invariant
             is 'undo works after this call', so absence must be loud."
     (let [hook-key  :epoch/replace-app-db!
@@ -2681,7 +2681,7 @@
 ;; tests above, proving the four contract points the bead enumerates:
 ;;
 ;;   1. A replace-runtime-db! / replace-frame-state! injection records a
-;;      synthetic :rf.epoch/db-replaced epoch, and restore-epoch of a PRIOR
+;;      synthetic :rf.epoch/db-replaced epoch, and restore-epoch! of a PRIOR
 ;;      epoch rewinds PAST the injection.
 ;;   2. Boolean return (true on success).
 ;;   3. :rf.error/epoch-artefact-missing when the late-bind hook is nil.
@@ -2707,7 +2707,7 @@
 
 (deftest replace-runtime-db!-records-undo-epoch-and-restore-rewinds-past
   (testing "replace-runtime-db! records a synthetic :rf.epoch/db-replaced
-            epoch so restore-epoch can rewind PAST the runtime-db injection"
+            epoch so restore-epoch! can rewind PAST the runtime-db injection"
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 7}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -2732,8 +2732,8 @@
              (get-in fresh [:frame-state-after :rf.db/runtime :rf.runtime/routing]))
           "frame-state-after captured the post-injection runtime-db")
       ;; Restore the epoch BEFORE the second injection — rewinds PAST it.
-      (is (true? (rf/restore-epoch :test/main (:epoch-id seed-record)))
-          "restore-epoch returns true")
+      (is (true? (rf/restore-epoch! :test/main (:epoch-id seed-record)))
+          "restore-epoch! returns true")
       (is (= {:n 7} (rf/app-db-value :test/main))
           "app-db rewound to the seed epoch")
       (is (nil? (get-in (rf/runtime-db-value :test/main)
@@ -2857,7 +2857,7 @@
 
 (deftest replace-frame-state!-records-undo-epoch-and-restore-rewinds-past
   (testing "replace-frame-state! records a synthetic :rf.epoch/db-replaced
-            epoch so restore-epoch can rewind PAST the full-frame injection"
+            epoch so restore-epoch! can rewind PAST the full-frame injection"
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 7}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -2878,7 +2878,7 @@
              (:frame-state-after fresh))
           "frame-state-after captured BOTH injected partitions")
       ;; Restore the seed epoch — rewinds PAST the full-frame injection.
-      (is (true? (rf/restore-epoch :test/main (:epoch-id seed-record))))
+      (is (true? (rf/restore-epoch! :test/main (:epoch-id seed-record))))
       (is (= {:n 7} (rf/app-db-value :test/main))
           "app-db rewound past the injection")
       (is (nil? (:rf.runtime/routing (rf/runtime-db-value :test/main)))
@@ -3023,7 +3023,7 @@
           "failure-mode emit is filtered from the next cascade's trace stream"))))
 
 (deftest restore-epoch-emits-do-not-leak-into-next-cascade
-  (testing "restore-epoch's success emit (:rf.epoch/restored) and its
+  (testing "restore-epoch!'s success emit (:rf.epoch/restored) and its
             five documented failure-mode emits all fire outside a
             cascade with :frame tags. None may bleed into the next
             real cascade's :trace-events for that frame."
@@ -3035,10 +3035,10 @@
     (rf/dispatch-sync [:bump] {:frame :test/r})
     (let [seed-epoch (first (rf/epoch-history :test/r))]
       ;; Successful restore — emits :rf.epoch/restored out-of-drain.
-      (is (true? (rf/restore-epoch :test/r (:epoch-id seed-epoch))))
+      (is (true? (rf/restore-epoch! :test/r (:epoch-id seed-epoch))))
       ;; Failed restore — unknown epoch-id emits
       ;; :rf.epoch/restore-unknown-epoch out-of-drain.
-      (is (false? (rf/restore-epoch :test/r 999999)))
+      (is (false? (rf/restore-epoch! :test/r 999999)))
 
       ;; Next cascade — should NOT carry either emit.
       (rf/dispatch-sync [:bump] {:frame :test/r})
@@ -3118,18 +3118,18 @@
           recorded   (record-trace!)]
 
       ;; (A) SUCCESS path — :rf.epoch/restored.
-      (is (true? (rf/restore-epoch :test/main target-eid))
+      (is (true? (rf/restore-epoch! :test/main target-eid))
           "restore to a valid epoch succeeds")
 
       ;; (B) FAILURE path 1 — unknown epoch.
-      (is (false? (rf/restore-epoch :test/main :no-such-epoch))
+      (is (false? (rf/restore-epoch! :test/main :no-such-epoch))
           "restore to an absent epoch is rejected")
 
       ;; (C) FAILURE path 2 — restore refused mid-drain.
       (let [drain-attempt (atom nil)]
         (rf/reg-event-db :try-restore
           (fn [db _]
-            (reset! drain-attempt (rf/restore-epoch :test/main target-eid))
+            (reset! drain-attempt (rf/restore-epoch! :test/main target-eid))
             db))
         (rf/dispatch-sync [:try-restore] {:frame :test/main})
         (is (false? @drain-attempt)
@@ -3212,7 +3212,7 @@
 ;;       (rf/epoch-history destroyed)  → []
 ;;       (rf/app-db-value   destroyed) → nil
 ;;   - mutate-shaped surfaces raise :rf.error/no-such-handler (kind :frame):
-;;       (rf/restore-epoch    destroyed _) → false + :rf.error/no-such-handler
+;;       (rf/restore-epoch!    destroyed _) → false + :rf.error/no-such-handler
 ;;       (rf/replace-app-db!  destroyed _) → false + :rf.error/no-such-handler
 ;;   - listener silencing emits one-shot :rf.epoch.cb/silenced-on-frame-destroy
 ;;     when a frame previously observed by a register-epoch-listener! callback is
@@ -3249,7 +3249,7 @@
         "for a never-registered frame, app-db-value returns nil")))
 
 (deftest destroyed-frame-restore-epoch-raises-no-such-handler
-  (testing "(rf/restore-epoch destroyed _) emits :rf.error/no-such-handler
+  (testing "(rf/restore-epoch! destroyed _) emits :rf.error/no-such-handler
             (kind :frame) and returns false"
     (rf/reg-frame :test/short-lived {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
@@ -3257,7 +3257,7 @@
     (let [eid (-> (rf/epoch-history :test/short-lived) first :epoch-id)]
       (rf/destroy-frame! :test/short-lived)
       (let [recorded (record-trace!)
-            ok?      (rf/restore-epoch :test/short-lived eid)]
+            ok?      (rf/restore-epoch! :test/short-lived eid)]
         (is (false? ok?)
             "restore returns false for a destroyed frame")
         (is (has-error-op? @recorded :rf.error/no-such-handler)
@@ -4089,7 +4089,7 @@
       (let [history-after (rf/epoch-history :test/main)
             pre-restore   (rf/app-db-value :test/main)
             recorded      (record-trace!)
-            ok?           (rf/restore-epoch :test/main evicted-id)]
+            ok?           (rf/restore-epoch! :test/main evicted-id)]
         (is (= 3 (count history-after))
             "ring still capped at depth 3")
         (is (not-any? #(= evicted-id (:epoch-id %)) history-after)
@@ -4161,7 +4161,7 @@
 ;; existing suite. Pin both halves explicitly.
 
 (deftest rejected-restore-does-not-touch-history-or-listeners
-  (testing "a rejected restore-epoch (unknown-epoch, the simplest
+  (testing "a rejected restore-epoch! (unknown-epoch, the simplest
             rejection path) leaves the history vector untouched and
             does not fire registered listeners"
     (rf/reg-frame :test/main {})
@@ -4173,7 +4173,7 @@
     (let [history-before (rf/epoch-history :test/main)
           seen           (atom [])]
       (rf/register-epoch-listener! ::watcher (fn [r] (swap! seen conj r)))
-      (is (false? (rf/restore-epoch :test/main :no-such-epoch))
+      (is (false? (rf/restore-epoch! :test/main :no-such-epoch))
           "restore rejected")
 
       (is (= history-before (rf/epoch-history :test/main))
@@ -4364,7 +4364,7 @@
 ;;  rf2-7i872 — write-boundary liveness race (validate-then-destroy)
 ;; ============================================================================
 ;;
-;; restore-epoch / replace-app-db! validate preconditions against a LIVE
+;; restore-epoch! / replace-app-db! validate preconditions against a LIVE
 ;; frame, then write the frame's container. A frame destroyed in the window
 ;; BETWEEN validation and the write (a tool gesture interleaving with the
 ;; owning component's teardown) leaves `frame/app-db-container` returning
@@ -4380,7 +4380,7 @@
 ;;       steps the public fn sequences, with the destroy injected between.
 ;;   (b) the PUBLIC surface — with-redefs the precondition check to destroy
 ;;       the frame after a real (live) validation, proving the public
-;;       restore-epoch / replace-app-db! honour the write-boundary guard.
+;;       restore-epoch! / replace-app-db! honour the write-boundary guard.
 
 (deftest restore-epoch-validate-then-destroy-reports-honest-failure-seam
   (testing "rf2-7i872 — perform-restore! against a frame destroyed AFTER a
@@ -4419,7 +4419,7 @@
             "no :rf.epoch/restored success trace for the destroyed frame")))))
 
 (deftest restore-epoch-public-validate-then-destroy-returns-false
-  (testing "rf2-7i872 — the PUBLIC restore-epoch returns false (not a false
+  (testing "rf2-7i872 — the PUBLIC restore-epoch! returns false (not a false
             success) when the frame is destroyed AFTER a live precondition
             pass but BEFORE the container write. The precondition check is
             real; the destroy is injected into the validate→write window."
@@ -4438,9 +4438,9 @@
                       (let [r (real-check frame-id epoch-id)]
                         (rf/destroy-frame! frame-id)
                         r))]
-        (let [result (rf/restore-epoch :test/short-lived target-id)]
+        (let [result (rf/restore-epoch! :test/short-lived target-id)]
           (is (false? result)
-              "public restore-epoch returns false for the validate-then-destroy
+              "public restore-epoch! returns false for the validate-then-destroy
                race — the write-boundary guard caught the no-op write")
           (is (has-error-op? @recorded :rf.error/no-such-handler)
               ":rf.error/no-such-handler fired")
@@ -4692,7 +4692,7 @@
         (let [target-id (-> (rf/epoch-history :test/obi8rr-ok) last :epoch-id)]
           (rf/dispatch-sync [:clear-res2] {:frame :test/obi8rr-ok})
           (let [recorded (record-trace!)
-                ok?      (rf/restore-epoch :test/obi8rr-ok target-id)]
+                ok?      (rf/restore-epoch! :test/obi8rr-ok target-id)]
             (is (true? ok?) "restore succeeded")
             (is (some #(= :rf.epoch/restored (:operation %)) @recorded)
                 ":rf.epoch/restored fired (the install landed)")

@@ -24,10 +24,10 @@
   - `:rf.http/managed` Spec 014 trace ops (`:rf.http/retry-attempt`,
     `:rf.warning/decode-defaulted`) — emitted only inside
     `(when interop/debug-enabled? ...)` branches.
-  - `re-frame.epoch` public surface — `epoch-history`, `restore-epoch`,
+  - `re-frame.epoch` public surface — `epoch-history`, `restore-epoch!`,
     `register-epoch-listener!`, `unregister-epoch-listener!`, `configure :epoch-history`,
     plus the `:rf.epoch/*` trace ops emitted by `settle!` and
-    `restore-epoch` (rf2-gox8 follow-up to rf2-shjf).
+    `restore-epoch!` (rf2-gox8 follow-up to rf2-shjf).
   - `re-frame.views` reg-view* wrapper — `:view/render` trace op
     (Spec 004 §Render-tree primitives, rf2-piag / rf2-t5tx). The
     instance-token mint, the `*render-key*` binding, and the late-
@@ -168,7 +168,7 @@
   ;; epoch ns ships gated trace ops:
   ;;
   ;;   :rf.epoch/snapshotted                       (settle! after drain-empty)
-  ;;   :rf.epoch/restored                          (restore-epoch happy path)
+  ;;   :rf.epoch/restored                          (restore-epoch! happy path)
   ;;   :rf.epoch/restore-during-drain              (failure mode 2)
   ;;   :rf.epoch/restore-unknown-epoch             (failure mode 3)
   ;;   :rf.epoch/restore-schema-mismatch           (failure mode 4)
@@ -182,7 +182,7 @@
   ;;
   ;; Every emit site sits inside `(when interop/debug-enabled? ...)`
   ;; (or guarded by an `if-not interop/debug-enabled?` early-return in
-  ;; restore-epoch) so under :advanced + goog.DEBUG=false the bodies
+  ;; restore-epoch!) so under :advanced + goog.DEBUG=false the bodies
   ;; DCE and the `:rf.epoch/*` string fragments must NOT appear in the
   ;; production bundle.
   ;;
@@ -235,7 +235,7 @@
   ;; sentinel has a path through a documented entry point. The
   ;; remaining failure ops survive via their literal occurrence in
   ;; the gated emit-restore-failure! call sites in re-frame.epoch.
-  (rf/restore-epoch :rf/default 999999)
+  (rf/restore-epoch! :rf/default 999999)
   ;; rf2-zq55 — replace-app-db! is the Tool-Pair §Pair-tool-writes
   ;; surface. The body is gated by an `(if-not interop/debug-enabled?
   ;; false ...)` early-return — the success branch fires

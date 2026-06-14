@@ -3,7 +3,7 @@
   §Play step-debugger).
 
   The substantive runtime calls (`runtime/reset-variant`,
-  `play/begin-stepper!`, `rf/restore-epoch`) are exercised by the
+  `play/begin-stepper!`, `rf/restore-epoch!`) are exercised by the
   feature-load browser gate. These unit tests pin the mutator semantics
   by redef-ing the substrate calls so the slot transitions can be
   observed deterministically without booting the runtime."
@@ -105,7 +105,7 @@
                          (assoc :epoch-stack [:epoch/seed
                                               :epoch/before-a
                                               :epoch/before-b]))))
-      (with-redefs [rf/restore-epoch (fn [v eid]
+      (with-redefs [rf/restore-epoch! (fn [v eid]
                                        (swap! restored conj [v eid]))
                     rf/epoch-history (fn [_] [{:epoch-id :x}])
                     assertions/read-assertions (fn [_] [])]
@@ -122,7 +122,7 @@
     (let [vid      :story.unit/back-start
           restored (atom [])]
       (seed-slot! vid [[:e/a]])
-      (with-redefs [rf/restore-epoch (fn [v eid]
+      (with-redefs [rf/restore-epoch! (fn [v eid]
                                        (swap! restored conj [v eid]))
                     rf/epoch-history (fn [_] [{:epoch-id :x}])
                     assertions/read-assertions (fn [_] [])]
@@ -144,7 +144,7 @@
                          (assoc :epoch-stack [:epoch/seed
                                               :epoch/before-a
                                               :epoch/before-b]))))
-      (with-redefs [rf/restore-epoch (fn [v eid]
+      (with-redefs [rf/restore-epoch! (fn [v eid]
                                        (swap! restored conj [v eid]))
                     rf/epoch-history (fn [_] [{:epoch-id :x}])
                     assertions/read-assertions (fn [_] [])]
@@ -166,7 +166,7 @@
                          (assoc :cursor 1)
                          (assoc :auto-playing? true)
                          (assoc :interval-id 999))))
-      (with-redefs [rf/restore-epoch (fn [_ _] nil)
+      (with-redefs [rf/restore-epoch! (fn [_ _] nil)
                     rf/epoch-history (fn [_] [])
                     assertions/read-assertions (fn [_] [])
                     js/clearInterval (fn [_] nil)]

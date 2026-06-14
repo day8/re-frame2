@@ -5,7 +5,7 @@
 ;; epoch surface — the per-frame `:rf/epoch-record` ring buffer
 ;; (`epoch-history`), the `(rf/configure! :epoch-history {:depth N})`
 ;; knob, the `register-epoch-listener!` / `unregister-epoch-listener!` listener API, the
-;; `restore-epoch` rewind with its seven documented failure modes
+;; `restore-epoch!` rewind with its seven documented failure modes
 ;; (`:rf.epoch/restore-unknown-epoch`,
 ;; `:rf.epoch/restore-non-ok-record`,
 ;; `:rf.epoch/restore-schema-mismatch`,
@@ -40,7 +40,7 @@
 ;;           day8/re-frame2-epoch {:mvn/version "..."}}}
 ;;
 ;; And require `re-frame.epoch` in any namespace that calls
-;; `rf/epoch-history`, `rf/restore-epoch`, `rf/register-epoch-listener!`,
+;; `rf/epoch-history`, `rf/restore-epoch!`, `rf/register-epoch-listener!`,
 ;; `rf/unregister-epoch-listener!`, or `(rf/configure! :epoch-history ...)` —
 ;; loading the namespace publishes the artefact's late-bind contract via
 ;; a single `(late-bind/set-fns! { ... })` map in `re-frame.epoch`.
@@ -55,7 +55,7 @@
 ;; `:epoch/capture-event`, `:epoch/cascade-cause`, the post-settle
 ;; back-fill family `:epoch/record-render!` / `record-sub-run!` /
 ;; `record-unmount!`, `:epoch/on-frame-destroyed`); introspection + the
-;; Tool-Pair write surface (`:epoch/epoch-history`, `:epoch/restore-epoch`,
+;; Tool-Pair write surface (`:epoch/epoch-history`, `:epoch/restore-epoch!`,
 ;; the `replace-*` / `reset-app-db!` injection hooks); the listener +
 ;; config surface (`:epoch/register-epoch-listener!` /
 ;; `unregister-epoch-listener!`, `:epoch/configure!`, the test-isolation
@@ -69,7 +69,7 @@
 ;; rf2-p7va extension to per-feature splits): this artefact depends on
 ;; core; core never depends on this artefact. The cross-references
 ;; from core to epoch (`re-frame.core`'s `epoch-history` /
-;; `restore-epoch` / `register-epoch-listener!` / `unregister-epoch-listener!` re-exports
+;; `restore-epoch!` / `register-epoch-listener!` / `unregister-epoch-listener!` re-exports
 ;; and the `(rf/configure! :epoch-history ...)` knob) flow through
 ;; `re-frame.late-bind` exactly as the schemas / machines / routing /
 ;; flows / http / ssr hooks already do.

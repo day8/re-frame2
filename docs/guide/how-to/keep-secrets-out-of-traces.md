@@ -92,7 +92,7 @@ Production observation records route by the frame's `:observability` policy. Nam
                      :rf.egress/profile :rf.egress/off-box-observability}]}
    :on-create     [:app/init]})
 
-(rf/reg-observability-sink! :my-app.sinks/datadog
+(rf/register-observability-sink! :my-app.sinks/datadog
   (fn [projected-record]
     ;; Already projected. No sink-local redaction.
     (datadog/send projected-record)))

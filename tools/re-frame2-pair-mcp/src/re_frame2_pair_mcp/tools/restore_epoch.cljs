@@ -8,7 +8,7 @@
   `replace-frame-state!` (machine snapshots, the route slice, elision
   declarations, and SSR metadata revive alongside app-db, not just the
   app-db projection — EP-0001, Mike ruling #2). Wraps the preload
-  runtime's `restore-epoch` primitive (`(rf/restore-epoch frame-id
+  runtime's `restore-epoch` primitive (`(rf/restore-epoch! frame-id
   epoch-id)`), which is itself the Tool-Pair `restore-epoch` write
   primitive the server is the canonical consumer of (000-Vision /
   003-Tool-Catalogue).

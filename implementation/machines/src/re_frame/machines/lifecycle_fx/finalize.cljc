@@ -81,7 +81,7 @@
 ;; rf2-egvm4t every destroy trigger must CLEAR that per-instance entry so a
 ;; destroyed actor leaves no marks-table residue (an unbounded leak under
 ;; per-request spawn/destroy churn) — symmetric with the snapshot dissoc, the
-;; registrar unregister, and the spawn-order forget. `restore-epoch` (since
+;; registrar unregister, and the spawn-order forget. `restore-epoch!` (since
 ;; EP-0001) reverts the WHOLE frame-state — both partitions — but these
 ;; per-instance marks live in the marks artefact's OWN schema-sourced table,
 ;; OUTSIDE frame-state, so they do NOT reappear on restore. Instead the

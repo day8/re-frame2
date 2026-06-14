@@ -52,7 +52,7 @@
     ;; skipped for the same reason: re-buffering it would leak it into
     ;; the next cascade's record.
     :rf.epoch/outcome
-    ;; restore-epoch success + the five documented failure modes.
+    ;; restore-epoch! success + the five documented failure modes.
     :rf.epoch/restored
     :rf.epoch/restore-unknown-epoch
     :rf.epoch/restore-schema-mismatch
@@ -457,7 +457,7 @@
   projection is needed for the sensitive case. The whole-output `:large?`
   stamp, however, only marks largeness on the trace tag and leaves the raw
   value intact (the on-box ring must keep the exact value for Xray diff /
-  REPL / `restore-epoch`). We thread that tag onto the row as `:large?` so
+  REPL / `restore-epoch!`). We thread that tag onto the row as `:large?` so
   the off-box `projected-record` egress boundary can substitute the
   `:rf.size/large-elided` marker for `:value` / `:prev-value` under the
   `:include-large? false` default. Threaded `cond->` (absent, not false,

@@ -172,12 +172,12 @@ Per-frame epoch snapshots, recorded on each drain-completion in dev builds. Used
   ```
 - **Description**: Returns `[]` for an unknown / destroyed frame.
 
-### `restore-epoch`
+### `restore-epoch!`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (restore-epoch frame-id epoch-id) → boolean
+  (restore-epoch! frame-id epoch-id) → boolean
   ```
 - **Description**: Restore the frame's whole **frame-state** — both the app-db and runtime-db partitions — to the named epoch's `:frame-state-after`, reinstalled in one atomic write (so machine snapshots, the route slice, and other runtime-db material rewind alongside app-db, not just the application slice). Returns `true` on success; `false` for an unknown / destroyed frame (and emits `:rf.error/no-such-handler` of kind `:frame`).
 

@@ -1,6 +1,6 @@
 # Production observability
 
-The **normal** way an app ships event + error records to Datadog / Sentry / Honeycomb / a custom pipeline is **declarative, frame-owned**: declare a sink under a frame's `:observability` policy, register its fn with `rf/reg-observability-sink!`, and let the runtime route one **already-projected** record per event/error to it. This is the EP-0015 egress path — it composes the owning frame's classification (`:sensitive` / `:large`) with the entry's `:rf.egress/profile`, so your sink never sees raw sensitive values and never has to re-walk for privacy / size. Reach for the low-level listener APIs only when you need lower-level control than frame `:observability` gives.
+The **normal** way an app ships event + error records to Datadog / Sentry / Honeycomb / a custom pipeline is **declarative, frame-owned**: declare a sink under a frame's `:observability` policy, register its fn with `rf/register-observability-sink!`, and let the runtime route one **already-projected** record per event/error to it. This is the EP-0015 egress path — it composes the owning frame's classification (`:sensitive` / `:large`) with the entry's `:rf.egress/profile`, so your sink never sees raw sensitive values and never has to re-walk for privacy / size. Reach for the low-level listener APIs only when you need lower-level control than frame `:observability` gives.
 
 ```clojure
 ;; The normal path: frame :observability + a registered sink fn.
@@ -10,16 +10,16 @@ The **normal** way an app ships event + error records to Datadog / Sentry / Hone
                    :errors         [{:sink :my-app.sinks/sentry
                                      :rf.egress/profile :rf.egress/off-box-observability}]}})
 
-(rf/reg-observability-sink! :my-app.sinks/datadog
+(rf/register-observability-sink! :my-app.sinks/datadog
   (fn [record] (datadog/track-event! record)))   ;; record is ALREADY projected
 
-(rf/reg-observability-sink! :my-app.sinks/sentry
+(rf/register-observability-sink! :my-app.sinks/sentry
   (fn [record] (sentry/capture! record)))
 ```
 
 Both routes ride the **same two always-on substrates** that survive `goog.DEBUG=false` and `:advanced` compilation — they are **parallel to** (not a fallback from) the dev-only trace bus, which DCEs in CLJS production builds. The frame `:observability` path is the projection-and-routing layer **on top of** those substrates; the listener APIs below (`register-event-listener!` / `register-error-listener!`) are the **advanced low-level hooks beneath** the frame policy. Documented here so you know what the declarative path lowers onto — and for the cases where you bypass it.
 
-Authoring rule: prefer frame `:observability` + `reg-observability-sink!`. Drop to a raw listener only for lower-level control. Either way the framework runs `elide-wire-value` against each record's `:event` vector before fan-out — neither sinks nor listeners re-walk for privacy / size. See [`privacy-and-elision.md`](privacy-and-elision.md) (§Choosing where observations go) for the egress composition.
+Authoring rule: prefer frame `:observability` + `register-observability-sink!`. Drop to a raw listener only for lower-level control. Either way the framework runs `elide-wire-value` against each record's `:event` vector before fan-out — neither sinks nor listeners re-walk for privacy / size. See [`privacy-and-elision.md`](privacy-and-elision.md) (§Choosing where observations go) for the egress composition.
 
 ## The mental model: three channels, three production guarantees
 

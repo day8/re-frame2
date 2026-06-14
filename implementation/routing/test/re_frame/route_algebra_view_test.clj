@@ -277,11 +277,11 @@
 ;; ---- registry semantics --------------------------------------------------
 
 (deftest unregistered-route-is-removed
-  (testing "(unregister-route! id) removes the route from the algebra view"
+  (testing "(clear-route id) removes the route from the algebra view"
     (rf/reg-route :route/a {:path "/a"})
     (rf/reg-route :route/b {:path "/b"})
     (is (contains? (routing-tooling/route-algebra-view) :route/a))
-    (routing/unregister-route! :route/a)
+    (routing/clear-route :route/a)
     (let [view (routing-tooling/route-algebra-view)]
       (is (not (contains? view :route/a)))
       (is (contains? view :route/b)))))

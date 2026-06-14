@@ -189,7 +189,7 @@ That second survivor needs one piece of wiring before you deploy. Declare a sink
 {:observability {:errors [{:sink              :conduit.sinks/error-reporter
                            :rf.egress/profile :rf.egress/off-box-observability}]}}
 
-(rf/reg-observability-sink! :conduit.sinks/error-reporter
+(rf/register-observability-sink! :conduit.sinks/error-reporter
   (fn [record]
     ;; the record arrives already projected — secrets show up as :rf/redacted
     (ship-to-your-error-service! record)))

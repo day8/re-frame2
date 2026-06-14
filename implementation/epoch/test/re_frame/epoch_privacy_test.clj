@@ -317,7 +317,7 @@
   (testing "rf2-at60h — a whole-output `:large?`-marked subscription's
             computed value rides the structured `:sub-runs` row as
             `:value` / `:prev-value`. The raw on-box record keeps the
-            exact value (Xray diff / restore-epoch need it), but the
+            exact value (Xray diff / restore-epoch! need it), but the
             off-box `projected-record` / `projected-history` egress
             boundary MUST substitute a `:rf.size/large-elided` marker for
             those value slots under the `:include-large? false` default —

@@ -27,7 +27,7 @@
             ;; rf2-lt4e: epoch ships in day8/re-frame2-epoch.
             ;; Required here so its load-time hook publications
             ;; (`:epoch/settle!`, `:epoch/capture-event`,
-            ;; `:epoch/epoch-history`, `:epoch/restore-epoch`,
+            ;; `:epoch/epoch-history`, `:epoch/restore-epoch!`,
             ;; `:epoch/register-epoch-listener!`, `:epoch/unregister-epoch-listener!`)
             ;; fire before the epoch-history-cljs / restore-* tests
             ;; below reach into the late-bind table at call time.
@@ -947,10 +947,10 @@
     (is (not (contains? (cache-keys-of :rf/default) [:n]))
         "slot evicted in-tick on the 1 → 0 transition")))
 
-;; ---- restore-epoch reactive surfaces (Tool-Pair §Time-travel, rf2-2fat) ---
+;; ---- restore-epoch! reactive surfaces (Tool-Pair §Time-travel, rf2-2fat) ---
 ;;
 ;; Per Tool-Pair §Time-travel + Spec 006 §Subscription cache:
-;; restore-epoch goes through adapter/replace-container! — the same
+;; restore-epoch! goes through adapter/replace-container! — the same
 ;; choke point used by the drain loop's :db commit. On the Reagent
 ;; substrate, that means a reaction held across a restore observes
 ;; the rewound value through Reagent's reactive graph, exactly as
@@ -964,7 +964,7 @@
 ;; by =.
 
 (deftest restore-rewinds-reagent-reaction
-  (testing "a Reagent-backed reaction held across restore-epoch derefs
+  (testing "a Reagent-backed reaction held across restore-epoch! derefs
   to the restored value — proving the restore goes through the same
   reactive-graph notification path as a drain :db commit."
     (rf/reg-frame :restore/cljs {})
@@ -982,7 +982,7 @@
           history (rf/epoch-history :restore/cljs)
           target  (some (fn [rec] (when (= 1 (:n (:db-after rec))) rec))
                         history)]
-      (is (true? (rf/restore-epoch :restore/cljs (:epoch-id target))))
+      (is (true? (rf/restore-epoch! :restore/cljs (:epoch-id target))))
       (is (= 1 @r)
           "the same reaction handle observes the rewound value after restore")
       (rf/unsubscribe :restore/cljs [:n]))))
@@ -1010,7 +1010,7 @@
           a-history (rf/epoch-history :restore/a)
           a-target  (some (fn [rec] (when (= 1 (:n (:db-after rec))) rec))
                           a-history)]
-      (is (true? (rf/restore-epoch :restore/a (:epoch-id a-target))))
+      (is (true? (rf/restore-epoch! :restore/a (:epoch-id a-target))))
       (is (= 1   @a-r) "frame A's reaction sees the rewound value")
       (is (= 101 @b-r) "frame B's reaction is unaffected by the cross-frame restore")
       (rf/unsubscribe :restore/a [:n])

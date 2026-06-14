@@ -8,7 +8,7 @@
   `:rf.error/<artefact>-artefact-missing` ex-info when a consumer
   calls a re-exported surface whose artefact is absent. For the
   epoch artefact, the load-bearing surface is `replace-app-db!`
-  (Tool-Pair §Pair-tool writes, rf2-zq55): unlike `restore-epoch`,
+  (Tool-Pair §Pair-tool writes, rf2-zq55): unlike `restore-epoch!`,
   `register-epoch-listener!`, `epoch-history`, and `unregister-epoch-listener!`
   (which degrade silently — empty vector / `false` / no-op when the
   artefact is absent), `replace-app-db!` MUST raise. The caller's

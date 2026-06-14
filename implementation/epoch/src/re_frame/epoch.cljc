@@ -37,7 +37,7 @@
   raw-trace listener API in `re-frame.trace`. Listeners receive the
   fully-assembled record after it lands in the ring buffer.
 
-  Restore (`restore-epoch`) rewinds a frame to the named epoch's
+  Restore (`restore-epoch!`) rewinds a frame to the named epoch's
   canonical `:frame-state-after` — the WHOLE frame-state, with app-db
   and runtime-db as two separate partitions reinstalled in ONE atomic
   write (EP-0001 rf2-3aizt1; Tool-Pair §Time-travel). The retained
@@ -121,7 +121,7 @@
                         falls back to the projected (frame/profile-redacted)
                         record. Passing `nil` clears any previously-installed
                         fn. CAVEAT: the fn runs only on the projected egress
-                        copy; it cannot affect `restore-epoch` fidelity (the
+                        copy; it cannot affect `restore-epoch!` fidelity (the
                         ring stays raw) — that hazard is gone by construction.
 
   Invalid `:depth` / `:trace-events-keep` (not a non-negative integer) and
@@ -474,7 +474,7 @@
 ;; the precondition check + the trace emission + the perform step into
 ;; a four-line case-match.
 
-(defn restore-epoch
+(defn restore-epoch!
   "Rewind the frame to the named epoch's canonical `:frame-state-after`
   — the WHOLE frame-state, reinstalling app-db AND runtime-db as two
   separate partitions in ONE atomic write (EP-0001 rf2-3aizt1: reviving
@@ -525,7 +525,7 @@
 ;; whole-frame `reset-frame!`.
 ;;
 ;; The surface is dev-only — gated on `interop/debug-enabled?`, the same
-;; gate as `restore-epoch` / `register-epoch-listener!` / the rest of the
+;; gate as `restore-epoch!` / `register-epoch-listener!` / the rest of the
 ;; epoch-history machinery. Production builds (`:advanced` +
 ;; goog.DEBUG=false) elide the body via Closure DCE; the surface is not
 ;; available in shipped binaries.
@@ -537,13 +537,13 @@
 ;;                                              registered app-schema set
 ;;
 ;; On success: records a synthetic `:rf/epoch-record` (so undo via
-;; `restore-epoch` works against the previous state), emits
+;; `restore-epoch!` works against the previous state), emits
 ;; `:rf.epoch/db-replaced`, replaces the container, and fires registered
 ;; epoch listeners with the assembled record.
 
 (defn- perform-replace-app-db!
   "Carry out the `app-db` replacement once preconditions have passed.
-  Records a synthetic `:rf/epoch-record` (so `restore-epoch` can rewind
+  Records a synthetic `:rf/epoch-record` (so `restore-epoch!` can rewind
   the prior state), emits `:rf.epoch/db-replaced`, replaces the
   container, and fans the record out to registered listeners. Returns
   `true` on a real write.
@@ -595,7 +595,7 @@
                                                     {:kind :frame :frame frame-id})
               false)
           (do
-            ;; Record a synthetic epoch so `restore-epoch` can rewind the
+            ;; Record a synthetic epoch so `restore-epoch!` can rewind the
             ;; previous state. The record's :trigger-event is the
             ;; pair-tool injection sentinel (no application event ran).
             ;; Per EP-0015 §15 + open-issue 6 (RULED): the synthetic record
@@ -681,7 +681,7 @@
   "Carry out the runtime-db replacement once preconditions have passed —
   the runtime-db sibling of `perform-replace-app-db!`. Replaces ONLY the
   runtime-db partition (app-db preserved unchanged), records a synthetic
-  `:rf/epoch-record` (so `restore-epoch` can rewind the prior state),
+  `:rf/epoch-record` (so `restore-epoch!` can rewind the prior state),
   emits `:rf.epoch/db-replaced`, and fans the record out to listeners.
   Returns `true` on a real write.
 
@@ -730,7 +730,7 @@
   "Carry out the full-frame (both-partition) replacement once preconditions
   have passed — the whole-frame sibling of `perform-replace-app-db!`.
   Replaces BOTH partitions atomically (`{:rf.db/app … :rf.db/runtime …}`),
-  records a synthetic `:rf/epoch-record` (so `restore-epoch` can rewind the
+  records a synthetic `:rf/epoch-record` (so `restore-epoch!` can rewind the
   prior state), emits `:rf.epoch/db-replaced`, and fans the record out to
   listeners. Returns `true` on a real write.
 
@@ -780,7 +780,7 @@
   `reset-frame-db!` (EP-0001 rf2-tfepxu, Mike ruling #10 — a db-shaped name
   never silently replaces runtime-db).
 
-  Records a synthetic `:rf/epoch-record` so `restore-epoch` can rewind
+  Records a synthetic `:rf/epoch-record` so `restore-epoch!` can rewind
   the previous state; emits `:rf.epoch/db-replaced` on success. The
   runtime-db partition is preserved unchanged.
 
@@ -824,7 +824,7 @@
   surface for injecting framework-owned subsystem state (machine
   snapshots, route slice, …); the app-db partition is preserved unchanged.
 
-  Records a synthetic `:rf/epoch-record` so `restore-epoch` can rewind the
+  Records a synthetic `:rf/epoch-record` so `restore-epoch!` can rewind the
   previous state; emits `:rf.epoch/db-replaced` on success.
 
   Failure modes (each is a no-op on `runtime-db` and returns `false`,
@@ -859,7 +859,7 @@
   installs `nil` for that partition (a full-frame replace is whole-value
   by contract).
 
-  Records a synthetic `:rf/epoch-record` so `restore-epoch` can rewind the
+  Records a synthetic `:rf/epoch-record` so `restore-epoch!` can rewind the
   previous state; emits `:rf.epoch/db-replaced` on success.
 
   Failure modes (each is a no-op on the frame-state and returns `false`,
@@ -937,7 +937,7 @@
   forwarders) MUST route through this fn at the wire boundary; the
   on-box ring buffer and `register-epoch-listener!` listener fan-out
   continue to deliver the RAW record so on-box devtools (Xray diff,
-  REPL, `restore-epoch`) can reason about exact state.
+  REPL, `restore-epoch!`) can reason about exact state.
 
   `record` may be `nil` (e.g. a missing epoch lookup) — the projection
   returns `nil` in that case, no elision called. Production builds
@@ -980,7 +980,7 @@
 ;; Per rf2-lt4e (the seventh and final per-feature split per rf2-5vjj
 ;; Strategy B), this namespace ships in `day8/re-frame2-epoch`; the
 ;; core artefact MUST NOT statically `:require` it. Core's public
-;; re-exports (`rf/epoch-history`, `rf/restore-epoch`,
+;; re-exports (`rf/epoch-history`, `rf/restore-epoch!`,
 ;; `rf/register-epoch-listener!`, `rf/unregister-epoch-listener!`) and the
 ;; `(rf/configure! :epoch-history ...)` knob look the producing fns up
 ;; through the hook table at call time; when this artefact is not on
@@ -1030,7 +1030,7 @@
 
    ;; ---- introspection + Tool-Pair write surface --------------------
    :epoch/epoch-history       epoch-history
-   :epoch/restore-epoch       restore-epoch
+   :epoch/restore-epoch!      restore-epoch!
    :epoch/replace-app-db!     replace-app-db!
    :epoch/reset-app-db!       reset-app-db!
    :epoch/replace-runtime-db! replace-runtime-db!

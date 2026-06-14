@@ -436,3 +436,82 @@
             (is (not (str/includes? doc phrase))
                 (str sym "'s docstring must not carry the stale pre-landing "
                      "phrase " (pr-str phrase)))))))))
+
+;; ===========================================================================
+;; rf2-xhdwms / rf2-jkdycj / rf2-sd6amv — API-consistency renames
+;;
+;; Adversarial contract tests: the NEW (post-rename) public-facade names must
+;; resolve, and the OLD names must be GONE (pre-alpha — no back-compat alias).
+;;   - restore-epoch          → restore-epoch!           (bang: mutates state)
+;;   - reg-observability-sink! → register-observability-sink! (runtime install)
+;;   - unregister-route!      → clear-route              (declarative clear-*)
+;; ===========================================================================
+
+(deftest renamed-facade-exports-resolve-old-names-gone
+  (testing "the three renamed re-frame.core facade exports resolve under their
+            NEW names and the OLD names are absent (rf2-xhdwms / rf2-jkdycj /
+            rf2-sd6amv)"
+    ;; NEW names present.
+    (doseq [sym ['restore-epoch! 'register-observability-sink! 'clear-route]]
+      (is (some? (ns-resolve 're-frame.core sym))
+          (str "re-frame.core/" sym " must resolve after the rename")))
+    ;; OLD names gone — pre-alpha, no compatibility alias.
+    (doseq [sym ['restore-epoch 'reg-observability-sink! 'unregister-route!]]
+      (is (nil? (ns-resolve 're-frame.core sym))
+          (str "re-frame.core/" sym " must be GONE (no back-compat alias)")))))
+
+(deftest renamed-impl-exports-resolve-old-names-gone
+  (testing "the impl-side artefact functions are renamed in lock-step with the
+            facade (re-frame.epoch / re-frame.routing / re-frame.observability)"
+    (require 're-frame.epoch :reload)
+    (require 're-frame.routing :reload)
+    (require 're-frame.observability)
+    ;; NEW names present on the impl namespaces.
+    (is (some? (ns-resolve 're-frame.epoch 'restore-epoch!))
+        "re-frame.epoch/restore-epoch! resolves")
+    (is (some? (ns-resolve 're-frame.routing 'clear-route))
+        "re-frame.routing/clear-route resolves")
+    (is (some? (ns-resolve 're-frame.observability 'register-observability-sink!))
+        "re-frame.observability/register-observability-sink! resolves")
+    ;; OLD names gone.
+    (is (nil? (ns-resolve 're-frame.epoch 'restore-epoch))
+        "re-frame.epoch/restore-epoch is GONE")
+    (is (nil? (ns-resolve 're-frame.routing 'unregister-route!))
+        "re-frame.routing/unregister-route! is GONE")
+    (is (nil? (ns-resolve 're-frame.observability 'reg-observability-sink!))
+        "re-frame.observability/reg-observability-sink! is GONE")))
+
+(deftest restore-epoch-bang-round-trips-under-new-name
+  (testing "(rf/restore-epoch! frame-id epoch-id) rewinds a frame to a recorded
+            epoch — the renamed time-travel surface resolves a live hook and
+            mutates state (rf2-xhdwms)"
+    (rf/reg-frame :rn/epoch {:doc "rename-epoch"})
+    (rf/reg-event-db :rn/seed (fn [_ [_ db]] db))
+    (rf/dispatch-sync [:rn/seed {:step 1}] {:frame :rn/epoch})
+    (let [target (last (rf/epoch-history :rn/epoch))]
+      (rf/dispatch-sync [:rn/seed {:step 2}] {:frame :rn/epoch})
+      (is (= {:step 2} (rf/app-db-value :rn/epoch)) "advanced to step 2")
+      (is (true? (rf/restore-epoch! :rn/epoch (:epoch-id target)))
+          "restore-epoch! returns true rewinding to the recorded epoch")
+      (is (= {:step 1} (rf/app-db-value :rn/epoch))
+          "state rewound to the target epoch via the renamed surface"))))
+
+(deftest clear-route-removes-route-under-new-name
+  (testing "(rf/clear-route id) removes a registered route — the renamed
+            declarative-removal surface (rf2-sd6amv)"
+    (require 're-frame.routing :reload)
+    (rf/reg-route :rn/route {:path "/rn"})
+    (is (some? (rf/match-url "/rn")) "route registered + matchable")
+    (rf/clear-route :rn/route)
+    (is (nil? (rf/match-url "/rn"))
+        "clear-route removed the route — it no longer matches")))
+
+(deftest register-observability-sink-installs-under-new-name
+  (testing "(rf/register-observability-sink! sink-id f) installs a sink and
+            (rf/unregister-observability-sink! sink-id) is its inverse
+            (rf2-jkdycj)"
+    (is (= :rn.sinks/test
+           (rf/register-observability-sink! :rn.sinks/test (fn [_record] nil)))
+        "register-observability-sink! returns the sink-id on install")
+    (is (nil? (rf/unregister-observability-sink! :rn.sinks/test))
+        "unregister-observability-sink! is the confirmed inverse — returns nil")))

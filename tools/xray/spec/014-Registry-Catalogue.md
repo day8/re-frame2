@@ -170,7 +170,7 @@ Spec: [`002-Time-Travel.md`](./002-Time-Travel.md).
 |---|---|---|
 | `:rf.xray/select-epoch` | `[_ epoch-id]` | Passive scrub — does NOT call `restore-epoch`. Spine shim (rf2-adve5): stamps the spine `[:focus :epoch-id]` slot surfaced by `:rf.xray/focus-epoch-id`; a `nil` epoch-id clears the focus. |
 | `:rf.xray/reset-to-epoch` | `[_ frame epoch-id]` | `event-fx` — emits `{:fx [[:rf.xray.fx/restore-epoch {:frame frame :epoch-id epoch-id}]]}`. The confirmed-rewind affordance (rf2-hga49); a nil frame / epoch-id is a guarded no-op. |
-| `:rf.xray/reset-flash-failed` | `[_]` | `:rf.trace/no-emit? true`. Sets the inline `:reset-flash` failure notice; dispatched from `:rf.xray.fx/restore-epoch` when `rf/restore-epoch` returns false. |
+| `:rf.xray/reset-flash-failed` | `[_]` | `:rf.trace/no-emit? true`. Sets the inline `:reset-flash` failure notice; dispatched from `:rf.xray.fx/restore-epoch` when `rf/restore-epoch!` returns false. |
 | `:rf.xray/set-target-frame` | `[_ frame-id]` | Sets the active target frame for the scrubber and refreshes `:epoch-history` from `(rf/epoch-history target)`. `nil` resets to the default target. Mirrored by `core/set-target-frame!` from the public CLJS API. |
 | `:rf.xray/sync-epoch-history` | `[_ history]` | `:rf.trace/no-emit? true`. Replaces the cached `:epoch-history` with the supplied vector AND focuses the LATEST seeded epoch — stamps the spine `[:focus :epoch-id]` (surfaced by `compose-focus` when no live cascade head is present) to `(:epoch-id (peek history))`; an empty `history` clears it. Pumped from the depth-shrink path so the scrubber reflects the trimmed history without an explicit re-read, and from history-only seeds (the panel-gallery Story variants) where no trace buffer exists for the trace-driven auto-follow to act on — without the head-focus the focus-keyed Dynamic panels (App-db, Epoch, …) would render their "nothing focused" empty-state (rf2-mdpfz). When a live trace buffer IS also seeded, `compose-focus`'s LIVE auto-follow re-derives `:epoch-id` from the head cascade; this stamp is authoritative only for history-only seeds. |
 
@@ -178,7 +178,7 @@ Spec: [`002-Time-Travel.md`](./002-Time-Travel.md).
 
 | Fx | Args | Behaviour |
 |---|---|---|
-| `:rf.xray.fx/restore-epoch` | `{:frame :epoch-id}` | Calls `rf/restore-epoch`; on failure dispatches `:rf.xray/reset-flash-failed` so the inline tab-ribbon flash surfaces the failed confirmed rewind (the framework also emits a structured `:rf.epoch/*` trace row the Trace panel shows). The fx indirection lets test fixtures stub the framework call. |
+| `:rf.xray.fx/restore-epoch` | `{:frame :epoch-id}` | Calls `rf/restore-epoch!`; on failure dispatches `:rf.xray/reset-flash-failed` so the inline tab-ribbon flash surfaces the failed confirmed rewind (the framework also emits a structured `:rf.epoch/*` trace row the Trace panel shows). The fx indirection lets test fixtures stub the framework call. |
 
 ## App-DB Diff panel
 

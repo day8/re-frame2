@@ -30,5 +30,5 @@ The design intent that motivated this file — **inspection is the
 default, rewind is opt-in** (the key inversion from re-frame-10x v1's
 `app-db-follows-events?` mode) — survives in the spine: scrubbing the
 event list rebases every panel's view passively, while
-`(rf/restore-epoch …)` is reached only through an explicit, confirmed
+`(rf/restore-epoch! …)` is reached only through an explicit, confirmed
 affordance. See the three homes above for the current, normative shape.

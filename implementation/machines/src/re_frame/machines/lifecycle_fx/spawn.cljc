@@ -13,7 +13,7 @@
   (revertible) frame value, and the snapshot's `:rf/machine-type` lets
   the lazy resolver (`lifecycle-fx.resolver`) re-materialise the actor's
   handler on dispatch. Spawn is therefore a pure app-db write; destroy
-  removes only app-db, so `restore-epoch` (app-db-only) reverts an
+  removes only app-db, so `restore-epoch!` (app-db-only) reverts an
   actor's liveness perfectly with zero registrar drift (the Goal-2
   revertibility invariant). Frame isolation follows from the snapshot
   living inside the spawning frame's app-db.
@@ -238,7 +238,7 @@
 
   Per rf2-a2sn1 — eliminating the per-instance registration is what
   closes the Goal-2 revertibility leak: spawn writes only app-db, destroy
-  removes only app-db, so `restore-epoch` (app-db-only) reverts an
+  removes only app-db, so `restore-epoch!` (app-db-only) reverts an
   actor's liveness perfectly with ZERO registrar drift."
   [{frame-id :frame} args]
   (let [;; EP-0002 carried invariant: `:rf.machine/spawn` runs inside an

@@ -29,7 +29,7 @@ Agency runs through three primitives, all in re-frame2's Tool-Pair contract:
 
 1. **The REPL** — a shadow-cljs nREPL session connected to the browser runtime.
 2. **The trace stream** — `(re-frame.trace.tooling/register-listener! id cb)` for live events; `(re-frame.trace.tooling/trace-buffer opts)` for the retain-N ring. (`register-listener!` is also on `rf/`; `trace-buffer` is a JVM-only `rf/` alias, so CLJS callers use the `re-frame.trace.tooling` form.)
-3. **The epoch history** — `(rf/epoch-history frame-id)`, `(rf/register-epoch-listener! id cb)`, and `(rf/restore-epoch ...)`.
+3. **The epoch history** — `(rf/epoch-history frame-id)`, `(rf/register-epoch-listener! id cb)`, and `(rf/restore-epoch! ...)`.
 
 Every op the skill teaches eventually becomes a ClojureScript form evaluated through the REPL, usually against a helper in the `re-frame2-pair.runtime` namespace the consumer app preloads via shadow-cljs `:devtools :preloads` (see `SKILL.md` §Setup).
 
@@ -39,7 +39,7 @@ Time-travel, trace-stream consumption, and epoch records ride on `re-frame2`'s n
 
 ### L3 — MCP is the only skill-facing transport
 
-- **MCP transport** — `mcp__re-frame2-pair__*` tools. Single persistent nREPL connection per session. The **only** transport the skill exposes. The server ships **29** tools and **all 29 are allow-listed** (the frontmatter `allowed-tools:` carries no shell tool). The two write-authority tools (`restore-epoch`, `replace-app-db`) are the canonical named-write path; they are gated behind the server's default-OFF `--allow-writes` flag (refusing with `:rf.error/writes-disabled` against a gate-OFF server) — the server's gate, not the allow-list, is the write boundary, so allow-listing them is safe. The eval forms (`(rf/restore-epoch …)` / `app-db-reset!`) are the backstop for a gate-OFF server (`eval-cljs` is default-ON and outside `--allow-writes`).
+- **MCP transport** — `mcp__re-frame2-pair__*` tools. Single persistent nREPL connection per session. The **only** transport the skill exposes. The server ships **29** tools and **all 29 are allow-listed** (the frontmatter `allowed-tools:` carries no shell tool). The two write-authority tools (`restore-epoch`, `replace-app-db`) are the canonical named-write path; they are gated behind the server's default-OFF `--allow-writes` flag (refusing with `:rf.error/writes-disabled` against a gate-OFF server) — the server's gate, not the allow-list, is the write boundary, so allow-listing them is safe. The eval forms (`(rf/restore-epoch! …)` / `app-db-reset!`) are the backstop for a gate-OFF server (`eval-cljs` is default-ON and outside `--allow-writes`).
 - **Bash shims** — `scripts/discover-app.sh` and friends predate the MCP server and are **retired from the skill's tool surface**. They remain on disk only for the project's own e2e test harness and ad-hoc shell use; no shell tool is in `allowed-tools:`, so the skill cannot reach them.
 
 The MCP tool reference lives in `references/mcp-transport.md`.

@@ -155,7 +155,7 @@ Owner classifies / framework projects / sinks consume. Classification keys are *
 | `:rf.egress/output-sensitivity` | `:rf.egress/inherit` (default) \| `:rf.egress/sensitive` \| `:rf.egress/public` — derived-output declassification on a `reg-sub`/`reg-flow`; `:public` is an audited claim (Xray enumerates) |
 | `rf/project-egress` | `(record-or-value opts)` — record-level boundary primitive; `opts` `{:rf.egress/profile <closed six-member enum> :frame … :path […]}`. Required before any off-box sink; fail-closed when no frame known |
 | `rf/elide-wire-value` | `(value opts)` — low-level tree-shaped-value walker `project-egress` delegates to; advanced `:rf.size/include-sensitive?` / `:include-large?` / `:include-digests?` overrides |
-| `rf/reg-observability-sink!` | `(sink-id fn)` — register the concrete sink fn for a frame `:observability` sink id; fn receives an **already-projected** record (no sink-local redaction) |
+| `rf/register-observability-sink!` | `(sink-id fn)` — register the concrete sink fn for a frame `:observability` sink id; fn receives an **already-projected** record (no sink-local redaction) |
 | `rf/projected-record` | `(record)` — dev-only projected epoch/observation record read |
 | `rf/register-event-listener!` / `rf/register-error-listener!` (+ `unregister-*`) | advanced low-level listener registries beneath frame `:observability` |
 
@@ -168,7 +168,7 @@ Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability
 | `rf/register-listener!` / `rf/unregister-listener!` / `rf/emit-trace-event!` | trace plumbing |
 | `rf/trace-buffer` / `rf/clear-trace-buffer!` | retain-N ring |
 | `rf/epoch-history` | `(frame-id)` → `[epoch-records]` |
-| `rf/restore-epoch` | `(frame-id epoch-id)` → bool |
+| `rf/restore-epoch!` | `(frame-id epoch-id)` → bool |
 | `rf/register-epoch-listener!` / `rf/unregister-epoch-listener!` | per-drain-settle listener |
 | `rf/replace-app-db!` | `(frame-id app-db)` → bool — app-db-only state injection (dev/pair-tool; renamed from `reset-frame-db!`) |
 | `rf/reset-app-db!` | `(frame-id)` → bool — app-db → {}, runtime-db preserved |

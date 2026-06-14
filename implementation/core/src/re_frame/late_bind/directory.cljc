@@ -383,7 +383,7 @@
    {:key         :machines/resolve-actor-handler-meta
     :producer-ns 're-frame.machines
     :design-bead "rf2-a2sn1"
-    :description "Lazy actor-handler resolver. Core's `re-frame.router.diagnostics/handle-no-handler!` consults this BEFORE surfacing `:rf.error/no-such-handler`: given an unresolved `[<actor-id> <event>]` dispatch, it materialises a spawned actor's handler-meta purely from its (revertible) app-db snapshot (`:rf/machine-type` → registered TYPE spec or inline `:definition`). Returns nil when no live snapshot exists, so core surfaces the genuine `:no-such-handler`. Eliminates the per-instance registrar registration so `restore-epoch` (app-db-only) reverts actor liveness with zero registrar drift — closes the Goal-2 dynamic-actor revertibility leak."}
+    :description "Lazy actor-handler resolver. Core's `re-frame.router.diagnostics/handle-no-handler!` consults this BEFORE surfacing `:rf.error/no-such-handler`: given an unresolved `[<actor-id> <event>]` dispatch, it materialises a spawned actor's handler-meta purely from its (revertible) app-db snapshot (`:rf/machine-type` → registered TYPE spec or inline `:definition`). Returns nil when no live snapshot exists, so core surfaces the genuine `:no-such-handler`. Eliminates the per-instance registrar registration so `restore-epoch!` (app-db-only) reverts actor liveness with zero registrar drift — closes the Goal-2 dynamic-actor revertibility leak."}
    {:key         :machines/actor-resolvable?
     :producer-ns 're-frame.machines
     :design-bead "rf2-a2sn1"
@@ -417,7 +417,7 @@
    {:key         :routing/reg-route
     :producer-ns 're-frame.routing
     :description "Register a route pattern and handler."}
-   {:key         :routing/unregister-route!
+   {:key         :routing/clear-route
     :producer-ns 're-frame.routing
     :description "Remove a registered route; emits :rf.route/cleared."}
    {:key         :routing/match-url
@@ -698,7 +698,7 @@
    {:key         :epoch/epoch-history
     :producer-ns 're-frame.epoch
     :description "Return the committed-epoch ring buffer (introspection)."}
-   {:key         :epoch/restore-epoch
+   {:key         :epoch/restore-epoch!
     :producer-ns 're-frame.epoch
     :description "Restore app-db / schemas to a previously-captured epoch."}
    {:key         :epoch/replace-app-db!
@@ -710,11 +710,11 @@
    {:key         :epoch/replace-runtime-db!
     :producer-ns 're-frame.epoch
     :design-bead "rf2-szbzei"
-    :description "Replace a frame's runtime-db partition (state injection), preserving live app-db. Epoch-backed Tool-Pair write: records a synthetic :rf/epoch-record so restore-epoch rewinds past it, returns boolean, shares the drain-guard + framework-owned runtime-db schema-validation contract."}
+    :description "Replace a frame's runtime-db partition (state injection), preserving live app-db. Epoch-backed Tool-Pair write: records a synthetic :rf/epoch-record so restore-epoch! rewinds past it, returns boolean, shares the drain-guard + framework-owned runtime-db schema-validation contract."}
    {:key         :epoch/replace-frame-state!
     :producer-ns 're-frame.epoch
     :design-bead "rf2-szbzei"
-    :description "Replace BOTH of a frame's partitions atomically (full-frame install). Epoch-backed Tool-Pair write: records a synthetic :rf/epoch-record so restore-epoch rewinds past it, returns boolean, shares the drain-guard + app-db / runtime-db schema-validation contract."}
+    :description "Replace BOTH of a frame's partitions atomically (full-frame install). Epoch-backed Tool-Pair write: records a synthetic :rf/epoch-record so restore-epoch! rewinds past it, returns boolean, shares the drain-guard + app-db / runtime-db schema-validation contract."}
    {:key         :epoch/register-epoch-listener!
     :producer-ns 're-frame.epoch
     :description "Register an epoch-settled callback."}

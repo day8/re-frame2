@@ -1720,16 +1720,16 @@
             ":path rides in :tags")))))
 
 (deftest route-cleared-trace-on-unregister
-  (testing "unregister-route! emits :rf.route/cleared (rf2-dn26r)"
+  (testing "clear-route emits :rf.route/cleared (rf2-dn26r)"
     (rf/reg-route :route/transient {:path "/transient"})
     (let [traces (atom [])]
       (rf/register-listener! ::cleared-trace (fn [ev] (swap! traces conj ev)))
-      (routing/unregister-route! :route/transient)
-      (routing/unregister-route! :route/transient) ;; idempotent, no trace
+      (routing/clear-route :route/transient)
+      (routing/clear-route :route/transient) ;; idempotent, no trace
       (rf/unregister-listener! ::cleared-trace)
       (let [cleared-events (filter #(= :rf.route/cleared (:operation %)) @traces)]
         (is (= 1 (count cleared-events))
-            "unregister-route! emits :rf.route/cleared exactly once")
+            "clear-route emits :rf.route/cleared exactly once")
         (is (= :route/transient (-> cleared-events first :tags :route-id))
             ":route-id rides in :tags")))))
 

@@ -111,10 +111,10 @@
       (is (live-snapshot? :diag/m1)
           "a transition updates the runtime-db snapshot — the machine stays live"))))
 
-;; ---- a direct runtime-db replace (restore-epoch shape) DOES revert it ------
+;; ---- a direct runtime-db replace (restore-epoch! shape) DOES revert it ------
 
 (deftest direct-runtime-db-replace-reverts-the-snapshot
-  (testing "restore-epoch / reset install a fresh runtime-db via a direct partition write — that legitimately reverts the snapshot"
+  (testing "restore-epoch! / reset install a fresh runtime-db via a direct partition write — that legitimately reverts the snapshot"
     (register-live-machine!)
     ;; Reproduce the revertible-restore path: install a fresh runtime-db that
     ;; carries NO machine snapshot (e.g. restoring to a pre-spawn epoch) via

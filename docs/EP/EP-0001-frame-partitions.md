@@ -826,7 +826,7 @@ rather than gradual:
 - **Reserve `:rf.db/runtime` in the effect map.** The closed top-level event
   effect map (`:db`, `:fx`) gains `:rf.db/runtime` as a deliberate reserved key
   writable only by framework-authority handlers.
-- **Update full-frame operations.** Epoch records, SSR hydration, `restore-epoch`,
+- **Update full-frame operations.** Epoch records, SSR hydration, `restore-epoch!`,
   reset, and destroy switch from app-db-only snapshots to frame-state projections.
 - **Drive legacy access loud.** A short-lived `:rf/runtime`-access diagnostic eases
   the in-repo migration during implementation, then is removed; the stable
@@ -1007,7 +1007,7 @@ does not settle the exact epoch record shape, but the implementation must avoid
 ambiguity.
 
 Existing epoch code records `:db-before` / `:db-after` as app-db values and
-`restore-epoch` rewinds to `:db-after`. Under this proposal, a restore that is
+`restore-epoch!` rewinds to `:db-after`. Under this proposal, a restore that is
 meant to revive machines, routes, elision state, or resources must restore
 frame-state, not just the app-db projection. If `:db-before` / `:db-after`
 remain in the record for tool diff ergonomics, they should be named and
