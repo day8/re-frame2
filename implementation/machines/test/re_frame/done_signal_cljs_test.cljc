@@ -162,8 +162,8 @@
   (testing "the parallel root :on-done's action :fx (a dispatch to a
             coordinator) runs — the 'then continue' continuation"
     (let [continued (atom false)]
-      (rf/reg-event-db :rf2-bnjb3/coordinator
-        (fn [db _] (reset! continued true) db))
+      (rf/reg-event :rf2-bnjb3/coordinator
+        (fn [{:keys [db]} _] (reset! continued true) {:db db}))
       (rf/reg-machine :rf2-bnjb3/par-fx
         {:type    :parallel
          :data    {}
@@ -184,8 +184,8 @@
             `onDone` / SCXML `done.state.<id>` fire once on entry; re-frame2
             must not re-run the :action / re-emit the :fx every macrostep)"
     (let [continued (atom 0)]
-      (rf/reg-event-db :rf2-h3wca/coordinator
-        (fn [db _] (swap! continued inc) db))
+      (rf/reg-event :rf2-h3wca/coordinator
+        (fn [{:keys [db]} _] (swap! continued inc) {:db db}))
       (rf/reg-machine :rf2-h3wca/once
         {:type    :parallel
          :data    {:completions 0}

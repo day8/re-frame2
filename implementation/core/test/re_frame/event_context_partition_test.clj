@@ -66,7 +66,7 @@
 (deftest db-coeffect-is-app-db-not-whole-frame
   (testing ":db coeffect equals the app-db partition value, not the frame-state"
     (rf/reg-frame :ctx/db-is-app-db {:doc "ctx"})
-    (rf/reg-event-db :ctx/seed (fn [_ [_ db]] db))
+    (rf/reg-event :ctx/seed (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:ctx/seed {:user/id 42}] {:frame :ctx/db-is-app-db})
     (let [captured (atom nil)]
       (rf/reg-event-ctx :ctx/capture

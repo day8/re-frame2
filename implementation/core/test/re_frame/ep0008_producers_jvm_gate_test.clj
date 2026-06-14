@@ -116,7 +116,7 @@
       (let [seen (atom [])]
         (rf/register-error-listener! :test/recorder
                                      (fn [r] (swap! seen conj r)))
-        (rf/reg-event-db :gate/blow-up (fn [_ _] (throw (ex-info "boom" {}))))
+        (rf/reg-event :gate/blow-up (fn [{:keys [db]} _] {:db (throw (ex-info "boom" {}))}))
         (rf/reg-frame :gate/ondestroy {:on-destroy [:gate/blow-up]})
         (rf/destroy-frame! :gate/ondestroy)
         (let [reports (records-of seen :rf.error/on-destroy-handler-exception)]
@@ -220,8 +220,8 @@
            {:errors [{:sink :test.sinks/sentry
                       :rf.egress/profile :rf.egress/off-box-observability}]}
            :sensitive {:app-db [[:auth :token]]}})
-        (rf/reg-event-db :gate/login {:frame :gate/evt}
-                         (fn [_ _] (throw (ex-info "kaboom" {}))))
+        (rf/reg-event :gate/login {:frame :gate/evt}
+                         (fn [{:keys [db]} _] {:db (throw (ex-info "kaboom" {}))}))
         (rf/dispatch-sync [:gate/login {:auth {:token secret}}] {:frame :gate/evt})
         (is (= 1 (count @sink-seen)) "the frame error sink fired under prod gate")
         (let [r (first @sink-seen)]

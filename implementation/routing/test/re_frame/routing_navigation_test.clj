@@ -818,10 +818,10 @@
             nav-token and does NOT re-fire :on-match (Spec 012 §Fragments
             rules 3-4)"
     (let [on-match-calls (atom 0)]
-      (rf/reg-event-db :docs/load
-                       (fn [db _]
+      (rf/reg-event :docs/load
+                       (fn [{:keys [db]} _]
                          (swap! on-match-calls inc)
-                         db))
+                         {:db db}))
       (rf/reg-route :route/docs {:path     "/docs/:page"
                                  :on-match [[:docs/load]]})
       (rf/reg-fx :rf.nav/push-url
@@ -875,7 +875,7 @@
             the SAME url (same id/params/query/fragment) does NOT re-fire
             :on-match and does NOT allocate a new nav-token"
     (let [on-match-calls (atom 0)]
-      (rf/reg-event-db :cart/load (fn [db _] (swap! on-match-calls inc) db))
+      (rf/reg-event :cart/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
       (rf/reg-route :route/cart {:path "/cart" :on-match [[:cart/load]]})
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
@@ -902,7 +902,7 @@
   (testing "rf2-ee38b.8 / Spec 012 rule 3: CHANGED params DO re-fire
             :on-match (the no-op skip must not over-trigger)"
     (let [on-match-calls (atom 0)]
-      (rf/reg-event-db :article/load (fn [db _] (swap! on-match-calls inc) db))
+      (rf/reg-event :article/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
       (rf/reg-route :route/article
                     {:path "/articles/:id" :on-match [[:article/load]]})
       (rf/reg-fx :rf.nav/push-url
@@ -921,7 +921,7 @@
             and does NOT allocate a new nav-token"
     (let [on-match-calls (atom 0)
           pushed         (atom 0)]
-      (rf/reg-event-db :cart/load (fn [db _] (swap! on-match-calls inc) db))
+      (rf/reg-event :cart/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
       (rf/reg-route :route/cart {:path "/cart" :on-match [[:cart/load]]})
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}

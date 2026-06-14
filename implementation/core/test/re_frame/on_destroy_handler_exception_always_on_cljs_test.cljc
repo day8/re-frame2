@@ -72,9 +72,9 @@
     (let [seen (atom [])]
       (rf/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :ondestroy/blow-up
-                       (fn [_ _] (throw (ex-info "intentional :on-destroy throw"
-                                                 {:purpose :test-fixture}))))
+      (rf/reg-event :ondestroy/blow-up
+                       (fn [{:keys [db]} _] {:db (throw (ex-info "intentional :on-destroy throw"
+                                                 {:purpose :test-fixture}))}))
       (rf/reg-frame :ondestroy/worker
                     {:doc        "throwing :on-destroy"
                      :on-destroy [:ondestroy/blow-up]})
@@ -102,8 +102,8 @@
     (let [seen (atom [])]
       (rf/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :ondestroy/blow-up-2
-                       (fn [_ _] (throw (ex-info "again" {}))))
+      (rf/reg-event :ondestroy/blow-up-2
+                       (fn [{:keys [db]} _] {:db (throw (ex-info "again" {}))}))
       (rf/reg-frame :ondestroy/teardown
                     {:on-destroy [:ondestroy/blow-up-2]})
       (rf/destroy-frame! :ondestroy/teardown)
@@ -118,7 +118,7 @@
     (let [seen (atom [])]
       (rf/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :ondestroy/clean (fn [db _] db))
+      (rf/reg-event :ondestroy/clean (fn [{:keys [db]} _] {:db db}))
       (rf/reg-frame :ondestroy/ok {:on-destroy [:ondestroy/clean]})
       (rf/destroy-frame! :ondestroy/ok)
       (is (empty? (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen))
@@ -192,18 +192,18 @@
       (rf/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       ;; B: the inner frame; its :on-destroy throws.
-      (rf/reg-event-db :ondestroy/inner-throw
-                       (fn [_ _] (throw (ex-info "inner B :on-destroy threw" {}))))
+      (rf/reg-event :ondestroy/inner-throw
+                       (fn [{:keys [db]} _] {:db (throw (ex-info "inner B :on-destroy threw" {}))}))
       (rf/reg-frame :ondestroy/inner-B
                     {:on-destroy [:ondestroy/inner-throw]})
       ;; A's :on-destroy: destroy B (nested), THEN throw. The nested destroy of
       ;; B runs fully (incl. B's own transient capture install + finally
       ;; remove) BEFORE A's throw — so a constant key would have removed A's
       ;; listener by the time A's handler-exception fired.
-      (rf/reg-event-db :ondestroy/outer-throw
-                       (fn [_ _]
+      (rf/reg-event :ondestroy/outer-throw
+                       (fn [{:keys [db]} _]
                          (rf/destroy-frame! :ondestroy/inner-B)
-                         (throw (ex-info "outer A :on-destroy threw" {}))))
+                         {:db (throw (ex-info "outer A :on-destroy threw" {}))}))
       (rf/reg-frame :ondestroy/outer-A
                     {:on-destroy [:ondestroy/outer-throw]})
       (is (nil? (rf/destroy-frame! :ondestroy/outer-A))

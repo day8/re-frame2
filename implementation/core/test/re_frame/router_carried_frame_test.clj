@@ -69,7 +69,7 @@
   (testing "a top-level `dispatch` under no scope and no explicit frame
             raises :rf.error/no-frame-context (no :rf/default floor) — and
             emits the always-on error, with NO enqueue"
-    (rf/reg-event-db :app/noop (fn [db _] db))
+    (rf/reg-event :app/noop (fn [{:keys [db]} _] {:db db}))
     (let [recorded (record-traces! ::bare)]
       (binding [frame/*current-frame* nil]
         (let [ex (no-frame-context-ex #(rf/dispatch [:app/noop]))]
@@ -87,7 +87,7 @@
 
 (deftest bare-dispatch-sync-outside-context-raises-no-frame-context
   (testing "dispatch-sync under no scope raises the same way as dispatch"
-    (rf/reg-event-db :app/noop (fn [db _] db))
+    (rf/reg-event :app/noop (fn [{:keys [db]} _] {:db db}))
     (binding [frame/*current-frame* nil]
       (let [ex (no-frame-context-ex #(rf/dispatch-sync [:app/noop]))]
         (is (= :rf.error/no-frame-context (:rf.error/id (ex-data ex)))
@@ -139,7 +139,7 @@
             the dynamic binding did not survive the async escape, so there
             is no carried stamp"
     (rf/reg-frame :app/main {:doc "scope frame"})
-    (rf/reg-event-db :app/noop {:frame :app/main} (fn [db _] db))
+    (rf/reg-event :app/noop {:frame :app/main} (fn [{:keys [db]} _] {:db db}))
     ;; Capture a thunk inside the scope; the bare dispatch reads the
     ;; ambient frame at INVOKE time, not capture time.
     (let [thunk (rf/with-frame :app/main
@@ -204,7 +204,7 @@
             (:rf.error/no-frame-context). The override SUCCEEDED at
             resolution; the lookup is what failed."
     ;; :rf/default is intentionally NOT registered.
-    (rf/reg-event-db :app/noop (fn [db _] db))
+    (rf/reg-event :app/noop (fn [{:keys [db]} _] {:db db}))
     (let [recorded (record-traces! ::bad-explicit)]
       (binding [frame/*current-frame* nil]
         ;; An explicit target that does not resolve to a frame-record is

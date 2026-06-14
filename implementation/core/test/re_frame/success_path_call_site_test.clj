@@ -71,7 +71,7 @@
 (deftest event-dispatched-success-carries-call-site
   (testing ":rf.event/dispatched (success path) carries :rf.trace/call-site
    when the dispatch came in via the macro form"
-    (rf/reg-event-db :rf2-twt7m/noop (fn [db _] db))
+    (rf/reg-event :rf2-twt7m/noop (fn [{:keys [db]} _] {:db db}))
     (let [evs       (record-traces
                       (fn []
                         (rf/dispatch-sync [:rf2-twt7m/noop])))
@@ -89,7 +89,7 @@
 (deftest event-dispatched-call-site-rides-at-top-level
   (testing ":rf.trace/call-site is a top-level field on success traces,
    NOT nested under :tags — mirrors the error / trigger-handler shape"
-    (rf/reg-event-db :rf2-twt7m/top-level (fn [db _] db))
+    (rf/reg-event :rf2-twt7m/top-level (fn [{:keys [db]} _] {:db db}))
     (let [evs       (record-traces
                       (fn []
                         (rf/dispatch-sync [:rf2-twt7m/top-level])))
@@ -103,7 +103,7 @@
   (testing "the fn-form `dispatch-sync*` does NOT stamp a call-site,
    so :rf.event/dispatched carries no slot — better no-data than
    poison-data (mirrors the error-path contract)"
-    (rf/reg-event-db :rf2-twt7m/fn-form (fn [db _] db))
+    (rf/reg-event :rf2-twt7m/fn-form (fn [{:keys [db]} _] {:db db}))
     (let [evs       (record-traces
                       (fn []
                         (rf/dispatch-sync* [:rf2-twt7m/fn-form])))

@@ -120,7 +120,7 @@
   (testing ":rf.route.internal/settle-transition (per-route data-load settle) stays silent"
     ;; A route with :on-match runs the FIFO settle handler, which writes the
     ;; :transition state into the runtime-db slice via :rf.db/runtime.
-    (rf/reg-event-db :load/noop (fn [db _] db))
+    (rf/reg-event :load/noop (fn [{:keys [db]} _] {:db db}))
     (rf/reg-route :route/loaded
                   {:path     "/loaded"
                    :on-match [[:load/noop]]})

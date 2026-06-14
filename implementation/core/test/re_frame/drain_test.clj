@@ -371,10 +371,10 @@
           (swap! order conj :outside-async)
           (deliver done :ok)
           {:db (assoc db :outside? true)}))
-      (rf/reg-event-db :sync-only
-        (fn [db _]
+      (rf/reg-event :sync-only
+        (fn [{:keys [db]} _]
           (swap! order conj :sync-only)
-          db))
+          {:db db}))
       (with-redefs [interop/next-tick (fn [f]
                                         (swap! captured-ticks conj f)
                                         nil)]

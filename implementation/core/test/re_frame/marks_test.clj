@@ -156,9 +156,9 @@
 ;; ---- per-registration mark extraction -----------------------------------
 
 (deftest reg-event-db-stashes-marks
-  (rf/reg-event-db :evt
+  (rf/reg-event :evt
     {:sensitive [[:password]] :large [[:upload]]}
-    (fn [db _] db))
+    (fn [{:keys [db]} _] {:db db}))
   (let [m (marks/marks-for :event :evt)]
     (is (= [[:password]] (:sensitive m)))
     (is (= [[:upload]] (:large m)))))
@@ -298,9 +298,9 @@
   ;; The rejection fires through the PUBLIC reg-* boundary too (register-marks!
   ;; is called from reg-event-* / reg-sub / reg-fx / reg-cofx).
   (testing "reg-event-db with a malformed :sensitive throws and stashes nothing"
-    (let [ex (try (rf/reg-event-db :malformed/evt
+    (let [ex (try (rf/reg-event :malformed/evt
                     {:sensitive [:password]} ; should be [[:password]]
-                    (fn [db _] db))
+                    (fn [{:keys [db]} _] {:db db}))
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex) "reg-event-db threw")
@@ -671,7 +671,7 @@
   ;; copy-free posture). The marks chokepoint must NOT rebuild the value
   ;; when there is nothing to elide.
   (let [payload {:counter 1 :nested {:k :v}}]
-    (rf/reg-event-db :db/return-shared (fn [_ _] payload))
+    (rf/reg-event :db/return-shared (fn [{:keys [db]} _] {:db payload}))
     (let [traces (collect-traces! :db-unmarked)]
       (rf/dispatch-sync [:db/return-shared])
       (let [[t1] (filterv #(= :rf.event/db-pending (:operation %)) @traces)]

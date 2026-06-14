@@ -66,9 +66,9 @@
             reg-event-* handler does NOT throw-as-pass: the handler is
             skipped and a :rf.error/malformed-schema trace fires."
     (let [calls (atom 0)]
-      (rf/reg-event-db :ev/malformed
+      (rf/reg-event :ev/malformed
         {:schema [:vector]}                       ;; childless — Malli throws at validate-time
-        (fn [db _] (swap! calls inc) db))
+        (fn [{:keys [db]} _] (swap! calls inc) {:db db}))
       (let [traces (capture #(rf/dispatch-sync [:ev/malformed :anything]))]
         (is (= 0 @calls)
             "handler skipped — the malformed-schema throw no longer coerces to a pass")
@@ -91,9 +91,9 @@
   (testing "rf2-a5kzs (finding 2) — an unknown-op :schema on a reg-event-*
             handler also fails closed with a distinct trace, no throw."
     (let [calls (atom 0)]
-      (rf/reg-event-db :ev/unknown
+      (rf/reg-event :ev/unknown
         {:schema [:not-a-real-op :int]}
-        (fn [db _] (swap! calls inc) db))
+        (fn [{:keys [db]} _] (swap! calls inc) {:db db}))
       (let [traces (capture #(rf/dispatch-sync [:ev/unknown 1]))]
         (is (= 0 @calls) "handler skipped")
         (is (= 1 (count (malformed-traces traces))) "one malformed-schema trace fired")))))

@@ -856,10 +856,10 @@
         (rf/reg-event :kdwnq/abort-never-issued
           (fn [_ _]
             {:fx [[:rf.http/managed-abort :kdwnq/never-issued]]}))
-        (rf/reg-event-db :kdwnq/some-reply
-          (fn [db _]
+        (rf/reg-event :kdwnq/some-reply
+          (fn [{:keys [db]} _]
             (reset! reply-fired? true)
-            db))
+            {:db db}))
         ;; The call itself must not throw.
         (is (nil? (rf/dispatch-sync [:kdwnq/abort-never-issued]))
             "dispatch returns nil; abort handler is a silent no-op on unknown id")
@@ -1567,8 +1567,8 @@
                     :decode     :json
                     :on-failure nil
                     :on-success [:search/b-ok]}]]}))
-        (rf/reg-event-db :search/a-failed (fn [db _] (reset! a-failed? true) db))
-        (rf/reg-event-db :search/b-ok     (fn [db _] (reset! b-success? true) db))
+        (rf/reg-event :search/a-failed (fn [{:keys [db]} _] (reset! a-failed? true) {:db db}))
+        (rf/reg-event :search/b-ok     (fn [{:keys [db]} _] (reset! b-success? true) {:db db}))
 
         (rf/dispatch-sync [:search/run "stale"])
         ;; Let the first request reach in-flight.
@@ -1665,11 +1665,11 @@
                     :on-failure [:slow/failed]}]]}))
         (rf/reg-event :slow/abort
           (fn [_ _] {:fx [[:rf.http/managed-abort :slow]]}))
-        (rf/reg-event-db :slow/failed
-          (fn [db [_ payload]]
+        (rf/reg-event :slow/failed
+          (fn [{:keys [db]} [_ payload]]
             (reset! reply-fired? true)
             (reset! reply-data payload)
-            db))
+            {:db db}))
 
         (rf/dispatch-sync [:slow/load])
         (await-condition!

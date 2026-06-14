@@ -119,10 +119,10 @@
     (let [log (atom [])]
       (rf/reg-fx :fx-test/sync-a (fn [_ _] (swap! log conj :sync-a)))
       (rf/reg-fx :fx-test/sync-b (fn [_ _] (swap! log conj :sync-b)))
-      (rf/reg-event-db :fx-test/queued-a
-        (fn [db _] (swap! log conj :queued-a) db))
-      (rf/reg-event-db :fx-test/queued-b
-        (fn [db _] (swap! log conj :queued-b) db))
+      (rf/reg-event :fx-test/queued-a
+        (fn [{:keys [db]} _] (swap! log conj :queued-a) {:db db}))
+      (rf/reg-event :fx-test/queued-b
+        (fn [{:keys [db]} _] (swap! log conj :queued-b) {:db db}))
       (rf/reg-event :fx-test/run-interleaved
         (fn [_ _]
           {:fx [[:fx-test/sync-a]
@@ -385,8 +385,8 @@
       ;; Sentinel: if the runtime accidentally routes the legacy
       ;; top-level :dispatch through the FIFO, this would set fired?
       ;; — the M-8 contract says it must NOT.
-      (rf/reg-event-db :fx-test/sentinel
-        (fn [db _] (reset! fired? true) db))
+      (rf/reg-event :fx-test/sentinel
+        (fn [{:keys [db]} _] (reset! fired? true) {:db db}))
       (rf/reg-event :fx-test/legacy-dispatch
         (fn [_ _]
           ;; Legacy v1 shape — top-level :dispatch.
@@ -567,8 +567,8 @@
           fired? (atom false)]
       ;; Sentinel: if the runtime somehow routed the inner :dispatch, this
       ;; would flip — it must NOT (the whole :fx value is malformed + dropped).
-      (rf/reg-event-db :fx-test/fx-sentinel
-        (fn [db _] (reset! fired? true) db))
+      (rf/reg-event :fx-test/fx-sentinel
+        (fn [{:keys [db]} _] (reset! fired? true) {:db db}))
       (rf/reg-event :fx-test/fx-is-map
         (fn [_ _]
           ;; Forgot the outer + inner vector nesting: :fx is a map.
@@ -907,8 +907,8 @@
             entry dropped, NOT silently truncated-and-fired as `[:dispatch [:ev]]`"
     (let [traces     (collect-traces! ::reserved-dispatch-arity3)
           target-ran (atom 0)]
-      (rf/reg-event-db :fx-test.tbuov/target
-        (fn [db _] (swap! target-ran inc) db))
+      (rf/reg-event :fx-test.tbuov/target
+        (fn [{:keys [db]} _] (swap! target-ran inc) {:db db}))
       (rf/reg-event :fx-test.tbuov/emits-malformed-dispatch
         (fn [{:keys [db]} _]
           {:db (assoc db :seeded? true)
@@ -1081,8 +1081,8 @@
     (let [captured-args (atom nil)
           captured-ctx  (atom nil)
           target-ran    (atom 0)]
-      (rf/reg-event-db :fx-test.nrpj1/target
-        (fn [db _] (swap! target-ran inc) db))
+      (rf/reg-event :fx-test.nrpj1/target
+        (fn [{:keys [db]} _] (swap! target-ran inc) {:db db}))
       (rf/reg-event :fx-test.nrpj1/emits-dispatch
         (fn [_ _] {:fx [[:dispatch [:fx-test.nrpj1/target :payload]]]}))
       (rf/dispatch-sync
@@ -1113,7 +1113,7 @@
     ;; the reserved body ran instead. It now rides the actual override-fn
     ;; invocation — fires when the override applies, absent otherwise.
     (let [traces (collect-traces! ::reserved-override-trace)]
-      (rf/reg-event-db :fx-test.nrpj1/sink (fn [db _] db))
+      (rf/reg-event :fx-test.nrpj1/sink (fn [{:keys [db]} _] {:db db}))
       (rf/reg-event :fx-test.nrpj1/traced-dispatch
         (fn [_ _] {:fx [[:dispatch [:fx-test.nrpj1/sink]]]}))
       (rf/dispatch-sync
@@ -1132,8 +1132,8 @@
     ;; ordinary reserved-fx path. With no :fx-overrides, :dispatch runs its
     ;; reserved body and the target event handler fires.
     (let [target-ran (atom 0)]
-      (rf/reg-event-db :fx-test.nrpj1/plain-target
-        (fn [db _] (swap! target-ran inc) db))
+      (rf/reg-event :fx-test.nrpj1/plain-target
+        (fn [{:keys [db]} _] (swap! target-ran inc) {:db db}))
       (rf/reg-event :fx-test.nrpj1/plain-dispatch
         (fn [_ _] {:fx [[:dispatch [:fx-test.nrpj1/plain-target]]]}))
       (rf/dispatch-sync [:fx-test.nrpj1/plain-dispatch])
@@ -1301,7 +1301,7 @@
     (let [captured   (atom nil)
           target-ran (atom 0)
           traces     (collect-traces! ::overridable-no-reject)]
-      (rf/reg-event-db :fx-test.snsup5/target (fn [db _] (swap! target-ran inc) db))
+      (rf/reg-event :fx-test.snsup5/target (fn [{:keys [db]} _] (swap! target-ran inc) {:db db}))
       (rf/reg-event :fx-test.snsup5/emits-dispatch
         (fn [_ _] {:fx [[:dispatch [:fx-test.snsup5/target]]]}))
       (rf/dispatch-sync

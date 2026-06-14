@@ -59,7 +59,7 @@
     {:inputs  {:username [:db [:auth :user :username]]}
      :resolve (fn [{:keys [username]} _ctx]
                 (when username [:rf.scope/session {:username username}]))})
-  (rf/reg-event-db :t/login (fn [db [_ username]] (assoc-in db [:auth :user :username] username))))
+  (rf/reg-event :t/login (fn [{:keys [db]} [_ username]] {:db (assoc-in db [:auth :user :username] username)})))
 
 (defn- capturing-transport-fixture [f]
   (reset! last-managed-args nil)

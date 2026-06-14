@@ -66,7 +66,7 @@
 (deftest dispatched-trace-carries-world-inputs-with-time-ms
   (testing ":rf.event/dispatched carries the envelope's :rf.cofx map,
    and that map carries the framework-stamped causal :time-ms"
-    (rf/reg-event-db :rf2-jt854w/noop (fn [db _] db))
+    (rf/reg-event :rf2-jt854w/noop (fn [{:keys [db]} _] {:db db}))
     (let [evs        (record-traces
                        (fn [] (rf/dispatch-sync [:rf2-jt854w/noop])))
           [enqueue]  (dispatched-of evs)
@@ -87,7 +87,7 @@
   (testing "a caller-supplied :rf.cofx (test/replay/SSR fixture) rides
    onto the dispatched trace verbatim — additional owner-qualified facts
    are preserved alongside the framework-required :rf/time-ms"
-    (rf/reg-event-db :rf2-jt854w/scripted (fn [db _] db))
+    (rf/reg-event :rf2-jt854w/scripted (fn [{:keys [db]} _] {:db db}))
     (let [scripted   {:rf/time-ms 1234567890123
                       :todo/id    #uuid "00000000-0000-0000-0000-000000000001"
                       :todo/score 0.42}
@@ -103,7 +103,7 @@
 (deftest dispatched-trace-fills-missing-time-ms-from-supplied-map
   (testing "a caller-supplied map WITHOUT :rf/time-ms has it filled by the router;
    the dispatched trace reflects the filled-and-preserved map"
-    (rf/reg-event-db :rf2-jt854w/fill (fn [db _] db))
+    (rf/reg-event :rf2-jt854w/fill (fn [{:keys [db]} _] {:db db}))
     (let [evs        (record-traces
                        (fn []
                          (rf/dispatch-sync [:rf2-jt854w/fill]
@@ -120,7 +120,7 @@
    specific payload slots (:rf.event/v, :rf.event/origin, :rf.event/sync?) —
    build-event hoists only :source to top-level, so the Event lens reads the
    world-input map off (get-in event [:tags :rf.cofx])"
-    (rf/reg-event-db :rf2-jt854w/placement (fn [db _] db))
+    (rf/reg-event :rf2-jt854w/placement (fn [{:keys [db]} _] {:db db}))
     (let [evs       (record-traces
                       (fn [] (rf/dispatch-sync [:rf2-jt854w/placement])))
           [enqueue] (dispatched-of evs)]

@@ -172,10 +172,10 @@
     (rf/reg-frame :cfx.test/b {})
 
     (let [b-ran (atom false)]
-      (rf/reg-event-db :b/leaf {:frame :cfx.test/b}
-        (fn [db _]
+      (rf/reg-event :b/leaf {:frame :cfx.test/b}
+        (fn [{:keys [db]} _]
           (reset! b-ran true)
-          db))
+          {:db db}))
       (rf/reg-event :a/touch-b
         {:frame :cfx.test/a}
         (fn [_ _]

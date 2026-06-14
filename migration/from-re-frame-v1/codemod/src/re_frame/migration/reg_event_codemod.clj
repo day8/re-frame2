@@ -287,7 +287,7 @@
   retired registrar `form-kw`). Returns {:finding f :rewrite-fn (fn [zloc] zloc')}.
   `rewrite-fn` mutates the zipper at this node when the action is a structural
   rewrite; for :flag / :rename-symbol-only it may be nil (handled by caller)."
-  [zloc form-kw {:keys [file]}]
+  [zloc form-kw {:keys [file force-db-wrap?]}]
   (let [{:keys [line col]} (pos-of zloc)
         base {:file file :line line :col col :form form-kw}]
     (case form-kw
@@ -318,8 +318,12 @@
                                    :note "reg-event-db handler's first param is destructured (or absent) — db-rebinding is unsafe; review by hand"})
            :kind :flag}
 
-          ;; D7: body can evaluate to nil => flag, do not rewrite
-          (body-nil-capable? (last (:body simple-fn)))
+          ;; D7: body can evaluate to nil => flag, do not rewrite — UNLESS the
+          ;; caller opts into `:force-db-wrap?` (the EP-0018 Slice-Z framework
+          ;; corpus sweep; `{:db BODY}` is the faithful reading for our own test
+          ;; handlers — the D7 author-choice gate is a v1-MIGRATION default, not
+          ;; relevant to in-repo test code we control).
+          (and (not force-db-wrap?) (body-nil-capable? (last (:body simple-fn))))
           {:finding (finding base {:action :flag :flag :nil-capable :target :reg-event
                                    :note "reg-event-db body can evaluate to nil; under v2 a bare nil is a no-op and {:db nil} coerces to {:db {}} -- choose the intended reading by hand (D7)"})
            :kind :flag}
@@ -517,9 +521,10 @@
   in place when it changes; otherwise it is a dry run. Returns
   {:path .. :changed? .. :findings [...]}."
   ([path] (rewrite-file! path {}))
-  ([path {:keys [write?] :as opts}]
+  ([path {:keys [write? force-db-wrap?]}]
    (let [orig (slurp path)
-         {:keys [source findings]} (rewrite-string orig {:file (str path)})
+         {:keys [source findings]} (rewrite-string orig (cond-> {:file (str path)}
+                                                          force-db-wrap? (assoc :force-db-wrap? true)))
          changed? (not= orig source)]
      (when (and write? changed?)
        (spit path source))
@@ -556,14 +561,15 @@
     clojure -M:run --rewrite PATH ...     ;; dry-run rewrite + print findings
     clojure -M:run --rewrite --write PATH ;; rewrite IN PLACE"
   [& args]
-  (let [rewrite? (some #{"--rewrite"} args)
-        write?   (some #{"--write"} args)
-        paths    (remove #{"--rewrite" "--write"} args)]
+  (let [rewrite?       (some #{"--rewrite"} args)
+        write?         (some #{"--write"} args)
+        force-db-wrap? (some #{"--force-db-wrap"} args)
+        paths          (remove #{"--rewrite" "--write" "--force-db-wrap"} args)]
     (when (empty? paths)
-      (println "usage: clojure -M:run [--rewrite] [--write] PATH ...")
+      (println "usage: clojure -M:run [--rewrite] [--write] [--force-db-wrap] PATH ...")
       (System/exit 2))
     (if rewrite?
-      (let [results (rewrite-paths! paths {:write? write?})
+      (let [results (rewrite-paths! paths {:write? write? :force-db-wrap? force-db-wrap?})
             findings (mapcat :findings results)
             changed (filter :changed? results)]
         (print-findings findings)

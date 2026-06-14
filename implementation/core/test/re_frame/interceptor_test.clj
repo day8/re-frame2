@@ -56,15 +56,15 @@
                        {:db {:foo {:bar  10
                               :keep :untouched}
                         :other :preserved}}))
-    (rf/reg-event-db :path-test/inc
+    (rf/reg-event :path-test/inc
                      {:interceptors [(rf/path :foo :bar)]}
                      ;; The handler's `db` is the SLICE value, not the full
                      ;; app-db. Returning a new slice value writes it back
                      ;; at [:foo :bar].
-                     (fn [slice _]
+                     (fn [{slice :db} _]
                        (is (= 10 slice)
                            "path interceptor presents the slice as :db")
-                       (inc slice)))
+                       {:db (inc slice)}))
     (rf/dispatch-sync [:path-test/init])
     (rf/dispatch-sync [:path-test/inc])
     (let [db (rf/app-db-value :rf/default)]
@@ -84,7 +84,7 @@
       ;; AFTER path's :before, so the context it sees must carry the stash
       ;; under :rf/path-stack — not the bare :path-stack.
       (rf/reg-event :path-ns/init (fn [{:keys [db]} _] {:db {:foo {:bar 10}}}))
-      (rf/reg-event-db :path-ns/inc
+      (rf/reg-event :path-ns/inc
                        {:interceptors [(rf/path :foo :bar)
                                        (interceptor/->interceptor*
                                          :id     :path-ns/spy
@@ -94,7 +94,7 @@
                        ;; reg-event-db handlers receive (slice, event-vec);
                        ;; `inc` is arity-1 so wrap it explicitly to honour
                        ;; the (fn [db event] new-db) contract.
-                       (fn [slice _] (inc slice)))
+                       (fn [{slice :db} _] {:db (inc slice)}))
       (rf/dispatch-sync [:path-ns/init])
       (rf/dispatch-sync [:path-ns/inc])
       (is (contains? @seen-keys :rf/path-stack)
@@ -111,12 +111,12 @@
             the full app-db. Pins the stack semantics independent of the
             slot-key rename (rf2-mn0qc)."
     (rf/reg-event :path-nest/init (fn [{:keys [db]} _] {:db {:a {:b {:c 7} :sib :keep}}}))
-    (rf/reg-event-db :path-nest/inc
+    (rf/reg-event :path-nest/inc
                      ;; The outer `path` focuses to {:b {:c 7} :sib :keep};
                      ;; the inner `path` focuses to 7. The handler returns 8.
                      {:interceptors [(rf/path :a)
                                      (rf/path :b :c)]}
-                     (fn [slice _] (inc slice)))
+                     (fn [{slice :db} _] {:db (inc slice)}))
     (rf/dispatch-sync [:path-nest/init])
     (rf/dispatch-sync [:path-nest/inc])
     (let [db (rf/app-db-value :rf/default)]
@@ -713,8 +713,8 @@
 
 (deftest pipeline-exception-attributed-to-true-component
   (testing "event HANDLER throw → :rf.error/handler-exception (failing-id = event)"
-    (rf/reg-event-db :mszrz/handler-boom
-                     (fn [_ _] (throw (ex-info "handler blew up" {}))))
+    (rf/reg-event :mszrz/handler-boom
+                     (fn [{:keys [db]} _] {:db (throw (ex-info "handler blew up" {}))}))
     (let [errs (capture-error-traces [:mszrz/handler-boom])
           hx   (filterv #(= :rf.error/handler-exception (:operation %)) errs)]
       (is (= 1 (count hx)) "exactly one handler-exception")
@@ -735,11 +735,11 @@
   ;; throwing supplier no longer rides the interceptor classification path.
 
   (testing "user interceptor :BEFORE throw → :rf.error/interceptor-exception (failing-id = interceptor, phase :before)"
-    (rf/reg-event-db :mszrz/before-boom
+    (rf/reg-event :mszrz/before-boom
                      {:interceptors [(rf/->interceptor
                                        :id     :mszrz/before-icpt
                                        :before (fn [_] (throw (ex-info "before blew up" {}))))]}
-                     (fn [db _] db))
+                     (fn [{:keys [db]} _] {:db db}))
     (let [errs (capture-error-traces [:mszrz/before-boom])
           ix   (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
       (is (= 1 (count ix)) "exactly one interceptor-exception")
@@ -755,11 +755,11 @@
     ;; The :after chain runs after the handler; an :after throw must
     ;; attribute to the interceptor (phase :after), not the handler — the
     ;; collapse rf2-mszrz explicitly fixes for the :after side too.
-    (rf/reg-event-db :mszrz/after-boom
+    (rf/reg-event :mszrz/after-boom
                      {:interceptors [(rf/->interceptor
                                        :id    :mszrz/after-icpt
                                        :after (fn [_] (throw (ex-info "after blew up" {}))))]}
-                     (fn [db _] db))
+                     (fn [{:keys [db]} _] {:db db}))
     (let [errs (capture-error-traces [:mszrz/after-boom])
           ix   (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
       (is (= 1 (count ix)) "exactly one interceptor-exception")
@@ -816,11 +816,11 @@
   (testing "a throwing macro-defined interceptor threads its :source-coord
             onto the :rf.error/interceptor-exception trace (the slot the
             Xray Epoch INTERCEPTOR row's jump-to-source chip reads)"
-    (rf/reg-event-db :siheh/before-boom
+    (rf/reg-event :siheh/before-boom
                      {:interceptors [(rf/->interceptor
                                        :id     :siheh/before-icpt
                                        :before (fn [_] (throw (ex-info "before blew up" {}))))]}
-                     (fn [db _] db))
+                     (fn [{:keys [db]} _] {:db db}))
     (let [errs (capture-error-traces [:siheh/before-boom])
           ix   (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
       (is (= 1 (count ix)) "exactly one interceptor-exception")
@@ -833,11 +833,11 @@
 
   (testing "a throwing ->interceptor*-built interceptor threads NO
             :source-coord tag (degrades to plain text in the panel)"
-    (rf/reg-event-db :siheh/fn-before-boom
+    (rf/reg-event :siheh/fn-before-boom
                      {:interceptors [(interceptor/->interceptor*
                                        :id     :siheh/fn-before-icpt
                                        :before (fn [_] (throw (ex-info "fn before blew up" {}))))]}
-                     (fn [db _] db))
+                     (fn [{:keys [db]} _] {:db db}))
     (let [errs (capture-error-traces [:siheh/fn-before-boom])
           ix   (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
       (is (= 1 (count ix)) "exactly one interceptor-exception")

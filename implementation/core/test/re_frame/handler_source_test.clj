@@ -61,8 +61,8 @@
 
 (deftest reg-event-db-captures-form-source
   (testing "rf2-xgfuy: reg-event-db stamps :rf.handler/source on JVM"
-    (rf/reg-event-db :rf2-xgfuy/event-db-sample
-                     (fn [db _ev] db))
+    (rf/reg-event :rf2-xgfuy/event-db-sample
+                     (fn [{:keys [db]} _ev] {:db db}))
     (assert-source :event :rf2-xgfuy/event-db-sample "reg-event-db")
     (let [src (:rf.handler/source
                (rf/handler-meta :event :rf2-xgfuy/event-db-sample))]
@@ -73,7 +73,7 @@
 
 (deftest reg-event-fx-captures-form-source
   (testing "rf2-xgfuy: reg-event-fx stamps :rf.handler/source on JVM"
-    (rf/reg-event-fx :rf2-xgfuy/event-fx-sample
+    (rf/reg-event :rf2-xgfuy/event-fx-sample
                      (fn [_cofx _ev] {:db {:n 0}}))
     (assert-source :event :rf2-xgfuy/event-fx-sample "reg-event-fx")
     (let [src (:rf.handler/source
@@ -96,9 +96,9 @@
 
 (deftest captures-form-source-with-metadata-map
   (testing "rf2-xgfuy: middle metadata-map round-trips into :rf.handler/source"
-    (rf/reg-event-db :rf2-xgfuy/event-with-meta
+    (rf/reg-event :rf2-xgfuy/event-with-meta
                      {:doc "metadata-shape middle slot"}
-                     (fn [db _] db))
+                     (fn [{:keys [db]} _] {:db db}))
     (let [src (:rf.handler/source
                (rf/handler-meta :event :rf2-xgfuy/event-with-meta))]
       (is (string? src))
@@ -147,9 +147,9 @@
   auto-capture (mirrors source-coords/merge-coords semantics so
   tooling that synthesises registrations can stamp the original
   source-string)"
-    (rf/reg-event-db :rf2-xgfuy/explicit-source
+    (rf/reg-event :rf2-xgfuy/explicit-source
                      {:rf.handler/source "(rf/reg-event-db :elsewhere ...)"
                       :doc "hand-stamped source from a code-gen pass"}
-                     (fn [db _] db))
+                     (fn [{:keys [db]} _] {:db db}))
     (let [m (rf/handler-meta :event :rf2-xgfuy/explicit-source)]
       (is (= "(rf/reg-event-db :elsewhere ...)" (:rf.handler/source m))))))

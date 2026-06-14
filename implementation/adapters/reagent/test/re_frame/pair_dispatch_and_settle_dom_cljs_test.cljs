@@ -211,7 +211,7 @@
       (try
         (rf/configure! :epoch-history {:depth 0}) ;; recording OFF (process-global)
         (rf/reg-frame frame-kw {:doc "no-epoch probe frame"})
-        (rf/reg-event-db ::noop (fn [db _] db))
+        (rf/reg-event ::noop (fn [{:keys [db]} _] {:db db}))
         (let [settled (pair/dispatch-and-settle! [::noop] {:frame frame-kw})]
           (is (false? (:ok? settled))
               "no recorded epoch ⇒ :ok? false rides through")

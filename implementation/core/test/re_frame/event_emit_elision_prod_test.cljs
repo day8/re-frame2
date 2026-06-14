@@ -65,9 +65,9 @@
       (rf/register-event-listener!
         :prod/recorder
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :prod/throw
-                       (fn [_db _]
-                         (throw (ex-info "kaboom" {}))))
+      (rf/reg-event :prod/throw
+                       (fn [{:keys [db]} _]
+                         {:db (throw (ex-info "kaboom" {}))}))
       (rf/dispatch-sync [:prod/throw])
       (is (= 1 (count @seen)))
       (is (= :error (:outcome (first @seen)))
@@ -87,7 +87,7 @@
       (rf/register-event-listener!
         :prod/sibling
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :prod/quiet (fn [db _] db))
+      (rf/reg-event :prod/quiet (fn [{:keys [db]} _] {:db db}))
       (is (nil? (rf/dispatch-sync [:prod/quiet]))
           "dispatch-sync returned nil despite the listener throw")
       (is (= 1 (count @seen))

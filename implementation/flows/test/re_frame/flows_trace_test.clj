@@ -912,8 +912,8 @@
 (deftest fx-does-not-run-after-flow-throws
   (testing "when a flow's :output throws, the handler's :fx is skipped AND its :db does NOT land"
     (let [child-fired? (atom false)]
-      (rf/reg-event-db :after-throw
-                       (fn [db _] (reset! child-fired? true) db))
+      (rf/reg-event :after-throw
+                       (fn [{:keys [db]} _] (reset! child-fired? true) {:db db}))
       (rf/reg-event :run-with-throwing-flow
                        (fn [_ _]
                          {:db {:n 2}
@@ -938,8 +938,8 @@
   (testing "Per rf2-fslx0: when flows succeed, :fx still walks normally (negative control)"
     (let [child-fired? (atom false)]
       (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
-      (rf/reg-event-db :after-ok
-                       (fn [db _] (reset! child-fired? true) db))
+      (rf/reg-event :after-ok
+                       (fn [{:keys [db]} _] (reset! child-fired? true) {:db db}))
       (rf/reg-event :run-with-ok-flow
                        (fn [_ _]
                          {:db {:n 2}
@@ -969,7 +969,7 @@
                        (fn [_ _]
                          {:db {:n 2}
                           :fx [[:dispatch [:must-not-fire]]]}))
-      (rf/reg-event-db :must-not-fire (fn [db _] db))
+      (rf/reg-event :must-not-fire (fn [{:keys [db]} _] {:db db}))
       (rf/reg-flow {:id     :boom
                     :inputs [[:n]]
                     :output (fn [_] (throw (ex-info "boom" {})))

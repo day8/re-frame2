@@ -1195,7 +1195,7 @@
     (rf/dispatch-sync [:machine/tl [:tick]] {:frame :test/main})
 
     (let [target (last (rf/epoch-history :test/main))]
-      (rf/reg-event-db :machine/tl (fn [db _] db)) ;; replace with non-machine handler
+      (rf/reg-event :machine/tl (fn [{:keys [db]} _] {:db db})) ;; replace with non-machine handler
 
       (let [recorded (record-trace!)
             ok?      (rf/restore-epoch! :test/main (:epoch-id target))]
@@ -1769,7 +1769,7 @@
             outcome is never committed by the reference runtime."
     (rf/reg-frame :test/main {})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event-db :boom (fn [_ _] (throw (ex-info "handler blew" {:why :test}))))
+    (rf/reg-event :boom (fn [{:keys [db]} _] {:db (throw (ex-info "handler blew" {:why :test}))}))
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
     ;; The throw is captured by the chain — dispatch-sync returns normally,
@@ -2566,12 +2566,12 @@
 
     (let [recorded (record-trace!)
           attempt  (atom nil)]
-      (rf/reg-event-db :try-reset
-        (fn [db _]
+      (rf/reg-event :try-reset
+        (fn [{:keys [db]} _]
           (reset! attempt (rf/replace-app-db! :test/main {:n 999}))
           ;; If reset succeeded we'd see {:n 999} after settle (the
           ;; drain's :db-after returned by this handler is {:n 0}).
-          db))
+          {:db db}))
       (rf/dispatch-sync [:try-reset] {:frame :test/main})
 
       (is (false? @attempt) "reset returned false from inside the drain")
@@ -2788,10 +2788,10 @@
 
     (let [recorded (record-trace!)
           attempt  (atom nil)]
-      (rf/reg-event-db :try-rt
-        (fn [db _]
+      (rf/reg-event :try-rt
+        (fn [{:keys [db]} _]
           (reset! attempt (rf/replace-runtime-db! :test/main {:rf.runtime/machines {:m 1}}))
-          db))
+          {:db db}))
       (rf/dispatch-sync [:try-rt] {:frame :test/main})
 
       (is (false? @attempt) "replace-runtime-db! returned false from inside the drain")
@@ -3127,10 +3127,10 @@
 
       ;; (C) FAILURE path 2 — restore refused mid-drain.
       (let [drain-attempt (atom nil)]
-        (rf/reg-event-db :try-restore
-          (fn [db _]
+        (rf/reg-event :try-restore
+          (fn [{:keys [db]} _]
             (reset! drain-attempt (rf/restore-epoch! :test/main target-eid))
-            db))
+            {:db db}))
         (rf/dispatch-sync [:try-restore] {:frame :test/main})
         (is (false? @drain-attempt)
             "restore from inside a drain is rejected"))
@@ -4197,10 +4197,10 @@
       ;; drain — the during-drain precondition fails. The reset itself
       ;; must not fan out, but the surrounding drain still settles
       ;; normally (which appends ONE record — the one for :try-reset).
-      (rf/reg-event-db :try-reset
-        (fn [db _]
+      (rf/reg-event :try-reset
+        (fn [{:keys [db]} _]
           (reset! attempt (rf/replace-app-db! :test/main {:n 999}))
-          db))
+          {:db db}))
       (rf/dispatch-sync [:try-reset] {:frame :test/main})
 
       (is (false? @attempt) "reset rejected")

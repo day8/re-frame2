@@ -105,8 +105,8 @@
     (let [shared-payload {:big (vec (range 1000))
                           :nested {:k :v}}
           captured       (atom nil)]
-      (rf/reg-event-db :t1/return-shared
-        (fn [_ _] shared-payload))
+      (rf/reg-event :t1/return-shared
+        (fn [{:keys [db]} _] {:db shared-payload}))
       (rf/register-listener!
         ::t1-identity
         (fn [ev]

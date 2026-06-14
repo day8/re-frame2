@@ -69,9 +69,9 @@
     (rf/reg-event :noop/seed (fn [{:keys [db]} _] {:db {:counter 1 :seeded? true}}))
     ;; The classic no-change idiom: the else-arm returns `db` UNCHANGED
     ;; (identical object), so the commit is a genuine no-op.
-    (rf/reg-event-db :noop/maybe-inc
-      (fn [db [_ do-it?]]
-        (if do-it? (update db :counter inc) db)))
+    (rf/reg-event :noop/maybe-inc
+      (fn [{:keys [db]} [_ do-it?]]
+        {:db (if do-it? (update db :counter inc) db)}))
     (rf/dispatch-sync [:noop/seed])
     (let [fs-before (frame/frame-state-value :rf/default)
           acc       (collect-traces! ::identical-noop)]
@@ -97,8 +97,8 @@
    → :rf.event/db-changed fires, :rf.event/db-noop does NOT, and the write
    lands (a new frame-state object is installed)"
     (rf/reg-event :noop/seed (fn [{:keys [db]} _] {:db {:counter 1}}))
-    (rf/reg-event-db :noop/maybe-inc
-      (fn [db [_ do-it?]] (if do-it? (update db :counter inc) db)))
+    (rf/reg-event :noop/maybe-inc
+      (fn [{:keys [db]} [_ do-it?]] {:db (if do-it? (update db :counter inc) db)}))
     (rf/dispatch-sync [:noop/seed])
     (let [fs-before (frame/frame-state-value :rf/default)
           acc       (collect-traces! ::changed)]
@@ -160,7 +160,7 @@
    and emits the :rf.warning/db-nil-coerced dev diagnostic"
     (rf/reg-event :nil/seed (fn [{:keys [db]} _] {:db {:counter 7}}))
     ;; A reg-event-db returning nil → {:db nil} effect.
-    (rf/reg-event-db :nil/return-nil (fn [_ _] nil))
+    (rf/reg-event :nil/return-nil (fn [{:keys [db]} _] {:db nil}))
     (rf/dispatch-sync [:nil/seed])
     (let [acc (collect-traces! ::nil-coerce)]
       (try
@@ -203,7 +203,7 @@
    diagnostic STILL fires (the nil was supplied regardless of the no-op
    outcome). The partition is never nil."
     (rf/reg-event :nilnoop/seed (fn [{:keys [db]} _] {:db {}}))
-    (rf/reg-event-db :nilnoop/return-nil (fn [_ _] nil))
+    (rf/reg-event :nilnoop/return-nil (fn [{:keys [db]} _] {:db nil}))
     (rf/dispatch-sync [:nilnoop/seed])
     (let [acc (collect-traces! ::nil-noop)]
       (try

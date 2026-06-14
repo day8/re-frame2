@@ -112,9 +112,9 @@
         {:observability
          {:handled-events [{:sink :test.sinks/local
                             :rf.egress/profile :rf.egress/local-raw}]}})
-      (rf/reg-event-db :pay/submit
+      (rf/reg-event :pay/submit
                        {:frame :obs/raw}
-                       (fn [db _] db))
+                       (fn [{:keys [db]} _] {:db db}))
       (rf/dispatch-sync [:pay/submit {:amount 10}] {:frame :obs/raw})
       (is (= 1 (count @seen)))
       (let [r (first @seen)]
@@ -141,9 +141,9 @@
          ;; classify the event-arg path [1 :auth :token] sensitive so the
          ;; projector redacts it inside the error record's :event tree slot.
          :sensitive {:app-db [[:auth :token]]}})
-      (rf/reg-event-db :auth/login
+      (rf/reg-event :auth/login
                        {:frame :obs/err}
-                       (fn [_db _] (throw (ex-info "kaboom" {:cause :test}))))
+                       (fn [{:keys [db]} _] {:db (throw (ex-info "kaboom" {:cause :test}))}))
       (rf/dispatch-sync [:auth/login {:auth {:token "super-secret-token"}}]
                         {:frame :obs/err})
       (is (= 1 (count @seen)) "the declared error sink fired exactly once")
@@ -171,7 +171,7 @@
       (rf/register-observability-sink! :test.sinks/unused
                                   (fn [record] (swap! seen conj record)))
       (rf/reg-frame :obs/none {})
-      (rf/reg-event-db :evt/noop {:frame :obs/none} (fn [db _] db))
+      (rf/reg-event :evt/noop {:frame :obs/none} (fn [{:keys [db]} _] {:db db}))
       (rf/dispatch-sync [:evt/noop] {:frame :obs/none})
       (is (empty? @seen)
           "no :observability policy ⇒ no routing, regardless of registered
@@ -211,7 +211,7 @@
                             :rf.egress/profile :rf.egress/off-box-observability}
                            {:sink :test.sinks/good
                             :rf.egress/profile :rf.egress/off-box-observability}]}})
-      (rf/reg-event-db :evt/go {:frame :obs/sib} (fn [db _] db))
+      (rf/reg-event :evt/go {:frame :obs/sib} (fn [{:keys [db]} _] {:db db}))
       ;; The throwing sink must not blow up the dispatch nor starve the good
       ;; sink.
       (rf/dispatch-sync [:evt/go] {:frame :obs/sib})

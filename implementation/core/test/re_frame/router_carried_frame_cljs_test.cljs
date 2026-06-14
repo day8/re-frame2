@@ -79,7 +79,7 @@
   (testing "once the provider context is gone (no dynamic binding, no
             provider, no explicit frame) the same bare dispatch raises
             :rf.error/no-frame-context — there is no :rf/default floor"
-    (rf/reg-event-db :app/noop (fn [db _] db))
+    (rf/reg-event :app/noop (fn [{:keys [db]} _] {:db db}))
     (let [recorded (record-traces! ::no-provider)]
       (reset! provider-frame nil)
       (binding [frame/*current-frame* nil]

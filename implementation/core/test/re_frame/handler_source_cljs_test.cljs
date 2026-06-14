@@ -35,8 +35,8 @@
 
 (deftest reg-event-db-captures-form-source-cljs
   (testing "rf2-xgfuy: CLJS reg-event-db stamps :rf.handler/source under DEBUG=true"
-    (rf/reg-event-db :rf2-xgfuy.cljs/event-db
-                     (fn [db _ev] db))
+    (rf/reg-event :rf2-xgfuy.cljs/event-db
+                     (fn [{:keys [db]} _ev] {:db db}))
     (let [m   (rf/handler-meta :event :rf2-xgfuy.cljs/event-db)
           src (:rf.handler/source m)]
       (is (string? src) ":rf.handler/source should be a string under DEBUG=true")
@@ -46,7 +46,7 @@
 
 (deftest reg-event-fx-captures-form-source-cljs
   (testing "rf2-xgfuy: CLJS reg-event-fx stamps :rf.handler/source under DEBUG=true"
-    (rf/reg-event-fx :rf2-xgfuy.cljs/event-fx
+    (rf/reg-event :rf2-xgfuy.cljs/event-fx
                      (fn [_cofx _ev] {:db {:n 0}}))
     (let [src (:rf.handler/source
                (rf/handler-meta :event :rf2-xgfuy.cljs/event-fx))]

@@ -42,9 +42,9 @@
             stripped from the stored registration metadata, so
             `(rf/handler-meta ...)` carries no `:doc` in production."
     (with-redefs [interop/debug-enabled? false]
-      (rf/reg-event-db :rf2-9wwkcm/prod-event
+      (rf/reg-event :rf2-9wwkcm/prod-event
                        {:doc "elided in prod" :schema :int :tags #{:probe}}
-                       (fn [db _] db))
+                       (fn [{:keys [db]} _] {:db db}))
       (let [meta (rf/handler-meta :event :rf2-9wwkcm/prod-event)]
         (is (some? meta))
         (is (not (contains? meta :doc))
@@ -58,9 +58,9 @@
 (deftest doc-retained-in-handler-meta-under-enabled-debug-gate
   (testing "Per rf2-9wwkcm: the dev posture (default `interop/debug-enabled?`
             = true) retains `:doc` for tooling / agent inspection."
-    (rf/reg-event-db :rf2-9wwkcm/dev-event
+    (rf/reg-event :rf2-9wwkcm/dev-event
                      {:doc "kept in dev"}
-                     (fn [db _] db))
+                     (fn [{:keys [db]} _] {:db db}))
     (let [meta (rf/handler-meta :event :rf2-9wwkcm/dev-event)]
       (is (= "kept in dev" (:doc meta))
           ":doc retained in dev for tooling / agent inspection"))))

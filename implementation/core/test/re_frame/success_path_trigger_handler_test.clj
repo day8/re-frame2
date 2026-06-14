@@ -195,7 +195,7 @@
     (let [seen (atom [])]
       (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
       (try
-        (rf/reg-event-db :rf2-lf84g/reg-time-event (fn [db _] db))
+        (rf/reg-event :rf2-lf84g/reg-time-event (fn [{:keys [db]} _] {:db db}))
         (let [reg-traces (filter #(= :rf.registry/handler-registered (:operation %))
                                  @seen)]
           (is (seq reg-traces) "we saw at least one registration trace")
@@ -277,14 +277,14 @@
     ;; test: does the inner sub-binding override the outer event-
     ;; handler-binding for the `:rf.sub/run` emit? Per Spec 009 §:rf.trace
     ;; /trigger-handler table, yes (the inner scope wins).
-    (rf/reg-event-db :rf2-npm2p/changes-n
-                     (fn [db _]
-                       (let [new-db (assoc db :n 1)]
+    (rf/reg-event :rf2-npm2p/changes-n
+                     (fn [{:keys [db]} _]
+                       {:db (let [new-db (assoc db :n 1)]
                          ;; Touch the sub from inside the event body
                          ;; so the recompute fires while the event
                          ;; handler's binding is in scope.
                          @(rf/subscribe [:rf2-npm2p/from-cascade])
-                         new-db)))
+                         new-db)}))
     (let [evs   (record-traces
                   (fn [] (rf/dispatch-sync [:rf2-npm2p/changes-n])))
           [run] (events-of evs :rf.sub/run)]

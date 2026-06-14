@@ -114,7 +114,7 @@
   (testing "the listener is invoked once per emitted event — no batching, no debounce"
     (let [calls (atom 0)
           seen  (atom [])]
-      (rf/reg-event-db :ping (fn [db _] db))
+      (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
       (rf/clear-trace-buffer! :rf/default)
       (rf/register-listener! ::counter (fn [ev]
                                          (swap! calls inc)
@@ -139,7 +139,7 @@
             For a pure dispatch-sync where all emits carry the cascade's
             `:dispatch-id`, the ring should mirror the listener stream."
     (let [seen (atom [])]
-      (rf/reg-event-db :ping (fn [db _] db))
+      (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
       (rf/clear-trace-buffer! :rf/default)
       (rf/register-listener! ::record (fn [ev] (swap! seen conj ev)))
       (rf/dispatch-sync [:ping])
@@ -230,7 +230,7 @@
     (rf/reg-frame :frame/b {})
     (let [seen (atom [])]
       (rf/register-listener! ::multi (fn [ev] (swap! seen conj ev)))
-      (rf/reg-event-db :ping (fn [db _] db))
+      (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
       (rf/dispatch-sync [:ping] {:frame :frame/a})
       (rf/dispatch-sync [:ping] {:frame :frame/b})
       (let [a (->> @seen dispatched-events

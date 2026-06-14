@@ -40,9 +40,9 @@
             `:rf/interceptor-error`) and the drain settles — the dispatch
             returns nil, the cascade does not abort. Recovery is
             framework-owned; there is no app-steering policy."
-    (rf/reg-event-db :prod/quiet-throw
-                     (fn [_db _]
-                       (throw (ex-info "boom" {}))))
+    (rf/reg-event :prod/quiet-throw
+                     (fn [{:keys [db]} _]
+                       {:db (throw (ex-info "boom" {}))}))
     (is (nil? (rf/dispatch-sync [:prod/quiet-throw]))
         "dispatch-sync returns nil; the drain settled after the exception")))
 
@@ -59,9 +59,9 @@
       (rf/register-error-listener!
         :prod/recorder
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :prod/err-throw
-                       (fn [_db _]
-                         (throw (ex-info "kaboom" {:cause :test}))))
+      (rf/reg-event :prod/err-throw
+                       (fn [{:keys [db]} _]
+                         {:db (throw (ex-info "kaboom" {:cause :test}))}))
       (rf/dispatch-sync [:prod/err-throw])
       (is (= 1 (count @seen))
           "listener fired exactly once — prod-elision contract holds")
@@ -89,8 +89,8 @@
       (rf/register-error-listener!
         :prod/sibling
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :prod/two-listeners
-                       (fn [_db _] (throw (ex-info "handler boom" {}))))
+      (rf/reg-event :prod/two-listeners
+                       (fn [{:keys [db]} _] {:db (throw (ex-info "handler boom" {}))}))
       (is (nil? (rf/dispatch-sync [:prod/two-listeners]))
           "dispatch-sync returned nil despite the listener throw")
       (is (= 1 (count @seen))
@@ -118,9 +118,9 @@
       (rf/register-error-listener!
         :rf2-3un2g/sentry-recorder
         (fn [record] (reset! listener-saw record)))
-      (rf/reg-event-db :rf2-3un2g/prod-coord-throw
-                       (fn [_db _]
-                         (throw (ex-info "boom" {}))))
+      (rf/reg-event :rf2-3un2g/prod-coord-throw
+                       (fn [{:keys [db]} _]
+                         {:db (throw (ex-info "boom" {}))}))
       (rf/dispatch-sync [:rf2-3un2g/prod-coord-throw])
       (is (some? @listener-saw)
           "listener fired under :advanced + goog.DEBUG=false")
@@ -153,9 +153,9 @@
             runtime / observability use. Load-bearing keys (`:tags` /
             `:schema` / `:sensitive?` / `:large?` / `:interceptors` / …)
             are retained; `:tags` below pins that the strip is surgical."
-    (rf/reg-event-db :rf2-3un2g/prod-meta-strip
+    (rf/reg-event :rf2-3un2g/prod-meta-strip
                      {:doc "stripped" :tags #{:probe}}
-                     (fn [db _] db))
+                     (fn [{:keys [db]} _] {:db db}))
     (let [meta (rf/handler-meta :event :rf2-3un2g/prod-meta-strip)]
       (is (some? meta))
       (is (not (contains? meta :doc))

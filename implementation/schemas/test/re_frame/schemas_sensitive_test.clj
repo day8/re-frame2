@@ -775,11 +775,11 @@
             handler-meta sensitivity; event vectors aren't `:map`-
             shaped so per-slot walker doesn't run either."
     (let [calls (atom 0)]
-      (rf/reg-event-db :auth/sign-in
+      (rf/reg-event :auth/sign-in
         {:doc        "Verify creds"
          :sensitive? true                                      ;; ignored — annotation removed
          :schema     [:cat [:= :auth/sign-in] :string :string]}
-        (fn [db _] (swap! calls inc) db))
+        (fn [{:keys [db]} _] (swap! calls inc) {:db db}))
       (let [traces (atom [])]
         (rf/register-listener! ::ev (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:auth/sign-in "ada" 42])
@@ -841,13 +841,13 @@
             :explain and stamps :sensitive? true"
     (let [secret "hunter2-DO-NOT-LEAK"
           calls  (atom 0)]
-      (rf/reg-event-db :auth/login
+      (rf/reg-event :auth/login
         {:schema [:cat [:= :auth/login]
                   [:map
                    [:user :string]
                    ;; :password is sensitive AND wrong type (int) → fails.
                    [:password {:sensitive? true} :int]]]}
-        (fn [db _] (swap! calls inc) db))
+        (fn [{:keys [db]} _] (swap! calls inc) {:db db}))
       (let [traces (atom [])]
         (rf/register-listener! ::login (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:auth/login {:user "ada" :password secret}])
@@ -871,11 +871,11 @@
   (testing "rf2-a5kzs — a container-level {:sensitive? true} on the event
             payload schema also drives redaction"
     (let [secret "TOKEN-leak-check"]
-      (rf/reg-event-db :auth/token
+      (rf/reg-event :auth/token
         ;; The whole payload (element 1 of the :cat) is sensitive; supply an
         ;; int where :string is expected so it fails.
         {:schema [:cat [:= :auth/token] [:string {:sensitive? true}]]}
-        (fn [db _] db))
+        (fn [{:keys [db]} _] {:db db}))
       (let [traces (atom [])]
         (rf/register-listener! ::tok (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:auth/token 12345])
@@ -891,9 +891,9 @@
   (testing "rf2-a5kzs — no over-redaction: an event schema with a payload map
             that has NO :sensitive? slot still rides verbatim after the walk
             is enabled"
-    (rf/reg-event-db :user/update
+    (rf/reg-event :user/update
       {:schema [:cat [:= :user/update] [:map [:name :string] [:age :int]]]}
-      (fn [db _] db))
+      (fn [{:keys [db]} _] {:db db}))
     (let [traces (atom [])]
       (rf/register-listener! ::upd (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:user/update {:name "bob" :age "old"}])
@@ -1027,12 +1027,12 @@
             would have leaked it (the rf2-3qam7b leak this fix closes). The
             conforming sensitive sibling MUST be absent from every egressed slot."
     (let [secret "pw-MUST-NOT-LEAK"]
-      (rf/reg-event-db :auth/profile
+      (rf/reg-event :auth/profile
         {:schema [:cat [:= :auth/profile]
                   [:map
                    [:password {:sensitive? true} :string]
                    [:age :int]]]}
-        (fn [db _] db))
+        (fn [{:keys [db]} _] {:db db}))
       (let [traces (atom [])]
         (rf/register-listener! ::prof (fn [ev] (swap! traces conj ev)))
         ;; :password conforms (a string, the sensitive sibling); :age fails
@@ -1059,12 +1059,12 @@
             stamped (the precision fix must not under-redact the declared
             position)"
     (let [secret 123456789]                 ;; an int — fails the :string slot
-      (rf/reg-event-db :auth/profile2
+      (rf/reg-event :auth/profile2
         {:schema [:cat [:= :auth/profile2]
                   [:map
                    [:password {:sensitive? true} :string]
                    [:age :int]]]}
-        (fn [db _] db))
+        (fn [{:keys [db]} _] {:db db}))
       (let [traces (atom [])]
         (rf/register-listener! ::prof2 (fn [ev] (swap! traces conj ev)))
         ;; :password fails (int, not string) — the FAILING slot IS sensitive.
@@ -1087,13 +1087,13 @@
             slot (:age) redacts under the ROOT check; the conforming secret is
             absent from every egressed slot"
     (let [secret "catn-pw-DO-NOT-LEAK"]
-      (rf/reg-event-db :auth/profile-n
+      (rf/reg-event :auth/profile-n
         {:schema [:catn
                   [:id [:= :auth/profile-n]]
                   [:payload [:map
                              [:password {:sensitive? true} :string]
                              [:age :int]]]]}
-        (fn [db _] db))
+        (fn [{:keys [db]} _] {:db db}))
       (let [traces (atom [])]
         (rf/register-listener! ::profn (fn [ev] (swap! traces conj ev)))
         ;; :age fails (non-sensitive); :password conforms (sensitive sibling).

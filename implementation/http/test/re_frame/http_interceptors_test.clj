@@ -602,7 +602,7 @@
   (testing "clear-all-http-interceptors! touches only the http interceptor
             registry — :event / :sub / :fx slots are preserved"
     (rf/reg-http-interceptor :test.lfvi/dummy {:before identity})
-    (rf/reg-event-db :test.lfvi/ev (fn [db _] db))
+    (rf/reg-event :test.lfvi/ev (fn [{:keys [db]} _] {:db db}))
     (rf/reg-sub :test.lfvi/sub (fn [_ _] :stub))
     (rf/reg-fx :test.lfvi/fx (fn [_ _] nil))
 

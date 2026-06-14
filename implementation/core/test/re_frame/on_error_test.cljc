@@ -50,9 +50,9 @@
       (rf/register-error-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :err/throw
-                       (fn [_db _]
-                         (throw (ex-info "kaboom" {:cause :test}))))
+      (rf/reg-event :err/throw
+                       (fn [{:keys [db]} _]
+                         {:db (throw (ex-info "kaboom" {:cause :test}))}))
       (rf/dispatch-sync [:err/throw])
       (is (= 1 (count @seen))
           "listener fired exactly once for one thrown handler")
@@ -94,9 +94,9 @@
       (rf/register-error-listener!
         :test/sibling
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :err/throw2
-                       (fn [_db _]
-                         (throw (ex-info "handler kaboom" {}))))
+      (rf/reg-event :err/throw2
+                       (fn [{:keys [db]} _]
+                         {:db (throw (ex-info "handler kaboom" {}))}))
       ;; Must NOT throw — the listener's exception is swallowed.
       (is (nil? (rf/dispatch-sync [:err/throw2]))
           "dispatch-sync returned nil despite the listener throw")
@@ -112,7 +112,7 @@
       (rf/register-error-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :err/throw3 (fn [_db _] (throw (ex-info "x" {}))))
+      (rf/reg-event :err/throw3 (fn [{:keys [db]} _] {:db (throw (ex-info "x" {}))}))
       (rf/dispatch-sync [:err/throw3])
       (is (= 1 (count @seen)) "listener fired before unregister")
       (rf/unregister-error-listener! :test/recorder)
@@ -135,7 +135,7 @@
       (rf/register-error-listener!
         :test/recorder
         (fn [record] (reset! seen record)))
-      (rf/reg-event-db :err/elapsed (fn [_db _] (throw (ex-info "x" {}))))
+      (rf/reg-event :err/elapsed (fn [{:keys [db]} _] {:db (throw (ex-info "x" {}))}))
       (rf/dispatch-sync [:err/elapsed])
       (let [r @seen]
         (is (some? r))
@@ -162,8 +162,8 @@
       (rf/register-error-listener!
         :test/recorder
         (fn [record] (reset! seen record)))
-      (rf/reg-event-db :err/normal-throw
-                       (fn [_db _] (throw (ex-info "boom" {}))))
+      (rf/reg-event :err/normal-throw
+                       (fn [{:keys [db]} _] {:db (throw (ex-info "boom" {}))}))
       (rf/dispatch-sync [:err/normal-throw {:k "v"}])
       (let [r @seen]
         (is (some? r))
@@ -551,13 +551,13 @@
       (is (= {:seeded 1} (rf/app-db-value :rf/default)) "seeded")
       ;; Now register a handler that mutates :db and then throws. Even
       ;; though it produced a :db value before throwing, nothing installs.
-      (rf/reg-event-db :throws
-                       (fn [db _]
+      (rf/reg-event :throws
+                       (fn [{:keys [db]} _]
                          ;; Build a would-be new db, then throw — the
                          ;; handler returns nothing; its effect never
                          ;; reaches the install.
-                         (let [_ (assoc db :would-be 2)]
-                           (throw (ex-info "boom" {})))))
+                         {:db (let [_ (assoc db :would-be 2)]
+                           (throw (ex-info "boom" {})))}))
       (rf/register-listener! ::rec (fn [ev] (swap! traces conj ev)))
       (try
         (rf/dispatch-sync [:throws])

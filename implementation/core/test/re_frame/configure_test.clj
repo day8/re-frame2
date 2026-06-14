@@ -60,7 +60,7 @@
 (deftest configure-known-keys-take-effect
   (testing ":trace-buffer cascades-retained is wired"
     (rf/configure! :trace-buffer {:cascades-retained 7})
-    (rf/reg-event-db :ping (fn [db _] db))
+    (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 20] (rf/dispatch-sync [:ping]))
     (is (<= (count (rf/trace-buffer :rf/default)) 7)
         ":trace-buffer {:cascades-retained 7} caps retained cascades at 7"))
@@ -103,7 +103,7 @@
             "a negative :cascades-retained also warns")
         ;; Retention is still the last GOOD value — the bad calls were
         ;; pure no-ops.
-        (rf/reg-event-db :ping (fn [db _] db))
+        (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
         (dotimes [_ 20] (rf/dispatch-sync [:ping]))
         (is (<= (count (rf/trace-buffer :rf/default)) 9)
             "retention stayed at the last valid {:cascades-retained 9}")
@@ -137,7 +137,7 @@
     (rf/configure! :strict-subs  true)
     (rf/configure! :ssr          {:public-error-id :nope})
     (rf/configure! :no-such-key  {})
-    (rf/reg-event-db :ping (fn [db _] db))
+    (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 30] (rf/dispatch-sync [:ping]))
     (is (<= (count (rf/trace-buffer :rf/default)) 11)
         ":trace-buffer cascades-retained survived bracketing unknown-key calls")))
