@@ -54,7 +54,7 @@ prompts whose answer drifts fastest as the Xray UI moves:
 | 8 | `panel-route-machine-canvas` | yes | Full topology → Static Machines tab, not the event-driven Dynamic Machine tab; no standalone Machines-Canvas tab. |
 | 11 | `panel-route-schema` | yes | Schema violations → Epoch inline + L2 pink-wash; registry → Static Schemas; no Issues tab, no Dynamic Schemas tab. |
 | 12 | `panel-route-hydration` | yes | No standalone Hydration tab; mismatches → Epoch inline + issues-ribbon signal. |
-| 21 | `chrome-rewind` | yes | Passive inspect (app-db unmoved) vs explicit `Reset` button (restore-epoch); `r`/`R`/`*` are NOT wired. |
+| 21 | `chrome-rewind` | yes | Passive inspect (live frame unmoved) vs explicit `Reset` button (`restore-epoch!` reinstalls the whole frame-state — both app-db and runtime-db — not just `:db-after`); `r`/`R`/`*` are NOT wired. |
 | 23 | `chrome-palette` | yes | Palette source kinds + representative command verbs; `Cmd/Ctrl+K` is wired (not struck). |
 | 24 | `launch-overlay` | yes | `open-overlay!` is the supported FALLBACK for no-layout-host; floats above `document.body`; not the primary path. |
 | 26 | `config-init-vs-settings` | yes | Settings popup wins over the `init!` boot default; merge order `defaults < configure! < Settings`; density is NOT a popup control. |

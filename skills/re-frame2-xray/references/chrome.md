@@ -24,13 +24,16 @@ pulses while live. Spec
 
 The ribbon `[◀ ▶ ⏭]` nav cluster + the L2 list walk history **without
 disturbing the live app** — picking an epoch is *passive INSPECTION*
-(panels rebase; `app-db` does NOT move). Rewind is the *separate, explicit*
-**`Reset` button** on the far-right of the L3 tab-bar ribbon:
+(panels rebase; the live frame does NOT move). Rewind is the *separate,
+explicit* **`Reset` button** on the far-right of the L3 tab-bar ribbon:
 it dispatches `:rf.xray/reset-to-epoch` against the *observed* app frame +
-the focused epoch, rewinding that frame's live `app-db` to the epoch's
-`:db-after` via `(rf/restore-epoch! …)` — disabled when no epoch is focused;
-on the rare framework failure (epoch aged out) it shows a brief inline
-flash, never a modal.
+the focused epoch, reinstalling that frame's WHOLE frame-state — both app-db
+AND runtime-db — from the epoch's `:frame-state-after` via
+`(rf/restore-epoch! …)` (which installs atomically through
+`replace-frame-state!`, not the `:db-after` projection alone, so machine
+snapshots / the route slice / elision declarations / SSR metadata revive
+alongside app-db) — disabled when no epoch is focused; on the rare framework
+failure (epoch aged out) it shows a brief inline flash, never a modal.
 
 This passive-inspect-by-default / rewind-opt-in posture is the load-bearing
 inversion from re-frame-10x v1 (the lineage fact lives once in

@@ -23,7 +23,7 @@ The skill is one of the principal downstream consumers of these surfaces.
 
 For verifying that the public surface in `spec/Tool-Pair.md` is wired up in the reference impl:
 
-- `implementation/core/src/re_frame/core.cljc` — the public single-import API; `register-listener!`, `register-epoch-listener!`, `epoch-history`, `restore-epoch`, `frame-ids`, `frame-meta`, `app-schemas`, `handler-meta`, `configure`. (`trace-buffer` lives in `re-frame.trace.tooling`; `core.cljc` re-exports it on `rf/` JVM-side only.)
+- `implementation/core/src/re_frame/core.cljc` — the public single-import API; `register-listener!`, `register-epoch-listener!`, `epoch-history`, `restore-epoch!` (the core-API name carries the bang — the MCP tool that calls it is named `restore-epoch`), `frame-ids`, `frame-meta`, `app-schemas`, `handler-meta`, `configure`. (`trace-buffer` lives in `re-frame.trace.tooling`; `core.cljc` re-exports it on `rf/` JVM-side only.)
 - `implementation/core/src/re_frame/trace.cljc` — the trace stream's internals; what op-types are emitted, how `:op-type :error` filtering works.
 - `implementation/core/src/re_frame/epoch.cljc` — the per-frame epoch ring; what fields a `:rf/epoch-record` carries; the structured `:sub-runs` / `:renders` / `:effects` projections.
 - `implementation/core/src/re_frame/frame.cljc` — frame lifecycle; `:rf/default` registration; per-frame router queues.

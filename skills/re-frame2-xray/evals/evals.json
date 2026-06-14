@@ -99,10 +99,10 @@
  "name": "chrome-rewind",
  "should_trigger": true,
  "prompt": "How do I go back in time in Xray — scrub through history and rewind to an earlier epoch?",
- "expected_output": "The agent distinguishes passive INSPECTION (picking an epoch in the L2 list / the ribbon nav rebases the panels but does NOT move the live app-db) from explicit REWIND (the `Reset` button on the L3 tab-bar ribbon, which calls restore-epoch to roll the live app-db to the focused epoch's :db-after). It does NOT teach r / R / * as wired rewind/re-dispatch/pin keys (those are spec-future only).",
+ "expected_output": "The agent distinguishes passive INSPECTION (picking an epoch in the L2 list / the ribbon nav rebases the panels but does NOT move the live frame) from explicit REWIND (the `Reset` button on the L3 tab-bar ribbon, which calls restore-epoch! to reinstall the focused epoch's WHOLE frame-state — both app-db AND runtime-db — from :frame-state-after via replace-frame-state!, not the :db-after projection alone). It does NOT teach r / R / * as wired rewind/re-dispatch/pin keys (those are spec-future only).",
  "expectations": [
- "The output explains that scrubbing / picking an epoch is passive inspection — panels rebase but the live app-db does NOT move.",
- "The output names the explicit `Reset` button (L3 tab-bar ribbon) as the live rewind (restore-epoch to the focused epoch's :db-after).",
+ "The output explains that scrubbing / picking an epoch is passive inspection — panels rebase but the live frame does NOT move.",
+ "The output names the explicit `Reset` button (L3 tab-bar ribbon) as the live rewind (restore-epoch! reinstalls the focused epoch's whole frame-state — both app-db and runtime-db — not just :db-after).",
  "The output does NOT present r / R / * as wired rewind / re-dispatch / pin keys (it may note they are spec-future / not yet wired)."
  ]
  },
