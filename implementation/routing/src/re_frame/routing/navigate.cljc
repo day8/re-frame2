@@ -118,15 +118,20 @@
   EP-0001 (rf2-vzld77): the route slice is durable framework runtime-db
   state, so the handler reads it from the `:rf.db/runtime` coeffect (`rdb`)
   and `commit-navigation` returns a `:rf.db/runtime` effect. The handler
-  never touches user app-db. rf2-oosjmh: the nav-token / pending-nav
-  counters are host-side transient state — read via the
-  `:rf.route/nav-counters` cofx (`nav-counters`), written via fx — so the
-  handler stays pure (it never reaches the host atom directly). Scroll
-  positions are likewise a host-side cache (rf2-1hncp2)."
-  [{frame        :rf.frame/id
-    rdb-raw      :rf.db/runtime
-    nav-counters :rf.route/nav-counters
-    app-db       :db}
+  never touches user app-db. rf2-vcop6y: the nav-token / pending-nav-id are
+  minted by RECORDABLE generator-backed allocation cofx — `:rf.route/
+  nav-allocation` (commit) and `:rf.route/pending-nav-allocation` (block) —
+  so the minted ids are recorded on the causal token and replay re-presents
+  them verbatim. The handler stays pure: it publishes the supplied id and
+  emits the host high-water bump via fx. Both allocations generate eagerly
+  at processing-start; the block-vs-commit branch uses only one (the other
+  is recorded-but-unused — harmless, the counters are monotone never-recycle
+  allocators). Scroll positions are likewise a host-side cache (rf2-1hncp2)."
+  [{frame          :rf.frame/id
+    rdb-raw        :rf.db/runtime
+    nav-allocation :rf.route/nav-allocation
+    pending-nav-allocation :rf.route/pending-nav-allocation
+    app-db         :db}
    [_ target params opts :as event-vec]]
     ;; Per Spec 012 §Navigation is an event and §Fragments §Programmatic
     ;; navigation with fragments. Fragment may be supplied in opts
@@ -422,7 +427,7 @@
                            rdb frame
                            event-vec url
                            (:bypass-leave-guard? opts)
-                           nav-counters)]
+                           pending-nav-allocation)]
           blocked
           (if identical-nav?
             ;; Spec 012 §Per-route data loading rule 3: nothing relevant
@@ -501,10 +506,11 @@
                  :capture-fx   capture-fx
                  :scroll-fx    scroll-fx
                  :push-fx      push-fx
-                 ;; rf2-oosjmh: host-side counter snapshot injected by the
-                 ;; `:rf.route/nav-counters` cofx — `commit-navigation`
-                 ;; mints the nav-token from it purely + emits the bump fx.
-                 :nav-counters nav-counters
+                 ;; rf2-vcop6y: the RECORDABLE nav-token allocation delivered
+                 ;; by the `:rf.route/nav-allocation` cofx — `commit-navigation`
+                 ;; publishes its `:token` (recorded + replay-stable) + rides
+                 ;; `:counter` on the bump fx.
+                 :nav-allocation nav-allocation
                  ;; rf2-dbmj6x: the in-flight cascade's carried frame stamp
                  ;; (validated at the handler top). `commit-navigation` stamps
                  ;; it on the nav-token-allocated + activated/deactivated

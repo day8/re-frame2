@@ -49,11 +49,12 @@
 
 (defn- url-change-fx
   "Pure helper: given runtime-db + url + default scroll strategy (+ the
-  `frame` to carry on the no-such-handler trace + the host-side
-  `nav-counters` snapshot), return the cofx map `{:rf.db/runtime :fx}` for
-  a URL-driven full slice rewrite. Performs the match-url lookup, mints a
-  fresh nav-token from `nav-counters` (rf2-oosjmh — the high-water bump
-  rides a `:rf.route/commit-nav-counter` fx), computes the scroll fx
+  `frame` to carry on the no-such-handler trace + the RECORDABLE
+  `nav-allocation`), return the cofx map `{:rf.db/runtime :fx}` for
+  a URL-driven full slice rewrite. Performs the match-url lookup, publishes
+  the nav-token from the recordable `nav-allocation` (rf2-vcop6y — recorded +
+  replay-stable; the `:counter` high-water bump rides a
+  `:rf.route/commit-nav-counter` fx), computes the scroll fx
   entry, and emits the trace events (:rf.warning/no-not-found-route,
   :rf.warning/malformed-url, :rf.error/no-such-handler,
   :rf.route.nav-token/allocated).
@@ -79,7 +80,7 @@
    `:routing/on-route-entry` hook so a cross-feature `{:from-db …}`
    route-resource scope resolves db-derived viewer identity at route
    entry. Routing never reads it."
-  [rdb url default-scroll frame nav-counters app-db]
+  [rdb url default-scroll frame nav-allocation app-db]
   (let [rdb (or rdb {})
         ;; rf2-6t1xb: `match-url` THROWS on the keyword-interning DoS
         ;; guard (`:rf.error/route-too-many-keys`, rf2-3k3o7) — and the
@@ -245,9 +246,10 @@
            :prev-nav-token (get-in rdb [:rf.runtime/routing :current :nav-token])
            :capture-fx   capture-fx
            :scroll-fx    scroll-fx
-           ;; rf2-oosjmh: host-side counter snapshot threaded through so
-           ;; the nav-token is minted purely + the bump rides an fx.
-           :nav-counters nav-counters
+           ;; rf2-vcop6y: the RECORDABLE nav-token allocation threaded through
+           ;; so the nav-token is PUBLISHED from `:token` (recorded +
+           ;; replay-stable) + the `:counter` bump rides an fx.
+           :nav-allocation nav-allocation
            ;; rf2-dbmj6x: the carried frame stamp (validated at the handler
            ;; top, threaded into `url-change-fx`). `commit-navigation` stamps
            ;; it on the nav-token-allocated + activated/deactivated lifecycle
@@ -269,7 +271,10 @@
   strategy for forward nav is `:top` per Spec 012 §Scroll restoration;
   popstate / initial / SSR routes through `:rf.route/handle-url-change`
   (default `:restore`)."
-  [{frame :rf.frame/id rdb :rf.db/runtime nav-counters :rf.route/nav-counters app-db :db}
+  [{frame :rf.frame/id rdb :rf.db/runtime
+    nav-allocation :rf.route/nav-allocation
+    pending-nav-allocation :rf.route/pending-nav-allocation
+    app-db :db}
    [_ url opts :as event-vec]]
   (let [;; EP-0002 carried invariant — `:rf.route/transitioned` is a
         ;; cascade event, so the cofx carries the frame stamp under
@@ -284,7 +289,7 @@
                   rdb frame
                   event-vec url
                   (:bypass-leave-guard? opts)
-                  nav-counters)]
+                  pending-nav-allocation)]
     (or blocked
         ;; rf2-w3qgc: thread the active `frame` into `url-change-fx` so the
         ;; forward-nav route-miss / malformed-url / too-many-keys trace sites
@@ -295,7 +300,7 @@
         ;; `:rf.warning/no-not-found-route`. The carried `:frame` (the
         ;; cascade cofx supplies it) tags those traces. EP-0001 (rf2-vzld77):
         ;; the route slice is durable routing runtime-db state.
-        (url-change-fx rdb url :top frame nav-counters app-db))))
+        (url-change-fx rdb url :top frame nav-allocation app-db))))
 
 (defn handle-url-change-handler
   "`:rf.route/handle-url-change` event-fx handler. Registered by the
@@ -308,7 +313,10 @@
   strategy is `:restore` so the saved position trumps. `:frame` is
   threaded through so the SSR error-projection listener can attribute
   the :no-such-handler trace per-frame."
-  [{frame :rf.frame/id rdb :rf.db/runtime nav-counters :rf.route/nav-counters app-db :db}
+  [{frame :rf.frame/id rdb :rf.db/runtime
+    nav-allocation :rf.route/nav-allocation
+    pending-nav-allocation :rf.route/pending-nav-allocation
+    app-db :db}
    [_ url opts :as event-vec]]
   (let [;; EP-0002 carried invariant — `:rf.route/handle-url-change` is a
         ;; cascade event (popstate / initial / SSR), so the cofx carries
@@ -324,7 +332,7 @@
                   rdb frame
                   event-vec url
                   (:bypass-leave-guard? opts)
-                  nav-counters)]
+                  pending-nav-allocation)]
     (or blocked
         ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
-        (url-change-fx rdb url :restore frame nav-counters app-db))))
+        (url-change-fx rdb url :restore frame nav-allocation app-db))))

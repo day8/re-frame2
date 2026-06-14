@@ -175,42 +175,60 @@
   :rf.route/on-match-error-trap
   on-match-error/on-match-error-listener)
 
-;; :rf.route/nav-counters cofx + :rf.route/commit-nav-counter fx —
-;; Spec 012 §Navigation tokens (rf2-oosjmh). The host-side nav-token /
-;; pending-nav allocators: the cofx injects the active frame's counter
-;; high-water snapshot (READ) so the nav handlers mint the next id purely;
-;; the fx records the new high-water mark into the host cache (WRITE). The
-;; counters are host-side TRANSIENT state (`re-frame.routing.nav-counters`),
-;; so an epoch restore (which replaces the runtime-db partition wholesale)
-;; cannot rewind them and recycle a token — the correctness fix the move
-;; buys. The four nav entry points below DECLARE the cofx via
-;; `:rf.cofx/requires` (see the EP-0017 note below). Registered in the
-;; façade so a `:reload` re-wires them on a fresh registrar.
-(cofx/reg-cofx :rf.route/nav-counters
-               nav-counters/nav-counters-cofx-meta
-               nav-counters/nav-counters-cofx)
+;; :rf.route/nav-allocation + :rf.route/pending-nav-allocation cofx +
+;; :rf.route/commit-nav-counter fx — Spec 012 §Navigation tokens (rf2-oosjmh
+;; / rf2-vcop6y). The host-side nav-token / pending-nav allocators are minted
+;; through TWO RECORDABLE generator-backed coeffects (one per allocator): the
+;; generator mints the next id from the host high-water snapshot (READ) and
+;; the cofx machinery RECORDS the allocation `{:token/:id .. :counter ..}`
+;; onto the causal token, so replay re-presents the SAME id verbatim
+;; (rf2-vcop6y replay-determinism fix; the retired ambient
+;; `:rf.route/nav-counters` cofx was never recorded → replay re-minted
+;; different ids). The fx records the new high-water mark into the host cache
+;; with a `max` install (WRITE) so a restore/replay re-establishes the host
+;; high-water from the recorded `:counter` and can never rewind the allocator.
+;; The counters are host-side TRANSIENT state (`re-frame.routing.nav-counters`)
+;; so an epoch restore cannot rewind them and recycle a token (rf2-oosjmh).
+;; Registered in the façade so a `:reload` re-wires them on a fresh registrar.
+(cofx/reg-cofx :rf.route/nav-allocation
+               nav-counters/nav-allocation-cofx-meta
+               nav-counters/nav-allocation-cofx)
+(cofx/reg-cofx :rf.route/pending-nav-allocation
+               nav-counters/pending-nav-allocation-cofx-meta
+               nav-counters/pending-nav-allocation-cofx)
 (fx/reg-fx :rf.route/commit-nav-counter
            nav-counters/commit-nav-counter-meta
            nav-counters/commit-nav-counter-handler)
 
-;; EP-0017: every nav entry point DECLARES the host-side counter cofx via
-;; `:rf.cofx/requires` (replacing the retired
-;; `(inject-cofx :rf.route/nav-counters)` interceptor); its handler reads the
-;; snapshot FLAT under `:coeffects :rf.route/nav-counters`. The supplier is
-;; ambient (a host-cache read, never recorded — the WRITE rides the
-;; `:rf.route/commit-nav-counter` fx).
-(def ^:private nav-counters-meta
+;; EP-0017 / rf2-vcop6y: each nav entry point DECLARES the recordable
+;; allocation cofx it consumes via `:rf.cofx/requires`. The generator runs at
+;; processing-start (router `:live` policy), mints from the host snapshot, and
+;; the value is recorded onto the token; strict replay re-presents it (and
+;; FAILS on a missing recorded allocation). A two-way nav handler (block vs
+;; commit) declares BOTH allocations — both generate eagerly, the not-taken
+;; branch's allocation is recorded-but-unused (harmless — the counters are
+;; monotone never-recycle allocators, gaps are a documented non-concern).
+(def ^:private nav-commit-meta
+  ;; navigate / transitioned / handle-url-change can BLOCK (pending-nav id)
+  ;; OR COMMIT (nav-token) — declare both recordable allocations.
   (assoc framework-authority-meta
-         :rf.cofx/requires [:rf.route/nav-counters]))
+         :rf.cofx/requires [:rf.route/nav-allocation
+                            :rf.route/pending-nav-allocation]))
+(def ^:private url-requested-meta
+  ;; :rf/url-requested only ever mints a pending-nav id (on a block); the
+  ;; forward push synthesises :rf.route/transitioned, which mints its own
+  ;; nav-token. Declare only the pending-nav allocation.
+  (assoc framework-authority-meta
+         :rf.cofx/requires [:rf.route/pending-nav-allocation]))
 
 ;; :rf/url-requested + :rf.route/continue + :rf.route/cancel +
 ;; :rf.route/navigation-blocked — Spec 012 §Navigation blocking —
 ;; pending-nav protocol. `:rf/url-requested` runs the leave guard (which
-;; mints a pending-nav id on a block), so it declares the nav-counters cofx;
-;; `:rf.route/continue` / `:rf.route/cancel` / `:rf.route/navigation-blocked`
-;; never allocate a counter, so they don't.
+;; mints a pending-nav id on a block), so it declares the recordable
+;; pending-nav allocation cofx; `:rf.route/continue` / `:rf.route/cancel` /
+;; `:rf.route/navigation-blocked` never allocate, so they don't.
 (events/reg-event-fx :rf/url-requested
-                     nav-counters-meta
+                     url-requested-meta
                      can-leave/url-requested-handler)
 (events/reg-event-fx :rf.route/navigation-blocked
                      framework-authority-meta
@@ -222,20 +240,21 @@
                      framework-authority-meta
                      can-leave/cancel-handler)
 
-;; :rf.route/navigate — Spec 012 §Navigation is an event. Declares the
-;; nav-counters cofx (mints the nav-token + any block's pending-nav id).
+;; :rf.route/navigate — Spec 012 §Navigation is an event. Declares both
+;; recordable allocation cofx (mints the nav-token on commit + any block's
+;; pending-nav id).
 (events/reg-event-fx :rf.route/navigate
-                     nav-counters-meta
+                     nav-commit-meta
                      navigate/navigate-handler)
 
 ;; :rf.route/transitioned + :rf.route/handle-url-change — Spec 012 §URL
-;; changes are events. Both declare the nav-counters cofx (mint the
+;; changes are events. Both declare both recordable allocation cofx (mint the
 ;; nav-token on commit + any block's pending-nav id).
 (events/reg-event-fx :rf.route/transitioned
-                     nav-counters-meta
+                     nav-commit-meta
                      url-change/transitioned-handler)
 (events/reg-event-fx :rf.route/handle-url-change
-                     nav-counters-meta
+                     nav-commit-meta
                      url-change/handle-url-change-handler)
 
 ;; :rf.route/nav-token cofx — Spec 012 §Navigation tokens — stale-result
@@ -246,8 +265,8 @@
 ;; `(fn [{:rf.route/keys [nav-token]} _] ...)` shape resolves the live
 ;; token (not nil). Owner-qualified to the routing subsystem root per
 ;; EP-0017 §2 / Conventions §Recordable-coeffect fact naming, like its
-;; sibling `:rf.route/nav-counters`. Registered in the façade so a
-;; `:reload` re-wires it on a fresh registrar.
+;; siblings `:rf.route/nav-allocation` / `:rf.route/pending-nav-allocation`.
+;; Registered in the façade so a `:reload` re-wires it on a fresh registrar.
 (cofx/reg-cofx :rf.route/nav-token
                nav-token/nav-token-cofx-meta
                nav-token/nav-token-cofx)
