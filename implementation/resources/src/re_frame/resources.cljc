@@ -268,17 +268,26 @@
 ;; sitting in this façade. (Mirrors routing's framework-authority-meta.)
 (def ^:private framework-authority-meta state/framework-authority-meta)
 
-;; :rf.resource/generation cofx + :rf.resource/commit-generation fx —
-;; Spec 016 §Restore and replay part 1. The host-side generation allocator
-;; (the monotone high-water mark that never rewinds across epoch restore,
-;; so a pre-restore in-flight reply's generation can never match a
-;; post-restore live entry). The cofx injects the active frame's high-water
-;; snapshot; the ensure/refetch handlers mint the next generation purely and
-;; bump the high-water mark via the fx. Mirrors routing's nav-counters seam
-;; (rf2-oosjmh). Registered in the façade so a `:reload` re-wires them.
-(cofx/reg-cofx :rf.resource/generation
-               state/generation-cofx-meta
-               state/generation-cofx)
+;; :rf.resource/generation-allocation cofx + :rf.resource/commit-generation
+;; fx — Spec 016 §Restore and replay part 1 + 002 §Durable join keys are
+;; recordable (rf2-abyycr). The host-side generation allocator is a monotone
+;; high-water mark that never rewinds across epoch restore (so a pre-restore
+;; in-flight reply's generation can never match a post-restore live entry).
+;; The generation is also a DURABLE JOIN KEY (written onto the entry/instance
+;; and stamped on the reply token for stale suppression), so the minted VALUE
+;; must be RECORDABLE even though the allocator stays host-transient: the
+;; `:rf.resource/generation-allocation` cofx is GENERATOR-BACKED + recordable
+;; — its generator mints the next allocation at processing-start and the
+;; runtime records the value on the token (replay re-presents it; strict
+;; replay fails loud on a missing allocation rather than re-minting a
+;; divergent generation). The ensure/refetch/execute handlers read the
+;; recorded `:generation` flat and write only it durably; the fx advances the
+;; host high-water with `max`. Mirrors routing's nav-allocation seam
+;; (rf2-oosjmh / rf2-vcop6y). Registered in the façade so a `:reload`
+;; re-wires them.
+(cofx/reg-cofx :rf.resource/generation-allocation
+               state/generation-allocation-cofx-meta
+               state/generation-allocation-cofx)
 (fx/reg-fx :rf.resource/commit-generation
            state/commit-generation-meta
            state/commit-generation-handler)
@@ -316,15 +325,17 @@
            timers/cancel-timers-handler)
 
 ;; EP-0017: the load-causing events (ensure / refetch / mutation execute)
-;; DECLARE the host-side generation high-water cofx via `:rf.cofx/requires`
-;; (replacing the retired `(inject-cofx :rf.resource/generation)` interceptor).
-;; Their handlers read the snapshot FLAT under `:coeffects
-;; :rf.resource/generation` and mint the next monotone generation purely; the
-;; supplier is ambient (a host-cache read, never recorded — the WRITE rides the
-;; `:rf.resource/commit-generation` fx).
+;; DECLARE the RECORDABLE generation-allocation cofx via `:rf.cofx/requires`
+;; (rf2-abyycr). Their handlers read the recorded allocation FLAT under
+;; `:coeffects :rf.resource/generation-allocation` (`{:generation N :counter
+;; N}`) and write only the `:generation` value durably — they no longer
+;; re-mint `(inc snapshot)` from an ambient read at the write site. The
+;; allocation is recorded on the token (generator-backed recordable cofx) so
+;; replay reproduces an identical generation; the host high-water advances via
+;; the `:rf.resource/commit-generation` fx (`max`).
 (def ^:private generation-meta
   (assoc framework-authority-meta
-         :rf.cofx/requires [:rf.resource/generation]))
+         :rf.cofx/requires [:rf.resource/generation-allocation]))
 
 ;; Public resource events (map payloads). Per Spec 016 §Events.
 (events/reg-event-fx :rf.resource/ensure
@@ -395,9 +406,12 @@
 ;; the landed `:rf.resource/invalidate-tags`); `:rf.mutation/clear` is the
 ;; causal instance reset. `:rf.mutation/execute` mints a generation (the same
 ;; host-side monotone allocator the resources use, for stale suppression), so
-;; it injects the `:rf.resource/generation` cofx. The internal replies carry
-;; the verification payload (instance id + work-id + generation). User code
-;; MUST NOT dispatch the internal replies.
+;; it declares the recordable `:rf.resource/generation-allocation` cofx
+;; (rf2-abyycr) and reads the recorded `:generation` flat — the instance-id /
+;; work-id derive from it, so recording the generation makes them reproduce on
+;; replay for free. The internal replies carry the verification payload
+;; (instance id + work-id + generation). User code MUST NOT dispatch the
+;; internal replies.
 (events/reg-event-fx :rf.mutation/execute
                      generation-meta
                      mutation-events/execute-handler)

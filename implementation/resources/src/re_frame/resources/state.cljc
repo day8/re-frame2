@@ -764,34 +764,41 @@
 ;; is deliberately the OPPOSITE discipline from machine spawn-ids (which
 ;; never escape the frame and so may be snapshot-local).
 ;;
-;; The PURE SEAM (handlers stay pure), mirroring routing's nav-counters
-;; (rf2-oosjmh): READ via the `:rf.resource/generation` cofx (injects the
-;; active frame's high-water snapshot); the handler mints the next
-;; generation purely from the snapshot; WRITE via the
-;; `:rf.resource/commit-generation` fx (records the new high-water mark,
-;; monotone). A frame's entry is released on frame destroy.
+;; The PURE SEAM (handlers stay pure), mirroring routing's nav-allocation
+;; (rf2-oosjmh / rf2-vcop6y): the next generation is minted by the
+;; RECORDABLE `:rf.resource/generation-allocation` cofx GENERATOR (which
+;; reads the active frame's high-water snapshot at processing-start and
+;; records the minted value on the token — rf2-abyycr); the handler reads
+;; the recorded `:generation` value flat and writes only it durably; WRITE
+;; via the `:rf.resource/commit-generation` fx (advances the host high-water
+;; with `max`, monotone). A frame's entry is released on frame destroy.
 
 (defonce
   ^{:doc "Per-frame host-side generation high-water marks
    `{<frame-id> <int>}`. Host-side transient state (NOT runtime-db), so an
    epoch restore cannot rewind it and recycle a generation — the
    anti-recycling correctness boundary (Spec 016 §Restore and replay part
-   1). Read via the `:rf.resource/generation` cofx, bumped via the
-   `:rf.resource/commit-generation` fx (both monotone)."}
+   1). Read by the recordable `:rf.resource/generation-allocation` cofx
+   generator (which records the minted value on the token, rf2-abyycr),
+   advanced via the `:rf.resource/commit-generation` fx (both monotone)."}
   generation-cache
   (atom {}))
 
 (defn generation-snapshot
   "Read `frame-id`'s current generation high-water mark from the host
-  `generation-cache` (0 when none). The value the
-  `:rf.resource/generation` cofx threads into the pure resource handlers."
+  `generation-cache` (0 when none). The value the recordable
+  `:rf.resource/generation-allocation` cofx generator reads to mint the next
+  monotone allocation."
   [frame-id]
   (get @generation-cache frame-id 0))
 
 (defn next-generation
   "Pure: given a high-water `snapshot` int (or nil), return the next
-  monotone generation `(inc snapshot)`. Does NOT mutate — the handler uses
-  the value and emits a `:rf.resource/commit-generation` fx carrying it."
+  monotone generation `(inc snapshot)`. Does NOT mutate — the
+  `:rf.resource/generation-allocation` cofx generator uses it to mint the
+  allocation value at processing-start; the handler then emits a
+  `:rf.resource/commit-generation` fx carrying it to advance the host
+  high-water."
   [snapshot]
   (inc (or snapshot 0)))
 
@@ -823,56 +830,104 @@
   (reset! generation-cache {})
   nil)
 
-;; ---- the :rf.resource/generation cofx + :rf.resource/commit-generation fx -
+;; ---- the :rf.resource/generation-allocation cofx + commit-generation fx ---
 ;;
-;; The pure read/write seam over the host-side allocator (mirrors routing's
-;; :rf.route/nav-counters cofx + :rf.route/commit-nav-counter fx). The
-;; resource event handlers that mint a generation (ensure / refetch) inject
-;; the cofx; the WRITE half rides the fx, emitted only on the branch that
-;; actually allocates a generation.
+;; The RECORDABLE allocation seam over the host-side allocator (rf2-abyycr;
+;; mirrors routing's `:rf.route/nav-allocation`, rf2-vcop6y). The generation
+;; is a DURABLE JOIN KEY (it is written onto the entry / instance and stamped
+;; onto the reply token as the stale-suppression correlation), so per
+;; [002 §Durable join keys are recordable](spec/002-Frames.md) the minted
+;; VALUE must be recordable even though the ALLOCATOR stays host-transient.
+;;
+;; The shape is a GENERATOR-BACKED recordable cofx (EP-0017 §5, the last rung
+;; of the minting ladder — a genuinely fold-internal identity no recorded
+;; state or event payload can supply):
+;;   - the generator reads the active frame's host high-water snapshot and
+;;     produces the next monotone allocation `{:generation N :counter N}` at
+;;     PROCESSING-START — the produced value is written back into the
+;;     in-flight `:rf.cofx` record so the epoch captures it and replay
+;;     re-presents it (live = generate-and-record; replay = supplied,
+;;     strict = no generator runs);
+;;   - the ensure / refetch / mutation-execute handlers declare
+;;     `:rf.cofx/requires [:rf.resource/generation-allocation]`, read the
+;;     `:generation` value flat, and write ONLY that value durably (they no
+;;     longer re-mint `(inc snapshot)` from an ambient read at the write
+;;     site);
+;;   - the WRITE half (`:rf.resource/commit-generation` fx) advances the host
+;;     high-water with `max` so replay / restore can never rewind the
+;;     allocator and recycle a generation (parts 1-5 of Spec 016 §Restore
+;;     and replay stay correct — the allocator is still host-transient);
+;;   - strict replay (Tool-Pair / `:test` preset) FAILS LOUD with
+;;     `:rf.error/missing-required-cofx` if the recorded allocation is
+;;     missing, rather than silently re-minting a divergent generation.
+;;
+;; `:counter` is carried alongside `:generation` (they are equal for the
+;; resource allocator, whose generation IS the counter value) to mirror the
+;; routing split-allocation shape and to let a restore re-establish the host
+;; high-water from the recorded value when needed.
 
-(def generation-cofx-meta
-  "Metadata for the `:rf.resource/generation` cofx registration. Injects
-  the active frame's host-side generation high-water mark so the resource
-  handlers mint the next monotone generation purely."
-  {:doc "The active frame's host-side resource-generation high-water mark
-(an int), read from the `re-frame.resources.state` host cache and injected
-under `:coeffects :rf.resource/generation`. The ensure/refetch handlers read
-it to mint the next monotone generation without reaching the host atom
-(handlers stay pure); the actual high-water bump rides the
-`:rf.resource/commit-generation` fx. Per Spec 016 §Restore and replay."})
+(def generation-allocation-cofx-meta
+  "Metadata for the `:rf.resource/generation-allocation` cofx registration —
+  a GENERATOR-BACKED recordable allocation (rf2-abyycr, EP-0017 §5)."
+  {:recordable? true
+   :schema [:map [:generation :int] [:counter :int]]
+   :doc "The recordable generation allocation for the active frame's resource
+/mutation work: `{:generation N :counter N}`, minted at processing-start from
+the host-side monotone high-water allocator (`generation-cache`) and recorded
+on the causal token. `:generation` is the durable join key written onto the
+entry / instance and stamped on the reply token (the stale-suppression
+correlation, EP-0011); `:counter` mirrors it (the resource allocator's
+generation IS its counter) so a restore can re-establish the host high-water.
+The ensure/refetch/mutation-execute handlers declare
+`:rf.cofx/requires [:rf.resource/generation-allocation]`, read `:generation`
+flat, and write only that value durably; the host allocator advances with
+`max` via the `:rf.resource/commit-generation` fx so replay/restore cannot
+rewind it. Recordable so replay reproduces an identical generation (and
+therefore identical `:work/id` / `:instance/id`, which derive from it). Per
+Spec 016 §Restore and replay + 002 §Durable join keys are recordable."})
 
-(defn generation-cofx
-  "Value-returning AMBIENT supplier for the `:rf.resource/generation` cofx
-  (EP-0017 §2). Reads the in-flight cascade's frame
-  (`frame/*current-frame*`, bound by the router during processing) and
-  returns the frame's host-side generation high-water snapshot. Pure with
-  respect to the fold — it only READS the host cache (the write is the
-  separate `:rf.resource/commit-generation` fx); never recorded, replay
-  re-runs it. The ensure/refetch handlers declare
-  `:rf.cofx/requires [:rf.resource/generation]` and read it flat. Tests that
-  need a deterministic snapshot re-register the supplier (the visible seam)."
+(defn generation-allocation-cofx
+  "Value-returning GENERATOR for the `:rf.resource/generation-allocation`
+  recordable cofx (EP-0017 §5). Reads the in-flight cascade's frame
+  (`frame/*current-frame*`, bound by the router during processing) and the
+  frame's host-side generation high-water snapshot, and returns the next
+  monotone allocation `{:generation N :counter N}` (N = `(inc snapshot)`).
+
+  The generator only READS the host cache — it does NOT mutate it (the write
+  is the separate `:rf.resource/commit-generation` fx, emitted by the
+  allocating handler). Under `:live` the runtime records the produced value
+  into the token's `:rf.cofx` so replay re-presents it; under `:strict`
+  (replay / `:test` preset) the generator does NOT run — an absent recorded
+  allocation is `:rf.error/missing-required-cofx`, so a recorded epoch
+  reproduces the exact generation rather than re-minting a divergent one.
+  Tests that need a deterministic allocation supply it on the dispatch token
+  (`:rf.cofx {:rf.resource/generation-allocation {:generation N :counter N}}`)
+  or re-register the generator (the visible seam)."
   []
-  (generation-snapshot frame/*current-frame*))
+  (let [n (next-generation (generation-snapshot frame/*current-frame*))]
+    {:generation n :counter n}))
 
 (def commit-generation-meta
   "Metadata for the `:rf.resource/commit-generation` fx registration. The
-  WRITE half of the host-side generation seam: records a new monotone
-  high-water mark into the host `generation-cache`. Universal platform —
+  WRITE half of the host-side generation seam: advances the host
+  `generation-cache` high-water with `max`. Universal platform —
   the allocator is host-side on both client and server."
-  {:doc "Record a new monotone generation high-water mark into the host-side
-`re-frame.resources.state` cache. Args: `{:value N}`. Emitted by the
-ensure/refetch handlers on the branch that allocates a generation; the WRITE
-counterpart to the `:rf.resource/generation` cofx read. Per Spec 016
-§Restore and replay."})
+  {:doc "Advance the host-side `re-frame.resources.state` generation
+high-water mark with `max` (monotone — never rewinds). Args: `{:value N}` (the
+allocated `:generation` / `:counter` from the recordable
+`:rf.resource/generation-allocation` cofx). Emitted by the
+ensure/refetch/mutation-execute handlers on the branch that allocates a
+generation; advancing with `max` is what makes replay/restore unable to
+rewind the allocator and recycle a generation. Per Spec 016 §Restore and
+replay."})
 
 (defn commit-generation-handler
   "`:rf.resource/commit-generation` fx handler. Registered by the façade so
-  a `:reload` re-wires it on a fresh registrar. Writes the new monotone
-  high-water mark under the cascade-envelope frame into the host
-  `generation-cache`. The carried-frame invariant (EP-0002): the fx context
-  carries the cascade frame as `:frame`; a nil stamp is an invariant
-  failure (`:rf.error/no-frame-context`), never a synthesised default."
+  a `:reload` re-wires it on a fresh registrar. Advances the host high-water
+  with `max` under the cascade-envelope frame in the host `generation-cache`.
+  The carried-frame invariant (EP-0002): the fx context carries the cascade
+  frame as `:frame`; a nil stamp is an invariant failure
+  (`:rf.error/no-frame-context`), never a synthesised default."
   [{:keys [frame]} {:keys [value]}]
   (let [frame-id (frame/require-frame-stamp!
                    frame :rf.resource/commit-generation
