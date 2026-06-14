@@ -978,6 +978,23 @@
    ;; (CLJS, dev-only) returns the constant override reaction on a HIT, or
    ;; nil to fall through to the normal build-and-cache path. On the JVM
    ;; and in production it is always nil (the gate / reader DCE / no-op).
+   ;; EP-0013 step 4 (rf2-a15n62): route subscription resolution through the
+   ;; owning frame's realm registrar. `compute-and-cache!` resolves the sub
+   ;; handler via `registrar/lookup :sub` (and `resolve-sub-override` reads sub
+   ;; meta), so the realm-registrar binding must cover the BUILD path. The
+   ;; binding is established ONCE here and covers the recursive layer-2+ input
+   ;; `subscribe` calls inside `compute-and-cache!` (each re-derives the SAME
+   ;; realm registrar from the same frame-id — idempotent). The reaction's body
+   ;; is closed over the resolved handler at materialization, so a later
+   ;; reactive recompute needs no binding. A non-default-realm frame pays one
+   ;; binding per build (cache MISS); a cache HIT skips this entirely. The
+   ;; default-realm frame takes the no-binding fast path
+   ;; (`frame/realm-registrar-for-frame` returns nil) — byte-identical to the
+   ;; pre-realm subscribe path. DERIVED from the carried frame-id, never ambient
+   ;; (EP-0002).
+   (frame/call-with-frame-realm-registrar
+     (frame/frame frame-id)
+     (fn []
    (or
      #?(:cljs
         (when interop/debug-enabled?
@@ -1044,7 +1061,7 @@
                (if (identical? reaction (get-in new [k :reaction]))
                  reaction
                  (compute-and-cache! frame-id query-v)))
-             (compute-and-cache! frame-id query-v))))))))
+             (compute-and-cache! frame-id query-v)))))))))) ;; close fn + call-with-frame-realm-registrar (rf2-a15n62)
 
 (defn subscribe-once
   "One-shot read of a sub's current value. Subscribes, derefs, then

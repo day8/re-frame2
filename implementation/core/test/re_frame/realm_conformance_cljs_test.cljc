@@ -62,6 +62,7 @@
             [re-frame.core :as rf]
             [re-frame.app-value :as av]
             [re-frame.realm :as realm]
+            [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as ts]))
@@ -487,50 +488,98 @@
             "the reinstall touched only the constructed realm's registrar")))))
 
 ;; ---------------------------------------------------------------------------
-;; (9) NON-DEFAULT REALM live behavior — pinned to the SHIPPED contract
-;;     (rf2-c6armm.3 #1)
+;; (9) NON-DEFAULT REALM live behavior — REALM-ROUTED dispatch/subscribe
+;;     (EP-0013 staging step 4, rf2-a15n62 — the refusal is LIFTED)
 ;; ---------------------------------------------------------------------------
 ;;
-;; The realm-aware frame / live-dispatch slice has NOT shipped: `reg-frame`
-;; hardcodes `:realm default-realm-id`, and the router/subs resolve handlers
-;; through the default registrar (the `*registrar*` binding is scoped only to the
-;; install!/reinstall! seating, never to live dispatch). So a constructed realm
-;; is QUERY-isolated (its own registrar, read by the realm-targeted queries) but
-;; NOT yet a live-dispatch target. These tests PIN that shipped contract so the
-;; gap is explicit and a future regression is caught:
-;;   * a :frame into a non-default realm is REFUSED (rf2-c6armm.1 #3) — you
-;;     cannot even construct a frame in a non-default realm, so the "constructed
-;;     realms are query-isolated but live frames silently dispatch through the
-;;     default realm" regression the review worried about is structurally closed;
-;;   * a non-default realm's installed handlers do NOT leak into the default
-;;     realm's live dispatch (the isolation half that DOES hold today).
-;; The full realm-routed live dispatch/subscribe is tracked as rf2-a15n62
-;; (EP-0013 staging step 4); when it lands, the refusal below is lifted and these
-;; tests become the live-routing assertions the bead sketched.
+;; The realm-aware frame / live-dispatch slice has SHIPPED: `reg-frame` STAMPS +
+;; keys frames by their owning realm, and the router/subs/fx/cofx resolve
+;; handlers through the OWNING frame's realm registrar (the `*registrar*` +
+;; `*current-realm*` bindings now cover live dispatch, not just install seating).
+;; So a constructed realm is a full live-dispatch target: the same frame id is
+;; legal in two realms, and dispatch/subscribe against a realm's frame run that
+;; realm's program. These tests are the live-routing assertions the bead sketched
+;; (the prior `:rf.error/realm-frames-unsupported` refusal is gone):
+;;   * a :frame into two realms creates two REAL, isolated frames (no global
+;;     collision, no silent default-seating);
+;;   * dispatch into a realm's frame runs THAT realm's handler; subs resolve THAT
+;;     realm's sub;
+;;   * a non-default realm's handlers still do NOT leak into the DEFAULT realm's
+;;     live dispatch (the isolation half is preserved).
 
-(deftest non-default-realm-frame-descriptor-is-refused-not-default-seated
-  (testing "rf2-c6armm.3 #1 / .1 #3: installing a :frame into a constructed realm
-            is REFUSED (:rf.error/realm-frames-unsupported) — it does NOT silently
-            create a default-realm frame. This pins that the realm-aware frame
-            path has not shipped and closes the silent-default-seating regression"
+(deftest two-realms-same-frame-id-live-dispatch-and-subscribe-isolate
+  (testing "EP-0013 step 4 (rf2-a15n62): the same frame id installed into two
+            realms with realm-owned :frame descriptors creates two isolated live
+            frames — frame-realm matches the owning realm, dispatch runs that
+            realm's handler, and subs resolve that realm's sub"
     (let [ra (rf/realm {:id :live/a})
-          rb (rf/realm {:id :live/b})]
+          rb (rf/realm {:id :live/b})
+          app-for (fn [tag]
+                    (rf/app {:id :live/app :modules
+                             [(rf/module
+                                {:id :m
+                                 :frames {:live/f {:doc "shared id"}}
+                                 :events {:live/set {:handler (fn [db _] (assoc db :who tag))}}
+                                 :subs   {:live/who {:handler (fn [db _] [tag (:who db)])}}})]}))]
       (try
-        ;; The same frame id into two realms — the bead's exact probe. Both refuse,
-        ;; rather than overwriting one global default-realm frame.
-        (doseq [r [ra rb]]
-          (let [ed (try (rf/install! r (rf/app {:id :live/app :modules
-                                                [(rf/module {:id :m :frames {:live/f {}}})]}))
-                        (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
-                          (ex-data e)))]
-            (is (= :rf.error/realm-frames-unsupported (:error/id ed))
-                "the non-default-realm :frame install is refused")))
-        ;; No :live/f frame was created in ANY realm (no silent default seating).
-        (is (not (contains? (rf/frame-ids) :live/f))
-            "no live frame :live/f exists — neither realm silently created a default frame")
+        (rf/install! ra (app-for :a))
+        (rf/install! rb (app-for :b))
+        ;; The same frame id is a REAL frame in each realm — owned by that realm.
+        ;; A bare `frame-realm` read (no realm scope) finds NO default-realm
+        ;; :live/f, so it returns nil — the id is unambiguous only WITHIN a realm.
+        (is (nil? (rf/frame-realm :live/f))
+            "no default-realm :live/f exists, so the bare read is nil (id unique within a realm)")
+        ;; frame-realm with the realm scope reads the realm's own frame.
+        (is (= :live/a (frame/call-with-realm :live/a (fn [] (rf/frame-realm :live/f))))
+            "realm a owns :live/f")
+        (is (= :live/b (frame/call-with-realm :live/b (fn [] (rf/frame-realm :live/f))))
+            "realm b owns :live/f")
+        ;; DISPATCH the SAME event id into each realm's frame: each runs ITS
+        ;; realm's handler (realm-routed event resolution).
+        (rf/dispatch-sync [:live/set] {:realm :live/a :frame :live/f})
+        (rf/dispatch-sync [:live/set] {:realm :live/b :frame :live/f})
+        (is (= :a (frame/call-with-realm :live/a (fn [] (:who (frame/frame-app-db-value :live/f)))))
+            "realm a's frame ran realm a's :live/set handler")
+        (is (= :b (frame/call-with-realm :live/b (fn [] (:who (frame/frame-app-db-value :live/f)))))
+            "realm b's frame ran realm b's :live/set handler")
+        ;; SUBSCRIBE the SAME sub id against each realm's frame: each resolves
+        ;; ITS realm's sub body (realm-routed subscription resolution).
+        (is (= [:a :a] (frame/call-with-realm :live/a (fn [] (rf/subscribe-once :live/f [:live/who]))))
+            "realm a's frame resolves realm a's :live/who sub")
+        (is (= [:b :b] (frame/call-with-realm :live/b (fn [] (rf/subscribe-once :live/f [:live/who]))))
+            "realm b's frame resolves realm b's :live/who sub")
+        ;; Both realms own a frame by the same id; the default realm owns none.
+        (is (contains? (realm/realm-frames :live/a) :live/f) "realm a owns :live/f")
+        (is (contains? (realm/realm-frames :live/b) :live/f) "realm b owns :live/f")
+        (is (not (contains? (realm/realm-frames realm/default-realm-id) :live/f))
+            "the default realm owns no :live/f frame (no global collision)")
         (finally
           (rf/dispose-realm! :live/a)
           (rf/dispose-realm! :live/b))))))
+
+(deftest child-dispatch-and-fx-preserve-the-realm
+  (testing "EP-0013 step 4 (rf2-a15n62): a child dispatch emitted from a handler's
+            :fx [[:dispatch …]] STAYS in the parent's realm — the child resolves
+            its event handler in the SAME realm, not the default (realm preserved
+            across the cascade continuation)"
+    (let [r (rf/realm {:id :child/r})]
+      (try
+        (rf/install! r
+          (rf/app {:id :child/app :modules
+                   [(rf/module
+                      {:id :m
+                       :frames {:child/f {:doc "x"}}
+                       ;; :parent emits a child :dispatch (NO explicit realm) — it
+                       ;; must inherit the parent's realm so :child resolves HERE.
+                       :events {:parent {:event/kind :fx
+                                         :handler (fn [_ _] {:fx [[:dispatch [:child]]]})}
+                                :child  {:handler (fn [db _] (assoc db :child-ran :child/r))}}})]}))
+        (rf/dispatch-sync [:parent] {:realm :child/r :frame :child/f})
+        ;; The child event ran IN the constructed realm (its handler wrote app-db).
+        (is (= :child/r (frame/call-with-realm :child/r
+                          (fn [] (:child-ran (frame/frame-app-db-value :child/f)))))
+            "the :fx-dispatched child stayed in the parent's realm and ran its handler")
+        (finally (rf/dispose-realm! :child/r))))))
 
 (deftest non-default-realm-handlers-do-not-leak-into-default-live-dispatch
   (testing "rf2-c6armm.3 #1: a handler installed ONLY into a constructed realm is

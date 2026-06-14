@@ -95,6 +95,7 @@
   exactly what it references."
   (:require [clojure.set        :as set]
             [re-frame.realm     :as realm]
+            [re-frame.frame     :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.late-bind :as late-bind]))
 
@@ -739,53 +740,18 @@
         [id desc]       id->desc]
     [kind id desc]))
 
-(defn- frame-descriptor-ids
-  "The `:frame` descriptor ids an app value carries (the keys of its
-  `:registrations :frame` map), or `nil` when it declares no frames. INTERNAL."
-  [app]
-  (keys (get-in app [:registrations :frame])))
-
-(defn- refuse-non-default-realm-frames!
-  "Refuse `:frame` descriptors seated into a NON-default realm, BEFORE any
-  lowering, throwing `:rf.error/realm-frames-unsupported` (rf2-c6armm.1).
-
-  EP-0013 §Frames Reference Realms requires a frame to belong to the realm it
-  is installed into (frame ids are unique WITHIN a realm; the same id in two
-  realms is a tested legal case). But the realm-aware frame-registration path is
-  a NOT-YET-SHIPPED EP-0013 slice (staging step 4 — 'thread realm through frame
-  records / dispatch envelopes / subscription resolution'): `re-frame.frame`'s
-  `reg-frame` is `[id metadata]`-only and HARDCODES `:realm default-realm-id` on
-  every frame record, and live dispatch/subscribe resolve through the default
-  registrar regardless of realm. So a `:frame` descriptor lowered into an
-  explicit realm would:
-    * create a frame STAMPED with the default realm, not the requested realm
-      (the realm does not actually own its frames — `frame-realm` would report
-      the default), and
-    * key the live frame in the process-global `frame/frames` atom by frame-id
-      ALONE, so the same frame id installed into two realms collides globally
-      (one overwrites the other; both realms' membership sets stay empty).
-
-  Until the realm-aware frame path lands (tracked: rf2-a15n62 — staging step 4),
-  refuse loudly rather than silently mis-seat — fail-closed, the EP-0013 issue-12
-  stance, and the masterpiece-correctness posture. The default realm is fine:
-  `reg-frame`'s hardcoded default IS the target, so a default-realm `:frame`
-  descriptor lowers correctly (the rf2-chc8vs wiring). INTERNAL."
-  [rid app]
-  (when-not (= rid realm/default-realm-id)
-    (when-let [fids (seq (frame-descriptor-ids app))]
-      (throw (ex-info (str "rf/install!: cannot seat :frame descriptor(s) "
-                           (pr-str (vec (sort fids))) " into the non-default realm "
-                           rid " — realm-aware frame registration is a later"
-                           " EP-0013 slice (frames are still stamped with the"
-                           " default realm and keyed globally by frame-id). A"
-                           " :frame seated into an explicit realm would not be"
-                           " owned by it and would collide across realms. Install"
-                           " :frame descriptors into the default realm, or register"
-                           " the frame through reg-frame.")
-                      {:error/id    :rf.error/realm-frames-unsupported
-                       :realm       rid
-                       :frame-ids   (vec (sort fids))
-                       :recovery    :install-frames-into-the-default-realm})))))
+;; EP-0013 step 4 (rf2-a15n62): `refuse-non-default-realm-frames!` (and its
+;; `frame-descriptor-ids` helper) was REMOVED. It refused `:frame` descriptors
+;; into a non-default realm because the pre-step-4 `reg-frame` hardcoded the
+;; default realm + keyed the registry by bare frame-id (so a non-default `:frame`
+;; would be mis-stamped + collide globally). The realm-aware frame path now
+;; STAMPS + keys each frame under its owning realm (the same id is legal in two
+;; realms), so a `:frame` seated into an explicit realm is owned by it — the
+;; refusal is obsolete and `install!` / `reinstall!` seat non-default-realm
+;; frames directly. The deferred edge that STAYS refused is the REMOVAL of a
+;; live frame from a constructed realm (`refuse-live-frame-removal!` →
+;; `:rf.error/live-frame-removal-unsupported`), pending the per-kind
+;; live-instance migrate/continue/refuse rule.
 
 (defn- register-descriptor!
   "Seat one descriptor into the realm's registrar so it is dispatch/resolve-
@@ -834,19 +800,27 @@
   successful seating restores nothing (the loop's writes stand). INTERNAL."
   [rid thunk]
   (let [reg (realm/registrar (realm/realm rid))]
-    (binding [registrar/*registrar* reg]
-      (if reg
-        (let [snapshot @reg]
-          (try
-            (thunk)
-            (catch #?(:clj Throwable :cljs :default) e
-              ;; Roll back every registration the partial loop landed, so a
-              ;; mid-stream failure leaves the realm's registrar untouched.
-              (reset! reg snapshot)
-              (throw e))))
-        ;; No registrar atom resolved (an unknown id with no default fallback) —
-        ;; nothing to snapshot; run the thunk as-is.
-        (thunk)))))
+    ;; EP-0013 step 4 (rf2-a15n62): bind BOTH the realm's registrar (so every
+    ;; `register!` the lowering issues targets the realm's table) AND
+    ;; `frame/*current-realm*` (so a `:frame` descriptor lowered through
+    ;; `reg-frame` is STAMPED with — and keyed under — the target realm, not the
+    ;; default). `frame/call-with-realm` is a no-op binding for the default
+    ;; realm, so the default-realm seating path stays byte-identical.
+    (frame/call-with-realm rid
+     (fn []
+      (binding [registrar/*registrar* reg]
+        (if reg
+          (let [snapshot @reg]
+            (try
+              (thunk)
+              (catch #?(:clj Throwable :cljs :default) e
+                ;; Roll back every registration the partial loop landed, so a
+                ;; mid-stream failure leaves the realm's registrar untouched.
+                (reset! reg snapshot)
+                (throw e))))
+          ;; No registrar atom resolved (an unknown id with no default fallback) —
+          ;; nothing to snapshot; run the thunk as-is.
+          (thunk)))))))
 
 ;; `diff-registrations` + `refuse-live-frame-removal!` are defined under the
 ;; reinstall section below (their narrative lives with `reinstall!`), but
@@ -919,14 +893,20 @@
    (let [rid (resolve-target-realm! realm-or-id)]
      ;; (1) capability check — fail loud before any mutation.
      (check-capabilities! rid app)
-     ;; (1b) refuse :frame descriptors into a non-default realm BEFORE lowering
-     ;; (rf2-c6armm.1) — the realm-aware frame path is a later EP-0013 slice, so a
-     ;; :frame seated into an explicit realm would be stamped default + collide
-     ;; globally. Throwing here (pre-lowering) also keeps install! atomic for live
-     ;; frame state: no `reg-frame` runs, so no live container is created and then
-     ;; orphaned by a partial rollback (the rollback restores the registrar atom
-     ;; but not the side-channel `frame/frames` atom).
-     (refuse-non-default-realm-frames! rid app)
+     ;; (1b) EP-0013 step 4 (rf2-a15n62): the non-default-realm `:frame` REFUSAL
+     ;; is LIFTED. The realm-aware frame path has shipped — `reg-frame` (reached
+     ;; via the install-descriptor hook under `seat-into-realm!`'s
+     ;; `frame/*current-realm*` binding) now STAMPS the frame with the target
+     ;; realm and keys the `frames` registry by the `[realm-id frame-id]` address
+     ;; (so the same id is legal in two realms), and live dispatch / subscribe /
+     ;; fx / cofx route through the owning frame's realm registrar. So a `:frame`
+     ;; seated into an explicit realm is OWNED by it (no default-stamp, no global
+     ;; collision). The atomicity concern the old refusal guarded — a live
+     ;; container created then orphaned by a partial-rollback — is handled by
+     ;; `seat-into-realm!`'s snapshot/restore of the realm registrar AND the
+     ;; frame being keyed in the realm's address space; a future per-kind
+     ;; live-instance migrate/continue/refuse rule (the deferred slice) tightens
+     ;; the reinstall removal path (`refuse-live-frame-removal!`, still in force).
      ;; (1c) PREFLIGHT the kinds (rf2-c6armm.8 #2): refuse the whole app loudly if
      ;; any descriptor names a step-8-DEFERRED kind, BEFORE the seating loop lowers
      ;; anything. The per-descriptor throw in `install-descriptor!` fires mid-loop,
@@ -1204,24 +1184,13 @@
      ;; here — before any mutation — rather than silently orphaned. Targeted
      ;; check against the core frame registry only; no cross-subsystem machinery.
      (refuse-live-frame-removal! rid diff)
-     ;; Refuse :frame descriptors ADDED or CHANGED into a non-default realm
-     ;; (rf2-c6armm.1), symmetric with install!'s `refuse-non-default-realm-frames!`:
-     ;; the realm-aware frame path is a later EP-0013 slice, so a `:frame` seated
-     ;; into an explicit realm would be stamped default + collide globally. Throw
-     ;; before any mutation. (`:removed` :frame is already handled above.)
-     (when-not (= rid realm/default-realm-id)
-       (when-let [fids (seq (->> (concat (:added diff) (:changed diff))
-                                 (filter (fn [[kind _]] (= :frame kind)))
-                                 (map second)))]
-         (throw (ex-info (str "rf/reinstall!: cannot seat :frame descriptor(s) "
-                              (pr-str (vec (sort fids))) " into the non-default realm "
-                              rid " — realm-aware frame registration is a later"
-                              " EP-0013 slice. Reinstall :frame descriptors against"
-                              " the default realm.")
-                         {:error/id  :rf.error/realm-frames-unsupported
-                          :realm     rid
-                          :frame-ids (vec (sort fids))
-                          :recovery  :install-frames-into-the-default-realm}))))
+     ;; EP-0013 step 4 (rf2-a15n62): the ADD/CHANGED non-default-realm `:frame`
+     ;; refusal is LIFTED (symmetric with install!) — `reg-frame` now stamps +
+     ;; keys the frame under the target realm, so a `:frame` reinstalled into an
+     ;; explicit realm is owned by it (no default-stamp, no global collision).
+     ;; A `:removed` live `:frame` stays refused (`refuse-live-frame-removal!`
+     ;; above → `:rf.error/live-frame-removal-unsupported`) until the per-kind
+     ;; live-instance migrate/continue/refuse rule is defined (the deferred slice).
      ;; Apply the delta against the realm's OWN registrar (EP-0013 stage 9):
      ;; added + changed re-derive the registrar slot from the new descriptor
      ;; (lowered through its kind's real registration logic, so a reloaded
