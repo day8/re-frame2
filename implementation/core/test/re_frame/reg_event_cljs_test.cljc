@@ -49,16 +49,20 @@
 
 (deftest reg-event-metadata-interceptors-thread-the-chain
   (testing "reg-event honours the metadata-map :interceptors superset slot —
-            the user chain sits before the framework wrapper"
-    (let [noop {:id :reg-event-test/noop :before identity :after identity}]
-      (rf/reg-event :reg-event-test/with-icpt
-        {:doc "doc" :interceptors [noop]}
-        (fn [{:keys [db]} _] {:db db}))
-      (let [meta (rf/handler-meta :event :reg-event-test/with-icpt)]
-        (is (= "doc" (:doc meta))
-            "the reflection metadata is retained on the registry entry")
-        (is (= [:reg-event-test/noop :rf/event-handler] (mapv :id (:interceptors meta)))
-            "the metadata-map :interceptors chain sits before the runtime wrapper")))))
+            the user chain (a REF, EP-0022 reference-only) sits before the
+            framework wrapper"
+    (rf/reg-interceptor* :reg-event-test/noop {:before identity :after identity})
+    (rf/reg-event :reg-event-test/with-icpt
+      {:doc "doc" :interceptors [:reg-event-test/noop]}
+      (fn [{:keys [db]} _] {:db db}))
+    (let [meta (rf/handler-meta :event :reg-event-test/with-icpt)]
+      (is (= "doc" (:doc meta))
+          "the reflection metadata is retained on the registry entry")
+      ;; The stored chain holds the AUTHORED ref (a keyword) for the user entry;
+      ;; only the framework wrapper is a map carrying :id :rf/event-handler.
+      (is (= [:reg-event-test/noop :rf/event-handler]
+             (mapv (fn [e] (if (keyword? e) e (:id e))) (:interceptors meta)))
+          "the metadata-map :interceptors ref sits before the runtime wrapper"))))
 
 (deftest reg-event-returns-id
   (testing "reg-event returns its id (Conventions §reg-* return-value)"
