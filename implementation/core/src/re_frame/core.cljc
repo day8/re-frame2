@@ -254,13 +254,11 @@
   `{path -> schema}` map. Implementation ships in `day8/re-frame2-schemas`.
   See `re-frame.core-schemas/reg-app-schemas` and spec/API.md
   §Registration."}
-       reg-app-schemas rf-schemas/reg-app-schemas)
-     (def ^{:doc "Plain-fn surface for machine registration. Use for code-gen
-  pipelines and REPL workflows that bypass the `reg-machine` macro's
-  per-element source-coord stamping. Implementation ships in
-  `day8/re-frame2-machines`. See `re-frame.core-machines/reg-machine*`
-  and spec/API.md §Registration."}
-       reg-machine*    rf-machines/reg-machine*)))
+       reg-app-schemas rf-schemas/reg-app-schemas)))
+;; `reg-machine*` (the plain-fn machine-registration surface) is NO LONGER a
+;; `re-frame.core` façade export (rf2-wad2fl — front-porch shrink); reach it
+;; through `re-frame.machines/reg-machine*`. The `reg-machine` / `defmachine`
+;; MACROS stay on the façade (per-element source-coord stamping).
 
 ;; ---- reg-* macros (JVM-only; CLJS sees them via :require-macros) --------
 ;;
@@ -677,73 +675,19 @@
   frame from the registry. Idempotent. Per Spec 002 §Destroy."}
   destroy-frame! frame/destroy-frame!)
 
-;; ---- flows / schemas — plain-fn re-exports -------------------------------
-
-(def ^{:doc "Clear a flow from a frame's registry and vacate its output
-  path. Per Spec 013 §Lifecycle. Implementation ships in
-  `day8/re-frame2-flows`. Late-bound via `:flows/clear-flow`."}
-  clear-flow             rf-flows/clear-flow)
-
-(def ^{:doc "Return the registered schema at `path` for a frame, or `nil`.
-  Per Spec 010 §Schemas as a tooling and agent surface. Returns `nil`
-  when the schemas artefact is not on the classpath. Implementation
-  ships in `day8/re-frame2-schemas`."}
-  app-schema-at          rf-schemas/app-schema-at)
-
-(def ^{:doc "Return the full registration-metadata map at `path` for a
-  frame, or `nil` — `:path` / `:schema` / `:frame` plus source-coords
-  `:ns` / `:line` / `:file`. The source-coord introspection surface
-  pair-tools and 10x read (e.g. click-back-to-code); `app-schema-at` is
-  the lighter call when only the schema value is needed. Per Spec 010
-  §Schemas as a tooling and agent surface. Returns `nil` when the
-  schemas artefact is not on the classpath. Implementation ships in
-  `day8/re-frame2-schemas`."}
-  app-schema-meta-at     rf-schemas/app-schema-meta-at)
-
-(def ^{:doc "Return every registered `app-schema-at` declaration for a
-  frame as a `{path -> schema}` map. Per Spec 010 §Per-frame schemas.
-  Returns `{}` when the schemas artefact is not on the classpath.
-  Implementation ships in `day8/re-frame2-schemas`."}
-  app-schemas            rf-schemas/app-schemas)
-
-(def ^{:doc "Return a stable cross-runtime digest of the registered
-  schemas for a frame. Per Spec 010 §Digest algorithm. Returns `nil`
-  when the schemas artefact is not on the classpath. Implementation
-  ships in `day8/re-frame2-schemas`."}
-  app-schemas-digest     rf-schemas/app-schemas-digest)
-
-(def ^{:doc "Register the validator fn every dev-time schema-validation
-  site routes through — `(fn [schema value] truthy?)` (or nil to
-  disable). Swaps ONLY the validator; use `set-schema-fns!` to install
-  the validator/explainer/printer bundle atomically. Per Spec 010
-  §Non-Malli validators. Default ships Malli; callers swap to drop the
-  ~24 KB gzipped Malli surface. Implementation ships in
-  `day8/re-frame2-schemas`."}
-  set-schema-validator!  rf-schemas/set-schema-validator!)
-
-(def ^{:doc "Register the explainer fn — `(fn [schema value] explanation)`
-  — used to enrich schema-validation-failure traces' `:explain` key.
-  Per Spec 010 §Non-Malli validators. Implementation ships
-  in `day8/re-frame2-schemas`."}
-  set-schema-explainer!  rf-schemas/set-schema-explainer!)
-
-(def ^{:doc "Register the schema-print companion — `(fn [schema-value]
-  canonical-string)` — that the digest pipeline hashes. MUST be pure
-  and cross-runtime deterministic. Per Spec 010 §Digest algorithm.
-  Implementation ships in `day8/re-frame2-schemas`."}
-  set-schema-printer!    rf-schemas/set-schema-printer!)
-
-(def ^{:doc "Atomically install the validator/explainer/printer bundle
-  from a single map — `(set-schema-fns! {:validate ... :explain ...
-  :print ...})`. The honest bundle setter (rf2-13meg): each key is
-  optional, an absent key leaves the existing registration in place,
-  and a nil `:print` coerces to the default EDN canonicaliser. The
-  one-call substitute-Malli boot pattern. Returns the installed bundle
-  as a map `{:validate ... :explain ... :print ...}` reflecting the live
-  state of all three fns after the call (rf2-qdtcx2) — or nil when the
-  schemas artefact is not on the classpath. Per Spec 010 §Non-Malli
-  validators. Implementation ships in `day8/re-frame2-schemas`."}
-  set-schema-fns!        rf-schemas/set-schema-fns!)
+;; ---- flows / schemas — façade boundary (rf2-wad2fl) ----------------------
+;;
+;; The flows + schemas QUERY / LIFECYCLE / VALIDATOR-INSTALL helpers are NO
+;; LONGER re-exported from `re-frame.core` (rf2-wad2fl — front-porch shrink).
+;; They are optional-feature surfaces whose owned namespace is the better
+;; public home: reach them through `re-frame.flows` (`clear-flow`) and
+;; `re-frame.schemas` (`app-schema-at`, `app-schema-meta-at`, `app-schemas`,
+;; `app-schemas-digest`, `set-schema-validator!`, `set-schema-explainer!`,
+;; `set-schema-printer!`, `set-schema-fns!`) — the owned namespaces already
+;; publish them. The `reg-flow` / `reg-app-schema` / `reg-app-schemas`
+;; REGISTRATION MACROS stay on the façade (above): they capture call-site
+;; source-coords and have no owned-namespace macro form, so registration
+;; stays easy to reach per the bead's "registration must stay central" rule.
 
 ;; ---- data classification (Spec 015) -------------------------------------
 ;;
@@ -1197,25 +1141,17 @@
          frame-provider views/frame-provider))
 
 ;; ---- routing helpers ------------------------------------------------------
-
-(def ^{:doc "Match a URL against registered routes; return
-  `{:route-id :params :query :fragment :validation-failed?}` for the
-  first match, or `nil`. The URL's `#fragment` portion is parsed off
-  and surfaced as `:fragment`. Per Spec 012 §Bidirectional URL <-> params.
-  Implementation ships in `day8/re-frame2-routing`."}
-  match-url   rf-routing/match-url)
-
-(def ^{:doc "Build a URL string from a route-id + path-params (+ optional
-  query-params + optional fragment). Inverse of `match-url`. The 4-arity
-  appends `#fragment` when non-empty. Per Spec 012 §Bidirectional URL
-  <-> params. Implementation ships in `day8/re-frame2-routing`."}
-  route-url   rf-routing/route-url)
-
-(def ^{:doc "Remove a registered route. Emits `:rf.route/cleared` so
-  tools subscribing to route lifecycle observe the removal; symmetric
-  with `:rf.flow/cleared`. Per Spec 012 §Trace events.
-  Implementation ships in `day8/re-frame2-routing`."}
-  clear-route        rf-routing/clear-route)
+;;
+;; The routing URL-codec + lifecycle QUERY helpers `match-url` / `route-url`
+;; / `current-url` / `clear-route` are NO LONGER re-exported from
+;; `re-frame.core` (rf2-wad2fl — front-porch shrink). They are optional-
+;; routing-feature reads whose owned namespace is the better public home:
+;; reach them through `re-frame.routing` (which already publishes them). The
+;; `reg-route` REGISTRATION MACRO stays on the façade (above; source-coord
+;; capture, no owned-ns macro form). `route-link` (the view) and the
+;; `install-history-listener!` / `remove-history-listener!` boot seams stay
+;; on the façade for now — they have no classified owned-namespace peer
+;; (the routing-ns forms are CLJS-only and unrowed).
 
 (def ^{:doc "Registered view at `:route/link` — renders an `<a href=...>`
   from a route-id and intercepts plain primary-button clicks to dispatch
@@ -1223,13 +1159,6 @@
   Shape: `[rf/route-link {:to :route-id :params {} :query {} :fragment
   \"\" & html-attrs} & children]`. Per Spec 012 §Linking from views."}
   route-link  rf-routing/route-link)
-
-(def ^{:doc "Read the current browser URL as an app-relative string
-  `pathname + search + hash` (CLJS), or `\"/\"` on the JVM / SSR. The
-  projection `install-history-listener!` feeds to
-  `:rf.route/handle-url-change`. Per Spec 012 §URL changes are events.
-  Implementation ships in `day8/re-frame2-routing`."}
-  current-url  rf-routing/current-url)
 
 (def ^{:doc "Install a browser `popstate` listener that drives the
   URL-owning frame: Back/Forward dispatches `:rf.route/handle-url-change`
@@ -1250,53 +1179,17 @@
 
 ;; ---- machine helpers ------------------------------------------------------
 ;;
-;; Plain-fn `reg-machine*` for code-gen pipelines / conformance corpus
-;; registering without a literal spec form. Per Spec 005 §reg-machine vs
-;; reg-machine* (rf2-8bp3).
-
-#?(:clj
-   (def ^{:doc "Plain-fn surface for machine registration (JVM). Use for
-  code-gen pipelines and conformance harnesses that synthesise specs
-  from data; the `reg-machine` macro is preferred for literal spec
-  forms (it carries per-element source-coord stamping). Implementation
-  ships in `day8/re-frame2-machines`. Per Spec 005 §reg-machine vs
-  reg-machine* (rf2-8bp3)."}
-     reg-machine* rf-machines/reg-machine*))
-
-(def ^{:doc "Build an event-fx handler from a machine spec. Per Spec 005
-  §Registration. Implementation ships in `day8/re-frame2-machines`.
-  Late-bound via `:machines/make-machine-handler`."}
-  make-machine-handler rf-machines/make-machine-handler)
-
-(def ^{:doc "Pure `(machine, snapshot, event) -> [snapshot fx]`. Per
-  Spec 005 §Drain semantics §Level 3. **Pure / JVM-runnable testing
-  entry point** — no app-db read, no registrar lookup, no dispatcher
-  involvement: hand it a definition, a snapshot, and an event, and it
-  returns the next snapshot + the effects to interpret. The
-  conformance corpus and JVM unit-test suites consume `machine-transition`
-  directly; CLJS handler bodies normally reach the same engine via
-  `make-machine-handler` and `dispatch`. Implementation ships in
-  `day8/re-frame2-machines`. Late-bound via
-  `:machines/machine-transition`. Per rf2-7t1a6."}
-  machine-transition     rf-machines/machine-transition)
-
-(def ^{:doc "Return a sequence of registered machine ids. Per Spec 005
-  §Querying machines. Returns `[]` when the machines artefact is not
-  on the classpath. Implementation ships in `day8/re-frame2-machines`."}
-  machines               rf-machines/machines)
-
-(def ^{:doc "Return the registered machine spec map for `machine-id`, or
-  `nil`. Per Spec 005 §Querying machines. Returns `nil` when the
-  machines artefact is not on the classpath. Implementation ships in
-  `day8/re-frame2-machines`."}
-  machine-meta           rf-machines/machine-meta)
-
-(def ^{:doc "Look up the spawned-machine id bound to `system-id` in the
-  active frame's `[:rf.runtime/machines :system-ids]` reverse index, or `nil`. Optional
-  `frame-id` arg targets an explicit frame. Per Spec 005 §Named
-  addressing via `:system-id`. Implementation ships in
-  `day8/re-frame2-machines`."}
-  machine-by-system-id   rf-machines/machine-by-system-id)
+;; The machine REGISTRATION (`reg-machine*` plain fn), HANDLER-BUILD
+;; (`make-machine-handler`), pure-engine (`machine-transition`), and QUERY
+;; (`machines`, `machine-meta`, `machine-by-system-id`) helpers are NO LONGER
+;; re-exported from `re-frame.core` (rf2-wad2fl — front-porch shrink). They
+;; are optional-machines-feature surfaces whose owned namespace is the better
+;; public home: reach them through `re-frame.machines` (which already
+;; publishes them). The `reg-machine` / `defmachine` REGISTRATION MACROS stay
+;; on the façade (above; per-element source-coord stamping, no owned-ns macro
+;; form). The `dispatch-to-system` / `sub-machine` / `machine-has-tag?`
+;; subscription-and-dispatch sugar stays on the façade — it has no classified
+;; owned-namespace peer.
 
 (def ^{:doc "Sugar: dispatch `event` to the spawned-machine bound to
   `system-id` in the active frame; no-op fall-through when the

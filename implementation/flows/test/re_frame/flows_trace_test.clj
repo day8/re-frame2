@@ -468,7 +468,7 @@
                   :path   [:rect :area]})
     (rf/dispatch-sync [:seed])
     (reset! *captured* [])
-    (rf/clear-flow :area)
+    (flows/clear-flow :area)
     (let [evs (by-op :rf.flow/cleared)]
       (is (= 1 (count evs)))
       (let [tags (:tags (first evs))]
@@ -478,7 +478,7 @@
 
 (deftest clear-flow-on-unknown-id-emits-nothing
   (testing "clear-flow on an unregistered id is a no-op and emits no trace"
-    (rf/clear-flow :no-such-flow)
+    (flows/clear-flow :no-such-flow)
     (is (zero? (count (by-op :rf.flow/cleared))))))
 
 ;; ---------------------------------------------------------------------------
@@ -674,7 +674,7 @@
     (rf/dispatch-sync [:init])
     (rf/dispatch-sync [:replace-n 3])     ;; same → skip
     (rf/dispatch-sync [:replace-n 4])     ;; change → compute
-    (rf/clear-flow :double)
+    (flows/clear-flow :double)
     (is (= 1 (count (by-op :rf.flow/registered))))
     (is (pos?  (count (by-op :rf.flow/computed))))
     (is (= 1 (count (by-op :rf.flow/skip))))

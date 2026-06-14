@@ -16,7 +16,7 @@ The token is a secret, so the slice ships with two protections. First, declare t
 
 ```clojure
 ;; Adapted from examples/reagent/realworld/auth.cljs
-;; Requires: [re-frame.core :as rf] [re-frame.http-managed] [re-frame.routing]
+;; Requires: [re-frame.core :as rf] [re-frame.http-managed] [re-frame.routing :as routing]
 ;; — requiring each artefact namespace registers its surface at load.
 (rf/reg-fx :auth.session/persist
   {:doc       "Persist (truthy :token) or clear (nil) the session token in localStorage."
@@ -107,9 +107,9 @@ Then comes the guard. There's one thing it absolutely must get right: **gate eve
     :rf/url-requested           (let [{:keys [to params url]} a]     ;; route-link click
                                   (cond
                                     to  {:id to :params (or params {})}
-                                    url (when-let [{:keys [route-id params]} (rf/match-url url)]
+                                    url (when-let [{:keys [route-id params]} (routing/match-url url)]
                                           {:id route-id :params (or params {})})))
-    :rf.route/handle-url-change (when-let [{:keys [route-id params]} (rf/match-url a)]
+    :rf.route/handle-url-change (when-let [{:keys [route-id params]} (routing/match-url a)]
                                   {:id route-id :params (or params {})})  ;; URL bar / reload / back-forward
     nil))
 

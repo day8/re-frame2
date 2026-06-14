@@ -62,7 +62,7 @@
             ;; need AND the Malli validate hook the runtime-db
             ;; schema-mismatch precondition (rf2-szbzei) drives a real
             ;; failure through. Side-effect require — alias unused.
-            [re-frame.schemas]
+            [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]
@@ -1094,7 +1094,7 @@
       (is (string? (:schema-digest r))
           "the record carries a :schema-digest string")
       (is (= (:schema-digest r)
-             (rf/app-schemas-digest :test/digest))
+             (schemas/app-schemas-digest :test/digest))
           "record's stamp matches the live digest at record time"))))
 
 (deftest restore-failure-missing-handler-route

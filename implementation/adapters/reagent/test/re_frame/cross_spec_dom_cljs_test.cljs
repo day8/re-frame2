@@ -31,7 +31,7 @@
             ;; rf2-k682: routing ships in day8/re-frame2-routing.
             ;; Required here so its load-time hook + reg-sub
             ;; registrations fire before this ns's reg-route calls.
-            [re-frame.routing]
+            [re-frame.routing :as routing]
             ;; rf2-2hrj8 — the `:browser-test` build was narrowed to
             ;; `-dom-cljs-test$` so the full implementation/test corpus no
             ;; longer fans `re-frame.machines` / `re-frame.flows` /
@@ -281,7 +281,7 @@
               @traces)
         ":rf.nav/push-url emits :rf.fx/skipped-on-platform under :server"))
   (testing "routes round-trip the same as on the client"
-    (let [m (rf/match-url "/users/42")]
+    (let [m (routing/match-url "/users/42")]
       (is (= :user/show (:route-id m)))
       (is (= "42" (:id (:params m)))))))
 
@@ -295,14 +295,14 @@
    match-url returns nil-id for an unmatched URL; route-not-found is
    normal control flow, not an :rf.error trace."
   (rf/reg-route :user/show {:path "/users/:id"})
-  (let [m (rf/match-url "/no-such-thing")]
+  (let [m (routing/match-url "/no-such-thing")]
     (is (nil? (:route-id m))
         "match-url surfaces no route-id for an unmatched URL"))
   ;; The error-projector contract is the user-side concern; here we
   ;; confirm that match-url itself does not emit :rf.error traces for
   ;; an unmatched URL — i.e., a missing route is signal, not an error.
   (with-trace-recorder! [traces]
-    (rf/match-url "/no-such-thing")
+    (routing/match-url "/no-such-thing")
     (is (empty? (filter #(= :error (:op-type %)) @traces))
         "match-url is pure: route-not-found does not emit error traces")))
 

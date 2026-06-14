@@ -74,6 +74,7 @@
   wrapper that wires the helpers to the reactive substrate."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
+            [re-frame.machines :as machines]
             [day8.re-frame2-xray.panels.machines.topology-view :as topology-view]
             [day8.re-frame2-xray.static.machines.sim-helpers :as sim-h]
             [day8.re-frame2-xray.theme.tokens
@@ -95,7 +96,7 @@
   uncaught throw."
   [definition snapshot event]
   (try
-    (rf/machine-transition definition snapshot event)
+    (machines/machine-transition definition snapshot event)
     (catch :default e
       ;; Synthesise a fail-Result shape so the step orchestrator
       ;; handles it uniformly.

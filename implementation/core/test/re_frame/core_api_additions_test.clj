@@ -19,7 +19,7 @@
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.machines]
-            [re-frame.routing]
+            [re-frame.routing :as routing]
             ;; rf2-q4i9ko — replace-app-db! delegates to the epoch artefact's
             ;; replace-app-db! (synthetic-epoch recording); load it so the
             ;; mutator round-trip below resolves a live hook.
@@ -448,17 +448,29 @@
 ;; ===========================================================================
 
 (deftest renamed-facade-exports-resolve-old-names-gone
-  (testing "the three renamed re-frame.core facade exports resolve under their
+  (testing "the renamed re-frame.core facade exports resolve under their
             NEW names and the OLD names are absent (rf2-xhdwms / rf2-jkdycj /
             rf2-sd6amv)"
-    ;; NEW names present.
-    (doseq [sym ['restore-epoch! 'register-observability-sink! 'clear-route]]
+    ;; NEW names present on the façade. `restore-epoch!` (epoch) +
+    ;; `register-observability-sink!` (observability) remain façade exports
+    ;; (epoch is a documented late-bind façade exception; observability has no
+    ;; owned public ns). `clear-route` was DEMOTED off the façade by rf2-wad2fl
+    ;; (front-porch shrink) — it lives in `re-frame.routing` now (asserted
+    ;; below + in `renamed-impl-exports-resolve-old-names-gone`).
+    (doseq [sym ['restore-epoch! 'register-observability-sink!]]
       (is (some? (ns-resolve 're-frame.core sym))
           (str "re-frame.core/" sym " must resolve after the rename")))
     ;; OLD names gone — pre-alpha, no compatibility alias.
     (doseq [sym ['restore-epoch 'reg-observability-sink! 'unregister-route!]]
       (is (nil? (ns-resolve 're-frame.core sym))
-          (str "re-frame.core/" sym " must be GONE (no back-compat alias)")))))
+          (str "re-frame.core/" sym " must be GONE (no back-compat alias)")))
+    ;; rf2-wad2fl: `clear-route` is no longer a façade export — the routing
+    ;; URL/lifecycle helpers moved to their owned namespace.
+    (is (nil? (ns-resolve 're-frame.core 'clear-route))
+        "re-frame.core/clear-route is GONE (demoted to re-frame.routing by rf2-wad2fl)")
+    (require 're-frame.routing)
+    (is (some? (ns-resolve 're-frame.routing 'clear-route))
+        "clear-route is reached via re-frame.routing/clear-route")))
 
 (deftest renamed-impl-exports-resolve-old-names-gone
   (testing "the impl-side artefact functions are renamed in lock-step with the
@@ -501,9 +513,9 @@
             declarative-removal surface (rf2-sd6amv)"
     (require 're-frame.routing :reload)
     (rf/reg-route :rn/route {:path "/rn"})
-    (is (some? (rf/match-url "/rn")) "route registered + matchable")
-    (rf/clear-route :rn/route)
-    (is (nil? (rf/match-url "/rn"))
+    (is (some? (routing/match-url "/rn")) "route registered + matchable")
+    (routing/clear-route :rn/route)
+    (is (nil? (routing/match-url "/rn"))
         "clear-route removed the route — it no longer matches")))
 
 (deftest register-observability-sink-installs-under-new-name

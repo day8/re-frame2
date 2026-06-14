@@ -28,7 +28,7 @@
 (defn ^:export boot
   "Bundle-probe init-fn — see the no-Malli sibling for the rationale."
   []
-  (rf/set-schema-validator! nil)
+  (schemas/set-schema-validator! nil)
   (schemas/reg-app-schema [:probe] [:int])
   (schemas/app-schemas)
   (schemas/app-schemas-digest))

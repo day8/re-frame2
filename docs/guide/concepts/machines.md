@@ -113,8 +113,8 @@ Registering the table is one line, and this is where people sometimes brace for 
 
 ```clojure
 (rf/reg-machine :auth.login/flow login-flow)
-;; exactly equivalent to:
-;; (rf/reg-event-fx :auth.login/flow (rf/make-machine-handler login-flow))
+;; exactly equivalent to (machines/make-machine-handler is in re-frame.machines):
+;; (rf/reg-event-fx :auth.login/flow (machines/make-machine-handler login-flow))
 ```
 
 > **One-time setup.** Machines ship in their own artefact, `day8/re-frame2-machines`, so apps without machines build a bundle clean of them. Add the dep and require `re-frame.machines` once at app boot — that registers the hooks through which `rf/reg-machine`, `rf/machine-transition`, and `rf/sub-machine` resolve.
@@ -236,7 +236,7 @@ That one key replaces the `setTimeout`-plus-cancel-flag pattern that sits behind
 ```clojure
 (ns my-app.login-flow-test
   (:require [clojure.test :refer [deftest is]]
-            [re-frame.core :as rf]
+            [re-frame.machines :as machines]
             [re-frame.machines.result :as result]
             [my-app.login :refer [login-flow]]))
 
@@ -244,16 +244,16 @@ That one key replaces the `setTimeout`-plus-cancel-flag pattern that sits behind
   ;; happy path: :idle --submit--> :submitting (fires the request fx)
   (let [s0 {:state :idle :data {:attempts 0 :error nil}}
         {s1 ::result/snap fx1 ::result/fx}
-        (rf/machine-transition login-flow s0
-                               [:auth.login/submit {:email "a@b.com" :password "secret"}])]
+        (machines/machine-transition login-flow s0
+                                     [:auth.login/submit {:email "a@b.com" :password "secret"}])]
     (is (= :submitting (:state s1)))
     (is (= :rf.http/managed (ffirst fx1)))      ;; :entry ran :issue-request
 
     ;; at the retry limit the guard rejects :error-shown; :locked-out wins
     (let [{s2 ::result/snap}
-          (rf/machine-transition login-flow
-                                 {:state :submitting :data {:attempts 3 :error nil}}
-                                 [:auth.login/failure {:failure {:message "bad creds"}}])]
+          (machines/machine-transition login-flow
+                                       {:state :submitting :data {:attempts 3 :error nil}}
+                                       [:auth.login/failure {:failure {:message "bad creds"}}])]
       (is (= :locked-out (:state s2))))))
 ```
 

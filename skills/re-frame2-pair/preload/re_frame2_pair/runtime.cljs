@@ -71,6 +71,8 @@
             ;; tooling sibling here is bundle-isolation-safe (the
             ;; preload is dev-only).
             [re-frame.subs.tooling :as subs-tooling]
+            [re-frame.schemas :as schemas]
+            [re-frame.machines :as machines]
             ;; register-listener! / trace-buffer (and the rest of
             ;; the listener + ring-buffer surface) live in
             ;; re-frame.trace.tooling, not re-frame.trace. CLJS deliberately
@@ -622,10 +624,10 @@
 
 (defn schemas
   "All registered app-schemas for the operating frame.
-   Map of `path → schema`. (rf/app-schemas frame-id)"
+   Map of `path → schema`. (re-frame.schemas/app-schemas frame-id)"
   ([] (schemas (current-frame)))
   ([frame-id]
-   (rf/app-schemas frame-id)))
+   (schemas/app-schemas frame-id)))
 
 ;; ---------------------------------------------------------------------------
 ;; Registrar introspection
@@ -1018,13 +1020,13 @@
 (defn machines-list
   "(rf/machines) — all registered machine ids."
   []
-  (vec (rf/machines)))
+  (vec (machines/machines)))
 
 (defn machine-describe
   "(rf/machine-meta id) — registered spec map for one machine, or
    `{:ok? false :reason :not-a-machine}`."
   [machine-id]
-  (or (rf/machine-meta machine-id)
+  (or (machines/machine-meta machine-id)
       {:ok? false :reason :not-a-machine :id machine-id}))
 
 (defn machine-state
@@ -4174,7 +4176,7 @@
     ;; of app-db :rf/runtime into the durable runtime-db partition — read
     ;; via `rf/runtime-db-value`, NOT `rf/app-db-value`), so the per-frame
     ;; slice returns {:ids [...] :state {machine-id snapshot}}.
-    :machines   (let [ids (vec (rf/machines))
+    :machines   (let [ids (vec (machines/machines))
                       state (or (get-in (rf/runtime-db-value frame-id)
                                         [:rf.runtime/machines :snapshots])
                                 {})]
@@ -4433,4 +4435,4 @@
                 :events (registrar-list :event)
                 :subs   (registrar-list :sub)
                 :fx     (registrar-list :fx)}
-     :machines (vec (rf/machines))}))
+     :machines (vec (machines/machines))}))

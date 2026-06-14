@@ -40,7 +40,7 @@
             ;; the late-bind hooks are only installed when the namespace
             ;; loads, so each test ns that exercises machines must
             ;; require it explicitly.
-            [re-frame.machines]
+            [re-frame.machines :as machines]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
@@ -264,7 +264,7 @@
   (testing "rf2-ypu5i: `reg-machine*` registers no `:rf.handler/source` —
   the macro walker is the only source of fn form-strings, and the plain-fn
   surface accepts opaque spec data the walker never saw"
-    (rf/reg-machine* :rf2-ypu5i/programmatic
+    (machines/reg-machine* :rf2-ypu5i/programmatic
       {:initial :idle
        :guards  {:any? (fn [_] true)}
        :actions {:noop! (fn [_] nil)}

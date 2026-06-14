@@ -61,7 +61,7 @@
   drop the ~24 KB gzipped Malli surface (rf2-qnxf bundle audit) swap
   in their own validator at boot.
 
-    (rf/set-schema-validator! validate-fn)
+    (schemas/set-schema-validator! validate-fn)
       validate-fn :: (fn [schema value] truthy?)
                    | nil   ;; disables validation entirely
 
@@ -83,7 +83,7 @@
   name says it sets all three schema-language fns, not just the
   validator.
 
-    (rf/set-schema-fns! {:validate validate-fn
+    (schemas/set-schema-fns! {:validate validate-fn
                          :explain  explain-fn
                          :print    print-fn})
 

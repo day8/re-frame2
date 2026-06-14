@@ -191,7 +191,7 @@
        :path   [:prod-elision/copy]})
     (let [seen (listener-fixture
                  (fn []
-                   (rf/clear-flow :prod-elision/clearable)))]
+                   (flows/clear-flow :prod-elision/clearable)))]
       (is (empty? seen)
           "no :rf.flow/cleared trace under prod"))
     (is (nil? (get-in (flows/flows-snapshot) [:rf/default :prod-elision/clearable]))

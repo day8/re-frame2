@@ -20,6 +20,7 @@
   performs both registrations within one test body."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.machines :as machines]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -262,7 +263,7 @@
     ;; populated. We use a machine handler so the snapshot lands at
     ;; [:rf.runtime/machines :snapshots :traffic-light] per Spec 005.
     (rf/reg-event-fx :traffic-light
-      (rf/make-machine-handler
+      (machines/make-machine-handler
         {:initial :red
          :data    {:ticks 0}
          :actions {:tick-action

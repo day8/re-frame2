@@ -325,7 +325,7 @@
                   :rf.egress/output-sensitivity :rf.egress/sensitive})
     (is (contains? (sensitive-decls :rf/default) [:auth :token])
         "declaration present after reg-flow")
-    (rf/clear-flow :token)
+    (flows/clear-flow :token)
     (is (not (contains? (sensitive-decls :rf/default) [:auth :token]))
         "declaration dropped after clear-flow")))
 
@@ -340,7 +340,7 @@
                   :output     (fn [_] {:jwt "x"})
                   :path       [:auth :token]
                   :rf.egress/output-sensitivity :rf.egress/sensitive})
-    (rf/clear-flow :token)
+    (flows/clear-flow :token)
     (is (not (contains? (sensitive-decls :rf/default) [:auth :token]))
         "the flow-sourced declaration is gone")
     (is (contains? (sensitive-decls :rf/default) [:user :ssn])

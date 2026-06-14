@@ -293,7 +293,7 @@ There's one trap here, and it's the kind that passes every casual test. Navigati
 
 !!! warning "Gate all three entry points, not just one"
 
-    If you gate only the programmatic `:rf.route/navigate`, the guard *fails open* the moment someone types `/settings` into the address bar — the protected route loads with no user. Normalise all three navigation events to one shape, then gate once.
+    If you gate only the programmatic `:rf.route/navigate`, the guard *fails open* the moment someone types `/settings` into the address bar — the protected route loads with no user. Normalise all three navigation events to one shape, then gate once. (`match-url` is the URL codec from `re-frame.routing` — `(:require [re-frame.routing :as routing])` — not the `rf/` front porch.)
 
 ```clojure
 (defn- nav-target
@@ -304,9 +304,9 @@ There's one trap here, and it's the kind that passes every casual test. Navigati
     :rf.route/navigate          {:id a :params (or b {})}
     :rf/url-requested           (if-let [to (:to a)]
                                   {:id to :params (or (:params a) {})}
-                                  (when-let [m (rf/match-url (:url a))]
+                                  (when-let [m (routing/match-url (:url a))]
                                     {:id (:route-id m) :params (or (:params m) {})}))
-    :rf.route/handle-url-change (when-let [m (rf/match-url a)]
+    :rf.route/handle-url-change (when-let [m (routing/match-url a)]
                                   {:id (:route-id m) :params (or (:params m) {})})
     nil))
 

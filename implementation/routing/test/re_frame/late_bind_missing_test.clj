@@ -17,7 +17,15 @@
   test would use on CLJS.
 
   Per Spec 002 §The late-bind seam, rf2-k682 (routing split), and the
-  prose at the call sites in `re-frame.core`."
+  prose at the call sites in `re-frame.core`.
+
+  Note (rf2-wad2fl — front-porch shrink): the URL-codec fns `match-url` /
+  `route-url` (and `current-url` / `clear-route`) were demoted off the
+  `re-frame.core` façade — they are reached through `re-frame.routing`
+  now, so the façade artefact-missing contract no longer applies to them.
+  The façade surfaces that remain are the `reg-route` registration MACRO
+  (source-coord capture) and `route-link` (no owned-ns peer); their
+  missing-artefact contracts are tested below."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as late-bind]
@@ -37,44 +45,6 @@
       (f)
       (finally
         (late-bind/set-fn! hook-key original)))))
-
-(deftest match-url-raises-when-routing-artefact-missing
-  (testing "rf/match-url raises :rf.error/routing-artefact-missing when the :routing/match-url hook is nil"
-    (with-hook-as-nil :routing/match-url
-      (fn []
-        (let [thrown (try (rf/match-url "/anything")
-                          nil
-                          (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? thrown)
-              "match-url throws when the routing artefact is absent")
-          (is (= ":rf.error/routing-artefact-missing" (.getMessage thrown))
-              "the documented error category appears in the message")
-          (let [data (ex-data thrown)]
-            (is (= 'rf/match-url (:where data))
-                "ex-data carries :where = 'rf/match-url")
-            (is (= :no-recovery (:recovery data))
-                "ex-data carries :recovery = :no-recovery")
-            (is (string? (:reason data))
-                "ex-data carries :reason as a string")))))))
-
-(deftest route-url-raises-when-routing-artefact-missing
-  (testing "rf/route-url raises :rf.error/routing-artefact-missing when the :routing/route-url hook is nil"
-    (with-hook-as-nil :routing/route-url
-      (fn []
-        (let [thrown (try (rf/route-url :route/probe {:id "x"})
-                          nil
-                          (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? thrown)
-              "route-url throws when the routing artefact is absent")
-          (is (= ":rf.error/routing-artefact-missing" (.getMessage thrown))
-              "the documented error category appears in the message")
-          (let [data (ex-data thrown)]
-            (is (= 'rf/route-url (:where data))
-                "ex-data carries :where = 'rf/route-url")
-            (is (= :route/probe (:route-id data))
-                "ex-data carries :route-id from the call site")
-            (is (= :no-recovery (:recovery data))
-                "ex-data carries :recovery = :no-recovery")))))))
 
 (deftest reg-route-raises-when-routing-artefact-missing
   (testing "rf/reg-route (macro) raises :rf.error/routing-artefact-missing when the :routing/reg-route hook is nil"

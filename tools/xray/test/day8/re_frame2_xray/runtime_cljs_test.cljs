@@ -43,6 +43,7 @@
     runtime exposes only the registration metadata."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.machines :as machines]
             [re-frame.frame :as frame]
             [re-frame.frame-classification :as frame-class]
             [re-frame.registrar :as registrar]
@@ -322,7 +323,7 @@
       (seed-machine-snapshot-in-runtime-db! snapshot)
       ;; Stub the registry surface so `machine-meta` resolves to a spec
       ;; without the runtime artefact on the classpath.
-      (with-redefs [rf/machine-meta (fn [mid]
+      (with-redefs [machines/machine-meta (fn [mid]
                                       (when (= :auth mid) uo0rc3-registered-spec))]
         ;; rf2-jj1xer — runtime-db is REDACTED off-box by default (ruling
         ;; #14); a trusted-local caller opts in with :include-runtime-db?
@@ -354,7 +355,7 @@
                     :data  {:user "ada"}
                     :tags  #{:busy}}]
       (seed-machine-snapshot-in-runtime-db! snapshot)
-      (with-redefs [rf/machine-meta (fn [mid]
+      (with-redefs [machines/machine-meta (fn [mid]
                                       (when (= :auth mid) uo0rc3-registered-spec))]
         ;; No :include-runtime-db? ⇒ the off-box default fails closed.
         (let [result (runtime/get-machine-state {:machine-id :auth})]
@@ -372,7 +373,7 @@
             app-db) succeeds with :state nil + :reason :not-yet-started so
             the absence of a live position cannot be mistaken for a state —
             rf2-uo0rc.3"
-    (with-redefs [rf/machine-meta (fn [mid]
+    (with-redefs [machines/machine-meta (fn [mid]
                                     (when (= :auth mid) uo0rc3-registered-spec))]
       (let [result (runtime/get-machine-state {:machine-id :auth})]
         (is (true? (:ok? result)) "still :ok? true so the agent can read :spec")
@@ -385,8 +386,8 @@
 (deftest get-machine-state-no-such-machine-when-unregistered
   (testing "an unregistered machine-id surfaces :no-such-machine — rf2-uo0rc.3
             keeps the not-found path intact"
-    (with-redefs [rf/machine-meta (fn [_] nil)
-                  rf/machines     (fn [] [:auth :checkout])]
+    (with-redefs [machines/machine-meta (fn [_] nil)
+                  machines/machines     (fn [] [:auth :checkout])]
       (let [result (runtime/get-machine-state {:machine-id :nope})]
         (is (false? (:ok? result)))
         (is (= :no-such-machine (:reason result)))

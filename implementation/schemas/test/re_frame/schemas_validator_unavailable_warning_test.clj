@@ -127,7 +127,7 @@
     (let [recorded (record-traces! ::opt-out)]
       (with-unbound-malli-validate
         (fn []
-          (rf/set-schema-validator! (fn [_schema _value] true))
+          (schemas/set-schema-validator! (fn [_schema _value] true))
           (rf/reg-app-schema [:user] [:map [:id :int]])))
       (is (empty? (warnings-of recorded
                                :rf.warning/schema-validator-unavailable))
@@ -140,7 +140,7 @@
     (let [recorded (record-traces! ::opt-out-bundle)]
       (with-unbound-malli-validate
         (fn []
-          (rf/set-schema-fns! {:validate (fn [_ _] true)})
+          (schemas/set-schema-fns! {:validate (fn [_ _] true)})
           (rf/reg-app-schema [:user] [:map])))
       (is (empty? (warnings-of recorded
                                :rf.warning/schema-validator-unavailable))))))

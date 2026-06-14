@@ -44,6 +44,7 @@
   enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.machines :as machines]
             ;; rf2-kq8nac (EP-0005) — the snapshot-egress chokepoint. The
             ;; LIVE machine-snapshots sub reads the RAW runtime-db slot
             ;; `[:rf.runtime/machines :snapshots]` (EP-0001 rf2-vzld77 —
@@ -685,7 +686,7 @@
     (fn [db _query]
       (let [ov (get db :registered-machines-override)]
         (or ov
-            (try (vec (rf/machines))
+            (try (vec (machines/machines))
                  (catch :default _ []))))))
 
   (rf/reg-event-db :rf.xray/set-registered-machines-override-for-test
@@ -743,7 +744,7 @@
       (or override
           (into {}
                 (keep (fn [id]
-                        (let [m (try (rf/machine-meta id)
+                        (let [m (try (machines/machine-meta id)
                                      (catch :default _ nil))]
                           (when m [id m]))))
                 (or machines [])))))

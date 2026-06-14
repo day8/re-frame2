@@ -18,7 +18,7 @@
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.flows]                            ;; load-time hook for reg-flow
-            [re-frame.machines]                          ;; load-time hook for make-machine-handler
+            [re-frame.machines :as machines]                          ;; load-time hook for make-machine-handler
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.core :refer [reg-view with-frame]]))
@@ -132,7 +132,7 @@
 ;; fire on the failed cascade.
 
 (rf/reg-event-fx ::throw-in-machine
-  (rf/make-machine-handler
+  (machines/make-machine-handler
     {:initial :idle
      :actions {:throw
                (fn [_]

@@ -209,11 +209,11 @@
     (let [{:keys [to params url]} a]
       (cond
         to  {:id to :params (or params {})}
-        url (when-let [{:keys [route-id params]} (rf/match-url url)]
+        url (when-let [{:keys [route-id params]} (routing/match-url url)]
               {:id route-id :params (or params {})})))
 
     :rf.route/handle-url-change
-    (when-let [{:keys [route-id params]} (rf/match-url a)]
+    (when-let [{:keys [route-id params]} (routing/match-url a)]
       {:id route-id :params (or params {})})
 
     nil))

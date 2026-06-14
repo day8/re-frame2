@@ -68,7 +68,7 @@
                       :data-schema DataSchema
                       :states      {:idle {}}}]
       (rf/reg-machine :rf.machine-schema/accepted spec)
-      (let [meta (rf/machine-meta :rf.machine-schema/accepted)]
+      (let [meta (machines/machine-meta :rf.machine-schema/accepted)]
         (is (some? meta) "machine-meta returns the registered spec")
         (is (= DataSchema (:data-schema meta))
             "the :data-schema key round-trips through machine-meta")))))

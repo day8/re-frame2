@@ -158,11 +158,11 @@
             the DEFAULT frame. Write and read agree."
     (rf/reg-app-schema [:user] [:map [:id :int]] :tenant/a)
     ;; Read the same way — both target :tenant/a.
-    (is (= [:map [:id :int]] (rf/app-schema-at [:user] :tenant/a))
+    (is (= [:map [:id :int]] (schemas/app-schema-at [:user] :tenant/a))
         "schema landed in :tenant/a, matching the read sugar")
-    (is (nil? (rf/app-schema-at [:user]))
+    (is (nil? (schemas/app-schema-at [:user]))
         "the DEFAULT frame is untouched — the silent-DEFAULT footgun is gone")
-    (is (nil? (rf/app-schema-at [:user] :rf/default))
+    (is (nil? (schemas/app-schema-at [:user] :rf/default))
         "explicit DEFAULT-frame read also empty")))
 
 (deftest reg-app-schema-bad-opts-shape-fails-loud
@@ -183,10 +183,10 @@
             against the named frame; the coercion is transparent for the
             common shape."
     (rf/reg-app-schema [:user] [:map] {:frame :tenant/b})
-    (is (= [:map] (rf/app-schema-at [:user] :tenant/b)))
+    (is (= [:map] (schemas/app-schema-at [:user] :tenant/b)))
     ;; And the zero-opts arity still defaults to the current frame.
     (rf/reg-app-schema [:auth] [:string])
-    (is (= [:string] (rf/app-schema-at [:auth]))
+    (is (= [:string] (schemas/app-schema-at [:auth]))
         "two-arg arity registers against the current (default) frame")))
 
 (deftest reg-app-schemas-keyword-opts-matches-read-frame
@@ -194,9 +194,9 @@
             keyword registers every entry against THAT frame, not the
             DEFAULT frame; a bad shape fails loud."
     (rf/reg-app-schemas {[:user] [:map] [:auth] [:string]} :tenant/c)
-    (is (= [:map]    (rf/app-schema-at [:user] :tenant/c)))
-    (is (= [:string] (rf/app-schema-at [:auth] :tenant/c)))
-    (is (nil? (rf/app-schema-at [:user]))
+    (is (= [:map]    (schemas/app-schema-at [:user] :tenant/c)))
+    (is (= [:string] (schemas/app-schema-at [:auth] :tenant/c)))
+    (is (nil? (schemas/app-schema-at [:user]))
         "DEFAULT frame untouched for the bulk form too")
     (let [thrown (try (rf/reg-app-schemas {[:user] [:map]} "tenant-c")
                       (catch clojure.lang.ExceptionInfo e e))]
@@ -253,12 +253,12 @@
   (testing "rf2-sk0ql — valid sequential paths register fine: a vector
             key-path, the root `[]`, and a non-vector seq path"
     (rf/reg-app-schema [:n] :int)
-    (is (= :int (rf/app-schema-at [:n])) "vector key-path registers")
+    (is (= :int (schemas/app-schema-at [:n])) "vector key-path registers")
     (rf/reg-app-schema [] [:map [:n :int]])
-    (is (= [:map [:n :int]] (rf/app-schema-at [])) "root [] registers")
+    (is (= [:map [:n :int]] (schemas/app-schema-at [])) "root [] registers")
     ;; A non-vector seq is still a valid get-in path shape.
     (rf/reg-app-schema (list :a :b) :string)
-    (is (= :string (rf/app-schema-at (list :a :b)))
+    (is (= :string (schemas/app-schema-at (list :a :b)))
         "non-vector seq path registers (get-in accepts any sequential ks)")))
 
 (deftest reg-app-schema-normalizes-seq-path-to-canonical-vector
@@ -275,10 +275,10 @@
       (is (contains? (set frame-keys) [:a :b])
           "the stored key is the canonical VECTOR, not the supplied list"))
     ;; The vector-spelling lookup finds the list-registered entry.
-    (is (= :string (rf/app-schema-at [:a :b]))
+    (is (= :string (schemas/app-schema-at [:a :b]))
         "vector lookup resolves the list-registered entry — one identity")
     ;; The stored meta :path is itself the canonical vector.
-    (is (= [:a :b] (:path (rf/app-schema-meta-at (list :a :b))))
+    (is (= [:a :b] (:path (schemas/app-schema-meta-at (list :a :b))))
         "schema-meta :path is the canonical vector, regardless of read spelling")
     ;; reg-app-schema returns the normalized canonical-vector path.
     (is (= [:c :d] (rf/reg-app-schema (list :c :d) :int))
@@ -286,7 +286,7 @@
     ;; Re-registering via the vector spelling overwrites the SAME slot
     ;; (no parallel list-keyed entry survives).
     (rf/reg-app-schema [:a :b] :int)
-    (is (= :int (rf/app-schema-at (list :a :b)))
+    (is (= :int (schemas/app-schema-at (list :a :b)))
         "re-register via the vector spelling hits the same canonical slot")
     (is (= 1 (count (filter #(= [:a :b] %)
                             (keys (get (schemas/snapshot-schemas-by-frame) :rf/default)))))
@@ -299,8 +299,8 @@
             vector, not the raw container shape)"
     (rf/reg-app-schema (list :a :b) :string {:frame :seq-frame})
     (rf/reg-app-schema [:a :b] :string {:frame :vec-frame})
-    (is (= (rf/app-schemas-digest :vec-frame)
-           (rf/app-schemas-digest :seq-frame))
+    (is (= (schemas/app-schemas-digest :vec-frame)
+           (schemas/app-schemas-digest :seq-frame))
         "list-keyed and vector-keyed frames produce byte-identical digests")))
 
 ;; ===========================================================================
@@ -344,15 +344,15 @@
             to the SHARED concrete domain, NOT keyword-only (which would break
             integer-indexed app-db paths like [:cart :items 42])"
     (rf/reg-app-schema [:cart :items 42 :qty] :int)
-    (is (= :int (rf/app-schema-at [:cart :items 42 :qty]))
+    (is (= :int (schemas/app-schema-at [:cart :items 42 :qty]))
         "an integer-indexed app-db path registers + looks up")
     (rf/reg-app-schema [:by-name "alice"] :string)
-    (is (= :string (rf/app-schema-at [:by-name "alice"])) "a string segment")
+    (is (= :string (schemas/app-schema-at [:by-name "alice"])) "a string segment")
     (rf/reg-app-schema [:flag true] :boolean)
-    (is (= :boolean (rf/app-schema-at [:flag true])) "a boolean segment")
+    (is (= :boolean (schemas/app-schema-at [:flag true])) "a boolean segment")
     ;; both safe-integer boundaries register (the canonical-identity range)
     (rf/reg-app-schema [:n 9007199254740991] :int)
-    (is (= :int (rf/app-schema-at [:n 9007199254740991]))
+    (is (= :int (schemas/app-schema-at [:n 9007199254740991]))
         "the max safe integer is an admitted segment")))
 
 (deftest app-schema-lookup-rejects-non-concrete-segment
@@ -360,11 +360,11 @@
             than silently missing (registration AND lookup route through the
             concrete boundary — rf2-ujmc3u acceptance)"
     (is (= :rf.error/bad-path
-           (try (rf/app-schema-at [:a [:nested]]) nil
+           (try (schemas/app-schema-at [:a [:nested]]) nil
                 (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
         "app-schema-at with a composite segment fails closed")
     (is (= :rf.error/bad-path
-           (try (rf/app-schema-meta-at [:a 1.5]) nil
+           (try (schemas/app-schema-meta-at [:a 1.5]) nil
                 (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
         "app-schema-meta-at with a float segment fails closed")))
 
@@ -384,7 +384,7 @@
       (is (= :rf.error/bad-app-schema-path (:rf.error/id (ex-data thrown))))
       (is (= before (schemas/snapshot-schemas-by-frame))
           "NOTHING in the batch landed — atomic all-or-nothing")
-      (is (nil? (rf/app-schema-at [:good] :bulk-frame))
+      (is (nil? (schemas/app-schema-at [:good] :bulk-frame))
           "the earlier-iterated good key did NOT register before the bad one threw"))))
 
 (deftest reg-app-schemas-rejects-batch-with-bad-path-atomically
@@ -403,7 +403,7 @@
             "names the path-shape error category"))
       (is (= before (schemas/snapshot-schemas-by-frame))
           "NO entry from the batch landed — all-or-nothing")
-      (is (nil? (rf/app-schema-at [:good]))
+      (is (nil? (schemas/app-schema-at [:good]))
           "the well-formed sibling did not half-register"))))
 
 (deftest reg-app-schemas-accepts-all-valid-paths
@@ -412,9 +412,9 @@
     (rf/reg-app-schemas {[:good]      :int
                          []           [:map]
                          [:cart :qty] :int})
-    (is (= :int    (rf/app-schema-at [:good])))
-    (is (= [:map]  (rf/app-schema-at [])))
-    (is (= :int    (rf/app-schema-at [:cart :qty])))))
+    (is (= :int    (schemas/app-schema-at [:good])))
+    (is (= [:map]  (schemas/app-schema-at [])))
+    (is (= :int    (schemas/app-schema-at [:cart :qty])))))
 
 ;; ---- runtime-db path hard-reject (rf2-k0ew8n) ----------------------------
 ;;
@@ -508,11 +508,11 @@
             runtime root registers fine, and a runtime keyword NOT in head
             position is allowed"
     (rf/reg-app-schema [:user] [:map [:id :int]] {:frame :tenant/rt})
-    (is (= [:map [:id :int]] (rf/app-schema-at [:user] :tenant/rt)))
+    (is (= [:map [:id :int]] (schemas/app-schema-at [:user] :tenant/rt)))
     ;; A runtime keyword that is NOT the first segment is fine — only the
     ;; head matters (app-db could legitimately hold such a nested key).
     (rf/reg-app-schema [:user :rf.runtime/note] :string {:frame :tenant/rt})
-    (is (= :string (rf/app-schema-at [:user :rf.runtime/note] :tenant/rt)))
+    (is (= :string (schemas/app-schema-at [:user :rf.runtime/note] :tenant/rt)))
     ;; The empty root [] is the whole-app-db schema — never runtime.
     (is (not (storage/runtime-app-schema-path? [])))
     (is (not (storage/runtime-app-schema-path? [:rf/something-else])))))
@@ -537,7 +537,7 @@
                (:rf.error/id (ex-data thrown)))))
       (is (= before (schemas/snapshot-schemas-by-frame))
           "NO entry from the batch landed — all-or-nothing")
-      (is (nil? (rf/app-schema-at [:good] :tenant/rt))
+      (is (nil? (schemas/app-schema-at [:good] :tenant/rt))
           "the well-formed app-db sibling did not half-register"))))
 
 ;; ---- end-to-end bypass invariant (rf2-sk0ql) -----------------------------
@@ -659,13 +659,13 @@
     (let [snap (schemas/snapshot-schemas-by-frame)]
       ;; Mutate.
       (rf/reg-app-schema [:user] [:vector])
-      (is (= [:vector] (rf/app-schema-at [:user]))
+      (is (= [:vector] (schemas/app-schema-at [:user]))
           "mutation visible before restore")
       ;; Restore.
       (schemas/restore-schemas-by-frame! snap)
-      (is (= [:map [:id :int]] (rf/app-schema-at [:user]))
+      (is (= [:map [:id :int]] (schemas/app-schema-at [:user]))
           "restore replays the captured state")
-      (is (= [:string] (rf/app-schema-at [:auth]))
+      (is (= [:string] (schemas/app-schema-at [:auth]))
           "sibling entries restored too"))))
 
 (deftest clear-removes-all-registrations
@@ -673,9 +673,9 @@
     (rf/reg-app-schema [:user] [:map])
     (rf/reg-app-schema [:user] [:vector] {:frame :tenant/a})
     (schemas/clear-schemas-by-frame!)
-    (is (nil? (rf/app-schema-at [:user]))
+    (is (nil? (schemas/app-schema-at [:user]))
         "default-frame registration cleared")
-    (is (nil? (rf/app-schema-at [:user] :tenant/a))
+    (is (nil? (schemas/app-schema-at [:user] :tenant/a))
         "tenant-frame registration cleared")
     (is (= {} (schemas/frame-schema-entries :rf/default)))
     (is (= {} (schemas/frame-schema-entries :tenant/a)))))
@@ -700,9 +700,9 @@
     (schemas/on-frame-destroyed! :tenant/doomed)
     (is (= {} (schemas/frame-schema-entries :tenant/doomed))
         "destroyed frame's entries are gone")
-    (is (nil? (rf/app-schema-at [:user] :tenant/doomed))
+    (is (nil? (schemas/app-schema-at [:user] :tenant/doomed))
         "looking up a destroyed frame's schema yields nil")
-    (is (= [:map] (rf/app-schema-at [:user] :tenant/survivor))
+    (is (= [:map] (schemas/app-schema-at [:user] :tenant/survivor))
         "sibling frame's registration survives — destroy is frame-scoped")))
 
 (deftest on-frame-destroyed-is-idempotent-no-op-for-missing-frame

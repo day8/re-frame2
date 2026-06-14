@@ -348,10 +348,13 @@
   ["re-frame.core" "reg-view"]            {:tier :front-porch :owner "004" :status "v1"}
   ["re-frame.core" "reg-view*"]           {:tier :advanced    :owner "004" :status "v1"}
   ["re-frame.core" "reg-machine"]         {:tier :advanced    :owner "005" :status "v1"}
-  ["re-frame.core" "reg-machine*"]        {:tier :advanced    :owner "005" :status "v1"}
   ["re-frame.core" "defmachine"]          {:tier :advanced    :owner "005" :status "v1"}
   ["re-frame.core" "reg-app-schema"]      {:tier :advanced    :owner "010" :status "v1"}
   ["re-frame.core" "reg-app-schemas"]     {:tier :advanced    :owner "010" :status "v1"}
+  ;; rf2-wad2fl (front-porch shrink): `reg-machine*` (the plain-fn machine-
+  ;; registration surface) is no longer a `re-frame.core` façade export — it is
+  ;; reached through `re-frame.machines/reg-machine*` (already classified
+  ;; below). The `reg-machine` / `defmachine` MACROS stay on the façade.
   ;; EP-0015 §3 + bead item 2 (rf2-mngp4o): the imperative `add-marks` /
   ;; `set-marks` path-marks API is removed from the public `re-frame.core`
   ;; façade — frame-owned `:sensitive` / `:large` classification +
@@ -413,7 +416,8 @@
   ["re-frame.core" "clear-event"]         {:tier :advanced :owner "002" :status "v1 (preserved)"}
   ["re-frame.core" "clear-sub"]           {:tier :advanced :owner "002" :status "v1 (preserved)"}
   ["re-frame.core" "clear-fx"]            {:tier :advanced :owner "002" :status "v1 (preserved)"}
-  ["re-frame.core" "clear-flow"]          {:tier :advanced :owner "013" :status "v1"}
+  ;; rf2-wad2fl: `clear-flow` is no longer a façade export — reach it through
+  ;; `re-frame.flows/clear-flow` (already classified below).
   ["re-frame.core" "clear-http-interceptor"] {:tier :advanced :owner "014" :status "v1 (optional capability)"}
   ["re-frame.core" "destroy-frame!"]      {:tier :front-porch :owner "002" :status "v1"}
   ["re-frame.core" "reset-frame!"]        {:tier :advanced :owner "002" :status "v1"}
@@ -541,12 +545,12 @@
   ["re-frame.core" "registrations"]        {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "handler-ids"]          {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "handler-meta"]         {:tier :tooling :owner "002" :status "v1"}
-  ["re-frame.core" "machines"]             {:tier :tooling :owner "005" :status "v1"}
-  ["re-frame.core" "machine-meta"]         {:tier :tooling :owner "005" :status "v1"}
-  ["re-frame.core" "machine-by-system-id"] {:tier :advanced :owner "005" :status "v1"}
+  ;; rf2-wad2fl: the machine QUERY / handler-build / pure-engine helpers
+  ;; (`machines`, `machine-meta`, `machine-by-system-id`, `machine-transition`,
+  ;; `make-machine-handler`) are no longer façade exports — reach them through
+  ;; `re-frame.machines` (already classified below). `machine-has-tag?` (a
+  ;; subscription sugar with no owned-ns peer) stays on the façade.
   ["re-frame.core" "machine-has-tag?"]     {:tier :advanced :owner "005" :status "v1"}
-  ["re-frame.core" "machine-transition"]   {:tier :advanced :owner "005" :status "v1"}
-  ["re-frame.core" "make-machine-handler"] {:tier :advanced :owner "005" :status "v1"}
   ["re-frame.core" "frame-ids"]            {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "frame-meta"]           {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "app-db-value"]         {:tier :advanced :owner "002" :status "v1"}
@@ -560,15 +564,14 @@
   ["re-frame.core" "sub-topology"]         {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "sub-cache"]            {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "compute-sub"]          {:tier :testing :owner "008" :status "v1"}
-  ;; Schema introspection re-exports (canonical home: re-frame.schemas).
-  ["re-frame.core" "app-schemas"]          {:tier :tooling :owner "010" :status "v1"}
-  ["re-frame.core" "app-schema-at"]        {:tier :tooling :owner "010" :status "v1"}
-  ["re-frame.core" "app-schema-meta-at"]   {:tier :tooling :owner "010" :status "v1"}
-  ["re-frame.core" "app-schemas-digest"]   {:tier :tooling :owner "010" :status "v1"}
-  ["re-frame.core" "set-schema-validator!"] {:tier :advanced :owner "010" :status "v1"}
-  ["re-frame.core" "set-schema-explainer!"] {:tier :advanced :owner "010" :status "v1"}
-  ["re-frame.core" "set-schema-printer!"]   {:tier :advanced :owner "010" :status "v1"}
-  ["re-frame.core" "set-schema-fns!"]       {:tier :advanced :owner "010" :status "v1"}
+  ;; Schema introspection + validator-install re-exports REMOVED from the
+  ;; façade (rf2-wad2fl — front-porch shrink): `app-schemas`, `app-schema-at`,
+  ;; `app-schema-meta-at`, `app-schemas-digest`, `set-schema-validator!`,
+  ;; `set-schema-explainer!`, `set-schema-printer!`, `set-schema-fns!` are
+  ;; reached through `re-frame.schemas` (already classified below). The
+  ;; `reg-app-schema` / `reg-app-schemas` REGISTRATION MACROS stay on the
+  ;; façade (above). `validate-at-boundary-interceptor` (owned by re-frame.spec,
+  ;; no schemas-ns peer) stays on the façade.
   ["re-frame.core" "validate-at-boundary-interceptor"] {:tier :advanced :owner "010" :status "v1"}
   ;; SSR query-surface re-exports (canonical home: re-frame.ssr).
   ["re-frame.core" "render-to-string"]              {:tier :advanced :owner "011" :status "v1"}
@@ -578,12 +581,15 @@
   ["re-frame.core" "active-head"]                   {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.core" "head-model->html"]              {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.core" "head-snapshot"]                 {:tier :advanced :owner "011" :status "v1"}
-  ;; Routing re-exports (canonical home: re-frame.routing).
-  ["re-frame.core" "match-url"]      {:tier :advanced :owner "012" :status "v1"}
-  ["re-frame.core" "route-url"]      {:tier :advanced :owner "012" :status "v1"}
+  ;; Routing re-exports. rf2-wad2fl (front-porch shrink): the URL-codec +
+  ;; lifecycle QUERY helpers `match-url` / `route-url` / `current-url` /
+  ;; `clear-route` are no longer façade exports — reach them through
+  ;; `re-frame.routing` (already classified below). The `reg-route`
+  ;; REGISTRATION MACRO stays on the façade (above). `route-link` (the view)
+  ;; + the `install-history-listener!` / `remove-history-listener!` boot seams
+  ;; stay on the façade (no classified owned-ns peer — the routing-ns forms
+  ;; are CLJS-only and unrowed).
   ["re-frame.core" "route-link"]     {:tier :advanced :owner "012" :status "v1"}
-  ["re-frame.core" "current-url"]    {:tier :advanced :owner "012" :status "v1"}
-  ["re-frame.core" "clear-route"] {:tier :tooling :owner "012" :status "v1"}
   ["re-frame.core" "install-history-listener!"] {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.core" "remove-history-listener!"]  {:tier :advanced :owner "012" :status "v1"}
   ;; HTTP test-support re-exports (canonical home: re-frame.http-test-support).

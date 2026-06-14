@@ -148,7 +148,7 @@
             `nil` disables every validation surface — including the
             boundary interceptor. The handler runs on a wildly malformed
             payload because validation has been opted out."
-    (rf/set-schema-validator! nil)
+    (schemas/set-schema-validator! nil)
     (try
       (let [calls (atom 0)]
         (rf/reg-event-fx :api/disabled
