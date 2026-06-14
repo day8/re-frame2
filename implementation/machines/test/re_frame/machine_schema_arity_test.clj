@@ -13,7 +13,7 @@
     2. `register-data-schema-marks!` — bridges the schema's `:sensitive?` /
        `:large?` per-slot markers into snapshot-egress redaction.
 
-  Before rf2-genufr, the direct `(reg-event-fx id meta (make-machine-handler
+  Before rf2-genufr, the direct `(reg-event id meta (make-machine-handler
   spec))` path ran NEITHER automatically — the author had to hand-stamp the
   meta and the marks bridge never ran at all. `make-machine-handler` is now
   the fail-loud guard: a `:data-schema`-bearing spec reaching it outside the
@@ -36,7 +36,7 @@
       (rejecting a malformed vector BEFORE the handler runs), while the
       `:data-schema` validates the machine's `:data`. Both live together.
 
-   4. **Fail-loud guard.** The bare `(reg-event-fx id meta
+   4. **Fail-loud guard.** The bare `(reg-event id meta
       (make-machine-handler spec))` path on a `:data-schema`-bearing spec now
       RAISES `:rf.error/machine-schema-requires-reg-machine` rather than
       silently no-opping. A schema-LESS spec stays legal on the bare path."
@@ -219,7 +219,7 @@
 ;; ---- (4) fail-loud guard on the bare unstamped-with-schema direct path -----
 
 (deftest bare-direct-path-with-data-schema-fails-loud
-  (testing "the bare (reg-event-fx id meta (make-machine-handler spec)) path on
+  (testing "the bare (reg-event id meta (make-machine-handler spec)) path on
             a :data-schema-bearing spec RAISES :rf.error/machine-schema-requires-
             reg-machine rather than silently no-opping"
     (let [ex (try

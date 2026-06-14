@@ -26,7 +26,7 @@
   synthesises a stub-event id of the form `:rf.story.fx-stub/<dec-id>`.
   The Stage 3 frames runtime then:
 
-    1. Registers a `reg-event-fx` under the stub-event id (returning
+    1. Registers a `reg-event` handler under the stub-event id (returning
        `{:db (-> db (update :rf.story.fx-stub/log conj ...))}`).
     2. Stamps `{:fx-overrides {<fx-id> <stub-event-id>}}` onto the
        variant frame's config so re-frame's router redirects any
