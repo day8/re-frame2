@@ -86,7 +86,7 @@ A resource is "a sub you read and a cause you fire." A mutation is the mirror im
 ```clojure
 ;; src/conduit/views.cljs
 ;; cf. examples/reagent/realworld_resources/views.cljs
-(rf/reg-event-fx :ui/favorite
+(rf/reg-event :ui/favorite
   (fn [{:keys [db]} [_ slug favorited?]]
     (if (nil? (get-in db [:auth :user]))
       ;; Logged out, a favorite click goes to login instead of a 401.
@@ -182,7 +182,7 @@ The editor's `app-db` slice is an ordinary form in Part 3's mold: a `:draft` the
 
 ;; The editor route's :on-match (registered below): fresh slice, prior
 ;; save instance cleared.
-(rf/reg-event-fx :editor/initialise
+(rf/reg-event :editor/initialise
   (fn [{:keys [db]} _]
     {:db (assoc db :editor (editor-slice))
      :fx [[:dispatch [:rf.mutation/clear {:instance :editor/save}]]]}))
@@ -191,7 +191,7 @@ The editor's `app-db` slice is an ordinary form in Part 3's mold: a `:draft` the
 Submit validates, then fires the mutation. The continuation is named right at the call site:
 
 ```clojure
-(rf/reg-event-fx :editor/submit
+(rf/reg-event :editor/submit
   (fn [{:keys [db]} _]
     (let [{:keys [slug draft baseline]} (:editor db)
           errors (validate-draft draft)]
@@ -217,7 +217,7 @@ Submit validates, then fires the mutation. The continuation is named right at th
 When the runtime accepts the write's reply, it dispatches `[:editor/replied reply]` — your event target, with one canonical **reply map** appended as the final argument:
 
 ```clojure
-(rf/reg-event-fx :editor/replied
+(rf/reg-event :editor/replied
   (fn [{:keys [db]} [_ {:keys [status value]}]]
     (if (not= :ok status)
       ;; Failure already shows on the form via the instance's :error state.

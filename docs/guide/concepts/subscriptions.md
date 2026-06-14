@@ -92,14 +92,14 @@ The gate scales further than you'd guess. The [Cells spreadsheet example](../../
 Reading about a circuit breaker is one thing; watching one branch stay silent while its neighbour fires is better. Drop this into your app. It's self-contained: two independent app-db slices, one extractor and one derivation per branch, one view reading both. (`rf/reg-view` registers the view and injects the frame-aware `dispatch` / `subscribe` locals its body uses — [Views](views.md) tells that story.)
 
 ```clojure
-(rf/reg-event-db :pulse/initialise
-  (fn [db _]
-    (assoc db
-           :pulse/ticks 0                            ;; this slice will change
-           :pulse/motto "facts in, conclusions out"))) ;; this one never does
+(rf/reg-event :pulse/initialise
+  (fn [{:keys [db]} _]
+    {:db (assoc db
+                :pulse/ticks 0                            ;; this slice will change
+                :pulse/motto "facts in, conclusions out")})) ;; this one never does
 
-(rf/reg-event-db :pulse/tick
-  (fn [db _] (update db :pulse/ticks inc)))
+(rf/reg-event :pulse/tick
+  (fn [{:keys [db]} _] {:db (update db :pulse/ticks inc)}))
 
 ;; Layer 1 — one tiny extractor per slice.
 (rf/reg-sub :pulse/ticks (fn [db _] (:pulse/ticks db)))
@@ -130,7 +130,7 @@ Now **observe**. With Xray attached (the one-line setup is in [Debug with Xray](
 
 Every tick is a brand-new app-db value, and both branches are attached to it. The difference between them is the gate. Change flows exactly as far as values actually move, and not one node further.
 
-> **Try it.** Register a deliberate no-op — `(rf/reg-event-db :pulse/restate (fn [db _] (assoc db :pulse/motto "facts in, conclusions out")))` — give it a button, and dispatch it. The event row appears and the cascade ends immediately: app-db is `=` to before, so nothing recomputed and nothing re-rendered. The graph proved nothing changed and went back to sleep.
+> **Try it.** Register a deliberate no-op — `(rf/reg-event :pulse/restate (fn [{:keys [db]} _] {:db (assoc db :pulse/motto "facts in, conclusions out")}))` — give it a button, and dispatch it. The event row appears and the cascade ends immediately: app-db is `=` to before, so nothing recomputed and nothing re-rendered. The graph proved nothing changed and went back to sleep.
 
 ## Parametric inputs: the two-function form
 

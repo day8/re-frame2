@@ -131,9 +131,9 @@ Your page owns the layout; Xray owns only the content inside `[data-rf-xray-host
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; --- The boot event: seeds the initial app-db value ---
-(rf/reg-event-db :app/initialise
-  (fn [_db _event]
-    {:session {:user nil}}))          ;; nobody is signed in yet
+(rf/reg-event :app/initialise
+  (fn [_cofx _event]
+    {:db {:session {:user nil}}}))    ;; nobody is signed in yet
 
 ;; --- Subscription: who is signed in? ---
 (rf/reg-sub :session/user

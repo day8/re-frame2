@@ -66,12 +66,12 @@ The RealWorld editor's submit gate is the canonical case. "Can the user submit?"
                   (not= draft baseline)))
    :path   [:editor :can-submit?]})
 
-(rf/reg-event-fx :editor/initialise
+(rf/reg-event :editor/initialise
   (fn [{:keys [db]} _event]
     {:db (assoc db :editor (editor-slice))         ;; the blank {:draft … :baseline …} slice
      :fx [[:rf.fx/reg-flow can-submit-flow]]}))    ;; registered on page entry, bound to this frame
 
-(rf/reg-event-fx :editor/submit
+(rf/reg-event :editor/submit
   (fn [{:keys [db]} _event]
     (let [draft (get-in db [:editor :draft])]
       (if (get-in db [:editor :can-submit?])       ;; the flow's output, read as plain data
@@ -106,7 +106,7 @@ Flows are registered against the runtime, not compiled into event chains. So you
 
 ```clojure
 ;; Condensed from examples/reagent/flows/core.cljs — a 10%-off feature gate
-(rf/reg-event-fx :cart/apply-discount
+(rf/reg-event :cart/apply-discount
   (fn [_cofx _event]
     {:fx [[:rf.fx/reg-flow {:id     :cart/discount-rate
                             :inputs [[:cart :subtotal]]
@@ -114,13 +114,13 @@ Flows are registered against the runtime, not compiled into event chains. So you
                             :path   [:cart :discount-rate]}]
           [:dispatch [:cart/touch]]]}))             ;; see the lag note below
 
-(rf/reg-event-fx :cart/remove-discount
+(rf/reg-event :cart/remove-discount
   (fn [_cofx _event]
     {:fx [[:rf.fx/clear-flow :cart/discount-rate]
           [:dispatch [:cart/touch]]]}))
 
-(rf/reg-event-db :cart/touch
-  (fn [db _event] db))                              ;; no-op; exists only to trigger a drain
+(rf/reg-event :cart/touch
+  (fn [{:keys [db]} _event] {:db db}))              ;; no-op; exists only to trigger a drain
 ```
 
 `:rf.fx/clear-flow` removes the registration **and vacates the value at `:path`**, so no stale derived state is left behind for downstream readers to trust by mistake. (If you need the last value, copy it somewhere else before clearing.)

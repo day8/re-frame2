@@ -24,7 +24,7 @@ Before the payoffs, the bug — because this is the part that actually bites peo
 
 ```clojure
 ;; THE TRAP — do not copy.
-(rf/reg-event-fx :checkout/quote
+(rf/reg-event :checkout/quote
   (fn [{:keys [db]} _]
     (-> (js/fetch "/api/checkout/quote")
         (.then #(.json %))
@@ -46,7 +46,7 @@ The `.then` closure captured `db` (your app-db, the single state map handed to t
 Now the same intent with the continuation as data:
 
 ```clojure
-(rf/reg-event-fx :checkout/quote
+(rf/reg-event :checkout/quote
   (fn [{:keys [db]} _]
     {:db (assoc-in db [:checkout :status] :quoting)
      :fx [[:rf.http/managed
@@ -54,18 +54,18 @@ Now the same intent with the continuation as data:
             :on-success [:checkout/quoted]
             :on-failure [:checkout/quote-failed]}]]}))
 
-(rf/reg-event-db :checkout/quoted
-  (fn [db [_ {:keys [value]}]]
+(rf/reg-event :checkout/quoted
+  (fn [{:keys [db]} [_ {:keys [value]}]]
     ;; This `db` is current — handed to the handler at ARRIVAL time.
-    (if (= (:cart/version db) (:cart-version value))
-      (assoc-in db [:checkout :quote] value)
-      (assoc-in db [:checkout :status] :cart-changed))))
+    {:db (if (= (:cart/version db) (:cart-version value))
+           (assoc-in db [:checkout :quote] value)
+           (assoc-in db [:checkout :status] :cart-changed))}))
 
-(rf/reg-event-db :checkout/quote-failed
-  (fn [db [_ {:keys [failure]}]]
-    (-> db
-        (assoc-in [:checkout :status] :error)
-        (assoc-in [:checkout :error]  failure))))
+(rf/reg-event :checkout/quote-failed
+  (fn [{:keys [db]} [_ {:keys [failure]}]]
+    {:db (-> db
+             (assoc-in [:checkout :status] :error)
+             (assoc-in [:checkout :error]  failure))}))
 ```
 
 A closure **closes over the past; a handler receives the present.** The reply handler (the function registered to run when the answer arrives) is given the db of the moment the reply lands. So "did the cart change while we waited?" is a live comparison, not a memory. It takes no discipline on your part — there is simply no mechanism by which the old db can leak into the new decision.

@@ -40,19 +40,19 @@ This is the first load-bearing idea, and it's the one that trips people up comin
 **2 — The handler runs.** The runtime dequeues `[:counter/inc]` and looks up its registered handler:
 
 ```clojure
-(rf/reg-event-db :counter/inc
-  (fn [db _event] (update db :counter/value inc)))
+(rf/reg-event :counter/inc
+  (fn [{:keys [db]} _event] {:db (update db :counter/value inc)}))
 ```
 
-It runs as a pure function: current `db` and the event in, next `db` out. No I/O, no DOM, no clock. You can test it in one line, because given `{:counter/value 5}` it returns `{:counter/value 6}` and nothing else ([Test an event handler](../how-to/test-an-event-handler.md) is exactly this).
+It runs as a pure function: the coeffects (the facts it's handed — `:db` among them) and the event in, an **effect map** out. No I/O, no DOM, no clock. You can test it in one line, because given a coeffects map with `:db {:counter/value 5}` it returns `{:db {:counter/value 6}}` and nothing else ([Test an event handler](../how-to/test-an-event-handler.md) is exactly this).
 
-**3 — Effects come out, as data.** The handler returned `{:counter/value 6}`. Because this was a `reg-event-db` registration, the runtime wraps that bare return into an **effect map** — a description of what should happen, expressed as data:
+**3 — Effects come out, as data.** The handler returned an **effect map** — a description of what should happen, expressed as data:
 
 ```clojure
 {:db {:counter/value 6}}
 ```
 
-Pause here, because it reframes what a handler is. Even our trivially pure handler caused a side effect: somebody has to swap app-db. The trick is that the handler *described* the change and the runtime *performed* it. `reg-event-db` is just sugar for the general form, `reg-event-fx`. Its handlers return the effect map themselves: `:db` to replace app-db, plus an `:fx` vector of `[effect-id args]` rows for everything else. Same machine, two spellings.
+Pause here, because it reframes what a handler is. Even our trivially pure handler caused a side effect: somebody has to swap app-db. The trick is that the handler *described* the change and the runtime *performed* it. Read the map as *"the next state, and anything else to do."* The "anything else" rides in an `:fx` vector of `[effect-id args]` rows — an HTTP request, a navigation, a follow-up dispatch. The counter's map has only `:db`, so there's nothing else to do; but it's the same map a handler that fires three effects returns, just with the other keys empty. One shape, no second spelling: a db update is the effect `{:db …}`, stated as plainly as every other effect.
 
 **4 — The runtime executes the effects.** It sees `:db` and swaps app-db to `{:counter/value 6}` in one atomic step, which means no observer ever sees a half-written state. If there were `:fx` rows, it would run them next, in source order, after the `:db` commit. For this click there are none.
 
@@ -81,14 +81,14 @@ Real apps reach outside themselves: servers, storage, timers. The counter never 
 
 ```clojure
 ;; Don't do this.
-(rf/reg-event-db :article/load
-  (fn [db [_ {:keys [slug]}]]
+(rf/reg-event :article/load
+  (fn [{:keys [db]} [_ {:keys [slug]}]]
     (.then (js/fetch (str "/api/articles/" slug))
            (fn [response]
              ;; ...and now what? The `db` this closure captured is
              ;; already stale, and returning from here goes nowhere.
              ))
-    (assoc db :article/loading? true)))
+    {:db (assoc db :article/loading? true)}))
 ```
 
 This fails three ways, and the failures are the reasons for the architecture, not style points:
@@ -107,7 +107,7 @@ Here is the same load, written so the handler stays pure. An effect, here, is a 
 
 ```clojure
 ;; cf. examples/reagent/realworld/articles.cljs
-(rf/reg-event-fx :article/load
+(rf/reg-event :article/load
   (fn [{:keys [db]} [_ {:keys [slug]}]]
     {:db (assoc db :article/loading? true)
      :fx [[:rf.http/managed
@@ -119,17 +119,17 @@ Here is the same load, written so the handler stays pure. An effect, here, is a 
 
 ;; The reply payload rides as the last event argument;
 ;; :value is the decoded response body — here {:article {...}}.
-(rf/reg-event-db :article/loaded
-  (fn [db [_ {:keys [value]}]]
-    (-> db
-        (assoc :article/loading? false)
-        (assoc :article/current (:article value)))))
+(rf/reg-event :article/loaded
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    {:db (-> db
+             (assoc :article/loading? false)
+             (assoc :article/current (:article value)))}))
 
-(rf/reg-event-db :article/load-failed
-  (fn [db [_ {:keys [failure]}]]
-    (-> db
-        (assoc :article/loading? false)
-        (assoc :article/load-error failure))))
+(rf/reg-event :article/load-failed
+  (fn [{:keys [db]} [_ {:keys [failure]}]]
+    {:db (-> db
+             (assoc :article/loading? false)
+             (assoc :article/load-error failure))}))
 ```
 
 The handler still returns nothing but a Clojure map: strings, keywords, vectors. No promise, no callback, no `js/fetch`. The map describes everything that should happen: "set app-db to this, fire a managed HTTP request, on success dispatch `[:article/loaded ...]`, on failure dispatch `[:article/load-failed ...]`." The runtime reads the `:fx` row, looks up the `:rf.http/managed` effect handler, and performs the request. When the reply arrives, it enters the system the only way anything enters the system: as a fresh event on the queue, with its own trip through the six steps and its own row in Xray.
@@ -138,10 +138,10 @@ Read what that bought you. The entire fetch flow is three pure handlers you read
 
 Two notes before moving on:
 
-- **The first argument is the coeffects map** — a coeffect being an input fact the handler needs from the world, gathered with everything else into one value. `:db` and `:event` arrive for free. A handler that needs more (the current time, a storage read) declares those facts at registration with `:rf.cofx/requires` and receives them as plain values in that map. That declaration — and why needing the world is what graduates a handler from `reg-event-db` to `reg-event-fx` — is [the coeffects page's](effects-and-coeffects.md) subject.
+- **The first argument is the coeffects map** — a coeffect being an input fact the handler needs from the world, gathered with everything else into one value. `:db` and `:event` arrive for free. A handler that needs more (the current time, a storage read) declares those facts at registration with `:rf.cofx/requires` and receives them as plain values in that map — no change to the handler's shape, just a line of metadata. That declaration is [the coeffects page's](effects-and-coeffects.md) subject.
 - **Follow-up events from inside a handler are effects too.** Never call `dispatch` from a handler body. Return `:fx [[:dispatch [:next-thing]]]` and the runtime queues it. Same rule, same reason: describe, don't do.
 
-> **Coming from Redux?** `reg-event-fx` is where thunks, sagas, and middleware used to live — except the handler stays a pure function, and the "middleware" is the runtime's effect interpreter.
+> **Coming from Redux?** The `:fx` vector is where thunks, sagas, and middleware used to live — except the handler stays a pure function returning data, and the "middleware" is the runtime's effect interpreter.
 
 For real server data you will usually reach one level higher than raw HTTP — [resources](server-state.md) manage the request, caching, and staleness for you — but the mechanism underneath is exactly this fx.
 
@@ -188,6 +188,6 @@ The trade is the framework's signature move, made for the third time on this pag
 
 - explain what an event is (a recorded fact, not an instruction) and what `dispatch` does (queue it and return),
 - trace a click through all six steps of the cascade and point at each one in Xray's event rows,
-- say why handlers return effect descriptions instead of performing effects, and rewrite an inline fetch into a pure `reg-event-fx` handler with named success and failure events,
+- say why handlers return effect descriptions instead of performing effects, and rewrite an inline fetch into a pure `reg-event` handler with named success and failure events,
 - state the ledger promise — *two fresh apps, fed the same sequence of events, finish in identical states* — and name its precondition (recorded inputs, not ambient reads),
 - predict when the screen repaints: once per drain, after the cascade settles.

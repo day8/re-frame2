@@ -186,7 +186,7 @@ The cross-session leak — user B sees user A's dashboard — has a structural f
 
 ```clojure
 ;; Adapted from examples/reagent/realworld_resources/auth.cljs
-(rf/reg-event-fx :auth/logout
+(rf/reg-event :auth/logout
   (fn [{:keys [db]} _]
     (let [old-scope (rf/resolve-resource-scope db :realworld/session)]
       {:db (dissoc db :auth)

@@ -19,7 +19,7 @@ Every public surface gets one row below. The API page gives signatures with intu
 
 | Domain | What it covers | API page | Owning spec |
 |---|---|---|---|
-| Core | `reg-event-db` / `reg-event-fx`, `reg-sub`, `dispatch`, `subscribe`, frames — the loop's registration and verb surface | [01 — Core](../api/01-core.md) | [001-Registration](../../spec/001-Registration.md), [002-Frames](../../spec/002-Frames.md) |
+| Core | `reg-event`, `reg-sub`, `dispatch`, `subscribe`, frames — the loop's registration and verb surface | [01 — Core](../api/01-core.md) | [001-Registration](../../spec/001-Registration.md), [002-Frames](../../spec/002-Frames.md) |
 | Views | `reg-view` and the substrate-agnostic pure-view contract | [02 — Views](../api/02-views.md) | [004-Views](../../spec/004-Views.md) |
 | Effects and interceptors | The closed `:db` + `:fx` effect map, `reg-fx` / `reg-cofx`, interceptors, fx-overrides | [03 — Effects](../api/03-effects.md) | [002-Frames](../../spec/002-Frames.md) |
 | State machines | `reg-machine` and the transition-table grammar — hierarchy, `:after`, `:spawn`, parallel regions | [04 — Machines](../api/04-machines.md) | [005-StateMachines](../../spec/005-StateMachines.md) |

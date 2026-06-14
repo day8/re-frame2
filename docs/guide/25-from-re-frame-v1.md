@@ -4,9 +4,9 @@ You have a re-frame v1 app and a migration to plan. The real question on your mi
 
 ## The good news first, because it's load-bearing
 
-The bones are identical. The six dominoes are still the six dominoes. Events — the data describing what happened — are still data. Handlers, the pure functions that take your current state and an event and return new state, are still `(db, event) → db`. Subscriptions, the read side that derives values from state, are still derivations off a single `app-db` (your app's whole state, held in one map). The opinionated stance hasn't moved either: one source of truth, data over APIs over syntax, immutable values and stable contracts. v2 is v1's architecture with new capabilities grown on top.
+The bones are identical. The six dominoes are still the six dominoes. Events — the data describing what happened — are still data. Handlers are still pure functions of state, registered against an event id. Subscriptions, the read side that derives values from state, are still derivations off a single `app-db` (your app's whole state, held in one map). The opinionated stance hasn't moved either: one source of truth, data over APIs over syntax, immutable values and stable contracts. v2 is v1's architecture with new capabilities grown on top.
 
-That's why your v1 code reads as v2 code on the first pass. A `reg-event-db` is a `reg-event-db`. A `reg-sub` is a `reg-sub`. A hiccup view — the data structure describing your UI — is a hiccup view. The migration is not a rewrite. It's a sweep: a bounded set of mechanical renames, a smaller set of judgment calls, and a few new shapes you choose to adopt. The framework counts "40-plus M- and O-rules," and that number sounds alarming, but the vast majority are find-and-replace, and a tool does them for you.
+That's why your v1 code reads as v2 code on the first pass. A `reg-sub` is a `reg-sub`. A hiccup view — the data structure describing your UI — is a hiccup view. Event registration is the one part of the loop whose *spelling* changed — v2 has a single `reg-event` form where v1 had `reg-event-db` / `reg-event-fx` — but it's a deterministic, codemod-handled rewrite, covered in its own section below. The migration is not a rewrite. It's a sweep: a bounded set of mechanical renames, a smaller set of judgment calls, and a few new shapes you choose to adopt. The framework counts "40-plus M- and O-rules," and that number sounds alarming, but the vast majority are find-and-replace, and a tool does them for you.
 
 ## Don't do this by hand
 
@@ -39,6 +39,17 @@ The skill handles every part of this. The list is here so you know what's coming
 ## What changed, and why — the categories
 
 These are the broad shapes of breakage. The skill identifies and resolves them; this is the taxonomy, so you can read a diff with comprehension instead of alarm.
+
+**One event registration form.** This is the highest-volume rewrite, because `reg-event-db` is the most common registration in nearly every v1 app — and v2 doesn't have it. v2 collapses v1's three public registrars (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`) to a single **`reg-event`**, semantically v1's `reg-event-fx`: every handler takes the coeffects map and returns the closed effects map (`{:db … :fx […]}`). The win is that there's no longer a db-only form that breaks the moment a handler needs an effect or a coeffect — adding the world becomes adding a key to a map you already return, not converting to a different registration. The mapping is deterministic, which is why it's codemod-able:
+
+```clojure
+;; v1                                  ;; v2
+(rf/reg-event-fx ID handler)       =>  (rf/reg-event ID handler)         ;; rename only
+(rf/reg-event-db ID (fn [db EV] BODY))
+                                   =>  (rf/reg-event ID (fn [{:keys [db]} EV] {:db BODY}))
+```
+
+`BODY` always evaluates to the new db (that *is* the `reg-event-db` contract), so wrapping it `{:db BODY}` is mechanical regardless of how complex it is. A first-class, tested codemod ships in [`migration/from-re-frame-v1/codemod/`](../../migration/from-re-frame-v1/codemod/README.md) (rule M-73) and the migration skill runs it for you. It renames `-fx` forms, rewrites simple `-db` forms, and **flags** two cases for human review rather than guessing: a `-db` handler whose body can return `nil` (under v2 a bare `nil` is a clean no-op and `{:db nil}` coerces to `{:db {}}`, so you choose the reading you want), and any `reg-event-ctx` (withdrawn from the public surface — full-context work moves to an interceptor via `->interceptor`). For the common pure-state handler, a nice habit on the way through is to lift the body into a plain `(defn step [db] …)` and register `(fn [{:keys [db]} _] {:db (step db)})` — the state transition stays bare and testable, the handler stays one line.
 
 **Registrar imports.** Some v1 code requires `re-frame.db`, `re-frame.router`, `re-frame.subs`, `re-frame.events`, `re-frame.registrar`, or `re-frame.alpha` directly. That reached past the front door, and v2 closes it. The single-import contract is `(:require [re-frame.core :as rf])`. Direct access to `re-frame.db/app-db` was always off-contract and is now firmly so. The accessor is `(rf/app-db-value app-frame)`, which names your app frame and returns a plain map. The reason for the tightening is the same reason chapter 18's frames work at all: when there can be N isolated app-db instances, "the global app-db atom" stops being a coherent thing to reach for, so the contract has to be a function call that names which frame you mean.
 
@@ -105,7 +116,7 @@ There's no automated rewrite for the cache-key habit. It's a judgement call abou
 (rf/reg-cofx :viewport
   {:doc "Ambient viewport width."}
   (fn [] (.-innerWidth js/window)))           ;; just the value; no ctx, no assoc-in
-(rf/reg-event-fx :layout/measure
+(rf/reg-event :layout/measure
   {:rf.cofx/requires [:viewport]}             ;; declaration metadata, not an interceptor
   (fn [{:keys [db viewport]} _] ...))
 ```

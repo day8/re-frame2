@@ -102,17 +102,17 @@ Delete either `{:frame frame}` and that callback's dispatch raises `:rf.error/no
 *The user arrived on a deep link that bypassed your init event, so `:cart` was never seeded. The first click walks `update-in` straight into a `nil` and throws.*
 
 ```clojure
-(rf/reg-event-db :cart/add-item
-  (fn [db [_ item]]
-    (update-in db [:cart :items] conj item)))    ;; throws when :cart doesn't exist
+(rf/reg-event :cart/add-item
+  (fn [{:keys [db]} [_ item]]
+    {:db (update-in db [:cart :items] conj item)}))    ;; throws when :cart doesn't exist
 ```
 
 The runtime catches it and emits `:rf.error/handler-exception` with `:recovery :no-recovery`: cascade halted, nothing committed, app-db untouched. The fix is a defensive default at the point of access:
 
 ```clojure
-(rf/reg-event-db :cart/add-item
-  (fn [db [_ item]]
-    (update-in db [:cart :items] (fnil conj []) item)))
+(rf/reg-event :cart/add-item
+  (fn [{:keys [db]} [_ item]]
+    {:db (update-in db [:cart :items] (fnil conj []) item)}))
 ```
 
 !!! note "Do, observe"
@@ -141,7 +141,7 @@ Errors are data, so asserting them is as boring as asserting anything else. Coll
       (try
         (rf/reg-fx :checkout/analytics
           (fn [_frame-ctx args] (swap! fired conj args)))
-        (rf/reg-event-fx :checkout/submit
+        (rf/reg-event :checkout/submit
           (fn [_ _]
             {:fx [[:checkout/never-registered {:order-id 7}]   ;; the typo under test
                   [:checkout/analytics        {:order-id 7}]]}))

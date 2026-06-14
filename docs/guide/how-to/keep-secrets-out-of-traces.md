@@ -32,7 +32,7 @@ A path declared both sensitive and large redacts as sensitive, because even "the
 Values that flow *through* the cascade are owned by the registration that introduces their shape. That covers event args, subscription outputs (a subscription is a derived, read-only view onto app-db), and flow outputs:
 
 ```clojure
-(rf/reg-event-fx :auth/sign-in
+(rf/reg-event :auth/sign-in
   {:sensitive [[:password]]}        ;; paths into the event arg-map
   (fn [{:keys [db]} [_ {:keys [email password]}]]
     {:db (assoc db :auth/pending? true)

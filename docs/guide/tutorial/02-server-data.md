@@ -70,9 +70,9 @@ Four keys carry the model. `:params-schema` is the read's *identity* — every v
 Now delete Part 1's `seed-articles`, the `{:status …}` seed in `:app/initialise`, and the three `:articles/*` subs. The resource replaces all of them, so `:app/initialise` shrinks to an empty seed. This is the part that surprises people the first time: the article data no longer lives in app-db — app-db being your app's single state map — at all. It lives in the framework-owned runtime cache instead.
 
 ```clojure
-(rf/reg-event-db :app/initialise
+(rf/reg-event :app/initialise
   {:doc "Boot seed. Resources own server data now; app-db starts empty."}
-  (fn [_db _event] {}))
+  (fn [_cofx _event] {:db {}}))
 ```
 
 ## Step 3 — let the routes cause the fetch

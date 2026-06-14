@@ -38,7 +38,7 @@ That's seven sins and a frame leak in three lines. The fix isn't more careful fe
    :max-attempts 3
    :backoff      {:base-ms 200 :factor 2 :max-ms 2000 :jitter true}})
 
-(rf/reg-event-fx :article/load
+(rf/reg-event :article/load
   (fn [{:keys [db]} [_ slug]]
     {:db (-> db
              (assoc-in [:article :status] :loading)
@@ -63,7 +63,7 @@ Almost everything here is optional, which means the common case stays short. The
 There is no `await`. The handler — the function that runs in response to an event — never pauses to wait for the server and then resumes. The handler above returned a map and finished. When the response lands, the runtime dispatches a **new event**, with the reply appended as the last argument:
 
 ```clojure
-(rf/reg-event-fx :article/loaded
+(rf/reg-event :article/loaded
   {:rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} [_ {:keys [value]}]]
     {:db (-> db
@@ -71,11 +71,11 @@ There is no `await`. The handler — the function that runs in response to an ev
              (assoc-in [:article :data]      (:article value))
              (assoc-in [:article :loaded-at] time-ms))}))
 
-(rf/reg-event-db :article/load-error
-  (fn [db [_ {:keys [failure]}]]
-    (-> db
-        (assoc-in [:article :status] :error)
-        (assoc-in [:article :error]  failure))))
+(rf/reg-event :article/load-error
+  (fn [{:keys [db]} [_ {:keys [failure]}]]
+    {:db (-> db
+             (assoc-in [:article :status] :error)
+             (assoc-in [:article :error]  failure))}))
 ```
 
 The success payload is `{:kind :success :value <decoded>}`. The failure payload is `{:kind :failure :failure <failure-map>}`. Three small handlers — issue, succeed, fail. Each does one thing, and the failure path has its own name instead of being an afterthought tacked onto the success path. Two details here are load-bearing, and they trip people up the first time:
@@ -95,7 +95,7 @@ Sometimes the request and reply really do belong together. Omit `:on-success` / 
 
 ```clojure
 ;; From examples/reagent/managed_http_counter (core.cljs), condensed.
-(rf/reg-event-fx :counter/+1
+(rf/reg-event :counter/+1
   (fn [{:keys [db]} [_ msg]]
     (if-let [reply (:rf/reply msg)]
       (case (:kind reply)

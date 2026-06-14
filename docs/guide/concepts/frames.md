@@ -12,7 +12,7 @@ A frame is one running instance of your app. It owns the runtime state of that i
 - its **event queue** — the dispatches (requests to run an event) waiting to run against this instance,
 - its **subscription cache** — the memoised graph of derived values computed over this instance's state.
 
-A frame deliberately does *not* own the handlers — the functions you register to handle events and subscriptions. Every `reg-event-db`, `reg-event-fx`, `reg-sub`, and `reg-view` in your program goes into a single shared registry. So two frames running the `[:counter/inc]` event run the *same handler function* against *different app-dbs*. That's the whole trick.
+A frame deliberately does *not* own the handlers — the functions you register to handle events and subscriptions. Every `reg-event`, `reg-sub`, and `reg-view` in your program goes into a single shared registry. So two frames running the `[:counter/inc]` event run the *same handler function* against *different app-dbs*. That's the whole trick.
 
 A frame isolates state, not behaviour. You write the app once, and the frame decides which copy of the state it runs against.
 
@@ -28,9 +28,9 @@ Almost every app is a one-frame app, and stays one. You register a frame at boot
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]))
 
-(rf/reg-event-db :app/initialise
-  (fn [_db _event]
-    {:screen :home}))
+(rf/reg-event :app/initialise
+  (fn [_cofx _event]
+    {:db {:screen :home}}))
 
 (rf/reg-sub :screen (fn [db _] (:screen db)))
 
@@ -71,8 +71,8 @@ Here's the split pane, end to end:
 
 ```clojure
 ;; Adapted from testbeds/multi_frame/core.cljs
-(rf/reg-event-db ::init (fn [_db _ev] {:n 0}))
-(rf/reg-event-db ::inc  (fn [db _ev] (update db :n inc)))
+(rf/reg-event ::init (fn [_cofx _ev] {:db {:n 0}}))
+(rf/reg-event ::inc  (fn [{:keys [db]} _ev] {:db (update db :n inc)}))
 (rf/reg-sub :n (fn [db _] (:n db)))
 
 ;; Registered once. The injected `dispatch` / `subscribe` resolve against
@@ -178,7 +178,7 @@ Reach for `frame-handle` for the common dispatch/subscribe case. Reach for `fram
 And there's one important case where you need none of this: scheduling from inside an event handler. A handler that wants a later dispatch returns effect data — a description of work for the runtime to perform — and the effects carry the frame for you:
 
 ```clojure
-(rf/reg-event-fx :toast/show
+(rf/reg-event :toast/show
   (fn [{:keys [db]} [_ message]]
     {:db (assoc db :toast message)
      :fx [[:dispatch-later {:ms 3000 :event [:toast/clear]}]]}))
