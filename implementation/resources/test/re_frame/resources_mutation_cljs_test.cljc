@@ -928,7 +928,8 @@
   ;; LOWER index than the :rf.http/managed lower fx.
   (rf/reg-resource :r/article (article-resource-spec))
   (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :before-request}))
-  (let [cofx   {:rf.db/runtime {} :rf.frame/id :rf/default :rf.resource/generation 0}
+  (let [cofx   {:rf.db/runtime {} :rf.frame/id :rf/default
+                :rf.resource/generation-allocation {:generation 1 :counter 1}}
         out    (mevents/execute-handler
                  cofx [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :ord1}])
         fx     (:fx out)
@@ -951,7 +952,8 @@
   ;; rf2-agrjvk — a default (:after-success) timing emits NO before-request
   ;; dispatch; the lower fx is still present and the reorder is a no-op.
   (rf/reg-mutation :m/save (save-article-spec)) ;; default :after-success
-  (let [cofx {:rf.db/runtime {} :rf.frame/id :rf/default :rf.resource/generation 0}
+  (let [cofx {:rf.db/runtime {} :rf.frame/id :rf/default
+              :rf.resource/generation-allocation {:generation 1 :counter 1}}
         out  (mevents/execute-handler
                cofx [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :ord2}])
         fx-ids (mapv first (:fx out))]

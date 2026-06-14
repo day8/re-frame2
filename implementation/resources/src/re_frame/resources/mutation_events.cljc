@@ -129,8 +129,9 @@
   "Resolve the mutation INSTANCE id: the caller-supplied `:instance` when
   present (so an app can address its own instance — e.g. a form keyed by a
   row id), else a generated id derived from the mutation id + the frame's
-  monotone generation snapshot + the cause, kept PURE (no host call — the
-  generation cofx already threaded the snapshot in). Two concurrent
+  monotone generation, kept PURE (no host call — the recorded
+  `:rf.resource/generation-allocation` cofx already supplied the value, so
+  the derived instance-id reproduces on replay; rf2-abyycr). Two concurrent
   submissions of the same mutation id get DIFFERENT generated ids (the
   generation differs), so they never clobber each other's instance row. Per
   EP-0003 §Mutations (a generated or caller-supplied mutation instance id)."
@@ -612,7 +613,8 @@
   request is lowered (a rare timing for pessimistic stale-then-write).
 
   Returns the event-fx map (`:rf.db/runtime` + `:fx`)."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id, gen-snapshot :rf.resource/generation
+  [{rt :rf.db/runtime, frame-id :rf.frame/id
+    gen-allocation :rf.resource/generation-allocation
     cofx :rf.cofx, app-db :db}
    [_event-id {:keys [mutation instance scope cause reply-to] :as payload}]]
   (let [where      'rf.mutation/execute
@@ -642,7 +644,14 @@
         ;; at completion. A nil target stays nil (no continuation). The
         ;; data-only-validated target rides the `:reply-payload` below.
         reply-to'  (when (some? reply-to) (reply/durable-target reply-to))
-        generation (state/next-generation gen-snapshot)
+        ;; rf2-abyycr — the generation is the RECORDED allocation value (the
+        ;; generator-backed `:rf.resource/generation-allocation` cofx minted
+        ;; it at processing-start and the runtime recorded it on the token),
+        ;; NOT a `(inc snapshot)` re-mint from an ambient read here. The
+        ;; instance-id + work-id derive from it, so recording the generation
+        ;; reproduces both on replay for free — a recorded mutation reply
+        ;; keeps its current-vs-stale verdict on replay.
+        generation (:generation gen-allocation)
         instance-id (mint-instance-id mutation instance generation)
         ;; the work-id reuses the resource work-id shape, but keyed by the
         ;; instance id (a mutation's identity unit) + generation, so a

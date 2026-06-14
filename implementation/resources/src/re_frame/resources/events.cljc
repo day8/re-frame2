@@ -116,8 +116,11 @@
 
 (defn- ensure-load
   "Shared ensure/refetch core. Resolves the scope + canonical params into a
-  scoped resource key, mints the next monotone generation (from the cofx
-  snapshot), transitions the entry to its in-flight status
+  scoped resource key, reads the next monotone generation from the recorded
+  `:rf.resource/generation-allocation` cofx (rf2-abyycr — the generator
+  minted it at processing-start and the runtime recorded the value on the
+  token, so replay reproduces it), transitions the entry to its in-flight
+  status
   (`:loading`/`:fetching`), attaches the owner + records the cause, and
   lowers into the resource's transport. `force-new?` true (refetch) always
   starts a new generation even when a request is already in flight (Spec
@@ -141,7 +144,8 @@
   SETTLED fresh `:loaded` entry.
 
   Returns the event-fx map `{:rf.db/runtime :fx}`."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id, gen-snapshot :rf.resource/generation
+  [{rt :rf.db/runtime, frame-id :rf.frame/id
+    gen-allocation :rf.resource/generation-allocation
     cofx :rf.cofx, app-db :db}
    {:keys [resource owner cause keep-previous?] :as payload} {:keys [force-new? where]}]
   (let [runtime-db (or rt {})
@@ -302,7 +306,14 @@
         {:rf.db/runtime rdb'})
       ;; ----- start a new load attempt (fresh generation) -----------------
       :else
-      (let [generation (state/next-generation gen-snapshot)
+      ;; rf2-abyycr — the generation is the RECORDED allocation value (the
+      ;; generator-backed `:rf.resource/generation-allocation` cofx minted it
+      ;; at processing-start and the runtime recorded it on the token), NOT a
+      ;; `(inc snapshot)` re-mint from an ambient read at this write site. So
+      ;; replay reproduces the identical generation (and therefore the
+      ;; identical `:work/id`, which derives from it) — a recorded managed
+      ;; reply keeps its current-vs-stale verdict on replay.
+      (let [generation (:generation gen-allocation)
             work-id    (work-ledger/resource-work-id scoped-key generation)
             ;; rf2-sxyrzk — the transport correlation token is the
             ;; frame-QUALIFIED request-id, NOT the bare work-id. The
