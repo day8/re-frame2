@@ -57,7 +57,7 @@
                               :keep :untouched}
                         :other :preserved}}))
     (rf/reg-event :path-test/inc
-                     {:interceptors [(rf/path :foo :bar)]}
+                     {:interceptors [[:rf.interceptor/path [:foo :bar]]]}
                      ;; The handler's `db` is the SLICE value, not the full
                      ;; app-db. Returning a new slice value writes it back
                      ;; at [:foo :bar].
@@ -76,29 +76,33 @@
           "keys outside the path are preserved"))))
 
 (deftest path-interceptor-uses-reserved-namespace
-  (testing "the path interceptor stashes its db-stack under :rf/path-stack
-            (reserved namespace per Spec Conventions §Reserved namespaces).
-            Regression for rf2-mn0qc."
+  (testing "the path interceptor stashes its db-stack under
+            :rf.interceptor.path/stack (reserved namespace per Spec
+            Conventions §Reserved namespaces). Regression for rf2-mn0qc.
+            EP-0022 (rf2-0adhqs.9): the standard `[:rf.interceptor/path …]`
+            factory interceptor stashes under the `:rf.interceptor.path/stack`
+            reserved slot (the old `:rf/path-stack` belonged to the now-
+            deprecated `rf/path` value-constructor)."
     (let [seen-keys (atom nil)]
       ;; A spy interceptor sandwiched between `path` and the handler runs
       ;; AFTER path's :before, so the context it sees must carry the stash
-      ;; under :rf/path-stack — not the bare :path-stack.
+      ;; under the reserved :rf.interceptor.path/stack — not a bare key.
       (rf/reg-event :path-ns/init (fn [{:keys [db]} _] {:db {:foo {:bar 10}}}))
+      (rf/reg-interceptor* :path-ns/spy
+                           {:before (fn [ctx]
+                                      (reset! seen-keys (set (keys ctx)))
+                                      ctx)})
       (rf/reg-event :path-ns/inc
-                       {:interceptors [(rf/path :foo :bar)
-                                       (interceptor/->interceptor*
-                                         :id     :path-ns/spy
-                                         :before (fn [ctx]
-                                                   (reset! seen-keys (set (keys ctx)))
-                                                   ctx))]}
+                       {:interceptors [[:rf.interceptor/path [:foo :bar]]
+                                       :path-ns/spy]}
                        ;; reg-event-db handlers receive (slice, event-vec);
                        ;; `inc` is arity-1 so wrap it explicitly to honour
                        ;; the (fn [db event] new-db) contract.
                        (fn [{slice :db} _] {:db (inc slice)}))
       (rf/dispatch-sync [:path-ns/init])
       (rf/dispatch-sync [:path-ns/inc])
-      (is (contains? @seen-keys :rf/path-stack)
-          "path interceptor stashes its stack under the reserved :rf/path-stack key")
+      (is (contains? @seen-keys :rf.interceptor.path/stack)
+          "path interceptor stashes its stack under the reserved :rf.interceptor.path/stack key")
       (is (not (contains? @seen-keys :path-stack))
           "the bare :path-stack key must NOT appear (reserved-namespace contract)")
       (is (= 11 (get-in (rf/app-db-value :rf/default) [:foo :bar]))
@@ -114,8 +118,8 @@
     (rf/reg-event :path-nest/inc
                      ;; The outer `path` focuses to {:b {:c 7} :sib :keep};
                      ;; the inner `path` focuses to 7. The handler returns 8.
-                     {:interceptors [(rf/path :a)
-                                     (rf/path :b :c)]}
+                     {:interceptors [[:rf.interceptor/path [:a]]
+                                     [:rf.interceptor/path [:b :c]]]}
                      (fn [{slice :db} _] {:db (inc slice)}))
     (rf/dispatch-sync [:path-nest/init])
     (rf/dispatch-sync [:path-nest/inc])
@@ -146,17 +150,16 @@
       ;; Pre-fix the path interceptor would have spliced the unchanged
       ;; slice back into `:effects :db` regardless — producing a
       ;; spurious DB write the handler never asked for.
+      ;; Sandwich-spy that captures the effects map produced by the
+      ;; handler-side chain — i.e. AFTER the handler ran and BEFORE the
+      ;; path interceptor's :after re-runs.
+      (rf/reg-interceptor* :path-noop/spy
+                           {:after (fn [ctx]
+                                     (reset! final-ctx ctx)
+                                     ctx)})
       (rf/reg-event :path-noop/fx-only
-                       {:interceptors [(rf/path :foo :bar)
-                                       ;; Sandwich-spy that captures the effects map
-                                       ;; produced by the handler-side chain — i.e.
-                                       ;; AFTER the handler ran and BEFORE the path
-                                       ;; interceptor's :after re-runs.
-                                       (interceptor/->interceptor*
-                                         :id    :path-noop/spy
-                                         :after (fn [ctx]
-                                                  (reset! final-ctx ctx)
-                                                  ctx))]}
+                       {:interceptors [[:rf.interceptor/path [:foo :bar]]
+                                       :path-noop/spy]}
                        (fn [_cofx _ev]
                          ;; No `:db` in the returned effect map.
                          {:fx []}))
@@ -182,7 +185,7 @@
             rf2-rwlj2 fix preserves the happy path"
     (rf/reg-event :path-emit/init (fn [{:keys [db]} _] {:db {:foo {:bar 10}}}))
     (rf/reg-event :path-emit/inc
-                     {:interceptors [(rf/path :foo :bar)]}
+                     {:interceptors [[:rf.interceptor/path [:foo :bar]]]}
                      (fn [{:keys [db]} _]
                        ;; Explicitly emit `:db` (the slice + 1).
                        {:db (inc db)}))
@@ -237,8 +240,9 @@
   (testing "[unwrap] replaces the :event coeffect with the payload map from
             the canonical [event-id payload-map] envelope shape."
     (let [seen-event (atom ::not-set)]
+      (rf/reg-interceptor* :unwrap rf/unwrap-interceptor)
       (rf/reg-event :unwrap-test/consume
-                       {:interceptors [rf/unwrap-interceptor]}
+                       {:interceptors [:unwrap]}
                        ;; With unwrap, the second arg is the payload map
                        ;; itself — not the [id payload] vector.
                        (fn [_cofx event-arg]
@@ -266,8 +270,9 @@
     (let [traces     (atom [])
           seen-event (atom ::not-set)]
       (rf/register-listener! ::unwrap-bad (fn [ev] (swap! traces conj ev)))
+      (rf/reg-interceptor* :unwrap rf/unwrap-interceptor)
       (rf/reg-event :unwrap-bad-test/consume
-                       {:interceptors [rf/unwrap-interceptor]}
+                       {:interceptors [:unwrap]}
                        (fn [_cofx event-arg]
                          (reset! seen-event event-arg)
                          {}))
@@ -301,8 +306,9 @@
     (let [traces     (atom [])
           seen-event (atom ::not-set)]
       (rf/register-listener! ::unwrap-arity (fn [ev] (swap! traces conj ev)))
+      (rf/reg-interceptor* :unwrap rf/unwrap-interceptor)
       (rf/reg-event :unwrap-bad-test/arity
-                       {:interceptors [rf/unwrap-interceptor]}
+                       {:interceptors [:unwrap]}
                        (fn [_cofx event-arg]
                          (reset! seen-event event-arg)
                          {}))
@@ -319,8 +325,9 @@
     ;; coverage above is genuinely catching the negative branch.
     (let [traces (atom [])]
       (rf/register-listener! ::unwrap-ok (fn [ev] (swap! traces conj ev)))
+      (rf/reg-interceptor* :unwrap rf/unwrap-interceptor)
       (rf/reg-event :unwrap-bad-test/ok
-                       {:interceptors [rf/unwrap-interceptor]}
+                       {:interceptors [:unwrap]}
                        (fn [_ _] {}))
       (rf/dispatch-sync [:unwrap-bad-test/ok {:k 1}])
       (rf/unregister-listener! ::unwrap-ok)
@@ -376,16 +383,19 @@
     (let [trail (atom [])
           ;; Three custom interceptors, named A / B / C, that each push a
           ;; tagged entry into `trail` from both their :before and :after
-          ;; slots. The handler itself pushes :handler.
+          ;; slots. The handler itself pushes :handler. Since EP-0022
+          ;; (chains are reference-only) `mk` REGISTERS the interceptor under
+          ;; its tag id and RETURNS the id keyword for the chain to reference.
           mk (fn [tag]
-               (rf/->interceptor
-                 :id     tag
-                 :before (fn [ctx]
-                           (swap! trail conj [:before tag])
-                           (assoc ctx tag :touched))
-                 :after  (fn [ctx]
-                           (swap! trail conj [:after tag])
-                           ctx)))]
+               (rf/reg-interceptor*
+                 tag
+                 {:before (fn [ctx]
+                            (swap! trail conj [:before tag])
+                            (assoc ctx tag :touched))
+                  :after  (fn [ctx]
+                            (swap! trail conj [:after tag])
+                            ctx)})
+               tag)]
       (rf/reg-event :primitive/run
                        {:interceptors [(mk :a) (mk :b) (mk :c)]}
                        (fn [_ _]
@@ -735,10 +745,10 @@
   ;; throwing supplier no longer rides the interceptor classification path.
 
   (testing "user interceptor :BEFORE throw → :rf.error/interceptor-exception (failing-id = interceptor, phase :before)"
+    (rf/reg-interceptor* :mszrz/before-icpt
+                         {:before (fn [_] (throw (ex-info "before blew up" {})))})
     (rf/reg-event :mszrz/before-boom
-                     {:interceptors [(rf/->interceptor
-                                       :id     :mszrz/before-icpt
-                                       :before (fn [_] (throw (ex-info "before blew up" {}))))]}
+                     {:interceptors [:mszrz/before-icpt]}
                      (fn [{:keys [db]} _] {:db db}))
     (let [errs (capture-error-traces [:mszrz/before-boom])
           ix   (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
@@ -755,10 +765,10 @@
     ;; The :after chain runs after the handler; an :after throw must
     ;; attribute to the interceptor (phase :after), not the handler — the
     ;; collapse rf2-mszrz explicitly fixes for the :after side too.
+    (rf/reg-interceptor* :mszrz/after-icpt
+                         {:after (fn [_] (throw (ex-info "after blew up" {})))})
     (rf/reg-event :mszrz/after-boom
-                     {:interceptors [(rf/->interceptor
-                                       :id    :mszrz/after-icpt
-                                       :after (fn [_] (throw (ex-info "after blew up" {}))))]}
+                     {:interceptors [:mszrz/after-icpt]}
                      (fn [{:keys [db]} _] {:db db}))
     (let [errs (capture-error-traces [:mszrz/after-boom])
           ix   (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
@@ -816,10 +826,16 @@
   (testing "a throwing macro-defined interceptor threads its :source-coord
             onto the :rf.error/interceptor-exception trace (the slot the
             Xray Epoch INTERCEPTOR row's jump-to-source chip reads)"
+    ;; EP-0022 reference-only: register the MACRO-BUILT interceptor VALUE as
+    ;; the descriptor (the registration boundary accepts an interceptor value),
+    ;; so the :source-coord the macro captured from `(meta &form)` rides
+    ;; through resolution onto the trace. Then reference it by id.
+    (rf/reg-interceptor* :siheh/before-icpt
+                         (rf/->interceptor
+                           :id     :siheh/before-icpt
+                           :before (fn [_] (throw (ex-info "before blew up" {})))))
     (rf/reg-event :siheh/before-boom
-                     {:interceptors [(rf/->interceptor
-                                       :id     :siheh/before-icpt
-                                       :before (fn [_] (throw (ex-info "before blew up" {}))))]}
+                     {:interceptors [:siheh/before-icpt]}
                      (fn [{:keys [db]} _] {:db db}))
     (let [errs (capture-error-traces [:siheh/before-boom])
           ix   (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
@@ -833,10 +849,15 @@
 
   (testing "a throwing ->interceptor*-built interceptor threads NO
             :source-coord tag (degrades to plain text in the panel)"
+    ;; The fn-built (`->interceptor*`) value carries NO :source-coord;
+    ;; register it verbatim + reference it so the "no coord" intent rides
+    ;; through resolution.
+    (rf/reg-interceptor* :siheh/fn-before-icpt
+                         (interceptor/->interceptor*
+                           :id     :siheh/fn-before-icpt
+                           :before (fn [_] (throw (ex-info "fn before blew up" {})))))
     (rf/reg-event :siheh/fn-before-boom
-                     {:interceptors [(interceptor/->interceptor*
-                                       :id     :siheh/fn-before-icpt
-                                       :before (fn [_] (throw (ex-info "fn before blew up" {}))))]}
+                     {:interceptors [:siheh/fn-before-icpt]}
                      (fn [{:keys [db]} _] {:db db}))
     (let [errs (capture-error-traces [:siheh/fn-before-boom])
           ix   (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]

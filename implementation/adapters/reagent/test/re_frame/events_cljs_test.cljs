@@ -24,21 +24,38 @@
   (test-support/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
-(def ^:private noop-icpt
+;; EP-0022 reference-only flip (rf2-0adhqs.9): an INLINE interceptor value in a
+;; chain now throws `:rf.error/inline-interceptor-removed` at registration.
+;; Chain entries must be REFERENCES, so the formerly-inline `:test/noop` is
+;; registered up front and referenced by its bare keyword in the chains below.
+;; The chain is stored UNRESOLVED in handler-meta, so a referenced entry reads
+;; back as the bare keyword `:test/noop` (NOT a resolved map) — hence the
+;; `chain-id` helper, which returns the keyword itself for a ref entry and `:id`
+;; for the framework wrapper map at the tail.
+(def ^:private noop-icpt-value
+  "The inline interceptor VALUE — kept for the negative non-vector
+  `:interceptors` test below (which must reject a non-vector value)."
   {:id :test/noop :before identity :after identity})
+
+(defn- chain-id
+  "Authored id of a stored chain entry: the keyword itself for a reference
+  entry, `:id` for the framework wrapper map at the tail."
+  [entry]
+  (if (keyword? entry) entry (:id entry)))
 
 (deftest reg-event-metadata-interceptors-threads-the-chain
   (testing "metadata-map :interceptors threads the chain under the Reagent adapter"
+    (rf/reg-interceptor* :test/noop {:before identity :after identity})
     (rf/reg-event :test.bpmszk.cljs/super
-      {:doc "Superset form." :interceptors [noop-icpt]}
+      {:doc "Superset form." :interceptors [:test/noop]}
       (fn [{:keys [db]} _] {:db db}))
     (let [meta (rf/handler-meta :event :test.bpmszk.cljs/super)
-          ids  (mapv :id (:interceptors meta))]
+          ids  (mapv chain-id (:interceptors meta))]
       (is (= "Superset form." (:doc meta)))
       (is (not (contains? meta :event/kind))
           "the :event/kind sub-tag is gone (one form, no kind)")
       (is (= [:test/noop :rf/event-handler] ids)
-          "the metadata-map :interceptors chain sits before the runtime wrapper"))))
+          "the metadata-map :interceptors chain (the authored ref) sits before the runtime wrapper"))))
 
 (deftest positional-vector-form-fails-under-reagent
   (testing "positional vector middle slot throws :rf.error/reg-event-bad-middle-slot"
@@ -55,17 +72,18 @@
           cljs.core/ExceptionInfo
           #":rf\.error/reg-event-bad-interceptors"
           (rf/reg-event :test.bpmszk.cljs/bad
-            {:interceptors noop-icpt}
+            {:interceptors noop-icpt-value}
             (fn [{:keys [db]} _] {:db db}))))))
 
 (deftest metadata-interceptors-under-reagent
   (testing "{:interceptors [i]} registers the effective chain"
+    (rf/reg-interceptor* :test/noop {:before identity :after identity})
     (rf/reg-event :test.bpmszk.cljs/via-map
-      {:interceptors [noop-icpt]}
+      {:interceptors [:test/noop]}
       (fn [{:keys [db]} _] {:db db}))
-    (let [map-ids (mapv :id (:interceptors (rf/handler-meta :event :test.bpmszk.cljs/via-map)))]
+    (let [map-ids (mapv chain-id (:interceptors (rf/handler-meta :event :test.bpmszk.cljs/via-map)))]
       (is (= [:test/noop :rf/event-handler] map-ids)
-          "the metadata map registers the effective chain (ids + order)"))))
+          "the metadata map registers the effective chain (authored ref + wrapper, in order)"))))
 
 (deftest retired-reg-event-names-throw-their-removal-stubs
   (testing "Per EP-0018 Slice Z — the retired public event-registration names

@@ -1500,12 +1500,13 @@
     ;; interceptors precede them.
     (let [seen-db (atom :unset)]
       (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 0}}))
+      ;; EP-0022 reference-only: register the capture interceptor, reference by id.
+      (rf/reg-interceptor* :test/capture-after
+        {:after (fn [ctx]
+                  (reset! seen-db (rf/get-effect ctx :db))
+                  ctx)})
       (rf/reg-event :set-n
-        {:interceptors [(rf/->interceptor
-                         :id    :test/capture-after
-                         :after (fn [ctx]
-                                  (reset! seen-db (rf/get-effect ctx :db))
-                                  ctx))]}
+        {:interceptors [:test/capture-after]}
         (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
       (rf/reg-flow {:id     :double
                     :inputs [[:n]]
@@ -1579,7 +1580,7 @@
     ;; mis-compute.
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:counter {:n 0}}}))
     (rf/reg-event :inc
-                     {:interceptors [(rf/path :counter)]}
+                     {:interceptors [[:rf.interceptor/path [:counter]]]}
                      (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-flow {:id     :counter/doubled
                   :inputs [[:counter :n]]
