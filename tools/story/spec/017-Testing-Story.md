@@ -161,8 +161,7 @@ Required normalized plan shape:
  :world {:frame {:preset optional-keyword
                  :on-create [event-vector ...]
                  :fx-overrides {fx-id override-ref-or-data}
-                 :interceptor-overrides {...}
-                 :interceptors [...]}
+                 :interceptor-overrides {interceptor-id override-ref}}
          :args {...}
          :argtypes {...}                  ; control metadata; schema-derived where possible
          :view-args-schema optional-schema ; explicit view input contract copied from view :rf/props
@@ -356,6 +355,36 @@ on the variant/fragment body, normalized to
 compiler **lowers into `:fx-overrides`**. `:decorators` is reserved for
 view wrapping (theme/provider/chrome). This makes the conflict model
 (§Merge rules) target the surface authors actually type.
+
+### The interceptor-override surface
+
+Authors override interceptors through a **first-class
+`:interceptor-overrides`** map on the variant/fragment body, normalized to
+`[:world :frame :interceptor-overrides]`. It is the interceptor analog of
+`:fx-overrides`: a `{interceptor-id → override}` map keyed by **the exact
+interceptor id**, resolved per-key under the strict-conflict ladder
+(§Merge rules / §Conflict resolution).
+
+Per EP-0022 (registered interceptors), re-frame2 interceptor chains carry
+**serializable references only** — an event/frame chain names interceptors
+by id (`{:interceptors [:rf/redact-interceptor :app/unwrap]}`), and an
+inline interceptor value in a chain is rejected loud at registration with
+`:rf.error/inline-interceptor-removed`. An interceptor is authored once
+with `reg-interceptor` and referenced by its id everywhere; `->interceptor`
+is the internal constructor, not an authoring surface. Story inherits this
+model directly:
+
+- a story plan never carries an **inline interceptor chain** — there is no
+  `:interceptors [...]` plan slot. The only story interceptor surface is
+  `:interceptor-overrides`, keyed by interceptor id;
+- an `:interceptor-overrides` key matches the registered interceptor by
+  **exact id** (the same id the chain references). The override value is
+  the swapped descriptor/ref the runner installs under that id for the
+  duration of the variant;
+- because keys are ids (not values), the strict-conflict composition
+  (§Variant-owned-wins) resolves per id deterministically — two fragments
+  overriding the same interceptor id while the variant is silent is a hard
+  conflict, exactly as for `:fx-overrides`.
 
 ### The network surface
 
@@ -2196,7 +2225,7 @@ installs canonical vocabulary), and MUST fold the existing
   reserved structural tag (`:rf/map` / `:rf/set` / `:rf/vec` / `:rf/seq`), so
   `{}` ≠ `[]` ≠ `#{}` and `{:k 1}` ≠ `[:k 1]` canonically (rf2-lvrqa);
 - **fold functions to the `:rf/opaque-fn` sentinel** so a hashed slice
-  carrying a fn (a `:fx-overrides` / `:interceptors` plan slot, an app-db
+  carrying a fn (a `:fx-overrides` plan slot, an app-db
   closure-as-value, an effect `:args` callback) hashes DETERMINISTICALLY
   across processes rather than embedding the fn's object identity via
   `pr-str` (rf2-4gwja) — the deliberate trade-off is that two values

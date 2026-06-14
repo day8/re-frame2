@@ -432,7 +432,7 @@
 (def opaque-fn
   "Stable opaque sentinel a function value canonicalises to (rf2-4gwja).
   Replaces the per-process object-identity `pr-str` of a raw fn so any
-  hashed slice carrying a fn (a `:fx-overrides` / `:interceptors` plan slot,
+  hashed slice carrying a fn (a `:fx-overrides` plan slot,
   an app-db closure-as-value, an effect `:args` callback) hashes
   DETERMINISTICALLY across processes. The deliberate trade-off: two values
   differing ONLY in fn identity hash EQUAL — determinism, not fn

@@ -301,8 +301,7 @@
     ;; so identity-stable-across-builds == identity-stable-across-processes.
     (let [build-plan (fn []
                        {:story/id :story.fn/v
-                        :world {:frame {:fx-overrides {:rf.http/managed (fn [_] :stub)}
-                                        :interceptors [(fn [ctx] ctx)]}}
+                        :world {:frame {:fx-overrides {:rf.http/managed (fn [_] :stub)}}}
                         :script [[:dispatch [:go]]]
                         :expect {:checks []}})
           h1 (fp/plan-hash (build-plan))
