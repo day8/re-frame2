@@ -933,6 +933,109 @@
               (is (= :gen-test/bad (get-in (first errs) [:tags :rf.cofx/id]))
                   "the error trace names the fact"))))))))
 
+;; ---------------------------------------------------------------------------
+;; 12b. STRUCTURAL-EDN check of the GENERATED value (rf2-rmroo4 slice B /
+;;      rf2-uqz2ir). A generator-backed recordable value rides the durable
+;;      causal record (write-back, epoch, replay, SSR, Xray) so it MUST be
+;;      ordinary EDN data (EP-0017:386). Slice A pinned the SUPPLIED-value half
+;;      at the dispatch boundary; this pins the GENERATED-value half at the
+;;      `run-generator` write-back site. DEV-MODE gated (the declared-`:schema`
+;;      check stays the prod contract); reuses the slice-A walker + error shape
+;;      (`:rf.error/cofx-value-invalid`, reason `:non-edn-recordable-value`).
+;; ---------------------------------------------------------------------------
+
+(deftest generated-non-edn-value-is-cofx-value-invalid
+  (testing "ADVERSARIAL (rf2-uqz2ir): a generator that mints a NON-EDN host
+            handle (here an atom — a stand-in for a DOM node / Promise /
+            function / Date / any host object) is `:rf.error/cofx-value-invalid`
+            (reason `:non-edn-recordable-value`) — a DEV hard error that halts
+            the cascade BEFORE the bad value is written back into the durable
+            `:rf.cofx` record and BEFORE the handler runs. EP-0017:386."
+    (let [traces    (collect-traces! ::gen-non-edn)
+          gen-calls (atom 0)
+          fired?    (atom false)]
+      ;; Generator-backed recordable fact (recordable, NOT provided, with a
+      ;; supplier). It mints an ATOM — a genuine host handle, not EDN data.
+      ;; No `:schema` declared, so the ALWAYS-ON `:schema` check is a no-op and
+      ;; ONLY the structural-EDN dev guard can catch this (the point of slice B).
+      (rf/reg-cofx :gen-test/host-handle
+        {:recordable? true :doc "A generator that wrongly mints a host handle."}
+        (fn [] (swap! gen-calls inc) (atom :a-host-handle)))
+      (rf/reg-event :gen-test/uses-host-handle
+        {:rf.cofx/requires [:gen-test/host-handle]}
+        (fn [_ _] (reset! fired? true) {}))
+      (let [ex (try (rf/dispatch-sync [:gen-test/uses-host-handle]) nil
+                    (catch #?(:clj clojure.lang.ExceptionInfo
+                              :cljs cljs.core/ExceptionInfo) e e))]
+        (rf/unregister-listener! ::gen-non-edn)
+        (is (= 1 @gen-calls) "the generator ran (the value is checked AFTER it mints)")
+        (is (false? @fired?)
+            "the handler never ran — a non-EDN generated value halts the cascade")
+        (is (some? ex) "the dispatch threw rather than folding the host handle")
+        (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data ex)))
+            "the throw carries :rf.error/cofx-value-invalid")
+        (is (= :non-edn-recordable-value (:reason (ex-data ex)))
+            "the reason is the structural-EDN-always reason, NOT a :schema miss")
+        (is (= :gen-test/host-handle (:rf.cofx/id (ex-data ex)))
+            ":rf.cofx/id names the offending generated fact")
+        (is (= [:gen-test/host-handle] (:path (ex-data ex)))
+            "the reported path is rooted at the fact id (the bad leaf is the value itself)")
+        (is (some? (:bad-type (ex-data ex)))
+            "the host :bad-type is surfaced (a printable type name, never the raw object)")
+        (let [errs (filter #(= :rf.error/cofx-value-invalid (:operation %)) @traces)]
+          (is (= 1 (count errs)) "exactly one cofx-value-invalid error trace")
+          (is (= :non-edn-recordable-value (get-in (first errs) [:tags :reason]))
+              "the trace carries the structural-EDN reason")
+          (is (= :gen-test/host-handle (get-in (first errs) [:tags :rf.cofx/id]))
+              "the trace names the fact"))))))
+
+(deftest generated-non-edn-value-nested-reports-path
+  (testing "ADVERSARIAL (rf2-uqz2ir): a generator minting a map with a non-EDN
+            leaf NESTED inside otherwise-good EDN reports the PATH to the bad
+            leaf (rooted at the fact id), and the `:bad-type` only — never the
+            raw host object. A `:preview` may accompany only a value that is
+            itself recordable; the raw handle is never surfaced."
+    (let [fired? (atom false)]
+      (rf/reg-cofx :gen-test/nested-bad
+        {:recordable? true}
+        ;; `:ok` and `:n` are clean EDN; `:handle` nests a function (host handle).
+        (fn [] {:ok "fine" :n 3 :handle (fn [] :nope)}))
+      (rf/reg-event :gen-test/uses-nested-bad
+        {:rf.cofx/requires [:gen-test/nested-bad]}
+        (fn [_ _] (reset! fired? true) {}))
+      (let [ex (try (rf/dispatch-sync [:gen-test/uses-nested-bad]) nil
+                    (catch #?(:clj clojure.lang.ExceptionInfo
+                              :cljs cljs.core/ExceptionInfo) e e))]
+        (is (false? @fired?) "the handler never ran")
+        (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data ex))))
+        (is (= :non-edn-recordable-value (:reason (ex-data ex))))
+        (is (= [:gen-test/nested-bad :handle] (:path (ex-data ex)))
+            "the path is rooted at the fact id and descends to the bad nested leaf")))))
+
+(deftest generated-edn-value-passes-structural-check
+  (testing "an EDN-clean generated value (a plain map of strings / ints — the
+            shape the REAL routing / resources allocation generators mint, e.g.
+            `{:token \"nav-N\" :counter N}`) passes the structural-EDN gate and
+            is delivered + written back normally. The complement of the
+            adversarial case — the gate must not reject ordinary data."
+    (let [seen-delta (atom nil)
+          seen-cofx  (atom nil)]
+      ;; Mirror the real allocation-cofx value shape: a plain EDN map.
+      (rf/reg-cofx :gen-test/allocation-shaped
+        {:recordable? true :doc "EDN-clean, like the real allocation cofx."}
+        (fn [] {:token "nav-7" :counter 7}))
+      (rf/reg-event :gen-test/uses-allocation
+        {:rf.cofx/requires [:gen-test/allocation-shaped]}
+        (fn [{:keys [gen-test/allocation-shaped] :as cofx} _]
+          (reset! seen-delta allocation-shaped)
+          (reset! seen-cofx (:rf.cofx cofx))
+          {}))
+      (rf/dispatch-sync [:gen-test/uses-allocation])
+      (is (= {:token "nav-7" :counter 7} @seen-delta)
+          "the EDN-clean generated value is delivered flat unchanged")
+      (is (= {:token "nav-7" :counter 7} (:gen-test/allocation-shaped @seen-cofx))
+          "and written back into the causal :rf.cofx record — the gate passed it through"))))
+
 (deftest supplied-value-schema-mismatch-is-hard-error
   (testing "ADVERSARIAL: a SUPPLIED / replayed recordable value that fails the
             registration's `:schema` is also `:rf.error/cofx-value-invalid` —

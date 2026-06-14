@@ -31,6 +31,7 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.frame :as frame]
             [re-frame.fx :as fx]
+            [re-frame.recordable :as recordable]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace :as trace
              #?@(:cljs [:include-macros true])]))
@@ -540,6 +541,105 @@
               (emit-cofx-value-invalid! cofx-id value explanation failing-id frame-id))))))
     value))
 
+;; ---- structural-EDN check of GENERATED recordable values ------------------
+;;    (EP-0017 erratum rf2-rmroo4 slice B — rf2-uqz2ir)
+;;
+;; A GENERATED recordable value rides the durable causal record (it is written
+;; back into the in-flight `:rf.cofx`, folded into the epoch ledger, replayed
+;; verbatim, shipped in the SSR payload, exported, re-read by Xray / pair
+;; tooling). So — exactly like a SUPPLIED recordable value at the dispatch
+;; boundary (slice A, router/diagnostics.cljc) — it MUST be ordinary EDN data
+;; (EP-0017:386). A generator that mints a host handle (a DOM node, Promise,
+;; function, atom, Date, JS / Java object) breaks that contract SILENTLY: the
+;; failure surfaces far away at replay / Xray / SSR time, not at the generator.
+;; This dev-time guard catches the author error AT THE SOURCE — the moment the
+;; generator produces it, before the write-back — reusing the slice-A walker
+;; (`re-frame.recordable`) and error shape (`:rf.error/cofx-value-invalid`,
+;; reason `:non-edn-recordable-value`).
+;;
+;; DEV-MODE — gated on `interop/debug-enabled?`, like the slice-A supplied-value
+;; walk: the value a generator produces is identical in production, so dev-time
+;; catching suffices, and the deep per-value walk DCEs out of the production hot
+;; path under `:advanced` + `goog.DEBUG=false`. The declared-`:schema` check
+;; (`validate-recordable-value!`, above) stays the ALWAYS-ON production
+;; causal-token contract; this structural always-EDN gate is the dev-time
+;; complement that fires even when no `:schema` was declared.
+
+(defn- emit-cofx-generated-value-non-edn!
+  "Emit `:rf.error/cofx-value-invalid` for a GENERATED recordable value that is
+  not recordable EDN data (a host handle a generator minted) and throw. Reuses
+  the EP-0017 cofx error id with `reason :non-edn-recordable-value` — the
+  structural-EDN-always half (rf2-rmroo4 slice B, EP-0017:386: recordable
+  values must be EDN). The mirror of slice A's supplied-value emit
+  (router/diagnostics.cljc), at the GENERATOR write-back site.
+
+  The payload carries the failing fact id, the path WITHIN the generated value
+  to the bad leaf, the host `:bad-type`, and a `:preview` ONLY when the value
+  is itself recordable (so the preview round-trips) — NEVER the raw host
+  object. Fans out through the always-on `dispatch-on-error!` listener, then
+  throws (the throw propagates from inside the generator's HandlerScope, so the
+  failure carries the cofx's source-coord like every other cofx emit)."
+  [cofx-id bad value failing-id frame-id]
+  (let [{:keys [path bad-type]} bad
+        preview (recordable/safe-preview value)]
+    (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
+      (dispatch-on-error! :rf.error/cofx-value-invalid nil failing-id frame-id nil 0 (interop/now-ms)))
+    (trace/emit-error! :rf.error/cofx-value-invalid
+                       (cond-> {:rf.cofx/id        cofx-id
+                                :failing-id        failing-id
+                                :rf.trace/event-id failing-id
+                                :reason            :non-edn-recordable-value
+                                :path              path
+                                :bad-type          bad-type
+                                :recovery          :no-recovery}
+                         (some? preview) (assoc :preview preview)
+                         frame-id        (assoc :frame frame-id)))
+    (throw (ex-info ":rf.error/cofx-value-invalid"
+                    {:rf.error/id :rf.error/cofx-value-invalid
+                     :where       're-frame.cofx/run-generator
+                     :reason      :non-edn-recordable-value
+                     :rf.cofx/id  cofx-id
+                     :failing-id  failing-id
+                     :path        path
+                     :bad-type    bad-type
+                     :recovery    :no-recovery
+                     :explain     (str "Generated `:rf.cofx` fact `" cofx-id
+                                       "` is not recordable EDN data: the value "
+                                       "at path " (pr-str path) " is a `"
+                                       bad-type "` (a host object — DOM node, "
+                                       "Promise, function, atom, Date, or other "
+                                       "JS / Java handle). A generator-backed "
+                                       "recordable coeffect rides the durable "
+                                       "causal record (it is written back into "
+                                       "`:rf.cofx`, folded into the epoch ledger, "
+                                       "replayed, shipped in the SSR payload, read "
+                                       "by Xray) and MUST mint ordinary EDN data "
+                                       "that reads back unchanged (EP-0017:386). "
+                                       "Have the generator return the recordable "
+                                       "projection — the identifier / snapshot / "
+                                       "plain data you actually need on replay.")}))))
+
+(defn- validate-generated-recordable-value!
+  "DEV-MODE structural-EDN check of a GENERATED recordable `value` for
+  `cofx-id`, run at the generator write-back site BEFORE the value is folded
+  into the in-flight `:rf.cofx` causal record (rf2-rmroo4 slice B). The first
+  non-recordable leaf throws `:rf.error/cofx-value-invalid` (reason
+  `:non-edn-recordable-value`); a fully-EDN value passes and returns `value`.
+
+  DEV-MODE — gated on `interop/debug-enabled?`: a generator minting a host
+  handle is a DEV-TIME author error, the produced value is identical in
+  production, and the deep walk DCEs out of the production hot path. The
+  declared-`:schema` check stays the always-on production contract; this is the
+  structural complement that fires even with no `:schema`. Reuses the slice-A
+  walker (`re-frame.recordable`); the reported path is rooted at the fact id so
+  it reads from the coeffect key, not the per-value walk root."
+  [cofx-id value failing-id frame-id]
+  (when interop/debug-enabled?
+    (when-let [bad (recordable/explain-non-recordable value)]
+      (let [rooted (update bad :path #(into [cofx-id] %))]
+        (emit-cofx-generated-value-non-edn! cofx-id rooted value failing-id frame-id))))
+  value)
+
 ;; ---- generation at processing-start (EP-0017 §5 step 3 / slice B.7) --------
 ;;
 ;; A declared-absent recordable fact that is generator-backed (a `reg-cofx`
@@ -573,11 +673,15 @@
 
   A successful run emits the dev-only `:rf.cofx/generated` trace op (fact-name
   + supplier id) so traces are self-describing even though the record is flat,
-  then validates the produced value against the registration's `:schema` (a
-  PRODUCTION hard error on mismatch — the validation throw propagates). The
-  emit / scope shape mirrors `run-ambient-supplier`; the op differs
-  (`:rf.cofx/generated` vs `:rf.cofx/run`) because generation produces a
-  RECORDED fact, not an ambient read."
+  then validates the produced value: against the registration's `:schema` (a
+  PRODUCTION hard error on mismatch — the validation throw propagates) AND, in
+  DEV builds, structurally against the recordable-EDN walker (rf2-rmroo4 slice
+  B / rf2-uqz2ir — a generator that mints a non-EDN host handle throws
+  `:rf.error/cofx-value-invalid` reason `:non-edn-recordable-value`, BEFORE the
+  value is written back into the durable record). The emit / scope shape
+  mirrors `run-ambient-supplier`; the op differs (`:rf.cofx/generated` vs
+  `:rf.cofx/run`) because generation produces a RECORDED fact, not an ambient
+  read."
   [cofx-id meta supplier arg frame-id failing-id]
   (let [active-platform (active-platform-for-frame frame-id)]
     (if (cofx-runs-on-platform? meta active-platform)
@@ -605,7 +709,15 @@
             ;; error). A miss throws `:rf.error/cofx-value-invalid` from here,
             ;; inside the scope binding, so the failure carries the cofx's
             ;; source-coord like every other cofx emit.
-            (validate-recordable-value! cofx-id (second outcome) meta failing-id frame-id))
+            (validate-recordable-value! cofx-id (second outcome) meta failing-id frame-id)
+            ;; Structural EDN-always check of the GENERATED value (rf2-rmroo4
+            ;; slice B, rf2-uqz2ir): a generator that mints a host handle fails
+            ;; loudly HERE — at the source, before the write-back into the
+            ;; durable `:rf.cofx` record — not far away at replay / Xray / SSR.
+            ;; DEV-MODE-gated; reuses the slice-A walker + error shape. Runs
+            ;; AFTER `:schema` so a declared `:schema` mismatch (the prod
+            ;; contract) is reported first.
+            (validate-generated-recordable-value! cofx-id (second outcome) failing-id frame-id))
           outcome))
       (do
         (trace/emit! :warning :rf.cofx/skipped-on-platform
