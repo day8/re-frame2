@@ -232,31 +232,21 @@
       `[[<region> …] [<region> …]]` (multiple). A bare keyword / a head that
       is not a declared region is rejected (the root has no flat sibling state
       to land a non-region-qualified target on).
-    - `:rf.error/machine-parallel-root-after-not-supported` — the parallel
-      ROOT declares `:after` (rf2-tsq6g). Root-parallel `:on` ships as the
-      ancestor fallback, but the timer-driven root `:after` is NOT wired in
-      this release; it is rejected LOUDLY here (no silent drop) rather than
-      shipped half-wired. Express a root-level timeout as a region `:after`
-      that `:raise`s an internal event the root `:on` (or sibling regions)
-      handle."
+    Per rf2-wox0vd a `:type :parallel` ROOT MAY now declare `:after` — it is
+    ROOT-OWNED (scheduled at machine birth, alive for the whole machine,
+    stale-gated by the root's own per-path epoch). Its `:target` reuses the
+    EXACT region-qualified grammar root `:on` targets use, so a non-region-
+    qualified root `:after` target is rejected with the SAME
+    `:rf.error/machine-parallel-root-on-bad-target` (the timer-driven analog
+    of the root `:on` ancestor fallback). Express a root-level timeout this way
+    rather than the semantically-weaker region-`:after`-that-`:raise`s
+    workaround (whose timer is bound to an arbitrary region's lifecycle)."
   [machine]
   (when (parallel/parallel? machine)
     (when-not (and (map? (:regions machine)) (seq (:regions machine)))
       (throw (validation-error
                :rf.error/machine-parallel-bad-shape
                ":type :parallel requires a non-empty :regions map")))
-    ;; Per rf2-tsq6g: the parallel ROOT's `:after` is rejected loudly — the
-    ;; timer-driven root ancestor fallback is not wired in this release (no
-    ;; silent drop). Done BEFORE the region-name set is needed (a shape gate).
-    (when (contains? machine :after)
-      (throw (validation-error
-               :rf.error/machine-parallel-root-after-not-supported
-               (str "a :type :parallel root cannot declare :after — the "
-                    "timer-driven root ancestor fallback is not supported in "
-                    "this release. Use a region :after that :raises an internal "
-                    "event the root :on (or a sibling region) handles. Per "
-                    "Spec 005 §Transition broadcast §Root parallel :on.")
-               {:after (:after machine)})))
     ;; Per rf2-bnjb3 / rf2-6srk5: the parallel root's `:on-done` must not carry
     ;; an in-machine `:target` in ANY form (root-only parallel has no flat
     ;; sibling to land on). Normalise EVERY value-form `:on-done` admits —
@@ -308,12 +298,19 @@
     ;; vectors). A targetless / action-only transition is fine (no target to
     ;; check). The check normalises each `:on` entry to its candidate map(s)
     ;; and validates each candidate's `:target`.
+    ;;
+    ;; Per rf2-wox0vd the SAME region-qualified target grammar governs a
+    ;; root-owned `:after` transition (the timer-driven analog of the root
+    ;; `:on` ancestor fallback), so a non-region-qualified root `:after`
+    ;; target is rejected with the SAME `:rf.error/machine-parallel-root-on-
+    ;; bad-target` keyword. `candidates-of` is the shared `:on` / `:after`
+    ;; value-form normaliser (mirroring `transition/normalise-candidates`).
     (let [region-names (set (keys (:regions machine)))
           declared?    (fn [t] (contains? region-names t))
-          bad-target!  (fn [target]
+          bad-target!  (fn [slot target]
                          (throw (validation-error
                                   :rf.error/machine-parallel-root-on-bad-target
-                                  (str "a root parallel :on :target must be "
+                                  (str "a root parallel " slot " :target must be "
                                        "region-qualified — [<region> & "
                                        "<in-region-path>] for one region or "
                                        "[[<region> …] [<region> …]] for many. "
@@ -325,29 +322,34 @@
                                        "parallel :on.")
                                   {:target       target
                                    :regions      region-names})))
-          check-one!   (fn [target]
+          check-one!   (fn [slot target]
                          (cond
                            (nil? target) nil          ; targetless / action-only
                            ;; multiple region-qualified targets
                            (and (vector? target) (seq target) (every? vector? target))
                            (doseq [t target]
                              (when-not (and (seq t) (declared? (first t)))
-                               (bad-target! target)))
+                               (bad-target! slot target)))
                            ;; single region-qualified target
                            (vector? target)
                            (when-not (declared? (first target))
-                             (bad-target! target))
+                             (bad-target! slot target))
                            ;; bare keyword / any other shape — no flat sibling
-                           :else (bad-target! target)))]
-      (doseq [[_event v] (:on machine)
-              cand        (cond
+                           :else (bad-target! slot target)))
+          candidates-of (fn [v]
+                          (cond
                             (nil? v)                       [{}]
                             (keyword? v)                   [{:target v}]
                             (and (vector? v) (every? map? v) (seq v)) v
                             (vector? v)                    [{:target v}]
                             (map? v)                       [v]
-                            :else                          [])]
-        (check-one! (:target cand))))
+                            :else                          []))]
+      (doseq [[_event v] (:on machine)
+              cand        (candidates-of v)]
+        (check-one! ":on" (:target cand)))
+      (doseq [[_delay v] (:after machine)
+              cand        (candidates-of v)]
+        (check-one! ":after" (:target cand))))
     (when (or (contains? machine :initial) (contains? machine :states))
       (throw (validation-error
                :rf.error/machine-parallel-bad-shape

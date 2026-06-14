@@ -22,8 +22,9 @@
   Plus: the original BUG regression (root `:on` was accepted-and-ignored —
   silently dropped), the multi-region target grammar, the root `:action`
   running once, guard/action ref validation reaching the root-parallel
-  transition, the region-qualified target-shape validation, and the loud
-  rejection of a root `:after`.
+  transition, the region-qualified target-shape validation, and (rf2-wox0vd)
+  the ROOT-LEVEL `:after` — root-owned, region-qualified targets, action/fx-
+  only timeouts, guard suppression, and cancel-on-exit via the root epoch.
 
   These JVM tests pair with the conformance fixtures
   spec/conformance/fixtures/parallel-root-on-*.edn."
@@ -310,15 +311,184 @@
                            :b {:initial :one :states {:one {} :two {}}}}}))
         "region-qualified targets + resolvable refs pass")))
 
-;; ---- 13. root :after rejected LOUDLY (no silent drop) ----------------------
+;; ---- 13. ROOT-LEVEL :after on a parallel root (rf2-wox0vd — ALIGN) ---------
+;;
+;; XState v5 gold standard: `after` may be declared at any level, including a
+;; <parallel> node. A parallel-ROOT `:after` is ROOT-OWNED — scheduled at
+;; machine birth, alive for the whole machine, stale-gated by the root's OWN
+;; per-path epoch (NOT bound to any region's lifecycle). It is the timer-driven
+;; analog of the root `:on` ancestor fallback, reusing the exact region-
+;; qualified target grammar. (Replaces the pre-wox0vd loud rejection
+;; `:rf.error/machine-parallel-root-after-not-supported`.)
 
-(deftest root-after-rejected-loudly
-  (testing "a :type :parallel root declaring :after is rejected at registration"
+(deftest root-after-registers-and-validates
+  (testing "a :type :parallel root declaring :after now REGISTERS (was rejected loudly)"
+    (is (nil? (machines/validate-machine!
+                {:type    :parallel
+                 :after   {1000 {:target [:a :two]}}
+                 :regions {:a {:initial :one :states {:one {} :two {}}}
+                           :b {:initial :one :states {:one {} :two {}}}}}))
+        "region-qualified single-target root :after validates silently"))
+  (testing "multi-region + action/fx-only root :after value-forms validate"
+    (is (nil? (machines/validate-machine!
+                {:type    :parallel
+                 :guards  {:ok? (fn [_] true)}
+                 :actions {:act (fn [_] nil)}
+                 :after   {1000 {:target [[:a :two] [:b :two]] :guard :ok?}
+                           2000 {:action :act}                       ; action-only
+                           3000 [:a :two]                            ; bare vector target
+                           4000 [{:guard :ok? :target [:a :two]}     ; candidate vector
+                                 {:action :act}]}
+                 :regions {:a {:initial :one :states {:one {} :two {}}}
+                           :b {:initial :one :states {:one {} :two {}}}}}))
+        "multi-region, action-only, bare-vector and candidate-vector forms pass")))
+
+(deftest root-after-bad-target-rejected
+  (testing "a non-region-qualified root :after :target is rejected (same keyword as root :on)"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
-          #":rf.error/machine-parallel-root-after-not-supported"
+          #":rf.error/machine-parallel-root-on-bad-target"
           (machines/make-machine-handler
             {:type    :parallel
-             :after   {1000 {:target [:a :two]}}
+             :after   {1000 {:target :two}}    ; bare keyword — no flat sibling
              :regions {:a {:initial :one :states {:one {} :two {}}}}}))
-        "root :after is not wired in this release — rejected loudly, never silently dropped")))
+        "a bare-keyword root :after target has no flat sibling to land on"))
+  (testing "a root :after target whose head is not a declared region is rejected"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf.error/machine-parallel-root-on-bad-target"
+          (machines/make-machine-handler
+            {:type    :parallel
+             :after   {1000 {:target [:nonregion :x]}}
+             :regions {:a {:initial :one :states {:one {:on {}} :x {}}}}})))))
+
+;; ---- 14. root :after FIRES — moves the targeted region(s), via pure-fn -----
+;;
+;; The pure `machine-transition` apply path: a root-after-elapsed event with
+;; the empty `[]` decl-path routes to the root `:on` apply grammar. The epoch
+;; on the snapshot matches the carried epoch, so the timer is live and fires.
+
+(deftest root-after-fires-moves-targeted-regions
+  (testing "a live root :after firing moves its region-qualified target(s)"
+    (let [m {:type    :parallel
+             :data    {}
+             :after   {1000 {:target [[:a :two] [:b :two]]}}
+             :regions {:a {:initial :one :states {:one {} :two {}}}
+                       :b {:initial :one :states {:one {} :two {}}}}}
+          ;; root epoch 1 (as birth would seed) at the flat root slot.
+          initial {:state {:a :one :b :one}
+                   :data  {:rf/after-epoch {[] 1}}}
+          {snap ::result/snap}
+          (machines/machine-transition
+            m initial [:rf.machine.timer/after-elapsed 1000 1 []])]
+      (is (= {:a :two :b :two} (:state snap))
+          "live root :after (matching epoch) moved BOTH targeted regions")))
+  (testing "a root :after targeting ONE region leaves untargeted regions unchanged"
+    (let [m {:type    :parallel
+             :data    {}
+             :after   {500 {:target [:a :two]}}
+             :regions {:a {:initial :one :states {:one {} :two {}}}
+                       :b {:initial :one :states {:one {} :two {}}}}}
+          initial {:state {:a :one :b :one}
+                   :data  {:rf/after-epoch {[] 1}}}
+          {snap ::result/snap}
+          (machines/machine-transition
+            m initial [:rf.machine.timer/after-elapsed 500 1 []])]
+      (is (= {:a :two :b :one} (:state snap))
+          ":a moved; :b untargeted -> unchanged"))))
+
+(deftest root-after-action-fx-only-fires
+  (testing "an action/fx-only root :after (no :target) runs its action, moves no region"
+    (let [m {:type    :parallel
+             :data    {:fired 0}
+             :actions {:bump (fn [{d :data}] {:data (update d :fired inc)})}
+             :after   {1000 {:action :bump}}
+             :regions {:a {:initial :one :states {:one {} :two {}}}
+                       :b {:initial :one :states {:one {} :two {}}}}}
+          initial {:state {:a :one :b :one}
+                   :data  {:fired 0 :rf/after-epoch {[] 1}}}
+          {snap ::result/snap}
+          (machines/machine-transition
+            m initial [:rf.machine.timer/after-elapsed 1000 1 []])]
+      (is (= {:a :one :b :one} (:state snap)) "no region moved (action-only)")
+      (is (= 1 (get-in snap [:data :fired])) "the root :after :action ran once"))))
+
+(deftest root-after-guard-suppressed-does-not-fire
+  (testing "a root :after whose guard returns false is fired-and-discarded (no move)"
+    (let [m {:type    :parallel
+             :data    {}
+             :guards  {:never (fn [_] false)}
+             :after   {1000 {:target [[:a :two] [:b :two]] :guard :never}}
+             :regions {:a {:initial :one :states {:one {} :two {}}}
+                       :b {:initial :one :states {:one {} :two {}}}}}
+          initial {:state {:a :one :b :one}
+                   :data  {:rf/after-epoch {[] 1}}}
+          {snap ::result/snap}
+          (machines/machine-transition
+            m initial [:rf.machine.timer/after-elapsed 1000 1 []])]
+      (is (= {:a :one :b :one} (:state snap))
+          "guard false -> the root :after timer fires-and-discards; no region moved"))))
+
+;; ---- 15. ADVERSARIAL: root :after cancels-on-exit via epoch (rf2-wox0vd) ---
+;;
+;; The bead's required adversarial coverage: the root :after is ROOT-OWNED and
+;; stale-gated by the root's OWN per-path epoch. A timer carrying a STALE epoch
+;; (the root was torn down / its epoch advanced) DROPS — exactly the cancel-
+;; on-exit-via-epoch the per-state :after machinery uses, but at the root.
+
+(deftest root-after-stale-epoch-drops
+  (testing "a root :after firing with a STALE epoch does NOT transition (cancel-on-exit)"
+    (let [m {:type    :parallel
+             :data    {}
+             :after   {1000 {:target [[:a :two] [:b :two]]}}
+             :regions {:a {:initial :one :states {:one {} :two {}}}
+                       :b {:initial :one :states {:one {} :two {}}}}}
+          ;; The root's current epoch is 2 (a teardown/advance happened); the
+          ;; in-flight timer carries the prior epoch 1 -> stale, must drop.
+          initial {:state {:a :one :b :one}
+                   :data  {:rf/after-epoch {[] 2}}}
+          {snap ::result/snap}
+          (machines/machine-transition
+            m initial [:rf.machine.timer/after-elapsed 1000 1 []])]
+      (is (= {:a :one :b :one} (:state snap))
+          "stale-epoch root :after dropped; no region moved (cancel-on-exit via epoch)"))))
+
+;; ---- 16. root :after end-to-end through registration + birth (rf2-wox0vd) --
+;;
+;; The live runtime path: registration runs the BIRTH cascade, which schedules
+;; the root :after (seeds the root epoch at the flat `[]` slot AND emits the
+;; `:scheduled` trace). Firing the synthetic timer event with the seeded epoch
+;; transitions; a stale epoch drops.
+
+(deftest root-after-end-to-end-birth-schedule-and-fire
+  (testing "registration births the root :after: epoch seeded + :scheduled trace; firing transitions"
+    (let [m {:type    :parallel
+             :data    {}
+             :after   {1000 {:target [[:a :two] [:b :two]]}}
+             :regions {:a {:initial :one :states {:one {} :two {}}}
+                       :b {:initial :one :states {:one {} :two {}}}}}
+          traces (atom [])]
+      (rf/reg-machine :rootafter/e2e m)
+      (rf/register-listener! ::ra (fn [ev] (swap! traces conj ev)))
+      ;; Eager birth: kick the start so the initial cascade (and root :after
+      ;; schedule) runs and commits.
+      (rf/dispatch-sync [:rootafter/e2e [:rf.machine/start]])
+      (let [s (snapshot :rootafter/e2e)]
+        (is (= {:a :one :b :one} (:state s)) "born in each region's initial")
+        (is (= 1 (get-in s [:data :rf/after-epoch []]))
+            "the ROOT :after epoch (flat `[]` slot) was seeded at birth"))
+      (is (some #(and (= :rf.machine.timer/scheduled (:operation %))
+                      (= 1000 (:delay (:tags %)))
+                      (= :literal (:delay-source (:tags %))))
+                @traces)
+          "a :scheduled trace fired for the root :after at birth")
+      ;; Fire the matching-epoch synthetic timer -> both regions move.
+      (rf/dispatch-sync [:rootafter/e2e [:rf.machine.timer/after-elapsed 1000 1 []]])
+      (is (= {:a :two :b :two} (:state (snapshot :rootafter/e2e)))
+          "matching-epoch root :after firing moved both regions")
+      (is (some #(and (= :rf.machine.timer/fired (:operation %))
+                      (= 1000 (:delay (:tags %)))
+                      (= true (:fired? (:tags %))))
+                @traces)
+          "a :fired trace (fired? true) emitted for the root :after")
+      (rf/unregister-listener! ::ra))))

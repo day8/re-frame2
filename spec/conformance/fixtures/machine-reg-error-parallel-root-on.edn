@@ -1,26 +1,29 @@
 ;; Conformance fixture: machine/reg-error-parallel-root-on
 ;;
 ;; Per [005 §Transition broadcast §Root parallel `:on`]
-;; (../../005-StateMachines.md#transition-broadcast) and rf2-tsq6g. A
-;; `:type :parallel` root's own `:on` (the ancestor fallback) is
-;; shape-validated at registration:
+;; (../../005-StateMachines.md#transition-broadcast) and rf2-tsq6g /
+;; rf2-wox0vd. A `:type :parallel` root's own `:on` (the ancestor fallback)
+;; AND its root-owned `:after` (the timer-driven analog) are shape-validated
+;; at registration:
 ;;
-;;   - a root `:on` `:target` MUST be region-qualified — a bare keyword or a
-;;     head that is not a declared region has no flat sibling state to land
-;;     on: `:rf.error/machine-parallel-root-on-bad-target`.
-;;   - a `:type :parallel` root declaring `:after` is rejected loudly — the
-;;     timer-driven root ancestor fallback is not wired in this release (no
-;;     silent drop): `:rf.error/machine-parallel-root-after-not-supported`.
+;;   - a root `:on` / `:after` `:target` MUST be region-qualified — a bare
+;;     keyword or a head that is not a declared region has no flat sibling
+;;     state to land on: `:rf.error/machine-parallel-root-on-bad-target`.
+;;   - a `:type :parallel` root MAY now declare `:after` (rf2-wox0vd —
+;;     root-owned, scheduled at machine birth, stale-gated by the root's own
+;;     per-path epoch). A well-formed region-qualified root `:after` validates
+;;     silently (the pre-wox0vd loud rejection
+;;     `:rf.error/machine-parallel-root-after-not-supported` is removed).
 ;;
-;; Mode-B `:reg-machine` fixture pinning two members of the
-;; registration-error taxonomy (Spec 009 §The thrown-error shape). The
-;; control case — a well-formed root parallel `:on` with region-qualified
-;; targets — validates silently.
+;; Mode-B `:reg-machine` fixture pinning the region-qualified-target member
+;; of the registration-error taxonomy (Spec 009 §The thrown-error shape) for
+;; both the `:on` and `:after` root slots. The control cases — region-
+;; qualified targets on `:on` and `:after` — validate silently.
 
 {:fixture/id           :machine/reg-error-parallel-root-on
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/parallel-regions :fsm/registration-validation}
- :fixture/doc          "A root parallel :on with a non-region-qualified :target throws :rf.error/machine-parallel-root-on-bad-target; a :type :parallel root declaring :after throws :rf.error/machine-parallel-root-after-not-supported. The control — region-qualified targets — validates silently."
+ :fixture/doc          "A root parallel :on OR :after with a non-region-qualified :target throws :rf.error/machine-parallel-root-on-bad-target. A well-formed region-qualified root :after (rf2-wox0vd) validates silently — the old :rf.error/machine-parallel-root-after-not-supported rejection is removed. The control — region-qualified targets — validates silently."
 
  :fixture/registry {}
  :fixture/handlers  {}
@@ -40,18 +43,29 @@
                   :regions {:a {:initial :one :states {:one {} :x {}}}}}
    :expect-error :rf.error/machine-parallel-root-on-bad-target}
 
-  ;; (3) A :type :parallel root declaring :after — rejected loudly.
+  ;; (3) A root :after with a bare-keyword target — rejected with the SAME
+  ;; region-qualified-target keyword (rf2-wox0vd: root :after reuses the root
+  ;; :on target grammar). A root :after is no longer rejected for EXISTING.
   {:call         :reg-machine
    :definition   {:type    :parallel
-                  :after   {1000 {:target [:a :two]}}
+                  :after   {1000 {:target :two}}
                   :regions {:a {:initial :one :states {:one {} :two {}}}}}
-   :expect-error :rf.error/machine-parallel-root-after-not-supported}
+   :expect-error :rf.error/machine-parallel-root-on-bad-target}
 
-  ;; (4) Control: region-qualified single + multi targets validate silently.
+  ;; (4) Control: region-qualified single + multi targets on :on validate.
   {:call       :reg-machine
    :definition {:type    :parallel
                 :on      {:one {:target [:a :two]}
                           :go  {:target [[:a :two] [:b :two]]}
                           :ping {}}
+                :regions {:a {:initial :one :states {:one {} :two {}}}
+                          :b {:initial :one :states {:one {} :two {}}}}}}
+
+  ;; (5) Control: a well-formed region-qualified root :after validates
+  ;; silently (rf2-wox0vd — root-owned :after is now a first-class capability).
+  {:call       :reg-machine
+   :definition {:type    :parallel
+                :after   {1000 {:target [[:a :two] [:b :two]]}
+                          2000 {:target [:a :two]}}
                 :regions {:a {:initial :one :states {:one {} :two {}}}
                           :b {:initial :one :states {:one {} :two {}}}}}}]}
