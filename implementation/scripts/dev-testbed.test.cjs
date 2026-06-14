@@ -66,7 +66,18 @@ function stripEdnComments(edn) {
 
 /**
  * Parse the `:dev-http` map into { port -> [roots...] }. The map binds an
- * integer port to a vector of string roots.
+ * integer port to ONE of two value shapes (rf2-wn3bh):
+ *
+ *   - bare-vector  `<port> [ "root" "root" ... ]`
+ *   - map form     `<port> {:roots [ "root" ... ] :handler sym}`
+ *
+ * The map form was introduced so each testbed port can wire the JVM-only
+ * 'open in editor' not-found `:handler`. Both shapes carry the served roots
+ * in a `[ ... ]` vector; the FIRST `[ ... ]` after the port is the roots
+ * vector in either shape (in the map form `:roots` is the leading key). We
+ * find each port, then read the first bracketed vector that follows it
+ * (before the next port), so the parser is agnostic to the bare-vector vs
+ * map wrapper.
  */
 function parseDevHttp(edn) {
   const src = stripEdnComments(edn);
@@ -89,14 +100,27 @@ function parseDevHttp(edn) {
   }
   assert.ok(end !== -1, ':dev-http map must be balanced');
   const body = src.slice(open + 1, end);
-  // Each entry is `<port> [ "root" "root" ... ]`.
+  // Locate every port key, then read the FIRST bracketed roots vector that
+  // follows it (and precedes the next port) — works for both the bare-vector
+  // (`<port> [...]`) and map (`<port> {:roots [...] ...}`) shapes. A port key
+  // is a 2-5 digit integer immediately followed (after whitespace) by the
+  // opening `[` (bare-vector) or `{` (map form) of its value, which precludes
+  // matching incidental digits inside a root string.
   const entries = {};
-  const re = /(\d{2,5})\s*\[([^\]]*)\]/g;
-  let m;
-  while ((m = re.exec(body)) !== null) {
-    const port = Number(m[1]);
-    const roots = (m[2].match(/"([^"]*)"/g) || []).map((s) => s.slice(1, -1));
-    entries[port] = roots;
+  const portRe = /(\d{2,5})\s*[[{]/g;
+  const ports = [];
+  let pm;
+  while ((pm = portRe.exec(body)) !== null) {
+    ports.push({ port: Number(pm[1]), at: pm.index });
+  }
+  for (let i = 0; i < ports.length; i++) {
+    const from = ports[i].at;
+    const to = i + 1 < ports.length ? ports[i + 1].at : body.length;
+    const slice = body.slice(from, to);
+    const vec = slice.match(/\[([^\]]*)\]/);
+    if (!vec) continue;
+    const roots = (vec[1].match(/"([^"]*)"/g) || []).map((s) => s.slice(1, -1));
+    entries[ports[i].port] = roots;
   }
   return entries;
 }
