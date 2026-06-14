@@ -64,7 +64,7 @@
 ;; INITIALISATION
 ;; ============================================================================
 
-(rf/reg-event-fx :app/initialise
+(rf/reg-event :app/initialise
   {:doc "App boot. Seeds the form drafts. Session restore (`:auth/initialise`)
          is NOT in this fan-out — it consumes the RECORDABLE+PROVIDED
          `:realworld-resources.session/token` coeffect, whose value the host

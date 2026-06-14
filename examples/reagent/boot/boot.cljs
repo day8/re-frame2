@@ -90,13 +90,13 @@
 ;; :hydrating transition to write the loaded values into the
 ;; top-level app-db slices.
 
-(rf/reg-event-db :boot/stage-payload
+(rf/reg-event :boot/stage-payload
   {:doc "Write a child-loaded payload into the boot machine's
          staging slot. Dispatched by the :boot/loader child's
          :dispatch-done action just before it fires the join-completion
          event back to the parent."}
-  (fn handler-boot-stage-payload [db [_ staging-key payload]]
-    (assoc-in db [:boot/staging staging-key] payload)))
+  (fn handler-boot-stage-payload [{:keys [db]} [_ staging-key payload]]
+    {:db (assoc-in db [:boot/staging staging-key] payload)}))
 
 ;; ============================================================================
 ;; CHILD LOADER MACHINE — :boot/loader
@@ -356,14 +356,14 @@
 ;; HYDRATION PROMOTION
 ;; ============================================================================
 ;;
-;; A plain reg-event-fx does the cross-slice writes the boot
+;; A plain reg-event does the cross-slice writes the boot
 ;; machine's :hydrating action dispatches. Keeping the cross-slice
 ;; reads / writes in an explicit handler (not inside the machine's
 ;; action body) makes the boot trace one-step inspectable: the
 ;; machine's `:enter-hydrating` action is one trace; the
 ;; :boot/apply-hydration handler is another.
 
-(rf/reg-event-fx :boot/apply-hydration
+(rf/reg-event :boot/apply-hydration
   {:doc "Promote every staged child payload at [:boot/staging ...]
          into the canonical top-level app-db slices the running app
          reads. Fires :boot/hydrated back at :app/boot to transition
@@ -404,7 +404,7 @@
 ;; PUBLIC ENTRY EVENT
 ;; ============================================================================
 
-(rf/reg-event-fx :boot/initialise
+(rf/reg-event :boot/initialise
   {:doc "Top-level app boot. Fires the :app/boot machine's
          `:rf.machine/start` creation marker to kick the boot sequence
          off — the machine is born directly into `:configuring` and runs

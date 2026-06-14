@@ -118,7 +118,7 @@
 ;; cascade lands cleanly at `:authed`.
 ;; ---------------------------------------------------------------------------
 
-(rf/reg-event-fx :login.story/submit
+(rf/reg-event :login.story/submit
   {:doc "Story-shell driver for the auth-submit cascade. Dispatches the
          real `:auth.login/submit` sub-event so the machine's
          `:issue-request` action fires the real `:rf.http/managed` fx;

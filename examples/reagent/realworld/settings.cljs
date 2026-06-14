@@ -218,13 +218,13 @@
 ;; sibling namespaces (auth.cljs) need no change. Each one fans out to
 ;; one or more machine broadcasts.
 
-(rf/reg-event-fx :settings/initialise
+(rf/reg-event :settings/initialise
   {:doc "Reset the settings-form machine to its initial state.
          Dispatched from :app/initialise."}
   (fn handler-settings-initialise [_ _]
     {:fx [[:dispatch [:settings/form [:reset]]]]}))
 
-(rf/reg-event-fx :settings/load
+(rf/reg-event :settings/load
   {:doc "Seed the form draft from the currently-authenticated user.
          Dispatched by the :realworld.user/settings :on-match (see routing.cljs)
          and by tests after :auth/store-session."
@@ -235,7 +235,7 @@
                         [:load {:user user
                                 :now  time-ms}]]]]})))
 
-(rf/reg-event-fx :settings/edit-field
+(rf/reg-event :settings/edit-field
   {:doc  "User edited a form field. Broadcasts :edit into the machine —
           the :form region returns from :correct / :incorrect to
           :neutral and updates the draft + :touched."
@@ -244,7 +244,7 @@
     {:fx [[:dispatch [:settings/form
                       [:edit {:field field :value value}]]]]}))
 
-(rf/reg-event-fx :settings/submit
+(rf/reg-event :settings/submit
   {:doc "Save the user-settings draft. NO retry — single user-initiated
          submission per click (Spec 014). Broadcasts :submit-valid into
          the machine (which transitions to :submitting and clears
@@ -267,7 +267,7 @@
                           :on-success [:settings/submit-success]
                           :on-failure [:settings/submit-error]})]]})))
 
-(rf/reg-event-fx :settings/submit-success
+(rf/reg-event :settings/submit-success
   {:doc "Server accepted. Folds the new user into the machine's :data
          via the :store-user action (region lands in :correct), pushes
          the same user through :auth/store-session, and navigates to
@@ -279,7 +279,7 @@
             [:dispatch [:auth/store-session user]]
             [:dispatch [:rf.route/navigate :realworld.profile/show {:username (:username user)}]]]})))
 
-(rf/reg-event-fx :settings/submit-error
+(rf/reg-event :settings/submit-error
   {:doc "Server rejected. Folds a human-readable error message into the
          machine's :data via the :set-submit-error action; the region
          lands in :incorrect (the same surface the validation-error

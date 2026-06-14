@@ -61,21 +61,21 @@
 ;; DRAFT (app-db) + EVENTS
 ;; ============================================================================
 
-(rf/reg-event-fx :settings/load
+(rf/reg-event :settings/load
   {:doc "Seed the settings draft from the authenticated user. Dispatched from
          the settings view on mount (the page is auth-guarded, so a user is
          always present here)."}
   (fn [{:keys [db]} _]
     {:db (assoc-in db [:settings-form :draft] (draft-from-user (get-in db [:auth :user])))}))
 
-(rf/reg-event-db :settings/edit-field
+(rf/reg-event :settings/edit-field
   {:schema [:cat [:= :settings/edit-field] :keyword :string]}
-  (fn [db [_ field value]]
-    (-> db
+  (fn [{:keys [db]} [_ field value]]
+    {:db (-> db
         (assoc-in [:settings-form :draft field] value)
-        (update-in [:settings-form :touched] (fnil conj #{}) field))))
+        (update-in [:settings-form :touched] (fnil conj #{}) field))}))
 
-(rf/reg-event-fx :settings/submit
+(rf/reg-event :settings/submit
   {:doc "Fire the update-settings mutation with the current draft. The form
          watches the `:settings/save` instance for pending / error; the success
          continuation is the call-site `:reply-to [:settings/replied]` target
@@ -89,7 +89,7 @@
                          :reply-to [:settings/replied]
                          :cause    [:submit :settings/save]}]]]})))
 
-(rf/reg-event-fx :settings/replied
+(rf/reg-event :settings/replied
   {:doc "The update-settings mutation completion continuation (the `:reply-to`
          target). Receives the canonical reply map appended as the final arg
          (EP-0016 D1) — observed AFTER the mutation's `:invalidates` cleared the

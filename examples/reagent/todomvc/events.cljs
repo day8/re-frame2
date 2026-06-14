@@ -42,12 +42,12 @@
            (js/JSON.stringify)
            (.setItem ls db/ls-key)))))
 
-(rf/reg-event-fx :todo/initialise
+(rf/reg-event :todo/initialise
   {:rf.cofx/requires [:todo.storage/todos]}
   (fn [{:todo.storage/keys [todos]} _]
     {:db (assoc db/default-db :todos todos)}))
 
-(rf/reg-event-fx :todo/add
+(rf/reg-event :todo/add
   (fn [{:keys [db]} [_ title]]
     (let [title' (str/trim (or title ""))]
       (if (str/blank? title')
@@ -57,22 +57,22 @@
                                 {:id id :title title' :completed false})]
           (persist-db next-db))))))
 
-(rf/reg-event-fx :todo/toggle-completed
+(rf/reg-event :todo/toggle-completed
   (fn [{:keys [db]} [_ id]]
     (persist-db (update-in db [:todos id :completed] not))))
 
-(rf/reg-event-fx :todo/save
+(rf/reg-event :todo/save
   (fn [{:keys [db]} [_ id title]]
     (let [title' (str/trim (or title ""))]
       (if (str/blank? title')
         (persist-db (update db :todos dissoc id))
         (persist-db (assoc-in db [:todos id :title] title'))))))
 
-(rf/reg-event-fx :todo/delete
+(rf/reg-event :todo/delete
   (fn [{:keys [db]} [_ id]]
     (persist-db (update db :todos dissoc id))))
 
-(rf/reg-event-fx :todo/clear-completed
+(rf/reg-event :todo/clear-completed
   (fn [{:keys [db]} _]
     (persist-db
       (update db :todos
@@ -81,7 +81,7 @@
                       (remove (comp :completed val))
                       todos))))))
 
-(rf/reg-event-fx :todo/toggle-all
+(rf/reg-event :todo/toggle-all
   (fn [{:keys [db]} _]
     (let [todos          (:todos db)
           mark-complete? (not (and (seq todos)

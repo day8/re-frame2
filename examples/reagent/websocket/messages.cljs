@@ -365,7 +365,7 @@
 ;; The connection machine dispatches [:ws/handle-message body] for
 ;; every received message (correlated or server-pushed); this
 ;; handler folds it into app-db for the views.
-(rf/reg-event-db :ws/handle-message
+(rf/reg-event :ws/handle-message
   {:doc "Translate an inbound `:ws/received` body into an app-db write.
          Records the message in the [:messages :received] log + stashes
          the latest correlated reply at [:messages :last-reply] when
@@ -373,24 +373,24 @@
          so the inbox view can give every <li> a stable React :key —
          server pushes carry no `:request-id`, so position can't be used
          as identity once the newest-first list grows."}
-  (fn handler-ws-handle-message [db [_ body]]
-    (let [rx-seq (get-in db [:messages :rx-count] 0)]
+  (fn handler-ws-handle-message [{:keys [db]} [_ body]]
+    {:db (let [rx-seq (get-in db [:messages :rx-count] 0)]
       (-> db
           (update-in [:messages :received]
                      (fn [received]
                        (vec (cons (assoc body :rx-seq rx-seq) (or received [])))))
           (assoc-in [:messages :rx-count] (inc rx-seq))
           (cond-> (:request-id body)
-            (assoc-in [:messages :last-reply] body))))))
+            (assoc-in [:messages :last-reply] body))))}))
 
 ;; --- app-level events -------------------------------------------------
-(rf/reg-event-fx :ws.app/send
+(rf/reg-event :ws.app/send
   {:doc "Submit the form's draft as an outbound message."}
   (fn handler-app-send [{:keys [db]} [_ body]]
     {:db (assoc-in db [:messages :draft] "")
      :fx [[:dispatch [:ws/connection [:ws/send {:type :note :body body}]]]]}))
 
-(rf/reg-event-fx :ws.app/request
+(rf/reg-event :ws.app/request
   {:doc "Issue a request-reply via the connection machine's
          correlation slot. The reply lands at [:messages :last-reply]
          once the mock server echoes back."}
@@ -403,24 +403,24 @@
                                       :reply      [:ws.app/request-reply]
                                       :timeout-ms 5000}]]]]})))
 
-(rf/reg-event-db :ws.app/request-reply
+(rf/reg-event :ws.app/request-reply
   {:doc "Reply event fired by the connection machine's :register-request
          flow once the correlated reply lands."}
-  (fn handler-app-request-reply [db [_ body]]
-    (assoc-in db [:messages :last-reply] body)))
+  (fn handler-app-request-reply [{:keys [db]} [_ body]]
+    {:db (assoc-in db [:messages :last-reply] body)}))
 
-(rf/reg-event-fx :ws.app/subscribe-demo
+(rf/reg-event :ws.app/subscribe-demo
   {:doc "Demo subscription — the mock server acks with a synthetic
          server push so the app demonstrates the subscribe-then-push
          shape."}
   (fn handler-app-subscribe-demo [_ _]
     {:fx [[:dispatch [:ws/connection [:ws/subscribe :demo-topic]]]]}))
 
-(rf/reg-event-db :ws.app/edit-draft
-  (fn handler-app-edit-draft [db [_ text]]
-    (assoc-in db [:messages :draft] text)))
+(rf/reg-event :ws.app/edit-draft
+  (fn handler-app-edit-draft [{:keys [db]} [_ text]]
+    {:db (assoc-in db [:messages :draft] text)}))
 
-(rf/reg-event-fx :ws.messages/initialise
+(rf/reg-event :ws.messages/initialise
   (fn handler-messages-initialise [{:keys [db]} _]
     {:db (assoc db :messages {:draft "" :received [] :last-reply nil :rx-count 0})}))
 

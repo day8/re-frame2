@@ -57,16 +57,16 @@
 
 (def following-feed-token "following")
 
-(rf/reg-event-fx :home/show-global-feed
+(rf/reg-event :home/show-global-feed
   (fn [_ _] {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {}}]]]}))
 
-(rf/reg-event-fx :home/show-your-feed
+(rf/reg-event :home/show-your-feed
   (fn [_ _] {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {:feed following-feed-token}}]]]}))
 
-(rf/reg-event-fx :home/apply-tag
+(rf/reg-event :home/apply-tag
   (fn [_ [_ tag]] {:fx [[:dispatch [:rf.route/navigate :realworld/home-tag {:tag tag}]]]}))
 
-(rf/reg-event-fx :home/clear-tag
+(rf/reg-event :home/clear-tag
   (fn [_ _] {:fx [[:dispatch [:rf.route/navigate :realworld/home]]]}))
 
 ;; Page navigation preserves the active feed + tag (read off the live route)
@@ -74,7 +74,7 @@
 ;; cache keys. A tag-filtered page re-targets the `/tag/:tag` PATH route with
 ;; the tag param preserved; otherwise the home route carries `?feed=`. Page 1
 ;; drops the `?page=` param entirely (the canonical first-page URL).
-(rf/reg-event-fx :home/go-to-page
+(rf/reg-event :home/go-to-page
   (fn [{rt :rf.db/runtime} [_ page]]
     (let [current (get-in rt [:rf.runtime/routing :current])
           tag     (get-in current [:params :tag])
@@ -100,7 +100,7 @@
 ;; backend would 401). One instance id per (verb, slug/username) so concurrent
 ;; toggles on different articles don't clobber each other.
 
-(rf/reg-event-fx :ui/favorite
+(rf/reg-event :ui/favorite
   (fn [{:keys [db]} [_ slug favorited?]]
     (if (nil? (get-in db [:auth :user]))
       {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]}
@@ -110,7 +110,7 @@
                          :instance [:favorite slug]
                          :cause    [:click :ui/favorite slug]}]]]})))
 
-(rf/reg-event-fx :ui/follow
+(rf/reg-event :ui/follow
   (fn [{:keys [db]} [_ username following?]]
     (if (nil? (get-in db [:auth :user]))
       {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]}
@@ -131,7 +131,7 @@
 ;; the mutation reply-side seam the variant previously had to emulate with
 ;; Form-3 settle reactions on the article page.
 
-(rf/reg-event-fx :ui/follow-author
+(rf/reg-event :ui/follow-author
   {:doc "Follow / unfollow the article author from the detail page. Fires the
          follow / unfollow mutation; the detail page's embedded `:author` lives
          in the `[:article slug]` entry (not the `[:profile username]` resource
@@ -151,7 +151,7 @@
                          :reply-to [:ui/follow-author-replied slug]
                          :cause    [:click :ui/follow-author username]}]]]})))
 
-(rf/reg-event-fx :ui/follow-author-replied
+(rf/reg-event :ui/follow-author-replied
   {:doc "Follow / unfollow completion continuation (the `:reply-to` target,
          EP-0016 D1). On `:ok`, stale the current article so its embedded
          `:author.following` refetches — the follow mutation invalidates
@@ -168,7 +168,7 @@
                          :cause [:follow-author-detail-sync slug]}]]]}
       {})))
 
-(rf/reg-event-fx :ui/delete-article
+(rf/reg-event :ui/delete-article
   {:doc "Delete the current article from the detail page (author only). Fires
          the `:realworld/delete-article` mutation with a `:reply-to
          [:ui/article-deleted]` continuation that navigates home on success."}
@@ -182,7 +182,7 @@
                          :reply-to [:ui/article-deleted]
                          :cause    [:click :ui/delete-article slug]}]]]})))
 
-(rf/reg-event-fx :ui/article-deleted
+(rf/reg-event :ui/article-deleted
   {:doc "Delete-article completion continuation (the `:reply-to` target). On
          `:ok`, clear the delete instance and navigate home — the mutation's
          `:invalidates` already staled the lists + feed (and the now-gone
@@ -198,10 +198,10 @@
 ;; COMMENT FORM — a tiny app-db draft + a post mutation
 ;; ============================================================================
 
-(rf/reg-event-db :comment-form/edit
-  (fn [db [_ body]] (assoc-in db [:comment-form :body] body)))
+(rf/reg-event :comment-form/edit
+  (fn [{:keys [db]} [_ body]] {:db (assoc-in db [:comment-form :body] body)}))
 
-(rf/reg-event-fx :comment-form/submit
+(rf/reg-event :comment-form/submit
   (fn [{:keys [db]} [_ slug]]
     (let [body (str/trim (or (get-in db [:comment-form :body]) ""))]
       (if (str/blank? body)
@@ -213,7 +213,7 @@
                            :instance [:post-comment slug]
                            :cause    [:submit :comment-form slug]}]]]}))))
 
-(rf/reg-event-fx :comment/delete
+(rf/reg-event :comment/delete
   (fn [_ [_ slug id]]
     {:fx [[:dispatch [:rf.mutation/execute
                       {:mutation :realworld/delete-comment
@@ -564,7 +564,7 @@
 
 ;; Page navigation on a profile tab preserves the current route + username and
 ;; swaps only `?page=`. Page 1 drops the param (the canonical first-page URL).
-(rf/reg-event-fx :profile/go-to-page
+(rf/reg-event :profile/go-to-page
   (fn [{rt :rf.db/runtime} [_ page]]
     (let [{:keys [current]} (get rt :rf.runtime/routing)
           {:keys [route-id params]} current

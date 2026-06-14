@@ -86,7 +86,7 @@
 ;; mount/unmount (e.g. a hot-reload teardown) therefore leaves at most one
 ;; live tick chain, and a teardown leaves none.
 
-(rf/reg-event-fx :monitor/initialise
+(rf/reg-event :monitor/initialise
   (fn [{:keys [db]} _event]
     (let [next-gen (inc (:monitor/tick-gen db 0))]
       {:db {:monitor/processes initial-processes
@@ -97,7 +97,7 @@
             :monitor/tick-gen   next-gen}
        :fx [[:dispatch-later {:ms 1800 :event [:monitor/tick next-gen]}]]})))
 
-(rf/reg-event-fx :monitor/tick
+(rf/reg-event :monitor/tick
   (fn [{:keys [db]} [_ gen]]
     (if (not= gen (:monitor/tick-gen db))
       ;; Stale tick from a retired generation (a later initialise bumped
@@ -132,21 +132,21 @@
 ;; `:monitor/tick` carries a now-stale generation and no-ops. Dispatched from
 ;; the `monitor` component's `use-effect` cleanup on unmount, so the loop
 ;; never outlives the rendered root.
-(rf/reg-event-db :monitor/stop
-  (fn [db _event]
-    (update db :monitor/tick-gen (fnil inc 0))))
+(rf/reg-event :monitor/stop
+  (fn [{:keys [db]} _event]
+    {:db (update db :monitor/tick-gen (fnil inc 0))}))
 
-(rf/reg-event-db :monitor/toggle-level
-  (fn [db [_ level]]
-    (update db :monitor/level-filter
+(rf/reg-event :monitor/toggle-level
+  (fn [{:keys [db]} [_ level]]
+    {:db (update db :monitor/level-filter
             (fn [levels] (if (contains? levels level)
                            (disj levels level)
-                           (conj levels level))))))
+                           (conj levels level))))}))
 
-(rf/reg-event-db :monitor/select-process
-  (fn [db [_ id]]
-    (assoc db :monitor/selected
-              (if (= id (:monitor/selected db)) nil id))))
+(rf/reg-event :monitor/select-process
+  (fn [{:keys [db]} [_ id]]
+    {:db (assoc db :monitor/selected
+              (if (= id (:monitor/selected db)) nil id))}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS

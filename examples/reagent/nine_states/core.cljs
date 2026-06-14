@@ -349,13 +349,13 @@
 ;; the machine directly) keeps the imperative bits (clear the form,
 ;; bump app-db) out of the view.
 
-(rf/reg-event-fx :nine-states.app/initialise
+(rf/reg-event :nine-states.app/initialise
   {:doc "Seed the form slice + reset the machine to its initial state."}
   (fn handler-app-initialise [{:keys [db]} _]
     {:db (assoc db :new-todo new-todo-defaults)
      :fx [[:dispatch [:ui/nine-states [:reset]]]]}))
 
-(rf/reg-event-fx :nine-states.demo/load
+(rf/reg-event :nine-states.demo/load
   {:doc "Drive a synthetic fetch through the demo HTTP stub. The reply
          folds back via :nine-states.demo/loaded → the machine's
          :fetch-succeeded event; the :data region's :always-cascade
@@ -370,7 +370,7 @@
             :on-success [:nine-states.demo/loaded]
             :on-failure [:nine-states.demo/load-failed]}]]}))
 
-(rf/reg-event-fx :nine-states.demo/load-with-failure
+(rf/reg-event :nine-states.demo/load-with-failure
   {:doc "Drive a synthetic failing fetch — the :data region lands in
          :error."}
   (fn handler-demo-load-with-failure [_ _]
@@ -381,13 +381,13 @@
             :on-success [:nine-states.demo/loaded]
             :on-failure [:nine-states.demo/load-failed]}]]}))
 
-(rf/reg-event-fx :nine-states.demo/loaded
+(rf/reg-event :nine-states.demo/loaded
   {:doc "Successful fetch. Forwards the items to the machine via
          :fetch-succeeded; the :always-cascade picks the bucket."}
   (fn handler-demo-loaded [_ [_ {:keys [value]}]]
     {:fx [[:dispatch [:ui/nine-states [:fetch-succeeded {:items value}]]]]}))
 
-(rf/reg-event-fx :nine-states.demo/load-failed
+(rf/reg-event :nine-states.demo/load-failed
   {:doc "Failed fetch. Forwards the failure category to the machine."}
   (fn handler-demo-load-failed [_ [_ {:keys [failure]}]]
     {:fx [[:dispatch [:ui/nine-states [:fetch-failed {:failure failure}]]]]}))
@@ -404,7 +404,7 @@
     (and title (> (count title) 80))
     (assoc :title ["Title must be at most 80 characters."])))
 
-(rf/reg-event-fx :new-todo/edit-field
+(rf/reg-event :new-todo/edit-field
   {:doc  "User edited a form field. Updates :draft and marks the field
           touched; broadcasts :edit into the machine so the :form region
           returns from :correct or :incorrect to :neutral."
@@ -415,7 +415,7 @@
              (update-in [:new-todo :touched]    conj field))
      :fx [[:dispatch [:ui/nine-states [:edit]]]]}))
 
-(rf/reg-event-fx :new-todo/submit
+(rf/reg-event :new-todo/submit
   {:doc "Validate the draft. If invalid → :submit-invalid (the :form
          region lands in :incorrect). If valid → append to the
          machine's :data items via :fetch-succeeded, clear the draft,

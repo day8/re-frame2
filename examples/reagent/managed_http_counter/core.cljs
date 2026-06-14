@@ -82,11 +82,11 @@
 ;; Per spec/Conventions §Feature-modularity prefix convention every
 ;; app-db slot and sub-id carries the feature prefix; events already do.
 
-(rf/reg-event-db :counter/initialise
-  (fn [_db _ev]
-    {:counter/count  0
+(rf/reg-event :counter/initialise
+  (fn [{:keys [db]} _ev]
+    {:db {:counter/count  0
      :counter/status :idle
-     :counter/error  nil}))
+     :counter/error  nil}}))
 
 ;; -- +1 (real round-trip via Fetch) ------------------------------------------
 ;;
@@ -96,7 +96,7 @@
 ;; [:counter/+1 (assoc msg :rf/reply ...)] to the originating handler,
 ;; which branches on (:rf/reply msg) to apply the increment.
 
-(rf/reg-event-fx :counter/+1
+(rf/reg-event :counter/+1
   (fn [{:keys [db]} [_ msg]]
     (cond
       ;; Reply branch — increment by the delta the server returned.
@@ -121,7 +121,7 @@
 
 ;; -- Fail (real 404 from http-server) ----------------------------------------
 
-(rf/reg-event-fx :counter/fail
+(rf/reg-event :counter/fail
   (fn [{:keys [db]} [_ msg]]
     (cond
       (some-> msg :rf/reply :kind (= :failure))
@@ -151,7 +151,7 @@
 ;; same reply shape would land if the live fx ran the retry policy
 ;; against a real endpoint that 503'd once and then 200'd.
 
-(rf/reg-event-fx :counter/retry-recover
+(rf/reg-event :counter/retry-recover
   (fn [{:keys [db]} [_ msg]]
     (cond
       (some-> msg :rf/reply :kind (= :success))
@@ -241,7 +241,7 @@
                                   {:frame frame}))}))
     nil))
 
-(rf/reg-event-fx :counter/start-long
+(rf/reg-event :counter/start-long
   (fn [{:keys [db]} [_ msg]]
     (cond
       ;; Reply branch — the abort-fn dispatches :rf.http/aborted on
@@ -262,7 +262,7 @@
       {:db (assoc db :counter/status :loading :counter/error nil)
        :fx [[:counter/seed-long-request {:request-id long-request-id}]]})))
 
-(rf/reg-event-fx :counter/cancel
+(rf/reg-event :counter/cancel
   (fn [{:keys [db]} _]
     {:db db
      ;; Abort by request-id via the LIVE :rf.http/managed-abort fx. It

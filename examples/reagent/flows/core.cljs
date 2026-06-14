@@ -115,37 +115,37 @@
    {:sku "RF2-TEE"   :name "Six-domino t-shirt" :price 3200 :qty 2}
    {:sku "RF2-STKR"  :name "Sticker pack"       :price 500  :qty 3}])
 
-(rf/reg-event-db :cart/initialise
+(rf/reg-event :cart/initialise
   {:doc "Seed the cart. The :cart/subtotal and :cart/total flows fire right
          after THIS event's handler (before the db install) and materialise
          their outputs — a newly-registered flow's first walk always
          recomputes."}
-  (fn handler-cart-initialise [db _]
-    (assoc db :cart {:items seed-items})))
+  (fn handler-cart-initialise [{:keys [db]} _]
+    {:db (assoc db :cart {:items seed-items})}))
 
-(rf/reg-event-db :cart/inc-qty
+(rf/reg-event :cart/inc-qty
   {:doc    "Bump a line item's quantity. Touching [:cart :items] re-fires
             :cart/subtotal (its input changed), which in turn re-fires
             :cart/total — the cascade settles in one walk."
    :schema [:cat [:= :cart/inc-qty] :string]}
-  (fn handler-cart-inc-qty [db [_ sku]]
-    (update-in db [:cart :items]
+  (fn handler-cart-inc-qty [{:keys [db]} [_ sku]]
+    {:db (update-in db [:cart :items]
                (fn [items]
                  (mapv (fn [item]
                          (cond-> item
                            (= sku (:sku item)) (update :qty inc)))
-                       items)))))
+                       items)))}))
 
-(rf/reg-event-db :cart/dec-qty
+(rf/reg-event :cart/dec-qty
   {:doc    "Drop a line item's quantity (min 1)."
    :schema [:cat [:= :cart/dec-qty] :string]}
-  (fn handler-cart-dec-qty [db [_ sku]]
-    (update-in db [:cart :items]
+  (fn handler-cart-dec-qty [{:keys [db]} [_ sku]]
+    {:db (update-in db [:cart :items]
                (fn [items]
                  (mapv (fn [item]
                          (cond-> item
                            (= sku (:sku item)) (update :qty #(max 1 (dec %)))))
-                       items)))))
+                       items)))}))
 
 ;; Runtime-toggleable derivation (Spec 013 §Dynamic toggle via fx). The
 ;; discount flow is registered / cleared mid-event via the two reserved
@@ -161,7 +161,7 @@
 ;; discounted figure. The re-walk is driven by the dispatched event
 ;; draining — NOT by `:cart/touch` writing anything (it writes nothing).
 ;; This is the spec's own `:wizard/settle` pattern (§Sequencing).
-(rf/reg-event-fx :cart/apply-discount
+(rf/reg-event :cart/apply-discount
   {:doc "Engage the 10%-off feature gate by registering a flow that writes
          the discount rate, then nudge a re-walk so :cart/total recomputes."}
   (fn handler-cart-apply-discount [_ _]
@@ -176,7 +176,7 @@
             :path   [:cart :discount-rate]}]
           [:dispatch [:cart/touch]]]}))
 
-(rf/reg-event-fx :cart/remove-discount
+(rf/reg-event :cart/remove-discount
   {:doc "Disengage the feature gate. `:rf.fx/clear-flow` removes the flow
          AND dissoc-in's its [:cart :discount-rate] output back to nil, so
          :cart/total recomputes to the full price on the next walk."}
@@ -191,17 +191,17 @@
 ;; now visible in the registry — materialising the one-drain-lagged
 ;; output. The toggle is the `:rf.fx/reg-flow` / `:rf.fx/clear-flow`
 ;; registration itself; this event is the drain that surfaces its effect.
-(rf/reg-event-db :cart/touch
+(rf/reg-event :cart/touch
   {:doc "No-op drain. Exists only to trigger the re-walk that materialises
          the one-event-lagged discount flow output (Spec 013 §Sequencing)."}
-  (fn handler-cart-touch [db _] db))
+  (fn handler-cart-touch [{:keys [db]} _] {:db db}))
 
 ;; Reading a flow's output inside an event handler — Spec 013 §Sub
 ;; integration (a). The handler reads [:cart :total] as plain `app-db`
 ;; data; no subscribe, no special flow accessor. This is the central
 ;; reason the total is a flow and not a sub: a sub's value lives in the
 ;; view-facing sub-cache and is awkward to read from a handler.
-(rf/reg-event-fx :checkout/place-order
+(rf/reg-event :checkout/place-order
   {:doc "Place the order. Reads the materialised :cart/total straight off
          app-db — the flow output IS ordinary application state."}
   (fn handler-checkout-place-order [{:keys [db]} _]

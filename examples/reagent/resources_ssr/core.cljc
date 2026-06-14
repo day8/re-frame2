@@ -102,7 +102,7 @@
 ;; render and is released on request teardown — it never survives as a live
 ;; client lease (it reconciles to an orphan on hydration).
 
-(rf/reg-event-fx :rf/server-init
+(rf/reg-event :rf/server-init
   {:doc       "Per-request server init — preload the page resource."
    :platforms #{:server}}
   (fn [{:keys [db]} _]

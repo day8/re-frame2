@@ -108,7 +108,7 @@
 ;; EVENTS
 ;; ============================================================================
 
-(rf/reg-event-fx :rf/server-init
+(rf/reg-event :rf/server-init
   {:doc       "Per-request server-side initialisation. Reads the request
                via the :rf.server/request cofx (Spec 011 §Request storage
                substrate), dispatches setup events. Server only."
@@ -131,9 +131,9 @@
             :decode     :json
             :on-success [:articles/loaded]}]]}))
 
-(rf/reg-event-db :articles/loaded
-  (fn handler-articles-loaded [db [_ {:keys [value]}]]
-    (assoc db :articles value)))
+(rf/reg-event :articles/loaded
+  (fn handler-articles-loaded [{:keys [db]} [_ {:keys [value]}]]
+    {:db (assoc db :articles value)}))
 
 ;; HYDRATION IS FRAMEWORK-OWNED. `:rf/hydrate` is a reserved `:rf/*` event
 ;; (Conventions §Reserved namespaces) registered by `re-frame.ssr` — the app
@@ -164,8 +164,8 @@
 ;; correspondent, so it lives outside the SSR payload's authoritative
 ;; slice and starts at its default value on the client.
 
-(rf/reg-event-db :articles/toggle-bodies
-  (fn [db _] (update db :articles/show-bodies? (fnil not true))))
+(rf/reg-event :articles/toggle-bodies
+  (fn [{:keys [db]} _] {:db (update db :articles/show-bodies? (fnil not true))}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS / VIEWS
@@ -345,9 +345,9 @@
 ;; `:rf/server-init` is the documented per-request server-init pattern event
 ;; the app supplies a body for). This client-only-load bootstrap is a fresh
 ;; user invention, so it gets the app's own `:ssr/` namespace.
-(rf/reg-event-db :ssr/client-bootstrap
+(rf/reg-event :ssr/client-bootstrap
   {:doc "Client-side init that runs even if the server didn't render this page."}
-  (fn [db _] db))
+  (fn [{:keys [db]} _] {:db db}))
 
 ;; The React root is held in an atom and materialised lazily inside `run`
 ;; (not at ns-load) per examples/TESTING.md §Example mount-isolation

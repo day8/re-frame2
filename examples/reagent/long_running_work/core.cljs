@@ -78,7 +78,7 @@
 ;; `:work/initialise` resets the parent flow machine to :idle;
 ;; `:ui/initialise` seeds the Show/Hide toggle to true.
 
-(rf/reg-event-fx :app/initialise
+(rf/reg-event :app/initialise
   {:doc "App boot. Fans out to per-feature initialisers."}
   (fn handler-app-initialise [_ _]
     {:fx [[:dispatch [:work/initialise]]

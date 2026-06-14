@@ -122,7 +122,7 @@
   (vec (for [i (range n)]
          {:id (random-uuid) :title (str "Todo #" (inc i)) :done? false})))
 
-(rf/reg-event-fx :nine-states.story/load
+(rf/reg-event :nine-states.story/load
   {:doc "Story-shell variant of `:nine-states.demo/load`. Drives the
          same real fetch cascade — `:fetch-started` → `:rf.http/managed`
          → reply → `:fetch-succeeded` — but carries the synthetic todos
@@ -139,7 +139,7 @@
             :on-success [:nine-states.demo/loaded]
             :on-failure [:nine-states.demo/load-failed]}]]}))
 
-(rf/reg-event-fx :nine-states.story/load-failing
+(rf/reg-event :nine-states.story/load-failing
   {:doc "Story-shell variant of `:nine-states.demo/load-with-failure`.
          Drives the same real fetch cascade — `:fetch-started` →
          `:rf.http/managed` → reply → `:fetch-failed` — into the

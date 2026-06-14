@@ -69,7 +69,7 @@
 ;; tick — resuming the chain without a Reset. This is what makes "the slider
 ;; changes the duration on the fly" hold after completion.
 
-(rf/reg-event-fx :timer/initialise
+(rf/reg-event :timer/initialise
   {:doc "Seed the timer slice and start the periodic tick."}
   (fn handler-timer-initialise [{:keys [db]} _]
     {:db (assoc db :timer {:elapsed-ms   0
@@ -78,7 +78,7 @@
                            :tick-gen     0})
      :fx [[:dispatch-later {:ms tick-ms :event [:timer/tick 0]}]]}))
 
-(rf/reg-event-fx :timer/tick
+(rf/reg-event :timer/tick
   {:doc "Advance elapsed by one tick. Schedules the next tick if still ticking.
          Stale ticks (gen != current :tick-gen) are dropped — see header note."}
   (fn handler-timer-tick [{:keys [db]} [_ gen]]
@@ -93,7 +93,7 @@
             (and tick-active? (not done?))
             (assoc :fx [[:dispatch-later {:ms tick-ms :event [:timer/tick gen]}]])))))))
 
-(rf/reg-event-fx :timer/set-duration
+(rf/reg-event :timer/set-duration
   {:doc "User dragged the slider. Update the duration, and — if the tick
          chain had already stopped because elapsed reached the *old*
          duration — re-arm it under a bumped generation so a longer
@@ -117,7 +117,7 @@
       (cond-> {:db db'}
         rearm? (assoc :fx [[:dispatch-later {:ms tick-ms :event [:timer/tick next-gen]}]])))))
 
-(rf/reg-event-fx :timer/reset
+(rf/reg-event :timer/reset
   {:doc "User clicked Reset. Zero elapsed, retire any in-flight tick by
          bumping :tick-gen, and arm a fresh tick under the new generation."}
   (fn handler-timer-reset [{:keys [db]} _]

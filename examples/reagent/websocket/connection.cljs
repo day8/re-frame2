@@ -416,7 +416,7 @@
   (fn [snap _] (get-in snap [:data :error])))
 
 ;; --- init event -------------------------------------------------------
-(rf/reg-event-fx :ws.connection/initialise
+(rf/reg-event :ws.connection/initialise
   {:doc "Seed the connection machine into its `:disconnected` initial
          state — the lazy initial materialises on the first dispatch."}
   (fn handler-ws-connection-initialise [_ _]

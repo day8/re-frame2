@@ -146,7 +146,7 @@
 ;; INITIALISATION
 ;; ============================================================================
 
-(rf/reg-event-fx :tags/initialise
+(rf/reg-event :tags/initialise
   {:doc "Reset the popular-tags machine to its initial state. Dispatched
          from `:app/initialise` (see core.cljs)."}
   (fn handler-tags-initialise [_ _]
@@ -157,7 +157,7 @@
 ;; Pattern-RemoteData, translated into machine broadcasts.
 ;; ============================================================================
 
-(rf/reg-event-fx :tags/load
+(rf/reg-event :tags/load
   {:doc "Fetch the popular-tags list. Broadcasts `:fetch-started` into
          the `:realworld/tags` machine; the region picks `:loading` or
          `:fetching` based on whether prior tags are present (the
@@ -175,7 +175,7 @@
                         :on-success [:tags/loaded]
                         :on-failure [:tags/load-failed]})]]}))
 
-(rf/reg-event-fx :tags/loaded
+(rf/reg-event :tags/loaded
   {:doc "Successful tags fetch. Folds the list + a load timestamp into
          the machine's `:data` via the `:set-tags` action; the region
          lands in `:loaded`."
@@ -185,7 +185,7 @@
                       [:fetch-succeeded {:tags (vec (:tags value))
                                          :now  time-ms}]]]]}))
 
-(rf/reg-event-fx :tags/load-failed
+(rf/reg-event :tags/load-failed
   {:doc "Failed tags fetch. Folds a human-readable error message into
          the machine's `:data` via the `:set-error` action; the region
          lands in `:error`. Any prior tags remain in `:data` so the
@@ -249,7 +249,7 @@
      :feed (:feed query)
      :page (:page query)}))
 
-(rf/reg-event-fx :home/load
+(rf/reg-event :home/load
   {:doc "Route :on-match handler for `:realworld/home`. Reads the route's
          query params and:
            - broadcasts the `:feed` region into `:user-feed` / `:tag-feed`
@@ -285,15 +285,15 @@
 ;; `?feed=following`. `:home/show-page` re-targets whichever home route is
 ;; active (tag route keeps its `:tag` param) so paging stays within the tag.
 
-(rf/reg-event-fx :home/show-global-feed
+(rf/reg-event :home/show-global-feed
   (fn [_ _]
     {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {}}]]]}))
 
-(rf/reg-event-fx :home/show-your-feed
+(rf/reg-event :home/show-your-feed
   (fn [_ _]
     {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {:feed following-feed-token}}]]]}))
 
-(rf/reg-event-fx :home/show-page
+(rf/reg-event :home/show-page
   {:doc "Navigate to a 1-indexed pagination page for the active home feed,
          carrying the current feed / tag forward so paging stays within it. A
          tag-filtered list re-targets the `/tag/:tag` PATH route with the tag
@@ -308,11 +308,11 @@
         (let [query (cond-> {:page page} feed (assoc :feed feed))]
           {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query query}]]]})))))
 
-(rf/reg-event-fx :tags/apply-filter
+(rf/reg-event :tags/apply-filter
   (fn [_ [_ tag]]
     {:fx [[:dispatch [:rf.route/navigate :realworld/home-tag {:tag tag}]]]}))
 
-(rf/reg-event-fx :tags/clear-filter
+(rf/reg-event :tags/clear-filter
   (fn [_ _]
     ;; Clearing the tag leaves the `/tag/:tag` route entirely, back to the
     ;; global feed at `/` (page 1).

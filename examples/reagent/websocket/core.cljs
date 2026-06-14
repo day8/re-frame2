@@ -48,7 +48,7 @@
 ;; APP-BOOT EVENT
 ;; ============================================================================
 
-(rf/reg-event-fx :ws.app/initialise
+(rf/reg-event :ws.app/initialise
   {:doc "App boot. Seeds the messages slice + materialises the
          connection machine's initial `:disconnected` snapshot.
 

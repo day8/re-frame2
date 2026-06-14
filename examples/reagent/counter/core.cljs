@@ -1,7 +1,7 @@
 (ns counter.core
   "A minimal counter against the re-frame2 API.
 
-   Demonstrates: `reg-event-db`, `reg-sub`, `reg-view` with frame-bound
+   Demonstrates: `reg-event`, `reg-sub`, `reg-view` with frame-bound
    `dispatch`/`subscribe` injection."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core    :as rf]
@@ -11,14 +11,14 @@
 
 ;; -- Events / subs (handler registry is app-global) --------------------------
 
-(rf/reg-event-db :counter/initialise
-  (fn [_db _event] {:counter/value 5}))
+(rf/reg-event :counter/initialise
+  (fn [{:keys [db]} _event] {:db {:counter/value 5}}))
 
-(rf/reg-event-db :counter/inc
-  (fn [db _event] (update db :counter/value inc)))
+(rf/reg-event :counter/inc
+  (fn [{:keys [db]} _event] {:db (update db :counter/value inc)}))
 
-(rf/reg-event-db :counter/dec
-  (fn [db _event] (update db :counter/value dec)))
+(rf/reg-event :counter/dec
+  (fn [{:keys [db]} _event] {:db (update db :counter/value dec)}))
 
 (rf/reg-sub :counter/value
   (fn [db _query] (:counter/value db)))

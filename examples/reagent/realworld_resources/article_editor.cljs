@@ -201,7 +201,7 @@
 ;; EVENTS
 ;; ============================================================================
 
-(rf/reg-event-fx :editor/initialise
+(rf/reg-event :editor/initialise
   {:doc "Create-mode entry (`:realworld.editor/new` `:on-match`). Reset the
          editor slice to a blank draft, clear any prior save instance, and
          register the `:editor/can-submit?` flow against the dispatching frame
@@ -211,7 +211,7 @@
      :fx [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
           [:rf.fx/reg-flow can-submit-flow]]}))
 
-(rf/reg-event-fx :editor/load-article
+(rf/reg-event :editor/load-article
   {:doc "Edit-mode entry (`:realworld.editor/edit` `:on-match`). Seed the draft
          from the existing article via a one-shot resource ensure under a
          releaseable lease, register the flow, and clear any prior save
@@ -230,15 +230,15 @@
                          :owner    [:lease :editor/article slug]
                          :cause    [:route-entry :realworld.editor/edit]}]]]})))
 
-(rf/reg-event-db :editor/seed-from-article
+(rf/reg-event :editor/seed-from-article
   {:doc "Seed the editor draft + baseline from a loaded article. Dispatched by
          the editor page's Form-3 load reaction when the article read first
          settles with data (off the render path)."}
-  (fn [db [_ article]]
-    (let [draft (draft-from-article article)]
-      (assoc db :editor (editor-slice (:slug article) draft)))))
+  (fn [{:keys [db]} [_ article]]
+    {:db (let [draft (draft-from-article article)]
+      (assoc db :editor (editor-slice (:slug article) draft)))}))
 
-(rf/reg-event-fx :editor/release-article
+(rf/reg-event :editor/release-article
   {:doc "Release the edit-mode article lease (dispatched on unmount). Drops the
          editor's owner on the article read so it can go inactive / GC. The
          release path is mandatory for an app-minted lease (Spec 016 §Active
@@ -249,19 +249,19 @@
                         {:owner [:lease :editor/article slug]
                          :cause [:route-leave :realworld.editor/edit]}]]]})))
 
-(rf/reg-event-db :editor/edit-field
+(rf/reg-event :editor/edit-field
   {:schema [:cat [:= :editor/edit-field] :keyword :string]}
-  (fn [db [_ field value]]
-    (-> db
+  (fn [{:keys [db]} [_ field value]]
+    {:db (-> db
         (assoc-in [:editor :draft field] value)
         (update-in [:editor :touched] (fnil conj #{}) field)
-        (update-in [:editor :errors] dissoc field))))
+        (update-in [:editor :errors] dissoc field))}))
 
-(rf/reg-event-db :editor/blur-field
-  (fn [db [_ field]]
-    (update-in db [:editor :touched] (fnil conj #{}) field)))
+(rf/reg-event :editor/blur-field
+  (fn [{:keys [db]} [_ field]]
+    {:db (update-in db [:editor :touched] (fnil conj #{}) field)}))
 
-(rf/reg-event-fx :editor/submit
+(rf/reg-event :editor/submit
   {:doc "Save the article. Reads the `:editor/can-submit?` FLOW output straight
          off app-db (Spec 013 §Sub integration (a)) — a materialised derived
          value consumed as plain data, no subscribe ceremony. Valid-and-dirty
@@ -299,7 +299,7 @@
                            :reply-to [:editor/replied]
                            :cause    [:submit :editor/save]}]]]}))))
 
-(rf/reg-event-fx :editor/replied
+(rf/reg-event :editor/replied
   {:doc "The save / delete mutation completion continuation (the `:reply-to`
          target, EP-0016 D1). Receives the canonical reply map appended as the
          final arg, observed AFTER the mutation's `:invalidates` staled the
@@ -325,7 +325,7 @@
        :fx [[:dispatch [:rf.mutation/clear {:instance save-instance}]]
             [:dispatch [:rf.route/navigate :realworld/home]]]})))
 
-(rf/reg-event-fx :editor/delete
+(rf/reg-event :editor/delete
   {:doc "Delete the article (edit mode only). Fires the delete mutation under
          the same instance the save uses, with the same `:reply-to
          [:editor/replied]` continuation (which branches save vs delete on the

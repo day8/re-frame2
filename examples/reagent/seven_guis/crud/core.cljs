@@ -53,68 +53,68 @@
 ;; EVENTS
 ;; ============================================================================
 
-(rf/reg-event-db :crud/initialise
+(rf/reg-event :crud/initialise
   {:doc "Seed the list with the 7GUIs reference data."}
-  (fn handler-crud-initialise [db _]
-    (assoc db :crud {:people      [{:id (random-uuid) :name "Hans"  :surname "Emil"}
+  (fn handler-crud-initialise [{:keys [db]} _]
+    {:db (assoc db :crud {:people      [{:id (random-uuid) :name "Hans"  :surname "Emil"}
                                    {:id (random-uuid) :name "Max"   :surname "Mustermann"}
                                    {:id (random-uuid) :name "Roman" :surname "Tisch"}]
                      :filter-text ""
                      :selected-id nil
-                     :draft       {:name "" :surname ""}})))
+                     :draft       {:name "" :surname ""}})}))
 
-(rf/reg-event-db :crud/set-filter
+(rf/reg-event :crud/set-filter
   {:doc "User typed in the filter input."}
-  (fn handler-crud-set-filter [db [_ s]]
-    (assoc-in db [:crud :filter-text] s)))
+  (fn handler-crud-set-filter [{:keys [db]} [_ s]]
+    {:db (assoc-in db [:crud :filter-text] s)}))
 
-(rf/reg-event-db :crud/select
+(rf/reg-event :crud/select
   {:doc "User clicked a list entry. Populates the draft from the selected person."
    :schema [:cat [:= :crud/select] :uuid]}
-  (fn handler-crud-select [db [_ id]]
-    (let [people (get-in db [:crud :people])
+  (fn handler-crud-select [{:keys [db]} [_ id]]
+    {:db (let [people (get-in db [:crud :people])
           person (first (filter #(= id (:id %)) people))]
       (-> db
           (assoc-in [:crud :selected-id] id)
-          (assoc-in [:crud :draft]       (select-keys person [:name :surname]))))))
+          (assoc-in [:crud :draft]       (select-keys person [:name :surname]))))}))
 
-(rf/reg-event-db :crud/edit-name
-  (fn handler-crud-edit-name [db [_ s]]
-    (assoc-in db [:crud :draft :name] s)))
+(rf/reg-event :crud/edit-name
+  (fn handler-crud-edit-name [{:keys [db]} [_ s]]
+    {:db (assoc-in db [:crud :draft :name] s)}))
 
-(rf/reg-event-db :crud/edit-surname
-  (fn handler-crud-edit-surname [db [_ s]]
-    (assoc-in db [:crud :draft :surname] s)))
+(rf/reg-event :crud/edit-surname
+  (fn handler-crud-edit-surname [{:keys [db]} [_ s]]
+    {:db (assoc-in db [:crud :draft :surname] s)}))
 
-(rf/reg-event-db :crud/create
+(rf/reg-event :crud/create
   {:doc "Add a new person from the draft. Selects the new entry."}
-  (fn handler-crud-create [db _]
-    (let [new-id (random-uuid)
+  (fn handler-crud-create [{:keys [db]} _]
+    {:db (let [new-id (random-uuid)
           {:keys [name surname]} (get-in db [:crud :draft])]
       (-> db
           (update-in [:crud :people] conj {:id new-id :name name :surname surname})
-          (assoc-in  [:crud :selected-id] new-id)))))
+          (assoc-in  [:crud :selected-id] new-id)))}))
 
-(rf/reg-event-db :crud/update
+(rf/reg-event :crud/update
   {:doc "Apply the draft to the selected person."}
-  (fn handler-crud-update [db _]
-    (let [{:keys [selected-id draft]} (:crud db)]
+  (fn handler-crud-update [{:keys [db]} _]
+    {:db (let [{:keys [selected-id draft]} (:crud db)]
       (if selected-id
         (update-in db [:crud :people]
                    (fn [people]
                      (mapv #(if (= selected-id (:id %)) (merge % draft) %) people)))
-        db))))
+        db))}))
 
-(rf/reg-event-db :crud/delete
+(rf/reg-event :crud/delete
   {:doc "Remove the selected person."}
-  (fn handler-crud-delete [db _]
-    (let [{:keys [selected-id]} (:crud db)]
+  (fn handler-crud-delete [{:keys [db]} _]
+    {:db (let [{:keys [selected-id]} (:crud db)]
       (if selected-id
         (-> db
             (update-in [:crud :people] (fn [ps] (vec (remove #(= selected-id (:id %)) ps))))
             (assoc-in  [:crud :selected-id] nil)
             (assoc-in  [:crud :draft]       {:name "" :surname ""}))
-        db))))
+        db))}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS

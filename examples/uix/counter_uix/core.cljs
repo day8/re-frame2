@@ -6,7 +6,7 @@
    down. Demonstrates:
 
      - `rf/init!` with the UIx adapter
-     - `reg-event-db` / `reg-event-fx` / `reg-sub` (substrate-agnostic)
+     - `reg-event` / `reg-sub` (substrate-agnostic)
      - `use-subscribe` hook (UIx idiomatic)
      - `(:dispatch (rf/frame-handle))` for click handlers (components
        call dispatch / use-subscribe directly, no auto-injection)
@@ -23,14 +23,14 @@
 
 ;; -- Events / subs (handler registry is app-global) --------------------------
 
-(rf/reg-event-db :counter/initialise
-  (fn [_db _event] {:counter/value 5}))
+(rf/reg-event :counter/initialise
+  (fn [{:keys [db]} _event] {:db {:counter/value 5}}))
 
-(rf/reg-event-db :counter/inc
-  (fn [db _event] (update db :counter/value inc)))
+(rf/reg-event :counter/inc
+  (fn [{:keys [db]} _event] {:db (update db :counter/value inc)}))
 
-(rf/reg-event-db :counter/dec
-  (fn [db _event] (update db :counter/value dec)))
+(rf/reg-event :counter/dec
+  (fn [{:keys [db]} _event] {:db (update db :counter/value dec)}))
 
 (rf/reg-sub :counter/value
   (fn [db _query] (:counter/value db)))

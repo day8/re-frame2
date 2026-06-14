@@ -97,19 +97,19 @@
 ;; SUPPORT EVENTS
 ;; ============================================================================
 
-(rf/reg-event-db :auth/store-session
-  (fn [db [_ user]]
-    (-> db
+(rf/reg-event :auth/store-session
+  (fn [{:keys [db]} [_ user]]
+    {:db (-> db
         (assoc-in [:auth :user] user)
-        (assoc-in [:auth :token] (:token user)))))
+        (assoc-in [:auth :token] (:token user)))}))
 
-(rf/reg-event-db :auth/clear-session
-  (fn [db _]
-    (-> db
+(rf/reg-event :auth/clear-session
+  (fn [{:keys [db]} _]
+    {:db (-> db
         (assoc-in [:auth :user] nil)
-        (assoc-in [:auth :token] nil))))
+        (assoc-in [:auth :token] nil))}))
 
-(rf/reg-event-fx :auth/post-login-redirect
+(rf/reg-event :auth/post-login-redirect
   {:doc "Bounce the freshly-authenticated user back to the route the auth
          guard intercepted (`[:auth :return-to]`, set in routing.cljs), or
          home when there is none. Dispatched by the auth machine's
@@ -248,7 +248,7 @@
 ;; INITIALISATION + SESSION RESTORE
 ;; ============================================================================
 
-(rf/reg-event-fx :auth/initialise
+(rf/reg-event :auth/initialise
   {:rf.cofx/requires [:auth.session/token]}
   (fn handler-auth-initialise [{:keys [db auth.session/token]} _]
     ;; ITEM 8 (rf2-ygh4m): we dispatch `:auth/flow [:auth/restore token]`
@@ -273,25 +273,25 @@
 (def login-form-defaults    {:email "" :password ""})
 (def register-form-defaults {:username "" :email "" :password ""})
 
-(rf/reg-event-db :auth.login-form/initialise
-  (fn [db _]
-    (assoc-in db [:auth :login-form]
+(rf/reg-event :auth.login-form/initialise
+  (fn [{:keys [db]} _]
+    {:db (assoc-in db [:auth :login-form]
               {:draft             login-form-defaults
                :submitted         nil
                :status            :idle
                :errors            {}
                :touched           #{}
                :submit-attempted? false
-               :submit-error      nil})))
+               :submit-error      nil})}))
 
-(rf/reg-event-db :auth.login-form/edit-field
+(rf/reg-event :auth.login-form/edit-field
   {:schema [:cat [:= :auth.login-form/edit-field] :keyword :string]}
-  (fn [db [_ field value]]
-    (-> db
+  (fn [{:keys [db]} [_ field value]]
+    {:db (-> db
         (assoc-in [:auth :login-form :draft field] value)
-        (update-in [:auth :login-form :touched] (fnil conj #{}) field))))
+        (update-in [:auth :login-form :touched] (fnil conj #{}) field))}))
 
-(rf/reg-event-fx :auth.login-form/submit
+(rf/reg-event :auth.login-form/submit
   (fn [{:keys [db]} _]
     (let [draft (get-in db [:auth :login-form :draft])]
       {:db (-> db
@@ -299,24 +299,24 @@
                (assoc-in [:auth :login-form :status] :submitting))
        :fx [[:dispatch [:auth/flow [:auth/login draft]]]]})))
 
-(rf/reg-event-db :auth.register-form/initialise
-  (fn [db _]
-    (assoc-in db [:auth :register-form]
+(rf/reg-event :auth.register-form/initialise
+  (fn [{:keys [db]} _]
+    {:db (assoc-in db [:auth :register-form]
               {:draft             register-form-defaults
                :submitted         nil
                :status            :idle
                :errors            {}
                :touched           #{}
                :submit-attempted? false
-               :submit-error      nil})))
+               :submit-error      nil})}))
 
-(rf/reg-event-db :auth.register-form/edit-field
-  (fn [db [_ field value]]
-    (-> db
+(rf/reg-event :auth.register-form/edit-field
+  (fn [{:keys [db]} [_ field value]]
+    {:db (-> db
         (assoc-in [:auth :register-form :draft field] value)
-        (update-in [:auth :register-form :touched] (fnil conj #{}) field))))
+        (update-in [:auth :register-form :touched] (fnil conj #{}) field))}))
 
-(rf/reg-event-fx :auth.register-form/submit
+(rf/reg-event :auth.register-form/submit
   (fn [{:keys [db]} _]
     (let [draft (get-in db [:auth :register-form :draft])]
       {:db (-> db
