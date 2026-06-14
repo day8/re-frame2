@@ -151,7 +151,7 @@ Frame-owned classification is the durable, cross-frame-distinct, one-place decla
 Transient payloads are owned by the registration that introduces the shape. Registration metadata classifies values whose shape is local to the registration: event args, cofx values, fx args, sub outputs, flow outputs, machine transition payloads, and similar short-lived records.
 
 ```clojure
-(rf/reg-event-fx
+(rf/reg-event
   :auth/login
   {:sensitive [[:password] [:totp-code]]}
   (fn [{:keys [db]} [_ {:keys [email password]}]]
@@ -492,14 +492,14 @@ The residual surface is the intersection of *the handler read a sensitive value*
 
 ```clojure
 ;; ANTI-PATTERN — the email lands in the error record verbatim.
-(rf/reg-event-fx :auth/login
+(rf/reg-event :auth/login
   (fn [{:keys [db]} _]
     (let [email (get-in db [:user :email])]    ;; [:user :email] is frame-sensitive
       (throw (ex-info (str "User " email " failed login")
                       {:user/email email :reason :invalid-credentials})))))
 
 ;; PREFERRED — name the category; omit / sentinel-stamp the value.
-(rf/reg-event-fx :auth/login
+(rf/reg-event :auth/login
   (fn [_ _]
     (throw (ex-info "Invalid credentials" {:reason :invalid-credentials}))))
 ```
@@ -540,7 +540,7 @@ Conformance fixtures under [conformance/](conformance/README.md) assert the obse
 | `data-classification/frame-large-app-db-elides.edn` | A frame with `:large {:app-db [[:docs :csv-upload]]}` projects `:rf/large {:bytes N …}` (or `:rf.size/large-elided`) at the marked path. |
 | `data-classification/sensitive-wins-over-large.edn` | A path declared in both `:sensitive` and `:large` projects as `:rf/redacted` (optionally `{:bytes N}`); no large marker that could leak path / size / digest is emitted. |
 | `data-classification/frame-http-carrier-extends-defaults.edn` | A frame-local `:sensitive {:http {:headers ["X-Honeycomb-Team"]}}` redacts that header **in addition to** the immutable built-in defaults; no frame can remove a built-in default. |
-| `data-classification/event-arg-sensitive-path-redacts.edn` | A `reg-event-fx` with `:sensitive [[:password]]`, dispatched with `{:password "secret"}`, projects `[:event-id {:password :rf/redacted}]`. |
+| `data-classification/event-arg-sensitive-path-redacts.edn` | A `reg-event` with `:sensitive [[:password]]`, dispatched with `{:password "secret"}`, projects `[:event-id {:password :rf/redacted}]`. |
 | `data-classification/machine-data-schema-prop-redacts.edn` | A `reg-machine` whose `:data-schema` marks `[:payment :token {:sensitive? true}]`, after a transition writing a token into `:data`, projects `:rf/redacted` at `[:data :payment :token]` in `:rf.machine/snapshot-updated`. |
 | `data-classification/project-egress-omits-event-args-off-box.edn` | `project-egress` of an `:rf.observe/handled-event` under `:rf.egress/off-box-observability` carries `:frame` / `:event-id` / `:status` / `:elapsed-ms` / `:effects` / correlation ids and **omits the `:event` args slot entirely**. |
 | `data-classification/project-egress-fails-closed-no-frame.edn` | `project-egress` of a value with no known frame **fails closed** (does not synthesize `:rf/default`). |

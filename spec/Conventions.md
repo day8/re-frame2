@@ -71,7 +71,7 @@ The v1 framework prefix `:re-frame/*` is **not** a runtime-resolved alias in v2.
 
 The v1 `re-frame.alpha` namespace is **not part of v2**. The generalised `reg`/`sub`/`reg-sub-lifecycle` surface — together with the built-in lifecycle policies `:safe`, `:no-cache`, `:reactive`, `:forever` and the query-map `:re-frame/q` shape — is removed. This is pre-v1 cleanup, not deprecation. The canonical surfaces are:
 
-- **Per-kind registration macros**: `reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-route`, `reg-machine`, `reg-app-schema`, `reg-view`.
+- **Per-kind registration macros**: `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-route`, `reg-machine`, `reg-app-schema`, `reg-view`.
 - **Vector-form subscribe**: `(rf/subscribe [::id arg])`.
 
 The per-frame sub-cache uses a single disposal algorithm — synchronous ref-counting (dispose on derefer-count → 0) — per [Spec 006 §Reference counting and disposal](006-ReactiveSubstrate.md#reference-counting-and-disposal). For one-shot or persistent-value edge cases that would have leaned on a specific lifecycle policy, file a bead naming the actual need rather than reaching for a removed API.
@@ -97,7 +97,7 @@ Library-owned prefixes live **outside** `:rf.*` (e.g., Story's `:story.*`, Works
 
 ### Discipline
 
-- **User-registered ids must not collide.** A user may not `(reg-event-fx :rf/hydrate ...)` to override a framework event without going through the documented `:on-create` / re-registration extension points. The linter rule is: `:rf/*` and any `:rf.X/*` sub-namespace is reserved. The rule applies regardless of the segment shape under the sub-namespace — a user registration of either `:rf.frame/<gensym>` (the identifier form) or `:rf.frame/<operation>` (the trace-operation form) is a collision; both rows above sit inside the same closed reserved set.
+- **User-registered ids must not collide.** A user may not `(reg-event :rf/hydrate ...)` to override a framework event without going through the documented `:on-create` / re-registration extension points. The linter rule is: `:rf/*` and any `:rf.X/*` sub-namespace is reserved. The rule applies regardless of the segment shape under the sub-namespace — a user registration of either `:rf.frame/<gensym>` (the identifier form) or `:rf.frame/<operation>` (the trace-operation form) is a collision; both rows above sit inside the same closed reserved set.
 - **Library authors choose their own prefixes.** Third-party libraries SHOULD use their library name as a top-level segment (`:reagent/*`, `:re-pressed/*`). Avoid re-using `:rf/*`.
 - **Trace-event `:operation` vocabulary is open by default.** A library may add its own `:my-lib.error/*` / `:my-lib.fx/*` prefix for advisories it emits — but the framework's reserved set is closed (additive only by Spec change).
 
@@ -184,7 +184,7 @@ one vocabulary rule, not four accidents:
 
 | Validator | Spelled | Validates | Layer / owner |
 |---|---|---|---|
-| `reg-event-*` `:schema` | `:schema` (the `reg-event-db` / `reg-event-fx` / `reg-event-ctx` metadata-map key) | the **event args** — the payload positions of the event vector | app-owned, per-handler ([§Reserved registration metadata](#reserved-registration-metadata-framework-owned), [API.md §`reg-event-*`](API.md)) |
+| `reg-event` `:schema` | `:schema` (the `reg-event` metadata-map key) | the **event args** — the payload positions of the event vector | app-owned, per-handler ([§Reserved registration metadata](#reserved-registration-metadata-framework-owned), [API.md §`reg-event`](API.md)) |
 | machine `:data-schema` | `:data-schema` (the `reg-machine` key) | a machine's **`:data`** context map | app-owned, per-machine. Qualified — not bare `:schema` — because a visible sibling (the transition table, the spawn spec) makes a generic `:schema` ambiguous about *which* fact it bounds. The rename is [EP-0005](../docs/EP/EP-0005-machine-data-schema.md); it is this rule's worked precedent |
 | `reg-app-schema` | the registrar name itself (the validator *is* the registration) | **app-db paths** — a value at a `[:k …]` path in the app-db partition | app-owned, per-frame side-table ([010-Schemas §Per-frame schemas](010-Schemas.md#per-frame-schemas)). Validates app-db **only** (per [010 §App schemas validate the app-db partition only](010-Schemas.md#app-schemas-validate-the-app-db-partition-only)) |
 | runtime-db schema | registered at boot as a runtime-db validator (NOT via `reg-app-schema`) | the **runtime-db partition** (`:rf.runtime/*` subsystem state, machine `:snapshots`, …) | **framework-owned** — registered by the runtime, refined per-machine from registered `:data` shapes; user code MUST NOT register against it ([§Reserved runtime-db keys](#reserved-runtime-db-keys)) |
@@ -276,9 +276,9 @@ The metadata map accepted by the `reg-event-*` family (the optional middle slot,
 
 | Reserved registration-meta key | Stamped by | Read by | Meaning | Spec |
 |---|---|---|---|---|
-| `:rf/framework-authority?` | framework subsystem registrars (the routing façade on every `reg-event-fx`; the SSR façade on `:rf/hydrate`; the Resources artefact on every `:rf.resource/*` and `:rf.resource.internal/*` `reg-event-fx`) | the runtime, when assembling the event context | Marks the handler as a legitimate **runtime-db writer** — one that may return a `:rf.db/runtime` effect without firing the `:rf.warning/app-handler-runtime-effect` dev diagnostic. The general minting mechanism per [002 §Minting framework-write authority](002-Frames.md#minting-framework-write-authority). Reserved **by convention** (Mike ruling #4), NOT a capability gate: the effect applies either way. | 002 |
+| `:rf/framework-authority?` | framework subsystem registrars (the routing façade on every `reg-event`; the SSR façade on `:rf/hydrate`; the Resources artefact on every `:rf.resource/*` and `:rf.resource.internal/*` `reg-event`) | the runtime, when assembling the event context | Marks the handler as a legitimate **runtime-db writer** — one that may return a `:rf.db/runtime` effect without firing the `:rf.warning/app-handler-runtime-effect` dev diagnostic. The general minting mechanism per [002 §Minting framework-write authority](002-Frames.md#minting-framework-write-authority). Reserved **by convention** (Mike ruling #4), NOT a capability gate: the effect applies either way. | 002 |
 | `:rf/machine?` / `:rf/machine` | the machine registrar (`reg-machine`) | the runtime + `(rf/machines)` / machine tooling | Discriminate a machine event handler and carry its spec. `:rf/machine? true` **implies** `:rf/framework-authority?` (the runtime folds the implication into the authority check), so a machine handler mints runtime-db write authority without a separate key. | 005 |
-| `:rf.cofx/requires` | the app (on `reg-event-fx` / `reg-event-ctx` and machine named guard/action entries) | the runtime (context assembly) + `handler-meta` / tooling | Declares the recordable / ambient coeffects a handler consumes — a vector of registered coeffect ids, `[id arg]` for parameterized suppliers ([EP-0017](../docs/EP/EP-0017-recordable-coeffects.md)). Unlike the other rows this is an **app-authored** declaration, not a framework stamp; it is reserved here because the runtime reads it to assemble the coeffects map (declared-only delivery) and a registration error on `reg-event-db`. Schema [`:rf.cofx/requires`](Spec-Schemas.md#rfcofxrequires); contract [001 §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key). | 001 / 002 |
+| `:rf.cofx/requires` | the app (on `reg-event` and machine named guard/action entries) | the runtime (context assembly) + `handler-meta` / tooling | Declares the recordable / ambient coeffects a handler consumes — a vector of registered coeffect ids, `[id arg]` for parameterized suppliers ([EP-0017](../docs/EP/EP-0017-recordable-coeffects.md)). Unlike the other rows this is an **app-authored** declaration, not a framework stamp; it is reserved here because the runtime reads it to assemble the coeffects map (declared-only delivery). With the one event form (EP-0018) it lives uniformly on every event — no db-only handler exception. Schema [`:rf.cofx/requires`](Spec-Schemas.md#rfcofxrequires); contract [001 §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key). | 001 / 002 |
 
 The reserved set is **fixed-and-additive**: existing keys cannot be repurposed; new ones are added by Spec change. Keys outside the reserved set are tolerated as open-map user metadata. Routing-shipped events that touch the route slice inherit `:rf/framework-authority?` by sitting in the routing façade; an application that legitimately needs to write runtime-db from its own handler may stamp `:rf/framework-authority? true` itself — but the convention is that ordinary app code reaches subsystem state through public framework subs and effects, not by writing the runtime-db partition directly.
 
@@ -704,7 +704,7 @@ Canonical re-frame2 devtools (Xray, Story, future tools under `:rf.<tool>/*` —
 
 | Case | Convention | Where the frame is captured |
 |---|---|---|
-| **Synchronous dispatch from a tool view (or a tool handler).** The dispatch fires while the surrounding `frame-provider` / handler binding is still live — typical reg-view bodies, reg-event-fx bodies, sync helpers called from either. | Bare `(rf/dispatch [...])` — OR the explicit two-arg form `(rf/dispatch [...] {:frame :rf.xray})` for a self-documenting call site. | The framework captures `:frame` at dispatch time from the active resolution chain (per [002 §How `:frame` gets attached](002-Frames.md#how-frame-gets-attached)). Either shape is correct. |
+| **Synchronous dispatch from a tool view (or a tool handler).** The dispatch fires while the surrounding `frame-provider` / handler binding is still live — typical reg-view bodies, reg-event bodies, sync helpers called from either. | Bare `(rf/dispatch [...])` — OR the explicit two-arg form `(rf/dispatch [...] {:frame :rf.xray})` for a self-documenting call site. | The framework captures `:frame` at dispatch time from the active resolution chain (per [002 §How `:frame` gets attached](002-Frames.md#how-frame-gets-attached)). Either shape is correct. |
 | **Async boundary** — the dispatching fn is created during render/handler-time but FIRES later: React `:on-click` / `:on-change` callbacks, `setTimeout`, `setInterval`, `Promise.then`, websocket `onmessage`, intersection-observer callbacks, third-party SDK callbacks. | `(let [{:keys [dispatch]} (rf/frame-handle :rf.xray)] (fn [...] (dispatch [...])))` — captures the frame at handle-creation and locks the op to it. Equivalent for an arbitrary fn body: `(rf/frame-bound-fn [...] ...)` (macro) or `(rf/frame-bound-fn* :rf.xray (fn [...] ...))`. | The handle's op (or the `frame-bound-fn` `binding [*current-frame* :rf.xray]` block) carries the captured frame to every later invocation, so the dispatch is routed correctly regardless of when the callback eventually fires. (Per [002 §`frame-handle`](002-Frames.md#frame-handle--the-keystone-affordance-cljs-reference).) |
 
 **Why two cases, not one.** The framework's dispatch resolution chain (per [002 §Frame target resolution](002-Frames.md#frame-target-resolution--the-carried-invariant)) reads `:frame` correctly from explicit opts, from `reg-view`-injected closures, AND from the router-established dynamic binding around every running handler. The first case lets tools rely on those mechanisms without ceremony. The second case is the one place the scope unwinds — async callbacks fire on a fresh JS stack with no dynamic binding, no React-context tier, no router scope; with no carried stamp a bare dispatch there fails loudly with `:rf.error/no-frame-context` (EP-0002). `frame-bound-fn` is what bridges that gap by capturing the frame as closure state at the moment the callback is constructed.
@@ -715,35 +715,35 @@ Tool authors writing new devtool surfaces should default to the synchronous shap
 
 See [002 §`frame-handle`](002-Frames.md#frame-handle--the-keystone-affordance-cljs-reference) and [002 §`frame-bound-fn` / `frame-bound-fn*`](002-Frames.md#frame-bound-fn--frame-bound-fn--frame-capturing-closures-cljs-reference) for the primitives and [006 §Lazy-seq deref tracking](006-ReactiveSubstrate.md#lazy-seq-deref-tracking-reagent-adapter) for the adjacent-but-distinct Reagent bug class.
 
-## `:interceptors` in the metadata-map — the superset middle slot (`reg-event-*`)
+## `:interceptors` in the metadata-map — the superset middle slot (`reg-event`)
 
-For `reg-event-db` / `reg-event-fx` / `reg-event-ctx`, the metadata-map is the **one superset middle-slot shape**: it carries *reflection* keys (`:doc`, `:schema`, `:tags`, `:platforms`, `:ns`, `:line`, `:file`) **and** a reserved **`:interceptors`** key (a vector of interceptor maps). The historical positional interceptor **vector** middle slot is retired; `[i1 i2]` now migrates to `{:interceptors [i1 i2]}`. This is the rf2-iczn3 pre-alpha cleanup of the earlier additive rf2-bpmszk shape, closing the gap that a registration could not carry *both* reflection metadata *and* an interceptor chain in one map while avoiding two parallel homes for the same fact. EP-0013's app-as-value descriptor format inherits this exact shape — its descriptor map *is* this metadata-map.
+For `reg-event`, the metadata-map is the **one superset middle-slot shape**: it carries *reflection* keys (`:doc`, `:schema`, `:tags`, `:platforms`, `:ns`, `:line`, `:file`) **and** a reserved **`:interceptors`** key (a vector of interceptor maps). The historical positional interceptor **vector** middle slot is retired; `[i1 i2]` now migrates to `{:interceptors [i1 i2]}`. This is the rf2-iczn3 pre-alpha cleanup of the earlier additive rf2-bpmszk shape, closing the gap that a registration could not carry *both* reflection metadata *and* an interceptor chain in one map while avoiding two parallel homes for the same fact. EP-0013's app-as-value descriptor format inherits this exact shape — its descriptor map *is* this metadata-map.
 
 ```clojure
 ;; the superset form — reflection metadata AND the chain, in one map
-(rf/reg-event-db :cart.item/add
+(rf/reg-event :cart.item/add
   {:doc          "Add an item to the cart."
    :schema       CartItemAddEvent
    :interceptors [undoable schema/validate-at-boundary-interceptor]}
-  (fn [db [_ item]] (update db :items conj item)))
+  (fn [{:keys [db]} [_ item]] {:db (update db :items conj item)}))
 
 ;; no event interceptors — metadata only
-(rf/reg-event-db :cart.item/add
+(rf/reg-event :cart.item/add
   {:doc "Add an item to the cart." :schema CartItemAddEvent}
-  (fn [db [_ item]] (update db :items conj item)))
+  (fn [{:keys [db]} [_ item]] {:db (update db :items conj item)}))
 ```
 
 **Retired positional vector.** Supplying a positional interceptor vector — either as the middle slot or after a metadata map — is a loud registration error. The repair is to merge the chain into metadata `:interceptors`. A malformed `:interceptors` value (a non-vector, or a vector carrying a non-interceptor entry) is likewise a loud `:rf.error/reg-event-bad-interceptors` (consistent with the existing `reg-event` arg policing). This **supersedes** the former `:rf.warning/interceptors-in-metadata-map` (rf2-bbea): `:interceptors` in the metadata-map is now the documented home, not a typo — the silent-drop footgun is structurally gone (the chain is honoured, not dropped).
 
-**A *bare* interceptor is rejected loudly, not silently dropped.** Because an interceptor is a *map* (`{:id … :before … :after …}`), `(rf/reg-event-db :id mw/some-interceptor (fn …))` used to be read as the metadata-map and the chain never ran (field-confirmed via the rf8 migration). The runtime now throws `:rf.error/reg-event-bare-interceptor` at registration (an ERROR — the chain cannot be honoured and there is no safe continue): a map carrying `:before` / `:after` in the middle slot is the tell. The chain is **not** coerced; the caller writes `(rf/reg-event-db :id {:interceptors [mw/some-interceptor]} (fn …))`. (rf2-3ut12; the loud-failure sibling of the warning above, per [§No silent swallow](#no-silent-swallow--recognised-input-must-signal).)
+**A *bare* interceptor is rejected loudly, not silently dropped.** Because an interceptor is a *map* (`{:id … :before … :after …}`), `(rf/reg-event :id mw/some-interceptor (fn …))` used to be read as the metadata-map and the chain never ran (field-confirmed via the rf8 migration). The runtime now throws `:rf.error/reg-event-bare-interceptor` at registration (an ERROR — the chain cannot be honoured and there is no safe continue): a map carrying `:before` / `:after` in the middle slot is the tell. The chain is **not** coerced; the caller writes `(rf/reg-event :id {:interceptors [mw/some-interceptor]} (fn …))`. (rf2-3ut12; the loud-failure sibling of the warning above, per [§No silent swallow](#no-silent-swallow--recognised-input-must-signal).)
 
-This rule is `reg-event-*`-specific. `reg-frame`'s metadata-map *does* recognise `:interceptors` (per [Spec 002 §`:interceptors` — *add* interceptors to a frame's events](002-Frames.md#interceptors--add-interceptors-to-a-frames-events)) — frames have no positional middle slot, so frame-level interceptors live on the metadata-map by necessity.
+This rule is `reg-event`-specific. `reg-frame`'s metadata-map *does* recognise `:interceptors` (per [Spec 002 §`:interceptors` — *add* interceptors to a frame's events](002-Frames.md#interceptors--add-interceptors-to-a-frames-events)) — frames have no positional middle slot, so frame-level interceptors live on the metadata-map by necessity.
 
-**The three-form family is deliberately preserved.** The three-form family (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`) is deliberately preserved from re-frame v1 for migration ergonomics. The noise is acknowledged; the cost of breaking v1 muscle memory exceeds the readability win of collapsing.
+**The three-form family is collapsed to one `reg-event`.** re-frame v1's three event-registration forms (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`) are collapsed to one public form — **`reg-event`** (semantically the former `reg-event-fx`: coeffects in, a closed effects map out) — per [EP-0018](../docs/EP/EP-0018-one-event-registration.md) (ruled 2026-06-14). `reg-event-db` / `reg-event-fx` are removed; `reg-event-ctx` is demoted to a framework-internal `context -> context` primitive (interceptors own the public full-context niche). This continues the project's subtractive arc — one explicit primitive over many implicit conveniences ([Principles §Regularity over cleverness](Principles.md)) — and closes the EP-0017 hole that the removed db-only form could not declare `:rf.cofx/requires`. The retired public names raise their naming hard errors (per [001 §The retired event-registration names](001-Registration.md#the-retired-event-registration-names)). The honest cost — the common pure-db handler gains a `:keys [db]` destructure and a `{:db …}` return wrap — is accepted (EP-0018 D1).
 
 ## No silent swallow — recognised input MUST signal
 
-This is the repo-level honest-signal rule the [§`:interceptors` in the metadata-map](#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-) registration-shape errors above are instances of. It is the normative realisation of [Principles §No silent swallow](Principles.md#no-silent-swallow) — that principle names the *why*; this section is the MUST.
+This is the repo-level honest-signal rule the [§`:interceptors` in the metadata-map](#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event) registration-shape errors above are instances of. It is the normative realisation of [Principles §No silent swallow](Principles.md#no-silent-swallow) — that principle names the *why*; this section is the MUST.
 
 > **Rule.** A user-supplied value that is **recognised as input** but **cannot be honoured** MUST produce a structured warning or error. Silent ignore is allowed **only** for explicitly namespaced extension keys in an extension map.
 
@@ -770,8 +770,8 @@ The rule is cross-cutting; each surface applies it in its own spec and registrar
 | State machines | `:on-spawn` callback return silently dropped while the teaching surface implied it was recorded | rf2-g72p8 |
 | pair-mcp | `:unknown-tool` error envelope that dead-ended an agent with no `:hint` / `tools/list` pointer | rf2-tkmik |
 | Schemas | `reg-app-schema` silently accepting a bare keyword as opts and registering against the default frame | rf2-52dfy |
-| Core registration | `reg-event-*` silently dropping a BARE interceptor (a map handed where the positional `[vector]` was required — an interceptor is a map, so it read as the metadata-map and the chain never ran); now rejected loudly with `:rf.error/reg-event-bare-interceptor` (ERROR — the chain cannot be honoured, no `:allow-unknown?` carve-out applies, and the call is not coerced `bare → [bare]`) | rf2-3ut12 |
-| Core registration | `reg-event-*` receives a malformed metadata `:interceptors` value or the retired positional interceptor vector middle slot; rejected loudly rather than silently dropping or merging chains. The malformed-value rejection is `:rf.error/reg-event-bad-interceptors`; the retired vector slot is `:rf.error/reg-event-bad-middle-slot` / `:rf.error/reg-event-bad-arity` depending on shape. | rf2-bpmszk / rf2-iczn3 |
+| Core registration | `reg-event` silently dropping a BARE interceptor (a map handed where the positional `[vector]` was required — an interceptor is a map, so it read as the metadata-map and the chain never ran); now rejected loudly with `:rf.error/reg-event-bare-interceptor` (ERROR — the chain cannot be honoured, no `:allow-unknown?` carve-out applies, and the call is not coerced `bare → [bare]`) | rf2-3ut12 |
+| Core registration | `reg-event` receives a malformed metadata `:interceptors` value or the retired positional interceptor vector middle slot; rejected loudly rather than silently dropping or merging chains. The malformed-value rejection is `:rf.error/reg-event-bad-interceptors`; the retired vector slot is `:rf.error/reg-event-bad-middle-slot` / `:rf.error/reg-event-bad-arity` depending on shape. | rf2-bpmszk / rf2-iczn3 |
 
 New surfaces apply the rule by mechanism: if a recognised input cannot be honoured, signal it — and reach for the extension-key carve-out only when the dropped key is a user-namespaced key in an explicitly open map. A surface that seems to *need* silent-ignore of a recognised input is evidence of a missing warning, not an exception to the rule — file a bead against the owning spec rather than swallowing.
 
@@ -869,14 +869,14 @@ The bang (`!`) suffix on a public surface marks **process-level state mutation t
 
 ### 1. Registry-shaped registrations — **no bang**
 
-`reg-*` and `clear-*` mutate the registrar, but the registrar IS the side-effect abstraction. Calling `reg-event-db` to install a handler is no more "imperative" than calling `defn` — the verb's whole purpose is to extend a registry. Adding a bang would tag every registration in the framework, which is the opposite of useful signal.
+`reg-*` and `clear-*` mutate the registrar, but the registrar IS the side-effect abstraction. Calling `reg-event` to install a handler is no more "imperative" than calling `defn` — the verb's whole purpose is to extend a registry. Adding a bang would tag every registration in the framework, which is the opposite of useful signal.
 
-- `reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-frame`, `reg-flow`, `reg-route`, `reg-machine`, `reg-app-schema`, `reg-view`, `reg-view*`, `reg-head`, `reg-error-projector`, `reg-http-interceptor`
+- `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-frame`, `reg-flow`, `reg-route`, `reg-machine`, `reg-app-schema`, `reg-view`, `reg-view*`, `reg-head`, `reg-error-projector`, `reg-http-interceptor`
 - `clear-event`, `clear-sub`, `clear-fx`, `clear-flow`, `clear-route`, `clear-http-interceptor`, `reset-frame!`, `destroy-frame!`
 
 ```clojure
-(rf/reg-event-db :cart.item/add  (fn [db [_ item]] ...))   ;; no bang
-(rf/clear-event  :cart.item/add)                            ;; no bang
+(rf/reg-event :cart.item/add  (fn [{:keys [db]} [_ item]] {:db ...}))   ;; no bang
+(rf/clear-event :cart.item/add)                                         ;; no bang
 ```
 
 ### 2. Listener registrations — **bang**
@@ -1041,9 +1041,9 @@ The `dispatch` / `subscribe` macros are the canonical invocation surface in user
 
 Future macros that want fn partners follow the same convention.
 
-The convention applies **only where adding the `*` partner buys something** — call-site stamping the macro performs that the fn-form must skip, per-element source-coord walks (`reg-machine`), or defn-shape expansion the macro performs (`reg-view`). For the other `reg-*` registrations (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-frame`, `reg-flow`, `reg-route`, `reg-app-schema`, `reg-app-schemas`) the CLJS fn-alias lives under the macro's **own name** (per `re-frame.core` CLJS aliases): the macro stamps source-coords from `&form` on JVM; on CLJS, HoF / programmatic callers reach the same name as a plain fn (the call-site stamp is the only thing they lose). Adding a `reg-event-db*` synonym would be a pure alias and add no value; that's not done. (See [Cross-Spec-Interactions §Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier) for why the family is intentionally asymmetric.)
+The convention applies **only where adding the `*` partner buys something** — call-site stamping the macro performs that the fn-form must skip, per-element source-coord walks (`reg-machine`), or defn-shape expansion the macro performs (`reg-view`). For the other `reg-*` registrations (`reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-frame`, `reg-flow`, `reg-route`, `reg-app-schema`, `reg-app-schemas`) the CLJS fn-alias lives under the macro's **own name** (per `re-frame.core` CLJS aliases): the macro stamps source-coords from `&form` on JVM; on CLJS, HoF / programmatic callers reach the same name as a plain fn (the call-site stamp is the only thing they lose). Adding a `reg-event*` synonym would be a pure alias and add no value; that's not done. (See [Cross-Spec-Interactions §Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier) for why the family is intentionally asymmetric.)
 
-**Coverage is asymmetric on purpose — and the asymmetry is invisible from a scan of the API.** A reader sees `dispatch*` / `subscribe*` / `reg-view*` / `reg-machine*` and may infer a uniform convention; reaching for `reg-event-db*` then fails to resolve. The asymmetry is principled (only the macros above have a reason for a `*` partner) but easy to misread — surface this footnote when documenting new `reg-*` rows in [`spec/API.md`](API.md) §Registration.
+**Coverage is asymmetric on purpose — and the asymmetry is invisible from a scan of the API.** A reader sees `dispatch*` / `subscribe*` / `reg-view*` / `reg-machine*` and may infer a uniform convention; reaching for `reg-event*` then fails to resolve. The asymmetry is principled (only the macros above have a reason for a `*` partner) but easy to misread — surface this footnote when documenting new `reg-*` rows in [`spec/API.md`](API.md) §Registration.
 
 ## Value-vs-fn naming — `-interceptor` suffix telegraphs value-shape
 
@@ -1053,7 +1053,7 @@ The discriminator is mechanical, not stylistic. Every public surface that *looks
 
 ### Class 1 — Interceptor values (Vars holding maps · **NOT callable**)
 
-A Var bound to a pre-built interceptor map ([§Standard interceptors](API.md#standard-interceptors), [§`reg-event-*` interceptor chain](#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-)). The consumer drops the Var into a positional `:interceptors` vector; the framework treats it as a value, never invokes it as a fn. Calling such a Var as a fn (`(rf/validate-at-boundary-interceptor ...)`) raises `ArityException`.
+A Var bound to a pre-built interceptor map ([§Standard interceptors](API.md#standard-interceptors), [§`reg-event` interceptor chain](#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event)). The consumer drops the Var into a positional `:interceptors` vector; the framework treats it as a value, never invokes it as a fn. Calling such a Var as a fn (`(rf/validate-at-boundary-interceptor ...)`) raises `ArityException`.
 
 Current Class-1 surfaces in [API.md](API.md): `validate-at-boundary-interceptor` (Spec 010 — production-boundary schema validation), `unwrap` (Spec 004 — `[id payload-map]` unwrapping sugar). The factory `(rf/redact-interceptor paths)` (Spec 009 — payload-key redaction on the trace surface) is a *fn that returns* a Class-1 value; the **returned interceptor value** is the Class-1 artefact, and it inherits the rule below.
 
@@ -1061,11 +1061,11 @@ Current Class-1 surfaces in [API.md](API.md): `validate-at-boundary-interceptor`
 
 ```clojure
 ;; correct — suffix telegraphs value-shape
-(rf/reg-event-db :cart.item/add
+(rf/reg-event :cart.item/add
   {:interceptors [at-boundary-interceptor                  ;; Var · value
                   (redact-interceptor [[:credit-card]])    ;; factory returns value
                   unwrap-interceptor]}                     ;; Var · value
-  (fn [db payload] ...))
+  (fn [{:keys [db]} payload] {:db ...}))
 
 ;; reading this without the convention — is `validate-at-boundary-interceptor` a fn? a Var? Did the
 ;; author mean `(validate-at-boundary-interceptor)`? The suffix removes the ambiguity.
@@ -1118,12 +1118,12 @@ The rule for new public surfaces: if a token belongs to the closed handler vocab
 
 ## `reg-*` return-value convention
 
-Every `reg-*` registration surface returns its **primary id** — the keyword (or path, for `reg-app-schema`) the caller registered with. This is uniform across the family: `reg-event-db` / `reg-event-fx` / `reg-event-ctx` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-frame` / `reg-view` / `reg-view*` / `reg-machine` / `reg-machine*` / `reg-app-schema` / `reg-route` / `reg-flow` / `reg-head` / `reg-error-projector` / `reg-resource` / `reg-mutation` all return their first positional id argument. `reg-flow` returns the `:id` value of its flow-map (the primary id is carried by the map, not a separate arg); `reg-app-schema` returns its `path` (the path IS the registration id for app-db schemas, even though app-db schemas are not a registrar kind — they live in the schemas artefact's per-frame side-table per rf2-cq1ak / [010-Schemas §Per-frame schemas](010-Schemas.md#per-frame-schemas)).
+Every `reg-*` registration surface returns its **primary id** — the keyword (or path, for `reg-app-schema`) the caller registered with. This is uniform across the family: `reg-event` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-frame` / `reg-view` / `reg-view*` / `reg-machine` / `reg-machine*` / `reg-app-schema` / `reg-route` / `reg-flow` / `reg-head` / `reg-error-projector` / `reg-resource` / `reg-mutation` all return their first positional id argument. `reg-flow` returns the `:id` value of its flow-map (the primary id is carried by the map, not a separate arg); `reg-app-schema` returns its `path` (the path IS the registration id for app-db schemas, even though app-db schemas are not a registrar kind — they live in the schemas artefact's per-frame side-table per rf2-cq1ak / [010-Schemas §Per-frame schemas](010-Schemas.md#per-frame-schemas)).
 
 The uniformity is load-bearing. It lets call-site code thread the registration id without a separate literal:
 
 ```clojure
-(let [event-id (rf/reg-event-fx :cart.item/add ...)]
+(let [event-id (rf/reg-event :cart.item/add ...)]
   (rf/dispatch [event-id {:id ...}]))
 
 (let [machine-id (rf/reg-machine :auth.login/flow ...)]
