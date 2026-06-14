@@ -376,7 +376,7 @@ reply-envelope vocabulary ADDITIVELY (rf2-mn4j89) — `:rf.reply/status
 `:generation {:carried N :current M}`) — produced through the shared
 `re-frame.reply` substrate, so a suppressed late resource reply classifies
 the SAME way the HTTP / mutation / machine stale paths do (the bespoke
-`:resource-key` / `:work/id` / `:generation` / `:outcome` facts are
+`:resource/key` / `:work/id` / `:generation` / `:outcome` facts are
 preserved alongside). The mutation analogue `:rf.mutation/stale-suppressed`
 carries the identical `:rf.reply/*` shape (`:rf.reply/stale-reason
 :rf.mutation/superseded`, correlation `:instance/id` + the generation

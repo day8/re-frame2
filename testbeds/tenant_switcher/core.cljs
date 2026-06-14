@@ -144,7 +144,7 @@
     ;; runtime verifies frame + work-id + generation on the payload before it
     ;; writes, so stale/superseded replies are still suppressed correctly.
     (let [[reply-id payload] on-success
-          tenant (tenant-id-of (:resource-key payload))
+          tenant (tenant-id-of (:resource/key payload))
           motto  (get-in tenant-index [tenant :motto])]
       (rf/dispatch [reply-id payload {:kind :success
                                       :value {:tenant tenant

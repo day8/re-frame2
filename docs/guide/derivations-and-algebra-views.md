@@ -116,7 +116,7 @@ A resource (a fact whose authoritative value lives on a server, with a local cac
  :authority   {:kind :remote :system :server  ;; the truth lives elsewhere
                :transport :rf.http/managed}
  :evaluation  #{:on-route :on-reply :scheduled :manual}   ;; a multi-trigger process
- :lifecycle   :resource-key
+ :lifecycle   :scoped-resource-key
  :materialized? true
  :selectors   [:rf.resource/state :rf.resource/data :rf.resource/status
                :rf.resource/loading? :rf.resource/error :rf.resource/has-data?]}

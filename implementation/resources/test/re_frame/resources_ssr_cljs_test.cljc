@@ -244,12 +244,12 @@
           ;; rf2-9e0tyq — `projection-metadata` reads each entry's own
           ;; `:resource/key` (the `:entries` map is byte-keyed), so stamp it
           ;; (mirrors the runtime's byte-keyed `:entries` shape). The returned
-          ;; metadata `:resource-key` is the scoped-key VECTOR, so the
+          ;; metadata `:resource/key` is the scoped-key VECTOR, so the
           ;; `(metas k-…)` vector lookups below stay unchanged.
           metas   (->> (ssr/projection-metadata
                          nil 5000
                          (entries* {k-fresh fresh k-stale stale k-sens sens k-big big}))
-                       (into {} (map (juxt :resource-key identity))))]
+                       (into {} (map (juxt :resource/key identity))))]
       (is (= :serialized (:disposition (metas k-fresh))))
       (is (= :fresh      (:freshness   (metas k-fresh))))
       (is (false?        (:refetch-on-client? (metas k-fresh)))
@@ -609,7 +609,7 @@
                       (when (= 2 (swap! ticks inc))
                         (rf/dispatch-sync
                           [:rf.resource.internal/succeeded
-                           {:resource-key gkey :work/id wid :generation 1
+                           {:resource/key gkey :work/id wid :generation 1
                             :rf.frame/id fid :data {:title "X"}}]
                           {:frame fid})))
               res   (ssr/drain-blocking-resources! fid {:pump! pump! :deadline-ms 60000})]
@@ -776,7 +776,7 @@
           se  (get-in out [state/resources-key :entries (state/key-id gkey)])]
       (is (= :idle (:status se)) "loading-with-no-data → :idle, never a dangling :loading")
       (let [plan (->> (ssr/hydrate-refetch-plan out 5000)
-                      (into {} (map (juxt :resource-key identity))))]
+                      (into {} (map (juxt :resource/key identity))))]
         (is (contains? plan gkey) "the settled :idle entry (no data) is refetched")
         (is (= :no-data (:reason (plan gkey))))))))
 
@@ -791,7 +791,7 @@
       (is (= :loaded (:status se)) "fetching-with-fresh-data → :loaded (keep last-known-good)")
       (is (= {:t "fresh"} (:data se)) "the data is preserved")
       (let [plan (->> (ssr/hydrate-refetch-plan out 5000)
-                      (into {} (map (juxt :resource-key identity))))]
+                      (into {} (map (juxt :resource/key identity))))]
         (is (not (contains? plan gkey))
             "the settled fresh-with-data entry is NOT refetched (no double-fetch — the SSR win)")))))
 
@@ -805,7 +805,7 @@
       (is (= :loaded (:status se)) "fetching-with-stale-data → :loaded")
       (is (= {:t "stale"} (:data se)) "the stale last-known-good data is preserved")
       (let [plan (->> (ssr/hydrate-refetch-plan out 5000)
-                      (into {} (map (juxt :resource-key identity))))]
+                      (into {} (map (juxt :resource/key identity))))]
         (is (= :stale (:reason (plan gkey)))
             "the settled stale entry background-refetches (stale-while-revalidate)")))))
 
@@ -819,7 +819,7 @@
       (is (= :loaded (:status se)) "a :loaded entry stays :loaded")
       (is (= {:t "kept"} (:data se)))
       (let [plan (->> (ssr/hydrate-refetch-plan out 5000)
-                      (into {} (map (juxt :resource-key identity))))]
+                      (into {} (map (juxt :resource/key identity))))]
         (is (not (contains? plan gkey)) "fresh-loaded → no refetch (no double-fetch)")))))
 
 (deftest hydrate-end-to-end-project-then-hydrate-fetching-entry-settles
@@ -867,7 +867,7 @@
           meta  (entry {:resource-id :c :data nil :status :loaded})  ;; redacted/omitted: no data
           rdb   (runtime-db-with {ka fresh kb stale kc meta})
           plan  (->> (ssr/hydrate-refetch-plan rdb 5000)
-                     (into {} (map (juxt :resource-key identity))))]
+                     (into {} (map (juxt :resource/key identity))))]
       (is (not (contains? plan ka)) "fresh-with-data is NOT refetched (the SSR win)")
       (is (= :stale   (:reason (plan kb))))
       (is (= :no-data (:reason (plan kc)))))))
@@ -922,7 +922,7 @@
                                                                     (state/scoped-resource-key
                                                                       :rf.scope/global :d {}) omitted})
                                                   5000)
-                        (into {} (map (juxt :resource-key identity))))
+                        (into {} (map (juxt :resource/key identity))))
           kd       (state/scoped-resource-key :rf.scope/global :d {})]
       (is (not (contains? plan ka)) "FRESH serialized → absent from the plan (no double-fetch)")
       (is (= :stale         (:reason (plan kb))) "STALE serialized → background refetch")
@@ -951,7 +951,7 @@
       ;; CLIENT hydration over the projected slice (a coherent runtime-db)
       (let [installed {state/resources-key {:entries {wk we}}}
             plan      (->> (ssr/hydrate-refetch-plan installed 5000)
-                           (into {} (map (juxt :resource-key identity))))]
+                           (into {} (map (juxt :resource/key identity))))]
         (is (contains? plan wk)
             "the redacted (fresh-on-server) entry IS in the refetch plan — the sentinel is not usable data")
         (is (= :metadata-only (:reason (plan wk))))

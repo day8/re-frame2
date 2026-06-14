@@ -148,7 +148,7 @@
       (is (= 1 (count evs)) "one owner-attached on a fresh load with an owner")
       (let [tags (:tags (first evs))]
         (is (= [:lease :oa 1] (:owner tags))           ":owner in tags")
-        (is (= scoped-key     (:resource-key tags))    ":resource-key in tags")
+        (is (= scoped-key     (:resource/key tags))    ":resource/key in tags")
         (is (false?           (:joined-in-flight? tags)) "fresh load: not a join")))))
 
 (deftest owner-attached-on-dedupe-join
@@ -256,7 +256,7 @@
                                          :params {:slug "w"}}])
                 (rf/dispatch-sync
                   [:rf.resource.internal/succeeded
-                   {:resource-key scoped-key :work/id wid1 :generation 1
+                   {:resource/key scoped-key :work/id wid1 :generation 1
                     :data {:stale "data"}}])))]
         (is (seq (by-op traces :rf.resource/stale-suppressed))
             "the stale reply emitted :rf.resource/stale-suppressed")
@@ -296,13 +296,13 @@
                                          :params {:slug "w"}}])
                 (rf/dispatch-sync
                   [:rf.resource.internal/succeeded
-                   {:resource-key scoped-key :work/id wid1 :generation 1
+                   {:resource/key scoped-key :work/id wid1 :generation 1
                     :data {:stale "data"}}])))
             sup  (first (by-op traces :rf.resource/stale-suppressed))]
         (is (some? sup) ":rf.resource/stale-suppressed fired for the stale reply")
         (let [tags (:tags sup)]
           ;; bespoke facts preserved (additive, not replaced)
-          (is (= scoped-key (:resource-key tags)))
+          (is (= scoped-key (:resource/key tags)))
           (is (= wid1       (:work/id tags)))
           (is (= :success   (:outcome tags)) "the stale reply's natural outcome diagnostic")
           ;; CANONICAL reply-envelope vocabulary via the shared substrate
@@ -318,7 +318,7 @@
                 "carried generation off the stale reply token")
             (is (= 2 (-> corr :generation :current))
                 "current generation is the LIVE entry's generation (gen 2)")
-            (is (= scoped-key (:resource-key corr)))))
+            (is (= scoped-key (:resource/key corr)))))
         ;; (2)/(5) the app target did NOT run — the entry was NOT overwritten by
         ;; the stale reply (still on gen 2, not :loaded with {:stale "data"}).
         (let [e (entry scoped-key)]
@@ -345,7 +345,7 @@
       (let [wid (:current-work (entry scoped-key))]
         (rf/dispatch-sync
           [:rf.resource.internal/succeeded
-           {:resource-key scoped-key :work/id wid :generation 1 :data {:title "W"}}]))
+           {:resource/key scoped-key :work/id wid :generation 1 :data {:title "W"}}]))
       (is (= :loaded (:status (entry scoped-key))) "entry settled :loaded")
       (let [gen-before (:generation (entry scoped-key))
             data-before (:data (entry scoped-key))
@@ -356,7 +356,7 @@
             hits   (by-op traces :rf.resource/cache-hit)]
         (is (= 1 (count hits)) "one :rf.resource/cache-hit on the fresh ensure")
         (let [tags (:tags (first hits))]
-          (is (= scoped-key (:resource-key tags)) ":resource-key in tags")
+          (is (= scoped-key (:resource/key tags)) ":resource/key in tags")
           (is (= [:lease :ch 2] (:owner tags))    "the newly-attached owner in tags"))
         (testing "fresh-skip starts NO new load: no fetch-started / work-started"
           (is (not (contains? (ops traces) :rf.resource/fetch-started))
@@ -389,7 +389,7 @@
       (let [wid (:current-work (entry scoped-key))]
         (rf/dispatch-sync
           [:rf.resource.internal/succeeded
-           {:resource-key scoped-key :work/id wid :generation 1 :data {:title "W"}}]))
+           {:resource/key scoped-key :work/id wid :generation 1 :data {:title "W"}}]))
       ;; make it stale WITHOUT auto-refetch: release the owner, then invalidate
       ;; (an inactive matched entry is marked stale but not refetched)
       (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :st 1]}])

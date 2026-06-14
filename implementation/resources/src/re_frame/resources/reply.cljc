@@ -21,7 +21,7 @@
   :failure :failure f}`) appended as the last arg of the internal reply
   event (Spec 014 §Reply addressing). This namespace re-lifts that public
   payload — plus the runtime-owned verification payload (`:work/id` /
-  `:resource-key` / `:scope` / `:generation` / `:rf.frame/id`) the resource
+  `:resource/key` / `:scope` / `:generation` / `:rf.frame/id`) the resource
   lowering stamped — into the canonical reply map, exactly as
   `re-frame.http-reply` builds HTTP's canonical reply from the transport's
   raw success / failure facts. The two families share the SAME core
@@ -39,7 +39,7 @@
        :work/status  :completed | :failed | :cancelled | :suppressed
        :rf.frame/id  frame-id
        :completed-at causal epoch-ms (when supplied)
-       :correlation  {:scope … :generation … :resource-key …
+       :correlation  {:scope … :generation … :resource/key …
                       :mutation/id … :instance/id …}}
 
   **The `:value` / `:result` reconciliation (kh9jz6).** The decoded result
@@ -123,13 +123,13 @@
   "The correlation / identity facts every resource / mutation reply carries,
   independent of status: `:work/id`, `:work/kind`, `:rf.frame/id`,
   `:completed-at` (when supplied), and a `:correlation` map of the carried
-  facts (`:scope` / `:generation` / `:resource-key` for a resource;
+  facts (`:scope` / `:generation` / `:resource/key` for a resource;
   `:mutation/id` / `:instance/id` / `:scope` / `:generation` for a
   mutation). Optional facts are omitted when absent rather than filled with
   nil sentinels (Managed-Effects §The reply map).
 
   `vp` is the runtime-owned verification payload the lowering stamped
-  (`:work/id` / `:resource-key` / `:scope` / `:generation` / `:rf.frame/id`
+  (`:work/id` / `:resource/key` / `:scope` / `:generation` / `:rf.frame/id`
   for a resource; `:work/id` / `:instance-id` / `:mutation-id` / `:scope`
   / `:generation` / `:rf.frame/id` for a mutation). `opts` carries the
   family `:work/kind` and the host `:completed-at`."
@@ -142,7 +142,7 @@
         correlation (cond-> {}
                       (contains? vp :scope)        (assoc :scope (:scope vp))
                       (contains? vp :generation)   (assoc :generation (:generation vp))
-                      (some? (:resource-key vp))   (assoc :resource-key (:resource-key vp))
+                      (some? (:resource/key vp))   (assoc :resource/key (:resource/key vp))
                       (some? (:mutation-id vp))    (assoc :mutation/id (:mutation-id vp))
                       (some? (:instance-id vp))    (assoc :instance/id (:instance-id vp)))]
     (cond-> {:work/id     wid

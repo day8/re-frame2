@@ -689,7 +689,7 @@
         record     (-> (work-ledger/work-record
                          {:work-id      work-id
                           :frame-id     frame-id
-                          :resource-key [:rf.mutation instance-id]
+                          :resource/key [:rf.mutation instance-id]
                           :generation   generation
                           :transport    transport-id
                           :cause        cause
@@ -727,7 +727,7 @@
                                        ;; call-site target rides the payload.
                                        (some? reply-to') (assoc :reply-to reply-to'))
                       :work-id      work-id
-                      :resource-key [:rf.mutation instance-id]
+                      :resource/key [:rf.mutation instance-id]
                       :scope        cscope
                       :frame-id     frame-id
                       :generation   generation
@@ -1117,7 +1117,7 @@
             timer-fx    (mapv (fn [[scoped-key {:keys [stale-delay-ms gc-delay-ms]}]]
                                 [:rf.resource/schedule-timers
                                  {:frame-id       frame-id
-                                  :resource-key   scoped-key
+                                  :resource/key   scoped-key
                                   :stale-delay-ms stale-delay-ms
                                   :gc-delay-ms    gc-delay-ms
                                   :server?        server?}])
@@ -1150,7 +1150,7 @@
                                   removed-work)
             remove-timer-fx (when (seq removed-ks)
                               [[:rf.resource/cancel-timers
-                                {:frame-id frame-id :resource-keys (vec removed-ks)}]])]
+                                {:frame-id frame-id :resource/keys (vec removed-ks)}]])]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.mutation/succeeded
                      (cond-> {:rf.frame/id frame-id :instance instance-id :mutation mutation-id

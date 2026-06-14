@@ -114,7 +114,7 @@
   {:id :article/by-slug :kind :process :refinement :resource-process :rf/family :resources
    :inputs :parametric :output [:runtime [:rf.runtime/resources :entries]]
    :storage :runtime-db :authority {:kind :remote :system :server}
-   :evaluation #{:on-route} :lifecycle :resource-key})
+   :evaluation #{:on-route} :lifecycle :scoped-resource-key})
 
 (def ^:private cart-sub-node
   ;; a sub-cache node whose live :value is at the frame-declared LARGE path.
@@ -287,7 +287,7 @@
    :storage       :runtime-db
    :authority     {:kind :remote :system :server}
    :evaluation    #{:on-route}
-   :lifecycle     {:kind :resource-key
+   :lifecycle     {:kind :scoped-resource-key
                    :owners #{[:route :route/article 17]}}
    :status        :loading
    :work-ledger   {:work/id 99

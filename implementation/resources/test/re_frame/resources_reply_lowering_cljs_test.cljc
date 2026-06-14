@@ -23,7 +23,7 @@
   "A resource verification payload — what resource lowering stamps into the
   internal reply target (`:work/id` is the EP-0007 qualified work identity)."
   {:work/id      [:rf.work/resource [:rf.scope/global :article/by-slug {:slug "w"}] 4]
-   :resource-key [:rf.scope/global :article/by-slug {:slug "w"}]
+   :resource/key [:rf.scope/global :article/by-slug {:slug "w"}]
    :scope        :rf.scope/global
    :generation   4
    :rf.frame/id  :app/main})
@@ -56,7 +56,7 @@
       (testing "scope / generation / resource-key ride as :correlation, never a second work key"
         (is (= {:scope :rf.scope/global
                 :generation 4
-                :resource-key [:rf.scope/global :article/by-slug {:slug "w"}]}
+                :resource/key [:rf.scope/global :article/by-slug {:slug "w"}]}
                (:correlation r)))))))
 
 (deftest resource-failure-reply-is-canonical

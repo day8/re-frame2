@@ -1278,7 +1278,7 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   [:map
    [:category     :keyword]
    [:keys         [:vector :keyword]]   ;; the rejected reserved key(s)
-   [:resource-key {:optional true} :any]
+   [:resource/key {:optional true} :any]   ;; the scoped resource key (:rf/scoped-resource-key) — the one spelling for the key on data shapes
    [:reason       :string]])
 
 (def ResourceSsrBlockingTimeoutTags
@@ -2640,8 +2640,13 @@ The normalized **algebra view** every declared fact / process lowers to — the 
 
 (def Lifecycle
   ;; Who keeps the fact/process alive; the owner/release boundary in prose
-  ;; per [Derivations §Lifecycle and owner].
-  [:enum :subscription-cache-entry :frame :route :resource-key :machine-instance :host-root])
+  ;; per [Derivations §Lifecycle and owner]. The members are unqualified
+  ;; lifecycle-CATEGORY names (sibling to :frame / :route / :machine-instance),
+  ;; NOT data fields. :scoped-resource-key is the category "a scoped resource
+  ;; key owns the entry"; it shares the :rf/scoped-resource-key schema-name
+  ;; root and is deliberately DISTINCT from the :resource/key durable data
+  ;; field that carries the concrete key value (one name per fact, EP-0007).
+  [:enum :subscription-cache-entry :frame :route :scoped-resource-key :machine-instance :host-root])
 
 (def DeclaredInput
   ;; A data description of one dependency — the normative input vocabulary

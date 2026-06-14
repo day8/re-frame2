@@ -1403,14 +1403,14 @@
     (trace-tooling/clear-trace-buffer! :rf/default)
     (seed-resource-trace-elision-schema!)
     (emit-resource-trace-into-ring! :rf.resource/fetch-started
-                                    {:resource-key e0mq7a-rkey
+                                    {:resource/key e0mq7a-rkey
                                      :generation   4
                                      :cause        e0mq7a-cause})
     (let [result (runtime/get-resource-history {:resource-id :article/by-slug})]
       (is (true? (:ok? result)))
       (is (= 1 (:count result)))
       (let [row        (first (:history result))
-            scope-sum  (get-in row [:resource-key :scope])
+            scope-sum  (get-in row [:resource/key :scope])
             cause-sum  (:cause row)]
         ;; METADATA rides — a redacted timeline still exposes the shape.
         (is (= :rf.resource/fetch-started (:operation row)) "operation metadata projects")
@@ -1436,14 +1436,14 @@
     (trace-tooling/clear-trace-buffer! :rf/default)
     (seed-resource-trace-elision-schema!)
     (emit-resource-trace-into-ring! :rf.resource/fetch-started
-                                    {:resource-key e0mq7a-rkey
+                                    {:resource/key e0mq7a-rkey
                                      :generation   4
                                      :cause        e0mq7a-cause})
     (let [result (runtime/get-resource-history
                    {:resource-id :article/by-slug :include-sensitive? true})
           row    (first (:history result))]
       (is (true? (:ok? result)))
-      (is (preview-has? (get-in row [:resource-key :scope]) e0mq7a-secret)
+      (is (preview-has? (get-in row [:resource/key :scope]) e0mq7a-secret)
           ":include-sensitive? true ⇒ the raw secret returns to the scope preview")
       (is (preview-has? (:cause row) e0mq7a-secret)
           ":include-sensitive? true ⇒ the raw secret returns to the cause preview"))))
@@ -1458,11 +1458,11 @@
     (let [big-scope {:blob {:rows (vec (range 50))} :region "ap-southeast"}
           big-rkey  [big-scope :article/by-slug {:slug "big"}]]
       (emit-resource-trace-into-ring! :rf.resource/fetch-started
-                                      {:resource-key big-rkey :generation 4})
+                                      {:resource/key big-rkey :generation 4})
       (testing "default path elides the large leaf out of the preview"
         (let [row   (first (:history (runtime/get-resource-history
                                        {:resource-id :article/by-slug})))
-              scope (get-in row [:resource-key :scope])]
+              scope (get-in row [:resource/key :scope])]
           (is (preview-has? scope ":rf.size/large-elided")
               "the large leaf is replaced by the size-elided sentinel by default")
           (is (not (preview-has? scope ":rows"))
@@ -1471,7 +1471,7 @@
         (let [row   (first (:history (runtime/get-resource-history
                                        {:resource-id :article/by-slug
                                         :include-large? true})))
-              scope (get-in row [:resource-key :scope])]
+              scope (get-in row [:resource/key :scope])]
           (is (not (preview-has? scope ":rf.size/large-elided"))
               ":include-large? true ⇒ the large leaf is no longer elided"))))))
 

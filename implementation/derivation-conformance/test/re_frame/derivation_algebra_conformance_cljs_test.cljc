@@ -165,7 +165,7 @@
 
 (def lifecycles
   "The closed lifecycle set (Derivations §Lifecycle and owner)."
-  #{:subscription-cache-entry :frame :route :resource-key :machine-instance :host-root})
+  #{:subscription-cache-entry :frame :route :scoped-resource-key :machine-instance :host-root})
 
 ;; ---------------------------------------------------------------------------
 ;; The runtime fixture — reset every artefact's registry / frame state, init
@@ -399,7 +399,7 @@
       (is (= [:db [:cart :total]] (:output flow)) "materialized output address"))
     (testing "resource — runtime-db local storage + EXTERNAL authority (issue-2 split)"
       (is (= :runtime-db    (:storage res)) "storage names the LOCAL home")
-      (is (= :resource-key  (:lifecycle res)))
+      (is (= :scoped-resource-key  (:lifecycle res)))
       (is (= #{:on-route :on-reply :scheduled :manual} (:evaluation res))
           "a multi-trigger process carries the policy SET")
       (is (= :remote (get-in res [:authority :kind]))
@@ -600,7 +600,7 @@
                     :storage     :runtime-db
                     :authority   {:kind :remote :system :server}
                     :evaluation  #{:on-route}
-                    :lifecycle   {:kind :resource-key
+                    :lifecycle   {:kind :scoped-resource-key
                                   :owners #{[:route :route/article k3-nav-token]}}
                     :status      :loading
                     :work-ledger {:work/id 3

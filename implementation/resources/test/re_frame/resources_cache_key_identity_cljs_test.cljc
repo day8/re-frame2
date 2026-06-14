@@ -99,9 +99,9 @@
       (is (= wv wl) "the work-id VECTORS are = (they embed the key vector)")
       (is (not= (work-ledger/work-id-id wv) (work-ledger/work-id-id wl))
           "their byte work-id-ids differ")
-      (let [recv (work-ledger/work-record {:work-id wv :frame-id :f :resource-key kv
+      (let [recv (work-ledger/work-record {:work-id wv :frame-id :f :resource/key kv
                                            :generation 1 :transport :rf.http/managed})
-            recl (work-ledger/work-record {:work-id wl :frame-id :f :resource-key kl
+            recl (work-ledger/work-record {:work-id wl :frame-id :f :resource/key kl
                                            :generation 1 :transport :rf.http/managed})
             rdb  (-> {} (work-ledger/put-record wv recv) (work-ledger/put-record wl recl))]
         (is (= 2 (count (:rf.runtime/work-ledger rdb))) "two distinct ledger rows")
@@ -187,3 +187,59 @@
 ;; `resources-runtime-cljs-test` suite (its `entry` helper reads via
 ;; `state/entry-path`, which byte-keys) — this focused file pins the cache-key
 ;; byte-identity round-trip through the four serialization carriers.
+
+;; ===========================================================================
+;; rf2-j1rm93 — scoped resource KEY vs registered resource ID are ONE name per
+;; fact and must never be confused (the spelling-unification adversarial gate)
+;; ===========================================================================
+;;
+;; Two distinct identity facts share the family but NOT the spelling:
+;;   - `:resource/id`  — the REGISTERED resource id, a bare keyword (`:r/x`).
+;;   - `:resource/key` — the SCOPED cache key, the tuple
+;;                       `[cache-scope resource-id canonical-params]`.
+;; The tuple's 2nd element IS the resource id, which is exactly why the two are
+;; easy to confuse. The durable entry carries BOTH, under DISTINCT keys, with
+;; the canonical spelling `:resource/key` for the scoped key on every data
+;; shape (durable field, work record, verification payload, correlation, trace
+;; tag). The unqualified `:resource-key` spelling is RETIRED — nothing on a
+;; data shape may carry it. The lifecycle CATEGORY name for "a scoped key owns
+;; this entry" is the unqualified `:scoped-resource-key` (a derivation-algebra
+;; classification, NOT the key value) — distinct from both facts above.
+
+(deftest scoped-key-vs-resource-id-not-confused
+  (testing "the durable entry carries the registered :resource/id (a bare
+            keyword) AND the scoped :resource/key (a tuple) under DISTINCT keys"
+    (let [entry (state/empty-entry :r/x kv)]
+      ;; the registered id is a bare keyword, NOT the tuple
+      (is (= :r/x (:resource/id entry)) ":resource/id is the registered keyword id")
+      (is (keyword? (:resource/id entry)) "the registered id is a keyword, never a tuple")
+      ;; the scoped key is the full tuple, NOT the bare id
+      (is (= kv (:resource/key entry)) ":resource/key is the scoped cache-key tuple")
+      (is (vector? (:resource/key entry)) "the scoped key is the tuple, never a bare keyword")
+      ;; the two facts are NOT equal — confusing them is a category error
+      (is (not= (:resource/id entry) (:resource/key entry))
+          "the registered id and the scoped key are different facts")
+      ;; the resource id IS embedded as the 2nd tuple element (the reason for the
+      ;; confusion the unification guards against) — and it round-trips equal
+      (is (= (:resource/id entry) (second (:resource/key entry)))
+          "the scoped key's 2nd element is the registered id (the embedded fact)"))
+    (testing "the work record names the SAME two distinct facts the SAME way"
+      (let [rec (work-ledger/work-record
+                  {:work-id (work-ledger/resource-work-id kv 1)
+                   :frame-id :f :resource/key kv :generation 1
+                   :transport :rf.http/managed})]
+        ;; the durable scoped-key field on the work record is :resource/key (the
+        ;; one spelling) — there is NO :resource-key key anywhere on the shape
+        (is (= kv (:resource/key rec)) "the work record's scoped key is :resource/key")
+        (is (nil? (:resource-key rec))
+            "the retired unqualified :resource-key spelling is absent from the work record")
+        ;; and the registered id is still reachable as the 2nd tuple element,
+        ;; never duplicated under a confusable bare :resource-id key on the row
+        (is (= :r/x (second (:resource/key rec)))
+            "the registered id reads out of the scoped key, not a separate row field"))))
+  (testing "the durable scoped-key field is the canonical :resource/key spelling,
+            never the retired unqualified :resource-key"
+    (let [entry (state/empty-entry :r/x kv)]
+      (is (contains? entry :resource/key) "the canonical :resource/key field is present")
+      (is (not (contains? entry :resource-key))
+          "the retired :resource-key spelling never appears on a data shape"))))

@@ -370,7 +370,7 @@
       (is (= :rf.http/request-id-superseded (:stale-reason row)))))
   (testing "rf2-6mfkp3 — a PRODUCTION-shaped :rf.resource/stale-suppressed row,
             EXACTLY as `re-frame.resources.events/emit-resource-stale-
-            suppressed!` emits it (bespoke :resource-key/:generation/:outcome
+            suppressed!` emits it (bespoke :resource/key/:generation/:outcome
             PLUS the additive canonical :rf.reply/* vocabulary), projects work
             id, kind, status, work-status, stale reason, and correlation —
             the gap the synthetic mixed-trace fixture (`:outcome :success`
@@ -382,7 +382,7 @@
                  :time 240
                  :tags {;; the bespoke facts the resource family stamps
                         :rf.frame/id  :rf/default
-                        :resource-key [:s :article/by-id {:id 1}]
+                        :resource/key [:s :article/by-id {:id 1}]
                         :work/id      work-id
                         :generation   1
                         :outcome      {:reason :stale-reply}
@@ -394,7 +394,7 @@
                         :rf.reply/work-id      work-id
                         :rf.reply/stale-reason :rf.resource/superseded
                         :rf.reply/correlation  {:generation   {:carried 1 :current 2}
-                                                :resource-key [:s :article/by-id {:id 1}]}
+                                                :resource/key [:s :article/by-id {:id 1}]}
                         ;; the shared substrate carried/current gate facts
                         :rf.reply/carried {:work/id work-id :generation 1}
                         :rf.reply/current {:generation 2}}})]

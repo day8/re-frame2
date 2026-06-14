@@ -258,7 +258,7 @@
     (is (= ":article/by-slug  gen 3"
            (h/target-detail (ev {:id 1 :op-type :rf.event
                                  :operation :rf.resource/succeeded
-                                 :tags {:resource-key [:rf.scope/global :article/by-slug {:slug "x"}]
+                                 :tags {:resource/key [:rf.scope/global :article/by-slug {:slug "x"}]
                                         :generation 3}}))))
     ;; registered carries the bare :resource-id (no scoped key yet)
     (is (= ":article/by-slug"

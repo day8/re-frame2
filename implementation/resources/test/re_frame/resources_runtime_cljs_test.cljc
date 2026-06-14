@@ -468,7 +468,7 @@
     ;; this for real; here we feed the internal reply directly)
     (let [work-id (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource.internal/succeeded
-                         {:resource-key scoped-key :work/id work-id :generation 1
+                         {:resource/key scoped-key :work/id work-id :generation 1
                           :data {:title "Welcome"}}])
       (testing "succeeded settles :loaded with the decoded data + produced tags"
         (let [e (entry scoped-key)]
@@ -491,14 +491,14 @@
                                             :params {:slug "w"} :owner [:lease :ss 1]}])
     (let [wid1 (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource.internal/succeeded
-                         {:resource-key scoped-key :work/id wid1 :generation 1 :data data1}]))
+                         {:resource/key scoped-key :work/id wid1 :generation 1 :data data1}]))
     (let [first-data (:data (entry scoped-key))]
       ;; a refetch returns an EQUAL but freshly-constructed value
       (rf/dispatch-sync [:rf.resource/refetch {:resource :ss/article :scope :rf.scope/global
                                                :params {:slug "w"}}])
       (let [wid2 (:current-work (entry scoped-key))]
         (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource-key scoped-key :work/id wid2 :generation 2
+                           {:resource/key scoped-key :work/id wid2 :generation 2
                             :data {:title "Welcome" :body [1 2 3]}}]))
       (testing "Spec 016 §Structural sharing — the old :data value is
                 preserved (identity) when the newly-decoded value is ="
@@ -516,7 +516,7 @@
                                             :params {:slug "w"} :owner [:lease :rf2 1]}])
     (let [wid1 (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource.internal/succeeded
-                         {:resource-key scoped-key :work/id wid1 :generation 1
+                         {:resource/key scoped-key :work/id wid1 :generation 1
                           :data {:title "Welcome"}}]))
     (rf/dispatch-sync [:rf.resource/refetch {:resource :rf2/article :scope :rf.scope/global
                                              :params {:slug "w"}}])
@@ -525,7 +525,7 @@
       (is (= {:title "Welcome"} (:data (entry scoped-key)))))
     (let [wid2 (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource.internal/failed
-                         {:resource-key scoped-key :work/id wid2 :generation 2
+                         {:resource/key scoped-key :work/id wid2 :generation 2
                           :error {:kind :rf.http/http-5xx :status 503}}]))
     (testing "Spec 016 §Status semantics — a background-refresh failure
               returns to :loaded, keeps prior :data, records :refresh-error"
@@ -542,7 +542,7 @@
                                             :params {:slug "w"} :owner [:lease :fl 1]}])
     (let [wid (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource.internal/failed
-                         {:resource-key scoped-key :work/id wid :generation 1
+                         {:resource/key scoped-key :work/id wid :generation 1
                           :error {:kind :rf.http/http-5xx :status 503}}]))
     (testing "first-load failure → :error, no usable data"
       (let [e (entry scoped-key)]
@@ -568,7 +568,7 @@
                 generation/work-id is suppressed (never mutates the newer
                 entry)"
         (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource-key scoped-key :work/id wid1 :generation 1
+                           {:resource/key scoped-key :work/id wid1 :generation 1
                             :data {:stale "data"}}])
         (let [e (entry scoped-key)]
           (is (not= {:stale "data"} (:data e)) "stale reply did not write")
@@ -613,7 +613,7 @@
                         {:frame fa})
       (let [wid (:current-work (entry fa scoped-key))]
         (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource-key scoped-key :work/id wid :generation 1
+                           {:resource/key scoped-key :work/id wid :generation 1
                             :data {:title "A"}}]
                           {:frame fa}))
       (is (= {:title "A"} (:data (entry fa scoped-key))) "frame A has the entry")
@@ -640,7 +640,7 @@
                                             :params {:slug "w"} :owner [:lease :s 1]}])
     (let [wid (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource.internal/succeeded
-                         {:resource-key scoped-key :work/id wid :generation 1
+                         {:resource/key scoped-key :work/id wid :generation 1
                           :data {:title "Welcome"}}]))
     (testing "after load the derived booleans are computed in the sub
               (loaded / has-data?), not stored on the entry"
@@ -657,7 +657,7 @@
                                             :params {:slug "w"} :owner [:lease :st 1]}])
     (let [wid (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource.internal/succeeded
-                         {:resource-key scoped-key :work/id wid :generation 1
+                         {:resource/key scoped-key :work/id wid :generation 1
                           :data {:title "W"}}]))
     (testing "a freshly loaded entry (stale-after 60s) is not stale"
       (is (false? @(rf/subscribe [:rf.resource/stale? q]))))
@@ -687,7 +687,7 @@
                                             :params {:slug "w"} :owner [:lease :lr 1]}])
     (let [e (entry scoped-key)]
       (rf/dispatch-sync [:rf.resource.internal/succeeded
-                         {:resource-key scoped-key :work/id (:current-work e)
+                         {:resource/key scoped-key :work/id (:current-work e)
                           :generation (:generation e) :data {:title "W"}}]
                         ;; the managed transport stamps the host :completed-at
                         ;; here; a fixture scripts it directly on the reply
@@ -719,7 +719,7 @@
                                             :params {:slug "w"} :owner [:lease :fsd 1]}])
     (let [e (entry scoped-key)]
       (rf/dispatch-sync [:rf.resource.internal/succeeded
-                         {:resource-key scoped-key :work/id (:current-work e)
+                         {:resource/key scoped-key :work/id (:current-work e)
                           :generation (:generation e) :data {:title "W"}}]
                         {:rf.cofx {:rf/time-ms completed-at}}))
     (is (= :loaded (:status (entry scoped-key))) "entry loaded")
@@ -800,7 +800,7 @@
                                             :params {:slug "w"} :owner [:route :r 1]}])
     (let [wid (:current-work (entry scoped-key))]
       (rf/dispatch-sync [:rf.resource.internal/succeeded
-                         {:resource-key scoped-key :work/id wid :generation 1
+                         {:resource/key scoped-key :work/id wid :generation 1
                           :data {:title "W"}}]))
     (is (= :loaded (:status (entry scoped-key))))
     (rf/dispatch-sync [:rf.resource/invalidate-tags
@@ -927,7 +927,7 @@
                                             :params {:slug "loaded"} :owner [:lease :cr 1]}])
     (let [wid (:current-work (entry loaded-key))]
       (rf/dispatch-sync [:rf.resource.internal/succeeded
-                         {:resource-key loaded-key :work/id wid :generation 1
+                         {:resource/key loaded-key :work/id wid :generation 1
                           :data {:title "L"} :tags #{[:article "loaded"]}}]))
     ;; one IN-FLIGHT entry (still :loading, has :current-work)
     (rf/dispatch-sync [:rf.resource/ensure {:resource :cr/article :scope :rf.scope/global
@@ -964,7 +964,7 @@
       (testing "rf2-m9h5iq — a LATE reply for a cleared in-flight entry cannot
                 recreate it (its existence check finds the entry gone)"
         (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource-key inflight-key :work/id inflight-wid
+                           {:resource/key inflight-key :work/id inflight-wid
                             :generation 1 :data {:title "late"}}])
         (is (nil? (entry inflight-key))
             "late reply suppressed — no resurrected entry")))))
@@ -1016,7 +1016,7 @@
                                               :params {:slug "w"} :owner [:lease 1]}])
       (let [wid (:current-work (entry k))]
         (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource-key k :work/id wid :generation 1
+                           {:resource/key k :work/id wid :generation 1
                             :data {:title "W"}}]))
       (is (some? (re-frame.resources/resource-state
                    {:resource :rs/article :scope :rf.scope/global
@@ -1131,7 +1131,7 @@
                                             :params {:slug "w"} :owner owner}])
     (let [wid (:current-work (entry k))]
       (rf/dispatch-sync [:rf.resource.internal/succeeded
-                         {:resource-key k :work/id wid :generation 1
+                         {:resource/key k :work/id wid :generation 1
                           :data {:title "W"}}]))
     k))
 
@@ -1210,7 +1210,7 @@
                                               :params {:slug "w"} :owner [:route :g 1]}])
       (let [wid (:current-work (entry k))]
         (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource-key k :work/id wid :generation 1 :data {:title "W"}}])))
+                           {:resource/key k :work/id wid :generation 1 :data {:title "W"}}])))
     (let [warns (record-scope-mismatch-warnings!
                   (fn []
                     (subs/state-sub-fn (runtime-db)

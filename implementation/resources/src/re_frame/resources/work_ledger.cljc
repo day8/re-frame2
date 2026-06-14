@@ -207,14 +207,15 @@
   - `:work-id`     — `[:rf.work/resource <scoped-key> <generation>]`
   - `:frame-id`    — the qualified `:work/frame` stamp (matches the
                      reply's `:rf.frame/id`)
-  - `:resource-key`/`:generation`/`:transport`
+  - `:resource/key`/`:generation`/`:transport`
   - `:owner`       — the initiating owner (nil-safe; folded into `:owners`)
   - `:cause`       — the initiating cause (nil-safe; folded into `:causes`)
   - `:cancellable?`— best-effort cancel hint (default true)
   - `:started-at`  — epoch-ms
   - `:deadline-at` — epoch-ms or nil"
-  [{:keys [work-id frame-id resource-key generation transport
-           owner cause cancellable? started-at deadline-at]}]
+  [{:keys [work-id frame-id generation transport
+           owner cause cancellable? started-at deadline-at]
+    resource-key :resource/key}]
   {:work/id      work-id
    :work/kind    work-kind-resource
    :work/frame   frame-id
@@ -271,7 +272,7 @@
   (reply/durable-target
     {:event [resource-internal-succeeded
              {:work/id      (:work/id record)
-              :resource-key (:resource/key record)
+              :resource/key (:resource/key record)
               :generation   (:generation record)
               :rf.frame/id  (:work/frame record)}]}))
 

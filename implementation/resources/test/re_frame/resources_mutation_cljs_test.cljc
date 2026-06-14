@@ -443,14 +443,14 @@
               :rf.resource/schedule-timers emission"
       (is (= 1 (count @scheduled-timers)))
       (let [args (first @scheduled-timers)]
-        (is (= rkey (:resource-key args)))
+        (is (= rkey (:resource/key args)))
         (is (= :rf/default (:frame-id args)))
         (is (= 60000 (:stale-delay-ms args)))
         (is (= 300000 (:gc-delay-ms args)) "a GC timer is armed for the populated entry")
         (is (false? (:server? args)) "client frame — not SSR-gated")))
     (testing "rf2-h4cv5e — the populated ownerless entry is GC-eligible: a
               fired GC timer (re-checking owners + generation) removes it"
-      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource-key rkey}])
+      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key rkey}])
       (is (nil? (entry rkey)) "GC removed the inactive populated entry"))))
 
 (deftest success-patch-arms-timers-for-policy-keys
@@ -480,7 +480,7 @@
     (testing "rf2-h4cv5e — the patch re-armed the entry's stale / GC timers"
       (is (= 1 (count @scheduled-timers)))
       (let [args (first @scheduled-timers)]
-        (is (= rkey (:resource-key args)))
+        (is (= rkey (:resource/key args)))
         (is (= 60000 (:stale-delay-ms args)))
         (is (= 300000 (:gc-delay-ms args)))))))
 

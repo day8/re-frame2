@@ -92,7 +92,7 @@
 
 (def ^:private resource-vp
   {:work/id      [:rf.work/resource [:rf.scope/global :article/by-slug {:slug "w"}] 4]
-   :resource-key [:rf.scope/global :article/by-slug {:slug "w"}]
+   :resource/key [:rf.scope/global :article/by-slug {:slug "w"}]
    :scope        :rf.scope/global
    :generation   4
    :rf.frame/id  :app/main})

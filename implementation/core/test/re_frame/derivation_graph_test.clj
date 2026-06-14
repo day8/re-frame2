@@ -430,7 +430,7 @@
    :storage    :runtime-db
    :authority  {:kind :remote :system :server}
    :evaluation #{:on-route}
-   :lifecycle  {:kind :resource-key :owners owners}
+   :lifecycle  {:kind :scoped-resource-key :owners owners}
    :status     :loaded})
 
 (defn- fixture-live-contributors

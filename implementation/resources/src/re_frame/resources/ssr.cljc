@@ -250,7 +250,7 @@
   paths). Returns `[wire-entry metadata]` where `metadata` records the
   per-entry projection decision (Spec 016 §SSR and hydration step 7):
 
-    {:resource-key   scoped-key
+    {:resource/key   scoped-key
      :resource-id    <id>
      :disposition    :serialized | :redacted | :omitted
      :freshness      :fresh | :stale
@@ -295,7 +295,7 @@
         ;; needs them; serialized stale entries also refetch (background);
         ;; serialized fresh entries do NOT (no double-fetch).
         metadata-only? (not= :serialize disposition)
-        base        {:resource-key   scoped-key
+        base        {:resource/key   scoped-key
                      :resource-id    resource-id
                      :freshness      (if stale? :stale :fresh)
                      :status         (:status entry)
@@ -906,7 +906,7 @@
          (doseq [[k skew] (:skews reconciled)]
            (trace/emit! :warning :rf.resource/hydrate-clock-skew
                         {:rf.frame/id  frame-id
-                         :resource-key k
+                         :resource/key k
                          :skew-ms      skew
                          :reason       (str "hydrated entry's absolute :stale-at is "
                                             skew "ms ahead of the live client clock "
@@ -1321,7 +1321,7 @@
                           {:level :rf.epoch
                            :op    :rf.resource/owner-released
                            :tags  {:rf.frame/id    frame-id
-                                   :resource-key   k
+                                   :resource/key   k
                                    :owner          owner
                                    :nav-token      (nth owner 2 nil)
                                    :live-nav-token live-nav-token
@@ -1331,7 +1331,7 @@
                           {:level :warning
                            :op    :rf.resource/restore-clock-skew
                            :tags  {:rf.frame/id  frame-id
-                                   :resource-key k
+                                   :resource/key k
                                    :skew-ms      skew
                                    :reason       (str "restored entry's absolute :stale-at is "
                                                       skew "ms ahead of the live clock — clock "
@@ -1464,7 +1464,7 @@
   "Build the client refetch plan for a hydrated resource subtree: the
   scoped keys whose hydrated entry is NOT sufficient on its own (per
   `entry-needs-refetch?`) and therefore need a client refetch under a live
-  owner. Returns a vector of `{:resource-key :resource-id :reason}` entries
+  owner. Returns a vector of `{:resource/key :resource-id :reason}` entries
   (`:reason` one of `:metadata-only` / `:stale` / `:no-data`). The route
   slice consults this to issue `:rf.resource/refetch` (cause `:hydration`)
   for the entries its route plan still needs — fresh-with-data entries are
@@ -1493,7 +1493,7 @@
                        (comp
                          (filter (fn [[_ entry]] (entry-needs-refetch? entry clock-ms)))
                          (map (fn [[_k-id entry]]
-                                {:resource-key (:resource/key entry)
+                                {:resource/key (:resource/key entry)
                                  :resource-id  (second (:resource/key entry))
                                  :reason       (cond
                                                  ;; a REDACTED entry rides the
@@ -1508,10 +1508,10 @@
                                                  (entry-stale? entry clock-ms) :stale
                                                  :else                         :metadata-only)})))
                        entries)]
-     (doseq [{:keys [resource-key resource-id reason]} plan]
+     (doseq [{:keys [resource-id reason] resource-key :resource/key} plan]
        (trace/emit! :rf.event :rf.resource/hydrate-refetch
                     {:rf.frame/id  frame-id
-                     :resource-key resource-key
+                     :resource/key resource-key
                      :resource-id  resource-id
                      :reason       reason
                      :cause        :hydration}))

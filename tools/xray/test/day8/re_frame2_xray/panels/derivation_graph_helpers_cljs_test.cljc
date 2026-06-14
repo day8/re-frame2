@@ -52,7 +52,7 @@
   {:id :article/by-slug :kind :process :refinement :resource-process :rf/family :resources
    :inputs :parametric :output [:runtime [:rf.runtime/resources :entries]]
    :storage :runtime-db :authority {:kind :remote :system :server}
-   :evaluation #{:on-route :on-reply} :lifecycle :resource-key})
+   :evaluation #{:on-route :on-reply} :lifecycle :scoped-resource-key})
 
 (def ^:private route-node
   {:id :rf/route :kind :process :refinement :route-fact :rf/family :routes

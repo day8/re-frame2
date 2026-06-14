@@ -120,13 +120,13 @@
   [scoped-key data]
   (let [e (entry scoped-key)]
     (rf/dispatch-sync [:rf.resource.internal/succeeded
-                       {:resource-key scoped-key
+                       {:resource/key scoped-key
                         :work/id      (:current-work e)
                         :generation   (:generation e)
                         :data         data}])))
 
 (defn- gc-recheck! [scoped-key]
-  (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource-key scoped-key}]))
+  (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key scoped-key}]))
 
 ;; ===========================================================================
 ;; Two simultaneously-live scopes (the tenant-switcher shape, in miniature):

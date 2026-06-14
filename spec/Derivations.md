@@ -207,7 +207,7 @@ A **lifecycle** declares who keeps the fact/process alive and who releases it:
 | `:subscription-cache-entry` | The concrete query vector's readers keep it alive; ref-count disposal releases it. |
 | `:frame` | The frame owns it; `destroy-frame!` releases it. |
 | `:route` | The active route/nav-token owns it; route exit or supersession releases it. |
-| `:resource-key` | A scoped resource key owns the cache entry; owners, freshness policy, and GC release it. |
+| `:scoped-resource-key` | A scoped resource key owns the cache entry; owners, freshness policy, and GC release it. (The lifecycle **category**; the concrete key value is the `:resource/key` data field — one name per fact.) |
 | `:machine-instance` | A singleton or spawned actor snapshot owns it; machine destroy releases it. |
 | `:host-root` | A host root, adapter, or runtime realm owns it; adapter/runtime disposal releases it. |
 
@@ -217,7 +217,7 @@ Lifecycle is part of the fact's contract — **a graph that shows data dependenc
 {:lifecycle :subscription-cache-entry :owner [:sub-query [:cart/total]]}
 {:lifecycle :frame                    :owner [:frame :checkout]}
 {:lifecycle :route                    :owner [:route :route/article nav-token]}
-{:lifecycle :resource-key             :owner [scope :article/by-slug {:slug "welcome"}]}
+{:lifecycle :scoped-resource-key      :owner [scope :article/by-slug {:slug "welcome"}]}
 {:lifecycle :machine-instance         :owner [:machine :upload/main]}
 ```
 
@@ -348,7 +348,7 @@ A representative graph view:
    :storage :runtime-db
    :authority {:kind :remote :system :server :transport :rf.http/managed}
    :evaluation #{:on-route :on-reply :scheduled :manual}
-   :lifecycle :resource-key
+   :lifecycle :scoped-resource-key
    :output [:runtime [:rf.runtime/resources :entries
                       [[:rf.scope/global] :article/by-slug {:slug "welcome"}]]]}}
 
@@ -581,7 +581,7 @@ The subscription's exact policy twin — same whole-value function, materialized
  :authority   {:kind :remote :system :server  ;; the source of truth is external
                :transport :rf.http/managed}
  :evaluation  #{:on-route :on-reply :scheduled :manual}
- :lifecycle   :resource-key
+ :lifecycle   :scoped-resource-key
  :materialized? true
  :selectors   [:rf.resource/state :rf.resource/data :rf.resource/status
                :rf.resource/loading? :rf.resource/error :rf.resource/has-data?]}
@@ -597,7 +597,7 @@ The subscription's exact policy twin — same whole-value function, materialized
  :storage :runtime-db
  :authority {:kind :remote :system :server}
  :status  :loaded
- :lifecycle {:kind :resource-key :owners #{[:route :route/article 17]}}
+ :lifecycle {:kind :scoped-resource-key :owners #{[:route :route/article 17]}}
  :host-transient [[:rf.http/in-flight :work/id-123]]}
 ```
 
@@ -745,7 +745,7 @@ A resource's superkind is always **`:process`**; its informative refinement is *
 | `:storage` | `:runtime-db` | the **local** cache entry lives in the framework-owned runtime-db partition ([016 §Cache home](016-Resources.md)) — storage always names the local home |
 | `:authority` | `{:kind :remote :system :server :transport <id>}` | the source of truth is **external** ([§Authority](#authority--the-remote-axis)); `:transport` mirrors the registered transport (a recomputable projection, never a second home) |
 | `:evaluation` | `#{:on-route :on-reply :scheduled :manual}` | a multi-trigger process — route activation, async reply, scheduled stale/GC timers, and manual refresh/ensure ([§Evaluation policy](#evaluation-policy)) |
-| `:lifecycle` | `:resource-key` | a scoped resource key owns the cache entry; owners, freshness policy, and GC release it ([§Lifecycle and owner](#lifecycle-and-owner)) |
+| `:lifecycle` | `:scoped-resource-key` | a scoped resource key owns the cache entry; owners, freshness policy, and GC release it ([§Lifecycle and owner](#lifecycle-and-owner)) |
 | `:materialized?` | `true` | the cache entry has a durable runtime-db address |
 
 The axes that **vary** per resource are the declared **inputs**, the `:authority` transport, and (for a named-resolver scope) the `:scope-resolver` enrichment:
@@ -760,7 +760,7 @@ The node additionally carries the `:selectors` read-fact ids, the `:commands` tr
 
 The live counterpart reports one process node **per concrete cache entry**, keyed by its scoped resource key `[cache-scope resource-id canonical-params]` — the resource's [fact identity](#fact-identity) when concrete. Where the static view reports the resource id and a generic params input, the live view reports the **realized** `[[:scope <scope>] [:param <params>]]` edges, the concrete `:output` entry address, and the live lifecycle state:
 
-- **`:lifecycle`** becomes the map `{:kind :resource-key :owners <active-owners>}` — the live owner set keeping the entry alive ([§Lifecycle and owner](#lifecycle-and-owner): owner keeps it alive, distinct from the cause of any one fetch).
+- **`:lifecycle`** becomes the map `{:kind :scoped-resource-key :owners <active-owners>}` — the live owner set keeping the entry alive ([§Lifecycle and owner](#lifecycle-and-owner): owner keeps it alive, distinct from the cause of any one fetch).
 - **`:status`** is the entry's lifecycle-FSM status (`:idle` / `:loading` / `:fetching` / `:loaded` / `:error`).
 - **`:work-ledger`** is present when an attempt is in flight: the entry's `:current-work` id plus a small serializable summary of the linked work-ledger record (identity, owners, causes, transport, status — the work-ledger link, [016 §Frame work ledger](016-Resources.md)).
 - **`:host-transient`** is present when an attempt is in flight: the in-flight handle address `[[:rf.http/in-flight <work-id>]]` — the abortable handle lives **outside** durable frame-state, in the `[frame-id work-id]` side table ([§Output and materialization](#output-and-materialization); [016](016-Resources.md)). The remote fact is server-owned; the local representation is runtime-owned durable state **plus** host-transient in-flight work.

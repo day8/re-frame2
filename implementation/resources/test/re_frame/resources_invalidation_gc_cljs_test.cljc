@@ -119,7 +119,7 @@
   [scoped-key data]
   (let [e (entry scoped-key)]
     (rf/dispatch-sync [:rf.resource.internal/succeeded
-                       {:resource-key scoped-key :work/id (:current-work e)
+                       {:resource/key scoped-key :work/id (:current-work e)
                         :generation (:generation e) :data data}])))
 
 ;; ===========================================================================
@@ -464,7 +464,7 @@
       ;; a direct internal aborted settle marks the work TERMINAL :cancelled
       ;; (the aborted-handler makes no entry write — the pointer dangles).
       (rf/dispatch-sync [:rf.resource.internal/aborted
-                         {:resource-key k :work/id wid1 :generation gen1}])
+                         {:resource/key k :work/id wid1 :generation gen1}])
       (is (= :cancelled (:status (work-ledger/get-record (runtime-db) wid1)))
           "the directly-aborted work row is terminal :cancelled")
       (testing "rf2-v4ygg5 — a subsequent ensure does NOT join the terminal
@@ -490,7 +490,7 @@
                 work-id is SUPPRESSED (the entry it would write into is gone;
                 the generation/work-id check finds no live entry)"
         (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource-key k :work/id stale-wid :generation 1
+                           {:resource/key k :work/id stale-wid :generation 1
                             :data {:title "Late"}}])
         (is (nil? (entry k)) "late reply did NOT resurrect / write the entry"))
       (testing "a recreated entry in the same scope gets a HIGHER generation
@@ -499,7 +499,7 @@
         (ensure! :clr/article scope "w" [:lease :c 2])
         (is (= 2 (:generation (entry k))) "recreated entry on a fresh generation")
         (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource-key k :work/id stale-wid :generation 1
+                           {:resource/key k :work/id stale-wid :generation 1
                             :data {:title "ZombieLate"}}])
         (is (not= {:title "ZombieLate"} (:data (entry k)))
             "the pre-clear reply never writes the recreated entry")))))
@@ -520,7 +520,7 @@
               derived from the resource policy"
       (is (= 1 (count @scheduled-timers)))
       (let [args (first @scheduled-timers)]
-        (is (= k (:resource-key args)))
+        (is (= k (:resource/key args)))
         (is (= 60000 (:stale-delay-ms args)))
         (is (= 300000 (:gc-delay-ms args)))))))
 
@@ -581,7 +581,7 @@
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :gc 1]}])
     (testing "Spec 016 §Stale and GC scheduling — a fired GC timer RE-CHECKS:
               an owner-free + idle entry is removed"
-      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource-key k}])
+      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
       (is (nil? (entry k)) "GC removed the inactive entry"))))
 
 (deftest gc-fired-skips-when-owner-reattached
@@ -593,7 +593,7 @@
     (testing "Spec 016 §Stale and GC scheduling — a fired GC timer RE-CHECKS
               owner sets after wake; an entry with a live owner is NOT removed
               (the timer is advisory — it never writes a stale decision)"
-      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource-key k}])
+      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
       (is (some? (entry k)) "owned entry kept (GC skipped)")
       (is (= :loaded (:status (entry k)))))))
 
@@ -609,7 +609,7 @@
     (testing "Spec 016 §Stale and GC scheduling — a fired GC timer RE-CHECKS
               the generation / in-flight pointer; an in-flight entry is NOT
               removed even when owner-free"
-      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource-key k}])
+      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
       (is (some? (entry k)) "in-flight entry kept (GC skipped)"))))
 
 ;; ---- rf2-07693y: a GC skip RESCHEDULES so a later release/settle is GC'd ---
@@ -624,18 +624,18 @@
     (testing "rf2-07693y — a GC timer firing while the entry is still OWNED
               skips collection but RE-ARMS a fresh GC re-check (so a later
               release after the original deadline does not strand the entry)"
-      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource-key k}])
+      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
       (is (some? (entry k)) "owned entry kept (GC skipped)")
       (is (= 1 (count @scheduled-timers)) "exactly one reschedule fx emitted")
       (let [args (first @scheduled-timers)]
-        (is (= k (:resource-key args)))
+        (is (= k (:resource/key args)))
         (is (= 1000 (:gc-delay-ms args)) "rescheduled with the resource's :gc-after-ms")
         (is (nil? (:stale-delay-ms args)) "stale timer NOT re-armed on a GC skip")))
     (testing "the owner releases AFTER the original deadline; the rescheduled
               GC re-check now finds the entry owner-free + idle and collects it"
       (rf/dispatch-sync [:rf.resource/release-owner {:owner [:lease :gcr 1]}])
       (is (empty? (:active-owners (entry k))) "entry now owner-free")
-      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource-key k}])
+      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
       (is (nil? (entry k)) "the rescheduled GC re-check collected the now-inactive entry"))))
 
 (deftest gc-skip-while-in-flight-reschedules-and-collects-after-settle
@@ -649,7 +649,7 @@
     (reset! scheduled-timers [])
     (testing "rf2-07693y — a GC timer firing while the entry is IN-FLIGHT skips
               but RE-ARMS a fresh GC re-check"
-      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource-key k}])
+      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
       (is (some? (entry k)) "in-flight entry kept (GC skipped)")
       (is (= 1 (count @scheduled-timers)) "one reschedule fx emitted")
       (is (= 1000 (:gc-delay-ms (first @scheduled-timers)))))
@@ -661,13 +661,13 @@
       ;; owner-free + idle (GC-eligible)
       (let [wid (:current-work (entry k))]
         (rf/dispatch-sync [:rf.resource.internal/failed
-                           {:resource-key k :work/id wid
+                           {:resource/key k :work/id wid
                             :generation (:generation (entry k))
                             :rf.frame/id :rf/default}
                            {:kind :failure :failure {:kind :rf.http/aborted :reason :user}}]))
       (is (nil? (:current-work (entry k))) "work settled — no longer in flight")
       (is (empty? (:active-owners (entry k))) "owner-free")
-      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource-key k}])
+      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
       (is (nil? (entry k)) "the rescheduled GC re-check collected the now-idle entry"))))
 
 (deftest gc-skip-no-entry-does-not-reschedule
@@ -676,7 +676,7 @@
     (reset! scheduled-timers [])
     (testing "rf2-07693y — a GC timer firing for an entry that no longer exists
               (removed / cleared) does NOT reschedule (nothing to collect)"
-      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource-key k}])
+      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
       (is (nil? (entry k)))
       (is (empty? @scheduled-timers) "no reschedule fx for a vanished entry"))))
 
@@ -691,7 +691,7 @@
                 derives freshness from the DURABLE :stale-at; it writes NO
                 durable change (the :stale? sub derives staleness; the timer
                 is advisory)"
-        (rf/dispatch-sync [:rf.resource.internal/stale-fired {:resource-key k}])
+        (rf/dispatch-sync [:rf.resource.internal/stale-fired {:resource/key k}])
         (is (= before (entry k)) "stale-fired made no durable entry change")))))
 
 (deftest frame-destroy-cancels-resource-timers

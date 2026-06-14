@@ -159,7 +159,7 @@
      :storage       :runtime-db
      :authority     {:kind :remote :system :server :transport :rf.http/managed}
      :evaluation    #{:on-route :on-reply :scheduled :manual}
-     :lifecycle     :resource-key
+     :lifecycle     :scoped-resource-key
      :materialized? true}
     ;; ROUTE — the ONE :rf/route slice :process, keyed by [:rf/route <id>].
     {:id            [:rf/route :route/article]
