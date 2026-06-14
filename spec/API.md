@@ -623,15 +623,15 @@ Trace events emitted by epoch-history machinery:
 
 | `:operation` | Tags |
 |---|---|
-| `:rf.epoch/snapshotted` | `:frame`, `:epoch-id`, `:event-id` |
-| `:rf.epoch/restored` | `:frame`, `:epoch-id` |
-| `:rf.epoch/db-replaced` | `:frame`, `:epoch-id` |
-| `:rf.epoch/restore-unknown-epoch` | `:frame`, `:epoch-id`, `:history-size` |
-| `:rf.epoch/restore-schema-mismatch` | `:frame`, `:epoch-id`, `:schema-digest-recorded`, `:schema-digest-current`, `:failing-paths` |
-| `:rf.epoch/restore-missing-handler` | `:frame`, `:epoch-id`, `:missing` |
-| `:rf.epoch/restore-version-mismatch` | `:frame`, `:epoch-id`, `:machine-id`, `:version-recorded`, `:version-current` |
-| `:rf.epoch/restore-during-drain` | `:frame`, `:epoch-id` |
-| `:rf.epoch/restore-non-ok-record` | `:frame`, `:epoch-id`, `:outcome`, `:halt-reason` |
+| `:rf.epoch/snapshotted` | `:frame`, `:rf.epoch/id`, `:rf.trace/event-id` |
+| `:rf.epoch/restored` | `:frame`, `:rf.epoch/id` |
+| `:rf.epoch/db-replaced` | `:frame`, `:rf.epoch/id` |
+| `:rf.epoch/restore-unknown-epoch` | `:frame`, `:rf.epoch/id`, `:history-size` |
+| `:rf.epoch/restore-schema-mismatch` | `:frame`, `:rf.epoch/id`, `:schema-digest-recorded`, `:schema-digest-current`, `:failing-paths` |
+| `:rf.epoch/restore-missing-handler` | `:frame`, `:rf.epoch/id`, `:missing` |
+| `:rf.epoch/restore-version-mismatch` | `:frame`, `:rf.epoch/id`, `:machine-id`, `:version-recorded`, `:version-current` |
+| `:rf.epoch/restore-during-drain` | `:frame`, `:rf.epoch/id` |
+| `:rf.epoch/restore-non-ok-record` | `:frame`, `:rf.epoch/id`, `:rf.epoch/outcome`, `:halt-reason` |
 | `:rf.epoch/replace-during-drain` | `:frame` |
 | `:rf.epoch/replace-schema-mismatch` | `:frame`, `:failing-paths` |
 | `:rf.epoch.cb/silenced-on-frame-destroy` | `:frame`, `:cb-id` |

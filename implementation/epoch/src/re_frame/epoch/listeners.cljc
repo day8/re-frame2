@@ -68,13 +68,19 @@
       (try
         (f record)
         (catch #?(:clj Throwable :cljs :default) ex
+          ;; Identity tag is the canonical qualified `:rf.epoch/id` (rf2-ifdsar):
+          ;; the trace-tag layer spells the epoch id `:rf.epoch/id` everywhere
+          ;; (matching the `:rf.epoch/restore-*` rows + `emit-snapshotted+outcome!`).
+          ;; The bare `:epoch-id` is the RECORD-field spelling we read FROM
+          ;; (`(:epoch-id record)`), kept bare as part of the deliberate
+          ;; record/projection vocabulary — see Conventions §Trace/epoch identity.
           (trace/emit-error! :rf.epoch.cb/listener-exception
-                             {:frame    frame-id
-                              :cb-id    id
-                              :epoch-id (:epoch-id record)
-                              :message  #?(:clj  (.getMessage ^Throwable ex)
-                                           :cljs (.-message ex))
-                              :recovery :no-recovery}))))))
+                             {:frame       frame-id
+                              :cb-id       id
+                              :rf.epoch/id (:epoch-id record)
+                              :message     #?(:clj  (.getMessage ^Throwable ex)
+                                              :cljs (.-message ex))
+                              :recovery    :no-recovery}))))))
 
 ;; ---- post-settle render back-fill (rf2-qs6dl) -----------------------------
 
