@@ -16,31 +16,34 @@
             [day8.re-frame2-xray.panels.module-view-helpers :as h]))
 
 ;; A representative module value (the shape `(rf/module {...})` produces — see
-;; re-frame.app-value/module): `:rf.module/id` · `:owns` · `:requires` ·
-;; `:registrations` (kind→id→owner-stamped descriptor) · optional `:source`.
+;; re-frame.app-value/module): `:rf.module/id` · `:rf.module/owns` ·
+;; `:rf.module/requires` · `:registrations` (kind→id→owner-stamped descriptor) ·
+;; optional `:source`. The FACT keys are owner-qualified (`:rf.module/*`,
+;; EP-0007 / EP-0017 v5 — rf2-yk6u2x); the structural slots stay bare.
 (def ^:private cart-module
-  {:rf.module/id  :shop/cart
-   :owns          {:app-db [[:cart]] :routes [:shop/checkout]}
-   :requires      #{:rf.capability/http}
+  {:rf.module/id       :shop/cart
+   :rf.module/owns     {:app-db [[:cart]] :routes [:shop/checkout]}
+   :rf.module/requires #{:rf.capability/http}
    :registrations {:event {:cart/add   {:kind :event :id :cart/add   :owner :shop/cart}}
                    :sub   {:cart/items {:kind :sub   :id :cart/items :owner :shop/cart}}}
    :source        {:ns "shop.cart" :file "cart.cljs" :line 12 :column 1}})
 
 ;; A constructed app value seating that module (the shape `rf/app` / a seated
-;; `rf/installed-app` returns): `:modules` keyed by module id.
+;; `rf/installed-app` returns): `:modules` keyed by module id, `:rf.app/requires`
+;; the union capability set.
 (def ^:private cart-app
-  {:rf.app/id     :shop/app
-   :modules       {:shop/cart cart-module}
-   :registrations (:registrations cart-module)
-   :requires      #{:rf.capability/http}})
+  {:rf.app/id       :shop/app
+   :modules         {:shop/cart cart-module}
+   :registrations   (:registrations cart-module)
+   :rf.app/requires #{:rf.capability/http}})
 
 ;; A projected (load-order / sugar-only) app value: registrations present, but
-;; NO :modules and empty :requires (re-frame.realm/installed-app returns this
-;; for a realm seated through reg-* sugar with no install!).
+;; NO :modules and empty :rf.app/requires (re-frame.realm/installed-app returns
+;; this for a realm seated through reg-* sugar with no install!).
 (def ^:private projected-app
-  {:rf.app/id     :rf.realm/default
-   :registrations {:event {:sugar/inc {:kind :event :id :sugar/inc}}}
-   :requires      #{}})
+  {:rf.app/id       :rf.realm/default
+   :registrations   {:event {:sugar/inc {:kind :event :id :sugar/inc}}}
+   :rf.app/requires #{}})
 
 ;; A CONSTRUCTED app composed from ZERO modules (rf2-e0mq7a). The core
 ;; app-value contract (app_value.cljc:123-127) is explicit: an app constructed
@@ -50,9 +53,9 @@
 ;; (app_value_compose_cljs_test.cljc:141-147), so this fixture mirrors that
 ;; shape.
 (def ^:private zero-module-app
-  {:rf.app/id :empty/app
-   :modules   {}
-   :requires  #{}})
+  {:rf.app/id       :empty/app
+   :modules         {}
+   :rf.app/requires #{}})
 
 ;; ---- realm-frames -------------------------------------------------------
 
@@ -108,7 +111,7 @@
   (testing "module rows sort by module-id str (stable render)"
     (let [m-b {:rf.module/id :b/mod :registrations {}}
           m-a {:rf.module/id :a/mod :registrations {}}
-          app {:rf.app/id :x :modules {:b/mod m-b :a/mod m-a} :requires #{}}
+          app {:rf.app/id :x :modules {:b/mod m-b :a/mod m-a} :rf.app/requires #{}}
           {:keys [modules]} (h/project-app-modules app)]
       (is (= [:a/mod :b/mod] (mapv :module-id modules))))))
 

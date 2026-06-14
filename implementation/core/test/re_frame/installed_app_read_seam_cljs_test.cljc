@@ -4,7 +4,8 @@
 
   This is the NAMED GRADUATION: the per-module provenance/ownership/capability
   facts an `install!`-seated app value carries (`:modules` + each module's
-  `:owns` / `:requires` and the `:owner`-stamped descriptors) graduate from
+  `:rf.module/owns` / `:rf.module/requires` and the `:owner`-stamped
+  descriptors) graduate from
   internal WHEN a tool demands them — which the Xray Module-view now does. Before
   this seam, `re-frame.realm/installed-app` was internal (no `rf/*` re-export) and
   nothing public yielded a RUNNING realm's installed app value to feed to the
@@ -20,8 +21,8 @@
         module owns a handler/sub/path WITHOUT installing anything;
     (3) a realm seated only through the `reg-*` sugar (load-order, no `install!`)
         returns the recomputable projection — registrations by kind, but an
-        empty `:modules` / `:requires` (load-order registrations declare no
-        module). The Module-view shows the honest awaiting-seam caption there;
+        empty `:modules` / `:rf.app/requires` (load-order registrations declare
+        no module). The Module-view shows the honest awaiting-seam caption there;
     (4) it is a STATIC read of the install-time value — `(rf/installed-app)`
         without a realm reads the default realm (absence = default realm).
 
@@ -71,13 +72,13 @@
             its :modules provenance is present, so rf/app-registrations /
             rf/app-owns / rf/app-requires read the per-module facts off the
             running realm WITHOUT installing anything (EP-0013 disposition 6)"
-    (let [cart (rf/module {:id       :shop/cart
-                           :owns     {:app-db [[:cart]]}
-                           :requires #{:rf.capability/http}
+    (let [cart (rf/module {:id                 :shop/cart
+                           :rf.module/owns     {:app-db [[:cart]]}
+                           :rf.module/requires #{:rf.capability/http}
                            :events   {:cart/add   {:doc "Add."   :handler cart-add}}
                            :subs     {:cart/items {:doc "Items." :handler cart-items}}})
           a    (rf/app {:id :shop/app :modules [cart]})
-          ;; The default realm's capability map must satisfy the app's :requires
+          ;; The default realm's capability map must satisfy the app's :rf.app/requires
           ;; for install! to proceed; seat it, then dispose on the way out.
           _    (swap! realm/realms update realm/default-realm-id
                       assoc :capabilities {:rf.capability/http :stub})]
@@ -115,8 +116,9 @@
 (deftest installed-app-of-a-sugar-only-realm-is-the-module-less-projection
   (testing "a realm seated only through the reg-* sugar path (no install!)
             returns the recomputable projection — its registrations are present
-            by kind, but it carries NO :modules and an empty :requires (load-order
-            registrations declare no module). The honest no-provenance case."
+            by kind, but it carries NO :modules and an empty :rf.app/requires
+            (load-order registrations declare no module). The honest
+            no-provenance case."
     ;; reg-* sugar — writes the default realm's registrar in place, no install!.
     (rf/reg-event-db :sugar/inc (fn [db _] (update db :n (fnil inc 0))))
     (let [running (rf/installed-app)]
@@ -154,7 +156,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- with-default-realm-http! [thunk]
-  ;; install! gates on the realm satisfying the app's :requires; seed a stub
+  ;; install! gates on the realm satisfying the app's :rf.app/requires; seed a stub
   ;; :rf.capability/http, run, then clear (the :app slot is cleared by the
   ;; suite fixture).
   (swap! realm/realms update realm/default-realm-id
@@ -167,14 +169,14 @@
   (testing "rf2-77ewnm: a reg-* sugar registration made BEFORE install! is
             visible in rf/installed-app alongside the installed app's events —
             the public read is the LIVE registrar, not the frozen snapshot. The
-            seated app's :modules / :requires provenance is preserved."
+            seated app's :modules / :rf.app/requires provenance is preserved."
     ;; Sugar FIRST — writes the default realm's registrar in place, no module.
     (rf/reg-event-db :sugar/before (fn [db _] db))
     (with-default-realm-http!
       (fn []
-        (let [cart (rf/module {:id       :shop/cart
-                               :owns     {:app-db [[:cart]]}
-                               :requires #{:rf.capability/http}
+        (let [cart (rf/module {:id                 :shop/cart
+                               :rf.module/owns     {:app-db [[:cart]]}
+                               :rf.module/requires #{:rf.capability/http}
                                :events   {:cart/add {:doc "Add." :handler cart-add}}
                                :subs     {:cart/items {:doc "Items." :handler cart-items}}})
               a    (rf/app {:id :shop/app :modules [cart]})]
@@ -204,7 +206,7 @@
             (is (= {:shop/cart cart} (:modules running))
                 ":modules provenance from the seated app is preserved")
             (is (= #{:rf.capability/http} (rf/app-requires running))
-                ":requires from the seated app is preserved")
+                ":rf.app/requires from the seated app is preserved")
             (is (= :shop/cart (rf/app-owns running [:cart]))
                 "app-owns resolves through the overlaid :modules")))))))
 
@@ -217,8 +219,8 @@
     (with-default-realm-http!
       (fn []
         (let [a (rf/app {:id :shop/app
-                         :modules [(rf/module {:id       :shop/cart
-                                               :requires #{:rf.capability/http}
+                         :modules [(rf/module {:id                 :shop/cart
+                                               :rf.module/requires #{:rf.capability/http}
                                                :events   {:cart/add {:handler cart-add}}})]})]
           (rf/install! a)
           ;; Sugar AFTER the install — must still surface in the public read.

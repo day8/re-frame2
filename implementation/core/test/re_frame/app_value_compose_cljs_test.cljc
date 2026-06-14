@@ -8,10 +8,10 @@
   / `rf/app` / `rf/app-registrations` / `rf/app-owns` / `rf/app-requires`):
 
     (1) `module` lowers a module-descriptor map into a module value — the
-        descriptor-grouped shape, owner-stamped, with `:owns` / `:requires`
-        / `:source` carried; PURE (no realm, no registrar);
+        descriptor-grouped shape, owner-stamped, with `:rf.module/owns` /
+        `:rf.module/requires` / `:source` carried; PURE (no realm, no registrar);
     (2) `app` composes module values into an app value — DETERMINISTIC +
-        order-stable, `:requires` unioned, `:modules` keyed by id;
+        order-stable, `:rf.app/requires` unioned, `:modules` keyed by id;
     (3) composition is STRICT — a same-(kind,id) collision across modules
         THROWS `:rf.error/app-composition-collision` enumerating every
         colliding source (never last-writer-wins);
@@ -50,19 +50,20 @@
 
 (deftest module-shape-and-owner-stamping
   (testing "module lowers each registration section into descriptors stamped
-            with the module id as :owner, carries :owns / :requires, and is
-            keyed by the singular registry kind"
+            with the module id as :owner, carries :rf.module/owns /
+            :rf.module/requires (owner-qualified FACT keys, EP-0007 / EP-0017
+            v5), and is keyed by the singular registry kind"
     (let [m (rf/module
               {:id :shop/cart
-               :owns {:app-db [[:cart]] :resources [:shop.cart/items]}
-               :requires #{:rf.capability/http}
+               :rf.module/owns {:app-db [[:cart]] :resources [:shop.cart/items]}
+               :rf.module/requires #{:rf.capability/http}
                :events {:cart/add {:doc "Add an item." :handler cart-add}}
                :subs   {:cart/items {:doc "Cart items." :handler cart-items}}})]
       (is (= :shop/cart (:rf.module/id m)) "the module carries its id")
-      (is (= {:app-db [[:cart]] :resources [:shop.cart/items]} (:owns m))
-          ":owns is carried through verbatim")
-      (is (= #{:rf.capability/http} (:requires m))
-          ":requires is carried as a set")
+      (is (= {:app-db [[:cart]] :resources [:shop.cart/items]} (:rf.module/owns m))
+          ":rf.module/owns is carried through verbatim")
+      (is (= #{:rf.capability/http} (:rf.module/requires m))
+          ":rf.module/requires is carried as a set")
       ;; sections lower to the SINGULAR registry kind (:events -> :event).
       (let [d (get-in m [:registrations :event :cart/add])]
         (is (= :event (:kind d)) "the section lowers to the singular kind")
@@ -77,10 +78,10 @@
           "the :subs section lowers to :sub, owner-stamped"))))
 
 (deftest module-requires-defaults-empty
-  (testing "a module with no :requires gets #{}"
+  (testing "a module with no :rf.module/requires gets #{}"
     (let [m (rf/module {:id :m :events {:e {:handler cart-add}}})]
-      (is (= #{} (:requires m)))
-      (is (= {} (:owns m)) ":owns defaults to {}"))))
+      (is (= #{} (:rf.module/requires m)))
+      (is (= {} (:rf.module/owns m)) ":rf.module/owns defaults to {}"))))
 
 (deftest module-lifts-explicit-source-coords
   (testing "an entry's explicit :source envelope is lifted into the descriptor
@@ -111,20 +112,68 @@
       (is (= :bogus (:unknown-section ed))
           "the unknown section key is named in the diagnostic"))))
 
+(deftest module-owns-requires-are-owner-qualified-bare-keys-rejected
+  ;; rf2-yk6u2x — the adversarial pin for the EP-0007 / EP-0017 v5 rename.
+  ;; The module's ownership + capability FACTS are owner-qualified
+  ;; (`:rf.module/owns` / `:rf.module/requires`); the BARE `:owns` / `:requires`
+  ;; spellings are no longer reserved module keys, so they are rejected loudly
+  ;; as unknown section keys (fail-closed — never silently honoured nor dropped).
+  (testing "the QUALIFIED keys carry the fact onto the module value"
+    (let [m (rf/module {:id :shop/cart
+                        :rf.module/owns     {:app-db [[:cart]]}
+                        :rf.module/requires #{:rf.capability/http}
+                        :events {:cart/add {:handler cart-add}}})]
+      (is (= {:app-db [[:cart]]} (:rf.module/owns m))
+          ":rf.module/owns carries the ownership declaration")
+      (is (= #{:rf.capability/http} (:rf.module/requires m))
+          ":rf.module/requires carries the capability set")
+      ;; The bare keys never appear on the produced module value.
+      (is (not (contains? m :owns)) "no bare :owns slot on the module value")
+      (is (not (contains? m :requires)) "no bare :requires slot on the module value")))
+  (testing "the BARE :owns key is REJECTED as an unknown section (not silently
+            honoured, not silently dropped) — the rename is fail-closed"
+    (let [ed (try (rf/module {:id :m :owns {:app-db [[:cart]]}})
+                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                    (ex-data e)))]
+      (is (= :rf.error/invalid-module (:error/id ed))
+          "a bare :owns throws :rf.error/invalid-module")
+      (is (= :owns (:unknown-section ed))
+          "the bare key is named as the offending unknown section")))
+  (testing "the BARE :requires key is likewise REJECTED"
+    (let [ed (try (rf/module {:id :m :requires #{:rf.capability/http}})
+                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
+                    (ex-data e)))]
+      (is (= :rf.error/invalid-module (:error/id ed))
+          "a bare :requires throws :rf.error/invalid-module")
+      (is (= :requires (:unknown-section ed))
+          "the bare key is named as the offending unknown section")))
+  (testing "the app value's union capability set is the owner-qualified
+            :rf.app/requires — and no bare :requires slot survives on the app"
+    (let [a (rf/app {:id :shop/app
+                     :modules [(rf/module {:id :shop/cart
+                                           :rf.module/requires #{:rf.capability/http}
+                                           :events {:cart/add {:handler cart-add}}})]})]
+      (is (= #{:rf.capability/http} (:rf.app/requires a))
+          ":rf.app/requires carries the union capability set")
+      (is (not (contains? a :requires))
+          "no bare :requires slot on the app value")
+      (is (= #{:rf.capability/http} (rf/app-requires a))
+          "rf/app-requires reads it off the qualified slot"))))
+
 ;; ---------------------------------------------------------------------------
 ;; (2) app — composes module values into an app value
 ;; ---------------------------------------------------------------------------
 
 (deftest app-composes-modules
   (testing "app composes module values: :registrations is the union of every
-            module's descriptors, :requires is the union of :requires, and
-            :modules is keyed by module id"
+            module's descriptors, :rf.app/requires is the union of the modules'
+            :rf.module/requires, and :modules is keyed by module id"
     (let [auth (rf/module {:id :shop/auth
-                           :requires #{:rf.capability/http}
+                           :rf.module/requires #{:rf.capability/http}
                            :events {:auth/login {:handler auth-login}}})
           cart (rf/module {:id :shop/cart
-                           :owns {:app-db [[:cart]]}
-                           :requires #{:rf.capability/schemas}
+                           :rf.module/owns {:app-db [[:cart]]}
+                           :rf.module/requires #{:rf.capability/schemas}
                            :events {:cart/add {:handler cart-add}}
                            :subs   {:cart/items {:handler cart-items}}})
           a (rf/app {:id :shop/app :modules [auth cart]})]
@@ -135,8 +184,8 @@
           "auth's descriptor is composed in")
       (is (identical? cart-add (get-in a [:registrations :event :cart/add :handler]))
           "cart's descriptor is composed in")
-      (is (= #{:rf.capability/http :rf.capability/schemas} (:requires a))
-          ":requires is the union of the modules' requirements"))))
+      (is (= #{:rf.capability/http :rf.capability/schemas} (:rf.app/requires a))
+          ":rf.app/requires is the union of the modules' requirements"))))
 
 (deftest app-of-zero-modules-is-valid-empty-app
   (testing "an app of zero modules is a valid, empty app value"
@@ -144,7 +193,7 @@
       (is (= :empty/app (:rf.app/id a)))
       (is (= {} (:modules a)))
       (is (= {} (:registrations a)))
-      (is (= #{} (:requires a))))))
+      (is (= #{} (:rf.app/requires a))))))
 
 (deftest app-rejects-missing-id-and-non-module
   (testing "app throws :rf.error/invalid-app on a missing :id or a :modules
@@ -252,21 +301,21 @@
           without (rf/app {:id :app :modules [cart]})]
       (is (= (:registrations without) (:registrations with))
           "an empty module contributes no registrations")
-      (is (= (:requires without) (:requires with))
+      (is (= (:rf.app/requires without) (:rf.app/requires with))
           "an empty module contributes no requirements"))))
 
 (deftest law-grouping-order-does-not-change-the-value
   (testing "grouping modules in a different ORDER does not change the resulting
             app value — composition is order-stable (EP-0013 §Composition)"
-    (let [auth (rf/module {:id :auth :requires #{:rf.capability/http}
+    (let [auth (rf/module {:id :auth :rf.module/requires #{:rf.capability/http}
                            :events {:auth/login {:handler auth-login}}})
-          cart (rf/module {:id :cart :requires #{:rf.capability/schemas}
+          cart (rf/module {:id :cart :rf.module/requires #{:rf.capability/schemas}
                            :events {:cart/add {:handler cart-add}}})
           a1 (rf/app {:id :app :modules [auth cart]})
           a2 (rf/app {:id :app :modules [cart auth]})]
       (is (= (:registrations a1) (:registrations a2))
           "registrations are independent of module order")
-      (is (= (:requires a1) (:requires a2))
+      (is (= (:rf.app/requires a1) (:rf.app/requires a2))
           "requires are independent of module order")
       (is (= a1 a2) "the whole app value is order-independent"))))
 
@@ -290,8 +339,8 @@
             value without installing it (EP-0013 §Examples 'A Whole App As
             Data')"
     (let [cart (rf/module {:id :shop/cart
-                           :owns {:app-db [[:cart]]}
-                           :requires #{:rf.capability/http}
+                           :rf.module/owns {:app-db [[:cart]]}
+                           :rf.module/requires #{:rf.capability/http}
                            :events {:cart/add {:handler cart-add}}})
           a (rf/app {:id :shop/app :modules [cart]})]
       (is (= #{:cart/add} (set (keys (rf/app-registrations a :event))))

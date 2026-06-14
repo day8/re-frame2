@@ -86,16 +86,20 @@
 
       {:module-id          <:rf.module/id>
        :owns               {:app-db [[:cart] …] :routes […] …}  ;; the module's
-                                       ;; declared feature ownership (`:owns`)
+                                       ;; declared feature ownership
+                                       ;; (`:rf.module/owns`), kept under the
+                                       ;; panel-internal row key `:owns`
        :requires           #{:rf.capability/* …}  ;; its capability requirements
+                                       ;; (`:rf.module/requires`), kept under
+                                       ;; the panel-internal row key `:requires`
        :registration-kinds [<kind> …]  ;; the registry kinds it registers under,
                                         ;; sorted for stable render (provenance)
        :registration-count <int>       ;; total descriptors the module carries
        :source             {:ns … :file … :line … :column …}}  ;; or nil
 
   The module value is the descriptor EP-0013 §Module Values pins
-  (`:rf.module/id` · `:owns` · `:requires` · `:registrations` (kind→id→
-  descriptor, each `:owner`-stamped) · optional `:source`). This row surfaces
+  (`:rf.module/id` · `:rf.module/owns` · `:rf.module/requires` · `:registrations`
+  (kind→id→descriptor, each `:owner`-stamped) · optional `:source`). This row surfaces
   the per-module PROVENANCE the disposition-6 demand trigger names: ownership,
   capability requirements, and the kinds/count of the descriptors the module
   owns. (EP-0015 classification is FRAME-owned — declared on `reg-frame`, not
@@ -106,8 +110,8 @@
   (let [registrations (:registrations module)
         kinds         (vec (sort-by str (keys registrations)))]
     {:module-id          (:rf.module/id module)
-     :owns               (get module :owns {})
-     :requires           (set (get module :requires #{}))
+     :owns               (get module :rf.module/owns {})
+     :requires           (set (get module :rf.module/requires #{}))
      :registration-kinds kinds
      :registration-count (reduce + 0 (map (comp count val) registrations))
      :source             (:source module)}))
@@ -118,7 +122,9 @@
 
       {:modules   [<module-row> …]      ;; sorted by module-id str, or nil when
                                         ;; the app carries no `:modules`
-       :requires  #{:rf.capability/* …} ;; the app's union capability set}
+       :requires  #{:rf.capability/* …} ;; the app's union capability set
+                                        ;; (read off the app value's
+                                        ;; `:rf.app/requires` slot)}
 
   An app value carries `:modules` (a `{module-id module}` map) ONLY when it was
   CONSTRUCTED (`rf/app` / `rf/install!`); a realm seated through the `reg-*`
@@ -147,7 +153,7 @@
                  (->> (vals modules)
                       (sort-by (comp str :rf.module/id))
                       (mapv project-module-row)))
-     :requires (set (get app :requires #{}))}))
+     :requires (set (get app :rf.app/requires #{}))}))
 
 (defn project-realm-row
   "Project one realm into the Module-view's realm-row shape:

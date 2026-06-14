@@ -1640,10 +1640,13 @@
 ;; half just below (stage 7).
 
 (def ^{:doc "Construct a MODULE value — a composable app-value fragment
-  (EP-0013 §Module Values). `(module {:id … :owns {…} :requires #{…} :events
-  {id entry} :subs {…} …})` lowers each registration section into descriptors
-  stamped with the module id, as INERT data (no realm, no registrar, no side
-  effect). The reserved-vocabulary `rf/module` constructor. Per spec/API.md
+  (EP-0013 §Module Values). `(module {:id … :rf.module/owns {…}
+  :rf.module/requires #{…} :events {id entry} :subs {…} …})` lowers each
+  registration section into descriptors stamped with the module id, as INERT
+  data (no realm, no registrar, no side effect). The module's FACT keys are
+  owner-qualified (`:rf.module/owns` / `:rf.module/requires`, EP-0007 /
+  EP-0017 v5); the structural section keys (`:id`, `:events`, `:subs`, …) stay
+  bare. The reserved-vocabulary `rf/module` constructor. Per spec/API.md
   §App values and composition (EP-0013)."}
   module app-value/module)
 
@@ -1673,15 +1676,16 @@
   ([app kind] (app-value/app-registrations app kind)))
 
 (def ^{:doc "Return the set of `:rf.capability/*` requirements an app value
-  declares — `(app-requires app)`, the union of its modules' `:requires`. The
+  declares — `(app-requires app)`, the union of its modules'
+  `:rf.module/requires` (read off the app value's `:rf.app/requires` slot). The
   explicit dependency surface a realm must satisfy before install. Per
   spec/API.md §App values and composition (EP-0013)."}
   app-requires app-value/app-requires)
 
 (def ^{:doc "Return the module id that owns app-db `path` in an app value, or
-  `nil` — `(app-owns app [:cart])`. Resolves against the modules' `:owns
-  {:app-db [...]}` ownership declarations. Per spec/API.md §App values and
-  composition (EP-0013)."}
+  `nil` — `(app-owns app [:cart])`. Resolves against the modules'
+  `:rf.module/owns {:app-db [...]}` ownership declarations. Per spec/API.md
+  §App values and composition (EP-0013)."}
   app-owns app-value/app-owns)
 
 ;; ---- app-value installation (EP-0013 D2 stage 7) -------------------------
@@ -1689,7 +1693,7 @@
 ;; The LAST D2 slice: seat an immutable app value into a runtime realm.
 ;; `install!` makes a constructed (stage-6) app value the program a realm
 ;; dispatches/subscribes/resolves against — capability-checked first (the
-;; app's `:requires` must be satisfiable by the realm, fail loud on unmet),
+;; app's `:rf.app/requires` must be satisfiable by the realm, fail loud on unmet),
 ;; then the descriptors are lowered into the realm's registrar and the seated
 ;; value recorded at the realm boundary. `reinstall!` hot-reloads a realm by
 ;; diffing the new app value against the installed one and applying the delta,
@@ -2009,14 +2013,15 @@
   registrations (`reg-*` sugar AND installed alike) and never desyncs from
   `app-value` / dispatch (rf2-77ewnm). A realm that had an app value SEATED via
   `install!` overlays that seated value's `:modules` provenance (per-module
-  `:owns` / `:requires` / `:owner`-stamped descriptors / source coords) onto the
-  projection — so a tool can feed it straight to the `app-registrations` /
-  `app-owns` / `app-requires` inspectors to read which module owns a
-  handler/sub/path WITHOUT installing anything, while coexisting sugar that
-  `install!` preserves stays visible. A realm seated only through the `reg-*`
-  sugar (load-order, no `install!`) carries no module structure, so its installed
-  app is the bare projection — registrations grouped by kind, but an empty
-  `:modules`/`:requires` (load-order registrations declare no module). nil resolves
+  `:rf.module/owns` / `:rf.module/requires` / `:owner`-stamped descriptors /
+  source coords) onto the projection — so a tool can feed it straight to the
+  `app-registrations` / `app-owns` / `app-requires` inspectors to read which
+  module owns a handler/sub/path WITHOUT installing anything, while coexisting
+  sugar that `install!` preserves stays visible. A realm seated only through the
+  `reg-*` sugar (load-order, no `install!`) carries no module structure, so its
+  installed app is the bare projection — registrations grouped by kind, but an
+  empty `:modules`/`:rf.app/requires` (load-order registrations declare no
+  module). nil resolves
   to the default realm (absence = default realm). `tooling` tier alongside
   `realm-ids` / `frame-realm` — the realm-aware-tool read surface (it unblocks the
   Xray Module-view's MODULES section, EP-0013 disposition 6). It does NOT route

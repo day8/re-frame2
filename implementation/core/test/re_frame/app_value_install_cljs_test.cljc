@@ -11,7 +11,7 @@
         descriptor back into the realm's registrar (the inverse of the stage-5/6
         descriptor normalisation) so the program is dispatch/subscribe/resolve-
         able, and records the seated value in the realm's `:app` slot;
-    (2) the CAPABILITY CHECK runs FIRST — the app value's `:requires` must be
+    (2) the CAPABILITY CHECK runs FIRST — the app value's `:rf.app/requires` must be
         satisfiable by the realm's `:capabilities`; the first unmet one throws
         `:rf.error/missing-capability` BEFORE any registrar mutation (an
         under-provisioned app never becomes partially visible);
@@ -116,7 +116,7 @@
            provenance, overlaid onto the live projection)"))))
 
 ;; ---------------------------------------------------------------------------
-;; (2) the capability check — fail LOUD on an unmet :requires, before mutation
+;; (2) the capability check — fail LOUD on an unmet :rf.app/requires, before mutation
 ;; ---------------------------------------------------------------------------
 
 (deftest install-throws-on-unmet-capability-before-any-mutation
@@ -126,7 +126,7 @@
             provisioned app never becomes partially visible)"
     (clear-default-realm-capabilities!)
     (let [needs-http (rf/module {:id :shop/cart
-                                 :requires #{:rf.capability/http}
+                                 :rf.module/requires #{:rf.capability/http}
                                  :events {:cart/add {:handler cart-add}}})
           a  (rf/app {:id :shop/app :modules [needs-http]})
           ed (try (rf/install! a)
@@ -207,7 +207,7 @@
     (with-default-realm-capabilities! {:rf.capability/http {:request! identity}})
     (try
       (let [needs-http (rf/module {:id :shop/cart
-                                   :requires #{:rf.capability/http}
+                                   :rf.module/requires #{:rf.capability/http}
                                    :events {:cart/add {:handler cart-add}}})
             a (rf/app {:id :shop/app :modules [needs-http]})]
         (rf/install! a)
@@ -223,7 +223,7 @@
                      :modules [(rf/module {:id :m :events {:e {:handler cart-add}}})]})]
       (rf/install! a)
       (is (identical? cart-add (registrar/handler :event :e))
-          "no :requires means no capability gate"))))
+          "no :rf.module/requires means no capability gate"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (3) zero ergonomic regression — the reg-* sugar path is byte-identical
@@ -597,7 +597,7 @@
                           [(rf/module {:id :m :events {:e {:handler cart-add}}})]}))
     (let [v2 (rf/app {:id :app :modules
                       [(rf/module {:id :m
-                                   :requires #{:rf.capability/http}
+                                   :rf.module/requires #{:rf.capability/http}
                                    :events {:e {:handler cart-remove}}})]})
           ed (try (rf/reinstall! v2)
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
