@@ -42,7 +42,7 @@ code migration is not confused with greenfield design.
 | Surface | Status | Note |
 |---|---|---|
 | `reg-story` / `reg-variant`, data-shaped bodies | SHIPS | `tools/story/src/re_frame/story.cljc`, `schemas.cljc` (functions only behind ids). |
-| `:rf.assert/*` family (7 dispatched ids) | SHIPS | The seven **dispatched** `reg-event-fx` ids per [`004-Assertions.md`](004-Assertions.md); the canonical set is **eight** once the tape-evaluated `:rf.assert/schema-error` (next row, §Schema rule) is counted. |
+| `:rf.assert/*` family (7 dispatched ids) | SHIPS | The seven **dispatched** `reg-event` ids per [`004-Assertions.md`](004-Assertions.md); the canonical set is **eight** once the tape-evaluated `:rf.assert/schema-error` (next row, §Schema rule) is counted. |
 | `:assert-db` / `:assert-dom` script steps | SHIPS | Folded into the one assertion atom (§Assertions — one atom, two positions); do not drop them. |
 | bare event-vector script/setup shorthand | SHIPS (`play/runner.cljc` `coerce-script`) | P1 removes this authoring ambiguity; every setup/script step normalizes to a tagged step (§Script step grammar). |
 | `:events` / `:play-script` / `:plays` | SHIPS | Renamed to `:setup` / `:script` / named-scripts (§Public vocabulary). |
@@ -971,7 +971,7 @@ on caller.
   - **Dispatchable assertions** (the canonical handler-backed ids —
     `:rf.assert/path-equals` / `path-matches` / `sub-equals` /
     `dispatched?` / `state-is` / `no-warnings` / `effect-emitted`) are
-    DISPATCHED into the frame. The standard reg-event-fx handler
+    DISPATCHED into the frame. The standard reg-event handler
     (`re-frame.story.assertions`) records the canonical assertion record
     on the frame's `:rf.story/assertions` slot, and the checkpoint
     surfaces that record as the step's pass/fail. It records EXACTLY ONE
@@ -981,7 +981,7 @@ on caller.
   - **DOM-family assertions** (`:rf.assert/dom-visible` / `dom-hidden` /
     `dom-text`) are evaluated by the DOM executor directly (no dispatch);
     a no-DOM headless runner records `:cannot-run`.
-  - **Tape-evaluated assertions** carry NO reg-event-fx handler — they are
+  - **Tape-evaluated assertions** carry NO reg-event handler — they are
     minted by the result boundary against the epoch tape, NOT dispatched.
     This is the schema-error declaration (§Schema rule), the causal /
     cascade family (§Causal and cascade assertions), and the browser-tier
@@ -1042,7 +1042,7 @@ checkpoints use, so they evaluate by the SAME family rules
 - **Handler-backed (dispatchable) atoms** (`:rf.assert/path-equals` /
   `path-matches` / `sub-equals` / `dispatched?` / `state-is` /
   `no-warnings` / `effect-emitted`) are DISPATCHED into the frame; the
-  reg-event-fx handler records the canonical record.
+  reg-event handler records the canonical record.
 - **DOM-family atoms** are evaluated by the DOM executor (`:cannot-run`
   under a headless runner).
 - **Tape-evaluated atoms** (`:rf.assert/schema-error`, the causal / cascade
@@ -1414,7 +1414,7 @@ rows stamped with the dispatching cascade's `:cause-event-id` (Spec 009
 projection. They add **no new trace op-type and no new accumulator** — the
 tape is the source of truth (§Risks — evidence projections drift).
 
-Like `:rf.assert/schema-error` they carry NO `reg-event-fx` handler: they are
+Like `:rf.assert/schema-error` they carry NO `reg-event` handler: they are
 NOT dispatched into the frame. They are **tape-evaluated** in the result
 boundary (`re-frame.story.result/match-causal-expectations`) against the
 projected `:reactive-counts` / `:sub-runs` / `:renders`. The declared atom
@@ -1493,7 +1493,7 @@ an opt-in (rf2-5x1wt.21). It rests on three pieces, all pure data → data:
 - **`:rf.assert/schema-error` is recognised but NOT dispatched.** It is in
   `assertions/canonical-assertion-ids` (so plan construction accepts it) and
   requires the `:schema` capability token, but it is **not** installed as a
-  `reg-event-fx` handler — it carries no app-db semantics. It declares an
+  `reg-event` handler — it carries no app-db semantics. It declares an
   EXPECTED violation that the result boundary evaluates against the
   projected epoch-tape evidence, never a dispatched event into the frame.
   There is deliberately no `:rf.assert/no-schema-errors`: a schema-clean run

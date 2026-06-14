@@ -1205,7 +1205,7 @@ discussion.
    :kind :frame-setup
    :init [[:auth/restore-session {:user "alice"}]]})
 
-(rf/reg-event-fx :story.auth/set-logged-in
+(rf/reg-event :story.auth/set-logged-in
   (fn [_ [_ v]]
     (if v
       {:fx [[:dispatch [:auth/restore-session {:user "alice"}]]]}
@@ -1240,7 +1240,7 @@ discussion.
 ### Loaders with `:loaders-complete-when`
 
 ```clojure
-(rf/reg-event-fx :charts.heatmap/subscribe
+(rf/reg-event :charts.heatmap/subscribe
   (fn [_ _]
     {:fx [[:websocket {:url     "wss://api/heatmap"
                        :on-message [:charts/heatmap-tick]}]]}))
@@ -1269,12 +1269,12 @@ the frame's `:frame-setup` decorator `:teardown` walk. Per
 #3.
 
 ```clojure
-(rf/reg-event-fx :charts.heatmap/subscribe
+(rf/reg-event :charts.heatmap/subscribe
   (fn [_ _]
     {:fx [[:websocket {:url        "wss://api/heatmap"
                        :on-message [:charts/heatmap-tick]}]]}))
 
-(rf/reg-event-fx :charts.heatmap/unsubscribe
+(rf/reg-event :charts.heatmap/unsubscribe
   (fn [_ _]
     {:fx [[:websocket-close {:url "wss://api/heatmap"}]]}))
 

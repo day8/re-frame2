@@ -1,7 +1,7 @@
 # Story — Assertions and Play
 
 > The canonical `:rf.assert/*` events — seven dispatched as
-> `reg-event-fx` handlers plus one tape-evaluated (`:rf.assert/schema-error`),
+> `reg-event` handlers plus one tape-evaluated (`:rf.assert/schema-error`),
 > eight canonical ids in all; their record-don't-throw semantics;
 > play-sequence execution; the assertion-side interaction
 > with `force-fx-stub` (the decorator itself lives in
@@ -13,7 +13,7 @@
 Per
 [spec/007 §Assertion vocabulary](../../../spec/007-Stories.md) the
 canonical **dispatched seven** register at Story load. Each is a regular
-`reg-event-fx` against the variant's frame. All **record** results
+`reg-event` against the variant's frame. All **record** results
 into `:assertions` (see below) rather than throwing. A net-new eighth
 canonical id — `:rf.assert/schema-error` — is *recognised* but NOT
 dispatched; it is tape-evaluated in the result boundary (see
@@ -31,12 +31,12 @@ dispatched; it is tape-evaluated in the result boundary (see
 
 ### `:rf.assert/schema-error` — the tape-evaluated eighth
 
-The seven above are dispatched as `reg-event-fx` handlers. One further
+The seven above are dispatched as `reg-event` handlers. One further
 canonical id ships and rounds the canonical set out to **eight**:
 
 | Event id | Payload | Semantics |
 |---|---|---|
-| `:rf.assert/schema-error` | `[path malli-schema]` | EXPECTED-schema-violation declaration. Recognised so plan construction accepts it, but **not** installed as a `reg-event-fx` handler — it is **tape-evaluated in the result boundary** (`re-frame.story.result`) by multiset-consumption match against the run's `:rf.warn/schema` tape, NOT dispatched into the frame. Per [`017-Testing-Story.md`](017-Testing-Story.md) §Schema rule. |
+| `:rf.assert/schema-error` | `[path malli-schema]` | EXPECTED-schema-violation declaration. Recognised so plan construction accepts it, but **not** installed as a `reg-event` handler — it is **tape-evaluated in the result boundary** (`re-frame.story.result`) by multiset-consumption match against the run's `:rf.warn/schema` tape, NOT dispatched into the frame. Per [`017-Testing-Story.md`](017-Testing-Story.md) §Schema rule. |
 
 `re-frame.story.assertions/canonical-assertion-ids` is therefore a set
 of **eight** — the dispatched seven plus `:rf.assert/schema-error`.

@@ -60,7 +60,7 @@ completion predicate, and the play-phase assertion bus all read them
 back during the four-phase run; clearing any of them mid-lifecycle
 corrupts the variant.
 
-**Rule.** A host application's `reg-event-db` handlers — and any
+**Rule.** A host application's `reg-event` handlers — and any
 other code path that writes `app-db` — MUST preserve the `:rf.story/*`
 namespace when seeding or resetting `db`. The hazard is the
 "replace-the-whole-db" idiom:
@@ -69,28 +69,29 @@ namespace when seeding or resetting `db`. The hazard is the
 ;; WRONG — wipes :rf.story/lifecycle, :rf.story/loaders-complete?,
 ;; :rf.story/assertions, and any future :rf.story/* slot. Safe in a
 ;; standalone app; corrupts every Story variant that runs this event.
-(rf/reg-event-db :app/initialise
-  (fn [_db _event]
-    {:app/items [] :app/discount nil}))
+(rf/reg-event :app/initialise
+  (fn [_cofx _event]
+    {:db {:app/items [] :app/discount nil}}))
 
 ;; RIGHT — preserves all reserved slots Story (or any other framework
 ;; tool) installs into the frame's app-db.
-(rf/reg-event-db :app/initialise
-  (fn [db _event]
-    (assoc db :app/items [] :app/discount nil)))
+(rf/reg-event :app/initialise
+  (fn [{:keys [db]} _event]
+    {:db (assoc db :app/items [] :app/discount nil)}))
 ```
 
-Equivalently, `(merge db {:app/items [] :app/discount nil})` is fine;
-the rule is "thread `db` through, do not throw it away". Domain-key
-clearing is the host's business; the reserved `:rf.story/*` namespace
-is Story's.
+Equivalently, `{:db (merge db {:app/items [] :app/discount nil})}` is
+fine; the rule is "thread `db` through, do not throw it away".
+Domain-key clearing is the host's business; the reserved `:rf.story/*`
+namespace is Story's.
 
 The originating evidence is commit `c2accadf` (rf2-2uwp1, cart-total
 Story slice): `:cart/initialise` was a whole-`db` replacement and wiped
 the variant frame's lifecycle slots the moment the variant ran the
-event. The fix swapped `(fn [_db _event] {...})` for
-`(fn [db _event] (assoc db ...))`. Host apps integrating Story SHOULD
-audit their init/reset events for the same anti-pattern.
+event. The fix threaded `db` through instead of throwing it away —
+`(fn [{:keys [db]} _event] {:db (assoc db ...)})`. Host apps
+integrating Story SHOULD audit their init/reset events for the same
+anti-pattern.
 
 ## Args resolution precedence
 
@@ -410,7 +411,7 @@ torn-down frame and may either no-op or surface as
    Story-side surface is needed — this works today.
 
    ```clojure
-   (rf/reg-event-fx :feed/subscribe
+   (rf/reg-event :feed/subscribe
      (fn [{:keys [db]} _]
        {:fx [[:rf.machine/spawn
               {:id        :feed.subscription
@@ -441,12 +442,12 @@ torn-down frame and may either no-op or surface as
    `dispatch-sync` of a `:foo/cancel` event).
 
    ```clojure
-   (rf/reg-event-fx :ws/subscribe
+   (rf/reg-event :ws/subscribe
      (fn [{:keys [db]} _]
        {:fx [[:rf.host/open-socket {:url "wss://..."}]]
         :db (assoc db :ws/subscribed? true)}))
 
-   (rf/reg-event-fx :ws/unsubscribe
+   (rf/reg-event :ws/unsubscribe
      (fn [{:keys [db]} _]
        {:fx [[:rf.host/close-socket]]
         :db (dissoc db :ws/subscribed?)}))

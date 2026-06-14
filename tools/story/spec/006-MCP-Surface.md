@@ -238,7 +238,7 @@ Story core owns:
 - The render shell (when CLJS is the runtime).
 - The trace bus and panel registrations.
 - The snapshot-identity computation.
-- The eight canonical `:rf.assert/*` ids — seven dispatched as `reg-event-fx` plus the tape-evaluated `:rf.assert/schema-error`.
+- The eight canonical `:rf.assert/*` ids — seven dispatched as `reg-event` plus the tape-evaluated `:rf.assert/schema-error`.
 
 Stage 7's `tools/story-mcp/` is a thin adapter: takes JSON-RPC
 requests, calls Story's public CLJS / CLJC functions, serialises
