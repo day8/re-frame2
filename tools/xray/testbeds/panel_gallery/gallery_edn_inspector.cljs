@@ -60,9 +60,9 @@
   gallery view and the sub can share the keyword without typo drift."
   :panel-gallery.edn-inspector/fixture)
 
-(rf/reg-event-db :panel-gallery.edn-inspector/seed!
-  (fn [db [_ fixture]]
-    (assoc db fixture-slot fixture)))
+(rf/reg-event :panel-gallery.edn-inspector/seed!
+  (fn [{:keys [db]} [_ fixture]]
+    {:db (assoc db fixture-slot fixture)}))
 
 (rf/reg-sub fixture-slot
   (fn [db _] (get db fixture-slot)))

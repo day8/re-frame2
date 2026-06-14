@@ -135,21 +135,21 @@
 
   ;; ---- UI-state slots --------------------------------------------------
 
-  (rf/reg-event-db :rf.xray.static.routes/set-query
-    (fn [db [_ q]]
-      (if (or (nil? q) (= "" q))
+  (rf/reg-event :rf.xray.static.routes/set-query
+    (fn [{:keys [db]} [_ q]]
+      {:db (if (or (nil? q) (= "" q))
         (dissoc db :rf.xray.static.routes/query)
-        (assoc db :rf.xray.static.routes/query q))))
+        (assoc db :rf.xray.static.routes/query q))}))
 
   (rf/reg-sub :rf.xray.static.routes/query
     (fn [db _]
       (get db :rf.xray.static.routes/query)))
 
-  (rf/reg-event-db :rf.xray.static.routes/set-sim-url
-    (fn [db [_ url]]
-      (if (or (nil? url) (= "" url))
+  (rf/reg-event :rf.xray.static.routes/set-sim-url
+    (fn [{:keys [db]} [_ url]]
+      {:db (if (or (nil? url) (= "" url))
         (dissoc db :rf.xray.static.routes/sim-url)
-        (assoc db :rf.xray.static.routes/sim-url url))))
+        (assoc db :rf.xray.static.routes/sim-url url))}))
 
   (rf/reg-sub :rf.xray.static.routes/sim-url
     (fn [db _]

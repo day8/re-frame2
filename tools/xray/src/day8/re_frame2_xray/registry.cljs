@@ -345,10 +345,10 @@
           (or (get-in db [:settings :general :event-list-col-widths])
               (config/get-setting :general :event-list-col-widths)))))
 
-    (rf/reg-event-db :rf.xray/set-event-list-col-width
+    (rf/reg-event :rf.xray/set-event-list-col-width
       {:rf.trace/no-emit? true}
-      (fn [db [_ col-id px]]
-        (if-let [clamped (config/clamp-event-list-col-width col-id px)]
+      (fn [{:keys [db]} [_ col-id px]]
+        {:db (if-let [clamped (config/clamp-event-list-col-width col-id px)]
           (let [persisted (or (config/get-setting :general :event-list-col-widths)
                               config/event-list-col-default-widths)
                 next-map  (assoc persisted col-id clamped)]
@@ -360,7 +360,7 @@
           ;; Unknown column-id (e.g. `event-id` — flex, never sized):
           ;; no-op. Defensive — the divider views only dispatch for
           ;; the three resizable ids.
-          db)))
+          db)}))
 
     ;; Reset one column to its default — bound to a divider's
     ;; double-click and to the Enter/Space keyboard affordance.
@@ -496,14 +496,14 @@
     ;; epoch-id nil → the epoch-keyed panels strand on an empty/stale
     ;; state. The cross-frame ring is resolved via `rf/epoch-history` at
     ;; dispatch time; the re-seed is a no-op when the frame is unchanged.
-    (rf/reg-event-db :rf.xray/select-dispatch-id
-      (fn [db [_ dispatch-id frame-id]]
-        (let [db       (spine/reseed-epoch-history-for-frame
+    (rf/reg-event :rf.xray/select-dispatch-id
+      (fn [{:keys [db]} [_ dispatch-id frame-id]]
+        {:db (let [db       (spine/reseed-epoch-history-for-frame
                          db frame-id (rf/epoch-history frame-id))
               history  (get db :epoch-history [])
               epoch-id (spine/epoch-id-for-cascade history dispatch-id)
               head-id  (spine/focusable-head-id (spine/db->cascades db))]
-          (spine/focus-cascade-reducer db dispatch-id frame-id epoch-id head-id))))
+          (spine/focus-cascade-reducer db dispatch-id frame-id epoch-id head-id))}))
 
     ;; Programmatic clear of the focused cascade. Resets the spine
     ;; focus back to LIVE (head-tracking) per the rf2-s0s5x Phase A
@@ -556,8 +556,8 @@
     ;; supersedes):
     ;; :epoch :app-db :views :trace :machines :routing
     ;; (rf2-2moh1 registry-driven; new tab requires only a reg-l4-tab! call).
-    (rf/reg-event-db :rf.xray/select-tab
-      (fn [db [_ tab-id]]
+    (rf/reg-event :rf.xray/select-tab
+      (fn [{:keys [db]} [_ tab-id]]
         ;; rf2-6tw7t — activating the Machine tab bumps a monotonic
         ;; fit-signal counter so the Machine panel's topology re-fits to
         ;; view on entry (xyflow's one-shot `:fitView` + the layout-key
@@ -568,9 +568,9 @@
         ;; boolean) guarantees a fresh value on every re-entry, including
         ;; the case where the prior selection was already `:machines`
         ;; (re-clicking the active tab still re-frames).
-        (cond-> (assoc db :selected-tab tab-id)
+        {:db (cond-> (assoc db :selected-tab tab-id)
           (= tab-id :machines)
-          (update :machine-tab-activations (fnil inc 0)))))
+          (update :machine-tab-activations (fnil inc 0)))}))
 
     ;; ---- Issues feed composite (rf2-gbz39) ------------------------
     ;;
@@ -655,9 +655,9 @@
           {:db next-db
            :fx [[:rf.xray.static/persist-mode next-mode]]})))
 
-    (rf/reg-event-db :rf.xray.static/select-tab
-      (fn [db [_ tab-id]]
-        (if (contains? (static-shell/tab-ids) tab-id)
+    (rf/reg-event :rf.xray.static/select-tab
+      (fn [{:keys [db]} [_ tab-id]]
+        {:db (if (contains? (static-shell/tab-ids) tab-id)
           ;; rf2-6tw7t — Static shares the same `:machines` tab id +
           ;; `machine-canvas/Chart`, so activating it bumps the same
           ;; fit-signal counter the Dynamic select-tab does. The Static
@@ -665,7 +665,7 @@
           (cond-> (assoc db :rf.xray.static/selected-tab tab-id)
             (= tab-id :machines)
             (update :machine-tab-activations (fnil inc 0)))
-          db)))
+          db)}))
 
     ;; The persistence fx installs idempotently — re-frame's registrar
     ;; replaces in place. Mounting here means the fx is available the
@@ -810,12 +810,12 @@
     ;;
     ;; Per rf2-qsjda: `:rf.trace/no-emit? true` (see
     ;; `:rf.xray/note-sensitive-suppressed` above for the rationale).
-    (rf/reg-event-db :rf.xray/reset-suppressed-counters
+    (rf/reg-event :rf.xray/reset-suppressed-counters
       {:rf.trace/no-emit? true}
-      (fn [db [_ frame-id]]
-        (if frame-id
+      (fn [{:keys [db]} [_ frame-id]]
+        {:db (if frame-id
           (update db :suppressed-counters dissoc (or frame-id :global))
-          (dissoc db :suppressed-counters))))
+          (dissoc db :suppressed-counters))}))
 
     ;; ---- per-panel installations --------------------------------
     ;;

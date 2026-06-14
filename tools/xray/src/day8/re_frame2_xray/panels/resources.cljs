@@ -771,45 +771,45 @@
 
   ;; Test-only override slots ---------------------------------------------
 
-  (rf/reg-event-db :rf.xray/set-registered-resources-override-for-test
-    (fn [db [_ ov]]
-      (if (nil? ov) (dissoc db :registered-resources-override)
-          (assoc db :registered-resources-override ov))))
+  (rf/reg-event :rf.xray/set-registered-resources-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov) (dissoc db :registered-resources-override)
+          (assoc db :registered-resources-override ov))}))
   (rf/reg-sub :rf.xray/registered-resources-override
     (fn [db _] (get db :registered-resources-override)))
 
-  (rf/reg-event-db :rf.xray/set-registered-scope-resolvers-override-for-test
-    (fn [db [_ ov]]
-      (if (nil? ov) (dissoc db :registered-scope-resolvers-override)
-          (assoc db :registered-scope-resolvers-override ov))))
+  (rf/reg-event :rf.xray/set-registered-scope-resolvers-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov) (dissoc db :registered-scope-resolvers-override)
+          (assoc db :registered-scope-resolvers-override ov))}))
   (rf/reg-sub :rf.xray/registered-scope-resolvers-override
     (fn [db _] (get db :registered-scope-resolvers-override)))
 
-  (rf/reg-event-db :rf.xray/set-resource-entries-override-for-test
-    (fn [db [_ ov]]
-      (if (nil? ov) (dissoc db :resource-entries-override)
-          (assoc db :resource-entries-override ov))))
+  (rf/reg-event :rf.xray/set-resource-entries-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov) (dissoc db :resource-entries-override)
+          (assoc db :resource-entries-override ov))}))
   (rf/reg-sub :rf.xray/resource-entries-override
     (fn [db _] (get db :resource-entries-override)))
 
-  (rf/reg-event-db :rf.xray/set-resource-work-ledger-override-for-test
-    (fn [db [_ ov]]
-      (if (nil? ov) (dissoc db :resource-work-ledger-override)
-          (assoc db :resource-work-ledger-override ov))))
+  (rf/reg-event :rf.xray/set-resource-work-ledger-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov) (dissoc db :resource-work-ledger-override)
+          (assoc db :resource-work-ledger-override ov))}))
   (rf/reg-sub :rf.xray/resource-work-ledger-override
     (fn [db _] (get db :resource-work-ledger-override)))
 
-  (rf/reg-event-db :rf.xray/set-resource-sub-reads-override-for-test
-    (fn [db [_ ov]]
-      (if (nil? ov) (dissoc db :resource-sub-reads-override)
-          (assoc db :resource-sub-reads-override ov))))
+  (rf/reg-event :rf.xray/set-resource-sub-reads-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov) (dissoc db :resource-sub-reads-override)
+          (assoc db :resource-sub-reads-override ov))}))
   (rf/reg-sub :rf.xray/resource-sub-reads-override
     (fn [db _] (get db :resource-sub-reads-override)))
 
-  (rf/reg-event-db :rf.xray/set-resource-routing-slice-override-for-test
-    (fn [db [_ ov]]
-      (if (nil? ov) (dissoc db :resource-routing-slice-override)
-          (assoc db :resource-routing-slice-override ov))))
+  (rf/reg-event :rf.xray/set-resource-routing-slice-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov) (dissoc db :resource-routing-slice-override)
+          (assoc db :resource-routing-slice-override ov))}))
   (rf/reg-sub :rf.xray/resource-routing-slice-override
     (fn [db _] (get db :resource-routing-slice-override)))
 

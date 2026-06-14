@@ -214,7 +214,7 @@
    :profile         nil
    :settings-dirty? false})
 
-(rf/reg-event-fx :routes-epochs/reset
+(rf/reg-event :routes-epochs/reset
   {:doc "Re-seed app-db AND navigate home. Start clean."}
   (fn handler-reset [_ _ev]
     {:db initial-db
@@ -231,7 +231,7 @@
 ;; from the dispatched routing event.
 
 ;; A reusable navigate event-fx: every navigation rung routes through here.
-(rf/reg-event-fx :routes-epochs/go
+(rf/reg-event :routes-epochs/go
   {:doc "Dispatch `:rf.route/navigate` with the supplied target / params /
          opts. The shared driver behind every navigation rung."}
   (fn handler-go [{:keys [db]} [_ target params opts]]
@@ -242,7 +242,7 @@
 ;; REDIRECT (#6) + ROUTE-DRIVEN APP-DB LOADER (#8)
 ;; ============================================================================
 
-(rf/reg-event-fx :routes-epochs/redirect-to-home
+(rf/reg-event :routes-epochs/redirect-to-home
   {:doc "Step #6's redirect — fired as `:routes-epochs/old-home`'s
          `:on-match`. Re-navigates to home so the slice lands on a
          DIFFERENT route one cascade later."}
@@ -250,7 +250,7 @@
     {:db db
      :fx [[:dispatch [:rf.route/navigate :routes-epochs/home]]]}))
 
-(rf/reg-event-fx :routes-epochs/load-profile
+(rf/reg-event :routes-epochs/load-profile
   {:doc "Step #8's route-driven loader — fired as
          `:routes-epochs/profile`'s `:on-match`. Reads the route params
          from the route slice and writes `:profile` into app-db (the
@@ -280,14 +280,14 @@
 (rf/reg-sub :routes-epochs/can-leave-settings?
   (fn [db _] (boolean (not (:settings-dirty? db)))))
 
-(rf/reg-event-fx :routes-epochs/enter-dirty-settings
+(rf/reg-event :routes-epochs/enter-dirty-settings
   {:doc "Step #10 — navigate INTO settings AND arm the dirty flag, so
          the `:can-leave` guard will block the next attempt to leave."}
   (fn handler-enter-dirty [{:keys [db]} _ev]
     {:db (assoc db :settings-dirty? true)
      :fx [[:dispatch [:rf.route/navigate :routes-epochs/settings]]]}))
 
-(rf/reg-event-fx :routes-epochs/try-leave-settings
+(rf/reg-event :routes-epochs/try-leave-settings
   {:doc "Step #11 — attempt to navigate home FROM dirty settings. The
          `:can-leave` guard refuses: the slice stays on settings, the
          outcome reads `blocked`, and `:rf/pending-navigation` fills."}
@@ -304,7 +304,7 @@
 ;; button), so NAVIGATION THIS EPOCH's FROM ──► TO reverses relative to
 ;; the forward navigation that preceded it.
 
-(rf/reg-event-fx :routes-epochs/back
+(rf/reg-event :routes-epochs/back
   {:doc "Step #9 — emulate the browser Back button by handling a
          url-change back to the articles list (a popstate-style
          transition). NAVIGATION THIS EPOCH's FROM ──► TO reverses."}

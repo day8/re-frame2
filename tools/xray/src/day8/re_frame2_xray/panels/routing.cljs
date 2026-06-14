@@ -488,21 +488,21 @@
 
   ;; Test-only override slots --------------------------------------------
 
-  (rf/reg-event-db :rf.xray/set-registered-routes-override-for-test
-    (fn [db [_ ov]]
-      (if (nil? ov)
+  (rf/reg-event :rf.xray/set-registered-routes-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov)
         (dissoc db :registered-routes-override)
-        (assoc db :registered-routes-override ov))))
+        (assoc db :registered-routes-override ov))}))
 
   (rf/reg-sub :rf.xray/registered-routes-override
     (fn [db _query]
       (get db :registered-routes-override)))
 
-  (rf/reg-event-db :rf.xray/set-current-route-slice-override-for-test
-    (fn [db [_ ov]]
-      (if (nil? ov)
+  (rf/reg-event :rf.xray/set-current-route-slice-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov)
         (dissoc db :current-route-slice-override)
-        (assoc db :current-route-slice-override ov))))
+        (assoc db :current-route-slice-override ov))}))
 
   (rf/reg-sub :rf.xray/current-route-slice-override
     (fn [db _query]

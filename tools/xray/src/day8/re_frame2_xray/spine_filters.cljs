@@ -629,15 +629,15 @@
   ;; outside-click / Escape / menu-item click (after the item's own
   ;; action lands).
 
-  (rf/reg-event-db :rf.xray/open-row-context-menu
+  (rf/reg-event :rf.xray/open-row-context-menu
     {:rf.trace/no-emit? true}
-    (fn [db [_ {:keys [event-id x y]}]]
-      (if event-id
+    (fn [{:keys [db]} [_ {:keys [event-id x y]}]]
+      {:db (if event-id
         (assoc db :row-context-menu
                   {:event-id event-id
                    :x        (or x 0)
                    :y        (or y 0)})
-        db)))
+        db)}))
 
   (rf/reg-event :rf.xray/close-row-context-menu
     {:rf.trace/no-emit? true}

@@ -65,7 +65,7 @@
   nil)
 
 (defn- install-counter! []
-  (rf/reg-event-db :counter/inc (fn [db _] (update db :counter (fnil inc 0))))
+  (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
   (rf/reg-sub :counter/value (fn [db _] (:counter db))))
 
 (defn- mount-xray-with-target! [target]

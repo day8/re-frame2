@@ -58,11 +58,11 @@
   ;; A tiny test-local seeder for the spine slots the composite subs read.
   ;; Stamps a RETRO pin on an epoch-id + an epoch-history ring that does
   ;; NOT contain it — the exact "scrubbed onto an evicted epoch" state.
-  (rf/reg-event-db :test/seed-evicted-pin
-    (fn [db [_ {:keys [pinned-epoch-id history]}]]
-      (-> db
+  (rf/reg-event :test/seed-evicted-pin
+    (fn [{:keys [db]} [_ {:keys [pinned-epoch-id history]}]]
+      {:db (-> db
           (assoc :epoch-history (vec history))
-          (assoc :focus {:mode :retro :epoch-id pinned-epoch-id}))))
+          (assoc :focus {:mode :retro :epoch-id pinned-epoch-id}))}))
   nil)
 
 (defn- sub-xray [query]

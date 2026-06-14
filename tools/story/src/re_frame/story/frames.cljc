@@ -506,14 +506,14 @@
   states what's installed."
   []
   (when config/enabled?
-    (rf/reg-event-db
+    (rf/reg-event
       ::apply-app-db-patch
-      (fn [db [_ patch]]
-        (reduce-kv
-          (fn [d path v]
-            (assoc-in d (if (vector? path) path [path]) v))
-          db
-          patch)))
+      (fn [{:keys [db]} [_ patch]]
+        {:db (reduce-kv
+               (fn [d path v]
+                 (assoc-in d (if (vector? path) path [path]) v))
+               db
+               patch)}))
     (rf/reg-event
       ::append-teardown-assertion
       (fn [{:keys [db]} [_ record]]

@@ -159,13 +159,13 @@
               :b-prop      "alpha"
               :diamond-root 0}})
 
-(rf/reg-event-db :standard-epochs/reset
+(rf/reg-event :standard-epochs/reset
   {:doc "Seed event — re-seed app-db and unmount both child views. Used by
          `run` (dispatch-sync on load) and by two_frame_isolation's per-frame
          :on-create. There is no on-page reset button; a reload re-seeds.
          The runner cursor `:step` re-seeds to nil here."}
-  (fn handler-reset [_db _ev]
-    initial-db))
+  (fn handler-reset [_ _ev]
+    {:db initial-db}))
 
 ;; ============================================================================
 ;; APP-DB SCHEMA (button #19)
@@ -300,14 +300,14 @@
 ;; ============================================================================
 
 ;; -- 1. plain increment ------------------------------------------------------
-(rf/reg-event-db :standard-epochs/increment
+(rf/reg-event :standard-epochs/increment
   {:doc "Step 1 — a plain event. The per-step App-db delta is the runner's
          `:step` write on the parent run-step epoch; Epoch shows THIS event
          firing with db-before / db-after (no further write)."}
-  (fn handler-increment [db _ev] db))
+  (fn handler-increment [{:keys [db]} _ev] {:db db}))
 
 ;; -- 2. increment + coeffect -------------------------------------------------
-(rf/reg-event-fx :standard-epochs/increment-cofx
+(rf/reg-event :standard-epochs/increment-cofx
   {:doc "Button 2 — declare the `:standard-epochs/now` cofx via
          `:rf.cofx/requires`. Epoch's event detail shows the coeffect
          feeding the handler (EP-0017 declared-only delivery)."
@@ -316,7 +316,7 @@
     {:db (assoc db :last-clicked now)}))
 
 ;; -- 3. increment + effect ---------------------------------------------------
-(rf/reg-event-fx :standard-epochs/increment-fx
+(rf/reg-event :standard-epochs/increment-fx
   {:doc "Button 3 — return a one-shot fx. Effects / Trace show
          `:standard-epochs/ping` fire this epoch."}
   (fn handler-increment-fx [{:keys [db]} _ev]
@@ -324,24 +324,24 @@
      :fx [[:standard-epochs/ping {:at (.getTime (js/Date.))}]]}))
 
 ;; -- 4. increment + cascade --------------------------------------------------
-(rf/reg-event-fx :standard-epochs/increment-cascade
+(rf/reg-event :standard-epochs/increment-cascade
   {:doc "Button 4 — dispatch a follow-on event. Epoch's dispatch-id tree
          shows the cascade (this event → :standard-epochs/cascade-tail)."}
   (fn handler-increment-cascade [{:keys [db]} _ev]
     {:db db
      :fx [[:dispatch [:standard-epochs/cascade-tail]]]}))
 
-(rf/reg-event-db :standard-epochs/cascade-tail
+(rf/reg-event :standard-epochs/cascade-tail
   {:doc "The follow-on event dispatched by button 4 — the second epoch in
          the cascade under one root dispatch-id."}
-  (fn handler-cascade-tail [db _ev] db))
+  (fn handler-cascade-tail [{:keys [db]} _ev] {:db db}))
 
 ;; -- 5. increment + flow -----------------------------------------------------
-(rf/reg-event-db :standard-epochs/increment-flow
+(rf/reg-event :standard-epochs/increment-flow
   {:doc "Button 5 — perturb :base so the `:standard-epochs/derived` flow
          recomputes a derived slot into app-db; App-db / Trace show it."}
-  (fn handler-increment-flow [db _ev]
-    (update db :base inc)))
+  (fn handler-increment-flow [{:keys [db]} _ev]
+    {:db (update db :base inc)}))
 
 ;; -- 6..11. Views / subscriptions — sub-driven Child A + props-driven Child B
 ;;
@@ -350,91 +350,91 @@
 ;; CAUSE — Child A re-renders ← a SUB changed (#8); Child B re-renders ←
 ;; PROPS changed (#11).
 
-(rf/reg-event-db :standard-epochs/mount-a
+(rf/reg-event :standard-epochs/mount-a
   {:doc "Button 6 — mount the SUBSCRIPTION-driven Child A (sets
          :views/a-mounted? true). On mount A subscribes its own
          L1→L2→L3 chain (:chain-root → :chain-doubled → :chain-labelled)
          PLUS the arg-keyed `[:standard-epochs/greater-than? N]` sub — so
          Views shows the node and those sub-cache entries appear."}
-  (fn handler-mount-a [db _ev]
-    (assoc-in db [:views :a-mounted?] true)))
+  (fn handler-mount-a [{:keys [db]} _ev]
+    {:db (assoc-in db [:views :a-mounted?] true)}))
 
-(rf/reg-event-db :standard-epochs/set-threshold
+(rf/reg-event :standard-epochs/set-threshold
   {:doc "Button 7 — change the sub-arg N (5 → 10). `[:standard-epochs/
          greater-than? N]` is keyed by its arg, so the new N is a NEW,
          distinct sub-cache entry alongside the old one."}
-  (fn handler-set-threshold [db [_ n]]
-    (assoc-in db [:views :threshold] n)))
+  (fn handler-set-threshold [{:keys [db]} [_ n]]
+    {:db (assoc-in db [:views :threshold] n)}))
 
-(rf/reg-event-db :standard-epochs/perturb-chain
+(rf/reg-event :standard-epochs/perturb-chain
   {:doc "Button 8 — perturb Child A's chain input (:views/chain-input).
          With A mounted, Views shows the L1 (:chain-root) → L2
          (:chain-doubled) → L3 (:chain-labelled) invalidation recompute,
          and A re-renders BECAUSE A SUB CHANGED (← :standard-epochs/chain-
          labelled), not because its props changed."}
-  (fn handler-perturb-chain [db _ev]
-    (update-in db [:views :chain-input] inc)))
+  (fn handler-perturb-chain [{:keys [db]} _ev]
+    {:db (update-in db [:views :chain-input] inc)}))
 
-(rf/reg-event-db :standard-epochs/unmount-a
+(rf/reg-event :standard-epochs/unmount-a
   {:doc "Button 9 — unmount Child A (sets :views/a-mounted? false). The
          node disappears and ALL of A's subs are disposed once the last
          reader is gone (the chain L1/L2/L3 + every [:gt? N] cache
          entry); the unmount is recorded."}
-  (fn handler-unmount-a [db _ev]
-    (assoc-in db [:views :a-mounted?] false)))
+  (fn handler-unmount-a [{:keys [db]} _ev]
+    {:db (assoc-in db [:views :a-mounted?] false)}))
 
-(rf/reg-event-db :standard-epochs/mount-b
+(rf/reg-event :standard-epochs/mount-b
   {:doc "Button 10 — mount the PROPS-driven Child B (sets
          :views/b-mounted? true). B receives a prop and subscribes
          NOTHING, so Views shows the node appear with NO new sub-cache
          entries."}
-  (fn handler-mount-b [db _ev]
-    (assoc-in db [:views :b-mounted?] true)))
+  (fn handler-mount-b [{:keys [db]} _ev]
+    {:db (assoc-in db [:views :b-mounted?] true)}))
 
-(rf/reg-event-db :standard-epochs/set-b-prop
+(rf/reg-event :standard-epochs/set-b-prop
   {:doc "Button 11 — change Child B's prop. B re-renders BECAUSE ITS
          PROPS CHANGED (no sub cause) — the foil to button 8's
          sub-driven re-render."}
-  (fn handler-set-b-prop [db _ev]
-    (update-in db [:views :b-prop]
-               {"alpha" "beta" "beta" "gamma" "gamma" "alpha"})))
+  (fn handler-set-b-prop [{:keys [db]} _ev]
+    {:db (update-in db [:views :b-prop]
+               {"alpha" "beta" "beta" "gamma" "gamma" "alpha"})}))
 
 ;; -- 12. exception in the handler → Issues: handler-exception, db rolls back -
-(rf/reg-event-db :standard-epochs/throw-handler
+(rf/reg-event :standard-epochs/throw-handler
   {:doc "Button 12 — throw in the handler. The router catches it; the
          handler's :db never commits; Issues shows
          `:rf.error/handler-exception` with the source coord."}
-  (fn handler-throw [_db _ev]
+  (fn handler-throw [_ _ev]
     (throw (ex-info "standard-epochs / handler (intentional — exercises the handler error surface)"
                     {:surface :handler-exception}))))
 
 ;; -- 13. exception in an interceptor :before → Issues: interceptor exc. ------
-(rf/reg-event-db :standard-epochs/throw-interceptor
+(rf/reg-event :standard-epochs/throw-interceptor
   {:doc "Button 13 — an interceptor throws in :before. The chain aborts on
          the way IN; Issues shows the interceptor :before exception and the
          handler never runs."
    :interceptors [throwing-interceptor]}
-  (fn handler-after-throwing-interceptor [db _ev] db))
+  (fn handler-after-throwing-interceptor [{:keys [db]} _ev] {:db db}))
 
 ;; -- 14. exception in an interceptor :after → Issues: interceptor exc. -------
-(rf/reg-event-db :standard-epochs/throw-interceptor-after
+(rf/reg-event :standard-epochs/throw-interceptor-after
   {:doc "Button 14 — an interceptor throws in :after. The foil to button
          13: the handler runs to completion (the :db is computed), THEN the
          interceptor throws on the way OUT. Issues shows the interceptor
          :after exception; per-step placement renders it under the
          interceptor's :after step, distinct from a handler exception."
    :interceptors [throwing-interceptor-after]}
-  (fn handler-before-throwing-after-interceptor [db _ev] db))
+  (fn handler-before-throwing-after-interceptor [{:keys [db]} _ev] {:db db}))
 
 ;; -- 15. exception in a coeffect supplier → Issues: cofx error ---------------
-(rf/reg-event-fx :standard-epochs/throw-cofx
+(rf/reg-event :standard-epochs/throw-cofx
   {:doc "Button 15 — a declared coeffect's supplier throws at context
          assembly. Issues shows the cofx error; the handler never runs."
    :rf.cofx/requires [:standard-epochs/throwing-cofx]}
   (fn handler-after-throwing-cofx [{:keys [db]} _ev] {:db db}))
 
 ;; -- 16. exception in an effect handler (post-commit) → Issues: fx error -----
-(rf/reg-event-fx :standard-epochs/throw-fx
+(rf/reg-event :standard-epochs/throw-fx
   {:doc "Button 16 — the :db commits, then a post-commit fx throws. Issues
          shows the fx error; post-commit fx are best-effort per the FX
          atomicity asymmetry, so the committed db survives. (The visible
@@ -444,45 +444,45 @@
      :fx [[:standard-epochs/boom {}]]}))
 
 ;; -- 17. slow effect (~600ms managed fx) → Issues: slow-fx flagged -----------
-(rf/reg-event-fx :standard-epochs/slow
+(rf/reg-event :standard-epochs/slow
   {:doc "Button 17 — issue a ~600ms managed fx. Status moves :loading;
          Issues flags the slow fx; the reply lands :loaded ~600ms later."}
   (fn handler-slow [{:keys [db]} _ev]
     {:db (assoc db :slow-status :loading)
      :fx [[:standard-epochs/slow-fetch {}]]}))
 
-(rf/reg-event-db :standard-epochs/slow-done
+(rf/reg-event :standard-epochs/slow-done
   {:doc "The deferred reply from the slow fx. Lands on the originating
          frame and flips status to :loaded."}
-  (fn handler-slow-done [db _ev]
-    (assoc db :slow-status :loaded)))
+  (fn handler-slow-done [{:keys [db]} _ev]
+    {:db (assoc db :slow-status :loaded)}))
 
 ;; -- 18. schema violation, bad event args → Issues / Schema-timeline ---------
-(rf/reg-event-db :standard-epochs/bad-event-args
+(rf/reg-event :standard-epochs/bad-event-args
   {:doc "Button 18 — dispatched with a bad arg (a string where a pos-int
          is required). The handler is skipped; Issues / Schema-timeline
          shows `:rf.error/schema-validation-failure :where :event`."
    :schema [:cat [:= :standard-epochs/bad-event-args] pos-int?]}
-  (fn handler-bad-event-args [db _ev] db))
+  (fn handler-bad-event-args [{:keys [db]} _ev] {:db db}))
 
 ;; -- 19. schema violation, app-db write → Issues: app-db schema failure ------
-(rf/reg-event-db :standard-epochs/bad-app-db-write
+(rf/reg-event :standard-epochs/bad-app-db-write
   {:doc "Button 19 — write an int into [:auth :token] (the registered
          app-schema requires a string). The post-handler app-db
          validation rolls the :db back; Issues shows the app-db schema
          failure, which survives the rollback."}
-  (fn handler-bad-app-db-write [db _ev]
-    (assoc-in db [:auth :token] 42)))
+  (fn handler-bad-app-db-write [{:keys [db]} _ev]
+    {:db (assoc-in db [:auth :token] 42)}))
 
 ;; -- 20. diamond probe — bump the join-sub root once -------------------------
-(rf/reg-event-db :standard-epochs/bump-diamond
+(rf/reg-event :standard-epochs/bump-diamond
   {:doc "Button 20 — bump :views/diamond-root once. The join sub
          :standard-epochs/diamond-c (c ← a,b ← root) increments a recompute
          counter each time its compute fn runs. Press once: the counter should
          rise by 1 (clean); a rise of 2 means the diamond double-computes the
          intermediate sub. The count is shown by the diamond-display view."}
-  (fn handler-bump-diamond [db _ev]
-    (update-in db [:views :diamond-root] (fnil inc 0))))
+  (fn handler-bump-diamond [{:keys [db]} _ev]
+    {:db (update-in db [:views :diamond-root] (fnil inc 0))}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS

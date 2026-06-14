@@ -82,8 +82,8 @@
   "Register counter event/sub once globally. Resolves per-dispatch via
   the `:frame` option each frame's dispatch carries."
   []
-  (rf/reg-event-db :counter/inc
-    (fn [db _ev] (update db :counter/value (fnil inc 0))))
+  (rf/reg-event :counter/inc
+    (fn [{:keys [db]} _ev] {:db (update db :counter/value (fnil inc 0))}))
   (rf/reg-sub :counter/value
     (fn [db _] (:counter/value db))))
 
@@ -202,11 +202,11 @@
   produce a `:rf.error/handler-exception` issue keyed to its own
   `:dispatch-id`."
   []
-  (rf/reg-event-db :throws/a
-    (fn [_db _ev]
+  (rf/reg-event :throws/a
+    (fn [_ _ev]
       (throw (ex-info "throw-a" {:where :a}))))
-  (rf/reg-event-db :throws/b
-    (fn [_db _ev]
+  (rf/reg-event :throws/b
+    (fn [_ _ev]
       (throw (ex-info "throw-b" {:where :b})))))
 
 (deftest rf2-1p1j4-issues-panel-scopes-to-focused-cascade

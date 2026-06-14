@@ -181,7 +181,7 @@
 ;; transition, then attempt the guarded close. The close fails `:may-close?`
 ;; because the flag is armed, so the door STAYS in `:open` and GUARDS RUN
 ;; shows the failed guard.
-(rf/reg-event-fx :machine-epochs/reopen-then-block
+(rf/reg-event :machine-epochs/reopen-then-block
   {:doc ":door/push (re-open) → :door/hold (arm the guard input) → :door/close.
          The :may-close? guard FAILS, so the close is blocked and the machine
          stays in :open."}
@@ -193,15 +193,15 @@
 
 ;; The acknowledgement event dispatched by :enter-alarm's :fx. A plain deck
 ;; event so the cascade has a downstream child epoch the lens links to.
-(rf/reg-event-db :machine-epochs/alarm-acknowledged
+(rf/reg-event :machine-epochs/alarm-acknowledged
   {:doc "The downstream event fired by the door's :enter-alarm action :fx —
          the child epoch under the originating dispatch-id."}
-  (fn handler-alarm-acknowledged [db _ev] db))
+  (fn handler-alarm-acknowledged [{:keys [db]} _ev] {:db db}))
 
 ;; re-start the brew (schedules a fresh :after timer) then immediately
 ;; :brew/abort, which exits :brewing BEFORE the timer fires. Exiting the
 ;; :after-bearing state cancels the in-flight timer (:reason :on-exit).
-(rf/reg-event-fx :machine-epochs/cancel-brew
+(rf/reg-event :machine-epochs/cancel-brew
   {:doc ":brew/start (re-enter :brewing, schedule the :after timer) →
          :brew/abort (exit :brewing before the timer fires). The exit cancels
          the pending timer with :reason :on-exit."}
@@ -214,7 +214,7 @@
 ;; deterministic spawn-id is resolved through `machine-paths/spawned-path`.
 ;; FAIL LOUD ON A MISS (rf2-4i0ac): an `assert` surfaces a missing slot as a
 ;; loud failure at the call site rather than a silent no-op.
-(rf/reg-event-fx :machine-epochs/finish-login
+(rf/reg-event :machine-epochs/finish-login
   {:doc "Resolve the spawned :session/login child via the machines artefact's
          spawned-path constructor, then dispatch [:succeed <token>] to drive it
          to its :final? state. The child fires :on-done (reporting the token to
@@ -244,7 +244,7 @@
 ;; answer twice more so the running score reaches the `:enough?` pass mark (3)
 ;; and the guarded `:always` chain settles `:asking` ──► `:passed` in N>0
 ;; microsteps. (The first :quiz/answer step already answered once.)
-(rf/reg-event-fx :machine-epochs/answer-to-pass
+(rf/reg-event :machine-epochs/answer-to-pass
   {:doc ":quiz/answer ×2 so the score reaches the pass mark and the guarded
          :always chain fires (microsteps > 0)."}
   (fn handler-answer-to-pass [{:keys [db]} _ev]
@@ -257,13 +257,13 @@
 ;; synchronously at reg-machine time (:rf.error/machine-history-misplaced).
 ;; The deck event swallows the throw (the step's job is to DRIVE the
 ;; rejection; the harness asserts the throw shape directly).
-(rf/reg-event-db :machine-epochs/probe-history-rejection
+(rf/reg-event :machine-epochs/probe-history-rejection
   {:doc "Attempt to register a ROOT :type :history machine and confirm the
          PLACEMENT constraint rejects it (a pseudo-state needs an owning
          compound). The throw is swallowed here so the deck does not crash;
          the harness asserts the misplaced-history rejection shape."}
-  (fn handler-probe-history [db _ev]
-    (assoc db :machine-epochs/history-rejected? (machines/history-rejected?))))
+  (fn handler-probe-history [{:keys [db]} _ev]
+    {:db (assoc db :machine-epochs/history-rejected? (machines/history-rejected?))}))
 
 ;; the HISTORY restore dance (rf2-mle6e.5). To make the RESTORE the focal
 ;; cascade, the step first POSITIONS the player deep (`:insert` → `:seek`)
@@ -279,7 +279,7 @@
    [:dispatch [machine-id [:eject]]]     ; exit :player → :tray (RECORDS history)
    [:dispatch [machine-id [:insert]]]])  ; re-enter via :hist (RESTORES — the headline)
 
-(rf/reg-event-fx :machine-epochs/history-shallow-restore
+(rf/reg-event :machine-epochs/history-shallow-restore
   {:doc "Drive :media/shallow through the eject/restore dance so the final
          :insert restores the recorded CHILD then descends its :initial chain.
          The restore cascade carries the history banner + :source :recorded
@@ -288,7 +288,7 @@
     {:db db
      :fx (history-restore-fx :media/shallow)}))
 
-(rf/reg-event-fx :machine-epochs/history-deep-restore
+(rf/reg-event :machine-epochs/history-deep-restore
   {:doc "Drive :media/deep through the eject/restore dance so the final :insert
          restores the EXACT recorded leaf [:player :playing :mid-track]. The
          restore cascade carries the history banner (DEEP) + :source :recorded
@@ -317,54 +317,54 @@
   [machine-ids]
   (mapv (fn [id] [:dispatch [id [:rf.machine/start]]]) machine-ids))
 
-(rf/reg-event-fx :machine-epochs/boot-door
+(rf/reg-event :machine-epochs/boot-door
   {:doc "Boot the door machine — its START cascade is the door frame's first
          observed epoch (the START badge demo, for free)."}
   (fn [_ _] {:fx (boot-machines-fx [:door/main])}))
 
-(rf/reg-event-fx :machine-epochs/boot-traffic
+(rf/reg-event :machine-epochs/boot-traffic
   {:doc "Boot the parallel traffic machine — both regions enter their initial
          leaves in the START cascade."}
   (fn [_ _] {:fx (boot-machines-fx [:traffic/light])}))
 
-(rf/reg-event-fx :machine-epochs/boot-quiz
+(rf/reg-event :machine-epochs/boot-quiz
   {:doc "Boot the quiz machine to :asking."}
   (fn [_ _] {:fx (boot-machines-fx [:quiz/scorer])}))
 
-(rf/reg-event-fx :machine-epochs/boot-brew
+(rf/reg-event :machine-epochs/boot-brew
   {:doc "Boot the brew machine to :idle."}
   (fn [_ _] {:fx (boot-machines-fx [:brew/machine])}))
 
-(rf/reg-event-fx :machine-epochs/boot-session
+(rf/reg-event :machine-epochs/boot-session
   {:doc "Boot the session parent machine to :idle (the child is spawned later
          by the Session: open step)."}
   (fn [_ _] {:fx (boot-machines-fx [:session/flow])}))
 
-(rf/reg-event-fx :machine-epochs/boot-fuse
+(rf/reg-event :machine-epochs/boot-fuse
   {:doc "Boot the fuse machine — its initial state :armed declares an :entry
          action :blow-fuse that THROWS, so booting fuse raises a real
          :rf.error/machine-action-exception immediately. The exception card +
          pink-wash is the headline of the fuse arc (boot-on-select, rf2-q3lfm)."}
   (fn [_ _] {:fx (boot-machines-fx [:fuse/box])}))
 
-(rf/reg-event-fx :machine-epochs/boot-hvac
+(rf/reg-event :machine-epochs/boot-hvac
   {:doc "Boot the deep-compound HVAC machine — both regions enter their deep
          initial leaves in the START cascade."}
   (fn [_ _] {:fx (boot-machines-fx [:hvac/controller])}))
 
-(rf/reg-event-fx :machine-epochs/boot-media
+(rf/reg-event :machine-epochs/boot-media
   {:doc "Boot BOTH media machines (:media/deep + :media/shallow) into the one
          media frame — the media track owns two machine-ids in one observed
          domain (rf2-q3lfm). Both start at :tray."}
   (fn [_ _] {:fx (boot-machines-fx [:media/deep :media/shallow])}))
 
-(rf/reg-event-fx :machine-epochs/boot-modal
+(rf/reg-event :machine-epochs/boot-modal
   {:doc "Boot the modal machine to :closed — the multi-event-transition machine
          whose :open ──► :closed edge is reached on THREE distinct events
          (the events-as-nodes divergence, rf2-vilpfa)."}
   (fn [_ _] {:fx (boot-machines-fx [:modal/main])}))
 
-(rf/reg-event-fx :machine-epochs/boot-gate
+(rf/reg-event :machine-epochs/boot-gate
   {:doc "Boot the gate machine to :idle — the multi-branch guarded-fork machine
          whose :gate/check forks by guard (:high / :low / :rejected) from :idle
          (the guard-fork divergence, rf2-vilpfa)."}
@@ -612,11 +612,11 @@
 ;; Seed the shell bookkeeping (:rf.runner/selected + :rf.runner/cursors).
 ;; Machine snapshots do NOT live here — each lives in its own :machine/<id>
 ;; frame. `run` dispatch-syncs this at boot before the first paint.
-(rf/reg-event-db :machine-epochs/seed
+(rf/reg-event :machine-epochs/seed
   {:doc "Seed the shell frame's runner bookkeeping (:rf.runner/selected +
          :rf.runner/cursors)."}
-  (fn handler-seed [db _ev]
-    (merge db initial-shell-db)))
+  (fn handler-seed [{:keys [db]} _ev]
+    {:db (merge db initial-shell-db)}))
 
 ;; ============================================================================
 ;; LOCAL RUNNER EVENTS — select / step / restart (machine-epochs-LOCAL)
@@ -646,7 +646,7 @@
 ;; through the host-facing focus channel (`xray-focus/focus!`), which fires
 ;; `:rf.xray/select-frame` into Xray's own `:rf/xray` frame for us — the deck
 ;; never reaches into Xray internals.
-(rf/reg-event-fx :machine-epochs/select
+(rf/reg-event :machine-epochs/select
   {:doc "Select a track: set :rf.runner/selected in the shell, lazily create +
          boot the track's :machine/<id> frame (boot-on-select), and re-point
          Xray (:rf.xray/select-frame) at that frame so every observation panel
@@ -681,7 +681,7 @@
 ;; n's machine `:event` INTO the machine frame. Two epochs: the cursor write
 ;; here (not observed) + the machine cascade in the machine frame (observed).
 ;; An out-of-range n (or an unselected/unknown track) is a no-op.
-(rf/reg-event-fx :machine-epochs/run-step
+(rf/reg-event :machine-epochs/run-step
   {:doc "Run step n of the CURRENTLY SELECTED track: write the per-track cursor
          in the shell (:rf.runner/cursors), and dispatch step n's machine
          :event into the track's :machine/<id> frame. The machine cascade is
@@ -724,7 +724,7 @@
 ;; track cursor. The :session track's spawned child is torn down by the frame
 ;; destroy (the :rf.machine/destroy cascade on frame teardown). Re-points Xray
 ;; at the freshly-reset frame so the operator sees the clean re-boot arc.
-(rf/reg-event-fx :machine-epochs/restart
+(rf/reg-event :machine-epochs/restart
   {:doc "Restart the CURRENTLY SELECTED track: RESET its :machine/<id> frame
          (clears the ring, re-arcs from boot via the frame's :on-create) and
          clear the track cursor. Re-points Xray at the reset frame. The track

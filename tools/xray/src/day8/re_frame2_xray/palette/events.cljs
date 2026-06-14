@@ -258,23 +258,23 @@
   ;; so the load cost is negligible; lazy-seed means we don't have to
   ;; thread a preload hook through every test that drives the registry.
 
-  (rf/reg-event-db :rf.xray/palette-open
-    (fn [db _event]
-      (let [seeded (if (contains? db :palette-recents)
+  (rf/reg-event :rf.xray/palette-open
+    (fn [{:keys [db]} _event]
+      {:db (let [seeded (if (contains? db :palette-recents)
                      db
                      (assoc db :palette-recents (recents/load)))]
         (-> seeded
             (assoc :palette-open? true)
             (assoc :palette-query "")
-            (reset-cursor)))))
+            (reset-cursor)))}))
 
-  (rf/reg-event-db :rf.xray/palette-close
-    (fn [db _event]
-      (close-palette db)))
+  (rf/reg-event :rf.xray/palette-close
+    (fn [{:keys [db]} _event]
+      {:db (close-palette db)}))
 
-  (rf/reg-event-db :rf.xray/palette-toggle
-    (fn [db _event]
-      (if (get db :palette-open? false)
+  (rf/reg-event :rf.xray/palette-toggle
+    (fn [{:keys [db]} _event]
+      {:db (if (get db :palette-open? false)
         (close-palette db)
         (let [seeded (if (contains? db :palette-recents)
                        db
@@ -282,16 +282,16 @@
           (-> seeded
               (assoc :palette-open? true)
               (assoc :palette-query "")
-              (reset-cursor))))))
+              (reset-cursor))))}))
 
   ;; ---- query / cursor ---------------------------------------------------
 
-  (rf/reg-event-db :rf.xray/palette-set-query
+  (rf/reg-event :rf.xray/palette-set-query
     {:rf.trace/no-emit? true}
-    (fn [db [_ text]]
-      (-> db
+    (fn [{:keys [db]} [_ text]]
+      {:db (-> db
           (assoc :palette-query (or text ""))
-          (reset-cursor))))
+          (reset-cursor))}))
 
   (rf/reg-event :rf.xray/palette-cursor-up
     {:rf.trace/no-emit? true}

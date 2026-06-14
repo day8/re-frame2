@@ -204,27 +204,27 @@
         {:db next-db
          :fx [[:rf.xray.static.machines/persist-sub-mode by-id]]})))
 
-  (rf/reg-event-db :rf.xray.static.machines/hydrate
-    (fn [db [_ {:keys [selected-id sub-mode-by-id]}]]
-      (cond-> db
+  (rf/reg-event :rf.xray.static.machines/hydrate
+    (fn [{:keys [db]} [_ {:keys [selected-id sub-mode-by-id]}]]
+      {:db (cond-> db
         (some? selected-id)
         (assoc :rf.xray.static.machines/selected-id selected-id)
         (map? sub-mode-by-id)
-        (assoc :rf.xray.static.machines/sub-mode-by-id sub-mode-by-id))))
+        (assoc :rf.xray.static.machines/sub-mode-by-id sub-mode-by-id))}))
 
   ;; Click-on-state in the Topology mode. v1 is a no-op slot — the
   ;; metadata rail wires in a follow-on bead (per the bead's §Topology
   ;; mode 'Click state → metadata rail'). The event is registered now
   ;; so the chart's `:on-state-click` dispatch lands on a known handler
   ;; rather than emitting a `:rf.warning/no-handler` trace.
-  (rf/reg-event-db :rf.xray.static.machines/state-clicked
-    (fn [db [_ _payload]] db))
+  (rf/reg-event :rf.xray.static.machines/state-clicked
+    (fn [{:keys [db]} [_ _payload]] {:db db}))
 
   ;; Open-chart-popout — same posture: registered as a no-op slot so
   ;; the affordance has a landing handler. The pop-out window
   ;; orchestration rides the second-window UX bead.
-  (rf/reg-event-db :rf.xray.static.machines/open-chart-popout
-    (fn [db [_ _machine-id]] db))
+  (rf/reg-event :rf.xray.static.machines/open-chart-popout
+    (fn [{:keys [db]} [_ _machine-id]] {:db db}))
   nil)
 
 ;; ---- public install -----------------------------------------------------

@@ -510,7 +510,7 @@
     (frame-class/validate+extract host-frame
       {:sensitive {:app-db [[:auth :password]]}}))
   (rf/with-frame host-frame
-    (rf/reg-event-db :test/seed-host (fn [db _] (db-fn db)))
+    (rf/reg-event :test/seed-host (fn [{:keys [db]} _] {:db (db-fn db)}))
     (rf/dispatch-sync [:test/seed-host])))
 
 (defn- drive-snapshot-of-host! []
@@ -571,8 +571,8 @@
         (frame-class/validate+extract host-frame
           {:large {:app-db [[:blob :payload]]}}))
       (rf/with-frame host-frame
-        (rf/reg-event-db :test/seed-blob
-          (fn [db _] (assoc db :blob {:payload {:big "value"}})))
+        (rf/reg-event :test/seed-blob
+          (fn [{:keys [db]} _] {:db (assoc db :blob {:payload {:big "value"}})}))
         (rf/dispatch-sync [:test/seed-blob]))
       (drive-snapshot-of-host!)
       (let [payload (first @(:console sinks))]

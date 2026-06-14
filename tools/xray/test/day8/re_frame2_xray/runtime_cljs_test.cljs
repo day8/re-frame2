@@ -174,8 +174,8 @@
   (testing "with the framework's default `:rf/default` registered, the
             no-arg `get-app-db` resolves it without an explicit `:frame`
             arg"
-    (rf/reg-event-db :test/seed-db
-      (fn [_ _] {:seeded? true}))
+    (rf/reg-event :test/seed-db
+      (fn [{:keys [db]} _] {:db {:seeded? true}}))
     (rf/dispatch-sync [:test/seed-db])
     (let [result (runtime/get-app-db)]
       (is (true? (:ok? result))
@@ -185,8 +185,8 @@
 
 (deftest get-app-db-explicit-path
   (testing "the `:path` arg scopes the returned value via `get-in`"
-    (rf/reg-event-db :test/seed-db
-      (fn [_ _] {:cart {:items [:a :b :c]}}))
+    (rf/reg-event :test/seed-db
+      (fn [{:keys [db]} _] {:db {:cart {:items [:a :b :c]}}}))
     (rf/dispatch-sync [:test/seed-db])
     (let [result (runtime/get-app-db {:path [:cart :items]})]
       (is (true? (:ok? result)))
@@ -217,7 +217,7 @@
             frame id that is not in `rf/frame-ids` with a distinct
             `:no-such-frame` reason; the implicit / sole-frame path is
             unaffected (the registry still holds :rf/default)."
-    (rf/reg-event-db :test/seed-db (fn [_ _] {:seeded? true}))
+    (rf/reg-event :test/seed-db (fn [{:keys [db]} _] {:db {:seeded? true}}))
     (rf/dispatch-sync [:test/seed-db])
     (let [bogus :app/does-not-exist
           ;; The frame-scoped accessors that take an explicit `:frame`:
@@ -305,7 +305,7 @@
 ;; the machines lifecycle-fx writes); `:rf/machine? true` marks it
 ;; framework-authority so the runtime-write diagnostic does not fire.
 (defn- seed-machine-snapshot-in-runtime-db! [snapshot]
-  (rf/reg-event-fx :test/seed-machine-snapshot
+  (rf/reg-event :test/seed-machine-snapshot
     {:rf/machine? true}
     (fn [_ _]
       {:rf.db/runtime {:rf.runtime/machines {:snapshots {:auth snapshot}}}}))
@@ -450,10 +450,10 @@
             `get-trace-buffer {:origin <origin>}` isolates the
             tool-dispatched cascade (Lock #4 / I1)"
     (let [captured (atom nil)]
-      (rf/reg-event-db :test/capture-meta
-        (fn [db [_ marker]]
+      (rf/reg-event :test/capture-meta
+        (fn [{:keys [db]} [_ marker]]
           (reset! captured marker)
-          (assoc db :marker marker)))
+          {:db (assoc db :marker marker)}))
       (trace-tooling/clear-trace-buffer! :rf/default)
       ;; sync? so the dispatch completes (and its trace lands) before we read.
       (let [result (runtime/dispatch! [:test/capture-meta :ok] {:sync? true})]
@@ -478,8 +478,8 @@
   (testing "a `binding` around `dispatch!` re-tags the dispatch on the
             trace bus — this is the synchronous-extent contract
             `eval-cljs` rides (Lock #4 / I6)"
-    (rf/reg-event-db :test/origin-marker
-      (fn [db _] db))
+    (rf/reg-event :test/origin-marker
+      (fn [{:keys [db]} _] {:db db}))
     (trace-tooling/clear-trace-buffer! :rf/default)
     (binding [runtime/*current-origin* :test-rebind]
       (let [result (runtime/dispatch! [:test/origin-marker] {:sync? true})]
@@ -583,8 +583,8 @@
             without an explicit `:frame` arg (post per-frame ring
             adoption rf2-q03j7) and returns the historical flat-event
             shape via the framework's `{:flat true}` opt"
-    (rf/reg-event-db :test/just-dispatch
-      (fn [db _] (assoc db :touched? true)))
+    (rf/reg-event :test/just-dispatch
+      (fn [{:keys [db]} _] {:db (assoc db :touched? true)}))
     (rf/dispatch-sync [:test/just-dispatch])
     (let [result (runtime/get-trace-buffer)]
       (is (true? (:ok? result))
@@ -888,9 +888,9 @@
   (testing "EP-0001 rf2-jj1xer — get-app-db reads ONLY the app-db partition
             (rf/app-db-value), so a runtime-db-only commit never bleeds into
             the app-db read (partition distinction at the read boundary)"
-    (rf/reg-event-db :test/seed-app (fn [_ _] {:cart {:items [:a]}}))
+    (rf/reg-event :test/seed-app (fn [{:keys [db]} _] {:db {:cart {:items [:a]}}}))
     (rf/dispatch-sync [:test/seed-app])
-    (rf/reg-event-fx :test/seed-rt {:rf/machine? true}
+    (rf/reg-event :test/seed-rt {:rf/machine? true}
       (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:snapshots {:m {:state :on}}}}}))
     (rf/dispatch-sync [:test/seed-rt])
     (let [result (runtime/get-app-db)]
@@ -904,8 +904,8 @@
   (testing "the rerouted `get-app-db` call site still redacts a
             sensitive slot end-to-end (regression: the named egress fn
             is wired into the accessor)"
-    (rf/reg-event-db :test/seed-auth
-      (fn [_ _] {:auth {:username "ada" :password "shh"}}))
+    (rf/reg-event :test/seed-auth
+      (fn [{:keys [db]} _] {:db {:auth {:username "ada" :password "shh"}}}))
     (rf/dispatch-sync [:test/seed-auth])
     ;; Populate AFTER the whole-db reset so the declarations survive.
     (seed-sensitive-schema!)
@@ -945,8 +945,8 @@
             leaf redacts by default — the absolute :path is threaded into
             the egress walker so the [:auth :password] declaration
             matches the scoped slice (rf2-a96xq: fail-closed)"
-    (rf/reg-event-db :test/seed-auth
-      (fn [_ _] {:auth {:username "ada" :password "shh"}}))
+    (rf/reg-event :test/seed-auth
+      (fn [{:keys [db]} _] {:db {:auth {:username "ada" :password "shh"}}}))
     (rf/dispatch-sync [:test/seed-auth])
     (seed-sensitive-schema!)
     ;; Scope the read down to the sensitive leaf itself.
@@ -970,8 +970,8 @@
   (testing "a PATH-scoped get-app-db with {:include-sensitive? true}
             reveals the raw leaf — the operator opt-in still flows through
             the threaded-path egress (rf2-a96xq: opt-in gate open)"
-    (rf/reg-event-db :test/seed-auth
-      (fn [_ _] {:auth {:username "ada" :password "shh"}}))
+    (rf/reg-event :test/seed-auth
+      (fn [{:keys [db]} _] {:db {:auth {:username "ada" :password "shh"}}}))
     (rf/dispatch-sync [:test/seed-auth])
     (seed-sensitive-schema!)
     (let [result (runtime/get-app-db {:path [:auth :password]
@@ -985,8 +985,8 @@
             emits the :rf.size/large-elided marker by default, and reveals
             the raw value only on {:include-large? true} (rf2-a96xq:
             symmetric size minimisation on the scoped path)"
-    (rf/reg-event-db :test/seed-blob
-      (fn [_ _] {:blob {:payload {:big "value"}}}))
+    (rf/reg-event :test/seed-blob
+      (fn [{:keys [db]} _] {:db {:blob {:payload {:big "value"}}}}))
     (rf/dispatch-sync [:test/seed-blob])
     (seed-large-schema!)
     (let [result (runtime/get-app-db {:path [:blob :payload]})]
@@ -1022,7 +1022,7 @@
   `:db-before before` / `:db-after after`. Returns the recorded
   epoch's `:epoch-id`."
   [before after]
-  (rf/reg-event-db :test/seed-before (fn [_ _] before))
+  (rf/reg-event :test/seed-before (fn [_ _] {:db before}))
   (rf/dispatch-sync [:test/seed-before])
   (let [fid (first (rf/frame-ids))]
     (rf/replace-app-db! fid after)
@@ -1210,7 +1210,7 @@
    :tags          #{[:article "old"]}})
 
 (defn- seed-resource-entries! [entries]
-  (rf/reg-event-fx :test/seed-resources
+  (rf/reg-event :test/seed-resources
     {:rf/machine? true}
     (fn [_ _]
       {:rf.db/runtime {:rf.runtime/resources {:entries entries}}}))

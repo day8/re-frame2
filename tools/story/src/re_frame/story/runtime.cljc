@@ -415,14 +415,14 @@
     ;; survive — the seed establishes the author's state on top, then
     ;; phase-2 `:setup` events run over it (the fidelity ladder composes:
     ;; `:db-seed` then `:real-setup`).
-    (rf/reg-event-db
+    (rf/reg-event
       ::apply-db-seed
-      (fn [db [_ seed]]
-        (reduce-kv
-          (fn [d path v]
-            (assoc-in d (if (vector? path) path [path]) v))
-          db
-          seed)))))
+      (fn [{:keys [db]} [_ seed]]
+        {:db (reduce-kv
+               (fn [d path v]
+                 (assoc-in d (if (vector? path) path [path]) v))
+               db
+               seed)}))))
 
 ;; ---- assertions read -----------------------------------------------------
 

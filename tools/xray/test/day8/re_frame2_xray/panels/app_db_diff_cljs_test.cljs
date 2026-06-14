@@ -89,15 +89,15 @@
   frame's app-db. Production code reaches the same shape via
   :rf.xray/epoch-recorded + the host frame's runtime mutations."
   []
-  (rf/reg-event-db :rf.xray-test/seed-history
-    (fn [db [_ records]]
-      (assoc db :epoch-history (vec records))))
-  (rf/reg-event-db :rf.xray-test/seed-target-frame-db
-    (fn [db _]
+  (rf/reg-event :rf.xray-test/seed-history
+    (fn [{:keys [db]} [_ records]]
+      {:db (assoc db :epoch-history (vec records))}))
+  (rf/reg-event :rf.xray-test/seed-target-frame-db
+    (fn [{:keys [db]} _]
       ;; This is a no-op marker — the host frame's db is the source
       ;; of truth, and we set it via replace-app-db! below. Kept so
       ;; tests can locate the seed step by name.
-      db)))
+      {:db db})))
 
 (defn- seed-host-frame!
   "Reset the host (:rf/default) frame's app-db to the supplied
@@ -118,7 +118,7 @@
   diagnostic does not fire."
   [runtime-db-value]
   (frame/reg-frame :rf/default {})
-  (rf/reg-event-fx :rf.xray-test/seed-runtime-db
+  (rf/reg-event :rf.xray-test/seed-runtime-db
     {:rf/machine? true}
     (fn [_ _] {:rf.db/runtime runtime-db-value}))
   (rf/with-frame :rf/default

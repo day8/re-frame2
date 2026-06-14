@@ -74,9 +74,9 @@
 ;; ---- helpers ------------------------------------------------------------
 
 (defn- register-non-sensitive-event! []
-  (rf/reg-event-db :test/plain-bump
-    (fn [db [_ n]]
-      (assoc db :test/last-bump n))))
+  (rf/reg-event :test/plain-bump
+    (fn [{:keys [db]} [_ n]]
+      {:db (assoc db :test/last-bump n)})))
 
 (defn- drain-depth-exceeded?
   "True iff Xray's trace buffer contains a `:rf.error/drain-depth-

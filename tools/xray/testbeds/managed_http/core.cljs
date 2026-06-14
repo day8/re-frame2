@@ -111,10 +111,10 @@
 ;; last lifecycle events. The Xray Epoch / Trace panels are the primary
 ;; surface; the DOM strip is a standalone fall-back.
 
-(rf/reg-event-db ::initialise
+(rf/reg-event ::initialise
   {:doc "Seed app-db: no step yet, idle, no reply, empty log."}
-  (fn [_db _ev]
-    {:step nil :status :idle :reply nil :log []}))
+  (fn [{:keys [db]} _ev]
+    {:db {:step nil :status :idle :reply nil :log []}}))
 
 (defn- log-line [db line]
   (update db :log (fn [xs] (vec (take-last 8 (conj (or xs []) line))))))
@@ -123,21 +123,21 @@
 ;; Reply addressing — one handler per logical request receives the reply.
 ;; ----------------------------------------------------------------------------
 
-(rf/reg-event-db ::reply
+(rf/reg-event ::reply
   {:doc "Reply sink for the success / failure paths. Receives the reply
          payload DIRECTLY (explicit `:on-success` / `:on-failure`
          addressing per Spec 014 §Reply addressing appends the
          `{:kind …}` payload as the last arg — not wrapped in
          `:rf/reply`). Files it and narrates the lifecycle outcome
          (`:done` on success, `:error` + the failure :kind otherwise)."}
-  (fn [db [_ reply]]
-    (let [ok? (= :success (:kind reply))]
-      (-> db
-          (assoc :status (if ok? :done :error))
-          (assoc :reply reply)
-          (log-line (if ok?
-                      (str "✓ success: " (pr-str (:value reply)))
-                      (str "✗ failure: " (pr-str (get-in reply [:failure :kind])))))))))
+  (fn [{:keys [db]} [_ reply]]
+    {:db (let [ok? (= :success (:kind reply))]
+           (-> db
+               (assoc :status (if ok? :done :error))
+               (assoc :reply reply)
+               (log-line (if ok?
+                           (str "✓ success: " (pr-str (:value reply)))
+                           (str "✗ failure: " (pr-str (get-in reply [:failure :kind])))))))}))
 
 ;; ============================================================================
 ;; REQUEST IDS / URLS
@@ -224,7 +224,7 @@
                                                     :reason reason}}]))})
     nil))
 
-(rf/reg-event-fx ::fire-in-flight
+(rf/reg-event ::fire-in-flight
   {:doc "Seed an in-flight request that stays pending (deterministic).
          Populates the in-flight registry; status → :loading. The slot
          persists until the abort step (5) resolves it."}
@@ -233,7 +233,7 @@
      :fx [[:managed-http/seed-in-flight {:request-id in-flight-id}]]}))
 
 ;; (2) Success — a real Fetch against the static asset api/ok.json.
-(rf/reg-event-fx ::success
+(rf/reg-event ::success
   {:doc "Live GET against the static api/ok.json. 2xx → decoded JSON →
          reply :kind :success."}
   (fn [{:keys [db]} _ev]
@@ -246,7 +246,7 @@
 
 ;; (3) Error response — 4xx. Canned-failure-with-trace synthesises the
 ;; same reply envelope + error trace a live 404 would.
-(rf/reg-event-fx ::error-4xx
+(rf/reg-event ::error-4xx
   {:doc "Synthesised :rf.http/http-4xx (404, raw body) via the canned-
          failure-with-trace wrapper. Same reply envelope as a live 4xx."}
   (fn [{:keys [db]} _ev]
@@ -260,7 +260,7 @@
                          :body   "<html>not found</html>" :headers {}}}]]}))
 
 ;; (4) Error response — 5xx.
-(rf/reg-event-fx ::error-5xx
+(rf/reg-event ::error-5xx
   {:doc "Synthesised :rf.http/http-5xx (500, raw body)."}
   (fn [{:keys [db]} _ev]
     {:db (-> db (assoc :status :loading :reply nil) (log-line "→ request (will 500)"))
@@ -278,7 +278,7 @@
 ;; and fires its abort-fn, which dispatches the :rf.http/aborted reply and
 ;; clears the registry slot. No separate abortable slot — the one seeded
 ;; request is the one aborted.
-(rf/reg-event-fx ::abort
+(rf/reg-event ::abort
   {:doc "Abort the step-1 in-flight request (:request-id ::in-flight) via
          the live :rf.http/managed-abort fx. The handle's abort-fn
          dispatches the :rf.http/aborted reply and clears the registry
@@ -304,7 +304,7 @@
        :url      pending-url})
     nil))
 
-(rf/reg-event-fx ::concurrent-by-actor
+(rf/reg-event ::concurrent-by-actor
   {:doc "Issue TWO requests under the SAME actor-id so the actor-in-flight
          index carries both (Spec 014 §Abort on actor destroy)."}
   (fn [{:keys [db]} _ev]
@@ -326,7 +326,7 @@
     (http-managed/abort-on-actor-destroy actor-id)
     nil))
 
-(rf/reg-event-fx ::actor-teardown
+(rf/reg-event ::actor-teardown
   {:doc "Tear down actor-a: its in-flight requests outlive the actor and
          are aborted via abort-on-actor-destroy (:rf.http/aborted-on-
          actor-destroy). actor-b's slot is untouched."}
@@ -346,7 +346,7 @@
     (http-managed/clear-all-in-flight!)
     nil))
 
-(rf/reg-event-fx ::reset
+(rf/reg-event ::reset
   {:doc "Re-seed app-db (no step, idle, no reply, empty log) and clear the
          in-flight registries. Start clean."}
   (fn [_ctx _ev]

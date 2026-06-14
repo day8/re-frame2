@@ -689,11 +689,11 @@
             (try (vec (machines/machines))
                  (catch :default _ []))))))
 
-  (rf/reg-event-db :rf.xray/set-registered-machines-override-for-test
-    (fn [db [_ ov]]
-      (if (nil? ov)
+  (rf/reg-event :rf.xray/set-registered-machines-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov)
         (dissoc db :registered-machines-override)
-        (assoc db :registered-machines-override ov))))
+        (assoc db :registered-machines-override ov))}))
 
   ;; The live snapshots map for every registered machine.
   ;;
@@ -726,11 +726,11 @@
     (fn [db _query]
       (get db :machine-snapshots-override)))
 
-  (rf/reg-event-db :rf.xray/set-machine-snapshots-override-for-test
-    (fn [db [_ ov]]
-      (if (nil? ov)
+  (rf/reg-event :rf.xray/set-machine-snapshots-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov)
         (dissoc db :machine-snapshots-override)
-        (assoc db :machine-snapshots-override ov))))
+        (assoc db :machine-snapshots-override ov))}))
 
   ;; The registered-machine-definition map for every machine.
   (rf/reg-sub :rf.xray/machine-definitions-override
@@ -749,11 +749,11 @@
                           (when m [id m]))))
                 (or machines [])))))
 
-  (rf/reg-event-db :rf.xray/set-machine-definitions-override-for-test
-    (fn [db [_ ov]]
-      (if (nil? ov)
+  (rf/reg-event :rf.xray/set-machine-definitions-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov)
         (dissoc db :machine-definitions-override)
-        (assoc db :machine-definitions-override ov))))
+        (assoc db :machine-definitions-override ov))}))
 
   ;; The user's per-panel machine selection (kept as a slot for the
   ;; Sim engine + the Instances-jump focus landing; the share-URL
@@ -845,17 +845,17 @@
          :event-id event-id})))
 
   ;; Test-only overrides for the focused-event composite.
-  (rf/reg-event-db :rf.xray/set-epoch-history-for-test
-    (fn [db [_ history]]
-      (if (nil? history)
+  (rf/reg-event :rf.xray/set-epoch-history-for-test
+    (fn [{:keys [db]} [_ history]]
+      {:db (if (nil? history)
         (dissoc db :epoch-history)
-        (assoc db :epoch-history (vec history)))))
+        (assoc db :epoch-history (vec history)))}))
 
-  (rf/reg-event-db :rf.xray/set-focus-epoch-id-for-test
-    (fn [db [_ epoch-id]]
-      (if (nil? epoch-id)
+  (rf/reg-event :rf.xray/set-focus-epoch-id-for-test
+    (fn [{:keys [db]} [_ epoch-id]]
+      {:db (if (nil? epoch-id)
         (update db :focus dissoc :epoch-id)
-        (update db :focus (fnil assoc {}) :epoch-id epoch-id))))
+        (update db :focus (fnil assoc {}) :epoch-id epoch-id))}))
 
   ;; ---- Machine Inspector panel events -----------------------------
 
@@ -867,9 +867,9 @@
     (fn [{:keys [db]} _event]
       {:db (dissoc db :selected-machine-id)}))
 
-  (rf/reg-event-db :rf.xray/machine-state-clicked
-    (fn [db [_ _payload]]
-      db))
+  (rf/reg-event :rf.xray/machine-state-clicked
+    (fn [{:keys [db]} [_ _payload]]
+      {:db db}))
 
   (rf/reg-event :rf.xray/machine-chart-layout-pulse
     (fn [{:keys [db]} _event]
@@ -970,11 +970,11 @@
                         frame-id (assoc-in [:focus :frame] frame-id))))
 
                   :else (recur (step i))))))]
-    (rf/reg-event-db :rf.xray/machine-focus-prev
-      (fn [db _event] (step-focus db :prev)))
+    (rf/reg-event :rf.xray/machine-focus-prev
+      (fn [{:keys [db]} _event] {:db (step-focus db :prev)}))
 
-    (rf/reg-event-db :rf.xray/machine-focus-next
-      (fn [db _event] (step-focus db :next))))
+    (rf/reg-event :rf.xray/machine-focus-next
+      (fn [{:keys [db]} _event] {:db (step-focus db :next)})))
 
   ;; ---- scrubber-position slot ----------
 
@@ -988,9 +988,9 @@
     (fn [db _query]
       (get db :machine-inspector/scrubber-position :present)))
 
-  (rf/reg-event-db :rf.xray/set-scrubber-position
-    (fn [db [_ position]]
-      (cond
+  (rf/reg-event :rf.xray/set-scrubber-position
+    (fn [{:keys [db]} [_ position]]
+      {:db (cond
         (= :present position)
         (assoc db :machine-inspector/scrubber-position :present)
 
@@ -1000,7 +1000,7 @@
         (nil? position)
         (assoc db :machine-inspector/scrubber-position :present)
 
-        :else db)))
+        :else db)}))
 
   ;; ---- Sim engine ------------------------------------------------
   ;;

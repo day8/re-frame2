@@ -17,13 +17,13 @@
   Each entry's throw site is identical to the canonical testbed so
   the bug surface is preserved."
   []
-  (rf/reg-event-db :deliberate-throw/initialise
-    (fn [_db _ev]
-      {:click-count {:handler 0 :fx 0}}))
+  (rf/reg-event :deliberate-throw/initialise
+    (fn [{:keys [db]} _ev]
+      {:db {:click-count {:handler 0 :fx 0}}}))
 
   ;; Button A — synchronous throw in event handler
-  (rf/reg-event-db :deliberate-throw/throw-in-handler
-    (fn [_db _ev]
+  (rf/reg-event :deliberate-throw/throw-in-handler
+    (fn [_ _ev]
       (throw (ex-info "deliberate-throw / handler" {:where :handler}))))
 
   ;; Button B — throw inside fx body
@@ -31,7 +31,7 @@
     (fn [_frame-ctx _args]
       (throw (ex-info "deliberate-throw / fx" {:where :fx}))))
 
-  (rf/reg-event-fx :deliberate-throw/throw-in-fx
+  (rf/reg-event :deliberate-throw/throw-in-fx
     (fn [{:keys [db]} _ev]
       {:db (update-in db [:click-count :fx] inc)
        :fx [[:deliberate-throw/boom {}]]}))

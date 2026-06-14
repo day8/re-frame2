@@ -158,20 +158,20 @@
     (fn [{:keys [db]} [_ t]]
       {:db (assoc db :rings/now-ms (or t (.now js/Date)))}))
 
-  (rf/reg-event-db :rf.xray/timer-hover
-    (fn [db [_ payload]]
-      (if (nil? payload)
+  (rf/reg-event :rf.xray/timer-hover
+    (fn [{:keys [db]} [_ payload]]
+      {:db (if (nil? payload)
         (dissoc db :rings/hover)
-        (assoc db :rings/hover payload))))
+        (assoc db :rings/hover payload))}))
 
   ;; Test-only override for `now-ms` — the JVM helpers tests don't
   ;; need it (pure fn) but the CLJS test surface uses it to pin a
   ;; deterministic timestamp into the projection.
-  (rf/reg-event-db :rf.xray/set-now-ms-override-for-test
-    (fn [db [_ ov]]
-      (if (nil? ov)
+  (rf/reg-event :rf.xray/set-now-ms-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov)
         (dissoc db :rings/now-ms-override)
-        (assoc db :rings/now-ms-override ov)))))
+        (assoc db :rings/now-ms-override ov))})))
 
 ;; ---- rAF tick driver ----------------------------------------------------
 ;;

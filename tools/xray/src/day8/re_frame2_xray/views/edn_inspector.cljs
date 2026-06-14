@@ -324,17 +324,17 @@
 (rf/reg-sub widths-slot
   (fn [db _] (get db widths-slot)))
 
-(rf/reg-event-db :rf.xray.edn-inspector/set-width
-  (fn [db [_ mount-id width-px]]
-    (if (and (string? mount-id) (number? width-px) (pos? width-px))
+(rf/reg-event :rf.xray.edn-inspector/set-width
+  (fn [{:keys [db]} [_ mount-id width-px]]
+    {:db (if (and (string? mount-id) (number? width-px) (pos? width-px))
       (assoc-in db [widths-slot mount-id] (long width-px))
-      db)))
+      db)}))
 
-(rf/reg-event-db :rf.xray.edn-inspector/clear-width
-  (fn [db [_ mount-id]]
-    (if (and (string? mount-id) (some-> db (get widths-slot) (contains? mount-id)))
+(rf/reg-event :rf.xray.edn-inspector/clear-width
+  (fn [{:keys [db]} [_ mount-id]]
+    {:db (if (and (string? mount-id) (some-> db (get widths-slot) (contains? mount-id)))
       (update db widths-slot dissoc mount-id)
-      db)))
+      db)}))
 
 ;; =========================================================================
 ;; zoom-into-node + breadcrumb navigation (rf2-h71e0; gesture reworked rf2-zl4rs)
@@ -381,37 +381,37 @@
 (rf/reg-sub zoom-slot
   (fn [db _] (get db zoom-slot)))
 
-(rf/reg-event-db :rf.xray.edn-inspector/zoom-to
+(rf/reg-event :rf.xray.edn-inspector/zoom-to
   ;; Sets the zoom path for `[panel-id mount-id]` to `path`. An empty /
   ;; nil path clears the zoom (renders the full tree).
-  (fn [db [_ panel-id mount-id path]]
-    (let [k (zoom-key panel-id mount-id)
+  (fn [{:keys [db]} [_ panel-id mount-id path]]
+    {:db (let [k (zoom-key panel-id mount-id)
           p (vec path)]
       (if (seq p)
         (assoc-in db [zoom-slot k] p)
-        (update db zoom-slot dissoc k)))))
+        (update db zoom-slot dissoc k)))}))
 
-(rf/reg-event-db :rf.xray.edn-inspector/zoom-up
+(rf/reg-event :rf.xray.edn-inspector/zoom-up
   ;; Pop one segment off the zoom path. No-op when no zoom is active.
-  (fn [db [_ panel-id mount-id]]
-    (let [k        (zoom-key panel-id mount-id)
+  (fn [{:keys [db]} [_ panel-id mount-id]]
+    {:db (let [k        (zoom-key panel-id mount-id)
           current  (get-in db [zoom-slot k])
           popped   (when (seq current) (vec (butlast current)))]
       (cond
         (nil? current)   db
         (empty? popped)  (update db zoom-slot dissoc k)
-        :else            (assoc-in db [zoom-slot k] popped)))))
+        :else            (assoc-in db [zoom-slot k] popped)))}))
 
-(rf/reg-event-db :rf.xray.edn-inspector/zoom-reset
+(rf/reg-event :rf.xray.edn-inspector/zoom-reset
   ;; Clear the zoom for a specific mount. With no args (mount-unspecified)
   ;; clear the entire slot — used by the panel-level reset affordance.
-  (fn [db [_ panel-id mount-id]]
-    (cond
+  (fn [{:keys [db]} [_ panel-id mount-id]]
+    {:db (cond
       (and panel-id mount-id)
       (update db zoom-slot dissoc (zoom-key panel-id mount-id))
 
       :else
-      (dissoc db zoom-slot))))
+      (dissoc db zoom-slot))}))
 
 (defn resolve-zoom-path
   "Pure projection — given the per-render zoom map, return the zoom

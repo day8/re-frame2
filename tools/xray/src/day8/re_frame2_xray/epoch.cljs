@@ -105,14 +105,14 @@
   ;; A nil `frame-id` (the reset case) symmetrically clears the focus
   ;; slot's `:frame` — leaving it set to a stale value would re-introduce
   ;; the misalignment in the inverse direction.
-  (rf/reg-event-db :rf.xray/set-target-frame
-    (fn [db [_ frame-id]]
-      (let [target (or frame-id defaults/default-target-frame)]
+  (rf/reg-event :rf.xray/set-target-frame
+    (fn [{:keys [db]} [_ frame-id]]
+      {:db (let [target (or frame-id defaults/default-target-frame)]
         (cond-> (assoc db :epoch-history (vec (rf/epoch-history target)))
           (nil? frame-id)  (dissoc :target-frame)
           (nil? frame-id)  (update :focus (fnil dissoc {}) :frame)
           (some? frame-id) (assoc :target-frame frame-id)
-          (some? frame-id) (assoc-in [:focus :frame] frame-id)))))
+          (some? frame-id) (assoc-in [:focus :frame] frame-id)))}))
 
   ;; `:rf.xray/epoch-recorded` — dispatched from `preload/install-
   ;; epoch-listener!` whenever the framework records a new epoch on any
@@ -121,13 +121,13 @@
   ;; `:rf.trace/no-emit? true` — the dispatch must not itself emit a
   ;; trace event (the listener is part of Xray's instrumentation loop;
   ;; a self-emit would re-enter the listener).
-  (rf/reg-event-db :rf.xray/epoch-recorded
+  (rf/reg-event :rf.xray/epoch-recorded
     {:rf.trace/no-emit? true}
-    (fn [db [_ frame-id]]
-      (let [target (get db :target-frame defaults/default-target-frame)]
+    (fn [{:keys [db]} [_ frame-id]]
+      {:db (let [target (get db :target-frame defaults/default-target-frame)]
         (if (= frame-id target)
           (assoc db :epoch-history (vec (rf/epoch-history target)))
-          db))))
+          db))}))
 
   ;; `:rf.xray/sync-epoch-history` — wholesale overwrite of the
   ;; `:epoch-history` slot. Dispatched from `mount.cljs/open!` on first
@@ -162,14 +162,14 @@
   ;; auto-follow re-derives `:epoch-id` from the head cascade — that
   ;; path is unchanged; this stamp is the authoritative selection only
   ;; for history-only seeds (the standalone panel-gallery stories).
-  (rf/reg-event-db :rf.xray/sync-epoch-history
+  (rf/reg-event :rf.xray/sync-epoch-history
     {:rf.trace/no-emit? true}
-    (fn [db [_ history]]
-      (let [history    (vec history)
+    (fn [{:keys [db]} [_ history]]
+      {:db (let [history    (vec history)
             latest-id  (:epoch-id (peek history))]
         (cond-> (assoc db :epoch-history history)
           (some? latest-id) (assoc-in [:focus :epoch-id] latest-id)
-          (nil? latest-id)  (update :focus (fnil dissoc {}) :epoch-id)))))
+          (nil? latest-id)  (update :focus (fnil dissoc {}) :epoch-id)))}))
 
   ;; `:rf.xray/select-epoch` — spine shim (rf2-adve5). Writes the
   ;; spine's `[:focus :epoch-id]` slot — the single source of truth that

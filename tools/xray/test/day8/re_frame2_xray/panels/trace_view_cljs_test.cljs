@@ -897,10 +897,10 @@
 
 ;; A test-only event that pins :focus to an :epoch-id that's not in
 ;; history — exercises the :epoch-evicted classifier path.
-(rf/reg-event-db
+(rf/reg-event
   :day8.re-frame2-xray.panels.trace-view-cljs-test/seed-evicted-focus
-  (fn [db _event]
-    (assoc db :focus {:dispatch-id 999
+  (fn [{:keys [db]} _event]
+    {:db (assoc db :focus {:dispatch-id 999
                       :epoch-id    999
                       :mode        :retro
-                      :frame       nil})))
+                      :frame       nil})}))
