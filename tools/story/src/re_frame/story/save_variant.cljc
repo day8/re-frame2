@@ -537,7 +537,7 @@
   skip the registration."
   []
   (when config/enabled?
-    (rf/reg-event-fx
+    (rf/reg-event
       id-save-current-as-variant
       (fn [_cofx [_ opts]]
         (save-current-as-variant! opts)

@@ -1084,18 +1084,18 @@
   (when config/enabled?
     ;; Internal event-db handler used by `record!`. Appends a record to
     ;; the variant frame's [:rf.story/assertions] slot.
-    (rf/reg-event-db
+    (rf/reg-event
       ::append
-      (fn [db [_ record]]
-        (update db :rf.story/assertions (fnil conj []) record)))
+      (fn [{:keys [db]} [_ record]]
+        {:db (update db :rf.story/assertions (fnil conj []) record)}))
     ;; The seven canonical handlers.
-    (rf/reg-event-fx id-path-equals     (handler-for-evaluator id-path-equals     :path-equals))
-    (rf/reg-event-fx id-path-matches    (handler-for-evaluator id-path-matches    :path-matches))
-    (rf/reg-event-fx id-sub-equals      (handler-for-evaluator id-sub-equals      :sub-equals))
-    (rf/reg-event-fx id-dispatched      (handler-for-evaluator id-dispatched      :dispatched?))
-    (rf/reg-event-fx id-state-is        (handler-for-evaluator id-state-is        :state-is))
-    (rf/reg-event-fx id-no-warnings     (handler-for-evaluator id-no-warnings     :no-warnings))
-    (rf/reg-event-fx id-effect-emitted  (handler-for-evaluator id-effect-emitted  :effect-emitted))
+    (rf/reg-event id-path-equals     (handler-for-evaluator id-path-equals     :path-equals))
+    (rf/reg-event id-path-matches    (handler-for-evaluator id-path-matches    :path-matches))
+    (rf/reg-event id-sub-equals      (handler-for-evaluator id-sub-equals      :sub-equals))
+    (rf/reg-event id-dispatched      (handler-for-evaluator id-dispatched      :dispatched?))
+    (rf/reg-event id-state-is        (handler-for-evaluator id-state-is        :state-is))
+    (rf/reg-event id-no-warnings     (handler-for-evaluator id-no-warnings     :no-warnings))
+    (rf/reg-event id-effect-emitted  (handler-for-evaluator id-effect-emitted  :effect-emitted))
     nil))
 
 ;; ---------------------------------------------------------------------------

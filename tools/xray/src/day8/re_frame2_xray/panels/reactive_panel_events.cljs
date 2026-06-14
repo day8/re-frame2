@@ -9,11 +9,11 @@
 
 (defn install!
   []
-  (rf/reg-event-db :rf.xray/reactive-toggle-unchanged
-    (fn [db _]
-      (update db :reactive/show-unchanged? not)))
+  (rf/reg-event :rf.xray/reactive-toggle-unchanged
+    (fn [{:keys [db]} _]
+      {:db (update db :reactive/show-unchanged? not)}))
 
-  (rf/reg-event-db :rf.xray/reactive-set-unchanged
-    (fn [db [_ v?]]
-      (assoc db :reactive/show-unchanged? (boolean v?))))
+  (rf/reg-event :rf.xray/reactive-set-unchanged
+    (fn [{:keys [db]} [_ v?]]
+      {:db (assoc db :reactive/show-unchanged? (boolean v?))}))
   nil)

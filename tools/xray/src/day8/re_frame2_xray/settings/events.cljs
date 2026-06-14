@@ -55,9 +55,9 @@
   with a sentinel so re-loads do not re-install."
   []
 
-  (rf/reg-event-db :rf.xray/settings-open
-    (fn [db _event]
-      (-> db
+  (rf/reg-event :rf.xray/settings-open
+    (fn [{:keys [db]} _event]
+      {:db (-> db
           (assoc :settings-open? true)
           (assoc :settings-active-tab :general)
           ;; Lift the current atom snapshot into app-db so the
@@ -66,11 +66,11 @@
           ;; first render reads from the atom via the
           ;; `:rf.xray/setting` sub's fallback — works, but later
           ;; updates wouldn't propagate without a re-render trigger.
-          (assoc :settings (config/get-settings)))))
+          (assoc :settings (config/get-settings)))}))
 
-  (rf/reg-event-db :rf.xray/settings-close
-    (fn [db _event]
-      (assoc db :settings-open? false)))
+  (rf/reg-event :rf.xray/settings-close
+    (fn [{:keys [db]} _event]
+      {:db (assoc db :settings-open? false)}))
 
   (rf/reg-event-db :rf.xray/settings-toggle
     (fn [db _event]
@@ -81,9 +81,9 @@
             (assoc :settings-active-tab :general)
             (assoc :settings (config/get-settings))))))
 
-  (rf/reg-event-db :rf.xray/settings-select-tab
-    (fn [db [_ tab-id]]
-      (assoc db :settings-active-tab tab-id)))
+  (rf/reg-event :rf.xray/settings-select-tab
+    (fn [{:keys [db]} [_ tab-id]]
+      {:db (assoc db :settings-active-tab tab-id)}))
 
   ;; Write a single setting. Dual-write: the atom (canonical, drives
   ;; localStorage round-trip) and app-db (drives the immediate
@@ -171,13 +171,13 @@
   ;; The button opens a nested confirmation dialog before clearing the
   ;; ring buffer; the dialog tracks its open state under
   ;; `:settings-clear-confirm-open?`.
-  (rf/reg-event-db :rf.xray/settings-confirm-clear-buffer
-    (fn [db _event]
-      (assoc db :settings-clear-confirm-open? true)))
+  (rf/reg-event :rf.xray/settings-confirm-clear-buffer
+    (fn [{:keys [db]} _event]
+      {:db (assoc db :settings-clear-confirm-open? true)}))
 
-  (rf/reg-event-db :rf.xray/settings-cancel-clear-buffer
-    (fn [db _event]
-      (assoc db :settings-clear-confirm-open? false)))
+  (rf/reg-event :rf.xray/settings-cancel-clear-buffer
+    (fn [{:keys [db]} _event]
+      {:db (assoc db :settings-clear-confirm-open? false)}))
 
   ;; rf2-ttnst (rf2-43koh consumer substrate) — perform the clear.
   ;; `trace-collector/retroactive-scrub!` empties the framework's
@@ -185,9 +185,9 @@
   ;; mirrored `:trace-buffer` slot, and drops the redaction counter.
   ;; We dismiss the confirm modal here; the parent Settings popup
   ;; stays open so the user lands back on the Buffer tab.
-  (rf/reg-event-db :rf.xray/settings-clear-buffer
-    (fn [db _event]
+  (rf/reg-event :rf.xray/settings-clear-buffer
+    (fn [{:keys [db]} _event]
       (try (trace-collector/retroactive-scrub!) (catch :default _ nil))
-      (assoc db :settings-clear-confirm-open? false)))
+      {:db (assoc db :settings-clear-confirm-open? false)}))
 
   nil)

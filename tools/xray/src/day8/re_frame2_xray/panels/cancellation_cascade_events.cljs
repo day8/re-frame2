@@ -33,25 +33,25 @@
 
   ;; ---- popover open / close --------------------------------------------
 
-  (rf/reg-event-db :rf.xray/cancellation-cascade-open
-    (fn [db [_ focus]]
-      (-> db
+  (rf/reg-event :rf.xray/cancellation-cascade-open
+    (fn [{:keys [db]} [_ focus]]
+      {:db (-> db
           (assoc :cancellation-cascade-popover-open? true)
-          (assoc :cancellation-cascade-popover-focus focus))))
+          (assoc :cancellation-cascade-popover-focus focus))}))
 
-  (rf/reg-event-db :rf.xray/cancellation-cascade-close
-    (fn [db _event]
-      (assoc db :cancellation-cascade-popover-open? false)))
+  (rf/reg-event :rf.xray/cancellation-cascade-close
+    (fn [{:keys [db]} _event]
+      {:db (assoc db :cancellation-cascade-popover-open? false)}))
 
   ;; ---- show-all / collapse toggle --------------------------------------
 
-  (rf/reg-event-db :rf.xray/cancellation-cascade-toggle-expand
-    (fn [db _event]
-      (update db :cancellation-cascade-expanded? not)))
+  (rf/reg-event :rf.xray/cancellation-cascade-toggle-expand
+    (fn [{:keys [db]} _event]
+      {:db (update db :cancellation-cascade-expanded? not)}))
 
-  (rf/reg-event-db :rf.xray/cancellation-cascade-set-expanded
-    (fn [db [_ expanded?]]
-      (assoc db :cancellation-cascade-expanded? (boolean expanded?))))
+  (rf/reg-event :rf.xray/cancellation-cascade-set-expanded
+    (fn [{:keys [db]} [_ expanded?]]
+      {:db (assoc db :cancellation-cascade-expanded? (boolean expanded?))}))
 
   ;; ---- focus-trace-entry: row-click jump --------------------------------
   ;;
@@ -60,7 +60,7 @@
   ;; (when the trace event was emitted during a drain); we delegate into
   ;; the legacy spine shim `:rf.xray/select-dispatch-id` so the
   ;; existing event-detail panel takes the focus pivot.
-  (rf/reg-event-fx :rf.xray/focus-trace-entry
+  (rf/reg-event :rf.xray/focus-trace-entry
     (fn [_ctx [_ {:keys [dispatch-id frame trace-id]}]]
       ;; trace-id rides through for the future per-event focus surface
       ;; (rf2-pending event-row direct focus); today the dispatch-id is

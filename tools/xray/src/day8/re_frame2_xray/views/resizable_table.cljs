@@ -242,13 +242,13 @@
     (fn [db [_ table-id left-id left-px right-id right-px]]
       (write-pair db table-id left-id left-px right-id right-px)))
 
-  (rf/reg-event-fx :rf.xray.column-widths/resize-pair-commit
+  (rf/reg-event :rf.xray.column-widths/resize-pair-commit
     {:rf.trace/no-emit? true}
     (fn [{:keys [db]} _]
       {:fx [[:rf.xray.column-widths/persist
              (get db :rf.xray/column-widths)]]}))
 
-  (rf/reg-event-fx :rf.xray.column-widths/reset
+  (rf/reg-event :rf.xray.column-widths/reset
     {:rf.trace/no-emit? true}
     (fn [{:keys [db]} [_ table-id]]
       (let [next-db (update db :rf.xray/column-widths dissoc table-id)]
@@ -262,10 +262,10 @@
   ;; source produces the same slot. `:rf.trace/no-emit?` mirrors the
   ;; other hydrate handlers (the hydrate dispatch is a load-time
   ;; orchestration step, not a user-facing event).
-  (rf/reg-event-db :rf.xray.column-widths/hydrate
+  (rf/reg-event :rf.xray.column-widths/hydrate
     {:rf.trace/no-emit? true}
-    (fn [db [_ widths]]
-      (assoc db :rf.xray/column-widths (or widths {})))))
+    (fn [{:keys [db]} [_ widths]]
+      {:db (assoc db :rf.xray/column-widths (or widths {}))})))
 
 ;; ---- hydration ----------------------------------------------------------
 

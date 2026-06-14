@@ -625,7 +625,7 @@
   ;; epoch reads. nil clears the view scope back to its head-frame
   ;; default. Persist fx is retained (the data layer); init does not
   ;; restore it (rf2-swclw — frame is transient).
-  (rf/reg-event-fx :rf.xray/select-frame
+  (rf/reg-event :rf.xray/select-frame
     (fn [{:keys [db]} [_ frame-id]]
       {:db (if (some? frame-id)
              (assoc db :view-scope-frame frame-id)

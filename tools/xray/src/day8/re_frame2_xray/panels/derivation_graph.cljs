@@ -394,9 +394,9 @@
   runtime-db decoupled; it dispatches nothing and pins nothing."
   []
   ;; ---- mode toggle ------------------------------------------------------
-  (rf/reg-event-db :rf.xray/set-derivation-graph-mode
-    (fn [db [_ mode]]
-      (assoc db :derivation-graph-mode (if (#{:static :live} mode) mode :static))))
+  (rf/reg-event :rf.xray/set-derivation-graph-mode
+    (fn [{:keys [db]} [_ mode]]
+      {:db (assoc db :derivation-graph-mode (if (#{:static :live} mode) mode :static))}))
 
   (rf/reg-sub :rf.xray/derivation-graph-mode
     (fn [db _] (get db :derivation-graph-mode :static)))

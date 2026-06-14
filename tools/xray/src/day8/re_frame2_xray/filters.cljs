@@ -276,9 +276,9 @@
   ;; so 'click pill → edit' arrives pre-populated and 'right-click
   ;; row → add' arrives with the event-id pre-filled.
 
-  (rf/reg-event-db :rf.xray/open-edit-popup
-    (fn [db [_ {:keys [source mode idx pill] :as trigger}]]
-      (let [draft (-> (edit-popup/pill->draft (or pill {}))
+  (rf/reg-event :rf.xray/open-edit-popup
+    (fn [{:keys [db]} [_ {:keys [source mode idx pill] :as trigger}]]
+      {:db (let [draft (-> (edit-popup/pill->draft (or pill {}))
                       (assoc :mode (or mode :in)))]
         (-> db
             (assoc :edit-popup-open? true)
@@ -287,21 +287,21 @@
                     :mode   (or mode :in)
                     :idx    idx
                     :pill   pill})
-            (assoc :edit-popup-draft draft)))))
+            (assoc :edit-popup-draft draft)))}))
 
   (rf/reg-event-db :rf.xray/close-edit-popup
     (fn [db _event]
       (close-popup db)))
 
-  (rf/reg-event-db :rf.xray/edit-popup-set-mode
+  (rf/reg-event :rf.xray/edit-popup-set-mode
     {:rf.trace/no-emit? true}
-    (fn [db [_ mode]]
-      (assoc-in db [:edit-popup-draft :mode] mode)))
+    (fn [{:keys [db]} [_ mode]]
+      {:db (assoc-in db [:edit-popup-draft :mode] mode)}))
 
-  (rf/reg-event-db :rf.xray/edit-popup-set-pattern
+  (rf/reg-event :rf.xray/edit-popup-set-pattern
     {:rf.trace/no-emit? true}
-    (fn [db [_ pattern]]
-      (assoc-in db [:edit-popup-draft :pattern] (or pattern ""))))
+    (fn [{:keys [db]} [_ pattern]]
+      {:db (assoc-in db [:edit-popup-draft :pattern] (or pattern ""))}))
 
   ;; ---- events: save / delete -------------------------------------------
   ;;
@@ -310,7 +310,7 @@
   ;; persist` fx so the post-mutation slot lands in localStorage in
   ;; one place (no fx-per-handler duplication).
 
-  (rf/reg-event-fx :rf.xray/save-edit-popup
+  (rf/reg-event :rf.xray/save-edit-popup
     (fn [{:keys [db]} _event]
       (let [draft  (get db :edit-popup-draft)
             trig   (get db :edit-popup-trigger)
@@ -355,7 +355,7 @@
             {:db final-db
              :fx [[:rf.xray.filters/persist (get final-db :active-filters)]]})))))
 
-  (rf/reg-event-fx :rf.xray/delete-edit-popup
+  (rf/reg-event :rf.xray/delete-edit-popup
     (fn [{:keys [db]} _event]
       (let [trig (get db :edit-popup-trigger)
             mode (:mode trig)
@@ -391,7 +391,7 @@
   ;; `:active-filters` slot + persist fx); the mute reset routes through
   ;; its owning event via `:dispatch` so its persistence /
   ;; instrumentation stays in one place.
-  (rf/reg-event-fx :rf.xray/clear-all-filters
+  (rf/reg-event :rf.xray/clear-all-filters
     (fn [{:keys [db]} _event]
       (let [cleared {:in [] :out []}]
         {:db (assoc db :active-filters cleared)
@@ -408,16 +408,16 @@
   ;; than silently appending — the user sees what's about to land in
   ;; the OUT bucket and can cancel.
 
-  (rf/reg-event-db :rf.xray/hide-event-type
-    (fn [db [_ event-id]]
-      (let [pill {:pattern (when event-id (str event-id))}]
+  (rf/reg-event :rf.xray/hide-event-type
+    (fn [{:keys [db]} [_ event-id]]
+      {:db (let [pill {:pattern (when event-id (str event-id))}]
         (-> db
             (assoc :edit-popup-open? true)
             (assoc :edit-popup-trigger
                    {:source :context :mode :out :pill pill})
             (assoc :edit-popup-draft
                    (-> (edit-popup/pill->draft pill)
-                       (assoc :mode :out)))))))
+                       (assoc :mode :out)))))}))
 
   ;; ---- typed-predicate add events (rf2-piye4) -------------------------
   ;;
@@ -432,14 +432,14 @@
   ;; collapses to a no-op so multiple right-click → add chains don't
   ;; pile up redundant pills.
 
-  (rf/reg-event-fx :rf.xray/filter-by-machine
+  (rf/reg-event :rf.xray/filter-by-machine
     (fn [{:keys [db]} [_ machine-id]]
       (let [pill    {:kind :machine :params {:machine-id machine-id}}
             next-db (append-typed-pill db :in pill)]
         {:db next-db
          :fx [[:rf.xray.filters/persist (get next-db :active-filters)]]})))
 
-  (rf/reg-event-fx :rf.xray/filter-by-http-correlation
+  (rf/reg-event :rf.xray/filter-by-http-correlation
     (fn [{:keys [db]} [_ correlation-id]]
       (let [pill    {:kind :http-correlation
                      :params {:correlation-id correlation-id}}
@@ -447,7 +447,7 @@
         {:db next-db
          :fx [[:rf.xray.filters/persist (get next-db :active-filters)]]})))
 
-  (rf/reg-event-fx :rf.xray/filter-by-fx
+  (rf/reg-event :rf.xray/filter-by-fx
     (fn [{:keys [db]} [_ fx-id]]
       (let [pill    {:kind :fx :params {:fx-id fx-id}}
             next-db (append-typed-pill db :in pill)]
@@ -456,11 +456,11 @@
 
   ;; ---- load: hydrate from localStorage --------------------------------
 
-  (rf/reg-event-db :rf.xray/hydrate-filters
+  (rf/reg-event :rf.xray/hydrate-filters
     {:rf.trace/no-emit? true}
-    (fn [db [_ filters]]
-      (assoc db :active-filters
-                (or filters {:in [] :out []}))))
+    (fn [{:keys [db]} [_ filters]]
+      {:db (assoc db :active-filters
+                (or filters {:in [] :out []}))}))
 
   ;; NO hydrate on install (rf2-swclw). The IN/OUT pills are a TRANSIENT
   ;; exploration filter — they reset to unfiltered on every page load so

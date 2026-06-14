@@ -214,10 +214,10 @@
       (fn [db _query]
         (get db :modal-positioning :fixed)))
 
-    (rf/reg-event-db :rf.xray/set-modal-positioning
+    (rf/reg-event :rf.xray/set-modal-positioning
       {:rf.trace/no-emit? true}
-      (fn [db [_ positioning]]
-        (assoc db :modal-positioning (or positioning :fixed))))
+      (fn [{:keys [db]} [_ positioning]]
+        {:db (assoc db :modal-positioning (or positioning :fixed))}))
 
     ;; ---- Panel width (rf2-x8h9y horizontal resize handle) -------
     ;;
@@ -247,10 +247,10 @@
             (config/get-setting :general :panel-width-px)
             config/default-panel-width-px)))
 
-    (rf/reg-event-db :rf.xray/set-panel-width-px
+    (rf/reg-event :rf.xray/set-panel-width-px
       {:rf.trace/no-emit? true}
-      (fn [db [_ px]]
-        (let [viewport (or (when (exists? js/window)
+      (fn [{:keys [db]} [_ px]]
+        {:db (let [viewport (or (when (exists? js/window)
                              (.-innerWidth js/window))
                            2000)
               clamped  (config/clamp-panel-width-px px viewport)]
@@ -260,14 +260,14 @@
           ;; layout host's `flex-basis` re-evaluates this paint.
           (config/update-setting! :general :panel-width-px clamped)
           (settings-effects/apply-panel-width! clamped)
-          (assoc-in db [:settings :general :panel-width-px] clamped))))
+          (assoc-in db [:settings :general :panel-width-px] clamped))}))
 
     ;; Reset to default — bound to the resize handle's double-click.
     ;; Routes through the same write surface so persistence + DOM
     ;; cascade stay consistent. Separate event id so the palette /
     ;; key-binding affordance can wire to it without re-implementing
     ;; the clamp + persist logic.
-    (rf/reg-event-fx :rf.xray/reset-panel-width
+    (rf/reg-event :rf.xray/reset-panel-width
       {:rf.trace/no-emit? true}
       (fn [_ _event]
         {:fx [[:dispatch [:rf.xray/set-panel-width-px
@@ -299,10 +299,10 @@
             (config/get-setting :general :events-list-height-px)
             config/default-events-list-height-px)))
 
-    (rf/reg-event-db :rf.xray/set-events-list-height-px
+    (rf/reg-event :rf.xray/set-events-list-height-px
       {:rf.trace/no-emit? true}
-      (fn [db [_ px]]
-        (let [viewport (or (when (exists? js/window)
+      (fn [{:keys [db]} [_ px]]
+        {:db (let [viewport (or (when (exists? js/window)
                              (.-innerHeight js/window))
                            1000)
               clamped  (config/clamp-events-list-height-px px viewport)]
@@ -310,12 +310,12 @@
           ;; (config atom drives localStorage round-trip; app-db slot
           ;; drives reactive re-render).
           (config/update-setting! :general :events-list-height-px clamped)
-          (assoc-in db [:settings :general :events-list-height-px] clamped))))
+          (assoc-in db [:settings :general :events-list-height-px] clamped))}))
 
     ;; Reset to default — bound to the seam handle's double-click +
     ;; Enter/Space keyboard binding. Routes through the same write
     ;; surface so persistence stays consistent.
-    (rf/reg-event-fx :rf.xray/reset-events-list-height
+    (rf/reg-event :rf.xray/reset-events-list-height
       {:rf.trace/no-emit? true}
       (fn [_ _event]
         {:fx [[:dispatch [:rf.xray/set-events-list-height-px
@@ -366,7 +366,7 @@
     ;; double-click and to the Enter/Space keyboard affordance.
     ;; Routes through the same write surface so persistence stays
     ;; consistent.
-    (rf/reg-event-fx :rf.xray/reset-event-list-col-width
+    (rf/reg-event :rf.xray/reset-event-list-col-width
       {:rf.trace/no-emit? true}
       (fn [_ [_ col-id]]
         (when-let [default-px (get config/event-list-col-default-widths col-id)]
@@ -509,13 +509,13 @@
     ;; focus back to LIVE (head-tracking) per the rf2-s0s5x Phase A
     ;; semantics. Relocated from event_detail.cljs alongside the
     ;; select event above (rf2-5gl5r).
-    (rf/reg-event-db :rf.xray/clear-selected-dispatch-id
-      (fn [db _event]
-        (update db :focus (fnil assoc {})
+    (rf/reg-event :rf.xray/clear-selected-dispatch-id
+      (fn [{:keys [db]} _event]
+        {:db (update db :focus (fnil assoc {})
                 :dispatch-id nil
                 :epoch-id    nil
                 :mode        :live
-                :previewing? false)))
+                :previewing? false)}))
 
     ;; ---- L2 relative-time anchor (rf2-vbbq0 / rf2-0s2at) ----------
     ;;
@@ -640,14 +640,14 @@
       (fn [db _query]
         (get db :rf.xray.static/selected-tab static-shell/default-tab)))
 
-    (rf/reg-event-fx :rf.xray/set-mode
+    (rf/reg-event :rf.xray/set-mode
       (fn [{:keys [db]} [_ mode]]
         (let [next-mode (static-persistence/normalise-mode mode)
               next-db   (assoc db :mode next-mode)]
           {:db next-db
            :fx [[:rf.xray.static/persist-mode next-mode]]})))
 
-    (rf/reg-event-fx :rf.xray/toggle-mode
+    (rf/reg-event :rf.xray/toggle-mode
       (fn [{:keys [db]} _event]
         (let [current  (static-persistence/normalise-mode (get db :mode :dynamic))
               next-mode (if (= current :static) :dynamic :static)
@@ -680,13 +680,13 @@
     ;; same slot but threads through the popup's draft. Both surfaces
     ;; share the `:rf.xray.filters/persist` fx so every mutation
     ;; round-trips to localStorage in one place (rf2-ak4ms).
-    (rf/reg-event-fx :rf.xray/add-filter
+    (rf/reg-event :rf.xray/add-filter
       (fn [{:keys [db]} [_ mode pill]]
         (let [next-db (update-in db [:active-filters mode] (fnil conj []) pill)]
           {:db next-db
            :fx [[:rf.xray.filters/persist (get next-db :active-filters)]]})))
 
-    (rf/reg-event-fx :rf.xray/remove-filter
+    (rf/reg-event :rf.xray/remove-filter
       (fn [{:keys [db]} [_ mode idx]]
         (let [next-db
               (update-in db [:active-filters mode]
@@ -705,19 +705,19 @@
     ;; `mount/popout!` — the event/fx bridge keeps shell.cljs free of a
     ;; direct mount require (mirrors the close-shell bridge below). The
     ;; programmatic `(xray/popout!)` API remains the secondary path.
-    (rf/reg-event-db :rf.xray/open-settings
-      (fn [db _event]
+    (rf/reg-event :rf.xray/open-settings
+      (fn [{:keys [db]} _event]
         ;; Settings popup lands behind rf2-pending-settings-modal.
-        (assoc db :settings-open? true)))
+        {:db (assoc db :settings-open? true)}))
 
-    (rf/reg-event-fx :rf.xray/popout-shell
+    (rf/reg-event :rf.xray/popout-shell
       (fn [_cofx _event]
         ;; rf2-czcg5 — open the second-window pop-out via the DOM-side
         ;; effect. No db change: the pop-out is a sibling mount surface,
         ;; not a reactive flag.
         {:fx [[:rf.xray.fx/popout-shell]]}))
 
-    (rf/reg-event-fx :rf.xray/close-shell
+    (rf/reg-event :rf.xray/close-shell
       (fn [{:keys [db]} _event]
         ;; Close intent (rf2-fq491). Two outcomes, kept in lock-step:
         ;;   :db  — set the reactive `:close-requested?` flag so the
@@ -760,10 +760,10 @@
     ;; per-frame rings + Xray's frameless secondary ring (dispatched
     ;; from `trace-collector/retroactive-scrub!`). Per rf2-qsjda the
     ;; `:rf.trace/no-emit?` flag avoids re-entering the trace fan-out.
-    (rf/reg-event-db :rf.xray/clear-trace-buffer
+    (rf/reg-event :rf.xray/clear-trace-buffer
       {:rf.trace/no-emit? true}
-      (fn [db _event]
-        (dissoc db :trace-buffer)))
+      (fn [{:keys [db]} _event]
+        {:db (dissoc db :trace-buffer)}))
 
     ;; Wholesale overwrite of the mirrored slot. Dispatched from
     ;; `mount.cljs/open!` on first Ctrl+Shift+C to seed `:rf/xray`'s
@@ -772,10 +772,10 @@
     ;; opened, and from `trace-collector/refresh-trace-rings!` /
     ;; `request-mirror-sync!` on every microtask. Per rf2-qsjda
     ;; `:rf.trace/no-emit? true` for the same loop-avoidance reason.
-    (rf/reg-event-db :rf.xray/sync-trace-buffer
+    (rf/reg-event :rf.xray/sync-trace-buffer
       {:rf.trace/no-emit? true}
-      (fn [db [_ buffer]]
-        (assoc db :trace-buffer (vec buffer))))
+      (fn [{:keys [db]} [_ buffer]]
+        {:db (assoc db :trace-buffer (vec buffer))}))
 
     ;; Bump the per-frame suppressed-events counter (rf2-0vxdn).
     ;; Dispatched from `trace-collector/collect-trace!` (CLJS) under
@@ -795,11 +795,11 @@
     ;; short-circuits emission at the `emit!` / `emit-error!` /
     ;; `emit-dispatched-trace!` gates — the predecessor Xray-side
     ;; `self-emitted?` guard (rf2-nk01x) is obsolete.
-    (rf/reg-event-db :rf.xray/note-sensitive-suppressed
+    (rf/reg-event :rf.xray/note-sensitive-suppressed
       {:rf.trace/no-emit? true}
-      (fn [db [_ frame-id]]
-        (update-in db [:suppressed-counters (or frame-id :global)]
-                   (fnil inc 0))))
+      (fn [{:keys [db]} [_ frame-id]]
+        {:db (update-in db [:suppressed-counters (or frame-id :global)]
+                   (fnil inc 0))}))
 
     ;; Reset the suppressed-events counter (rf2-0vxdn). With no arg,
     ;; clears every bucket; with a `frame-id`, drops just that bucket.

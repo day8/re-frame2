@@ -402,10 +402,10 @@
   `install-helpers!` (rf2-152jq inline rename)."
   []
   (when config/enabled?
-    (rf/reg-event-db
+    (rf/reg-event
       ::append-assertion
-      (fn [db [_ record]]
-        (update db :rf.story/assertions (fnil conj []) record)))
+      (fn [{:keys [db]} [_ record]]
+        {:db (update db :rf.story/assertions (fnil conj []) record)}))
     ;; rf2-blw1q — the `:db-seed` direct app-db seed. Merges the resolved
     ;; `{path → value}` seed map into the frame's app-db via `assoc-in`
     ;; (a top-level keyword path is normalised to a 1-element vector), the

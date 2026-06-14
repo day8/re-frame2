@@ -293,22 +293,22 @@
           (assoc :palette-query (or text ""))
           (reset-cursor))))
 
-  (rf/reg-event-db :rf.xray/palette-cursor-up
+  (rf/reg-event :rf.xray/palette-cursor-up
     {:rf.trace/no-emit? true}
-    (fn [db _event]
-      (update db :palette-cursor #(max 0 (dec (or % 0))))))
+    (fn [{:keys [db]} _event]
+      {:db (update db :palette-cursor #(max 0 (dec (or % 0))))}))
 
-  (rf/reg-event-db :rf.xray/palette-cursor-down
+  (rf/reg-event :rf.xray/palette-cursor-down
     {:rf.trace/no-emit? true}
-    (fn [db [_ max-idx]]
-      (update db :palette-cursor
+    (fn [{:keys [db]} [_ max-idx]]
+      {:db (update db :palette-cursor
               (fn [c]
-                (min (or max-idx 0) (inc (or c 0)))))))
+                (min (or max-idx 0) (inc (or c 0)))))}))
 
-  (rf/reg-event-db :rf.xray/palette-cursor-set
+  (rf/reg-event :rf.xray/palette-cursor-set
     {:rf.trace/no-emit? true}
-    (fn [db [_ idx]]
-      (assoc db :palette-cursor (max 0 (or idx 0)))))
+    (fn [{:keys [db]} [_ idx]]
+      {:db (assoc db :palette-cursor (max 0 (or idx 0)))}))
 
   ;; ---- invoke -----------------------------------------------------------
   ;;
@@ -317,7 +317,7 @@
   ;; tuple into the appropriate Xray-side dispatch (or mount-layer
   ;; side effect) and closes the palette.
 
-  (rf/reg-event-fx :rf.xray/palette-invoke
+  (rf/reg-event :rf.xray/palette-invoke
     (fn [{:keys [db]} [_ item popout?]]
       (let [[verb & args]    (:action item)
             ;; rf2-ybjkx — record recents for `:command` source items

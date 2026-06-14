@@ -514,10 +514,10 @@
             (assoc-in d (if (vector? path) path [path]) v))
           db
           patch)))
-    (rf/reg-event-db
+    (rf/reg-event
       ::append-teardown-assertion
-      (fn [db [_ record]]
-        (update db :rf.story/assertions (fnil conj []) record)))))
+      (fn [{:keys [db]} [_ record]]
+        {:db (update db :rf.story/assertions (fnil conj []) record)}))))
 
 ;; ---- allocation -----------------------------------------------------------
 

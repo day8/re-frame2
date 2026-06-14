@@ -120,18 +120,18 @@
     (fn [db _query]
       (get db :epoch-panel-expanded-rows #{})))
 
-  (rf/reg-event-db :rf.xray.epoch/toggle-row-expand
-    (fn [db [_ step-kw row-id]]
-      (let [k (vector step-kw row-id)
+  (rf/reg-event :rf.xray.epoch/toggle-row-expand
+    (fn [{:keys [db]} [_ step-kw row-id]]
+      {:db (let [k (vector step-kw row-id)
             current (get db :epoch-panel-expanded-rows #{})]
         (assoc db :epoch-panel-expanded-rows
                (if (contains? current k)
                  (disj current k)
-                 (conj current k))))))
+                 (conj current k))))}))
 
-  (rf/reg-event-db :rf.xray.epoch/clear-row-expand
-    (fn [db _event]
-      (dissoc db :epoch-panel-expanded-rows)))
+  (rf/reg-event :rf.xray.epoch/clear-row-expand
+    (fn [{:keys [db]} _event]
+      {:db (dissoc db :epoch-panel-expanded-rows)}))
 
   ;; ---- SUBSCRIPTIONS [all][changed][unchanged] filter (rf2-tzmmf) ------
   ;;
@@ -157,9 +157,9 @@
     (fn [db _query]
       (get db :epoch-panel-subs-filter-mode :changed)))
 
-  (rf/reg-event-db :rf.xray.epoch/set-subs-filter-mode
-    (fn [db [_ mode]]
-      (assoc db :epoch-panel-subs-filter-mode mode)))
+  (rf/reg-event :rf.xray.epoch/set-subs-filter-mode
+    (fn [{:keys [db]} [_ mode]]
+      {:db (assoc db :epoch-panel-subs-filter-mode mode)}))
 
   ;; ---- HANDLER :db + SUBSCRIPTIONS value rendering ---------------------
   ;;

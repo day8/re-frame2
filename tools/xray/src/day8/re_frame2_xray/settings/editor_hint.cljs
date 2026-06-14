@@ -56,20 +56,20 @@
   from `registry/register-xray-handlers!` (gated by the orchestrator's
   sentinel)."
   []
-  (rf/reg-event-db :rf.xray/editor-hint-show
-    (fn [db _event]
-      (assoc db :editor-hint-open? true)))
+  (rf/reg-event :rf.xray/editor-hint-show
+    (fn [{:keys [db]} _event]
+      {:db (assoc db :editor-hint-open? true)}))
 
-  (rf/reg-event-db :rf.xray/editor-hint-dismiss
-    (fn [db _event]
-      (assoc db :editor-hint-open? false)))
+  (rf/reg-event :rf.xray/editor-hint-dismiss
+    (fn [{:keys [db]} _event]
+      {:db (assoc db :editor-hint-open? false)}))
 
   ;; Open the Settings popup on the General tab (where the editor
   ;; picker lives) and dismiss the toast in the same reduce. The
   ;; `:rf.xray/settings-open` handler already resets the active tab to
   ;; `:general` and seeds the settings snapshot, so opening it lands
   ;; the operator directly on the editor picker.
-  (rf/reg-event-fx :rf.xray/editor-hint-open-settings
+  (rf/reg-event :rf.xray/editor-hint-open-settings
     (fn [{:keys [db]} _event]
       {:db (assoc db :editor-hint-open? false)
        :fx [[:dispatch [:rf.xray/settings-open]]]}))

@@ -103,13 +103,13 @@
 ;; ---- events --------------------------------------------------------------
 
 (defn install-events! []
-  (rf/reg-event-db :rf.xray/open-segment-inspector
-    (fn [db [_ path]]
-      (assoc db :segment-inspector {:path (vec path)})))
+  (rf/reg-event :rf.xray/open-segment-inspector
+    (fn [{:keys [db]} [_ path]]
+      {:db (assoc db :segment-inspector {:path (vec path)})}))
 
-  (rf/reg-event-db :rf.xray/close-segment-inspector
-    (fn [db _]
-      (dissoc db :segment-inspector))))
+  (rf/reg-event :rf.xray/close-segment-inspector
+    (fn [{:keys [db]} _]
+      {:db (dissoc db :segment-inspector)})))
 
 ;; ---- styles --------------------------------------------------------------
 ;;
