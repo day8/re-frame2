@@ -46,7 +46,7 @@
 (defn- reg-marker
   "Register a no-op event handler that records its id into `run-log`."
   [id]
-  (rf/reg-event-fx id (fn [_ _] (log! id) {})))
+  (rf/reg-event id (fn [_ _] (log! id) {})))
 
 ;; ---- (1) flagged dispatch leap-frogs a pending external event -------------
 
@@ -59,7 +59,7 @@
     ;; Seed handler enqueues an EXTERNAL event first, THEN a machine-
     ;; internal continuation. Arrival order is [:ext :cont]; FIFO would
     ;; run :ext before :cont, but front-of-queue must run :cont first.
-    (rf/reg-event-fx :seed
+    (rf/reg-event :seed
       (fn [_ _]
         (log! :seed)
         (rf/dispatch* [:ext] {})
@@ -77,7 +77,7 @@
     (reset! run-log [])
     (reg-marker :ext)
     (reg-marker :plain)
-    (rf/reg-event-fx :seed
+    (rf/reg-event :seed
       (fn [_ _]
         (log! :seed)
         (rf/dispatch* [:ext] {})
@@ -97,7 +97,7 @@
     (reg-marker :ext)
     (reg-marker :a)
     (reg-marker :b)
-    (rf/reg-event-fx :seed
+    (rf/reg-event :seed
       (fn [_ _]
         (log! :seed)
         (rf/dispatch* [:ext] {})
@@ -131,7 +131,7 @@
     (reg-marker :ext)
     (reg-marker :c1)
     (reg-marker :c2)
-    (rf/reg-event-fx :seed
+    (rf/reg-event :seed
       (fn [_ _]
         (log! :seed)
         (rf/dispatch* [:ext] {})

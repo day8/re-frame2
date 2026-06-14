@@ -68,7 +68,7 @@
             below). A handler-meta `:sensitive?` value is preserved on
             the registrar's stored meta (registry is opaque) but is no
             longer consulted by the trace surface."
-  (rf/reg-event-fx :sensitive/cross-cutting
+  (rf/reg-event :sensitive/cross-cutting
                    {:sensitive? true}   ;; stored, not consulted
                    (fn [{:keys [db]} _]
                      {:db (assoc db :ran? true)
@@ -89,11 +89,11 @@
             raw payload."
     (install-sensitive! :rf/default [[:auth :password]])
     (let [seen (atom nil)]
-      (rf/reg-event-db :auth/login
+      (rf/reg-event :auth/login
                        {:interceptors [(rf/path :auth)]}
-                       (fn [auth [_ payload]]
+                       (fn [{:keys [db]} [_ payload]]
                          (reset! seen payload)
-                         (assoc auth :last-login payload)))
+                         {:db (assoc auth :last-login payload)}))
       (let [evs (record-traces
                   #(rf/dispatch-sync
                      [:auth/login {:username "ada" :password "shh"}]))
@@ -124,10 +124,10 @@
 
 (deftest frame-class-auto-redaction-does-not-affect-unrelated-paths
   (install-sensitive! :rf/default [[:auth :password]])
-  (rf/reg-event-db :profile/save
+  (rf/reg-event :profile/save
                    {:interceptors [(rf/path :profile)]}
-                   (fn [profile [_ payload]]
-                     (assoc profile :saved payload)))
+                   (fn [{:keys [db]} [_ payload]]
+                     {:db (assoc profile :saved payload)}))
   (let [evs (record-traces
               #(rf/dispatch-sync
                  [:profile/save {:password "not-auth"}]))

@@ -57,7 +57,7 @@
     (let [seen (atom [])]
       (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
       (try
-        (rf/reg-event-fx :test/parent
+        (rf/reg-event :test/parent
           (fn [_ _]
             {:fx [[:dispatch [:test/child]]]}))
         (rf/reg-event-db :test/child (fn [db _] db))
@@ -81,8 +81,8 @@
     (let [seen (atom [])]
       (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
       (try
-        (rf/reg-event-fx :test/lvl-0 (fn [_ _] {:fx [[:dispatch [:test/lvl-1]]]}))
-        (rf/reg-event-fx :test/lvl-1 (fn [_ _] {:fx [[:dispatch [:test/lvl-2]]]}))
+        (rf/reg-event :test/lvl-0 (fn [_ _] {:fx [[:dispatch [:test/lvl-1]]]}))
+        (rf/reg-event :test/lvl-1 (fn [_ _] {:fx [[:dispatch [:test/lvl-2]]]}))
         (rf/reg-event-db :test/lvl-2 (fn [db _] db))
 
         (rf/dispatch-sync [:test/lvl-0] {:source :ui})
@@ -101,7 +101,7 @@
     (let [seen (atom [])]
       (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
       (try
-        (rf/reg-event-fx :test/parent (fn [_ _] {:fx [[:dispatch [:test/child]]]}))
+        (rf/reg-event :test/parent (fn [_ _] {:fx [[:dispatch [:test/child]]]}))
         (rf/reg-event-db :test/child  (fn [db _] db))
 
         (rf/dispatch-sync [:test/parent] {:source :ui :origin :pair})
@@ -130,7 +130,7 @@
                      (= [:test/child] (get-in ev [:tags :rf.event/v])))
             (deliver done :seen))))
       (try
-        (rf/reg-event-fx :test/parent
+        (rf/reg-event :test/parent
           (fn [_ _]
             {:fx [[:dispatch-later {:ms 1 :event [:test/child]}]]}))
         (rf/reg-event-db :test/child (fn [db _] db))

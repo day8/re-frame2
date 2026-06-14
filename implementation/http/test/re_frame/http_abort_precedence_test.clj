@@ -133,9 +133,9 @@
           decoder-may-throw (CountDownLatch. 1)
           replies           (atom [])]
       (try
-        (rf/reg-event-fx :reply/recorder
+        (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event-fx :issue
+        (rf/reg-event :issue
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:url (str "http://127.0.0.1:" (:port srv) "/")}
@@ -151,7 +151,7 @@
                     :request-id :race
                     :on-failure [:reply/recorder]
                     :on-success [:reply/recorder]}]]}))
-        (rf/reg-event-fx :do/abort
+        (rf/reg-event :do/abort
           (fn [_ _] {:fx [[:rf.http/managed-abort :race]]}))
         (rf/dispatch-sync [:issue])
         ;; Wait for the decoder to enter — guarantees the response has
@@ -203,12 +203,12 @@
   (testing "rf2-wez75 — abort fired against an in-flight request to an unreachable host yields :rf.http/aborted, not :rf.http/transport"
     (let [closed-port (pick-closed-port!)
           replies     (atom [])]
-      (rf/reg-event-fx :reply/recorder
+      (rf/reg-event :reply/recorder
         (fn [_ [_ payload]] (swap! replies conj payload) {}))
       ;; Issue the request and then immediately fire the abort against
       ;; the same request-id. The transport hasn't finished resolving
       ;; the connection-refused error yet (sendAsync is async).
-      (rf/reg-event-fx :issue
+      (rf/reg-event :issue
         (fn [_ _]
           {:fx [[:rf.http/managed
                  {:request    {:url (str "http://127.0.0.1:" closed-port "/")}
@@ -255,7 +255,7 @@
           decoder-may-throw (CountDownLatch. 1)
           replies           (atom [])]
       (try
-        (rf/reg-event-fx :reply/recorder
+        (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         ;; Child machine — :entry fires the managed request with a
         ;; latch-gated decoder. The decoder synthesises a decode-

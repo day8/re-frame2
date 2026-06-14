@@ -76,7 +76,7 @@
 ;; emit `:rf.db/runtime` without firing the dev diagnostic. We use the same
 ;; `:rf/machine? true` marker the diagnostic keys on.
 (defn- reg-fw-runtime-handler! [id f]
-  (rf/reg-event-fx id {:doc "framework-authority" :rf/machine? true} f))
+  (rf/reg-event id {:doc "framework-authority" :rf/machine? true} f))
 
 ;; ===========================================================================
 ;; 1 — one physical container + two projection reactions (decision #3)
@@ -125,7 +125,7 @@
            (rf/runtime-db-value :pc/scope)))
     ;; A fresh-map app handler — the classic footgun shape — must NOT drop
     ;; runtime-db, because :db is scoped to the app-db partition.
-    (rf/reg-event-db :pc/fresh (fn [_ _] {:session :anonymous}))
+    (rf/reg-event :pc/fresh (fn [{:keys [db]} _] {:db {:session :anonymous}}))
     (rf/dispatch-sync [:pc/fresh] {:frame :pc/scope})
     (is (= {:session :anonymous} (rf/app-db-value :pc/scope))
         "app-db replaced wholesale")
@@ -140,7 +140,7 @@
 (deftest runtime-db-effect-whole-value-commit
   (testing "a framework :rf.db/runtime effect commits the runtime-db partition (whole-value)"
     (rf/reg-frame :pc/rtfx {:doc "rtfx"})
-    (rf/reg-event-db :pc/seed-app (fn [_ _] {:app :data}))
+    (rf/reg-event :pc/seed-app (fn [{:keys [db]} _] {:db {:app :data}}))
     (rf/dispatch-sync [:pc/seed-app] {:frame :pc/rtfx})
     (reg-fw-runtime-handler! :pc/write-rt
       (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}))
@@ -198,7 +198,7 @@
   (testing "a runtime-only commit leaves app-db `=` and does not recompute app subs"
     ;; Use :rf/default + with-frame so subscribe resolves a derefable reaction
     ;; (the {:frame …} subscribe opt has a separate JVM resolution path).
-    (rf/reg-event-db :pc/seed (fn [_ _] {:n 1}))
+    (rf/reg-event :pc/seed (fn [{:keys [db]} _] {:db {:n 1}}))
     (rf/dispatch-sync [:pc/seed])
     (let [runs (atom 0)]
       (rf/reg-sub :pc/app-sub (fn [db _] (swap! runs inc) (:n db)))
@@ -224,7 +224,7 @@
     (rf/dispatch-sync [:pc/seed-rt2] {:frame :pc/inval-rt})
     (let [rt-before (rf/runtime-db-value :pc/inval-rt)]
       ;; app-only commit
-      (rf/reg-event-db :pc/app-write (fn [db _] (assoc db :touched? true)))
+      (rf/reg-event :pc/app-write (fn [{:keys [db]} _] {:db (assoc db :touched? true)}))
       (rf/dispatch-sync [:pc/app-write] {:frame :pc/inval-rt})
       (is (true? (:touched? (rf/app-db-value :pc/inval-rt))))
       (is (identical? rt-before (rf/runtime-db-value :pc/inval-rt))
@@ -238,7 +238,7 @@
   (testing "an app-only commit emits db-changed AND frame-state-changed #{:app-db}"
     (rf/reg-frame :pc/tr-app {:doc "tr-app"})
     (let [recorded (record-traces! ::tr-app)]
-      (rf/reg-event-db :pc/app-only (fn [db _] (assoc db :k 1)))
+      (rf/reg-event :pc/app-only (fn [{:keys [db]} _] {:db (assoc db :k 1)}))
       (rf/dispatch-sync [:pc/app-only] {:frame :pc/tr-app})
       (let [dbc (events-of recorded :rf.event/db-changed)
             fsc (events-of recorded :rf.event/frame-state-changed)]
@@ -281,7 +281,7 @@
 (deftest no-op-partition-commit-emits-no-change-trace
   (testing "a :db effect equal to the current app-db emits neither change trace"
     (rf/reg-frame :pc/tr-noop {:doc "tr-noop"})
-    (rf/reg-event-db :pc/seed (fn [_ _] {:k 1}))
+    (rf/reg-event :pc/seed (fn [{:keys [db]} _] {:db {:k 1}}))
     (rf/dispatch-sync [:pc/seed] {:frame :pc/tr-noop})
     (let [recorded (record-traces! ::tr-noop)]
       ;; return the SAME app-db value

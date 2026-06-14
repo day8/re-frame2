@@ -133,7 +133,7 @@
 
 (defn- register-log! []
   ;; (1) APP-DB entity create from the token's generated values.
-  (rf/reg-event-fx :repl/create
+  (rf/reg-event :repl/create
     (fn [{:keys [db] cofx :rf.cofx} [_ text]]
       (let [id    (:todo/id cofx)
             color (:todo/color cofx)
@@ -142,7 +142,7 @@
                        {:todo/id id :todo/color color
                         :todo/text text :todo/created-at at})})))
   ;; (3) APP-DB mutation — a second durable write folding the token time.
-  (rf/reg-event-fx :repl/touch
+  (rf/reg-event :repl/touch
     (fn [{:keys [db] cofx :rf.cofx} [_ id]]
       {:db (assoc-in db [:todos id :todo/touched-at] (:rf/time-ms cofx))}))
   ;; (2) RESOURCE — loaded-at / stale-at fold the success-reply token time;

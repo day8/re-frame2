@@ -31,7 +31,7 @@
 (defn- log! [k] (swap! run-log conj k))
 
 (defn- reg-marker [id]
-  (rf/reg-event-fx id (fn [_ _] (log! id) {})))
+  (rf/reg-event id (fn [_ _] (log! id) {})))
 
 ;; ---- (1) a machine action's :fx [[:dispatch …]] leap-frogs a pending
 ;;          external event ----------------------------------------------------
@@ -52,7 +52,7 @@
                    {:fx [[:dispatch [:cont]]]})}
        :states  {:idle {:on {:go {:target :done :action :emit-cont}}}
                  :done {}}})
-    (rf/reg-event-fx :seed
+    (rf/reg-event :seed
       (fn [_ _]
         (log! :seed)
         ;; Machine event queued FIRST, external event SECOND.
@@ -77,7 +77,7 @@
        :actions {:noop (fn [_] (log! :machine-ran) {})}
        :states  {:idle {:on {:go {:target :done :action :noop}}}
                  :done {}}})
-    (rf/reg-event-fx :seed
+    (rf/reg-event :seed
       (fn [_ _]
         (log! :seed)
         ;; Both are EXTERNAL dispatches (origin = this plain handler's fx
@@ -103,7 +103,7 @@
     ;; (non-machine) handler — so :cont-2 is a BACK-of-queue dispatch.
     ;; This verifies the boundary precisely: only the machine-ORIGINATED
     ;; hop leap-frogs; once control leaves the machine, FIFO resumes.
-    (rf/reg-event-fx :cont-1
+    (rf/reg-event :cont-1
       (fn [_ _]
         (log! :cont-1)
         (rf/dispatch* [:cont-2] {}) ;; plain origin → back of queue
@@ -117,7 +117,7 @@
                          {:fx [[:dispatch [:cont-1]]]})}
        :states  {:idle {:on {:go {:target :done :action :fire}}}
                  :done {}}})
-    (rf/reg-event-fx :seed
+    (rf/reg-event :seed
       (fn [_ _]
         (log! :seed)
         (rf/dispatch* [:rf2-j20a7/quiesce [:go]] {})

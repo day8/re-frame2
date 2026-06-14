@@ -313,7 +313,7 @@
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-fx :goum9x/prod-throwing-fx
                  (fn [_ _] (throw (ex-info "fx-boom" {}))))
-      (rf/reg-event-fx :goum9x/prod-run-throwing-fx
+      (rf/reg-event :goum9x/prod-run-throwing-fx
                        (fn [_ _] {:fx [[:goum9x/prod-throwing-fx]]}))
       (rf/dispatch-sync [:goum9x/prod-run-throwing-fx])
       (let [r (some (fn [x] (when (= :rf.error/fx-handler-exception (:error x)) x)) @seen)]
@@ -328,7 +328,7 @@
     (let [seen (atom [])]
       (rf/register-error-listener! :prod/recorder
                                    (fn [record] (swap! seen conj record)))
-      (rf/reg-event-fx :goum9x/prod-unknown-fx
+      (rf/reg-event :goum9x/prod-unknown-fx
                        (fn [_ _] {:fx [[:goum9x/prod-never {}]]}))
       (rf/dispatch-sync [:goum9x/prod-unknown-fx])
       (let [r (some (fn [x] (when (= :rf.error/no-such-fx (:error x)) x)) @seen)]
@@ -344,7 +344,7 @@
       (rf/register-error-listener! :prod/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-fx :goum9x/prod-real-fx (fn [_ _] nil))
-      (rf/reg-event-fx :goum9x/prod-bad-override
+      (rf/reg-event :goum9x/prod-bad-override
                        (fn [_ _] {:fx [[:goum9x/prod-real-fx]]}))
       (rf/dispatch-sync [:goum9x/prod-bad-override]
                         {:fx-overrides {:goum9x/prod-real-fx :goum9x/prod-missing}})
@@ -370,7 +370,7 @@
                                    (fn [record] (swap! seen conj record)))
       ;; :rf.fx/reg-flow is a REJECT-tier reserved fx (installs durable
       ;; per-frame flow-registry state). A prod build cannot stub it out.
-      (rf/reg-event-fx :uh5ic5/install-flow
+      (rf/reg-event :uh5ic5/install-flow
                        (fn [_ _] {:fx [[:rf.fx/reg-flow
                                         {:id     :uh5ic5/prod-flow
                                          :inputs [[:uh5ic5 :seed]]
@@ -395,7 +395,7 @@
     (let [seen (atom [])]
       (rf/register-error-listener! :prod/recorder
                                    (fn [record] (swap! seen conj record)))
-      (rf/reg-event-fx :goum9x/prod-unknown-cofx
+      (rf/reg-event :goum9x/prod-unknown-cofx
                        {:rf.cofx/requires [:goum9x/prod-no-cofx]}
                        (fn [_ _] {}))
       (try (rf/dispatch-sync [:goum9x/prod-unknown-cofx])

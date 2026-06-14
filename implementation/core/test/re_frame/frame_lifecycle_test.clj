@@ -38,7 +38,7 @@
   (testing "re-registering a live frame replaces metadata but preserves app-db, sub-cache, and queue"
     ;; Set up a frame with live state.
     (rf/reg-frame :tenant {:doc "v1 metadata" :preset :default})
-    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n :payload "live"}))
+    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n :payload "live"}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     ;; Populate app-db.
     (rf/dispatch-sync [:seed 42] {:frame :tenant})
@@ -141,7 +141,7 @@
     ;; Seed three machine snapshots directly into app-db so we don't
     ;; depend on a full machine-runtime invocation.
     ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
-    (rf/reg-event-fx :seed-machines
+    (rf/reg-event :seed-machines
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime
          (assoc-in (or rt {}) [:rf.runtime/machines :snapshots]
@@ -239,7 +239,7 @@
 (deftest destroy-frame-with-live-subscribers
   (testing "destroy clears the sub-cache, fires on-dispose, and post-destroy subs return nil"
     (rf/reg-frame :live {:doc "live"})
-    (rf/reg-event-db :seed (fn [_ _] {:answer 7}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:answer 7}}))
     (rf/reg-sub :answer (fn [db _] (:answer db)))
     (rf/dispatch-sync [:seed] {:frame :live})
     (let [r1            (rf/subscribe :live [:answer])
@@ -324,7 +324,7 @@
       (rf/reg-fx :http.stub-B
                  {:platforms #{:server :client}}
                  (fn [_ args] (swap! calls-B conj args)))
-      (rf/reg-event-fx :go
+      (rf/reg-event :go
         (fn [_ [_ payload]]
           {:fx [[:http payload]]}))
 
@@ -358,9 +358,9 @@
 (deftest reg-frame-on-create-runs-synchronously
   (testing ":on-create completes inside reg-frame; app-db is fully populated by the time it returns"
     (let [observed (atom nil)]
-      (rf/reg-event-db :boot
-        (fn [_ [_ payload]]
-          {:booted? true :payload payload :seq [:a :b :c]}))
+      (rf/reg-event :boot
+        (fn [{:keys [db]} [_ payload]]
+          {:db {:booted? true :payload payload :seq [:a :b :c]}}))
       ;; Hook a trace listener so we can assert the ordering between
       ;; :on-create dispatch and :rf.frame/created emission. Per Spec 002
       ;; §reg-frame is atomic — :on-create runs first, then :rf.frame/created
@@ -423,14 +423,14 @@
           traces        (atom [])
           captured-tick (atom [])]
       ;; Plain mutator — runs whenever the drain dequeues.
-      (rf/reg-event-db :drain-int/tick
-        (fn [db _]
+      (rf/reg-event :drain-int/tick
+        (fn [{:keys [db]} _]
           (swap! ran conj :tick)
-          (update db :n (fnil inc 0))))
+          {:db (update db :n (fnil inc 0))}))
       ;; Handler that destroys its own frame mid-cascade. The first
       ;; tick has already run; destroy mid-drain MUST interrupt the
       ;; remainder.
-      (rf/reg-event-fx :drain-int/self-destruct
+      (rf/reg-event :drain-int/self-destruct
         (fn [_ _]
           (swap! ran conj :self-destruct)
           ;; Call destroy-frame! directly — bypasses the
@@ -505,7 +505,7 @@
       ;;   (c) sets the completion flag at the very end
       ;; Per run-to-completion, ALL of (a)-(c) must observe in order;
       ;; the drain interrupt only fires AFTER this handler returns.
-      (rf/reg-event-fx :rtc/work-then-destroy
+      (rf/reg-event :rtc/work-then-destroy
         (fn [_ _]
           (frame/destroy-frame! :rtc/worker)
           ;; Post-destroy bookkeeping still runs inside this handler.
@@ -587,11 +587,11 @@
     (rf/reg-frame :rf/default {})
     (let [event-order  (atom [])
           captured-tick (atom [])]
-      (rf/reg-event-db :child/boot
-        (fn [db _]
+      (rf/reg-event :child/boot
+        (fn [{:keys [db]} _]
           (swap! event-order conj :child/boot-ran)
-          (assoc db :child-booted? true)))
-      (rf/reg-event-fx :parent/spawn-child
+          {:db (assoc db :child-booted? true)}))
+      (rf/reg-event :parent/spawn-child
         (fn [_ _]
           (swap! event-order conj :parent/before-reg-frame)
           (rf/reg-frame :child {:on-create [:child/boot]})
@@ -638,10 +638,10 @@
   (testing "Top-level reg-frame (NOT inside a handler) still dispatch-sync's
             :on-create — the rf2-cufbh fix preserves the fast path"
     (let [order (atom [])]
-      (rf/reg-event-db :top/init
-        (fn [_ _]
+      (rf/reg-event :top/init
+        (fn [{:keys [db]} _]
           (swap! order conj :top/init-ran)
-          {:initialised? true}))
+          {:db {:initialised? true}}))
       ;; No in-flight handler; *current-frame* is nil. :on-create must run
       ;; synchronously, before reg-frame returns.
       (rf/reg-frame :top {:on-create [:top/init]})
@@ -661,11 +661,11 @@
     (let [order         (atom [])
           captured-tick (atom [])
           child-id      (atom nil)]
-      (rf/reg-event-db :sub-actor/boot
-        (fn [db _]
+      (rf/reg-event :sub-actor/boot
+        (fn [{:keys [db]} _]
           (swap! order conj :sub-actor/boot-ran)
-          (assoc db :booted? true)))
-      (rf/reg-event-fx :parent/spawn-sub-actor
+          {:db (assoc db :booted? true)}))
+      (rf/reg-event :parent/spawn-sub-actor
         (fn [_ _]
           (swap! order conj :parent/before-make-frame)
           (reset! child-id (rf/make-frame {:on-create [:sub-actor/boot]}))
@@ -814,9 +814,9 @@
       (rf/reg-frame :race/frame {:doc "rf2-ft2b reproducer frame"})
       ;; A simple :db-writing event handler. The drain that processes
       ;; this event is what we want to land AFTER destroy.
-      (rf/reg-event-db :write
-        (fn [_db _]
-          {:committed? true}))
+      (rf/reg-event :write
+        (fn [{:keys [db]} _]
+          {:db {:committed? true}}))
       (with-redefs [interop/next-tick (fn [f] (reset! captured-tick f) nil)]
         ;; Async dispatch — schedules the drain via next-tick. The
         ;; with-redefs binding captures the drain thunk into
@@ -1060,10 +1060,10 @@
   (testing "rf/reset-frame!: app-db is reset, config metadata is preserved,
             :on-create re-runs, frame remains queryable"
     (let [boot-count (atom 0)]
-      (rf/reg-event-db :seed
-        (fn [_ [_ payload]]
+      (rf/reg-event :seed
+        (fn [{:keys [db]} [_ payload]]
           (swap! boot-count inc)
-          {:booted? true :payload payload :extra :seeded}))
+          {:db {:booted? true :payload payload :extra :seeded}}))
       (rf/reg-frame :app/main
                     {:doc       "frame with on-create"
                      :on-create [:seed {:hello "world"}]
@@ -1075,7 +1075,7 @@
           "app-db reflects :on-create commit")
 
       ;; Mutate app-db: a subsequent event extends the value.
-      (rf/reg-event-db :extend (fn [db _] (assoc db :runtime-write? true)))
+      (rf/reg-event :extend (fn [{:keys [db]} _] {:db (assoc db :runtime-write? true)}))
       (rf/dispatch-sync [:extend] {:frame :app/main})
       (is (true? (:runtime-write? (rf/app-db-value :app/main)))
           "mutation is visible before reset-frame!")
@@ -1151,7 +1151,7 @@
       (fn [_ _]
         (throw (ex-info ":throwy/intentional" {:purpose :test-fixture}))))
     ;; Pin a live subscription so we can verify sub-cache disposal still ran.
-    (rf/reg-event-db :throwy/seed (fn [_ _] {:n 42}))
+    (rf/reg-event :throwy/seed (fn [{:keys [db]} _] {:db {:n 42}}))
     (rf/reg-sub :throwy/n (fn [db _] (:n db)))
     (rf/dispatch-sync [:throwy/seed] {:frame :throwy/worker})
     (let [pinned         (rf/subscribe :throwy/worker [:throwy/n])
@@ -1239,7 +1239,7 @@
       ;; The :on-destroy handler itself calls destroy-frame! on its own
       ;; frame. Without the re-entrancy guard this would recurse
       ;; indefinitely (or until a stack overflow).
-      (rf/reg-event-fx :reent/cleanup
+      (rf/reg-event :reent/cleanup
         (fn [_ _]
           (swap! on-destroy-count inc)
           (frame/destroy-frame! :reent/worker)
@@ -1274,7 +1274,7 @@
     (rf/reg-frame :reent.a/worker {:on-destroy [:reent.a/cleanup]})
     (rf/reg-frame :reent.b/worker {})
     (let [b-still-alive-during-a (atom nil)]
-      (rf/reg-event-fx :reent.a/cleanup
+      (rf/reg-event :reent.a/cleanup
         (fn [_ _]
           ;; Sanity: B is alive at the start of A's :on-destroy.
           (reset! b-still-alive-during-a (some? (frame/frame :reent.b/worker)))

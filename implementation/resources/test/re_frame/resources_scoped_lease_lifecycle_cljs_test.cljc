@@ -70,8 +70,8 @@
      :request       (fn [{:keys [page]} _ctx]
                       {:request {:method :get :url "/feed" :params {:page page}}})
      :tags          (fn [_p _v] #{[:feed]})})
-  (rf/reg-event-db :t/switch-tenant
-    (fn [db [_ tenant]] (assoc-in db [:viewer :tenant-id] tenant))))
+  (rf/reg-event :t/switch-tenant
+    (fn [{:keys [db]} [_ tenant]] {:db (assoc-in db [:viewer :tenant-id] tenant)})))
 
 (use-fixtures :each
   (core-test-support/make-reset-runtime-fixture

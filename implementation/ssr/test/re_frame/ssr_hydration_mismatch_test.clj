@@ -58,8 +58,8 @@
    :rf/app-db      {:count 0}})
 
 (defn- register-handlers! []
-  (rf/reg-event-db ::inc
-    (fn [db _ev] (update db :count (fnil inc 0))))
+  (rf/reg-event ::inc
+    (fn [{:keys [db]} _ev] {:db (update db :count (fnil inc 0))}))
   (rf/reg-sub :count     (fn [db _] (or (:count db) 0)))
   ;; EP-0001 (rf2-vzld77): the SSR hydration metadata is durable runtime-db state.
   (subs/reg-runtime-sub :hydrated? (fn [rt _] (boolean (get-in rt [:rf.runtime/ssr :hydration])))))

@@ -102,11 +102,11 @@
                                     (get-in r [:db-after :session :token])
                                     (assoc-in [:db-after :session :token]
                                               :rf/redacted)))})
-      (rf/reg-event-db :login
-                       (fn [db [_ pw tok]]
-                         (-> db
+      (rf/reg-event :login
+                       (fn [{:keys [db]} [_ pw tok]]
+                         {:db (-> db
                              (assoc-in [:auth :password] pw)
-                             (assoc-in [:session :token] tok))))
+                             (assoc-in [:session :token] tok))}))
       (rf/dispatch-sync [:login "topsecret" "tok-xyz"] {:frame :test/main})
 
       (let [r         (last-record :test/main)
@@ -136,8 +136,8 @@
     (install-sensitive-schema! :test/main)
     (rf/configure! :epoch-history
                   {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))})
-    (rf/reg-event-db :login
-                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [r          (last-record :test/main)
@@ -170,12 +170,12 @@
                                   (get-in r [:db-after :session :token])
                                   (assoc-in [:db-after :session :token]
                                             :rf/redacted)))})
-    (rf/reg-event-db :login
-                     (fn [db [_ pw tk]]
-                       (-> db
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw tk]]
+                       {:db (-> db
                            (assoc-in [:auth :password]  pw)
                            (assoc-in [:session :token]  tk)
-                           (assoc-in [:public :name]    "alice"))))
+                           (assoc-in [:public :name]    "alice"))}))
     (rf/dispatch-sync [:login "topsecret" "tok-xyz"] {:frame :test/main})
 
     (let [r         (last-record :test/main)
@@ -205,8 +205,8 @@
     (install-sensitive-schema! :test/main)
     (rf/configure! :epoch-history
                   {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))})
-    (rf/reg-event-db :login
-                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [r         (last-record :test/main)
@@ -247,8 +247,8 @@
   (testing "with no frame-declared sensitive paths registered, the
             counter is 0 (the empty-paths short-circuit)."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (rf/dispatch-sync [:inc]  {:frame :test/main})
 
@@ -261,11 +261,11 @@
             across the cascade — the counter is 0."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/reg-event-db :seed (fn [_ _]
-                             {:auth   {:password "topsecret"}
-                              :public {:counter 0}}))
-    (rf/reg-event-db :touch-public
-                     (fn [db _] (update-in db [:public :counter] inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _]
+                             {:db {:auth   {:password "topsecret"}
+                              :public {:counter 0}}}))
+    (rf/reg-event :touch-public
+                     (fn [{:keys [db]} _] {:db (update-in db [:public :counter] inc)}))
     (rf/dispatch-sync [:seed]         {:frame :test/main})
     (rf/dispatch-sync [:touch-public] {:frame :test/main})
 
@@ -278,8 +278,8 @@
             counter is 1. The :rf.epoch/sensitive? rollup also reads true."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/reg-event-db :login
-                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [r (last-record :test/main)]
@@ -293,11 +293,11 @@
             not — the counter is 1."
     (rf/reg-frame :test/main {})
     (install-two-sensitive-paths-schema! :test/main)
-    (rf/reg-event-db :seed
-                     (fn [_ _]
-                       {:auth {:password "pw-1" :token "tk-1"}}))
-    (rf/reg-event-db :rotate-token
-                     (fn [db [_ tk]] (assoc-in db [:auth :token] tk)))
+    (rf/reg-event :seed
+                     (fn [{:keys [db]} _]
+                       {:db {:auth {:password "pw-1" :token "tk-1"}}}))
+    (rf/reg-event :rotate-token
+                     (fn [{:keys [db]} [_ tk]] {:db (assoc-in db [:auth :token] tk)}))
     (rf/dispatch-sync [:seed]                    {:frame :test/main})
     (rf/dispatch-sync [:rotate-token "tk-fresh"] {:frame :test/main})
 
@@ -308,11 +308,11 @@
   (testing "both declared paths change in the same cascade — counter is 2"
     (rf/reg-frame :test/main {})
     (install-two-sensitive-paths-schema! :test/main)
-    (rf/reg-event-db :login-both
-                     (fn [db [_ pw tk]]
-                       (-> db
+    (rf/reg-event :login-both
+                     (fn [{:keys [db]} [_ pw tk]]
+                       {:db (-> db
                            (assoc-in [:auth :password] pw)
-                           (assoc-in [:auth :token]    tk))))
+                           (assoc-in [:auth :token]    tk))}))
     (rf/dispatch-sync [:login-both "topsecret" "tok-xyz"]
                       {:frame :test/main})
 
@@ -326,8 +326,8 @@
             bookkeeping, parallel to :rf.epoch/sensitive?."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/reg-event-db :login
-                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [r         (last-record :test/main)
@@ -438,9 +438,9 @@
             redacts at egress. Ordering and shape are preserved."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :login
-                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
 
     (rf/dispatch-sync [:seed]              {:frame :test/main})
     (rf/dispatch-sync [:login "secret-1"]  {:frame :test/main})
@@ -508,11 +508,11 @@
                                   (get-in r [:db-after :session :token])
                                   (assoc-in [:db-after :session :token]
                                             :rf/redacted)))})
-    (rf/reg-event-db :login
-                     (fn [db [_ pw tk]]
-                       (-> db
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw tk]]
+                       {:db (-> db
                            (assoc-in [:auth :password] pw)
-                           (assoc-in [:session :token] tk))))
+                           (assoc-in [:session :token] tk))}))
     (rf/dispatch-sync [:login "topsecret" "tok-xyz"] {:frame :test/main})
 
     (let [r          (last-record :test/main)

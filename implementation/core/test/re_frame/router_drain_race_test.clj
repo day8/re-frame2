@@ -67,10 +67,10 @@
   ;; ordering); this test pins the underlying race fix.
   (testing (str "no [:sync-only :sync-only] corruption across "
                 stress-iters " iterations")
-    (rf/reg-event-db :outside-async
-      (fn [db _] (assoc db :outside? true)))
-    (rf/reg-event-db :sync-only
-      (fn [db _] (assoc db :sync? true)))
+    (rf/reg-event :outside-async
+      (fn [{:keys [db]} _] {:db (assoc db :outside? true)}))
+    (rf/reg-event :sync-only
+      (fn [{:keys [db]} _] {:db (assoc db :sync? true)}))
 
     (let [failures (atom [])
           ;; Capture the per-iter `order` atom through a global indirection
@@ -78,15 +78,15 @@
           ;; can race with leftover envelopes from a prior iter).
           current-order (atom (atom []))
           done-promise  (atom (promise))]
-      (rf/reg-event-db :outside-async-stress
-        (fn [db _]
+      (rf/reg-event :outside-async-stress
+        (fn [{:keys [db]} _]
           (swap! @current-order conj :outside-async)
           (deliver @done-promise :ok)
-          (assoc db :outside? true)))
-      (rf/reg-event-db :sync-only-stress
-        (fn [db _]
+          {:db (assoc db :outside? true)}))
+      (rf/reg-event :sync-only-stress
+        (fn [{:keys [db]} _]
           (swap! @current-order conj :sync-only)
-          (assoc db :sync? true)))
+          {:db (assoc db :sync? true)}))
       (dotimes [i stress-iters]
         (let [order (atom [])
               done  (promise)]
@@ -140,8 +140,8 @@
       ;; This test is about the single-drainer invariant, not depth-
       ;; limit behaviour.
       (rf/reg-frame :stress.race/main {:drain-depth (* 4 (+ total 2))})
-      (rf/reg-event-db :bump
-        (fn [db _] (update db :n (fnil inc 0))))
+      (rf/reg-event :bump
+        (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       ;; Spin up submitter threads. They all dispatch concurrently.
       (let [latch   (java.util.concurrent.CountDownLatch. 1)
             futures (vec (for [_ (range n-submitters)]

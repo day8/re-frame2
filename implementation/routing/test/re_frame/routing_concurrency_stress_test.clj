@@ -142,12 +142,12 @@
       (doseq [{:keys [frame-id tick-event counter]} per-thread]
         (rf/reg-frame frame-id {:doc        "per-thread frame"
                                 :url-bound? false})
-        (rf/reg-event-db tick-event
+        (rf/reg-event tick-event
                          {:frame frame-id}
-                         (fn [db _]
+                         (fn [{:keys [db]} _]
                            (.incrementAndGet global-counter)
                            (swap! counter inc)
-                           (update db :n (fnil inc 0)))))
+                           {:db (update db :n (fnil inc 0))})))
       ;; A single shared route. Each frame runs its own `:on-match` —
       ;; but the `:on-match` vector is the same across frames since
       ;; the framework dispatches each on-match event to the calling
@@ -264,12 +264,12 @@
       (doseq [{:keys [frame-id tick-event counter]} per-thread]
         (rf/reg-frame frame-id {:doc        "per-thread frame"
                                 :url-bound? false})
-        (rf/reg-event-db tick-event
+        (rf/reg-event tick-event
                          {:frame frame-id}
-                         (fn [db _]
+                         (fn [{:keys [db]} _]
                            (.incrementAndGet global-counter)
                            (swap! counter inc)
-                           (update db :n (fnil inc 0)))))
+                           {:db (update db :n (fnil inc 0))})))
       (doseq [{:keys [idx tick-event]} per-thread]
         (rf/reg-route (keyword "ksbur.pop" (str "route-" idx))
                       {:path     (str "/q" idx "/:slug")
@@ -384,11 +384,11 @@
       (doseq [{:keys [frame-id tick-event counter]} per-thread]
         (rf/reg-frame frame-id {:doc        "per-thread frame"
                                 :url-bound? false})
-        (rf/reg-event-db tick-event
+        (rf/reg-event tick-event
                          {:frame frame-id}
-                         (fn [db _]
+                         (fn [{:keys [db]} _]
                            (swap! counter inc)
-                           (update db :n (fnil inc 0)))))
+                           {:db (update db :n (fnil inc 0))})))
       ;; Stable route shared across all dispatcher threads. Each
       ;; thread's :on-match dispatch lands on its OWN frame (per
       ;; reg-event-db {:frame frame-id} above) — but the route

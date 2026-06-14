@@ -91,8 +91,8 @@
     ;; flip it, the slice passes.
     (let [reject-out? (atom false)]
       ;; The flow doubles :n into :out.
-      (rf/reg-event-db :seed       (fn [_ _] {:n 1}))
-      (rf/reg-event-db :touch-other (fn [db _] (assoc db :other true)))
+      (rf/reg-event :seed       (fn [{:keys [db]} _] {:db {:n 1}}))
+      (rf/reg-event :touch-other (fn [{:keys [db]} _] {:db (assoc db :other true)}))
       ;; App-db schema on the flow's OUTPUT slot: reject while the flag is
       ;; set, otherwise accept. A nil slice (output absent) always passes —
       ;; so the seeding dispatch (before :out exists / before the flow is
@@ -165,7 +165,7 @@
 (deftest durable-commit-leaves-dirty-check-advanced
   (testing "a flow whose output passes post-commit validation commits durably and advances last-inputs"
     (install-predicate-validator!)
-    (rf/reg-event-db :seed (fn [_ _] {:n 3}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 3}}))
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
                   :output (fn [n] (* 2 (or n 0)))

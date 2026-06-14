@@ -101,7 +101,7 @@
   `:rf/suspense-boundary`. Tests that need a different root override
   by re-registering `:test/root` after this runs."
   []
-  (rf/reg-event-fx :rf.test.server/init
+  (rf/reg-event :rf.test.server/init
     {:platforms #{:server}}
     (fn [_ _]
       {:db {:articles [{:id "a" :title "Article A"}
@@ -335,7 +335,7 @@
             request thread before the head commits, so a structural shell
             failure escalates to `:rf.error/ssr-render-failed` and projects
             a non-200 (Spec 011 §744/§748/§954)."
-    (rf/reg-event-fx :rf.test.server/init-min
+    (rf/reg-event :rf.test.server/init-min
       {:platforms #{:server}}
       (fn [_ _] {:db {}}))
     (let [throwing-root  (fn root-view-fn []
@@ -502,7 +502,7 @@
     ;; The host materialiser's `cookie->set-cookie-header` carries the
     ;; primitive-long type contract (:expires → `Instant/ofEpochMilli`)
     ;; and throws `:rf.error/cookie-invalid-expires` at head materialise.
-    (rf/reg-event-fx :rf.test.server/init-bad-cookie
+    (rf/reg-event :rf.test.server/init-bad-cookie
       {:platforms #{:server}}
       (fn [_ _]
         {:db {}
@@ -587,7 +587,7 @@
         [:main.broken
          [:h1 "header that renders"]
          [:p (str "value: " v)]]))
-    (rf/reg-event-fx :rf.test.server/init-min
+    (rf/reg-event :rf.test.server/init-min
       {:platforms #{:server}}
       (fn [_ _] {:db {}}))
     (let [handler (ssr-ring/stream-handler
@@ -637,7 +637,7 @@
             boundary streams the inner resolved chunk on the real Jetty
             wire, at the FIFO tail, with the outer resolved cleanly (not
             failed)."
-    (rf/reg-event-fx :rf.test.server/init-nested
+    (rf/reg-event :rf.test.server/init-nested
       {:platforms #{:server}}
       (fn [_ _] {:db {}}))
     (rf/reg-view ^{:rf/id :test/wire-inner} wire-inner []

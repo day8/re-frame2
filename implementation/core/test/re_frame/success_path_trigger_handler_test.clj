@@ -94,7 +94,7 @@
    the fx vector"
     (rf/reg-fx :rf2-lf84g/my-fx
                (fn [_ctx _args] :ok))
-    (rf/reg-event-fx :rf2-lf84g/uses-my-fx
+    (rf/reg-event :rf2-lf84g/uses-my-fx
                      (fn [_cofx _event]
                        {:fx [[:rf2-lf84g/my-fx {:k 1}]]}))
     (let [evs (record-traces #(rf/dispatch-sync [:rf2-lf84g/uses-my-fx]))
@@ -106,7 +106,7 @@
   (testing ":rf.trace/trigger-handler is a top-level field on success
    traces, NOT nested under :tags — mirrors the error path shape"
     (rf/reg-fx :rf2-lf84g/top-level-fx (fn [_ _] :ok))
-    (rf/reg-event-fx :rf2-lf84g/use-top-level
+    (rf/reg-event :rf2-lf84g/use-top-level
                      (fn [_ _] {:fx [[:rf2-lf84g/top-level-fx {}]]}))
     (let [evs (record-traces #(rf/dispatch-sync [:rf2-lf84g/use-top-level]))
           [handled] (events-of evs :rf.fx/handled)]
@@ -119,7 +119,7 @@
   (testing "the :source-coord under :rf.trace/trigger-handler on
    :rf.fx/handled equals what the fx registrar holds"
     (rf/reg-fx :rf2-lf84g/coord-fx (fn [_ _] :ok))
-    (rf/reg-event-fx :rf2-lf84g/use-coord
+    (rf/reg-event :rf2-lf84g/use-coord
                      (fn [_ _] {:fx [[:rf2-lf84g/coord-fx {}]]}))
     (let [fx-meta (rf/handler-meta :fx :rf2-lf84g/coord-fx)
           evs     (record-traces #(rf/dispatch-sync [:rf2-lf84g/use-coord]))
@@ -136,9 +136,9 @@
   (testing "the reserved fx-id `:dispatch` has no registration of its
    own — the trigger-handler is the enclosing event handler. Reserved
    fx-id success traces stamp the outermost in-scope handler."
-    (rf/reg-event-fx :rf2-lf84g/parent
+    (rf/reg-event :rf2-lf84g/parent
                      (fn [_ _] {:fx [[:dispatch [:rf2-lf84g/child]]]}))
-    (rf/reg-event-db :rf2-lf84g/child (fn [db _] (assoc db :child? true)))
+    (rf/reg-event :rf2-lf84g/child (fn [{:keys [db]} _] {:db (assoc db :child? true)}))
     (let [evs       (record-traces #(rf/dispatch-sync [:rf2-lf84g/parent]))
           handled   (events-of evs :rf.fx/handled)
           parent-fx (first (filter #(= :dispatch (get-in % [:tags :rf.fx/id])) handled))]
@@ -177,7 +177,7 @@
   (testing "`:rf.event/db-changed` and `:rf.fx/do-fx` fire inside the event
    handler's *current-trigger-handler* binding — they carry the event
    handler's registration coord under :rf.trace/trigger-handler"
-    (rf/reg-event-fx :rf2-lf84g/changes-db
+    (rf/reg-event :rf2-lf84g/changes-db
                      (fn [_ _] {:db {:n 1} :fx []}))
     (let [evs   (record-traces #(rf/dispatch-sync [:rf2-lf84g/changes-db]))
           [dbc] (events-of evs :rf.event/db-changed)
@@ -344,7 +344,7 @@
                    ;; the enclosing event handler's).
                    (trace/emit! :rf2-npm2p/probe :rf2-npm2p/probe {:from :cofx})
                    :ok))
-    (rf/reg-event-fx :rf2-npm2p/uses-cofx
+    (rf/reg-event :rf2-npm2p/uses-cofx
                      {:rf.cofx/requires [:rf2-npm2p/instrumented-cofx]}
                      (fn [_cofx _event] {}))
     (let [evs     (record-traces
@@ -360,7 +360,7 @@
                  (fn []
                    (trace/emit! :rf2-npm2p/probe :rf2-npm2p/probe {})
                    :ok))
-    (rf/reg-event-fx :rf2-npm2p/use-top-level-cofx
+    (rf/reg-event :rf2-npm2p/use-top-level-cofx
                      {:rf.cofx/requires [:rf2-npm2p/top-level-cofx]}
                      (fn [_ _] {}))
     (let [evs     (record-traces
@@ -379,7 +379,7 @@
                  (fn []
                    (trace/emit! :rf2-npm2p/probe :rf2-npm2p/probe {})
                    :ok))
-    (rf/reg-event-fx :rf2-npm2p/use-coord-cofx
+    (rf/reg-event :rf2-npm2p/use-coord-cofx
                      {:rf.cofx/requires [:rf2-npm2p/coord-cofx]}
                      (fn [_ _] {}))
     (let [cofx-meta (rf/handler-meta :cofx :rf2-npm2p/coord-cofx)
@@ -403,7 +403,7 @@
               (fn []
                 (trace/emit! :rf2-npm2p/probe :rf2-npm2p/probe {})
                 :ok)))
-    (rf/reg-event-fx :rf2-npm2p/use-prog-cofx
+    (rf/reg-event :rf2-npm2p/use-prog-cofx
                      {:rf.cofx/requires [:rf2-npm2p/prog-cofx]}
                      (fn [_ _] {}))
     (let [evs     (record-traces

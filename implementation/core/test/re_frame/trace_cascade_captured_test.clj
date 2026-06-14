@@ -66,7 +66,7 @@
 
 (deftest layer-1-memo-hit-emits-sub-skip
   (testing "a layer-1 sub deref against an unchanged db emits :rf.sub/skip"
-    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
     (let [events (collect-trace
@@ -93,7 +93,7 @@
 
 (deftest layer-2-memo-hit-emits-sub-skip-with-upstream
   (testing "layer-2 sub on memo-hit names its upstream input(s) in :rf.sub/input-paths-unchanged"
-    (rf/reg-event-db :seed (fn [_ _] {:n 3}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 3}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/reg-sub :doubled
       :<- [:n]
@@ -116,8 +116,8 @@
 
 (deftest flow-skip-emits-input-paths-unchanged
   (testing ":rf.flow/skip carries :rf.sub/input-paths-unchanged naming the flow's input paths"
-    (rf/reg-event-db :seed   (fn [_ _]      {:x 0 :y 0}))
-    (rf/reg-event-db :bump-z (fn [db _]     (assoc db :z (inc (or (:z db) 0)))))
+    (rf/reg-event :seed   (fn [{:keys [db]} _]      {:db {:x 0 :y 0}}))
+    (rf/reg-event :bump-z (fn [{:keys [db]} _]     {:db (assoc db :z (inc (or (:z db) 0)))}))
     (rf/reg-flow {:id     :sum
                   :inputs [[:x] [:y]]
                   :output (fn [x y] (+ x y))
@@ -139,8 +139,8 @@
 
 (deftest cascade-captured-does-not-fire-when-no-focus
   (testing "default focus-predicate returns false → no :rf.cascade/captured emits"
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
     (let [events (collect-trace
@@ -155,8 +155,8 @@
 
 (deftest cascade-captured-fires-when-focused
   (testing "installed focus-predicate matching the cascade → :rf.cascade/captured emits"
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (cascade/set-focus-predicate!
       (fn [_frame _epoch _event] true))
@@ -224,8 +224,8 @@
 
 (deftest sub-run-value-changed-attribution
   (testing "a layer-1 recompute whose value CHANGED stamps :rf.sub/value-changed? true + :prev/:value, :rf.sub/cascade? false, :rf.sub/cause-sub nil"
-    (rf/reg-event-db :seed (fn [_ _] {:n 1}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
     (let [r      (rf/subscribe [:n])
@@ -250,8 +250,8 @@
     ;; identity (layer-1 reads app-db directly), so a db write to an
     ;; unrelated key forces the body to re-run, but the body returns a
     ;; `=`-equal value for this sub.
-    (rf/reg-event-db :seed   (fn [_ _] {:n 5 :other 0}))
-    (rf/reg-event-db :bump-other (fn [db _] (update db :other inc)))
+    (rf/reg-event :seed   (fn [{:keys [db]} _] {:db {:n 5 :other 0}}))
+    (rf/reg-event :bump-other (fn [{:keys [db]} _] {:db (update db :other inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
     (let [r      (rf/subscribe [:n])
@@ -271,8 +271,8 @@
 
 (deftest sub-run-cascade-attribution-layer-2
   (testing "a layer-2 sub recomputed by an upstream sub change stamps :rf.sub/cascade? true + :rf.sub/cause-sub naming the upstream"
-    (rf/reg-event-db :seed (fn [_ _] {:n 2}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 2}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/reg-sub :doubled
       :<- [:n]
@@ -296,8 +296,8 @@
 
 (deftest sub-run-cascade-attribution-layer-2-multi-input
   (testing "a multi-input layer-2 sub names the SPECIFIC upstream that changed"
-    (rf/reg-event-db :seed (fn [_ _] {:a 1 :b 10}))
-    (rf/reg-event-db :inc-b (fn [db _] (update db :b inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:a 1 :b 10}}))
+    (rf/reg-event :inc-b (fn [{:keys [db]} _] {:db (update db :b inc)}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :sum
@@ -325,7 +325,7 @@
             stamps :rf.sub/first-run? true on :rf.sub/run. Disambiguates
             a value-change row (`← was X`) from a fresh-cache-entry row
             (`:added`) for the Xray SUBSCRIPTIONS leaf-scalar renderer."
-    (rf/reg-event-db :seed (fn [_ _] {:n 1}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
     ;; First subscribe + deref → this is the run that creates the
@@ -353,8 +353,8 @@
             already-existing cache slot) stamps :rf.sub/first-run? false.
             Pairs with the true-case test above — the boolean must
             actually flip on the second run, not stay true."
-    (rf/reg-event-db :seed (fn [_ _] {:n 1}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
     (let [r      (rf/subscribe [:n])
@@ -380,7 +380,7 @@
             :rf.sub/first-run? true on the run that allocated their
             cache slot. The discriminator is universal across all
             memo wrappers (layer-1, layer-n-1, layer-n)."
-    (rf/reg-event-db :seed (fn [_ _] {:n 2}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 2}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/reg-sub :doubled
       :<- [:n]
@@ -399,8 +399,8 @@
 
 (deftest sub-run-layer-1-no-cause-sub
   (testing "a layer-1 sub never carries a :rf.sub/cause-sub (app-db-driven, not a cascade)"
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
     (let [r      (rf/subscribe [:n])
@@ -417,8 +417,8 @@
 
 (deftest sub-run-base-shape-still-emitted
   (testing "the :rf.sub/run op-type vocabulary is unchanged — the base tags still ride"
-    (rf/reg-event-db :seed (fn [_ _] {:n 1}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
     (let [r      (rf/subscribe [:n])
@@ -460,7 +460,7 @@
             the :epoch/cascade-cause lookup consumes. Mirrors the
             views-side precedent at view_rendered_op_cljs_test/
             rf-view-rendered-carries-cause-event-id-in-cascade."
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
     (let [r     (rf/subscribe [:n])
@@ -469,7 +469,7 @@
       ;; §The binary fx-handler signature — ctx carries `:frame`,
       ;; `:event`, `:envelope`; args is the value from the `:fx` vector.
       (rf/reg-fx :deref-fx (fn [_ctx _args] @r))
-      (rf/reg-event-fx :bump-and-deref
+      (rf/reg-event :bump-and-deref
         (fn [_ _]
           ;; The event handler returns the canonical `:db` / `:fx` shape
           ;; (re-frame2 rejects arbitrary top-level keys per
@@ -494,7 +494,7 @@
             absent (key not present), not nil, so consumers can read
             `(contains? tags :rf.sub/cause-event-id)` to discriminate
             in-cascade vs no-cascade recomputes."
-    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
     ;; The seed dispatch has settled. The subscribe + deref below runs
@@ -519,7 +519,7 @@
             event) — distinct from :rf.sub/cause-sub (the upstream sub
             that propagated the change, which differs per sub in the
             chain). Two-sub fixture proves the slots are complementary."
-    (rf/reg-event-db :seed (fn [_ _] {:n 2}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 2}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/reg-sub :doubled
       :<- [:n]
@@ -530,7 +530,7 @@
           _         @r-n
           _         @r-doubled]
       (rf/reg-fx :deref-both-fx (fn [_ctx _args] @r-n @r-doubled))
-      (rf/reg-event-fx :bump-and-deref-both
+      (rf/reg-event :bump-and-deref-both
         (fn [_ _]
           {:db {:n 3}
            :fx [[:deref-both-fx true]]}))

@@ -91,9 +91,9 @@
         ;; not depend on ambient config).
         (rf/configure! :epoch-history {:depth 50})
         (rf/reg-frame frame-kw {:doc "dispatch-and-settle! probe frame"})
-        (rf/reg-event-db ::seed (fn [_ _] {:show? false}))
-        (rf/reg-event-db ::show (fn [db _] (assoc db :show? true)))
-        (rf/reg-event-db ::hide (fn [db _] (assoc db :show? false)))
+        (rf/reg-event ::seed (fn [{:keys [db]} _] {:db {:show? false}}))
+        (rf/reg-event ::show (fn [{:keys [db]} _] {:db (assoc db :show? true)}))
+        (rf/reg-event ::hide (fn [{:keys [db]} _] {:db (assoc db :show? false)}))
         (rf/reg-sub ::show? (fn [db _] (:show? db)))
         ;; The child whose mount/unmount we drive. Distinct registered id
         ;; so its render/unmount emits carry an identifying :view-id tag.

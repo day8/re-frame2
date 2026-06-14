@@ -44,8 +44,8 @@
             ring buffer. Every emit site's body sits inside the
             `interop/debug-enabled?` gate; the buffer's push site
             (inside `deliver!`) does not run."
-    (rf/reg-event-db :prod-bus/inc
-                     (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :prod-bus/inc
+                     (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf/dispatch-sync [:prod-bus/inc])
     (rf/dispatch-sync [:prod-bus/inc])
     (rf/dispatch-sync [:prod-bus/inc])

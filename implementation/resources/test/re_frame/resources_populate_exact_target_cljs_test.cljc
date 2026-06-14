@@ -67,7 +67,7 @@
     {:inputs  {:username [:db [:auth :user :username]]}
      :resolve (fn [{:keys [username]} _ctx]
                 (when username [:rf.scope/session {:username username}]))})
-  (rf/reg-event-db :t/login (fn [db [_ username]] (assoc-in db [:auth :user :username] username))))
+  (rf/reg-event :t/login (fn [{:keys [db]} [_ username]] {:db (assoc-in db [:auth :user :username] username)})))
 
 (defn- capturing-transport-fixture [f]
   (reset! last-managed-args nil)
@@ -324,7 +324,7 @@
   (let [replied (atom [])]
     (reg-article-resource!)
     (reg-feed-resource!)
-    (rf/reg-event-fx :test/saved (fn [_ ev] (swap! replied conj ev) {}))
+    (rf/reg-event :test/saved (fn [_ ev] (swap! replied conj ev) {}))
     (rf/dispatch-sync [:t/login "jake"])
     ;; jake's feed is ownerless (so a {:from-db} descriptor leaves it stale)
     (rf/dispatch-sync [:rf.resource/ensure {:resource :r/feed :scope {:from-db :t/session}

@@ -84,7 +84,7 @@
     ;; rf2-aqt7: clear-flow's update-in path math is off-by-one for
     ;; single-element :path vectors. Use a two-element :path here so
     ;; the working branch (>= 2 elements) is exercised.
-    (rf/reg-event-db :seed (fn [_ _] {:rect {:w 3 :h 4}}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:rect {:w 3 :h 4}}}))
     (rf/reg-flow {:id     :area
                   :inputs [[:rect :w] [:rect :h]]
                   :output (fn [w h] (* w h))
@@ -127,13 +127,13 @@
   ;; flow's *value* is fully gone (the spec's "vacate the slot"
   ;; requirement); only the structural empty-map parent persists.
   (testing "clearing a flow whose leaf is the sole key under its parent leaves an empty parent map"
-    (rf/reg-event-db :seed-wizard (fn [_ _] {:wizard {}}))
+    (rf/reg-event :seed-wizard (fn [{:keys [db]} _] {:db {:wizard {}}}))
     (rf/reg-flow {:id     :wizard/result
                   :inputs [[:wizard :seed]]
                   :output (fn [_] 42)
                   :path   [:wizard :result]})
     ;; Drive a drain so the flow materialises [:wizard :result].
-    (rf/reg-event-db :touch-wizard (fn [db _] (assoc-in db [:wizard :seed] 1)))
+    (rf/reg-event :touch-wizard (fn [{:keys [db]} _] {:db (assoc-in db [:wizard :seed] 1)}))
     (rf/dispatch-sync [:seed-wizard])
     (rf/dispatch-sync [:touch-wizard])
     (is (= 42 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
@@ -187,7 +187,7 @@
   ;; its `:path` slot stays absent. (Driving a drain would compute the
   ;; flow and materialise the slot, turning the clear into a real dissoc.)
   (testing "clearing a never-materialised nested-path flow leaves the app-db container reference identical (no rewrite, no sub-cache invalidation)"
-    (rf/reg-event-db :seed (fn [_ _] {:other 1}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:other 1}}))
     (rf/dispatch-sync [:seed])
     (rf/reg-flow {:id     :pending
                   :inputs [[:n]]
@@ -202,7 +202,7 @@
     ;; The length-1 branch (`(dissoc db (first path))`) is a no-op when the
     ;; key is absent — `(identical? new-db db)` holds, so the guard skips
     ;; the write here too. Same precondition: never drive the drain.
-    (rf/reg-event-db :seed2 (fn [_ _] {:other 1}))
+    (rf/reg-event :seed2 (fn [{:keys [db]} _] {:db {:other 1}}))
     (rf/dispatch-sync [:seed2])
     (rf/reg-flow {:id     :absent-top
                   :inputs [[:n]]
@@ -217,7 +217,7 @@
     ;; When the slot was actually written, the dissoc produces a NEW db
     ;; reference, so the write MUST fire — otherwise the cleared value
     ;; would linger in app-db and stale subs would never invalidate.
-    (rf/reg-event-db :seed3 (fn [_ _] {:rect {:w 3 :h 4}}))
+    (rf/reg-event :seed3 (fn [{:keys [db]} _] {:db {:rect {:w 3 :h 4}}}))
     (rf/reg-flow {:id     :area3
                   :inputs [[:rect :w] [:rect :h]]
                   :output (fn [w h] (* w h))
@@ -250,7 +250,7 @@
     ;; evaluation, so we register the flow AFTER seeding and never drain
     ;; it — its `:path` stays un-materialised, which is exactly the
     ;; non-map-intermediate case `clear-flow` must treat as a no-op.
-    (rf/reg-event-db :stamp-non-map (fn [_ _] {:step-2 1 :foo 3 :bar 4}))
+    (rf/reg-event :stamp-non-map (fn [{:keys [db]} _] {:db {:step-2 1 :foo 3 :bar 4}}))
     (rf/dispatch-sync [:stamp-non-map])
     ;; Register the flow (never drained) so the per-frame registry has the
     ;; entry to clear; its `:path` [:step-2 :result] never materialised.
@@ -272,7 +272,7 @@
     ;; The repro from rf2-aqt7: a flow whose :path is a one-element vector
     ;; [:area]. Before the fix, clear-flow's (update-in cur [] dissoc :area)
     ;; left :area in app-db (and silently introduced an {nil nil} entry).
-    (rf/reg-event-db :seed (fn [_ _] {:w 3 :h 4}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
                   :output (fn [w h] (* w h))
@@ -700,9 +700,9 @@
 
 (deftest flow-recomputes-on-input-change
   (testing "mutating an input path causes the flow to fire and the output to update"
-    (rf/reg-event-db :init (fn [_ _] {:w 0 :h 0}))
-    (rf/reg-event-db :w!   (fn [db [_ w]] (assoc db :w w)))
-    (rf/reg-event-db :h!   (fn [db [_ h]] (assoc db :h h)))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:w 0 :h 0}}))
+    (rf/reg-event :w!   (fn [{:keys [db]} [_ w]] {:db (assoc db :w w)}))
+    (rf/reg-event :h!   (fn [{:keys [db]} [_ h]] {:db (assoc db :h h)}))
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
                   :output (fn [w h] (* w h))
@@ -720,8 +720,8 @@
 (deftest flow-noop-on-equal-input-rewrite
   (testing "rewriting an input path with an =-equal value does NOT re-fire the flow"
     (let [calls (atom 0)]
-      (rf/reg-event-db :init      (fn [_ _] {:n 5}))
-      (rf/reg-event-db :replace-n (fn [db [_ v]] (assoc db :n v)))
+      (rf/reg-event :init      (fn [{:keys [db]} _] {:db {:n 5}}))
+      (rf/reg-event :replace-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
       (rf/reg-flow {:id     :double
                     :inputs [[:n]]
                     :output (fn [n]
@@ -746,8 +746,8 @@
 (deftest flow-no-recompute-when-unrelated-path-changes
   (testing "writing an unrelated path does not re-fire a flow whose inputs are stable"
     (let [calls (atom 0)]
-      (rf/reg-event-db :init      (fn [_ _] {:user {:name "alice"} :other 0}))
-      (rf/reg-event-db :bump-other (fn [db _] (update db :other inc)))
+      (rf/reg-event :init      (fn [{:keys [db]} _] {:db {:user {:name "alice"} :other 0}}))
+      (rf/reg-event :bump-other (fn [{:keys [db]} _] {:db (update db :other inc)}))
       (rf/reg-flow {:id     :user/uppercase-name
                     :inputs [[:user :name]]
                     :output (fn [n]
@@ -768,8 +768,8 @@
 
 (deftest flow-topo-sort-cascades-in-one-drain
   (testing "B reads what A wrote; topo sort places A first; one drain settles both"
-    (rf/reg-event-db :init (fn [_ _] {:w 2 :h 3}))
-    (rf/reg-event-db :w!   (fn [db [_ w]] (assoc db :w w)))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:w 2 :h 3}}))
+    (rf/reg-event :w!   (fn [{:keys [db]} [_ w]] {:db (assoc db :w w)}))
     ;; A: :area depends on :w :h, writes :rect/:area.
     (rf/reg-flow {:id     :rect/area
                   :inputs [[:w] [:h]]
@@ -791,7 +791,7 @@
 
 (deftest flow-topo-sort-handles-prefix-overlap
   (testing "B's :inputs is a prefix of A's :path — A still runs before B (Spec 013 §Dependency rule)"
-    (rf/reg-event-db :init (fn [_ _] {:user {:name "alice"} :note ""}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:user {:name "alice"} :note ""}}))
     ;; A writes deep at [:user :uppercase] — its :path is rooted in
     ;; the same prefix as B's input.
     (rf/reg-flow {:id     :user/uppercase
@@ -820,8 +820,8 @@
 
 (deftest flow-hot-reload-preserves-equivalent-output
   (testing "re-registering a flow with a body that produces the same output keeps the output stable"
-    (rf/reg-event-db :init (fn [_ _] {:n 5}))
-    (rf/reg-event-db :tick (fn [db _] (update db :tick (fnil inc 0))))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 5}}))
+    (rf/reg-event :tick (fn [{:keys [db]} _] {:db (update db :tick (fnil inc 0))}))
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
                   :output (fn [n] (* 2 n))
@@ -841,8 +841,8 @@
 
 (deftest flow-hot-reload-new-body-recomputes-on-next-drain
   (testing "if the new body would produce a different value, the next drain materialises it"
-    (rf/reg-event-db :init  (fn [_ _] {:n 5}))
-    (rf/reg-event-db :tick  (fn [db _] (update db :tick (fnil inc 0))))
+    (rf/reg-event :init  (fn [{:keys [db]} _] {:db {:n 5}}))
+    (rf/reg-event :tick  (fn [{:keys [db]} _] {:db (update db :tick (fnil inc 0))}))
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
                   :output (fn [n] (* 2 n))
@@ -864,15 +864,15 @@
 
 (deftest fx-reg-flow-and-clear-flow-round-trip
   (testing ":rf.fx/reg-flow registers; :rf.fx/clear-flow removes; the output path is dissoc'd"
-    (rf/reg-event-db :init  (fn [_ _] {:wizard {:foo 3 :bar 4}}))
-    (rf/reg-event-fx :enter (fn [_ _]
+    (rf/reg-event :init  (fn [{:keys [db]} _] {:db {:wizard {:foo 3 :bar 4}}}))
+    (rf/reg-event :enter (fn [_ _]
                               {:fx [[:rf.fx/reg-flow
                                      {:id     :step-2/computed
                                       :inputs [[:wizard :foo] [:wizard :bar]]
                                       :output (fn [foo bar] (+ foo bar))
                                       :path   [:wizard :result]}]]}))
-    (rf/reg-event-db :foo!  (fn [db [_ v]] (assoc-in db [:wizard :foo] v)))
-    (rf/reg-event-fx :leave (fn [_ _]
+    (rf/reg-event :foo!  (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:wizard :foo] v)}))
+    (rf/reg-event :leave (fn [_ _]
                               {:fx [[:rf.fx/clear-flow :step-2/computed]]}))
     (rf/dispatch-sync [:init])
     (is (nil? (get-in (rf/app-db-value :rf/default) [:wizard :result]))
@@ -902,9 +902,9 @@
   ;; handler) materialises the initial value on the dispatched event's
   ;; drain. Locks the lag so a future "synchronous re-walk" change can't
   ;; silently alter it without flipping this test.
-  (rf/reg-event-db :init (fn [_ _] {:wizard {:foo 3 :bar 4}}))
+  (rf/reg-event :init (fn [{:keys [db]} _] {:db {:wizard {:foo 3 :bar 4}}}))
   ;; Bare register — NO follow-up dispatch. Demonstrates the lag.
-  (rf/reg-event-fx :enter-bare
+  (rf/reg-event :enter-bare
     (fn [_ _]
       {:fx [[:rf.fx/reg-flow {:id     :step-2/computed
                               :inputs [[:wizard :foo] [:wizard :bar]]
@@ -912,7 +912,7 @@
                               :path   [:wizard :result]}]]}))
   ;; Register + a follow-up no-op `:dispatch` on the same handler — the
   ;; documented "I need the value now" workaround.
-  (rf/reg-event-fx :enter-with-settle
+  (rf/reg-event :enter-with-settle
     (fn [_ _]
       {:fx [[:rf.fx/reg-flow {:id     :step-2/computed
                               :inputs [[:wizard :foo] [:wizard :bar]]
@@ -956,7 +956,7 @@
   ;; then re-registering the same flow-id would silently no-op the
   ;; first evaluation when new-inputs =-equalled a leftover entry.
   (testing "reset-flows! drops both flow registry AND last-inputs in lockstep"
-    (rf/reg-event-db :init (fn [_ _] {:n 5}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 5}}))
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
                   :output (fn [n] (* 2 n))
@@ -980,7 +980,7 @@
   ;; never ran.
   (testing "after reset-flows! the re-registered flow re-evaluates on next drain"
     (let [calls (atom 0)]
-      (rf/reg-event-db :init (fn [_ _] {:n 5}))
+      (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 5}}))
       ;; First registration + drain — populates last-inputs.
       (rf/reg-flow {:id     :double
                     :inputs [[:n]]
@@ -1040,7 +1040,7 @@
   (testing "the same flow id registers independently against two frames"
     (rf/reg-frame :left  {:doc "left frame"})
     (rf/reg-frame :right {:doc "right frame"})
-    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
+    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     ;; Register :compute against both frames with DIFFERENT :output fns
     ;; so sibling-frame-untouched is observable in the materialised output.
     (rf/reg-flow {:id     :compute
@@ -1158,7 +1158,7 @@
   (testing "Per rf2-jfpf3: re-register :shared on :left; :right's last-inputs row survives"
     (rf/reg-frame :left  {:doc "left frame"})
     (rf/reg-frame :right {:doc "right frame"})
-    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
+    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     ;; Register :shared against both frames with the same shape.
     (rf/reg-flow {:id     :shared
                   :inputs [[:n]]
@@ -1325,8 +1325,8 @@
   (testing "Per rf2-73pi1: re-registering on the same frame with a new :path
             clears the OLD path from app-db; the new path computes on the
             next drain"
-    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
-    (rf/reg-event-db :tick (fn [db _] (update db :tick (fnil inc 0))))
+    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
+    (rf/reg-event :tick (fn [{:keys [db]} _] {:db (update db :tick (fnil inc 0))}))
     ;; Register :move at [:old]; drain so [:old] materialises.
     (rf/reg-flow {:id :move :inputs [[:n]] :output (fn [n] (* 2 (or n 0)))
                   :path [:old]})
@@ -1351,7 +1351,7 @@
   (testing "Per rf2-73pi1: a same-frame re-registration that KEEPS the :path
             does NOT vacate the value (negative control — only a :path
             CHANGE triggers the vacate)"
-    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
+    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/reg-flow {:id :keep :inputs [[:n]] :output (fn [n] (* 2 (or n 0)))
                   :path [:out]})
     (rf/dispatch-sync [:seed 4])
@@ -1447,8 +1447,8 @@
 
 (deftest flow-hot-reload-invalidates-last-inputs
   (testing "re-registering a flow re-evaluates even when inputs are unchanged"
-    (rf/reg-event-db :init   (fn [_ _] {:n 5}))
-    (rf/reg-event-db :inc-n  (fn [db _] (update db :n inc)))
+    (rf/reg-event :init   (fn [{:keys [db]} _] {:db {:n 5}}))
+    (rf/reg-event :inc-n  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     ;; v1 flow: doubles :n at [:doubled].
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
@@ -1499,14 +1499,14 @@
     ;; flows are outermost so they read the full reshaped db; user :after
     ;; interceptors precede them.
     (let [seen-db (atom :unset)]
-      (rf/reg-event-db :init (fn [_ _] {:n 0}))
-      (rf/reg-event-db :set-n
+      (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 0}}))
+      (rf/reg-event :set-n
         {:interceptors [(rf/->interceptor
                          :id    :test/capture-after
                          :after (fn [ctx]
                                   (reset! seen-db (rf/get-effect ctx :db))
                                   ctx))]}
-        (fn [db [_ v]] (assoc db :n v)))
+        (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
       (rf/reg-flow {:id     :double
                     :inputs [[:n]]
                     :output (fn [n] (* 2 n))
@@ -1540,8 +1540,8 @@
       (rf/reg-fx :test/peek-db
                  (fn [_m _args]
                    (reset! fx-saw (rf/app-db-value :rf/default))))
-      (rf/reg-event-db :init (fn [_ _] {:n 0}))
-      (rf/reg-event-fx :go
+      (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 0}}))
+      (rf/reg-event :go
                        (fn [_ [_ v]]
                          {:db {:n v}
                           :fx [[:test/peek-db {}]]}))
@@ -1556,8 +1556,8 @@
 
 (deftest reactive-cascade-sees-flow-derived-db
   (testing "rf2-u0zz5 (c): a subscription over the flow's :path sees the flow output"
-    (rf/reg-event-db :init (fn [_ _] {:n 0}))
-    (rf/reg-event-db :set-n (fn [db [_ v]] (assoc db :n v)))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
                   :output (fn [n] (* 2 n))
@@ -1577,10 +1577,10 @@
     ;; interceptor splices the slice back), NOT the bare slice — otherwise
     ;; `(get-in slice [:counter :n])` would be nil and the flow would
     ;; mis-compute.
-    (rf/reg-event-db :seed (fn [_ _] {:counter {:n 0}}))
-    (rf/reg-event-db :inc
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:counter {:n 0}}}))
+    (rf/reg-event :inc
                      {:interceptors [(rf/path :counter)]}
-                     (fn [c _] (update c :n inc)))
+                     (fn [{:keys [db]} _] {:db (update c :n inc)}))
     (rf/reg-flow {:id     :counter/doubled
                   :inputs [[:counter :n]]
                   :output (fn [n] (* 2 (or n 0)))
@@ -1620,8 +1620,8 @@
             ;; reading the live app-db reflects the just-installed value.
             (reset! db-at-changed (rf/app-db-value :rf/default)))))
       (try
-        (rf/reg-event-db :init (fn [_ _] {:n 0}))
-        (rf/reg-event-db :set-n (fn [db [_ v]] (assoc db :n v)))
+        (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 0}}))
+        (rf/reg-event :set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
         (rf/reg-flow {:id     :double
                       :inputs [[:n]]
                       :output (fn [n] (* 2 n))

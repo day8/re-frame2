@@ -46,7 +46,7 @@
 
 (deftest reg-event-fx-captures-form-source-cljs
   (testing "rf2-xgfuy: CLJS reg-event-fx stamps :rf.handler/source under DEBUG=true"
-    (rf/reg-event-fx :rf2-xgfuy.cljs/event-fx
+    (rf/reg-event :rf2-xgfuy.cljs/event-fx
                      (fn [_cofx _ev] {:db {:n 0}}))
     (let [src (:rf.handler/source
                (rf/handler-meta :event :rf2-xgfuy.cljs/event-fx))]

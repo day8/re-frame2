@@ -89,7 +89,7 @@
   (testing "subscriber called inside (with-frame :k ...) captures :k"
     (rf/reg-frame :wf/left  {:doc "left"})
     (rf/reg-frame :wf/right {:doc "right"})
-    (rf/reg-event-db :wf/seed (fn [_ [_ n]] {:n n}))
+    (rf/reg-event :wf/seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/reg-sub :wf/n (fn [db _] (:n db)))
     (rf/dispatch-sync [:wf/seed 7]  {:frame :wf/left})
     (rf/dispatch-sync [:wf/seed 99] {:frame :wf/right})
@@ -141,7 +141,7 @@
   (testing "(with-new-frame [f (make-frame {:on-create [...]})] body) —
             on-create fires before body, body sees the seeded state,
             destroy runs after"
-    (rf/reg-event-db :wf/initialise (fn [_ _] {:counter 42}))
+    (rf/reg-event :wf/initialise (fn [{:keys [db]} _] {:db {:counter 42}}))
     (let [captured-db (atom nil)]
       (rf/with-new-frame [f (rf/make-frame {:on-create [:wf/initialise]})]
         (reset! captured-db (rf/app-db-value f)))

@@ -72,7 +72,7 @@
       (rf/reg-fx :init-platform-test/browser-only
         {:platforms #{:client}}
         (fn [_ _] (reset! fired? true)))
-      (rf/reg-event-fx :init-platform-test/save
+      (rf/reg-event :init-platform-test/save
         (fn [_ _] {:fx [[:init-platform-test/browser-only {}]]}))
 
       (rf/init-platform :client)
@@ -98,7 +98,7 @@
       (rf/reg-fx :init-platform-test/browser-only
         {:platforms #{:client}}
         (fn [_ _] (reset! fired? true)))
-      (rf/reg-event-fx :init-platform-test/save
+      (rf/reg-event :init-platform-test/save
         (fn [_ _] {:fx [[:init-platform-test/browser-only {}]]}))
 
       ;; reset-runtime already set :server; assert defensively.

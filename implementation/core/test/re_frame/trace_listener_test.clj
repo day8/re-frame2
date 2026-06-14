@@ -96,7 +96,7 @@
   (testing "listener has been called by the time dispatch-sync returns — no async wait"
     (let [seen (atom [])]
       (rf/register-listener! ::sync (fn [ev] (swap! seen conj ev)))
-      (rf/reg-event-db :sync/ping (fn [db _] (assoc db :pinged? true)))
+      (rf/reg-event :sync/ping (fn [{:keys [db]} _] {:db (assoc db :pinged? true)}))
       ;; The contract: dispatch-sync returns only after every listener has
       ;; been invoked for every emitted trace event in the cascade. No
       ;; sleep, no Thread/yield, no future deref. If `(seq @seen)` is empty
@@ -160,8 +160,8 @@
   (testing "a listener sees events in the same order the runtime fired them"
     (let [seen (atom [])]
       (rf/register-listener! ::ordered (fn [ev] (swap! seen conj ev)))
-      (rf/reg-event-db :ord/init (fn [_ _] {:n 0}))
-      (rf/reg-event-db :ord/inc  (fn [db _] (update db :n inc)))
+      (rf/reg-event :ord/init (fn [{:keys [db]} _] {:db {:n 0}}))
+      (rf/reg-event :ord/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
       (rf/dispatch-sync [:ord/init])
       (rf/dispatch-sync [:ord/inc])
       (rf/dispatch-sync [:ord/inc])
@@ -179,7 +179,7 @@
   (testing "every emitted event has the canonical point-event keys and NO span-shape keys"
     (let [seen (atom [])]
       (rf/register-listener! ::shape (fn [ev] (swap! seen conj ev)))
-      (rf/reg-event-fx :shape/handler (fn [_ _] {:db {:n 1}
+      (rf/reg-event :shape/handler (fn [_ _] {:db {:n 1}
                                                  :fx []}))
       (rf/dispatch-sync [:shape/handler])
       (let [evs @seen]
@@ -213,7 +213,7 @@
     (let [seen (atom [])]
       (rf/reg-frame :frame/scoped {:doc "scoped"})
       (rf/register-listener! ::framed (fn [ev] (swap! seen conj ev)))
-      (rf/reg-event-db :framed/ping (fn [db _] (assoc db :ping? true)))
+      (rf/reg-event :framed/ping (fn [{:keys [db]} _] {:db (assoc db :ping? true)}))
       (rf/dispatch-sync [:framed/ping] {:frame :frame/scoped})
       (let [dispatched (->> @seen
                             dispatched-events
@@ -279,7 +279,7 @@
       (rf/register-listener! ::clear-a (fn [ev] (swap! seen-a conj ev)))
       (rf/register-listener! ::clear-b (fn [ev] (swap! seen-b conj ev)))
       (rf/register-listener! ::clear-c (fn [ev] (swap! seen-c conj ev)))
-      (rf/reg-event-db :clear/seed (fn [db _] (assoc db :seeded? true)))
+      (rf/reg-event :clear/seed (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
 
       ;; First dispatch — every listener observes the cascade.
       (rf/dispatch-sync [:clear/seed])

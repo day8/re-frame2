@@ -57,7 +57,7 @@
   (testing "(frame-handle) captures the active frame at CREATION; the bundle's
             :dispatch routes to THAT frame after the with-frame scope unwinds"
     (rf/reg-frame :fh/A {:doc "frame A — the capture target"})
-    (rf/reg-event-db :fh/inc (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :fh/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     ;; Capture inside :fh/A; fire OUTSIDE.
     (let [{:keys [dispatch]} (rf/with-frame :fh/A (rf/frame-handle))]
       ;; The dynamic-var binding has unwound. The captured op must still
@@ -75,7 +75,7 @@
   (testing "the bundle's :subscribe op resolves against the captured frame
             after the with-frame scope unwinds"
     (rf/reg-frame :fh/B {:doc "frame B — the subscribe target"})
-    (rf/reg-event-db :fh/seed (fn [_ [_ v]] {:value v}))
+    (rf/reg-event :fh/seed (fn [{:keys [db]} [_ v]] {:db {:value v}}))
     (rf/reg-sub :fh/value (fn [db _] (:value db)))
     (rf/dispatch-sync [:fh/seed :B-value] {:frame :fh/B})
     ;; Seed :rf/default explicitly (EP-0002: no ambient :rf/default floor)
@@ -94,7 +94,7 @@
             frame — the handle is LOCKED to one frame"
     (rf/reg-frame :fh/locked {:doc "the locked target"})
     (rf/reg-frame :fh/other  {:doc "the would-be override"})
-    (rf/reg-event-db :fh/touch (fn [db _] (assoc db :touched? true)))
+    (rf/reg-event :fh/touch (fn [{:keys [db]} _] {:db (assoc db :touched? true)}))
     (let [{:keys [dispatch]} (rf/frame-handle :fh/locked)]
       ;; Attempt to redirect to :fh/other via a per-call :frame opt.
       (dispatch [:fh/touch] {:frame :fh/other})
@@ -126,7 +126,7 @@
 (deftest frame-handle-explicit-frame-works-outside-scope
   (testing "(frame-handle frame-id) needs no scope — the explicit-id capture
             shape for async callbacks / tools / tests (rf2-jue6sp)"
-    (rf/reg-event-db :fh/explicit-touch (fn [db _] (assoc db :touched? true)))
+    (rf/reg-event :fh/explicit-touch (fn [{:keys [db]} _] {:db (assoc db :touched? true)}))
     (is (nil? frame/*current-frame*) "no scope established")
     (let [h (rf/frame-handle :rf/default)]
       (is (= :rf/default (:frame h))
@@ -143,7 +143,7 @@
   (testing "(frame-bound-fn [args] body) captures the current frame and
             re-establishes it inside the body after the scope unwinds"
     (rf/reg-frame :fbf/A {:doc "macro capture target"})
-    (rf/reg-event-db :fbf/inc (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :fbf/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [cb (rf/with-frame :fbf/A
                (rf/frame-bound-fn [] (rf/dispatch [:fbf/inc])))]
       (is (nil? frame/*current-frame*) "the with-frame scope has unwound")
@@ -156,7 +156,7 @@
 (deftest frame-bound-fn*-one-arity-captures-frame
   (testing "(frame-bound-fn* f) captures the current frame at wrap time"
     (rf/reg-frame :fbf/B {:doc "*-1-arity target"})
-    (rf/reg-event-db :fbf/inc (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :fbf/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [cb (rf/with-frame :fbf/B
                (rf/frame-bound-fn* (fn [] (rf/dispatch [:fbf/inc]))))]
       (cb)
@@ -169,7 +169,7 @@
   (testing "(frame-bound-fn* frame-id f) binds an explicit frame, no
             surrounding with-frame needed"
     (rf/reg-frame :fbf/C {:doc "*-2-arity explicit target"})
-    (rf/reg-event-db :fbf/inc (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :fbf/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [cb (rf/frame-bound-fn* :fbf/C (fn [] (rf/dispatch [:fbf/inc])))]
       (is (nil? frame/*current-frame*) "no with-frame scope was ever entered")
       (cb)
@@ -216,7 +216,7 @@
 (deftest app-db-value-returns-a-value
   (testing "(app-db-value frame-id) returns the app-db VALUE (a plain map), not a container"
     (rf/reg-frame :fdb/probe {:doc "probe"})
-    (rf/reg-event-db :fdb/seed (fn [_ _] {:k :v}))
+    (rf/reg-event :fdb/seed (fn [{:keys [db]} _] {:db {:k :v}}))
     (rf/dispatch-sync [:fdb/seed] {:frame :fdb/probe})
     (let [db (rf/app-db-value :fdb/probe)]
       (is (map? db) "app-db-value returns a plain map value")

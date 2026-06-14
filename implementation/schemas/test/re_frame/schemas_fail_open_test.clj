@@ -109,7 +109,7 @@
       {:schema [:vector]}
       (fn [ctx] (assoc-in ctx [:coeffects :cf/malformed] :whatever)))
     (let [calls (atom 0)]
-      (rf/reg-event-fx :use/malformed-cofx
+      (rf/reg-event :use/malformed-cofx
         {:interceptors [(rf/inject-cofx :cf/malformed)]}
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (capture #(rf/dispatch-sync [:use/malformed-cofx]))]
@@ -132,7 +132,7 @@
         (fn [_ _] (swap! bad-calls inc)))
       (rf/reg-fx :fx/sibling
         (fn [_ _] (swap! good-calls inc)))
-      (rf/reg-event-fx :emit/both
+      (rf/reg-event :emit/both
         (fn [_ _] {:fx [[:fx/malformed {:any :thing}]
                         [:fx/sibling   :ok]]}))
       (let [traces (capture #(rf/dispatch-sync [:emit/both]))]
@@ -153,7 +153,7 @@
   (testing "rf2-a5kzs (finding 2) — a malformed sub :schema yields the default
             (nil) per :replaced-with-default recovery instead of returning the
             unvalidated value via throw-as-pass; a malformed-schema trace fires."
-    (rf/reg-event-db :sub/init (fn [_ _] {:items [1 2 3]}))
+    (rf/reg-event :sub/init (fn [{:keys [db]} _] {:db {:items [1 2 3]}}))
     (rf/reg-sub :sub/malformed
       {:schema [:vector]}                          ;; childless — throws at validate-time
       (fn [db _] (:items db)))
@@ -230,7 +230,7 @@
     (schemas/set-schema-fns! {:validate (fn [_ _] false)
                               :explain  throwing-explainer})
     (try
-      (rf/reg-event-db :s/init (fn [_ _] {:v [1 2 3]}))
+      (rf/reg-event :s/init (fn [{:keys [db]} _] {:db {:v [1 2 3]}}))
       (rf/reg-sub :s/strict
         {:schema [:vector :string]}
         (fn [db _] (:v db)))

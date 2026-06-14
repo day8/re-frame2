@@ -166,7 +166,7 @@
   cleanup on frame destroy (per Spec 011 §Response storage substrate,
   rf2-jbcmt)."
   []
-  (rf/reg-event-fx :load-test/server-init
+  (rf/reg-event :load-test/server-init
     {:platforms #{:server}}
     (fn [{:keys [db]} [_ {:keys [i]}]]
       {:db (-> db

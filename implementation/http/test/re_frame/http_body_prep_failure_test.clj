@@ -69,9 +69,9 @@
           listener-id ::body-thunk]
       (try
         (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
-        (rf/reg-event-fx :reply/recorder
+        (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event-fx :issue/throwing-thunk
+        (rf/reg-event :issue/throwing-thunk
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:url    "http://127.0.0.1:0/x"
@@ -111,9 +111,9 @@
           listener-id ::encode-fail]
       (try
         (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
-        (rf/reg-event-fx :reply/recorder
+        (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event-fx :issue/unencodable
+        (rf/reg-event :issue/unencodable
           (fn [_ _]
             {:fx [[:rf.http/managed
                    ;; :request-content-type :json forces a JSON encode of a
@@ -149,9 +149,9 @@
           listener-id ::retry-thunk]
       (try
         (trace/register-listener! listener-id (fn [_] nil))
-        (rf/reg-event-fx :reply/recorder
+        (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event-fx :issue/retry-thunk
+        (rf/reg-event :issue/retry-thunk
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:url    "http://127.0.0.1:0/x"

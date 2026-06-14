@@ -591,9 +591,9 @@
                           :read-fired read-fired})
             orig       (.-fetch js/globalThis)]
         (set! (.-fetch js/globalThis) (fn [_url _init] (js/Promise.resolve resp)))
-        (rf/reg-event-fx :reply/recorder
+        (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event-fx :issue/slow-body
+        (rf/reg-event :issue/slow-body
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:url "/slow-body"}
@@ -666,9 +666,9 @@
             ;; 80ms backoff — long enough to abort inside deterministically,
             ;; short enough to keep the test fast.
             backoff-ms  80]
-        (rf/reg-event-fx :reply/recorder
+        (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event-fx :issue
+        (rf/reg-event :issue
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:url "/always-500"}
@@ -680,7 +680,7 @@
                     :request-id :race
                     :on-failure [:reply/recorder]
                     :on-success [:reply/recorder]}]]}))
-        (rf/reg-event-fx :do/abort
+        (rf/reg-event :do/abort
           (fn [_ _] {:fx [[:rf.http/managed-abort :race]]}))
         (rf/dispatch-sync [:issue] {:frame :rf/default})
         ;; Poll (microtask-paced) until attempt #1 has fetched, failed 5xx,
@@ -770,9 +770,9 @@
       (http-managed/clear-all-in-flight!)
       (let [replies (atom [])
             restore (with-failing-fetch)]
-        (rf/reg-event-fx :reply/recorder
+        (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event-fx :issue/throwing-thunk
+        (rf/reg-event :issue/throwing-thunk
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:url    "/x"
@@ -821,9 +821,9 @@
             circular  (let [o (js-obj)]
                         (aset o "self" o)
                         o)]
-        (rf/reg-event-fx :reply/recorder
+        (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event-fx :issue/unencodable
+        (rf/reg-event :issue/unencodable
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:url    "/x"
@@ -865,9 +865,9 @@
       (let [replies     (atom [])
             invocations (atom 0)
             restore     (with-failing-fetch)]
-        (rf/reg-event-fx :reply/recorder
+        (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event-fx :issue/retry-thunk
+        (rf/reg-event :issue/retry-thunk
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:url    "/x"

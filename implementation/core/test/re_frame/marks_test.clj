@@ -164,7 +164,7 @@
     (is (= [[:upload]] (:large m)))))
 
 (deftest reg-event-fx-stashes-marks
-  (rf/reg-event-fx :evt
+  (rf/reg-event :evt
     {:sensitive [[:totp]]}
     (fn [_ _] {}))
   (is (= [[:totp]] (:sensitive (marks/marks-for :event :evt)))))
@@ -559,7 +559,7 @@
 
 (deftest event-arg-sensitive-path-redacts-in-trace
   ;; Spec 015 conformance fixture #1
-  (rf/reg-event-fx :auth/log-in
+  (rf/reg-event :auth/log-in
     {:sensitive [[:password]]}
     (fn [_ _] {}))
   (let [traces (collect-traces! :evt-redact)]
@@ -575,7 +575,7 @@
   (rf/reg-fx :myfx
     {:sensitive [[:headers :authorization]]}
     (fn [_ _]))
-  (rf/reg-event-fx :send
+  (rf/reg-event :send
     (fn [_ _] {:fx [[:myfx {:headers {:authorization "Bearer xyz"
                                       :other "ok"}}]]}))
   (let [traces (collect-traces! :fx-redact)]
@@ -588,7 +588,7 @@
     (trace-tooling/unregister-listener! :fx-redact)))
 
 (deftest large-path-emits-marker
-  (rf/reg-event-fx :evt
+  (rf/reg-event :evt
     {:large [[:blob]]}
     (fn [_ _] {}))
   (let [traces (collect-traces! :large-marker)
@@ -604,7 +604,7 @@
     (trace-tooling/unregister-listener! :large-marker)))
 
 (deftest empty-path-redacts-whole-arg
-  (rf/reg-event-fx :evt
+  (rf/reg-event :evt
     {:sensitive [[]]}
     (fn [_ _] {}))
   (let [traces (collect-traces! :whole)]
@@ -630,11 +630,11 @@
 ;; (mirrors `sub-auto-propagates-when-app-db-has-sensitive-marks`).
 
 (deftest db-pending-sensitive-app-db-path-redacts
-  (rf/reg-event-db :db/seed (fn [_ _] {:user {:ssn nil :name "A"}}))
+  (rf/reg-event :db/seed (fn [{:keys [db]} _] {:db {:user {:ssn nil :name "A"}}}))
   (rf/dispatch-sync [:db/seed])
   (marks/set-marks :rf/default {[:user :ssn] :sensitive})
-  (rf/reg-event-db :db/write-ssn
-    (fn [db _] (assoc-in db [:user :ssn] "123-45-6789")))
+  (rf/reg-event :db/write-ssn
+    (fn [{:keys [db]} _] {:db (assoc-in db [:user :ssn] "123-45-6789")}))
   (let [traces (collect-traces! :db-sensitive)]
     (rf/dispatch-sync [:db/write-ssn])
     (let [[t1] (filterv #(= :rf.event/db-pending (:operation %)) @traces)
@@ -647,12 +647,12 @@
     (trace-tooling/unregister-listener! :db-sensitive)))
 
 (deftest db-pending-large-app-db-path-emits-marker
-  (rf/reg-event-db :db/seed (fn [_ _] {:docs {:csv nil :note "ok"}}))
+  (rf/reg-event :db/seed (fn [{:keys [db]} _] {:db {:docs {:csv nil :note "ok"}}}))
   (rf/dispatch-sync [:db/seed])
   (marks/set-marks :rf/default {[:docs :csv] :large})
   (let [big (apply str (repeat 500 "X"))]
-    (rf/reg-event-db :db/write-csv
-      (fn [db _] (assoc-in db [:docs :csv] big)))
+    (rf/reg-event :db/write-csv
+      (fn [{:keys [db]} _] {:db (assoc-in db [:docs :csv] big)}))
     (let [traces (collect-traces! :db-large)]
       (rf/dispatch-sync [:db/write-csv])
       (let [[t1] (filterv #(= :rf.event/db-pending (:operation %)) @traces)
@@ -687,8 +687,8 @@
   (frame-class/install! :rf/default
     (frame-class/validate+extract :rf/default
       {:sensitive {:app-db [[:auth :token]]}}))
-  (rf/reg-event-db :db/login
-    (fn [db _] (assoc-in db [:auth :token] "Bearer xyz")))
+  (rf/reg-event :db/login
+    (fn [{:keys [db]} _] {:db (assoc-in db [:auth :token] "Bearer xyz")}))
   (let [traces (collect-traces! :db-schema-sensitive)]
     (rf/dispatch-sync [:db/login])
     (let [[t1] (filterv #(= :rf.event/db-pending (:operation %)) @traces)]
@@ -772,7 +772,7 @@
   ;; NB: the elision declaration registry lives in the runtime-db partition
   ;; (`[:rf.runtime/elision]`, EP-0001), so an app-db replacement no longer
   ;; wipes it; seed first, then mark, as for schema-driven elision.
-  (rf/reg-event-db :seed (fn [_ _] {:user {:ssn "X" :name "A"}}))
+  (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:user {:ssn "X" :name "A"}}}))
   (rf/dispatch-sync [:seed])
   (marks/set-marks :rf/default {[:user :ssn] :sensitive})
   (rf/reg-sub :all-users (fn [db _] (:user db)))
@@ -786,7 +786,7 @@
   ;; sensitive input with `:rf.egress/output-sensitivity :rf.egress/public`
   ;; DECLASSIFIES — its output is NOT marked sensitive despite the sensitive
   ;; input (replaces the rejected `:sensitive? false` spelling).
-  (rf/reg-event-db :seed (fn [_ _] {:user {:ssn "X" :name "A"}}))
+  (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:user {:ssn "X" :name "A"}}}))
   (rf/dispatch-sync [:seed])
   (marks/set-marks :rf/default {[:user :ssn] :sensitive})
   (rf/reg-sub :safe
@@ -830,7 +830,7 @@
   ;; `derived-output-inherits-sensitivity.edn` fixture: a sub reading a
   ;; sensitive input with NO `:rf.egress/output-sensitivity` (the `:inherit`
   ;; default) propagates — its output IS marked sensitive.
-  (rf/reg-event-db :seed (fn [_ _] {:user {:ssn "X" :name "A"}}))
+  (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:user {:ssn "X" :name "A"}}}))
   (rf/dispatch-sync [:seed])
   (marks/set-marks :rf/default {[:user :ssn] :sensitive})
   (rf/reg-sub :inheriting
@@ -842,7 +842,7 @@
 ;; ---- composed: subs propagation through layer-2 ------------------------
 
 (deftest layer-2-inherits-from-input-sub
-  (rf/reg-event-db :seed (fn [_ _] {:user {:ssn "X" :name "A"}}))
+  (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:user {:ssn "X" :name "A"}}}))
   (rf/dispatch-sync [:seed])
   (marks/set-marks :rf/default {[:user :ssn] :sensitive})
   (rf/reg-sub :u (fn [db _] (:user db)))
@@ -878,7 +878,7 @@
   (rf/reg-cofx :auth/jwt
     {:sensitive [[]]}
     (fn [] "real-jwt"))
-  (rf/reg-event-fx :uses-jwt
+  (rf/reg-event :uses-jwt
     {:rf.cofx/requires [:auth/jwt]}
     (fn [_ _] {}))
   ;; Cofx mark stashed
@@ -937,13 +937,13 @@
 ;; ---- registrar interaction ---------------------------------------------
 
 (deftest re-registration-clears-prior-marks
-  (rf/reg-event-fx :evt {:sensitive [[:a]]} (fn [_ _] {}))
+  (rf/reg-event :evt {:sensitive [[:a]]} (fn [_ _] {}))
   (is (= [[:a]] (:sensitive (marks/marks-for :event :evt))))
   ;; Re-register without marks — clears stashed entry
-  (rf/reg-event-fx :evt (fn [_ _] {}))
+  (rf/reg-event :evt (fn [_ _] {}))
   (is (nil? (marks/marks-for :event :evt))))
 
 (deftest re-registration-replaces-marks
-  (rf/reg-event-fx :evt {:sensitive [[:a]]} (fn [_ _] {}))
-  (rf/reg-event-fx :evt {:sensitive [[:b]]} (fn [_ _] {}))
+  (rf/reg-event :evt {:sensitive [[:a]]} (fn [_ _] {}))
+  (rf/reg-event :evt {:sensitive [[:b]]} (fn [_ _] {}))
   (is (= [[:b]] (:sensitive (marks/marks-for :event :evt)))))

@@ -22,9 +22,9 @@
     ;; it and emits :rf.route.nav-token/stale-suppressed.
     (rf/reg-route :route/article {:path   "/articles/:id"
                                   :params [:map [:id :string]]})
-    (rf/reg-event-db :article/loaded
-                     (fn [db [_ id payload]]
-                       (assoc db :article {:id id :payload payload})))
+    (rf/reg-event :article/loaded
+                     (fn [{:keys [db]} [_ id payload]]
+                       {:db (assoc db :article {:id id :payload payload})}))
 
     (let [traces (atom [])]
       (rf/register-listener! ::nav-token (fn [ev] (swap! traces conj ev)))
@@ -109,9 +109,9 @@
                                   :params [:map [:id :string]]})
     (rf/reg-route :route/profile {:path   "/profile/:id"
                                   :params [:map [:id :string]]})
-    (rf/reg-event-db :article/loaded
-                     (fn [db [_ id payload]]
-                       (assoc db :article {:id id :payload payload})))
+    (rf/reg-event :article/loaded
+                     (fn [{:keys [db]} [_ id payload]]
+                       {:db (assoc db :article {:id id :payload payload})}))
 
     (let [traces (atom [])]
       (rf/register-listener! ::cross-route (fn [ev] (swap! traces conj ev)))
@@ -176,14 +176,14 @@
     ;; resulting app-db slice.
     (rf/reg-route :route/article {:path   "/articles/:id"
                                   :params [:map [:id :string]]})
-    (rf/reg-event-db :article/loaded
-                     (fn [db [_ id payload]]
-                       (assoc db :article {:id id :payload payload})))
+    (rf/reg-event :article/loaded
+                     (fn [{:keys [db]} [_ id payload]]
+                       {:db (assoc db :article {:id id :payload payload})}))
     ;; Bridge event: a real :on-success handler. Carries the token it
     ;; captured at request time and re-emits an `:rf.route/with-nav-token`
     ;; fx entry. The runtime then either dispatches `[:article/loaded ...]`
     ;; (match) or suppresses (mismatch).
-    (rf/reg-event-fx :article/loaded-via-nav-token
+    (rf/reg-event :article/loaded-via-nav-token
                      (fn [_ctx [_ {:keys [carried-token carried-route-id id payload]}]]
                        {:fx [[:rf.route/with-nav-token
                               {:do        [:dispatch [:article/loaded id payload]]
@@ -317,7 +317,7 @@
                (fn [_ _] nil))
     (let [seen (atom :unset)]
       ;; An :on-match-reached handler that captures the injected token.
-      (rf/reg-event-fx :article/capture-token
+      (rf/reg-event :article/capture-token
                        {:rf.cofx/requires [:rf.route/nav-token]}
                        (fn [{:rf.route/keys [nav-token]} _]
                          (reset! seen nav-token)
@@ -350,12 +350,12 @@
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Terminal commit handler.
-    (rf/reg-event-db :article/loaded
-                     (fn [db [_ id payload]]
-                       (assoc db :article {:id id :payload payload})))
+    (rf/reg-event :article/loaded
+                     (fn [{:keys [db]} [_ id payload]]
+                       {:db (assoc db :article {:id id :payload payload})}))
     ;; The async completion: threads a captured token through the framework
     ;; fx, which validates against the current slice.
-    (rf/reg-event-fx :article/completed
+    (rf/reg-event :article/completed
                      (fn [_ctx [_ {:keys [captured-token id payload]}]]
                        {:fx [[:rf.route/with-nav-token
                               {:do        [:dispatch [:article/loaded id payload]]
@@ -368,7 +368,7 @@
       ;; token at scheduling time (exactly the documented step-2 shape).
       ;; The capture closes over `captured` so the test replays the
       ;; completion later, out of order.
-      (rf/reg-event-fx :article/load
+      (rf/reg-event :article/load
                        {:rf.cofx/requires [:rf.route/nav-token]}
                        (fn [{:rf.route/keys [nav-token]} [_ id]]
                          (swap! captured assoc id nav-token)
@@ -431,10 +431,10 @@
                        (fn [_db _]
                          (swap! order conj :fail)
                          (throw (ex-info "first-boom" {:why :test}))))
-      (rf/reg-event-db :load/next
-                       (fn [db _]
+      (rf/reg-event :load/next
+                       (fn [{:keys [db]} _]
                          (swap! order conj :next)
-                         (assoc db :load/next-ran? true)))
+                         {:db (assoc db :load/next-ran? true)}))
       (rf/reg-route :route/two-loaders
                     {:path     "/two-loaders"
                      :on-match [[:load/fail] [:load/next]]})
@@ -493,8 +493,8 @@
             :error through its own commit, so a failure on the later
             navigation still records (failure-after-recovery is not
             suppressed)"
-    (rf/reg-event-db :load/ok
-                     (fn [db _] (assoc db :ok? true)))
+    (rf/reg-event :load/ok
+                     (fn [{:keys [db]} _] {:db (assoc db :ok? true)}))
     (rf/reg-event-db :load/late-fail
                      (fn [_db _] (throw (ex-info "late-boom" {}))))
     (rf/reg-route :route/clean {:path "/clean" :on-match [[:load/ok]]})

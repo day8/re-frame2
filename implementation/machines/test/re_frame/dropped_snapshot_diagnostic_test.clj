@@ -92,7 +92,7 @@
     ;; scratch. Pre-migration this dropped the `:rf/runtime` app-db root and
     ;; with it the live :diag/m1 snapshot. Under the two-partition contract
     ;; the snapshot lives in runtime-db, which `:db` never holds.
-    (rf/reg-event-db :diag/reboot (fn [_db _] {:fresh-app-state true}))
+    (rf/reg-event :diag/reboot (fn [{:keys [db]} _] {:db {:fresh-app-state true}}))
     (let [warnings (with-recorder #(rf/dispatch-sync [:diag/reboot]))]
       (is (empty? warnings)
           "no runtime-state-dropped warning — the footgun is structurally gone")
@@ -138,7 +138,7 @@
     ;; server ran the machine, that slice carries the snapshot, so the live
     ;; machine is replaced-in-place, not dropped. Simulate that shape with a
     ;; framework-authority runtime-db effect.
-    (rf/reg-event-fx :diag/hydrate
+    (rf/reg-event :diag/hydrate
                      (fn [{rt :rf.db/runtime} _]
                        {:db {:server-state true}
                         :rf.db/runtime rt}))

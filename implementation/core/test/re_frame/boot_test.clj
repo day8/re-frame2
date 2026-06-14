@@ -309,7 +309,7 @@
     ;; explicitly (an ordinary id) and runs ambient ops inside an explicit
     ;; :rf/default scope, exactly as a single-frame app would.
     (rf/init! plain-atom/adapter)
-    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
+    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/reg-sub      :n    (fn [db _] (:n db)))
     (rf/reg-frame :rf/default {:doc "explicit app frame"})
     (rf/reg-frame :tenant-a {:doc "tenant-a"})

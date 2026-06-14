@@ -47,7 +47,7 @@
                        (throw (ex-info "kaboom" {}))))
     ;; EP-0001 (rf2-vzld77): the route slice (with :error) is durable routing
     ;; runtime-db state, so the :on-error handler reads it off :rf.db/runtime.
-    (rf/reg-event-fx :route/cart-load-failed
+    (rf/reg-event :route/cart-load-failed
                      (fn [{:keys [db] rt :rf.db/runtime} _]
                        (let [err (get-in rt [:rf.runtime/routing :current :error])]
                          {:db (assoc db :handled-error err)})))
@@ -95,9 +95,9 @@
     (rf/reg-event-db :load/throw4
                      (fn [_db _]
                        (throw (ex-info "y" {}))))
-    (rf/reg-event-db :handle/error
-                     (fn [db _]
-                       (assoc db :handled? true)))
+    (rf/reg-event :handle/error
+                     (fn [{:keys [db]} _]
+                       {:db (assoc db :handled? true)}))
     (rf/reg-route :route/p
                   {:path     "/p"
                    :on-match [[:load/throw4]]
@@ -208,7 +208,7 @@
       ;; while the slice is still :loading (the realistic reproduction
       ;; window). The child carries DIFFERENT args than the route's
       ;; declared on-match vector.
-      (rf/reg-event-fx :app/load-x
+      (rf/reg-event :app/load-x
                        (fn [{:keys [db]} [_ origin]]
                          (if (= origin "button")
                            ;; The "button"-shaped dispatch throws — it is

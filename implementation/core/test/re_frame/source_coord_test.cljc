@@ -148,7 +148,7 @@
 (deftest dispatch-sync-macro-stamps-call-site-on-handler-exception
   (testing "dispatch-sync macro stamps the call-site through the envelope
    to errors emitted INSIDE the handler chain"
-    (rf/reg-event-fx :rf2-ts1a/throws
+    (rf/reg-event :rf2-ts1a/throws
                      (fn [_cofx _event]
                        (throw (ex-info "boom" {}))))
     (let [evs (record-traces
@@ -160,7 +160,7 @@
 
 (deftest dispatch-sync-star-fn-omits-call-site-on-handler-exception
   (testing "the fn-form `dispatch-sync*` does NOT carry a call site"
-    (rf/reg-event-fx :rf2-ts1a/throws-fn
+    (rf/reg-event :rf2-ts1a/throws-fn
                      (fn [_cofx _event]
                        (throw (ex-info "boom" {}))))
     (let [evs (record-traces
@@ -176,7 +176,7 @@
 (deftest call-site-rides-at-top-level
   (testing ":rf.trace/call-site lives at the top level, sibling of
    :rf.trace/trigger-handler — NOT nested under :tags"
-    (rf/reg-event-fx :rf2-ts1a/top-level
+    (rf/reg-event :rf2-ts1a/top-level
                      (fn [_cofx _event]
                        (throw (ex-info "boom" {}))))
     (let [evs (record-traces

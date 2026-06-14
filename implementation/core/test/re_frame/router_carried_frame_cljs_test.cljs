@@ -64,8 +64,8 @@
   (testing "with no dynamic binding and no explicit frame, the router
             resolves the enclosing frame-provider (React-context) frame"
     (rf/reg-frame :app/provided {:doc "frame the provider supplies"})
-    (rf/reg-event-db :app/inc {:frame :app/provided}
-      (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :app/inc {:frame :app/provided}
+      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     ;; Simulate being inside a `frame-provider {:frame :app/provided}`
     ;; render: the React-context tier reports the frame, the dynamic var
     ;; is unbound.
@@ -97,8 +97,8 @@
             provider frame (override beats scope)"
     (rf/reg-frame :app/provided {:doc "provider frame"})
     (rf/reg-frame :app/explicit {:doc "explicit override target"})
-    (rf/reg-event-db :app/inc {:frame :app/explicit}
-      (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :app/inc {:frame :app/explicit}
+      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (reset! provider-frame :app/provided)
     (binding [frame/*current-frame* nil]
       (rf/dispatch-sync [:app/inc] {:frame :app/explicit}))

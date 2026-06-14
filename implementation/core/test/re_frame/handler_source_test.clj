@@ -73,7 +73,7 @@
 
 (deftest reg-event-fx-captures-form-source
   (testing "rf2-xgfuy: reg-event-fx stamps :rf.handler/source on JVM"
-    (rf/reg-event-fx :rf2-xgfuy/event-fx-sample
+    (rf/reg-event :rf2-xgfuy/event-fx-sample
                      (fn [_cofx _ev] {:db {:n 0}}))
     (assert-source :event :rf2-xgfuy/event-fx-sample "reg-event-fx")
     (let [src (:rf.handler/source
@@ -107,7 +107,7 @@
 
 (deftest captures-form-source-with-metadata-interceptors
   (testing "rf2-xgfuy: metadata :interceptors round-trips into :rf.handler/source"
-    (rf/reg-event-fx :rf2-xgfuy/event-with-icpts
+    (rf/reg-event :rf2-xgfuy/event-with-icpts
                      {:interceptors [rf/unwrap-interceptor]}
                      (fn [_cofx {:keys [v]}] {:db {:v v}}))
     (let [src (:rf.handler/source

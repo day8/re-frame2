@@ -78,8 +78,8 @@
   (testing "dispatch a single event under CLJS — exactly one record
             lands in the ring with the canonical shape (`:event-id`,
             `:db-before`, `:db-after`, `:effects`, `:outcome :ok`)"
-    (rf/reg-event-db :n/init (fn [_ _] {:n 0}))
-    (rf/reg-event-db :n/inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :n/init (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :n/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (rf/dispatch-sync [:n/init])
     (rf/dispatch-sync [:n/inc])
@@ -129,9 +129,9 @@
             :trace-events (parity with :where :app-db)"
     (rf/reg-app-schema [:auth] [:map [:token :string]])
     (let [calls (atom 0)]
-      (rf/reg-event-db :lo28u/bad-event-args
+      (rf/reg-event :lo28u/bad-event-args
         {:schema [:cat [:= :lo28u/bad-event-args] pos-int?]}
-        (fn [db _ev] (swap! calls inc) (assoc db :baseline 1)))
+        (fn [{:keys [db]} _ev] (swap! calls inc) {:db (assoc db :baseline 1)}))
 
       (rf/dispatch-sync [:lo28u/bad-event-args "not-a-number"])
 
@@ -158,8 +158,8 @@
 (deftest restore-rewinds-app-db-cljs
   (testing "dispatch three events, restore to the second — app-db
             matches the recorded :db-after"
-    (rf/reg-event-db :n/init (fn [_ _] {:n 0}))
-    (rf/reg-event-db :n/inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :n/init (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :n/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (rf/dispatch-sync [:n/init])             ;; n=0
     (rf/dispatch-sync [:n/inc])              ;; n=1
@@ -182,8 +182,8 @@
 (deftest ring-depth-evicts-oldest-cljs
   (testing "configure :depth 3, dispatch 5 events, oldest 2 are dropped"
     (rf/configure! :epoch-history {:depth 3})
-    (rf/reg-event-db :n/init (fn [_ _] {:n 0}))
-    (rf/reg-event-db :n/inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :n/init (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :n/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (rf/dispatch-sync [:n/init])             ;; n=0, would-be record #1
     (dotimes [_ 4] (rf/dispatch-sync [:n/inc])) ;; n=1..4, records #2..#5
@@ -202,8 +202,8 @@
             contract Xray's preload (`:rf.xray/epoch-recorded`)
             routes through. The companion `:rf.epoch/snapshotted`
             trace also fires once per dispatch."
-    (rf/reg-event-db :n/init (fn [_ _] {:n 0}))
-    (rf/reg-event-db :n/inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :n/init (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :n/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (let [cb-seen    (atom [])
           trace-seen (atom [])]
@@ -258,7 +258,7 @@
     ;; assertion; pairing it with the framework-level grep gives the
     ;; cross-mode pin (`gate=true` => surface lives; `gate=false`
     ;; => bundle elided).
-    (rf/reg-event-db :probe/init (fn [_ _] {:n 0}))
+    (rf/reg-event :probe/init (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:probe/init])
     (is (pos? (count (rf/epoch-history :rf/default)))
         "with the gate ON, a dispatch lands a record in the ring")))

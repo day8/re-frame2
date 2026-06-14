@@ -100,7 +100,7 @@
       (rf/reg-fx :fx-test/a (fn [_ _] (swap! log conj :a)))
       (rf/reg-fx :fx-test/b (fn [_ _] (swap! log conj :b)))
       (rf/reg-fx :fx-test/c (fn [_ _] (swap! log conj :c)))
-      (rf/reg-event-fx :fx-test/run-mixed
+      (rf/reg-event :fx-test/run-mixed
         (fn [{:keys [db]} _]
           {:db (assoc db :seeded? true)
            :fx [[:fx-test/a]
@@ -123,7 +123,7 @@
         (fn [db _] (swap! log conj :queued-a) db))
       (rf/reg-event-db :fx-test/queued-b
         (fn [db _] (swap! log conj :queued-b) db))
-      (rf/reg-event-fx :fx-test/run-interleaved
+      (rf/reg-event :fx-test/run-interleaved
         (fn [_ _]
           {:fx [[:fx-test/sync-a]
                 [:dispatch [:fx-test/queued-a]]
@@ -158,7 +158,7 @@
       (rf/reg-fx :fx-test/email.call
                  {:platforms #{:client :server}}
                  (fn [_ _] (swap! fired conj :per-call)))
-      (rf/reg-event-fx :fx-test/send
+      (rf/reg-event :fx-test/send
         (fn [_ _] {:fx [[:fx-test/email {:to "alice"}]]}))
 
       (testing "no overrides — registered fx fires"
@@ -199,7 +199,7 @@
       (rf/reg-fx :fx-test/wo-email.call
                  {:platforms #{:client :server}}
                  (fn [_ _] (swap! fired conj :per-call)))
-      (rf/reg-event-fx :fx-test/wo-send
+      (rf/reg-event :fx-test/wo-send
         (fn [_ _] {:fx [[:fx-test/wo-email {:to "alice"}]]}))
 
       (testing "outside with-fx-overrides the registered fx fires"
@@ -243,7 +243,7 @@
       (rf/reg-fx :fx-test/comp-email.stub
                  {:platforms #{:client :server}}
                  (fn [_ _] (swap! fired conj :stub)))
-      (rf/reg-event-fx :fx-test/comp-send
+      (rf/reg-event :fx-test/comp-send
         (fn [_ _] {:fx [[:fx-test/comp-email]]}))
       (rf/reg-frame :wo/A {:doc "frame A"})
 
@@ -270,7 +270,7 @@
         (fn [_ _] (throw (ex-info "kaboom" {:why :test}))))
       (rf/reg-fx :fx-test/after
         (fn [_ args] (swap! fired conj args)))
-      (rf/reg-event-fx :fx-test/with-bad-fx
+      (rf/reg-event :fx-test/with-bad-fx
         (fn [_ _]
           {:fx [[:fx-test/boom  {:reason :first}]
                 [:fx-test/after {:reason :sibling}]]}))
@@ -309,7 +309,7 @@
           fired  (atom [])]
       (rf/reg-fx :fx-test/sibling
         (fn [_ args] (swap! fired conj args)))
-      (rf/reg-event-fx :fx-test/missing
+      (rf/reg-event :fx-test/missing
         (fn [_ _]
           {:fx [[:fx-test/never-registered  {:k 1}]
                 [:fx-test/sibling           {:k 2}]]}))
@@ -344,7 +344,7 @@
       (rf/reg-fx :fx-test/local-storage
         {:platforms #{:client}}
         (fn [_ _] (reset! fired? true)))
-      (rf/reg-event-fx :fx-test/save
+      (rf/reg-event :fx-test/save
         (fn [_ _] {:fx [[:fx-test/local-storage {:k "key" :v "val"}]]}))
       (rf/dispatch-sync [:fx-test/save])
       (rf/unregister-listener! ::plat)
@@ -387,7 +387,7 @@
       ;; — the M-8 contract says it must NOT.
       (rf/reg-event-db :fx-test/sentinel
         (fn [db _] (reset! fired? true) db))
-      (rf/reg-event-fx :fx-test/legacy-dispatch
+      (rf/reg-event :fx-test/legacy-dispatch
         (fn [_ _]
           ;; Legacy v1 shape — top-level :dispatch.
           {:dispatch [:fx-test/sentinel]}))
@@ -432,7 +432,7 @@
       (rf/reg-fx :test.634y/touch
                  {:platforms #{:client :server}}
                  (fn [_ _] (swap! counter inc)))
-      (rf/reg-event-fx :test.634y/run
+      (rf/reg-event :test.634y/run
                        (fn [_ _] {:fx [[:test.634y/touch :payload]]}))
 
       ;; 1. Pre-clear: dispatch increments the counter.
@@ -482,7 +482,7 @@
           fired  (atom [])]
       (rf/reg-fx :fx-test/sibling
         (fn [_ args] (swap! fired conj args)))
-      (rf/reg-event-fx :fx-test/multi-legacy
+      (rf/reg-event :fx-test/multi-legacy
         (fn [{:keys [db]} _]
           ;; Mixed: legal :db and :fx alongside two legacy keys.
           {:db (assoc db :seeded? true)
@@ -528,7 +528,7 @@
   (testing "{:fx :oops} (a bare keyword instead of a vector) is policed —
             structured :rf.error/effect-map-shape, NOT a raw host exception"
     (let [traces (collect-traces! ::fx-val-kw)]
-      (rf/reg-event-fx :fx-test/fx-is-keyword
+      (rf/reg-event :fx-test/fx-is-keyword
         (fn [{:keys [db]} _]
           ;; Forgot-the-outer-vector typo: :fx is a bare keyword.
           {:db (assoc db :seeded? true)
@@ -569,7 +569,7 @@
       ;; would flip — it must NOT (the whole :fx value is malformed + dropped).
       (rf/reg-event-db :fx-test/fx-sentinel
         (fn [db _] (reset! fired? true) db))
-      (rf/reg-event-fx :fx-test/fx-is-map
+      (rf/reg-event :fx-test/fx-is-map
         (fn [_ _]
           ;; Forgot the outer + inner vector nesting: :fx is a map.
           {:fx {:dispatch [:fx-test/fx-sentinel]}}))
@@ -595,7 +595,7 @@
           fired  (atom [])]
       (rf/reg-fx :fx-test/touch-ok
         (fn [_ args] (swap! fired conj args)))
-      (rf/reg-event-fx :fx-test/fx-is-vector
+      (rf/reg-event :fx-test/fx-is-vector
         (fn [{:keys [db]} _]
           {:db (assoc db :seeded? true)
            :fx [[:fx-test/touch-ok {:k :v}]]}))
@@ -613,7 +613,7 @@
     ;; nil/absent :fx must NOT be flagged (it is equivalent to omitting :fx);
     ;; only a non-nil, non-sequential value is the typo we police.
     (let [traces (collect-traces! ::fx-val-nil)]
-      (rf/reg-event-fx :fx-test/fx-is-nil
+      (rf/reg-event :fx-test/fx-is-nil
         (fn [{:keys [db]} _]
           {:db (assoc db :seeded? true)
            :fx nil}))
@@ -651,7 +651,7 @@
           fired  (atom [])]
       (rf/reg-fx :fx-test/entry-sibling
         (fn [_ args] (swap! fired conj args)))
-      (rf/reg-event-fx :fx-test/entry-is-keyword
+      (rf/reg-event :fx-test/entry-is-keyword
         (fn [{:keys [db]} _]
           ;; :good fires; :oops is a bare keyword (forgot the inner vector)
           ;; — it must be policed + skipped, NOT silently dropped.
@@ -697,7 +697,7 @@
           fired  (atom [])]
       (rf/reg-fx :fx-test/entry-ok
         (fn [_ args] (swap! fired conj args)))
-      (rf/reg-event-fx :fx-test/entry-is-map
+      (rf/reg-event :fx-test/entry-is-map
         (fn [_ _]
           {:fx [{:dispatch [:whatever]}      ;; a map where a [fx-id args] pair belongs
                 [:fx-test/entry-ok {:k :v}]]}))
@@ -727,7 +727,7 @@
           fired  (atom [])]
       (rf/reg-fx :fx-test/entry-noop-ok
         (fn [_ args] (swap! fired conj args)))
-      (rf/reg-event-fx :fx-test/entry-nil-empty
+      (rf/reg-event :fx-test/entry-nil-empty
         (fn [_ _]
           {:fx [[:fx-test/entry-noop-ok {:k 1}]
                 nil                                 ;; conditional no-op
@@ -747,7 +747,7 @@
           fired  (atom [])]
       (rf/reg-fx :fx-test/multi-a (fn [_ _] (swap! fired conj :a)))
       (rf/reg-fx :fx-test/multi-b (fn [_ _] (swap! fired conj :b)))
-      (rf/reg-event-fx :fx-test/multi-ok
+      (rf/reg-event :fx-test/multi-ok
         (fn [_ _]
           {:fx [[:fx-test/multi-a]
                 [:fx-test/multi-b]]}))
@@ -791,7 +791,7 @@
           fired  (atom [])]
       (rf/reg-fx :fx-test/entry-nonkw-sibling
         (fn [_ args] (swap! fired conj args)))
-      (rf/reg-event-fx :fx-test/entry-non-keyword-head
+      (rf/reg-event :fx-test/entry-non-keyword-head
         (fn [{:keys [db]} _]
           {:db (assoc db :seeded? true)
            :fx [[:fx-test/entry-nonkw-sibling {:k 1}]
@@ -834,7 +834,7 @@
           fired  (atom [])]
       (rf/reg-fx :fx-test/entry-arity3-sink
         (fn [_ args] (swap! fired conj args)))
-      (rf/reg-event-fx :fx-test/entry-surplus-field
+      (rf/reg-event :fx-test/entry-surplus-field
         (fn [{:keys [db]} _]
           {:db (assoc db :seeded? true)
            :fx [[:fx-test/entry-arity3-sink {:k 1}]
@@ -875,7 +875,7 @@
           fired  (atom [])]
       (rf/reg-fx :fx-test/noargs-sink
         (fn [_ args] (swap! fired conj args)))
-      (rf/reg-event-fx :fx-test/entry-noargs
+      (rf/reg-event :fx-test/entry-noargs
         (fn [_ _] {:fx [[:fx-test/noargs-sink]]}))
       (rf/dispatch-sync [:fx-test/entry-noargs])
       (rf/unregister-listener! ::fx-entry-noargs)
@@ -909,7 +909,7 @@
           target-ran (atom 0)]
       (rf/reg-event-db :fx-test.tbuov/target
         (fn [db _] (swap! target-ran inc) db))
-      (rf/reg-event-fx :fx-test.tbuov/emits-malformed-dispatch
+      (rf/reg-event :fx-test.tbuov/emits-malformed-dispatch
         (fn [{:keys [db]} _]
           {:db (assoc db :seeded? true)
            ;; The exact wild malformation: a surplus `{:frame …}` 3rd slot on
@@ -971,7 +971,7 @@
       (rf/reg-fx :fx-test/http
                  {:platforms #{:client :server}}
                  (fn [_ _] (swap! original-fired inc)))
-      (rf/reg-event-fx :fx-test/issue-request
+      (rf/reg-event :fx-test/issue-request
         (fn [_ _] {:fx [[:fx-test/http {:method :get :url "/me"}]]}))
       (rf/dispatch-sync
         [:fx-test/issue-request]
@@ -994,7 +994,7 @@
       (rf/reg-fx :fx-test/http-redir-stub
                  {:platforms #{:client :server}}
                  (fn [_ _] (swap! fired conj :stub)))
-      (rf/reg-event-fx :fx-test/issue-redir
+      (rf/reg-event :fx-test/issue-redir
         (fn [_ _] {:fx [[:fx-test/http-redir {}]]}))
       (rf/dispatch-sync
         [:fx-test/issue-redir]
@@ -1010,7 +1010,7 @@
       (rf/reg-fx :fx-test/http-nil-override
                  {:platforms #{:client :server}}
                  (fn [_ _] (swap! fired inc)))
-      (rf/reg-event-fx :fx-test/issue-nil-override
+      (rf/reg-event :fx-test/issue-nil-override
         (fn [_ _] {:fx [[:fx-test/http-nil-override {}]]}))
       (rf/dispatch-sync
         [:fx-test/issue-nil-override]
@@ -1024,7 +1024,7 @@
       (rf/reg-fx :fx-test/http-traced
                  {:platforms #{:client :server}}
                  (fn [_ _] nil))
-      (rf/reg-event-fx :fx-test/issue-traced
+      (rf/reg-event :fx-test/issue-traced
         (fn [_ _] {:fx [[:fx-test/http-traced {}]]}))
       (rf/dispatch-sync
         [:fx-test/issue-traced]
@@ -1047,7 +1047,7 @@
       (rf/reg-fx :fx-test/http-with-event
                  {:platforms #{:client :server}}
                  (fn [_ _] nil))
-      (rf/reg-event-fx :fx-test/issue-with-event
+      (rf/reg-event :fx-test/issue-with-event
         (fn [_ _] {:fx [[:fx-test/http-with-event {:url "/x"}]]}))
       (rf/dispatch-sync
         [:fx-test/issue-with-event :payload-1]
@@ -1083,7 +1083,7 @@
           target-ran    (atom 0)]
       (rf/reg-event-db :fx-test.nrpj1/target
         (fn [db _] (swap! target-ran inc) db))
-      (rf/reg-event-fx :fx-test.nrpj1/emits-dispatch
+      (rf/reg-event :fx-test.nrpj1/emits-dispatch
         (fn [_ _] {:fx [[:dispatch [:fx-test.nrpj1/target :payload]]]}))
       (rf/dispatch-sync
         [:fx-test.nrpj1/emits-dispatch]
@@ -1099,7 +1099,7 @@
 
   (testing ":dispatch-later fn-value override pre-empts the reserved body too"
     (let [later-args (atom nil)]
-      (rf/reg-event-fx :fx-test.nrpj1/emits-later
+      (rf/reg-event :fx-test.nrpj1/emits-later
         (fn [_ _] {:fx [[:dispatch-later {:ms 50 :event [:fx-test.nrpj1/target]}]]}))
       (rf/dispatch-sync
         [:fx-test.nrpj1/emits-later]
@@ -1114,7 +1114,7 @@
     ;; invocation — fires when the override applies, absent otherwise.
     (let [traces (collect-traces! ::reserved-override-trace)]
       (rf/reg-event-db :fx-test.nrpj1/sink (fn [db _] db))
-      (rf/reg-event-fx :fx-test.nrpj1/traced-dispatch
+      (rf/reg-event :fx-test.nrpj1/traced-dispatch
         (fn [_ _] {:fx [[:dispatch [:fx-test.nrpj1/sink]]]}))
       (rf/dispatch-sync
         [:fx-test.nrpj1/traced-dispatch]
@@ -1134,7 +1134,7 @@
     (let [target-ran (atom 0)]
       (rf/reg-event-db :fx-test.nrpj1/plain-target
         (fn [db _] (swap! target-ran inc) db))
-      (rf/reg-event-fx :fx-test.nrpj1/plain-dispatch
+      (rf/reg-event :fx-test.nrpj1/plain-dispatch
         (fn [_ _] {:fx [[:dispatch [:fx-test.nrpj1/plain-target]]]}))
       (rf/dispatch-sync [:fx-test.nrpj1/plain-dispatch])
       (is (= 1 @target-ran)
@@ -1152,7 +1152,7 @@
       (rf/reg-fx :fx-test.nrpj1/my-fx
                  {:platforms #{:client :server}}
                  (fn [_ _] (swap! original-fired inc)))
-      (rf/reg-event-fx :fx-test.nrpj1/issue-redirect
+      (rf/reg-event :fx-test.nrpj1/issue-redirect
         (fn [_ _] {:fx [[:fx-test.nrpj1/my-fx {}]]}))
       (rf/dispatch-sync
         [:fx-test.nrpj1/issue-redirect]
@@ -1190,7 +1190,7 @@
                          :inputs [[:fx-test.snsup5 :seed]]
                          :output (fn [_] 42)
                          :path   [:fx-test.snsup5 :out]}]
-      (rf/reg-event-fx :fx-test.snsup5/install-flow
+      (rf/reg-event :fx-test.snsup5/install-flow
         (fn [_ _] {:fx [[:rf.fx/reg-flow flow]]}))
       (rf/dispatch-sync
         [:fx-test.snsup5/install-flow]
@@ -1215,7 +1215,7 @@
       (rf/reg-fx :fx-test.snsup5/redir-target
                  {:platforms #{:client :server}}
                  (fn [_ _] (swap! redir-ran inc)))
-      (rf/reg-event-fx :fx-test.snsup5/install-flow-2
+      (rf/reg-event :fx-test.snsup5/install-flow-2
         (fn [_ _] {:fx [[:rf.fx/reg-flow {:id     :fx-test.snsup5/b-flow
                                           :inputs [[:fx-test.snsup5 :seed]]
                                           :output (fn [_] 1)
@@ -1246,7 +1246,7 @@
   (testing "the real fn-value reject producer fans :rf.error/reserved-fx-override
             out through register-error-listener! with event/id/frame context"
     (let [errors (collect-errors! ::reject-always-on)]
-      (rf/reg-event-fx :fx-test.uh5ic5/install-flow
+      (rf/reg-event :fx-test.uh5ic5/install-flow
         (fn [_ _] {:fx [[:rf.fx/reg-flow {:id     :fx-test.uh5ic5/a-flow
                                           :inputs [[:fx-test.uh5ic5 :seed]]
                                           :output (fn [_] 7)
@@ -1276,7 +1276,7 @@
       (rf/reg-fx :fx-test.uh5ic5/redir-target
                  {:platforms #{:client :server}}
                  (fn [_ _] :should-not-fire))
-      (rf/reg-event-fx :fx-test.uh5ic5/install-flow-2
+      (rf/reg-event :fx-test.uh5ic5/install-flow-2
         (fn [_ _] {:fx [[:rf.fx/reg-flow {:id     :fx-test.uh5ic5/b-flow
                                           :inputs [[:fx-test.uh5ic5 :seed]]
                                           :output (fn [_] 1)
@@ -1302,7 +1302,7 @@
           target-ran (atom 0)
           traces     (collect-traces! ::overridable-no-reject)]
       (rf/reg-event-db :fx-test.snsup5/target (fn [db _] (swap! target-ran inc) db))
-      (rf/reg-event-fx :fx-test.snsup5/emits-dispatch
+      (rf/reg-event :fx-test.snsup5/emits-dispatch
         (fn [_ _] {:fx [[:dispatch [:fx-test.snsup5/target]]]}))
       (rf/dispatch-sync
         [:fx-test.snsup5/emits-dispatch]
@@ -1357,12 +1357,12 @@
     ;; reject-tier override is gone by the time the child cascade resolves.
     (let [traces      (collect-traces! ::cascade-exclude)
           child-stub  (atom 0)]
-      (rf/reg-event-fx :fx-test.snsup5/child-installs-flow
+      (rf/reg-event :fx-test.snsup5/child-installs-flow
         (fn [_ _] {:fx [[:rf.fx/reg-flow {:id     :fx-test.snsup5/child-flow
                                           :inputs [[:fx-test.snsup5 :seed]]
                                           :output (fn [_] 7)
                                           :path   [:fx-test.snsup5 :child]}]]}))
-      (rf/reg-event-fx :fx-test.snsup5/parent-cascades
+      (rf/reg-event :fx-test.snsup5/parent-cascades
         (fn [_ _] {:fx [[:dispatch [:fx-test.snsup5/child-installs-flow]]]}))
       ;; The parent carries a reject-tier :rf.fx/reg-flow override. At the
       ;; parent it is rejected (per-call) AND excluded from the child opts.
@@ -1400,7 +1400,7 @@
    with :fx (the vector) and :db-present? true under :tags (same slot
    placement as :frame — payload-shaped tags ride under :tags)"
     (rf/reg-fx :fx-test/do-fx-shape (fn [_ _] :ok))
-    (rf/reg-event-fx :fx-test/returns-db-and-fx
+    (rf/reg-event :fx-test/returns-db-and-fx
       (fn [_ _]
         {:db {:seeded? true}
          :fx [[:fx-test/do-fx-shape {:k 1}]]}))
@@ -1421,7 +1421,7 @@
   (testing "reg-event-fx returning {:fx [...]} only (no :db slot) stamps
    :db-present? false and :fx with the vector"
     (rf/reg-fx :fx-test/no-db-fx (fn [_ _] :ok))
-    (rf/reg-event-fx :fx-test/fx-only
+    (rf/reg-event :fx-test/fx-only
       (fn [_ _]
         {:fx [[:fx-test/no-db-fx {}]]}))
     (let [acc (collect-traces! ::no-db)]
@@ -1443,7 +1443,7 @@
    slot on a trace event is placed; top-level is reserved for
    substrate-hoisted slots like :rf.trace/call-site,
    :rf.trace/trigger-handler, :source, :recovery, :sensitive?)"
-    (rf/reg-event-fx :fx-test/top-level-shape
+    (rf/reg-event :fx-test/top-level-shape
       (fn [_ _] {:db {:x 1} :fx []}))
     (let [acc (collect-traces! ::top-level)]
       (try
@@ -1484,7 +1484,7 @@
     (rf/reg-fx :fx-test/cofx-sink (fn [_ _] :ok))
     (rf/reg-cofx :fx-test/now    (fn [] "2026-05-18T19:00:00Z"))
     (rf/reg-cofx :fx-test/locale (fn [] :en-AU))
-    (rf/reg-event-fx :fx-test/uses-user-cofx
+    (rf/reg-event :fx-test/uses-user-cofx
       {:rf.cofx/requires [:fx-test/now :fx-test/locale]}
       (fn [_ _] {:db {:k 1}
                  :fx [[:fx-test/cofx-sink :go]]}))
@@ -1515,7 +1515,7 @@
    so the COEFFECTS section was empty for textbook handlers like
    :counter/inc — the cofx never reached the Xray Event lens)"
     (rf/reg-cofx :fx-test/now (fn [] "2026-05-18T19:00:00Z"))
-    (rf/reg-event-fx :fx-test/db-only-with-cofx
+    (rf/reg-event :fx-test/db-only-with-cofx
       {:rf.cofx/requires [:fx-test/now]}
       (fn [{:keys [fx-test/now]} _]
         {:db {:stamped-at now}}))
@@ -1539,8 +1539,8 @@
   (testing "a handler with no inject-cofx has its :rf.event/run-end fire
    WITHOUT a :rf.event/coeffects stamp (silent-by-default — distinct
    from a stamped empty map)"
-    (rf/reg-event-db :fx-test/no-user-cofx
-      (fn [db _] (assoc db :k 1)))
+    (rf/reg-event :fx-test/no-user-cofx
+      (fn [{:keys [db]} _] {:db (assoc db :k 1)}))
     (let [acc (collect-traces! ::no-cofx)]
       (try
         (rf/dispatch-sync [:fx-test/no-user-cofx])

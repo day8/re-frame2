@@ -98,7 +98,7 @@
 
 (deftest trigger-handler-rides-at-top-level
   (testing ":rf.trace/trigger-handler is a top-level field, not nested under :tags"
-    (rf/reg-event-fx :rf2-3nn8/throws
+    (rf/reg-event :rf2-3nn8/throws
                      (fn [_cofx _event]
                        (throw (ex-info "boom" {}))))
     (let [evs (record-traces
@@ -115,7 +115,7 @@
 
 (deftest event-handler-exception-carries-trigger-handler
   (testing ":rf.error/handler-exception carries the event handler's coord"
-    (rf/reg-event-fx :rf2-3nn8/throwing-event
+    (rf/reg-event :rf2-3nn8/throwing-event
                      (fn [_cofx _event]
                        (throw (ex-info "boom" {}))))
     (let [evs (record-traces #(rf/dispatch-sync [:rf2-3nn8/throwing-event]))
@@ -127,7 +127,7 @@
    not the enclosing event (the fx body is what threw)"
     (rf/reg-fx :rf2-3nn8/throwing-fx
                (fn [_ctx _args] (throw (ex-info "fx boom" {}))))
-    (rf/reg-event-fx :rf2-3nn8/use-throwing-fx
+    (rf/reg-event :rf2-3nn8/use-throwing-fx
                      (fn [_cofx _event]
                        {:fx [[:rf2-3nn8/throwing-fx {}]]}))
     (let [evs (record-traces #(rf/dispatch-sync [:rf2-3nn8/use-throwing-fx]))
@@ -152,7 +152,7 @@
 (deftest no-such-fx-carries-enclosing-event-trigger-handler
   (testing ":rf.error/no-such-fx fires from the fx walker while the event
    handler scope is still bound — the enclosing event's coord is carried"
-    (rf/reg-event-fx :rf2-3nn8/uses-missing-fx
+    (rf/reg-event :rf2-3nn8/uses-missing-fx
                      (fn [_cofx _event]
                        {:fx [[:rf2-3nn8/no-such-fx {}]]}))
     (let [evs (record-traces #(rf/dispatch-sync [:rf2-3nn8/uses-missing-fx]))
@@ -176,7 +176,7 @@
 (deftest source-coord-matches-registration-site
   (testing "the :source-coord under :rf.trace/trigger-handler equals the
    value the registrar holds on the handler's slot"
-    (rf/reg-event-fx :rf2-3nn8/registration-site
+    (rf/reg-event :rf2-3nn8/registration-site
                      (fn [_cofx _event]
                        (throw (ex-info "boom" {}))))
     (let [reg-meta (rf/handler-meta :event :rf2-3nn8/registration-site)

@@ -67,7 +67,7 @@
       (rf/reg-cofx :cofx-test/locale
         {:doc "Ambient supplier."}
         (fn [] "en-AU"))
-      (rf/reg-event-fx :cofx-test/read-locale
+      (rf/reg-event :cofx-test/read-locale
         {:rf.cofx/requires [:cofx-test/locale]}
         (fn [{:keys [cofx-test/locale]} _]
           (reset! seen locale)
@@ -82,7 +82,7 @@
     (let [seen (atom ::unset)]
       (rf/reg-cofx :cofx-test/echo
         (fn [arg] (str "echo:" arg)))
-      (rf/reg-event-fx :cofx-test/read-echo
+      (rf/reg-event :cofx-test/read-echo
         {:rf.cofx/requires [[:cofx-test/echo "hi"]]}
         (fn [{:keys [cofx-test/echo]} _]
           (reset! seen echo)
@@ -101,7 +101,7 @@
             declared-only delivery; no silent green-in-test coupling)"
     (let [seen-time (atom ::unset)
           seen-undeclared (atom ::unset)]
-      (rf/reg-event-fx :cofx-test/declares-only-time
+      (rf/reg-event :cofx-test/declares-only-time
         {:rf.cofx/requires [:rf/time-ms]}
         (fn [{:keys [rf/time-ms] :as cofx} _]
           (reset! seen-time time-ms)
@@ -122,7 +122,7 @@
             :db / :event / framework keys — no recordable leaf is staged flat,
             even one present on the token"
     (let [had-time? (atom ::unset)]
-      (rf/reg-event-fx :cofx-test/declares-nothing
+      (rf/reg-event :cofx-test/declares-nothing
         (fn [{:keys [rf/time-ms] :as cofx} _]
           (reset! had-time? (contains? cofx :rf/time-ms))
           (is (nil? time-ms)
@@ -163,7 +163,7 @@
       ;; grouped seats never shipped a producer), so declared-only delivery
       ;; must FAIL CLOSED on it as an unregistered id rather than silently
       ;; dig `4` out of the grouped sub-map and stage it flat.
-      (rf/reg-event-fx :cofx-test/declares-nested-leaf
+      (rf/reg-event :cofx-test/declares-nested-leaf
         {:rf.cofx/requires [:random/roll]}
         (fn [{:keys [random/roll] :as cofx} _]
           (reset! staged-leaf? (contains? cofx :random/roll))
@@ -202,7 +202,7 @@
     ;; have to be REGISTERED to be delivered; the retired group seat is not.)
     (let [staged? (atom ::unset)
           ex      (atom ::unset)]
-      (rf/reg-event-fx :cofx-test/declares-group-owner
+      (rf/reg-event :cofx-test/declares-group-owner
         {:rf.cofx/requires [:random]}
         (fn [{:keys [random] :as cofx} _]
           (reset! staged? (contains? cofx :random))
@@ -232,7 +232,7 @@
       (rf/reg-cofx :cofx-test/boot-token
         {:recordable? true :provided? true
          :doc "Provided boundary fact."})
-      (rf/reg-event-fx :cofx-test/read-boot
+      (rf/reg-event :cofx-test/read-boot
         {:rf.cofx/requires [:cofx-test/boot-token]}
         (fn [{:keys [cofx-test/boot-token]} _]
           (reset! seen boot-token)
@@ -247,7 +247,7 @@
             registration; declaring it delivers the router-stamped value flat
             (EP-0017 §2)"
     (let [seen (atom ::unset)]
-      (rf/reg-event-fx :cofx-test/read-time
+      (rf/reg-event :cofx-test/read-time
         {:rf.cofx/requires [:rf/time-ms]}
         (fn [{:keys [rf/time-ms]} _]
           (reset! seen time-ms)
@@ -290,7 +290,7 @@
       ;; :rf/time-ms so we can prove the reply does NOT inherit it. Its
       ;; handler dispatches the completion ("reply") event — the reply
       ;; envelope re-enters build-envelope and is stamped fresh.
-      (rf/reg-event-fx :cofx-test/request
+      (rf/reg-event :cofx-test/request
         (fn [_ _]
           {:fx [[:dispatch [:cofx-test/replied {:status :ok :value {:title "Welcome"}}]]]}))
       (rf/reg-event-db :cofx-test/replied (fn [db _] db))
@@ -340,7 +340,7 @@
           fired? (atom false)]
       (rf/reg-cofx :cofx-test/required-boundary
         {:recordable? true :provided? true})
-      (rf/reg-event-fx :cofx-test/needs-boundary
+      (rf/reg-event :cofx-test/needs-boundary
         {:rf.cofx/requires [:cofx-test/required-boundary]}
         (fn [_ _] (reset! fired? true) {}))
       ;; Dispatch WITHOUT supplying the provided fact on the token.
@@ -370,7 +370,7 @@
             fact). The two-error split is the EP-0017 §7 contract."
     (let [traces (collect-traces! ::typo)]
       ;; :cofx-test/typpo is NOT registered anywhere — a typo.
-      (rf/reg-event-fx :cofx-test/has-typo
+      (rf/reg-event :cofx-test/has-typo
         {:rf.cofx/requires [:cofx-test/typpo]}
         (fn [_ _] {}))
       (let [ex (try (rf/dispatch-sync [:cofx-test/has-typo]) nil
@@ -390,10 +390,10 @@
             missing-required; an UNREGISTERED id → unregistered-cofx — never
             conflated"
     (rf/reg-cofx :cofx-test/registered-provided {:recordable? true :provided? true})
-    (rf/reg-event-fx :cofx-test/absent-registered
+    (rf/reg-event :cofx-test/absent-registered
       {:rf.cofx/requires [:cofx-test/registered-provided]}
       (fn [_ _] {}))
-    (rf/reg-event-fx :cofx-test/absent-unregistered
+    (rf/reg-event :cofx-test/absent-unregistered
       {:rf.cofx/requires [:cofx-test/never-reg]}
       (fn [_ _] {}))
     (let [missing-id   (-> (try (rf/dispatch-sync [:cofx-test/absent-registered]) nil
@@ -428,13 +428,13 @@
   (testing "a non-vector / non-id `:rf.cofx/requires` is
             `:rf.error/cofx-request-invalid` at registration"
     (is (= :rf.error/cofx-request-invalid
-           (-> (try (rf/reg-event-fx :cofx-test/bad-requires-1
+           (-> (try (rf/reg-event :cofx-test/bad-requires-1
                       {:rf.cofx/requires :not-a-vector}
                       (fn [_ _] {}))
                     nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))
                ex-data :rf.error/id)))
     (is (= :rf.error/cofx-request-invalid
-           (-> (try (rf/reg-event-fx :cofx-test/bad-requires-2
+           (-> (try (rf/reg-event :cofx-test/bad-requires-2
                       {:rf.cofx/requires [42]}
                       (fn [_ _] {}))
                     nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))
@@ -444,7 +444,7 @@
   (testing "declaring the same id twice in one consumer scope is
             `:rf.error/cofx-name-collision` (EP-0017 §4)"
     (is (= :rf.error/cofx-name-collision
-           (-> (try (rf/reg-event-fx :cofx-test/dup-requires
+           (-> (try (rf/reg-event :cofx-test/dup-requires
                       {:rf.cofx/requires [:rf/time-ms :rf/time-ms]}
                       (fn [_ _] {}))
                     nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))
@@ -596,7 +596,7 @@
       ;; storage key; the produced value is what it reads back.
       (rf/reg-cofx :cofx-test/local-pref
         (fn [storage-key] (str "value-for-" storage-key)))
-      (rf/reg-event-fx :cofx-test/read-pref
+      (rf/reg-event :cofx-test/read-pref
         {:rf.cofx/requires [[:cofx-test/local-pref "theme"]]}
         (fn [_ _] {}))
       (rf/dispatch-sync [:cofx-test/read-pref])
@@ -617,7 +617,7 @@
             the prior arg-omission on the 1-arity path)"
     (let [traces (collect-traces! ::run-noarg)]
       (rf/reg-cofx :cofx-test/locale2 (fn [] "en-AU"))
-      (rf/reg-event-fx :cofx-test/read-locale2
+      (rf/reg-event :cofx-test/read-locale2
         {:rf.cofx/requires [:cofx-test/locale2]}
         (fn [_ _] {}))
       (rf/dispatch-sync [:cofx-test/read-locale2])
@@ -644,7 +644,7 @@
       (rf/reg-cofx :cofx-test/session
         {:sensitive [[:token]]}
         (fn [] {:token "super-secret-jwt" :public "ok"}))
-      (rf/reg-event-fx :cofx-test/read-session
+      (rf/reg-event :cofx-test/read-session
         {:rf.cofx/requires [:cofx-test/session]}
         (fn [_ _] {}))
       (rf/dispatch-sync [:cofx-test/read-session])
@@ -697,7 +697,7 @@
 (deftest world-inputs-dispatch-opt-renamed
   (testing "supplying the retired `:rf.world/inputs` dispatch opt is the hard
             error `:rf.error/world-inputs-renamed` naming `:rf.cofx` (EP-0017 §3)"
-    (rf/reg-event-fx :cofx-test/wi-renamed (fn [_ _] {}))
+    (rf/reg-event :cofx-test/wi-renamed (fn [_ _] {}))
     (let [ex (try (rf/dispatch-sync [:cofx-test/wi-renamed]
                                     {:rf.world/inputs {:rf/time-ms 1}})
                   nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
@@ -730,7 +730,7 @@
           (rf/reg-cofx :cofx-test/browser-locale
             {:platforms #{:client}}
             (fn [] (reset! cofx-fired? true) "en-US"))
-          (rf/reg-event-fx :cofx-test/read-browser-locale
+          (rf/reg-event :cofx-test/read-browser-locale
             {:rf.cofx/requires [:cofx-test/browser-locale]}
             (fn [{:keys [cofx-test/browser-locale] :as cofx} _]
               (reset! event-fired? true)
@@ -754,7 +754,7 @@
 (deftest handler-meta-surfaces-requires
   (testing "`:rf.cofx/requires` surfaces in handler-meta exactly as authored
             (Spec 009 §9 — the complete consumption record)"
-    (rf/reg-event-fx :cofx-test/reflective
+    (rf/reg-event :cofx-test/reflective
       {:rf.cofx/requires [:rf/time-ms]}
       (fn [_ _] {}))
     (let [meta (registrar/lookup :event :cofx-test/reflective)]
@@ -773,7 +773,7 @@
             :rf.error/no-frame-context (no :rf/default floor); the handler
             never runs"
     (let [fired? (atom false)]
-      (rf/reg-event-fx :cofx-test/frameless
+      (rf/reg-event :cofx-test/frameless
         {:rf.cofx/requires [:rf/time-ms]}
         (fn [_ _] (reset! fired? true) {}))
       (binding [frame/*current-frame* nil]
@@ -833,7 +833,7 @@
       (rf/reg-cofx :gen-test/delta
         {:recordable? true :doc "A generator-backed replayable delta."}
         (fn [] (swap! gen-calls inc) 7))
-      (rf/reg-event-fx :gen-test/inc
+      (rf/reg-event :gen-test/inc
         {:rf.cofx/requires [:rf/time-ms :gen-test/delta]}
         (fn [{:keys [rf/time-ms gen-test/delta] :as cofx} _]
           (reset! seen-delta delta)
@@ -861,7 +861,7 @@
       (rf/reg-cofx :gen-test/supplied-delta
         {:recordable? true}
         (fn [] (swap! gen-calls inc) 99))
-      (rf/reg-event-fx :gen-test/use-supplied
+      (rf/reg-event :gen-test/use-supplied
         {:rf.cofx/requires [:gen-test/supplied-delta]}
         (fn [{:keys [gen-test/supplied-delta]} _]
           (reset! seen-delta supplied-delta) {}))
@@ -880,7 +880,7 @@
       (rf/reg-cofx :gen-test/traced
         {:recordable? true}
         (fn [] 42))
-      (rf/reg-event-fx :gen-test/traced-evt
+      (rf/reg-event :gen-test/traced-evt
         {:rf.cofx/requires [:gen-test/traced]}
         (fn [_ _] {}))
       (rf/dispatch-sync [:gen-test/traced-evt])
@@ -914,7 +914,7 @@
           (rf/reg-cofx :gen-test/bad
             {:recordable? true :schema :gen-test/positive}
             (fn [] -1))                          ;; violates the schema
-          (rf/reg-event-fx :gen-test/uses-bad
+          (rf/reg-event :gen-test/uses-bad
             {:rf.cofx/requires [:gen-test/bad]}
             (fn [_ _] (reset! fired? true) {}))
           (let [ex (try (rf/dispatch-sync [:gen-test/uses-bad]) nil
@@ -947,7 +947,7 @@
           (rf/reg-cofx :gen-test/checked
             {:recordable? true :schema :gen-test/positive}
             (fn [] 5))
-          (rf/reg-event-fx :gen-test/uses-checked
+          (rf/reg-event :gen-test/uses-checked
             {:rf.cofx/requires [:gen-test/checked]}
             (fn [_ _] (reset! fired? true) {}))
           ;; Supply an out-of-contract value (-9) on the token.
@@ -971,7 +971,7 @@
           (rf/reg-cofx :gen-test/good
             {:recordable? true :schema :gen-test/positive}
             (fn [] 11))
-          (rf/reg-event-fx :gen-test/uses-good
+          (rf/reg-event :gen-test/uses-good
             {:rf.cofx/requires [:gen-test/good]}
             (fn [{:keys [gen-test/good]} _] (reset! seen good) {}))
           (rf/dispatch-sync [:gen-test/uses-good])
@@ -1049,7 +1049,7 @@
       (rf/reg-cofx :mint-test/live-delta
         {:recordable? true :doc "Generator-backed, exercised under :live."}
         (fn [] (swap! gen-calls inc) 7))
-      (rf/reg-event-fx :mint-test/live-evt
+      (rf/reg-event :mint-test/live-evt
         {:rf.cofx/requires [:mint-test/live-delta]}
         (fn [{:keys [mint-test/live-delta]} _] (reset! seen-delta live-delta) {}))
       ;; The fixture's ambient frame is :rf/default (no preset → no mint-policy
@@ -1070,7 +1070,7 @@
       (rf/reg-cofx :mint-test/strict-delta
         {:recordable? true}
         (fn [] (swap! gen-calls inc) 3))
-      (rf/reg-event-fx :mint-test/strict-evt
+      (rf/reg-event :mint-test/strict-evt
         {:rf.cofx/requires [:mint-test/strict-delta]}
         (fn [_ _] (reset! fired? true) {}))
       (let [ex (try (rf/dispatch-sync [:mint-test/strict-evt]
@@ -1098,7 +1098,7 @@
       (rf/reg-cofx :mint-test/replay-delta
         {:recordable? true}
         (fn [] (swap! gen-calls inc) 5))
-      (rf/reg-event-fx :mint-test/replay-evt
+      (rf/reg-event :mint-test/replay-evt
         {:rf.cofx/requires [:mint-test/replay-delta]}
         (fn [_ _] (reset! fired? true) {}))
       ;; The ambient :rf/default frame is :live; the per-call :strict opt — the
@@ -1121,7 +1121,7 @@
         (reset! gen-calls 0)
         (reset! fired? false)
         (let [seen (atom nil)]
-          (rf/reg-event-fx :mint-test/replay-evt
+          (rf/reg-event :mint-test/replay-evt
             {:rf.cofx/requires [:mint-test/replay-delta]}
             (fn [{:keys [mint-test/replay-delta]} _]
               (reset! fired? true) (reset! seen replay-delta) {}))
@@ -1145,7 +1145,7 @@
       (rf/reg-cofx :mint-test/escape-delta
         {:recordable? true}
         (fn [] (swap! gen-calls inc) 9))
-      (rf/reg-event-fx :mint-test/escape-evt
+      (rf/reg-event :mint-test/escape-evt
         {:rf.cofx/requires [:mint-test/escape-delta]}
         (fn [{:keys [mint-test/escape-delta]} _] (reset! seen-delta escape-delta) {}))
       ;; Without the opt this :test frame would be :strict → missing-required

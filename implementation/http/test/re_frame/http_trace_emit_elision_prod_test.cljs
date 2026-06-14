@@ -120,7 +120,7 @@
             dispatch surface."
     (let [seen (listener-fixture
                  (fn []
-                   (rf/reg-event-fx :prod-elision/abort-touch
+                   (rf/reg-event :prod-elision/abort-touch
                      (fn [_ _]
                        {:fx [[:rf.http/managed-abort
                               :prod-elision/no-such-req]]}))

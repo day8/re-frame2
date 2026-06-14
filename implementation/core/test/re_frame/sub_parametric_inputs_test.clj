@@ -165,7 +165,7 @@
                     (reset! seen query-v)
                     [[:leaf (second query-v)]])
                   (fn [[v] _] v))
-      (rf/reg-event-db :seed (fn [_ _] {:by-id {:a 1 :b 2}}))
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:by-id {:a 1 :b 2}}}))
       (rf/dispatch-sync [:seed])
       (is (= 1 (rf/subscribe-once [:wrap :a])))
       (is (= [:wrap :a] @seen)
@@ -180,7 +180,7 @@
     (rf/reg-sub :item/title
                 (fn [[_ id]] [[:item/by-id id]])
                 (fn [[item] _] (:title item)))   ;; destructures [item]
-    (rf/reg-event-db :seed (fn [_ _] {:items {:x {:title "Hello"}}}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items {:x {:title "Hello"}}}}))
     (rf/dispatch-sync [:seed])
     (is (= "Hello" (rf/subscribe-once [:item/title :x])))))
 
@@ -196,11 +196,11 @@
                    [:viewer]])
                 (fn [[article comments viewer] [_ id]]
                   {:id id :article article :comments comments :viewer viewer}))
-    (rf/reg-event-db :seed
-                     (fn [_ _]
-                       {:articles {:a1 {:title "T"}}
+    (rf/reg-event :seed
+                     (fn [{:keys [db]} _]
+                       {:db {:articles {:a1 {:title "T"}}
                         :comments {:a1 ["c1" "c2"]}
-                        :viewer   {:name "Mike"}}))
+                        :viewer   {:name "Mike"}}}))
     (rf/dispatch-sync [:seed])
     (is (= {:id :a1
             :article  {:title "T"}
@@ -215,8 +215,8 @@
     (rf/reg-sub :item/title
                 (fn [[_ id]] [[:item/by-id id]])
                 (fn [[item] _] (:title item)))
-    (rf/reg-event-db :seed   (fn [_ _]        {:items {:x {:title "v1"}}}))
-    (rf/reg-event-db :rename (fn [db [_ t]]   (assoc-in db [:items :x :title] t)))
+    (rf/reg-event :seed   (fn [{:keys [db]} _]        {:db {:items {:x {:title "v1"}}}}))
+    (rf/reg-event :rename (fn [{:keys [db]} [_ t]]   {:db (assoc-in db [:items :x :title] t)}))
     (rf/dispatch-sync [:seed])
     (let [r (rf/subscribe [:item/title :x])]
       (is (= "v1" @r))
@@ -230,7 +230,7 @@
   (testing "static single :<- still delivers the BARE value (unchanged)"
     (rf/reg-sub :n  (fn [db _] (:n db)))
     (rf/reg-sub :n2 :<- [:n] (fn [n _] (* 2 n)))    ;; bare value, not [n]
-    (rf/reg-event-db :seed (fn [_ _] {:n 5}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 5}}))
     (rf/dispatch-sync [:seed])
     (is (= 10 (rf/subscribe-once [:n2])))))
 
@@ -239,7 +239,7 @@
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :sum :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
-    (rf/reg-event-db :seed (fn [_ _] {:a 2 :b 3}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
     (rf/dispatch-sync [:seed])
     (is (= 5 (rf/subscribe-once [:sum])))))
 
@@ -253,10 +253,10 @@
                 (fn [[_ id]] [[:article/by-id id] [:viewer]])
                 (fn [[article viewer] [_ id]]
                   {:id id :article article :can-edit? (= id (:owns viewer))}))
-    (rf/reg-event-db :seed
-                     (fn [_ _]
-                       {:articles {:a1 {:title "T"}}
-                        :viewer   {:owns :a1}}))
+    (rf/reg-event :seed
+                     (fn [{:keys [db]} _]
+                       {:db {:articles {:a1 {:title "T"}}
+                        :viewer   {:owns :a1}}}))
     (rf/dispatch-sync [:seed])
     (let [db (rf/app-db-value :rf/default)]
       (is (= (rf/subscribe-once [:article/page :a1])
@@ -286,7 +286,7 @@
     (rf/reg-sub :article/page
                 (fn [[_ id]] [[:article/by-id id] [:comments/for id] [:viewer]])
                 (fn [[a c v] _] [a c v]))
-    (rf/reg-event-db :seed (fn [_ _] {:articles {} :comments {} :viewer nil}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:articles {} :comments {} :viewer nil}}))
     (rf/dispatch-sync [:seed])
     (rf/subscribe [:article/page :a1])
     (let [e (entry :rf/default [:article/page :a1])]
@@ -303,7 +303,7 @@
     (rf/reg-sub :item/title
                 (fn [[_ id]] [[:item/by-id id]])
                 (fn [[item] _] (:title item)))
-    (rf/reg-event-db :seed (fn [_ _] {:items {:x {:title "X"} :y {:title "Y"}}}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items {:x {:title "X"} :y {:title "Y"}}}}))
     (rf/dispatch-sync [:seed])
     (rf/subscribe [:item/title :x])
     (rf/subscribe [:item/title :y])
@@ -320,7 +320,7 @@
     (rf/reg-sub :item/title
                 (fn [[_ id]] [[:item/by-id id]])
                 (fn [[item] _] (:title item)))
-    (rf/reg-event-db :seed (fn [_ _] {:items {:x {:title "X"}}}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items {:x {:title "X"}}}}))
     (rf/dispatch-sync [:seed])
     (rf/subscribe [:item/title :x])
     ;; The realized upstream [:item/by-id :x] is now cached + ref-counted.
@@ -343,7 +343,7 @@
     (rf/reg-sub :item/title
                 (fn [[_ id]] [[:item/by-id id]])
                 (fn [[item] _] (:title item)))
-    (rf/reg-event-db :seed (fn [_ _] {:items {:x {:title "Orig"}}}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items {:x {:title "Orig"}}}}))
     (rf/dispatch-sync [:seed])
     (let [r (rf/subscribe [:item/title :x])]
       (is (= "Orig" @r))
@@ -365,7 +365,7 @@
     (rf/reg-sub :item/title
                 (fn [[_ id]] [[:item/by-id id]])
                 (fn [[item] _] (:title item)))
-    (rf/reg-event-db :seed (fn [_ _] {:items {:x {:title "X" :name "n"}}}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items {:x {:title "X" :name "n"}}}}))
     (rf/dispatch-sync [:seed])
     (rf/subscribe [:item/title :x])
     (is (contains? (cache-keys :rf/default) [:item/title :x]))
@@ -389,7 +389,7 @@
     (rf/reg-sub :item/title
                 (fn [[_ id]] [[:item/by-id id]])
                 (fn [[item] _] (:title item)))
-    (rf/reg-event-db :seed (fn [_ [_ title]] {:items {:x {:title title}}}))
+    (rf/reg-event :seed (fn [{:keys [db]} [_ title]] {:db {:items {:x {:title title}}}}))
     (rf/dispatch-sync [:seed "A-title"] {:frame :frame-a})
     (rf/dispatch-sync [:seed "B-title"] {:frame :frame-b})
     ;; Each frame's parametric read resolves [:item/by-id :x] in its OWN
@@ -437,7 +437,7 @@
         (is (some #(= :compute-sub (get-in % [:tags :where])) @errs)
             "the compute-sub path emitted :rf.error/sub-input-fn-exception")
         ;; reactive path.
-        (rf/reg-event-db :seed (fn [_ _] {:leaf 1}))
+        (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:leaf 1}}))
         (rf/dispatch-sync [:seed])
         (is (nil? (rf/subscribe-once [:boom]))
             "the reactive path also recovers to nil")
@@ -459,7 +459,7 @@
         ;; compute-sub path.
         (is (nil? (rf/compute-sub [:bad-shape] {:leaf 1})))
         ;; reactive path.
-        (rf/reg-event-db :seed (fn [_ _] {:leaf 1}))
+        (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:leaf 1}}))
         (rf/dispatch-sync [:seed])
         (is (nil? (rf/subscribe-once [:bad-shape])))
         (let [wheres (set (map #(get-in % [:tags :where]) @errs))]
@@ -506,7 +506,7 @@
       (is (not (contains? m :input-fn))
           "a meta-map + single fn is NOT misread as input-fn + computation-fn")
       (is (= "a layer-1 sub" (:doc m)) "the meta-map survived onto the registration"))
-    (rf/reg-event-db :seed-m1 (fn [_ _] {:n 7}))
+    (rf/reg-event :seed-m1 (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/dispatch-sync [:seed-m1])
     (is (= 7 (rf/subscribe-once [:m1])))))
 
@@ -520,7 +520,7 @@
       (is (= [[:base]] (:input-signals m)))
       (is (not (contains? m :input-fn)))
       (is (= "doubled" (:doc m))))
-    (rf/reg-event-db :seed-m2 (fn [_ _] {:n 5}))
+    (rf/reg-event :seed-m2 (fn [{:keys [db]} _] {:db {:n 5}}))
     (rf/dispatch-sync [:seed-m2])
     (is (= 10 (rf/subscribe-once [:m2])))))
 
@@ -534,7 +534,7 @@
     (let [m (sub-meta :vh)]
       (is (= :db (:input-kind m)))
       (is (var? (:handler-fn m)) "the Var handler is stored as-is"))
-    (rf/reg-event-db :seed-vh (fn [_ _] {:v 42}))
+    (rf/reg-event :seed-vh (fn [{:keys [db]} _] {:db {:v 42}}))
     (rf/dispatch-sync [:seed-vh])
     (is (= 42 (rf/subscribe-once [:vh])))))
 
@@ -549,6 +549,6 @@
       (is (= :parametric (:input-kind m)))
       (is (fn? (:input-fn m)))
       (is (= "parametric with meta" (:doc m))))
-    (rf/reg-event-db :seed-p1 (fn [_ _] {:by-id {:a 99}}))
+    (rf/reg-event :seed-p1 (fn [{:keys [db]} _] {:db {:by-id {:a 99}}}))
     (rf/dispatch-sync [:seed-p1])
     (is (= 99 (rf/subscribe-once [:p1 :a])))))

@@ -76,10 +76,10 @@
 ;; ----------------------------------------------------------------------------
 
 (defn- register-baseline-handlers! []
-  (rf/reg-event-db ::inc
-    (fn [db _ev] (update db :count (fnil inc 0))))
-  (rf/reg-event-db ::set-title
-    (fn [db [_ t]] (assoc db :title t)))
+  (rf/reg-event ::inc
+    (fn [{:keys [db]} _ev] {:db (update db :count (fnil inc 0))}))
+  (rf/reg-event ::set-title
+    (fn [{:keys [db]} [_ t]] {:db (assoc db :title t)}))
   (rf/reg-sub :count       (fn [db _] (or (:count db) 0)))
   (rf/reg-sub :title       (fn [db _] (or (:title db) "untitled")))
   (rf/reg-sub :server-resp (fn [db _] (:server-response db)))
@@ -456,7 +456,7 @@
     ;; runtime partition SURVIVES a malformed-payload rejection. Registered
     ;; inside the test (the `tf/reset-runtime` fixture clears registrations
     ;; before each test, so a load-time registration would be wiped).
-    (rf/reg-event-fx ::seed-runtime
+    (rf/reg-event ::seed-runtime
       (fn [{:keys [db] rt :rf.db/runtime} _]
         {:db db
          :rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/machines :snapshots]

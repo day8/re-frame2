@@ -203,10 +203,10 @@
       ;; the dirty-check fires). These events are global (registrar
       ;; is global) but each thread reads from its own frame's
       ;; app-db, so the writes don't tangle.
-      (rf/reg-event-db :ztw5p.stress/seed
-                       (fn [_ [_ n]] {:n n}))
-      (rf/reg-event-db :ztw5p.stress/bump-input
-                       (fn [db [_ n]] (assoc db :n n)))
+      (rf/reg-event :ztw5p.stress/seed
+                       (fn [{:keys [db]} [_ n]] {:db {:n n}}))
+      (rf/reg-event :ztw5p.stress/bump-input
+                       (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
 
       (let [latch   (CountDownLatch. 1)
             futures (vec

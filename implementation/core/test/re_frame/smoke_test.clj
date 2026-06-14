@@ -58,18 +58,20 @@
 
 (deftest registrar-round-trip
   (testing "registering and looking up a handler"
-    (rf/reg-event-db :counter/inc (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [meta (rf/handler-meta :event :counter/inc)]
       (is (some? meta))
       (is (fn? (:handler-fn meta)))
-      (is (= :db (:event/kind meta))))))
+      ;; reg-event shares the reg-event-fx path during the EP-0018 additive
+      ;; window, so :event/kind is :fx.
+      (is (= :fx (:event/kind meta))))))
 
 ;; ---- end-to-end dispatch --------------------------------------------------
 
 (deftest dispatch-sync-event-db
   (testing "dispatch-sync runs an event-db handler and commits :db"
-    (rf/reg-event-db :counter/init (fn [_ _] {:n 0}))
-    (rf/reg-event-db :counter/inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :counter/init (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :counter/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/dispatch-sync [:counter/init])
     (rf/dispatch-sync [:counter/inc])
     (rf/dispatch-sync [:counter/inc])
@@ -80,7 +82,7 @@
     (let [fired (atom 0)]
       (rf/reg-fx :test/incr-counter
                  (fn [_ _] (swap! fired inc)))
-      (rf/reg-event-fx :do-it
+      (rf/reg-event :do-it
         (fn [_ _]
           {:db {:flag :set}
            :fx [[:test/incr-counter :go]]}))
@@ -177,7 +179,7 @@
   (testing "subscriber closes over the current frame so closures don't need to thread it"
     (rf/reg-frame :left  {:doc "left frame"})
     (rf/reg-frame :right {:doc "right frame"})
-    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
+    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     ;; Seed each frame synchronously so the assertions are deterministic.
     (rf/dispatch-sync [:seed 7]  {:frame :left})
@@ -194,8 +196,8 @@
   (testing "calling dispatch-sync from inside a handler raises a structured error"
     (let [traces (atom [])]
       (rf/register-listener! ::dsih (fn [ev] (swap! traces conj ev)))
-      (rf/reg-event-db :outer (fn [db _] (assoc db :ran? true)))
-      (rf/reg-event-fx :nested
+      (rf/reg-event :outer (fn [{:keys [db]} _] {:db (assoc db :ran? true)}))
+      (rf/reg-event :nested
         (fn [_ _]
           ;; Calling dispatch-sync from inside a handler should NOT silently
           ;; interleave; it must raise :rf.error/dispatch-sync-in-handler.
@@ -222,18 +224,18 @@
   (testing "(rf/dispatch ...) called synchronously from inside a handler routes to that handler's frame"
     (rf/reg-frame :rf-l5q3.jvm/tenant-a {:doc "tenant-a frame"})
     (rf/reg-frame :rf-l5q3.jvm/tenant-b {:doc "tenant-b frame"})
-    (rf/reg-event-db :rf-l5q3.jvm/seed
-                     (fn [_ _] {:received []}))
+    (rf/reg-event :rf-l5q3.jvm/seed
+                     (fn [{:keys [db]} _] {:db {:received []}}))
     (rf/dispatch-sync [:rf-l5q3.jvm/seed] {:frame :rf-l5q3.jvm/tenant-a})
     (rf/dispatch-sync [:rf-l5q3.jvm/seed] {:frame :rf-l5q3.jvm/tenant-b})
     (rf/dispatch-sync [:rf-l5q3.jvm/seed]) ;; :rf/default
-    (rf/reg-event-fx :rf-l5q3.jvm/parent
+    (rf/reg-event :rf-l5q3.jvm/parent
                      (fn [_ _]
                        (rf/dispatch [:rf-l5q3.jvm/landed])
                        {}))
-    (rf/reg-event-db :rf-l5q3.jvm/landed
-                     (fn [db _]
-                       (update db :received (fnil conj []) :landed)))
+    (rf/reg-event :rf-l5q3.jvm/landed
+                     (fn [{:keys [db]} _]
+                       {:db (update db :received (fnil conj []) :landed)}))
     (rf/dispatch-sync [:rf-l5q3.jvm/parent] {:frame :rf-l5q3.jvm/tenant-a})
     (is (= [:landed] (:received (rf/app-db-value :rf-l5q3.jvm/tenant-a)))
         ":landed event must land on :tenant-a, not :rf/default")
@@ -256,7 +258,7 @@
   (testing "(rf/current-frame-id) inside a handler reports the handler's frame"
     (rf/reg-frame :rf-l5q3.jvm.cf/tenant-a {:doc "tenant-a frame"})
     (let [observed-current-frame (atom nil)]
-      (rf/reg-event-fx :rf-l5q3.jvm.cf/observe
+      (rf/reg-event :rf-l5q3.jvm.cf/observe
                        (fn [_ _]
                          (reset! observed-current-frame (rf/current-frame-id))
                          {}))
@@ -266,7 +268,7 @@
           "(rf/current-frame-id) inside a handler reports the handler's frame, not :rf/default"))
     (testing "and a handler running on :rf/default sees :rf/default"
       (let [observed-current-frame (atom nil)]
-        (rf/reg-event-fx :rf-l5q3.jvm.cf/observe-default
+        (rf/reg-event :rf-l5q3.jvm.cf/observe-default
                          (fn [_ _]
                            (reset! observed-current-frame (rf/current-frame-id))
                            {}))
@@ -277,8 +279,8 @@
 
 (deftest snapshot-of-reads-default-frame-app-db
   (testing "snapshot-of returns the value at a path in the active frame's app-db"
-    (rf/reg-event-db :seed (fn [_ _] {:user {:id 7 :name "ada"}
-                                      :counts {:hits 3}}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:user {:id 7 :name "ada"}
+                                      :counts {:hits 3}}}))
     (rf/dispatch-sync [:seed])
     (is (= 7        (rf/snapshot-of [:user :id]))
         "single-arg form reads the active frame (defaults to :rf/default)")
@@ -291,7 +293,7 @@
   (testing "snapshot-of accepts {:frame frame-id} in opts"
     (rf/reg-frame :left  {:doc "left"})
     (rf/reg-frame :right {:doc "right"})
-    (rf/reg-event-db :seed-n (fn [_ [_ n]] {:n n}))
+    (rf/reg-event :seed-n (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/dispatch-sync [:seed-n 11] {:frame :left})
     (rf/dispatch-sync [:seed-n 99] {:frame :right})
     (is (= 11 (rf/snapshot-of [:n] {:frame :left})))
@@ -340,7 +342,7 @@
 
 (deftest sub-topology-glitch-free-diamond-jvm
   (testing "diamond: app-db -> {a,b} -> c — c reads the post-swap state under compute-sub"
-    (rf/reg-event-db :diamond/init (fn [_ _] {:x 1 :y 2}))
+    (rf/reg-event :diamond/init (fn [{:keys [db]} _] {:db {:x 1 :y 2}}))
     (rf/reg-event-db :diamond/swap (fn [{:keys [x y] :as db} _]
                                      (assoc db :x y :y x)))
     (rf/reg-sub :diamond/a (fn [db _] (:x db)))
@@ -359,8 +361,8 @@
 
 (deftest sub-topology-glitch-free-chain-jvm
   (testing "chain: :n -> a -> (* 2) -> b -> inc -> c — compute-sub yields only the post-event value"
-    (rf/reg-event-db :chain/init (fn [_ _] {:n 10}))
-    (rf/reg-event-db :chain/set  (fn [db [_ n]] (assoc db :n n)))
+    (rf/reg-event :chain/init (fn [{:keys [db]} _] {:db {:n 10}}))
+    (rf/reg-event :chain/set  (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
     (rf/reg-sub :chain/a (fn [db _] (:n db)))
     (rf/reg-sub :chain/b :<- [:chain/a] (fn [a _] (* a 2)))
     (rf/reg-sub :chain/c :<- [:chain/b] (fn [b _] (inc b)))
@@ -374,9 +376,9 @@
 
 (deftest sub-correctness-on-value-equal-input-jvm
   (testing "a value-equal app-db replacement keeps the downstream sub value correct"
-    (rf/reg-event-db :stable/init (fn [_ _] {:n 5 :unrelated "z"}))
-    (rf/reg-event-db :stable/touch-unrelated
-                     (fn [db _] (assoc db :unrelated "z")))   ;; same value
+    (rf/reg-event :stable/init (fn [{:keys [db]} _] {:db {:n 5 :unrelated "z"}}))
+    (rf/reg-event :stable/touch-unrelated
+                     (fn [{:keys [db]} _] {:db (assoc db :unrelated "z")}))   ;; same value
     (rf/reg-sub :stable/a (fn [db _] (:n db)))
     (rf/reg-sub :stable/squared :<- [:stable/a] (fn [a _] (* a a)))
     (let [f (rf/make-frame {})]
@@ -450,7 +452,7 @@
 
 (deftest layer-1-and-layer-2-subs
   (testing "layer-1 and layer-2 subs return computed values"
-    (rf/reg-event-db :seed (fn [_ _] {:items [1 2 3 4 5]}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items [1 2 3 4 5]}}))
     (rf/reg-sub :items     (fn [db _] (:items db)))
     (rf/reg-sub :item-count :<- [:items] (fn [items _] (count items)))
     (rf/dispatch-sync [:seed])
@@ -469,9 +471,9 @@
 
 (deftest flow-rectangle-area
   (testing "a flow recomputes :area when :width or :height changes"
-    (rf/reg-event-db :init (fn [_ _] {:width 0 :height 0}))
-    (rf/reg-event-db :w! (fn [db [_ w]] (assoc db :width w)))
-    (rf/reg-event-db :h! (fn [db [_ h]] (assoc db :height h)))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:width 0 :height 0}}))
+    (rf/reg-event :w! (fn [{:keys [db]} [_ w]] {:db (assoc db :width w)}))
+    (rf/reg-event :h! (fn [{:keys [db]} [_ h]] {:db (assoc db :height h)}))
     (rf/reg-flow {:id     :rect/area
                   :inputs [[:width] [:height]]
                   :output (fn [w h] (* w h))
@@ -594,7 +596,7 @@
     ;; Seed a machine snapshot directly into the RUNTIME-DB partition
     ;; (EP-0001 rf2-vzld77 — machine snapshots are durable runtime-db state)
     ;; so we don't need to run a full machine through this test.
-    (rf/reg-event-fx :seed-machines
+    (rf/reg-event :seed-machines
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime
          (assoc-in (or rt {}) [:rf.runtime/machines :snapshots]
@@ -637,7 +639,7 @@
           handler (machines/make-machine-handler machine)]
       (rf/reg-frame :left  {:doc "left"})
       (rf/reg-frame :right {:doc "right"})
-      (rf/reg-event-fx :flow handler)
+      (rf/reg-event :flow handler)
       ;; Each frame's first invoke should get :worker#1.
       (let [traces (atom [])]
         (rf/register-listener! ::sids (fn [ev] (swap! traces conj ev)))
@@ -673,7 +675,7 @@
   (testing ":rf.machine/spawn and :rf.machine/destroy traverse fx without :rf.error/no-such-fx"
     (let [traces (atom [])]
       (rf/register-listener! ::spawn (fn [ev] (swap! traces conj ev)))
-      (rf/reg-event-fx :do-spawn
+      (rf/reg-event :do-spawn
         (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id :worker
                                             :id-prefix  :worker
                                             :start      [:begin]
@@ -715,7 +717,7 @@
 
       ;; The login machine. Mirrors the structure of examples/login/core.cljs's
       ;; :auth.login/flow — five states, deepest-wins, multi-guard branch.
-      (rf/reg-event-fx :auth.login/flow
+      (rf/reg-event :auth.login/flow
         (machines/make-machine-handler
           ;; Per Spec 005: spec map does NOT carry :id; the id comes
           ;; from the reg-event-fx call above.
@@ -899,7 +901,7 @@
             registration kind with the documented shape"
     ;; ---- :event --------------------------------------------------------
     (rf/reg-event-db :rf2-o1bp/evt1 (fn [db _] db))
-    (rf/reg-event-fx :rf2-o1bp/evt2 (fn [_ _] {}))
+    (rf/reg-event :rf2-o1bp/evt2 (fn [_ _] {}))
 
     ;; ---- :sub ---------------------------------------------------------
     (rf/reg-sub :rf2-o1bp/sub1 (fn [db _] db))

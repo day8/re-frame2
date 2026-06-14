@@ -122,7 +122,7 @@
 
 (deftest canned-success-default-reply-addressing
   (testing "the canned-success stub dispatches a default reply (originating event-id with :rf/reply)"
-    (rf/reg-event-fx :article/load
+    (rf/reg-event :article/load
       (fn [{:keys [db]} [_ msg]]
         (if-let [reply (:rf/reply msg)]
           (case (:kind reply)
@@ -141,14 +141,14 @@
 
 (deftest canned-failure-explicit-on-failure
   (testing "explicit :on-failure routes the failure reply to the named handler"
-    (rf/reg-event-fx :auth/login
+    (rf/reg-event :auth/login
       (fn [_ _]
         {:fx [[:rf.http/managed
                {:request   {:method :post :url "/auth/login"}
                 :on-failure [:auth/login-error]}]]}))
-    (rf/reg-event-db :auth/login-error
-      (fn [db [_ payload]]
-        (assoc db :auth-error payload)))
+    (rf/reg-event :auth/login-error
+      (fn [{:keys [db]} [_ payload]]
+        {:db (assoc db :auth-error payload)}))
     (rf/dispatch-sync [:auth/login]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
     (let [db (await-reply! #(some? (:auth-error %)))]
@@ -160,7 +160,7 @@
 (deftest silenced-reply-on-success-nil
   (testing "explicit :on-success nil swallows the reply silently"
     (let [seen (atom 0)]
-      (rf/reg-event-fx :ping
+      (rf/reg-event :ping
         (fn [_ _]
           (swap! seen inc)
           {:fx [[:rf.http/managed
@@ -190,7 +190,7 @@
   merged onto the managed args-map. Returns immediately; callers poll
   `await-reply!` for the landed reply."
   [extra-args]
-  (rf/reg-event-fx :j1mo4/load
+  (rf/reg-event :j1mo4/load
     (fn [{:keys [db]} [_ msg]]
       (if-let [reply (:rf/reply msg)]
         {:db (assoc-in db [:j1mo4 :value] (:value reply))}
@@ -255,14 +255,14 @@
 (deftest after-ms-positive-on-failure-defers
   (testing ":after-ms N also defers the canned-FAILURE reply by a
             :dispatch-later tick (symmetric with the success path)"
-    (rf/reg-event-fx :j1mo4/fail-delayed
+    (rf/reg-event :j1mo4/fail-delayed
       (fn [_ _]
         {:fx [[:rf.http/managed
                {:request    {:method :get :url "/j1mo4/fail"}
                 :after-ms   30
                 :on-failure [:j1mo4/failed]}]]}))
-    (rf/reg-event-db :j1mo4/failed
-      (fn [db [_ payload]] (assoc db :j1mo4-error payload)))
+    (rf/reg-event :j1mo4/failed
+      (fn [{:keys [db]} [_ payload]] {:db (assoc db :j1mo4-error payload)}))
     (rf/dispatch-sync [:j1mo4/fail-delayed]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
     ;; Deferred — not present synchronously after the dispatch-sync drain.
@@ -296,7 +296,7 @@
          :after  (fn [_ctx resp]
                    (swap! order conj :after)
                    (update resp :value assoc :touched-by :after))})
-      (rf/reg-event-fx :r5m22/load
+      (rf/reg-event :r5m22/load
         (fn [{:keys [db]} [_ msg]]
           (if-let [reply (:rf/reply msg)]
             {:db (assoc db :reply reply)}
@@ -325,7 +325,7 @@
          :after  (fn [ctx resp]
                    (reset! observed (::marker ctx))
                    resp)})
-      (rf/reg-event-fx :r5m22/load-corr
+      (rf/reg-event :r5m22/load-corr
         (fn [{:keys [db]} [_ msg]]
           (if-let [reply (:rf/reply msg)]
             {:db (assoc db :reply reply)}
@@ -350,7 +350,7 @@
                   (if (= :failure (:kind resp))
                     (assoc resp :tagged-by-after true)
                     resp))})
-      (rf/reg-event-fx :r5m22/fail
+      (rf/reg-event :r5m22/fail
         (fn [{:keys [db]} [_ msg]]
           (if-let [reply (:rf/reply msg)]
             {:db (assoc db :reply reply)}
@@ -375,7 +375,7 @@
               (write-response! ex 200 "application/json"
                                "{\"article\":{\"title\":\"hello\",\"id\":42}}")))]
       (try
-        (rf/reg-event-fx :article/load
+        (rf/reg-event :article/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               (case (:kind reply)
@@ -398,7 +398,7 @@
             (fn [^HttpExchange ex]
               (write-response! ex 404 "application/json" "{\"error\":\"not-found\"}")))]
       (try
-        (rf/reg-event-fx :article/load
+        (rf/reg-event :article/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -428,7 +428,7 @@
               (write-response! ex 404 "text/html"
                                "<!doctype html><html><body><h1>Not Found</h1></body></html>")))]
       (try
-        (rf/reg-event-fx :page/load
+        (rf/reg-event :page/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -463,7 +463,7 @@
             (fn [^HttpExchange ex]
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
-        (rf/reg-event-fx :page/load
+        (rf/reg-event :page/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -501,7 +501,7 @@
             (fn [^HttpExchange ex]
               (write-response! ex 200 "application/json" "")))]
       (try
-        (rf/reg-event-fx :empty/load
+        (rf/reg-event :empty/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -543,7 +543,7 @@
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
         (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
-        (rf/reg-event-fx :upexd3/load
+        (rf/reg-event :upexd3/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -587,7 +587,7 @@
               (write-response! ex 500 "application/json" "{\"err\":true}")))]
       (try
         (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
-        (rf/reg-event-fx :upexd3b/load
+        (rf/reg-event :upexd3b/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -764,7 +764,7 @@
               (swap! hits inc)
               (write-response! ex 500 "application/json" "{\"err\":true}")))]
       (try
-        (rf/reg-event-fx :flaky/load
+        (rf/reg-event :flaky/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -795,7 +795,7 @@
                   (write-response! ex 500 "application/json" "{\"err\":true}")
                   (write-response! ex 200 "application/json" "{\"ok\":true}")))))]
       (try
-        (rf/reg-event-fx :recover/load
+        (rf/reg-event :recover/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -816,7 +816,7 @@
 
 (deftest jvm-transport-failure
   (testing "connection-refused classifies as :rf.http/transport"
-    (rf/reg-event-fx :load
+    (rf/reg-event :load
       (fn [{:keys [db]} [_ msg]]
         (if-let [reply (:rf/reply msg)]
           {:db (assoc db :reply reply)}
@@ -853,7 +853,7 @@
         ;; If a reply ever dispatches the test will catch it (silently
         ;; ignored handler) — but the load-bearing assertion is that no
         ;; throw escapes the abort fx.
-        (rf/reg-event-fx :kdwnq/abort-never-issued
+        (rf/reg-event :kdwnq/abort-never-issued
           (fn [_ _]
             {:fx [[:rf.http/managed-abort :kdwnq/never-issued]]}))
         (rf/reg-event-db :kdwnq/some-reply
@@ -893,7 +893,7 @@
               (.await latch 5 TimeUnit/SECONDS)
               (write-response! ex 200 "application/json" "{\"too\":\"late\"}")))]
       (try
-        (rf/reg-event-fx :slow/load
+        (rf/reg-event :slow/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -901,7 +901,7 @@
                      {:request    {:url (str "http://127.0.0.1:" port "/slow")}
                       :request-id :slow
                       :decode     :json}]]})))
-        (rf/reg-event-fx :slow/abort
+        (rf/reg-event :slow/abort
           (fn [_ _] {:fx [[:rf.http/managed-abort :slow]]}))
         (rf/dispatch-sync [:slow/load])
         ;; Poll until the request is actually registered as in-flight —
@@ -957,7 +957,7 @@
               (write-response! ex 200 "application/json"
                                "{\"server\":\"responded-after-abort\"}")))]
       (try
-        (rf/reg-event-fx :on7sj/load
+        (rf/reg-event :on7sj/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               (do
@@ -968,7 +968,7 @@
                      {:request    {:url (str "http://127.0.0.1:" port "/slow")}
                       :request-id :on7sj/req
                       :decode     :json}]]})))
-        (rf/reg-event-fx :on7sj/abort
+        (rf/reg-event :on7sj/abort
           (fn [_ _] {:fx [[:rf.http/managed-abort :on7sj/req]]}))
 
         ;; Issue the request. Server blocks on the latch.
@@ -1023,7 +1023,7 @@
             (fn [^HttpExchange ex]
               (write-response! ex 200 "application/json" "{\"echoed\":true}")))]
       (try
-        (rf/reg-event-fx :upload
+        (rf/reg-event :upload
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -1049,7 +1049,7 @@
             wrapper contract: the helper installs the
             :rf.http/managed → :rf.http/managed-test-stub override for the
             body's dynamic extent, so plain dispatch-sync auto-routes)"
-    (rf/reg-event-fx :articles/list
+    (rf/reg-event :articles/list
       (fn [{:keys [db]} [_ msg]]
         (if-let [reply (:rf/reply msg)]
           {:db (assoc db :result reply)}
@@ -1091,7 +1091,7 @@
       ;; the override was absent (the pre-fix bug). The stub path bypasses it.
       (rf/reg-fx :rf.http/managed
                  (fn [_frame-ctx _args] (reset! real-fx-invoked? true) nil))
-      (rf/reg-event-fx :rzqan/load
+      (rf/reg-event :rzqan/load
         (fn [{:keys [db]} [_ msg]]
           (if-let [reply (:rf/reply msg)]
             {:db (assoc db :result reply)}
@@ -1120,7 +1120,7 @@
       ;; A deliberately-supplied per-call override target.
       (rf/reg-fx :rzqan/explicit-override
                  (fn [_frame-ctx _args] (reset! chosen :explicit) nil))
-      (rf/reg-event-fx :rzqan/load-explicit
+      (rf/reg-event :rzqan/load-explicit
         (fn [_ _]
           {:fx [[:rf.http/managed
                  {:request {:method :get :url "/rzqan-explicit"}
@@ -1160,7 +1160,7 @@
       {:before (fn [ctx]
                  (update-in ctx [:request :url]
                             (fn [u] (clojure.string/replace u #"^/" "/v2/"))))})
-    (rf/reg-event-fx :azrcs/list
+    (rf/reg-event :azrcs/list
       (fn [{:keys [db]} [_ msg]]
         (if-let [reply (:rf/reply msg)]
           {:db (assoc db :result reply)}
@@ -1186,7 +1186,7 @@
       {:before (fn [ctx]
                  (update-in ctx [:request :url]
                             (fn [u] (clojure.string/replace u #"^/" "/v2/"))))})
-    (rf/reg-event-fx :azrcs/list2
+    (rf/reg-event :azrcs/list2
       (fn [{:keys [db]} [_ msg]]
         (if-let [reply (:rf/reply msg)]
           {:db (assoc db :result reply)}
@@ -1254,12 +1254,12 @@
             the A stub (pre-fix the inner's teardown cleared the shared fx and
             the outer dispatch hit a missing fx / wrong handler)"
     ;; Distinct event + route per call site so each scope keys off its own url.
-    (rf/reg-event-fx :vn8qjv/load-a
+    (rf/reg-event :vn8qjv/load-a
       (fn [{:keys [db]} [_ msg]]
         (if-let [reply (:rf/reply msg)]
           {:db (assoc db :result-a reply)}
           {:fx [[:rf.http/managed {:request {:method :get :url "/a"} :decode :json}]]})))
-    (rf/reg-event-fx :vn8qjv/load-b
+    (rf/reg-event :vn8qjv/load-b
       (fn [{:keys [db]} [_ msg]]
         (if-let [reply (:rf/reply msg)]
           {:db (assoc db :result-b reply)}
@@ -1367,7 +1367,7 @@
 
 (deftest decode-reflection-metadata
   (testing ":rf.http/decode-schemas declared on the handler is queryable via handler-meta"
-    (rf/reg-event-fx :article/load
+    (rf/reg-event :article/load
       {:doc                    "Load an article."
        :rf.http/decode-schemas [::ArticleResponse]}
       (fn [_ _] {}))
@@ -1509,7 +1509,7 @@
               (.await latch 10 TimeUnit/SECONDS)
               (write-response! ex 200 "application/json" "{\"too\":\"late\"}")))]
       (try
-        (rf/reg-event-fx :slow/load
+        (rf/reg-event :slow/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -1549,7 +1549,7 @@
               (.await latch 5 TimeUnit/SECONDS)
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
-        (rf/reg-event-fx :search/run
+        (rf/reg-event :search/run
           (fn [_ [_ q]]
             {:fx [[:rf.http/managed
                    {:request    {:url (str "http://127.0.0.1:" port "/q?" q)}
@@ -1559,7 +1559,7 @@
                     ;; supersede-driven :on-failure dispatch is under test.
                     :on-success nil
                     :on-failure [:search/a-failed]}]]}))
-        (rf/reg-event-fx :search/run-superseding
+        (rf/reg-event :search/run-superseding
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:url (str "http://127.0.0.1:" port "/q?fresh")}
@@ -1609,13 +1609,13 @@
                                   (fn [ev]
                                     (when (= :rf.http/aborted (:operation ev))
                                       (swap! events conj ev))))
-        (rf/reg-event-fx :search/run
+        (rf/reg-event :search/run
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:url (str "http://127.0.0.1:" port "/q1")}
                     :request-id :search
                     :decode     :json}]]}))
-        (rf/reg-event-fx :search/run-superseding
+        (rf/reg-event :search/run-superseding
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:url (str "http://127.0.0.1:" port "/q2")}
@@ -1656,14 +1656,14 @@
               (.await latch 5 TimeUnit/SECONDS)
               (write-response! ex 200 "application/json" "{}")))]
       (try
-        (rf/reg-event-fx :slow/load
+        (rf/reg-event :slow/load
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:url (str "http://127.0.0.1:" port "/slow")}
                     :request-id :slow
                     :decode     :json
                     :on-failure [:slow/failed]}]]}))
-        (rf/reg-event-fx :slow/abort
+        (rf/reg-event :slow/abort
           (fn [_ _] {:fx [[:rf.http/managed-abort :slow]]}))
         (rf/reg-event-db :slow/failed
           (fn [db [_ payload]]
@@ -1724,7 +1724,7 @@
               ;; validation fails.
               (write-response! ex 200 "application/json" "{\"id\":\"oops\"}")))]
       (try
-        (rf/reg-event-fx :thing/load
+        (rf/reg-event :thing/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -1751,7 +1751,7 @@
               (write-response! ex 200 "application/json"
                                "{\"id\":7,\"status\":\"active\"}")))]
       (try
-        (rf/reg-event-fx :thing/load
+        (rf/reg-event :thing/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -1776,7 +1776,7 @@
               (write-response! ex 200 "application/json"
                                "{\"a\":1,\"b\":2,\"c\":3}")))]
       (try
-        (rf/reg-event-fx :thing/load
+        (rf/reg-event :thing/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -1821,7 +1821,7 @@
               ;; NOT the structured :rf.error/malformed-json cap ex-info.
               (write-response! ex 200 "application/json" "{\"a\": ")))]
       (try
-        (rf/reg-event-fx :thing/load
+        (rf/reg-event :thing/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -1856,7 +1856,7 @@
               (write-response! ex 200 "application/json"
                                "{\"ok\":false,\"reason\":\"quota\"}")))]
       (try
-        (rf/reg-event-fx :op/run
+        (rf/reg-event :op/run
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -1896,7 +1896,7 @@
               (reset! seen-query (.getRawQuery (.getRequestURI ex)))
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
-        (rf/reg-event-fx :search/run
+        (rf/reg-event :search/run
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -1927,7 +1927,7 @@
               (reset! seen-body (slurp (.getRequestBody ex)))
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
-        (rf/reg-event-fx :item/create
+        (rf/reg-event :item/create
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -1959,7 +1959,7 @@
               (reset! seen-cts (vec (.get (.getRequestHeaders ex) "Content-Type")))
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
-        (rf/reg-event-fx :item/create
+        (rf/reg-event :item/create
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -1999,7 +1999,7 @@
               (reset! seen-accept (vec (.get (.getRequestHeaders ex) "X-Multi")))
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
-        (rf/reg-event-fx :multihdr/load
+        (rf/reg-event :multihdr/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -2030,7 +2030,7 @@
               (reset! seen (vec (.get (.getRequestHeaders ex) "X-One")))
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
-        (rf/reg-event-fx :scalarhdr/load
+        (rf/reg-event :scalarhdr/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -2063,7 +2063,7 @@
             (fn [^HttpExchange ex]
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
-        (rf/reg-event-fx :acceptthrow/load
+        (rf/reg-event :acceptthrow/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -2095,7 +2095,7 @@
             (fn [^HttpExchange ex]
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
-        (rf/reg-event-fx :acceptnil/load
+        (rf/reg-event :acceptnil/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -2124,7 +2124,7 @@
             (fn [^HttpExchange ex]
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
-        (rf/reg-event-fx :acceptbad/load
+        (rf/reg-event :acceptbad/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -2149,7 +2149,7 @@
             (fn [^HttpExchange ex]
               (write-response! ex 200 "application/json" "{\"value\":42}")))]
       (try
-        (rf/reg-event-fx :acceptok/load
+        (rf/reg-event :acceptok/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}

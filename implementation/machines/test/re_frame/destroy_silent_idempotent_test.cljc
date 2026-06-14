@@ -95,7 +95,7 @@
       ;; Now — the contract-under-test. An explicit destroy fx for the
       ;; already-finished actor must NOT raise, must NOT emit a second
       ;; `:rf.machine/destroyed`, must leave the world unchanged.
-      (rf/reg-event-fx
+      (rf/reg-event
         ::explicit-destroy
         (fn [_ _]
           {:fx [[:rf.machine/destroy :rf2-lbjnz/finisher]]}))
@@ -145,7 +145,7 @@
       ;; Emit two destroy fxs against the same id in one cascade. The
       ;; first one tears the actor down; the second must be a silent
       ;; no-op — no second :rf.machine/destroyed, no error.
-      (rf/reg-event-fx
+      (rf/reg-event
         ::double-destroy
         (fn [_ _]
           {:fx [[:rf.machine/destroy :rf2-lbjnz/target]

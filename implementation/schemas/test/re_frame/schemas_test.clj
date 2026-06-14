@@ -118,8 +118,8 @@
 (deftest dispatch-fires-app-db-validation
   (testing "live dispatch through the runtime triggers app-db validation post-:db commit"
     (rf/reg-app-schema [:n] [:int])
-    (rf/reg-event-db :n/init (fn [_ _] {:n 0}))
-    (rf/reg-event-db :n/break (fn [db _] (assoc db :n "boom")))
+    (rf/reg-event :n/init (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
     (let [traces (atom [])]
       (rf/register-listener! ::live (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:n/init])
@@ -143,9 +143,9 @@
             :db to the pre-handler value. The dispatch is treated as
             failed; the bad commit does NOT stand."
     (rf/reg-app-schema [:n] [:int])
-    (rf/reg-event-db :n/init  (fn [_ _]  {:n 0}))
-    (rf/reg-event-db :n/ok    (fn [db _] (assoc db :n 42)))
-    (rf/reg-event-db :n/break (fn [db _] (assoc db :n "boom")))
+    (rf/reg-event :n/init  (fn [{:keys [db]} _]  {:db {:n 0}}))
+    (rf/reg-event :n/ok    (fn [{:keys [db]} _] {:db (assoc db :n 42)}))
+    (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
     (rf/dispatch-sync [:n/init])
     (is (= {:n 0} (rf/app-db-value (rf/current-frame-id)))
         "baseline post-init state")
@@ -165,9 +165,9 @@
     (let [fx-calls (atom [])]
       (rf/reg-fx :test/note (fn [v] (swap! fx-calls conj v)))
       (rf/reg-app-schema [:n] [:int])
-      (rf/reg-event-fx :n/init
+      (rf/reg-event :n/init
         (fn [_ _] {:db {:n 0}}))
-      (rf/reg-event-fx :n/break-with-fx
+      (rf/reg-event :n/break-with-fx
         (fn [_ _] {:db {:n "boom"}    ;; bad commit
                    :fx [[:test/note :should-not-fire]]}))
       (rf/dispatch-sync [:n/init])
@@ -184,8 +184,8 @@
             Trace ordering: forward db-changed → schema-failure error
             → rollback db-changed."
     (rf/reg-app-schema [:n] [:int])
-    (rf/reg-event-db :n/init  (fn [_ _]  {:n 0}))
-    (rf/reg-event-db :n/break (fn [db _] (assoc db :n "boom")))
+    (rf/reg-event :n/init  (fn [{:keys [db]} _]  {:db {:n 0}}))
+    (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
     (let [events (atom [])]
       (rf/register-listener! ::ord
         (fn [ev] (when (#{:rf.event/db-changed
@@ -232,12 +232,12 @@
             :rf.error/schema-validation-failure :where :event before the
             handler runs; the handler is NOT invoked"
     (let [calls (atom 0)]
-      (rf/reg-event-db :user/register
+      (rf/reg-event :user/register
         {:schema [:cat [:= :user/register]
                      [:map [:email :string] [:age :int]]]}
-        (fn [db [_ payload]]
+        (fn [{:keys [db]} [_ payload]]
           (swap! calls inc)
-          (update db :users (fnil conj []) payload)))
+          {:db (update db :users (fnil conj []) payload)}))
       (let [traces (atom [])]
         (rf/register-listener! ::ev (fn [ev] (swap! traces conj ev)))
         ;; Well-typed payload — passes; handler runs.
@@ -318,8 +318,8 @@
   (testing "Per Spec 010 §step 6 (rf2-wcam): a sub whose return value fails
             its :schema emits :rf.error/schema-validation-failure :where :sub-return
             and the caller sees nil (default :replaced-with-default recovery)"
-    (rf/reg-event-db :items/init (fn [_ _] {:items ["a" "b" "c"]}))
-    (rf/reg-event-db :items/break (fn [db _] (assoc db :items [1 2 3])))
+    (rf/reg-event :items/init (fn [{:keys [db]} _] {:db {:items ["a" "b" "c"]}}))
+    (rf/reg-event :items/break (fn [{:keys [db]} _] {:db (assoc db :items [1 2 3])}))
     (rf/reg-sub :items
       {:schema [:vector :string]}
       (fn [db _] (:items db)))
@@ -387,7 +387,7 @@
       (fn [ctx]
         (assoc-in ctx [:coeffects :app-version/bad] 42)))
     (let [calls (atom 0)]
-      (rf/reg-event-fx :cap/seed
+      (rf/reg-event :cap/seed
         {:interceptors [(rf/inject-cofx :app-version/bad)]}
         (fn [_cofx _]
           (swap! calls inc)
@@ -423,7 +423,7 @@
       (fn [ctx]
         (assoc-in ctx [:coeffects :app-version/well] "1.4.5")))
     (let [seen-version (atom nil)]
-      (rf/reg-event-fx :cap/seed-good
+      (rf/reg-event :cap/seed-good
         {:interceptors [(rf/inject-cofx :app-version/well)]}
         (fn [cofx _]
           (reset! seen-version (:app-version/well cofx))
@@ -453,7 +453,7 @@
         (fn [_ctx _args] (swap! bad-fx-calls inc)))
       (rf/reg-fx :my/log
         (fn [_ctx _args] (swap! good-fx-calls inc)))
-      (rf/reg-event-fx :ui/announce
+      (rf/reg-event :ui/announce
         (fn [_ _]
           {:fx [[:my/notify {:level "error"          ;; bad: needs keyword
                              :message "boom"}]
@@ -498,7 +498,7 @@
         (fn [_ctx args]
           (swap! calls inc)
           (reset! seen args)))
-      (rf/reg-event-fx :user/welcome
+      (rf/reg-event :user/welcome
         (fn [_ _]
           {:fx [[:my/email {:to "alice@example.com"}]]}))
       (let [traces (atom [])]
@@ -518,7 +518,7 @@
       (rf/reg-fx :strict/fx
         {:schema [:map [:x :int]]}
         (fn [_ctx _args] (swap! calls inc)))
-      (rf/reg-event-fx :strict/trigger
+      (rf/reg-event :strict/trigger
         (fn [_ _]
           {:fx [[:strict/fx {:x "not-an-int"}]]}))
       (let [traces (atom [])]
@@ -596,7 +596,7 @@
     (rf/reg-cofx :probe/cofx
       {:schema :string}
       (fn [ctx] (assoc-in ctx [:coeffects :probe/cofx] 42)))   ;; int, not string
-    (rf/reg-event-fx :probe/cofx-seed
+    (rf/reg-event :probe/cofx-seed
       {:interceptors [(rf/inject-cofx :probe/cofx)]}
       (fn [_ _] {}))
     (let [traces (atom [])]
@@ -617,7 +617,7 @@
     (rf/reg-fx :probe/fx
       {:schema [:map [:x :int]]}
       (fn [_ctx _args] nil))
-    (rf/reg-event-fx :probe/fx-seed
+    (rf/reg-event :probe/fx-seed
       (fn [_ _] {:fx [[:probe/fx {:x "bad"}]]}))   ;; string, not int
     (let [traces (atom [])]
       (rf/register-listener! ::fx-frame (fn [ev] (swap! traces conj ev)))
@@ -634,7 +634,7 @@
   (testing "rf2-9cm27 — a sub-return validation failure on a NAMED frame
             stamps the reaction's frame id on the trace (not :rf/default)."
     (rf/reg-frame :test/sub-frame {})
-    (rf/reg-event-db :probe/sub-break (fn [db _] (assoc db :items [1 2 3]))) ;; ints, not strings
+    (rf/reg-event :probe/sub-break (fn [{:keys [db]} _] {:db (assoc db :items [1 2 3])})) ;; ints, not strings
     (rf/reg-sub :probe/items
       {:schema [:vector :string]}
       (fn [db _] (:items db)))
@@ -981,7 +981,7 @@
     (rf/reg-frame :test/other {})
     ;; Schema only on :test/other; commit happens on :test/main.
     (rf/reg-app-schema [:n] [:int] {:frame :test/other})
-    (rf/reg-event-db :n/break-on-main (fn [db _] (assoc db :n "not-an-int")))
+    (rf/reg-event :n/break-on-main (fn [{:keys [db]} _] {:db (assoc db :n "not-an-int")}))
     (let [traces (atom [])]
       (rf/register-listener! ::sib (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:n/break-on-main] {:frame :test/main})
@@ -995,7 +995,7 @@
             frame the schema is registered against DOES fire the failure trace."
     (rf/reg-frame :test/main {})
     (rf/reg-app-schema [:n] [:int] {:frame :test/main})
-    (rf/reg-event-db :n/break (fn [db _] (assoc db :n "not-an-int")))
+    (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "not-an-int")}))
     (let [traces (atom [])]
       (rf/register-listener! ::same (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:n/break] {:frame :test/main})
@@ -1565,7 +1565,7 @@
   (testing "Per Spec 010 §Production builds (rf2-r2uh) — a valid event
             against the handler's :schema passes through, the handler runs."
     (let [calls (atom 0)]
-      (rf/reg-event-fx :api/response
+      (rf/reg-event :api/response
         {:schema [:cat [:= :api/response]
                      [:map [:status :int] [:body :string]]]
          :interceptors [rf/validate-at-boundary-interceptor]}
@@ -1599,7 +1599,7 @@
             true), but the handler-skip behaviour is what the spec
             promises in either path."
     (let [calls (atom 0)]
-      (rf/reg-event-fx :api/response
+      (rf/reg-event :api/response
         {:schema [:cat [:= :api/response]
                      [:map [:status :int] [:body :string]]]
          :interceptors [rf/validate-at-boundary-interceptor]}
@@ -1624,7 +1624,7 @@
             boundary :before never reaches its emit body. Direct
             invocation isolates the boundary's emission for shape
             assertion."
-    (rf/reg-event-fx :api/strict
+    (rf/reg-event :api/strict
       {:schema [:cat [:= :api/strict] :int]
        :interceptors [rf/validate-at-boundary-interceptor]}
       (fn [_ _] {}))
@@ -1671,7 +1671,7 @@
             (validate-event! returning false), so the runtime's existing
             skip mechanism carries the boundary failure through without
             additional plumbing."
-    (rf/reg-event-fx :api/strict
+    (rf/reg-event :api/strict
       {:schema [:cat [:= :api/strict] :int]
        :interceptors [rf/validate-at-boundary-interceptor]}
       (fn [_ _] {}))
@@ -1705,7 +1705,7 @@
                    (= value [:api/custom :good]))
           handler-calls (atom 0)]
       (schemas/set-schema-validator! custom)
-      (rf/reg-event-fx :api/custom
+      (rf/reg-event :api/custom
         {:schema :rf/any                     ;; opaque to the custom validator
          :interceptors [rf/validate-at-boundary-interceptor]}
         (fn [_ _] (swap! handler-calls inc) {}))
@@ -1730,7 +1730,7 @@
             interceptor. The handler runs even with a malformed payload."
     (schemas/set-schema-validator! nil)
     (let [calls (atom 0)]
-      (rf/reg-event-fx :api/disabled
+      (rf/reg-event :api/disabled
         {:schema [:cat [:= :api/disabled] :int]
          :interceptors [rf/validate-at-boundary-interceptor]}
         (fn [_ _] (swap! calls inc) {}))
@@ -1752,7 +1752,7 @@
             validation in the router has already run; the boundary
             interceptor doesn't validate a second time."
     (let [calls (atom 0)]
-      (rf/reg-event-fx :api/dev
+      (rf/reg-event :api/dev
         {:schema [:cat [:= :api/dev] :int]
          :interceptors [rf/validate-at-boundary-interceptor]}
         (fn [_ _] (swap! calls inc) {}))
@@ -1784,16 +1784,16 @@
         (is (thrown-with-msg?
               clojure.lang.ExceptionInfo
               #":rf\.error/at-boundary-missing-schema"
-              (rf/reg-event-fx :api/no-schema-2
+              (rf/reg-event :api/no-schema-2
                 {:interceptors [rf/validate-at-boundary-interceptor]}
                 (fn [_ _] (swap! calls inc) {}))))
-        (let [data (try (rf/reg-event-fx :api/no-schema-2-data
+        (let [data (try (rf/reg-event :api/no-schema-2-data
                           {:interceptors [rf/validate-at-boundary-interceptor]}
                           (fn [_ _] {}))
                         (catch clojure.lang.ExceptionInfo e
                           (ex-data e)))]
           (is (= :rf.error/at-boundary-missing-schema (:rf.error/id data)))
-          (is (= "reg-event-fx" (:reg-fn data)))
+          (is (= "reg-event" (:reg-fn data)))
           (is (= :api/no-schema-2-data (:id data)))
           (is (string? (:reason data)))
           (is (str/includes? (:reason data) ":rf.schema/at-boundary"))
@@ -1805,7 +1805,7 @@
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf\.error/at-boundary-missing-schema"
-            (rf/reg-event-fx :api/no-schema-3
+            (rf/reg-event :api/no-schema-3
               {:doc "metadata-map but no :schema"
                :interceptors [rf/validate-at-boundary-interceptor]}
               (fn [_ _] {})))))
@@ -1826,7 +1826,7 @@
 
     (testing "registration with `:schema` + validate-at-boundary-interceptor completes silently"
       (is (= :api/with-schema
-             (rf/reg-event-fx :api/with-schema
+             (rf/reg-event :api/with-schema
                {:schema [:cat [:= :api/with-schema] :int]
                 :interceptors [rf/validate-at-boundary-interceptor]}
                (fn [_ _] {})))
@@ -1834,11 +1834,11 @@
 
     (testing "registration without validate-at-boundary-interceptor is unaffected by the new check"
       (is (= :api/no-boundary
-             (rf/reg-event-fx :api/no-boundary
+             (rf/reg-event :api/no-boundary
                (fn [_ _] {})))
           "no validate-at-boundary-interceptor, no schema, no error")
       (is (= :api/just-meta
-             (rf/reg-event-fx :api/just-meta
+             (rf/reg-event :api/just-meta
                {:doc "no boundary, no schema"}
                (fn [_ _] {})))
           "metadata-map without :schema is fine when validate-at-boundary-interceptor isn't attached"))))
@@ -2062,7 +2062,7 @@
     (is (= :rf.schema/at-boundary (:id rf/validate-at-boundary-interceptor))
         ":id of the boundary interceptor is :rf.schema/at-boundary (rf2-ieu0i)")
     ;; Canonical :schema path — validation reads :schema.
-    (rf/reg-event-fx :api/schema-key
+    (rf/reg-event :api/schema-key
       {:schema [:cat [:= :api/schema-key] :int]
        :interceptors [rf/validate-at-boundary-interceptor]}
       (fn [_ _] {}))

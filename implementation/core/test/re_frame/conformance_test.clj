@@ -549,8 +549,8 @@
                 (rf/reg-event-db id event-meta handler)
                 (rf/reg-event-db id handler))
           :fx (if (seq event-meta)
-                (rf/reg-event-fx id event-meta handler)
-                (rf/reg-event-fx id handler)))))
+                (rf/reg-event id event-meta handler)
+                (rf/reg-event id handler)))))
     (doseq [[id steps] (get handlers-map :sub)]
       (let [{:keys [kind inputs body]} (conformance/realise-sub steps)
             ;; Per Spec 010 §step 6 (rf2-wcam): pull :schema from the

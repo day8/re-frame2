@@ -63,8 +63,8 @@
       (rf/register-error-listener!
         :prod/flow-recorder
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :prod/flow-throw
-                       (fn [_db _] {:token "string-value"}))
+      (rf/reg-event :prod/flow-throw
+                       (fn [{:keys [db]} _] {:db {:token "string-value"}}))
       (rf/reg-flow {:id     :str-len
                     :inputs [[:token]]
                     :output (fn [t]

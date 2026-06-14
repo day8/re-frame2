@@ -183,7 +183,7 @@
     (rf/reg-frame :rf2-94ol5/a {:doc "throwing-flow frame"})
     (rf/reg-frame :rf2-94ol5/b {:doc "stable sibling frame"})
 
-    (rf/reg-event-db :rf2-94ol5/set-n (fn [db [_ n]] (assoc db :n n)))
+    (rf/reg-event :rf2-94ol5/set-n (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
 
     ;; Frame A: a flow that throws on every recompute. A's input changes
     ;; every iter so it ALWAYS recomputes (and therefore always rolls back).

@@ -341,7 +341,7 @@
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-fx :goum9x/throwing-fx
                  (fn [_ _] (throw (ex-info "fx-boom" {:cause :test}))))
-      (rf/reg-event-fx :goum9x/run-throwing-fx
+      (rf/reg-event :goum9x/run-throwing-fx
                        (fn [_ _] {:fx [[:goum9x/throwing-fx {:to "alice"}]]}))
       (rf/dispatch-sync [:goum9x/run-throwing-fx])
       (let [r (some (fn [x] (when (= :rf.error/fx-handler-exception (:error x)) x)) @seen)]
@@ -363,7 +363,7 @@
       (rf/reg-fx :goum9x/ok-a   (fn [_ _] (swap! fired conj :a)))
       (rf/reg-fx :goum9x/boom   (fn [_ _] (throw (ex-info "boom" {}))))
       (rf/reg-fx :goum9x/ok-b   (fn [_ _] (swap! fired conj :b)))
-      (rf/reg-event-fx :goum9x/mixed
+      (rf/reg-event :goum9x/mixed
                        (fn [{:keys [db]} _]
                          {:db (assoc db :committed? true)
                           :fx [[:goum9x/ok-a]
@@ -382,7 +382,7 @@
     (let [seen (atom [])]
       (rf/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
-      (rf/reg-event-fx :goum9x/run-unknown-fx
+      (rf/reg-event :goum9x/run-unknown-fx
                        (fn [_ _] {:fx [[:goum9x/never-registered {:x 1}]]}))
       (rf/dispatch-sync [:goum9x/run-unknown-fx])
       (let [r (some (fn [x] (when (= :rf.error/no-such-fx (:error x)) x)) @seen)]
@@ -401,7 +401,7 @@
       (rf/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/reg-fx :goum9x/real-fx (fn [_ _] (reset! fired true)))
-      (rf/reg-event-fx :goum9x/run-bad-override
+      (rf/reg-event :goum9x/run-bad-override
                        (fn [_ _] {:fx [[:goum9x/real-fx]]}))
       ;; Per-call override redirects :goum9x/real-fx to an id that is NOT
       ;; registered → override-fallthrough; runtime uses :goum9x/real-fx.
@@ -424,7 +424,7 @@
     (let [seen (atom [])]
       (rf/register-error-listener! :test/recorder
                                    (fn [record] (swap! seen conj record)))
-      (rf/reg-event-fx :goum9x/run-unknown-cofx
+      (rf/reg-event :goum9x/run-unknown-cofx
                        {:rf.cofx/requires [:goum9x/never-registered-cofx]}
                        (fn [_ _] {}))
       (try (rf/dispatch-sync [:goum9x/run-unknown-cofx])
@@ -546,7 +546,7 @@
             is UNCHANGED and NO :rf.event/db-changed is emitted."
     (let [traces (atom [])]
       ;; Seed a known app-db value via a clean dispatch first.
-      (rf/reg-event-db :seed (fn [_ _] {:seeded 1}))
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:seeded 1}}))
       (rf/dispatch-sync [:seed])
       (is (= {:seeded 1} (rf/app-db-value :rf/default)) "seeded")
       ;; Now register a handler that mutates :db and then throws. Even
@@ -577,15 +577,15 @@
           boom-after (rf/->interceptor
                        :id :test/boom-after
                        :after (fn [_ctx] (throw (ex-info "after boom" {}))))]
-      (rf/reg-event-db :seed (fn [_ _] {:seeded 1}))
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:seeded 1}}))
       (rf/dispatch-sync [:seed])
       (is (= {:seeded 1} (rf/app-db-value :rf/default)) "seeded")
       ;; This handler successfully writes :db; the interceptor's :after
       ;; then throws — so a :db effect IS present when the throw fires,
       ;; yet nothing installs (the error path returns before the commit).
-      (rf/reg-event-db :writes-then-after-throws
+      (rf/reg-event :writes-then-after-throws
                        {:interceptors [boom-after]}
-                       (fn [db _] (assoc db :written 99)))
+                       (fn [{:keys [db]} _] {:db (assoc db :written 99)}))
       (rf/register-listener! ::rec (fn [ev] (swap! traces conj ev)))
       (try
         (rf/dispatch-sync [:writes-then-after-throws])

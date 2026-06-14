@@ -419,8 +419,8 @@
             render, then after; the resulting :delta carries the keys
             that changed (per spec — :delta is the streaming hydration
             speed prop). Pins that the diff actually fires."
-    (rf/reg-event-db :test/mutate-during-render
-      (fn [db _] (assoc db :new-key :new-value)))
+    (rf/reg-event :test/mutate-during-render
+      (fn [{:keys [db]} _] {:db (assoc db :new-key :new-value)}))
     (let [fid     (make-server-frame {:initial :state})
           ;; A view that DISPATCHES (mutates app-db) during render —
           ;; the canonical streaming pattern for async data resolution.
@@ -561,7 +561,7 @@
             (rf2-jbcmt) — privacy boundary: response accumulator data
             (Set-Cookie, internal X-* headers) MUST NOT default-leak
             into the hydration payload via an app-db backing store."
-    (rf/reg-event-fx :test/server-write
+    (rf/reg-event :test/server-write
       {:platforms #{:server}}
       (fn [_ _]
         {:fx [[:rf.server/set-header {:name "X-Internal-Token" :value "secret"}]

@@ -63,7 +63,7 @@
 (deftest default-realm-keyword-arities-unchanged
   (testing "the existing keyword arities behave exactly as before — a
             single-realm caller never spells a realm"
-    (rf/reg-event-db :rq/inc {:doc "inc"} (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :rq/inc {:doc "inc"} (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf/reg-sub :rq/n {:doc "n"} (fn [db _] (:n db)))
     ;; (registrations kind)
     (is (contains? (rf/registrations :event) :rq/inc)
@@ -91,7 +91,7 @@
 (deftest map-form-default-realm-equals-keyword-arity
   (testing "the {:realm … :kind …} form with an absent / nil / explicit-default
             realm equals the default-realm keyword arity (absence = default)"
-    (rf/reg-event-db :rq/set {:doc "set"} (fn [db [_ v]] (assoc db :n v)))
+    (rf/reg-event :rq/set {:doc "set"} (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (rf/reg-sub :rq/read {:doc "read"} (fn [db _] (:n db)))
     ;; :realm absent → default realm
     (is (= (rf/registrations :event)

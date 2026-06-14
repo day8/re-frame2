@@ -48,8 +48,8 @@
     (let [seen (atom [])]
       (trace-tooling/register-listener! ::prod-no-trace
         (fn [ev] (swap! seen conj ev)))
-      (rf/reg-event-db :prod/ping
-                       (fn [db _] (assoc db :pinged? true)))
+      (rf/reg-event :prod/ping
+                       (fn [{:keys [db]} _] {:db (assoc db :pinged? true)}))
       ;; The handler still runs (router is not elision-gated; only the
       ;; trace surface is).
       (rf/dispatch-sync [:prod/ping])

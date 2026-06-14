@@ -157,9 +157,9 @@
     (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
           replies (atom [])]
       (try
-        (rf/reg-event-fx :reply/recorder
+        (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event-fx :issue
+        (rf/reg-event :issue
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:url (str "http://127.0.0.1:" (:port srv) "/")}
@@ -168,7 +168,7 @@
                     :request-id :race
                     :on-failure [:reply/recorder]
                     :on-success [:reply/recorder]}]]}))
-        (rf/reg-event-fx :do/abort
+        (rf/reg-event :do/abort
           (fn [_ _] {:fx [[:rf.http/managed-abort :race]]}))
         (rf/dispatch-sync [:issue])
         ;; Attempt #1 fails 500 → request sleeps in the backoff window.
@@ -198,7 +198,7 @@
     (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
           replies (atom [])]
       (try
-        (rf/reg-event-fx :reply/recorder
+        (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         ;; Child actor issues the retrying request on entry.
         (rf/reg-machine :worker/race
@@ -252,9 +252,9 @@
           new-srv (start-counting-500-server!)
           replies (atom [])]
       (try
-        (rf/reg-event-fx :reply/recorder
+        (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event-fx :issue-old
+        (rf/reg-event :issue-old
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:url (str "http://127.0.0.1:" (:port srv) "/")}
@@ -265,7 +265,7 @@
                     :on-success [:reply/recorder]}]]}))
         ;; The superseding request: same :request-id, no retry, points at a
         ;; second always-500 server. It runs ONE attempt then finalises.
-        (rf/reg-event-fx :issue-new
+        (rf/reg-event :issue-new
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:url (str "http://127.0.0.1:" (:port new-srv) "/")}
@@ -307,9 +307,9 @@
     (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
           replies (atom [])]
       (try
-        (rf/reg-event-fx :reply/recorder
+        (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event-fx :issue
+        (rf/reg-event :issue
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:url (str "http://127.0.0.1:" (:port srv) "/")}

@@ -198,8 +198,8 @@
            {:idle    {:on {:go :acting}}
             :acting  {:entry :emit-action}}}
           seen (atom [])]
-      (rf/reg-event-db :downstream/note
-        (fn [db _] (assoc db :noted? true)))
+      (rf/reg-event :downstream/note
+        (fn [{:keys [db]} _] {:db (assoc db :noted? true)}))
       (rf/reg-machine :machine-action/parent parent-machine)
       (trace-tooling/register-listener! ::machine-action
         (fn [ev] (when (= :rf.event/dispatched (:operation ev))
@@ -224,11 +224,11 @@
     ;; that emit `:dispatch` keep the pre-rf2-c3990 `:fx-dispatch`
     ;; stamp — this regression-guards the discriminator.
     (let [seen (atom [])]
-      (rf/reg-event-fx :ordinary/parent
+      (rf/reg-event :ordinary/parent
         (fn [_ctx _]
           {:fx [[:dispatch [:downstream/from-ordinary]]]}))
-      (rf/reg-event-db :downstream/from-ordinary
-        (fn [db _] (assoc db :noted? true)))
+      (rf/reg-event :downstream/from-ordinary
+        (fn [{:keys [db]} _] {:db (assoc db :noted? true)}))
       (trace-tooling/register-listener! ::ordinary
         (fn [ev] (when (= :rf.event/dispatched (:operation ev))
                    (swap! seen conj ev))))

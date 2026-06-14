@@ -87,7 +87,7 @@
             surface does NOT raise. Without this pair, the missing-
             hook assertion above could pass for the wrong reason
             (e.g. a typo'd hook key that's never wired)."
-    (rf/reg-event-db :seed/cljs (fn [_ _] {:n 0}))
+    (rf/reg-event :seed/cljs (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed/cljs])
     ;; Replace the live db with a fresh value; surface returns true
     ;; (no exception).

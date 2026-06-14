@@ -587,7 +587,7 @@
   ;; Per rf2-cmfln sub-cache disposal is synchronous on derefer-count → 0,
   ;; so we observe the cache state without timing.
   (testing "sub-vec :after delay resolving to 0 unsubscribes (no sub-cache leak)"
-    (rf/reg-event-db :a/seed-bad (fn [db _] (assoc db :timeout-config 0)))
+    (rf/reg-event :a/seed-bad (fn [{:keys [db]} _] {:db (assoc db :timeout-config 0)}))
     (rf/reg-sub :a/timeout-config-0 (fn [db _] (:timeout-config db)))
     (rf/dispatch-sync [:a/seed-bad])
     (let [m {:initial :idle
@@ -748,7 +748,7 @@
         ;; A well-behaved sub returning a positive delay — subscribe
         ;; succeeds, deref returns 1000 (so the bad-delay branch
         ;; doesn't short-circuit before reaching add-watch).
-        (rf/reg-event-db :w/seed (fn [db _] (assoc db :delay-ms 1000)))
+        (rf/reg-event :w/seed (fn [{:keys [db]} _] {:db (assoc db :delay-ms 1000)}))
         (rf/reg-sub :s/well-behaved (fn [db _] (:delay-ms db)))
         (rf/dispatch-sync [:w/seed])
         (rf/reg-machine

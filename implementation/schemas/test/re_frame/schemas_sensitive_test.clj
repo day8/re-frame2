@@ -802,10 +802,10 @@
   (testing "Backward-compat — a handler without :sensitive? emits the
             unredacted trace (legacy behaviour for non-sensitive
             handlers)"
-    (rf/reg-event-db :user/register
+    (rf/reg-event :user/register
       {:schema [:cat [:= :user/register]
                    [:map [:email :string] [:age :int]]]}
-      (fn [db [_ payload]] (update db :users (fnil conj []) payload)))
+      (fn [{:keys [db]} [_ payload]] {:db (update db :users (fnil conj []) payload)}))
     (let [traces (atom [])]
       (rf/register-listener! ::reg (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:user/register {:email "carol@example.com" :age "no"}])
@@ -945,7 +945,7 @@
       ;; (string, not int) — the failing slot is the NON-sensitive sibling.
       (fn [ctx] (assoc-in ctx [:coeffects :auth/ctx]
                           {:token "SECRET-COFX-tok" :count "not-an-int"})))
-    (rf/reg-event-fx :auth/use-ctx
+    (rf/reg-event :auth/use-ctx
       {:interceptors [(rf/inject-cofx :auth/ctx)]}
       (fn [_ _] {}))
     (let [traces (atom [])]
@@ -974,7 +974,7 @@
       ;; :token fails (int, not string) — the FAILING slot IS sensitive.
       (fn [ctx] (assoc-in ctx [:coeffects :auth/ctx2]
                           {:token 1234 :count 3})))
-    (rf/reg-event-fx :auth/use-ctx2
+    (rf/reg-event :auth/use-ctx2
       {:interceptors [(rf/inject-cofx :auth/ctx2)]}
       (fn [_ _] {}))
     (let [traces (atom [])]
@@ -1226,7 +1226,7 @@
        :sensitive? true   ;; ignored — annotation removed
        :schema :string}
       (fn [ctx] (assoc-in ctx [:coeffects :auth/credentials] 42)))
-    (rf/reg-event-fx :auth/use-creds
+    (rf/reg-event :auth/use-creds
       {:interceptors [(rf/inject-cofx :auth/credentials)]}
       (fn [_ _] {}))
     (let [traces (atom [])]
@@ -1252,7 +1252,7 @@
     (rf/reg-cofx :secret-blob
       {:schema [:string {:sensitive? true}]}
       (fn [ctx] (assoc-in ctx [:coeffects :secret-blob] 99))) ; int, fails :string
-    (rf/reg-event-fx :use-secret
+    (rf/reg-event :use-secret
       {:interceptors [(rf/inject-cofx :secret-blob)]}
       (fn [_ _] {}))
     (let [traces (atom [])]
@@ -1273,8 +1273,8 @@
             [:string {:sensitive? true}]`) drives sub-return redaction
             now that the handler/sub-meta `:sensitive?` annotation has
             been removed."
-    (rf/reg-event-db :secrets/init (fn [_ _] {:secrets ["a-secret"]}))
-    (rf/reg-event-db :secrets/break (fn [db _] (assoc db :secrets [1 2 3])))
+    (rf/reg-event :secrets/init (fn [{:keys [db]} _] {:db {:secrets ["a-secret"]}}))
+    (rf/reg-event :secrets/break (fn [{:keys [db]} _] {:db (assoc db :secrets [1 2 3])}))
     (rf/reg-sub :secrets
       {:schema [:vector [:string {:sensitive? true}]]}
       (fn [db _] (:secrets db)))
@@ -1311,10 +1311,10 @@
             gating — user ids, auth tokens, document ids); without
             redaction the failure trace re-leaks it alongside the
             return value the existing clauses scrub."
-    (rf/reg-event-db :tokens/init  (fn [_ _]   {:tokens {"user-42-token" "ok"}}))
-    (rf/reg-event-db :tokens/break (fn [db _] (assoc-in db
+    (rf/reg-event :tokens/init  (fn [{:keys [db]} _]   {:db {:tokens {"user-42-token" "ok"}}}))
+    (rf/reg-event :tokens/break (fn [{:keys [db]} _] {:db (assoc-in db
                                                        [:tokens "user-42-token"]
-                                                       99))) ; int — fails :string
+                                                       99)})) ; int — fails :string
     (rf/reg-sub :token-for
       {:schema [:string {:sensitive? true}]}
       (fn [db [_ token]] (get-in db [:tokens token])))
@@ -1348,8 +1348,8 @@
   (testing "Backward-compat — a sub without :sensitive? emits :rf.sub/query-v
             verbatim on the validation-failure trace (legacy behaviour
             preserved for non-sensitive subs). Redaction is opt-in."
-    (rf/reg-event-db :widgets/init  (fn [_ _]   {:widgets {:w1 "ok"}}))
-    (rf/reg-event-db :widgets/break (fn [db _] (assoc-in db [:widgets :w1] 99)))
+    (rf/reg-event :widgets/init  (fn [{:keys [db]} _]   {:db {:widgets {:w1 "ok"}}}))
+    (rf/reg-event :widgets/break (fn [{:keys [db]} _] {:db (assoc-in db [:widgets :w1] 99)}))
     (rf/reg-sub :widget
       {:schema :string}                                  ; no :sensitive?
       (fn [db [_ wid]] (get-in db [:widgets wid])))
@@ -1452,8 +1452,8 @@
             omitted) on a sensitive failure, and the raw value never
             surfaces in the humanized slot"
     (let [secret "sub-secret-deadbeef"]
-      (rf/reg-event-db :secrets/init  (fn [_ _] {:secrets [secret]}))
-      (rf/reg-event-db :secrets/break (fn [db _] (assoc db :secrets [1 2 3])))
+      (rf/reg-event :secrets/init  (fn [{:keys [db]} _] {:db {:secrets [secret]}}))
+      (rf/reg-event :secrets/break (fn [{:keys [db]} _] {:db (assoc db :secrets [1 2 3])}))
       (rf/reg-sub :secrets
         {:schema [:vector [:string {:sensitive? true}]]}
         (fn [db _] (:secrets db)))
@@ -1479,8 +1479,8 @@
 (deftest non-sensitive-sub-return-failure-carries-humanized-payload
   (testing "rf2-qhq3f — backward-compat on the sub-return surface: a
             non-sensitive sub keeps the real humanized payload"
-    (rf/reg-event-db :widgets/init  (fn [_ _] {:widgets {:w1 "ok"}}))
-    (rf/reg-event-db :widgets/break (fn [db _] (assoc-in db [:widgets :w1] 99)))
+    (rf/reg-event :widgets/init  (fn [{:keys [db]} _] {:db {:widgets {:w1 "ok"}}}))
+    (rf/reg-event :widgets/break (fn [{:keys [db]} _] {:db (assoc-in db [:widgets :w1] 99)}))
     (rf/reg-sub :widget
       {:schema :string}                                  ;; no :sensitive?
       (fn [db [_ wid]] (get-in db [:widgets wid])))

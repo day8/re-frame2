@@ -107,8 +107,8 @@
           vacated     (CountDownLatch. 1)
           raced       (CountDownLatch. 1)
           release     (CountDownLatch. 1)]
-      (rf/reg-event-db :seed       (fn [_ _] {:n 5}))
-      (rf/reg-event-db :bump-input (fn [db [_ n]] (assoc db :n n)))
+      (rf/reg-event :seed       (fn [{:keys [db]} _] {:db {:n 5}}))
+      (rf/reg-event :bump-input (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
       (rf/reg-flow {:id     :doubled
                     :inputs [[:n]]
                     :output (fn [n] (* 2 (or n 0)))
@@ -201,8 +201,8 @@
           published     (CountDownLatch. 1)
           raced         (CountDownLatch. 1)
           release       (CountDownLatch. 1)]
-      (rf/reg-event-db :seed     (fn [_ _] {:n 5}))
-      (rf/reg-event-db :unrelated (fn [db _] (assoc db :touched true)))
+      (rf/reg-event :seed     (fn [{:keys [db]} _] {:db {:n 5}}))
+      (rf/reg-event :unrelated (fn [{:keys [db]} _] {:db (assoc db :touched true)}))
       ;; Original flow: :out = 2 × :n.
       (rf/reg-flow {:id     :scaled
                     :inputs [[:n]]
@@ -312,7 +312,7 @@
   (testing "clear-flow vacates the replacement's NEW path, not the stale pre-lock OLD path"
     (let [in-handler (CountDownLatch. 1) ;; drain parked in handler, OLD flow live
           release    (CountDownLatch. 1)] ;; resume the handler → swap + materialise
-      (rf/reg-event-db :seed (fn [_ _] {:n 5}))
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 5}}))
       ;; OLD flow: :out-a = 2 × :n.
       (rf/reg-flow {:id     :scaled
                     :inputs [[:n]]
@@ -332,8 +332,8 @@
       ;; change vacate intends; the reentrant vacate writes the container
       ;; directly, but the drain's deferred commit installs THIS db, so the
       ;; dissoc here is what makes the move durable through the drain).
-      (rf/reg-event-db :replace-scaled
-                       (fn [db _]
+      (rf/reg-event :replace-scaled
+                       (fn [{:keys [db]} _]
                          (.countDown in-handler)
                          (await! release "replace-scaled handler release")
                          (rf/reg-flow {:id     :scaled
@@ -341,7 +341,7 @@
                                        :output (fn [n] (* 100 (or n 0)))
                                        :path   [:out-b]}
                                       {:frame :rf/default})
-                         (dissoc db :out-a)))
+                         {:db (dissoc db :out-a)}))
 
       (let [;; Thread A: the replacement drain. Parks in the handler holding
             ;; the drain-lock with the OLD flow still live.

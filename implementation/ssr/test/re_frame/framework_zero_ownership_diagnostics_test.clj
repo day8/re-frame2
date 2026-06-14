@@ -154,8 +154,8 @@
                    :params    [:map [:id :string]]
                    :can-leave :editor/can-leave?})
     (rf/reg-route :route/cart {:path "/cart"})
-    (rf/reg-event-db :editor/dirty
-                     (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-event :editor/dirty
+                     (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
     (stub-push-url!)
@@ -301,7 +301,7 @@
     ;; Proves the recorder + diagnostic are live in this fixture — every
     ;; framework-quiet assertion above is therefore meaningful, not
     ;; vacuously empty.
-    (rf/reg-event-fx :app/sneaky-runtime-write
+    (rf/reg-event :app/sneaky-runtime-write
                      (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :hijacked}}}}))
     (let [diags (record-ownership-diagnostics! ::app-sneaky)]
       (rf/dispatch-sync [:app/sneaky-runtime-write])

@@ -111,7 +111,7 @@
         (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
-        (rf/reg-event-fx :api/fetch
+        (rf/reg-event :api/fetch
           (fn [_ [_ _msg]]
             ;; Handler itself is NOT sensitive; the per-call flag opts in.
             {:fx [[:rf.http/managed
@@ -147,7 +147,7 @@
         (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
-        (rf/reg-event-fx :api/fetch
+        (rf/reg-event :api/fetch
           (fn [_ [_ _msg]]
             {:fx [[:rf.http/managed
                    {:request    {:method :get
@@ -185,7 +185,7 @@
         (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
-        (rf/reg-event-fx :api/fetch
+        (rf/reg-event :api/fetch
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:method :get
@@ -227,7 +227,7 @@
         (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
-        (rf/reg-event-fx :api/fetch
+        (rf/reg-event :api/fetch
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:method :get
@@ -262,7 +262,7 @@
         (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
-        (rf/reg-event-fx :api/fetch
+        (rf/reg-event :api/fetch
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:method :get
@@ -303,7 +303,7 @@
         (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
-        (rf/reg-event-fx :auth/login
+        (rf/reg-event :auth/login
           {:doc "Login op (handler-meta :sensitive? annotation removed)."}
           (fn [_ _]
             {:fx [[:rf.http/managed
@@ -346,7 +346,7 @@
         (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
-        (rf/reg-event-fx :api/fetch
+        (rf/reg-event :api/fetch
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:method :get
@@ -386,7 +386,7 @@
                                   (fn [ev] (swap! captured conj ev)))
         ;; The :decode schema is the owner's declaration: [:token] is
         ;; sensitive, [:user-id] is not. No per-call :sensitive? flag.
-        (rf/reg-event-fx :auth/login
+        (rf/reg-event :auth/login
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request {:method :get
@@ -395,7 +395,7 @@
                               [:token {:sensitive? true} :string]
                               [:user-id :int]]
                     :on-success [:auth/ok]}]]}))
-        (rf/reg-event-fx :auth/ok (fn [_ _] {}))
+        (rf/reg-event :auth/ok (fn [_ _] {}))
 
         (rf/dispatch-sync [:auth/login])
 
@@ -423,14 +423,14 @@
       (try
         (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
-        (rf/reg-event-fx :auth/refresh
+        (rf/reg-event :auth/refresh
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request {:method :get
                               :url    (str "http://127.0.0.1:" port "/refresh")}
                     :decode  [:string {:sensitive? true}]
                     :on-success [:auth/ok]}]]}))
-        (rf/reg-event-fx :auth/ok (fn [_ _] {}))
+        (rf/reg-event :auth/ok (fn [_ _] {}))
 
         (rf/dispatch-sync [:auth/refresh])
 
@@ -457,7 +457,7 @@
       (try
         (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
-        (rf/reg-event-fx :api/big
+        (rf/reg-event :api/big
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request {:method :get
@@ -466,7 +466,7 @@
                               [:blob {:large? true} :string]
                               [:user-id :int]]
                     :on-success [:api/ok]}]]}))
-        (rf/reg-event-fx :api/ok (fn [_ _] {}))
+        (rf/reg-event :api/ok (fn [_ _] {}))
 
         (rf/dispatch-sync [:api/big])
 
@@ -499,13 +499,13 @@
         (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         ;; No :decode ⇒ :auto ⇒ unschematized ⇒ off-box :omit.
-        (rf/reg-event-fx :api/opaque
+        (rf/reg-event :api/opaque
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request {:method :get
                               :url    (str "http://127.0.0.1:" port "/opaque")}
                     :on-success [:api/ok]}]]}))
-        (rf/reg-event-fx :api/ok (fn [_ _] {}))
+        (rf/reg-event :api/ok (fn [_ _] {}))
 
         (rf/dispatch-sync [:api/opaque])
 
@@ -534,7 +534,7 @@
       (try
         (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
-        (rf/reg-event-fx :api/login
+        (rf/reg-event :api/login
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request {:method :get
@@ -543,7 +543,7 @@
                               [:token {:sensitive? true} :string]
                               [:user-id :int]]
                     :on-success [:api/ok]}]]}))
-        (rf/reg-event-fx :api/ok (fn [_ _] {}))
+        (rf/reg-event :api/ok (fn [_ _] {}))
 
         (rf/dispatch-sync [:api/login])
 
@@ -585,7 +585,7 @@
         (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         ;; NO per-call :sensitive? flag — the disposition-5 fix must fire anyway.
-        (rf/reg-event-fx :api/fetch
+        (rf/reg-event :api/fetch
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:method :get
@@ -620,7 +620,7 @@
       (try
         (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
-        (rf/reg-event-fx :api/fetch
+        (rf/reg-event :api/fetch
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:method :get
@@ -656,7 +656,7 @@
         (trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         ;; :json decode of a non-JSON body throws → :rf.http/decode-failure.
-        (rf/reg-event-fx :api/fetch
+        (rf/reg-event :api/fetch
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:method :get

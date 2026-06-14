@@ -100,7 +100,7 @@
             (fn [^HttpExchange ex]
               (write-bytes! ex 200 "application/octet-stream" raw-bytes)))]
       (try
-        (rf/reg-event-fx :blob/load
+        (rf/reg-event :blob/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -124,7 +124,7 @@
             (fn [^HttpExchange ex]
               (write-bytes! ex 200 "application/octet-stream" raw-bytes)))]
       (try
-        (rf/reg-event-fx :ab/load
+        (rf/reg-event :ab/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -148,7 +148,7 @@
             (fn [^HttpExchange ex]
               (write-bytes! ex 200 "text/plain; charset=ISO-8859-1" latin1-bytes)))]
       (try
-        (rf/reg-event-fx :text/load
+        (rf/reg-event :text/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -216,7 +216,7 @@
               (write-bytes! ex 200 "application/json"
                             (.getBytes "{\"ok\":true}" "UTF-8"))))]
       (try
-        (rf/reg-event-fx :slow/load
+        (rf/reg-event :slow/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}

@@ -93,13 +93,13 @@
 (defn ^:export touch-registrar! []
   ;; reg-event-db / dispatch-sync exercise registrar/register! and the
   ;; router/events/fx trace emit sites in one shot.
-  (rf/reg-event-db :probe/init  (fn [_db _ev] {:counter 0}))
-  (rf/reg-event-db :probe/inc   (fn [db _ev] (update db :counter inc)))
+  (rf/reg-event :probe/init  (fn [{:keys [db]} _ev] {:db {:counter 0}}))
+  (rf/reg-event :probe/inc   (fn [{:keys [db]} _ev] {:db (update db :counter inc)}))
   (rf/reg-sub      :probe/count (fn [db _q] (:counter db)))
   (rf/dispatch-sync [:probe/init])
   (rf/dispatch-sync [:probe/inc])
   ;; Re-register to fire :rf.registry/handler-replaced.
-  (rf/reg-event-db :probe/inc   (fn [db _ev] (update db :counter (fnil inc 0))))
+  (rf/reg-event :probe/inc   (fn [{:keys [db]} _ev] {:db (update db :counter (fnil inc 0))}))
   ;; Exercise the registrar's unregister!/clear-kind! emit sites so that
   ;; the :rf.registry/handler-cleared keyword has a path into the
   ;; reachability graph too.
@@ -149,7 +149,7 @@
   ;; the test-support namespace that registers them is NEVER required by
   ;; the probe. That is exactly what we want to assert lives only in the
   ;; control bundle.
-  (rf/reg-event-fx :probe/http-abort-touch
+  (rf/reg-event :probe/http-abort-touch
     (fn [_ _]
       {:fx [[:rf.http/managed-abort :probe/never-issued-request]]}))
   (rf/dispatch-sync [:probe/http-abort-touch])
@@ -222,7 +222,7 @@
   ;; under DEBUG=true, exercising the gated body's literal
   ;; reachability through an actual call site rather than relying
   ;; on require-closure alone.
-  (rf/reg-event-db :probe/redact-fire (fn [_db _ev] {:redact :fired}))
+  (rf/reg-event :probe/redact-fire (fn [{:keys [db]} _ev] {:db {:redact :fired}}))
   (rf/dispatch-sync [:probe/redact-fire])
   ;; Clear so subsequent probe sites (replace-app-db! below,
   ;; on-frame-destroyed!) are not perturbed by the throwing fn.

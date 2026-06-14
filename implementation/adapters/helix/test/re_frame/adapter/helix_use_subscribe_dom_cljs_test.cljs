@@ -321,7 +321,7 @@
               (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
               (reset! probe-frame-provider-observed [])
               (rf/reg-frame frame-kw {:doc "rf2-7kii2 trailing-children frame-provider probe"})
-              (rf/reg-event-db ::dollar-shape-seed (fn [_ _] {:k :wrapped}))
+              (rf/reg-event ::dollar-shape-seed (fn [{:keys [db]} _] {:db {:k :wrapped}}))
               (rf/dispatch-sync [::dollar-shape-seed] {:frame frame-kw})
               (rf/reg-sub (first query-v) (fn [db _] (:k db)))
               (let [mount-node (.createElement js/document "div")

@@ -45,10 +45,10 @@
             substrate carries the projector install, not the dev-only
             trace surface. A server-frame handler that throws still
             stamps :status 500 onto :rf/response."
-    (rf/reg-event-fx :load/article
+    (rf/reg-event :load/article
       (fn [_ _]
         (throw (ex-info "Database connection failed" {}))))
-    (rf/reg-event-fx :rf/server-init
+    (rf/reg-event :rf/server-init
       (fn [_ _]
         {:fx [[:dispatch [:load/article]]]}))
 

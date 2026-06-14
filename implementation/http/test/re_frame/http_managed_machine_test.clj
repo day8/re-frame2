@@ -330,7 +330,7 @@
             (fn [^HttpExchange ex]
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
-        (rf/reg-event-fx :legacy/load
+        (rf/reg-event :legacy/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               (case (:kind reply)

@@ -138,7 +138,7 @@
           traces  (atom [])]
       (try
         (trace/register-listener! ::wvkn-1 (fn [ev] (swap! traces conj ev)))
-        (rf/reg-event-fx :reply/recorder
+        (rf/reg-event :reply/recorder
           (fn [_ [_ payload]]
             (swap! replies conj payload)
             {}))
@@ -208,7 +208,7 @@
           traces  (atom [])]
       (try
         (trace/register-listener! ::wvkn-2 (fn [ev] (swap! traces conj ev)))
-        (rf/reg-event-fx :reply/recorder
+        (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         (rf/reg-machine :worker/multi
           {:initial :idle
@@ -267,7 +267,7 @@
           srv-b   (start-blocking-server! latch-b 200 "application/json" "{}")
           replies (atom [])]
       (try
-        (rf/reg-event-fx :reply/recorder
+        (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         ;; Two independent worker machines, each with its own request.
         (rf/reg-machine :worker/proc-a
@@ -337,7 +337,7 @@
           {:keys [port] :as srv} (start-blocking-server! latch 200 "application/json" "{}")
           replies (atom [])]
       (try
-        (rf/reg-event-fx :direct/load
+        (rf/reg-event :direct/load
           (fn [_ [_ msg]]
             (if-let [reply (:rf/reply msg)]
               (do (swap! replies conj reply) {})
@@ -364,7 +364,7 @@
             "request still in flight")
         ;; The orthogonal app-level abort still works — driven through
         ;; an event handler that emits the `:rf.http/managed-abort` fx.
-        (rf/reg-event-fx :do/abort
+        (rf/reg-event :do/abort
           (fn [_ _] {:fx [[:rf.http/managed-abort :direct]]}))
         (rf/dispatch-sync [:do/abort])
         (await-condition! #(seq @replies))
@@ -383,7 +383,7 @@
           {:keys [port] :as srv} (start-blocking-server! latch 200 "application/json" "{}")
           replies (atom [])]
       (try
-        (rf/reg-event-fx :reply/recorder
+        (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         (rf/reg-machine :worker/slow
           {:initial :idle
@@ -434,7 +434,7 @@
           {:keys [port] :as srv} (start-blocking-server! latch 200 "application/json" "{\"too\":\"late\"}")
           replies (atom [])]
       (try
-        (rf/reg-event-fx :reply/recorder
+        (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         ;; Child machine: issues a managed request with NO :request-id.
         ;; record-in-flight! therefore skips the request-id index (the
@@ -592,7 +592,7 @@
           traces  (atom [])]
       (try
         (trace/register-listener! ::n877mb (fn [ev] (swap! traces conj ev)))
-        (rf/reg-event-fx :reply/recorder
+        (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         ;; Worker machine: on entry to :running its action fires an
         ;; :rf.http/managed request at the slow server. Spawned IMPERATIVELY
@@ -618,7 +618,7 @@
         ;; XState-`spawn`-equivalent imperative entry-point. The actor's
         ;; deterministic id is :worker/imp#1 (runtime-db spawn-counter
         ;; fallback). The :start event drives idle→running → :fire-request.
-        (rf/reg-event-fx :imp/spawn
+        (rf/reg-event :imp/spawn
           (fn [_ _]
             {:fx [[:rf.machine/spawn {:machine-id :worker/imp
                                       :id-prefix  :worker/imp
@@ -627,7 +627,7 @@
         ;; canonical [:rf.machine/destroy <actor-id>] keyword form (re-frame2's
         ;; stopChild). This is the destroy trigger that must cascade to the
         ;; HTTP abort.
-        (rf/reg-event-fx :imp/destroy
+        (rf/reg-event :imp/destroy
           (fn [_ _]
             {:fx [[:rf.machine/destroy :worker/imp#1]]}))
         (rf/dispatch-sync [:imp/spawn])

@@ -67,8 +67,8 @@
             JVM-benign but would land :committed-at ~12 orders of magnitude
             low here and fail this band — the blind spot rf2-2elcw3 exposed
             for resources, now closed for the durable :committed-at field."
-    (rf/reg-event-db :clk/init (fn [_ _] {:n 0}))
-    (rf/reg-event-db :clk/inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :clk/init (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :clk/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     ;; Capture js/Date.now() bracketing the dispatch so the comparison band
     ;; is tight and robust to scheduling. The dispatch is intentionally

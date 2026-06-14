@@ -85,7 +85,7 @@
     (rf/reg-app-schema [:count] [:int])
     (let [recorded (record-traces! ::bad-write)]
       (with-redefs [interop/debug-enabled? true]
-        (rf/reg-event-db :count/break (fn [db _] (assoc db :count "not-an-int")))
+        (rf/reg-event :count/break (fn [{:keys [db]} _] {:db (assoc db :count "not-an-int")}))
         ;; validate-app-schema! runs the registered app-db schema set over
         ;; the supplied db value, exactly as the post-handler step does.
         (re-frame.schemas/validate-app-schema! {:count "not-an-int"} :count/break))

@@ -139,7 +139,7 @@
           inner :rf-22ds-1-inner]
       (rf/reg-frame outer {:doc "outer scenario-1 frame"})
       (rf/reg-frame inner {:doc "inner scenario-1 frame"})
-      (rf/reg-event-db :seed-1 (fn [_ [_ v]] {:v v}))
+      (rf/reg-event :seed-1 (fn [{:keys [db]} [_ v]] {:db {:v v}}))
       ;; Each frame's app-db carries a distinct value so the subscribe
       ;; tells us unambiguously which frame served the read.
       (rf/dispatch-sync [:seed-1 :outer-app-db] {:frame outer})
@@ -197,7 +197,7 @@
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (let [target :rf-22ds-2-scope]
       (rf/reg-frame target {:doc "scenario-2 explicit-scope frame"})
-      (rf/reg-event-db :seed-2 (fn [_ _] {:n 99}))
+      (rf/reg-event :seed-2 (fn [{:keys [db]} _] {:db {:n 99}}))
       (rf/dispatch-sync [:seed-2] {:frame target})
       (rf/reg-sub :scenario-2/n (fn [db _] (:n db)))
       ;; (a) No provider → the probe's current-frame-id / subscribe raise
@@ -376,7 +376,7 @@
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (let [target :rf-22ds-4-wrapped]
       (rf/reg-frame target {:doc "scenario-4 wrapped frame"})
-      (rf/reg-event-db :seed-4 (fn [_ [_ v]] {:s v}))
+      (rf/reg-event :seed-4 (fn [{:keys [db]} [_ v]] {:db {:s v}}))
       ;; Seed the wrapped frame explicitly. EP-0002 (rf2-69r7ui): no bare
       ;; `:rf/default` seed — the assertion is that the wrapped-frame
       ;; subscribe resolves to the wrapped value, which the single scoped
@@ -428,7 +428,7 @@
       ;; sibling frame to prove the dispatch did NOT leak outside the
       ;; provider scope.
       (rf/reg-frame sibling {:doc "scenario-5 sibling (no provider above)"})
-      (rf/reg-event-db :scenario-5/stamp (fn [db _] (assoc db :stamped :here)))
+      (rf/reg-event :scenario-5/stamp (fn [{:keys [db]} _] {:db (assoc db :stamped :here)}))
 
       (rf/reg-view* :rf.22ds-5/probe
                     (fn []
@@ -479,7 +479,7 @@
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (let [target :rf-22ds-6-strict]
       (rf/reg-frame target {:doc "scenario-6 strict-mode frame"})
-      (rf/reg-event-db :seed-6 (fn [_ _] {:s :strict-mode-app-db}))
+      (rf/reg-event :seed-6 (fn [{:keys [db]} _] {:db {:s :strict-mode-app-db}}))
       (rf/dispatch-sync [:seed-6] {:frame target})
       (rf/reg-sub :scenario-6/s (fn [db _] (:s db)))
 
@@ -575,8 +575,8 @@
         (is true (str "act() not reachable from this test runner; "
                       "scenario-7 skipped — bead filed (see suite docstring)."))
         (let [_ (rf/reg-frame target {:doc "scenario-7 concurrent frame"})
-              _ (rf/reg-event-db :seed-7 (fn [_ _] {:n 1}))
-              _ (rf/reg-event-db :inc-7  (fn [db _] (update db :n inc)))
+              _ (rf/reg-event :seed-7 (fn [{:keys [db]} _] {:db {:n 1}}))
+              _ (rf/reg-event :inc-7  (fn [{:keys [db]} _] {:db (update db :n inc)}))
               _ (rf/dispatch-sync [:seed-7] {:frame target})
               _ (rf/reg-sub :scenario-7/n (fn [db _] (:n db)))
               observed-frames (atom [])
@@ -673,7 +673,7 @@
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (let [target :rf-22ds-ns/tenant-admin]
       (rf/reg-frame target {:doc "namespaced frame-id regression"})
-      (rf/reg-event-db :rf-22ds-ns/seed (fn [_ [_ v]] {:tag v}))
+      (rf/reg-event :rf-22ds-ns/seed (fn [{:keys [db]} [_ v]] {:db {:tag v}}))
       (rf/dispatch-sync [:rf-22ds-ns/seed :wrapped-value] {:frame target})
       (rf/reg-sub :rf-22ds-ns/tag (fn [db _] (:tag db)))
 

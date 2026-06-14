@@ -160,7 +160,7 @@
             stale-suppression gate flips (suppresses a result that should
             commit)"
     (rf/reg-route :route/article {:path "/articles/:id" :params [:map [:id :string]]})
-    (rf/reg-event-db :article/loaded (fn [db [_ id payload]] (assoc db :article {:id id :payload payload})))
+    (rf/reg-event :article/loaded (fn [{:keys [db]} [_ id payload]] {:db (assoc db :article {:id id :payload payload})}))
     (let [traces (atom [])]
       (rf/register-listener! ::flip (fn [ev] (swap! traces conj ev)))
       ;; A PRIOR navigation advanced the host nav-token high-water to 5, so a
@@ -192,7 +192,7 @@
             matches current and the result commits (the gate decision is
             preserved across record→replay)"
     (rf/reg-route :route/article {:path "/articles/:id" :params [:map [:id :string]]})
-    (rf/reg-event-db :article/loaded (fn [db [_ id payload]] (assoc db :article {:id id :payload payload})))
+    (rf/reg-event :article/loaded (fn [{:keys [db]} [_ id payload]] {:db (assoc db :article {:id id :payload payload})}))
     ;; Same advanced host counter as the failing case — a re-mint WOULD give nav-6.
     (nav-counters/commit-counter! :rf/default :nav-token-counter 5)
     ;; REPLAY: the recorded token carries BOTH allocations (a `transitioned`

@@ -74,10 +74,10 @@
 ;; the body (the defn-shape macro), exactly as the example's views use them.
 
 (defn- register-counter! []
-  (rf/reg-event-db :counter/initialise
-    (fn [_db _event] {:counter/value 5}))
-  (rf/reg-event-db :counter/inc
-    (fn [db _event] (update db :counter/value inc)))
+  (rf/reg-event :counter/initialise
+    (fn [{:keys [db]} _event] {:db {:counter/value 5}}))
+  (rf/reg-event :counter/inc
+    (fn [{:keys [db]} _event] {:db (update db :counter/value inc)}))
   (rf/reg-sub :counter/value
     (fn [db _query] (:counter/value db)))
   (reg-view counter-buttons []
@@ -97,10 +97,10 @@
 ;; the subscribe ever ran. Now the inner closure is recalled and its
 ;; subscribing hiccup rides into the markup.
 (defn- register-form2-counter! []
-  (rf/reg-event-db :counter/initialise
-    (fn [_db _event] {:counter/value 5}))
-  (rf/reg-event-db :counter/inc
-    (fn [db _event] (update db :counter/value inc)))
+  (rf/reg-event :counter/initialise
+    (fn [{:keys [db]} _event] {:db {:counter/value 5}}))
+  (rf/reg-event :counter/inc
+    (fn [{:keys [db]} _event] {:db (update db :counter/value inc)}))
   (rf/reg-sub :counter/value
     (fn [db _query] (:counter/value db)))
   ;; Form-2: outer setup returns the inner render closure.

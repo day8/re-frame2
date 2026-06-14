@@ -1082,7 +1082,7 @@
   observable)."
   []
   (reset! replied [])
-  (rf/reg-event-fx :test/save-replied
+  (rf/reg-event :test/save-replied
                    (fn [_ event] (swap! replied conj event) {})))
 
 (deftest reply-to-fires-on-accepted-success-and-carries-the-reply-map
@@ -1228,7 +1228,7 @@
                         :populates (fn [_params result] {(art-target) result})})
       ;; the continuation handler reads the runtime-db AT continuation time:
       ;; both the instance settle AND the populated entry must already be in.
-      (rf/reg-event-fx :test/save-replied
+      (rf/reg-event :test/save-replied
                        (fn [_ [_ reply]]
                          (reset! seen {:instance-status (:status (instance :pc1))
                                        :entry-status    (:status (entry rkey))

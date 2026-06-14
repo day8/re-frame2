@@ -178,14 +178,14 @@
       ;; can read the in-flight state. (We've already primed the side-
       ;; channel registry above; the app-db marker is the substrate the
       ;; flow drives off.)
-      (rf/reg-event-db :http/issue
-                       (fn [db [_ request-id]]
-                         (assoc-in db [:http/in-flight request-id] true)))
+      (rf/reg-event :http/issue
+                       (fn [{:keys [db]} [_ request-id]]
+                         {:db (assoc-in db [:http/in-flight request-id] true)}))
 
       ;; :cancel is the event the test exercises: dissoc app-db slot AND
       ;; emit :rf.http/managed-abort. Both compose with the flow's
       ;; outermost :after over the pending :db.
-      (rf/reg-event-fx :http/cancel
+      (rf/reg-event :http/cancel
                        (fn [{:keys [db]} [_ request-id]]
                          {:db (update db :http/in-flight dissoc request-id)
                           :fx [[:rf.http/managed-abort request-id]]}))
@@ -269,10 +269,10 @@
 
       ;; Mirror the in-flight state into app-db. Use :issue separately
       ;; (without the throwing flow registered) so the seed is clean.
-      (rf/reg-event-db :http/issue
-                       (fn [db [_ request-id]]
-                         (assoc-in db [:http/in-flight request-id] true)))
-      (rf/reg-event-fx :http/cancel
+      (rf/reg-event :http/issue
+                       (fn [{:keys [db]} [_ request-id]]
+                         {:db (assoc-in db [:http/in-flight request-id] true)}))
+      (rf/reg-event :http/cancel
                        (fn [{:keys [db]} [_ request-id]]
                          {:db (update db :http/in-flight dissoc request-id)
                           :fx [[:rf.http/managed-abort request-id]]}))

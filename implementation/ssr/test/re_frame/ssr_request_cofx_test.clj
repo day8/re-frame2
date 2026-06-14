@@ -77,7 +77,7 @@
       ;; Host adapter populates the slot.
       (ssr/set-request! server-frame request)
       ;; A server-side handler reads it via the cofx.
-      (rf/reg-event-fx :req-test/read
+      (rf/reg-event :req-test/read
         {:rf.cofx/requires [:rf.server/request]}
         (fn [{:keys [rf.server/request]} _]
           (reset! observed request)
@@ -107,7 +107,7 @@
   (testing "cofx returns nil when no host adapter has populated the slot"
     (let [server-frame (rf/make-frame {:platform :server})
           observed     (atom :unset)]
-      (rf/reg-event-fx :req-test/read-empty
+      (rf/reg-event :req-test/read-empty
         {:rf.cofx/requires [:rf.server/request]}
         (fn [{:keys [rf.server/request] :as ctx} _]
           (reset! observed
@@ -136,7 +136,7 @@
     (let [client-frame (rf/make-frame {:platform :client})
           traces       (collect-traces! ::req-client)
           observed     (atom :unset)]
-      (rf/reg-event-fx :req-test/read-on-client
+      (rf/reg-event :req-test/read-on-client
         {:rf.cofx/requires [:rf.server/request]}
         (fn [{:keys [rf.server/request] :as ctx} _]
           (reset! observed
@@ -182,7 +182,7 @@
       (ssr/set-request! frame-a request-a)
       (ssr/set-request! frame-b request-b)
 
-      (rf/reg-event-fx :req-test/read-isolated
+      (rf/reg-event :req-test/read-isolated
         {:rf.cofx/requires [:rf.server/request]}
         ;; The running frame's stamp reaches the event context under
         ;; :rf.frame/id (rf2-1m6rf1 — the bare :frame coeffect is retired).
@@ -215,7 +215,7 @@
 
       ;; The cofx now injects nil.
       (let [observed (atom :unset)]
-        (rf/reg-event-fx :req-test/read-after-clear
+        (rf/reg-event :req-test/read-after-clear
           {:rf.cofx/requires [:rf.server/request]}
           (fn [{:keys [rf.server/request]} _]
             (reset! observed request)
@@ -239,7 +239,7 @@
           explicit     {:uri "/explicit" :headers {"x-test" "1"}}
           observed     (atom :unset)]
       (ssr/set-request! server-frame explicit)
-      (rf/reg-event-fx :req-test/read-explicit
+      (rf/reg-event :req-test/read-explicit
         {:rf.cofx/requires [:rf.server/request]}
         (fn [{:keys [rf.server/request]} _]
           (reset! observed request)
@@ -261,7 +261,7 @@
           request      {:uri "/preset" :request-method :get}
           observed     (atom :unset)]
       (ssr/set-request! server-frame request)
-      (rf/reg-event-fx :req-test/read-preset
+      (rf/reg-event :req-test/read-preset
         {:rf.cofx/requires [:rf.server/request]}
         (fn [{:keys [rf.server/request]} _]
           (reset! observed request)

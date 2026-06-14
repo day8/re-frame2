@@ -92,7 +92,7 @@
     ;; :rf.machine.lifecycle/destroyed events in addition to
     ;; :rf.frame/destroyed.
     ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
-    (rf/reg-event-fx :composed/seed-machines
+    (rf/reg-event :composed/seed-machines
                      (fn [{rt :rf.db/runtime} _]
                        {:rf.db/runtime
                         (assoc-in (or rt {}) [:rf.runtime/machines :snapshots]
@@ -224,7 +224,7 @@
   (testing "a reaction whose dispose! throws does NOT prevent other reactions
             from being disposed; the sub-cache is cleared either way"
     (rf/reg-frame :composed/sub-throw {:doc "sub-throw"})
-    (rf/reg-event-db :composed/seed (fn [_ _] {:a 1 :b 2}))
+    (rf/reg-event :composed/seed (fn [{:keys [db]} _] {:db {:a 1 :b 2}}))
     (rf/reg-sub :composed/a (fn [db _] (:a db)))
     (rf/reg-sub :composed/b (fn [db _] (:b db)))
     (rf/dispatch-sync [:composed/seed] {:frame :composed/sub-throw})
@@ -277,7 +277,7 @@
             tears the frame down — reason :frame-destroy, correct :frame
             + :rf.sub/query-v (rf2-x3m8c finding 2)"
     (rf/reg-frame :composed/dispose-emit {:doc "dispose-emit"})
-    (rf/reg-event-db :composed/seed2 (fn [_ _] {:a 1 :b 2}))
+    (rf/reg-event :composed/seed2 (fn [{:keys [db]} _] {:db {:a 1 :b 2}}))
     (rf/reg-sub :composed/da (fn [db _] (:a db)))
     (rf/reg-sub :composed/db (fn [db _] (:b db)))
     (rf/dispatch-sync [:composed/seed2] {:frame :composed/dispose-emit})
@@ -376,10 +376,10 @@
   (testing ":on-destroy that dispatch-syncs across frames: sibling commits,
             warn fires, original frame still tears down cleanly"
     (rf/reg-frame :composed/parent {:doc "parent"})
-    (rf/reg-event-db :composed/notify-parent
-                     (fn [db [_ payload]]
-                       (assoc db :last-notification payload)))
-    (rf/reg-event-fx :composed/teardown
+    (rf/reg-event :composed/notify-parent
+                     (fn [{:keys [db]} [_ payload]]
+                       {:db (assoc db :last-notification payload)}))
+    (rf/reg-event :composed/teardown
                      (fn [_ _]
                        ;; Mid-drain on :composed/child; dispatch-sync across
                        ;; to :composed/parent.
@@ -445,7 +445,7 @@
         "precondition: schema row exists for the frame")
 
     ;; --- flows: register a flow rooted at the frame -----------------------
-    (rf/reg-event-db :composed/seed-leak (fn [_ _] {:w 3 :h 4}))
+    (rf/reg-event :composed/seed-leak (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
     (rf/reg-flow {:id     :composed/area
                   :inputs [[:w] [:h]]
                   :output (fn [w h] (* (or w 0) (or h 0)))

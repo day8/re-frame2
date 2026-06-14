@@ -85,11 +85,11 @@
       (+ a b))))
 
 (defn- register-diamond-events! []
-  (rf/reg-event-db :standard-epochs/seed
-    (fn [_ _] {:views {:diamond-root 0}}))
+  (rf/reg-event :standard-epochs/seed
+    (fn [{:keys [db]} _] {:db {:views {:diamond-root 0}}}))
   ;; Button #24 — bump :views/diamond-root once.
-  (rf/reg-event-db :standard-epochs/bump-diamond
-    (fn [db _] (update-in db [:views :diamond-root] (fnil inc 0)))))
+  (rf/reg-event :standard-epochs/bump-diamond
+    (fn [{:keys [db]} _] {:db (update-in db [:views :diamond-root] (fnil inc 0))})))
 
 ;; ===========================================================================
 ;; The diamond join recomputes EXACTLY ONCE per single root change

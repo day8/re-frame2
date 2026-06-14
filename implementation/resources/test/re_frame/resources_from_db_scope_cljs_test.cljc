@@ -76,8 +76,8 @@
                       {:request {:method :get :url "/feed" :params {:page page}}})
      :tags          (fn [_p _v] #{[:feed]})})
   ;; an app event that writes the logged-in user (the resolver's db input)
-  (rf/reg-event-db :t/login (fn [db [_ username]] (assoc-in db [:auth :user :username] username)))
-  (rf/reg-event-db :t/logout (fn [db _] (update db :auth dissoc :user))))
+  (rf/reg-event :t/login (fn [{:keys [db]} [_ username]] {:db (assoc-in db [:auth :user :username] username)}))
+  (rf/reg-event :t/logout (fn [{:keys [db]} _] {:db (update db :auth dissoc :user)})))
 
 (use-fixtures :each
   (core-test-support/make-reset-runtime-fixture

@@ -41,8 +41,8 @@
       (rf/register-event-listener!
         :prod/recorder
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :prod/inc
-                       (fn [db _] (update db :n (fnil inc 0))))
+      (rf/reg-event :prod/inc
+                       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:prod/inc])
       (is (= 1 (count @seen))
           "listener fired exactly once for the dispatched event — prod-elision contract holds")
@@ -107,8 +107,8 @@
       (rf/register-event-listener!
         :prod/recorder
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :prod/normal
-                       (fn [db _] (assoc db :touched true)))
+      (rf/reg-event :prod/normal
+                       (fn [{:keys [db]} _] {:db (assoc db :touched true)}))
       (rf/dispatch-sync [:prod/normal "payload"])
       (is (= 1 (count @seen))
           "handler fans out under prod")

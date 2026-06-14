@@ -97,12 +97,12 @@
     (rf/reg-route :route/article {:path   "/articles/:id"
                                   :params [:map [:id :string]]})
     ;; The user-facing handler that the wrapped reply commits to.
-    (rf/reg-event-db :article/loaded
-                     (fn [db [_ id payload]]
-                       (assoc db :article {:id id :payload payload})))
+    (rf/reg-event :article/loaded
+                     (fn [{:keys [db]} [_ id payload]]
+                       {:db (assoc db :article {:id id :payload payload})}))
     ;; The :on-success bridge: captures the nav-token at request time
     ;; and wraps the inner :dispatch in :rf.route/with-nav-token.
-    (rf/reg-event-fx :article/loaded-bridge
+    (rf/reg-event :article/loaded-bridge
                      (fn [_ [_ {:keys [carried-token id payload]}]]
                        {:fx [[:rf.route/with-nav-token
                               {:do        [:dispatch [:article/loaded id payload]]
@@ -189,7 +189,7 @@
     (is (= :route/editor (get-in (rf/runtime-db-value :rf/default)
                                  [:rf.runtime/routing :current :route-id]))
         "precondition: landed on :route/editor")
-    (rf/reg-event-fx :editor/save
+    (rf/reg-event :editor/save
                      (fn [_ _]
                        {:fx [[:rf.http/managed
                               {:request    {:method :put
@@ -202,7 +202,7 @@
                                ;; against the registry's snapshot until
                                ;; we clear it.
                                :on-success [:editor/saved]}]]}))
-    (rf/reg-event-db :editor/saved (fn [db _] (assoc db :saved? true)))
+    (rf/reg-event :editor/saved (fn [{:keys [db]} _] {:db (assoc db :saved? true)}))
 
     ;; Trigger the save with the canned-success stub installed via
     ;; with-managed-request-stubs to drive a deterministic reply path.
@@ -352,10 +352,10 @@
                   {:path      "/articles/:id"
                    :params    [:map [:id :string]]
                    :can-leave :editor/can-leave?})
-    (rf/reg-event-db :article/loaded
-                     (fn [db [_ id payload]]
-                       (assoc db :article {:id id :payload payload})))
-    (rf/reg-event-fx :article/loaded-bridge
+    (rf/reg-event :article/loaded
+                     (fn [{:keys [db]} [_ id payload]]
+                       {:db (assoc db :article {:id id :payload payload})}))
+    (rf/reg-event :article/loaded-bridge
                      (fn [_ [_ {:keys [carried-token id payload]}]]
                        {:fx [[:rf.route/with-nav-token
                               {:do        [:dispatch [:article/loaded id payload]]

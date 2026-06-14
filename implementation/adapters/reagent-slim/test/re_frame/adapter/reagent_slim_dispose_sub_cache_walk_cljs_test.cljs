@@ -88,7 +88,7 @@
     ;; counter-with-stories shape (one frame per Story variant).
     (rf/reg-frame :walk/a {})
     (rf/reg-frame :walk/b {})
-    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
+    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
 
     (rf/dispatch-sync [:seed 1] {:frame :walk/a})
@@ -147,7 +147,7 @@
   is caught at the slim surface too (slim claims drop-in Reagent parity)."
     (rf/reg-frame :walk/a {})
     (rf/reg-frame :walk/b {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 1}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
 
     (rf/dispatch-sync [:seed] {:frame :walk/a})

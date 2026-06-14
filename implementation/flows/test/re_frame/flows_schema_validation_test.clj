@@ -91,7 +91,7 @@
 (deftest conforming-output-passes-silently
   (testing "a flow whose output conforms to :schema emits no violation and writes the value"
     (install-predicate-validator!)
-    (rf/reg-event-db :seed (fn [_ _] {:w 3 :h 4}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
                   :output (fn [w h] (* w h))
@@ -111,7 +111,7 @@
   (testing "a flow whose output violates :schema emits :where :flow-output and STILL writes (observational)"
     (install-predicate-validator!)
     ;; Output is negative; the schema demands a non-negative integer.
-    (rf/reg-event-db :seed (fn [_ _] {:w 3 :h -4}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h -4}}))
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
                   :output (fn [w h] (* w h))
@@ -148,7 +148,7 @@
     (let [validator-calls (atom 0)]
       (schemas/set-schema-fns!
         {:validate (fn [_ _] (swap! validator-calls inc) false)})
-      (rf/reg-event-db :seed (fn [_ _] {:w 3 :h 4}))
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
       (rf/reg-flow {:id     :area
                     :inputs [[:w] [:h]]
                     :output (fn [w h] (* w h))
@@ -168,7 +168,7 @@
     ;; nil validator => the `:schemas/validate-with-registered-fn` seam
     ;; treats 'no validator' as 'no validation' (Spec 010 soft-pass).
     (schemas/set-schema-validator! nil)
-    (rf/reg-event-db :seed (fn [_ _] {:w 3 :h 4}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
                   :output (fn [w h] (* w h))
@@ -187,7 +187,7 @@
 (deftest production-gate-elides-validation
   (testing "with debug-enabled? false the whole validation surface is silent (prod elision mirror)"
     (install-predicate-validator!)
-    (rf/reg-event-db :seed (fn [_ _] {:w 3 :h 4}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
                   :output (fn [w h] (* w h))
@@ -208,7 +208,7 @@
 (deftest each-flow-validates-its-own-output
   (testing "in a flow-reads-flow cascade each flow validates its own output against its own :schema"
     (install-predicate-validator!)
-    (rf/reg-event-db :seed (fn [_ _] {:cart {:items [{:price 10} {:price -5}]}}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:cart {:items [{:price 10} {:price -5}]}}}))
     ;; subtotal sums the (here intentionally negative-capable) prices.
     (rf/reg-flow {:id     :cart/subtotal
                   :inputs [[:cart :items]]
@@ -231,7 +231,7 @@
     ;; also violates. Each surfaces independently with its own :rf.flow/id.
     (reset! *captured* [])
     (rf/dispatch-sync [:seed] )         ;; re-seed is a no-op write (same value)
-    (rf/reg-event-db :seed-neg (fn [_ _] {:cart {:items [{:price -100}]}}))
+    (rf/reg-event :seed-neg (fn [{:keys [db]} _] {:db {:cart {:items [{:price -100}]}}}))
     (rf/dispatch-sync [:seed-neg])
     (let [ids (set (map #(get-in % [:tags :rf.flow/id]) (violations)))]
       (is (= #{:cart/subtotal :cart/total} ids)

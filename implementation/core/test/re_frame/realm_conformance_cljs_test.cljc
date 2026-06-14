@@ -447,7 +447,7 @@
   (testing "the ordinary reg-* sugar path + full dispatch through a default-realm
             frame still works end-to-end (no regression from the realm seam)"
     (rf/reg-frame :conf/app {:doc "conf app"})
-    (rf/reg-event-db :conf/set {:doc "set"} (fn [db [_ v]] (assoc db :n v)))
+    (rf/reg-event :conf/set {:doc "set"} (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (rf/reg-sub :conf/read {:doc "read"} (fn [db _] (:n db)))
     (rf/dispatch-sync [:conf/set 7] {:frame :conf/app})
     (is (= {:n 7} (rf/app-db-value :conf/app))

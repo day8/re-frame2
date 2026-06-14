@@ -155,7 +155,7 @@
 (deftest e2e-bad-tag-name-keyword-projects-through-projector
   (testing "rf2-z7gor + rf2-zwgsv — hostile tag-name keyword surfaces as
             500 via the SSR error projector"
-    (rf/reg-event-fx :init/ok-bad-tag {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-event :init/ok-bad-tag {:platforms #{:server}} (fn [_ _] {}))
     ;; The view body intentionally emits a tag-name component carrying a
     ;; space — `validate-tag-name!` rejects anything outside
     ;; `[A-Za-z][A-Za-z0-9-]*`. We register the view via reg-view*
@@ -215,7 +215,7 @@
             throw produce identical projector-driven status + uniform
             body shape (both flow through `apply-error-projection!`)"
     ;; Path A: render-time throw via tag-name validator.
-    (rf/reg-event-fx :init/ok-render-throw {:platforms #{:server}}
+    (rf/reg-event :init/ok-render-throw {:platforms #{:server}}
       (fn [_ _] {}))
     (rf/reg-view* :pages/render-throw
                   (fn [] [(keyword "render throw")]))
@@ -229,7 +229,7 @@
           ;; Path B: drain-time throw via CRLF cookie value (separate
           ;; server so the per-frame projector buffer doesn't carry
           ;; state across).
-          (rf/reg-event-fx :init/drain-throw
+          (rf/reg-event :init/drain-throw
             {:platforms #{:server}}
             (fn [_ _]
               {:fx [[:rf.server/set-cookie
@@ -290,7 +290,7 @@
 
 (deftest e2e-crlf-bearing-cookie-value-rejected
   (testing "rf2-z7gor — CRLF in cookie :value rejected before any wire byte emitted"
-    (rf/reg-event-fx :init/bad-cookie
+    (rf/reg-event :init/bad-cookie
       {:platforms #{:server}}
       (fn [_ _]
         ;; The classic header-splitting payload — if this reached the
@@ -339,7 +339,7 @@
 
 (deftest e2e-crlf-bearing-header-value-rejected
   (testing "rf2-hbty2 — CRLF in header :value rejected before any wire byte emitted"
-    (rf/reg-event-fx :init/bad-header
+    (rf/reg-event :init/bad-header
       {:platforms #{:server}}
       (fn [_ _]
         {:fx [[:rf.server/set-header
@@ -388,7 +388,7 @@
 
 (deftest e2e-valid-render-path-returns-200
   (testing "sanity: a clean view → 200 + HTML + render-hash on the wire"
-    (rf/reg-event-fx :init/ok
+    (rf/reg-event :init/ok
       {:platforms #{:server}}
       (fn [_ _] {:db {:title "Greetings from JVM SSR"}}))
 

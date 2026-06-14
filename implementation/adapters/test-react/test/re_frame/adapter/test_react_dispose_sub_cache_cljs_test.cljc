@@ -46,7 +46,7 @@
   (testing "rf2-ghfkkk — test-react dispose-adapter! disposes + clears every
             live frame's sub-cache; a re-subscribe after reinstall recomputes
             from the current app-db (no stale cross-lifecycle read)"
-    (rf/reg-event-db ::seed (fn [_ [_ v]] {:n v}))
+    (rf/reg-event ::seed (fn [{:keys [db]} [_ v]] {:db {:n v}}))
     (rf/reg-sub ::n (fn [db _] (:n db)))
     (rf/dispatch-sync [::seed 1])
 
@@ -77,7 +77,7 @@
   (testing "rf2-ghfkkk — the walk covers EVERY live frame, not just
             :rf/default: a per-instance frame's materialised slot is disposed
             and cleared by the same dispose-adapter! call"
-    (rf/reg-event-db ::seed (fn [_ [_ v]] {:n v}))
+    (rf/reg-event ::seed (fn [{:keys [db]} [_ v]] {:db {:n v}}))
     (rf/reg-sub ::n (fn [db _] (:n db)))
     (let [other (frame/make-frame {:doc "second frame"})]
       ;; Seed + subscribe in BOTH frames so each carries a live cache slot.

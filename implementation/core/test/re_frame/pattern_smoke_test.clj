@@ -48,32 +48,32 @@
   (testing "form slice transitions through documented states"
     (let [defaults {:email "" :password ""}
           slice    [:auth :login]]
-      (rf/reg-event-db :form.login/initialise
-        (fn [db _]
-          (assoc-in db slice {:draft defaults :submitted nil
+      (rf/reg-event :form.login/initialise
+        (fn [{:keys [db]} _]
+          {:db (assoc-in db slice {:draft defaults :submitted nil
                               :submit-attempted? false :status :idle
-                              :errors {} :touched #{} :submit-error nil})))
-      (rf/reg-event-db :form.login/edit-field
-        (fn [db [_ field value]]
-          (-> db (assoc-in (conj slice :draft field) value)
-                 (update-in (conj slice :touched) conj field))))
-      (rf/reg-event-db :form.login/blur-field
-        (fn [db [_ field]] (update-in db (conj slice :touched) conj field)))
-      (rf/reg-event-db :form.login/submit
-        (fn [db _] (-> db (assoc-in (conj slice :submit-attempted?) true)
-                          (assoc-in (conj slice :status) :submitting))))
-      (rf/reg-event-db :form.login/submit-success
-        (fn [db _] (-> db (assoc-in (conj slice :status) :submitted)
+                              :errors {} :touched #{} :submit-error nil})}))
+      (rf/reg-event :form.login/edit-field
+        (fn [{:keys [db]} [_ field value]]
+          {:db (-> db (assoc-in (conj slice :draft field) value)
+                 (update-in (conj slice :touched) conj field))}))
+      (rf/reg-event :form.login/blur-field
+        (fn [{:keys [db]} [_ field]] {:db (update-in db (conj slice :touched) conj field)}))
+      (rf/reg-event :form.login/submit
+        (fn [{:keys [db]} _] {:db (-> db (assoc-in (conj slice :submit-attempted?) true)
+                          (assoc-in (conj slice :status) :submitting))}))
+      (rf/reg-event :form.login/submit-success
+        (fn [{:keys [db]} _] {:db (-> db (assoc-in (conj slice :status) :submitted)
                           (assoc-in (conj slice :submitted)
-                                    (get-in db (conj slice :draft))))))
-      (rf/reg-event-db :form.login/submit-error
-        (fn [db [_ err]] (-> db (assoc-in (conj slice :status) :error)
-                                (assoc-in (conj slice :submit-error) err))))
-      (rf/reg-event-db :form.login/reset
-        (fn [db _] (assoc-in db slice {:draft defaults :submitted nil
+                                    (get-in db (conj slice :draft))))}))
+      (rf/reg-event :form.login/submit-error
+        (fn [{:keys [db]} [_ err]] {:db (-> db (assoc-in (conj slice :status) :error)
+                                (assoc-in (conj slice :submit-error) err))}))
+      (rf/reg-event :form.login/reset
+        (fn [{:keys [db]} _] {:db (assoc-in db slice {:draft defaults :submitted nil
                                        :submit-attempted? false :status :idle
                                        :errors {} :touched #{}
-                                       :submit-error nil})))
+                                       :submit-error nil})}))
       ;; Lifecycle: init → :idle, edit/blur build up :touched, submit flips
       ;; :submit-attempted? and :status, success snapshots :draft → :submitted,
       ;; error sets :status :error + :submit-error, reset returns to :idle.
@@ -113,19 +113,19 @@
   variant for trivial boots and the canonical machine variant exercising
   :configuring → :loading → :ready driven by :on-create."
   (testing "chained-events boot — :on-create dispatch threads through to :ready"
-    (rf/reg-event-fx :app/init
+    (rf/reg-event :app/init
       (fn [_ _] {:fx [[:dispatch [:config/load]]]}))
-    (rf/reg-event-fx :config/load
+    (rf/reg-event :config/load
       (fn [{:keys [db]} _] {:db (assoc db :config {:loaded? true})
                             :fx [[:dispatch [:app/ready]]]}))
-    (rf/reg-event-db :app/ready
-      (fn [db _] (assoc db :app/booted? true)))
+    (rf/reg-event :app/ready
+      (fn [{:keys [db]} _] {:db (assoc db :app/booted? true)}))
     (let [f (rf/make-frame {:on-create [:app/init]})
           db (rf/app-db-value f)]
       (is (true? (:app/booted? db)) "chained-events boot reached :app/ready")
       (is (= {:loaded? true} (:config db)))))
   (testing "machine boot — :configuring → :loading → :ready"
-    (rf/reg-event-fx :app/boot
+    (rf/reg-event :app/boot
       (machines/make-machine-handler
         {:initial :configuring
          :data    {:config nil}
@@ -154,29 +154,29 @@
   :loaded-at :attempt), the status enum {:idle :loading :fetching :loaded
   :error}, and the load / loaded / load-failed / reset event lifecycle."
   (let [path [:articles]]
-    (rf/reg-event-db :articles/initialise
-      (fn [db _] (assoc-in db path {:status :idle :data nil :error nil
-                                    :loaded-at nil :attempt 0})))
-    (rf/reg-event-db :articles/load
-      (fn [db _]
-        (let [has-data? (some? (get-in db (conj path :data)))]
+    (rf/reg-event :articles/initialise
+      (fn [{:keys [db]} _] {:db (assoc-in db path {:status :idle :data nil :error nil
+                                    :loaded-at nil :attempt 0})}))
+    (rf/reg-event :articles/load
+      (fn [{:keys [db]} _]
+        {:db (let [has-data? (some? (get-in db (conj path :data)))]
           (-> db
               (assoc-in (conj path :status)  (if has-data? :fetching :loading))
               (assoc-in (conj path :error)   nil)
-              (update-in (conj path :attempt) inc)))))
-    (rf/reg-event-db :articles/loaded
-      (fn [db [_ data]]
-        (-> db (assoc-in (conj path :status) :loaded)
+              (update-in (conj path :attempt) inc)))}))
+    (rf/reg-event :articles/loaded
+      (fn [{:keys [db]} [_ data]]
+        {:db (-> db (assoc-in (conj path :status) :loaded)
                (assoc-in (conj path :data) data)
                (assoc-in (conj path :loaded-at) 1234)
-               (assoc-in (conj path :error) nil))))
-    (rf/reg-event-db :articles/load-failed
-      (fn [db [_ err]]
-        (-> db (assoc-in (conj path :status) :error)
-               (assoc-in (conj path :error) err))))
-    (rf/reg-event-db :articles/reset
-      (fn [db _] (assoc-in db path {:status :idle :data nil :error nil
-                                    :loaded-at nil :attempt 0})))
+               (assoc-in (conj path :error) nil))}))
+    (rf/reg-event :articles/load-failed
+      (fn [{:keys [db]} [_ err]]
+        {:db (-> db (assoc-in (conj path :status) :error)
+               (assoc-in (conj path :error) err))}))
+    (rf/reg-event :articles/reset
+      (fn [{:keys [db]} _] {:db (assoc-in db path {:status :idle :data nil :error nil
+                                    :loaded-at nil :attempt 0})}))
     (rf/dispatch-sync [:articles/initialise])
     (let [s0 (get-in (rf/app-db-value :rf/default) path)]
       (is (= #{:status :data :error :loaded-at :attempt} (set (keys s0)))

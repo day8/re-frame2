@@ -77,19 +77,19 @@
 (defn- install-handlers! []
   ;; `:initialise` seeds the per-frame counter + tick slots so the
   ;; first sub read does not return nil.
-  (rf/reg-event-db ::initialise
-    (fn [_db _ev] {:counter 0 :ticks 0}))
+  (rf/reg-event ::initialise
+    (fn [{:keys [db]} _ev] {:db {:counter 0 :ticks 0}}))
 
   ;; Counter handlers (Spec 002 §Per-instance frames — same handler,
   ;; per-frame state).
-  (rf/reg-event-db ::counter-inc
-    (fn [db _ev] (update db :counter (fnil inc 0))))
+  (rf/reg-event ::counter-inc
+    (fn [{:keys [db]} _ev] {:db (update db :counter (fnil inc 0))}))
 
   ;; Clock-tick handler (rf2-gxgmt — on-demand parallel-frames Tick
   ;; button) — same shape as counter, different slot. Mirrors the
   ;; testbed's per-frame tick semantics without the dispatch chain.
-  (rf/reg-event-db ::clock-tick
-    (fn [db _ev] (update db :ticks (fnil inc 0))))
+  (rf/reg-event ::clock-tick
+    (fn [{:keys [db]} _ev] {:db (update db :ticks (fnil inc 0))}))
 
   (rf/reg-sub ::counter (fn [db _] (:counter db)))
   (rf/reg-sub ::ticks   (fn [db _] (:ticks db))))

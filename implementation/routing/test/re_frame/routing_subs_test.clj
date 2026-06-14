@@ -92,7 +92,7 @@
                    :params    [:map [:id :string]]
                    :can-leave :editor/can-leave?})
     (rf/reg-route :route/cart {:path "/cart"})
-    (rf/reg-event-db :editor/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
     (rf/reg-fx :rf.nav/push-url

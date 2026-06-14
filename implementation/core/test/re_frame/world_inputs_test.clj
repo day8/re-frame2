@@ -389,11 +389,11 @@
       ;; so we read both the parent's and child's stamped world map.
       (rf/reg-fx :wi/capture-env
         (fn [m _args] (swap! envelopes conj (:envelope m))))
-      (rf/reg-event-fx :wi/parent
+      (rf/reg-event :wi/parent
         (fn [_ _]
           {:fx [[:wi/capture-env]
                 [:dispatch [:wi/child]]]}))
-      (rf/reg-event-fx :wi/child
+      (rf/reg-event :wi/child
         (fn [_ _]
           {:fx [[:wi/capture-env]]}))
 
@@ -457,10 +457,10 @@
       ;; uses — so we observe the world-inputs map the router stamped for it.
       (rf/reg-fx :wi.later/capture-env
         (fn [m _args] (reset! captured-child (:envelope m))))
-      (rf/reg-event-fx :wi.later/parent
+      (rf/reg-event :wi.later/parent
         (fn [_ _]
           {:fx [[:dispatch-later {:ms 50 :event [:wi.later/child]}]]}))
-      (rf/reg-event-fx :wi.later/child
+      (rf/reg-event :wi.later/child
         (fn [_ _]
           {:fx [[:wi.later/capture-env]]}))
 
@@ -656,7 +656,7 @@
     ;; the world-input coeffect (NOT an ambient `random-uuid` / `rand-nth`) and
     ;; folds them into a durable app-db entity. `reg-event-fx` so we can read
     ;; the `:rf.cofx` framework coeffect off the cofx map.
-    (rf/reg-event-fx :todo/create
+    (rf/reg-event :todo/create
       (fn [{:keys [db] cofx :rf.cofx} [_ text]]
         (let [id    (:todo/id cofx)
               color (:todo/color cofx)]
@@ -684,7 +684,7 @@
             (replay-stable), where an ambient random-uuid / rand-nth would have
             diverged run-to-run (EP-0010 §Restore, Replay, And Hydration)"
     (rf/reg-frame :wi/replay {:doc "ctx"})
-    (rf/reg-event-fx :todo/create-from-token
+    (rf/reg-event :todo/create-from-token
       (fn [{:keys [db] cofx :rf.cofx} _]
         (let [id    (:todo/id cofx)
               color (:todo/color cofx)]
@@ -745,7 +745,7 @@
   (testing "same causal token under two different ambient clocks → durable
             :committed-at EQUAL while the diagnostic trace :time DIFFERS"
     (rf/reg-frame :wi/split {:doc "ctx"})
-    (rf/reg-event-db :wi/note (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :wi/note (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [token-time   1781078400123     ; the supplied causal token :rf/time-ms
           ;; capture the diagnostic trace :time of THIS frame's :wi/note event
           ;; per run — the trace `:time` is stamped from the ambient

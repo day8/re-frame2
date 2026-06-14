@@ -87,14 +87,14 @@
     (fn [root [_ threshold]] (> root threshold))))
 
 (defn- register-section-events! []
-  (rf/reg-event-db :standard-epochs/seed
-    (fn [_ _] {:views {:a-mounted?  false
+  (rf/reg-event :standard-epochs/seed
+    (fn [{:keys [db]} _] {:db {:views {:a-mounted?  false
                        :b-mounted?  false
                        :threshold   5
                        :chain-input 1
-                       :b-prop      "alpha"}}))
-  (rf/reg-event-db :standard-epochs/perturb-chain
-    (fn [db _] (update-in db [:views :chain-input] inc))))
+                       :b-prop      "alpha"}}}))
+  (rf/reg-event :standard-epochs/perturb-chain
+    (fn [{:keys [db]} _] {:db (update-in db [:views :chain-input] inc)})))
 
 ;; Child A's full read-set, stood up as the view's mount-time subscribes.
 ;; Returns the held reactions so a test can deref / unsubscribe them as a
@@ -334,7 +334,7 @@
       ;; [:standard-epochs/chain-labelled]. The intersection resolves
       ;; :triggered-by to A's own changed sub.
       (let [render-a (rf/view :standard-epochs/child-a)]
-        (rf/reg-event-fx :standard-epochs/perturb-then-render-a
+        (rf/reg-event :standard-epochs/perturb-then-render-a
           (fn [_ _]
             @(rf/subscribe [:standard-epochs/chain-labelled])
             (render-a 5)
@@ -344,7 +344,7 @@
       ;; B renders INSIDE a cascade too, but reads NO sub. Its render
       ;; is driven by the prop it was handed.
       (let [render-b (rf/view :standard-epochs/child-b)]
-        (rf/reg-event-fx :standard-epochs/render-b
+        (rf/reg-event :standard-epochs/render-b
           (fn [_ _]
             (render-b "beta")
             {}))

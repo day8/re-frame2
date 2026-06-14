@@ -120,7 +120,7 @@
             (load-order registrations declare no module). The honest
             no-provenance case."
     ;; reg-* sugar — writes the default realm's registrar in place, no install!.
-    (rf/reg-event-db :sugar/inc (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :sugar/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [running (rf/installed-app)]
       (is (contains? (rf/app-registrations running :event) :sugar/inc)
           "the projection enumerates the sugar-registered event")

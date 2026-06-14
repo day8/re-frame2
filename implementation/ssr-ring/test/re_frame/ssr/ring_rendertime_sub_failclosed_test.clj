@@ -124,7 +124,7 @@
             BEFORE the render that buffers it, then dropped at
             frame-destroy)."
     (register-throwing-sub-view!)
-    (rf/reg-event-fx :init/ok {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
     (let [handler (ssr-ring/ssr-handler
                     {:on-create [:init/ok]
                      :root-view [:pages/uses-throwing-sub]
@@ -170,7 +170,7 @@
       (fn []
         (let [v @(rf/subscribe [:clean-sub])]
           [:main [:h1 "clean"] [:p (str "value: " v)]])))
-    (rf/reg-event-fx :init/ok {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
     (let [handler (ssr-ring/ssr-handler
                     {:on-create [:init/ok]
                      :root-view [:pages/uses-clean-sub]

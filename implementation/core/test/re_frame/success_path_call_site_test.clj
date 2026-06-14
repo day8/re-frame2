@@ -120,7 +120,7 @@
    dispatch's call-site — rf2-twt7m Change 1 widens the hoist to
    match the trigger-handler treatment (rf2-lf84g)"
     (rf/reg-fx :rf2-twt7m/my-fx (fn [_ _] :ok))
-    (rf/reg-event-fx :rf2-twt7m/cascade
+    (rf/reg-event :rf2-twt7m/cascade
                      (fn [_ _] {:db {:n 1} :fx [[:rf2-twt7m/my-fx {}]]}))
     (let [evs       (record-traces
                       (fn []

@@ -146,7 +146,7 @@
   ;; The `:rf.server/request` cofx is registered by `re-frame.ssr` at
   ;; ns-load and re-installed by the test-fixture's `:reload`; we
   ;; only register the handler that consumes it.
-  (rf/reg-event-fx :rf.test.ozhy9/init
+  (rf/reg-event :rf.test.ozhy9/init
     {:platforms        #{:server}
      :rf.cofx/requires [:rf.server/request]}
     (fn [{request :rf.server/request} _]

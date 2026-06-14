@@ -568,7 +568,7 @@
     (rf/reg-route :hist/editor {:path      "/editor/articles/:id"
                                 :params    [:map [:id :string]]
                                 :can-leave :hist/can-leave?})
-    (rf/reg-event-db :hist/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-event :hist/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :hist/can-leave?
                 (fn [db _]
                   ;; closed contract: explicit boolean. OK to leave = NOT dirty.
@@ -635,7 +635,7 @@
     (rf/reg-route :hist/editor {:path      "/editor/articles/:id"
                                 :params    [:map [:id :string]]
                                 :can-leave :hist/can-leave?})
-    (rf/reg-event-db :hist/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-event :hist/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :hist/can-leave?
                 (fn [db _] (not (boolean (get-in db [:editor :dirty?])))))
 
@@ -680,7 +680,7 @@
     (rf/reg-route :hist/editor {:path      "/editor/articles/:id"
                                 :params    [:map [:id :string]]
                                 :can-leave :hist/can-leave?})
-    (rf/reg-event-db :hist/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-event :hist/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :hist/can-leave?
                 (fn [db _] (not (boolean (get-in db [:editor :dirty?])))))
 
