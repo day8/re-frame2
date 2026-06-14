@@ -99,7 +99,7 @@
            :event-id      event-id
            :frame-id      frame
            ;; rf2-azcmd3 — use the CAPTURED route id (carried with the
-           ;; nav-token at request time), NOT `(:id slice)` (the route live
+           ;; nav-token at request time), NOT `(:route-id slice)` (the route live
            ;; at stale-arrival). Mirrors the production `with-nav-token-
            ;; handler` fix so a cross-route stale completion attributes its
            ;; work-id to the route-loader attempt, not the current route id.

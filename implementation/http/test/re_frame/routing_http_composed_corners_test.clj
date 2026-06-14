@@ -187,7 +187,7 @@
     ;; from a user event (not :on-match — so it stays in-flight).
     (rf/dispatch-sync [:rf.route/transitioned "/editor/draft"])
     (is (= :route/editor (get-in (rf/runtime-db-value :rf/default)
-                                 [:rf.runtime/routing :current :id]))
+                                 [:rf.runtime/routing :current :route-id]))
         "precondition: landed on :route/editor")
     (rf/reg-event-fx :editor/save
                      (fn [_ _]
@@ -255,7 +255,7 @@
 
       ;; Slice still reflects the active route (no nav happened).
       (is (= :route/editor (get-in (rf/runtime-db-value :rf/default)
-                                   [:rf.runtime/routing :current :id]))
+                                   [:rf.runtime/routing :current :route-id]))
           "post-cancel: current route slice still on the active editor route"))))
 
 ;; ---------------------------------------------------------------------------
@@ -288,7 +288,7 @@
     ;; Land on /editor/draft.
     (rf/dispatch-sync [:rf.route/transitioned "/editor/draft"])
     (is (= :route/editor (get-in (rf/runtime-db-value :rf/default)
-                                 [:rf.runtime/routing :current :id]))
+                                 [:rf.runtime/routing :current :route-id]))
         "precondition: landed on :route/editor")
     (let [token-before (get-in (rf/runtime-db-value :rf/default)
                                [:rf.runtime/routing :current :nav-token])]
@@ -318,7 +318,7 @@
           ;; The continued nav completed — slice is now on /sibling and
           ;; nav-token bumped.
           (is (= :route/sibling (get-in (rf/runtime-db-value :rf/default)
-                                        [:rf.runtime/routing :current :id]))
+                                        [:rf.runtime/routing :current :route-id]))
               "post-continue: current route slice is on the continued target")
           (let [token-after (get-in (rf/runtime-db-value :rf/default)
                                     [:rf.runtime/routing :current :nav-token])]

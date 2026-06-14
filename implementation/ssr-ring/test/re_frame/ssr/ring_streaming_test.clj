@@ -754,7 +754,7 @@
       {:platforms #{:server}}
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
-                                  {:id :test.stream/route-head-throws})}))
+                                  {:route-id :test.stream/route-head-throws})}))
     (rf/reg-view ^{:rf/id :test/stream-head-body} stream-head-body []
       [:main [:h1 "Streamed body rendered fine"]])
     (let [traces  (atom [])

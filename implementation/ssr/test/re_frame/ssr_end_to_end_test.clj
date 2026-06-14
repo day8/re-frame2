@@ -97,7 +97,7 @@
       (fn [{:keys [db]} [_ request]]
         {:db (-> db
                  (assoc :request request)
-                 (assoc-in [:rf.runtime/routing :current] {:id :route/articles}))
+                 (assoc-in [:rf.runtime/routing :current] {:route-id :route/articles}))
          :fx [[:http/get {:url        "/api/articles"
                           :on-success [:articles/loaded]}]]}))
 
@@ -990,7 +990,7 @@
           ;; This test only asserts the server-hash stash, so the route slice
           ;; is illustrative payload content placed in its post-EP home.
           payload   {:rf/version     1
-                     :rf/runtime-db  {:rf.runtime/routing {:current {:id :route/article :params {:id "123"}}}}
+                     :rf/runtime-db  {:rf.runtime/routing {:current {:route-id :route/article :params {:id "123"}}}}
                      :rf/render-hash "head-hash-server-A"}
           traces    (atom [])
           f         (rf/make-frame {:platform :client})]
@@ -2356,7 +2356,7 @@
 
       (rf/reg-event-fx :rf/server-init
         (fn [{:keys [db]} [_ _request]]
-          {:db (assoc-in db [:rf.runtime/routing :current] {:id :route/articles})
+          {:db (assoc-in db [:rf.runtime/routing :current] {:route-id :route/articles})
            :fx [[:http/get {:url "/api/articles"
                             :on-success [:articles/loaded]}]]}))
       (rf/reg-event-db :articles/loaded

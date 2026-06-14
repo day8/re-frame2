@@ -540,7 +540,7 @@
             in the runtime-db partition at [:rf.runtime/...], NOT app-db's
             retired :rf/runtime container."
     (seed-host-frame! {:cart {:items [{:id 7}]}})
-    (seed-host-runtime-db! {:rf.runtime/routing  {:current {:id :app/cart}}
+    (seed-host-runtime-db! {:rf.runtime/routing  {:current {:route-id :app/cart}}
                             :rf.runtime/machines {:snapshots {:auth       {:state :idle}
                                                               :title/flow {:state :playing}}}})
     (registry/register-xray-handlers!)

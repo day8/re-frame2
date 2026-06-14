@@ -1109,7 +1109,7 @@
     (rf/reg-event-fx :route-to
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
-                                  {:id :route/users})}))
+                                  {:route-id :route/users})}))
     (rf/dispatch-sync [:route-to] {:frame :test/main})
     ;; A subsequent dispatch so the history holds at least one record
     ;; whose :frame-state-after references :route/users.
@@ -2383,33 +2383,33 @@
       {:rf/machine? true}
       (fn [{:keys [rf.db/runtime]} _]
         {:rf.db/runtime (assoc-in (or runtime {}) [:rf.runtime/routing :current]
-                                  {:id :route/home :params {}})}))
+                                  {:route-id :route/home :params {}})}))
     (rf/reg-event-fx :go-article
       {:rf/machine? true}
       (fn [{:keys [rf.db/runtime]} [_ id]]
         {:rf.db/runtime (assoc-in (or runtime {}) [:rf.runtime/routing :current]
-                                  {:id :route/article :params {:id id}})}))
+                                  {:route-id :route/article :params {:id id}})}))
 
     (rf/dispatch-sync [:go-home]               {:frame :test/main})
     (rf/dispatch-sync [:go-article "intro"]    {:frame :test/main})
     (is (= :route/article
-           (get-in (rf/runtime-db-value :test/main) [:rf.runtime/routing :current :id]))
+           (get-in (rf/runtime-db-value :test/main) [:rf.runtime/routing :current :route-id]))
         "the route slice is in the runtime-db partition")
 
     (let [history (rf/epoch-history :test/main)
           ;; The epoch whose runtime-db carries :route/home under
-          ;; [:rf.db/runtime :rf.runtime/routing :current :id]. Restore rewinds
+          ;; [:rf.db/runtime :rf.runtime/routing :current :route-id]. Restore rewinds
           ;; the whole frame-state, so :frame-state-after is the canonical unit.
           target  (some (fn [r]
                           (when (= :route/home
                                    (get-in (:frame-state-after r)
-                                           [:rf.db/runtime :rf.runtime/routing :current :id]))
+                                           [:rf.db/runtime :rf.runtime/routing :current :route-id]))
                             r))
                         history)]
       (is (some? target))
       (is (true? (rf/restore-epoch :test/main (:epoch-id target))))
       (is (= :route/home
-             (get-in (rf/runtime-db-value :test/main) [:rf.runtime/routing :current :id]))
+             (get-in (rf/runtime-db-value :test/main) [:rf.runtime/routing :current :route-id]))
           "the runtime-db route slice is rewound by the full-frame-state restore"))))
 
 ;; ---- replace-app-db! (Tool-Pair §Pair-tool writes, rf2-zq55) -------------
@@ -2697,9 +2697,9 @@
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (is (= {:n 7 :cart {:items [1 2]}} (rf/app-db-value :test/main)))
 
-    (is (true? (rf/replace-runtime-db! :test/main {:rf.runtime/routing {:current {:id :home}}}))
+    (is (true? (rf/replace-runtime-db! :test/main {:rf.runtime/routing {:current {:route-id :home}}}))
         "replace-runtime-db! returns true on success")
-    (is (= {:rf.runtime/routing {:current {:id :home}}}
+    (is (= {:rf.runtime/routing {:current {:route-id :home}}}
            (rf/runtime-db-value :test/main))
         "runtime-db partition holds the injected value")
     (is (= {:n 7 :cart {:items [1 2]}} (rf/app-db-value :test/main))
@@ -2712,11 +2712,11 @@
     (rf/reg-event-db :seed (fn [_ _] {:n 7}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     ;; A real cascade that seeds a runtime-db value to rewind back to.
-    (rf/replace-runtime-db! :test/main {:rf.runtime/routing {:current {:id :start}}})
+    (rf/replace-runtime-db! :test/main {:rf.runtime/routing {:current {:route-id :start}}})
     (let [seed-record (some (fn [r] (when (= :seed (:event-id r)) r))
                             (rf/epoch-history :test/main))
           pre-count   (count (rf/epoch-history :test/main))
-          ok?         (rf/replace-runtime-db! :test/main {:rf.runtime/routing {:current {:id :end}}})
+          ok?         (rf/replace-runtime-db! :test/main {:rf.runtime/routing {:current {:route-id :end}}})
           history     (rf/epoch-history :test/main)
           fresh       (last history)]
       (is (true? ok?) "boolean true return")
@@ -2725,10 +2725,10 @@
           "the synthetic record sentinels the pair-tool injection")
       (is (= [:rf.epoch/db-replaced] (:trigger-event fresh))
           "trigger-event mirrors the sentinel")
-      (is (= {:current {:id :start}}
+      (is (= {:current {:route-id :start}}
              (get-in fresh [:frame-state-before :rf.db/runtime :rf.runtime/routing]))
           "frame-state-before captured the pre-injection runtime-db")
-      (is (= {:current {:id :end}}
+      (is (= {:current {:route-id :end}}
              (get-in fresh [:frame-state-after :rf.db/runtime :rf.runtime/routing]))
           "frame-state-after captured the post-injection runtime-db")
       ;; Restore the epoch BEFORE the second injection — rewinds PAST it.
@@ -4760,7 +4760,7 @@
                                        (rf/destroy-frame! frame-id)
                                        (real-write frame-id rt))]
                          (#'epoch/perform-replace-runtime-db!
-                           :test/short-lived {:rf.runtime/routing {:current {:id :home}}}))]
+                           :test/short-lived {:rf.runtime/routing {:current {:route-id :home}}}))]
         (is (false? result)
             "perform-replace-runtime-db! reports HONEST failure (false) for the
              nil-return post-liveness teardown")
@@ -4793,7 +4793,7 @@
 
       (let [real-write frame/replace-frame-state!
             recorded   (record-trace!)
-            new-fs     {:rf.db/app {:n 999} :rf.db/runtime {:rf.runtime/routing {:current {:id :home}}}}
+            new-fs     {:rf.db/app {:n 999} :rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}
             result     (with-redefs [frame/replace-frame-state!
                                      (fn [frame-id fs]
                                        (rf/destroy-frame! frame-id)

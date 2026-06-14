@@ -112,7 +112,7 @@
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test routes]
                         {:frame :rf/xray})
       (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test
-                         {:id :route/article :params {:slug "old"} :query {}}]
+                         {:route-id :route/article :params {:slug "old"} :query {}}]
                         {:frame :rf/xray})
       ;; Expand row + toggle preview for :route/cart — the preview targets
       ;; a different route than the current slice, so a real navigation
@@ -122,7 +122,7 @@
       (rf/dispatch-sync [:rf.xray.static.routes/toggle-sim-nav :route/cart]
                         {:frame :rf/xray})
       (let [slice @(rf/subscribe [:rf.xray/current-route-slice])]
-        (is (= :route/article (:id slice))
+        (is (= :route/article (:route-id slice))
             "current slice unchanged after opening the preview")
         (is (= {:slug "old"} (:params slice))
             "params unchanged"))
@@ -130,5 +130,5 @@
       (rf/dispatch-sync [:rf.xray.static.routes/toggle-sim-nav :route/cart]
                         {:frame :rf/xray})
       (let [slice @(rf/subscribe [:rf.xray/current-route-slice])]
-        (is (= :route/article (:id slice))
+        (is (= :route/article (:route-id slice))
             "current slice still unchanged after closing the preview")))))

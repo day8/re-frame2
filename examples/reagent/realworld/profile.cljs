@@ -431,8 +431,8 @@
          username; changing `?page=` re-fires the route `:on-match`, re-running
          the tab's load with the new limit/offset window."}
   (fn [{rt :rf.db/runtime} [_ page]]
-    (let [{:keys [id params]} (get-in rt [:rf.runtime/routing :current])]
-      {:fx [[:dispatch [:rf.route/navigate id params {:query {:page page}}]]]})))
+    (let [{:keys [route-id params]} (get-in rt [:rf.runtime/routing :current])]
+      {:fx [[:dispatch [:rf.route/navigate route-id params {:query {:page page}}]]]})))
 
 ;; ============================================================================
 ;; VIEWS

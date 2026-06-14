@@ -857,7 +857,7 @@
   (let [frame-state {:rf.db/app     {:auth      {:user {:username "alice"} :token "jwt"}
                                      :articles  {:status :loaded :data [] :error nil :loaded-at 1 :attempt 1}
                                      :transient {:popup true}}
-                     :rf.db/runtime {:rf.runtime/routing  {:current {:id :realworld/home}}
+                     :rf.db/runtime {:rf.runtime/routing  {:current {:route-id :realworld/home}}
                                      :rf.runtime/machines {:snapshots {:settings/form {:state :neutral}}}
                                      :rf.runtime/http     {:in-flight {}}}}
         payload (ssr/hydration-payload frame-state [:div "hello"])
@@ -873,7 +873,7 @@
     ;; runtime state (in-flight HTTP) is excluded.
     (is (= #{:rf.runtime/routing :rf.runtime/machines}
            (set (keys (:rf/runtime-db payload)))))
-    (is (= {:id :realworld/home}
+    (is (= {:route-id :realworld/home}
            (get-in payload [:rf/runtime-db :rf.runtime/routing :current]))
         "the server route slice rides the runtime-db partition")
     ;; rf2-ygh4m ITEM 7 — the bearer JWT must NOT cross the SSR seam.

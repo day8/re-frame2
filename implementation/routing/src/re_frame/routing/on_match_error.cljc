@@ -155,7 +155,7 @@
     (let [db            (or rdb {})
           current-token (get-in db [:rf.runtime/routing :current :nav-token])
           current-trans (get-in db [:rf.runtime/routing :current :transition])
-          current-id    (get-in db [:rf.runtime/routing :current :id])
+          current-id    (get-in db [:rf.runtime/routing :current :route-id])
           route-meta    (when current-id (registrar/lookup :route current-id))
           on-error-ev   (:on-error route-meta)]
       (cond
@@ -214,7 +214,7 @@
     ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
     (let [rdb           (frame/frame-runtime-db-value frame)
           route-slice   (when rdb (get-in rdb [:rf.runtime/routing :current]))
-          route-id      (:id route-slice)
+          route-id      (:route-id route-slice)
           transition    (:transition route-slice)
           nav-token     (:nav-token route-slice)
           route-meta    (when route-id (registrar/lookup :route route-id))]

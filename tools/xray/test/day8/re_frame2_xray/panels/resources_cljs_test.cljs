@@ -310,7 +310,7 @@
       ;; the article scoped key still in the unsettled-blocking set.
       (rf/dispatch-sync
         [:rf.xray/set-resource-routing-slice-override-for-test
-         {:current {:id :route/article :nav-token "nav-1"}
+         {:current {:route-id :route/article :nav-token "nav-1"}
           :resource-blocking
           {"nav-1" #{[session-scope :article/by-slug {:slug "welcome"}]}}}]
         {:frame :rf/xray})

@@ -56,7 +56,7 @@
   ;; Original route is still active; no slice change. Pending-nav cleared.
   ;; EP-0001 (rf2-vzld77): the route slice + pending-nav are durable routing
   ;; runtime-db state.
-  :final-runtime-db {:rf.runtime/routing {:current {:id :editor/article :params {:id "A"}
+  :final-runtime-db {:rf.runtime/routing {:current {:route-id :editor/article :params {:id "A"}
                                           :query {} :fragment nil
                                           :transition :idle :error nil} :pending-navigation nil}}
 

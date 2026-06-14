@@ -64,7 +64,7 @@
       (rf/dispatch-sync [:rf.route/navigate :route/article {:id "intro"}])
       ;; The slice actually changed (proves the :rf.db/runtime effect applied).
       (is (= :route/article (get-in (rf/runtime-db-value :rf/default)
-                                    [:rf.runtime/routing :current :id]))
+                                    [:rf.runtime/routing :current :route-id]))
           "the navigate handler wrote the route slice (:rf.db/runtime applied)")
       (is (empty? @warns)
           ":rf.route/navigate is a framework-authority writer — no ownership diagnostic"))))
@@ -76,7 +76,7 @@
     (let [warns (record-runtime-warnings! ::url-change)]
       (rf/dispatch-sync [:rf.route/transitioned "/search?q=widgets"])
       (is (= :route/search (get-in (rf/runtime-db-value :rf/default)
-                                   [:rf.runtime/routing :current :id]))
+                                   [:rf.runtime/routing :current :route-id]))
           "the url-change handler wrote the route slice")
       (is (empty? @warns)
           ":rf.route/transitioned is a framework-authority writer — no diagnostic"))))
@@ -111,7 +111,7 @@
       (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
       (rf/dispatch-sync [:rf.route/continue "pn-2"])
       (is (= :route/cart (get-in (rf/runtime-db-value :rf/default)
-                                 [:rf.runtime/routing :current :id]))
+                                 [:rf.runtime/routing :current :route-id]))
           ":rf.route/continue completed the navigation")
       (is (empty? @warns)
           "url-requested / continue / cancel are framework-authority writers — no diagnostic"))))
@@ -128,7 +128,7 @@
     (let [warns (record-runtime-warnings! ::settle)]
       (rf/dispatch-sync [:rf.route/transitioned "/loaded"])
       (is (= :route/loaded (get-in (rf/runtime-db-value :rf/default)
-                                   [:rf.runtime/routing :current :id]))
+                                   [:rf.runtime/routing :current :route-id]))
           "the :on-match route settled onto the slice")
       (is (empty? @warns)
           "the settle-transition path is a framework-authority writer — no diagnostic"))))
@@ -142,7 +142,7 @@
     ;; Proves the listener + diagnostic are live in this fixture — the
     ;; framework-quiet assertions above are not vacuously empty.
     (rf/reg-event-fx :app/sneaky-runtime-write
-                     (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:id :hijacked}}}}))
+                     (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :hijacked}}}}))
     (let [warns (record-runtime-warnings! ::app-sneaky)]
       (rf/dispatch-sync [:app/sneaky-runtime-write])
       (is (= 1 (count @warns))

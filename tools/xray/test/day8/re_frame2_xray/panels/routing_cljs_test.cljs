@@ -188,7 +188,7 @@
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
                         {:frame :rf/xray})
       (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test
-                         {:id :route/cart :params {} :query {}}]
+                         {:route-id :route/cart :params {} :query {}}]
                         {:frame :rf/xray})
       (let [tree (routing/Panel)]
         (is (some? (find-by-testid tree "rf-xray-routing"))
@@ -239,7 +239,7 @@
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
                         {:frame :rf/xray})
       (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test
-                         {:id :route/cart :params {:id 42} :path "/cart"}]
+                         {:route-id :route/cart :params {:id 42} :path "/cart"}]
                         {:frame :rf/xray})
       (let [tree (routing/Panel)
             id   (find-by-testid tree "rf-xray-routing-current-id")
@@ -281,7 +281,7 @@
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
                         {:frame :rf/xray})
       (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test
-                         {:id :route/cart :params {} :query {}}]
+                         {:route-id :route/cart :params {} :query {}}]
                         {:frame :rf/xray})
       (let [tree (routing/Panel)]
         (is (some? (find-by-testid tree "rf-xray-routing-current"))
@@ -351,7 +351,7 @@
       ;; live slice (rf2-m9rx6). The live slice is left at :route/confirm
       ;; (the post-nav value) to prove the FROM is cascade-derived.
       (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test
-                         {:id :route/confirm :params {} :query {}}]
+                         {:route-id :route/confirm :params {} :query {}}]
                         {:frame :rf/xray})
       (let [nav-event (nav-allocated :route/confirm)
             buffer [{:id 99 :op-type :rf.event :operation :rf.event/dispatched

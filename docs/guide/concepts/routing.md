@@ -93,7 +93,7 @@ Navigation can also be *blocked*, which is how you build an unsaved-changes guar
 The current route lives in the frame's framework-managed partition — the part of state the runtime owns. Your code reads it, never writes it, and you read it like any other state:
 
 ```clojure
-@(rf/subscribe [:rf/route])             ;; the full slice: {:id :params :query :fragment :transition :error :nav-token}
+@(rf/subscribe [:rf/route])             ;; the full slice: {:route-id :params :query :fragment :transition :error :nav-token}
 @(rf/subscribe [:rf.route/id])          ;; just the route id
 @(rf/subscribe [:rf.route/params])      ;; path params
 @(rf/subscribe [:rf.route/query])       ;; query params

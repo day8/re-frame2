@@ -132,7 +132,8 @@
   matched path. Always renders. When no active slice is present reads a
   calm caption (the host has no current route)."
   [{:keys [current]}]
-  (let [{:keys [id params path]} current]
+  (let [{:keys [route-id params path]} current
+        id route-id]
     (section
       {:first? true :testid "rf-xray-routing-current"}
       (section-caption "Current route" "rf-xray-routing-current-caption")

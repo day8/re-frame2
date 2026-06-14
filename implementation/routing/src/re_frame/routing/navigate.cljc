@@ -486,13 +486,13 @@
               ;; passes `push-fx`.
               (routing-events/commit-navigation
                 rdb
-                {:id         route-id
+                {:route-id   route-id
                  :params     path-params
                  :query      query-params
                  :fragment   fragment
                  :transition (if (seq on-match-vec) :loading :idle)}
                 on-match-vec
-                {:prev-id        (get-in rdb [:rf.runtime/routing :current :id])
+                {:prev-id        (get-in rdb [:rf.runtime/routing :current :route-id])
                  ;; rf2-vdyrls: the prior route's nav-token — the second half
                  ;; of the previous route owner `[:route prev-id prev-nav-token]`
                  ;; the resources plan releases on route leave (Spec 016 §Route

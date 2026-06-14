@@ -238,7 +238,7 @@ WRITE counterpart to the `:rf.route/nav-counters` cofx read. Per Spec 012
                                  restore nor ride any egress wire)."
   {:durable-runtime-db
    {:keys [:current]
-    :doc  "The active route slice {:id :params :query :fragment :transition
+    :doc  "The active route slice {:route-id :params :query :fragment :transition
 :error :nav-token} at [:rf.runtime/routing :current]. Subscribable via
 :rf/route; restored coherently (the active :nav-token rides WITH the
 slice)."}

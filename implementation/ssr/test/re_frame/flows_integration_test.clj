@@ -489,7 +489,7 @@
 ;; EP-0001 §535-551 (rf2-4eisfr) — RE-ENABLED. The route slice lives in the
 ;; runtime-db partition (EP-0001 rf2-vzld77), so this flow's `:inputs` opt
 ;; into runtime-db via the qualified form
-;; `[:rf.db/runtime :rf.runtime/routing :current :id]`. The flow transform
+;; `[:rf.db/runtime :rf.runtime/routing :current :route-id]`. The flow transform
 ;; resolves the qualified input against the pending runtime-db (the
 ;; post-transition slice rewrite), and the dual-partition TRIGGER fires this
 ;; flow on the runtime-only `:rf.route/transitioned` event even though app-db
@@ -508,7 +508,7 @@
     ;; post-transition slice, not the pre-transition one.
     (let [flow-inputs (atom [])]
       (rf/reg-flow {:id     :route/label
-                    :inputs [[:rf.db/runtime :rf.runtime/routing :current :id]]
+                    :inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]]
                     :output (fn [route-id]
                               (swap! flow-inputs conj route-id)
                               (str "you are at " route-id))
@@ -517,21 +517,21 @@
       ;; Land on /home first so there is a known PRE-transition slice the
       ;; flow could potentially observe if it ran on the wrong value.
       (rf/dispatch-sync [:rf.route/transitioned "/"])
-      (is (= :route/home (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :id]))
+      (is (= :route/home (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :route-id]))
           "precondition: landed on :route/home")
       (is (= [:route/home] @flow-inputs)
           "precondition: flow ran once on the home slice (post-transition)")
 
       ;; Now transition to /articles/42. The handler writes the new slice
       ;; into pending :db; the flow's :after transforms that pending :db
-      ;; reading [:rf.runtime/routing :current :id]; both land together at install.
+      ;; reading [:rf.runtime/routing :current :route-id]; both land together at install.
       (reset! *captured* [])
       (reset! flow-inputs [])
       (rf/dispatch-sync [:rf.route/transitioned "/articles/42"])
 
       ;; The installed slice carries the new route.
       (is (= :route/article (get-in (rf/runtime-db-value :rf/default)
-                                    [:rf.runtime/routing :current :id]))
+                                    [:rf.runtime/routing :current :route-id]))
           "the slice landed on :route/article")
       (is (= {:id "42"} (get-in (rf/runtime-db-value :rf/default)
                                 [:rf.runtime/routing :current :params]))
@@ -559,7 +559,7 @@
 
 ;; EP-0001 §535-551 (rf2-4eisfr) — RE-ENABLED. The throwing flow reads the
 ;; route slice via the qualified runtime-db input
-;; `[:rf.db/runtime :rf.runtime/routing :current :id]`. Step 3 of the ruling:
+;; `[:rf.db/runtime :rf.runtime/routing :current :route-id]`. Step 3 of the ruling:
 ;; a flow throw aborts BOTH partitions — `:db` AND `:rf.db/runtime` (the slice
 ;; rewrite) AND `:fx` are all skipped, consistent with the atomic
 ;; cross-partition commit (`commit-and-flow!` short-circuits on `:rf/flow-error`
@@ -586,7 +586,7 @@
 
       ;; Land on /home cleanly (no throwing flow registered yet).
       (rf/dispatch-sync [:rf.route/transitioned "/"])
-      (is (= :route/home (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :id]))
+      (is (= :route/home (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :route-id]))
           "precondition: clean landing on :route/home")
       (is (zero? @on-match-fired)
           "precondition: :route/home has no :on-match — counter still 0")
@@ -595,7 +595,7 @@
         ;; Register a flow that throws on every eval, then transition to a
         ;; route whose :on-match would dispatch :route/load-article.
         (rf/reg-flow {:id     :route/boom
-                      :inputs [[:rf.db/runtime :rf.runtime/routing :current :id]]
+                      :inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]]
                       :output (fn [_]
                                 (throw (ex-info "flow boom on route"
                                                 {:why :test})))
@@ -610,7 +610,7 @@
              rewrite was rolled in with the flow's pending write and
              discarded wholesale by the flow throw")
         (is (= :route/home (get-in (rf/runtime-db-value :rf/default)
-                                   [:rf.runtime/routing :current :id]))
+                                   [:rf.runtime/routing :current :route-id]))
             "the route slice stayed on :route/home — the transition's
              slice rewrite did NOT install")
 
@@ -661,7 +661,7 @@
       ;; The flow's ONLY input is the qualified runtime-db route id. Its
       ;; output writes to a plain app-db path (writes are app-db only).
       (rf/reg-flow {:id     :nav/breadcrumb
-                    :inputs [[:rf.db/runtime :rf.runtime/routing :current :id]]
+                    :inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]]
                     :output (fn [route-id]
                               (swap! flow-evals conj route-id)
                               (str "at:" route-id))
@@ -734,7 +734,7 @@
       ;; Bare [:greeting] reads app-db; qualified route id reads runtime-db.
       (rf/reg-flow {:id     :nav/banner
                     :inputs [[:greeting]
-                             [:rf.db/runtime :rf.runtime/routing :current :id]]
+                             [:rf.db/runtime :rf.runtime/routing :current :route-id]]
                     :output (fn [greeting route-id]
                               (swap! flow-evals conj [greeting route-id])
                               (str greeting " @ " route-id))

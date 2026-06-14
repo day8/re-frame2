@@ -63,7 +63,7 @@
       ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db
       ;; state — these custom subs read the runtime-db partition.
       (subs/reg-runtime-sub :rf.cljs.route/id
-                  (fn [rt _] (get-in rt [:rf.runtime/routing :current :id])))
+                  (fn [rt _] (get-in rt [:rf.runtime/routing :current :route-id])))
       (subs/reg-runtime-sub :rf.cljs.route/params
                   (fn [rt _] (get-in rt [:rf.runtime/routing :current :params])))
 
@@ -112,9 +112,9 @@
 
       (let [left-route  (rf/subscribe-once left  [:rf.cljs2/route])
             right-route (rf/subscribe-once right [:rf.cljs2/route])]
-        (is (= :route.cljs2/articles (:id left-route))
+        (is (= :route.cljs2/articles (:route-id left-route))
             "left frame's current route is :route.cljs2/articles")
-        (is (= :route.cljs2/article  (:id right-route))
+        (is (= :route.cljs2/article  (:route-id right-route))
             "right frame's current route is :route.cljs2/article")
         (is (= {} (:params left-route))
             "left frame has no :params (collection route)")
@@ -124,8 +124,8 @@
       ;; Re-navigate on the left only — right is unaffected.
       (rf/dispatch-sync [:rf.route/transitioned "/cljs2/"] {:frame left})
       (is (= :route.cljs2/home
-             (:id (rf/subscribe-once left [:rf.cljs2/route])))
+             (:route-id (rf/subscribe-once left [:rf.cljs2/route])))
           "left re-navigated to :route.cljs2/home")
       (is (= :route.cljs2/article
-             (:id (rf/subscribe-once right [:rf.cljs2/route])))
+             (:route-id (rf/subscribe-once right [:rf.cljs2/route])))
           "right is unaffected by left's navigation"))))

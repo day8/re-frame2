@@ -473,7 +473,7 @@ labels; the underlying paths now live under the runtime-db partition's
 | `:rf/machines` | `[:rf.runtime/machines :snapshots]` | machine runtime | Per-frame map of `<machine-id> → :rf/machine-snapshot` — every active machine's snapshot. |
 | `:rf/system-ids` | `[:rf.runtime/machines :system-ids]` | machine runtime | Reverse index `<system-id> → <gensym'd-machine-id>` for `:system-id` named-machine addressing. |
 | `:rf/spawned` | `[:rf.runtime/machines :spawned]` | machine runtime | Declarative-`:spawn` / `:spawn-all` spawn registry — `<parent-id> → {<invoke-id> <slot>}` for the destroy-cascade walker. |
-| `:rf/route` | `[:rf.runtime/routing :current]` | routing runtime | The current route slice `{:id :params :query :transition :error}`. |
+| `:rf/route` | `[:rf.runtime/routing :current]` | routing runtime | The current route slice `{:route-id :params :query :transition :error}`. |
 | `:rf/pending-navigation` | `[:rf.runtime/routing :pending-navigation]` | routing runtime | Pending-navigation slot populated when a `:can-leave` guard rejects; cleared by `:rf.route/continue` / `:rf.route/cancel`. |
 | `:rf/elision` | `[:rf.runtime/elision]` | elision runtime | Wire-elision declaration registry — `{:declarations {<path> {:large? :hint :source}} :sensitive-declarations {<path> {:sensitive? :hint :source}}}`. Populated at boot from `:large? true` / `:sensitive? true` schema slots; consulted by `rf/elide-wire-value` at every wire-boundary emit. Schemas are the only nomination path. |
 

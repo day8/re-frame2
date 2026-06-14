@@ -41,7 +41,7 @@
     ;; 1. Land on the editor route. nav-token allocates; slice is set.
     (rf/dispatch-sync [:rf.route/transitioned "/editor/articles/A"])
     (is (= :editor/article (get-in (rf/runtime-db-value :rf/default)
-                                   [:rf.runtime/routing :current :id]))
+                                   [:rf.runtime/routing :current :route-id]))
         "initial nav landed on :editor/article")
 
     ;; 2. Dirty the form so :can-leave? returns false.
@@ -61,7 +61,7 @@
       (is (vector? (:requested-by-event pending))
           ":requested-by-event captures the original :rf/url-requested vector")
       (is (= :editor/article
-             (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :id]))
+             (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :route-id]))
           "the :rf/route slice does NOT change when blocked"))
 
     ;; 4. CANCEL — slot clears; original route stays active.
@@ -69,7 +69,7 @@
     (is (nil? (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :pending-navigation]))
         "cancel clears :rf/pending-navigation")
     (is (= :editor/article
-           (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :id]))
+           (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :route-id]))
         "cancel does NOT navigate")
 
     ;; 5. Now block again — and CONTINUE this time.
@@ -79,7 +79,7 @@
     (rf/dispatch-sync [:rf.route/continue "pn-2"])
     (is (nil? (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :pending-navigation]))
         "continue clears :rf/pending-navigation")
-    (is (= :route/cart (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :id]))
+    (is (= :route/cart (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :route-id]))
         "continue completes the original navigation")))
 
 ;; ---- pending-nav protocol: continue / cancel with NO pending slot --------
@@ -112,7 +112,7 @@
       (rf/dispatch-sync [:rf.route/continue "phantom-id"])
       (is (= before (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current]))
           "continue with no pending slot does not navigate")
-      (is (= :route/home (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :id]))
+      (is (= :route/home (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :route-id]))
           "the active route stays put"))))
 
 ;; ---- rf2-b8ugt: :rf/pending-navigation full slot shape -------------------
@@ -211,7 +211,7 @@
     (is (nil? (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :pending-navigation]))
         "continue cleared the pending slot")
     (is (= :route/cart
-           (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :id]))
+           (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :route-id]))
         "continue completed the navigation through :rf/url-requested → :rf.route/transitioned")
     (is (true? (get-in (rf/app-db-value :rf/default) [:editor :dirty?]))
         ":editor/dirty? remains true — bypass flag did NOT run the guard a second time")))
@@ -260,7 +260,7 @@
       (let [db (rf/runtime-db-value :rf/default)]
         (is (some? (get-in db [:rf.runtime/routing :pending-navigation]))
             "programmatic navigation sets pending-navigation when blocked")
-        (is (= :editor/article (get-in db [:rf.runtime/routing :current :id]))
+        (is (= :editor/article (get-in db [:rf.runtime/routing :current :route-id]))
             "the active route does not change")
         (is (empty? @pushed)
             "pushState is not requested for a blocked programmatic nav")))))
@@ -284,7 +284,7 @@
     (let [db (rf/runtime-db-value :rf/default)]
       (is (some? (get-in db [:rf.runtime/routing :pending-navigation]))
           "popstate/initial URL handling sets pending-navigation when blocked")
-      (is (= :editor/article (get-in db [:rf.runtime/routing :current :id]))
+      (is (= :editor/article (get-in db [:rf.runtime/routing :current :route-id]))
           "the active route does not change while pending"))))
 
 (deftest pending-nav-continue-and-cancel-require-matching-id
@@ -311,7 +311,7 @@
           "cancel with the wrong id leaves the pending navigation intact")
       (rf/dispatch-sync [:rf.route/continue "stale-id"])
       (is (= :editor/article (get-in (rf/runtime-db-value :rf/default)
-                                     [:rf.runtime/routing :current :id]))
+                                     [:rf.runtime/routing :current :route-id]))
           "continue with the wrong id does not navigate")
       (is (= pending-id (get-in (rf/runtime-db-value :rf/default)
                                 [:rf.runtime/routing :pending-navigation :id]))
@@ -425,7 +425,7 @@
             nb-traces (filter #(= :rf.error/can-leave-non-boolean
                                    (:operation %))
                               @traces)]
-        (is (= :editor/article (get-in db [:rf.runtime/routing :current :id]))
+        (is (= :editor/article (get-in db [:rf.runtime/routing :current :route-id]))
             "navigation BLOCKED — slice still on the source route")
         (is (some? pending)
             ":rf/pending-navigation slot is populated (block path)")

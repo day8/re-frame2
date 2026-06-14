@@ -210,7 +210,7 @@
     (frame/replace-runtime-db!
       :rf/default
       {:rf.runtime/routing
-       {:current {:id         :route/article
+       {:current {:route-id         :route/article
                   :params     {:slug "welcome"}
                   :query      {:ref "home"}
                   :transition :idle
@@ -244,7 +244,7 @@
     (frame/replace-runtime-db!
       :rf/default
       {:rf.runtime/routing
-       {:current {:id :route/x :params {} :transition :idle}}}) ;; no :nav-token
+       {:current {:route-id :route/x :params {} :transition :idle}}}) ;; no :nav-token
     (let [node (routing-tooling/route-slice-algebra-view :rf/default)]
       (is (some? node))
       (is (= :route/x (:route-id node)))

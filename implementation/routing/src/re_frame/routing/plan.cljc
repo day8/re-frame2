@@ -85,7 +85,7 @@
 
 (defn fragment-only?
   "Spec 012 §Fragments rules 3-4: true when the prospective target shares
-  `:id`/`:params`/`:query` with `prev` (the current slice) but its
+  `:route-id`/`:params`/`:query` with `prev` (the current slice) but its
   `fragment` differs — a same-page anchor change that must update
   `:fragment` WITHOUT allocating a fresh nav-token or re-firing
   `:on-match`. Mutually exclusive with `identical-route-target?` (which
@@ -95,9 +95,9 @@
   [prev id params query fragment]
   (boolean
     (and prev
-         (= (:id prev)     id)
-         (= (:params prev) params)
-         (= (:query prev)  query)
+         (= (:route-id prev) id)
+         (= (:params prev)   params)
+         (= (:query prev)    query)
          (not= (:fragment prev) fragment))))
 
 ;; ---- scroll plan ---------------------------------------------------------

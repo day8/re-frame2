@@ -43,7 +43,7 @@
                 :rf/frame-id   :rf/default
                 :rf/app-db     {:articles {"123" {:title "re-frame2 SSR"
                                                   :summary "How re-frame2 ships SSR"}}}
-                :rf/runtime-db {:rf.runtime/routing {:current {:id :route/article :params {:id "123"}}}}
+                :rf/runtime-db {:rf.runtime/routing {:current {:route-id :route/article :params {:id "123"}}}}
                 :rf/render-hash "render-hash-server-A"}]]
 
  :fixture/render-after-hydrate
@@ -57,7 +57,7 @@
  {:final-app-db {:articles {"123" {:title "re-frame2 SSR"
                                    :summary "How re-frame2 ships SSR"}}}
 
-  :final-runtime-db {:rf.runtime/routing {:current {:id :route/article :params {:id "123"}}}}
+  :final-runtime-db {:rf.runtime/routing {:current {:route-id :route/article :params {:id "123"}}}}
 
   :ssr/active-head
   {:title "Article: re-frame2 SSR — Example"

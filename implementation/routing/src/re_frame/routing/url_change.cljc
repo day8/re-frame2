@@ -38,7 +38,7 @@
   position the user is leaving) still rides along."
   [rdb prev next-fragment]
   (trace/emit! :rf.event :rf.route/fragment-changed
-               {:route-id      (:id prev)
+               {:route-id      (:route-id prev)
                 :prev-fragment (:fragment prev)
                 :next-fragment next-fragment})
   ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db
@@ -232,13 +232,13 @@
         ;; changed (popstate / initial / link-click pushState).
         (routing-events/commit-navigation
           rdb
-          {:id         route-id
+          {:route-id   route-id
            :params     params
            :query      query
            :fragment   fragment
            :transition transition}
           on-match-vec
-          {:prev-id        (get-in rdb [:rf.runtime/routing :current :id])
+          {:prev-id        (get-in rdb [:rf.runtime/routing :current :route-id])
            ;; rf2-vdyrls: the prior route's nav-token — the second half of the
            ;; previous route owner the resources plan releases on route leave
            ;; (Spec 016 §Route integration).

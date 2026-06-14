@@ -31,7 +31,7 @@
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/navigate :route/article {:id "intro"}])
       (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
-        (is (= :route/article (:id slice))
+        (is (= :route/article (:route-id slice))
             "the :rf/route slice carries the navigation target")
         (is (= {:id "intro"} (:params slice))
             ":params from the navigate vector landed in the slice")
@@ -164,7 +164,7 @@
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path"}])
       (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
-        (is (= :rf.route/not-found (:id slice))
+        (is (= :rf.route/not-found (:route-id slice))
             "unmatched URL-string target → :rf.route/not-found slice")
         (is (= {:url "/no/such/path"} (:params slice))
             ":params carries the unmatched URL under :url")
@@ -199,7 +199,7 @@
       (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path"}])
       (rf/unregister-listener! ::nav-nf-warn)
       (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
-        (is (= :rf.route/not-found (:id slice))
+        (is (= :rf.route/not-found (:route-id slice))
             "slice commits to :rf.route/not-found even with no such route
              registered — consistent with the URL-driven path")
         (is (= {:url "/no/such/path"} (:params slice))
@@ -242,7 +242,7 @@
       ;; ---- PROGRAMMATIC miss: pushes the requested url, not /404 ----
       (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path"}])
       (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
-        (is (= :rf.route/not-found (:id slice))
+        (is (= :rf.route/not-found (:route-id slice))
             "programmatic miss renders the not-found view (slice id)")
         (is (= {:url "/no/such/path"} (:params slice))
             "programmatic miss carries the requested url in :params"))
@@ -257,7 +257,7 @@
       (reset! pushed [])
       (rf/dispatch-sync [:rf.route/transitioned "/another/miss"])
       (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
-        (is (= :rf.route/not-found (:id slice))
+        (is (= :rf.route/not-found (:route-id slice))
             "URL-driven miss also renders the not-found view")
         (is (= {:url "/another/miss"} (:params slice))
             "URL-driven miss carries the requested url in :params"))
@@ -281,7 +281,7 @@
                    (fn [_ _] nil))
         (rf/dispatch-sync [:rf.route/transitioned "/articles/zoo"])
         (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
-          (is (= :rf.route/not-found (:id slice))
+          (is (= :rf.route/not-found (:route-id slice))
               "validation failure routes to :rf.route/not-found")
           (is (= "/articles/zoo" (:url (:params slice)))
               "params carries the URL")
@@ -303,7 +303,7 @@
       (rf/unregister-listener! ::external-url)
       (is (empty? @pushed)
           "external URL is classified before :rf.nav/push-url")
-      (is (= :route/home (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :id]))
+      (is (= :route/home (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :route-id]))
           "external URL does not become an app not-found route")
       (is (some #(= :rf.route/external-url-requested (:operation %)) @traces)
           "external classification is observable in the trace stream"))))
@@ -370,7 +370,7 @@
     (rf/dispatch-sync [:rf.route/handle-url-change
                        "/docs/routing#scroll-restoration"])
     (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
-      (is (= :route/docs (:id slice))
+      (is (= :route/docs (:route-id slice))
           "slice id is the matched route")
       (is (= {:page "routing"} (:params slice))
           "params from the matched route")
@@ -419,12 +419,12 @@
                (fn [_ _] nil))
     ;; Land on home first so we have a previous slice to displace.
     (rf/dispatch-sync [:rf.route/transitioned "/"])
-    (is (= :route/home (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :id]))
+    (is (= :route/home (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current :route-id]))
         "initial nav landed on home")
     ;; Navigate to a URL that matches no registered route.
     (rf/dispatch-sync [:rf.route/transitioned "/this/does/not/exist"])
     (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
-      (is (= :rf.route/not-found (:id slice))
+      (is (= :rf.route/not-found (:route-id slice))
           "unmatched URL → slice id becomes :rf.route/not-found")
       (is (= {:url "/this/does/not/exist"} (:params slice))
           "params carries the unmatched URL under :url")
@@ -446,7 +446,7 @@
       (rf/dispatch-sync [:rf.route/transitioned "/somewhere/unknown"])
       (rf/unregister-listener! ::no-not-found)
       (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
-        (is (= :rf.route/not-found (:id slice))
+        (is (= :rf.route/not-found (:route-id slice))
             "slice still rewrites to :rf.route/not-found"))
       (is (some (fn [ev]
                   (= :rf.warning/no-not-found-route (:operation ev)))
@@ -476,25 +476,25 @@
     ;; Path: a bare `%` in a captured segment.
     (rf/dispatch-sync [:rf.route/transitioned "/articles/%"])
     (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
-      (is (= :rf.route/not-found (:id slice))
+      (is (= :rf.route/not-found (:route-id slice))
           "malformed path → :rf.route/not-found")
       (is (= {:url "/articles/%" :reason :malformed-url} (:params slice))
           "params carries the URL AND `:reason :malformed-url`"))
     ;; Query value.
     (rf/dispatch-sync [:rf.route/transitioned "/search?x=%"])
     (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
-      (is (= :rf.route/not-found (:id slice)) "malformed query value → not-found")
+      (is (= :rf.route/not-found (:route-id slice)) "malformed query value → not-found")
       (is (= :malformed-url (get-in slice [:params :reason]))
           "the malformed-URL reason is on the slice"))
     ;; Query key.
     (rf/dispatch-sync [:rf.route/transitioned "/search?%=v"])
     (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
-      (is (= :rf.route/not-found (:id slice)) "malformed query key → not-found")
+      (is (= :rf.route/not-found (:route-id slice)) "malformed query key → not-found")
       (is (= :malformed-url (get-in slice [:params :reason]))))
     ;; Fragment.
     (rf/dispatch-sync [:rf.route/transitioned "/search#%"])
     (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
-      (is (= :rf.route/not-found (:id slice)) "malformed fragment → not-found")
+      (is (= :rf.route/not-found (:route-id slice)) "malformed fragment → not-found")
       (is (= :malformed-url (get-in slice [:params :reason]))))))
 
 (deftest transitioned-malformed-url-emits-structured-trace
@@ -670,7 +670,7 @@
           "the over-cap URL drains cleanly — no throw escapes the handler
            (pre-fix this propagated :rf.error/route-too-many-keys)")
       (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
-        (is (= :rf.route/not-found (:id slice))
+        (is (= :rf.route/not-found (:route-id slice))
             "over-cap URL fails closed to :rf.route/not-found")
         (is (= url (:url (:params slice)))
             ":params carries the REQUESTED (over-cap) url — preserved per rf2-0zr2o")
@@ -704,7 +704,7 @@
            (pre-fix this propagated :rf.error/route-too-many-keys)")
       (rf/unregister-listener! ::navigate-over-cap-trace)
       (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
-        (is (= :rf.route/not-found (:id slice))
+        (is (= :rf.route/not-found (:route-id slice))
             "over-cap URL-string target fails closed to :rf.route/not-found")
         (is (= url (:url (:params slice)))
             ":params carries the REQUESTED (over-cap) url — preserved per rf2-0zr2o")
@@ -831,7 +831,7 @@
       ;; a full nav: allocates nav-1 and fires :on-match once.
       (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing"])
       (let [slice (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
-        (is (= :route/docs (:id slice)) "landed on /docs/routing")
+        (is (= :route/docs (:route-id slice)) "landed on /docs/routing")
         (is (= "nav-1" (:nav-token slice)) "first nav allocated nav-1")
         (is (= 1 @on-match-calls) ":on-match fired once on the full nav"))
 
@@ -976,7 +976,7 @@
           (let [after (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
             (is (= before after)
                 "rejected navigation leaves the :rf/route slice UNCHANGED")
-            (is (= :route/article (:id after))
+            (is (= :route/article (:route-id after))
                 "slice still on the previously-valid route (not desynced)")
             (is (empty? @pushed)
                 "rejected navigation pushes NO URL (no recovery to \"/\")")
@@ -1038,7 +1038,7 @@
               (str "fail-closed: ambiguous/absolute URL " (pr-str hostile)
                    " classed external, not pushed"))
           (is (= :route/home (get-in (rf/runtime-db-value :rf/default)
-                                     [:rf.runtime/routing :current :id]))
+                                     [:rf.runtime/routing :current :route-id]))
               (str "fail-closed: " (pr-str hostile)
                    " did not rewrite the active route"))))
       (testing "provably same-origin rooted paths DO push through"
@@ -1071,7 +1071,7 @@
       ;; Land on a known route first so we can prove the slice does not move.
       (rf/dispatch-sync [:rf.route/transitioned "/cart"])
       (is (= :route/cart (get-in (rf/runtime-db-value :rf/default)
-                                 [:rf.runtime/routing :current :id]))
+                                 [:rf.runtime/routing :current :route-id]))
           "preconditon: active route is :route/cart")
       (testing "every rf2-3bv8o bypass vector fails closed through navigate {:url}"
         (doseq [hostile ["https://evil.invalid/phish"   ;; absolute cross-origin
@@ -1089,7 +1089,7 @@
               (str "fail-closed: navigate {:url " (pr-str hostile)
                    "} classed external, not pushed"))
           (is (= :route/cart (get-in (rf/runtime-db-value :rf/default)
-                                     [:rf.runtime/routing :current :id]))
+                                     [:rf.runtime/routing :current :route-id]))
               (str "fail-closed: navigate {:url " (pr-str hostile)
                    "} did not rewrite the active route"))))
       (testing "provably same-origin rooted paths DO push through navigate {:url}"
@@ -1202,8 +1202,8 @@
                  (fn [_ url] (swap! replaced conj url)))
       ;; [target] — no path-params, no opts.
       (rf/dispatch-sync [:rf.route/navigate :route/home])
-      (is (= :route/home (:id (get-in (rf/runtime-db-value :rf/default)
-                                      [:rf.runtime/routing :current])))
+      (is (= :route/home (:route-id (get-in (rf/runtime-db-value :rf/default)
+                                            [:rf.runtime/routing :current])))
           "[target] arity navigates")
       ;; [target params] — params 2nd, opts absent.
       (rf/dispatch-sync [:rf.route/navigate :route/article {:id "intro"}])
@@ -1229,8 +1229,8 @@
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/navigate :route/anchor {:fragment "intro"}])
-      (is (= :route/anchor (:id (get-in (rf/runtime-db-value :rf/default)
-                                        [:rf.runtime/routing :current])))
+      (is (= :route/anchor (:route-id (get-in (rf/runtime-db-value :rf/default)
+                                              [:rf.runtime/routing :current])))
           "a declared :fragment path-param navigates normally (no false reject)")
       (is (= "/anchor/intro" (last @pushed))
           "the path-param :fragment populates the URL segment"))))

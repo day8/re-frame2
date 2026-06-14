@@ -511,10 +511,10 @@
   under the Reagent reactive substrate"
     (let [runs (atom 0)]
       (reg-fw-runtime-handler! :inval/seed-rt
-        (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:id :home}}}}))
+        (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}))
       (rf/dispatch-sync [:inval/seed-rt])
       (subs/reg-runtime-sub :inval/rt-sub
-        (fn [runtime-db _] (swap! runs inc) (get-in runtime-db [:rf.runtime/routing :current :id])))
+        (fn [runtime-db _] (swap! runs inc) (get-in runtime-db [:rf.runtime/routing :current :route-id])))
       (let [r (rf/subscribe [:inval/rt-sub])]
         (add-watch r ::touch (fn [_ _ _ _] nil))
         (is (= :home @r) "precondition: runtime-db sub primes to the seeded route id")

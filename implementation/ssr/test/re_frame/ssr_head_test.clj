@@ -87,7 +87,7 @@
                                         {:title   "Hello SSR"
                                          :summary "A summary"})
                           :rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
-                                                   {:id :route/article :params {:id "123"}})}))
+                                                   {:route-id :route/article :params {:id "123"}})}))
       (rf/dispatch-sync [:set-test-state] {:frame f})
       (let [model (rf/render-head :head/article {:frame f})]
         (is (= "Hello SSR" (:title model)))
@@ -104,12 +104,12 @@
 (deftest render-head-accepts-explicit-route-override
   (testing ":route opt overrides the slice read from app-db — useful for
             tools that want a hypothetical-route preview"
-    (rf/reg-head :head/echo (fn [_ route] {:title (str (:id route))}))
+    (rf/reg-head :head/echo (fn [_ route] {:title (str (:route-id route))}))
     (let [f (rf/make-frame {:doc "explicit-route frame" :platform :server})]
       (is (= ":route/explicit"
              (:title (rf/render-head :head/echo
                                      {:frame f
-                                      :route {:id :route/explicit}})))))))
+                                      :route {:route-id :route/explicit}})))))))
 
 (deftest render-head-raises-on-unregistered-id
   (testing "render-head against an unknown id throws :rf.error/no-such-head"
@@ -158,7 +158,7 @@
       (rf/reg-event-fx ::seed-route
                        (fn [{rt :rf.db/runtime} _]
                          {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
-                                                   {:id :route/article :params {:id "42"}})}))
+                                                   {:route-id :route/article :params {:id "42"}})}))
       (rf/dispatch-sync [::seed-route] {:frame f})
       (is (= {:title "Article 42"}
              (rf/active-head f))))))
@@ -171,7 +171,7 @@
     (let [f (rf/make-frame {:doc "Default-head probe" :platform :server})]
       (rf/reg-event-fx ::seed-route-no-head
                        (fn [{rt :rf.db/runtime} _]
-                         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:id :route/no-head})}))
+                         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/no-head})}))
       (rf/dispatch-sync [::seed-route-no-head] {:frame f})
       (let [model (rf/active-head f)]
         (is (= "Default-head probe" (:title model))
@@ -573,7 +573,7 @@
                                        :summary "How re-frame2 ships SSR"
                                        :image   "https://example.com/og.png"})
                         :rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
-                                                 {:id :route/article :params {:id "123"}})}))
+                                                 {:route-id :route/article :params {:id "123"}})}))
     (rf/reg-head :head/article
                  {:doc "Article-page head model"}
                  (fn [db {:keys [params]}]
@@ -633,7 +633,7 @@
     (rf/reg-event-fx :seed-fr
                      (fn [{rt :rf.db/runtime} _]
                        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
-                                                 {:id :route/article-fr :params {:id "1"}})}))
+                                                 {:route-id :route/article-fr :params {:id "1"}})}))
     (let [f (rf/make-frame {:platform :server})]
       (rf/dispatch-sync [:seed-fr] {:frame f})
       (let [model (rf/active-head f)]

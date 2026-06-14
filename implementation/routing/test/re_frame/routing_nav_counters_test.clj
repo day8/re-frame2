@@ -78,7 +78,7 @@
     ;; restore replays. A slow in-flight continuation issued back at nav-1
     ;; (network already on the wire, uncancellable) still carries "nav-1".
     (let [restored-runtime-db
-          {:rf.runtime/routing {:current {:id        :route/article
+          {:rf.runtime/routing {:current {:route-id        :route/article
                                           :params    {:id "A"}
                                           :query     {}
                                           :fragment  nil
@@ -125,7 +125,7 @@
     ;; the HOST counter — so no recycle.
     (frame/replace-runtime-db!
       :rf/default
-      {:rf.runtime/routing {:current           {:id :route/x :params {:id "1"}
+      {:rf.runtime/routing {:current           {:route-id :route/x :params {:id "1"}
                                                 :query {} :fragment nil
                                                 :transition :idle :error nil
                                                 :nav-token "nav-1"}
@@ -188,10 +188,10 @@
             hydration payload (fail-closed allowlist ships only :current),
             even though it stays in runtime-db for local subscription"
     (let [runtime-db {:rf.runtime/routing
-                      {:current            {:id :route/editor}
+                      {:current            {:route-id :route/editor}
                        :pending-navigation {:id "pn-1" :reason :can-leave}}}
           projected  (payload-policy/project-runtime-db runtime-db)]
-      (is (= {:current {:id :route/editor}}
+      (is (= {:current {:route-id :route/editor}}
              (:rf.runtime/routing projected))
           "only :current rides the SSR wire; :pending-navigation is stripped")
       (is (not (contains? (:rf.runtime/routing projected) :pending-navigation))

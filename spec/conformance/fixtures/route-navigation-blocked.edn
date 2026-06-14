@@ -65,7 +65,7 @@
  :fixture/expect
  {:final-app-db {:editor {:dirty? true}}
 
-  :final-runtime-db {:rf.runtime/routing {:current {:id :route/cart :params {} :query {} :fragment nil
+  :final-runtime-db {:rf.runtime/routing {:current {:route-id :route/cart :params {} :query {} :fragment nil
                             :transition :idle :error nil} :pending-navigation nil}}                      ;; cleared by :rf.route/continue
 
   :trace-emissions

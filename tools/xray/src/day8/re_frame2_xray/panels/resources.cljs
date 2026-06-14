@@ -856,7 +856,7 @@
   ;; The routing-runtime slice backing the LIVE route/resource graph
   ;; (rf2-m5u3gt). Reads `[:rf.runtime/routing]` off the target frame's
   ;; runtime-db (decoupled, like the Routing tab's current-route sub) and
-  ;; surfaces the live `:current` route slice (carrying `:id` + `:nav-token`)
+  ;; surfaces the live `:current` route slice (carrying `:route-id` + `:nav-token`)
   ;; + the per-nav-token unsettled-blocking set. Test override slot.
   (rf/reg-sub :rf.xray/resource-routing-slice
     :<- [:rf.xray/target-frame-runtime-db]

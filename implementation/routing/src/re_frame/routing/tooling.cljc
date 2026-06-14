@@ -326,7 +326,7 @@
   [frame-id]
   (when-let [runtime-db (frame/frame-runtime-db-value frame-id)]
     (when-let [slice (get-in runtime-db [routing-runtime-key :current])]
-      (let [route-id  (:id slice)
+      (let [route-id  (:route-id slice)
             nav-token (:nav-token slice)]
         (cond-> {:id            :rf/route
                  :kind          :process
