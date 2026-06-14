@@ -32,13 +32,19 @@
       the optional middle slot (`{:interceptors [(rf/path ...)]}`) is PRESERVED
       untouched.
 
-      FIRST-PARAM REBIND: when the first param is literally `db` (or an ignored
-      `_`/`_x` binding never read), it becomes `{:keys [db]}`. When it is a plain
-      symbol bound under a DIFFERENT name (a path-scoped slice such as `c`), it
-      becomes `{c :db}` — binding the db value back under its original name so
-      every body reference to `c` stays resolved WITHOUT the codemod rewriting
-      the body. (Rebinding such a param to `{:keys [db]}` would orphan every body
-      reference to `c` -> unresolvable-symbol compile error; rf2-xhfxcs.15.)
+      FIRST-PARAM REBIND: when the first param is literally `db` (or an `_`/`_x`
+      binding that is genuinely never read in the body), it becomes `{:keys [db]}`.
+      When it is a plain symbol bound under a DIFFERENT name (a path-scoped slice
+      such as `c`), it becomes `{c :db}` — binding the db value back under its
+      original name so every body reference to `c` stays resolved WITHOUT the
+      codemod rewriting the body. (Rebinding such a param to `{:keys [db]}` would
+      orphan every body reference to `c` -> unresolvable-symbol compile error;
+      rf2-xhfxcs.15.) An `_`-prefixed name that IS referenced (e.g. `_state` used
+      in the body) is treated like any other named slice — it binds back
+      `{_state :db}` rather than `{:keys [db]}`, since `_`-prefix is a convention,
+      not a guarantee the name is unused (rf2-u6m0o9). The free-occurrence check
+      respects inner shadowing, so an inner `let`/`fn` that rebinds the name does
+      NOT count as a reference.
 
       D7 NIL-FLAG: a reg-event-db handler whose BODY can evaluate to `nil` is
       NOT silently rewritten. Under the new model a bare `nil` return is a
@@ -334,13 +340,244 @@
            :kind :rewrite-db
            :simple-fn simple-fn})))))
 
-(defn- ignorable-symbol?
-  "Is `sym` an explicitly-unused binding (`_` or an `_`-prefixed name)? Such a
-  param is never referenced in the body, so it needs no name-preserving rebind."
+(defn- underscore-prefixed-symbol?
+  "Is `sym` an `_` or an `_`-prefixed name (the conventional \"ignore me\"
+  spelling)? Such a name is USUALLY an unused binding — but it is a perfectly
+  legal referenceable local, so whether it actually needs a name-preserving
+  rebind depends on whether it occurs free in the body (`symbol-free-in-body?`)."
   [sym]
   (and (symbol? sym)
        (let [nm (name sym)]
          (or (= nm "_") (str/starts-with? nm "_")))))
+
+;; ---------------------------------------------------------------------------
+;; Free-occurrence analysis (shadowing-aware)
+;; ---------------------------------------------------------------------------
+;;
+;; The first-param rebind decision (`{:keys [db]}` vs `{S :db}`) only matters
+;; for `_`-prefixed names: a plain non-`db` symbol always rebinds (the
+;; rf2-xhfxcs.15 transform), and a literal `db` always keeps `{:keys [db]}`.
+;; For an `_`-prefixed name we must distinguish:
+;;
+;;   * REFERENCED in the body  -> bind back `{_state :db}` (else the body's
+;;                                `_state` refs become unbound — rf2-u6m0o9).
+;;   * NOT referenced          -> `{:keys [db]}` (nothing to rebind).
+;;
+;; "Referenced" means: the symbol occurs FREE somewhere in the body, i.e. not
+;; captured by an inner binding form that shadows it (a `let`/`fn`/`loop`/… that
+;; rebinds the same name). We walk the body's sexpr, tracking the set of names a
+;; binding form has shadowed; a bare occurrence of the target name that is NOT in
+;; the shadowed set counts as a free reference.
+
+(def ^:private binding-vector-forms
+  "Head symbols whose SECOND child is a binding vector of name/value pairs
+  (`let`-shape): the LHS names shadow within the rest of the form."
+  '#{let let* loop loop* binding if-let when-let if-some when-some
+     with-open with-local-vars with-redefs})
+
+(def ^:private seq-binding-forms
+  "Head symbols whose SECOND child is a seq-binding vector (`for`/`doseq`-shape):
+  `[x coll, y coll2, :let [...] ...]`. We treat every even-index non-keyword
+  entry as a bound LHS (conservative: over-binding only makes us MORE likely to
+  call a name unreferenced, but we additionally honour `:let` LHS names)."
+  '#{for doseq})
+
+(defn- collect-binding-names
+  "Collect every symbol that a destructuring LHS form `lhs` binds. Handles plain
+  symbols, vector/seq destructuring (incl. `:as`/`& rest`), and map destructuring
+  (`:keys`/`:strs`/`:syms`, `:as`, and `{local key}` pairs). Conservative: when
+  unsure we still add any contained symbol, which only widens shadowing."
+  [lhs]
+  (cond
+    (symbol? lhs) #{lhs}
+
+    (vector? lhs)
+    (into #{} (mapcat collect-binding-names) lhs)
+
+    (map? lhs)
+    (reduce-kv
+      (fn [acc k v]
+        (cond
+          ;; {:keys [a b]} / {:strs [..]} / {:syms [..]}
+          (and (keyword? k) (#{:keys :strs :syms} k) (vector? v))
+          (into acc (map (fn [s] (symbol (name s)))) v)
+          ;; {:as whole}
+          (= :as k) (conj acc v)
+          ;; {:or {...}} / {:keys ...} handled above; skip other keyword keys
+          (keyword? k) acc
+          ;; {local :some/key} — the LHS (k) is the binding
+          :else (into acc (collect-binding-names k))))
+      #{}
+      lhs)
+
+    :else #{}))
+
+(declare free-in-form?)
+
+(defn- free-in-children?
+  "Does `target` occur free in any of `forms` under the current `bound` set?"
+  [target forms bound]
+  (boolean (some #(free-in-form? target % bound) forms)))
+
+(defn- free-in-binding-vector-form?
+  "Free-occurrence within a `let`-shaped form `(head [b0 v0 b1 v1 ...] body...)`.
+  Each value `vi` is evaluated under the names bound by `b0..b(i-1)`; the body is
+  evaluated under all LHS names. Returns true iff `target` occurs free anywhere."
+  [target form bound]
+  (let [bvec  (second form)
+        body  (drop 2 form)]
+    (if (vector? bvec)
+      (loop [pairs (partition-all 2 bvec)
+             bnd   bound]
+        (if-let [[lhs v] (first pairs)]
+          (cond
+            ;; value occurs free under the names bound so far
+            (free-in-form? target v bnd) true
+            :else (recur (rest pairs)
+                         (into bnd (collect-binding-names lhs))))
+          ;; binding vector exhausted: test the body under all bound names
+          (free-in-children? target body bnd)))
+      ;; malformed binding vector — treat children conservatively
+      (free-in-children? target (rest form) bound))))
+
+(defn- free-in-seq-binding-form?
+  "Free-occurrence within a `for`/`doseq`-shaped form. The seq-binding vector
+  alternates LHS / expr (with `:let`/`:when`/`:while` modifier clauses). We bind
+  every LHS (and `:let` LHS) name; exprs/guards and the body are tested for the
+  target as free."
+  [target form bound]
+  (let [bvec (second form)
+        body (drop 2 form)]
+    (if (vector? bvec)
+      (loop [pairs (partition-all 2 bvec)
+             bnd   bound]
+        (if-let [[lhs v] (first pairs)]
+          (cond
+            (= :let lhs)
+            ;; v is a let-style binding vector
+            (let [lv (if (vector? v) v [])]
+              (if (loop [ps (partition-all 2 lv) b bnd]
+                    (if-let [[l e] (first ps)]
+                      (if (free-in-form? target e b)
+                        :free
+                        (recur (rest ps) (into b (collect-binding-names l))))
+                      false))
+                true
+                (recur (rest pairs)
+                       (into bnd (mapcat (fn [[l _]] (collect-binding-names l)))
+                             (partition-all 2 lv)))))
+
+            (#{:when :while} lhs)
+            (if (free-in-form? target v bnd) true (recur (rest pairs) bnd))
+
+            :else
+            (if (free-in-form? target v bnd)
+              true
+              (recur (rest pairs) (into bnd (collect-binding-names lhs)))))
+          (free-in-children? target body bnd)))
+      (free-in-children? target (rest form) bound))))
+
+(defn- fn-arity-binds
+  "Given a single fn arity `(params body...)` (params a vector), return the set
+  of names its param vector binds."
+  [arity]
+  (let [params (first arity)]
+    (if (vector? params) (collect-binding-names params) #{})))
+
+(defn- free-in-fn-form?
+  "Free-occurrence within an `(fn name? [params] body...)` / multi-arity fn.
+  Each arity's params shadow within that arity's body; an optional self-name also
+  shadows."
+  [target form bound]
+  (let [after (rest form)
+        [self after] (if (symbol? (first after))
+                       [(first after) (rest after)]
+                       [nil after])
+        bound (cond-> bound self (conj self))]
+    (if (vector? (first after))
+      ;; single arity: (fn name? [params] body...)
+      (free-in-children? target (rest after)
+                         (into bound (collect-binding-names (first after))))
+      ;; multi-arity: (fn name? ([p] b) ([p q] b) ...)
+      (boolean
+        (some (fn [arity]
+                (when (seq? arity)
+                  (free-in-children? target (rest arity)
+                                     (into bound (fn-arity-binds arity)))))
+              after)))))
+
+(defn- free-in-letfn-form?
+  "Free-occurrence within `(letfn [(f [..] ..) (g [..] ..)] body...)`. The fn
+  NAMES are mutually in scope across all fnspecs and the body; each fnspec's
+  params shadow within its own body."
+  [target form bound]
+  (let [specs (second form)
+        body  (drop 2 form)]
+    (if (vector? specs)
+      (let [names (into #{} (keep #(when (seq? %) (first %))) specs)
+            bnd   (into bound names)]
+        (or (boolean
+              (some (fn [spec]
+                      (when (seq? spec)
+                        (free-in-children? target (drop 2 spec)
+                                           (into bnd (fn-arity-binds (rest spec))))))
+                    specs))
+            (free-in-children? target body bnd)))
+      (free-in-children? target (rest form) bound))))
+
+(defn- free-in-form?
+  "Does symbol `target` occur FREE in `form`, given the set `bound` of names
+  already shadowed by an enclosing binding form? Walks the sexpr, descending into
+  binding forms (`let`/`loop`/`fn`/`for`/`letfn`/…) with their LHS names added to
+  `bound`, so a shadowed inner occurrence does NOT count as a reference."
+  ([target form] (free-in-form? target form #{}))
+  ([target form bound]
+   (cond
+     (symbol? form) (and (= form target) (not (contains? bound target)))
+
+     (or (vector? form) (set? form))
+     (free-in-children? target (seq form) bound)
+
+     (map? form)
+     (or (free-in-children? target (keys form) bound)
+         (free-in-children? target (vals form) bound))
+
+     (seq? form)
+     (let [hd (first form)]
+       (cond
+         (and (symbol? hd) (contains? binding-vector-forms hd))
+         (free-in-binding-vector-form? target form bound)
+
+         (and (symbol? hd) (contains? seq-binding-forms hd))
+         (free-in-seq-binding-form? target form bound)
+
+         (and (symbol? hd) (#{'fn 'fn*} hd))
+         (free-in-fn-form? target form bound)
+
+         (and (symbol? hd) (= 'letfn hd))
+         (free-in-letfn-form? target form bound)
+
+         ;; quote: nothing inside a (quote ...) is a runtime reference
+         (and (symbol? hd) (= 'quote hd)) false
+
+         :else (free-in-children? target form bound)))
+
+     :else false)))
+
+(defn- symbol-referenced-in-body?
+  "Does the first-param symbol (`p0-node`) occur FREE — i.e. as a live reference,
+  not captured by an inner shadowing binding — anywhere in the handler `body`
+  (a vector of value nodes)? Conservative on unreadable forms: a body node whose
+  sexpr cannot be read is treated as POSSIBLY referencing the symbol (so we keep
+  the safe name-preserving rebind)."
+  [sym body-nodes]
+  (boolean
+    (some (fn [node]
+            (let [form (try (n/sexpr node) (catch Exception _ ::err))]
+              (if (= form ::err)
+                true                                  ;; unreadable -> assume referenced
+                (free-in-form? sym form))))
+          body-nodes)))
 
 (defn- db-coeffect-destructure-node
   "The `{:keys [db]}` coeffects destructure node — reads the db out of the
@@ -360,15 +597,32 @@
     [(n/token-node (n/sexpr sym-node)) (n/spaces 1) (n/keyword-node :db)]))
 
 (defn- first-param-replacement
-  "Choose the replacement node for the handler's first param. When the param is
-  literally `db` (or an ignored `_`/`_x` binding never read in the body) we emit
-  the canonical `{:keys [db]}`. Otherwise the param named the db value under a
-  different symbol `S`, so we emit `{S :db}` to keep the body's `S` references
-  resolved without touching the body."
-  [p0]
+  "Choose the replacement node for the handler's first param, given the param
+  node `p0` and the handler `body` (a vector of value nodes).
+
+    * literal `db`                        -> `{:keys [db]}` (canonical)
+    * `_`-prefixed name NOT free in body  -> `{:keys [db]}` (nothing to rebind)
+    * `_`-prefixed name FREE in the body  -> `{S :db}` (rf2-u6m0o9): the `_`-name
+        is actually referenced, so it must bind back under its original name or
+        every body reference becomes unbound.
+    * any other plain symbol `S`          -> `{S :db}` (rf2-xhfxcs.15): the db
+        value was bound under a non-`db` name; rebind it back so the body's `S`
+        references stay resolved without touching the body.
+
+  Only the `_`-prefixed case consults the body (via `symbol-referenced-in-body?`,
+  which is shadowing-aware); the other branches are name-only decisions."
+  [p0 body]
   (let [sym (try (n/sexpr p0) (catch Exception _ nil))]
-    (if (or (= sym 'db) (ignorable-symbol? sym))
+    (cond
+      (= sym 'db)
       (db-coeffect-destructure-node)
+
+      (underscore-prefixed-symbol? sym)
+      (if (symbol-referenced-in-body? sym body)
+        (renamed-db-destructure-node p0)   ;; referenced -> bind back {_x :db}
+        (db-coeffect-destructure-node))    ;; truly unused -> {:keys [db]}
+
+      :else
       (renamed-db-destructure-node p0))))
 
 (defn- rewrite-db-handler
@@ -383,8 +637,10 @@
   the codemod rewriting the body (which would have to reason about shadowing)."
   [handler-node {:keys [params body]}]
   (let [p0        (params-simple? params)
-        ;; Replace the first param token with the db destructure node.
-        keys-node (first-param-replacement p0)
+        ;; Replace the first param token with the db destructure node. The
+        ;; choice may consult the body (an `_`-prefixed name that is actually
+        ;; referenced must bind back under its name — rf2-u6m0o9).
+        keys-node (first-param-replacement p0 body)
         new-params (n/replace-children
                      params
                      (map (fn [c] (if (identical? c p0) keys-node c))
