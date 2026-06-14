@@ -199,7 +199,7 @@
   (testing "an event handler registered without the macro (bypassing
    source-coord capture) emits errors with no :rf.trace/trigger-handler
    field — better no-data than poison-data"
-    (let [reg-fn (requiring-resolve 're-frame.events/reg-event-fx)]
+    (let [reg-fn (requiring-resolve 're-frame.events/reg-event)]
       (reg-fn :rf2-3nn8/no-coords
               (fn [_cofx _event] (throw (ex-info "boom" {})))))
     (let [evs   (record-traces #(rf/dispatch-sync [:rf2-3nn8/no-coords]))

@@ -408,21 +408,30 @@
           "the two failure modes are distinct error categories"))))
 
 ;; ===========================================================================
-;; 6. reg-event-db rejects :rf.cofx/requires + malformed / collision
+;; 6. reg-event accepts :rf.cofx/requires uniformly + malformed / collision
 ;; ===========================================================================
 
-(deftest db-handler-requires-is-registration-error
-  (testing "`:rf.cofx/requires` on `reg-event-db` is a registration-time
-            `:rf.error/cofx-request-invalid` (a db handler cannot take
-            delivery; EP-0017 §4)"
-    (let [ex (try
-               (rf/reg-event :cofx-test/db-with-requires
+(deftest one-event-form-accepts-requires-uniformly
+  (testing "EP-0018 closed the EP-0017 hole: `:rf.cofx/requires` is uniformly
+            available on the ONE `reg-event` form. There is no longer a
+            db-handler exception raising `:rf.error/cofx-request-invalid` at
+            registration — a well-formed declaration registers cleanly and the
+            declared fact is delivered flat into the coeffects map."
+    (let [seen-time (atom ::unset)
+          ex (try
+               (rf/reg-event :cofx-test/event-with-requires
                  {:rf.cofx/requires [:rf/time-ms]}
-                 (fn [{:keys [db]} _] {:db db}))
+                 (fn [{:keys [rf/time-ms]} _]
+                   (reset! seen-time time-ms)
+                   {}))
                nil
                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
-      (is (some? ex) "reg-event-db with :rf.cofx/requires threw at registration")
-      (is (= :rf.error/cofx-request-invalid (:rf.error/id (ex-data ex)))))))
+      (is (nil? ex)
+          "a well-formed :rf.cofx/requires on reg-event registers without throwing")
+      (rf/dispatch-sync [:cofx-test/event-with-requires]
+                        {:rf.cofx {:rf/time-ms 1781078400123}})
+      (is (= 1781078400123 @seen-time)
+          "the declared :rf/time-ms fact arrived flat in the coeffects map"))))
 
 (deftest malformed-requires-is-cofx-request-invalid
   (testing "a non-vector / non-id `:rf.cofx/requires` is
