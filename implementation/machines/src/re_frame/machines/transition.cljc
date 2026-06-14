@@ -1976,6 +1976,99 @@
          {:rf/parent-id parent-id
           :rf/invoke-id (vec prefix)}]))))
 
+;; ---- root-level `:after` for parallel machines (rf2-wox0vd) ----------------
+;;
+;; XState v5 gold standard: `after` may be declared at ANY level, including a
+;; `<parallel>` node. A parallel-ROOT `:after` is ROOT-OWNED — scheduled when
+;; the parallel root is entered (machine birth), alive for the WHOLE machine,
+;; and cancelled only when the machine itself is torn down. It is NOT bound to
+;; any single region's lifecycle (the region-`:after`-`:raise`s workaround is
+;; semantically weaker — its timer is cancelled/restarted by an arbitrary
+;; region's transitions through that region's per-region epoch).
+;;
+;; The root machine is NOT a region, so its `:after` epoch lives at the flat
+;; slot `[:data :rf/after-epoch []]` (decl-path `[]` — the root). Scheduling
+;; reuses the SAME `:scheduled` trace + `:after-schedule` fx that every state's
+;; `:after` emits; firing reuses the SAME `normalise-candidates` /
+;; `select-passing-candidate-indexed` grammar and the per-path epoch
+;; stale-gate. Region-qualified `:target` resolution is handled by the parallel
+;; layer (it reuses the root `:on` transition grammar — `apply-root-parallel-
+;; transition`).
+
+(defn root-after-match
+  "Per Spec 005 §Root parallel `:after` (rf2-wox0vd): resolve the synthetic
+  `[:rf.machine.timer/after-elapsed delay-key carried-epoch []]` event for a
+  parallel ROOT's `:after` (decl-path `[]`). Returns the SAME shape
+  `pick-after-transition` returns — `{:transition … :decl-path [] :delay
+  :epoch}` (live, guard passed), `{:guard-suppressed? true …}` (guard
+  failed), `{:stale? true …}` (epoch mismatch / root teardown), or nil (no
+  matching `:after` entry). The caller (`parallel/parallel-machine-
+  transition`) routes a live match through the root `:on` apply path and
+  emits the timer traces via `emit-pick-traces!`.
+
+  Reuses the per-path epoch stale-gate + `:on`-shared candidate grammar
+  (`normalise-candidates` + `select-passing-candidate-indexed`), but reads
+  `(:after machine)` directly rather than `node-at` — the root `:after` lives
+  on the machine map itself (decl-path `[]`), which `node-at` resolves to nil
+  (an empty path is the scope root, not a `:states` node). The root is the
+  topmost node and is always on the active path, so liveness reduces to the
+  per-path epoch check at the flat `[]` slot."
+  [machine event snapshot]
+  (let [[_ delay-key carried-epoch raw-carried-decl-path] event
+        actor-id  (or (:rf/parent-id machine) (:id machine))]
+    ;; Defensive: only a `[]`-carried root timer resolves here (the macrostep
+    ;; routes via `root-after-elapsed?`); a region-prefixed path is not ours.
+    (when (= [] (vec raw-carried-decl-path))
+      (let [t         (get-in machine [:after delay-key])
+            cur-epoch (node-epoch machine snapshot [])]
+        (cond
+          (nil? t) nil
+
+          ;; Per-path epoch matches the carried epoch → the root timer is
+          ;; live; resolve its transition + guard through the shared grammar.
+          (= carried-epoch cur-epoch)
+          (let [cands       (normalise-candidates t :rf.error/machine-bad-after-spec)
+                [idx tspec] (select-passing-candidate-indexed machine cands snapshot event)]
+            (if tspec
+              {:transition (assoc tspec :rf/transition-slot
+                                  (transition-slot {:decl-path     []
+                                                    :slot          :after
+                                                    :delay-key     delay-key
+                                                    :candidate-idx idx
+                                                    :raw-value     t}))
+               :actor-id   actor-id
+               :decl-path  []
+               :delay      delay-key
+               :epoch      carried-epoch}
+              ;; No candidate's guard passed → fired-and-discarded (no
+              ;; transition, no epoch advance; the root timer is one-shot).
+              {:guard-suppressed? true
+               :actor-id          actor-id
+               :state             :rf/parallel-root
+               :delay             delay-key
+               :epoch             carried-epoch}))
+
+          ;; Per-path epoch advanced (root torn down / epoch bumped) → stale.
+          :else
+          {:stale?          true
+           :actor-id        actor-id
+           :state           :rf/parallel-root
+           :decl-path       []
+           :delay           delay-key
+           :scheduled-epoch carried-epoch
+           :current-epoch   cur-epoch})))))
+
+(defn root-after-elapsed?
+  "True iff `event` is a synthetic `:after`-elapsed timer carrying the ROOT
+  decl-path `[]` (rf2-wox0vd) — a parallel-root-owned `:after` firing, as
+  opposed to a region-scoped timer (whose carried decl-path is region-name
+  prefixed). Lets the parallel macrostep route a root timer to the root
+  resolver instead of broadcasting it to the regions."
+  [event]
+  (and (vector? event)
+       (= :rf.machine.timer/after-elapsed (first event))
+       (= [] (vec (nth event 3 nil)))))
+
 (defn- build-destroy-fx
   "Per Spec 005 §Declarative `:spawn` and rf2-t07u
   (Option A revised): nodes being EXITED with `:spawn` emit
@@ -3013,6 +3106,37 @@
             snap
             bump-paths)))
 
+(defn schedule-root-after-fx
+  "Per Spec 005 §Root parallel `:after` (rf2-wox0vd): schedule a parallel
+  ROOT's `:after` timers at machine birth. Bumps the root's per-path epoch
+  (decl-path `[]`) on `snap-final` so a later machine-teardown / explicit
+  epoch advance makes the in-flight timer stale, then emits the SAME
+  `:rf.machine.timer/scheduled` trace + `:rf.machine/after-schedule` fx
+  `build-after-fx` emits for a state's `:after` — the root is just the node
+  at the empty decl-path. Returns `[snap-with-root-epoch root-after-fx]`.
+
+  A parallel root with no `:after` returns `[snap-final []]` unchanged.
+  `internal?` is forwarded for symmetry with `build-after-fx` (a birth cascade
+  is never internal, so it is `false` in practice). Called from
+  `re-frame.machines.parallel`'s birth cascade (`run-initial-cascade`), the
+  only entry where the parallel root is entered."
+  [machine snap-final internal?]
+  (let [after-map (:after machine)]
+    (if (or internal? (not (seq after-map)))
+      [snap-final []]
+      (let [;; The root epoch lives at the flat slot (the root is not a
+            ;; region — `after-epoch-path` returns `[:data :rf/after-epoch]`).
+            ;; Bump `[]`'s entry so the scheduled timer carries a non-zero
+            ;; epoch that a teardown / epoch advance can invalidate, mirroring
+            ;; `commit-snapshot`'s `bump-after-epochs` for an entered node.
+            snap'   (bump-after-epochs machine snap-final [[]])
+            ;; The root node IS the `:after`-bearing node at the empty prefix;
+            ;; `build-after-fx` walks `[[prefix node] …]` pairs and reads
+            ;; `(:after node)`, so a single `[[] machine]` pair schedules the
+            ;; root timers with the just-bumped epoch (`node-epoch` reads `[]`).
+            after-fx (build-after-fx machine [[[] machine]] internal? snap')]
+        [snap' (vec after-fx)]))))
+
 (defn- commit-snapshot
   "Phase 3 — write the new `:state` onto the post-cascade snapshot and
   bump the per-path `:after` epoch for each exited/entered `:after`-
@@ -3276,7 +3400,7 @@
           {:raises [] :rest []}
           fx-vec))
 
-(defn- emit-pick-traces!
+(defn emit-pick-traces!
   "Fire the three pre-transition timer traces for a `pick-transition`
   match — `:rf.machine.timer/stale-after`, `:rf.machine.timer/fired`
   (guard-suppressed), and `:rf.machine.timer/fired` (success). Each
@@ -3372,9 +3496,15 @@
     (when (and (not (:stale? match))
                (not (:guard-suppressed? match))
                (:delay match))
-      (let [fired-reply (m-reply/after-fired-reply
+      ;; rf2-wox0vd — a parallel-ROOT `:after` carries the empty decl-path
+      ;; `[]`, so `(last decl-path)` is nil; mark the firing state with the
+      ;; root sentinel `:rf/parallel-root` (matching the stale / guard-
+      ;; suppressed branches' root marker) rather than emitting `:state nil`.
+      (let [fired-state (or (last (:decl-path match))
+                            (when (empty? (:decl-path match)) :rf/parallel-root))
+            fired-reply (m-reply/after-fired-reply
                           {:actor-id   (:actor-id match)
-                           :state      (last (:decl-path match))
+                           :state      fired-state
                            :delay      (:delay match)
                            :decl-path  (:decl-path match)
                            :epoch      (:epoch match)
@@ -3383,7 +3513,7 @@
         (trace/emit! :rf.machine :rf.machine.timer/fired
                      {;; rf2-yyvtk5 / rf2-ws5thu — owning actor INSTANCE.
                       :actor-id (:actor-id match)
-                      :state  (last (:decl-path match))
+                      :state  fired-state
                       :delay  (:delay match)
                       :epoch  (:epoch match)
                       :fired? true

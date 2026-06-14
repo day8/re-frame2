@@ -599,10 +599,29 @@
 
   Per rf2-505ic the `:always` fixed-point + raise drain that settles the
   initial macrostep is a SEPARATE phase — `apply-initial-entry-cascade`
-  composes this entry cascade with `settle-birth`."
+  composes this entry cascade with `settle-birth`.
+
+  Per Spec 005 §Root parallel `:after` (rf2-wox0vd): a `:type :parallel` root
+  declaring `:after` is ROOT-OWNED — its timers are scheduled HERE, at machine
+  birth (when the parallel root is entered), folded onto the per-region entry
+  cascade's Result. `reduce-regions` walks each REGION's `:after`; the root's
+  own `:after` lives on the machine map itself (decl-path `[]`) and is never an
+  entered region node, so it is scheduled explicitly via
+  `transition/schedule-root-after-fx` (which bumps the root's per-path epoch on
+  the snapshot and emits the same `:scheduled` trace + `:after-schedule` fx a
+  state's `:after` emits)."
   [machine initial-snapshot]
   (if (parallel? machine)
-    (reduce-regions machine initial-snapshot bootstrap-step)
+    (let [regions-r (reduce-regions machine initial-snapshot bootstrap-step)]
+      (if (result/fail? regions-r)
+        regions-r
+        (result/with-ok [snap fx] regions-r
+          (let [[snap' root-after-fx]
+                (transition/schedule-root-after-fx machine snap false)]
+            (-> (result/ok snap' (into (vec fx) root-after-fx))
+                (result/with-handled (result/handled? regions-r))
+                (result/with-microsteps (result/microsteps regions-r))
+                (result/with-cascade (result/cascade regions-r)))))))
     (bootstrap-step machine initial-snapshot)))
 
 (declare machine-transition)
@@ -1054,6 +1073,53 @@
                       (result/with-cascade (result/cascade always-r)))))))))
       first-r)))
 
+(defn- root-after-seed
+  "Per Spec 005 §Root parallel `:after` (rf2-wox0vd): resolve a parallel-ROOT
+  `:after` firing — the synthetic `[:rf.machine.timer/after-elapsed delay-key
+  epoch []]` event whose decl-path is the empty root path (NOT region-name
+  prefixed). The root `:after` is the timer-driven analog of the root `:on`
+  ancestor fallback: it reuses the SAME region-qualified target grammar
+  (`apply-root-parallel-transition`), runs its `:action` once against the
+  shared `:data`, atomically moves its region-qualified target(s), and leaves
+  untargeted regions unchanged — but it is ROOT-OWNED (scheduled at machine
+  birth, stale-gated by the root's own per-path epoch), so a region's
+  transition never cancels it.
+
+  Emits the same timer traces a state's `:after` does (`:rf.machine.timer/
+  fired` on a live fire, `/stale-after` on an epoch-stale drop, `/fired
+  :fired? false` on a guard-suppressed drop) via `transition/emit-pick-
+  traces!`. Returns the SEED Result the macrostep drains from:
+   - the applied root-`:after` transition Result (handled) on a live fire;
+   - a no-op `(ok snapshot [])` on a stale / guard-suppressed timer (the
+     transition does not fire — matching the single-machine `:after` drop).
+
+  The moved regions' `:always` is settled exactly as `root-fallback-seed`
+  does for the root `:on`, so a moved region's eventless `:always` / `:raise`
+  continue the macrostep through the parent queue."
+  [machine snapshot event]
+  (let [match (transition/root-after-match machine event snapshot)]
+    ;; Trace the firing / staleness / guard-suppression BEFORE applying, so
+    ;; listeners observe events in occurrence order (single-machine parity).
+    (transition/emit-pick-traces! (:rf/frame machine) match)
+    (cond
+      (or (nil? match) (:stale? match) (:guard-suppressed? match))
+      (result/ok snapshot [])
+
+      :else
+      (let [root-r (apply-root-parallel-transition machine snapshot event
+                                                    (:transition match))]
+        (if (result/fail? root-r)
+          root-r
+          (result/with-ok [root-snap root-fx] root-r
+            (let [always-r (reduce-regions machine root-snap settle-region-birth)]
+              (if (result/fail? always-r)
+                always-r
+                (result/with-ok [snap0 settle-fx0] always-r
+                  (-> (result/ok snap0 (into (vec root-fx) settle-fx0))
+                      (result/with-handled true)
+                      (result/with-microsteps (result/microsteps always-r))
+                      (result/with-cascade (result/cascade always-r))))))))))))
+
 (defn- parallel-machine-transition
   "Pure function. Given a parallel-region machine, current snapshot, and
   event, run the parallel MACROSTEP — broadcast the event to every region,
@@ -1107,16 +1173,32 @@
   For the synthetic `[:rf.machine.timer/after-elapsed ...]` event,
   delivery is region-scoped — the broadcast routes to the bearing region
   only, identified by the region-name prefix on the in-flight timer's
-  `:rf/invoke-id`."
+  `:rf/invoke-id`. The exception is a ROOT-OWNED `:after` (rf2-wox0vd),
+  whose carried decl-path is the empty root path `[]` (no region prefix):
+  `root-after-elapsed?` detects it and routes it to `root-after-seed` (the
+  timer-driven analog of the root `:on` ancestor fallback) instead of
+  broadcasting it to the regions."
   [machine snapshot event]
-  (let [first-r       (broadcast-once machine snapshot event)
+  (let [;; rf2-wox0vd — a parallel-ROOT `:after` timer (`[]` decl-path) is
+        ;; root-owned, not region-scoped: resolve it through the root `:on`
+        ;; apply path rather than broadcasting it to the regions (which key off
+        ;; a region-name-prefixed decl-path and would all decline it).
+        root-after?   (transition/root-after-elapsed? event)
+        first-r       (if root-after?
+                        (root-after-seed machine snapshot event)
+                        (broadcast-once machine snapshot event))
         ;; rf2-tsq6g — root parallel `:on` ancestor fallback. When no region
         ;; handled the event, consult the root `:on`; if it fires, its result
         ;; (handled, region targets moved) BECOMES the macrostep seed and is
         ;; settled through the same parent queue (so a moved region's `:always`
         ;; / `:raise` continue the macrostep). When no region handled AND the
         ;; root declines, `seed` == `first-r` and the existing no-op path runs.
-        seed          (root-fallback-seed machine snapshot event first-r)
+        ;; A root-`:after` firing already IS the root-owned seed, so the `:on`
+        ;; fallback is skipped (the `:after` reserved-namespace event is not an
+        ;; unhandled user event `root-fallback-seed` would consult `:on` for).
+        seed          (if root-after?
+                        first-r
+                        (root-fallback-seed machine snapshot event first-r))
         settled       (drain-parent-queue machine snapshot event seed)
         ;; h3wca.1 — false→true EDGE guard. `:on-done` fires ONCE, on the
         ;; macrostep that CROSSES into the all-regions-final done config
