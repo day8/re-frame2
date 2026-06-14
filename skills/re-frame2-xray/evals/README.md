@@ -40,10 +40,10 @@ when the eval shape changes in a way that breaks readers.
 
 ## Coverage
 
-29 evals — **21 positives** (skill should fire) and **8 negatives** (skill
-should stay quiet). **13 positives** carry the Layer-2 answer-quality
-`expectations[]`; they target the prompts whose answer drifts fastest as
-the Xray UI moves:
+29 evals, covering Xray's trigger surface and answer quality: **21 positives**
+(skill should fire) and **8 negatives** (skill should stay quiet). **13
+positives** carry the Layer-2 answer-quality `expectations[]`; they target the
+prompts whose answer drifts fastest as the Xray UI moves:
 
 | ID | Name | Layer 2? | What the answer-quality assertions pin |
 |---:|---|:---:|---|
@@ -114,10 +114,16 @@ same PR. The Layer-2 assertions are the contract that the tour skill keeps
 describing the *shipped* Xray, not a stale snapshot — they are only as good
 as the discipline of updating them alongside the product.
 
-> Note: the repo's `scripts/check_skill_eval_docs.py` drift gate is wired to
-> the `skills/re-frame2/` harness specifically; this README has no
-> automated count/coverage gate, so the table above is maintained by hand —
-> keep it in step with `evals.json` when you add or rename an entry.
+> Note: the repo's `scripts/check_skill_eval_docs.py` drift gate covers this
+> harness (it is multi-target — `re-frame2`, `re-frame2-improver`, and
+> `re-frame2-xray`). For this README it asserts the total-count sentence ("…
+> evals, covering …"), set-equality between the Layer-2 coverage table above
+> and the `expectations[]` evals in `evals.json`, and the per-`should_trigger`
+> positive/negative tally — all read from the single count sentence at the top
+> of §Coverage, so state each count there exactly once. The trigger-only
+> positives and the negatives are listed in collapsed multi-id rows the gate
+> does not parse, so keep those rows in step with `evals.json` by hand when you
+> add or rename such an entry.
 
 ## Keeping the tab inventory in sync (the source of truth)
 
