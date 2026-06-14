@@ -29,6 +29,7 @@
   uses."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
+            [re-frame.resources.mutation-events :as mutation-events]
             [re-frame.resources.mutation-registry :as mutation-registry]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.revalidate-listeners :as revalidate-listeners]
@@ -73,6 +74,11 @@
   ;; host-side transient dev state; clearing it lets each test observe the
   ;; one-shot warning freshly without a prior test's emission masking it.
   (subs/reset-scope-mismatch-warnings!)
+  ;; and the host-side WRITE-side scope-mismatch dev-warning dedupe set
+  ;; (rf2-byl7bk.4) — the mutation-settlement complement of the sub-side
+  ;; warning; likewise host-side transient dev state, cleared so each test
+  ;; observes the one-shot `:rf.warning/mutation-scope-mismatch` freshly.
+  (mutation-events/reset-mutation-scope-mismatch-warnings!)
   nil)
 
 ;; Publish the reset hook from this test-support ns-load — the shared CLJS
