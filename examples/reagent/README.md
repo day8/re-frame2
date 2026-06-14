@@ -1,6 +1,16 @@
 # Reagent — examples
 
-The canonical substrate for re-frame2: every Spec (002 Frames, 004 Views, 005 StateMachines, 006 ReactiveSubstrate, 010 Schemas, 011 SSR, 012 Routing, 014 HTTPRequests, every Pattern-* doc) was authored against the Reagent adapter, and every JVM `clojure -M:test` run, every shadow-cljs `node-test` build, every `:browser-test` run, and every `npm run test:examples` invocation exercises the Reagent path end-to-end. See [Conventions §Adapter test matrix policy](../../spec/Conventions.md#adapter-test-matrix-policy) for the policy and rationale.
+The canonical substrate for re-frame2: every Spec (002 Frames, 004 Views, 005 StateMachines, 006 ReactiveSubstrate, 010 Schemas, 011 SSR, 012 Routing, 014 HTTPRequests, 016 Resources, every Pattern-* doc) was authored against the Reagent adapter, and the Reagent path is exercised end-to-end by every JVM `clojure -M:test` run and every shadow-cljs `node-test` build. See [Conventions §Adapter test matrix policy](../../spec/Conventions.md#adapter-test-matrix-policy) for the policy and rationale.
+
+**What pins these examples (the coverage layers).** The `examples/` tree is itself test-free (rf2-8cevm — no `*.spec.cjs`, no `test/` dirs under `examples/`), but each example's behaviour is pinned by one or more of three distinct layers — do not conflate them:
+
+| Layer | Command | What it covers |
+|---|---|---|
+| **Direct/headless CLJS fixture** | `npm run test:cljs` | Per-example semantic tests (outside `examples/`) that require the example's production namespace and drive its events / subs / machines / resources directly. Only some examples have one (see the per-example coverage column below). |
+| **Compile coverage** | `npm run test:examples-compile` | Compiles EVERY declared `:examples/*` shadow-cljs build (warnings-as-errors). Catches a missing namespace / typo'd init-fn / bad `:require` / compile-time form error in any example — but proves nothing about runtime behaviour. |
+| **Adapter-mount browser smoke** | `npm run test:examples` | Exactly THREE adapter-level smokes (Reagent / UIx / Helix) at `implementation/adapters/<name>/testbed/spec.cjs` — mount + dispatch + assert. It does **NOT** build the examples in this directory. |
+
+Real cross-cutting regression coverage additionally lives in the framework gates (`npm run test:xray-feature-gate`, `test:bundle-isolation`, `test:perf-bundle`, mcp-conformance). The per-example coverage column in the [catalogue](../README.md) and the [coverage table below](#coverage-level-per-reagent-example) record which layer(s) pin each example.
 
 This directory holds the **full set of worked Reagent examples** (counting each 7GUIs task individually) that ship in the catalogue at [examples/README.md](../README.md). Each example sits in its own self-contained sub-folder with the CLJS source and a hand-written `index.html`. The 7GUIs cluster has its own internal grouping under [`seven_guis/`](seven_guis/README.md).
 
@@ -46,6 +56,34 @@ shadow-cljs watch examples/counter
 ```
 
 The watch build emits `main.js` into `out/examples/counter/`; copy the example's hand-written `index.html` (and the shared assets it references under [`../_shared/`](../_shared/)) next to it, then serve `out/examples/counter/` over HTTP.
+
+## Coverage level per Reagent example
+
+The maintained map below records the highest coverage layer pinning each example, so a newly-added canonical example cannot silently remain unpinned. **Compile-only** examples carry only `test:examples-compile` coverage by design (deliberately minimal or design-led; the runtime contracts they lean on are pinned by the substrate contract tests + framework gates, not a per-example fixture). **Direct semantic fixture** examples additionally have a headless CLJS (or JVM) test that requires the production namespace and drives its wiring; the "fixture" column names it. All examples also ride the three adapter-mount browser smokes transitively (the adapter, not the page, is what those smokes assert).
+
+| Example | Coverage level | Direct fixture (if any) |
+|---|---|---|
+| `counter/` | Compile-only + bundle-isolation fixture | — (kept dependency-light as the bundle-isolation fixture) |
+| `login/` | Direct semantic fixture | `re-frame.login-cljs-test`; machine table also in `state-machine-walkthrough` |
+| `todomvc/` | Direct semantic fixture | `re-frame.todomvc-cljs-test` |
+| `routing/` | Compile-only | — (Spec 012 routing pinned in `implementation/routing/test/`) |
+| `ssr/` | Direct semantic fixture (JVM) | `re-frame.examples-test` (`ssr-example-*`) |
+| `ssr_streaming/` | Direct semantic fixture (JVM) | `re-frame.examples-test` (`ssr-streaming-example-*`) |
+| `managed_http_counter/` | Compile-only | — (Spec 014 pinned in `implementation/http/test/`) |
+| `state_machine_walkthrough/` | Direct semantic fixture (JVM) | `re-frame.examples-test` (`state-machine-walkthrough-runs-headless`) |
+| `nine_states/` | Direct semantic fixture | `re-frame.nine-states-cljs-test` |
+| `boot/` | Direct semantic fixture | `re-frame.boot-cljs-test` |
+| `long_running_work/` | Direct semantic fixture | `re-frame.long-running-work-cljs-test` |
+| `websocket/` | Direct semantic fixture | `re-frame.websocket-cljs-test` |
+| `seven_guis/*` (6) | Compile-only | — (design-led 7GUIs benchmarks; Spec 004/006 pinned in core) |
+| `notebook/` | Compile-only (design-led) | — (Editorial-Warm design exemplar; tiny pure markdown parser) |
+| `flows/` | Compile-only | — (Spec 013 Flows pinned in `implementation/flows/test/`) |
+| `resources/` | Direct semantic fixture | `re-frame.resources-example-cljs-test` (route / event-lease / manual-refresh / reader start-stop) |
+| `resources_ssr/` | Direct semantic fixture (JVM) | `re-frame.examples-test` (`resources-ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch`) |
+| `realworld_resources/` | Direct semantic fixture | `re-frame.realworld-resources-cljs-test` (session scope / bearer / mutation populates+invalidates+reply-to / editor flow+can-leave / logout clear-scope / auth machine) |
+| `realworld/` | Direct semantic fixture | `re-frame.realworld-cljs-test` |
+
+The direct fixtures live under `implementation/adapters/reagent/test/re_frame/*_cljs_test.cljs` (CLJS) and `implementation/core/test/re_frame/examples_test.clj` (JVM) — never under `examples/` (rf2-8cevm). The `resources/` machine-owned-resource ENSURE step is intentionally left to the artefact runtime + compile coverage (driving the live machine spawn/destroy deterministically in a shared headless bundle is brittle); its start/stop EVENT glue is the pinned example-specific assertion.
 
 ## Cross-references
 
