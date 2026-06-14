@@ -50,7 +50,7 @@ In **dev builds** (`re-frame.interop/debug-enabled?` is `true`) the dispatched e
 
 ## `validate-at-boundary-interceptor` — opt-in production validation
 
-For handlers that **must** validate even in production (HTTP response ingestion, websocket payload, postMessage), attach the boundary interceptor (`:rf.schema/at-boundary`, Var `rf/validate-at-boundary-interceptor`):
+For handlers that **must** validate even in production (HTTP response ingestion, websocket payload, postMessage), reference the framework-registered boundary interceptor by id — `:rf.schema/at-boundary`. Under EP-0022 a public `:interceptors` chain carries refs, not inline interceptor values, so reference the registered interceptor rather than dropping the `rf/validate-at-boundary-interceptor` Var into the chain:
 
 ```clojure
 (ns my-app.api
@@ -58,11 +58,11 @@ For handlers that **must** validate even in production (HTTP response ingestion,
 
 (rf/reg-event :api/response-received
   {:schema ApiResponseSchema
-   :interceptors [rf/validate-at-boundary-interceptor]}
+   :interceptors [:rf.schema/at-boundary]}            ;; ref by id, not the inline Var value
   (fn [_ [_ payload]] ...))
 ```
 
-The interceptor reuses the handler's existing `:schema` metadata — it does NOT introduce a parallel schema (`re-frame.spec/validate-at-boundary-interceptor`).
+The interceptor reuses the handler's existing `:schema` metadata — it does NOT introduce a parallel schema. (The `rf/validate-at-boundary-interceptor` Var still exists as the registration-boundary value; the chain references the registered `:rf.schema/at-boundary` interceptor by id.)
 
 Behaviour matrix:
 
@@ -111,7 +111,7 @@ The `reg-app-schema` validates `app-db` shape at the `[:flight]` path; the `:sch
 
 - **`reg-app-schema` is a no-op without the schemas artefact.** The macro emits a `late-bind` lookup; without `re-frame.schemas` loaded, the call throws `:rf.error/schemas-artefact-missing` at runtime, not at compile time. Always require `re-frame.schemas` at app boot if you call this.
 - **`:schema` on a handler validates the event vector, not the `app-db` value.** The schema's first slot is typically `[:cat [:= :event-id] ...]`. For app-db-shape enforcement, use `reg-app-schema`.
-- **Boundary interceptor without `:schema` is rejected at registration.** Adding `rf/validate-at-boundary-interceptor` under metadata `:interceptors` on a handler that has no `:schema` metadata raises `:rf.error/at-boundary-missing-schema` from `reg-event` — the handler is not installed. Either attach a `:schema` to the metadata-map or remove the interceptor.
+- **Boundary interceptor without `:schema` is rejected at registration.** Referencing `:rf.schema/at-boundary` under metadata `:interceptors` on a handler that has no `:schema` metadata raises `:rf.error/at-boundary-missing-schema` from `reg-event` — the handler is not installed. Either attach a `:schema` to the metadata-map or remove the ref.
 - **Boundary validation is dev-OR-prod, never both.** Dev-mode step-1 has already validated by the time the boundary interceptor runs; the boundary becomes the validator in production builds when step-1 is elided.
 - **Schemas are frame-scoped.** Re-registering a schema on the same `[path]` of the same frame replaces; the same path on a different frame is a separate registration.
 

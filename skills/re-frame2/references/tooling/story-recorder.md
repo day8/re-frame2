@@ -49,7 +49,7 @@ The current privacy contract classifies at the **owner of the data** (the three-
 
 | Mechanism (owner) | Where you declare it | Stamps top-level trace `:sensitive?`? | Recorder behaviour |
 |---|---|---|---|
-| **Frame `:sensitive {:app-db [[:path]]}`** — durable app-db state the handler focuses (via metadata `:interceptors [(rf/path …)]`) | `(rf/reg-frame …)` | **Yes** — the sensitive handler scope is stamped | Row redacted → `[:rf/redacted]` |
+| **Frame `:sensitive {:app-db [[:path]]}`** — durable app-db state the handler focuses (via metadata `:interceptors [[:rf.interceptor/path …]]`) | `(rf/reg-frame …)` | **Yes** — the sensitive handler scope is stamped | Row redacted → `[:rf/redacted]` |
 | **Registration `:sensitive [[:path]]`** — transient payload paths in the event arg-map | the `reg-event-*` metadata map | **Yes** — the event-emit record is stamped for the named payload paths | Row redacted → `[:rf/redacted]` |
 | Handler-meta `{:sensitive? true}` | `reg-event-*` registration map | **No** — removed; ignored | Row kept, payload verbatim — **do not rely on this** |
 

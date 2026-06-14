@@ -6,7 +6,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 
 | Surface | Shape |
 |---|---|
-| `rf/reg-event` | `(id meta? (fn [cofx ev] effects-map-or-nil))` — the **one** event form (coeffects in, closed effects map out); `{:db ...}` is the db-write effect. Full-context work → an `->interceptor` |
+| `rf/reg-event` | `(id meta? (fn [cofx ev] effects-map-or-nil))` — the **one** event form (coeffects in, closed effects map out); `{:db ...}` is the db-write effect. Full-context work → a registered interceptor referenced by id in `meta?`'s `:interceptors` (EP-0022) |
 | `rf/reg-fx` | `(id [metadata?] (fn [ctx args] ...))` — `ctx` is `{:frame :event}`; `args` is the `:fx` entry's 2nd slot |
 | `rf/reg-cofx` | `(id [metadata?] (fn [] value) \| (fn [arg] value))` — **value-returning** supplier (EP-0017); returns the coeffect value directly. `arg` is the per-call arg from a `[id arg]` declaration. `meta` may carry `:recordable?` / `:provided?` / `:schema` / `:platforms`. Consumed via `:rf.cofx/requires` (not `inject-cofx`, removed) |
 | `rf/reg-sub` | `(id (fn [db query-v] value))` layer-1 · `(id :<- […] … (fn [inputs query-v] value))` static · `(id (fn [query-v] [[:q…]…]) (fn [inputs query-v] value))` parametric — input fn returns a **vector of query vectors** (EP-0004), NOT `subscribe` reactions |
@@ -20,7 +20,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/reg-error-projector` | `(id metadata? (fn [trace-event] public-error))` — needs `day8/re-frame2-ssr` |
 | `rf/reg-http-interceptor` | `(id interceptor-map)` — `interceptor-map` carries `:before` / `:after` / `:frame` / metadata; needs `day8/re-frame2-http` |
 
-The `reg-event` metadata-map is the one **superset** middle slot — reflection keys **and** a reserved `:interceptors` key: `(id {:doc ... :schema ... :interceptors [...]} handler)`. The historical positional interceptor vector is retired; `(reg-event :id [i1 i2] handler)` and `(reg-event :id {:doc ...} [i1 i2] handler)` are registration errors. A malformed metadata value is `:rf.error/reg-event-bad-interceptors`. There is one public event registrar: `reg-event-db` / `reg-event-fx` / `reg-event-ctx` are removed (EP-0018) — a db-only handler returns `{:db ...}`, and full-context work is an `->interceptor`. Verified against `implementation/core/src/re_frame/events.cljc` `resolve-interceptors` and Spec 001 §Allowed forms of the middle slot. `reg-fx`/`reg-cofx`/`reg-error-projector` take a metadata-map only in that slot.
+The `reg-event` metadata-map is the one **superset** middle slot — reflection keys **and** a reserved `:interceptors` key carrying interceptor **references**: `(id {:doc ... :schema ... :interceptors [:auth/required [:rf.interceptor/path [:cart]]]} handler)`. The historical positional interceptor vector is retired; `(reg-event :id [i1 i2] handler)` and `(reg-event :id {:doc ...} [i1 i2] handler)` are registration errors. A malformed metadata value is `:rf.error/reg-event-bad-interceptors`, and an inline interceptor value (not a ref) in the chain is `:rf.error/inline-interceptor-removed` (EP-0022). There is one public event registrar: `reg-event-db` / `reg-event-fx` / `reg-event-ctx` are removed (EP-0018) — a db-only handler returns `{:db ...}`, and full-context work is a registered interceptor (`reg-interceptor`) referenced by id. Verified against `implementation/core/src/re_frame/events.cljc` `resolve-interceptors` and Spec 001 §Allowed forms of the middle slot. `reg-fx`/`reg-cofx`/`reg-error-projector` take a metadata-map only in that slot.
 
 ## Dispatch, subscribe, frames
 
@@ -177,11 +177,11 @@ Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability
 
 | Surface | Shape |
 |---|---|
-| `rf/->interceptor` | `({:id :before :after})` → interceptor |
+| `rf/reg-interceptor` | `(id ?metadata descriptor)` — the **public** interceptor-authoring form (EP-0022); descriptor one of `{:before}` / `{:after}` / `{:before :after}` / `{:factory}`. Chains reference it by id; `->interceptor` is internal-only |
 | `rf/get-coeffect` / `rf/assoc-coeffect` / `rf/get-effect` / `rf/assoc-effect` | inside an interceptor |
 | `:rf.cofx/requires` (metadata) | declare a handler's coeffect dependencies on `reg-event`: `{:rf.cofx/requires [:rf/time-ms [:ui/local-theme "k"]]}`. The declared values arrive **flat** in the coeffects map under their ids. Declared-only delivery; uniformly available to every event handler (EP-0017 / EP-0018) |
 | `:rf.cofx` (envelope field / dispatch opt) | flat `fact-name → value` map of recordable coeffects on every dispatch / reply envelope (EP-0017; renamed + flattened from EP-0010's `:rf.world/inputs`). `:rf/time-ms` is the framework's one built-in (recordable, provided, stamped at enqueue). Read durable time off it via `:rf.cofx/requires [:rf/time-ms]` → `(fn [{:keys [rf/time-ms]} ev] …)`. `inject-cofx` is **removed** (`:rf.error/inject-cofx-removed`) |
-| `rf/path` / `rf/unwrap-interceptor` | std interceptors |
+| `[:rf.interceptor/path path-vector]` | the **one** framework-standard interceptor ref (EP-0022; `:factory`), e.g. `[:rf.interceptor/path [:cart]]` — focuses `:db` on a slice, preserves the `identical?` no-op. No public `rf/path` constructor; no standard `unwrap` (use handler destructuring, or a project-registered `:app/unwrap`) |
 | `rf/init!` | `(adapter-map)` — install adapter/runtime capabilities; creates no frame. No registry. |
 | `rf/install-adapter!` / `rf/destroy-adapter!` / `rf/current-adapter` / `rf/current-adapter-spec` | low-level adapter ops; `current-adapter` → discriminator keyword, `current-adapter-spec` → spec map |
 | `rf/clear-event` / `rf/clear-sub` / `rf/clear-fx` / `rf/clear-flow` / `rf/clear-sub-cache!` | targeted deregistration |
