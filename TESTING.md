@@ -228,6 +228,67 @@ agent pre-checkin "narrow to the changed surface" workflow.
 | `scripts/test-jvm-implementation.sh` | All implementation JVM artefacts, including adapter diagnostic classpath probes. |
 | `scripts/test-jvm-tools.sh` | Tool JVM artefacts. |
 | `scripts/test-rigorous-local.sh` | Fast spine + JVM coordinators + rigorous browser/bundle/examples/Story/Xray gates. Expensive; use before release-sized changes. |
+| `scripts/test-core-jvm-windows.ps1` | **Windows-local** bounded wrapper for the full core JVM suite (`cd implementation/core && clojure -M:test`) under a timeout. On timeout it dumps the java/node/clojure lock-holders + tree-kills only its own child subtree, exits 124 with a handoff. See **Windows-local test policy** below. |
+| `scripts/test-jvm-nses-windows.ps1` | **Windows-local** per-namespace sharding fallback: runs each core test namespace in its own bounded `clojure -M:test -n <ns>`, so a hang is attributed to a specific namespace instead of hanging the whole suite. |
+| `scripts/reap-stale-test-processes.ps1` | **Windows-local** guarded reaper for stale repo/worktree test/dev processes (orphaned shadow watch / http-server testbeds / stale worktree JVMs). **DRY-RUN by default** (`-Execute` to kill; `-SelfTest` to verify classification). Never kills live MCP servers, Codex, or a running worker's JVM. |
+
+### Windows-local test policy (rf2-c3hffe)
+
+**CI (Linux) is authoritative for the full JVM suite.** The cross-spec core
+JVM gate — `cd implementation/core && clojure -M:test` — runs green on
+every PR on CI's Linux runners, and it is **not** split, trimmed, or
+weakened: its examples-laden breadth is load-bearing (the in-core
+`examples_test.clj` requires the example *source* namespaces, so the
+`../../examples/reagent` test path must stay). That gate is the system of
+record; a Windows-local hang is **not** a framework-correctness signal.
+
+**Why Windows is different.** On Mike's Windows host the unsharded cross-spec
+run has been observed to deadlock past 10 minutes on a *file-lock* — not a
+test failure. The root cause is a stale/orphaned repo-or-worktree
+shadow-cljs/Node/JVM process from a prior test or worker run still holding a
+lock on `implementation/` / `tools/` / `out/`; when the cross-artefact
+classpath suite compiles, it contends with that holder. (Mac/Linux do not
+exhibit this — the OS reparents orphans and the orchestrators' POSIX
+process-group teardown reaps them. The cross-platform orchestrator teardown
+is in `implementation/scripts/lib/local-browser-harness.cjs`.)
+
+**The leak is fixed at source.** Every `serve-and-run-*.cjs` test
+orchestrator tears its spawned server down on exit/SIGINT/SIGTERM via the
+shared `createHarnessCleanup` helper (Windows `taskkill /T /F`; Mac/Linux
+POSIX process-group kill), pinned by
+`implementation/scripts/_orchestrator-teardown-policy.test.cjs` (in
+`test:script-policy`) and exercised by
+`_orchestrator-teardown-integration.test.cjs` (in `test:script-helpers`).
+That stops new orphans being generated.
+
+**Windows workers, when the full local gate hangs.** Use the bounded
+wrapper and targeted runs rather than waiting out a 10-minute deadlock:
+
+1. `pwsh -File scripts/test-core-jvm-windows.ps1` — runs the full suite
+   under a timeout (default 600s). On timeout it dumps the java/node/clojure
+   command lines + (if Sysinternals `handle.exe` is on PATH) the open
+   handles into the worktree — **the instrument that proves the
+   lock-holder** — tree-kills *only* its own child subtree, and exits 124
+   with a handoff. A real test failure passes through as the suite's own
+   non-zero exit (distinct from 124).
+2. `pwsh -File scripts/reap-stale-test-processes.ps1` — DRY-RUN first to see
+   the stale orphans, then `-Execute` to reap them. It spares live MCP
+   servers, Codex, and any process whose parent is still alive (a running
+   worker's JVM). Pairs with the junction-safe worktree-cleanup pattern
+   (`cmd /c rmdir` a junctioned `node_modules` before `git worktree
+   remove`).
+3. `pwsh -File scripts/test-jvm-nses-windows.ps1` — the sharding fallback:
+   runs each namespace under its own bounded `clojure -M:test -n <ns>` so a
+   hang is localised to one namespace ("namespace X held the lock") instead
+   of hanging the whole suite. `-Pattern <substr>` filters; `-ListOnly`
+   prints the discovered namespaces.
+4. Then push and let **CI (Linux)** run the authoritative full JVM suite.
+
+**Interim, still in use:** brief core-touching Windows workers to verify
+bounded namespace subsets locally (the wrapper / sharding runner above, plus
+`npm run test:cljs` and api-manifest JVM-load) and rely on CI Linux for the
+full JVM suite. The bounded wrapper makes that interim faster and gives the
+holder dump that closes the bead's "prove the lock-holder" gap.
 
 ### `implementation/package.json` (run from `implementation/`)
 
