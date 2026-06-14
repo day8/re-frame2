@@ -74,6 +74,28 @@
                           #":rf.error/invalid-interceptor"
                           (rf/reg-interceptor* :t/bad2 :not-a-map))))
 
+  ;; rf2-pot53n — a descriptor carrying BOTH :factory AND a static slot
+  ;; (:before / :after) is AMBIGUOUS and rejected. valid-descriptor?'s
+  ;; factory-descriptor? branch returns (not (static-descriptor? descriptor)),
+  ;; so the :factory+:before mix fails validation. The existing "malformed
+  ;; descriptor" coverage above only hits the no-executable-slot ({:doc …}) and
+  ;; non-map legs; this pins the ambiguity-mix rejection arm.
+  (testing "ambiguous :factory + :before descriptor is :rf.error/invalid-interceptor"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+                          #":rf.error/invalid-interceptor"
+                          (rf/reg-interceptor* :t/ambig
+                            {:factory (fn [_] {:before identity})
+                             :before  (fn [ctx] ctx)}))
+        ":factory + :before in the same map is ambiguous — rejected"))
+
+  (testing "ambiguous :factory + :after descriptor is :rf.error/invalid-interceptor"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+                          #":rf.error/invalid-interceptor"
+                          (rf/reg-interceptor* :t/ambig2
+                            {:factory (fn [_] {:after identity})
+                             :after   (fn [ctx] ctx)}))
+        ":factory + :after in the same map is ambiguous — rejected"))
+
   (testing "migration boundary: interceptor VALUE with mismatched :id is rejected"
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
                           #":rf.error/invalid-interceptor"
