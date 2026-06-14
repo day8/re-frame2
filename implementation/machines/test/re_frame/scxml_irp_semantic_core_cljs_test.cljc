@@ -447,25 +447,61 @@
 ;; processing (the whole machine is done). re-frame2 analogue: a top-level
 ;; `:final?` leaf is WHOLE-MACHINE finality (vs an embedded final leaf, which
 ;; is only compound-done — sibling scxml-embedded-final-does-not-leak-to-
-;; machine-finality). The pure `final-on-leaf?` predicate recognises the
-;; top-level final config. Spec 005 §Final states §Top-level vs embedded.
+;; machine-finality). The DISTINGUISHING predicate is `top-level-final?`
+;; (length-1 path AND `:final?`): it is true for a root final and FALSE for
+;; an embedded final, whereas `final-on-leaf?` answers only "is the active
+;; leaf final?" and is true for BOTH — so it cannot prove the root-vs-embedded
+;; rule on its own. test415 therefore asserts `top-level-final?`; the embedded
+;; counter-case below pins the predicates apart. Spec 005 §Final states
+;; §Top-level vs embedded (rf2-bnjb3 / rf2-zlmz7).
 ;; ===========================================================================
 
 (deftest scxml-irp-test415-top-level-final-is-machine-final
   (testing "W3C IRP test415 (SCXML §3.7): entering a `<final>` child of the
             root halts the machine. re-frame2: a TOP-LEVEL `:final?` leaf is
-            whole-machine finality — `final-on-leaf?` is true, distinguishing
-            it from an embedded final leaf (compound-done only). Spec 005
-            §Final states §Top-level vs embedded."
+            whole-machine finality — `top-level-final?` is true. We assert
+            `top-level-final?` (NOT `final-on-leaf?`): it is the predicate that
+            actually encodes the root-vs-embedded distinction this rule claims
+            to prove (`final-on-leaf?` is true for an embedded final too, so it
+            cannot). Spec 005 §Final states §Top-level vs embedded."
     (let [m {:initial :run :data {}
              :states {:run {:on {:finish :done}}
                       :done {:final? true}}}
           r (step m {:state :run :data {}} [:finish])]
       (is (= :done (:state r)) "transitioned into the top-level final leaf")
+      (is (true? (transition/top-level-final? m (:state r)))
+          "a top-level :final? leaf IS whole-machine finality (415 — root final halts)")
       (is (true? (transition/final-on-leaf? m (:state r)))
-          "a top-level :final? leaf is whole-machine finality (415 — root final halts)")
+          "the active leaf is also final (final-on-leaf? agrees on a top-level final)")
+      (is (false? (transition/top-level-final? m :run))
+          "a non-final leaf is not machine-final")
       (is (false? (transition/final-on-leaf? m :run))
-          "a non-final leaf is not machine-final"))))
+          "a non-final leaf is not a final leaf"))))
+
+(deftest scxml-irp-test415-embedded-final-is-not-machine-final
+  (testing "W3C IRP test415 counter-case (SCXML §3.7): a `<final>` leaf
+            EMBEDDED inside a compound is NOT whole-machine finality — it
+            signals only that the enclosing compound is done (the machine
+            keeps running). This is the case that PINS the two predicates
+            apart and proves the root-vs-embedded distinction: on the same
+            embedded-final config `final-on-leaf?` is TRUE (the active leaf is
+            final) while `top-level-final?` is FALSE (the path is length 2, not
+            a direct child of the root). xstate v5 / SCXML §3.7 gold standard
+            (rf2-bnjb3 / rf2-zlmz7). Spec 005 §Final states §Top-level vs
+            embedded."
+    (let [m {:initial :work :data {}
+             :states {:work {:initial :step1
+                             :states {:step1 {:on {:finish :step-done}}
+                                      :step-done {:final? true}}}}}
+          r (step m {:state [:work :step1] :data {}} [:finish])]
+      (is (= [:work :step-done] (:state r))
+          "transitioned into the embedded final leaf (still inside :work)")
+      (is (true? (transition/final-on-leaf? m (:state r)))
+          "final-on-leaf? is TRUE — the active leaf :step-done is :final?")
+      (is (false? (transition/top-level-final? m (:state r)))
+          "top-level-final? is FALSE — an embedded final is compound-done, NOT
+           whole-machine finality (the predicates DIVERGE here — this is the
+           root-vs-embedded distinction test415 claims to prove)"))))
 
 ;; ===========================================================================
 ;; §F. Internal queue + eventless macrostep — W3C IRP test144/158/419/421
