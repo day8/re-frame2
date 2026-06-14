@@ -17,11 +17,11 @@
 
 ;; -- Events / subs ----------------------------------------------------------
 
-(rf/reg-event-db :counter/init
-  (fn [_db _event] {:counter/value 0}))
+(rf/reg-event :counter/init
+  (fn [{:keys [db]} _event] {:db {:counter/value 0}}))
 
-(rf/reg-event-db :counter/inc
-  (fn [db _event] (update db :counter/value inc)))
+(rf/reg-event :counter/inc
+  (fn [{:keys [db]} _event] {:db (update db :counter/value inc)}))
 
 (rf/reg-sub :counter/value
   (fn [db _query] (:counter/value db)))

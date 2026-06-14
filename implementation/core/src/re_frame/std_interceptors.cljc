@@ -84,7 +84,7 @@
 
 (def unwrap-interceptor
   "Pre-registered interceptor (a value, not a fn). Use as
-  `(reg-event-fx :foo {:interceptors [unwrap-interceptor]} (fn [_ {:keys [a b]}] ...))`.
+  `(reg-event :foo {:interceptors [unwrap-interceptor]} (fn [_ {:keys [a b]}] ...))`.
   The :event coeffect inside the handler is the payload map.
 
   The `-interceptor` suffix telegraphs value-shape (per rf2-k367k +
