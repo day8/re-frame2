@@ -1,7 +1,13 @@
 # EP-0018: One Event Registration Surface
 
-Status: proposal
+Status: accepted
 Type: standards-track
+
+> **`accepted` means the decisions are settled; the build is pending (flip
+> recorded 2026-06-14, Mike, in-session).** The seven design decisions are ruled
+> (see [§Resolved Decisions](#resolved-decisions)) and the `proposal → accepted`
+> flip is now recorded; the action epic that lands the changes in the normative
+> spec is the next governance step.
 
 > This EP collapses re-frame2's three public event-registration forms to one —
 > **`reg-event`**, semantically today's `reg-event-fx` (coeffects in, a closed
