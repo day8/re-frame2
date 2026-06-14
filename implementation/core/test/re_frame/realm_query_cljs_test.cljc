@@ -126,7 +126,7 @@
   (testing "the {:realm r …} form reads ONLY realm r's registrar — the same id
             registered differently in two realms resolves per-realm"
     ;; Default realm: :shared/handler → default-meta.
-    (rf/reg-event-db :shared/handler {:doc "default"} (fn [db _] db))
+    (rf/reg-event :shared/handler {:doc "default"} (fn [{:keys [db]} _] {:db db}))
     (let [default-meta (registrar/lookup :event :shared/handler)
           tenant-meta  {:handler-fn (fn [db _] db) :doc "tenant"}
           ;; The tenant realm registers the SAME id with DIFFERENT metadata,

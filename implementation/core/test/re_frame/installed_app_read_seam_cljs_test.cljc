@@ -137,7 +137,7 @@
 
 (deftest installed-app-no-arg-reads-the-default-realm
   (testing "the no-arg form reads the default realm (absence = default realm)"
-    (rf/reg-event-db :default/e (fn [db _] db))
+    (rf/reg-event :default/e (fn [{:keys [db]} _] {:db db}))
     (is (= (rf/installed-app)
            (rf/installed-app realm/default-realm-id))
         "(installed-app) and (installed-app default-realm-id) agree")
@@ -171,7 +171,7 @@
             the public read is the LIVE registrar, not the frozen snapshot. The
             seated app's :modules / :rf.app/requires provenance is preserved."
     ;; Sugar FIRST — writes the default realm's registrar in place, no module.
-    (rf/reg-event-db :sugar/before (fn [db _] db))
+    (rf/reg-event :sugar/before (fn [{:keys [db]} _] {:db db}))
     (with-default-realm-http!
       (fn []
         (let [cart (rf/module {:id                 :shop/cart
@@ -224,7 +224,7 @@
                                                :events   {:cart/add {:handler cart-add}}})]})]
           (rf/install! a)
           ;; Sugar AFTER the install — must still surface in the public read.
-          (rf/reg-event-db :sugar/after (fn [db _] db))
+          (rf/reg-event :sugar/after (fn [{:keys [db]} _] {:db db}))
           (let [events (rf/app-registrations (rf/installed-app) :event)]
             (is (contains? events :sugar/after)
                 "a post-install sugar registration is visible (live recompute,
@@ -240,7 +240,7 @@
             — and the PUBLIC read surface (rf/installed-app), not just the
             registrar, reflects that. AC3: assert how the chosen read exposes
             the coexisting sugar through a replacement."
-    (rf/reg-event-db :coexist/sugar (fn [db _] db))
+    (rf/reg-event :coexist/sugar (fn [{:keys [db]} _] {:db db}))
     (with-default-realm-http!
       (fn []
         ;; install app1 (its own event), then install app2 dropping app1's event.

@@ -427,10 +427,10 @@
             (continuation under the locked FIFO drain), and the slice
             settles to :transition :error attributed to the FIRST failure"
     (let [order (atom [])]
-      (rf/reg-event-db :load/fail
-                       (fn [_db _]
+      (rf/reg-event :load/fail
+                       (fn [{:keys [db]} _]
                          (swap! order conj :fail)
-                         (throw (ex-info "first-boom" {:why :test}))))
+                         {:db (throw (ex-info "first-boom" {:why :test}))}))
       (rf/reg-event :load/next
                        (fn [{:keys [db]} _]
                          (swap! order conj :next)
@@ -461,14 +461,14 @@
             :on-error dispatches EXACTLY ONCE — xstate-v5 errored-transition
             semantics"
     (let [on-error-count (atom 0)]
-      (rf/reg-event-db :load/fail-1
-                       (fn [_db _] (throw (ex-info "boom-1" {:n 1}))))
-      (rf/reg-event-db :load/fail-2
-                       (fn [_db _] (throw (ex-info "boom-2" {:n 2}))))
-      (rf/reg-event-db :route/double-fail-on-error
-                       (fn [db _]
+      (rf/reg-event :load/fail-1
+                       (fn [{:keys [db]} _] {:db (throw (ex-info "boom-1" {:n 1}))}))
+      (rf/reg-event :load/fail-2
+                       (fn [{:keys [db]} _] {:db (throw (ex-info "boom-2" {:n 2}))}))
+      (rf/reg-event :route/double-fail-on-error
+                       (fn [{:keys [db]} _]
                          (swap! on-error-count inc)
-                         db))
+                         {:db db}))
       (rf/reg-route :route/double-fail
                     {:path     "/double-fail"
                      :on-match [[:load/fail-1] [:load/fail-2]]
@@ -495,8 +495,8 @@
             suppressed)"
     (rf/reg-event :load/ok
                      (fn [{:keys [db]} _] {:db (assoc db :ok? true)}))
-    (rf/reg-event-db :load/late-fail
-                     (fn [_db _] (throw (ex-info "late-boom" {}))))
+    (rf/reg-event :load/late-fail
+                     (fn [{:keys [db]} _] {:db (throw (ex-info "late-boom" {}))}))
     (rf/reg-route :route/clean {:path "/clean" :on-match [[:load/ok]]})
     (rf/reg-route :route/dirty {:path "/dirty" :on-match [[:load/late-fail]]})
     (rf/reg-fx :rf.nav/push-url

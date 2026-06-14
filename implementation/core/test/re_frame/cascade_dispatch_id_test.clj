@@ -97,7 +97,7 @@
 (deftest dispatch-id-rides-on-error-events-inside-the-cascade
   (testing "errors emitted inside the drain carry the cascade's :rf.trace/dispatch-id"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :throws (fn [_ _] (throw (ex-info "oops" {}))))
+    (rf/reg-event :throws (fn [{:keys [db]} _] {:db (throw (ex-info "oops" {}))}))
     (let [evs        (record-traces
                        (fn [] (rf/dispatch-sync [:throws] {:frame :test/main})))
           dispatched (first (events-of evs #(= :rf.event/dispatched (:operation %))))
@@ -154,7 +154,7 @@
         (rf/reg-frame :test/outside {})
         ;; reg-event-db / reg-fx emit :rf.registry/handler-registered traces
         ;; via the registrar; these fire OUTSIDE any drain.
-        (rf/reg-event-db :foo (fn [db _] db))
+        (rf/reg-event :foo (fn [{:keys [db]} _] {:db db}))
         (let [out-of-band (filter #(or (= :rf.frame/created (:operation %))
                                        (= :rf.registry/handler-registered (:operation %)))
                                   @seen)]

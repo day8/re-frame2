@@ -64,7 +64,7 @@
         {:doc       "composition test"
          :platform  :server
          :on-create [:rf.test.composition/noop]})
-      (rf/reg-event-db :rf.test.composition/noop (fn [db _] db))
+      (rf/reg-event :rf.test.composition/noop (fn [{:keys [db]} _] {:db db}))
       (rf/render-head :head/composition-test {:frame fid})
 
       ;; All four populated — sanity.
@@ -110,7 +110,7 @@
         {:doc       "idempotence test"
          :platform  :server
          :on-create [:rf.test.composition/noop]})
-      (rf/reg-event-db :rf.test.composition/noop (fn [db _] db))
+      (rf/reg-event :rf.test.composition/noop (fn [{:keys [db]} _] {:db db}))
       (rf/render-head :head/idempotence {:frame fid})
 
       ;; First destroy releases everything.
@@ -154,7 +154,7 @@
           {:doc       (str "iso " (name fid))
            :platform  :server
            :on-create [:rf.test.composition/noop]})
-        (rf/reg-event-db :rf.test.composition/noop (fn [db _] db))
+        (rf/reg-event :rf.test.composition/noop (fn [{:keys [db]} _] {:db db}))
         (rf/render-head :head/iso {:frame fid}))
 
       ;; Destroy ONLY fid-a.

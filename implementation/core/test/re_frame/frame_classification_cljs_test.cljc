@@ -46,10 +46,10 @@
       ;; The :on-create handler observes the elision registry mid-init. If
       ;; classification installs atomically before :on-create, the handler
       ;; sees the sensitive declaration already present.
-      (rf/reg-event-db :app/init
-        (fn [db _]
+      (rf/reg-event :app/init
+        (fn [{:keys [db]} _]
           (reset! seen (elision/sensitive-declarations :app/main))
-          db))
+          {:db db}))
       (rf/reg-frame :app/main
         {:sensitive {:app-db [[:auth :token]]}
          :large     {:app-db [[:documents :csv-upload]]}

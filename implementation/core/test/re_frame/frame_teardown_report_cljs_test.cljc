@@ -436,10 +436,10 @@
       ;; A's :on-destroy event destroys B mid-teardown of A. B's full teardown
       ;; (incl. its finally-flush report) completes nested inside A's step 1,
       ;; while A's own accumulator is still empty (A's own hooks run AFTER).
-      (rf/reg-event-db :teardown/destroy-inner
-                       (fn [db _]
+      (rf/reg-event :teardown/destroy-inner
+                       (fn [{:keys [db]} _]
                          (rf/destroy-frame! :teardown/inner-B)
-                         db))
+                         {:db db}))
       (rf/reg-frame :teardown/outer-A
                     {:doc        "outer frame"
                      :on-destroy [:teardown/destroy-inner]})

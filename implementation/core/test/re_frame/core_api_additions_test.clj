@@ -214,8 +214,8 @@
 
 (deftest registrations-1-arity-returns-full-map
   (testing "(registrations kind) returns the full {id metadata} map"
-    (rf/reg-event-db :hf/one (fn [db _] db))
-    (rf/reg-event-db :hf/two (fn [db _] db))
+    (rf/reg-event :hf/one (fn [{:keys [db]} _] {:db db}))
+    (rf/reg-event :hf/two (fn [{:keys [db]} _] {:db db}))
     (let [all (rf/registrations :event)]
       (is (contains? all :hf/one))
       (is (contains? all :hf/two)))))
@@ -226,9 +226,9 @@
     ;; metadata-map only. Id-namespace filters ride a user-tag the
     ;; caller stamps onto the slot (or compose via `filter` over the
     ;; returned map's keys).
-    (rf/reg-event-db :hf.alpha/one (fn [db _] db))
-    (rf/reg-event-db :hf.alpha/two (fn [db _] db))
-    (rf/reg-event-db :hf.beta/one  (fn [db _] db))
+    (rf/reg-event :hf.alpha/one (fn [{:keys [db]} _] {:db db}))
+    (rf/reg-event :hf.alpha/two (fn [{:keys [db]} _] {:db db}))
+    (rf/reg-event :hf.beta/one  (fn [{:keys [db]} _] {:db db}))
     (registrar/register! :event :hf.alpha/one
       (assoc (rf/handler-meta :event :hf.alpha/one) :rf/group :alpha))
     (registrar/register! :event :hf.alpha/two
@@ -243,8 +243,8 @@
 
 (deftest registrations-2-arity-pred-receives-meta
   (testing "the pred-fn receives the metadata-map only"
-    (rf/reg-event-db :hf/marked   (fn [db _] db))
-    (rf/reg-event-db :hf/unmarked (fn [db _] db))
+    (rf/reg-event :hf/marked   (fn [{:keys [db]} _] {:db db}))
+    (rf/reg-event :hf/unmarked (fn [{:keys [db]} _] {:db db}))
     ;; Re-register :hf/marked with extra meta on the slot.
     (registrar/register! :event :hf/marked
       (assoc (rf/handler-meta :event :hf/marked) :rf/marker? true))
@@ -254,7 +254,7 @@
 
 (deftest registrations-2-arity-empty-result
   (testing "a predicate that matches nothing returns {}"
-    (rf/reg-event-db :hf/one (fn [db _] db))
+    (rf/reg-event :hf/one (fn [{:keys [db]} _] {:db db}))
     (is (= {} (rf/registrations :event (constantly false)))
         "no entries match → empty map")))
 
@@ -334,7 +334,7 @@
 (deftest app-db-value-and-replace-app-db-round-trip
   (testing "replace-app-db! then app-db-value round-trips the app-db partition"
     (rf/reg-frame :pp/round-trip {:doc "round-trip"})
-    (rf/reg-event-db :pp/seed (fn [_ [_ db]] db))
+    (rf/reg-event :pp/seed (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:pp/seed {:k 1}] {:frame :pp/round-trip})
     (is (= {:k 1} (rf/app-db-value :pp/round-trip))
         "app-db-value reads the seeded app-db")
@@ -348,7 +348,7 @@
             runtime-db survives (EP-0001 rf2-tfepxu, Mike ruling #10 — the
             app-db sibling of whole-frame reset-frame!)"
     (rf/reg-frame :pp/reset-app {:doc "reset-app"})
-    (rf/reg-event-db :pp/seed (fn [_ [_ db]] db))
+    (rf/reg-event :pp/seed (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:pp/seed {:k 1 :cart {:items [9]}}] {:frame :pp/reset-app})
     (rf/replace-runtime-db! :pp/reset-app {:rf.runtime/machines {:m 1}})
     (is (= {:k 1 :cart {:items [9]}} (rf/app-db-value :pp/reset-app)))
@@ -379,7 +379,7 @@
 (deftest frame-state-value-projection-shape
   (testing "frame-state-value yields {:rf.db/app … :rf.db/runtime …} with the real runtime-db"
     (rf/reg-frame :pp/fs {:doc "frame-state"})
-    (rf/reg-event-db :pp/seed-fs (fn [_ [_ db]] db))
+    (rf/reg-event :pp/seed-fs (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:pp/seed-fs {:a 1}] {:frame :pp/fs})
     (is (= {:rf.db/app {:a 1} :rf.db/runtime {}}
            (rf/frame-state-value :pp/fs))
@@ -398,7 +398,7 @@
 (deftest replace-runtime-db-writes-real-partition
   (testing "replace-runtime-db! writes the runtime-db partition only (rf2-adwcv6)"
     (rf/reg-frame :pp/rdb {:doc "runtime-mutate"})
-    (rf/reg-event-db :pp/seed-app (fn [_ [_ db]] db))
+    (rf/reg-event :pp/seed-app (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:pp/seed-app {:app :data}] {:frame :pp/rdb})
     (rf/replace-runtime-db! :pp/rdb {:rf.runtime/machines {}})
     (is (= {:rf.runtime/machines {}} (rf/runtime-db-value :pp/rdb))
@@ -498,7 +498,7 @@
             epoch — the renamed time-travel surface resolves a live hook and
             mutates state (rf2-xhdwms)"
     (rf/reg-frame :rn/epoch {:doc "rename-epoch"})
-    (rf/reg-event-db :rn/seed (fn [_ [_ db]] db))
+    (rf/reg-event :rn/seed (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:rn/seed {:step 1}] {:frame :rn/epoch})
     (let [target (last (rf/epoch-history :rn/epoch))]
       (rf/dispatch-sync [:rn/seed {:step 2}] {:frame :rn/epoch})

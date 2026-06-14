@@ -152,7 +152,7 @@
             app value is a projection over it, so there is nothing to invalidate"
     (is (nil? (get-in (av/app-value) [:registrations :event :av/sugar]))
         "absent before registration")
-    (rf/reg-event-db :av/sugar {:doc "sugar"} (fn [db _] db))
+    (rf/reg-event :av/sugar {:doc "sugar"} (fn [{:keys [db]} _] {:db db}))
     (is (some? (get-in (av/app-value) [:registrations :event :av/sugar]))
         "present in the next projection after the sugar-path reg-* — no
          invalidation step, no desync")))
@@ -160,7 +160,7 @@
 (deftest sugar-path-and-unregister-round-trip
   (testing "unregister removes the descriptor from the next projection too —
             the projection tracks the registrar exactly"
-    (rf/reg-event-db :av/ephemeral {:doc "ephemeral"} (fn [db _] db))
+    (rf/reg-event :av/ephemeral {:doc "ephemeral"} (fn [{:keys [db]} _] {:db db}))
     (is (some? (get-in (av/app-value) [:registrations :event :av/ephemeral]))
         "present after registration")
     (registrar/unregister! :event :av/ephemeral)
@@ -174,7 +174,7 @@
 (deftest projection-is-recomputable-equal-values
   (testing "two projections taken at the same registrar state are EQUAL values
             — the projection is pure with respect to the registrar deref"
-    (rf/reg-event-db :av/r1 {:doc "r1"} (fn [db _] db))
+    (rf/reg-event :av/r1 {:doc "r1"} (fn [{:keys [db]} _] {:db db}))
     (rf/reg-sub :av/r2 {:doc "r2"} (fn [db _] (:r2 db)))
     (is (= (av/app-value) (av/app-value))
         "recomputing at the same registrar state yields an equal app value")))
@@ -214,7 +214,7 @@
 (deftest installed-app-seam-returns-the-projection
   (testing "realm/installed-app returns the recomputable projection over the
             realm's registrar, reached through the :app-value/project hook"
-    (rf/reg-event-db :av/seam {:doc "seam"} (fn [db _] db))
+    (rf/reg-event :av/seam {:doc "seam"} (fn [{:keys [db]} _] {:db db}))
     (is (= (av/app-value) (realm/installed-app))
         "the realm-side seam equals the direct projection (default realm)")
     (is (= (av/app-value :rf.realm/default)

@@ -114,7 +114,7 @@
     ;; `:on-match` route → drives the FIFO settle handler
     ;; (`:rf.route.internal/settle-transition`), which writes the
     ;; `:transition` state into the runtime-db slice via `:rf.db/runtime`.
-    (rf/reg-event-db :load/noop (fn [db _] db))
+    (rf/reg-event :load/noop (fn [{:keys [db]} _] {:db db}))
     (rf/reg-route :route/loaded  {:path     "/loaded"
                                   :on-match [[:load/noop]]})
     (stub-push-url!)

@@ -18,9 +18,9 @@
 (deftest on-match-error-flips-transition-to-error
   (testing "an :on-match event throw flips :transition :error and
             populates :rf.route/error (Spec 012 §Per-route error handling)"
-    (rf/reg-event-db :load/throw
-                     (fn [_db _]
-                       (throw (ex-info "boom" {:reason :test}))))
+    (rf/reg-event :load/throw
+                     (fn [{:keys [db]} _]
+                       {:db (throw (ex-info "boom" {:reason :test}))}))
     (rf/reg-route :route/dashboard
                   {:path     "/dashboard"
                    :on-match [[:load/throw]]})
@@ -42,9 +42,9 @@
   (testing "a route's :on-error event dispatches with the error context
             visible via (:error (get-in db [:rf.runtime/routing :current])) (Spec 012 §Per-route
             error handling)"
-    (rf/reg-event-db :load/throw2
-                     (fn [_db _]
-                       (throw (ex-info "kaboom" {}))))
+    (rf/reg-event :load/throw2
+                     (fn [{:keys [db]} _]
+                       {:db (throw (ex-info "kaboom" {}))}))
     ;; EP-0001 (rf2-vzld77): the route slice (with :error) is durable routing
     ;; runtime-db state, so the :on-error handler reads it off :rf.db/runtime.
     (rf/reg-event :route/cart-load-failed
@@ -73,9 +73,9 @@
             populates :rf.route/error — views may render an error banner
             without an explicit :on-error policy (Spec 012 §Per-route
             error handling — last paragraph)"
-    (rf/reg-event-db :load/throw3
-                     (fn [_db _]
-                       (throw (ex-info "x" {}))))
+    (rf/reg-event :load/throw3
+                     (fn [{:keys [db]} _]
+                       {:db (throw (ex-info "x" {}))}))
     (rf/reg-route :route/page
                   {:path     "/page"
                    :on-match [[:load/throw3]]})
@@ -92,9 +92,9 @@
 (deftest on-match-error-keyword-on-error-wraps-as-vector
   (testing "an :on-error declared as a bare keyword (rather than a
             vector) dispatches as `[<kw>]` per the spec example"
-    (rf/reg-event-db :load/throw4
-                     (fn [_db _]
-                       (throw (ex-info "y" {}))))
+    (rf/reg-event :load/throw4
+                     (fn [{:keys [db]} _]
+                       {:db (throw (ex-info "y" {}))}))
     (rf/reg-event :handle/error
                      (fn [{:keys [db]} _]
                        {:db (assoc db :handled? true)}))
@@ -124,9 +124,9 @@
             outside the routing listener's discrimination context —
             can identify the throw as :on-match-attributed without
             re-running the listener logic."
-    (rf/reg-event-db :load/throw-attribute
-                     (fn [_db _]
-                       (throw (ex-info "attributed-boom" {:why :test}))))
+    (rf/reg-event :load/throw-attribute
+                     (fn [{:keys [db]} _]
+                       {:db (throw (ex-info "attributed-boom" {:why :test}))}))
     (rf/reg-route :route/attributed
                   {:path     "/attributed"
                    :on-match [[:load/throw-attribute]]})
@@ -158,9 +158,9 @@
             events. Per rf2-t1lxr; per rf2-1ve9h `:source` is the single
             closed-enum functional-origin axis on the dispatch envelope,
             and `:source :router` is the routing discriminator."
-    (rf/reg-event-db :load/throw-source
-                     (fn [_db _]
-                       (throw (ex-info "source-boom" {:why :test}))))
+    (rf/reg-event :load/throw-source
+                     (fn [{:keys [db]} _]
+                       {:db (throw (ex-info "source-boom" {:why :test}))}))
     (rf/reg-route :route/source-attributed
                   {:path     "/source-attributed"
                    :on-match [[:load/throw-source]]})
@@ -218,8 +218,8 @@
                            ;; colliding throwing child, then no-op.
                            {:db db
                             :fx [[:dispatch [:app/load-x "button"]]]})))
-      (rf/reg-event-db :app/route-on-error
-                       (fn [db _] (reset! on-error-fired? true) db))
+      (rf/reg-event :app/route-on-error
+                       (fn [{:keys [db]} _] (reset! on-error-fired? true) {:db db}))
       (rf/reg-route :route/collide
                     {:path     "/collide"
                      :on-match [[:app/load-x "route"]]
@@ -244,11 +244,11 @@
             :on-error. The tightened discrimination must not suppress the
             real error path."
     (let [on-error-fired? (atom false)]
-      (rf/reg-event-db :app/genuine-load
-                       (fn [_db [_ arg]]
-                         (throw (ex-info "genuine-boom" {:arg arg}))))
-      (rf/reg-event-db :app/genuine-on-error
-                       (fn [db _] (reset! on-error-fired? true) db))
+      (rf/reg-event :app/genuine-load
+                       (fn [{:keys [db]} [_ arg]]
+                         {:db (throw (ex-info "genuine-boom" {:arg arg}))}))
+      (rf/reg-event :app/genuine-on-error
+                       (fn [{:keys [db]} _] (reset! on-error-fired? true) {:db db}))
       (rf/reg-route :route/genuine
                     {:path     "/genuine"
                      ;; on-match carries args — the failing dispatch must

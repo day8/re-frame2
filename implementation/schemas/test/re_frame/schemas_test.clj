@@ -272,10 +272,10 @@
                           :id     ::after-probe
                           :before (fn [ctx] (swap! before-calls inc) ctx)
                           :after  (fn [ctx] (swap! after-calls inc) ctx))]
-      (rf/reg-event-db :user/probe
+      (rf/reg-event :user/probe
         {:schema [:cat [:= :user/probe] :int]
          :interceptors [probe]}
-        (fn [db _] (swap! handler-calls inc) db))
+        (fn [{:keys [db]} _] (swap! handler-calls inc) {:db db}))
       (let [traces (atom [])]
         (rf/register-listener! ::after-ev (fn [ev] (swap! traces conj ev)))
         ;; Malformed payload — event-vector validation fails pre-handler.
@@ -297,9 +297,9 @@
 (deftest event-payload-validation-elides-when-debug-disabled
   (testing "validate-event! is a no-op when debug-enabled? is false (production)"
     (let [calls (atom 0)]
-      (rf/reg-event-db :user/strict
+      (rf/reg-event :user/strict
         {:schema [:cat [:= :user/strict] :int]}
-        (fn [db _] (swap! calls inc) db))
+        (fn [{:keys [db]} _] (swap! calls inc) {:db db}))
       (let [traces (atom [])]
         (rf/register-listener! ::ev2 (fn [ev] (swap! traces conj ev)))
         (with-redefs [interop/debug-enabled? false]
@@ -1194,9 +1194,9 @@
             pre-handler validation trace fires."
     (schemas/set-schema-validator! nil)
     (let [calls (atom 0)]
-      (rf/reg-event-db :user/strict
+      (rf/reg-event :user/strict
         {:schema [:cat [:= :user/strict] :int]}
-        (fn [db _] (swap! calls inc) db))
+        (fn [{:keys [db]} _] (swap! calls inc) {:db db}))
       (let [traces (atom [])]
         (rf/register-listener! ::nile (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:user/strict "not-an-int"])
@@ -1814,9 +1814,9 @@
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf\.error/at-boundary-missing-schema"
-            (rf/reg-event-db :api/db-no-schema
+            (rf/reg-event :api/db-no-schema
               {:interceptors [rf/validate-at-boundary-interceptor]}
-              (fn [db _] db))))
+              (fn [{:keys [db]} _] {:db db}))))
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf\.error/at-boundary-missing-schema"

@@ -33,8 +33,8 @@
   [test-fn]
   (tf/reset-runtime
     (fn []
-      (rf/reg-event-db :rf.test/seed-db (fn [_ [_ db]] db))
-      (rf/reg-event-db :rf.test/noop    (fn [db _] db))
+      (rf/reg-event :rf.test/seed-db (fn [{:keys [db]} [_ db]] {:db db}))
+      (rf/reg-event :rf.test/noop    (fn [{:keys [db]} _] {:db db}))
       (test-fn))))
 
 (use-fixtures :each reset+reg)

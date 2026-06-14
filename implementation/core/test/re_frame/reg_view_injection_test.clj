@@ -75,7 +75,7 @@
         ;; scope — there is no `:rf/default` floor. Render under an
         ;; explicit `with-frame` scope so the handle captures a real frame.
         (rf/reg-frame :rf2-cry25/click-frame {:doc "the render-time frame"})
-        (rf/reg-event-db :rf2-cry25/clicked (fn [db _] db))
+        (rf/reg-event :rf2-cry25/clicked (fn [{:keys [db]} _] {:db db}))
         ;; `dispatch` here is the INJECTED noun (shadowing the macro) per
         ;; Spec 004 §reg-view. The reg-view definition site is the coord
         ;; 'go to code' must resolve to.
@@ -115,7 +115,7 @@
       (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
       (try
         (rf/reg-frame :rf2-cry25/render-frame {:doc "the render-time frame"})
-        (rf/reg-event-db :rf2-cry25/clicked (fn [db _] db))
+        (rf/reg-event :rf2-cry25/clicked (fn [{:keys [db]} _] {:db db}))
         (rf/reg-view frame-view [_n]
           [:button {:on-click #(dispatch [:rf2-cry25/clicked])} "go"])
         ;; Render the view UNDER :rf2-cry25/render-frame so the frame-handle

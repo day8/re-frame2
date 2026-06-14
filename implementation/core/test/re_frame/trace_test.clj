@@ -167,7 +167,7 @@
       (rf/dispatch-sync [:no.such/event] {:frame :test/main})
 
       ;; ---- :rf.error/handler-exception ------------------------------------
-      (rf/reg-event-db :throws (fn [_ _] (throw (ex-info "oops" {:bad? true}))))
+      (rf/reg-event :throws (fn [{:keys [db]} _] {:db (throw (ex-info "oops" {:bad? true}))}))
       (rf/dispatch-sync [:throws] {:frame :test/main})
 
       ;; ---- :rf.error/fx-handler-exception ---------------------------------

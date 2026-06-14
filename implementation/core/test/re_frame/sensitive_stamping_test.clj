@@ -55,8 +55,8 @@
   (filterv #(= op (:operation %)) evs))
 
 (deftest plain-handler-no-sensitive-flag
-  (rf/reg-event-db :sensitive/plain
-                   (fn [db _] db))
+  (rf/reg-event :sensitive/plain
+                   (fn [{:keys [db]} _] {:db db}))
   (let [evs (record-traces #(rf/dispatch-sync [:sensitive/plain]))]
     (doseq [ev evs]
       (is (not (contains? ev :sensitive?))))))
@@ -111,9 +111,9 @@
 
 (deftest frame-class-auto-redaction-stamps-handler-exception
   (install-sensitive! :rf/default [[:auth :password]])
-  (rf/reg-event-db :auth/throws
+  (rf/reg-event :auth/throws
                    {:interceptors [(rf/path :auth)]}
-                   (fn [_ _] (throw (ex-info "boom" {}))))
+                   (fn [{:keys [db]} _] {:db (throw (ex-info "boom" {}))}))
   (let [evs (record-traces
               #(rf/dispatch-sync
                  [:auth/throws {:password "shh"}]))
@@ -143,11 +143,11 @@
   (rf/clear-trace-buffer! :rf/default)
   (rf/configure! :trace-buffer {:cascades-retained 100})
   (install-sensitive! :rf/default [[:auth :password]])
-  (rf/reg-event-db :sensitive/buf
+  (rf/reg-event :sensitive/buf
                    {:interceptors [(rf/path :auth)]}
-                   (fn [auth _] auth))
-  (rf/reg-event-db :plain/buf
-                   (fn [db _] db))
+                   (fn [{auth :db} _] {:db auth}))
+  (rf/reg-event :plain/buf
+                   (fn [{:keys [db]} _] {:db db}))
   (rf/dispatch-sync [:sensitive/buf {:password "x"}])
   (rf/dispatch-sync [:plain/buf])
   (let [all   (rf/trace-buffer :rf/default {:flat true})

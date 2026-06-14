@@ -61,7 +61,7 @@
 
 (deftest fires-on-unknown-opts-key
   (testing "an unrecognised opts key emits exactly one warning naming the bad key + the known set"
-    (rf/reg-event-db :app/noop (fn [db _] db))
+    (rf/reg-event :app/noop (fn [{:keys [db]} _] {:db db}))
     (let [recorded (record-traces! ::unknown)]
       ;; `:fram` is the classic typo for `:frame` — silently swallowed
       ;; before this fix.
@@ -88,7 +88,7 @@
 
 (deftest names-every-unknown-key-in-one-warning
   (testing "multiple unknown keys → a single warning listing them all"
-    (rf/reg-event-db :app/noop (fn [db _] db))
+    (rf/reg-event :app/noop (fn [{:keys [db]} _] {:db db}))
     (let [recorded (record-traces! ::multi)]
       (rf/dispatch-sync [:app/noop] {:fram :rf/default :srce :ui :origin :app})
 
@@ -101,7 +101,7 @@
 (deftest no-warning-for-known-opts
   (testing "a known opts key (:frame) → no warning"
     (rf/reg-frame :game {:doc "non-default frame target"})
-    (rf/reg-event-db :game/tick {:frame :game} (fn [db _] db))
+    (rf/reg-event :game/tick {:frame :game} (fn [{:keys [db]} _] {:db db}))
     (let [recorded (record-traces! ::known)]
       (rf/dispatch-sync [:game/tick] {:frame :game})
       (is (empty? (unknown-opt-warnings recorded))
@@ -109,7 +109,7 @@
 
 (deftest no-warning-for-source-and-origin-opts
   (testing "the full known set is accepted without warning"
-    (rf/reg-event-db :app/noop (fn [db _] db))
+    (rf/reg-event :app/noop (fn [{:keys [db]} _] {:db db}))
     (let [recorded (record-traces! ::full-known)]
       (rf/dispatch-sync [:app/noop]
                         {:source :ui :origin :app :trace-id "t1"
@@ -120,7 +120,7 @@
 
 (deftest no-warning-for-empty-opts
   (testing "the no-opts dispatch path emits no warning"
-    (rf/reg-event-db :app/noop (fn [db _] db))
+    (rf/reg-event :app/noop (fn [{:keys [db]} _] {:db db}))
     (let [recorded (record-traces! ::empty)]
       (rf/dispatch-sync [:app/noop])
       (is (empty? (unknown-opt-warnings recorded))
@@ -128,7 +128,7 @@
 
 (deftest async-dispatch-path-also-warns
   (testing "the queued `dispatch` path (not just dispatch-sync) warns on unknown keys"
-    (rf/reg-event-db :app/noop (fn [db _] db))
+    (rf/reg-event :app/noop (fn [{:keys [db]} _] {:db db}))
     (let [recorded (record-traces! ::async)]
       ;; `dispatch` enqueues; the JVM drain runs it synchronously via the
       ;; router, but `build-envelope` (where the check lives) runs at

@@ -293,7 +293,7 @@
       (rf/reg-event :cofx-test/request
         (fn [_ _]
           {:fx [[:dispatch [:cofx-test/replied {:status :ok :value {:title "Welcome"}}]]]}))
-      (rf/reg-event-db :cofx-test/replied (fn [db _] db))
+      (rf/reg-event :cofx-test/replied (fn [{:keys [db]} _] {:db db}))
       (rf/dispatch-sync [:cofx-test/request]
                         {:rf.cofx {:rf/time-ms 1781078400123}})
       (rf/unregister-listener! ::reply-cofx)
@@ -416,9 +416,9 @@
             `:rf.error/cofx-request-invalid` (a db handler cannot take
             delivery; EP-0017 §4)"
     (let [ex (try
-               (rf/reg-event-db :cofx-test/db-with-requires
+               (rf/reg-event :cofx-test/db-with-requires
                  {:rf.cofx/requires [:rf/time-ms]}
-                 (fn [db _] db))
+                 (fn [{:keys [db]} _] {:db db}))
                nil
                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
       (is (some? ex) "reg-event-db with :rf.cofx/requires threw at registration")

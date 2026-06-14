@@ -108,7 +108,7 @@
             the router envelope-stamp path as seen by the trace stream, not
             just the handler coeffect."
     (rf/reg-frame :wi.clk/trace {:doc "ctx"})
-    (rf/reg-event-db :wi.clk/noop (fn [db _] db))
+    (rf/reg-event :wi.clk/noop (fn [{:keys [db]} _] {:db db}))
     (let [seen (atom [])]
       (rf/register-listener! ::clk-probe (fn [ev] (swap! seen conj ev)))
       (let [before (js/Date.now)]

@@ -122,7 +122,7 @@
         (rf/reg-event :test/parent
           (fn [_ _]
             {:fx [[:dispatch [:test/child]]]}))
-        (rf/reg-event-db :test/child (fn [db _] db))
+        (rf/reg-event :test/child (fn [{:keys [db]} _] {:db db}))
 
         (rf/dispatch-sync [:test/parent]
                           {:trace-id ::scoped-trace

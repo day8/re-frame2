@@ -418,7 +418,7 @@
 (defn ^:export touch-call-site-macros! []
   ;; Each macro form below emits a literal `:rf.trace/call-site` map
   ;; under DEBUG=true. The stamp-branches must DCE under DEBUG=false.
-  (rf/reg-event-db :probe/cs-event (fn [db _ev] db))
+  (rf/reg-event :probe/cs-event (fn [{:keys [db]} _ev] {:db db}))
   (rf/reg-sub      :probe/cs-sub   (fn [db _q] db))
   (rf/reg-cofx     :probe/cs-cofx  (fn [] :ok))
   ;; dispatch + dispatch-sync macros
@@ -516,9 +516,9 @@
   ;; Under DEBUG=true the reg-event-db macro captures the whole form's
   ;; `pr-str` into `:rf.handler/source`, so the sentinel lands in the
   ;; control bundle; under DEBUG=false the form-source gate DCEs it.
-  (rf/reg-event-db :probe/doc-event
+  (rf/reg-event :probe/doc-event
     {:doc "rf2-9wwkcm-doc-elision-sentinel: pure-documentation metadata"}
-    (fn [db _ev] db)))
+    (fn [{:keys [db]} _ev] {:db db})))
 
 ;; ---- entry point ----------------------------------------------------------
 

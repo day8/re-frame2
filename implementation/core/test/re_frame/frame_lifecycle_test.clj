@@ -98,7 +98,7 @@
           ;; queue-read, matching the same with-redefs pattern used by
           ;; `drain-after-destroy-does-not-npe` below.
           captured-ticks (atom [])]
-      (rf/reg-event-db :tick (fn [db _] (swap! side-effects inc) db))
+      (rf/reg-event :tick (fn [{:keys [db]} _] (swap! side-effects inc) {:db db}))
       (rf/register-listener! ::pending (fn [ev] (swap! traces conj ev)))
       (with-redefs [interop/next-tick (fn [f] (swap! captured-ticks conj f) nil)]
         (rf/dispatch [:tick] {:frame :worker})
@@ -522,7 +522,7 @@
     (rf/reg-frame :cross-thread/worker {})
     (let [traces (atom [])
           captured-tick (atom [])]
-      (rf/reg-event-db :cross-thread/tick (fn [db _] db))
+      (rf/reg-event :cross-thread/tick (fn [{:keys [db]} _] {:db db}))
       (rf/register-listener! ::xt (fn [ev] (swap! traces conj ev)))
       ;; Capture the executor's tick so we can land destroy BETWEEN
       ;; the async dispatch and the actual drain.
@@ -854,8 +854,8 @@
     (let [side-effects (atom 0)
           traces       (atom [])
           captured     (atom [])]
-      (rf/reg-event-db :rf2-dpny/tick
-                       (fn [db _] (swap! side-effects inc) db))
+      (rf/reg-event :rf2-dpny/tick
+                       (fn [{:keys [db]} _] (swap! side-effects inc) {:db db}))
       (rf/register-listener! ::rf2-dpny (fn [ev] (swap! traces conj ev)))
 
       ;; Capture next-tick: dispatches schedule a drain, the drain
@@ -1147,9 +1147,9 @@
                   {:doc       "rf2-r1ciy throwy on-destroy frame"
                    :on-destroy [:throwy/blow-up]})
     ;; Handler that always throws.
-    (rf/reg-event-db :throwy/blow-up
-      (fn [_ _]
-        (throw (ex-info ":throwy/intentional" {:purpose :test-fixture}))))
+    (rf/reg-event :throwy/blow-up
+      (fn [{:keys [db]} _]
+        {:db (throw (ex-info ":throwy/intentional" {:purpose :test-fixture}))}))
     ;; Pin a live subscription so we can verify sub-cache disposal still ran.
     (rf/reg-event :throwy/seed (fn [{:keys [db]} _] {:db {:n 42}}))
     (rf/reg-sub :throwy/n (fn [db _] (:n db)))
@@ -1206,8 +1206,8 @@
   (testing "after a throwy destroy, the same frame id can be re-registered
             cleanly — the in-flight guard is cleared even on the exception path"
     (rf/reg-frame :throwy/resurrected {:on-destroy [:throwy/blow-up-2]})
-    (rf/reg-event-db :throwy/blow-up-2
-      (fn [_ _] (throw (ex-info ":throwy/second-blow" {}))))
+    (rf/reg-event :throwy/blow-up-2
+      (fn [{:keys [db]} _] {:db (throw (ex-info ":throwy/second-blow" {}))}))
     (rf/destroy-frame! :throwy/resurrected)
     (is (nil? (frame/frame :throwy/resurrected))
         "original frame destroyed (despite the throw)")

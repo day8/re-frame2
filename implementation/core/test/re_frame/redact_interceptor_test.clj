@@ -258,9 +258,9 @@
   (testing "regression — `redact-interceptor` is a payload-scrub, NOT a scope
             stamper. The `:sensitive?` boolean on emitted events is the
             registration-meta / schema-derived signal only."
-    (rf/reg-event-db :plain/scrub
+    (rf/reg-event :plain/scrub
       {:interceptors [(privacy/redact-interceptor [[:password]])]}
-      (fn [db _] db))
+      (fn [{:keys [db]} _] {:db db}))
     (let [evs       (record-traces
                       #(rf/dispatch-sync [:plain/scrub {:password "shh"}]))
           run-start (run-start-of evs)]
@@ -274,9 +274,9 @@
             `privacy/redacted-event-from-ctx`, so a throwing handler that
             had a `redact-interceptor` interceptor surfaces the scrub in the
             `:rf.error/handler-exception` trace event"
-    (rf/reg-event-db :auth/explode
+    (rf/reg-event :auth/explode
       {:interceptors [(privacy/redact-interceptor [[:password] [:token]])]}
-      (fn [_ _] (throw (ex-info "boom" {}))))
+      (fn [{:keys [db]} _] {:db (throw (ex-info "boom" {}))}))
     (let [evs   (record-traces
                   #(rf/dispatch-sync
                      [:auth/explode {:username "ada"

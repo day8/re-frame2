@@ -146,16 +146,16 @@
 
   ;; --- websocket.messages -------------------------------------------------
   (rf/reg-machine :websocket/socket messages/socket-actor-machine)
-  (rf/reg-event-db :ws/handle-message
-    (fn handler-ws-handle-message [db [_ body]]
-      (let [rx-seq (get-in db [:messages :rx-count] 0)]
+  (rf/reg-event :ws/handle-message
+    (fn handler-ws-handle-message [{:keys [db]} [_ body]]
+      {:db (let [rx-seq (get-in db [:messages :rx-count] 0)]
         (-> db
             (update-in [:messages :received]
                        (fn [received]
                          (vec (cons (assoc body :rx-seq rx-seq) (or received [])))))
             (assoc-in [:messages :rx-count] (inc rx-seq))
             (cond-> (:request-id body)
-              (assoc-in [:messages :last-reply] body))))))
+              (assoc-in [:messages :last-reply] body))))}))
   (rf/reg-event :ws.app/send
     (fn handler-app-send [{:keys [db]} [_ body]]
       {:db (assoc-in db [:messages :draft] "")

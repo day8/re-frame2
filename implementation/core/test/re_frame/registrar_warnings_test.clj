@@ -90,7 +90,7 @@
     (let [recorded (record-traces! ::missing-absent)]
       (with-stamped-coords
         (fn []
-          (rf/reg-event-db :ev/no-doc (fn [db _] db))))
+          (rf/reg-event :ev/no-doc (fn [{:keys [db]} _] {:db db}))))
       (let [warns (warnings-of recorded :rf.warning/missing-doc)]
         (is (= 1 (count warns))
             (str "expected exactly one missing-doc warning, got " (count warns)))
@@ -108,7 +108,7 @@
     (let [recorded (record-traces! ::missing-nil)]
       (with-stamped-coords
         (fn []
-          (rf/reg-event-db :ev/nil-doc {:doc nil} (fn [db _] db))))
+          (rf/reg-event :ev/nil-doc {:doc nil} (fn [{:keys [db]} _] {:db db}))))
       (is (= 1 (count (warnings-of recorded :rf.warning/missing-doc)))))))
 
 (deftest missing-doc-fires-when-doc-empty-string
@@ -116,7 +116,7 @@
     (let [recorded (record-traces! ::missing-empty)]
       (with-stamped-coords
         (fn []
-          (rf/reg-event-db :ev/empty-doc {:doc ""} (fn [db _] db))))
+          (rf/reg-event :ev/empty-doc {:doc ""} (fn [{:keys [db]} _] {:db db}))))
       (is (= 1 (count (warnings-of recorded :rf.warning/missing-doc)))))))
 
 (deftest missing-doc-suppressed-when-doc-present
@@ -124,9 +124,9 @@
     (let [recorded (record-traces! ::doc-present)]
       (with-stamped-coords
         (fn []
-          (rf/reg-event-db :ev/well-doc'd
+          (rf/reg-event :ev/well-doc'd
                            {:doc "a real description"}
-                           (fn [db _] db))))
+                           (fn [{:keys [db]} _] {:db db}))))
       (is (empty? (warnings-of recorded :rf.warning/missing-doc))))))
 
 ;; Obligation 2: suppress per (kind, id) within a runtime process.
@@ -136,10 +136,10 @@
     (let [recorded (record-traces! ::suppress-rereg)]
       (with-stamped-coords
         (fn []
-          (rf/reg-event-db :ev/same-id (fn [db _] db))
+          (rf/reg-event :ev/same-id (fn [{:keys [db]} _] {:db db}))
           ;; Save-triggered re-eval — same id, still no :doc; warning is silent.
           (rf/reg-event :ev/same-id (fn [{:keys [db]} _] {:db (assoc db :touched? true)}))
-          (rf/reg-event-db :ev/same-id (fn [db _] db))))
+          (rf/reg-event :ev/same-id (fn [{:keys [db]} _] {:db db}))))
       (is (= 1 (count (warnings-of recorded :rf.warning/missing-doc)))
           "exactly one warning across three registrations of the same id"))))
 
@@ -148,9 +148,9 @@
     (let [recorded (record-traces! ::per-id-within-kind)]
       (with-stamped-coords
         (fn []
-          (rf/reg-event-db :ev/alpha (fn [db _] db))
-          (rf/reg-event-db :ev/beta  (fn [db _] db))
-          (rf/reg-event-db :ev/gamma (fn [db _] db))))
+          (rf/reg-event :ev/alpha (fn [{:keys [db]} _] {:db db}))
+          (rf/reg-event :ev/beta  (fn [{:keys [db]} _] {:db db}))
+          (rf/reg-event :ev/gamma (fn [{:keys [db]} _] {:db db}))))
       (let [warns (warnings-of recorded :rf.warning/missing-doc)]
         (is (= 3 (count warns)))
         (is (= #{:ev/alpha :ev/beta :ev/gamma}
@@ -161,7 +161,7 @@
     (let [recorded (record-traces! ::per-kind-same-id)]
       (with-stamped-coords
         (fn []
-          (rf/reg-event-db :alias/shared (fn [db _] db))
+          (rf/reg-event :alias/shared (fn [{:keys [db]} _] {:db db}))
           (rf/reg-sub       :alias/shared (fn [db _] (:x db)))))
       (let [warns (warnings-of recorded :rf.warning/missing-doc)]
         (is (= 2 (count warns)))
@@ -178,7 +178,7 @@
     (let [recorded (record-traces! ::multi-kind)]
       (with-stamped-coords
         (fn []
-          (rf/reg-event-db :k/event-doc-missing (fn [db _] db))
+          (rf/reg-event :k/event-doc-missing (fn [{:keys [db]} _] {:db db}))
           (rf/reg-sub       :k/sub-doc-missing   (fn [db _] (:x db)))
           (rf/reg-fx        :k/fx-doc-missing    (fn [_ _] nil))
           (rf/reg-cofx      :k/cofx-doc-missing  (fn [cofx _] cofx))))

@@ -117,8 +117,8 @@
         (rf/register-error-listener!
           :prod-gate/err-rec
           (fn [record] (reset! listener-saw record)))
-        (rf/reg-event-db :prod-gate/throws
-                         (fn [_db _] (throw (ex-info "boom" {}))))
+        (rf/reg-event :prod-gate/throws
+                         (fn [{:keys [db]} _] {:db (throw (ex-info "boom" {}))}))
         (rf/dispatch-sync [:prod-gate/throws])
         (is (some? @listener-saw)
             "error-emit listener fired under disabled debug gate")))))

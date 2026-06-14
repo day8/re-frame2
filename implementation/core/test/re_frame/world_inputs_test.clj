@@ -369,7 +369,7 @@
 (deftest invalid-world-inputs-raised-through-full-dispatch
   (testing "the full dispatch path (not just build-envelope) raises the validation error"
     (rf/reg-frame :wi/dispatch-bad {:doc "ctx"})
-    (rf/reg-event-db :wi/bad-noop (fn [db _] db))
+    (rf/reg-event :wi/bad-noop (fn [{:keys [db]} _] {:db db}))
     (is (thrown? clojure.lang.ExceptionInfo
                  (rf/dispatch-sync [:wi/bad-noop]
                                    {:frame :wi/dispatch-bad
@@ -595,7 +595,7 @@
             "the message references :rf.cofx as the replacement carrier")
         (is (= :no-recovery (:recovery data)) "no back-compat alias / recovery")))
     (testing "the full dispatch path (not just build-envelope) raises it"
-      (rf/reg-event-db :wi/retired-noop (fn [db _] db))
+      (rf/reg-event :wi/retired-noop (fn [{:keys [db]} _] {:db db}))
       (is (thrown? clojure.lang.ExceptionInfo
                    (rf/dispatch-sync [:wi/retired-noop]
                                      {:frame :wi/retired-supply

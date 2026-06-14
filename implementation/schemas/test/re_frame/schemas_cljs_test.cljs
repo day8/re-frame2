@@ -174,12 +174,12 @@
 (deftest live-dispatch-validates-event-payload-under-reagent
   (testing "a malformed event payload skips the handler and emits :where :event"
     (let [calls (atom 0)]
-      (rf/reg-event-db :user/register
+      (rf/reg-event :user/register
         {:schema [:cat [:= :user/register]
                        [:map [:email :string] [:age :int]]]}
-        (fn [db _]
+        (fn [{:keys [db]} _]
           (swap! calls inc)
-          db))
+          {:db db}))
       (let [traces (atom [])]
         (trace-tooling/register-listener! ::cljs-ev (fn [ev] (swap! traces conj ev)))
         ;; Well-typed payload — handler runs.
@@ -219,9 +219,9 @@
   (testing "a `:cat` schema with a bare `pos-int?` tail rejects a bad
             arg, skips the handler, and emits :where :event"
     (let [calls (atom 0)]
-      (rf/reg-event-db :rf2-lo28u/bad-event-args
+      (rf/reg-event :rf2-lo28u/bad-event-args
         {:schema [:cat [:= :rf2-lo28u/bad-event-args] pos-int?]}
-        (fn [db _ev] (swap! calls inc) db))
+        (fn [{:keys [db]} _ev] (swap! calls inc) {:db db}))
       (let [traces (atom [])]
         (trace-tooling/register-listener! ::lo28u (fn [ev] (swap! traces conj ev)))
         ;; Well-typed arg (a pos-int) — handler runs.
@@ -250,9 +250,9 @@
             (live wiring), a dispatch-SYNC bad event arg"
     (rf/reg-app-schema [:auth] [:map [:token :string]])
     (let [calls (atom 0)]
-      (rf/reg-event-db :rf2-lo28u/diag-bad-event-args
+      (rf/reg-event :rf2-lo28u/diag-bad-event-args
         {:schema [:cat [:= :rf2-lo28u/diag-bad-event-args] pos-int?]}
-        (fn [db _ev] (swap! calls inc) db))
+        (fn [{:keys [db]} _ev] (swap! calls inc) {:db db}))
       (let [traces (atom [])]
         (trace-tooling/register-listener! ::lo28u-diag (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:rf2-lo28u/diag-bad-event-args "not-a-number"])
@@ -300,7 +300,7 @@
       (rf/reg-event :rf2-lo28u/async-bad-event-args
         {:schema [:cat [:= :rf2-lo28u/async-bad-event-args] pos-int?]}
         (fn [{:keys [db]} _ev] (swap! calls inc) {:db (assoc db :baseline 1)}))
-      (rf/reg-event-db :rf2-lo28u/noop (fn [db _] db))
+      (rf/reg-event :rf2-lo28u/noop (fn [{:keys [db]} _] {:db db}))
       (let [traces (atom [])]
         (trace-tooling/register-listener! ::lo28u-async (fn [ev] (swap! traces conj ev)))
         ;; (a) ASYNC dispatch — lands at the BACK of the queue (live button path).

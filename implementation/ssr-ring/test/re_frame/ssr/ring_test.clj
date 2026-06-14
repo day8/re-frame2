@@ -672,7 +672,7 @@
   (testing "rf2-9fw2de: identical body + DIFFERENT explicit :head → DIFFERENT
             :rf/render-hash. The head rides the unified hash channel (Spec
             011 §624-626/§648-650); a head-only change MUST move the hash."
-    (rf/reg-event-db :init/noop-head (fn [db _] db))
+    (rf/reg-event :init/noop-head (fn [{:keys [db]} _] {:db db}))
     (rf/reg-view* :pages/fixed-body (fn [] [:div.body "identical body"]))
 
     (let [mk      (fn [head]
@@ -1408,7 +1408,7 @@
   (testing "no route :head → active-head returns default-head, which rolls
             the frame's :doc into :title; still exactly one <title> tag."
     (rf/reg-view* :pages/blank-no-head (fn [] [:div]))
-    (rf/reg-event-db :init/noop (fn [db _] db))
+    (rf/reg-event :init/noop (fn [{:keys [db]} _] {:db db}))
 
     (let [handler  (ssr-ring/ssr-handler
                      {:on-create [:init/noop]

@@ -930,9 +930,9 @@
         fx-id  (mint-kw substrate-kw "events-fx-super")
         ctx-id (mint-kw substrate-kw "events-ctx-super")]
     (testing (str name " — reg-event-db metadata-map :interceptors threads the chain")
-      (rf/reg-event-db db-id
+      (rf/reg-event db-id
         {:doc "Superset form." :interceptors [noop-icpt]}
-        (fn [db _] db))
+        (fn [{:keys [db]} _] {:db db}))
       (let [meta (rf/handler-meta :event db-id)]
         (is (= "Superset form." (:doc meta)))
         (is (= [:test/noop :rf/db-handler] (mapv :id (:interceptors meta))))))
@@ -957,9 +957,9 @@
     (is (thrown-with-msg?
           cljs.core/ExceptionInfo
           #":rf\.error/reg-event-bad-middle-slot"
-          (rf/reg-event-db (mint-kw substrate-kw "events-vector-slot")
+          (rf/reg-event (mint-kw substrate-kw "events-vector-slot")
             [{:id :other :before identity}]
-            (fn [db _] db))))))
+            (fn [{:keys [db]} _] {:db db}))))))
 
 ;; ===========================================================================
 ;; render-to-string + late-bind chain wiring (rf2-gc5v9 / rf2-y9spn /

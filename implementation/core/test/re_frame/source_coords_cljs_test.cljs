@@ -67,8 +67,8 @@
 
 (deftest reg-event-db-file-is-not-no-source-path
   (testing "rf2-mdjp: reg-event-db emits a real :file under CLJS, not NO_SOURCE_PATH"
-    (rf/reg-event-db :rf2-mdjp/reg-event-db-sample
-                     (fn [db _] db))
+    (rf/reg-event :rf2-mdjp/reg-event-db-sample
+                     (fn [{:keys [db]} _] {:db db}))
     (let [m (rf/handler-meta :event :rf2-mdjp/reg-event-db-sample)
           f (:file m)]
       (is (some? m))

@@ -378,7 +378,7 @@
       (is (= :rf.error/flow-bad-id (:rf.error/id (ex-data ex)))
           "a map id is rejected as bad-id")))
   (testing "a keyword :id is accepted (no throw)"
-    (rf/reg-event-db :ok/init (fn [db _] db))
+    (rf/reg-event :ok/init (fn [{:keys [db]} _] {:db db}))
     (is (= :ok/flow
            (rf/reg-flow {:id :ok/flow :inputs [[:n]] :output identity :path [:x]}))
         "a keyword id registers cleanly and reg-flow returns the id")))
@@ -919,7 +919,7 @@
                               :output (fn [foo bar] (+ foo bar))
                               :path   [:wizard :result]}]
             [:dispatch [:wizard/settle]]]}))
-  (rf/reg-event-db :wizard/settle (fn [db _] db))   ;; no-op; exists only to drain
+  (rf/reg-event :wizard/settle (fn [{:keys [db]} _] {:db db}))   ;; no-op; exists only to drain
 
   (testing "the lag — a mid-event reg-flow does NOT compute on its own drain"
     (rf/dispatch-sync [:init])

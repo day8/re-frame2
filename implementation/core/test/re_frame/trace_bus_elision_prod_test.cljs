@@ -68,7 +68,7 @@
     (is (nil? (trace-tooling/configure-trace-buffer! {:cascades-retained 256}))
         "configure-trace-buffer! returns nil consistently under prod")
     ;; Subsequent dispatches still do not push to the buffer.
-    (rf/reg-event-db :prod-bus/touch (fn [db _] db))
+    (rf/reg-event :prod-bus/touch (fn [{:keys [db]} _] {:db db}))
     (rf/dispatch-sync [:prod-bus/touch])
     (is (or (nil? (trace-tooling/trace-buffer :rf/default))
             (empty? (trace-tooling/trace-buffer :rf/default)))

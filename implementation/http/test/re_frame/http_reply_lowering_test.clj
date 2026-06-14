@@ -292,10 +292,10 @@
                    (write-response! ex 200 "application/json" "{\"v\":1}")))
           replies (atom [])]
       (try
-        (rf/reg-event-db :search/replied
-          (fn [db [_ payload]]
+        (rf/reg-event :search/replied
+          (fn [{:keys [db]} [_ payload]]
             (swap! replies conj payload)
-            db))
+            {:db db}))
         (rf/reg-event :search/go
           (fn [_ _]
             {:fx [[:rf.http/managed
@@ -336,8 +336,8 @@
           lid     ::supersede-stale]
       (try
         (trace/register-listener! lid (fn [ev] (swap! traces conj ev)))
-        (rf/reg-event-db :search/replied
-          (fn [db [_ payload]] (swap! replies conj payload) db))
+        (rf/reg-event :search/replied
+          (fn [{:keys [db]} [_ payload]] (swap! replies conj payload) {:db db}))
         (rf/reg-event :search/go
           (fn [_ _]
             {:fx [[:rf.http/managed

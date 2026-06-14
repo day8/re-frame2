@@ -18,8 +18,8 @@
   [test-fn]
   (tf/reset-runtime
     (fn []
-      (rf/reg-event-db :rf.test/noop     (fn [db _] db))
-      (rf/reg-event-db :rf.test/seed-db  (fn [_ [_ new-db]] new-db))
+      (rf/reg-event :rf.test/noop     (fn [{:keys [db]} _] {:db db}))
+      (rf/reg-event :rf.test/seed-db  (fn [{:keys [db]} [_ new-db]] {:db new-db}))
       (test-fn))))
 
 (use-fixtures :each reset+reg-test-handlers)
@@ -34,8 +34,8 @@
          (finally
            (trace/unregister-listener! k)))))
 
-(rf/reg-event-db :rf.test/noop (fn [db _] db))
-(rf/reg-event-db :rf.test/seed-db (fn [_ [_ new-db]] new-db))
+(rf/reg-event :rf.test/noop (fn [{:keys [db]} _] {:db db}))
+(rf/reg-event :rf.test/seed-db (fn [{:keys [db]} [_ new-db]] {:db new-db}))
 
 (defn- make-frame
   "Register a per-request server frame and seed its app-db via the

@@ -240,9 +240,9 @@
     (let [seen (atom [])]
       (rf/register-error-listener! :prod/recorder
                                    (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :prod.ondestroy/blow-up
-                       (fn [_ _] (throw (ex-info "intentional :on-destroy throw"
-                                                 {:purpose :test-fixture}))))
+      (rf/reg-event :prod.ondestroy/blow-up
+                       (fn [{:keys [db]} _] {:db (throw (ex-info "intentional :on-destroy throw"
+                                                 {:purpose :test-fixture}))}))
       (rf/reg-frame :prod.ondestroy/worker
                     {:doc        "throwing :on-destroy"
                      :on-destroy [:prod.ondestroy/blow-up]})

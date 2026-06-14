@@ -60,7 +60,7 @@
         (rf/reg-event :test/parent
           (fn [_ _]
             {:fx [[:dispatch [:test/child]]]}))
-        (rf/reg-event-db :test/child (fn [db _] db))
+        (rf/reg-event :test/child (fn [{:keys [db]} _] {:db db}))
 
         ;; Parent stamps `:source :ui` (mimicking a UI handler call-site).
         (rf/dispatch-sync [:test/parent] {:source :ui})
@@ -83,7 +83,7 @@
       (try
         (rf/reg-event :test/lvl-0 (fn [_ _] {:fx [[:dispatch [:test/lvl-1]]]}))
         (rf/reg-event :test/lvl-1 (fn [_ _] {:fx [[:dispatch [:test/lvl-2]]]}))
-        (rf/reg-event-db :test/lvl-2 (fn [db _] db))
+        (rf/reg-event :test/lvl-2 (fn [{:keys [db]} _] {:db db}))
 
         (rf/dispatch-sync [:test/lvl-0] {:source :ui})
 
@@ -102,7 +102,7 @@
       (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
       (try
         (rf/reg-event :test/parent (fn [_ _] {:fx [[:dispatch [:test/child]]]}))
-        (rf/reg-event-db :test/child  (fn [db _] db))
+        (rf/reg-event :test/child  (fn [{:keys [db]} _] {:db db}))
 
         (rf/dispatch-sync [:test/parent] {:source :ui :origin :pair})
 
@@ -133,7 +133,7 @@
         (rf/reg-event :test/parent
           (fn [_ _]
             {:fx [[:dispatch-later {:ms 1 :event [:test/child]}]]}))
-        (rf/reg-event-db :test/child (fn [db _] db))
+        (rf/reg-event :test/child (fn [{:keys [db]} _] {:db db}))
 
         (rf/dispatch-sync [:test/parent] {:source :ui})
 

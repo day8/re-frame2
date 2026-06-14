@@ -824,7 +824,7 @@
       (rf/reg-machine :test/tiny  tiny-spec)
       (rf/reg-machine :test/other other-spec)
       ;; A regular event-handler must NOT show up in (rf/machines).
-      (rf/reg-event-db :test/regular (fn [db _] db))
+      (rf/reg-event :test/regular (fn [{:keys [db]} _] {:db db}))
 
       (let [ids (set (machines/machines))]
         (is (contains? ids :test/tiny)
@@ -900,7 +900,7 @@
   (testing "rf/handler-ids, rf/registrations, rf/handler-meta cover every
             registration kind with the documented shape"
     ;; ---- :event --------------------------------------------------------
-    (rf/reg-event-db :rf2-o1bp/evt1 (fn [db _] db))
+    (rf/reg-event :rf2-o1bp/evt1 (fn [{:keys [db]} _] {:db db}))
     (rf/reg-event :rf2-o1bp/evt2 (fn [_ _] {}))
 
     ;; ---- :sub ---------------------------------------------------------

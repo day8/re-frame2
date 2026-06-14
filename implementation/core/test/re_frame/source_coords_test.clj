@@ -95,8 +95,8 @@
 
 (deftest source-coords-on-reg-event-db
   (testing "reg-event-db stamps :ns / :line / :file"
-    (rf/reg-event-db :rf2-k84s/reg-event-db-sample
-                     (fn [db _] db))
+    (rf/reg-event :rf2-k84s/reg-event-db-sample
+                     (fn [{:keys [db]} _] {:db db}))
     (assert-coords (rf/handler-meta :event :rf2-k84s/reg-event-db-sample)
                    :event :rf2-k84s/reg-event-db-sample)))
 
@@ -200,10 +200,10 @@
 
 (deftest user-supplied-coords-win
   (testing "explicit :ns / :line / :file in user metadata override auto-capture"
-    (rf/reg-event-db :rf2-k84s/explicit-coords
+    (rf/reg-event :rf2-k84s/explicit-coords
                      {:ns 'my.ns :line 42 :file "elsewhere.cljc"
                       :doc "hand-stamped coords from a code-gen pass"}
-                     (fn [db _] db))
+                     (fn [{:keys [db]} _] {:db db}))
     (let [meta (rf/handler-meta :event :rf2-k84s/explicit-coords)]
       (is (= 'my.ns                  (:ns meta)))
       (is (= 42                      (:line meta)))
@@ -281,8 +281,8 @@
   consumers (Story / Xray open-in-editor chips) can take the :file
   through compose-path unchanged and ship a URI that resolves on disk
   regardless of which project-root the host configured."
-    (rf/reg-event-db :rf2-wvsxg/absolute-file-sample
-                     (fn [db _] db))
+    (rf/reg-event :rf2-wvsxg/absolute-file-sample
+                     (fn [{:keys [db]} _] {:db db}))
     (let [meta (rf/handler-meta :event :rf2-wvsxg/absolute-file-sample)
           f    (:file meta)]
       (is (string? f) ":file should be present")

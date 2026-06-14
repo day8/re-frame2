@@ -91,9 +91,9 @@
       (rf/register-event-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :evt/throw
-                       (fn [_db _]
-                         (throw (ex-info "kaboom" {:cause :test}))))
+      (rf/reg-event :evt/throw
+                       (fn [{:keys [db]} _]
+                         {:db (throw (ex-info "kaboom" {:cause :test}))}))
       (rf/dispatch-sync [:evt/throw])
       (is (= 1 (count @seen)))
       (is (= :error (:outcome (first @seen)))))))
@@ -202,7 +202,7 @@
       (rf/register-event-listener!
         :test/sibling
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :evt/quiet (fn [db _] db))
+      (rf/reg-event :evt/quiet (fn [{:keys [db]} _] {:db db}))
       ;; Must NOT throw — the listener's exception is swallowed.
       (is (nil? (rf/dispatch-sync [:evt/quiet]))
           "dispatch-sync returned nil despite the listener throw")
@@ -221,7 +221,7 @@
       (rf/register-event-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :evt/noop (fn [db _] db))
+      (rf/reg-event :evt/noop (fn [{:keys [db]} _] {:db db}))
       (rf/dispatch-sync [:evt/noop])
       (is (= 1 (count @seen)) "listener fired before unregister")
       (rf/unregister-event-listener! :test/recorder)
@@ -250,7 +250,7 @@
       (rf/register-event-listener!
         :test/listener-b
         (fn [record] (swap! b conj record)))
-      (rf/reg-event-db :evt/once (fn [db _] db))
+      (rf/reg-event :evt/once (fn [{:keys [db]} _] {:db db}))
       (rf/dispatch-sync [:evt/once])
       (is (= 1 (count @a)))
       (is (= 1 (count @b)))
@@ -272,7 +272,7 @@
       (rf/register-event-listener!
         :test/shape
         (fn [record] (reset! seen record)))
-      (rf/reg-event-db :evt/shape (fn [db _] db))
+      (rf/reg-event :evt/shape (fn [{:keys [db]} _] {:db db}))
       ;; Dispatch with a :source opt so we can prove the listener
       ;; record does NOT carry it (trace-bus territory).
       (rf/dispatch-sync [:evt/shape] {:source :test})
@@ -320,7 +320,7 @@
             remains functional and silent. The substrate short-
             circuits to a single deref-and-empty-check — observable
             here only by the absence of side-effects."
-    (rf/reg-event-db :evt/quiet (fn [db _] db))
+    (rf/reg-event :evt/quiet (fn [{:keys [db]} _] {:db db}))
     ;; No listeners; just confirm dispatch settles cleanly.
     (is (nil? (rf/dispatch-sync [:evt/quiet]))
         "dispatch settled with no listeners present — no error, no throw")))

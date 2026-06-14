@@ -101,7 +101,7 @@
       (is (string? (:rf.handler/source a))
           "dev: :machine-action handler-meta carries :rf.handler/source"))
     (testing "the registrar kinds still fall through to the registrar lookup"
-      (rf/reg-event-db :rf2-ftrcv/plain-event (fn [db _] db))
+      (rf/reg-event :rf2-ftrcv/plain-event (fn [{:keys [db]} _] {:db db}))
       (is (= (registrar/lookup :event :rf2-ftrcv/plain-event)
              (rf/handler-meta :event :rf2-ftrcv/plain-event))
           ":event handler-meta is the registrar lookup, unchanged"))

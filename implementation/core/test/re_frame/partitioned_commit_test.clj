@@ -285,7 +285,7 @@
     (rf/dispatch-sync [:pc/seed] {:frame :pc/tr-noop})
     (let [recorded (record-traces! ::tr-noop)]
       ;; return the SAME app-db value
-      (rf/reg-event-db :pc/same (fn [db _] db))
+      (rf/reg-event :pc/same (fn [{:keys [db]} _] {:db db}))
       (rf/dispatch-sync [:pc/same] {:frame :pc/tr-noop})
       (is (empty? (events-of recorded :rf.event/db-changed))
           "a value-equal app-db commit is not reported as a change")

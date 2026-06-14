@@ -45,9 +45,9 @@
             `merge-coords` propagation into the public meta is
             suppressed."
     (with-redefs [interop/debug-enabled? false]
-      (rf/reg-event-db :rf2-3un2g/prod-elide-event
+      (rf/reg-event :rf2-3un2g/prod-elide-event
                        {:doc "stripped"}
-                       (fn [db _] db))
+                       (fn [{:keys [db]} _] {:db db}))
       (let [meta (rf/handler-meta :event :rf2-3un2g/prod-elide-event)]
         (is (some? meta))
         ;; rf2-9wwkcm: `:doc` is now ALSO stripped from public registry-meta
@@ -67,9 +67,9 @@
             `interop/debug-enabled?` = true) preserves the historical
             behaviour — `(rf/handler-meta ...)` returns the full coord-
             map for Xray / re-frame-pair / IDE jump-to-source."
-    (rf/reg-event-db :rf2-3un2g/dev-keep-event
+    (rf/reg-event :rf2-3un2g/dev-keep-event
                      {:doc "kept"}
-                     (fn [db _] db))
+                     (fn [{:keys [db]} _] {:db db}))
     (let [meta (rf/handler-meta :event :rf2-3un2g/dev-keep-event)]
       (is (some? (:ns   meta)) ":ns present in registry-meta in dev")
       (is (some? (:line meta)) ":line present in registry-meta in dev")
@@ -92,9 +92,9 @@
     ;; (registrations happened in dev); the load-bearing assertion is
     ;; that the error-emit substrate stamps `:source-coord` on the
     ;; tight record FROM the parallel registry, not from registry-meta.
-    (rf/reg-event-db :rf2-3un2g/prod-error-handler
-                     (fn [_db _]
-                       (throw (ex-info "boom" {:cause :test}))))
+    (rf/reg-event :rf2-3un2g/prod-error-handler
+                     (fn [{:keys [db]} _]
+                       {:db (throw (ex-info "boom" {:cause :test}))}))
     (with-redefs [interop/debug-enabled? false]
       (let [seen (atom nil)]
         (rf/register-error-listener!
@@ -149,8 +149,8 @@
             parallel `error-coords-by-id` registry under `[:kind :id]`.
             The atom is the single source of truth for error-emit
             source-coord lookup."
-    (rf/reg-event-db :rf2-3un2g/parallel-reg
-                     (fn [db _] db))
+    (rf/reg-event :rf2-3un2g/parallel-reg
+                     (fn [{:keys [db]} _] {:db db}))
     (let [sc (source-coords/error-coords-for :event :rf2-3un2g/parallel-reg)]
       (is (some? sc)
           "parallel registry carries coords for the registered id")
