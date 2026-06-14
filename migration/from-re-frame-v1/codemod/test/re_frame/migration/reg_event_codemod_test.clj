@@ -114,6 +114,99 @@
       (is (str/includes? source "{:db (update db :value inc)}")))))
 
 ;; ---------------------------------------------------------------------------
+;; reg-event-db — renamed (non-`db`) first param  (rf2-xhfxcs.15)
+;; ---------------------------------------------------------------------------
+;; A reg-event-db whose handler binds the db value under a name OTHER than `db`
+;; (a path-scoped slice such as `c`) must keep every body reference resolved.
+;; Rebinding the param to `{:keys [db]}` while the body still says `c` produced
+;; an unresolvable-symbol compile error. The faithful transform rebinds the param
+;; `{c :db}` — db value back under its original name — and leaves the body intact.
+
+(deftest db-renamed-param-path-interceptor
+  (testing "the bead example: path interceptor + first param `c` -> {c :db}, body untouched"
+    (let [src "(reg-event-db :inc {:interceptors [(rf/path :counter)]}\n  (fn [c _] (update c :n inc)))"
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :reg-event-db (:form (first findings))))
+      (is (= :rewrite (:action (first findings))) "renamed-db param is still a simple, faithful rewrite")
+      (is (str/includes? source "(reg-event "))
+      (is (not (str/includes? source "reg-event-db")))
+      ;; path-interceptor metadata preserved verbatim
+      (is (str/includes? source "{:interceptors [(rf/path :counter)]}"))
+      ;; param rebinds the db value back under `c`; NOT {:keys [db]}
+      (is (str/includes? source "{c :db}"))
+      (is (not (str/includes? source "{:keys [db]}")))
+      ;; the body keeps using `c` — it now resolves to the db coeffect
+      (is (str/includes? source "{:db (update c :n inc)}")))))
+
+(deftest db-renamed-param-no-interceptor
+  (testing "renamed first param with no middle slot also binds {state :db}"
+    (let [src "(rf/reg-event-db :s/set (fn [state [_ v]] (assoc state :v v)))"
+          out (rewrite src)]
+      (is (str/includes? out "(fn [{state :db} [_ v]] {:db (assoc state :v v)})"))
+      (is (not (str/includes? out "{:keys [db]}"))))))
+
+(deftest db-renamed-param-named-fn
+  (testing "renamed first param on a NAMED handler fn rebinds + leaves body intact"
+    (let [src "(rf/reg-event-db :x/y (fn handle [c _] (assoc c :ok true)))"
+          out (rewrite src)]
+      (is (str/includes? out "(fn handle [{c :db} _] {:db (assoc c :ok true)})")))))
+
+(deftest db-renamed-param-multiform-body
+  (testing "renamed param with a multi-form body: only LAST form wrapped, refs intact"
+    (let [src "(rf/reg-event-db :log/it\n  (fn [c _]\n    (js/console.log \"hi\")\n    (assoc c :logged true)))"
+          out (rewrite src)]
+      (is (str/includes? out "{c :db}"))
+      (is (str/includes? out "(js/console.log \"hi\")"))
+      (is (str/includes? out "{:db (assoc c :logged true)}")))))
+
+(deftest db-renamed-param-shadowing-not-over-rewritten
+  (testing "a body that REBINDS the renamed symbol in an inner let keeps the inner binding"
+    ;; The outer `c` is the db slice; the inner `let` rebinds `c` to a derived
+    ;; value. A naive symbol-substitution codemod would rewrite the inner `c`
+    ;; references too. The faithful {c :db} rebind touches the BODY not at all, so
+    ;; the inner shadowing is preserved exactly as written.
+    (let [src "(rf/reg-event-db :shadow\n  (fn [c [_ k]]\n    (let [c (update c :depth inc)]\n      (assoc c :touched k))))"
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :rewrite (:action (first findings))))
+      ;; param rebinds the slice under `c`
+      (is (str/includes? source "(fn [{c :db} [_ k]]"))
+      ;; the inner let + both inner `c` references survive byte-for-byte
+      (is (str/includes? source "(let [c (update c :depth inc)]"))
+      (is (str/includes? source "(assoc c :touched k)"))
+      ;; round-trip: the body text after the param is identical to the original body
+      (is (str/includes? source "{:db (let [c (update c :depth inc)]")))))
+
+(deftest db-renamed-param-fn-shadowing-not-over-rewritten
+  (testing "an inner (fn [c] ...) shadowing the slice name is preserved untouched"
+    (let [src "(rf/reg-event-db :map-it\n  (fn [c _]\n    (update c :xs (fn [c] (map inc c)))))"
+          out (rewrite src)]
+      (is (str/includes? out "(fn [{c :db} _]"))
+      ;; the inner fn rebinding `c` is preserved verbatim — not over-rewritten
+      (is (str/includes? out "(fn [c] (map inc c))"))
+      (is (str/includes? out "{:db (update c :xs (fn [c] (map inc c)))}")))))
+
+(deftest db-renamed-param-idempotent
+  (testing "running the codemod twice over a renamed-param event is a no-op the 2nd time"
+    (let [src "(rf/reg-event-db :inc (fn [c _] (update c :n inc)))"
+          once (rewrite src)
+          twice (rewrite once)]
+      (is (= once twice))
+      (is (not (str/includes? once "reg-event-db"))))))
+
+(deftest db-named-db-param-still-keys-form
+  (testing "the literal `db` first param STILL produces {:keys [db]} (unchanged behaviour)"
+    (let [src "(rf/reg-event-db :counter/inc (fn [db _] (update db :count inc)))"
+          out (rewrite src)]
+      (is (str/includes? out "(fn [{:keys [db]} _] {:db (update db :count inc)})"))
+      (is (not (str/includes? out "{db :db}"))))))
+
+(deftest db-ignored-param-keeps-keys-form
+  (testing "an ignored `_` first param keeps the canonical {:keys [db]} (nothing to rebind)"
+    (let [src "(rf/reg-event-db :init (fn [_ _] {:count 0 :items []}))"
+          out (rewrite src)]
+      (is (str/includes? out "(fn [{:keys [db]} _] {:db {:count 0 :items []}})")))))
+
+;; ---------------------------------------------------------------------------
 ;; reg-event-ctx — always flagged, never rewritten
 ;; ---------------------------------------------------------------------------
 

@@ -27,10 +27,18 @@
 
       BODY always evaluates to the new app-db (that IS the reg-event-db
       contract), so wrapping it in `{:db BODY}` is mechanical regardless of how
-      complex BODY is. The first handler param (`DB`) is rebound to a
-      `{:keys [db]}` destructure so the renamed handler reads the db out of the
-      coeffects map. Path-interceptor metadata in the optional middle slot
-      (`{:interceptors [(rf/path ...)]}`) is PRESERVED untouched.
+      complex BODY is. The first handler param (`DB`) is rebound so the renamed
+      handler reads the db out of the coeffects map. Path-interceptor metadata in
+      the optional middle slot (`{:interceptors [(rf/path ...)]}`) is PRESERVED
+      untouched.
+
+      FIRST-PARAM REBIND: when the first param is literally `db` (or an ignored
+      `_`/`_x` binding never read), it becomes `{:keys [db]}`. When it is a plain
+      symbol bound under a DIFFERENT name (a path-scoped slice such as `c`), it
+      becomes `{c :db}` — binding the db value back under its original name so
+      every body reference to `c` stays resolved WITHOUT the codemod rewriting
+      the body. (Rebinding such a param to `{:keys [db]}` would orphan every body
+      reference to `c` -> unresolvable-symbol compile error; rf2-xhfxcs.15.)
 
       D7 NIL-FLAG: a reg-event-db handler whose BODY can evaluate to `nil` is
       NOT silently rewritten. Under the new model a bare `nil` return is a
@@ -322,15 +330,57 @@
            :kind :rewrite-db
            :simple-fn simple-fn})))))
 
+(defn- ignorable-symbol?
+  "Is `sym` an explicitly-unused binding (`_` or an `_`-prefixed name)? Such a
+  param is never referenced in the body, so it needs no name-preserving rebind."
+  [sym]
+  (and (symbol? sym)
+       (let [nm (name sym)]
+         (or (= nm "_") (str/starts-with? nm "_")))))
+
+(defn- db-coeffect-destructure-node
+  "The `{:keys [db]}` coeffects destructure node — reads the db out of the
+  coeffects map under the conventional local name `db`."
+  []
+  (n/coerce '{:keys [db]}))
+
+(defn- renamed-db-destructure-node
+  "An associative-destructure node `{S :db}` that binds the ORIGINAL first-param
+  symbol `S` to the `:db` coeffect. Used when the v1 handler bound its db value
+  under a non-`db` name (a path-scoped slice such as `c`): rebinding to
+  `{:keys [db]}` would orphan every body reference to `S`, so we instead bind the
+  db value back under `S` and leave the body byte-for-byte unchanged. This is the
+  hygienic, faithful transform — no body walking, so shadowing can't be misread."
+  [sym-node]
+  (n/map-node
+    [(n/token-node (n/sexpr sym-node)) (n/spaces 1) (n/keyword-node :db)]))
+
+(defn- first-param-replacement
+  "Choose the replacement node for the handler's first param. When the param is
+  literally `db` (or an ignored `_`/`_x` binding never read in the body) we emit
+  the canonical `{:keys [db]}`. Otherwise the param named the db value under a
+  different symbol `S`, so we emit `{S :db}` to keep the body's `S` references
+  resolved without touching the body."
+  [p0]
+  (let [sym (try (n/sexpr p0) (catch Exception _ nil))]
+    (if (or (= sym 'db) (ignorable-symbol? sym))
+      (db-coeffect-destructure-node)
+      (renamed-db-destructure-node p0))))
+
 (defn- rewrite-db-handler
   "Given the handler `(fn [DB EV] BODY)` node and its analysis, return the new
   handler node `(fn [{:keys [db]} EV] {:db BODY})`, preserving fn name, the
   rest of the params, and any intervening whitespace in the params/body as much
-  as rewrite-clj allows."
+  as rewrite-clj allows.
+
+  When the first param is a plain symbol other than `db` (a v1 slice bound under
+  a different name, e.g. `c`), the param is rebound `{c :db}` — binding the db
+  value back under its original name — so every body reference resolves without
+  the codemod rewriting the body (which would have to reason about shadowing)."
   [handler-node {:keys [params body]}]
   (let [p0        (params-simple? params)
-        ;; Replace the first param token with a {:keys [db]} destructure node.
-        keys-node (n/coerce '{:keys [db]})
+        ;; Replace the first param token with the db destructure node.
+        keys-node (first-param-replacement p0)
         new-params (n/replace-children
                      params
                      (map (fn [c] (if (identical? c p0) keys-node c))
