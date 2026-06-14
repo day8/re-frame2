@@ -76,7 +76,7 @@
 (def ^:private tier-tokens
   "The closed Tier vocabulary, longest-first so `internal-public` is
    matched before `public` substrings could confuse anything."
-  ["internal-public" "front-porch" "deprecated" "advanced"
+  ["implementation" "internal-public" "front-porch" "deprecated" "advanced"
    "tooling" "adapter" "testing"])
 
 (defn- first-tier-token

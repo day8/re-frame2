@@ -337,7 +337,8 @@
             :keystone   "rf2-3nbl5.2"
             :var-count  (count rows)
             :tier-vocab [:front-porch :advanced :tooling :adapter
-                         :testing :internal-public :deprecated]}
+                         :testing :internal-public :implementation
+                         :deprecated]}
      :vars rows}))
 
 ;; ---------------------------------------------------------------------------

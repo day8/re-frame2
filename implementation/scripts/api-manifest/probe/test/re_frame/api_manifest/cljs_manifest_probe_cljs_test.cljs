@@ -21,10 +21,13 @@
     without a row, or a row with no live var, → RED).
   - The Xray public surface (rf2-jhn46) — curated subsets (direction 1
     only). spec/API.md tiers the Xray surfaces `internal-public` (the
-    `mount` shell lifecycle, the `panels` `mount-<panel>!` family, the
-    panel `Panel` reg-views) and `tooling` (the `config` published
-    constants, the `open-in-editor` chip, the `runtime` Xray↔MCP read
-    seam), with the rest \"otherwise unrowed-internal\". So only the rowed
+    `mount` shell lifecycle + the `panels` `mount-<panel>!` family — the
+    supported host-embed surface), `implementation` (the panel-leaf `Panel`
+    reg-views, exported only so the shell composes them — NOT host-facing;
+    rf2-oekz6s) and `tooling` (the `config` published constants, the
+    `open-in-editor` chip, the `runtime` Xray↔MCP read seam), with the rest
+    \"otherwise unrowed-internal\". The probe checks EXISTENCE, not tier, so
+    these tier reclassifications do not affect it. So only the rowed
     vars are verified to still resolve (a var renamed / removed under a
     rowed name → RED); the surfaces are NOT held to full completeness.
     Covered namespaces:

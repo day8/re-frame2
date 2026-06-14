@@ -10,8 +10,15 @@
 ;;
 ;;   :tier   — the closed Tier vocabulary (spec/API.md §Tier taxonomy):
 ;;             :front-porch | :advanced | :tooling | :adapter | :testing
-;;             | :internal-public | :deprecated. Restrictive-by-default:
-;;             when ambiguous, pick the MORE restrictive tier.
+;;             | :internal-public | :implementation | :deprecated.
+;;             Restrictive-by-default: when ambiguous, pick the MORE
+;;             restrictive tier. NOTE (rf2-oekz6s): `:internal-public` means
+;;             a SUPPORTED host/tool embedding point (the Xray `mount-<panel>!`
+;;             family); `:implementation` means public-for-technical-reasons
+;;             only (a cross-namespace / test reach that is NOT a supported
+;;             surface — an app or tool MUST NOT depend on it). The two used
+;;             to be conflated under `:internal-public`; the split is the
+;;             clarity win this bead landed.
 ;;   :owner  — the canonical owning Spec doc (e.g. "002", "Tool-Pair",
 ;;             "009", "007") — the "where does the contract live" anchor.
 ;;   :status — shipping lineage (spec/API.md §Conventions Status).
@@ -97,11 +104,15 @@
   ;; the open/close/teardown machinery is "otherwise unrowed-internal").
   {:namespace "day8.re-frame2-xray.mount" :var "mounted?" :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   ;; day8.re-frame2-xray.panels — the `mount-<panel>!` aggregator family
-  ;; (007-UX-IA §Mountable panel contract). internal-public — a host-embed
-  ;; surface; an app never calls these. (`mount-issues-ribbon!` +
-  ;; `mount-inline-panel!` are REMOVED surfaces the spec names in removal
-  ;; prose — they stay on the allowlist, not rowed; `mount-views!` was
-  ;; renamed → `mount-reactive-panel!`.)
+  ;; (007-UX-IA §Mountable panel contract). `internal-public` — the
+  ;; canonical SUPPORTED host/tool embedding surface (a host that builds its
+  ;; own Xray chrome may call `mount-shell!` / a `mount-<panel>!`; an app
+  ;; never should). This is exactly what `internal-public` means after
+  ;; rf2-oekz6s tightened the tier: supported-for-embedding, not the
+  ;; implementation leaves (the bare `Panel` reg-views are now
+  ;; `implementation`). (`mount-issues-ribbon!` + `mount-inline-panel!` are
+  ;; REMOVED surfaces the spec names in removal prose — they stay on the
+  ;; allowlist, not rowed; `mount-views!` was renamed → `mount-reactive-panel!`.)
   {:namespace "day8.re-frame2-xray.panels" :var "mount-app-db-diff!"                    :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels" :var "mount-cancellation-cascade-popover!"   :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   {:namespace "day8.re-frame2-xray.panels" :var "mount-cancellation-cascade-side-panel!" :kind :fn :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
@@ -120,21 +131,27 @@
   ;; reg-views). Each panel namespace exports a single public reg-view — the
   ;; bare-var symbol the Xray-spec projection check resolves. All export a
   ;; `Panel` except `static.machines.panel`, which exports a lowercase `panel`
-  ;; (spec/API.md §Static-mode Panel reg-views). internal-public:
-  ;; the leaves the shell composes; NOT a host-facing single-panel embed
-  ;; surface (hosts embed the full shell per 008-Embedding-Contract).
-  {:namespace "day8.re-frame2-xray.panels.app-db-diff"          :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.panels.epoch-panel"          :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.panels.machine-inspector"    :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.panels.reactive-panel"       :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.panels.resources"            :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.panels.routing"              :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.panels.trace"                :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.static.flows.panel"          :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.static.interceptors.panel"   :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.static.machines.panel"       :var "panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.static.routes.panel"         :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
-  {:namespace "day8.re-frame2-xray.static.schemas.panel"        :var "Panel" :kind :var :facade? false :tier :internal-public :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  ;; (spec/API.md §Static-mode Panel reg-views). `implementation` (rf2-oekz6s):
+  ;; these are the leaves the shell composes — NOT a host-facing single-panel
+  ;; embed surface (hosts embed the FULL shell via the `mount-<panel>!` family
+  ;; below, per 008-Embedding-Contract). They are exported only so the shell
+  ;; can `:require` them across namespaces; an embedding host reaches for
+  ;; `mount-shell!`, never a bare `Panel`. Demoted off `internal-public` (which
+  ;; now means SUPPORTED host/tool embedding) to `implementation`
+  ;; (public-for-technical-reasons, unsupported) so the panel leaves do not
+  ;; read as a supported single-panel embed API.
+  {:namespace "day8.re-frame2-xray.panels.app-db-diff"          :var "Panel" :kind :var :facade? false :tier :implementation :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels.epoch-panel"          :var "Panel" :kind :var :facade? false :tier :implementation :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels.machine-inspector"    :var "Panel" :kind :var :facade? false :tier :implementation :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels.reactive-panel"       :var "Panel" :kind :var :facade? false :tier :implementation :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels.resources"            :var "Panel" :kind :var :facade? false :tier :implementation :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels.routing"              :var "Panel" :kind :var :facade? false :tier :implementation :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.panels.trace"                :var "Panel" :kind :var :facade? false :tier :implementation :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.static.flows.panel"          :var "Panel" :kind :var :facade? false :tier :implementation :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.static.interceptors.panel"   :var "Panel" :kind :var :facade? false :tier :implementation :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.static.machines.panel"       :var "panel" :kind :var :facade? false :tier :implementation :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.static.routes.panel"         :var "Panel" :kind :var :facade? false :tier :implementation :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
+  {:namespace "day8.re-frame2-xray.static.schemas.panel"        :var "Panel" :kind :var :facade? false :tier :implementation :owner "tools/xray" :status "post-v1 lib" :runtime-verified? true}
   ;; day8.re-frame2-xray.config — the published layout-host constants
   ;; (spec/API.md §Published layout-host constants). Named CLJS vars so
   ;; tooling (story-mode chrome, docs generators) refers to the exact
@@ -678,7 +695,8 @@
   ;; re-frame.schemas — optional artefact (day8/re-frame2-schemas), §010.
   ;; Introspection accessors are `tooling`; validator-install seams
   ;; `advanced`; the lower-level lifecycle/cache/validation helpers are
-  ;; stable-but-not-app-facing → internal-public (restrictive default).
+  ;; public-for-technical-reasons (cross-namespace reach) and NOT a
+  ;; supported surface → `implementation` (rf2-oekz6s; was internal-public).
   ;; =========================================================================
   ["re-frame.schemas" "app-schemas"]             {:tier :tooling :owner "010" :status "v1"}
   ["re-frame.schemas" "app-schema-at"]           {:tier :tooling :owner "010" :status "v1"}
@@ -689,8 +707,8 @@
   ["re-frame.schemas" "set-schema-printer!"]     {:tier :advanced :owner "010" :status "v1"}
   ["re-frame.schemas" "set-schema-fns!"]         {:tier :advanced :owner "010" :status "v1"}
   ["re-frame.schemas" "reset-schema-validator!"] {:tier :advanced :owner "010" :status "v1"}
-  ["re-frame.schemas" "reg-app-schema"]          {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "reg-app-schemas"]         {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "reg-app-schema"]          {:tier :implementation :owner "010" :status "v1"}
+  ["re-frame.schemas" "reg-app-schemas"]         {:tier :implementation :owner "010" :status "v1"}
   ;; rf2-l5r974 (option a end-state) / rf2-btdpqn — the four raw schema atoms
   ;; (schemas-by-frame / validator-fn / explainer-fn / printer-fn) are NO
   ;; LONGER re-exported from the re-frame.schemas facade. They were an
@@ -701,39 +719,40 @@
   ;; snapshot-schema-fns / set-schema-fns! bundle). The atoms remain the
   ;; authoritative state in their home namespaces (storage / validator) but
   ;; are not public Vars on the facade, so they carry NO manifest row.
-  ["re-frame.schemas" "snapshot-schemas-by-frame"] {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "restore-schemas-by-frame!"] {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "snapshot-schemas-by-frame"] {:tier :implementation :owner "010" :status "v1"}
+  ["re-frame.schemas" "restore-schemas-by-frame!"] {:tier :implementation :owner "010" :status "v1"}
   ;; rf2-l4ljvr — bundle-level snapshot/restore for the validator/explainer/
   ;; printer triple, the companion to the registry pair above. Internal-public
   ;; test-support hooks (NOT a re-frame.core facade export): they are consumed
   ;; by cross-artefact test-support (routing/ssr/ssr-ring fixtures) to capture
   ;; and restore the pluggable schema bundle without reaching the raw atoms.
-  ["re-frame.schemas" "snapshot-schema-fns"]       {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "restore-schema-fns!"]       {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "clear-schemas-by-frame!"]   {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "frame-schema-entries"]      {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "on-frame-destroyed!"]       {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "validate-app-schema!"]      {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "validate-event!"]           {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "redact-validation-tags"]    {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "validate-fx!"]              {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "validate-cofx!"]            {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "validate-sub!"]             {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "validate-with-registered-fn"] {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "explain-with-registered-fn"]  {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "schema-has-sensitive?"]              {:tier :internal-public :owner "015" :status "v1"}
-  ["re-frame.schemas" "schema-sensitive-at?"]               {:tier :internal-public :owner "015" :status "v1"}
-  ["re-frame.schemas" "extract-sensitive-paths-from-schema"] {:tier :internal-public :owner "015" :status "v1"}
-  ["re-frame.schemas" "extract-large-paths-from-schema"]     {:tier :internal-public :owner "015" :status "v1"}
-  ["re-frame.schemas" "clear-sensitive-paths-cache!"]    {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "clear-edn-print-cache!"]          {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "clear-validator-unavailable-warned!"] {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "clear-walker-opaque-warned!"]     {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "snapshot-schema-fns"]       {:tier :implementation :owner "010" :status "v1"}
+  ["re-frame.schemas" "restore-schema-fns!"]       {:tier :implementation :owner "010" :status "v1"}
+  ["re-frame.schemas" "clear-schemas-by-frame!"]   {:tier :implementation :owner "010" :status "v1"}
+  ["re-frame.schemas" "frame-schema-entries"]      {:tier :implementation :owner "010" :status "v1"}
+  ["re-frame.schemas" "on-frame-destroyed!"]       {:tier :implementation :owner "010" :status "v1"}
+  ["re-frame.schemas" "validate-app-schema!"]      {:tier :implementation :owner "010" :status "v1"}
+  ["re-frame.schemas" "validate-event!"]           {:tier :implementation :owner "010" :status "v1"}
+  ["re-frame.schemas" "redact-validation-tags"]    {:tier :implementation :owner "010" :status "v1"}
+  ["re-frame.schemas" "validate-fx!"]              {:tier :implementation :owner "010" :status "v1"}
+  ["re-frame.schemas" "validate-cofx!"]            {:tier :implementation :owner "010" :status "v1"}
+  ["re-frame.schemas" "validate-sub!"]             {:tier :implementation :owner "010" :status "v1"}
+  ["re-frame.schemas" "validate-with-registered-fn"] {:tier :implementation :owner "010" :status "v1"}
+  ["re-frame.schemas" "explain-with-registered-fn"]  {:tier :implementation :owner "010" :status "v1"}
+  ["re-frame.schemas" "schema-has-sensitive?"]              {:tier :implementation :owner "015" :status "v1"}
+  ["re-frame.schemas" "schema-sensitive-at?"]               {:tier :implementation :owner "015" :status "v1"}
+  ["re-frame.schemas" "extract-sensitive-paths-from-schema"] {:tier :implementation :owner "015" :status "v1"}
+  ["re-frame.schemas" "extract-large-paths-from-schema"]     {:tier :implementation :owner "015" :status "v1"}
+  ["re-frame.schemas" "clear-sensitive-paths-cache!"]    {:tier :implementation :owner "010" :status "v1"}
+  ["re-frame.schemas" "clear-edn-print-cache!"]          {:tier :implementation :owner "010" :status "v1"}
+  ["re-frame.schemas" "clear-validator-unavailable-warned!"] {:tier :implementation :owner "010" :status "v1"}
+  ["re-frame.schemas" "clear-walker-opaque-warned!"]     {:tier :implementation :owner "010" :status "v1"}
 
   ;; =========================================================================
   ;; re-frame.machines — optional artefact (day8/re-frame2-machines), §005.
   ;; Query accessors `tooling`; spec/handler builders `advanced`; the fx
-  ;; impls + validators + timer reset are internal-public.
+  ;; impls + validators + timer reset are public-for-technical-reasons only
+  ;; → `implementation` (rf2-oekz6s; was internal-public).
   ;; =========================================================================
   ["re-frame.machines" "machines"]              {:tier :tooling :owner "005" :status "v1"}
   ["re-frame.machines" "machine-meta"]          {:tier :tooling :owner "005" :status "v1"}
@@ -741,22 +760,22 @@
   ["re-frame.machines" "machine-transition"]    {:tier :advanced :owner "005" :status "v1"}
   ["re-frame.machines" "make-machine-handler"]  {:tier :advanced :owner "005" :status "v1"}
   ["re-frame.machines" "reg-machine*"]          {:tier :advanced :owner "005" :status "v1"}
-  ["re-frame.machines" "spawn-fx"]              {:tier :internal-public :owner "005" :status "v1"}
-  ["re-frame.machines" "spawn-all-init-fx"]     {:tier :internal-public :owner "005" :status "v1"}
-  ["re-frame.machines" "destroy-machine-fx"]    {:tier :internal-public :owner "005" :status "v1"}
-  ["re-frame.machines" "after-schedule-fx"]     {:tier :internal-public :owner "005" :status "v1"}
-  ["re-frame.machines" "after-cancel-fx"]       {:tier :internal-public :owner "005" :status "v1"}
-  ["re-frame.machines" "dispatch-to-system-fx"] {:tier :internal-public :owner "005" :status "v1"}
-  ["re-frame.machines" "validate-machine!"]     {:tier :internal-public :owner "005" :status "v1"}
-  ["re-frame.machines" "validate-machine-data!"] {:tier :internal-public :owner "005" :status "v1"}
-  ["re-frame.machines" "validate-spawn-data!"]  {:tier :internal-public :owner "005" :status "v1"}
+  ["re-frame.machines" "spawn-fx"]              {:tier :implementation :owner "005" :status "v1"}
+  ["re-frame.machines" "spawn-all-init-fx"]     {:tier :implementation :owner "005" :status "v1"}
+  ["re-frame.machines" "destroy-machine-fx"]    {:tier :implementation :owner "005" :status "v1"}
+  ["re-frame.machines" "after-schedule-fx"]     {:tier :implementation :owner "005" :status "v1"}
+  ["re-frame.machines" "after-cancel-fx"]       {:tier :implementation :owner "005" :status "v1"}
+  ["re-frame.machines" "dispatch-to-system-fx"] {:tier :implementation :owner "005" :status "v1"}
+  ["re-frame.machines" "validate-machine!"]     {:tier :implementation :owner "005" :status "v1"}
+  ["re-frame.machines" "validate-machine-data!"] {:tier :implementation :owner "005" :status "v1"}
+  ["re-frame.machines" "validate-spawn-data!"]  {:tier :implementation :owner "005" :status "v1"}
   ;; rf2-wrrvs7 — escape-hatch sibling validating the would-be-merged
   ;; `:rf.machine/update-snapshot` snapshot `:data` before the fx writes it.
-  ["re-frame.machines" "validate-update-snapshot-data!"] {:tier :internal-public :owner "005" :status "v1"}
-  ["re-frame.machines" "reset-timers!"]         {:tier :internal-public :owner "005" :status "v1"}
+  ["re-frame.machines" "validate-update-snapshot-data!"] {:tier :implementation :owner "005" :status "v1"}
+  ["re-frame.machines" "reset-timers!"]         {:tier :implementation :owner "005" :status "v1"}
   ;; rf2-ma0wvq — spawned-actor ownership resolver, published as the
   ;; `:machines/owning-actor-id` late-bind hook the http artefact consults.
-  ["re-frame.machines" "owning-actor-id"]       {:tier :internal-public :owner "005" :status "v1"}
+  ["re-frame.machines" "owning-actor-id"]       {:tier :implementation :owner "005" :status "v1"}
   ;; EP-0014 slice-6 (rf2-2axssk): the derivation/process algebra views of
   ;; registered machines, their live instances / spawned actors, and the
   ;; machine-selector recognizer. JVM convenience aliases; the bodies live in
@@ -781,15 +800,15 @@
   ["re-frame.routing" "match-url"]              {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.routing" "route-url"]              {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.routing" "current-url"]            {:tier :advanced :owner "012" :status "v1"}
-  ["re-frame.routing" "reg-route"]              {:tier :internal-public :owner "012" :status "v1"}
+  ["re-frame.routing" "reg-route"]              {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "clear-route"]            {:tier :tooling :owner "012" :status "v1"}
-  ["re-frame.routing" "malformed-url?"]         {:tier :internal-public :owner "012" :status "v1"}
-  ["re-frame.routing" "url-owner-frame-id"]     {:tier :internal-public :owner "012" :status "v1"}
-  ["re-frame.routing" "route-sub-fn"]           {:tier :internal-public :owner "012" :status "v1"}
-  ["re-frame.routing" "route-link-render-ssr"]  {:tier :internal-public :owner "012" :status "v1"}
-  ["re-frame.routing" "save-scroll-position"]   {:tier :internal-public :owner "012" :status "v1"}
-  ["re-frame.routing" "lookup-scroll-position"] {:tier :internal-public :owner "012" :status "v1"}
-  ["re-frame.routing" "scroll-positions-cap"]   {:tier :internal-public :owner "012" :status "v1"}
+  ["re-frame.routing" "malformed-url?"]         {:tier :implementation :owner "012" :status "v1"}
+  ["re-frame.routing" "url-owner-frame-id"]     {:tier :implementation :owner "012" :status "v1"}
+  ["re-frame.routing" "route-sub-fn"]           {:tier :implementation :owner "012" :status "v1"}
+  ["re-frame.routing" "route-link-render-ssr"]  {:tier :implementation :owner "012" :status "v1"}
+  ["re-frame.routing" "save-scroll-position"]   {:tier :implementation :owner "012" :status "v1"}
+  ["re-frame.routing" "lookup-scroll-position"] {:tier :implementation :owner "012" :status "v1"}
+  ["re-frame.routing" "scroll-positions-cap"]   {:tier :implementation :owner "012" :status "v1"}
   ;; rf2-1hncp2: host-side transient scroll-cache seams. The cache moved off
   ;; runtime-db to a module-level atom; these are the façade-published host
   ;; wrappers over it (`frame-scroll-cache` reads a frame's cache for the
@@ -797,11 +816,11 @@
   ;; `reset-scroll-cache!` is the test-fixture reset). Internal-public test /
   ;; tooling seams — same tier as the sibling scroll helpers above, not a
   ;; front-porch user surface.
-  ["re-frame.routing" "frame-scroll-cache"]     {:tier :internal-public :owner "012" :status "v1"}
-  ["re-frame.routing" "save-scroll-position!"]  {:tier :internal-public :owner "012" :status "v1"}
-  ["re-frame.routing" "reset-scroll-cache!"]    {:tier :internal-public :owner "012" :status "v1"}
-  ["re-frame.routing" "default-max-decoded-keys"] {:tier :internal-public :owner "012" :status "v1"}
-  ["re-frame.routing" "reset-counters!"]        {:tier :internal-public :owner "012" :status "v1"}
+  ["re-frame.routing" "frame-scroll-cache"]     {:tier :implementation :owner "012" :status "v1"}
+  ["re-frame.routing" "save-scroll-position!"]  {:tier :implementation :owner "012" :status "v1"}
+  ["re-frame.routing" "reset-scroll-cache!"]    {:tier :implementation :owner "012" :status "v1"}
+  ["re-frame.routing" "default-max-decoded-keys"] {:tier :implementation :owner "012" :status "v1"}
+  ["re-frame.routing" "reset-counters!"]        {:tier :implementation :owner "012" :status "v1"}
   ;; rf2-oosjmh: host-side transient nav-counter seams (the sibling of the
   ;; scroll-cache seams above). The two monotonic allocators (:nav-token-counter
   ;; + :pending-nav-counter) moved off runtime-db to a module-level
@@ -814,9 +833,9 @@
   ;; payload policy + Spec-Schemas consume); `reset-nav-counters!` is the
   ;; test-fixture reset (sibling of `reset-scroll-cache!`). Internal-public
   ;; test / tooling / contract seams — not a front-porch user surface.
-  ["re-frame.routing" "counter-snapshot"]       {:tier :internal-public :owner "012" :status "v1"}
-  ["re-frame.routing" "routing-state-classification"] {:tier :internal-public :owner "012" :status "v1"}
-  ["re-frame.routing" "reset-nav-counters!"]    {:tier :internal-public :owner "012" :status "v1"}
+  ["re-frame.routing" "counter-snapshot"]       {:tier :implementation :owner "012" :status "v1"}
+  ["re-frame.routing" "routing-state-classification"] {:tier :implementation :owner "012" :status "v1"}
+  ["re-frame.routing" "reset-nav-counters!"]    {:tier :implementation :owner "012" :status "v1"}
   ;; EP-0014 slice-5 (rf2-eiiifu): the derivation/process algebra view of
   ;; registered routes (`route-algebra-view`, static) and a frame's live
   ;; route slice (`route-slice-algebra-view`, live). JVM-only convenience
@@ -837,8 +856,8 @@
   ;; =========================================================================
   ;; re-frame.flows — optional artefact (day8/re-frame2-flows), §013.
   ;; =========================================================================
-  ["re-frame.flows" "reg-flow"]              {:tier :internal-public :owner "013" :status "v1"}
-  ["re-frame.flows" "clear-flow"]            {:tier :internal-public :owner "013" :status "v1"}
+  ["re-frame.flows" "reg-flow"]              {:tier :implementation :owner "013" :status "v1"}
+  ["re-frame.flows" "clear-flow"]            {:tier :implementation :owner "013" :status "v1"}
   ["re-frame.flows" "flows-snapshot"]        {:tier :tooling :owner "013" :status "v1"}
   ["re-frame.flows" "last-inputs-snapshot"]  {:tier :tooling :owner "013" :status "v1"}
   ;; EP-0014 slice-3 (rf2-s8w3nw): the derivation/process algebra view of
@@ -851,9 +870,9 @@
   ;; `re-frame.subs` is not a generator-introspected namespace, whereas
   ;; `re-frame.flows` is.
   ["re-frame.flows" "flow-algebra-view"]     {:tier :tooling :owner "013" :status "v1"}
-  ["re-frame.flows" "run-flows-on-db"]       {:tier :internal-public :owner "013" :status "v1"}
-  ["re-frame.flows" "reset-flows!"]          {:tier :internal-public :owner "013" :status "v1"}
-  ["re-frame.flows" "reset-last-inputs!"]    {:tier :internal-public :owner "013" :status "v1"}
+  ["re-frame.flows" "run-flows-on-db"]       {:tier :implementation :owner "013" :status "v1"}
+  ["re-frame.flows" "reset-flows!"]          {:tier :implementation :owner "013" :status "v1"}
+  ["re-frame.flows" "reset-last-inputs!"]    {:tier :implementation :owner "013" :status "v1"}
 
   ;; =========================================================================
   ;; re-frame.http — optional artefact (day8/re-frame2-http), §014.
@@ -875,7 +894,9 @@
   ;; =========================================================================
   ;; re-frame.ssr — optional artefact (day8/re-frame2-ssr), §011.
   ;; The rowed query surface is advanced; the request/response plumbing +
-  ;; templating + projection internals are internal-public (host territory).
+  ;; templating + projection internals are public-for-technical-reasons
+  ;; only (host territory, not a supported app/tool surface) →
+  ;; `implementation` (rf2-oekz6s; was internal-public).
   ;; =========================================================================
   ["re-frame.ssr" "render-to-string"]              {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "render-tree-hash"]              {:tier :advanced :owner "011" :status "v1"}
@@ -883,44 +904,47 @@
   ["re-frame.ssr" "streaming-render-shell"]        {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "streaming-render-continuation"] {:tier :advanced :owner "011" :status "v1"}
   ["re-frame.ssr" "streaming-build-final-payload"] {:tier :advanced :owner "011" :status "v1"}
-  ["re-frame.ssr" "reg-error-projector"]           {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "adapter"]                       {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "install-render-to-string!"]     {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "hydrate!"]                      {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "verify-hydration!"]             {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "set-request!"]                  {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "get-request"]                   {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "clear-request!"]                {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "get-response"]                  {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "peek-response"]                 {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "flush-response!"]               {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "default-response"]              {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "apply-error-projection!"]       {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "project-render-exception!"]     {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "default-error-projector-fn"]    {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "public-error-keys"]             {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "fallback-public-error"]         {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "on-frame-destroyed!"]           {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "drain-blocking-resources!"]     {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "streaming-fallback-template"]   {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "streaming-resolved-template"]   {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "streaming-failed-template"]     {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr" "streaming-hydrate-delta-script"] {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr" "reg-error-projector"]           {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "adapter"]                       {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "install-render-to-string!"]     {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "hydrate!"]                      {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "verify-hydration!"]             {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "set-request!"]                  {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "get-request"]                   {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "clear-request!"]                {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "get-response"]                  {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "peek-response"]                 {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "flush-response!"]               {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "default-response"]              {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "apply-error-projection!"]       {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "project-render-exception!"]     {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "default-error-projector-fn"]    {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "public-error-keys"]             {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "fallback-public-error"]         {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "on-frame-destroyed!"]           {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "drain-blocking-resources!"]     {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "streaming-fallback-template"]   {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "streaming-resolved-template"]   {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "streaming-failed-template"]     {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr" "streaming-hydrate-delta-script"] {:tier :implementation :owner "011" :status "v1"}
 
   ;; =========================================================================
   ;; re-frame.ssr.ring — Ring host-adapter (day8/re-frame2-ssr-ring), §011.
-  ;; The host-adapter surface; a host wires it — internal-public.
+  ;; Internal host-adapter machinery the framework wires (the individual
+  ;; `*-handler` / `default-*` fns are NOT rowed as supported var APIs in
+  ;; spec/API.md) — public-for-technical-reasons → `implementation`
+  ;; (rf2-oekz6s; was internal-public).
   ;; =========================================================================
-  ["re-frame.ssr.ring" "ssr-handler"]               {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr.ring" "ssr-middleware"]            {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr.ring" "stream-handler"]            {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr.ring" "default-html-shell"]        {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr.ring" "default-streaming-prefix"]  {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr.ring" "default-streaming-suffix"]  {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr.ring" "default-on-error"]          {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr.ring" "make-default-on-error"]     {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr.ring" "cookie->set-cookie-header"] {:tier :internal-public :owner "011" :status "v1"}
-  ["re-frame.ssr.ring" "handler-defaults"]          {:tier :internal-public :owner "011" :status "v1"}
+  ["re-frame.ssr.ring" "ssr-handler"]               {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr.ring" "ssr-middleware"]            {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr.ring" "stream-handler"]            {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr.ring" "default-html-shell"]        {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr.ring" "default-streaming-prefix"]  {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr.ring" "default-streaming-suffix"]  {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr.ring" "default-on-error"]          {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr.ring" "make-default-on-error"]     {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr.ring" "cookie->set-cookie-header"] {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr.ring" "handler-defaults"]          {:tier :implementation :owner "011" :status "v1"}
 
   ;; =========================================================================
   ;; re-frame.epoch — optional artefact (day8/re-frame2-epoch), §Tool-Pair.
@@ -940,14 +964,17 @@
   ["re-frame.epoch" "projected-record"]           {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "configure!"]                 {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "current-config"]             {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.epoch" "settle!"]                    {:tier :internal-public :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.epoch" "settle!"]                    {:tier :implementation :owner "Tool-Pair" :status "v1 (dev-only)"}
 
   ;; =========================================================================
   ;; re-frame.story — Story facade (day8/re-frame2-story), §007.
   ;; The public execution verbs + registration macros are `tooling`
-  ;; (a Storybook-shaped dev surface, per spec/API.md §Tiering). The
-  ;; implementation/migration vocabulary + internal projections are
-  ;; internal-public (restrictive default).
+  ;; (a Storybook-shaped dev surface, per spec/API.md §Tiering); the
+  ;; run-result READ accessors are `tooling` too (the verdict-reading
+  ;; statement-of-record). The implementation/migration vocabulary +
+  ;; internal projections are public-for-technical-reasons only →
+  ;; `implementation` (rf2-oekz6s; was internal-public — see the §Story
+  ;; facade note that this vocabulary is "not public, unrowed").
   ;; =========================================================================
   ;; Public execution verbs (tooling).
   ["re-frame.story" "run"]      {:tier :tooling :owner "007" :status "post-v1 lib"}
@@ -1006,70 +1033,87 @@
   ["re-frame.story" "clear-all!"]   {:tier :tooling :owner "007" :status "post-v1 lib"}
   ["re-frame.story" "clear-kind!"]  {:tier :tooling :owner "007" :status "post-v1 lib"}
   ["re-frame.story" "unregister!"]  {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ;; Run-result READ surface — `tooling` (rf2-oekz6s). The story spec
+  ;; (tools/story/spec/017-Testing-Story.md §Run result) names these as the
+  ;; statement-of-record for reading what a `run` produced: the verdict is
+  ;; `:status`, read via `result-status` / `result-passed?`; the run-result
+  ;; map schema is `run-result-schema` / `valid-run-result?` /
+  ;; `explain-run-result`; `run-result` is the unified execution-record
+  ;; boundary. They are a dev/inspection READ surface (parallel to
+  ;; `snapshot-identity`), not implementation vocabulary — so they keep a
+  ;; supported `tooling` tier rather than dropping to `implementation`.
+  ["re-frame.story" "run-result"]             {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "run-result-schema"]      {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "valid-run-result?"]      {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "result-passed?"]         {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "result-status"]          {:tier :tooling :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "explain-run-result"]     {:tier :tooling :owner "007" :status "post-v1 lib"}
   ;; Implementation / migration vocabulary + internal projections
-  ;; (not a public surface per spec/API.md §Tiering — internal-public).
-  ["re-frame.story" "run-variant"]            {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "reset-variant"]          {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "watch-variant"]          {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "destroy-variant!"]       {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "render-variant"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "variant->edn"]           {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "workspace->edn"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "variant-plan"]           {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "variant-frame?"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "variant-frames"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "variant-share-url"]      {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "execute-play!"]          {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "gen-play-snippet"]       {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "resolve-args"]           {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "resolve-decorators"]     {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "run-result"]             {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "run-result-schema"]      {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "valid-run-result?"]      {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "result->reports"]        {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "result-passed?"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "result-status"]          {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "report-result!"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "explain-run-result"]     {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "assertions-passing?"]    {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "tape-shows-failure?"]    {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "narrative-beats"]        {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "beat-count"]             {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "beat-at"]                {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "beat-epoch-ids"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "project-evidence"]       {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ;; (rf2-oekz6s): public-for-technical-reasons ONLY — the story facade /
+  ;; sub-namespaces export these so the chrome + tests can reach them across
+  ;; namespaces, but they are NOT a supported surface. spec/API.md §Story
+  ;; facade states the public execution surface is EXACTLY the three verbs
+  ;; `run` / `is` / `explain`; the `run-variant` / `is-variant` / migration
+  ;; vocabulary is "not public — unrowed, not a tier". The `implementation`
+  ;; tier (introduced by this bead) is that "not a supported surface" home:
+  ;; previously these were parked in `internal-public`, which read as a
+  ;; second semi-public API and contradicted the §Story facade text.
+  ["re-frame.story" "run-variant"]            {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "reset-variant"]          {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "watch-variant"]          {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "destroy-variant!"]       {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "render-variant"]         {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "variant->edn"]           {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "workspace->edn"]         {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "variant-plan"]           {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "variant-frame?"]         {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "variant-frames"]         {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "variant-share-url"]      {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "execute-play!"]          {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "gen-play-snippet"]       {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "resolve-args"]           {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "resolve-decorators"]     {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "result->reports"]        {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "report-result!"]         {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "assertions-passing?"]    {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "tape-shows-failure?"]    {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "narrative-beats"]        {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "beat-count"]             {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "beat-at"]                {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "beat-epoch-ids"]         {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "project-evidence"]       {:tier :implementation :owner "007" :status "post-v1 lib"}
   ["re-frame.story" "snapshot-identity"]      {:tier :tooling :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "canonicalize"]           {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "canonical-hash"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "content-hash"]           {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "plan-hash"]              {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "run-hash"]               {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "make-run-artifact"]      {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "run-artifact?"]          {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "replay-run-artifact"]    {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "diff-run-artifacts"]     {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "assert-deterministic"]   {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "check-property!"]        {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "capture-golden"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "compare-golden"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "golden-match?"]          {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "start-recording!"]       {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "stop-recording!"]        {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "clear-recording!"]       {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "sweep-faults!"]          {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "static-mode?"]           {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "force-fx-stub-id"]       {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "layout-debug-measure-id"] {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "layout-debug-outline-id"] {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "layout-debug-pseudo-id"]  {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "lifecycle-state"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "match-schema-expectations"] {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "materialize-variant-plan"] {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "promote-run-artifact!"]   {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "read-assertions"]         {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "recorder-state"]          {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "recording->play-script"]  {:tier :internal-public :owner "007" :status "post-v1 lib"}
-  ["re-frame.story" "recording?"]              {:tier :internal-public :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "canonicalize"]           {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "canonical-hash"]         {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "content-hash"]           {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "plan-hash"]              {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "run-hash"]               {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "make-run-artifact"]      {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "run-artifact?"]          {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "replay-run-artifact"]    {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "diff-run-artifacts"]     {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "assert-deterministic"]   {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "check-property!"]        {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "capture-golden"]         {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "compare-golden"]         {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "golden-match?"]          {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "start-recording!"]       {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "stop-recording!"]        {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "clear-recording!"]       {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "sweep-faults!"]          {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "static-mode?"]           {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "force-fx-stub-id"]       {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "layout-debug-measure-id"] {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "layout-debug-outline-id"] {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "layout-debug-pseudo-id"]  {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "lifecycle-state"]         {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "match-schema-expectations"] {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "materialize-variant-plan"] {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "promote-run-artifact!"]   {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "read-assertions"]         {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "recorder-state"]          {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "recording->play-script"]  {:tier :implementation :owner "007" :status "post-v1 lib"}
+  ["re-frame.story" "recording?"]              {:tier :implementation :owner "007" :status "post-v1 lib"}
 
   ;; =========================================================================
   ;; re-frame.mcp-base.* — MCP support namespaces (day8/re-frame2-mcp-base).
