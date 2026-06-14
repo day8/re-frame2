@@ -311,6 +311,15 @@
    ;; (it becomes `:rf.cofx/requires` registration metadata). Named here as
    ;; removed-v1-in-migration-prose, exactly the role `on-changes` plays above.
    "inject-cofx"  ; docs/guide/25-from-re-frame-v1.md + concepts/effects-and-coeffects.md — removed v1 cofx interceptor, named as migration guidance
+   ;; EP-0018 Z (rf2-xhfxcs.14): `reg-event-db` / `reg-event-fx` removed from
+   ;; the public façade (throwing stubs, no manifest row — `reg-event` is the
+   ;; ONE public event form). docs/guide/25-from-re-frame-v1.md names the v1
+   ;; `(rf/reg-event-db …)` / `(rf/reg-event-fx …)` forms as the left-hand
+   ;; side of old→new migration guidance (they become `(rf/reg-event …)`).
+   ;; Named here as removed-v1-in-migration-prose, exactly the role
+   ;; `on-changes` / `inject-cofx` play above.
+   "reg-event-db" ; docs/guide/25-from-re-frame-v1.md — removed v1 event registrar, named as migration guidance
+   "reg-event-fx" ; docs/guide/25-from-re-frame-v1.md — removed v1 event registrar, named as migration guidance
    "set-x!"       ; docs/guide/24-config-and-safety.md — `(rf/set-x!)` is an `<x>` placeholder in the config-shape table
    "install-x!"   ; docs/guide/24-config-and-safety.md — `(rf/install-x!)` is an `<x>` placeholder
    ;; EP-0015 §3 (rf2-mngp4o): `add-marks` / `set-marks` removed from the

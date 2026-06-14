@@ -16,12 +16,16 @@
   How re-frame2's API reaches a cell:
 
     - In compiled CLJS, `re-frame.core` carries plain-fn *aliases* for
-      every `reg-*` registration (`reg-event-db`, `reg-sub`, `reg-fx`,
+      every `reg-*` registration (`reg-event`, `reg-sub`, `reg-fx`,
       `reg-cofx`, ... — the macro forms are JVM-only and only add
       source-coord capture, which a browser cell does not need). So
       `sci/copy-ns` over `re-frame.core` exposes those fn-aliases under
-      their plain names; a cell writes `(rf/reg-event-db :id (fn ...))`
+      their plain names; a cell writes `(rf/reg-event :id (fn ...))`
       and it resolves to the fn-alias. No macro support needed.
+      (EP-0018 Z: `reg-event` is the ONE public event registrar; the
+      former per-kind `reg-event-db` / `reg-event-fx` / `reg-event-ctx`
+      survive only as `^:no-doc` throwing stubs, so a stale cell calling
+      one raises `:rf.error/reg-event-*-removed` — the intended signal.)
 
     - `dispatch` / `dispatch-sync` / `subscribe` are macro-only on the
       public surface (no same-named fn-alias — the fns are
@@ -101,8 +105,8 @@
 (def rf-ns (sci/create-ns 're-frame.core nil))
 
 ;; copy-ns brings every public runtime var of re-frame.core into SCI —
-;; that includes the reg-* fn-aliases (reg-event-db, reg-event-fx,
-;; reg-sub, reg-fx, reg-cofx, ...), plus init!, configure, clear-event,
+;; that includes the reg-* fn-aliases (reg-event, reg-sub, reg-fx,
+;; reg-cofx, ...), plus init!, configure, clear-event,
 ;; current-frame-id, frame-handle, frame-bound-fn*, app-db-value, etc.
 ;; The macro-only public names (dispatch/dispatch-sync/subscribe) have no
 ;; same-named runtime var so they are NOT in the copy; we add them below.

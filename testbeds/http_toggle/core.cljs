@@ -54,15 +54,15 @@
 ;; consumers to inspect via the DOM. A consumer's spec asserts on the
 ;; :rf.http/* trace stream first; the DOM mirror is a fall-back.
 
-(rf/reg-event-db ::initialise
-  (fn [_db _ev]
-    {:outcome :success
-     :status  :idle
-     :reply   nil}))
+(rf/reg-event ::initialise
+  (fn [_cofx _ev]
+    {:db {:outcome :success
+          :status  :idle
+          :reply   nil}}))
 
-(rf/reg-event-db ::set-outcome
-  (fn [db [_ outcome]]
-    (assoc db :outcome outcome)))
+(rf/reg-event ::set-outcome
+  (fn [{:keys [db]} [_ outcome]]
+    {:db (assoc db :outcome outcome)}))
 
 ;; ----------------------------------------------------------------------------
 ;; The Go button — one event handler that branches on (:outcome db).
@@ -118,7 +118,7 @@
       ((registrar/handler :fx :rf.http/managed-canned-failure)
        frame-ctx args-map))))
 
-(rf/reg-event-fx ::go
+(rf/reg-event ::go
   (fn [{:keys [db]} [_ msg]]
     (cond
       ;; Reply branch — categorise and stash.
@@ -242,7 +242,7 @@
                                         :reason     :user})))
         500))))
 
-(rf/reg-event-fx ::cancel
+(rf/reg-event ::cancel
   (fn [_ctx _ev]
     {:fx [;; The live abort fx. On the testbed's deferred-abortable
           ;; path, the in-flight registry isn't populated, so this is

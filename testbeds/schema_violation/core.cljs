@@ -45,10 +45,10 @@
 (with-frame :rf/default
   (rf/reg-app-schema [:auth] AuthSlice))
 
-(rf/reg-event-db ::initialise
-  (fn [_db _ev]
-    {:auth        {:token "seed-token"}
-     :click-count {:app-db 0 :event 0 :cofx 0 :fx 0}}))
+(rf/reg-event ::initialise
+  (fn [_cofx _ev]
+    {:db {:auth        {:token "seed-token"}
+          :click-count {:app-db 0 :event 0 :cofx 0 :fx 0}}}))
 
 ;; ----------------------------------------------------------------------------
 ;; Button A — :where :app-db (handler commits a value that fails the
@@ -62,12 +62,12 @@
 ;; at "seed-token" — and the dispatch is treated as failed (flows do
 ;; not evaluate, :fx does not walk).
 
-(rf/reg-event-db ::violate-app-db
-  (fn [db _ev]
+(rf/reg-event ::violate-app-db
+  (fn [{:keys [db]} _ev]
     ;; HOT PATH — the commit site for :where :app-db.
     ;; The runtime's post-handler validation re-reads [:auth :token]
     ;; against AuthSlice and rejects the int 42.
-    (assoc-in db [:auth :token] 42)))
+    {:db (assoc-in db [:auth :token] 42)}))
 
 ;; ----------------------------------------------------------------------------
 ;; Button B — :where :event (dispatched vector fails the handler's :spec)
@@ -79,10 +79,10 @@
 ;; trace fires with :where :event; the downstream queue continues to
 ;; drain (the cascade stops only at this event).
 
-(rf/reg-event-db ::violate-event
+(rf/reg-event ::violate-event
   {:schema [:cat [:= ::violate-event] pos-int?]}
-  (fn [db _ev]
-    (update-in db [:click-count :event] inc)))
+  (fn [{:keys [db]} _ev]
+    {:db (update-in db [:click-count :event] inc)}))
 
 ;; ----------------------------------------------------------------------------
 ;; Button C — :where :cofx (cofx :schema rejects the supplied value)
@@ -107,7 +107,7 @@
     ;; Returns a value that the registered :schema will reject.
     -1))
 
-(rf/reg-event-fx ::violate-cofx
+(rf/reg-event ::violate-cofx
   {:rf.cofx/requires [::bad-counter]}
   (fn [{:keys [db]} _ev]
     {:db (update-in db [:click-count :cofx] inc)}))
@@ -131,7 +131,7 @@
     ;; misshapen args, which is harmless for this testbed.)
     nil))
 
-(rf/reg-event-fx ::violate-fx-args
+(rf/reg-event ::violate-fx-args
   (fn [{:keys [db]} _ev]
     {:db (update-in db [:click-count :fx] inc)
      :fx [;; HOT PATH — the fx-args site for :where :fx-args.

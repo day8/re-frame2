@@ -20,7 +20,7 @@
  *     We do NOT add that <script> — the loader must, resolving it as a
  *     sibling of playground.js.
  *   - A reagent2 component using re-frame2's OWN subscribe RENDERS live
- *     (re-frame.core v2 reg-event-db / reg-sub / dispatch-sync), and
+ *     (re-frame.core v2 reg-event / reg-sub / dispatch-sync), and
  *     clicking a button DISPATCHES a re-frame2 event that re-renders it.
  *   - The Phase-1 plain cell on the SAME page still works alongside the
  *     re-frame2 bundle (Scittle + rf2sci coexist).
@@ -93,8 +93,8 @@ const PAGE = `<!DOCTYPE html>
   <h2>live re-frame2 counter (rf2 cell)</h2>
   <pre class="language-cljs-rf2">(require '[reagent2.core :as r]
          '[re-frame.core :as rf])
-(rf/reg-event-db :rf2smoke/init (fn [_ _] {:count 0}))
-(rf/reg-event-db :rf2smoke/inc  (fn [db _] (update db :count inc)))
+(rf/reg-event :rf2smoke/init (fn [_ _] {:db {:count 0}}))
+(rf/reg-event :rf2smoke/inc  (fn [{:keys [db]} _] {:db (update db :count inc)}))
 (rf/reg-sub      :rf2smoke/count (fn [db _] (:count db)))
 (rf/dispatch-sync [:rf2smoke/init])
 (defn counter []
@@ -271,7 +271,7 @@ const rf2Cells = await page.$$(".cljs-cell--rf2");
 assert(rf2Cells.length === 3, `3 re-frame2 cells mounted (got ${rf2Cells.length})`);
 
 // The reagent2 component renders into the result div as live DOM (auto-mount),
-// driven by re-frame2's OWN reg-event-db / reg-sub / dispatch-sync.
+// driven by re-frame2's OWN reg-event / reg-sub / dispatch-sync.
 await page.waitForSelector(".cljs-cell--rf2 #rf2-cnt", { timeout: 20000 });
 const rf2Before = (await page.locator("#rf2-cnt").innerText()).trim();
 console.log("rf2 cell count (initial):", JSON.stringify(rf2Before));

@@ -286,7 +286,7 @@
 ;; App-db init
 ;; ----------------------------------------------------------------------------
 
-(rf/reg-event-fx ::initialise
+(rf/reg-event ::initialise
   (fn [_ _]
     ;; Start the parent machine to its initial state (idle + cold) — the
     ;; eager kick (xstate `createActor(m).start()`). Per F‴ (rf2-gl588) it

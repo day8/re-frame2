@@ -55,21 +55,22 @@
 ;; App-db
 ;; ----------------------------------------------------------------------------
 
-(rf/reg-event-db ::initialise
-  (fn [_db _ev]
-    {;; Counter the recursive handler bumps. After a halt this reads
-     ;; back to 0 — positive evidence of the atomic rollback (rule 3).
-     :depth-reached 0
-     ;; Frame's :drain-depth, mirrored for the view. Re-registers
-     ;; the frame on change via `:rf/reg-frame` so the runtime sees
-     ;; the updated ceiling on the next drain.
-     :drain-depth   default-drain-depth}))
+(rf/reg-event ::initialise
+  (fn [_cofx _ev]
+    {:db
+     {;; Counter the recursive handler bumps. After a halt this reads
+      ;; back to 0 — positive evidence of the atomic rollback (rule 3).
+      :depth-reached 0
+      ;; Frame's :drain-depth, mirrored for the view. Re-registers
+      ;; the frame on change via `:rf/reg-frame` so the runtime sees
+      ;; the updated ceiling on the next drain.
+      :drain-depth   default-drain-depth}}))
 
 ;; ----------------------------------------------------------------------------
 ;; The runaway handler
 ;; ----------------------------------------------------------------------------
 ;;
-;; ::recurse is `reg-event-fx`. Its body returns a `:db` that increments
+;; ::recurse is a `reg-event`. Its body returns a `:db` that increments
 ;; the depth counter AND an `:fx` that queues another ::recurse against
 ;; the same frame. The runtime processes the queue in source order in
 ;; one run-to-completion drain; each ::recurse appends one ::recurse,
@@ -83,7 +84,7 @@
 ;;   - The frame's `app-db` is restored to the snapshot taken at the
 ;;     start of the drain. `:depth-reached` reads back to 0.
 
-(rf/reg-event-fx ::recurse
+(rf/reg-event ::recurse
   (fn [{:keys [db]} _ev]
     ;; HOT PATH — the recursion site. The handler ALWAYS dispatches
     ;; another ::recurse; there is no termination branch on purpose —
@@ -106,9 +107,9 @@
 ;; epoch record on `rf/epoch-history`) already cover the contract
 ;; under test and are what the cross-cutting scenario asserts on.
 
-(rf/reg-event-db ::reset
-  (fn [db _ev]
-    (assoc db :depth-reached 0)))
+(rf/reg-event ::reset
+  (fn [{:keys [db]} _ev]
+    {:db (assoc db :depth-reached 0)}))
 
 ;; ----------------------------------------------------------------------------
 ;; Drain-depth control
@@ -119,10 +120,10 @@
 ;; `:on-create` event is NOT re-fired on a surgical update — only the
 ;; depth ceiling changes — so `:depth-reached` survives across edits.
 
-(rf/reg-event-db ::set-drain-depth
-  (fn [db [_ new-depth]]
+(rf/reg-event ::set-drain-depth
+  (fn [{:keys [db]} [_ new-depth]]
     (rf/reg-frame :rf/default {:drain-depth new-depth})
-    (assoc db :drain-depth new-depth)))
+    {:db (assoc db :drain-depth new-depth)}))
 
 ;; ----------------------------------------------------------------------------
 ;; Subs + view

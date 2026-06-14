@@ -51,9 +51,9 @@
 
 (defonce trace-events (atom []))
 
-(rf/reg-event-db ::record-mismatch
-  (fn [db [_ tags]]
-    (assoc db :mismatch tags)))
+(rf/reg-event ::record-mismatch
+  (fn [{:keys [db]} [_ tags]]
+    {:db (assoc db :mismatch tags)}))
 
 (defn- normalise-event
   "Project a trace event into a plain edn map carrying just the slots
@@ -95,9 +95,9 @@
 ;; Events / subs
 ;; ----------------------------------------------------------------------------
 
-(rf/reg-event-db ::inc
-  (fn [db _ev]
-    (update db :count (fnil inc 0))))
+(rf/reg-event ::inc
+  (fn [{:keys [db]} _ev]
+    {:db (update db :count (fnil inc 0))}))
 
 (rf/reg-sub :count     (fn [db _] (or (:count db) 0)))
 (rf/reg-sub :mismatch  (fn [db _] (:mismatch db)))

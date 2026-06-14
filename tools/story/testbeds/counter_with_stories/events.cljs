@@ -1,7 +1,7 @@
 (ns counter-with-stories.events
   "Counter events. The events module is the canonical app slice the
-  stories namespace pivots around — three plain `reg-event-db`
-  handlers + a `reg-event-fx` initialiser + a `:sensitive?` sign-in
+  stories namespace pivots around — a set of plain `reg-event`
+  handlers (the ONE event registrar, EP-0018) + a `:sensitive?` sign-in
   handler the recorder-redaction variant pivots on. Nothing
   Story-specific lives here; the same handlers run in the live
   counter app and in the Story playground.
