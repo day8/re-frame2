@@ -118,16 +118,19 @@
     :rf.error/cofx-value-invalid
     :rf.error/inject-cofx-removed
     :rf.error/world-inputs-renamed
-    ;; EP-0018 Slice A (rf2-xhfxcs.1): the three retired event-registration
-    ;; names graduated `always-on` in the Spec 009 catalogue. `reg-event-db`
-    ;; and `reg-event-fx` are removed from the public surface; `reg-event-ctx`
-    ;; is demoted to a framework-internal primitive. Each is a hard `:no-recovery`
-    ;; rejection that "fires in production too (a correctness contract)", so it
-    ;; rides the per-event always-on axis like the other registration-removal
-    ;; errors. The runtime emit SITES land in Slice B (facade); this leg drives
-    ;; each through `dispatch-on-error!` so the literal pins the catalogue's
-    ;; always-on set regardless of which slice wires up the emit site (the JVM
-    ;; companion `parsed-always-on-set-equals-the-exercise-literal` enforces ==).
+    ;; EP-0018 (rf2-xhfxcs): the retired event-registration names graduated
+    ;; `always-on` in the Spec 009 catalogue by Slice A. `reg-event-db` /
+    ;; `reg-event-fx` were removed (no alias, EP-0007 rule 2) and public
+    ;; `reg-event-ctx` demoted to a framework-internal primitive; each call
+    ;; is now a hard error that fires in production too (a correctness
+    ;; contract — naming `reg-event` / `->interceptor` as the replacement),
+    ;; so the row rides the always-on axis. The emit SITES land across the
+    ;; EP-0018 slices; this leg drives every always-on category through
+    ;; `dispatch-on-error!` to prove the listener fan-out, so the literal
+    ;; pins the catalogue's always-on set regardless of which slice wires up
+    ;; the emit site. The JVM companion
+    ;; (`parsed-always-on-set-equals-the-exercise-literal`) keeps this set ==
+    ;; the parsed catalogue.
     :rf.error/reg-event-db-removed
     :rf.error/reg-event-fx-removed
     :rf.error/reg-event-ctx-removed})
