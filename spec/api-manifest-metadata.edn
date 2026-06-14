@@ -203,7 +203,17 @@
    ;; replace-app-db! / replace-runtime-db! / replace-frame-state! as live
    ;; vars — they are now manifested and classified below, so they are removed
    ;; from this allowlist.
-   "reset-app-db!"}         ; EP-0001 app-db-only reset (Tool-Pair) — unshipped (rf2-tfepxu / bead 9)
+   "reset-app-db!"          ; EP-0001 app-db-only reset (Tool-Pair) — unshipped (rf2-tfepxu / bead 9)
+   ;; EP-0022 registered interceptors (Slice A, rf2-0adhqs.1) — the SPEC
+   ;; landed ahead of the runtime: spec/API.md §Registration rows
+   ;; `reg-interceptor` / `reg-interceptor*` (and the §Standard interceptors
+   ;; reg-interceptor row) describe the public interceptor-authoring surface
+   ;; normatively, but the runtime is the NEXT slice — these vars are not yet
+   ;; live `re-frame.core` facade vars, so the generated manifest cannot carry
+   ;; them. Remove both from this allowlist when the runtime slice ships and
+   ;; the regenerated manifest picks them up (then classify them below).
+   "reg-interceptor"        ; EP-0022 §Registration — registered-interceptor registrar macro, runtime unshipped
+   "reg-interceptor*"}      ; EP-0022 §Registration — plain-fn registrar beneath reg-interceptor, runtime unshipped
  ;; EP-0016 named resource-scope resolvers (slice 2, rf2-hls77w) — the impl
  ;; landed: `reg-resource-scope` / `clear-resource-scope` /
  ;; `resolve-resource-scope` now ship as live `re-frame.core` facade vars
