@@ -30,7 +30,10 @@
             [re-frame.views]
             [re-frame.http-test-support]
             [realworld.core]
-            [realworld.routing :as routing]
+            ;; Loaded for its ns-load side effects: registers the routes +
+            ;; the `:realworld.routing/auth-guard` interceptor (EP-0022) the
+            ;; auth-guard tests reference by id.
+            [realworld.routing]
             [realworld.ssr :as ssr])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
@@ -724,13 +727,14 @@
     (is (= :rf.route/not-found (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))))
 
 (defn- auth-guard-test []
-  ;; The auth-guard is a plain interceptor (Spec 012 §Redirects and
+  ;; The auth-guard is a registered interceptor (Spec 012 §Redirects and
   ;; guards) wired into the demo frame via `reg-frame :interceptors`
-  ;; (core.cljs). Configure the test frame with the same interceptor so
-  ;; the guard is exercised end-to-end.
+  ;; (core.cljs) BY ID (EP-0022). Configure the test frame with the same
+  ;; id-reference so the guard is exercised end-to-end. Its descriptor is
+  ;; registered at `realworld.routing` ns-load (required below).
   (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}
-                                 :interceptors [routing/auth-guard]})]
+                                 :interceptors [:realworld.routing/auth-guard]})]
     ;; Unauthenticated: navigating to a :requires-auth route
     ;; (:realworld.user/settings) is redirected to :realworld.auth/login.
     (rf/dispatch-sync [:rf.route/navigate :realworld.user/settings {}] {:frame f})
@@ -774,7 +778,7 @@
   ;; --- direct-URL / reload / popstate (`:rf.route/handle-url-change`) ---
   (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}
-                                 :interceptors [routing/auth-guard]})]
+                                 :interceptors [:realworld.routing/auth-guard]})]
     ;; Logged-out direct URL (or reload) to a :requires-auth route.
     (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
     (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
@@ -800,7 +804,7 @@
   ;; --- anchor click (`:rf/url-requested`) ---
   (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}
-                                 :interceptors [routing/auth-guard]})]
+                                 :interceptors [:realworld.routing/auth-guard]})]
     ;; An anchor whose href targets a :requires-auth route. The
     ;; framework `rf/route-link` dispatches `:rf/url-requested` with the
     ;; resolved url + :to route-id.
@@ -829,7 +833,7 @@
   ;; --- authenticated: every entry point now PASSES through ---
   (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-success-empty}
-                                 :interceptors [routing/auth-guard]})]
+                                 :interceptors [:realworld.routing/auth-guard]})]
     (rf/dispatch-sync [:auth/store-session {:username "eve" :token "t"}] {:frame f})
     ;; direct-URL / reload to a guarded route proceeds when logged in.
     (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})

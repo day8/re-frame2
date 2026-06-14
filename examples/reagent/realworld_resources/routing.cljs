@@ -219,9 +219,16 @@
                                   {:id route-id :params (or params {})})
     nil))
 
-(def auth-guard
-  {:id     :realworld-resources.routing/auth-guard
-   :before (fn auth-guard-before [ctx]
+;; EP-0022: the guard is a REGISTERED interceptor referenced BY ID
+;; (`:realworld-resources.routing/auth-guard`) from the demo frame's
+;; `:interceptors` chain in core.cljs — not an inline value. `reg-interceptor`
+;; is a top-level load-time registration; core.cljs requires this ns, so the
+;; descriptor is registered before `reg-frame` resolves the reference.
+(rf/reg-interceptor :realworld-resources.routing/auth-guard
+  {:doc "Route-level auth guard (Spec 012 §Redirects and guards): redirect
+         unauthenticated users away from `:requires-auth`-tagged routes to
+         login, stashing the intended target for post-login bounce-back."}
+  {:before (fn auth-guard-before [ctx]
              (if-let [{:keys [id params]} (resolve-nav-target (get-in ctx [:coeffects :event]))]
                (let [route-meta  (rf/handler-meta :route id)
                      needs-auth? (boolean (some #{:requires-auth} (:tags route-meta)))
