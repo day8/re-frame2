@@ -26,7 +26,6 @@
   (:require [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
-            [re-frame.routing.nav-counters :as nav-counters]
             [re-frame.routing.registry :as registry]
             [re-frame.routing.url :as url]
             [re-frame.trace :as trace]))
@@ -155,17 +154,20 @@
   history entry, URL and slice agree again (rf2-ede1h.3). `:rf.route/
   cancel` / `:rf.route/continue` then operate from a consistent state.
 
-  rf2-oosjmh: `nav-counters` is the host-side counter snapshot injected by
-  the `:rf.route/nav-counters` cofx — the pending-nav id is minted from it
-  PURELY (the handler never reaches the host atom) and the high-water bump
-  rides a `:rf.route/commit-nav-counter` fx in the returned `:fx` vector."
-  [rdb frame-id event-vec requested-url bypass-leave-guard? nav-counters]
+  rf2-vcop6y: `pending-nav-allocation` is the RECORDABLE allocation
+  `{:id \"pn-N\" :counter N}` delivered by the generator-backed
+  `:rf.route/pending-nav-allocation` cofx — the pending-nav id is PUBLISHED
+  from `:id` (recorded on the causal token, so a recorded
+  `[:rf.route/continue \"pn-N\"]` re-matches under replay) and the
+  `:counter` high-water bump rides a `:rf.route/commit-nav-counter` fx in
+  the returned `:fx` vector."
+  [rdb frame-id event-vec requested-url bypass-leave-guard? pending-nav-allocation]
   (let [current-route (get-in rdb [:rf.runtime/routing :current])
         current-meta  (registrar/lookup :route (:route-id current-route))
         ok?           (or bypass-leave-guard?
                           (can-leave? frame-id (:route-id current-route) current-meta))]
     (when-not ok?
-      (let [[pn-counter pn-id] (nav-counters/next-pending-nav-id nav-counters)
+      (let [{pn-id :id pn-counter :counter} pending-nav-allocation
             guard-id    (can-leave-guard-id current-meta)
             ;; rf2-ede1h.3: a blocked popstate (Back/Forward) has already
             ;; moved the address bar; restore it to the slice's URL so URL
@@ -280,8 +282,13 @@
 
 (defn url-requested-handler
   "`:rf/url-requested` event-fx handler. Registered by the façade so a
-  `:reload` re-wires it on a fresh registrar."
-  [{frame :rf.frame/id rdb :rf.db/runtime nav-counters :rf.route/nav-counters}
+  `:reload` re-wires it on a fresh registrar. rf2-vcop6y: declares only the
+  RECORDABLE `:rf.route/pending-nav-allocation` cofx — its only allocation
+  is a pending-nav id minted on a `:can-leave` block (it never mints a
+  nav-token; the forward push synthesises `:rf.route/transitioned`, which
+  mints its own)."
+  [{frame :rf.frame/id rdb :rf.db/runtime
+    pending-nav-allocation :rf.route/pending-nav-allocation}
    [_ {:keys [url bypass-leave-guard?] :as _request} :as event-vec]]
     ;; Per Spec 012 §Navigation blocking — pending-nav protocol the
     ;; runtime fires :can-leave for the active route on every
@@ -308,7 +315,7 @@
           blocked   (when-not external?
                       (maybe-block-navigation (or rdb {}) frame
                                               event-vec app-url bypass-leave-guard?
-                                              nav-counters))]
+                                              pending-nav-allocation))]
       (cond
         external?
         (do

@@ -27,7 +27,6 @@
   rf2-2yabr cohesion split: SHARED-EVENT-HELPERS seam."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
-            [re-frame.routing.nav-counters :as nav-counters]
             [re-frame.trace :as trace]))
 
 ;; Per Spec 012 §Multi-frame routing: nav-token and pending-nav id
@@ -45,12 +44,19 @@
 ;; `re-frame.routing.nav-counters`'s host cache so an epoch restore (which
 ;; replaces the runtime-db partition WHOLESALE) cannot rewind them and
 ;; recycle a token (the invariant above is the whole point of the move).
-;; The handlers stay PURE: they allocate the next id from the injected
-;; `:rf.route/nav-counters` cofx snapshot (READ) and emit a
-;; `:rf.route/commit-nav-counter` fx (WRITE). `commit-navigation` below
-;; threads the snapshot in and assembles the bump fx — the same
-;; thread-an-explicit-arg / write-via-fx shape rf2-1hncp2's scroll cache
-;; uses (read via `:scroll-cache` arg, write via `:rf.nav/capture-scroll`).
+;;
+;; rf2-vcop6y: the minted nav-token / pending-nav-id are RECORDABLE. The
+;; handlers stay PURE: they take delivery of a recordable, generator-backed
+;; allocation cofx — `:rf.route/nav-allocation {:token :counter}` (commit)
+;; or `:rf.route/pending-nav-allocation {:id :counter}` (block) — whose
+;; generator mints from the host snapshot at processing-start and whose value
+;; the cofx machinery RECORDS onto the causal token (so replay re-presents the
+;; SAME id, the replay-determinism fix). The handler writes only the id into
+;; runtime-db and emits a `:rf.route/commit-nav-counter` fx carrying the
+;; allocation's `:counter` (WRITE — host high-water `max` bump).
+;; `commit-navigation` below takes the recordable `:nav-allocation` and
+;; assembles the bump fx — the same write-via-fx shape rf2-1hncp2's scroll
+;; cache uses.
 
 (defn emit-activation-traces!
   "Per Spec 012 §Trace events: emit `:rf.route/deactivated`
@@ -174,14 +180,16 @@
   "Pure navigation-commit assembler shared by the programmatic-nav and
   URL-driven paths. `rdb` is the pre-commit runtime-db value. `slice`
   carries `{:route-id :params :query :fragment :transition}` (the
-  published fields minus `:nav-token`, which this fn allocates). `on-match-vec` is
+  published fields minus `:nav-token`, which rides the recordable
+  allocation). `on-match-vec` is
   the resolved `:on-match` event vector (possibly empty). `capture-fx` /
   `scroll-fx` are the pre-built fx entries (or nil) and `push-fx` is the
   optional history-mutation fx entry (nil on the URL-driven path).
-  `nav-counters` is the host-side counter snapshot injected by the
-  `:rf.route/nav-counters` cofx (rf2-oosjmh) — the nav-token is minted
-  from it PURELY and the high-water bump rides a `:rf.route/commit-nav-
-  counter` fx.
+  `nav-allocation` is the RECORDABLE allocation `{:token \"nav-N\"
+  :counter N}` delivered by the generator-backed `:rf.route/nav-allocation`
+  cofx (rf2-vcop6y) — the nav-token is published from `:token` (recorded so
+  replay re-presents the same token) and the host high-water bump
+  (`:counter`) rides a `:rf.route/commit-nav-counter` fx.
 
   `app-db` is the navigation handler's app-db coeffect value (EP-0016 D3
   slice 3): it is threaded UNCHANGED into the `:routing/on-route-entry`
@@ -199,8 +207,11 @@
   only frame-tagged events) and bypass the frame-level trace-disable gate.
   Returns the event-fx cofx map `{:rf.db/runtime :fx}`."
   [rdb {:keys [route-id params query fragment transition]} on-match-vec
-   {:keys [prev-id prev-nav-token capture-fx scroll-fx push-fx nav-counters app-db frame]}]
-  (let [[counter token] (nav-counters/next-nav-token nav-counters)
+   {:keys [prev-id prev-nav-token capture-fx scroll-fx push-fx nav-allocation app-db frame]}]
+  (let [;; rf2-vcop6y: the nav-token rides the RECORDABLE `:rf.route/nav-allocation`
+        ;; cofx — `:token` is published into the slice (recorded + replay-stable),
+        ;; `:counter` advances the host high-water via the bump fx below.
+        {token :token counter :counter} nav-allocation
         committed (merge-route-slice rdb {:route-id   route-id
                                           :params     params
                                           :query      query

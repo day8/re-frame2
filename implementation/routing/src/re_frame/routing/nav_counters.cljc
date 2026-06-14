@@ -40,25 +40,67 @@
   impossible. `:pending-nav-counter` is the same anti-recycling-allocator
   class (a recycled pn-id could mis-match a stale continue/cancel).
 
-  ### The pure seam (handlers stay pure)
+  ### The pure seam (handlers stay pure) — RECORDABLE allocation (rf2-vcop6y)
 
   Mirroring rf2-1hncp2's rule — *thread the cache as an explicit arg, do
-  not reach an ambient global from a handler* — allocation is split:
+  not reach an ambient global from a handler* — allocation is split into a
+  READ-via-cofx / WRITE-via-fx seam. The READ half is a pair of
+  **recordable, generator-backed** coeffects (EP-0017 §5) — one per
+  allocator (rf2-oosjmh: two distinct allocators ⇒ two distinct facts):
 
-    - READ via the `:rf.route/nav-counters` cofx, which injects the
-      current per-frame high-water snapshot `{:nav-token-counter N
-      :pending-nav-counter M}` into the handler's coeffects. The handler
-      computes the next id purely from the injected snapshot.
+    - `:rf.route/nav-allocation`         → `{:token \"nav-N\" :counter N}`
+    - `:rf.route/pending-nav-allocation` → `{:id    \"pn-N\"  :counter N}`
+
+  Each carries BOTH the minted id AND the allocator high-water position
+  (`:counter`). The generator runs at processing-start (router `:live`
+  policy), mints the next id from the host snapshot, and the cofx machinery
+  WRITES the produced allocation back into the in-flight `:rf.cofx` causal
+  record — so the epoch captures the allocation and **replay re-presents
+  the SAME id verbatim** (no generator re-run; strict replay FAILS if the
+  recorded allocation is missing — `:rf.error/missing-required-cofx`). This
+  is the replay-determinism fix: pre-rf2-vcop6y the allocation rode an
+  AMBIENT counter-snapshot cofx that was never recorded, so replay re-minted
+  DIFFERENT ids and recorded events referencing the originals mismatched.
+
+  The handler reads the recordable allocation flat under its id, writes ONLY
+  the supplied/generated id into runtime-db, and emits the
+  `:rf.route/commit-nav-counter` fx carrying the allocation's `:counter`:
+
     - WRITE via the `:rf.route/commit-nav-counter` fx, which records the
-      new high-water mark into this module's `nav-counters-cache` atom.
-      The fx is emitted ONLY on the branch that actually allocates an id
-      (a successful nav commit / a blocked navigation), so no id is wasted
-      on a no-op navigation.
+      new high-water mark into this module's `nav-counters-cache` atom with
+      a `max` install — so a restore/replay can re-establish the host
+      high-water from the recorded `:counter` and can never REWIND the
+      allocator (the never-recycle invariant). Emitted on the branch that
+      actually publishes an id (a successful nav commit / a blocked
+      navigation).
 
   The host write is monotone (`max`) so a reordered / replayed commit can
   never lower a counter. A frame's entry is released by `release-frame!`
   on frame destroy (the `:routing/on-frame-destroyed!` teardown hook,
   shared with the scroll cache).
+
+  ### Shape: generator-backed recordable (not provided-at-construction)
+
+  rf2-vcop6y step 7 prefers a routing-PROVIDED fact stamped onto the
+  navigation dispatch envelope at construction (slice-A). That shape fits a
+  fact with a single causal originator and a value independent of the
+  handler (the `:rf/time-ms` precedent). Navigation has neither: it arrives
+  through many internal re-dispatch paths (popstate → `handle-url-change`,
+  link-click → `:rf/url-requested` → `:rf.route/transitioned`, the resume
+  chain `:rf.route/continue` → `:rf/url-requested`), each a fresh causal
+  token whose `:rf.cofx` is NOT inherited; and a pending-nav allocation's
+  very existence depends on the `:can-leave` guard result computed INSIDE
+  the handler against the live frame. A provided fact would therefore have
+  to be minted-and-stamped at every entry point, before the branch is known.
+  The generator-backed recordable shape resolves the hole uniformly via
+  `:rf.cofx/requires` on every entry point with no per-site stamping —
+  rf2-vcop6y step 7 blesses it as the slice-B consumer alternative. The
+  generators run EAGERLY for every declared fact, so a two-way nav handler
+  (block vs commit) that declares both allocations advances both monotone
+  counters even on the branch it does not publish; that is harmless — the
+  counters' only invariant is never-recycle, gaps are a documented
+  non-concern (the unbounded f64 / `long` range), and the not-published
+  allocation is recorded + replay-stable like any declared-but-unused fact.
 
   Internal namespace; the public facade is `re-frame.routing`. Per the
   rf2-2yabr cohesion split: NAV-COUNTERS seam."
@@ -84,8 +126,9 @@
 (defn counter-snapshot
   "Read the per-frame counter snapshot `{:nav-token-counter N
   :pending-nav-counter M}` for `frame-id` from the host
-  `nav-counters-cache`, or `{}` when none. The value the
-  `:rf.route/nav-counters` cofx threads into the pure nav handlers."
+  `nav-counters-cache`, or `{}` when none. The value the allocation-cofx
+  generators (`nav-allocation-cofx` / `pending-nav-allocation-cofx`) mint
+  the next id from."
   [frame-id]
   (get @nav-counters-cache frame-id {}))
 
@@ -139,32 +182,76 @@
   (reset! nav-counters-cache {})
   nil)
 
-;; ---- the :rf.route/nav-counters cofx -------------------------------------
+;; ---- the recordable allocation cofx (rf2-vcop6y) --------------------------
+;;
+;; TWO recordable, generator-backed allocation coeffects — one per allocator
+;; (rf2-oosjmh: two distinct allocators ⇒ two distinct facts). Each generator
+;; reads the in-flight cascade's frame host snapshot (the same
+;; `frame/*current-frame*` the retired ambient `:rf.route/nav-counters` cofx
+;; read) and mints the next id, returning the allocation map carrying BOTH the
+;; id AND the allocator high-water `:counter`. Being RECORDABLE
+;; (`:recordable? true`, NOT `:provided?`), the cofx machinery writes the
+;; produced allocation back into the in-flight `:rf.cofx` causal record (EP-0017
+;; §5, router `:live` policy) — so the epoch captures it and replay re-presents
+;; the SAME id verbatim. The retired ambient cofx was never recorded; replay
+;; re-minted DIFFERENT ids (the rf2-vcop6y hole). Strict replay FAILS on a
+;; missing recorded allocation (`:rf.error/missing-required-cofx`).
 
-(def nav-counters-cofx-meta
-  "Metadata for the `:rf.route/nav-counters` cofx registration. Injects
-  the active frame's host-side counter high-water snapshot so the nav
-  handlers allocate the next id purely (rf2-oosjmh)."
-  {:doc "The active frame's host-side nav-counter high-water snapshot
-`{:nav-token-counter N :pending-nav-counter M}`, read from the
-`re-frame.routing.nav-counters` host cache and injected under
-`:coeffects :rf.route/nav-counters`. The nav handlers read it to mint the
-next monotone nav-token / pending-nav id without reaching the host atom
-(handlers stay pure); the actual high-water bump rides the
-`:rf.route/commit-nav-counter` fx. Per Spec 012 §Navigation tokens."})
+(def nav-allocation-cofx-meta
+  "Metadata for the `:rf.route/nav-allocation` cofx registration: a
+  RECORDABLE generator-backed allocation of a fresh nav-token (rf2-vcop6y)."
+  {:recordable? true
+   :doc "A fresh nav-token allocation `{:token \"nav-N\" :counter N}`,
+minted at processing-start from the active frame's host nav-token
+high-water mark and RECORDED onto the causal token (EP-0017 recordable
+coeffect). Delivered under `:coeffects :rf.route/nav-allocation` to a nav
+commit handler that declares `:rf.cofx/requires [:rf.route/nav-allocation]`.
+The handler writes only `:token` into the route slice and rides `:counter`
+on the `:rf.route/commit-nav-counter` fx (host high-water `max` bump).
+Recorded so record+replay re-presents the same nav-token verbatim
+(replay-determinism — rf2-vcop6y). Per Spec 012 §Navigation tokens."})
 
-(defn nav-counters-cofx
-  "Value-returning AMBIENT supplier for the `:rf.route/nav-counters` cofx
-  (EP-0017 §2). Reads the in-flight cascade's frame
-  (`frame/*current-frame*`, bound by the router during processing) and
-  returns the frame's host-side counter snapshot. Pure with respect to the
-  fold — it only READS the host cache (the write is the separate
-  `:rf.route/commit-nav-counter` fx); never recorded, replay re-runs it. The
-  nav entry-point handlers declare `:rf.cofx/requires [:rf.route/nav-counters]`
-  and read the snapshot flat. Tests that assert the threading shape
-  re-register the supplier (the visible seam)."
+(defn nav-allocation-cofx
+  "Value-returning generator for the RECORDABLE `:rf.route/nav-allocation`
+  cofx (EP-0017 §5, rf2-vcop6y). Reads the in-flight cascade's frame
+  (`frame/*current-frame*`, bound by the router during processing), mints
+  the next nav-token from the host high-water snapshot, and returns
+  `{:token \"nav-N\" :counter N}`. Runs at processing-start under the
+  router `:live` policy; the produced allocation is written back into the
+  causal `:rf.cofx` record so replay re-presents it verbatim (no re-mint).
+  Strict mode (replay) does not run it — an absent recorded allocation is
+  `:rf.error/missing-required-cofx`."
   []
-  (counter-snapshot frame/*current-frame*))
+  (let [[n token] (next-nav-token (counter-snapshot frame/*current-frame*))]
+    {:token token :counter n}))
+
+(def pending-nav-allocation-cofx-meta
+  "Metadata for the `:rf.route/pending-nav-allocation` cofx registration: a
+  RECORDABLE generator-backed allocation of a fresh pending-nav id
+  (rf2-vcop6y). A DISTINCT allocator from `:rf.route/nav-allocation`
+  (rf2-oosjmh)."
+  {:recordable? true
+   :doc "A fresh pending-navigation id allocation `{:id \"pn-N\" :counter N}`,
+minted at processing-start from the active frame's host pending-nav
+high-water mark and RECORDED onto the causal token (EP-0017 recordable
+coeffect). Delivered under `:coeffects :rf.route/pending-nav-allocation` to
+a nav entry handler that declares `:rf.cofx/requires
+[:rf.route/pending-nav-allocation]`. On a `:can-leave` block the handler
+writes only `:id` into the pending-navigation slot and rides `:counter` on
+the `:rf.route/commit-nav-counter` fx. Recorded so a recorded
+`[:rf.route/continue \"pn-N\"]` re-matches under replay (replay-determinism
+— rf2-vcop6y). Per Spec 012 §Navigation blocking — pending-nav protocol."})
+
+(defn pending-nav-allocation-cofx
+  "Value-returning generator for the RECORDABLE
+  `:rf.route/pending-nav-allocation` cofx (EP-0017 §5, rf2-vcop6y). Reads
+  the in-flight cascade's frame (`frame/*current-frame*`), mints the next
+  pending-nav id from the host high-water snapshot, and returns
+  `{:id \"pn-N\" :counter N}`. Recorded + replay-stable like
+  `nav-allocation-cofx`; a distinct allocator (rf2-oosjmh)."
+  []
+  (let [[n id] (next-pending-nav-id (counter-snapshot frame/*current-frame*))]
+    {:id id :counter n}))
 
 ;; ---- the :rf.route/commit-nav-counter fx ---------------------------------
 
@@ -177,9 +264,12 @@ next monotone nav-token / pending-nav id without reaching the host atom
   {:doc "Record a new monotone high-water mark for a routing nav-counter
 into the host-side `re-frame.routing.nav-counters` cache. Args:
 `{:counter-key :nav-token-counter|:pending-nav-counter :value N}`.
-Emitted by the nav handlers on the branch that allocates an id; the
-WRITE counterpart to the `:rf.route/nav-counters` cofx read. Per Spec 012
-§Navigation tokens."})
+Emitted by the nav handlers on the branch that publishes an id, carrying the
+recordable allocation's `:counter` (the WRITE counterpart to the recordable
+`:rf.route/nav-allocation` / `:rf.route/pending-nav-allocation` cofx read).
+The `max` install means a restore/replay re-establishes the host high-water
+from the recorded `:counter` and can never rewind the allocator. Per Spec
+012 §Navigation tokens."})
 
 (defn commit-nav-counter-handler
   "`:rf.route/commit-nav-counter` fx handler. Registered by the façade so
