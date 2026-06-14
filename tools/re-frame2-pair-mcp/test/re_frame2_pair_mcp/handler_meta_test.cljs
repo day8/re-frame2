@@ -74,11 +74,11 @@
             "kind + id are both required")
         (is (contains? properties :kind))
         (is (contains? properties :id))
-        (is (= #{"event" "sub" "fx" "cofx" "view" "frame"
+        (is (= #{"event" "sub" "fx" "cofx" "interceptor" "view" "frame"
                  "route" "flow" "head" "error-projector"
                  "resource" "mutation" "resource-scope" "machine"}
                (set (:enum (:kind properties))))
-            "kind enum lists every supported kind (incl. the EP-0016 resources kinds)")))))
+            "kind enum lists every supported kind (incl. the EP-0016 resources kinds + the EP-0022 :interceptor kind)")))))
 
 (deftest handler-meta-descriptor-surfaces-on-tools-list
   (testing "handler-meta shows up in tool-descriptors-js"
@@ -101,7 +101,7 @@
         (is (= #{"kind"} (set required))
             "kind is the only required arg")
         (is (contains? properties :kind))
-        (is (= #{"event" "sub" "fx" "cofx" "view" "frame"
+        (is (= #{"event" "sub" "fx" "cofx" "interceptor" "view" "frame"
                  "route" "flow" "head" "error-projector"
                  "resource" "mutation" "resource-scope" "machine"}
                (set (:enum (:kind properties)))))))))

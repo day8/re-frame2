@@ -1965,7 +1965,7 @@ genuinely per-frame surface each Static panel projects:
 | **Routes** | the current-route slice (the `:rf/route` runtime area — `[:rf.runtime/routing :current]` in the target-frame **runtime-db**, EP-0001 rf2-vzld77) | the route-definition catalogue |
 | **Schemas** | the app-db-schema side-table (`schemas-by-frame`) | event-spec + sub-spec rows |
 | **Flows** | the flows registry (`{frame-id {flow-id …}}`, [Spec 013](../../../spec/013-Flows.md)) | — (fully per-frame) |
-| **Interceptors** | — | interceptor chains (live on globally registered events) |
+| **Interceptors** | — | interceptor chains (live on globally registered events). A chain entry is an inline value OR a by-reference entry (bare keyword / `[id arg]`) into the `:interceptor` registrar (EP-0022); the lens surfaces refs by their authored form and enriches each from the registered descriptor. |
 
 So switching the picker changes the per-frame projections above; the
 global catalogues are deliberately cross-frame. The picker stays in
@@ -1986,7 +1986,7 @@ Five Static sub-tabs, mode-scoped mnemonics per the findings doc
 | **Routes**       | `r` | rf2-o5f5f.3 | Registered routes (promoted from Dynamic) + Simulate-URL |
 | **Schemas**      | `c` | rf2-o5f5f.4 | Registered schemas + sample data + jump-to-source |
 | **Flows**        | `f` | rf2-uhsqb   | Registered flows catalogue |
-| **Interceptors** | `i` | rf2-o5f5f.6 | Pure-browse lens over interceptor chains |
+| **Interceptors** | `i` | rf2-o5f5f.6 | Pure-browse lens over interceptor chains — ref-aware (EP-0022): surfaces by-reference entries (keyword / `[id arg]`) alongside inline values, enriched from the `:interceptor` registrar |
 
 rf2-b2fif removed the Views + Events sub-tabs (info already in the
 source code; the tabs were not pulling their weight).

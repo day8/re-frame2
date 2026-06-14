@@ -2983,7 +2983,7 @@ with an `:rf.source/uri` string so the AI host can render a clickable
 jump-to-editor link.
 
 **Args**: `kind` (string, **required** — one of `event` / `sub` /
-`fx` / `cofx` / `view` / `frame` / `route` / `flow` / `head` /
+`fx` / `cofx` / `interceptor` / `view` / `frame` / `route` / `flow` / `head` /
 `error-projector` / `resource` / `mutation` / `resource-scope` /
 `machine`), `id` (string, **required** — EDN-encoded
 keyword or composite vector), `realm` (string, optional — EDN-encoded
@@ -3012,11 +3012,13 @@ sole-app-frame resolution counts only the operating realm's app frames; see
 
 **Supported kinds**: the closed v1 registrar set (per Spec 001
 §Registry model), including the three resources-artefact kinds
-`:resource` / `:mutation` / `:resource-scope` (EP-0016 / rf2-f8s9g6).
+`:resource` / `:mutation` / `:resource-scope` (EP-0016 / rf2-f8s9g6)
+and the `:interceptor` kind (EP-0022 — `reg-interceptor`; its meta
+surfaces the registered `:rf/interceptor-descriptor`).
 App-db schemas are **not** a registrar kind
 (rf2-cq1ak) — their metadata lives in the schemas artefact's per-frame
 side-table, queried via `rf/app-schemas` / `rf/app-schema-meta-at`.
-The thirteen registrar kinds route through
+The fourteen registrar kinds route through
 `(re-frame2-pair.runtime/registrar-describe kind id)`. For a
 `:resource-scope` the meta surfaces the named scope resolver's declared
 `:inputs` map + `:whole-db?` cost (the EP-0016 disposition-2
@@ -3035,7 +3037,7 @@ slot to surface the spec.
 
 ```clojure
 {:ok?              true
- :kind             :event | :sub | :fx | :cofx | :view | :frame |
+ :kind             :event | :sub | :fx | :cofx | :interceptor | :view | :frame |
                    :route | :flow | :head | :error-projector |
                    :resource | :mutation | :resource-scope | :machine
  :id               <registered-id>
@@ -3100,13 +3102,15 @@ that realm's** ids, stamping `:realm` on the response. Not valid with
 
 **Supported kinds**: same closed v1 registrar set as `handler-meta`
 (including the resources-artefact `:resource` / `:mutation` /
-`:resource-scope` kinds — EP-0016 / rf2-f8s9g6; per rf2-cq1ak app-db
+`:resource-scope` kinds — EP-0016 / rf2-f8s9g6 — and the `:interceptor`
+kind — EP-0022; per rf2-cq1ak app-db
 schemas are not a registrar kind — use `rf/app-schemas` for those; plus
-the virtual `:machine` kind). The thirteen
+the virtual `:machine` kind). The fourteen
 registrar kinds lift the id vector off the registrar's per-kind
 map via `(re-frame2-pair.runtime/registrar-list kind)` —
 `list-handlers {kind "resource-scope"}` enumerates a resources app's
-named scope resolvers. The
+named scope resolvers, `list-handlers {kind "interceptor"}` the ids
+registered via `reg-interceptor`. The
 `:machine` kind wraps `(re-frame.core/machines)` — every event
 handler flagged `:rf/machine? true` (Spec 005 §Querying machines).
 
@@ -3114,7 +3118,7 @@ handler flagged `:rf/machine? true` (Spec 005 §Querying machines).
 
 ```clojure
 {:ok?   true
- :kind  :event | :sub | :fx | :cofx | :view | :frame |
+ :kind  :event | :sub | :fx | :cofx | :interceptor | :view | :frame |
         :route | :flow | :head | :error-projector |
         :resource | :mutation | :resource-scope | :machine
  :ids   [<id> ...]
