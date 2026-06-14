@@ -881,6 +881,31 @@ A **durable write** is any write to app-db, runtime-db, a resource entry, a work
 
 Ambient host reads remain allowed for **diagnostics** (dev-only trace timestamps, performance spans, always-on error metadata), **host-transient** scheduling and side tables (timers, AbortControllers, caches, monotonic high-water allocators), effect interpretation, and clock-skew measurement — provided their values do not directly decide a durable write. The rule is not "no host"; it is "no hidden host facts in durable writes". It applies equally to application handlers and framework internals.
 
+#### Durable join keys are recordable, even when their allocator is host-transient
+
+The host-transient exception above covers the **allocator** (a monotone high-water counter held outside the frame value), not necessarily the **value it allocates**. A generated identity is itself a world fact: re-running its ambient allocator on a different occasion yields a *different* value. So the durable-write rule has a corollary that is easy to miss because the allocator and the value are read at the same site:
+
+> A generated identity that is either **written into durable state** *or* **later used as a join key** — gating async replies, dispatching continuations, suppressing stale results, or matching a pending slot — MUST be folded from a recordable coeffect (or the event payload). This holds **even when its allocator stays host-transient**.
+
+The two halves are deliberately split, because they pull in opposite directions:
+
+- **The allocator stays host-transient and monotone.** A counter whose values can be carried by an out-of-frame, uncancellable continuation (a reply already on the wire) MUST NOT be rewound by epoch-restore, or a post-restore allocation could collide with a pre-restore identity a late reply still carries. Recording the *counter* into durable state is therefore not required — and is usually **wrong**, because restore would rewind it and recycle a live identity. (This is the opposite discipline from a snapshot-local allocator whose identities never leave the frame — Spec 005's `:rf/spawn-counter` — which is safely snapshot-resident and replay-deterministic; see [§The minting ladder](#the-minting-ladder), below.)
+- **The allocated value is recorded.** What MUST be recordable is the *value* that was minted — the identity written into the entry/instance/slot and stamped onto the reply token. Mint it from an ambient coeffect and write it durably and recorded events that reference the original identity will not reproduce it under replay: the replayed handler re-runs the ambient allocator and mints a *different* identity, so a recorded reply that was *accepted* (its join key matched the live identity) replays as *stale-suppressed* (the re-minted identity no longer matches), or vice versa. The recorded log and the replayed state diverge — the exact failure this rule exists to kill.
+
+The shape of the fix (when a subsystem trips this) is a **split recordable allocation coeffect**: keep the host-transient allocator, but deliver the minted value (and, where a restore must re-establish the host high-water, the allocator position) as a *recordable* fact on the causal token, write only that value into durable state, and advance the host counter with `max` so replay/restore cannot rewind it. Strict replay then fails loudly on a missing allocation rather than silently re-minting.
+
+<a id="the-minting-ladder"></a>
+
+#### The minting ladder
+
+When a handler or machine needs a generated identity "from the world", [EP-0017 §7](../docs/EP/EP-0017-recordable-coeffects.md) gives a preference order — recorded coeffects are the **last** rung, not the default:
+
+1. **Derive from recorded state** where possible — Spec 005's `:rf/spawn-counter` is the exemplar: deterministic identity from a snapshot-resident counter, so nothing new is recorded and replay is deterministic for free.
+2. **Ride the event payload** where the dispatch site owns the fact's meaning — e.g. an optimistic-create id the view must render immediately.
+3. **Recorded coeffect** only for genuinely fold-internal identities that none of the above can supply.
+
+A subsystem that already satisfies rung 1 or 2 has no hole; one that mints a durable join key from an ambient read at the write site is on neither rung and trips the rule above.
+
 <a id="the-rfworldinputs-envelope-field"></a>
 
 ### The `:rf.cofx` envelope field
