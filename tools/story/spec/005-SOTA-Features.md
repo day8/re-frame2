@@ -651,8 +651,10 @@ The affordance renders as an `open` chip next to:
 - Each failing `:test` mode row's failure detail (reads the
   assertion record's `:source` slot per spec/004).
 
-Click sets `window.location.href` to a URI-scheme handler the OS
-dispatches to the configured editor:
+Click PREFERS the dev-server endpoint (Option B, rf2-wn3bh — see
+[§Open-in-editor launch modes](#open-in-editor-launch-modes-rf2-wn3bh--option-b-dev-server-endpoint)
+below) and FALLS BACK to a URI-scheme handler the OS dispatches to the
+configured editor (the `editor://` table below):
 
 | Editor (config key) | URI scheme |
 |---|---|
@@ -692,6 +694,46 @@ regardless of the root setting so a caller that already has an
 absolute coord isn't double-prefixed. The prefix lives in the shared
 `re-frame.source-coords.editor-uri/editor-uri` 3-arg form; Xray
 consumes the same helper and will plumb its own knob in a follow-up.
+
+#### Open-in-editor launch modes (rf2-wn3bh — Option B dev-server endpoint)
+
+Jump-to-source has TWO launch paths; the chip + the
+`:rf.story/open-in-editor` event-fx PREFER the first and FALL BACK to
+the second. The mechanism is additive — B never removes the URI path.
+This is the JS-ecosystem standard (Vite `/__open-in-editor`,
+react-dev-utils, Next). See
+[`spec/Tool-Pair.md` §Open-in-editor launch modes](../../../spec/Tool-Pair.md)
+for the cross-tool contract.
+
+1. **Dev-server endpoint (preferred).** A shadow-cljs `:dev-http` Ring
+   `:handler` — `re-frame.testbed.open-in-editor-server/handler`, a
+   **JVM-only `.clj`** server fn — answers
+   `GET|POST /__rf-open-in-editor?file=<…>&line=<n>&column=<c>`. It
+   resolves the (classpath-relative) `:file` against the live
+   source-paths **at runtime on the dev machine** (the runtime twin of
+   `re-frame.source-coords/absolutise-file`, rf2-wvsxg — so it works for
+   the JAR / in-jar / odd-classpath cases the compile-time bake cannot
+   reach), then launches the editor via the `launch-editor` npm package
+   (dev-only dependency; handles every OS + editor). Story's client
+   open-seam (`open-in-editor/open-coord!` → the shared
+   `re-frame.source-coords.open-endpoint/open-coord!`) `fetch`es the
+   endpoint on its own origin; `:rf.story/editor` rides as the `editor=`
+   hint. Zero-config jump-to-source — **no `:rf.story/project-root`
+   needed, no absolute path baked into the bundle.**
+
+2. **`editor://` URI (fallback).** When no dev server answers (static
+   Story export, non-shadow host, production inspection, network error,
+   or a non-2xx reply), `open-coord!` falls back to building the
+   `editor://` URI (the table above, with `:rf.story/project-root`
+   prepended + rf2-wvsxg absolutisation) and navigating it via
+   `Location.assign`. This is the only path `:rf.story/project-root`
+   participates in — the fallback knob for hosts without a dev server.
+
+**Bundle isolation.** The server handler is a `.clj` — never part of any
+CLJS/browser build (including the static Story export), so it cannot
+leak. The client seam (`re-frame.source-coords.open-endpoint`) is
+referenced only from the dev-only open-seam and DCEs out of release
+bundles. `launch-editor` is a `devDependency`.
 
 ##### Bridge to Xray-as-RHS (rf2-r1uod)
 

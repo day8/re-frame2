@@ -83,6 +83,7 @@
             [re-frame.core :as rf]
             [re-frame.story.config :as config]
             [re-frame.source-coords.editor-uri :as editor-uri]
+            [re-frame.source-coords.open-endpoint :as open-endpoint]
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as colors]))
 
@@ -266,6 +267,35 @@
     (@navigator uri)
     nil))
 
+;; ---- Option B: prefer the dev-server endpoint (rf2-wn3bh) -----------------
+;;
+;; The JS-ecosystem-standard jump-to-source path (Vite /__open-in-editor,
+;; react-dev-utils, Next) is a dev-server endpoint that resolves the
+;; (classpath-relative) source-coord against the live source-paths on the
+;; dev machine at runtime and launches the editor via launch-editor. This
+;; is ADDITIVE: `open-coord!` first tries the endpoint
+;; (`open-endpoint/open-coord!`); on any failure (no dev server, network
+;; error, non-2xx — static export / non-shadow host / production
+;; inspection) it falls back to navigating the historic `editor://` URI via
+;; `open!`. The URI path is never removed. Mirrors Xray's `open-coord!`.
+
+(defn open-coord!
+  "Open `source-coord` in the configured editor, PREFERRING the dev-server
+  endpoint (Option B, rf2-wn3bh) and FALLING BACK to the `editor://` URI
+  navigation (`open!`) when no dev server is present.
+
+  The source-coord is sent verbatim to the endpoint (the server resolves a
+  classpath-relative `:file` at runtime); the URI fallback resolves the
+  coord through `resolve-uri` (rf2-zfy1e project-root prefix + the
+  allowlist gate). When the coord cannot produce a usable URI either, the
+  fallback is a harmless no-op. Returns nothing."
+  [source-coord]
+  (open-endpoint/open-coord!
+    source-coord
+    (config/get-editor)
+    (fn [] (open! (resolve-uri source-coord))))
+  nil)
+
 ;; ---- public: the open-in-editor chip ------------------------------------
 
 (defn open-chip
@@ -308,30 +338,33 @@
                            ;; Prevent React/Reagent's default link
                            ;; navigation (otherwise the browser
                            ;; tries to render the custom URI inside
-                           ;; the tab); explicitly call `open!` so
-                           ;; the OS handler fires.
+                           ;; the tab); route through `open-coord!`,
+                           ;; which prefers the dev-server endpoint
+                           ;; (Option B, rf2-wn3bh) and falls back to
+                           ;; this `:href`'s `editor://` URI when no dev
+                           ;; server is present.
                            (.preventDefault e)
-                           (open! uri))}
+                           (open-coord! source-coord))}
         "open"]))))
 
 (defn open-source-coord!
-  "Resolve `source-coord` to an editor URI via the current Story config
-  (`config/get-editor` + `config/get-project-root`) and hand it off to
-  `open!`. Returns true when the launcher was invoked with an allowed
-  URI, false otherwise (missing :file, forbidden scheme, or scheme
-  outside the rf2-cm93v allowlist).
+  "Open `source-coord` in the configured editor, PREFERRING the dev-server
+  endpoint (Option B, rf2-wn3bh) and FALLING BACK to the `editor://` URI
+  via `open!`. Returns true when the coord has a usable `:file` (so the
+  launch was attempted), false otherwise (missing :file).
 
   This is the imperative path the element-inspector (rf2-h0jc0) uses
   when the user clicks a DOM element while inspector mode is on. The
-  chip's `:on-click` (above) takes the same shape: build URI via
-  `resolve-uri`, hand to `open!`.
+  chip's `:on-click` (above) takes the same shape — `open-coord!` is the
+  single launcher both paths share.
 
   `source-coord` shape: `{:file :line :column}` per
   `re-frame.source-coords`."
   [source-coord]
-  (when-let [uri (resolve-uri source-coord)]
-    (open! uri)
-    true))
+  (if (editor-uri/has-source? source-coord)
+    (do (open-coord! source-coord)
+        true)
+    false))
 
 (defn open-chip-for-variant
   "Render an open-chip for a variant — reads the source-coord off the
@@ -386,21 +419,26 @@
   []
   ;; ---- :rf.editor/open ----
   ;;
-  ;; Side-effect handler. Two arg shapes accepted:
+  ;; Side-effect handler. Arg shapes accepted:
   ;;
-  ;;   {:uri "vscode://..."}                 — pre-resolved URI
-  ;;   {:source-coord {:file ... :line ...}} — resolve via `resolve-uri`
-  ;;                                            first
+  ;;   {:source-coord {:file ... :line ...}} — PREFERRED (rf2-wn3bh):
+  ;;       opens via `open-coord!`, which tries the dev-server endpoint
+  ;;       first (Option B) then falls back to the `editor://` URI.
+  ;;   {:uri "vscode://..."}                 — pre-resolved URI only;
+  ;;       navigates the URI directly via `open!` (the endpoint needs the
+  ;;       structured coord, so a uri-only arg uses the URI path).
   ;;
-  ;; The pre-resolved form is the canonical shape the
-  ;; `:rf.story/open-in-editor` event-fx emits; the `:source-coord`
-  ;; form is a convenience for callers that want one-step dispatch.
+  ;; Per rf2-wn3bh the event-fx now emits `:source-coord` (not `:uri`) so
+  ;; the endpoint is preferred; the `:uri` shape stays for callers that
+  ;; hold a pre-resolved URI.
+  ;;
+  ;; Xray registers the same fx-id idempotently — whichever preload loads
+  ;; first wins; the handler body is the same shape so it doesn't matter.
   (rf/reg-fx :rf.editor/open
     (fn [_ctx args]
-      (let [uri (or (:uri args)
-                    (when-let [coord (:source-coord args)]
-                      (resolve-uri coord)))]
-        (open! uri))))
+      (if-let [coord (:source-coord args)]
+        (open-coord! coord)
+        (open! (:uri args)))))
 
   ;; ---- :rf.story/open-in-editor ----
   ;;
@@ -410,11 +448,15 @@
   ;; allowlist seam and routes it to `:rf.editor/open`.
   (rf/reg-event-fx :rf.story/open-in-editor
     (fn [_ctx [_event-id payload]]
-      (let [coord (coerce-coord payload)
-            uri   (resolve-uri coord)]
-        ;; Always emit the fx — even when uri is nil. `open!` is a
-        ;; no-op for nil, and routing through the fx (rather than
+      (let [coord (coerce-coord payload)]
+        ;; Always emit the fx — even when the coord is unresolvable.
+        ;; `open-coord!`'s URI fallback is a no-op for a coord with no
+        ;; usable `:file`, and routing through the fx (rather than
         ;; short-circuiting in the handler) keeps the side-effect
         ;; bookkeeping in one place + makes the fx the single
         ;; instrumentable seam for replay/dev-tools.
-        {:fx [[:rf.editor/open {:uri uri}]]}))))
+        ;;
+        ;; Per rf2-wn3bh emit the structured `:source-coord` (not a
+        ;; pre-resolved `:uri`) so `:rf.editor/open` can prefer the
+        ;; dev-server endpoint and fall back to the URI.
+        {:fx [[:rf.editor/open {:source-coord coord}]]}))))

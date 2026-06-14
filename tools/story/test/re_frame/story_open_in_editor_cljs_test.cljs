@@ -16,15 +16,35 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.source-coords.open-endpoint :as open-endpoint]
             [re-frame.story.config :as config]
             [re-frame.story.ui.open-in-editor :as open-in-editor])
   (:require-macros [re-frame.core :refer [with-frame]]))
+
+;; ---- Option B endpoint seam (rf2-wn3bh) ---------------------------------
+;;
+;; `open-coord!` (the click launcher) PREFERS the dev-server endpoint and
+;; FALLS BACK to the `editor://` URI navigation. To keep the URI / navigator
+;; assertions below deterministic (no real `fetch`), the fixture swaps the
+;; endpoint launcher for a synchronous stub that always invokes the fallback
+;; — exercising exactly the URI path these tests pin. The endpoint-preference
+;; path is covered in its own rf2-wn3bh block at the bottom of this file.
+
+(defn- always-fall-back!
+  "Stub endpoint launcher: ignore the URL, invoke the fallback synchronously.
+  Mirrors the 'no dev server present' runtime case."
+  [_url fallback!]
+  (fallback!))
 
 ;; ---- fixtures ------------------------------------------------------------
 
 (defn reset-editor! []
   (config/set-editor! :vscode)
-  (config/set-project-root! nil))
+  (config/set-project-root! nil)
+  ;; rf2-wn3bh — pin the endpoint launcher to the synchronous fallback stub
+  ;; so the URI / navigator assertions below exercise the deterministic
+  ;; fallback path.
+  (open-endpoint/set-launcher! always-fall-back!))
 
 (use-fixtures :each {:before reset-editor!
                      :after  reset-editor!})
@@ -105,13 +125,14 @@
           (open-in-editor/set-navigator! prev))))))
 
 (deftest open-source-coord!-no-op-without-file
-  (testing "open-source-coord! returns nil when source-coord lacks :file"
+  (testing "open-source-coord! returns false + no-ops when source-coord
+            lacks :file"
     (let [calls (atom [])
           nav   (fn [uri] (swap! calls conj uri))
           prev  (open-in-editor/set-navigator! nav)]
       (try
-        (is (nil? (open-in-editor/open-source-coord! nil)))
-        (is (nil? (open-in-editor/open-source-coord! {:line 10})))
+        (is (false? (open-in-editor/open-source-coord! nil)))
+        (is (false? (open-in-editor/open-source-coord! {:line 10})))
         (is (= [] @calls)
             "no navigation attempted when :file is absent")
         (finally
@@ -489,7 +510,13 @@
   "Install Story's open-in-editor handlers then replace the
   `:rf.editor/open` reg-fx with a capture stub so the test can inspect
   the fx args without touching `window.location`. Same pattern Xray's
-  test suite uses."
+  test suite uses.
+
+  Per rf2-wn3bh the event-fx now emits the structured `:source-coord`
+  (so the fx can prefer the dev-server endpoint). The capture stub
+  resolves the coord through the SAME `resolve-uri` helper the chip uses
+  and records the resolved URI under `:uri` so the existing
+  URI-equivalence assertions keep their meaning."
   []
   (reset! captured-editor-fx [])
   ;; EP-0002 (rf2-bd4div): `:rf.story/open-in-editor` dispatches under a
@@ -499,7 +526,11 @@
   (frame/ensure-default-frame!)
   (open-in-editor/install!)
   (rf/reg-fx :rf.editor/open
-    (fn [_ctx args] (swap! captured-editor-fx conj args))))
+    (fn [_ctx args]
+      (swap! captured-editor-fx conj
+             (assoc args
+                    :uri (when-let [coord (:source-coord args)]
+                           (open-in-editor/resolve-uri coord)))))))
 
 (deftest open-in-editor-event-emits-fx-with-resolved-uri
   (testing "rf2-r2un8 — dispatching `:rf.story/open-in-editor` with a
@@ -571,3 +602,63 @@
         "fx still fires — the handler doesn't short-circuit")
     (is (nil? (:uri (first @captured-editor-fx)))
         "the resolved URI is nil — `open!` will refuse to navigate")))
+
+(deftest open-in-editor-fx-receives-source-coord-key-rf2-wn3bh
+  (testing "rf2-wn3bh — `:rf.story/open-in-editor` emits the structured
+            `{:source-coord {...}}` shape (NOT a pre-resolved `:uri`) so
+            `:rf.editor/open` can prefer the dev-server endpoint and fall
+            back to the `editor://` URI"
+    (install-with-capture!)
+    (with-frame :rf/default
+      (rf/dispatch-sync [:rf.story/open-in-editor
+                         {:file "src/x.cljs" :line 1}]))
+    (is (= {:file "src/x.cljs" :line 1}
+           (:source-coord (first @captured-editor-fx)))
+        "the structured coord rides the fx verbatim — the endpoint
+         resolves the relative :file at runtime on the server")))
+
+;; ---- rf2-wn3bh — Option B: dev-server endpoint preferred over URI -------
+;;
+;; The URI-fallback path is exercised throughout this file (via the
+;; `always-fall-back!` launcher stub in the fixture). This block pins the
+;; ENDPOINT-PREFERENCE half: when the launcher succeeds (a dev server
+;; answered) the URI fallback does NOT fire; when it falls back (no dev
+;; server) the URI navigates — B is additive, never removing the URI path.
+
+(deftest endpoint-url-carries-coord-and-editor-hint
+  (testing "rf2-wn3bh — `build-url` projects (coord, editor) to the
+            endpoint query"
+    (is (= (str open-endpoint/endpoint-path
+                "?file=panel_gallery%2Ffoo.cljs&line=42&column=7&editor=cursor")
+           (open-endpoint/build-url
+             {:file "panel_gallery/foo.cljs" :line 42 :column 7}
+             :cursor)))
+    (is (nil? (open-endpoint/build-url {:line 1} :vscode))
+        "no :file → no endpoint URL")))
+
+(deftest open-coord-prefers-endpoint-when-it-succeeds
+  (testing "rf2-wn3bh — when the endpoint launcher reports success, the URI
+            fallback does NOT fire"
+    (let [[nav calls] (capturing-navigator)
+          prev        (open-endpoint/set-launcher! (fn [_url _fallback!] nil))]
+      (try
+        (with-stub-navigator nav
+          #(open-in-editor/open-coord! {:file "src/x.cljs" :line 1}))
+        (is (= [] @calls)
+            "endpoint preferred → no editor:// URI navigation")
+        (finally
+          (open-endpoint/set-launcher! prev))))))
+
+(deftest open-coord-falls-back-to-uri-when-no-endpoint
+  (testing "rf2-wn3bh — when the launcher invokes the fallback (no dev
+            server), the `editor://` URI navigates via the navigator seam"
+    (config/set-editor! :vscode)
+    (let [[nav calls] (capturing-navigator)
+          prev        (open-endpoint/set-launcher! always-fall-back!)]
+      (try
+        (with-stub-navigator nav
+          #(open-in-editor/open-coord! {:file "src/x.cljs" :line 9 :column 2}))
+        (is (= ["vscode://file/src/x.cljs:9:2"] @calls)
+            "no dev server → URI fallback navigates exactly as before")
+        (finally
+          (open-endpoint/set-launcher! prev))))))

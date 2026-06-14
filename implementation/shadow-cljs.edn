@@ -354,15 +354,37 @@
  ;; scanning roots in order. Putting the source dir FIRST means the
  ;; index.html is found without a copy step; per-file requests like
  ;; /main.js fall through to the second root automatically.
- :dev-http {8765 ["../tools/xray/testbeds/panel_gallery"
-                  "out/testbeds/panel-gallery"]
+ ;;
+ ;; rf2-wn3bh — Option B 'open in editor' dev-server endpoint. Every
+ ;; testbed port below uses the MAP form `{:roots [...] :handler sym}`
+ ;; rather than the bare-vector roots shape so shadow-cljs wires the
+ ;; not-found fallback handler
+ ;; `re-frame.testbed.open-in-editor-server/handler` (a JVM-only `.clj`,
+ ;; on the classpath via the `../tools/testbed-support/src` source path
+ ;; above). The handler answers
+ ;; `GET|POST /__rf-open-in-editor?file=<…>&line=<n>&column=<c>` by
+ ;; resolving the (classpath-relative) `:file` against the live
+ ;; source-paths at RUNTIME and launching the editor via the
+ ;; `launch-editor` npm package — the JS-ecosystem standard (Vite
+ ;; /__open-in-editor, CRA, Next). shadow tries the static file roots
+ ;; FIRST, so the handler only ever sees the synthetic endpoint path (no
+ ;; file on disk matches it); per-file requests like /main.js fall
+ ;; through to the roots exactly as before. Bundle-isolated by
+ ;; construction: the handler is `.clj`, never part of any CLJS/browser
+ ;; build. The Xray/Story client open-seam prefers this endpoint and
+ ;; falls back to the historic `editor://` URI when no dev server is
+ ;; present.
+ :dev-http {8765 {:roots   ["../tools/xray/testbeds/panel_gallery"
+                            "out/testbeds/panel-gallery"]
+                  :handler re-frame.testbed.open-in-editor-server/handler}
             ;; Two-frame isolation testbed (rf2-6qgbs.1; replaces the
             ;; parallel-frames prototype, rf2-gxgmt). Source dir first so
             ;; the hand-written index.html resolves at `/`; the compiled
             ;; main.js falls through to out/examples/two-frame-isolation
             ;; per the same cascade as :testbeds/panel-gallery above.
-            8030 ["../tools/xray/testbeds/two_frame_isolation"
-                  "out/examples/two-frame-isolation"]
+            8030 {:roots   ["../tools/xray/testbeds/two_frame_isolation"
+                            "out/examples/two-frame-isolation"]
+                  :handler re-frame.testbed.open-in-editor-server/handler}
             ;; Single-frame standard-epochs testbed (rf2-gsr6z; renamed
             ;; per rf2-zthnj) — the deliberately simple Xray driving
             ;; surface that superseded the old step-deck.
@@ -371,8 +393,9 @@
             ;; out/examples/standard-epochs per the same cascade as the
             ;; entries above. Port 8031 is the trio anchor: routes_epochs
             ;; takes 8032, machine_epochs 8033.
-            8031 ["../tools/xray/testbeds/standard_epochs"
-                  "out/examples/standard-epochs"]
+            8031 {:roots   ["../tools/xray/testbeds/standard_epochs"
+                            "out/examples/standard-epochs"]
+                  :handler re-frame.testbed.open-in-editor-server/handler}
             ;; Single-frame routes-epochs testbed (rf2-5crg4) — the ROUTING
             ;; sibling of standard-epochs: a tall column of numbered buttons,
             ;; each bumping a shared baseline counter + exercising one more
@@ -381,8 +404,9 @@
             ;; cascade as 8031; compiled main.js falls through to
             ;; out/examples/routes-epochs. Port 8032 is the trio's routing
             ;; slot (machine_epochs takes 8033).
-            8032 ["../tools/xray/testbeds/routes_epochs"
-                  "out/examples/routes-epochs"]
+            8032 {:roots   ["../tools/xray/testbeds/routes_epochs"
+                            "out/examples/routes-epochs"]
+                  :handler re-frame.testbed.open-in-editor-server/handler}
             ;; machine-epochs testbed (rf2-w06op; reworked to a
             ;; multi-machine frame-isolated stepper per rf2-q3lfm) — the
             ;; STATE-MACHINE Xray driver. A left machine-picker rail; each
@@ -394,8 +418,9 @@
             ;; compiled main.js falls through to out/examples/machine-epochs.
             ;; Port 8033 is the machine slot of the _epochs port trio
             ;; (standard-epochs 8031, routes-epochs 8032).
-            8033 ["../tools/xray/testbeds/machine_epochs"
-                  "out/examples/machine-epochs"]
+            8033 {:roots   ["../tools/xray/testbeds/machine_epochs"
+                            "out/examples/machine-epochs"]
+                  :handler re-frame.testbed.open-in-editor-server/handler}
             ;; Single-frame edn-inspector testbed (rf2-74u2s) — the
             ;; WIDGET sibling of standard-epochs. Same numbered-button
             ;; shape (one frame · one rung per press), but each rung
@@ -406,8 +431,9 @@
             ;; Port 8034 is the next free testbed slot above the _epochs
             ;; trio (standard-epochs 8031, routes-epochs 8032,
             ;; machine-epochs 8033).
-            8034 ["../tools/xray/testbeds/edn_inspector"
-                  "out/examples/edn-inspector"]
+            8034 {:roots   ["../tools/xray/testbeds/edn_inspector"
+                            "out/examples/edn-inspector"]
+                  :handler re-frame.testbed.open-in-editor-server/handler}
             ;; Single-frame managed-http testbed (rf2-6nolv) — the
             ;; MANAGED-HTTP pilot of the shared queued-step RUNNER
             ;; (rf2-8pbjr; runner.core). One button walks the
@@ -421,8 +447,9 @@
             ;; static api/ok.json at `/`, compiled main.js falls through
             ;; to out/examples/managed-http. Port 8035 is the next free
             ;; testbed slot above the _epochs trio + edn-inspector.
-            8035 ["../tools/xray/testbeds/managed_http"
-                  "out/examples/managed-http"]
+            8035 {:roots   ["../tools/xray/testbeds/managed_http"
+                            "out/examples/managed-http"]
+                  :handler re-frame.testbed.open-in-editor-server/handler}
             ;; --- Story showcases (rf2-xz4zn) -------------------------
             ;; The four Story-enabled builds, on the 804x band (the Xray
             ;; testbeds own 803x + 8765). Each is hash-routed: `/#/` is
@@ -439,14 +466,18 @@
             ;;   http://localhost:8041/#/stories  login showcase (rf2-p8v0q)
             ;;   http://localhost:8042/#/stories  counter (canonical minimal)
             ;;   http://localhost:8043/#/stories  login-form (5-state)
-            8040 ["../examples/reagent/nine_states"
-                  "out/examples/nine-states-with-stories"]
-            8041 ["../examples/reagent/login"
-                  "out/examples/login-with-stories"]
-            8042 ["../tools/story/testbeds/counter_with_stories"
-                  "out/examples/counter-with-stories"]
-            8043 ["../tools/story/testbeds/login_form"
-                  "out/examples/login-form"]
+            8040 {:roots   ["../examples/reagent/nine_states"
+                            "out/examples/nine-states-with-stories"]
+                  :handler re-frame.testbed.open-in-editor-server/handler}
+            8041 {:roots   ["../examples/reagent/login"
+                            "out/examples/login-with-stories"]
+                  :handler re-frame.testbed.open-in-editor-server/handler}
+            8042 {:roots   ["../tools/story/testbeds/counter_with_stories"
+                            "out/examples/counter-with-stories"]
+                  :handler re-frame.testbed.open-in-editor-server/handler}
+            8043 {:roots   ["../tools/story/testbeds/login_form"
+                            "out/examples/login-form"]
+                  :handler re-frame.testbed.open-in-editor-server/handler}
             ;; --- Top-level testbeds (rf2-5e22yc) ---------------------
             ;; The 806x band for top-level testbeds/<surface>/ dev-http
             ;; servers (Xray testbeds own 803x + 8765, Story 804x, the
@@ -455,8 +486,9 @@
             ;; index.html resolves at `/`, the compiled main.js falls
             ;; through to out/testbeds/tenant-switcher per the same cascade
             ;; as the testbeds above.
-            8060 ["../testbeds/tenant_switcher"
-                  "out/testbeds/tenant-switcher"]}
+            8060 {:roots   ["../testbeds/tenant_switcher"
+                            "out/testbeds/tenant-switcher"]
+                  :handler re-frame.testbed.open-in-editor-server/handler}}
 
  :builds
  {:node-test
