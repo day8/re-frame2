@@ -91,11 +91,11 @@
   ;; :rf.story.lifecycle/machine]` lives in the frame's runtime-db partition
   ;; (EP-0001 rf2-vzld77), so a `:db` (app-db) effect cannot touch it — same
   ;; note as `counter_with_stories/events.cljs` and the lifecycle test.
-  (rf/reg-event-db :counter/initialise
-    (fn [db [_ n]] (assoc db :count (or n 0))))
-  (rf/reg-event-db :counter/inc
-    (fn [db _] (update db :count inc)))
-  (rf/reg-event-fx :counter/save
+  (rf/reg-event :counter/initialise
+    (fn [{:keys [db]} [_ n]] {:db (assoc db :count (or n 0))}))
+  (rf/reg-event :counter/inc
+    (fn [{:keys [db]} _] {:db (update db :count inc)}))
+  (rf/reg-event :counter/save
     (fn [{:keys [db]} _]
       {:db (assoc db :saving? true)
        :fx [[:counter/sync-to-server {:value (:count db)}]]}))

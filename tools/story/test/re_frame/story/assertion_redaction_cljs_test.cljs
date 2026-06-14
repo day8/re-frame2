@@ -74,8 +74,8 @@
 (deftest assertion-path-equals-redacts-sensitive-actual
   (testing "rf2-ee38b.3: :rf.assert/path-equals records :rf/redacted in
             :actual for a sensitive path (not the raw bearer token)"
-    (rf/reg-event-db :auth/login
-      (fn [db _] (assoc-in db [:auth :token] "BEARER-secret-12345")))
+    (rf/reg-event :auth/login
+      (fn [{:keys [db]} _] {:db (assoc-in db [:auth :token] "BEARER-secret-12345")}))
     (story/reg-variant :story.redaction.path-equals/probe
       {:events [[:auth/login]]
        :play-script [[:dispatch-sync [:rf.assert/path-equals
@@ -110,7 +110,7 @@
 (deftest assertion-path-equals-non-sensitive-passes-value-through
   (testing "rf2-ee38b.3: a NON-sensitive path records the raw value
             unchanged (redaction only fires on marked paths)"
-    (rf/reg-event-db :ui/set-label (fn [db _] (assoc db :label "hello")))
+    (rf/reg-event :ui/set-label (fn [{:keys [db]} _] {:db (assoc db :label "hello")}))
     (story/reg-variant :story.redaction.plain/probe
       {:events [[:ui/set-label]]
        :play-script [[:dispatch-sync [:rf.assert/path-equals [:label] "hello"]]]})
@@ -137,8 +137,8 @@
             full sub-marker propagation (spec/015 §reg-sub) is a sub-
             engine feature tracked separately. The assertion layer
             redacts what its path-key reaches."
-    (rf/reg-event-db :session/save-pii
-      (fn [db _] (assoc-in db [:user :ssn] "123-45-6789")))
+    (rf/reg-event :session/save-pii
+      (fn [{:keys [db]} _] {:db (assoc-in db [:user :ssn] "123-45-6789")}))
     ;; Parameterised sub: reads the path passed as args.
     (rf/reg-sub :pii/at (fn [db [_ & path]] (get-in db (vec path))))
     (story/reg-variant :story.redaction.sub-equals/probe

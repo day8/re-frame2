@@ -43,8 +43,8 @@
   (swap! late-bind/hooks dissoc :render-hiccup)
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!)
-  (rf/reg-event-db :rp/set-status (fn [db [_ v]] (assoc db :status v)))
-  (rf/reg-event-db :rp/set-value  (fn [db [_ v]] (assoc db :value v)))
+  (rf/reg-event :rp/set-status (fn [{:keys [db]} [_ v]] {:db (assoc db :status v)}))
+  (rf/reg-event :rp/set-value  (fn [{:keys [db]} [_ v]] {:db (assoc db :value v)}))
   (test-fn))
 
 (use-fixtures :each reset-rf!)

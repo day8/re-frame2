@@ -86,8 +86,8 @@
   the canonical counter example: `:counter/initialise` seeds the slot
   at 5."
   []
-  (rf/reg-event-db :counter/initialise
-    (fn [_db _event] {:counter/value 5})))
+  (rf/reg-event :counter/initialise
+    (fn [{:keys [db]} _event] {:db {:counter/value 5}})))
 
 ;; Variant-id IS the frame-id per `re-frame.story.frames`.
 (def ^:private variant-id :story.counter/loaded)
@@ -172,10 +172,10 @@
     (e2e/with-story-and-xray-frames
       {:register-stories
        (fn []
-         (rf/reg-event-db :counter/initialise
-           (fn [_db _event] {:counter/value 5}))
-         (rf/reg-event-db :counter/seed-ten
-           (fn [_db _event] {:counter/value 10}))
+         (rf/reg-event :counter/initialise
+           (fn [{:keys [db]} _event] {:db {:counter/value 5}}))
+         (rf/reg-event :counter/seed-ten
+           (fn [{:keys [db]} _event] {:db {:counter/value 10}}))
          (story/reg-story :story.counter {})
          (story/reg-variant :story.counter/loaded
            {:events [[:counter/initialise]]})

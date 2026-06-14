@@ -62,9 +62,9 @@
 (deftest execute-play-dispatches-in-order
   (testing "play events dispatch in declared order"
     (let [order (atom [])]
-      (rf/reg-event-db :step/a (fn [db _] (swap! order conj :a) db))
-      (rf/reg-event-db :step/b (fn [db _] (swap! order conj :b) db))
-      (rf/reg-event-db :step/c (fn [db _] (swap! order conj :c) db))
+      (rf/reg-event :step/a (fn [{:keys [db]} _] (swap! order conj :a) {:db db}))
+      (rf/reg-event :step/b (fn [{:keys [db]} _] (swap! order conj :b) {:db db}))
+      (rf/reg-event :step/c (fn [{:keys [db]} _] (swap! order conj :c) {:db db}))
       (story/reg-variant :story.order/v
         {:events []
          :play-script [[:dispatch-sync [:step/a]]
@@ -76,8 +76,8 @@
 
 (deftest execute-play-mixes-dispatches-and-assertions
   (testing "mixed sequence of regular events + :rf.assert/* events"
-    (rf/reg-event-db :counter/inc
-      (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :counter/inc
+      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (story/reg-variant :story.mix/v
       {:events []
        :play-script [[:dispatch-sync [:counter/inc]]
@@ -94,7 +94,7 @@
 
 (deftest execute-play-exception-records-phase-4
   (testing "an exception in a play event is captured + the script keeps walking"
-    (rf/reg-event-db :boom/now
+    (rf/reg-event :boom/now
       (fn [_ _] (throw (ex-info "boom" {:cause :test}))))
     (story/reg-variant :story.boom/v
       {:events []
@@ -125,7 +125,7 @@
 
 (deftest accumulators-reset-per-run
   (testing "trace-bus accumulators reset at the start of each play run"
-    (rf/reg-event-db :do/work (fn [db _] (assoc db :did? true)))
+    (rf/reg-event :do/work (fn [{:keys [db]} _] {:db (assoc db :did? true)}))
     (story/reg-variant :story.reset/v
       {:events []
        :play-script [[:dispatch-sync [:do/work]]
@@ -148,7 +148,7 @@
             FAILS rather than vacuously passing on every variant"
     ;; A plain event that returns {:db ...} — emits the framework :db fx
     ;; but no user fx-id.
-    (rf/reg-event-db :ee/touch (fn [db _] (assoc db :touched? true)))
+    (rf/reg-event :ee/touch (fn [{:keys [db]} _] {:db (assoc db :touched? true)}))
     (story/reg-variant :story.ee/db
       {:events []
        :play-script [[:dispatch-sync [:ee/touch]]
@@ -187,8 +187,8 @@
   (testing "begin-stepper! + step-once! drives the play one STEP at a time
             (rf2-ee38b.3: step-once! returns the executed STEP, not the
             bare event vector)"
-    (rf/reg-event-db :step/one (fn [db _] (assoc db :one? true)))
-    (rf/reg-event-db :step/two (fn [db _] (assoc db :two? true)))
+    (rf/reg-event :step/one (fn [{:keys [db]} _] {:db (assoc db :one? true)}))
+    (rf/reg-event :step/two (fn [{:keys [db]} _] {:db (assoc db :two? true)}))
     (story/reg-variant :story.stepper/v
       {:events []
        :play-script [[:dispatch-sync [:step/one]]
@@ -222,7 +222,7 @@
             rewritten to the canonical [:assert assertion-atom] checkpoint,
             so the recorded step type is :assert and the slot record carries
             the canonical :rf.assert/path-equals (no synthetic :rf.assert/db)."
-    (rf/reg-event-db :st/set-n (fn [db [_ v]] (assoc db :n v)))
+    (rf/reg-event :st/set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (story/reg-variant :story.stepper/full
       {:events []
        :play-script {:auto-run? false
@@ -301,7 +301,7 @@
 (deftest stepper-rewind-still-rewinds-an-active-session
   (testing "the guard does not break the real path — rewind on an ACTIVE
             session still resets the cursor (every step back to :remaining)"
-    (rf/reg-event-db :rw/one (fn [db _] (assoc db :one? true)))
+    (rf/reg-event :rw/one (fn [{:keys [db]} _] {:db (assoc db :one? true)}))
     (story/reg-variant :story.stepper/rw
       {:events []
        :play-script [[:dispatch-sync [:rw/one]]
@@ -326,13 +326,13 @@
 
 (deftest loaders-complete-when-registered-event
   (testing "registered event id form — handler sets :rf.story/loaders-complete?"
-    (rf/reg-event-db :my.fixture/ready?
-      (fn [db _]
+    (rf/reg-event :my.fixture/ready?
+      (fn [{:keys [db]} _]
         ;; The predicate event sets the completion slot to a custom
         ;; condition. Here: complete iff :loaded? is true.
-        (assoc db :rf.story/loaders-complete? (boolean (:loaded? db)))))
-    (rf/reg-event-db :test/mark-loaded
-      (fn [db _] (assoc db :loaded? true)))
+        {:db (assoc db :rf.story/loaders-complete? (boolean (:loaded? db)))}))
+    (rf/reg-event :test/mark-loaded
+      (fn [{:keys [db]} _] {:db (assoc db :loaded? true)}))
     (story/reg-variant :story.loaders/registered
       {:loaders                [[:test/mark-loaded]]
        :loaders-complete-when  :my.fixture/ready?
@@ -344,8 +344,8 @@
 
 (deftest loaders-complete-when-vector
   (testing "vector-of-events form — complete when ALL listed events fired"
-    (rf/reg-event-db :test/load-a (fn [db _] (assoc db :a? true)))
-    (rf/reg-event-db :test/load-b (fn [db _] (assoc db :b? true)))
+    (rf/reg-event :test/load-a (fn [{:keys [db]} _] {:db (assoc db :a? true)}))
+    (rf/reg-event :test/load-b (fn [{:keys [db]} _] {:db (assoc db :b? true)}))
     (story/reg-variant :story.loaders/vector
       {:loaders                [[:test/load-a] [:test/load-b]]
        :loaders-complete-when  [[:test/load-a] [:test/load-b]]
@@ -369,8 +369,8 @@
   ;; `:loading`. This test pins that lifecycle to `:ready` and
   ;; verifies the accumulator was populated with the loader event.
   (testing "the loaders-complete-when vector form matches loader-phase dispatches"
-    (rf/reg-event-db :fixture/loaded
-      (fn [db _] (assoc db :fixture-loaded? true)))
+    (rf/reg-event :fixture/loaded
+      (fn [{:keys [db]} _] {:db (assoc db :fixture-loaded? true)}))
     (story/reg-variant :story.v2g9/loader-vector
       {:loaders               [[:fixture/loaded]]
        :loaders-complete-when [[:fixture/loaded]]
@@ -426,4 +426,4 @@
 
 ;; Helper for the fn-form test above. Registered at top-level so the
 ;; dispatch in the test body can find it.
-(rf/reg-event-db ::set-done (fn [db _] (assoc db :done? true)))
+(rf/reg-event ::set-done (fn [{:keys [db]} _] {:db (assoc db :done? true)}))

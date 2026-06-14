@@ -60,8 +60,8 @@
 
 (deftest cljs-path-equals-pass
   (testing ":rf.assert/path-equals against an event-mutated app-db"
-    (rf/reg-event-db :test/set
-      (fn [db _] (assoc-in db [:user :name] "alice")))
+    (rf/reg-event :test/set
+      (fn [{:keys [db]} _] {:db (assoc-in db [:user :name] "alice")}))
     (story/reg-variant :story.cljs.assert/pe
       {:events [[:test/set]]
        :play-script [[:dispatch-sync [:rf.assert/path-equals [:user :name] "alice"]]]})
@@ -78,7 +78,7 @@
 
 (deftest cljs-assertions-passing?-roundtrip
   (testing "assertions-passing? returns true on all-pass, false on any-fail"
-    (rf/reg-event-db :test/n2 (fn [db _] (assoc db :n 42)))
+    (rf/reg-event :test/n2 (fn [{:keys [db]} _] {:db (assoc db :n 42)}))
     (story/reg-variant :story.cljs.passing/ok
       {:events [[:test/n2]]
        :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 42]]]})

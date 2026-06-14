@@ -87,17 +87,17 @@
   ;; so a `:db` (app-db) effect cannot touch it regardless of assoc-vs-
   ;; replace. Same note inline at
   ;; `tools/story/testbeds/counter_with_stories/events.cljs`.
-  (rf/reg-event-db :counter/initialise
-    (fn [db [_ n]] (assoc db :count (or n 5))))
-  (rf/reg-event-db :counter/inc
-    (fn [db _] (update db :count inc)))
-  (rf/reg-event-db :counter/throw-loader-rejection
-    (fn [_db _]
+  (rf/reg-event :counter/initialise
+    (fn [{:keys [db]} [_ n]] {:db (assoc db :count (or n 5))}))
+  (rf/reg-event :counter/inc
+    (fn [{:keys [db]} _] {:db (update db :count inc)}))
+  (rf/reg-event :counter/throw-loader-rejection
+    (fn [_cofx _]
       (throw (ex-info "story-load deterministic loader rejection"
                       {:surface :story-load
                        :kind    :loader-rejection}))))
-  (rf/reg-event-db :counter/loader-never-ready?
-    (fn [db _] (assoc db :rf.story/loaders-complete? false))))
+  (rf/reg-event :counter/loader-never-ready?
+    (fn [{:keys [db]} _] {:db (assoc db :rf.story/loaders-complete? false)})))
 
 (defn- register-lifecycle-variants! []
   (install-counter-events!)

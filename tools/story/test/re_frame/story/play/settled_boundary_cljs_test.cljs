@@ -47,16 +47,16 @@
             re-dispatches to fixed point on CLJS — the whole cascade is
             settled synchronously when the call returns, NO setTimeout
             tick (the legacy :dispatch step relied on a yield here)"
-    (rf/reg-event-fx :cljs.chain/a
+    (rf/reg-event :cljs.chain/a
       (fn [{:keys [db]} _]
         {:db (update db :hops (fnil conj []) :a)
          :fx [[:dispatch [:cljs.chain/b]]]}))
-    (rf/reg-event-fx :cljs.chain/b
+    (rf/reg-event :cljs.chain/b
       (fn [{:keys [db]} _]
         {:db (update db :hops (fnil conj []) :b)
          :fx [[:dispatch [:cljs.chain/c]]]}))
-    (rf/reg-event-db :cljs.chain/c
-      (fn [db _] (update db :hops (fnil conj []) :c)))
+    (rf/reg-event :cljs.chain/c
+      (fn [{:keys [db]} _] {:db (update db :hops (fnil conj []) :c)}))
     (let [res (boundary/dispatch-and-settle!
                 bf [:cljs.chain/a] boundary/headless-flush-hooks
                 :headless [:dispatch [:cljs.chain/a]])]
@@ -69,8 +69,8 @@
   (testing "a :dom-requiring step under the headless runner refuses with
             :cannot-run and does NOT dispatch the event on CLJS"
     (let [fired (atom false)]
-      (rf/reg-event-db :cljs.dom/should-not-fire
-        (fn [db _] (reset! fired true) db))
+      (rf/reg-event :cljs.dom/should-not-fire
+        (fn [{:keys [db]} _] (reset! fired true) {:db db}))
       (let [res (boundary/dispatch-and-settle!
                   bf [:cljs.dom/should-not-fire] boundary/headless-flush-hooks
                   :dom [:click "button"])]
@@ -84,7 +84,7 @@
     (let [hooks {:provides  :dom
                  :dispatch! (fn [frame-id evec] (boundary/drain-sync! frame-id evec))
                  :flush!    {:dom (fn [_] (throw (ex-info "cljs flush boom" {})))}}]
-      (rf/reg-event-db :cljs.dom/x (fn [db _] db))
+      (rf/reg-event :cljs.dom/x (fn [{:keys [db]} _] {:db db}))
       (let [res (boundary/dispatch-and-settle! bf [:cljs.dom/x] hooks :dom [:click "b"])]
         (is (= :error (:status res)))
         (is (re-find #"cljs flush boom" (:error res)))))))

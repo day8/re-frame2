@@ -178,7 +178,7 @@
   (testing "replay-run-artifact replays the dispatch program into a FRESH
             frame, captures a NEW tape, and returns the shared run-result —
             the fresh frame is torn down before return"
-    (rf/reg-event-db :rep/inc (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :rep/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [a   (artifact/make-run-artifact
                 {:event-program [[:dispatch [:rep/inc]] [:dispatch [:rep/inc]]]})
           res (artifact/replay-run-artifact a)]
@@ -203,7 +203,7 @@
                  (fn [_ _] (swap! hits conj :real)))
       (rf/reg-fx :rep.fx/stub {:platforms #{:client :server}}
                  (fn [_ _] (swap! hits conj :stub)))
-      (rf/reg-event-fx :rep/fire (fn [_ _] {:fx [[:rep.fx/real {}]]}))
+      (rf/reg-event :rep/fire (fn [_ _] {:fx [[:rep.fx/real {}]]}))
       (let [a   (artifact/make-run-artifact
                   {:event-program [[:dispatch [:rep/fire]]]
                    :fx-decisions  {:rep.fx/real :rep.fx/stub}})
@@ -233,7 +233,7 @@
                  (fn [_ _] (swap! fx-hits conj :real)))
       (rf/reg-fx :rep.fx/stub {:platforms #{:client :server}}
                  (fn [_ _] (swap! fx-hits conj :stub)))
-      (rf/reg-event-fx :rep/fire (fn [_ _] {:fx [[:rep.fx/real {}]]}))
+      (rf/reg-event :rep/fire (fn [_ _] {:fx [[:rep.fx/real {}]]}))
       (let [;; A richer adapter-style hooks map: a custom :dispatch! that
             ;; RECORDS it was invoked, then delegates to the real headless
             ;; drain so the replay still settles. `:provides :headless` so the
@@ -257,7 +257,7 @@
 (deftest replay-isolation-fresh-frame-each-time
   (testing "two replays of the same artifact each run into their own fresh
             frame — no shared app-db leaks between replays"
-    (rf/reg-event-db :rep/set (fn [db [_ v]] (assoc db :v v)))
+    (rf/reg-event :rep/set (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
     (let [a    (artifact/make-run-artifact
                  {:event-program [[:dispatch [:rep/set 7]]]})
           r1   (artifact/replay-run-artifact a)
@@ -273,7 +273,7 @@
             run run-hash EQUALITY is .8's concern: it owns stripping the
             per-frame epoch ids from the tape; this bead pins only that the
             result canonicalizes deterministically and run-hash is stable.)"
-    (rf/reg-event-db :rep/seed (fn [db _] (assoc db :seeded true)))
+    (rf/reg-event :rep/seed (fn [{:keys [db]} _] {:db (assoc db :seeded true)}))
     (let [a   (artifact/replay-run-artifact
                 (artifact/make-run-artifact {:event-program [[:dispatch [:rep/seed]]]}))
           h   (fingerprint/run-hash a)]
@@ -301,7 +301,7 @@
 (deftest replay-into-caller-supplied-frame
   (testing "a caller-supplied :frame is replayed into and LEFT intact (the
             caller owns its lifecycle)"
-    (rf/reg-event-db :rep/inc (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :rep/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf/reg-frame :rep/caller-frame {:doc "caller-owned replay frame"})
     (let [a   (artifact/make-run-artifact {:event-program [[:dispatch [:rep/inc]]]})
           res (artifact/replay-run-artifact a {:frame :rep/caller-frame})]
@@ -337,7 +337,7 @@
   `:rf/reply` (Spec 014 §Reply addressing), so a re-installed stub's
   synthesised reply is observable in the replay's final app-db."
   [event-id [method url]]
-  (rf/reg-event-fx event-id
+  (rf/reg-event event-id
     (fn [{:keys [db]} [_ msg]]
       (if-let [reply (:rf/reply msg)]
         {:db (assoc db :got reply)}
@@ -403,7 +403,7 @@
   (testing "an artifact WITHOUT :network installs no stubs — with-network-stubs!
             runs the thunk unchanged so a plain replay never touches the
             test-support surface (rf2-tymyh)"
-    (rf/reg-event-db :net/noop (fn [db _] (assoc db :ran true)))
+    (rf/reg-event :net/noop (fn [{:keys [db]} _] {:db (assoc db :ran true)}))
     (let [art (artifact/make-run-artifact {:event-program [[:dispatch [:net/noop]]]})
           res (artifact/replay-run-artifact art)]
       (is (= :pass (:status res)))
@@ -451,10 +451,10 @@
             step's span — EXACT (`:rf.story/script-idx`), not the EVEN
             forward partition that mis-groups it (rf2-rkd14)"
     ;; :rkd/a — a plain leaf dispatch (1 epoch).
-    (rf/reg-event-db :rkd/a (fn [db _] (assoc db :a true)))
+    (rf/reg-event :rkd/a (fn [{:keys [db]} _] {:db (assoc db :a true)}))
     ;; :rkd/c — re-dispatches :rkd/d, so step 1 settles to 2 epochs.
-    (rf/reg-event-fx :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
-    (rf/reg-event-db :rkd/d (fn [db _] (assoc db :d true)))
+    (rf/reg-event :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
+    (rf/reg-event :rkd/d (fn [{:keys [db]} _] {:db (assoc db :d true)}))
     (let [a   (artifact/make-run-artifact
                 {:event-program [[:dispatch [:rkd/a]]
                                  [:dispatch [:rkd/c]]]})
@@ -484,9 +484,9 @@
             and a stamp-free baseline canonicalize + run-hash IDENTICALLY
             (rf2-rkd14 determinism guard: :narrative is not in
             run-hash-input-keys AND the :epoch-tape slot stays raw)"
-    (rf/reg-event-db :rkd/a (fn [db _] (assoc db :a true)))
-    (rf/reg-event-fx :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
-    (rf/reg-event-db :rkd/d (fn [db _] (assoc db :d true)))
+    (rf/reg-event :rkd/a (fn [{:keys [db]} _] {:db (assoc db :a true)}))
+    (rf/reg-event :rkd/c (fn [_ _] {:fx [[:dispatch [:rkd/d]]]}))
+    (rf/reg-event :rkd/d (fn [{:keys [db]} _] {:db (assoc db :d true)}))
     (let [a    (artifact/make-run-artifact
                  {:event-program [[:dispatch [:rkd/a]]
                                   [:dispatch [:rkd/c]]]})

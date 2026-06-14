@@ -254,8 +254,8 @@
      (testing "dispatching against a frame writes app-db via dispatch-sync"
        (let [vid :story.dispatch.test/v]
          (rf/reg-frame vid {})
-         (rf/reg-event-db :test/inc
-                          (fn [db _] (update db :counter (fnil inc 0))))
+         (rf/reg-event :test/inc
+                          (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
          (rf/reg-sub :test/counter
                      (fn [db _] (get db :counter 0)))
          (dc/dispatch-event! vid [:test/inc] :dispatch-sync)
@@ -268,7 +268,7 @@
      (testing "every dispatch lands a history entry"
        (let [vid :story.history.test/v]
          (rf/reg-frame vid {})
-         (rf/reg-event-db :test/noop (fn [db _] db))
+         (rf/reg-event :test/noop (fn [{:keys [db]} _] {:db db}))
          (dc/dispatch-event! vid [:test/noop {:k :v}] :dispatch-sync)
          (let [h (dc/current-history vid)]
            (is (= 1 (count h)))
@@ -281,8 +281,8 @@
      (testing "click-replay re-dispatches the recorded event"
        (let [vid :story.replay.test/v]
          (rf/reg-frame vid {})
-         (rf/reg-event-db :test/inc
-                          (fn [db _] (update db :counter (fnil inc 0))))
+         (rf/reg-event :test/inc
+                          (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
          (rf/reg-sub :test/counter
                      (fn [db _] (get db :counter 0)))
          (dc/dispatch-event! vid [:test/inc] :dispatch-sync)
@@ -298,7 +298,7 @@
      (testing "a bad payload sets :error and does not dispatch"
        (let [vid :story.parse.err/v]
          (rf/reg-frame vid {})
-         (rf/reg-event-db :test/boom (fn [db _] (assoc db :boomed? true)))
+         (rf/reg-event :test/boom (fn [{:keys [db]} _] {:db (assoc db :boomed? true)}))
          (swap! dc/input-state assoc vid
                 {:event-id-input ":test/boom"
                  :payload-input  "{:bad"})
@@ -320,8 +320,8 @@
 #?(:cljs
    (deftest cljs-autocomplete-against-live-registrar
      (testing "registered-event-ids 0-arity surfaces registered handlers"
-       (rf/reg-event-db :ac.test/one (fn [db _] db))
-       (rf/reg-event-db :ac.test/two (fn [db _] db))
+       (rf/reg-event :ac.test/one (fn [{:keys [db]} _] {:db db}))
+       (rf/reg-event :ac.test/two (fn [{:keys [db]} _] {:db db}))
        (let [ids (dce/registered-event-ids)]
          (is (contains? ids :ac.test/one))
          (is (contains? ids :ac.test/two))))))

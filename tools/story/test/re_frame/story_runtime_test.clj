@@ -603,7 +603,7 @@
     ;; The events-only fast-path (`:pre-mount → :ready`) is exercised
     ;; separately by `lifecycle-events-only-fast-path-to-ready` /
     ;; `events-only-variant-classifier` below.
-    (rf/reg-event-db :test/noop (fn [db _] db))
+    (rf/reg-event :test/noop (fn [{:keys [db]} _] {:db db}))
     (story/reg-variant :story.life/v {:events [] :loaders [[:test/noop]]})
     (let [r       (story/resolve-decorators :story.life/v)]
       (frames/allocate! :story.life/v r)
@@ -618,7 +618,7 @@
   (testing "the discrete state is mirrored to [:rf.story/lifecycle]"
     ;; rf2-043cm — `:loaders` keeps the classical four-phase route so
     ;; the test reaches `:loading`.
-    (rf/reg-event-db :test/noop (fn [db _] db))
+    (rf/reg-event :test/noop (fn [{:keys [db]} _] {:db db}))
     (story/reg-variant :story.mirror/v {:loaders [[:test/noop]]})
     (let [r (story/resolve-decorators :story.mirror/v)]
       (frames/allocate! :story.mirror/v r)
@@ -631,7 +631,7 @@
   (testing "watch-variant callbacks see every transition"
     ;; rf2-043cm — `:loaders` keeps the classical four-phase route so
     ;; watchers observe the full transition cascade.
-    (rf/reg-event-db :test/noop (fn [db _] db))
+    (rf/reg-event :test/noop (fn [{:keys [db]} _] {:db db}))
     (story/reg-variant :story.watch/v {:loaders [[:test/noop]]})
     (let [transitions (atom [])
           unsubscribe (story/watch-variant
@@ -734,7 +734,7 @@
   (testing "rf2-043cm — `run-variant` against an events-only body
             resolves to a result whose :lifecycle is :ready and whose
             :assertions vector is empty (no loader-incomplete projection)"
-    (rf/reg-event-db :test/seed (fn [db _] (assoc db :seeded? true)))
+    (rf/reg-event :test/seed (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
     (story/reg-variant :story.eo.run/v {:events [[:test/seed]]})
     (let [r (async/deref-blocking (story/run-variant :story.eo.run/v) 5000)]
       (is (= :ready (:lifecycle r))
@@ -768,8 +768,8 @@
 
 (deftest run-variant-basic
   (testing "run-variant returns a future of the result map"
-    (rf/reg-event-db :test/inc
-      (fn [db _] (update db :counter (fnil inc 0))))
+    (rf/reg-event :test/inc
+      (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
     (story/reg-variant :story.run/v
       {:events [[:test/inc] [:test/inc]]})
     (let [fut (story/run-variant :story.run/v)
@@ -784,11 +784,11 @@
 
 (deftest run-variant-with-loaders-and-events
   (testing "run-variant drains loaders before events"
-    (rf/reg-event-db :test/load
-      (fn [db _] (assoc db :loaded? true)))
-    (rf/reg-event-db :test/use
-      (fn [db _]
-        (assoc db :used-loaded? (boolean (:loaded? db)))))
+    (rf/reg-event :test/load
+      (fn [{:keys [db]} _] {:db (assoc db :loaded? true)}))
+    (rf/reg-event :test/use
+      (fn [{:keys [db]} _]
+        {:db (assoc db :used-loaded? (boolean (:loaded? db)))}))
     (story/reg-variant :story.flow/v
       {:loaders [[:test/load]]
        :events  [[:test/use]]})
@@ -800,13 +800,13 @@
 
 (deftest run-variant-blocks-events-when-loaders-incomplete
   (testing "a false loaders-complete-when predicate keeps the variant in :loading and skips events/play"
-    (rf/reg-event-db :test/not-ready?
-      (fn [db _]
-        (assoc db :rf.story/loaders-complete? false)))
-    (rf/reg-event-db :test/load-but-not-ready
-      (fn [db _] (assoc db :loaded? true)))
-    (rf/reg-event-db :test/should-not-run
-      (fn [db _] (assoc db :events-ran? true)))
+    (rf/reg-event :test/not-ready?
+      (fn [{:keys [db]} _]
+        {:db (assoc db :rf.story/loaders-complete? false)}))
+    (rf/reg-event :test/load-but-not-ready
+      (fn [{:keys [db]} _] {:db (assoc db :loaded? true)}))
+    (rf/reg-event :test/should-not-run
+      (fn [{:keys [db]} _] {:db (assoc db :events-ran? true)}))
     (story/reg-variant :story.flow/blocked
       {:loaders               [[:test/load-but-not-ready]]
        :loaders-complete-when :test/not-ready?
@@ -831,10 +831,10 @@
 
 (deftest run-variant-frame-setup-decorator
   (testing ":frame-setup decorators fire :init events before loaders"
-    (rf/reg-event-db :test/mock-init
-      (fn [db _] (assoc db :mock {:user "alice"})))
-    (rf/reg-event-db :test/observe
-      (fn [db _] (assoc db :observed-mock (:mock db))))
+    (rf/reg-event :test/mock-init
+      (fn [{:keys [db]} _] {:db (assoc db :mock {:user "alice"})}))
+    (rf/reg-event :test/observe
+      (fn [{:keys [db]} _] {:db (assoc db :observed-mock (:mock db))}))
     (story/reg-decorator :mock-frame
       {:kind :frame-setup
        :init [[:test/mock-init]]})
@@ -855,8 +855,8 @@
 
 (deftest reset-variant-tears-down-then-runs-fresh
   (testing "reset-variant produces a fresh app-db"
-    (rf/reg-event-db :test/inc
-      (fn [db _] (update db :counter (fnil inc 0))))
+    (rf/reg-event :test/inc
+      (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
     (story/reg-variant :story.reset/v
       {:events [[:test/inc]]})
     (let [r1 (async/deref-blocking (story/run-variant :story.reset/v) 5000)
@@ -882,10 +882,10 @@
 (deftest run-variant-public-setup-and-script-vocabulary
   (testing "a variant authored with the PUBLIC :setup / :script keys runs
             through the plan-routed runtime (setup applied, script asserts)"
-    (rf/reg-event-db :test/seed
-      (fn [db _] (assoc db :seeded? true :count 0)))
-    (rf/reg-event-db :test/bump
-      (fn [db _] (update db :count inc)))
+    (rf/reg-event :test/seed
+      (fn [{:keys [db]} _] {:db (assoc db :seeded? true :count 0)}))
+    (rf/reg-event :test/bump
+      (fn [{:keys [db]} _] {:db (update db :count inc)}))
     (story/reg-variant :story.public/v
       {:setup  [[:test/seed]]
        :script [[:dispatch [:test/bump]]
@@ -909,10 +909,10 @@
   (testing "a :compose fragment's :setup is executed in phase 2 — the plan
             compiler resolves :compose, so fragment preconditions land in
             the frame (the pre-migration runtime ignored :compose for setup)"
-    (rf/reg-event-db :test/frag-seed
-      (fn [db _] (assoc db :from-fragment :alice)))
-    (rf/reg-event-db :test/observe-frag
-      (fn [db _] (assoc db :observed (:from-fragment db))))
+    (rf/reg-event :test/frag-seed
+      (fn [{:keys [db]} _] {:db (assoc db :from-fragment :alice)}))
+    (rf/reg-event :test/observe-frag
+      (fn [{:keys [db]} _] {:db (assoc db :observed (:from-fragment db))}))
     (story/reg-fragment :fragment.test/seeded
       {:setup [[:test/frag-seed]]})
     (story/reg-variant :story.compose/v
@@ -931,8 +931,8 @@
   (testing "a variant's named :plays are driven as named scripts from the
             plan's [:world :scripts] (auto-run? default: first true, rest
             false — only the first auto-play executes on run)"
-    (rf/reg-event-db :test/init-n
-      (fn [db [_ n]] (assoc db :n n)))
+    (rf/reg-event :test/init-n
+      (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
     (story/reg-variant :story.plays/v
       {:plays [{:name      "happy"
                 :script    [[:dispatch-sync [:test/init-n 3]]
@@ -968,8 +968,8 @@
             terminal :assertions block (no in-script [:assert], no :script)
             now AUTO-RUNS the terminal assertion against the FINAL settled
             state and produces a :pass verdict (rf2-nyjoa)"
-    (rf/reg-event-db :test/seed-state
-      (fn [db _] (assoc-in db [:checkout :state] :submitted)))
+    (rf/reg-event :test/seed-state
+      (fn [{:keys [db]} _] {:db (assoc-in db [:checkout :state] :submitted)}))
     (story/reg-variant :story.nyjoa/pass
       {:setup      [[:test/seed-state]]
        :assertions [[:rf.assert/path-equals [:checkout :state] :submitted]]})
@@ -990,8 +990,8 @@
 (deftest run-variant-terminal-assertions-only-fail
   (testing "a FAILING terminal assertion (no in-script [:assert]) flips the
             unified verdict to :fail (rf2-nyjoa)"
-    (rf/reg-event-db :test/seed-other
-      (fn [db _] (assoc-in db [:checkout :state] :draft)))
+    (rf/reg-event :test/seed-other
+      (fn [{:keys [db]} _] {:db (assoc-in db [:checkout :state] :draft)}))
     (story/reg-variant :story.nyjoa/fail
       {:setup      [[:test/seed-other]]
        :assertions [[:rf.assert/path-equals [:checkout :state] :submitted]]})
@@ -1011,7 +1011,7 @@
   (testing "a terminal assertion evaluates the FINAL settled state — it sees
             the state AFTER the script's dispatches commit, not the
             pre-script state (rf2-nyjoa: terminal = check the FINAL state)"
-    (rf/reg-event-db :test/set-n (fn [db [_ n]] (assoc db :n n)))
+    (rf/reg-event :test/set-n (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
     (story/reg-variant :story.nyjoa/after-script
       {:script     [[:dispatch [:test/set-n 7]]]
        :assertions [[:rf.assert/path-equals [:n] 7]]})
@@ -1030,7 +1030,7 @@
             against the epoch tape. Pinned alongside a handler-backed
             terminal assertion in the same block so the split is exercised
             (rf2-nyjoa critical guard)."
-    (rf/reg-event-db :test/seed-ok (fn [db _] (assoc db :ok? true)))
+    (rf/reg-event :test/seed-ok (fn [{:keys [db]} _] {:db (assoc db :ok? true)}))
     (story/reg-variant :story.nyjoa/mixed
       {:setup      [[:test/seed-ok]]
        :assertions [[:rf.assert/path-equals [:ok?] true]
@@ -1054,7 +1054,7 @@
   (testing "a plan-construction failure (an [:assert …] checkpoint placed
             in :setup) surfaces through the run-error projection rather
             than crashing the orchestrator"
-    (rf/reg-event-db :test/noop (fn [db _] db))
+    (rf/reg-event :test/noop (fn [{:keys [db]} _] {:db db}))
     (story/reg-variant :story.planerr/v
       {:setup [[:dispatch [:test/noop]]
                [:assert [:rf.assert/path-equals [:x] 1]]]})
@@ -1078,7 +1078,7 @@
             :setup and lifts :required-runner to :dom/:cljs-reactive, but the
             headless runner cannot honour that boundary — so it fails closed
             (:cannot-run shape) instead of vanishing the precondition."
-    (rf/reg-event-db :test/seed-z (fn [db _] (assoc db :seeded? true)))
+    (rf/reg-event :test/seed-z (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
     (doseq [[vid bad-step] [[:story.zaiwl/wait  [:wait 100]]
                             [:story.zaiwl/click [:click "[data-test=open]"]]]]
       (story/reg-variant vid
@@ -1106,8 +1106,8 @@
             vector (coerced to [:dispatch …]) — still run cleanly through
             phase 2 (rf2-zaiwl positive control: the refusal targets ONLY
             non-dispatch steps)"
-    (rf/reg-event-db :test/seed-a (fn [db _] (assoc db :a true)))
-    (rf/reg-event-db :test/seed-b (fn [db _] (assoc db :b true)))
+    (rf/reg-event :test/seed-a (fn [{:keys [db]} _] {:db (assoc db :a true)}))
+    (rf/reg-event :test/seed-b (fn [{:keys [db]} _] {:db (assoc db :b true)}))
     (story/reg-variant :story.zaiwl/ok
       {:setup [[:dispatch [:test/seed-a]]   ; tagged dispatch
                [:test/seed-b]]})            ; bare event vector → [:dispatch …]
@@ -1220,7 +1220,7 @@
 
 (deftest event-throwing-projects-as-assertion
   (testing "a thrown exception during :events lands in :assertions"
-    (rf/reg-event-db :test/boom
+    (rf/reg-event :test/boom
       (fn [_ _] (throw (ex-info "bang" {:why :test}))))
     (story/reg-variant :story.err/v
       {:events [[:test/boom]]})
@@ -1239,7 +1239,7 @@
             key records :rf/redacted in :error :data, NOT the raw secret; the
             :error :message survives verbatim (rf2-294yq5.5). JVM gate (the
             CLJS twin lives in error_projection_redaction_cljs_test.cljs)"
-    (rf/reg-event-db :auth/boom-jvm
+    (rf/reg-event :auth/boom-jvm
       (fn [_ _]
         (throw (ex-info "Invalid credentials"
                         {:token  "BEARER-secret-12345"
@@ -1267,7 +1267,7 @@
 (deftest exception-ex-data-non-sensitive-passes-through-jvm
   (testing "with NO marks, captured ex-data passes through unredacted —
             frame-scoped elision only redacts marked paths (rf2-294yq5.5)"
-    (rf/reg-event-db :plain/boom-jvm
+    (rf/reg-event :plain/boom-jvm
       (fn [_ _] (throw (ex-info "boom" {:detail "not-secret"}))))
     (story/reg-variant :story.err-plain-jvm/v
       {:events [[:plain/boom-jvm]]})
@@ -1284,7 +1284,7 @@
             :phase-0-setup :rf.error/exception assertion — NOT a silent
             :pass / :ready against a frame missing its declared
             preconditions (rf2-294yq5.1)"
-    (rf/reg-event-db :test/setup-boom
+    (rf/reg-event :test/setup-boom
       (fn [_ _] (throw (ex-info "setup blew up" {:why :setup}))))
     (story/reg-decorator :boom-setup
       {:kind :frame-setup
@@ -1316,7 +1316,7 @@
             old handler-exception-only capture was a false green"
     (rf/reg-cofx :test/boom-cofx
       (fn [] (throw (ex-info "cofx blew up" {:why :cofx}))))
-    (rf/reg-event-fx :test/uses-boom-cofx
+    (rf/reg-event :test/uses-boom-cofx
       {:rf.cofx/requires [:test/boom-cofx]}
       (fn [_ _] {}))
     (story/reg-variant :story.cofx-boom/v
@@ -1340,9 +1340,9 @@
     (let [boom-icpt (rf/->interceptor
                       :id :test/boom-icpt
                       :before (fn [_ctx] (throw (ex-info "icpt blew up" {:why :icpt}))))]
-      (rf/reg-event-db :test/uses-boom-icpt
+      (rf/reg-event :test/uses-boom-icpt
         {:interceptors [boom-icpt]}
-        (fn [db _] db))
+        (fn [{:keys [db]} _] {:db db}))
       (story/reg-variant :story.icpt-boom/v
         {:events [[:test/uses-boom-icpt]]})
       (let [r    (async/deref-blocking (story/run-variant :story.icpt-boom/v) 5000)
@@ -1363,8 +1363,8 @@
   (testing "two consecutive run-variant calls on the same id produce the
             SAME fresh app-db — run-variant does not reuse the prior frame
             (rf2-294yq5.3)"
-    (rf/reg-event-db :test/inc-counter
-      (fn [db _] (update db :counter (fnil inc 0))))
+    (rf/reg-event :test/inc-counter
+      (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
     (story/reg-variant :story.fresh/v
       {:events [[:test/inc-counter]]})
     (let [r1 (async/deref-blocking (story/run-variant :story.fresh/v) 5000)
@@ -1379,8 +1379,8 @@
   (testing "a LOADER variant reruns its loaders on the second run-variant —
             the prior :ready frame is destroyed, so run-loaders! does not
             short-circuit (rf2-294yq5.3)"
-    (rf/reg-event-db :test/load-mark
-      (fn [db _] (update db :loads (fnil inc 0))))
+    (rf/reg-event :test/load-mark
+      (fn [{:keys [db]} _] {:db (update db :loads (fnil inc 0))}))
     (story/reg-variant :story.fresh-loader/v
       {:loaders [[:test/load-mark]]})
     (let [r1 (async/deref-blocking (story/run-variant :story.fresh-loader/v) 5000)

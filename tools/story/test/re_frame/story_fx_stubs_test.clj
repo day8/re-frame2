@@ -127,7 +127,7 @@
 
 (deftest force-fx-stub-emits-fx-into-accumulator
   (testing "a stubbed fx emits into the assertion accumulator so :rf.assert/effect-emitted passes"
-    (rf/reg-event-fx :do/http-call
+    (rf/reg-event :do/http-call
       (fn [_ _]
         {:fx [[:http {:url "/test" :method :get}]]}))
     (story/reg-variant :story.fxemit/v
@@ -147,7 +147,7 @@
 
 (deftest force-fx-stub-log-captures-payload
   (testing "the stub fx-handler records the fx payload + response in the per-frame stub-call log"
-    (rf/reg-event-fx :do/http-call2
+    (rf/reg-event :do/http-call2
       (fn [_ _]
         {:fx [[:http {:url "/api" :method :post}]]}))
     (story/reg-variant :story.fxlog/v
@@ -168,10 +168,10 @@
 
 (deftest force-fx-stub-log-is-per-frame
   (testing "two variants emitting the same fx id keep stub logs and effect assertions isolated by frame"
-    (rf/reg-event-fx :do/http-a
+    (rf/reg-event :do/http-a
       (fn [_ _]
         {:fx [[:http {:url "/a"}]]}))
-    (rf/reg-event-fx :do/http-b
+    (rf/reg-event :do/http-b
       (fn [_ _]
         {:fx [[:http {:url "/b"}]]}))
     (story/reg-variant :story.fxisolation/a

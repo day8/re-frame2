@@ -520,10 +520,10 @@
 (deftest trace-listener-captures-dispatch-into-recording
   (testing "with a recording in flight, a dispatch against the target frame is captured"
     (reset-rf-state!)
-    (rf/reg-event-db :counter/inc
-      (fn [db _] (update db :n (fnil inc 0))))
-    (rf/reg-event-db :counter/dec
-      (fn [db _] (update db :n (fnil dec 0))))
+    (rf/reg-event :counter/inc
+      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    (rf/reg-event :counter/dec
+      (fn [{:keys [db]} _] {:db (update db :n (fnil dec 0))}))
     (story/reg-variant :story.recorder/v {})
     ;; Allocate the variant frame + install the listener.
     (async/deref-blocking (story/run-variant :story.recorder/v) 5000)
@@ -554,8 +554,8 @@
 (deftest trace-listener-ignores-cross-frame-traffic
   (testing "dispatches to a non-target frame don't appear in the recording"
     (reset-rf-state!)
-    (rf/reg-event-db :counter/inc
-      (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :counter/inc
+      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (story/reg-variant :story.recorder/target {})
     (story/reg-variant :story.recorder/other  {})
     (async/deref-blocking (story/run-variant :story.recorder/target) 5000)
@@ -579,8 +579,8 @@
 (deftest trace-listener-skips-assertion-events
   (testing "with a recording active, :rf.assert/* dispatches don't leak into the captured :script body"
     (reset-rf-state!)
-    (rf/reg-event-db :counter/inc
-      (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :counter/inc
+      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (story/reg-variant :story.recorder/v {})
     (async/deref-blocking (story/run-variant :story.recorder/v) 5000)
     (recorder/install-trace-listener!)
@@ -604,12 +604,12 @@
             so sensitivity now flows via the `redact-interceptor`
             interceptor (or schema-marked paths)."
     (reset-rf-state!)
-    (rf/reg-event-db :counter/inc
-      (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :counter/inc
+      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     ;; Use `redact-interceptor` so the trace surface sees the redacted payload.
-    (rf/reg-event-db :auth/login
+    (rf/reg-event :auth/login
       {:interceptors [(privacy/redact-interceptor [[:password] [:totp]])]}
-      (fn [db _] db))
+      (fn [{:keys [db]} _] {:db db}))
     (story/reg-variant :story.recorder/sens-end-to-end {})
     (async/deref-blocking (story/run-variant :story.recorder/sens-end-to-end) 5000)
     (recorder/install-trace-listener!)
@@ -636,10 +636,10 @@
 (deftest end-to-end-recording-to-snippet
   (testing "the full record→stop→gen-play-snippet cycle produces a valid public :script body"
     (reset-rf-state!)
-    (rf/reg-event-db :counter/inc
-      (fn [db _] (update db :n (fnil inc 0))))
-    (rf/reg-event-db :counter/by
-      (fn [db [_ n]] (update db :n (fnil + 0) n)))
+    (rf/reg-event :counter/inc
+      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    (rf/reg-event :counter/by
+      (fn [{:keys [db]} [_ n]] {:db (update db :n (fnil + 0) n)}))
     (story/reg-variant :story.recorder/source {})
     (async/deref-blocking (story/run-variant :story.recorder/source) 5000)
     (recorder/install-trace-listener!)
@@ -915,7 +915,7 @@
             captures NO :rf.realm/id and its play body replays unchanged —
             the absent-key round-trip (zero ceremony)"
     (reset-rf-state!)
-    (rf/reg-event-db :counter/inc (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (story/reg-variant :story.realm/default {})
     (async/deref-blocking (story/run-variant :story.realm/default) 5000)
     (recorder/install-trace-listener!)
@@ -944,7 +944,7 @@
             :rf.realm/id stamp, and the stamp rides through to the replayable
             play body so replay targets the same realm"
     (reset-rf-state!)
-    (rf/reg-event-db :counter/inc (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (story/reg-variant :story.realm/tenant {})
     (async/deref-blocking (story/run-variant :story.realm/tenant) 5000)
     ;; Simulate the frame living in a constructed realm (core seats no other

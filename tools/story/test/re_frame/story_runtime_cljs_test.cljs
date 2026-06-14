@@ -68,8 +68,8 @@
 
 (deftest cljs-run-variant-returns-promise
   (testing "run-variant returns a js/Promise"
-    (rf/reg-event-db :test/inc
-      (fn [db _] (update db :counter (fnil inc 0))))
+    (rf/reg-event :test/inc
+      (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
     (story/reg-variant :story.cljs.run/v
       {:events [[:test/inc] [:test/inc]]})
     (let [p (story/run-variant :story.cljs.run/v)]
@@ -101,8 +101,8 @@
             CLJS too. Drives the regression's repro shape: a variant
             body declaring only `:events`, with no `:loaders` / no
             `:frame-setup` decorators / no `:loaders-complete-when`."
-    (rf/reg-event-db :test.eo/seed
-      (fn [db _] (assoc db :seeded? true)))
+    (rf/reg-event :test.eo/seed
+      (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
     (story/reg-variant :story.cljs.eo/v
       {:events [[:test.eo/seed]]})
     (let [p (story/run-variant :story.cljs.eo/v)]
@@ -156,8 +156,8 @@
   (testing "rf2-9x5fm — tearing the variant frame down DURING a play's
             `:wait` yield must still resolve the run-variant promise; the
             aborted run loop settles its continuation instead of hanging"
-    (rf/reg-event-db :test.hang/touch
-      (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :test.hang/touch
+      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (story/reg-variant :story.cljs.hang/torn-down
       {:events      []
        :play-script {:script [[:dispatch-sync [:test.hang/touch]]
@@ -187,8 +187,8 @@
             (token swap, rf2-ftow6) DURING a play's `:wait` yield must still
             resolve the original run-variant promise; the stale loop settles
             its own continuation rather than stranding the chain"
-    (rf/reg-event-db :test.hang2/touch
-      (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :test.hang2/touch
+      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (story/reg-variant :story.cljs.hang/token-swap
       {:events      []
        :play-script {:auto-run? false

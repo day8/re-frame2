@@ -98,8 +98,8 @@
 (deftest loaders-teardown-events-fire-on-destroy
   (testing ":loaders-teardown events fire exactly once on destroy-variant!"
     (let [fired (atom [])]
-      (rf/reg-event-db :ws/open  (fn [db _] (assoc db :ws? :open)))
-      (rf/reg-event-db :ws/close (fn [db _] (swap! fired conj :ws/close) db))
+      (rf/reg-event :ws/open  (fn [{:keys [db]} _] {:db (assoc db :ws? :open)}))
+      (rf/reg-event :ws/close (fn [{:keys [db]} _] (swap! fired conj :ws/close) {:db db}))
       (story/reg-variant :story.lt.fires/v
         {:loaders          [[:ws/open]]
          :loaders-teardown [[:ws/close]]
@@ -120,9 +120,9 @@
   (testing "within `:loaders-teardown` events fire in DECLARED order —
             symmetric with `:loaders`"
     (let [fired (atom [])]
-      (rf/reg-event-db :step/one   (fn [db _] (swap! fired conj :one) db))
-      (rf/reg-event-db :step/two   (fn [db _] (swap! fired conj :two) db))
-      (rf/reg-event-db :step/three (fn [db _] (swap! fired conj :three) db))
+      (rf/reg-event :step/one   (fn [{:keys [db]} _] (swap! fired conj :one) {:db db}))
+      (rf/reg-event :step/two   (fn [{:keys [db]} _] (swap! fired conj :two) {:db db}))
+      (rf/reg-event :step/three (fn [{:keys [db]} _] (swap! fired conj :three) {:db db}))
       (story/reg-variant :story.lt.order/v
         {:loaders-teardown [[:step/one] [:step/two] [:step/three]]
          :events           []})
@@ -148,11 +148,11 @@
             wider (decorator-installed) cleanup. Per 002-Runtime.md
             §Loader teardown contract step ordering."
     (let [fired (atom [])]
-      (rf/reg-event-db :dec/teardown
-        (fn [db _] (swap! fired conj :decorator) db))
-      (rf/reg-event-db :dec/init    (fn [db _] db))
-      (rf/reg-event-db :lt/cleanup
-        (fn [db _] (swap! fired conj :loaders-teardown) db))
+      (rf/reg-event :dec/teardown
+        (fn [{:keys [db]} _] (swap! fired conj :decorator) {:db db}))
+      (rf/reg-event :dec/init    (fn [{:keys [db]} _] {:db db}))
+      (rf/reg-event :lt/cleanup
+        (fn [{:keys [db]} _] (swap! fired conj :loaders-teardown) {:db db}))
       (story/reg-decorator :outer-dec
         {:kind     :frame-setup
          :init     [[:dec/init]]
@@ -179,7 +179,7 @@
   (testing "a `:loaders-teardown` event that throws is caught —
             destroy-frame! still runs to completion. Walk never aborts
             (002-Runtime.md §Loader teardown contract)."
-    (rf/reg-event-db :boom/cleanup
+    (rf/reg-event :boom/cleanup
       (fn [_ _] (throw (ex-info "loader-teardown boom" {:why :test}))))
     (story/reg-variant :story.lt.boom/v
       {:loaders-teardown [[:boom/cleanup]]
@@ -201,12 +201,12 @@
             subsequent events in the vector — the walk continues
             (symmetric with the `:teardown` decorator walk)"
     (let [fired (atom [])]
-      (rf/reg-event-db :step/before
-        (fn [db _] (swap! fired conj :before) db))
-      (rf/reg-event-db :step/boom
+      (rf/reg-event :step/before
+        (fn [{:keys [db]} _] (swap! fired conj :before) {:db db}))
+      (rf/reg-event :step/boom
         (fn [_ _] (throw (ex-info "boom" {}))))
-      (rf/reg-event-db :step/after
-        (fn [db _] (swap! fired conj :after) db))
+      (rf/reg-event :step/after
+        (fn [{:keys [db]} _] (swap! fired conj :after) {:db db}))
       (story/reg-variant :story.lt.continue/v
         {:loaders-teardown [[:step/before] [:step/boom] [:step/after]]
          :events           []})
@@ -232,13 +232,13 @@
             LAST (after `:loaders-teardown`) — by then the assertion
             record has already landed."
     (let [captured (atom nil)]
-      (rf/reg-event-db :boom/cleanup
+      (rf/reg-event :boom/cleanup
         (fn [_ _] (throw (ex-info "lt boom" {:why :test}))))
-      (rf/reg-event-db ::probe-init  (fn [db _] db))
-      (rf/reg-event-db ::probe-snapshot
-        (fn [db _]
+      (rf/reg-event ::probe-init  (fn [{:keys [db]} _] {:db db}))
+      (rf/reg-event ::probe-snapshot
+        (fn [{:keys [db]} _]
           (reset! captured (:rf.story/assertions db))
-          db))
+          {:db db}))
       (story/reg-decorator :lt-probe
         {:kind     :frame-setup
          :init     [[::probe-init]]
@@ -278,8 +278,8 @@
 (deftest variant-without-loaders-teardown-still-tears-down
   (testing "a variant declaring no `:loaders-teardown` slot still
             tears down cleanly — destroy! is a no-op for the new step"
-    (rf/reg-event-db :seed/init
-      (fn [db _] (assoc db :seeded? true)))
+    (rf/reg-event :seed/init
+      (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
     (story/reg-variant :story.lt.none/v
       {:events [[:seed/init]]})
     (let [p (story/run-variant :story.lt.none/v)]

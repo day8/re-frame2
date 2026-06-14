@@ -101,7 +101,7 @@
 
 (deftest http-fx-stub-scenario
   (testing ":http fx is intercepted by force-fx-stub end-to-end"
-    (rf/reg-event-fx :do/http-emit
+    (rf/reg-event :do/http-emit
       (fn [_ _] {:fx [[:http {:url "/api" :method :get}]]}))
     (story/reg-variant :story.fxscen.http/v
       {:decorators [[:rf.story/force-fx-stub :http {:status :ok :body {:n 1}}]]
@@ -115,7 +115,7 @@
 
 (deftest analytics-fx-stub-scenario
   (testing ":analytics fx is intercepted by force-fx-stub end-to-end"
-    (rf/reg-event-fx :do/analytics-emit
+    (rf/reg-event :do/analytics-emit
       (fn [_ _] {:fx [[:analytics {:event "page-view" :path "/home"}]]}))
     (story/reg-variant :story.fxscen.analytics/v
       {:decorators [[:rf.story/force-fx-stub :analytics {:ack? true}]]
@@ -129,7 +129,7 @@
 
 (deftest websocket-fx-stub-scenario
   (testing ":websocket fx is intercepted by force-fx-stub end-to-end"
-    (rf/reg-event-fx :do/websocket-emit
+    (rf/reg-event :do/websocket-emit
       (fn [_ _] {:fx [[:websocket {:topic "live" :payload {:tick 1}}]]}))
     (story/reg-variant :story.fxscen.websocket/v
       {:decorators [[:rf.story/force-fx-stub :websocket {:connected? true}]]
@@ -143,7 +143,7 @@
 
 (deftest navigation-fx-stub-scenario
   (testing ":navigation fx is intercepted by force-fx-stub end-to-end"
-    (rf/reg-event-fx :do/navigation-emit
+    (rf/reg-event :do/navigation-emit
       (fn [_ _] {:fx [[:navigation {:to "/dashboard" :replace? false}]]}))
     (story/reg-variant :story.fxscen.navigation/v
       {:decorators [[:rf.story/force-fx-stub :navigation {:landed? true}]]
@@ -185,7 +185,7 @@
           ;; loudly via the :events-phase exception projection too.
           (throw (ex-info "real :http fx must NOT run under force-fx-stub"
                           {:payload payload}))))
-      (rf/reg-event-fx :do/http-call
+      (rf/reg-event :do/http-call
         (fn [_ _]
           {:fx [[:http {:url "/should-not-hit-real" :method :get}]]}))
       (story/reg-variant :story.fxoverride/real
@@ -244,14 +244,14 @@
       ;; app-db along [:http-result]. The stub itself just absorbs the
       ;; call; the failure-shape contract is whatever the app under
       ;; test makes of the response.
-      (rf/reg-event-fx :do/http-emit-fail
+      (rf/reg-event :do/http-emit-fail
         (fn [_ _] {:fx [[:http {:url "/api/may-fail"}]]}))
       ;; Record the failure marker into app-db so :rf.assert/path-equals
       ;; can observe it. Mirrors the shape of an :on-failure event a
       ;; library like re-frame-http-fx would dispatch off a failed
       ;; managed-fx response.
-      (rf/reg-event-db :record/failure
-        (fn [db _] (assoc db :http-result failure-payload)))
+      (rf/reg-event :record/failure
+        (fn [{:keys [db]} _] {:db (assoc db :http-result failure-payload)}))
       (story/reg-variant :story.fxfail/v
         {:decorators [[:rf.story/force-fx-stub :http failure-payload]]
          :events     []

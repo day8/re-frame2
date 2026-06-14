@@ -129,8 +129,8 @@
   (testing "spec/002 §run-variant + spec/006 §render-story: the result
             map carries :frame :app-db :assertions :elapsed-ms
             :snapshot :decorators :errors"
-    (rf/reg-event-db :mcp/seed
-      (fn [db [_ n]] (assoc db :n n)))
+    (rf/reg-event :mcp/seed
+      (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
     (story/reg-variant :story.mcp.run/probe
       {:events [[:mcp/seed 42]]
        :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 42]]]})
@@ -184,8 +184,8 @@
             registration), run-variant (allocate frame + seed app-db),
             then dispatch-sync with {:frame ...} — the agent observes
             the dispatch's effect on the frame's app-db"
-    (rf/reg-event-db :mcp.dispatch/set
-      (fn [db [_ v]] (assoc db :payload v)))
+    (rf/reg-event :mcp.dispatch/set
+      (fn [{:keys [db]} [_ v]] {:db (assoc db :payload v)}))
     ;; MCP write path: programmatic registration (no &form meta).
     (story/reg-variant* :story.mcp.dispatch/probe
       {:events []
@@ -211,8 +211,8 @@
   (testing "the MCP dispatch tool can fire a sequence of events into
             a single variant frame; each dispatch updates the frame's
             app-db in order"
-    (rf/reg-event-db :mcp.dispatch/push
-      (fn [db [_ v]] (update db :log (fnil conj []) v)))
+    (rf/reg-event :mcp.dispatch/push
+      (fn [{:keys [db]} [_ v]] {:db (update db :log (fnil conj []) v)}))
     (story/reg-variant* :story.mcp.dispatch.seq/probe {:events []})
     (story-async/deref-blocking
       (story/run-variant :story.mcp.dispatch.seq/probe) 5000)

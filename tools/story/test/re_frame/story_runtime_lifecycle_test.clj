@@ -63,7 +63,7 @@
   ;; once per test so the loader-cascade path takes the classical
   ;; four-phase route rather than the events-only fast-path
   ;; introduced by rf2-043cm.
-  (rf/reg-event-db :test/noop (fn [db _] db))
+  (rf/reg-event :test/noop (fn [{:keys [db]} _] {:db db}))
   (t))
 
 (use-fixtures :each reset-all)
@@ -168,7 +168,7 @@
 (deftest destroy-variant-removes-from-variant-frames
   (testing "after destroy-variant! the variant id no longer appears in
             (story/variant-frames) — the registry is in step with the runtime"
-    (rf/reg-event-db :test/nothing (fn [db _] db))
+    (rf/reg-event :test/nothing (fn [{:keys [db]} _] {:db db}))
     (story/reg-variant :story.destroy.list/v
       {:events [[:test/nothing]]})
     (let [_ (async/deref-blocking (story/run-variant :story.destroy.list/v) 5000)]
@@ -180,7 +180,7 @@
 
 (deftest destroy-variant-idempotent-on-running-frame
   (testing "calling destroy-variant! twice in a row does not throw"
-    (rf/reg-event-db :test/nothing (fn [db _] db))
+    (rf/reg-event :test/nothing (fn [{:keys [db]} _] {:db db}))
     (story/reg-variant :story.destroy.twice/v
       {:events [[:test/nothing]]})
     (async/deref-blocking (story/run-variant :story.destroy.twice/v) 5000)
@@ -196,7 +196,7 @@
 (deftest run-then-destroy-then-run-cycles-cleanly
   (testing "destroy + re-run leaves the lifecycle in :ready — the Stage 4
             UI shell relies on this for the 'reset' button affordance"
-    (rf/reg-event-db :test/inc (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :test/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (story/reg-variant :story.cycle/v
       {:events [[:test/inc]]})
     ;; First run.

@@ -566,7 +566,7 @@
 (deftest diff-run-artifacts-equal-programs-are-same
   (testing "replaying the SAME program twice into fresh frames diffs {:same? true}
             — fresh-frame volatile drift causes no false difference"
-    (rf/reg-event-db :diff/inc (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :diff/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [a (artifact/make-run-artifact
               {:event-program [[:dispatch [:diff/inc]] [:dispatch [:diff/inc]]]})]
       (is (= {:same? true} (diff/diff-run-artifacts a a))
@@ -575,7 +575,7 @@
 (deftest diff-run-artifacts-divergent-program-surfaces-app-db-facet
   (testing "two programs producing different final app-db surface a readable
             :app-db facet"
-    (rf/reg-event-db :diff/set (fn [db [_ v]] (assoc db :v v)))
+    (rf/reg-event :diff/set (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
     (let [a (artifact/make-run-artifact {:event-program [[:dispatch [:diff/set 1]]]})
           b (artifact/make-run-artifact {:event-program [[:dispatch [:diff/set 2]]]})
           d (diff/diff-run-artifacts a b)]
@@ -587,7 +587,7 @@
 (deftest diff-run-artifacts-accepts-a-run-result-directly
   (testing "a run-result side is used as-is (the pure path) — diffing an
             artifact replay against a hand-built result still works"
-    (rf/reg-event-db :diff/set (fn [db [_ v]] (assoc db :v v)))
+    (rf/reg-event :diff/set (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
     (let [art    (artifact/make-run-artifact {:event-program [[:dispatch [:diff/set 9]]]})
           result {:status :pass :app-db {:v 9} :effects [] :sub-runs []
                   :epoch-tape []}

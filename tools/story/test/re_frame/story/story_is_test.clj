@@ -31,7 +31,7 @@
   (reset! re/run-state {})
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!)
-  (rf/reg-event-db :is/set-status (fn [db [_ v]] (assoc db :status v)))
+  (rf/reg-event :is/set-status (fn [{:keys [db]} [_ v]] {:db (assoc db :status v)}))
   (test-fn))
 
 (use-fixtures :each reset-rf!)

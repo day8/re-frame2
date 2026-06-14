@@ -254,7 +254,7 @@
 (deftest gate-same-program-is-deterministic
   (testing "the SAME event program replayed twice is equal after
             canonicalization — :deterministic with one shared run-hash"
-    (rf/reg-event-db :det/inc (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :det/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [a   (artifact/make-run-artifact
                 {:event-program [[:dispatch [:det/inc]] [:dispatch [:det/inc]]]})
           res (det/assert-deterministic a)]
@@ -266,8 +266,8 @@
 
 (deftest gate-accepts-a-normalized-plan
   (testing "a normalized plan (setup ⧺ script) is replayed deterministically"
-    (rf/reg-event-db :det/seed (fn [db [_ v]] (assoc db :v v)))
-    (rf/reg-event-db :det/bump (fn [db _] (update db :v inc)))
+    (rf/reg-event :det/seed (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
+    (rf/reg-event :det/bump (fn [{:keys [db]} _] {:db (update db :v inc)}))
     (let [plan {:variant/id :story.det/plan
                 :world  {:setup [[:dispatch [:det/seed 10]]]}
                 :script [[:dispatch [:det/bump]]]}
@@ -283,8 +283,8 @@
       ;; Each dispatch reads + bumps a shared atom, so replay 1 writes 1 and
       ;; replay 2 writes 2 into a FRESH frame's app-db — a genuine semantic
       ;; divergence the canonical strip must NOT mask.
-      (rf/reg-event-db :det/nondet
-                       (fn [db _] (assoc db :token (swap! counter inc))))
+      (rf/reg-event :det/nondet
+                       (fn [{:keys [db]} _] {:db (assoc db :token (swap! counter inc))}))
       (let [a   (artifact/make-run-artifact
                   {:event-program [[:dispatch [:det/nondet]]]})
             res (det/assert-deterministic a)]
@@ -300,7 +300,7 @@
   (testing "a purely-deterministic handler is :deterministic even though every
             replay stamps fresh epoch / dispatch / trace ids, a new frame id,
             and its own wall-clock — volatile fields cause NO false drift"
-    (rf/reg-event-db :det/pure (fn [db _] (assoc db :answer 42)))
+    (rf/reg-event :det/pure (fn [{:keys [db]} _] {:db (assoc db :answer 42)}))
     (let [a   (artifact/make-run-artifact
                 {:event-program [[:dispatch [:det/pure]] [:dispatch [:det/pure]]]})
           res (det/assert-deterministic a {:runs 4})]
@@ -312,7 +312,7 @@
 (deftest gate-refuses-bare-wall-clock-wait
   (testing "a plan containing a bare [:wait ms] returns :cannot-run for the
             determinism gate rather than a flaky verdict — and does NOT replay"
-    (rf/reg-event-db :det/inc (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :det/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [a   (artifact/make-run-artifact
                 {:event-program [[:dispatch [:det/inc]]
                                  [:wait 50]
@@ -332,7 +332,7 @@
                  (fn [_ _] (swap! hits conj :real)))
       (rf/reg-fx :det.fx/stub {:platforms #{:client :server}}
                  (fn [_ _] (swap! hits conj :stub)))
-      (rf/reg-event-fx :det/fire (fn [_ _] {:fx [[:det.fx/real {}]]}))
+      (rf/reg-event :det/fire (fn [_ _] {:fx [[:det.fx/real {}]]}))
       (let [a   (artifact/make-run-artifact
                   {:event-program [[:dispatch [:det/fire]]]
                    :fx-decisions  {:det.fx/real :det.fx/stub}})

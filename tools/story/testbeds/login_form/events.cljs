@@ -52,7 +52,7 @@
 ;; tutorial's claim that "you swap five variants without a single
 ;; refresh."
 
-(rf/reg-event-fx :login/flow
+(rf/reg-event :login/flow
   {:doc "Login flow machine — five-state authentication FSM."}
   (machines/make-machine-handler
     {:initial :idle

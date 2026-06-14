@@ -25,37 +25,37 @@
 ;; lives at `[:rf.runtime/machines :snapshots ...]` in the frame's
 ;; runtime-db partition (EP-0001 rf2-vzld77 — durable runtime-db state, not
 ;; app-db), so a `:db` (app-db) effect can never touch it.
-(rf/reg-event-fx :counter/initialise
+(rf/reg-event :counter/initialise
   (fn [{:keys [db]} [_ initial-count]]
     {:db (assoc db :count (or initial-count 0))}))
 
-(rf/reg-event-db :counter/inc
-  (fn [db _event]
-    (update db :count inc)))
+(rf/reg-event :counter/inc
+  (fn [{:keys [db]} _event]
+    {:db (update db :count inc)}))
 
-(rf/reg-event-db :counter/dec
-  (fn [db _event]
-    (update db :count dec)))
+(rf/reg-event :counter/dec
+  (fn [{:keys [db]} _event]
+    {:db (update db :count dec)}))
 
-(rf/reg-event-db :counter/set
-  (fn [db [_ n]]
-    (assoc db :count n)))
+(rf/reg-event :counter/set
+  (fn [{:keys [db]} [_ n]]
+    {:db (assoc db :count n)}))
 
-(rf/reg-event-db :counter/throw-deterministic
-  (fn [_db _event]
+(rf/reg-event :counter/throw-deterministic
+  (fn [_cofx _event]
     (throw (ex-info "story-load deterministic event handler failure"
                     {:surface :story-load
                      :kind    :event-handler-exception}))))
 
-(rf/reg-event-db :counter/throw-loader-rejection
-  (fn [_db _event]
+(rf/reg-event :counter/throw-loader-rejection
+  (fn [_cofx _event]
     (throw (ex-info "story-load deterministic loader rejection"
                     {:surface :story-load
                      :kind    :loader-rejection}))))
 
-(rf/reg-event-db :counter/loader-never-ready?
-  (fn [db _event]
-    (assoc db :rf.story/loaders-complete? false)))
+(rf/reg-event :counter/loader-never-ready?
+  (fn [{:keys [db]} _event]
+    {:db (assoc db :rf.story/loaders-complete? false)}))
 
 ;; A user-fx so the `force-fx-stub` decorator story has something
 ;; concrete to stub. In the live app this would talk to a server;
@@ -68,7 +68,7 @@
     ;; intercepts the fx-id well before this fires.
     nil))
 
-(rf/reg-event-fx :counter/save
+(rf/reg-event :counter/save
   (fn [{:keys [db]} _event]
     {:db (assoc db :saving? true)
      :fx [[:counter/sync-to-server {:value (:count db)}]]}))
@@ -93,7 +93,7 @@
 ;; unredacted payload (redaction is a trace-consumer concern, not a
 ;; handler concern); we stash only a redacted placeholder in app-db —
 ;; the password never lives in app-db.
-(rf/reg-event-fx :counter/sign-in
+(rf/reg-event :counter/sign-in
   {:doc        "Demo sign-in handler — the password rides the event
                 vector. `:sensitive? true` tells trace consumers and
                 always-on substrates to suppress or redact these

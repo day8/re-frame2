@@ -165,8 +165,8 @@
 (deftest run-variant-pane-seeds-slot-on-mount
   (testing "run-variant-pane! against a fresh variant seeds the per-
             variant slot with all the renderer-required fields"
-    (rf/reg-event-db :test/set
-      (fn [db _] (assoc db :counter 7)))
+    (rf/reg-event :test/set
+      (fn [{:keys [db]} _] {:db (assoc db :counter 7)}))
     (story/reg-variant :story.pane.mount/v
       {:events [[:test/set]]
        :play-script [[:dispatch-sync [:rf.assert/path-equals [:counter] 7]]]})
@@ -196,10 +196,10 @@
             independently — proves the slots are per-variant, not a
             singleton, so the pane's scroll-position / expanded set /
             scrubber state isolate"
-    (rf/reg-event-db :test/set-a
-      (fn [db _] (assoc db :v "a")))
-    (rf/reg-event-db :test/set-b
-      (fn [db _] (assoc db :v "b")))
+    (rf/reg-event :test/set-a
+      (fn [{:keys [db]} _] {:db (assoc db :v "a")}))
+    (rf/reg-event :test/set-b
+      (fn [{:keys [db]} _] {:db (assoc db :v "b")}))
     (story/reg-variant :story.pane.switch/a
       {:events [[:test/set-a]] :play-script [[:dispatch-sync [:rf.assert/path-equals [:v] "a"]]]})
     (story/reg-variant :story.pane.switch/b
@@ -256,7 +256,7 @@
             shell-state :tests :runs :status :running stamp the chrome
             widget reads against; this test pins the pane-local
             results-atom flag the pane's own Re-run button reads."
-    (rf/reg-event-db :test/inc (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :test/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (story/reg-variant :story.pane.debounce/v
       {:events [[:test/inc]]
        :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]})
@@ -289,7 +289,7 @@
 (deftest run-variant-pane-records-on-resolve
   (testing "after a run resolves, :running? clears AND a fresh re-run is
             allowed (the gate is :running?, not a permanent lock)"
-    (rf/reg-event-db :test/inc (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :test/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (story/reg-variant :story.pane.cycle/v
       {:events [[:test/inc]] :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]})
     (async done

@@ -94,8 +94,8 @@
 
 (deftest path-equals-pass
   (testing ":rf.assert/path-equals passes when value at path matches"
-    (rf/reg-event-db :test/set-status
-      (fn [db _] (assoc-in db [:auth :status] :authenticated)))
+    (rf/reg-event :test/set-status
+      (fn [{:keys [db]} _] {:db (assoc-in db [:auth :status] :authenticated)}))
     (story/reg-variant :story.auth/happy
       {:events [[:test/set-status]]
        :play-script [[:dispatch-sync [:rf.assert/path-equals [:auth :status] :authenticated]]]})
@@ -123,8 +123,8 @@
 
 (deftest path-matches-pass
   (testing ":rf.assert/path-matches validates against malli"
-    (rf/reg-event-db :test/set-count
-      (fn [db _] (assoc db :n 42)))
+    (rf/reg-event :test/set-count
+      (fn [{:keys [db]} _] {:db (assoc db :n 42)}))
     (story/reg-variant :story.malli/ok
       {:events [[:test/set-count]]
        :play-script [[:dispatch-sync [:rf.assert/path-matches [:n] :int]]]})
@@ -134,8 +134,8 @@
 
 (deftest path-matches-fail
   (testing ":rf.assert/path-matches records failure with explanation on schema mismatch"
-    (rf/reg-event-db :test/set-bad
-      (fn [db _] (assoc db :n "not a number")))
+    (rf/reg-event :test/set-bad
+      (fn [{:keys [db]} _] {:db (assoc db :n "not a number")}))
     (story/reg-variant :story.malli/bad
       {:events [[:test/set-bad]]
        :play-script [[:dispatch-sync [:rf.assert/path-matches [:n] :int]]]})
@@ -149,8 +149,8 @@
 
 (deftest sub-equals-pass
   (testing ":rf.assert/sub-equals passes when sub returns expected"
-    (rf/reg-event-db :test/init
-      (fn [db _] (assoc db :counter 7)))
+    (rf/reg-event :test/init
+      (fn [{:keys [db]} _] {:db (assoc db :counter 7)}))
     (rf/reg-sub :counter (fn [db _] (:counter db)))
     (story/reg-variant :story.sub/v
       {:events [[:test/init]]
@@ -162,8 +162,8 @@
 
 (deftest sub-equals-fail
   (testing ":rf.assert/sub-equals records the mismatch"
-    (rf/reg-event-db :test/init2
-      (fn [db _] (assoc db :counter 3)))
+    (rf/reg-event :test/init2
+      (fn [{:keys [db]} _] {:db (assoc db :counter 3)}))
     (rf/reg-sub :counter (fn [db _] (:counter db)))
     (story/reg-variant :story.sub/bad
       {:events [[:test/init2]]
@@ -182,7 +182,7 @@
   ;; runtime-db partition the sub belongs to.
   (testing ":rf.assert/sub-equals resolves a runtime-db-projection sub (not nil)"
     ;; Seed a machine snapshot into the runtime-db partition (EP-0001).
-    (rf/reg-event-fx :test/seed-machine-sub
+    (rf/reg-event :test/seed-machine-sub
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {})
                                   [:rf.runtime/machines :snapshots :traffic-light]
@@ -208,8 +208,8 @@
 
 (deftest dispatched-pass
   (testing ":rf.assert/dispatched? passes when an earlier event in :play-script fired"
-    (rf/reg-event-db :test/click
-      (fn [db _] (assoc db :clicked? true)))
+    (rf/reg-event :test/click
+      (fn [{:keys [db]} _] {:db (assoc db :clicked? true)}))
     (story/reg-variant :story.dispatched/v
       {:events []
        :play-script [[:dispatch-sync [:test/click]]
@@ -237,7 +237,7 @@
   (testing ":rf.assert/state-is passes when machine snapshot matches"
     ;; Seed a tiny machine snapshot manually into the runtime-db partition
     ;; (EP-0001 rf2-vzld77: machine snapshots are durable runtime-db state).
-    (rf/reg-event-fx :test/seed-machine
+    (rf/reg-event :test/seed-machine
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {})
                                   [:rf.runtime/machines :snapshots :traffic-light]
@@ -251,7 +251,7 @@
 
 (deftest state-is-fail
   (testing ":rf.assert/state-is records the mismatch when state differs"
-    (rf/reg-event-fx :test/seed-machine2
+    (rf/reg-event :test/seed-machine2
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {})
                                   [:rf.runtime/machines :snapshots :traffic-light]
@@ -297,7 +297,7 @@
 
 (deftest record-not-throw-on-failure
   (testing "a failing assertion never throws; the play sequence continues"
-    (rf/reg-event-db :test/touch (fn [db _] (assoc db :touched true)))
+    (rf/reg-event :test/touch (fn [{:keys [db]} _] {:db (assoc db :touched true)}))
     (story/reg-variant :story.contract/v
       {:events []
        :play-script [[:dispatch-sync [:rf.assert/path-equals [:nope] :unexpected]]
@@ -328,7 +328,7 @@
 
 (deftest assertions-passing-true-on-all-pass
   (testing "passing? returns true when every assertion has :passed? true"
-    (rf/reg-event-db :test/n (fn [db _] (assoc db :n 42)))
+    (rf/reg-event :test/n (fn [{:keys [db]} _] {:db (assoc db :n 42)}))
     (story/reg-variant :story.all-pass/v
       {:events [[:test/n]]
        :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 42]]
@@ -341,7 +341,7 @@
 
 (deftest assertions-passing-false-on-any-fail
   (testing "passing? returns false when any assertion failed"
-    (rf/reg-event-db :test/n2 (fn [db _] (assoc db :n 1)))
+    (rf/reg-event :test/n2 (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
     (story/reg-variant :story.any-fail/v
       {:events [[:test/n2]]
        :play-script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]
@@ -356,7 +356,7 @@
 
 (deftest record-shape
   (testing "an assertion record carries :assertion :payload :passed? :elapsed-ms :reason"
-    (rf/reg-event-db :test/init3 (fn [db _] (assoc db :x 1)))
+    (rf/reg-event :test/init3 (fn [{:keys [db]} _] {:db (assoc db :x 1)}))
     (story/reg-variant :story.shape/v
       {:events [[:test/init3]]
        :play-script [[:dispatch-sync [:rf.assert/path-equals [:x] 1]]]})
@@ -375,7 +375,7 @@
 
 (deftest read-assertions-public
   (testing "story/read-assertions returns the live accumulator"
-    (rf/reg-event-db :test/q (fn [db _] (assoc db :q :ok)))
+    (rf/reg-event :test/q (fn [{:keys [db]} _] {:db (assoc db :q :ok)}))
     (story/reg-variant :story.read/v
       {:events [[:test/q]]
        :play-script [[:dispatch-sync [:rf.assert/path-equals [:q] :ok]]]})
@@ -578,8 +578,8 @@
   (testing ":rf.assert/dispatched? reads the epoch-tape :trigger-event
             projection (the SSOT), matching both a literal vector and a
             bare keyword head — including a re-dispatched (nested) event"
-    (rf/reg-event-fx :ssot/outer (fn [_ _] {:fx [[:dispatch [:ssot/inner 42]]]}))
-    (rf/reg-event-db :ssot/inner (fn [db [_ n]] (assoc db :inner n)))
+    (rf/reg-event :ssot/outer (fn [_ _] {:fx [[:dispatch [:ssot/inner 42]]]}))
+    (rf/reg-event :ssot/inner (fn [{:keys [db]} [_ n]] {:db (assoc db :inner n)}))
     (story/reg-variant :story.ssot/dispatched
       {:events []
        :play-script [[:dispatch-sync [:ssot/outer]]
@@ -717,7 +717,7 @@
   (testing ":rf.assert/effect-emitted reads the epoch-tape :effects projection
             (the SSOT) for a real (non-stubbed) user fx"
     (rf/reg-fx :ssot.fx/real {:platforms #{:client :server}} (fn [_ _] nil))
-    (rf/reg-event-fx :ssot/emit-real (fn [_ _] {:fx [[:ssot.fx/real {:url "x"}]]}))
+    (rf/reg-event :ssot/emit-real (fn [_ _] {:fx [[:ssot.fx/real {:url "x"}]]}))
     (story/reg-variant :story.ssot/effect
       {:events []
        :play-script [[:dispatch-sync [:ssot/emit-real]]
@@ -756,7 +756,7 @@
   (testing ":rf.assert/effect-emitted sees a force-fx-stub'd fx via the
             stub-call log SSOT (the original fx-id, not the rewritten stub id)"
     (rf/reg-fx :ssot.fx/http {:platforms #{:client :server}} (fn [_ _] nil))
-    (rf/reg-event-fx :ssot/login (fn [_ _] {:fx [[:ssot.fx/http {:url "/login"}]]}))
+    (rf/reg-event :ssot/login (fn [_ _] {:fx [[:ssot.fx/http {:url "/login"}]]}))
     (story/reg-variant :story.ssot/stubbed
       {:decorators  [[:rf.story/force-fx-stub :ssot.fx/http {:status :ok}]]
        :events      []
