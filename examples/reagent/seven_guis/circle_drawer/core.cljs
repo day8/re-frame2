@@ -68,13 +68,16 @@
 ;; ============================================================================
 ;;
 ;; Captures :circles before the handler runs; pushes the prior value onto :undo
-;; and clears :redo. Events tagged as undoable use this interceptor in their
-;; :interceptors list. Continuous events (slider drag) opt out by not using it,
-;; only the *commit* event uses it.
+;; and clears :redo. Events tagged as undoable reference this interceptor BY ID
+;; (`:undoable`) in their :interceptors list (EP-0022 — interceptors are
+;; registered descriptors referenced by keyword, not inline values). Continuous
+;; events (slider drag) opt out by not referencing it; only the *commit* event
+;; uses it.
 
-(def undoable
-  {:id    :undoable
-   :before (fn before [ctx]
+(rf/reg-interceptor :undoable
+  {:doc "Snapshot :circles before an undoable handler runs; push the prior
+         value onto :undo and clear :redo when the handler changed it."}
+  {:before (fn before [ctx]
              ;; snapshot taken from coeffects (the pre-handler db).
              (let [db   (get-in ctx [:coeffects :db])
                    prior (get-in db [:drawer :circles])]
@@ -106,7 +109,7 @@
          not an ambient `(random-uuid)` read), then the counter is bumped. The
          counter is NOT in the undoable `:circles` snapshot, so it advances
          monotonically across undo/redo and never re-mints a live id."
-   :interceptors [undoable]}
+   :interceptors [:undoable]}
   (fn handler-drawer-add-circle [{:keys [db]} [_ x y]]
     {:db (let [id (get-in db [:drawer :next-id])]
       (-> db
@@ -135,7 +138,7 @@
          was untouched while the slider moved, so the undoable
          interceptor's prior-snapshot is exactly the pre-dialog state —
          the whole edit collapses into a single undo step."
-   :interceptors [undoable]}
+   :interceptors [:undoable]}
   (fn handler-drawer-close-dialog [{:keys [db]} _]
     {:db (let [{:keys [circle-id draft-radius]} (get-in db [:drawer :dialog])]
       (-> db

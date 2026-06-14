@@ -180,9 +180,10 @@
 ;; login / register / the public reads (logged-out) are unaffected.
 
 ;; Public (not `defn-`) so a headless fixture can wire it into a test frame
-;; and assert the decoration — mirroring how the sibling's `routing/auth-guard`
-;; is referenced from `re-frame.realworld-resources-cljs-test`. The example
-;; tree stays test-free (rf2-8cevm); the visibility is the only concession.
+;; and assert the decoration — the sibling's route guard takes the other route
+;; now: it is a `reg-interceptor` descriptor referenced BY ID
+;; (`:realworld-resources.routing/auth-guard`, EP-0022) rather than a var. The
+;; example tree stays test-free (rf2-8cevm); the visibility is the only concession.
 (defn bearer-auth-interceptor [ctx]
   (let [token (some-> (rf/app-db-value (:frame ctx))
                       :auth :token)]
@@ -224,7 +225,9 @@
 (defn run []
   (rf/init! reagent-adapter/adapter)
   ;; EP-0002: the frame is established explicitly, owns the browser URL
-  ;; (`:url-bound? true`), and prepends the auth-guard interceptor + routes
+  ;; (`:url-bound? true`), and prepends the auth-guard interceptor — registered
+  ;; in routing.cljs via `reg-interceptor` and referenced here BY ID per
+  ;; EP-0022 — + routes
   ;; the demo `:rf.http/managed` through the in-process backend stub so reads
   ;; (resources) and writes (mutations) run without a network.
   ;; EP-0015 (frame-owned egress policy): the JWT is a durable, frame-wide
@@ -245,7 +248,7 @@
     {:doc          "RealWorld-on-resources demo frame."
      :url-bound?   true
      :sensitive    {:app-db [[:auth :token]]}
-     :interceptors [routing/auth-guard]
+     :interceptors [:realworld-resources.routing/auth-guard]
      :fx-overrides {:rf.http/managed :realworld-resources.demo/http-stub}})
   ;; Register the Bearer-auth interceptor at app boot, BEFORE :app/initialise
   ;; dispatches — session-restore fires an authenticated `GET /user` as soon as
