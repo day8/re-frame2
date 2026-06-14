@@ -82,12 +82,12 @@
   ;; unmarked :retries sibling rides verbatim, and the reserved
   ;; :rf/spawn-counter snapshot key is carried.
   [{:operation :rf.machine/transition
-    :tags      {:machine-id :dc/auth
+    :tags      {:actor-id :dc/auth
                 :after      {:state :authed
                              :data  {:retries 1 :token :rf/redacted}
                              :rf/spawn-counter {}}}}
    {:operation :rf.machine/snapshot-updated
-    :tags      {:machine-id :dc/auth
+    :tags      {:actor-id :dc/auth
                 :after      {:state :authed
                              :data  {:retries 1 :token :rf/redacted}
                              :rf/spawn-counter {}}}}]}}

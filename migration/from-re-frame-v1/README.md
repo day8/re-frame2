@@ -1549,7 +1549,7 @@ Every namespace that calls `rf/epoch-history` / `rf/restore-epoch` / `rf/registe
 The runtime now tracks each declarative-`:spawn` spawn-id at the reserved runtime-db slot `[:rf.runtime/machines :spawned <parent-machine-id> <invoke-id>]` instead of reading the spawned id back out of the parent's `:data` (the v1-spec-prose claim was that the runtime "tracks which key the user's `:on-spawn` wrote" — concretely the implementation was reading `(get-in snapshot [:data :pending])`). Two consequences:
 
 1. **`:on-spawn` becomes purely advisory.** Users may still record the spawned id in their own `:data` (so other transitions can address the child by name), but the runtime no longer requires it for the destroy-side resolution. Apps that omit `:on-spawn` entirely now correctly destroy the spawned child on state-exit.
-2. **The destroy fx accepts a richer arg shape.** Inside a machine action's `:fx`, `[:rf.machine/destroy actor-id]` (the legacy / imperative form, hand-emitted by user actions) still works unchanged. The declarative-`:spawn` desugar now emits `[:rf.machine/destroy {:rf/parent-id ... :rf/spawn-id ...}]` and the fx handler resolves the actor id from the registry slot at fx-call time.
+2. **The destroy fx accepts a richer arg shape.** Inside a machine action's `:fx`, `[:rf.machine/destroy actor-id]` (the legacy / imperative form, hand-emitted by user actions) still works unchanged. The declarative-`:spawn` desugar now emits `[:rf.machine/destroy {:rf/parent-id ... :rf/invoke-id ...}]` (the invocation-path key; rf2-0ggtr5 — was `:rf/spawn-id`, see [M-73](#m-73-machine-identity-naming-split-spawn-id-and-de-overloaded-machine-id)) and the fx handler resolves the actor id from the registry slot at fx-call time.
 
 **What to look for** in the codebase:
 
@@ -1592,7 +1592,7 @@ The actor-lifecycle fx-ids registered by `re-frame.machines` (Spec 005) are rena
       [:rf.machine/destroy actor-id]]}
 ```
 
-The args envelope is unchanged — the `:rf.fx/spawn-args` schema (per [Spec-Schemas §Standard fx-args schemas](../../spec/Spec-Schemas.md#standard-fx-args-schemas)) stays exactly as it was. (Composes with [M-34](#m-34-spawn-id-tracking-moved-from-data-pending-to-runtime-owned-rfruntimemachines-spawned-): the runtime registry uses the new fx-id name; the destroy-fx arg shape — keyword `actor-id` for imperative or `{:rf/parent-id ... :rf/spawn-id ...}` for declarative — is orthogonal to this rename.)
+The args envelope is unchanged — the `:rf.fx/spawn-args` schema (per [Spec-Schemas §Standard fx-args schemas](../../spec/Spec-Schemas.md#standard-fx-args-schemas)) stays exactly as it was. (Composes with [M-34](#m-34-spawn-id-tracking-moved-from-data-pending-to-runtime-owned-rfruntimemachines-spawned-): the runtime registry uses the new fx-id name; the destroy-fx arg shape — keyword `actor-id` for imperative or `{:rf/parent-id ... :rf/invoke-id ...}` for declarative — is orthogonal to this rename.)
 
 **Why:** the bare names were inherited from a transitional design where the machine handler routed the fxs locally. Once `re-frame.machines` started registering them via the standard `reg-fx` path so the `:spawn` desugar (and the [§Top-level boot-time spawn](../../spec/005-StateMachines.md#top-level-boot-time-spawn-rare) worked example) could emit them from any event handler's `:fx`, the framework-canonical `:rf.<feature>/...` namespace was the right home; the bare unqualified pair drifted from the [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) rule and the worked example raised `:rf.error/no-such-fx` on a literal copy. Audit-derived; pre-alpha and back-compat-free, so the bare names are dropped rather than aliased.
 
@@ -1898,7 +1898,7 @@ Pre-release framing: `:rf.http/managed` is now ALSO registered as a state machin
 **Direction.** Additive — no user-side change required. Apps that hand-rolled an HTTP-child wrapper (per the auth-machine sketch in the boot-as-state-machine study) may switch to the framework-shipped wrapper; no semantic change in the parent's `:on` handling. Apps using only the fx form pay nothing — the machine registration only materialises an event-kind handler under `:rf.http/managed`, which is invisible to fx-only callers.
 
 **Related additive changes (same release).** Per [Spec 005 §Runtime stamps on the spawned actor's `:data`](../../spec/005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data) and [§Synthetic `[:rf.machine.spawn/spawned]` on spawn](../../spec/005-StateMachines.md#synthetic-rfmachinespawnspawned-on-spawn):
-- Every spawned actor's initial `:data` carries `:rf/self-id`, `:rf/parent-id`, `:rf/spawn-id` (the latter two only for declarative-`:spawn` spawns) under the framework-reserved `:rf/*` namespace. User code that previously hardcoded a parent-id in a child's spec may now read `:rf/parent-id` from the child's `:data` — no migration required; the change is purely additive.
+- Every spawned actor's initial `:data` carries `:rf/self-id`, `:rf/parent-id`, `:rf/invoke-id` (the latter two only for declarative-`:spawn` spawns; `:rf/invoke-id` was `:rf/spawn-id` pre-[M-73](#m-73-machine-identity-naming-split-spawn-id-and-de-overloaded-machine-id)) under the framework-reserved `:rf/*` namespace. User code that previously hardcoded a parent-id in a child's spec may now read `:rf/parent-id` from the child's `:data` — no migration required; the change is purely additive.
 - Spawns without an explicit `:start` now receive a synthetic `[:rf.machine.spawn/spawned]` event as their first event. Machines that don't handle it see a no-op; the existing `:start` form continues to work and overrides the synthetic event.
 
 **Cross-references.** [Spec 014 §Machine-shape wrapper](../../spec/014-HTTPRequests.md#machine-shape-wrapper); [Spec 005 §Runtime stamps on the spawned actor's `:data`](../../spec/005-StateMachines.md#runtime-stamps-on-the-spawned-actors-data); [Spec 005 §Synthetic `[:rf.machine.spawn/spawned]` on spawn](../../spec/005-StateMachines.md#synthetic-rfmachinespawnspawned-on-spawn).
@@ -2265,8 +2265,8 @@ The rename is a **deliberate divergence** from xstate vocabulary — see [005 §
 |---|---|---|
 | `:invoke` (state-node key) | `:spawn` | declarative spawn-on-entry / destroy-on-exit child actor (per Spec 005 §Declarative `:spawn`) |
 | `:invoke-all` (state-node key) | `:spawn-all` | declarative spawn-and-join of N parallel child actors (per Spec 005 §Spawn-and-join via `:spawn-all`) |
-| `:invoke-id` (per-spawn explicit-id spec key) | `:spawn-id` | explicit actor-id alternative to gensym, under `:spawn` / `:spawn-all` |
-| `:rf/invoke-id` (reserved snapshot-internal) | `:rf/spawn-id` | runtime-stamped prefix-path of the `:spawn`-bearing state node, inside spawned actor's `:data` |
+| `:invoke-id` (per-spawn explicit-id spec key) | `:fixed-actor-id` | explicit actor-address input (alternative to gensym), under `:spawn` / `:spawn-all` — further renamed from `:spawn-id` per [M-73](#m-73-machine-identity-naming-split-spawn-id-and-de-overloaded-machine-id) |
+| `:rf/invoke-id` (reserved snapshot-internal) | `:rf/invoke-id` | runtime-stamped invocation path (prefix-path of the `:spawn`-bearing state node, inside spawned actor's `:data`) — the v2-pre-rename `:rf/spawn-id` reverted to `:rf/invoke-id` per [M-73](#m-73-machine-identity-naming-split-spawn-id-and-de-overloaded-machine-id) |
 | `:rf/invoke-all-id` (reserved snapshot-internal) | `:rf/spawn-all-id` | runtime-stamped prefix-path of the `:spawn-all`-bearing state node |
 | `:rf/invoke-all-child-id` (reserved snapshot-internal) | `:rf/spawn-all-child-id` | runtime-stamped child-id for `:spawn-all` children |
 | `:rf.machine.invoke-all/started` | `:rf.machine.spawn-all/started` | trace op |
@@ -2793,6 +2793,25 @@ rg -n '\(rf/reg-event-(db|fx|ctx)\b' src
 **Why** (framework side). The metadata map is the one superset middle slot: reflection keys and the interceptor chain live in one open map. Pre-alpha is the window to retire the positional vector before it becomes public API debt. Bare interceptors remain a loud no-silent-swallow error because an interceptor is itself a map and can otherwise masquerade as metadata.
 
 **Cross-references.** [`breaking-changes.md` §Failure-visibility axis](../../skills/re-frame-migration/references/breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab) (M-70 is loud-at-runtime-only: loud at first page-load, not at compile); [`runtime-smoke-test.md`](../../skills/re-frame-migration/references/runtime-smoke-test.md) (row #6 — the boot smoke-test catches survivor throws on the console); [What stays the same](#what-stays-the-same-do-not-change-these) (`reg-event-*` direct invocation is preserved, but interceptor chains must live in metadata `:interceptors`).
+
+---
+
+### M-73. Machine-identity naming — split `:spawn-id` and de-overloaded `:machine-id`
+
+**Type A** (mechanical). Closed rename table; apply across machine specs, snapshot-internal references, spawn/destroy fx args, trace listeners, error catalogues, and app-db schemas that declared the reserved keys.
+
+Two overloaded machine-identity names were split into distinct facts (rf2-0ggtr5, rf2-ws5thu). The split aligns re-frame2 with the XState v5 actor/type distinction: a registered machine **TYPE** (xstate's `src` / machine logic) vs a live **actor instance** address (xstate's actor ref / id) vs the declarative **invocation path** (which `:spawn`-bearing state issued the spawn).
+
+| v2-pre-rename | v2 post-rename | Identity | Surface |
+|---|---|---|---|
+| `:spawn-id` (InvokeSpec / spawn-fx arg) | `:fixed-actor-id` | explicit actor-address INPUT | the per-state-singleton "pin the actor's id instead of gensym" key under `:spawn` / `:spawn-all` and on `[:rf.machine/spawn …]` args |
+| `:rf/spawn-id` (reserved snapshot-internal `:data` key) | `:rf/invoke-id` | declarative invocation path | the absolute prefix-path of the `:spawn`-bearing state node, stamped on a spawned actor's `:data`; also the `[:rf.machine/spawn …]` / `[:rf.machine/destroy …]` / `[:rf.machine/after-* …]` runtime-stamped arg |
+| `:spawn-id` (public trace tag) | `:invoke-id` | declarative invocation path | on `:rf.machine.spawn/spawned`, `:rf.machine.lifecycle/spawned`, every `:rf.machine.spawn-all/*`, `:rf.machine.spawn/cancelled-on-join-resolution`, and `:rf.machine/destroyed` |
+| `:machine-id` (live-actor lifecycle trace tag) | `:actor-id` | live actor INSTANCE address | on `:rf.machine/transition`, `:rf.machine/snapshot-updated`, `:rf.machine/done`, `:rf.machine/system-id-bound` / `-released`, every `:rf.machine.timer/*`, `:rf.machine.lifecycle/destroyed`, and the spawn-all rows |
+
+**`:machine-id` is RESERVED for the registered machine TYPE / singleton-registration id** — it stays unchanged wherever it genuinely names the type: the `:spawn` / `:spawn-all` InvokeSpec `:machine-id` (which registered machine to instantiate), the `:rf.machine.lifecycle/created` trace, the `:rf.machine.spawn/spawned` / `:rf.machine.lifecycle/spawned` `:machine-id` tag (the spec-time type), and the `:rf.error/machine-*` diagnostic traces (which address the handler key — the type for a singleton). The diagnostic guard/action/microstep traces (`:rf.machine/guard-evaluated`, `:rf.machine/action-ran`, `:rf.machine.microstep/transition`, `:rf.machine/started`, `:rf.machine/event-received`, `:rf.machine.event/unhandled-no-op`) keep `:machine-id` (they address the registered handler key).
+
+**Mechanical sweep.** Rename `:rf/spawn-id` → `:rf/invoke-id` everywhere (snapshot `:data`, spawn/destroy/after fx args, app-db schemas declaring the reserved key); rename the InvokeSpec `:spawn-id` → `:fixed-actor-id`; rename the public trace tag `:spawn-id` → `:invoke-id` and the live-actor lifecycle trace tag `:machine-id` → `:actor-id` on the rows listed above. Tools that read these traces should prefer the new key with a `:machine-id` fallback during the transition (the framework's own marks-redaction and Xray panels do this). Per [Spec 005 §Reserved snapshot-internal keys](../../spec/005-StateMachines.md#reserved-snapshot-internal-keys), [Spec 009 §`:op-type` vocabulary](../../spec/009-Instrumentation.md), and [Spec-Schemas §`:rf.fx/spawn-args`](../../spec/Spec-Schemas.md#standard-fx-args-schemas).
 
 ---
 

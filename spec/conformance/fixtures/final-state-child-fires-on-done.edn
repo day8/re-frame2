@@ -10,7 +10,7 @@
 ;;      fires synchronously against the parent's `:data`.
 ;;   3. The child is auto-destroyed (snapshot + handler + spawn-registry
 ;;      slot + system-id reverse-index all cleared).
-;;   4. Trace events `:rf.machine/done` (with :machine-id / :output /
+;;   4. Trace events `:rf.machine/done` (with :actor-id / :output /
 ;;      :parent-id) and `:rf.machine/destroyed` (with :reason
 ;;      :rf.machine/finished) are emitted in that order, before the
 ;;      registrar `unregister!`.

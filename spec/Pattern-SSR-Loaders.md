@@ -104,11 +104,11 @@ A thin wrapper around `:rf.http/managed` — one state spawns the request; succe
     :done   {:final? true
              :entry (fn [data [_ _ result]]
                       {:fx [[:dispatch [(:rf/parent-id (-> data :env))
-                                        [:loaded (:spawn-id data) result]]]]})}
+                                        [:loaded (:rf/invoke-id data) result]]]]})}
     :failed-state {:final? true
                    :entry (fn [data [_ _ reason]]
                             {:fx [[:dispatch [(:rf/parent-id (-> data :env))
-                                              [:failed (:spawn-id data) reason]]]]})}}})
+                                              [:failed (:rf/invoke-id data) reason]]]]})}}})
 ```
 
 (`:rf/parent-id` is stamped at spawn time per [005 §Spawn-id tracking](005-StateMachines.md#spawn-id-tracking); the child reads it from its `:data :env` slot and uses it for the dispatch-back target.)

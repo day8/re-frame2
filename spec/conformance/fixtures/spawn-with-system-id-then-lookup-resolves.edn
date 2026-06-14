@@ -64,4 +64,4 @@
                 :system-id  :worker}}
    {:operation :rf.machine/system-id-bound
     :tags      {:system-id  :worker
-                :machine-id :worker/proc#1}}]}}
+                :actor-id   :worker/proc#1}}]}}

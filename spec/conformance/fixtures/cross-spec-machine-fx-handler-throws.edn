@@ -65,7 +65,7 @@
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :test/m}}
    ;; Machine transition succeeded — snapshot committed.
    {:operation :rf.machine/transition
-    :tags      {:machine-id :test/m}}
+    :tags      {:actor-id :test/m}}
    ;; The throwing fx surfaces a structured fx-handler-exception trace.
    {:operation :rf.error/fx-handler-exception
     :op-type   :error

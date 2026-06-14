@@ -217,13 +217,19 @@
 ;; ---- machine-id resolution ----------------------------------------------
 
 (defn machine-id-of
-  "Resolve the machine-id off a trace event. Per Spec 009 the runtime
-  stamps `:tags :machine-id` (or `:tags :handler-id` for the machine's
-  registered handler-id, which is the same value); the helper falls
-  back to either. Returns nil when the slot is missing — the caller
-  filters those out before sorting."
+  "Resolve the addressed machine/actor id off a trace event. Per rf2-ws5thu
+  the live-actor lifecycle rows (`:rf.machine/transition`,
+  `:rf.machine/snapshot-updated`, `:rf.machine/done`, the timer rows,
+  `:rf.machine/system-id-*`) carry the live INSTANCE address under
+  `:tags :actor-id`; the older diagnostic rows (`:rf.machine/started`,
+  `:rf.machine/guard-evaluated`, `:rf.machine/action-ran`,
+  `:rf.machine/event-received`) and the registrar `:created` row carry it
+  under `:tags :machine-id` (or `:tags :handler-id`, the same value). Prefer
+  `:actor-id`, then fall back to `:machine-id` / `:handler-id`. Returns nil
+  when no slot is present — the caller filters those out before sorting."
   [ev]
-  (or (get-in ev [:tags :machine-id])
+  (or (get-in ev [:tags :actor-id])
+      (get-in ev [:tags :machine-id])
       (get-in ev [:tags :handler-id])))
 
 ;; ---- projection ---------------------------------------------------------

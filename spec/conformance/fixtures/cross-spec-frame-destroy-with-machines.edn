@@ -81,7 +81,7 @@
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :auth/session}}
    {:operation :rf.machine.lifecycle/destroyed
     :tags      {:frame      :rf/default
-                :machine-id :auth/session
+                :actor-id   :auth/session
                 :last-state :authenticated
                 :reason     :parent-frame-destroyed}}
    {:operation :rf.frame/destroyed :tags {:frame :rf/default}}]}}

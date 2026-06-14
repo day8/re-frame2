@@ -1256,7 +1256,7 @@ completion internally while preserving Spec 005's statechart surface.
 ```
 
 The spawned child has a work id (the third element is the spawn-bearing
-node's declaring path, matching Spec 005's `:rf/spawn-id`):
+node's declaring path, matching Spec 005's `:rf/invoke-id`):
 
 ```clojure
 [:rf.work/machine :auth/flow#1 [:authenticating] 1]

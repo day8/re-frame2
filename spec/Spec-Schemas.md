@@ -612,7 +612,7 @@ The `:op-type` vocabulary is **open** — implementations and tools may add new 
 | `:rf.frame` | Frame-lifecycle family — `:rf.frame/created`, `:rf.frame/re-registered`, `:rf.frame/destroyed`, `:rf.frame/drain-interrupted`. Lifecycle events, not error-shaped. `:tags` carries `:frame <id>` (plus per-operation extras, e.g. `:dropped-count` on `:rf.frame/drain-interrupted`). Per [002 §Edge cases worth pinning](002-Frames.md#edge-cases-worth-pinning) | 002 |
 | `:machine` | Machine-substrate family — state-machine activity (`:rf.machine/transition`, `:rf.machine.microstep/transition`, `:rf.machine/done`, `:rf.machine/event-received`, `:rf.machine/snapshot-updated`, `:rf.machine.spawn/spawned`, `:rf.machine/destroyed`, `:rf.machine/system-id-bound`, `:rf.machine/system-id-released`, every `:rf.machine.timer/*` operation, every `:rf.machine.spawn-all/*` operation, `:rf.machine.spawn/cancelled-on-join-resolution`). `:rf.machine/destroyed` carries `:reason :rf.machine/finished` / `:explicit` / `:parent-unmount-cascade` (the non-frame-exit causes; `:parent-frame-destroyed` rides on the `:rf.machine.lifecycle/destroyed` family below). Per [005 §Trace events](005-StateMachines.md#trace-events) | 005 |
 | `:rf.machine.lifecycle/created` | Machine instance lifecycle — `created` half. Uniform create-emit shape used by lifecycle observers; `:tags {:frame <id> :machine-id <id>}` | 005 / 009 |
-| `:rf.machine.lifecycle/destroyed` | Machine instance lifecycle — `destroyed` half. `:tags {:frame <id> :machine-id <id> :last-state <state> :reason <:parent-frame-destroyed | :rf.machine/finished | :explicit | :parent-unmount-cascade>}`. Frame-exit cascade emits one per active machine snapshot carrying `:reason :parent-frame-destroyed` (see [009 §`:op-type` vocabulary — Frame-exit machine teardown](009-Instrumentation.md#op-type-vocabulary)) | 005 / 009 |
+| `:rf.machine.lifecycle/destroyed` | Machine instance lifecycle — `destroyed` half. `:tags {:frame <id> :actor-id <live-instance-id> :last-state <state> :reason <:parent-frame-destroyed | :rf.machine/finished | :explicit | :parent-unmount-cascade>}`. `:actor-id` is the reaped actor's live INSTANCE address (rf2-ws5thu — `:machine-id` is reserved for the registered TYPE, carried by the `created` half above). Frame-exit cascade emits one per active machine snapshot carrying `:reason :parent-frame-destroyed` (see [009 §`:op-type` vocabulary — Frame-exit machine teardown](009-Instrumentation.md#op-type-vocabulary)) | 005 / 009 |
 | `:rf.registry` | Registrar-mutation family — `:rf.registry/handler-registered`, `:rf.registry/handler-cleared`, `:rf.registry/handler-replaced` (handler hot-reload paths). Spans every kind in the registry model (`:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:machine`, `:flow`, …) | 001 / 009 |
 | `:flow` | Flow lifecycle and evaluation events (per [013 §Flow tracing](013-Flows.md#flow-tracing)) — `:rf.flow/registered`, `:rf.flow/computed`, `:rf.flow/skip`, `:rf.flow/cleared`, `:rf.flow/failed`. All five carry `:tags :flow-id` and `:tags :frame` so tools can attribute and route per-frame; consumers filter `:op-type :flow` to subscribe to the whole stream | 013 |
 | `:rf.epoch` | Epoch-history family — `:rf.epoch/snapshotted`, `:rf.epoch/outcome` (consumer-facing `{:ok :blocked :error}` summary paired with `-snapshotted`'s detailed cause), `:rf.epoch/restored`, `:rf.epoch/db-replaced` (the latter is the pair-tool write surface; see [Tool-Pair §Pair-tool writes](Tool-Pair.md#pair-tool-writes--state-injection)). `:tags {:frame <id> :rf.epoch/id <id> :rf.trace/event-id <id>? :outcome <enum>?}` | Tool-Pair |
@@ -1983,7 +1983,7 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:on-done    {:optional true} fn?]                                       ;; (fn [{:keys [data result]}] new-data) — fires synchronously when the spawned child enters a `:final?` state. `result` is the child's `:data` slot named by the final state's `:output-key`, or nil when `:output-key` is absent. Returns the parent's new `:data` map. Per [005 §Final states](005-StateMachines.md#final-states-final--on-done--output-key).
    [:on-error   {:optional true} [:or Transition [:vector Transition]]]      ;; CHILD-FAILURE control flow (rf2-5hlsh; XState v5 invoke `onError`) — an `:on`-SHAPED transition spec (NOT a fn like `:on-done`): a keyword target, a vector-path target, a single transition map `{:target :guard :action}`, or a guarded candidate vector. Fires when the spawned child FAILS — it reaches a designated error `:final?` leaf (`:error? true`, above), OR one of its actions throws an uncaught exception. The PARENT moves to the transition's `:target` (resolved at the `:spawn`-bearing state's OWN level — a keyword target is a sibling), running its `:guard` / `:action`; the error payload rides on the transition's `:event`. Success (`:on-done`) and failure (`:on-error`) are mutually exclusive per finish; both MAY be declared on one `:spawn` map. A malformed `:on-error` shape is rejected at registration with `:rf.error/machine-bad-on-error-clause`. Absent `:on-error` is fine — the trace + the dispatch-back-to-parent escape hatch remain. Per [005 §`:on-error`](005-StateMachines.md#on-error--child-failure-control-flow).
    [:start      {:optional true} [:vector :any]]                            ;; event vector dispatched to the newborn after spawn
-   [:spawn-id  {:optional true} :keyword]                                  ;; explicit id instead of gensym (per-state singleton actor)
+   [:fixed-actor-id {:optional true} :keyword]                             ;; explicit actor-address input instead of gensym (per-state singleton actor) — rf2-0ggtr5 (was the overloaded `:spawn-id`)
    [:system-id  {:optional true} :keyword]])                                ;; per [005 §Named addressing via :system-id]; binds [:rf.runtime/machines :system-ids <sid>] in the spawning frame
 ;; The :timeout-ms / :on-timeout slots are DROPPED — wall-clock timeouts on
 ;; a :spawn-bearing state are expressed via the parent state's :after slot. See
@@ -2013,7 +2013,7 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
    [:id-prefix   {:optional true} :keyword]
    [:on-spawn    {:optional true} [:or :keyword fn?]]
    [:start       {:optional true} [:vector :any]]
-   [:spawn-id   {:optional true} :keyword]
+   [:fixed-actor-id {:optional true} :keyword]                              ;; explicit actor-address input (per-child singleton) — rf2-0ggtr5 (was `:spawn-id`)
    [:system-id   {:optional true} :keyword]])
 
 (def InvokeAllSpec
@@ -3239,7 +3239,7 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
    ;; [:rf.runtime/machines :spawned <parent-id> <invoke-id>]; absent on imperative from-action
    ;; spawns (those user-owned destroys are still hand-emitted with the actor id).
    [:rf/parent-id  {:optional true} :keyword]                               ;; parent machine's registration-id
-   [:rf/spawn-id  {:optional true} [:vector :keyword]]                     ;; absolute prefix-path of the :spawn-bearing state node
+   [:rf/invoke-id  {:optional true} [:vector :keyword]]                     ;; declarative spawn invocation path — absolute prefix-path of the :spawn-bearing state node (rf2-0ggtr5; was `:rf/spawn-id`)
    [:rf/spawned-id {:optional true} :keyword]])                             ;; resolved gensym'd id, threaded through so spawn-fx registers under the same id :on-spawn observed
 
 ;; The spawned actor's snapshot lives at [:rf.runtime/machines :snapshots <gensym'd-id>] in the
@@ -3251,7 +3251,7 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
 ;; [005 §Spawning] and  (Option A revised). Two argument shapes:
 ;;   - a bare actor-id keyword — the legacy / imperative form (action emits
 ;;     `[:rf.machine/destroy actor-id]` with the recorded id directly).
-;;   - a `{:rf/parent-id :rf/spawn-id}` map — the declarative-:spawn
+;;   - a `{:rf/parent-id :rf/invoke-id}` map — the declarative-:spawn
 ;;     exit-cascade form. The fx handler reads the spawned id back from
 ;;     `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` at call time and tears down
 ;;     whatever id is currently bound there.
@@ -3259,7 +3259,7 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
   [:or :keyword
        [:map
         [:rf/parent-id :keyword]
-        [:rf/spawn-id [:vector :keyword]]]])
+        [:rf/invoke-id [:vector :keyword]]]])
 
 ;; --- :rf.server/* fx — HTTP response contract per [011 §HTTP response contract] ---
 
@@ -3332,7 +3332,7 @@ These are registered under spec ids:
 | `:rf.fx/nav/replace-url-args` | `:rf.nav/replace-url` |
 | `:rf.fx/nav/scroll-args` | `:rf.nav/scroll` |
 | `:rf.fx/spawn-args` | `:rf.machine/spawn` (the canonical actor-lifecycle fx-id; emitted from any event handler's `:fx` and from machine actions; per [005](005-StateMachines.md)) |
-| `:rf.fx/destroy-machine-args` | `:rf.machine/destroy` (the canonical actor-destroy fx-id; per [005](005-StateMachines.md) and — accepts either a bare actor-id keyword or a `{:rf/parent-id :rf/spawn-id}` map) |
+| `:rf.fx/destroy-machine-args` | `:rf.machine/destroy` (the canonical actor-destroy fx-id; per [005](005-StateMachines.md) and — accepts either a bare actor-id keyword or a `{:rf/parent-id :rf/invoke-id}` map) |
 | `:rf.fx/dispatch-to-system-args` | `:rf.machine/dispatch-to-system` (the action→named-actor messaging fx-id; args are the 2-element pair `[<system-id> <event-vector>]` — a `[:tuple :keyword :rf/event-vector]`; per [005 §Cross-machine messaging by name](005-StateMachines.md#cross-machine-messaging-by-name)) |
 | `:rf.fx.server/set-status-args` | `:rf.server/set-status` (per [011 §HTTP response contract](011-SSR.md#http-response-contract)) |
 | `:rf.fx.server/set-header-args` | `:rf.server/set-header` |

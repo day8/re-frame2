@@ -51,7 +51,7 @@
 
   :trace-emissions
   [{:operation :rf.machine/system-id-bound
-    :tags      {:system-id :primary :machine-id :worker/proc#1}}
+    :tags      {:system-id :primary :actor-id :worker/proc#1}}
    {:operation :rf.error/system-id-collision
     :op-type   :error
     :tags      {:system-id        :primary
@@ -59,4 +59,4 @@
                 :rebound-to       :worker/proc#2}
     :recovery  :warned-and-replaced}
    {:operation :rf.machine/system-id-bound
-    :tags      {:system-id :primary :machine-id :worker/proc#2}}]}}
+    :tags      {:system-id :primary :actor-id :worker/proc#2}}]}}
