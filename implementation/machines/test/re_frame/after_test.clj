@@ -661,7 +661,7 @@
 
 (deftest after-sub-vec-deref-throw-surfaces-trace
   (testing "rf2-t4uo0 — sub-vec :after whose @reaction throws emits
-            :rf.error/machine-after-sub-threw with :sub-id +
+            :rf.error/machine-after-sub-threw with :rf.sub/id +
             :exception slots and :recovery :no-clock-configured"
     ;; Pre-rf2-c1tnr the deref throw was silently caught and the
     ;; resolution returned [nil nil], surfacing only as
@@ -709,9 +709,11 @@
           (when-let [first-err (first errors)]
             (is (some? (-> first-err :tags :exception))
                 ":exception slot is populated under :tags")
-            (is (= :s/well-formed (-> first-err :tags :sub-id))
-                ":sub-id slot names the offending subscription
-                 (first element of the :after delay-key vector)")
+            (is (= :s/well-formed (-> first-err :tags :rf.sub/id))
+                ":rf.sub/id slot names the offending subscription
+                 (first element of the :after delay-key vector); rf2-1b6uh5")
+            (is (= [:s/well-formed] (-> first-err :tags :rf.sub/query-v))
+                ":rf.sub/query-v carries the full subscription vector")
             ;; Per Spec 009 §Error event shape, `:recovery` is hoisted
             ;; off `:tags` to the envelope top-level.
             (is (= :no-clock-configured (:recovery first-err))
@@ -720,7 +722,7 @@
 (deftest after-sub-vec-watch-failure-surfaces-trace
   (testing "rf2-t4uo0 — sub-vec :after where add-watch on the reaction
             throws emits :rf.error/machine-after-watch-failed with
-            :sub-id + :exception slots and :recovery :static-delay"
+            :rf.sub/id + :exception slots and :recovery :static-delay"
     ;; Pre-rf2-c1tnr an add-watch throw was silently swallowed; the
     ;; sub-changed re-resolution watcher would not fire (so dynamic
     ;; delays would silently stop re-resolving) without any signal.
@@ -768,11 +770,13 @@
           (when-let [first-err (first errors)]
             (is (some? (-> first-err :tags :exception))
                 ":exception slot is populated under :tags")
-            (is (= :s/well-behaved (-> first-err :tags :sub-id))
-                ":sub-id slot names the subscription whose reaction
-                 could not be watched")
-            (is (= :w/throws-machine (-> first-err :tags :machine-id))
-                ":machine-id slot names the owning machine")
+            (is (= :s/well-behaved (-> first-err :tags :rf.sub/id))
+                ":rf.sub/id slot names the subscription whose reaction
+                 could not be watched (rf2-1b6uh5)")
+            (is (= [:s/well-behaved] (-> first-err :tags :rf.sub/query-v))
+                ":rf.sub/query-v carries the full subscription vector")
+            (is (= :w/throws-machine (-> first-err :tags :actor-id))
+                ":actor-id slot names the owning LIVE actor (rf2-yyvtk5)")
             ;; Per Spec 009 §Error event shape, `:recovery` is hoisted.
             (is (= :static-delay (:recovery first-err))
                 ":recovery :static-delay hoisted to top-level — the

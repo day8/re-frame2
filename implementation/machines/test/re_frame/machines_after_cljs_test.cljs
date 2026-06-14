@@ -14,7 +14,7 @@
       not transition; `:rf.machine.timer/stale-after` trace emitted.
     - Multi-stage `:after` with guard suppression (sibling continues when
       one entry is guard-suppressed).
-    - Subscription-vector dynamic delay (`:delay-source :sub` + `:sub-id`).
+    - Subscription-vector dynamic delay (`:delay-source :sub` + `:rf.sub/id` + `:rf.sub/query-v`).
 
   Per the bead: prefer dispatch-sync of the synthetic
   `:rf.machine.timer/after-elapsed` event over wall-clock setTimeout waits,
@@ -228,7 +228,7 @@
 ;; ---- subscription-vector :after delay (dynamic) --------------------------
 
 (deftest machine-after-subscription-delay-cljs
-  (testing "subscription-vector delay: :scheduled trace carries :delay-source :sub + :sub-id"
+  (testing "subscription-vector delay: :scheduled trace carries :delay-source :sub + :rf.sub/id + :rf.sub/query-v"
     (rf/reg-event-db
       :a/sub-config-set
       (fn [db [_ ms]] (assoc db :timeout-config ms)))
@@ -251,8 +251,9 @@
       (is (= :loading (:state (snapshot :a/sub-cljs))))
       (is (some (fn [ev]
                   (and (= :rf.machine.timer/scheduled (:operation ev))
-                       (= :sub               (:delay-source (:tags ev)))
-                       (= :a/timeout-config  (:sub-id (:tags ev)))))
+                       (= :sub                (:delay-source (:tags ev)))
+                       (= :a/timeout-config   (:rf.sub/id (:tags ev)))
+                       (= [:a/timeout-config] (:rf.sub/query-v (:tags ev)))))
                 @traces)
-          ":scheduled trace emitted with :delay-source :sub and :sub-id")
+          ":scheduled trace emitted with :delay-source :sub + canonical :rf.sub/id + :rf.sub/query-v (rf2-1b6uh5)")
       (trace-tooling/unregister-listener! ::sub))))

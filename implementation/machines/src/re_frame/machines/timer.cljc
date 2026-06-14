@@ -146,11 +146,15 @@
           v        (when reaction
                      (try @reaction
                           (catch #?(:clj Throwable :cljs :default) e
+                            ;; rf2-1b6uh5 — canonical subscription identity:
+                            ;; `:rf.sub/id` (+ `:rf.sub/query-v` for the full
+                            ;; vector), not the bare `:sub-id`.
                             (trace/emit-error! :rf.error/machine-after-sub-threw
-                                               {:exception e
-                                                :sub-id    (first delay-key)
-                                                :frame     frame-id
-                                                :recovery  :no-clock-configured})
+                                               {:exception      e
+                                                :rf.sub/id      (first delay-key)
+                                                :rf.sub/query-v (vec delay-key)
+                                                :frame          frame-id
+                                                :recovery       :no-clock-configured})
                             nil)))]
       [v reaction])
 
@@ -188,15 +192,19 @@
 
   Payload shape mirrors `:rf.machine.timer/scheduled` for arm-fire-
   cancel pairing — same `:actor-id` / `:state` / `:delay` / `:epoch`
-  / `:frame` slots — plus the `:reason` discriminator. `:sub-id` rides
-  when the cancelled timer was a sub-vec delay (`:delay-source :sub`).
+  / `:frame` slots — plus the `:reason` discriminator. Per rf2-1b6uh5
+  the dynamic-delay subscription identity rides under the canonical
+  `:rf.sub/id` (the sub-id) plus `:rf.sub/query-v` (the full
+  subscription vector) when the cancelled timer was a sub-vec delay
+  (`:delay-source :sub`) — the same spelling the rest of the framework
+  uses for a subscription trace identity, not the bare `:sub-id`.
   `:delay` reads the entry's `:resolved-ms` so the cancelled trace
   reports the wall-clock window the timer actually held, not the
   unresolved delay-key."
   [frame-id k entry reason]
   (let [delay-key    (:delay k)
         delay-source (:delay-source entry)
-        sub-id       (when (vector? delay-key) (first delay-key))]
+        sub-vec      (when (vector? delay-key) delay-key)]
     (trace/emit! :rf.machine :rf.machine.timer/cancelled
                  (cond-> {;; rf2-ws5thu — the timer's owning actor INSTANCE;
                           ;; `:machine-id` is reserved for the registered TYPE.
@@ -207,7 +215,8 @@
                           :reason     reason
                           :frame      frame-id}
                    (some? delay-source) (assoc :delay-source delay-source)
-                   (some? sub-id)       (assoc :sub-id sub-id)))))
+                   (some? sub-vec)      (assoc :rf.sub/id      (first sub-vec)
+                                               :rf.sub/query-v (vec sub-vec))))))
 
 (defn- cancel-after-timer-entry!
   "Cancel and clear a single :after timer-table entry under `frame-id`,
@@ -321,7 +330,10 @@
               (try (subs/unsubscribe frame-id delay-key)
                    (catch #?(:clj Throwable :cljs :default) _ nil)))
             (trace/emit! :warning :rf.warning/no-clock-configured
-                         {:machine-id   parent-id
+                         ;; rf2-yyvtk5 — the timer's owning actor is a LIVE
+                         ;; INSTANCE; address it by `:actor-id`, not
+                         ;; `:machine-id` (reserved for the registered TYPE).
+                         {:actor-id     parent-id
                           :state        state
                           :delay-key    delay-key
                           :delay-source delay-source
@@ -340,8 +352,12 @@
                                           :delay-source delay-source
                                           :epoch        epoch
                                           :frame        frame-id}
+                                   ;; rf2-1b6uh5 — canonical subscription
+                                   ;; identity: `:rf.sub/id` + `:rf.sub/query-v`,
+                                   ;; not the bare `:sub-id`.
                                    (= :sub delay-source)
-                                   (assoc :sub-id (first delay-key)))))
+                                   (assoc :rf.sub/id      (first delay-key)
+                                          :rf.sub/query-v (vec delay-key)))))
                 handle
                 (interop/schedule-after!
                   (fn []
@@ -385,12 +401,16 @@
                              (on-sub-changed! frame-id parent-id invoke-id
                                               delay-key state old-v new-v)))
                 (catch #?(:clj Throwable :cljs :default) e
+                  ;; rf2-yyvtk5 — owning actor INSTANCE under `:actor-id`.
+                  ;; rf2-1b6uh5 — canonical subscription identity
+                  ;; (`:rf.sub/id` + `:rf.sub/query-v`), not the bare `:sub-id`.
                   (trace/emit-error! :rf.error/machine-after-watch-failed
-                                     {:exception  e
-                                      :machine-id parent-id
-                                      :sub-id     (first delay-key)
-                                      :frame      frame-id
-                                      :recovery   :static-delay}))))
+                                     {:exception      e
+                                      :actor-id       parent-id
+                                      :rf.sub/id      (first delay-key)
+                                      :rf.sub/query-v (vec delay-key)
+                                      :frame          frame-id
+                                      :recovery       :static-delay}))))
             (swap! after-timers assoc-in [frame-id k]
                    {:handle          handle
                     :reaction        reaction

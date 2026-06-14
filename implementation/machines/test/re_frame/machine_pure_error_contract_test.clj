@@ -105,9 +105,11 @@
        is benign / not an issue"
         (is (= :rf.machine (:op-type (first no-op-evs)))
             "op-type is the machine-activity family, not a severity"))
-      (testing "the no-op carries {:machine-id :event :state} per Spec 009"
+      (testing "the no-op carries {:actor-id :event :state} per Spec 009 (rf2-yyvtk5 — live actor INSTANCE)"
         (let [{:keys [tags]} (first no-op-evs)]
-          (is (= :probe/unhandled (:machine-id tags)))
+          (is (= :probe/unhandled (:actor-id tags)))
+          (is (not (contains? tags :machine-id))
+              ":machine-id (the registered TYPE) is NOT on a live no-op row")
           (is (= [:nope] (:event tags)))
           (is (= :a (:state tags)))))))
 

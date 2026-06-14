@@ -118,7 +118,7 @@
 
 (deftest unhandled-event-emits-benign-no-op
   (testing "no level matches → benign :rf.machine.event/unhandled-no-op with
-   :machine-id / :event / :state, op-type :rf.machine (NOT an error)"
+   :actor-id / :event / :state, op-type :rf.machine (NOT an error)"
     (rf/reg-machine :rem/unhandled
       {:initial :a :states {:a {:on {:known {:target :a}}}}})
     (let [evs    (record-traces!
@@ -130,7 +130,8 @@
       (let [u (first no-ops)]
         (is (= :rf.machine (:op-type u))
             "op-type is the machine-activity family, not a severity")
-        (is (= :rem/unhandled (-> u :tags :machine-id)))
+        (is (= :rem/unhandled (-> u :tags :actor-id))
+            "the live actor INSTANCE addresses the no-op (rf2-yyvtk5)")
         (is (= [:nope] (-> u :tags :event)))
         (is (= :a (-> u :tags :state)))))))
 

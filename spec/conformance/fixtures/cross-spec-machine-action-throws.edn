@@ -11,7 +11,8 @@
 ;; the in-flight cascade halts atomically. The snapshot is NOT committed
 ;; — the pre-action `app-db` slice at `[:rf.runtime/machines :snapshots <id>]` remains.
 ;; `:rf.error/machine-action-exception` traces with `:tags` carrying
-;; `:machine-id`, `:action-id`, `:state-path`, `:transition`, `:event`,
+;; `:actor-id` (the LIVE actor INSTANCE — a singleton's registration id
+;; here; rf2-yyvtk5), `:action-id`, `:state-path`, `:transition`, `:event`,
 ;; `:exception-message`, and `:reason`. The generic
 ;; `:rf.error/handler-exception` does NOT also fire — the machine layer
 ;; catches the throw before it can bubble out as a handler exception.
@@ -63,7 +64,7 @@
    ;; Machine-scoped error trace fires with the original message.
    {:operation :rf.error/machine-action-exception
     :op-type   :error
-    :tags      {:machine-id        :test/m
+    :tags      {:actor-id          :test/m
                 :action-id         :boom
                 :exception-message "kaboom"
                 :reason            "Machine action threw."}

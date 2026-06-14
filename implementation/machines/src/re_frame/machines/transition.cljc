@@ -316,7 +316,13 @@
   (if (nil? guard-ref)
     true
     (let [g          (resolve-guard machine guard-ref)
-          machine-id (or (:rf/parent-id machine) (:id machine))
+          ;; rf2-yyvtk5 — a guard is evaluated against a LIVE actor's
+          ;; snapshot, so the addressed id is the running INSTANCE
+          ;; (`:rf/parent-id` is the live actor address stamped by
+          ;; `prepare-machine-ctx`; `:id` is the singleton's registration
+          ;; id, which IS its live address). It rides under `:actor-id` —
+          ;; `:machine-id` is reserved for the registered TYPE.
+          actor-id   (or (:rf/parent-id machine) (:id machine))
           ;; Per rf2-ko8jb: epoch-capture admission requires `:frame`.
           ;; `(:rf/frame machine)` is stamped by `prepare-machine-ctx`
           ;; (registration.cljc) before the engine is invoked; nil-safe
@@ -339,7 +345,7 @@
       (try
         (let [outcome (boolean (call-guard machine g snapshot event))]
           (trace/emit! :rf.machine :rf.machine/guard-evaluated
-                       {:machine-id machine-id
+                       {:actor-id   actor-id
                         :guard-id   guard-ref
                         :input      input
                         :state      state
@@ -348,7 +354,7 @@
           outcome)
         (catch #?(:clj Throwable :cljs :default) e
           (trace/emit! :rf.machine :rf.machine/guard-evaluated
-                       {:machine-id machine-id
+                       {:actor-id   actor-id
                         :guard-id   guard-ref
                         :input      input
                         :state      state
@@ -786,6 +792,15 @@
   [machine path event snapshot]
   (let [[_ delay-key carried-epoch raw-carried-decl-path] event
         region        (:rf/region machine)
+        ;; rf2-yyvtk5 — the timer's owning actor is a LIVE INSTANCE
+        ;; (`:rf/parent-id` is the live actor address stamped by
+        ;; `prepare-machine-ctx`; `:id` is a singleton's registration id,
+        ;; which IS its live address). The match carries it under
+        ;; `:actor-id` so `emit-pick-traces!` can stamp the
+        ;; `:rf.machine.timer/fired` / `:rf.machine.timer/stale-after` rows
+        ;; with the owning actor (spec/009 §machine `:after` timer
+        ;; lifecycle) — previously these rows carried `:actor-id nil`.
+        actor-id      (or (:rf/parent-id machine) (:id machine))
         ;; Per Spec 005 §Per-region :after scoping: the runtime carries a
         ;; region-name-prefixed decl-path (`prefix-region-invoke-id`) for
         ;; timers scheduled inside a parallel region. Within a region's
@@ -825,6 +840,7 @@
                                                     :delay-key     delay-key
                                                     :candidate-idx idx
                                                     :raw-value     t}))
+               :actor-id   actor-id
                :decl-path  prefix
                :delay      delay-key
                :epoch      carried-epoch}
@@ -834,6 +850,7 @@
               ;; timer is "fired and discarded" — no transition, no epoch
               ;; advance; sibling :after timers continue.
               {:guard-suppressed? true
+               :actor-id          actor-id
                :state             (last prefix)
                :delay             delay-key
                :epoch             carried-epoch})))]
@@ -867,6 +884,7 @@
           ;; carried/current gate the reply-envelope way (m-reply).
           :else
           {:stale?          true
+           :actor-id        actor-id
            :state           (last decl-path)
            :decl-path       decl-path
            :delay           delay-key
@@ -1590,7 +1608,10 @@
   value."
   [machine compound-path resolved-leaf source kind restored-config fallback]
   (trace/emit! :rf.machine :rf.machine.history/restored
-               (cond-> {:machine-id    (or (:rf/parent-id machine) (:id machine))
+               ;; rf2-yyvtk5 — the actor whose live transition restored
+               ;; history is a running INSTANCE; address it by `:actor-id`
+               ;; (`:machine-id` is the registered TYPE).
+               (cond-> {:actor-id      (or (:rf/parent-id machine) (:id machine))
                         :compound-path compound-path
                         :kind          kind
                         :source        source
@@ -1606,8 +1627,11 @@
   `:prev-config`."
   [machine recorded]
   (trace/emit! :rf.machine :rf.machine.history/recorded
-               (merge {:machine-id (or (:rf/parent-id machine) (:id machine))
-                       :frame      (:rf/frame machine)}
+               ;; rf2-yyvtk5 — the actor whose live exit recorded history is
+               ;; a running INSTANCE; address it by `:actor-id`
+               ;; (`:machine-id` is the registered TYPE).
+               (merge {:actor-id (or (:rf/parent-id machine) (:id machine))
+                       :frame    (:rf/frame machine)}
                       recorded)))
 
 ;; When an action throws, `run-action` returns a `result/fail` carrying
@@ -1648,10 +1672,13 @@
   ([machine snap action-ref event phase transition-slot]
   (if action-ref
     (let [f         (resolve-action machine action-ref)
-          parent-id (or (:rf/parent-id machine) (:id machine))
+          ;; rf2-yyvtk5 — an action runs against a LIVE actor's snapshot, so
+          ;; the addressed id is the running INSTANCE. It rides under
+          ;; `:actor-id`; `:machine-id` is reserved for the registered TYPE.
+          actor-id  (or (:rf/parent-id machine) (:id machine))
           ;; Per rf2-ko8jb: epoch-capture admission requires `:frame`.
           frame-id  (:rf/frame machine)
-          base-tags (cond-> {:machine-id parent-id
+          base-tags (cond-> {:actor-id   actor-id
                              :action-id  action-ref
                              :phase      phase
                              :input      {:data  (:data snap)
@@ -1694,7 +1721,10 @@
   (if (and (map? r) (contains? r :db))
     (do
       (trace/emit-error! :rf.error/machine-action-wrote-db
-                         {:machine-id      (or (:rf/parent-id machine)
+                         ;; rf2-yyvtk5 — the offending action ran against a
+                         ;; LIVE actor; address it by `:actor-id` (the
+                         ;; running INSTANCE), not `:machine-id` (the TYPE).
+                         {:actor-id        (or (:rf/parent-id machine)
                                                (:id machine))
                           :action-id       action-ref
                           :state-path      state-path
@@ -1903,8 +1933,11 @@
                                               :platform     :server
                                               :frame        frame-id
                                               :recovery     :skipped}
+                                       ;; rf2-1b6uh5 — canonical subscription
+                                       ;; identity, not the bare `:sub-id`.
                                        (= :sub delay-source)
-                                       (assoc :sub-id (first delay-key))))
+                                       (assoc :rf.sub/id      (first delay-key)
+                                              :rf.sub/query-v (vec delay-key))))
                         (trace/emit! :rf.machine :rf.machine.timer/scheduled
                                      (cond-> {;; rf2-ws5thu — owning actor INSTANCE
                                               :actor-id     parent-id
@@ -1913,8 +1946,11 @@
                                               :delay-source delay-source
                                               :epoch        epoch
                                               :frame        frame-id}
+                                       ;; rf2-1b6uh5 — canonical subscription
+                                       ;; identity, not the bare `:sub-id`.
                                        (= :sub delay-source)
-                                       (assoc :sub-id (first delay-key))))))
+                                       (assoc :rf.sub/id      (first delay-key)
+                                              :rf.sub/query-v (vec delay-key))))))
                     [:rf.machine/after-schedule
                      {:rf/parent-id parent-id
                       :rf/invoke-id (vec prefix)
@@ -2036,7 +2072,10 @@
       (let [ret (f {:data (:data snap) :id spawned-id})]
         (when (some? ret)
           (trace/emit! :warning :rf.warning/on-spawn-return-ignored
-                       {:machine-id (or (:rf/parent-id machine) (:id machine))
+                       ;; rf2-yyvtk5 — the spawning parent is a LIVE actor
+                       ;; INSTANCE; address it by `:actor-id`. `:spawned-id`
+                       ;; is the freshly-spawned child's instance address.
+                       {:actor-id   (or (:rf/parent-id machine) (:id machine))
                         :spawned-id spawned-id
                         :returned   ret
                         :remedy     [:system-id
@@ -3276,7 +3315,11 @@
                            :frame           frame-id})
             summary     (m-reply/trace-reply stale-reply {:frame frame-id})]
         (trace/emit! :rf.machine :rf.machine.timer/stale-after
-                     {:state              (:state match)
+                     {;; rf2-yyvtk5 / rf2-ws5thu — the timer's owning actor
+                      ;; INSTANCE (spec/009 §`:rf.machine.timer/*`);
+                      ;; `:machine-id` is reserved for the registered TYPE.
+                      :actor-id           (:actor-id match)
+                      :state              (:state match)
                       :delay              (:delay match)
                       :scheduled-epoch    (:scheduled-epoch match)
                       :current-epoch      (:current-epoch match)
@@ -3312,7 +3355,9 @@
                            :guard-suppressed? true})
             summary     (m-reply/trace-reply fired-reply {:frame frame-id})]
         (trace/emit! :rf.machine :rf.machine.timer/fired
-                     {:state  (:state match)
+                     {;; rf2-yyvtk5 / rf2-ws5thu — owning actor INSTANCE.
+                      :actor-id (:actor-id match)
+                      :state  (:state match)
                       :delay  (:delay match)
                       :epoch  (:epoch match)
                       :fired? false
@@ -3336,7 +3381,9 @@
                            :frame      frame-id})
             summary     (m-reply/trace-reply fired-reply {:frame frame-id})]
         (trace/emit! :rf.machine :rf.machine.timer/fired
-                     {:state  (last (:decl-path match))
+                     {;; rf2-yyvtk5 / rf2-ws5thu — owning actor INSTANCE.
+                      :actor-id (:actor-id match)
+                      :state  (last (:decl-path match))
                       :delay  (:delay match)
                       :epoch  (:epoch match)
                       :fired? true
@@ -3453,11 +3500,16 @@
                 (some? always-m)
                 (if (>= always-depth always-limit)
                   (do (trace/emit-error! :rf.error/machine-always-depth-exceeded
-                                         {;; The live runtime spec carries the
-                                          ;; machine id under `:rf/parent-id`;
-                                          ;; the spec map forbids `:id`. Mirror
-                                          ;; the guard/action traces' fallback.
-                                          :machine-id (or (:rf/parent-id machine)
+                                         {;; rf2-yyvtk5 — the aborting actor is
+                                          ;; a LIVE INSTANCE. Its address is
+                                          ;; `:rf/parent-id` (stamped by
+                                          ;; `prepare-machine-ctx`; the spec map
+                                          ;; forbids `:id`), or `:id` for a
+                                          ;; singleton (whose registration id IS
+                                          ;; its live address). It rides under
+                                          ;; `:actor-id`; `:machine-id` is the
+                                          ;; registered TYPE.
+                                          :actor-id   (or (:rf/parent-id machine)
                                                           (:id machine))
                                           :depth      always-depth
                                           :path       visited
@@ -3491,7 +3543,11 @@
                         ;; macrostep); the trace is the surface where the
                         ;; closed-set value is observable.
                         (trace/emit! :rf.machine :rf.machine.microstep/transition
-                                     {:machine-id      (or (:rf/parent-id machine)
+                                     {;; rf2-yyvtk5 — a microstep belongs to a
+                                      ;; LIVE actor's macrostep; address it by
+                                      ;; `:actor-id` (the running INSTANCE),
+                                      ;; not `:machine-id` (the TYPE).
+                                      :actor-id        (or (:rf/parent-id machine)
                                                            (:id machine))
                                       :from            (:state snap)
                                       :to              (:state snap2)
@@ -3546,12 +3602,15 @@
                       (result/with-cascade cascade))
                   (if (>= raise-depth raise-limit)
                     (do (trace/emit-error! :rf.error/machine-raise-depth-exceeded
-                                           {;; The live runtime spec carries the
-                                            ;; machine id under `:rf/parent-id`;
-                                            ;; the spec map forbids `:id`. Mirror
-                                            ;; the guard/action traces' fallback
-                                            ;; so the trace names the real machine.
-                                            :machine-id (or (:rf/parent-id machine)
+                                           {;; rf2-yyvtk5 — the aborting actor is
+                                            ;; a LIVE INSTANCE; its address is
+                                            ;; `:rf/parent-id` (stamped by
+                                            ;; `prepare-machine-ctx`; the spec
+                                            ;; map forbids `:id`), or `:id` for a
+                                            ;; singleton. It rides under
+                                            ;; `:actor-id`; `:machine-id` is the
+                                            ;; registered TYPE.
+                                            :actor-id   (or (:rf/parent-id machine)
                                                             (:id machine))
                                             :depth      raise-depth
                                             ;; Per rf2-ko8jb: epoch-capture
@@ -3758,7 +3817,10 @@
             (when (and (nil? (:rf/region machine))
                        (unhandled-event-no-op? event))
               (trace/emit! :rf.machine :rf.machine.event/unhandled-no-op
-                           {:machine-id (or (:rf/parent-id machine) (:id machine))
+                           {;; rf2-yyvtk5 — a LIVE actor received the unknown
+                            ;; event; address it by `:actor-id` (the running
+                            ;; INSTANCE), not `:machine-id` (the TYPE).
+                            :actor-id   (or (:rf/parent-id machine) (:id machine))
                             :event      event
                             :state      (:state snapshot)
                             ;; Per rf2-ko8jb: epoch-capture admission

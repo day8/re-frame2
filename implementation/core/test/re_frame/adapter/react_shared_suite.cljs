@@ -2169,7 +2169,7 @@
         (stop-traces ::xspec-11)
         (let [errs (filter #(= :rf.error/machine-action-exception (:operation %)) @traces)]
           (is (seq errs) "an action throw surfaces as :rf.error/machine-action-exception")
-          (is (some #(= :test/m (get-in % [:tags :machine-id])) errs) "the trace identifies the machine that threw")
+          (is (some #(= :test/m (get-in % [:tags :actor-id])) errs) "the trace identifies the live actor that threw (rf2-yyvtk5 — :actor-id)")
           (is (some #(= :boom (get-in % [:tags :action-id])) errs) "the trace identifies the action that threw"))
         (is (not (some #(= :rf.error/handler-exception (:operation %)) @traces))
             "the generic :rf.error/handler-exception does NOT also fire")

@@ -90,8 +90,8 @@
         (let [{:keys [tags]} (first errs)]
           (is (= :rf.spawn/on-spawn (:action-id tags))
               "the error carries the stable :rf.spawn/on-spawn action id")
-          (is (= :sup/on-spawn-throw (:machine-id tags))
-              "the error is scoped to the spawning parent machine")
+          (is (= :sup/on-spawn-throw (:actor-id tags))
+              "the error is scoped to the spawning parent LIVE actor (rf2-yyvtk5)")
           (is (= :rf/default (:frame tags))
               "the error is frame-tagged (epoch-capture admission)")
           (is (some? (:exception tags))
@@ -142,8 +142,8 @@
         (let [{:keys [tags]} (first errs)]
           (is (= :rf.spawn/on-spawn (:action-id tags))
               "the error carries the stable :rf.spawn/on-spawn action id")
-          (is (= :sup/all-throw (:machine-id tags))
-              "the error is scoped to the spawning parent machine")
+          (is (= :sup/all-throw (:actor-id tags))
+              "the error is scoped to the spawning parent LIVE actor (rf2-yyvtk5)")
           (is (= :rf/default (:frame tags))
               "the error is frame-tagged"))
         ;; (2) no generic handler-exception.
