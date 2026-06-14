@@ -162,7 +162,7 @@
     ;; handler's coord would ride on `:rf.fx/handled` for reserved-fx-id
     ;; emits. Here we exercise the user-fx path: the binding is the fx
     ;; handler's, which has no coord, so the field is omitted.
-    (let [reg-ev (requiring-resolve 're-frame.events/reg-event-fx)]
+    (let [reg-ev (requiring-resolve 're-frame.events/reg-event)]
       (reg-ev :rf2-lf84g/uses-prog-fx
               (fn [_ _] {:fx [[:rf2-lf84g/programmatic-fx {}]]})))
     (let [evs       (record-traces #(rf/dispatch-sync [:rf2-lf84g/uses-prog-fx]))

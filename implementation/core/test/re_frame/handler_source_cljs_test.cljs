@@ -1,8 +1,9 @@
 (ns re-frame.handler-source-cljs-test
   "rf2-xgfuy — CLJS-side regression for DEBUG-gated handler form-source
-  capture at reg-event-{db,fx,ctx}.
+  capture at `reg-event` (EP-0018 rf2-xhfxcs.14 collapsed the former
+  `reg-event-{db,fx,ctx}` macros onto the one `reg-event`).
 
-  The macros stamp the whole `(reg-event-X :id ...)` form as a string
+  The macro stamps the whole `(reg-event :id ...)` form as a string
   into the handler's registry metadata under `:rf.handler/source`.
   Under CLJS this test runs against the dev build (`goog.DEBUG=true`)
   so capture is enabled. The production-elision verifier
@@ -33,25 +34,19 @@
       (is (str/includes? src ":rf2-xhfxcs.cljs/event"))
       (is (str/includes? src "(fn [{:keys [db]} _ev] {:db db})")))))
 
-(deftest reg-event-db-captures-form-source-cljs
-  (testing "rf2-xgfuy: CLJS reg-event-db stamps :rf.handler/source under DEBUG=true"
-    (rf/reg-event :rf2-xgfuy.cljs/event-db
-                     (fn [{:keys [db]} _ev] {:db db}))
-    (let [m   (rf/handler-meta :event :rf2-xgfuy.cljs/event-db)
-          src (:rf.handler/source m)]
-      (is (string? src) ":rf.handler/source should be a string under DEBUG=true")
-      (is (str/includes? src "reg-event-db"))
-      (is (str/includes? src ":rf2-xgfuy.cljs/event-db"))
-      (is (str/includes? src "(fn [db _ev] db)")))))
+;; EP-0018 (rf2-xhfxcs.14): the former CLJS `reg-event-db` / `reg-event-fx`
+;; per-kind capture tests collapsed into `reg-event-captures-form-source-cljs`
+;; above — one macro, one form-source path. The fx-shape body is exercised
+;; here via the bare-name `reg-event` capture below.
 
-(deftest reg-event-fx-captures-form-source-cljs
-  (testing "rf2-xgfuy: CLJS reg-event-fx stamps :rf.handler/source under DEBUG=true"
+(deftest reg-event-fx-shape-body-captures-form-source-cljs
+  (testing "rf2-xgfuy: CLJS reg-event captures an fx-shape body's source under DEBUG=true"
     (rf/reg-event :rf2-xgfuy.cljs/event-fx
                      (fn [_cofx _ev] {:db {:n 0}}))
     (let [src (:rf.handler/source
                (rf/handler-meta :event :rf2-xgfuy.cljs/event-fx))]
       (is (string? src))
-      (is (str/includes? src "reg-event-fx"))
+      (is (str/includes? src "reg-event"))
       (is (str/includes? src ":db {:n 0}")))))
 
 (deftest reg-event-ctx-captures-form-source-cljs
