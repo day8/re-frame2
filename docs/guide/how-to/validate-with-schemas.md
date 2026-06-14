@@ -144,12 +144,12 @@ Click `-` down to `0` and keep clicking: nothing happens, because the `pos?` gua
 
 Dev builds check every registered schema at every validation point. That's the whole idea, and the cost is fine for dev. Production builds eliminate every validation site **at compile time** — under an `:advanced` build with `goog.DEBUG` set false ([Configure dev and production builds](configure-dev-and-prod.md) shows the flags), the compiler removes the validator calls, the error strings, all of it, from the bundle. Not skipped — *absent*. So write schemas freely, because there's no hot-path bill. They stay *registered*, so tools and agents can still introspect them; they're just never *checked*.
 
-One place does want production validation, though: untrusted data crossing a system boundary, like an HTTP response, a websocket message, or a `postMessage` payload. For those handlers, add the boundary interceptor, which forces the handler's own `:schema` check regardless of the build flags:
+One place does want production validation, though: untrusted data crossing a system boundary, like an HTTP response, a websocket message, or a `postMessage` payload. For those handlers, reference the framework's boundary interceptor in the chain, which forces the handler's own `:schema` check regardless of the build flags. It's a registered interceptor like any other, so the chain carries its id — `:rf.schema/at-boundary` — not an inline value:
 
 ```clojure
 (rf/reg-event :api/tags-received
   {:schema [:cat [:= :api/tags-received] [:map [:tags [:vector :string]]]]
-   :interceptors [rf/validate-at-boundary-interceptor]}
+   :interceptors [:rf.schema/at-boundary]}      ;; reference the boundary interceptor by id
   (fn [{:keys [db]} [_ body]]
     {:db (assoc db :tags (:tags body))}))
 ```
@@ -174,5 +174,5 @@ Three conventions are worth adopting from day one. Use `[:enum …]` for fixed v
 - put a `[:cat …]` schema on an event: events are refused before the handler, app-db writes rolled back after
 - write the seven shapes that cover most slices, plus the two defaults — keys required, maps open
 - explain why the handler keeps its real guard even though the schema catches the bad write in dev
-- force production validation at a system boundary with `validate-at-boundary-interceptor`, and nowhere else
+- force production validation at a system boundary by referencing the `:rf.schema/at-boundary` interceptor, and nowhere else
 - decide which slices deserve a schema, and which genuinely don't

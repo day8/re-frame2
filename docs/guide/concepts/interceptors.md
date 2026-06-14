@@ -1,6 +1,6 @@
 # Interceptors
 
-Say you have three hundred event handlers — an event handler being the pure function that takes the current state plus an incoming event and returns the next state. You also have three cross-cutting chores: log every event, snapshot state for undo, validate input at the boundary. Writing each chore into each handler is nine hundred copies of code that isn't the handler's job. An **interceptor** holds a cross-cutting concern instead, so the handler stays focused on its one job. You write it once, as a plain value, and wrap it around any handler — or around every handler in a frame.
+Say you have three hundred event handlers — an event handler being the pure function that takes the current state plus an incoming event and returns the next state. You also have three cross-cutting chores: log every event, snapshot state for undo, validate input at the boundary. Writing each chore into each handler is nine hundred copies of code that isn't the handler's job. An **interceptor** holds a cross-cutting concern instead, so the handler stays focused on its one job. You register it once, under a name, and then wrap it around any handler — or around every handler in a frame — by *referencing that name*.
 
 If you've written Express or Koa middleware, you already have most of the picture: layers around one core action, each touching the request on the way in and the response on the way out — Koa's "onion". Three things differ here, and they're worth holding in mind. First, there is no `next()`. The chain isn't control flow you thread by hand; it's a fixed vector the runtime sweeps forward and then backward. Second, what flows through isn't a mutable request/response object — it's an immutable two-key map. Third, Express middleware *does* things: writes headers, ends responses. A re-frame2 interceptor *describes* things and lets the runtime do them. That third difference is the rule this page builds toward:
 
@@ -8,7 +8,7 @@ If you've written Express or Koa middleware, you already have most of the pictur
 
 ## The sandwich
 
-A handler is a pure function from inputs to outputs. The current `db` (your app's state map for this frame) plus the event go in; new state plus effect descriptions come out. An interceptor wraps it from outside with a pair of functions: `:before` runs on the way in, `:after` runs on the way out. Stack three interceptors `A`, `B`, `C` around a handler `H` and the runtime makes two sweeps:
+A handler is a pure function from inputs to outputs. The current `db` (your app's state map for this frame) plus the event go in; new state plus effect descriptions come out. An interceptor wraps it from outside with a pair of functions: `:before` runs on the way in, `:after` runs on the way out. You register each interceptor once, under a name, and then a handler's chain *refers* to it by that name. Stack three interceptors `A`, `B`, `C` around a handler `H` and the runtime makes two sweeps:
 
 ```text
 declared:  [A B C]  + handler H
@@ -58,62 +58,84 @@ By the time the first `:before` runs, `:coeffects` is finished — `:db`, `:even
 
 > **Coming from re-frame v1?** v1's coeffect-injection rows in the interceptor vector are a hard error now — each fact moves to `:rf.cofx/requires` registration metadata, per [From re-frame v1](../25-from-re-frame-v1.md).
 
-## `->interceptor`, and a logger
+## `reg-interceptor`, and a logger
 
-One constructor builds interceptors:
+You register an interceptor the same way you register an event or a sub: name it, then hand the runtime its behaviour. The name is a **qualified keyword id**; the behaviour is a **descriptor** map carrying `:before`, `:after`, or both:
 
 ```clojure
-(def logger
-  (rf/->interceptor
-    :id     :my-app/logger
-    :before (fn [ctx]
-              (let [event (get-in ctx [:coeffects :event])]
-                (js/console.log "→" (pr-str event))
-                (assoc ctx ::started-at (js/performance.now))))
-    :after  (fn [ctx]
-              (let [event   (get-in ctx [:coeffects :event])
-                    elapsed (- (js/performance.now) (::started-at ctx))]
-                (js/console.log "←" (pr-str event) (str elapsed "ms"))
-                ctx))))
+(rf/reg-interceptor :my-app/logger
+  {:doc "Log each event on the way in, and its timing on the way out."}
+  {:before (fn [ctx]
+             (let [event (get-in ctx [:coeffects :event])]
+               (js/console.log "→" (pr-str event))
+               (assoc ctx ::started-at (js/performance.now))))
+   :after  (fn [ctx]
+             (let [event   (get-in ctx [:coeffects :event])
+                   elapsed (- (js/performance.now) (::started-at ctx))]
+               (js/console.log "←" (pr-str event) (str elapsed "ms"))
+               ctx))})
 ```
 
-Three things in those twelve lines tend to trip people up the first time:
+Three things in those lines tend to trip people up the first time:
 
 - **The context is the only channel.** `:before` stashes the start time under a namespaced key, and its own `:after` reads it back — no closures, no side atoms. Each dispatch gets its own context map, which is why the same interceptor is safe on overlapping events.
-- **The `:id` earns its keep.** Trace events and Xray name your interceptor by id, and overrides find it by id (below). An anonymous interceptor works, but you can't silence it, swap it, or find it.
+- **The id is the handle.** Once registered, `:my-app/logger` *is* the interceptor everywhere — chains reference it by id, trace events and Xray name it by id, overrides find it by id (below), and `(rf/handler-meta :interceptor :my-app/logger)` reads back its `:doc` and source coordinates. There is no anonymous interceptor to lose track of.
 - **Both slots return the context.** A slot that returns `nil` reads as "unchanged". That works by accident in a log-only slot — right up until you also `assoc` something and the accident becomes a heisenbug. Always end with `ctx`.
 
-Both slots are optional. An interceptor is just a map carrying `:id`, `:before`, `:after`. What `->interceptor` adds over a hand-rolled map is definition-site coordinates, so tools jump to your source when a stage throws. Beyond the constructor, the shipped helpers are `rf/path` (focus a handler on an `app-db` sub-slice — `:before` narrows `:db`, `:after` splices the result back) and `rf/unwrap-interceptor` (replace `:event` with its payload map on the way in). v1's grab-bag of one-liner helpers (`debug`, `trim-v`, `enrich`, `after`, `on-changes`) is gone; anything else is three lines of `->interceptor`.
+Both slots are optional — a descriptor is one of `{:before f}`, `{:after f}`, or `{:before f :after f}`. (A fourth shape, `{:factory f}`, builds a *parameterized family*; the standard path interceptor below is the one you'll meet.) `reg-interceptor` captures the definition-site coordinates for you, so tools jump straight to your source when a stage throws. v1's grab-bag of one-liner helpers (`debug`, `trim-v`, `enrich`, `after`, `on-changes`) is gone; anything else is a few lines of `reg-interceptor`.
 
-Attach it where the event is registered: the metadata map's `:interceptors` key. The historical positional vector has been removed, so interceptor chains always live alongside the rest of the registration metadata:
+Now attach it where the event is registered — the metadata map's `:interceptors` key, **as a reference**. A chain carries interceptor *references*, never inline interceptor values: a bare keyword id names a registered interceptor.
 
 ```clojure
 (rf/reg-event :cart.item/add
   {:doc          "Add an item to the cart."
-   :interceptors [logger]}
+   :interceptors [:my-app/logger]}        ;; a reference, not the interceptor value
   (fn [{:keys [db]} [_ item]]
     {:db (update db :cart/items conj item)}))
 ```
 
+That split — register once, reference by id everywhere — is the whole shape. The handler's chain is plain data: a vector of keywords you can serialize, diff, and store in an app value. Drop an inline interceptor map into a public chain and the runtime rejects it (`:rf.error/inline-interceptor-removed`); the fix is always to register the behaviour and reference it. And because the chain stores a *reference*, re-registering `:my-app/logger` with new behaviour takes effect on the next dispatch — you don't re-register the event just because an interceptor's implementation changed.
+
 Dispatch `[:cart.item/add ...]` and the console shows the trip in and the timed trip out. Now open Xray and focus the event's epoch: the pipeline lists your chain by `:id` with a jump-to-source link, and the after-interceptors stage shows the way out. (In a real app the [trace wire](observability.md) already records every event with timings — this logger is the teaching shape.)
+
+## The one standard interceptor: `path`
+
+The framework ships exactly one standard interceptor, and you reference it with the second kind of reference — an `[id arg]` vector. `[:rf.interceptor/path <path-vector>]` **focuses** a handler on an `app-db` sub-slice: on the way in it stages just that slice as the handler's `:db`, and on the way out it widens the returned slice back into the full `app-db`.
+
+```clojure
+(rf/reg-event :cart/add
+  {:interceptors [[:rf.interceptor/path [:cart]]]}   ;; [id arg] reference — the arg is the path
+  (fn [{:keys [db]} [_ sku]]
+    {:db (update db :items conj sku)}))   ;; db here is the [:cart] slice, not the whole map
+```
+
+The handler reads and writes as if `[:cart]` were the entire world, and `path` re-widens the result for it. The bracket form is the general shape for any *parameterized* interceptor: the id names a registered `:factory`, and the one `arg` configures it (a factory that needs several inputs takes them as a single map or vector). There is no `rf/path` value constructor to import — the reference *is* the surface, which keeps every chain uniform: bare keywords and `[id arg]` vectors, all the way down.
 
 ## Two places to attach
 
-Per-handler attachment, as above, fires for that event only. That's the right scope for event-specific concerns like `path` or undo tags (below). The second place is the frame — a frame being one isolated re-frame2 world, with its own `app-db` and handlers:
+Per-handler attachment, as above, fires for that event only. That's the right scope for event-specific concerns like `path` or undo tags (below). The second place is the frame — a frame being one isolated re-frame2 world, with its own `app-db` and handlers — and it carries the very same references:
 
 ```clojure
 (rf/reg-frame :app/main
-  {:interceptors [logger]})   ;; wraps EVERY event handled in this frame
+  {:interceptors [:my-app/logger]})   ;; a reference; wraps EVERY event handled in this frame
 ```
 
-Per-frame interceptors are **prepended** to each event's own chain. Frame-wide concerns sit outermost, event-specific ones inside them, the handler in the middle, and the same forward-then-reverse sweep runs across all of it. This is the answer to the three hundred handlers: the boring chores become two or three frame interceptors, written once, touching no handler code.
+Per-frame interceptors are **prepended** to each event's own chain. Frame-wide concerns sit outermost, event-specific ones inside them, the handler in the middle, and the same forward-then-reverse sweep runs across all of it. This is the answer to the three hundred handlers: the boring chores become two or three frame interceptors, registered once, referenced by id, touching no handler code.
 
-And because the `:id` is the handle, a test can silence or swap one without unwiring anything — per dispatch or per frame:
+And because the id is the handle, a test can silence or swap one without unwiring anything. `:interceptor-overrides` matches a chain entry **by its exact reference** and either removes it (`nil`) or replaces it with another reference — per dispatch or per frame:
 
 ```clojure
 (rf/dispatch-sync [:cart.item/add {:sku "abc-123" :qty 2}]
-                  {:interceptor-overrides {:my-app/logger nil}})
+                  {:interceptor-overrides {:my-app/logger nil}})         ;; remove the logger for this dispatch
 ```
+
+```clojure
+(rf/reg-frame :story/cart
+  {:interceptors          [:my-app/auth-guard]
+   :interceptor-overrides {:my-app/auth-guard :story/skip-auth}})        ;; swap one reference for another
+```
+
+Matching is by the full reference, so a parameterized entry is named in full — `{[:rf.interceptor/path [:cart]] nil}` removes only *that* `path`, leaving a sibling `[:rf.interceptor/path [:cart :items]]` untouched. The override values are references too, never inline values, which keeps story, test, SSR, and tool override state serializable and inspectable. (Per-dispatch *additive* `:interceptors` is gone — authored behaviour has exactly two homes, event metadata and frame metadata, and per-call variation is expressed by overriding a named reference.)
 
 > **Coming from re-frame v1?** `reg-global-interceptor` is gone — per-frame `:interceptors` is the replacement, and in a multi-frame app each [frame](frames.md) stays independent: no bleed across SSR requests, story variants, or test fixtures.
 
@@ -144,23 +166,22 @@ So what *are* interceptors allowed to do? They *decide*: a `:before` can take th
 
 ## Undo, included from a real example
 
-The most satisfying interceptor is undo. Hand-rolled, it smears "remember the old value, push it, but only if it changed, and clear redo" across every mutating handler. The 7GUIs Circle Drawer example (`examples/reagent/seven_guis/circle_drawer/core.cljs`) ships it as one value:
+The most satisfying interceptor is undo. Hand-rolled, it smears "remember the old value, push it, but only if it changed, and clear redo" across every mutating handler. The 7GUIs Circle Drawer example (`examples/reagent/seven_guis/circle_drawer/core.cljs`) registers it once, under a name:
 
 ```clojure
-;; From examples/reagent/seven_guis/circle_drawer/core.cljs — written as a
-;; bare map, a reminder that an interceptor IS plain data. In your own code
-;; prefer ->interceptor for the source-coords tooling reads.
-(def undoable
-  {:id    :undoable
-   :before (fn before [ctx]
+;; From examples/reagent/seven_guis/circle_drawer/core.cljs — registered once,
+;; then referenced by id from the events that deserve it.
+(rf/reg-interceptor :drawer/undoable
+  {:doc "Snapshot the pre-handler circles; on a real change push to :undo and clear :redo."}
+  {:before (fn before [ctx]
              ;; snapshot taken from coeffects (the pre-handler db).
-             (let [db   (get-in ctx [:coeffects :db])
+             (let [db    (get-in ctx [:coeffects :db])
                    prior (get-in db [:drawer :circles])]
                (assoc-in ctx [:coeffects :prior-circles] prior)))
    :after  (fn after [ctx]
              ;; if the handler changed db, push the prior value to :undo.
-             (let [prior     (get-in ctx [:coeffects :prior-circles])
-                   db-after  (get-in ctx [:effects :db])]
+             (let [prior    (get-in ctx [:coeffects :prior-circles])
+                   db-after (get-in ctx [:effects :db])]
                (if (and db-after (not= prior (get-in db-after [:drawer :circles])))
                  (-> ctx
                      (update-in [:effects :db :drawer :undo] (fnil conj []) prior)
@@ -168,12 +189,12 @@ The most satisfying interceptor is undo. Hand-rolled, it smears "remember the ol
                  ctx)))})
 ```
 
-Read it through the two-key lens. `:before` reads the *inputs* (`:coeffects`, where `:db` is the pre-handler value) and stashes the prior circles on the context. `:after` reads the *outputs* (`:effects`, where `:db` is the post-handler value — absent if nothing changed), compares, and only then pushes an undo step and clears redo. Which events are undoable is decided entirely by inclusion: both consuming events tag the chain, and the continuous one opts out by omission.
+Read it through the two-key lens. `:before` reads the *inputs* (`:coeffects`, where `:db` is the pre-handler value) and stashes the prior circles on the context. `:after` reads the *outputs* (`:effects`, where `:db` is the post-handler value — absent if nothing changed), compares, and only then pushes an undo step and clears redo. Which events are undoable is decided entirely by inclusion: both consuming events *reference* `:drawer/undoable` in their chain, and the continuous one opts out by omission.
 
 ```clojure
 (rf/reg-event :drawer/add-circle
   {:doc "Click on canvas — add a circle of default radius."
-   :interceptors [undoable]}
+   :interceptors [:drawer/undoable]}                      ;; reference by id
   (fn [{:keys [db]} [_ x y]]
     (let [id (get-in db [:drawer :next-id])]
       {:db (-> db
@@ -187,7 +208,7 @@ Read it through the two-key lens. `:before` reads the *inputs* (`:coeffects`, wh
 
 (rf/reg-event :drawer/close-dialog
   {:doc "Commit the dialog's draft radius onto its circle. One undo step."
-   :interceptors [undoable]}
+   :interceptors [:drawer/undoable]}                      ;; reference by id
   (fn [{:keys [db]} _]
     (let [{:keys [circle-id draft-radius]} (get-in db [:drawer :dialog])]
       {:db (-> db
@@ -214,7 +235,7 @@ The drag handler mutates only the dialog's draft, so a hundred slider moves neve
                  (update-in [:drawer :redo] (fnil conj []) circles)))})))
 ```
 
-One interceptor, plus which chains include it: that's the entire undo feature.
+One registered interceptor, plus which chains reference it: that's the entire undo feature.
 
 ## When the chain throws
 
@@ -230,8 +251,9 @@ Errors collect on the context. A throw anywhere means the event installs nothing
 
 **You can now:**
 
-- build an interceptor with `->interceptor` and move data through the two-key context map — `:before` reads inputs, `:after` reads inputs *and* outputs
+- register an interceptor with `reg-interceptor` and move data through the two-key context map — `:before` reads inputs, `:after` reads inputs *and* outputs
+- reference interceptors from a chain by id — a bare keyword for a static interceptor, `[:rf.interceptor/path [:x]]` for the one parameterized standard interceptor — and know that inline values are rejected
 - predict any chain's order: `:before` in declaration order, handler as the last `:before`, `:after` in reverse
 - rely on complete inputs: coeffect delivery is context assembly, so no interceptor ever sees a half-injected `:coeffects` map
-- attach a concern to one event (`:interceptors` metadata) or a whole frame (`reg-frame :interceptors`), and silence one by `:id` in a test
-- keep interceptors replay-safe by contributing `:fx` rows instead of performing work — and ship undo as one value plus a tag on the events that deserve it
+- reference a concern from one event (`:interceptors` metadata) or a whole frame (`reg-frame :interceptors`), and remove or swap one by reference with `:interceptor-overrides` in a test
+- keep interceptors replay-safe by contributing `:fx` rows instead of performing work — and ship undo as one registered interceptor plus a reference on the events that deserve it

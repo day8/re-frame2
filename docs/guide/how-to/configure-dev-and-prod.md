@@ -28,7 +28,7 @@ Most production CLJS builds already set this, so re-frame2 reuses the canonical 
 
 - **The event-emit and error-emit listeners** (`rf/register-event-listener!`, `rf/register-error-listener!`) — one tight, pre-redacted record per processed event and per runtime error. This is the production observability surface; wire your APM and error monitor here. ([Report errors in production](report-errors-in-production.md))
 - **Every guardrail in §5.**
-- **`rf/validate-at-boundary-interceptor`** — forces a schema check on untrusted ingress (an HTTP reply, a `postMessage` payload) regardless of the flag. Keep it on exactly those handlers; everything else stays zero-cost.
+- **The `:rf.schema/at-boundary` interceptor** — referenced in a handler's `:interceptors` chain, it forces a schema check on untrusted ingress (an HTTP reply, a `postMessage` payload) regardless of the flag. Keep the reference on exactly those handlers; everything else stays zero-cost.
 
 **Opt-in:** the Performance API channel rides its own independent flag — `{:closure-defines {re-frame.performance/enabled? true}}` — for event/sub/fx/render timing in production via `PerformanceObserver`. It's off by default in every build, so you turn it on only when you specifically want production timing. ([Find and fix a slow view](fix-a-slow-view.md))
 
@@ -103,7 +103,7 @@ The threat model behind each lives in [Security.md](../../../spec/Security.md). 
 1. Release build sets `{:closure-defines {goog.DEBUG false}}` (most templates already do).
 2. Your own dev-only registrations sit behind `^boolean re-frame.interop/debug-enabled?`, outermost.
 3. Production observability is wired on the always-on surfaces — event-emit, error-emit, or a frame `:observability` sink.
-4. Handlers receiving untrusted payloads carry `rf/validate-at-boundary-interceptor`.
+4. Handlers receiving untrusted payloads reference the `:rf.schema/at-boundary` interceptor in their `:interceptors` chain.
 5. A JVM/SSR tier ships with `-Dre-frame.debug=false`.
 6. No Xray preload or pair-server artefact on the release classpath.
 

@@ -270,7 +270,7 @@ Wire it at boot, and add one more frame line. Mark the token path sensitive so t
   {:doc          "The Conduit app frame."
    :url-bound?   true
    :sensitive    {:app-db [[:auth :token]]}   ;; the JWT never appears in traces
-   :interceptors [auth-guard]})               ;; ← written in the next section
+   :interceptors [:conduit/auth-guard]})      ;; reference the guard registered in the next section
 
 (rf/with-frame :rf/default
   (rf/reg-http-interceptor :conduit/bearer-auth {:before bearer-auth})
@@ -310,27 +310,26 @@ There's one trap here, and it's the kind that passes every casual test. Navigati
                                   {:id (:route-id m) :params (or (:params m) {})})
     nil))
 
-(def auth-guard
-  (rf/->interceptor
-    :id :conduit/auth-guard
-    :before
-    (fn [ctx]
-      (let [{:keys [id params]} (nav-target (get-in ctx [:coeffects :event]))
-            needs-auth? (when id
-                          (contains? (:tags (rf/handler-meta :route id)) :requires-auth))
-            signed-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
-        (if (and needs-auth? (not signed-in?))
-          (-> ctx
-              (assoc :rf/skip-handler? true)        ;; the protected route never commits
-              (assoc-in [:effects :db]              ;; stash the target for the bounce-back
-                        (assoc-in (get-in ctx [:coeffects :db])
-                                  [:auth :return-to] {:id id :params params}))
-              (assoc-in [:effects :fx]
-                        [[:dispatch [:rf.route/navigate :conduit.auth/login]]]))
-          ctx)))))
+(rf/reg-interceptor :conduit/auth-guard
+  {:doc "Bounce signed-out users away from :requires-auth routes; stash the target."}
+  {:before
+   (fn [ctx]
+     (let [{:keys [id params]} (nav-target (get-in ctx [:coeffects :event]))
+           needs-auth? (when id
+                         (contains? (:tags (rf/handler-meta :route id)) :requires-auth))
+           signed-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
+       (if (and needs-auth? (not signed-in?))
+         (-> ctx
+             (assoc :rf/skip-handler? true)        ;; the protected route never commits
+             (assoc-in [:effects :db]              ;; stash the target for the bounce-back
+                       (assoc-in (get-in ctx [:coeffects :db])
+                                 [:auth :return-to] {:id id :params params}))
+             (assoc-in [:effects :fx]
+                       [[:dispatch [:rf.route/navigate :conduit.auth/login]]]))
+         ctx)))})
 ```
 
-Here's what happens for a protected navigation while signed out. The `:before` sets `:rf/skip-handler?`, so the route never commits and its `:on-match` loads never fire. It stashes the destination at `[:auth :return-to]` — the same spot `submit-success` read earlier — and dispatches the login navigation instead. Attached frame-wide (the boot's `:interceptors [auth-guard]`), it wraps every event and quietly stands aside for everything that isn't a navigation. [Interceptors](../concepts/interceptors.md) is the deeper model.
+You register the guard once, under the id `:conduit/auth-guard` — exactly like registering an event or a sub — and then the frame's chain *references* that id. Here's what happens for a protected navigation while signed out. The `:before` sets `:rf/skip-handler?`, so the route never commits and its `:on-match` loads never fire. It stashes the destination at `[:auth :return-to]` — the same spot `submit-success` read earlier — and dispatches the login navigation instead. Attached frame-wide (the boot's `:interceptors [:conduit/auth-guard]`, a reference, not the interceptor value), it wraps every event and quietly stands aside for everything that isn't a navigation. [Interceptors](../concepts/interceptors.md) is the deeper model.
 
 > **Coming from Axios?** Your request interceptor became `reg-http-interceptor`; your redirect-on-401 response interceptor became this event interceptor, one layer up — it stops the navigation *before* any request exists.
 
