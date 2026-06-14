@@ -22,6 +22,7 @@
   (:require [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.recordable :as recordable]
             [re-frame.trace :as trace
              #?@(:cljs [:include-macros true])]))
 
@@ -208,6 +209,88 @@
                                        "is no back-compat alias.")
                      :recovery    :no-recovery}))))
 
+(defn- emit-cofx-value-invalid!
+  "Emit `:rf.error/cofx-value-invalid` for a SUPPLIED `:rf.cofx` value that is
+  not recordable EDN data (a host handle — DOM node, Promise, function, atom,
+  Date, JS / Java object — reached the durable causal token). Reuses the
+  EP-0017 cofx error id (built in slice B.7 for the `:schema`-when-declared
+  half) with `reason :non-edn-recordable-value` — the structural-EDN-always
+  half (rf2-rmroo4 slice A, EP-0017:386: recordable values must be EDN).
+
+  The payload carries the failing fact id, the path WITHIN that value to the
+  bad leaf, the host `:bad-type`, and a `:preview` ONLY when the supplied
+  value is itself recordable (so the preview round-trips) — NEVER the raw host
+  object. Fans out through the always-on `dispatch-on-error!` listener (the
+  same axis `re-frame.cofx`'s satisfaction-step emit uses), then throws."
+  [event cofx-id supplied bad failing-id]
+  (let [{:keys [path bad-type]} bad
+        preview (recordable/safe-preview supplied)]
+    (when-let [dispatch-on-error!
+               (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
+      (dispatch-on-error! :rf.error/cofx-value-invalid
+                          event failing-id nil nil 0 (interop/now-ms)))
+    (trace/emit-error! :rf.error/cofx-value-invalid
+                       (cond-> {:rf.cofx/id        cofx-id
+                                :failing-id        failing-id
+                                :rf.trace/event-id failing-id
+                                :reason            :non-edn-recordable-value
+                                :path              path
+                                :bad-type          bad-type
+                                :recovery          :no-recovery}
+                         (some? preview) (assoc :preview preview)))
+    (throw (ex-info ":rf.error/cofx-value-invalid"
+                    {:rf.error/id :rf.error/cofx-value-invalid
+                     :where       're-frame.router/build-envelope
+                     :reason      :non-edn-recordable-value
+                     :rf.cofx/id  cofx-id
+                     :failing-id  failing-id
+                     :path        path
+                     :bad-type    bad-type
+                     :recovery    :no-recovery
+                     :explain     (str "Supplied `:rf.cofx` fact `" cofx-id
+                                       "` is not recordable EDN data: the value "
+                                       "at path " (pr-str path) " is a `"
+                                       bad-type "` (a host object — DOM node, "
+                                       "Promise, function, atom, Date, or other "
+                                       "JS / Java handle). Recordable coeffect "
+                                       "values ride the durable causal record "
+                                       "(epoch ledger, replay, SSR payload, Xray) "
+                                       "and MUST be ordinary EDN data that reads "
+                                       "back unchanged (EP-0017:386). Replace the "
+                                       "host handle with its recordable "
+                                       "projection — the identifier / snapshot / "
+                                       "plain data you actually need on replay.")}))))
+
+(defn- validate-supplied-cofx-values!
+  "DEV-MODE structural-EDN check of a SUPPLIED `:rf.cofx` map's values
+  (rf2-rmroo4 slice A). Every value other than the framework's `:rf/time-ms`
+  fact rides the durable causal record, so each MUST be recordable EDN data
+  (EP-0017:386). The first non-recordable value throws
+  `:rf.error/cofx-value-invalid` (reason `:non-edn-recordable-value`).
+
+  DEV-MODE — gated on `interop/debug-enabled?`: this catches a DEV-TIME author
+  error (a host handle stuffed into a coeffect), and the value is identical in
+  production, so dev-time catching suffices. The whole walk — and the
+  recordable predicate's cost — DCEs under `:advanced` + `goog.DEBUG=false`,
+  keeping the production dispatch hot path free of a per-value deep walk. The
+  declared-`:schema` check (cofx.cljc) stays the always-on production
+  causal-token contract; this structural guard is the dev-time complement."
+  [supplied event]
+  (when interop/debug-enabled?
+    (let [event-id (first event)]
+      (reduce-kv
+        (fn [_ cofx-id value]
+          ;; `:rf/time-ms` is already shape-checked above (integer); skip it.
+          (when-not (= cofx-id :rf/time-ms)
+            (when-let [bad (recordable/explain-non-recordable value)]
+              ;; Prepend the fact-id so the reported path is rooted at the
+              ;; coeffect key, not at the (per-value) walk root.
+              (let [rooted (update bad :path #(into [cofx-id] %))]
+                (emit-cofx-value-invalid! event cofx-id value rooted event-id))))
+          nil)
+        nil
+        supplied))))
+
 (defn validate-cofx!
   "Throw `:rf.error/invalid-cofx` when a caller-supplied `:rf.cofx` is
   structurally malformed at the PUBLIC dispatch boundary (rf2-47lgee /
@@ -232,10 +315,16 @@
     - a supplied `:rf/time-ms` MUST be an integer (wall-clock epoch ms — the
       framework's lone provided-on-the-envelope fact).
 
-  Other facts (app-owned, subsystem-qualified) ride through unvalidated here
-  — they are open, owner-qualified, and a narrower spec / schema gate is the
-  deeper check; this is the cheap structural shape gate that stops the two
-  shapes that corrupt the durable fold.
+  Other facts (app-owned, subsystem-qualified) pass the cheap MAP-SHAPE gate
+  here, then — in DEV builds only (rf2-rmroo4 slice A) — each value is walked
+  by `validate-supplied-cofx-values!` to confirm it is recordable EDN data
+  (EP-0017:386): a host handle (DOM node, Promise, function, atom, Date, JS /
+  Java object) supplied as a recordable coeffect throws
+  `:rf.error/cofx-value-invalid` (reason `:non-edn-recordable-value`). A
+  narrower per-supplier `:schema` gate (cofx.cljc satisfaction step, the
+  always-on production contract) is the deeper check that follows; this is the
+  structural always-EDN complement that catches the author error at the
+  dispatch source.
 
   ALWAYS-ON — NOT gated on `interop/debug-enabled?`: like
   `reject-retired-dispatch-opts!`, a corrupt causal token is a correctness
@@ -288,7 +377,16 @@
                                            "`:settled-at`, …); a non-integer "
                                            "corrupts the durable fold and breaks "
                                            "replay determinism.")
-                         :recovery    :no-recovery}))))))
+                         :recovery    :no-recovery})))
+      ;; rf2-rmroo4 slice A — structural-EDN-always check of the SUPPLIED
+      ;; values, AFTER the map-shape + `:rf/time-ms` shape checks above and
+      ;; BEFORE the per-supplier `:schema` validation (cofx.cljc, satisfaction
+      ;; step). DEV-MODE (gated inside `validate-supplied-cofx-values!`): a
+      ;; non-EDN recordable value (a host handle) throws
+      ;; `:rf.error/cofx-value-invalid` / `:non-edn-recordable-value`. Only
+      ;; runs when `supplied` is a map (the non-map case already threw above).
+      (when (map? supplied)
+        (validate-supplied-cofx-values! supplied event)))))
 
 (defn unknown-dispatch-opts
   "Return the seq of keys in `opts` that fall OUTSIDE
