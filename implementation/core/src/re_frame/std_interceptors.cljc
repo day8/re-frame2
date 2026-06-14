@@ -240,8 +240,10 @@
 ;; destructuring): (fn [_ {:keys [...]}] ...) instead of (fn [_ [_ {:keys [...]}]] ...).
 
 (def unwrap-interceptor
-  "Pre-registered interceptor (a value, not a fn). Use as
-  `(reg-event :foo {:interceptors [unwrap-interceptor]} (fn [_ {:keys [a b]}] ...))`.
+  "Interceptor VALUE (not a fn). Since EP-0022 (chains are reference-only) it
+  is the registration-boundary input — register it and reference it by id:
+  `(reg-interceptor :app/unwrap unwrap-interceptor)` then
+  `(reg-event :foo {:interceptors [:app/unwrap]} (fn [_ {:keys [a b]}] ...))`.
   The :event coeffect inside the handler is the payload map.
 
   The `-interceptor` suffix telegraphs value-shape (per rf2-k367k +

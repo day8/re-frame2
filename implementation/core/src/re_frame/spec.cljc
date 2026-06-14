@@ -10,15 +10,17 @@
   > through `re-frame.core/validate-at-boundary-interceptor`.
 
   The headline export is `validate-at-boundary-interceptor` — the production-side
-  validation interceptor users attach to event handlers that ingest
-  data from untrusted sources (HTTP responses, websocket messages,
-  postMessage, query-string values). Per Spec 010 §Production builds
-  the canonical CLJS reference elides every dev-time `validate-*!`
-  call site at `:advanced` + `goog.DEBUG=false`; system-boundary
-  handlers that still want shape enforcement opt back in by adding
-  `validate-at-boundary-interceptor` to their interceptor chain.
+  validation interceptor's value, registered under the framework id
+  `:rf.schema/at-boundary`. System-boundary handlers (HTTP responses, websocket
+  messages, postMessage, query-string values) opt back into shape enforcement
+  by REFERENCING the registered interceptor by id in their chain. Per Spec 010
+  §Production builds the canonical CLJS reference elides every dev-time
+  `validate-*!` call site at `:advanced` + `goog.DEBUG=false`; this interceptor
+  re-runs the handler's `:schema` check at the boundary in production.
 
-  Usage:
+  Usage — reference the registered interceptor by id (EP-0022: chains are
+  reference-only; the `validate-at-boundary-interceptor` Var is the
+  registration-boundary input, NOT a chain entry):
 
   ```clojure
   (ns my-app.api
@@ -26,7 +28,7 @@
 
   (rf/reg-event :api/response-received
     {:schema ApiResponseSchema
-     :interceptors [rf/validate-at-boundary-interceptor]}
+     :interceptors [:rf.schema/at-boundary]}
     (fn [_ [_ payload]] ...))
   ```
 
@@ -116,10 +118,14 @@
 ;; vocabulary strip in rf2-9brg7 (audit-of-audits schemas #6).
 
 (def validate-at-boundary-interceptor
-  "Production-side schema validation interceptor. Per Spec 010 §Production
-  builds. Add to a `reg-event-*` handler's metadata `:interceptors` vector
-  to force `:schema` validation against the dispatched event vector even
-  in production builds where dev-time validation is elided.
+  "Production-side schema validation interceptor VALUE, registered under the
+  framework id `:rf.schema/at-boundary` (see `register-schema-interceptors!`).
+  Per Spec 010 §Production builds. Reference it by id from a `reg-event`
+  handler's metadata `:interceptors` chain — `{:interceptors [:rf.schema/at-boundary]}`
+  (EP-0022: chains are reference-only; this Var is the registration-boundary
+  input, never a chain entry) — to force `:schema` validation against the
+  dispatched event vector even in production builds where dev-time validation
+  is elided.
 
   Re-uses the handler's existing `:schema` metadata; does not introduce
   a parallel schema. No-op in dev builds (step-1 validation already
