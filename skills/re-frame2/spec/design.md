@@ -68,7 +68,7 @@ Per Mike's standing memory rule "Findings is local-only" — design exploration 
 ### In scope
 
 - ClojureScript application authors writing re-frame2 code.
-- The `reg-*` family — `reg-event-{db,fx,ctx}`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`.
+- The `reg-*` family — `reg-event` (the one public event registrar), `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`.
 - The canonical patterns — RemoteData, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection.
 - Frames, regions, tags, machine snapshots, the event-state cycle.
 - Test-authoring (`make-reset-runtime-fixture`, `dispatch-sync`, `compute-sub`, `with-frame`).

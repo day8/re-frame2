@@ -28,7 +28,7 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > ├── examples-map.md              (pattern → worked-example table)
 > ├── references/
 > │   ├── fundamentals/
-> │   │   ├── events.md            (reg-event-{db,fx,ctx})
+> │   │   ├── events.md            (reg-event — the one public event registrar)
 > │   │   ├── fx.md                (reg-fx, :fx vector shape)
 > │   │   ├── cofx.md              (reg-cofx value-returning, :rf.cofx/requires)
 > │   │   ├── subs.md              (reg-sub, layered subs, dynamic args, machine subs)
