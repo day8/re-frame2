@@ -2044,19 +2044,24 @@
   to inject an effect into the cascade. Per spec/API.md §Interceptors."}
   assoc-effect    interceptor/assoc-effect)
 
-(def ^{:doc "Returns an interceptor that focuses the handler on the
+(def ^{:doc "Returns an interceptor value that focuses the handler on the
   app-db sub-slice at the given path — the handler receives the slice
   value as `:db` (not the full app-db); its returned `:db` is spliced
-  back. Usage:
-  `(reg-event :inc {:interceptors [(path :counter)]} (fn [{:keys [db]} _] {:db (inc db)}))`.
-  Per spec/API.md §Interceptors."}
+  back. Since EP-0022 (chains are reference-only) the standard way to use
+  `path` in a chain is the framework-registered factory ref
+  `[:rf.interceptor/path <path-vector>]`, not this value-constructor:
+  `(reg-event :inc {:interceptors [[:rf.interceptor/path [:counter]]]} (fn [{:keys [db]} _] {:db (inc db)}))`.
+  This fn remains the underlying value builder the standard factory
+  consumes. Per spec/API.md §Interceptors."}
   path            std-interceptors/path)
 
-(def ^{:doc "Pre-registered interceptor (a value, not a fn) that asserts
-  the dispatched event has shape `[<id> <payload-map>]` and replaces
-  the `:event` coeffect with the payload map itself. Usage:
-  `(reg-event :foo {:interceptors [unwrap-interceptor]} (fn [_ {:keys [a b]}] ...))`.
-  Per Conventions §Canonical event-vector shape (M-19) and §Value-vs-fn
+(def ^{:doc "Interceptor VALUE (not a fn) that asserts the dispatched event
+  has shape `[<id> <payload-map>]` and replaces the `:event` coeffect with
+  the payload map itself. Since EP-0022 (chains are reference-only) it is
+  the registration-boundary input — register it and reference it by id,
+  e.g. `(reg-interceptor :app/unwrap unwrap-interceptor)` then
+  `{:interceptors [:app/unwrap]}` — never an inline chain entry. Per
+  Conventions §Canonical event-vector shape (M-19) and §Value-vs-fn
   naming."}
   unwrap-interceptor std-interceptors/unwrap-interceptor)
 
@@ -2076,15 +2081,18 @@
   off-box egress. Per Spec 009 §Privacy."}
   sensitive?           privacy/sensitive?)
 
-(def ^{:doc "Production-side schema validation interceptor. Add to a
-  `reg-event` handler's metadata `:interceptors` vector to force `:schema`
-  validation against the dispatched event vector even in production
-  builds where dev-time validation is elided. The verb `validate-`
-  telegraphs the time/build-mode axis the interceptor lives on (no-op in
-  dev, validates in prod); the `-interceptor` suffix (per Conventions
-  §Value-vs-fn naming) telegraphs that this is a Var holding a value,
-  not a fn. Per Spec 010 §Production builds. The interceptor reuses the
-  handler's existing `:schema` metadata — no parallel schema."}
+(def ^{:doc "Production-side schema validation interceptor VALUE, registered
+  under the framework id `:rf.schema/at-boundary`. Reference it by id from a
+  `reg-event` handler's metadata `:interceptors` chain —
+  `{:interceptors [:rf.schema/at-boundary]}` (EP-0022: chains are
+  reference-only; this Var is the registration-boundary input, never an
+  inline chain entry) — to force `:schema` validation against the dispatched
+  event vector even in production builds where dev-time validation is elided.
+  The verb `validate-` telegraphs the time/build-mode axis the interceptor
+  lives on (no-op in dev, validates in prod); the `-interceptor` suffix (per
+  Conventions §Value-vs-fn naming) telegraphs that this is a Var holding a
+  value, not a fn. Per Spec 010 §Production builds. The interceptor reuses
+  the handler's existing `:schema` metadata — no parallel schema."}
   validate-at-boundary-interceptor spec/validate-at-boundary-interceptor)
 
 (def ^{:doc "Emit a trace event. Production builds elide the body

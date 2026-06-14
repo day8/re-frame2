@@ -1,13 +1,14 @@
 (ns re-frame.interceptor-registry
   "Registered interceptors — the `:interceptor` registrar kind and the
-  by-reference chain resolution (EP-0022, rf2-0adhqs.2 Slice B, ADDITIVE).
+  by-reference chain resolution (EP-0022; reference-only since rf2-0adhqs.9).
 
   Per [Spec 001 §Interceptors](../../../spec/001-Registration.md) and
   [Spec 002 §Registered interceptors and the chain grammar](../../../spec/002-Frames.md):
 
-  An interceptor is now a first-class *registered* program member — keyed by a
+  An interceptor is a first-class *registered* program member — keyed by a
   qualified-keyword id, carrying source coordinates + metadata, and referenced
-  from event/frame `:interceptors` chains by id rather than embedded inline.
+  from event/frame `:interceptors` chains by id. Chains carry REFERENCES ONLY;
+  an inline interceptor value in a chain is `:rf.error/inline-interceptor-removed`.
 
   ## What this ns owns
 
@@ -21,7 +22,9 @@
     A malformed descriptor is `:rf.error/invalid-interceptor` at registration.
     The migration boundary (Spec 001) also accepts an existing interceptor
     VALUE here (a map carrying `:before` / `:after` / `:id`); if it carries an
-    `:id` it MUST match the positional registration id.
+    `:id` it MUST match the positional registration id. This is the AUTHORING
+    INPUT — `(reg-interceptor :my/ic <inline-value-or-descriptor>)` — and is
+    the ONLY place an inline interceptor value is legal. Chains never carry one.
 
   - `interceptor-ref?` / ref resolution — turn a reference (bare keyword, or
     `[id arg]` 2-vector) into an executable interceptor value, looked up
@@ -29,11 +32,16 @@
     static descriptor; an `[id arg]` vector resolves a `:factory` and builds
     for the arg.
 
-  - `resolve-chain` — the chain-assembly seam. Walk an event/frame
-    `:interceptors` chain and resolve every REFERENCE to its registered
-    interceptor value, leaving INLINE interceptor values untouched (the
-    ADDITIVE window — refs and inline values coexist; the reference-only flip
-    that rejects inline values is a LATER slice, mirroring EP-0018 B-add→Z).
+  - `resolve-chain` — the chain-assembly seam (EP-0022 reference-only flip,
+    rf2-0adhqs.9). Walk an event/frame `:interceptors` chain and resolve every
+    REFERENCE to its registered interceptor value. A stale INLINE interceptor
+    value (a map carrying `:before` / `:after` / `:id`, a `->interceptor` call
+    result, a value-Var) in a chain position fails LOUD with
+    `:rf.error/inline-interceptor-removed` — chains are reference-only. The ONE
+    inline value that flows through is the framework's own appended handler-
+    wrapper (`:rf/default? true`), which is framework machinery, not an
+    application-authored chain entry. (The additive window where refs and
+    inline values coexisted is closed — mirrors EP-0018 B-add→Z.)
 
   ## Realm-awareness (rf2-a15n62)
 
@@ -44,18 +52,15 @@
   threaded here (per Spec 002 §Effective chain ordering — the lookup direction
   is recorded; no realm-patching API is added).
 
-  ## Deferred to later slices (NOT here)
+  ## The framework default-wrapper carve-out
 
-  - The standard `:rf.interceptor/path` impl preserving the frame-commit
-    `identical?` no-op (a MINIMAL path factory is registered in
-    `re-frame.std-interceptors` so `[:rf.interceptor/path …]` refs resolve —
-    noted there as minimal).
-  - `:interceptor-overrides` exact-reference (`[id arg]`) matching — overrides
-    still match by `:id` (the existing additive behaviour); refs in an
-    override map's keys/values ARE resolved here, but the canonical-arg exact
-    match is a later slice.
-  - `->interceptor` internal-only lowering changes; the reference-only removal
-    flip."
+  The framework appends its handler-wrapping interceptor (`:rf/event-handler`,
+  stamped `:rf/default? true`) to the tail of every event's stored
+  `:interceptors` chain (see `re-frame.events/register-event!`). That entry is
+  an inline interceptor VALUE, but it is FRAMEWORK machinery — not an
+  application-authored chain entry — so `resolve-chain` lets a `:rf/default?
+  true` value pass through untouched. Every OTHER inline value in a chain is
+  application-authored and rejected `:rf.error/inline-interceptor-removed`."
   (:require [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
             [re-frame.identity :as identity]
@@ -165,16 +170,32 @@
 ;; ---- reference detection + resolution (Spec 002 §Interceptor references) ---
 
 (defn interceptor-value?
-  "True when `x` is an INLINE interceptor value — a map carrying an executable
-  slot (`:before` / `:after`). These are the values that flow through the chain
-  unchanged during the ADDITIVE window. Distinguishes an inline interceptor map
-  from a registered DESCRIPTOR / a reference; an `:id`-only map (a named no-op
-  interceptor) also counts (it is a runnable value, not a ref)."
+  "True when `x` is an interceptor VALUE — a map carrying an executable slot
+  (`:before` / `:after`) or an `:id`. Distinguishes an interceptor value from a
+  reference (a keyword / `[id arg]` vector).
+
+  An interceptor value is legal ONLY at the `reg-interceptor` REGISTRATION
+  boundary (the authoring input) and as the framework's own appended handler-
+  wrapper. In an event/frame `:interceptors` CHAIN an application-authored
+  interceptor value is `:rf.error/inline-interceptor-removed` (EP-0022
+  reference-only flip, rf2-0adhqs.9) — chains carry references only. This
+  predicate is the shape detector both the registration boundary and the
+  chain's stale-inline rejection share."
   [x]
   (and (map? x)
        (or (contains? x :before)
            (contains? x :after)
            (contains? x :id))))
+
+(defn framework-default-interceptor?
+  "True when `x` is the framework's own appended handler-wrapping interceptor
+  value (stamped `:rf/default? true` — see `re-frame.events`). This is the ONE
+  inline interceptor value `resolve-chain` lets pass through a chain untouched:
+  it is framework machinery (the terminal `:before` that invokes the user
+  handler), not an application-authored chain entry, so the reference-only flip
+  (rf2-0adhqs.9) does not reject it."
+  [x]
+  (and (map? x) (true? (:rf/default? x))))
 
 (defn interceptor-ref?
   "True when `x` is an interceptor REFERENCE (Spec 002 §Interceptor
@@ -289,9 +310,34 @@
                    :ref         ref
                    :recovery    :fix-registration
                    :reason      (str "interceptor chain entry `" (pr-str ref) "` is neither a "
-                                     "keyword id nor an `[id arg]` 2-vector reference, nor an "
-                                     "inline interceptor value.")
-                   :expected    "a keyword id, an [id arg] vector, or an interceptor value"})))
+                                     "keyword id nor an `[id arg]` 2-vector reference. "
+                                     "Interceptor chains are reference-only (EP-0022): register "
+                                     "the interceptor with `reg-interceptor` and reference it by id.")
+                   :expected    "a keyword id or an [id arg] vector"})))
+
+(defn- throw-inline-interceptor-removed!
+  "Raise `:rf.error/inline-interceptor-removed` (ex-info) for an INLINE
+  interceptor value found in a chain position. Per EP-0022 §Event and frame
+  chain grammar (the reference-only flip, rf2-0adhqs.9): event/frame
+  `:interceptors` chains carry REFERENCES only — a bare keyword id or an
+  `[id arg]` 2-vector. An inline interceptor map / value / Var (an
+  `->interceptor` result, a `(path …)` value, a `(redact-interceptor …)`
+  value, a locally-bound interceptor symbol) is no longer accepted; it must be
+  registered with `reg-interceptor` and referenced by id. Loud-fail at chain
+  assembly rather than a silent no-op (Conventions §No silent swallow)."
+  [entry]
+  (throw (ex-info ":rf.error/inline-interceptor-removed"
+                  {:rf.error/id :rf.error/inline-interceptor-removed
+                   :where       'rf/resolve-chain
+                   :entry       entry
+                   :recovery    :fix-registration
+                   :reason      (str "an event/frame `:interceptors` chain carried an INLINE "
+                                     "interceptor value `" (pr-str entry) "`. Interceptor "
+                                     "chains are reference-only (EP-0022): register the "
+                                     "interceptor with `reg-interceptor` and reference it by id "
+                                     "— a bare keyword `:my/ic` or an `[id arg]` 2-vector "
+                                     "(e.g. `[:rf.interceptor/path [:cart]]`).")
+                   :expected    "a keyword id or an [id arg] vector reference"})))
 
 (defn- resolve-factory
   "Resolve a parameterized `[id arg]` ref against its registered `:factory`
@@ -380,21 +426,26 @@
 
 (defn resolve-chain
   "Resolve an event/frame `:interceptors` chain entry-by-entry into executable
-  interceptor values. ADDITIVE (Slice B): a REFERENCE (keyword / `[id arg]`)
-  resolves to its registered interceptor value; an INLINE interceptor value (a
-  map carrying `:before` / `:after` / `:id`) flows through UNCHANGED (the
-  additive window — refs and old inline values coexist). A structurally-
-  malformed entry (neither a ref nor an inline value) is
-  `:rf.error/invalid-interceptor-ref`.
+  interceptor values. REFERENCE-ONLY (EP-0022 flip, rf2-0adhqs.9): a REFERENCE
+  (keyword / `[id arg]`) resolves to its registered interceptor value. A stale
+  INLINE interceptor value (a map carrying `:before` / `:after` / `:id`, an
+  `->interceptor` result, a value-Var) in a chain position fails LOUD with
+  `:rf.error/inline-interceptor-removed` — chains are reference-only. A
+  structurally-malformed entry (neither a ref, an inline value, nor the
+  framework default) is `:rf.error/invalid-interceptor-ref`.
 
-  `chain` is a sequential of refs/values; returns a vector of executable
-  interceptor values suitable for `re-frame.interceptor/execute-chain`.
+  The ONE inline value that passes through untouched is the framework's own
+  appended handler-wrapper (`:rf/default? true` — `framework-default-interceptor?`):
+  it is framework machinery, not an application-authored chain entry.
+
+  `chain` is a sequential of refs (+ the framework default tail); returns a
+  vector of executable interceptor values suitable for
+  `re-frame.interceptor/execute-chain`.
 
   A resolved-from-reference entry is stamped with its AUTHORED reference under
   `authored-ref-key` (`:rf/interceptor-ref`) so `:interceptor-overrides`
   exact-reference matching (Spec 002 §`:interceptor-overrides`) can match the
-  full `[id arg]` it came from — not merely its `:id`. Inline interceptor
-  values carry no authored ref (they match overrides by `:id` only).
+  full `[id arg]` it came from — not merely its `:id`.
 
   Refs resolve through the active (realm-aware) registrar — see the ns docstring."
   [chain]
@@ -402,23 +453,38 @@
     (vec chain)
     (mapv (fn [entry]
             (cond
-              ;; Inline interceptor value — additive window; passes through.
-              ;; (Checked BEFORE ref-detection: an inline value is a map, never
-              ;; a keyword or [id arg] vector, so there is no ambiguity.)
-              (interceptor-value? entry) entry
               ;; A reference — resolve it and stamp the AUTHORED ref so exact-
               ;; reference override matching can key on the full `[id arg]`.
-              (interceptor-ref? entry)   (assoc (resolve-ref entry)
-                                                authored-ref-key entry)
-              :else                      (throw-invalid-ref! entry)))
+              ;; (Checked FIRST: a ref is a keyword / [id arg] vector, never a
+              ;; map, so there is no ambiguity with an inline value.)
+              (interceptor-ref? entry)
+              (assoc (resolve-ref entry) authored-ref-key entry)
+              ;; The framework's own appended handler-wrapper (`:rf/default?
+              ;; true`) — framework machinery, not an authored chain entry;
+              ;; passes through untouched (the reference-only carve-out).
+              (framework-default-interceptor? entry) entry
+              ;; A stale INLINE interceptor value — reference-only flip rejects
+              ;; it LOUD (EP-0022, rf2-0adhqs.9): register it + reference by id.
+              (interceptor-value? entry) (throw-inline-interceptor-removed! entry)
+              :else (throw-invalid-ref! entry)))
           chain)))
 
-(defn chain-has-ref?
-  "True when `chain` carries at least one interceptor REFERENCE (so it needs
-  ref resolution). A hot-path predicate the resolution seams use to skip the
-  walk when a chain is all inline values (the common pre-EP-0022 shape)."
+(defn chain-needs-resolution?
+  "True when `chain` carries at least one entry `resolve-chain` must act on —
+  an interceptor REFERENCE (resolved) OR a non-framework-default inline VALUE
+  (rejected `:rf.error/inline-interceptor-removed`). A hot-path predicate the
+  resolution seams use to skip the walk when a chain is nothing but the
+  framework's appended handler-wrapper (the common all-default shape — an event
+  with no authored chain). Reference-only since EP-0022 (rf2-0adhqs.9): a
+  chain carrying ONLY the framework default needs no resolution; the moment it
+  carries a ref OR a stale inline value, `resolve-chain` must walk it (to
+  resolve the ref, or to reject the inline value loudly)."
   [chain]
-  (boolean (some interceptor-ref? chain)))
+  (boolean (some (fn [entry]
+                   (and (not (framework-default-interceptor? entry))
+                        (or (interceptor-ref? entry)
+                            (interceptor-value? entry))))
+                 chain)))
 
 ;; ---- handler-meta surface (Spec 001 §Source coords, metadata, handler-meta)-
 

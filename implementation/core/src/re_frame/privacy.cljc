@@ -162,9 +162,12 @@
   depend on interceptor placement rather than on the owner of the payload
   shape; registration-owned `:sensitive` payload classification +
   centralized `project-egress` at egress boundaries replace it. This fn
-  remains as internal router plumbing (the router still recognises any
-  `redact-interceptor`-shaped value in a handler's chain), but it is no
-  longer published from the `re-frame.core` façade.
+  remains as internal router plumbing (the router still recognises a
+  resolved `redact-interceptor`-shaped value — `:id :rf/redact-interceptor`
+  — in a handler's chain), but it is no longer published from the
+  `re-frame.core` façade. Since EP-0022 (chains are reference-only) it can
+  only reach a chain via `reg-interceptor` + a by-id reference, never as an
+  inline value.
 
   The handler itself receives the UNREDACTED payload via the regular
   `:event` coeffect slot; the redaction is for the trace surface only
@@ -188,10 +191,14 @@
       handler invocation on the trace surface inside the cascade. The
       record carries the already-scrubbed trace events into the fn.
 
-  Internal usage (no longer a public `rf/` surface):
+  Internal usage (no longer a public `rf/` surface; reference-only since
+  EP-0022 — register the built value, reference it by id):
+
+      (rf/reg-interceptor :auth/redact-login
+        (privacy/redact-interceptor [[:password] [:token]]))
 
       (rf/reg-event :auth/login
-        {:interceptors [(privacy/redact-interceptor [[:password] [:token]])]}
+        {:interceptors [:auth/redact-login]}
         (fn [{:keys [db]} [_ {:keys [username password token]}]]
           ;; password + token visible HERE (unredacted via :event coeffect)
           ;; trace surface sees them as :rf/redacted

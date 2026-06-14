@@ -506,22 +506,24 @@
 
 (defn- override-replacement
   "Resolve an `:interceptor-overrides` replacement VALUE to an executable
-  interceptor (or nil to remove). Per EP-0022 Slice C, public override
-  replacements are a `nil` (remove) or an interceptor REFERENCE (keyword /
-  `[id arg]`, resolved through the registrar). An inline interceptor value is
-  still accepted at the additive window; a structurally-malformed replacement
-  (e.g. a non-ref non-value) is `:rf.error/interceptor-override-invalid`."
+  interceptor (or nil to remove). Per EP-0022 §`:interceptor-overrides` (the
+  reference-only flip, rf2-0adhqs.9): public override replacements are a `nil`
+  (remove) or an interceptor REFERENCE (keyword / `[id arg]`, resolved through
+  the registrar). Value-valued overrides are retired — an inline interceptor
+  value (or any non-ref non-nil) is `:rf.error/interceptor-override-invalid`,
+  keeping the override map serializable + inspectable across story / SSR / test
+  / tool surfaces."
   [k replacement]
   (cond
-    (nil? replacement)                        nil
-    (icpt-reg/interceptor-value? replacement) replacement
-    (icpt-reg/interceptor-ref? replacement)   (icpt-reg/resolve-ref replacement)
+    (nil? replacement)                      nil
+    (icpt-reg/interceptor-ref? replacement) (icpt-reg/resolve-ref replacement)
     :else
     (throw-override-invalid!
       k replacement
       (str "interceptor-override replacement for key `" (pr-str k) "` is neither "
-           "an interceptor reference (keyword / `[id arg]`), an inline "
-           "interceptor value, nor `nil` (remove)."))))
+           "an interceptor reference (keyword / `[id arg]`) nor `nil` (remove). "
+           "Value-valued overrides are retired (EP-0022); register the "
+           "replacement with `reg-interceptor` and reference it by id."))))
 
 (defn- valid-override-key?
   "True when `k` is a structurally-valid `:interceptor-overrides` key — an
@@ -1666,14 +1668,16 @@
                           (vec (concat extra-interceptors (:interceptors handler-meta)))
                           (:interceptors handler-meta))
         ;; Per Spec 002 §Validation and resolution timing + §Effective chain
-        ;; ordering (EP-0022, rf2-0adhqs.2): resolve interceptor REFERENCES
-        ;; (frame `:interceptors` refs ++ event `:interceptors` refs) to their
-        ;; registered executable values at chain assembly. ADDITIVE — inline
-        ;; interceptor values (and the appended framework handler-wrapper) flow
-        ;; through `resolve-chain` unchanged. Hot-path skip: when the chain
-        ;; carries no refs (the common pre-EP-0022 / all-inline shape) the walk
-        ;; is bypassed. Refs resolve through the active (realm-aware) registrar.
-        resolved-chain  (if (icpt-reg/chain-has-ref? prepended-chain)
+        ;; ordering (EP-0022 reference-only flip, rf2-0adhqs.9): resolve
+        ;; interceptor REFERENCES (frame `:interceptors` refs ++ event
+        ;; `:interceptors` refs) to their registered executable values at chain
+        ;; assembly. REFERENCE-ONLY — a stale inline interceptor value in the
+        ;; chain fails LOUD (`:rf.error/inline-interceptor-removed`); only the
+        ;; framework's appended handler-wrapper (`:rf/default? true`) passes
+        ;; through. Hot-path skip: when the chain is nothing but that framework
+        ;; default (the common no-authored-chain shape) the walk is bypassed.
+        ;; Refs resolve through the active (realm-aware) registrar.
+        resolved-chain  (if (icpt-reg/chain-needs-resolution? prepended-chain)
                           (icpt-reg/resolve-chain prepended-chain)
                           prepended-chain)
         base-chain      (apply-icpt-overrides resolved-chain icpt-overrides)

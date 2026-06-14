@@ -1,14 +1,15 @@
 (ns re-frame.reg-interceptor-cljs-test
-  "EP-0022 Slice B (rf2-0adhqs.2) — the `:interceptor` registrar + reg-interceptor
-  + by-reference chain resolution (ADDITIVE).
+  "EP-0022 — the `:interceptor` registrar + reg-interceptor + by-reference chain
+  resolution. REFERENCE-ONLY since the flip (rf2-0adhqs.9).
 
   Adversarial coverage per the bead:
     1. reg-interceptor registers EACH descriptor form (:before / :after /
        :before+:after / :factory; one-arg factory).
     2. A chain with a BARE-KEYWORD ref AND an `[id arg]` ref resolves + runs
        in declaration order (with the standard `:rf.interceptor/path` factory).
-    3. INLINE interceptor values still work (the additive window) — and refs
-       coexist with inline values in one chain.
+    3. An INLINE interceptor value in a chain is REJECTED
+       (`:rf.error/inline-interceptor-removed`) — the additive window is closed;
+       the migration path is register + reference by id.
     4. Realm + reg-event interplay — refs resolve through the active
        (realm-bound) registrar; an unknown ref is rejected at registration.
 
@@ -136,34 +137,50 @@
         "the path factory ref focused the handler on [:counter] and spliced back")))
 
 ;; ---------------------------------------------------------------------------
-;; 3. inline interceptor values still work (additive window) + coexist
+;; 3. inline interceptor values in a chain are REJECTED (reference-only flip,
+;;    rf2-0adhqs.9) — the additive window is closed
 ;; ---------------------------------------------------------------------------
 
-(deftest inline-values-still-work
-  (testing "an inline interceptor value (the pre-EP-0022 shape) still runs"
-    (let [log (atom [])
-          inline (interceptor/->interceptor*
+(deftest inline-value-in-chain-rejected
+  (testing "an inline interceptor value in a chain is :rf.error/inline-interceptor-removed at registration"
+    (let [inline (interceptor/->interceptor*
                    :id     :inline/log
-                   :before (fn [ctx] (swap! log conj :inline-before) ctx)
-                   :after  (fn [ctx] (swap! log conj :inline-after) ctx))]
-      (rf/reg-event :inline/run
-        {:interceptors [inline]}
-        (fn [{:keys [db]} _] {:db db}))
-      (rf/dispatch-sync [:inline/run])
-      (is (= [:inline-before :inline-after] @log)))))
+                   :before (fn [ctx] ctx)
+                   :after  (fn [ctx] ctx))]
+      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+                            #":rf.error/inline-interceptor-removed"
+                            (rf/reg-event :inline/run
+                              {:interceptors [inline]}
+                              (fn [{:keys [db]} _] {:db db})))
+          "register the interceptor with reg-interceptor and reference it by id"))))
 
-(deftest refs-and-inline-values-coexist
-  (testing "a chain mixing a registered ref AND an inline value resolves + runs both"
-    (let [log (atom [])
-          inline (interceptor/->interceptor*
+(deftest mixed-ref-and-inline-value-rejected
+  (testing "a chain mixing a registered ref AND an inline value still fails on the inline value"
+    (let [inline (interceptor/->interceptor*
                    :id     :mix/inline
-                   :before (fn [ctx] (swap! log conj [:inline :before]) ctx)
-                   :after  (fn [ctx] (swap! log conj [:inline :after]) ctx))]
+                   :before (fn [ctx] ctx)
+                   :after  (fn [ctx] ctx))]
+      (rf/reg-interceptor* :mix/ref
+        {:before (fn [ctx] ctx)
+         :after  (fn [ctx] ctx)})
+      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+                            #":rf.error/inline-interceptor-removed"
+                            (rf/reg-event :mix/run
+                              {:interceptors [:mix/ref inline]}
+                              (fn [{:keys [db]} _] {:db db})))
+          "the registered ref is legal but the inline value is rejected — chains are reference-only"))))
+
+(deftest registered-then-referenced-runs
+  (testing "the EP-0022 path: register the formerly-inline interceptor, then reference it by id — both run"
+    (let [log (atom [])]
+      (rf/reg-interceptor* :was-inline/log
+        {:before (fn [ctx] (swap! log conj [:inline :before]) ctx)
+         :after  (fn [ctx] (swap! log conj [:inline :after]) ctx)})
       (rf/reg-interceptor* :mix/ref
         {:before (fn [ctx] (swap! log conj [:ref :before]) ctx)
          :after  (fn [ctx] (swap! log conj [:ref :after]) ctx)})
       (rf/reg-event :mix/run
-        {:interceptors [:mix/ref inline]}
+        {:interceptors [:mix/ref :was-inline/log]}
         (fn [{:keys [db]} _] {:db db}))
       (rf/dispatch-sync [:mix/run])
       (is (= [[:ref :before]
@@ -171,7 +188,7 @@
               [:inline :after]
               [:ref :after]]
              @log)
-          "ref resolved + inline value passed through; both ran in order"))))
+          "both refs resolved + ran in order"))))
 
 (deftest frame-level-interceptor-ref-chain
   (testing "a frame-level :interceptors ref chain prepends to the event chain"

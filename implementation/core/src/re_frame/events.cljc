@@ -61,16 +61,17 @@
 ;; bad-middle-slot / bad-arity).
 
 (defn- interceptor-entry?
-  "True when `x` is a valid `:interceptors` chain entry. ADDITIVE under
-  EP-0022 (rf2-0adhqs.2): an entry is either an interceptor REFERENCE — a bare
-  keyword id or an `[id arg]` 2-vector — OR (the additive window) an INLINE
-  interceptor value, a map carrying `:id` / `:before` / `:after`. Refs resolve
-  to their registered values at chain assembly; inline values flow through
-  unchanged while the additive window is open. A non-ref non-map entry
-  (a string, number, …) is the unambiguous malformed tell."
+  "True when `x` is a valid `:interceptors` chain entry. REFERENCE-ONLY under
+  EP-0022 (the flip, rf2-0adhqs.9): an entry MUST be an interceptor REFERENCE —
+  a bare keyword id or an `[id arg]` 2-vector. Refs resolve to their registered
+  values at chain assembly. An INLINE interceptor value (a map carrying `:id` /
+  `:before` / `:after`, an `->interceptor` result, a value-Var) is no longer a
+  valid entry — register it with `reg-interceptor` and reference it by id. A
+  non-ref entry is rejected at registration by `validate-meta-interceptors!`
+  (an inline value gets the `:rf.error/inline-interceptor-removed`-aimed
+  message; any other shape the generic bad-interceptors message)."
   [x]
-  (or (icpt-reg/interceptor-ref? x)
-      (icpt-reg/interceptor-value? x)))
+  (icpt-reg/interceptor-ref? x))
 
 (defn- throw-bad-interceptors-value!
   "Raise `:rf.error/reg-event-bad-interceptors` (ex-info) for a malformed
@@ -88,15 +89,50 @@
             :recovery    :fix-registration
             :reason      reason
             :got         value
-            :expected    "a vector of interceptor maps (e.g. [(path :a) some-interceptor])"})))
+            :expected    "a vector of interceptor references (e.g. [:auth/required [:rf.interceptor/path [:cart]]])"})))
+
+(defn- throw-inline-interceptor-removed!
+  "Raise `:rf.error/inline-interceptor-removed` (ex-info) at registration when a
+  metadata-map `:interceptors` chain carries an INLINE interceptor value. Per
+  EP-0022 §Event and frame chain grammar (the reference-only flip,
+  rf2-0adhqs.9): chains carry REFERENCES only. The earliest, clearest fail
+  point for a stale inline value (an `->interceptor` result, a `(path …)` /
+  `(redact-interceptor …)` value, a value-Var) — a typo dies at `reg-event`,
+  not at first dispatch. Mirrors the dispatch-time
+  `interceptor-registry/resolve-chain` rejection with the same error id."
+  [reg-fn-name id value offending]
+  (throw (ex-info
+           ":rf.error/inline-interceptor-removed"
+           {:rf.error/id :rf.error/inline-interceptor-removed
+            :where       'rf/reg-event
+            :reg-fn      reg-fn-name
+            :id          id
+            :recovery    :fix-registration
+            :reason
+            (str reg-fn-name " for `" id "` carried an INLINE interceptor value `"
+                 (pr-str offending) "` in its metadata `:interceptors` chain. "
+                 "Interceptor chains are reference-only (EP-0022): register the "
+                 "interceptor with `rf/reg-interceptor` and reference it by id — "
+                 "a bare keyword `:my/ic` or an `[id arg]` 2-vector "
+                 "(e.g. `[:rf.interceptor/path [:cart]]`).")
+            :got         value
+            :offending   offending
+            :expected    "a vector of interceptor references (keyword ids / [id arg] vectors)"})))
 
 (defn- validate-meta-interceptors!
   "Validate the metadata-map `:interceptors` value at registration. The value
-  MUST be a vector, and every entry MUST be a valid chain entry — an
-  interceptor REFERENCE (bare keyword / `[id arg]`) or (the EP-0022 additive
-  window) an INLINE interceptor value (per `interceptor-entry?`). Raises
-  `:rf.error/reg-event-bad-interceptors` on a malformed value. A no-op
-  (returns `value`) for a well-shaped vector."
+  MUST be a vector, and every entry MUST be an interceptor REFERENCE (a bare
+  keyword id or an `[id arg]` 2-vector — per `interceptor-entry?`). A no-op
+  (returns `value`) for a well-shaped vector.
+
+  Reference-only since EP-0022 (the flip, rf2-0adhqs.9):
+    - a non-vector value raises `:rf.error/reg-event-bad-interceptors`;
+    - an INLINE interceptor value entry (a map carrying `:before` / `:after` /
+      `:id`, an `->interceptor` result, a value-Var) raises the dedicated
+      `:rf.error/inline-interceptor-removed` — the loud, actionable signal that
+      chains are now reference-only (vs. the generic bad-interceptors message);
+    - any OTHER non-ref entry (a string, number, …) raises the generic
+      `:rf.error/reg-event-bad-interceptors`."
   [reg-fn-name id value]
   (cond
     (not (vector? value))
@@ -107,12 +143,22 @@
            "references (e.g. `{:interceptors [:auth/required [:rf.interceptor/path [:cart]]]}`)."))
 
     (not (every? interceptor-entry? value))
-    (throw-bad-interceptors-value!
-      reg-fn-name id value
-      (str reg-fn-name " for `" id "` carried a `:interceptors` vector with an "
-           "entry that is neither an interceptor reference (a keyword id, or an "
-           "`[id arg]` 2-vector) nor an inline interceptor value; register the "
-           "interceptor with `rf/reg-interceptor` and reference it by id."))
+    ;; Discriminate a stale INLINE value (the EP-0022 reference-only flip's
+    ;; headline footgun) from any other malformed entry, so the developer gets
+    ;; the actionable "register + reference by id" message rather than a generic
+    ;; bad-interceptors tell.
+    (if-let [inline (some (fn [e]
+                            (when (and (not (icpt-reg/interceptor-ref? e))
+                                       (icpt-reg/interceptor-value? e))
+                              e))
+                          value)]
+      (throw-inline-interceptor-removed! reg-fn-name id value inline)
+      (throw-bad-interceptors-value!
+        reg-fn-name id value
+        (str reg-fn-name " for `" id "` carried a `:interceptors` vector with an "
+             "entry that is not an interceptor reference (a keyword id, or an "
+             "`[id arg]` 2-vector); register the interceptor with "
+             "`rf/reg-interceptor` and reference it by id.")))
 
     :else value))
 
@@ -149,17 +195,18 @@
 
 (defn- at-boundary-entry?
   "Truthy when a single RAW chain entry attaches the `:rf.schema/at-boundary`
-  interceptor — in EITHER of the two EP-0022 chain forms:
+  interceptor by REFERENCE (the only legal chain form since the EP-0022
+  reference-only flip, rf2-0adhqs.9):
 
-    - the BY-REF form (the canonical EP-0022 shape): a bare keyword
-      `:rf.schema/at-boundary`, or an `[:rf.schema/at-boundary arg]` 2-vector
-      (the chain stores refs UNRESOLVED, so the bare keyword reaches here);
-    - the INLINE-VALUE form (the migration boundary): an interceptor map
-      carrying `:id :rf.schema/at-boundary` (the `validate-at-boundary-interceptor`
-      Var dropped directly into the chain).
+    - a bare keyword `:rf.schema/at-boundary`; or
+    - an `[:rf.schema/at-boundary arg]` 2-vector
 
-  Detects by id keyword / `:id` so the check stays cycle-free against
-  `re-frame.spec`."
+  (the chain stores refs UNRESOLVED, so the bare keyword reaches here). The
+  former INLINE-VALUE migration form — the `validate-at-boundary-interceptor`
+  Var dropped directly into the chain — is no longer accepted (chains are
+  reference-only; `validate-meta-interceptors!` rejects it
+  `:rf.error/inline-interceptor-removed` before this runs). Detects by id
+  keyword so the check stays cycle-free against `re-frame.spec`."
   [icpt]
   (or
     ;; By-ref: bare keyword.
@@ -167,17 +214,14 @@
     ;; By-ref: `[id arg]` 2-vector.
     (and (vector? icpt)
          (= 2 (count icpt))
-         (= :rf.schema/at-boundary (first icpt)))
-    ;; Inline value (migration boundary).
-    (and (map? icpt)
-         (= :rf.schema/at-boundary (:id icpt)))))
+         (= :rf.schema/at-boundary (first icpt)))))
 
 (defn- attaches-validate-at-boundary-interceptor?
   "Truthy when the effective user interceptor chain attaches the
-  `:rf.schema/at-boundary` interceptor — by REF (`[:rf.schema/at-boundary]`,
-  the canonical EP-0022 form) or as an INLINE value (the migration boundary).
-  See `at-boundary-entry?`. Detects by id so the check stays cycle-free
-  against `re-frame.spec`."
+  `:rf.schema/at-boundary` interceptor by REF (`[:rf.schema/at-boundary]`, the
+  only legal chain form since the EP-0022 reference-only flip). See
+  `at-boundary-entry?`. Detects by id so the check stays cycle-free against
+  `re-frame.spec`."
   [interceptors]
   (and (sequential? interceptors)
        (boolean (some at-boundary-entry? interceptors))))
