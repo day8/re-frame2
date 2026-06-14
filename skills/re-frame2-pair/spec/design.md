@@ -81,7 +81,7 @@ When the user mentions a button / view / panel / "the thing I clicked", the AI r
 
 ### L12 — Surface restore limits
 
-Before any time-travel experiment, the AI walks the cascade's effects and tells the user which effects already fired and cannot be reversed. `restore-epoch` is first-class but it rewinds `app-db`, not external side effects (HTTP requests already dispatched, navigation that already happened, etc.).
+Before any time-travel experiment, the AI walks the cascade's effects and tells the user which effects already fired and cannot be reversed. `rf/restore-epoch!` (the MCP tool exposes it as `restore-epoch`) is first-class but it rewinds the frame's WHOLE frame-state — both app-db AND runtime-db, from `:frame-state-after` via `replace-frame-state!` — not external side effects (HTTP requests already dispatched, navigation that already happened, etc.).
 
 ## 4. Audience and scope
 

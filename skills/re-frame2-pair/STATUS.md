@@ -66,9 +66,9 @@ Four colon-separated segments, where `<ns>` and `<handler-id>` derive from the r
 
 ## What's genuinely verified
 
-- `re-frame.core` exposes the Tool-Pair surfaces this skill consumes — `register-listener!`, `register-epoch-listener!`, `epoch-history`, `restore-epoch`, `replace-app-db!`, `configure`, `registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `app-db-value`, `snapshot-of`, `sub-cache`, `machines`, `machine-meta`, `app-schemas` — confirmed in `implementation/core/src/re_frame/core.cljc`. The `trace-buffer` reader lives in `re-frame.trace.tooling` (re-exported on `rf/` JVM-side only); CLJS callers use the `re-frame.trace.tooling` ns directly.
+- `re-frame.core` exposes the Tool-Pair surfaces this skill consumes — `register-listener!`, `register-epoch-listener!`, `epoch-history`, `restore-epoch!` (core-API name carries the bang; the MCP tool that calls it is named `restore-epoch`), `replace-app-db!`, `configure`, `registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `app-db-value`, `snapshot-of`, `sub-cache`, `machines`, `machine-meta`, `app-schemas` — confirmed in `implementation/core/src/re_frame/core.cljc`. The `trace-buffer` reader lives in `re-frame.trace.tooling` (re-exported on `rf/` JVM-side only); CLJS callers use the `re-frame.trace.tooling` ns directly.
 - Epoch records carry the documented `:rf/epoch-record` shape (`:epoch-id`, `:frame`, `:committed-at`, `:event-id`, `:trigger-event`, `:db-before`, `:db-after`, `:trace-events`, `:sub-runs`, `:renders`, `:effects`).
-- `restore-epoch` implements the **seven** documented failure modes per Tool-Pair §Time-travel.
+- `restore-epoch!` implements the **seven** documented failure modes per Tool-Pair §Time-travel.
 - shadow-cljs nREPL accepts JVM `(shadow.cljs.devtools.api/cljs-eval ...)` calls (well-known).
 
 Everything else is structurally correct per the Tool-Pair Spec but not exhaustively runtime-verified.

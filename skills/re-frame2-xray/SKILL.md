@@ -52,7 +52,7 @@ Anchor on that, then note the deliberate divergences.
 |---|---|---|
 | Action log (the left-rail list of dispatched actions) | The **L2 event spine** — one row per dispatched event, live-tailing | Each row is an *epoch* (a full six-domino cascade), not a single reducer call — far richer than an action entry |
 | Inspecting one action's state diff | The **Epoch** tab (hero) — the focused dispatch's numbered cascade, DISPATCH → COEFFECTS → HANDLER → FLOWS → SIDE EFFECTS → SUBSCRIPTIONS → VIEWS | Redux shows action + state diff; the Epoch cascade shows the *whole causal chain* (cofx, interceptors, fx, flows, sub recompute, re-render), not just before/after state |
-| Time-travel / "jump to state" replay | The **inspect · `Reset`-rewind** chrome | **Passive by default** — picking an epoch rebases the panels but does NOT move `app-db`; moving the live app is the explicit `Reset` button (`restore-epoch` to the focused epoch's `:db-after`). Redux's slider *replays dispatches* into the store; Xray inverts that. |
+| Time-travel / "jump to state" replay | The **inspect · `Reset`-rewind** chrome | **Passive by default** — picking an epoch rebases the panels but does NOT move the live frame; moving the live app is the explicit `Reset` button (`restore-epoch!` reinstalls the focused epoch's WHOLE frame-state — both app-db AND runtime-db — via `replace-frame-state!`, not the `:db-after` projection alone). Redux's slider *replays dispatches* into the store; Xray inverts that. |
 | State tree inspector | The **app-db** tab — sectioned, lazy-tree, inline diff annotations | Sectioned by reserved area (machines, routes, system-ids…) with downstream-subs hover, not a raw single tree |
 | React DevTools Profiler "why did this render?" | The **Views** tab — render-cause chips (`← :sub-id` vs `← props`) on every re-render leaf | Built into the same panel and tied to the epoch, not a separate profiler tab |
 | *(no Redux equivalent)* | **Static mode** — event-INDEPENDENT browse of what's *registered* (machines / routes / schemas / flows / interceptors) | Redux has no "what's registered?" surface; this is the registry-catalogue half Xray adds |
@@ -204,10 +204,12 @@ than the one-liner.
  until you pick a historical event or pause (**RETRO**); `Space`
  pauses/resumes, `L` snaps back. (chrome.md §LIVE vs RETRO spine.)
 - **Time-travel: passive inspect vs explicit rewind.** Picking an epoch is
- *passive INSPECTION* — panels rebase, `app-db` does NOT move; live rewind
- is the *separate, explicit* **`Reset` button** on the L3 ribbon
- (`restore-epoch` to the focused epoch's `:db-after`). No wired `r`/`R`/`*`
- keys — those are spec-future only. (chrome.md §Time-travel.)
+ *passive INSPECTION* — panels rebase, the live frame does NOT move; live
+ rewind is the *separate, explicit* **`Reset` button** on the L3 ribbon
+ (`restore-epoch!` reinstalls the focused epoch's WHOLE frame-state — both
+ app-db AND runtime-db — via `replace-frame-state!`, not the `:db-after`
+ projection alone). No wired `r`/`R`/`*` keys — those are spec-future only.
+ (chrome.md §Time-travel.)
 - **Filter pills.** The L1.5 events ribbon carries IN / OUT pills, a mute
  set, an `N hidden by filters` count, and `Clear Filters`; transient,
  reset on load. (chrome.md §Filter pills.)
