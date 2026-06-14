@@ -27,7 +27,7 @@ re-frame2 resources learn from `re-frame-query` without cloning it. The structur
 
 `re-frame-query` is an add-on lib; nothing in re-frame2 depends on it and nothing breaks when an app keeps it. A migrating app can:
 
-1. Keep `re-frame-query` (it's built on `reg-fx` / `reg-event-fx` / `reg-sub` / `subscribe` — every surface it consumes is preserved in v2); or
+1. Keep `re-frame-query` for the queries you don't convert — but not cost-free under EP-0018. The lib's own registrations use `reg-fx` / `reg-sub` / `subscribe` (all preserved), so the lib still loads; however any **event handler** that drives a query through the lib's effects is a `reg-event-fx` handler, and `reg-event-fx` is removed in v2 (a throwing stub naming `reg-event` — [M-73](README.md#m-73-one-event-registration-form-reg-event-db--reg-event-fx-removed-reg-event-ctx-demoted-ep-0018)), so those migrate to the one public `reg-event` regardless; or
 2. Migrate query-by-query to resources as part of broader v2 modernisation.
 
 The agent does NOT auto-rewrite — every query / cache site is surfaced for operator approval, because the rewrite is semantic. The agent SHOULD recommend (2) when the app is otherwise adopting re-frame2 idioms: resources integrate with frames, route `:resources` metadata, SSR hydration, the Xray route/resource graph + work-ledger + scope-audit surfaces, and the privacy/elision egress — none of which a query lib's opaque cache participates in.
