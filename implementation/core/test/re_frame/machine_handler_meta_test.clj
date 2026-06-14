@@ -54,12 +54,12 @@
 
 ;; ---- the registrar kind set is the clean set -----------------------------
 
-(deftest registrar-kinds-are-the-clean-ten
+(deftest registrar-kinds-are-the-clean-set
   (testing "rf2-ftrcv: `:machine-guard` / `:machine-action` are NOT registrar kinds"
-    (is (= #{:event :sub :fx :cofx :view :frame :route :head
+    (is (= #{:event :sub :fx :cofx :interceptor :view :frame :route :head
              :error-projector :flow :resource :mutation :resource-scope}
            registrar/kinds)
-        "registrar/kinds is the canonical reserved set — no machine *registration* kinds; `:resource` (rf2-p10npe, Spec 016) is the resources artefact's read kind; `:mutation` (rf2-dwme29, Spec 016 / EP-0003) is its causal-write kind; `:resource-scope` (rf2-hls77w, EP-0016 D3) is its named-scope-resolver kind")
+        "registrar/kinds is the canonical reserved set — no machine *registration* kinds; `:interceptor` (rf2-0adhqs.2, Spec 001 / EP-0022 Slice B) is the registered-interceptor kind; `:resource` (rf2-p10npe, Spec 016) is the resources artefact's read kind; `:mutation` (rf2-dwme29, Spec 016 / EP-0003) is its causal-write kind; `:resource-scope` (rf2-hls77w, EP-0016 D3) is its named-scope-resolver kind")
     (is (not (registrar/valid-kind? :machine-guard))
         "(valid-kind? :machine-guard) = false")
     (is (not (registrar/valid-kind? :machine-action))
