@@ -807,11 +807,19 @@
   ;; The grep that enforces both invariants lives at
   ;; scripts/check-reagent-slim-bundle-isolation.cjs; the corresponding
   ;; CI job is `cljs-reagent-slim-bundle-isolation` in .github/workflows/test.yml.
+  ;;
+  ;; The `:init-fn` is the gate-owned entrypoint
+  ;; `counter-slim-and-fast.bundle-isolation-entry/run` — NOT the teaching
+  ;; `counter-slim-and-fast.core/run`. The entry boots the same app and
+  ;; additionally exercises the pure-CLJS `render-to-static-markup` path so
+  ;; Contract 4 (S3-005 non-vacuity) has signal; keeping the fixture behind
+  ;; this entry leaves the teaching `core` namespace free of harness plumbing
+  ;; (rf2-vyl0vt). A reader watches `core/run`; the gate compiles via the entry.
   :examples/counter-slim-and-fast
   {:target     :browser
    :output-dir "out/examples/counter-slim-and-fast"
    :asset-path "."
-   :modules    {:main {:init-fn counter-slim-and-fast.core/run}}}
+   :modules    {:main {:init-fn counter-slim-and-fast.bundle-isolation-entry/run}}}
 
   ;; Performance-API instrumented variant of the counter example
   ;; (rf2-du3i). The SAME canonical source as `:examples/counter`

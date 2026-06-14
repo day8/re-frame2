@@ -18,18 +18,18 @@
 ;; ---- hash → Spec 012 path adapter -----------------------------------------
 ;;
 ;; TodoMVC uses hash-based URLs (#/, #/active, #/completed); the Spec 012
-;; runtime routes path-strings. This tiny host-adapter strips the '#' (and an
-;; optional '!' for the legacy hashbang form) and dispatches
-;; :rf.route/handle-url-change so the registered routes in events.cljs match
-;; cleanly. Per Spec 012 §URL changes are events, the runtime updates
-;; the runtime-db [:rf.runtime/routing :current] slice from there.
+;; runtime routes path-strings. This tiny host-adapter strips the '#' and
+;; dispatches :rf.route/handle-url-change so the registered routes in
+;; events.cljs match cleanly. Per Spec 012 §URL changes are events, the
+;; runtime updates the runtime-db [:rf.runtime/routing :current] slice from
+;; there.
 
 (defn- hash->path
-  "Convert window.location.hash (e.g. \"#/active\", \"#!/completed\") to a
+  "Convert window.location.hash (e.g. \"#/active\", \"#/completed\") to a
   Spec 012 path. An empty hash maps to \"/\"."
   [hash]
   (let [stripped (-> hash
-                     (str/replace #"^#!?" "")
+                     (str/replace #"^#" "")
                      (str/replace #"^/+" "/"))]
     (if (str/blank? stripped) "/" stripped)))
 

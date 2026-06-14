@@ -7,14 +7,20 @@
    Reagent import points at `reagent2.*` instead of stock `reagent.*`,
    and `(rf/init!)` is called with the slim adapter Var
    `re-frame.adapter.reagent-slim/adapter`. Read this file as the
-   teaching example; the adapter's bundle-isolation proof lives next to
-   it in `counter-slim-and-fast.bundle-isolation-fixture` (fixture code,
-   not app practice — wired into `run`)."
+   teaching example — it is plain, idiomatic re-frame2 with nothing but
+   the example's own dataflow.
+
+   The slim adapter's bundle-isolation proof is NOT here: it is kept out
+   of this teaching surface entirely, behind the gate-owned entrypoint
+   `counter-slim-and-fast.bundle-isolation-entry` (which the
+   `:examples/counter-slim-and-fast` build uses as its `:init-fn`). That
+   entry boots the SAME app from `run` below and additionally exercises
+   the pure-CLJS SSR path the gate inspects; nothing about that fixture
+   plumbing leaks into this namespace."
   (:require [reagent2.dom.client                :as rdc]
             [re-frame.core                      :as rf]
             [re-frame.views]
-            [re-frame.adapter.reagent-slim      :as reagent-slim-adapter]
-            [counter-slim-and-fast.bundle-isolation-fixture :as fixture])
+            [re-frame.adapter.reagent-slim      :as reagent-slim-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; -- Events / subs (handler registry is app-global) --------------------------
@@ -65,10 +71,10 @@
 ;; EP-0002 (rf2-9o48ih): under the carried invariant the runtime never
 ;; synthesises a frame from absence — an app must establish its frame
 ;; explicitly. `init!` installs the adapter (it does NOT create the frame),
-;; `reg-frame` registers the app frame, the boot dispatch + the pure-CLJS SSR
-;; fixture render run under `with-frame`, and the client render is wrapped in
-;; a `frame-provider` so every in-tree `dispatch`/`subscribe` resolves to the
-;; app frame. Matches the canonical mount in examples/reagent/counter/core.cljs.
+;; `reg-frame` registers the app frame, the boot dispatch runs under
+;; `with-frame`, and the client render is wrapped in a `frame-provider` so
+;; every in-tree `dispatch`/`subscribe` resolves to the app frame. Matches
+;; the canonical mount in examples/reagent/counter/core.cljs.
 (def app-frame :rf/default)
 
 (defn run []
@@ -77,17 +83,7 @@
   (rf/init! reagent-slim-adapter/adapter)
   (rf/reg-frame app-frame {})
   (rf/with-frame app-frame
-    (rf/dispatch-sync [:counter/initialise])
-    ;; Bundle-isolation fixture, not app practice. The slim adapter's
-    ;; pure-CLJS SSR seam is the contract this build exists to prove; the
-    ;; sentinel exercise that makes that proof non-vacuous — and its
-    ;; sub-cache teardown — is isolated in
-    ;; `counter-slim-and-fast.bundle-isolation-fixture`. It runs before the
-    ;; client mount so the browser mount below starts from a clean
-    ;; sub-cache and owns the only live `[:counter/value]` reaction. The
-    ;; static render derefs `[:counter/value]`, so it runs inside the frame
-    ;; scope established above.
-    (fixture/prove-pure-cljs-ssr! [counter-app]))
+    (rf/dispatch-sync [:counter/initialise]))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))

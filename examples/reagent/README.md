@@ -40,8 +40,11 @@ reagent/
   notebook/                    <-- design-led example (Editorial Warm identity)
   seven_guis/                  <-- 7GUIs benchmark cluster
     cells/  circle_drawer/  crud/  flight_booker/  temperature/  timer/
-  realworld/                   <-- the canonical multi-artefact integration test
+  realworld/                   <-- the canonical multi-artefact integration test (managed HTTP: Spec 014)
+  realworld_resources/         <-- the SAME app on resources + mutations (Spec 016)
 ```
+
+The two RealWorld variants are deliberate **siblings, not a rewrite**: [`realworld/`](realworld/) is the canonical [Spec 014 `:rf.http/managed`](../../spec/014-HTTPRequests.md) demo (schema-driven decode, classification order, retry + abort, optimistic-rollback against managed HTTP), and [`realworld_resources/`](realworld_resources/) expresses the *same* Conduit app through [Spec 016 Resources](../../spec/016-Resources.md) + mutations (declarative server-state: `read → write → invalidate → refetch` with no hand-wiring). Both stay because that managed-HTTP coverage is load-bearing; read them side by side to see what resources buy you (see [`realworld_resources/README.md`](realworld_resources/README.md)).
 
 Per [`spec/Conventions.md`](../../spec/Conventions.md): schema-bearing examples register their app-db slices via `reg-app-schema`; views are registered via the `reg-view` macro (Var-reference Form-1); the catalogue at [`../README.md`](../README.md) maps each example to the Specs it exercises. The intentionally minimal examples (`counter`, `routing`, `todomvc`, `notebook`, `managed_http_counter`) are deliberately schema-free — `counter` in particular is kept dependency-light so it doubles as a bundle-isolation fixture, so adding a schema there would weaken that coverage.
 
