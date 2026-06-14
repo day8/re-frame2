@@ -147,16 +147,40 @@
 ;; equality — keeps `events` decoupled from `re-frame.spec` (which depends
 ;; transitively on this ns via core re-exports).
 
+(defn- at-boundary-entry?
+  "Truthy when a single RAW chain entry attaches the `:rf.schema/at-boundary`
+  interceptor — in EITHER of the two EP-0022 chain forms:
+
+    - the BY-REF form (the canonical EP-0022 shape): a bare keyword
+      `:rf.schema/at-boundary`, or an `[:rf.schema/at-boundary arg]` 2-vector
+      (the chain stores refs UNRESOLVED, so the bare keyword reaches here);
+    - the INLINE-VALUE form (the migration boundary): an interceptor map
+      carrying `:id :rf.schema/at-boundary` (the `validate-at-boundary-interceptor`
+      Var dropped directly into the chain).
+
+  Detects by id keyword / `:id` so the check stays cycle-free against
+  `re-frame.spec`."
+  [icpt]
+  (or
+    ;; By-ref: bare keyword.
+    (= :rf.schema/at-boundary icpt)
+    ;; By-ref: `[id arg]` 2-vector.
+    (and (vector? icpt)
+         (= 2 (count icpt))
+         (= :rf.schema/at-boundary (first icpt)))
+    ;; Inline value (migration boundary).
+    (and (map? icpt)
+         (= :rf.schema/at-boundary (:id icpt)))))
+
 (defn- attaches-validate-at-boundary-interceptor?
-  "Truthy when the effective user interceptor chain contains the
-  `:rf.schema/at-boundary` interceptor. Detects by `:id` so the check
-  stays cycle-free against `re-frame.spec`."
+  "Truthy when the effective user interceptor chain attaches the
+  `:rf.schema/at-boundary` interceptor — by REF (`[:rf.schema/at-boundary]`,
+  the canonical EP-0022 form) or as an INLINE value (the migration boundary).
+  See `at-boundary-entry?`. Detects by id so the check stays cycle-free
+  against `re-frame.spec`."
   [interceptors]
   (and (sequential? interceptors)
-       (some (fn [icpt]
-               (and (map? icpt)
-                    (= :rf.schema/at-boundary (:id icpt))))
-             interceptors)))
+       (boolean (some at-boundary-entry? interceptors))))
 
 (defn- reject-at-boundary-without-schema!
   "Raise `:rf.error/at-boundary-missing-schema` (ex-info) when the
