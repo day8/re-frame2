@@ -175,7 +175,7 @@ The registration-metadata value declaring a handler's (or machine named-entry's)
     [:tuple :keyword :any]]])                                              ;; [id arg] — parameterized supplier; delivers under the bare `id`
 ```
 
-A malformed value (a non-vector, or an entry that is neither a keyword nor an `[id arg]` tuple) is `:rf.error/cofx-request-invalid` at registration; a referenced id with no `reg-cofx` registration is `:rf.error/unregistered-cofx`; declaring the same id twice (any args) in one consumer scope is `:rf.error/cofx-name-collision`. The key is a registration-time error on `reg-event-db` (per [001 §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key)).
+A malformed value (a non-vector, or an entry that is neither a keyword nor an `[id arg]` tuple) is `:rf.error/cofx-request-invalid` at registration; a referenced id with no `reg-cofx` registration is `:rf.error/unregistered-cofx`; declaring the same id twice (any args) in one consumer scope is `:rf.error/cofx-name-collision`. The key lives uniformly on `reg-event` — with the one event form (EP-0018) there is no db-only handler exempt from coeffect declaration (per [001 §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key)).
 
 ### `:rf/registration-metadata`
 
@@ -204,7 +204,7 @@ Per-kind extensions (sub-specific, fx-specific, view-specific) are additive maps
 
 `:doc` is `{:optional true}` in the schema but normatively SHOULD appear on every registration. The dev runtime surfaces missing-`:doc` registrations through `:rf.warning/missing-doc` (emitted at most once per `(kind, id)` pair; production-elided) — see [001 §`:doc` is dev-warned when absent](001-Registration.md#doc-is-dev-warned-when-absent) and [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives) for the emission contract. The schema stays `{:optional true}` so programmatic re-registration paths and tooling that compose metadata maps without `:doc` still validate; the warning is the nudge, not a structural gate.
 
-The `reg-event-*` metadata-map carries a reserved `:interceptors` key — the map is the one superset middle-slot shape and the only supported home for per-event interceptor chains. The historical positional interceptor vector is retired. Per [001-Registration §Allowed forms of the middle slot](001-Registration.md#allowed-forms-of-the-middle-slot) and [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-): a malformed value is `:rf.error/reg-event-bad-interceptors`, and positional-vector legacy calls are rejected loudly. (`reg-frame`'s metadata-map *also* carries an `:interceptors` key — a per-kind extension defined in [Spec 002 §`:interceptors`](002-Frames.md#interceptors--add-interceptors-to-a-frames-events).)
+The `reg-event` metadata-map carries a reserved `:interceptors` key — the map is the one superset middle-slot shape and the only supported home for per-event interceptor chains. The historical positional interceptor vector is retired. Per [001-Registration §Allowed forms of the middle slot](001-Registration.md#allowed-forms-of-the-middle-slot) and [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event): a malformed value is `:rf.error/reg-event-bad-interceptors`, and positional-vector legacy calls are rejected loudly. (`reg-frame`'s metadata-map *also* carries an `:interceptors` key — a per-kind extension defined in [Spec 002 §`:interceptors`](002-Frames.md#interceptors--add-interceptors-to-a-frames-events).)
 
 ### Per-kind refinements
 
@@ -214,22 +214,21 @@ Each per-kind schema below `:merge`s `:rf/registration-metadata` and adds the ke
 
 > **Layer:** Public
 
-The metadata map accepted by `reg-event-db` / `reg-event-fx` / `reg-event-ctx`. The `:event/kind` discriminator names which arity-flavour fed the entry (per [001 §Registry model](001-Registration.md#registry-model--the-canonical-kind-keyword-set)); machine-handler registrations stamp `:rf/machine?` and `:rf/machine` per [005 §Registration-metadata stamp](005-StateMachines.md#registration--the-machine-is-the-event-handler).
+The metadata map accepted by `reg-event` — the one public event-registration form (per [EP-0018](../docs/EP/EP-0018-one-event-registration.md); coeffects in, effects out). There is **no public `:event/kind` sub-discriminator** (EP-0018 D5 — no static effects signal; tools read traces and effect projections); machine-handler registrations stamp `:rf/machine?` and `:rf/machine` per [005 §Registration-metadata stamp](005-StateMachines.md#registration--the-machine-is-the-event-handler).
 
 ```clojure
 (def EventHandlerMeta
   [:merge
    RegistrationMetadata
    [:map
-    [:event/kind       {:optional true} [:enum :db :fx :ctx]]                ;; runtime stamps this; user code MUST NOT set it
     [:interceptors     {:optional true} [:vector :map]]                      ;; the interceptor chain (superset middle slot; rf2-bpmszk / rf2-iczn3)
-    [:rf.cofx/requires {:optional true} [:ref :rf.cofx/requires]]            ;; EP-0017 — declared consumed coeffects (reg-event-fx / reg-event-ctx only; a registration error on reg-event-db)
+    [:rf.cofx/requires {:optional true} [:ref :rf.cofx/requires]]            ;; EP-0017 — declared consumed coeffects (uniform on reg-event; no db-handler exception per EP-0018)
     [:rf/machine?      {:optional true} :boolean]                            ;; true iff this :event entry is a machine handler (reg-machine path)
     [:rf/machine       {:optional true} [:ref :rf/machine-spec]]             ;; the captured machine spec (when :rf/machine? true); see [005](005-StateMachines.md)
     ]])
 ```
 
-The interceptor chain is the reserved `:interceptors` key — the superset middle slot and the only supported per-event chain home (see the §Registration-metadata section above and [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-)). The registrar stores the *effective* chain (user interceptors + the framework wrapper) under this key; tooling reads it to answer "which interceptors does this handler carry?" (`(remove :rf/default? interceptors)` recovers the user chain). `:event/kind` is **runtime-stamped** by the dispatch macro; explicit user assignment is silently overwritten. `:rf/machine?` / `:rf/machine` are stamped by `reg-machine` / `reg-machine*` only.
+The interceptor chain is the reserved `:interceptors` key — the superset middle slot and the only supported per-event chain home (see the §Registration-metadata section above and [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event)). The registrar stores the *effective* chain (user interceptors + the framework wrapper) under this key; tooling reads it to answer "which interceptors does this handler carry?" (`(remove :rf/default? interceptors)` recovers the user chain). `:rf/machine?` / `:rf/machine` are stamped by `reg-machine` / `reg-machine*` only.
 
 #### `:rf/sub-meta`
 
@@ -331,7 +330,7 @@ The metadata stamped on the `:event` registry slot by `reg-machine` / `reg-machi
 
 | Lens | Returns | Implementation |
 |---|---|---|
-| `(handler-meta :event machine-id)` | the **full registry-slot metadata** — base `RegistrationMetadata` (`:doc`, `:schema`, `:ns`/`:line`/`:file`, `:tags`, `:platforms`) plus `:event/kind`, `:rf/machine? true`, and `:rf/machine <spec>`. Conforms to this `MachineMeta`. | direct registrar lookup |
+| `(handler-meta :event machine-id)` | the **full registry-slot metadata** — base `RegistrationMetadata` (`:doc`, `:schema`, `:ns`/`:line`/`:file`, `:tags`, `:platforms`) plus `:rf/machine? true` and `:rf/machine <spec>`. Conforms to this `MachineMeta`. | direct registrar lookup |
 | `(machine-meta machine-id)` | the **machine spec** — the value at `:rf/machine`. The transition table (`:initial`, `:states`), the root-only `:guards` / `:actions` maps (whose entries co-locate `:source-coords` / `:source-code` when macro-stamped), the initial `:data` map, and (when macro-stamped) the reference-site `:source-coords` co-located on each `:states`-tree map node. | `(:rf/machine (handler-meta :event machine-id))` |
 
 Visualisers walking the transition table consume `(machine-meta id)`; tools needing source-coords on the `reg-machine` call site itself (file/line of the declaration) use `(handler-meta :event id)`. The two surfaces are independent and complementary — see [005 §Querying machines](005-StateMachines.md#querying-machines) and the reference implementation at [`implementation/machines/src/re_frame/machines/lifecycle_fx.cljc`](../implementation/machines/src/re_frame/machines/lifecycle_fx.cljc) (`machines` / `machine-meta`).
@@ -524,7 +523,7 @@ The view-id attribute pairs with `data-rf2-source-coord` (`:rf/source-coord-attr
 > **Status:** v1-required (closed shape — `:db`, `:fx`, and the reserved framework-only `:rf.db/runtime`)
 > **Conformance:** `spec/conformance/fixtures/effect-map-shape-*.edn` + `spec/conformance/fixtures/effect-handler-bad-return.edn` (the proactive fx shape-policing categories — Spec 009 §`:rf.error/effect-map-shape` cases a/b/c and §`:rf.error/effect-handler-bad-return`) + the host-side `re-frame.fx-test` / `re-frame.events-test` counterparts
 
-The return value of `reg-event-fx` handlers. **Three keys: `:db`, `:fx`, and the reserved `:rf.db/runtime`.** `:db` is the app-db partition (the app-facing key); `:rf.db/runtime` is the runtime-db partition (the framework-only key the partition split adds — per [002 §Write authority is by convention](002-Frames.md#write-authority-is-by-convention)). Both are state effects; `:fx` carries everything else.
+The return value of `reg-event` handlers. **Three keys: `:db`, `:fx`, and the reserved `:rf.db/runtime`.** `:db` is the app-db partition (the app-facing key); `:rf.db/runtime` is the runtime-db partition (the framework-only key the partition split adds — per [002 §Write authority is by convention](002-Frames.md#write-authority-is-by-convention)). Both are state effects; `:fx` carries everything else.
 
 ```clojure
 (def EffectMap
@@ -1823,7 +1822,7 @@ Semantics (the contract ports must uphold):
 1. **Singleton-FIRST / vector-ALL.** `:rf/interceptor-error` is set *once* — to the first throw observed. `:rf/interceptor-errors` collects *every* throw in order; subsequent entries append.
 2. **`:before` failures short-circuit subsequent `:before` stages.** Remaining `:before` interceptors are skipped; the handler is also skipped.
 3. **`:after` pass runs in full** regardless of `:before` failures — interceptors that allocate cleanup-on-`:after` resources must always get their `:after` call. An `:after` throw appends to `:rf/interceptor-errors` but does not abort the remaining `:after` stages.
-4. **Trace emission tracks the singleton, attributed to the true failing component.** The trace stream emits one error event per chain execution — keyed off `:rf/interceptor-error`. The category is derived from the captured component identity (per rf2-mszrz): `:rf.error/handler-exception` when the throwing `:id` is the handler-wrapper (`:rf/db-handler` / `:rf/fx-handler` / `:rf/ctx-handler`), `:rf.error/coeffect-exception` when the captured error carries `:rf/cofx-id` (a coeffect supplier threw at context assembly), and `:rf.error/interceptor-exception` otherwise (a user interceptor's `:before`/`:after`, with `:phase` discriminating the two). The `:failing-id` tag carries the true component id (event id / cofx id / interceptor id), NOT a blanket event id. Consumers wanting the full failure set read `:rf/interceptor-errors` from the post-drain context snapshot directly.
+4. **Trace emission tracks the singleton, attributed to the true failing component.** The trace stream emits one error event per chain execution — keyed off `:rf/interceptor-error`. The category is derived from the captured component identity (per rf2-mszrz): `:rf.error/handler-exception` when the throwing `:id` is the handler-wrapper (`:rf/event-handler` — the one framework auto-wrapper, EP-0018), `:rf.error/coeffect-exception` when the captured error carries `:rf/cofx-id` (a coeffect supplier threw at context assembly), and `:rf.error/interceptor-exception` otherwise (a user interceptor's `:before`/`:after`, with `:phase` discriminating the two). The `:failing-id` tag carries the true component id (event id / cofx id / interceptor id), NOT a blanket event id. Consumers wanting the full failure set read `:rf/interceptor-errors` from the post-drain context snapshot directly.
 
 Both keys are namespaced under `:rf/`, so user-installed interceptors that read or write context entries don't collide with the runtime-owned slots. Per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned), user code MUST NOT write to either key.
 

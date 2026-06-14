@@ -44,7 +44,7 @@ The **metadata map** is open (consumers tolerate unknown keys; new keys are adde
 | `:tags` | set of ids | optional | Application-defined tags for filtering (e.g., `#{:critical :auth}`). |
 | `:platforms` | set of platform-ids | optional | Where the registration is allowed to run. Set of `:client`, `:server`, etc. (See [011](011-SSR.md).) |
 
-For `reg-event-*`, the metadata-map carries a reserved **`:interceptors`** key — the map is the one **superset** middle-slot shape (`{:doc … :schema … :interceptors [i1 i2]}`). The historical positional interceptor **vector** form (`[i1 i2]`) is retired; callers put interceptor chains in metadata `:interceptors`. See §Allowed forms of the middle slot below and [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-) for the rationale and failure modes.
+For `reg-event`, the metadata-map carries a reserved **`:interceptors`** key — the map is the one **superset** middle-slot shape (`{:doc … :schema … :interceptors [i1 i2]}`). The historical positional interceptor **vector** form (`[i1 i2]`) is retired; callers put interceptor chains in metadata `:interceptors`. See §Allowed forms of the middle slot below and [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event) for the rationale and failure modes.
 
 ### Return value
 
@@ -58,29 +58,29 @@ The metadata-map is the **superset** middle slot: it carries reflection metadata
 
 1. **Metadata map carrying `:interceptors`** — reflection metadata AND an interceptor chain in one map:
    ```clojure
-   (rf/reg-event-fx :foo
+   (rf/reg-event :foo
      {:doc "..." :schema ... :interceptors [some-interceptor another-interceptor]}
-     (fn [m _] ...))
+     (fn [cofx event] ...))
    ```
 
 2. **A metadata map without `:interceptors`** — reflection metadata only:
    ```clojure
-   (rf/reg-event-fx :foo
+   (rf/reg-event :foo
      {:doc "..." :schema ...}
-     (fn [m _] ...))
+     (fn [cofx event] ...))
    ```
 
 3. **No metadata map** — handler only:
    ```clojure
-   (rf/reg-event-fx :foo
-     (fn [m _] ...))
+   (rf/reg-event :foo
+     (fn [cofx event] ...))
    ```
 
 **Retired positional vector.** `[i1 i2]` in the middle slot, or `{...metadata...} [i1 i2] handler`, is a loud registration error. The repair is always to merge the chain into metadata: `{:interceptors [i1 i2]}`. This is a pre-alpha breaking cleanup of the earlier rf2-bpmszk sugar decision; the runtime no longer accepts two homes for the same fact.
 
 **Malformed `:interceptors`.** A malformed `:interceptors` value (a non-vector, or a vector carrying a non-interceptor entry) is a loud `:rf.error/reg-event-bad-interceptors`.
 
-**A *bare* interceptor is rejected loudly.** Because the discriminator reads a map as metadata, a *bare* interceptor in the middle slot — `(rf/reg-event-db :id some-interceptor (fn …))` rather than `(rf/reg-event-db :id {:interceptors [some-interceptor]} (fn …))` — is itself a map (`{:id … :before … :after …}`) and would otherwise be read as the metadata-map, silently dropping the chain. The runtime instead throws `:rf.error/reg-event-bare-interceptor` at registration (an ERROR — the interceptor chain belongs in metadata `:interceptors`; the call is rejected, not coerced). A map carrying `:before` / `:after` in the middle slot is the bare-interceptor tell. See [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-) and [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives) (rf2-3ut12).
+**A *bare* interceptor is rejected loudly.** Because the discriminator reads a map as metadata, a *bare* interceptor in the middle slot — `(rf/reg-event :id some-interceptor (fn …))` rather than `(rf/reg-event :id {:interceptors [some-interceptor]} (fn …))` — is itself a map (`{:id … :before … :after …}`) and would otherwise be read as the metadata-map, silently dropping the chain. The runtime instead throws `:rf.error/reg-event-bare-interceptor` at registration (an ERROR — the interceptor chain belongs in metadata `:interceptors`; the call is rejected, not coerced). A map carrying `:before` / `:after` in the middle slot is the bare-interceptor tell. See [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event) and [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives) (rf2-3ut12).
 
 For `reg-sub`, `reg-fx`, `reg-cofx`, `reg-frame`, `reg-app-schema`, etc., the middle-slot is the metadata map only — there's no legacy vector form to compete with. `reg-view` is the **only registration that ships as a macro** (defn-shape — auto-defs the symbol, auto-derives the id, auto-injects `dispatch` / `subscribe` lexically); the plain-fn surface for runtime / programmatic registration is `reg-view*`. See [Cross-Spec-Interactions §21 Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier) for why the family is asymmetric.
 
@@ -90,7 +90,7 @@ The registrar is a `(kind, id) → metadata` map. The `kind` keyword identifies 
 
 | `kind` | What it covers | Registration function(s) |
 |---|---|---|
-| `:event` | Every event handler regardless of arity | `reg-event-db`, `reg-event-fx`, `reg-event-ctx` |
+| `:event` | Every event handler | `reg-event` (the one public form — coeffects in, effects out) |
 | `:sub` | All subscriptions | `reg-sub` |
 | `:fx` | Registered effect handlers | `reg-fx` |
 | `:cofx` | Coeffect suppliers (value-returning, graded ambient / recordable — §Coeffects) | `reg-cofx` |
@@ -104,7 +104,9 @@ The registrar is a `(kind, id) → metadata` map. The `kind` keyword identifies 
 | `:mutation` | Registered mutations — named causal writes that invalidate / patch / populate resource reads (per [016 §Mutations](016-Resources.md#mutations-first-public-beta-gate-rf2-dwme29)). **Late-bound** by the Resources artefact. | `reg-mutation` / `clear-mutation` (Spec 016) |
 | `:resource-scope` | Registered **named resource-scope resolvers** — pure db-derived scope derivations with declared inputs (per [016 §Named resource-scope resolvers](016-Resources.md#named-resource-scope-resolvers-reg-resource-scope), EP-0016 D3). **Late-bound** by the Resources artefact. | `reg-resource-scope` / `clear-resource-scope` (Spec 016) |
 
-`:event` is a single kind even though three registration functions feed it (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`). The arity-distinguishing internal sub-kind is on the metadata as `:event/kind ∈ {:db :fx :ctx}` — `(rf/registrations :event)` returns every event handler regardless of which `reg-event-*` registered it; tools that need the sub-kind read it from metadata.
+`:event` is fed by the one public registration function `reg-event` (semantically the former `reg-event-fx`: coeffects in, a closed effects map out — per [EP-0018](../docs/EP/EP-0018-one-event-registration.md)). There is **no public `:event/kind` sub-discriminator** — every event handler is simply kind `:event`. Tooling that wants to know what a handler *did* reads traces and effect projections, not a registration sub-kind. `(rf/registrations :event)` returns every event handler.
+
+> **The retired three-form family.** `reg-event-db`, `reg-event-fx`, and `reg-event-ctx` are gone from the public surface (EP-0018, ruled 2026-06-14). `reg-event-db` and `reg-event-fx` are **removed** (`reg-event` replaces both); `reg-event-ctx` is **demoted to a framework-internal primitive** — the `context -> context` mechanism it exposed is retained internally (it is what `reg-event` lowers onto and what subsystem dispatchers use) but is no longer a public application-authoring form. Calling a retired public name raises its naming hard error (§The retired event-registration names below). Full-context manipulation in application code is expressed with **interceptors** (the public `context -> context` primitive).
 
 > Machine guards and actions are **NOT** a registry kind — they are **machine-scoped**, declared in each machine's `:guards` / `:actions` maps inside the `make-machine-handler` spec. See [005 §Registration](005-StateMachines.md#registration--the-machine-is-the-event-handler). Their dev-only fn-source **handler-meta** surface (`(rf/handler-meta :machine-guard [machine-id guard-id])`, consumed by Xray's focused-transition lens + re-frame-pair source-jump) is a **tooling-derived** view — `handler-meta` is a general source-meta surface (introspect any source-bearing thing by `(kind, id)`), and for the two machine kinds it **derives** the source on demand from the machine's `:event` registration spec rather than from a registrar entry (rf2-ftrcv, supersedes rf2-ypu5i). The addressing is uniform across every registry kind (the core set plus the late-bound optional-artefact kinds — `:resource` / `:mutation` / `:resource-scope`); the storage is not a registry kind.
 
@@ -117,7 +119,7 @@ The registrar is a `(kind, id) → metadata` map. The `kind` keyword identifies 
 A named function is preferred.
 
 ```clojure
-(rf/reg-event-fx :cart.item/remove
+(rf/reg-event :cart.item/remove
   {:doc    "Remove an item from the cart by id."
    :schema [:cat [:= :cart.item/remove] :uuid]}
   (fn handler-cart-item-remove [{:keys [db]} [_ id]]
@@ -126,17 +128,33 @@ A named function is preferred.
 
 The handler's name shows up in stack traces, the [trace stream](009-Instrumentation.md), tools that walk the registry, and AI inspection results. Anonymous handlers (`fn` without a name) work but are second-best.
 
+### The one event form — coeffects in, effects out
+
+`reg-event` is the single public event-registration form ([EP-0018](../docs/EP/EP-0018-one-event-registration.md), ruled 2026-06-14). Its handler is **two-arg** `(fn [coeffects event-vec] …)` and returns the **closed effects map** (`{:db … :fx [...] …}`) or `nil` — byte-for-byte the former `reg-event-fx` handler. The db write is an explicit `:db` effect like any other; there is no db-only return shape. Handlers that do not need the event vector use `_` for the second argument; `(:event coeffects)` is the same value. The effects-map return contract (`#{:db :fx :rf.db/runtime}`, `:rf.db/runtime` framework-authority only) and the EP-0017 coeffects model are unchanged — only the registration surface collapses. The metadata middle slot is the standard Spec 001 superset (`:doc`, `:schema`, `:interceptors`, `:rf.cofx/requires`, …), now uniformly available to every event.
+
+### The retired event-registration names
+
+The v1 three-form family is retired from the public surface (EP-0018, EP-0007 rule 2 — a hard error naming the replacement, never a silent alias):
+
+| Retired public name | Disposition | Calling it raises | Replacement |
+|---|---|---|---|
+| `reg-event-db` | **Removed** — `reg-event` replaces it | `:rf.error/reg-event-db-removed` (shows the two-line conversion: destructure `:db` from the coeffects map; wrap the return in `{:db …}`) | `reg-event` |
+| `reg-event-fx` | **Removed** — `reg-event` is the same shape under the bare name | `:rf.error/reg-event-fx-removed` | `reg-event` |
+| `reg-event-ctx` | **Demoted to framework-internal** — the `context -> context` mechanism is retained (the lowering target for `reg-event`; used by subsystem dispatchers) but is no longer a public application-authoring form | `:rf.error/reg-event-ctx-removed` (names `->interceptor`) | `->interceptor` (the public `context -> context` primitive) |
+
+The hard errors are catalogued in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue). Full-context application work that previously reached for `reg-event-ctx` — capture, short-circuit (`:rf/skip-handler?`), direct effect installation — is expressed as an interceptor's `:before` / `:after` (the public `context -> context` primitive). If a public path is later found that genuinely needs app-level full-context handlers, it returns by a follow-on with that specific consumer and a sharper name; the corpus shows none today.
+
 ## Source-coordinate capture (CLJS reference)
 
 The CLJS reference uses macros to capture `:ns` / `:line` / `:column` / `:file` at compile time. The four keys are the canonical source-coord shape — `:rf/source-coord-meta` per [Spec-Schemas](Spec-Schemas.md#rfsource-coord-meta). `:column` is captured wherever the host's compile-time form metadata exposes it (CLJS's `&form`/`&env` does); ports whose macro layer has no column information omit the key. Per [Tool-Pair §Source-mapping](Tool-Pair.md) and [006 §Source-coord annotation](006-ReactiveSubstrate.md#source-coord-annotation-mandatory):
 
 ```clojure
-(defmacro reg-event-db
+(defmacro reg-event
   [id & args]
   (let [[metadata handler] (resolve-args args)
         {:keys [line column]} (meta &form)
         coords {:ns (ns-name *ns*) :line line :column column :file *file*}]
-    `(re-frame.core/-reg-event-db
+    `(re-frame.core/-reg-event
        ~id
        ~(merge coords metadata)
        ~handler)))
@@ -207,11 +225,11 @@ The registry is a public, queryable structure. Tools and agents read it without 
 
 The valid `kind` values are defined in §Registry model above.
 
-A handler's metadata exposes its sub-kind:
+A handler's metadata is returned as authored, with the framework-injected source coords and effective interceptor chain:
 
 ```clojure
 (rf/handler-meta :event :counter/inc)
-;; → {:doc "..." :event/kind :db :ns 'counter :line 12 ...}
+;; → {:doc "..." :interceptors [...] :ns 'counter :line 12 ...}
 ```
 
 Per [002-Frames §The public registrar query API](002-Frames.md#the-public-registrar-query-api), these queries are stable, public, and JVM-runnable.
@@ -309,7 +327,7 @@ A pointer-only summary of the registration functions and the per-Spec docs that 
 
 | Kind | Function(s) | Owning Spec |
 |---|---|---|
-| Event handler | `reg-event-db`, `reg-event-fx`, `reg-event-ctx` | [002-Frames.md](002-Frames.md) |
+| Event handler | `reg-event` (one public form; `reg-event-ctx` is the framework-internal `context -> context` primitive, off the public surface — EP-0018) | [002-Frames.md](002-Frames.md) |
 | Subscription | `reg-sub` | [006-ReactiveSubstrate.md](006-ReactiveSubstrate.md) |
 | Effect | `reg-fx` | [002-Frames.md](002-Frames.md), [011-SSR.md](011-SSR.md) (for `:platforms`) |
 | Cofx | `reg-cofx` | [001 §Coeffects](#coeffects--reg-cofx-value-returning-graded) (registrar contract + grades + `:rf.cofx/requires`); [002 §Recordable coeffects](002-Frames.md#recordable-coeffects) (envelope + delivery) |
@@ -383,10 +401,10 @@ Registration contract:
 
 ### `:rf.cofx/requires` — the declaration key
 
-`:rf.cofx/requires` is a standard registration-metadata key (the middle slot) on `reg-event-fx` and `reg-event-ctx`, and on machine named guard/action entries ([005 §Causal host facts](005-StateMachines.md#causal-host-facts--rfcofx-ep-0017)). Its value is a vector of registered coeffect ids; a parameterized id appears as `[id arg]` (mirroring the binary supplier arity).
+`:rf.cofx/requires` is a standard registration-metadata key (the middle slot) on `reg-event`, and on machine named guard/action entries ([005 §Causal host facts](005-StateMachines.md#causal-host-facts--rfcofx-ep-0017)). Its value is a vector of registered coeffect ids; a parameterized id appears as `[id arg]` (mirroring the binary supplier arity). Because `reg-event` is the one event form, **every** event handler can declare coeffects uniformly — there is no longer a db-only form with a hole in it ([EP-0018](../docs/EP/EP-0018-one-event-registration.md) closes the EP-0017 gap that the removed `reg-event-db` could not express `:rf.cofx/requires`).
 
 ```clojure
-(rf/reg-event-fx :counter/inc
+(rf/reg-event :counter/inc
   {:doc "Increment by a replayable random delta."
    :rf.cofx/requires [:rf/time-ms :counter/delta]}
   (fn [{:keys [db counter/delta rf/time-ms]} _event]
@@ -397,7 +415,6 @@ Registration contract:
 
 A requirement means **ensure + deliver**; the full satisfaction algorithm (present/validate, absent+generator, absent+provided, ambient) is owned by [002 §Declaration and delivery](002-Frames.md#declaration-and-delivery--rfcofxrequires). The registration-time rules this Spec owns:
 
-- On `reg-event-db`, `:rf.cofx/requires` is a **registration-time error** (`:rf.error/cofx-request-invalid`): a db handler receives only the db and cannot take delivery. Needing the world is what graduates a handler to the fx form.
 - A required id with **no registration at all** is `:rf.error/unregistered-cofx` — at registration where statically checkable, else at first processing. Typos die before dispatch semantics apply.
 - `[id arg]` delivers under the bare `id`; declaring the same id twice (any args) in one consumer scope is `:rf.error/cofx-name-collision`.
 - A malformed `:rf.cofx/requires` (a non-vector, or a vector carrying a non-id entry) is `:rf.error/cofx-request-invalid` at registration.
@@ -423,7 +440,7 @@ Normative obligations:
 1. **Emission gate.** The warning is emitted on every `reg-*` call whose final metadata-map (after macro merge of source coords) carries no `:doc` key, or where `:doc` is `nil` or an empty string. The emission goes through the trace surface defined in [009-Instrumentation §The trace event model](009-Instrumentation.md#the-trace-event-model) and carries `:op-type :warning`.
 2. **Suppression.** The warning fires at most once per `(kind, id)` pair within a given runtime process. Re-registering the same id (hot-reload save→re-eval) does not re-fire the warning; a different id under the same kind does. The suppression cache lives alongside the existing one-shot warning caches (`:rf.warning/plain-fn-under-non-default-frame-once`); destruction-recreation of the frame resets it as the others do.
 3. **Production elision.** Per [009 §Production builds: zero overhead, zero code](009-Instrumentation.md#production-builds-zero-overhead-zero-code), the dev-only trace surface is gated on `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`). The closure compiler eliminates the gated branch in `:advanced` production builds. Production binaries carry no `:rf.warning/missing-doc` machinery.
-4. **Kind coverage.** Every kind in the §Registry model table (`:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:frame`, `:route`, `:head`, `:error-projector`, `:flow`, and the late-bound optional-artefact kinds `:resource` / `:mutation` / `:resource-scope`) is in scope, plus `reg-app-schema` (which writes to the schemas artefact's per-frame side-table, not the registrar — rf2-cq1ak). Programmatic re-registrations through internal helpers (`re-frame.core/-reg-event-db` and siblings) that bypass the public macro path are out of scope — the warning fires from the macro layer, where the registration metadata is first composed.
+4. **Kind coverage.** Every kind in the §Registry model table (`:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:frame`, `:route`, `:head`, `:error-projector`, `:flow`, and the late-bound optional-artefact kinds `:resource` / `:mutation` / `:resource-scope`) is in scope, plus `reg-app-schema` (which writes to the schemas artefact's per-frame side-table, not the registrar — rf2-cq1ak). Programmatic re-registrations through the internal helper (`re-frame.core/-reg-event`) that bypasses the public macro path are out of scope — the warning fires from the macro layer, where the registration metadata is first composed.
 5. **Trace envelope.** The trace event carries `:operation :rf.warning/missing-doc`, `:tags {:kind <kind> :id <id> :source-coords <captured-coords>}`. Per [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives) the emission site is the macro-expanded `reg-*` body in `registrar.cljc`. The recovery classification is `:ignored` — the registration completes normally; the warning is a diagnostic surface, not a gate.
 
 The dev nudge is deliberate: documented handlers are the difference between a registry an agent can navigate and a registry it cannot. Making the warning one-shot per `(kind, id)` keeps the dev stream readable while ensuring the omission is visible in 10x, re-frame-pair, and any other consumer of the trace bus.
@@ -441,13 +458,14 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 | Decision | Pointer |
 |---|---|
 | `:doc` is SHOULD (dev-warned) — absent registrations emit `:rf.warning/missing-doc` once per `(kind, id)` pair in dev; production elides the check; the metadata schema keeps `:doc` `{:optional true}` (the warning is the nudge, not a structural gate) | [§`:doc` is dev-warned when absent](#doc-is-dev-warned-when-absent), [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives), [Spec-Schemas §`:rf/registration-metadata`](Spec-Schemas.md#rfregistration-metadata) |
-| `:interceptors` in the metadata-map of `reg-event-*` is the **only** home for per-event interceptor chains; the historical positional vector middle slot is retired. A malformed value is `:rf.error/reg-event-bad-interceptors` (rf2-bpmszk, updated by rf2-iczn3 pre-alpha cleanup) | [§Allowed forms of the middle slot](#allowed-forms-of-the-middle-slot), [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-) |
-| A *bare* interceptor handed to `reg-event-*` is rejected loudly — `:rf.error/reg-event-bare-interceptor` (ERROR) at registration rather than silently dropped; the repair is metadata `{:interceptors [interceptor]}` (rf2-3ut12) | [§Allowed forms of the middle slot](#allowed-forms-of-the-middle-slot), [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-) |
+| `:interceptors` in the `reg-event` metadata-map is the **only** home for per-event interceptor chains; the historical positional vector middle slot is retired. A malformed value is `:rf.error/reg-event-bad-interceptors` (rf2-bpmszk, updated by rf2-iczn3 pre-alpha cleanup) | [§Allowed forms of the middle slot](#allowed-forms-of-the-middle-slot), [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event) |
+| A *bare* interceptor handed to `reg-event` is rejected loudly — `:rf.error/reg-event-bare-interceptor` (ERROR) at registration rather than silently dropped; the repair is metadata `{:interceptors [interceptor]}` (rf2-3ut12) | [§Allowed forms of the middle slot](#allowed-forms-of-the-middle-slot), [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event) |
 | Every `reg-*` returns its primary id — the keyword (or path, for `reg-app-schema`) the caller registered with | [§Return value](#return-value), [Conventions §`reg-*` return-value convention](Conventions.md#reg--return-value-convention) |
 | Re-registration is non-destructive to in-flight work; cached values invalidate on relevant re-registration; active machine instances continue with their captured spec; dispatch is not paused | [§The hot-reload contract](#the-hot-reload-contract) |
 | Re-registration with a *different* fn is silent last-write-wins by default; the runtime can warn at registration time via `:rf.warning/registration-collision` (recommended on in dev) | [§Re-registration of a different function — collision warning](#re-registration-of-a-different-function--collision-warning) |
 | Machine guards and actions are NOT registry kinds — they are machine-local declarations inside each `make-machine-handler` spec's `:guards` / `:actions` maps; hot-reload flows through the enclosing machine's `:event` slot | [§Canonical ownership boundaries](#canonical-ownership-boundaries), [§Registry model — the canonical `kind` keyword set](#registry-model--the-canonical-kind-keyword-set) |
 | `reg-cofx` is a value-returning supplier (`(fn [] v)` / `(fn [arg] v)`), graded ambient (default) or recordable (`:recordable? true`, optionally `:provided? true`); `:rf.cofx/requires` declares a handler's consumed coeffects; `inject-cofx` is removed (hard error `:rf.error/inject-cofx-removed`) — EP-0017 slice A | [§Coeffects](#coeffects--reg-cofx-value-returning-graded), [002 §Recordable coeffects](002-Frames.md#recordable-coeffects) |
+| One public event-registration form: `reg-event` (coeffects in, closed effects map out; two-arg handler). `reg-event-db` / `reg-event-fx` are removed; `reg-event-ctx` is demoted to a framework-internal `context -> context` primitive (interceptors own the public niche). Retired public names raise their naming hard errors (`:rf.error/reg-event-db-removed` / `-fx-removed` / `-ctx-removed`). No public `:event/kind` sub-kind. `:rf.cofx/requires` now lives uniformly on `reg-event` (no db-handler exception) — EP-0018 | [§The one event form](#the-one-event-form--coeffects-in-effects-out), [§The retired event-registration names](#the-retired-event-registration-names), [002 §The event handler contract](002-Frames.md#the-event-handler-contract) |
 | Per-kind metadata schemas — the metadata map is open, but each kind has a documented set of keys it cares about; the catalogue ships per-kind narrowed schemas (`:rf/event-handler-meta`, `:rf/sub-meta`, `:rf/fx-meta`, `:rf/cofx-meta`, `:rf/view-meta`, `:rf/machine-meta`, `:rf/flow-meta`, `:rf/app-schema-meta`, `:rf/head-meta`, `:rf/error-projector-meta`, and the route-shaped `:rf/route-metadata`), each `:merge`-composed with the base `:rf/registration-metadata` open shape | [Spec-Schemas §Per-kind refinements](Spec-Schemas.md#per-kind-refinements) |
 
 ## Cross-references

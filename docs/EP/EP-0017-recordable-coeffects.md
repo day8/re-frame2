@@ -83,8 +83,10 @@ of epic `rf2-d8mvke`.
   framework ships exactly one built-in registration — `:rf/time-ms`
   (recordable, provided, stamped at enqueue).
 - **`:rf.cofx/requires` declared-only delivery — SHIPPED.** The declaration key
-  is parsed on `reg-event-fx` / `reg-event-ctx` (and is a registration-time
-  error on `reg-event-db`); handlers receive `:db`, `:event`, plus exactly
+  is parsed on `reg-event` (post-[EP-0018](EP-0018-one-event-registration.md):
+  the one event form; there is no db-only handler exempt from the declaration
+  surface — the original EP-0017 db-handler exception is moot now that
+  `reg-event-db` is removed); handlers receive `:db`, `:event`, plus exactly
   their declared facts, flat — a leaf on the token but undeclared is not
   staged. Ambient suppliers run at context assembly; provided facts must be on
   the token (absent is `:rf.error/missing-required-cofx`). In Slice A every
@@ -432,12 +434,14 @@ is correct behavior, not a bug.
 ### 4. Declaration: `:rf.cofx/requires`
 
 `:rf.cofx/requires` is a standard registration-metadata key (Spec 001 middle
-slot) on `reg-event-fx` and `reg-event-ctx`, and on machine named-callback
+slot) on `reg-event`, and on machine named-callback
 entries (§7). Its value is a vector of registered coeffect ids; a
 parameterized id appears as `[id arg]` (mirroring the binary supplier arity).
+(Post-[EP-0018](EP-0018-one-event-registration.md) `reg-event` is the one event
+form — every handler can declare coeffects uniformly.)
 
 ```clojure
-(rf/reg-event-fx :counter/inc
+(rf/reg-event :counter/inc
   {:doc "Increment by a replayable random delta."
    :rf.cofx/requires [:rf/time-ms :counter/delta]}
   (fn [{:keys [db counter/delta rf/time-ms]} _event]
@@ -462,9 +466,11 @@ A requirement means **ensure + deliver**:
   `:rf.error/unregistered-cofx` — at registration where statically
   checkable, else at first processing. Typos die before dispatch semantics
   apply.
-- On `reg-event-db`, `:rf.cofx/requires` is a registration-time error: a db
-  handler receives only the db and cannot take delivery. Needing the world
-  is what graduates a handler to the fx form.
+- There is no db-only handler form to except: post-[EP-0018](EP-0018-one-event-registration.md)
+  `reg-event` is the one event form and every handler can declare
+  `:rf.cofx/requires` uniformly. (The original EP-0017 rule made
+  `:rf.cofx/requires` on `reg-event-db` a registration-time error; EP-0018
+  removed `reg-event-db`, closing that hole structurally.)
 - `[id arg]` delivers under the bare `id`; declaring the same id twice (any
   args) in one consumer scope is `:rf.error/cofx-name-collision`.
 
@@ -520,7 +526,8 @@ unexpressible). There is no nested map in the coeffects map — no `:cofx` key,
 no `:rf.world/inputs` successor, no duplicate of `:rf/time-ms`. The envelope
 carries the canonical complete record; the coeffects map carries the declared
 spread; one home per layer. Generic code that wants the whole record
-(transition helpers, interceptors, `reg-event-ctx`) reads the envelope's map
+(transition helpers, interceptors, the framework-internal `context -> context`
+primitive) reads the envelope's map
 through the context — exactly how `:event` is reachable at both layers.
 
 **Coeffects are context assembly, not chain members.** Operationally,

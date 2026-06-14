@@ -355,6 +355,21 @@ The model buys partition-aware sub-cache invalidation **for free** from existing
 - An **app-only commit** is symmetric — the `runtime-db` projection does not propagate, so framework route/machine subs are untouched, and app authors never carry runtime paths in their schemas or sub code.
 - A commit that touches **both** partitions propagates to both projections.
 
+### The event handler contract
+
+There is **one public event-registration form** — `reg-event` ([EP-0018](../docs/EP/EP-0018-one-event-registration.md), ruled 2026-06-14; the registrar contract is owned by [001 §The one event form](001-Registration.md#the-one-event-form--coeffects-in-effects-out)). Every event handler is **coeffects in, effects out**:
+
+```clojure
+(rf/reg-event :id ?metadata
+  (fn [coeffects event-vec] effects-map-or-nil))
+```
+
+- The handler is **two-arg** (D4): the coeffects map and the event vector. Handlers that do not need the event vector use `_`. `(:event coeffects)` is the same value as the second argument.
+- It returns the **closed effects map** (`{:db … :fx [...] …}`, top-level keys `#{:db :fx :rf.db/runtime}`, `:rf.db/runtime` framework-authority only) or `nil`. The db write is an explicit `:db` effect like any other; there is no db-only return shape.
+- The former three-form family (`reg-event-db` / `reg-event-fx` / `reg-event-ctx`) is gone from the public surface: `reg-event-db` / `reg-event-fx` are removed (`reg-event` replaces both); `reg-event-ctx` is demoted to a framework-internal `context -> context` primitive — application full-context work is expressed with interceptors. Retired public names raise their naming hard errors (per [001 §The retired event-registration names](001-Registration.md#the-retired-event-registration-names)).
+
+The effects-map and coeffects model are otherwise unchanged — only the registration surface collapses. The rest of this section details how the coeffects map is assembled and threaded.
+
 #### Event context threads both partitions
 
 A standard event context threads both partitions plus the frame id and the handler's declared recordable coeffects:
@@ -375,21 +390,21 @@ The runtime-db coeffect is injected **by reference** (the persistent runtime-db 
 
 The event context stages two distinct facts about recordable coeffects, and the distinction is load-bearing:
 
-- **The framework always stages the envelope's `:rf.cofx` map** as a base context key (alongside `:db`, `:event`, `:rf.db/runtime`, `:rf.frame/id`) — the *canonical complete record* of every recordable fact on this causal token, regardless of what any handler declared. Generic code (transition helpers, interceptors, `reg-event-ctx`) reads the whole record there — exactly how `:event` is reachable at both layers. This is the framework's own access path: the framework's durable writers (resource freshness, work-ledger rows, mutation instances, epoch records) read `:rf/time-ms` from this map, not by declaring it.
+- **The framework always stages the envelope's `:rf.cofx` map** as a base context key (alongside `:db`, `:event`, `:rf.db/runtime`, `:rf.frame/id`) — the *canonical complete record* of every recordable fact on this causal token, regardless of what any handler declared. Generic code (transition helpers, interceptors, the framework-internal `context -> context` primitive) reads the whole record there — exactly how `:event` is reachable at both layers. This is the framework's own access path: the framework's durable writers (resource freshness, work-ledger rows, mutation instances, epoch records) read `:rf/time-ms` from this map, not by declaring it.
 - **The recordable coeffects a handler declares** (here `:rf/time-ms`) are *additionally* delivered **flat** into the coeffects map under their own ids — never grouped in a sub-map. This *user-declared spread* is **declared-only**: a handler receives `:db`, `:event` (the fold's own arguments), the framework context keys above (including the `:rf.cofx` map), and *exactly* the leaves it named in `:rf.cofx/requires` ([§Recordable coeffects](#recordable-coeffects)). A leaf on the token but undeclared is **not** delivered as a flat key.
 
 So a declared `:rf/time-ms` appears twice by design and at two layers: once inside the always-staged `:rf.cofx` envelope map (the framework record) and once as a flat top-level key (the handler's declared delivery). One home per layer.
 
 #### An ordinary `:db` return replaces only app-db
 
-`reg-event-db` handlers receive and return only app-db; ordinary `:db` effects from `reg-event-fx` are app-db too. If the frame currently holds:
+A handler's `:db` effect targets app-db, never runtime-db. If the frame currently holds:
 
 ```clojure
 {:rf.db/app     {:session/status :authenticated :user/id 42}
  :rf.db/runtime {:rf.runtime/machines {…} :rf.runtime/routing {…}}}
 ```
 
-then `(rf/reg-event-db :session/reset (fn [_db _] {:session/status :anonymous}))` commits:
+then `(rf/reg-event :session/reset (fn [_ _] {:db {:session/status :anonymous}}))` commits:
 
 ```clojure
 {:rf.db/app     {:session/status :anonymous}      ;; only app-db replaced
@@ -412,7 +427,7 @@ A subsystem whose runtime-db writes ride through an **event handler** (one retur
 
 Which registrars mint authority:
 
-- **routing** — the routing façade stamps `:rf/framework-authority? true` on every `reg-event-fx` it registers (`:rf.route/navigate`, `:rf.route/transitioned` / `:rf.route/handle-url-change`, `:rf/url-requested` / `:rf.route/continue` / `:rf.route/cancel`, `:rf.route.internal/settle-transition`, …) — every one reads and returns the reserved route slice.
+- **routing** — the routing façade stamps `:rf/framework-authority? true` on every `reg-event` it registers (`:rf.route/navigate`, `:rf.route/transitioned` / `:rf.route/handle-url-change`, `:rf/url-requested` / `:rf.route/continue` / `:rf.route/cancel`, `:rf.route.internal/settle-transition`, …) — every one reads and returns the reserved route slice.
 - **SSR** — the SSR façade stamps it on `:rf/hydrate`, which installs the hydration metadata into the runtime-db partition.
 - **machines** — machine handlers carry the framework-owned `:rf/machine? true` stamp (minted by the machine registrar). The runtime folds that stamp into the authority check, so a machine implies framework-write authority **without** a separate `:rf/framework-authority?` key — its existing contract is unchanged.
 - **elision** and **SSR's non-event writes** — these subsystems write runtime-db through **privileged frame-state helpers** (`swap-runtime-db!` / `replace-frame-state!`), not through event handlers returning a `:rf.db/runtime` effect, so they never reach the event-handler diagnostic and mint no event-handler authority. (Elision's per-frame declaration registry and any full-frame install / restore path are in this category.)
@@ -499,8 +514,8 @@ Classification is **installed atomically as part of frame creation, BEFORE `:on-
 If the frame's initialisation needs to fire multiple events, the single `:on-create` event's handler does so via its effect map:
 
 ```clojure
-(rf/reg-event-fx :todo/initialise
-  (fn [{:keys [db]}]
+(rf/reg-event :todo/initialise
+  (fn [{:keys [db]} _]
     {:db (assoc db :items [] :status :idle)
      :fx [[:dispatch [:todo/restore-session]]
           [:dispatch [:todo/load-preferences]]]}))
@@ -567,7 +582,7 @@ Hooks 2 / 5's per-artefact entries are **best-effort**: an artefact whose hook i
 - `:on-destroy` events do not fire (they only fire on `destroy-frame!`).
 - Sub-cache, router queue, in-flight events all remain.
 
-**Absent-key semantics on re-registration:** the re-registered metadata map is the **complete replacement** of the previous map's replaceable slots, *not* a merge. A key absent from the new map clears the previous binding; a key present overwrites. So if the original `reg-frame` set `:fx-overrides {:my-app/http stub-fn}` and the re-registration omits `:fx-overrides`, the overrides map clears (no overrides apply going forward). This matches every other `reg-*` shape (re-registering a `reg-event-fx` replaces the handler entirely; metadata behaves the same way), and keeps the on-disk source the single source of truth — the runtime doesn't accumulate state the source no longer mentions. The slots that follow this rule are the same ones listed in *What gets replaced*: `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:doc`/`:ns`/`:line`/`:file`, `:drain-depth`, `:on-create`, `:on-destroy`, and the frame-owned classification keys `:sensitive` / `:large` / `:observability`. The absent-key rule applies to classification too: dropping `:sensitive` on re-registration clears the prior frame-owned sensitive declarations (the source is the single source of truth). Live runtime state (`app-db`, sub-cache, queue) is preserved regardless of what the metadata map says.
+**Absent-key semantics on re-registration:** the re-registered metadata map is the **complete replacement** of the previous map's replaceable slots, *not* a merge. A key absent from the new map clears the previous binding; a key present overwrites. So if the original `reg-frame` set `:fx-overrides {:my-app/http stub-fn}` and the re-registration omits `:fx-overrides`, the overrides map clears (no overrides apply going forward). This matches every other `reg-*` shape (re-registering a `reg-event` replaces the handler entirely; metadata behaves the same way), and keeps the on-disk source the single source of truth — the runtime doesn't accumulate state the source no longer mentions. The slots that follow this rule are the same ones listed in *What gets replaced*: `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:doc`/`:ns`/`:line`/`:file`, `:drain-depth`, `:on-create`, `:on-destroy`, and the frame-owned classification keys `:sensitive` / `:large` / `:observability`. The absent-key rule applies to classification too: dropping `:sensitive` on re-registration clears the prior frame-owned sensitive declarations (the source is the single source of truth). Live runtime state (`app-db`, sub-cache, queue) is preserved regardless of what the metadata map says.
 
 **Trade-off:** there's some "config drift" between what `reg-frame` literally says and what's running. A developer who edits `:on-create` and re-saves will not see the new init event re-fire — they need to call `reset-frame!` to apply it. This matches today's re-frame: `app-db` doesn't reset when you save a file, and developers expect that.
 
@@ -713,7 +728,7 @@ Some use cases need a frame *per mount* rather than a named singleton — devcar
 (rf/make-frame opts) → :rf.frame/123     ;; gensyms a unique keyword, registers, returns it
 (rf/destroy-frame! :rf.frame/123)         ;; same destroy as named frames
 
-(rf/reg-event-db :counter/init (fn [_ _] {:count 0}))    ;; init event registered once
+(rf/reg-event :counter/init (fn [_ _] {:db {:count 0}}))    ;; init event registered once
 
 (defn counter-widget [label]
   (r/with-let [f (rf/make-frame {:on-create [:counter/init]})]
@@ -728,7 +743,7 @@ Some use cases need a frame *per mount* rather than a named singleton — devcar
 Tests use this pattern as their fixture lifecycle:
 
 ```clojure
-(rf/reg-event-db :auth/init-idle (fn [_ _] {:auth/state :idle}))
+(rf/reg-event :auth/init-idle (fn [_ _] {:db {:auth/state :idle}}))
 
 (deftest auth-flow
   (let [f (rf/make-frame {:on-create [:auth/init-idle]})]
@@ -777,7 +792,7 @@ The envelope is just a map. Any field can be set by:
 
 The two-arg `dispatch` form is the single mechanism for setting envelope fields per call: `(dispatch event {:frame :todo :fx-overrides {...}})`. Per-event override variants like `dispatch-to`, `dispatch-with`, and `dispatch-sync-with` are not part of the API. Event-vector metadata is not an opt-channel in v2; use the two-arg `(dispatch event opts)` form. (The one v1 metadata case — `^:flush-dom` — is rewritten to `:dispatch-later {:ms 0}`; see [MIGRATION.md §M-16](../migration/from-re-frame-v1/README.md#m-16-flush-dom-event-vector-metadata-removed--replace-with-dispatch-later-ms-0-inside-effect-maps-or-the-top-level-rewrite-outside-event-handlers).)
 
-The router reads the envelope's `:frame`, looks up the frame in the registry, and runs the interceptor pipeline against that frame's `app-db`/router context. Handlers receive the same shape they always have (`db`+`event-vec` for `reg-event-db`, context map for `reg-event-fx`); the envelope is not exposed to user handlers.
+The router reads the envelope's `:frame`, looks up the frame in the registry, and runs the interceptor pipeline against that frame's `app-db`/router context. Handlers receive the one shape — the coeffects map plus the event vector (`(fn [coeffects event-vec] …)`); the envelope is not exposed to user handlers.
 
 ### How `:frame` gets attached
 
@@ -795,7 +810,7 @@ intents of [§Frame target resolution](#frame-target-resolution--the-carried-inv
 
 The router binds the dynamic-var tier of the resolution chain to the in-flight event's `:frame` for the duration of `process-event!`. The contract is:
 
-- **Synchronous dispatch from inside a handler body routes to the handler's frame.** A `reg-event-fx` whose body calls `(rf/dispatch [:child])` and returns `{}` dispatches `:child` to the same frame the parent is running on. The same applies to `(rf/frame-handle)` and `(rf/current-frame-id)` — both read the dynamic-var tier first.
+- **Synchronous dispatch from inside a handler body routes to the handler's frame.** A `reg-event` handler whose body calls `(rf/dispatch [:child])` and returns `{}` dispatches `:child` to the same frame the parent is running on. The same applies to `(rf/frame-handle)` and `(rf/current-frame-id)` — both read the dynamic-var tier first.
 - **Async callbacks escape the scope.** When a handler defers work via `js/setTimeout`, `js/Promise.then`, `requestAnimationFrame`, or any other host-level async primitive, the deferred callback fires on a fresh stack with no dynamic binding — the *scope* has evaporated. A bare `(rf/dispatch [:child])` from inside the callback carries no stamp and fails with `:rf.error/no-frame-context` (it does **not** fall through to `:rf/default`). This is why async paths must use *hold*: capture the frame as a value before the boundary. The escape is a fundamental property of dynamic scope; the loud failure is the contract working as designed (per [§Frame target resolution](#frame-target-resolution--the-carried-invariant)).
 
 The three frame-safe affordances for async callbacks are, in canonical-first order:
@@ -902,10 +917,10 @@ Unlike the dev-only `:dispatch-id` correlation slot, `:rf.cofx` is stamped **unc
 
 #### Declaration and delivery — `:rf.cofx/requires`
 
-A handler declares the coeffects it consumes via the registration-metadata key **`:rf.cofx/requires`** ([001 §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key)) — a vector of registered coeffect ids on `reg-event-fx` / `reg-event-ctx` (a registration-time error on `reg-event-db`, which receives only the db). Handlers read declared facts directly, flat:
+A handler declares the coeffects it consumes via the registration-metadata key **`:rf.cofx/requires`** ([001 §`:rf.cofx/requires`](001-Registration.md#rfcofxrequires--the-declaration-key)) — a vector of registered coeffect ids on `reg-event`. With the one event form (EP-0018) every handler can declare coeffects uniformly; there is no db-only form exempt from the declaration surface. Handlers read declared facts directly, flat:
 
 ```clojure
-(rf/reg-event-fx :todo/create
+(rf/reg-event :todo/create
   {:doc "Create a todo, stamping its creation time."
    :rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} [_ {:keys [text]}]]
@@ -916,7 +931,7 @@ A handler declares the coeffects it consumes via the registration-metadata key *
 
 **Delivery is flat and declared-only.** The initial event context stages the framework base keys — `:db`, `:event`, `:rf.db/runtime`, `:rf.frame/id`, and the envelope's `:rf.cofx` recordable-coeffect map (the canonical complete record, always staged regardless of declarations) — **plus exactly the declared leaves** — recordable values read from the token's `:rf.cofx`, ambient values from running their suppliers at context assembly, each flat under its own id. A leaf on the token but **undeclared by this handler is not delivered as a flat key** (no silent green-in-test / nil-in-prod coupling; `handler-meta` becomes the complete record of the handler's *flat* consumption — though every recordable fact remains reachable through the always-staged `:rf.cofx` map). The *flat declared spread* carries no nested map — no `:cofx` key, no `:rf.world/inputs` successor, and no second flat copy of `:rf/time-ms` beyond the one its declaration delivers; the `:rf.cofx` envelope map is the one nested record, by design, and is not a `:rf.world/inputs` successor. The satisfaction algorithm, the error family, and the registrar grades are owned by [001 §Coeffects](001-Registration.md#coeffects--reg-cofx-value-returning-graded).
 
-**Coeffects are context assembly, not chain members.** Operationally, satisfaction behaves like an implicit interceptor at the head of the chain; normatively it is the *construction of the chain's input*: envelope finalization → context assembly → `:before` pass → handler → `:after` pass. Consequences: there is no cofx ordering question (v1's wart — an early interceptor blind to a later injection — cannot be expressed); every interceptor observes the complete input; the chain stays homogeneous. Interceptors that *modify* coeffects remain legal as ordinary transformations of an assembled context. Generic code that wants the whole record (transition helpers, interceptors, `reg-event-ctx`) reads the envelope's `:rf.cofx` map through the context — exactly how `:event` is reachable at both layers.
+**Coeffects are context assembly, not chain members.** Operationally, satisfaction behaves like an implicit interceptor at the head of the chain; normatively it is the *construction of the chain's input*: envelope finalization → context assembly → `:before` pass → handler → `:after` pass. Consequences: there is no cofx ordering question (v1's wart — an early interceptor blind to a later injection — cannot be expressed); every interceptor observes the complete input; the chain stays homogeneous. Interceptors that *modify* coeffects remain legal as ordinary transformations of an assembled context. Generic code that wants the whole record (transition helpers, interceptors, the framework-internal `context -> context` primitive) reads the envelope's `:rf.cofx` map through the context — exactly how `:event` is reachable at both layers.
 
 **Supplied values win.** Dispatch opts, replay fixtures, SSR hydration, and host integrations supply exact values via the `:rf.cofx` opt; the runtime fills only what is missing and never overwrites. A registration's `:schema` is thereby a *contract*, not merely a generation instruction — it is the type of the replay hole.
 
@@ -1213,8 +1228,8 @@ The signal graph is therefore per-frame. Sub-caches do not leak across frames, e
 The trickiest correctness question. Consider:
 
 ```clojure
-(rf/reg-event-fx :load-todo
-  (fn [{:keys [db event]}]
+(rf/reg-event :load-todo
+  (fn [{:keys [db]} _]
     {:fx [[:my-app/http {:url "/todo/1"
                          :on-success [:todo-loaded]}]]}))
 ```
@@ -1969,14 +1984,14 @@ Per [rf2-ejtpd](https://github.com/day8/re-frame2/issues/rf2-ejtpd), `:source` i
 
 The drain semantics above were motivated by actor-style machine composition. The unifying insight:
 
-> **A state machine has the same contract as an event handler.** Given current state + an event, it produces new state + effects — exactly what `reg-event-fx` is. A machine is an event handler whose *body* happens to be a transition-table interpreter.
+> **A state machine has the same contract as an event handler.** Given current state + an event, it produces new state + effects — exactly what `reg-event` is. A machine is an event handler whose *body* happens to be a transition-table interpreter.
 
 Machines therefore reuse the existing event registry, dispatch pipeline, and effect substrate. Locating machine snapshots in the frame's **runtime-db** partition (rather than in a parallel substrate, and no longer inside app-db) is what makes machine state inherit [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility) for free — runtime-db is part of the one frame-state container, so a frame-state rewind walks snapshots back atomically; spawn-time registrations live in the **frame-local** tier of the two-tier registry (per [005 §Spawning](005-StateMachines.md#spawning--dynamic-actors)). The two tiers — **central** (process-global, shared across frames; populated by namespace-load `reg-*` calls) and **frame-local** (per-frame, populated by spawn-time registrations, and revertible as part of the frame value — a frame-state rewind to a prior settled epoch restores its `[:rf.runtime/machines :snapshots …]` registrations along with the rest of frame-state) — are defined in [000-Vision §Frame state revertibility](000-Vision.md#frame-state-revertibility). The foundation hooks defined here are:
 
 - A registered event handler whose body comes from `make-machine-handler` *is* the machine. Tools filter by the `:rf/machine?` metadata exposed in `(handler-meta :event <id>)` to enumerate machines.
 - Snapshots live at the **reserved per-frame path `[:rf.runtime/machines :snapshots <machine-id>]`** in each frame's **runtime-db** (see [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live)). The shape is `{:state ... :data ...}`: `:state` is the discrete FSM-keyword; `:data` is the machine's extended state (the term used in FSM literature and `gen_statem`; xstate calls it "context"). **Per-frame isolation is automatic** — each frame's runtime-db has its own `:rf.runtime/machines` map, so the same machine id can exist in multiple frames without collision; their snapshots live in each frame's own `[:rf.runtime/machines :snapshots]`. Because `:rf/machine` reads from the active frame's runtime-db, per-frame isolation extends transparently to subscription reads as well.
 - Reads happen through the framework-registered parametric sub `:rf/machine` (or its `sub-machine` wrapper). `@(rf/sub-machine <machine-id>)` resolves on the surrounding frame and reads from that frame's `[:rf.runtime/machines :snapshots <id>]`. See [005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine).
-- Two thin helpers: `(machine-transition definition snapshot event) → [next-snapshot effects]` (pure, JVM-runnable) and `(make-machine-handler spec) → fn` (a *pure factory* — no registration side effects, no global-state lookups, no self-id capture; the returned fn is suitable as a `reg-event-fx` body).
+- Two thin helpers: `(machine-transition definition snapshot event) → [next-snapshot effects]` (pure, JVM-runnable) and `(make-machine-handler spec) → fn` (a *pure factory* — no registration side effects, no global-state lookups, no self-id capture; the returned fn is suitable as a `reg-event` body).
 - One reserved machine-internal fx-id (`:raise`) the machine handler routes locally inside the action's returned `:fx` vector; the canonical actor-lifecycle fx-ids `:rf.machine/spawn` / `:rf.machine/destroy` are registered globally and reach the standard `do-fx` resolver like any other fx.
 - Inspection trace events for machine lifecycle/transition (`:rf.machine.lifecycle/created`, `:rf.machine/transition`, `:rf.machine/snapshot-updated`, etc.) ride the standard trace stream — discriminated by their `:rf.machine.*` `:operation` keyword. Machine-emitted dispatches additionally carry `:source :machine-action` on the envelope per rf2-c3990 (the actor-message path).
 - Composition via ordinary `dispatch`. Run-to-completion drain guarantees deterministic settling within a frame.
@@ -2006,7 +2021,7 @@ re-frame2 commits to a queryable public registrar for every kind of registered e
 
 | Query | Returns | JVM-runnable? |
 |---|---|---|
-| `(rf/registrations kind)` | Map of id → metadata for every handler of the given kind. The kind keyword set is canonicalised in [001 §The query API](001-Registration.md#the-query-api): `:event` (all of `reg-event-db`/`-fx`/`-ctx`), `:sub`, `:fx`, `:cofx`, `:view`, `:frame`, `:route`. Machines themselves register under `:event` (per [005](005-StateMachines.md)) — filter by `:rf/machine?` metadata to enumerate them. Machine guards and actions are **machine-scoped** (declared in each machine's `:guards` / `:actions` map) — there is no `:machine-guard` / `:machine-action` registry kind. App-db schemas are **not** a registrar kind either (rf2-cq1ak) — introspect via `schemas/app-schemas` / `schemas/app-schema-meta-at`. | Yes |
+| `(rf/registrations kind)` | Map of id → metadata for every handler of the given kind. The kind keyword set is canonicalised in [001 §The query API](001-Registration.md#the-query-api): `:event` (every `reg-event` handler), `:sub`, `:fx`, `:cofx`, `:view`, `:frame`, `:route`. Machines themselves register under `:event` (per [005](005-StateMachines.md)) — filter by `:rf/machine?` metadata to enumerate them. Machine guards and actions are **machine-scoped** (declared in each machine's `:guards` / `:actions` map) — there is no `:machine-guard` / `:machine-action` registry kind. App-db schemas are **not** a registrar kind either (rf2-cq1ak) — introspect via `schemas/app-schemas` / `schemas/app-schema-meta-at`. | Yes |
 | `(rf/registrations kind pred-fn)` | Same, filtered by `pred-fn` applied to each metadata map. | Yes |
 | `(rf/handler-meta kind id)` | Metadata for a single handler (config, source coords, doc, spec, etc.). | Yes |
 | `(rf/frame-ids)` | Seq of all registered frame keywords. | Yes |
