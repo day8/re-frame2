@@ -12,7 +12,7 @@
   nav-token or re-fire `:on-match` (rf2-8oxj6).
 
   Internal namespace; the public facade is `re-frame.routing`. The
-  facade owns the two `events/reg-event-fx` calls so a `:reload`
+  facade owns the two `events/reg-event` calls so a `:reload`
   re-wires them on a fresh registrar. Per the rf2-2yabr cohesion split:
   URL-CHANGE-EVENTS seam."
   (:require [re-frame.frame :as frame]

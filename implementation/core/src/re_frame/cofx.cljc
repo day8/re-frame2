@@ -6,7 +6,7 @@
   A coeffect is a **fact the causal run consumed** — data from outside the
   event. Every coeffect id is REGISTERED through one value-returning
   `reg-cofx` supplier and consumed through one declaration key,
-  `:rf.cofx/requires`, on `reg-event-fx` / `reg-event-ctx`. Handlers
+  `:rf.cofx/requires`, on `reg-event`. Handlers
   receive `:db`, `:event` (the fold's own arguments) plus EXACTLY the facts
   they declare, delivered flat — nothing implicit, including `:rf/time-ms`.
 
@@ -144,7 +144,7 @@
 
   The supplier returns the coeffect VALUE directly (the EP-0017 shape); the
   ctx→ctx form is retired with `inject-cofx`. A handler takes delivery by
-  declaring the id in `:rf.cofx/requires` (see `reg-event-fx`); the value
+  declaring the id in `:rf.cofx/requires` (see `reg-event`); the value
   arrives FLAT under the id in the coeffects map — never a nested `:cofx`
   sub-map.
 
@@ -201,7 +201,7 @@
 
   Returns `id`.
 
-  See also: `re-frame.events/reg-event-fx` (declare `:rf.cofx/requires`),
+  See also: `re-frame.events/reg-event` (declare `:rf.cofx/requires`),
   `reg-fx` (output-side counterpart), spec/API.md §Registration."
   [id metadata-or-supplier & maybe-supplier]
   (let [[meta supplier]
@@ -321,7 +321,7 @@
                   {:rf.error/id :rf.error/cofx-request-invalid
                    :failing-id  failing-id
                    :received    received
-                   :where       'rf/reg-event-fx
+                   :where       'rf/reg-event
                    :reason      reason
                    :recovery    :no-recovery})))
 
@@ -938,7 +938,7 @@
 (defn inject-cofx
   "REMOVED in EP-0017 (no alias). Calling `inject-cofx` is the hard error
   `:rf.error/inject-cofx-removed`, naming `:rf.cofx/requires` as the
-  replacement. See `re-frame.events/reg-event-fx` and spec/001-Registration.md
+  replacement. See `re-frame.events/reg-event` and spec/001-Registration.md
   §`inject-cofx` is removed."
   [& args]
   (let [cofx-id (first args)]

@@ -12,7 +12,7 @@
   schema-digest comparison whose mismatch emits a structured warning
   trace without crashing the hydration path.
 
-  All `reg-event-fx` / `reg-fx` calls live in the `re-frame.ssr`
+  All `reg-event` / `reg-fx` calls live in the `re-frame.ssr`
   façade so a `(require 're-frame.ssr :reload)` after
   `(registrar/clear-all!)` re-installs them. This namespace exports
   the handler fns only.

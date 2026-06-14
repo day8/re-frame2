@@ -18,7 +18,7 @@
 
   Internal namespace; the public facade is `re-frame.routing`. The
   facade registers the four events
-  (`events/reg-event-fx :rf/url-requested`, `:rf.route/navigation-blocked`,
+  (`events/reg-event :rf/url-requested`, `:rf.route/navigation-blocked`,
   `:rf.route/continue`, `:rf.route/cancel`) so a `:reload` of the façade
   re-wires them on a fresh registrar (the `clear-all!` test-fixture
   path). Per the rf2-2yabr cohesion split: CAN-LEAVE + PENDING-NAV

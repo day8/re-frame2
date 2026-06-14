@@ -147,7 +147,7 @@
 ;; `:rf.runtime/resources` and `:rf.runtime/work-ledger` are framework-
 ;; owned runtime-db children, so resource writes MUST mint framework-write
 ;; authority — ordinary app authority is not enough. Every resource
-;; `reg-event-fx` registration site stamps this reserved registration-meta
+;; `reg-event` registration site stamps this reserved registration-meta
 ;; key so the runtime recognises a returned `:rf.db/runtime` effect from a
 ;; resource handler as in-bounds (it governs only the
 ;; `:rf.warning/app-handler-runtime-effect` ownership diagnostic — a

@@ -11,7 +11,7 @@
   artefact with `(:require [re-frame.routing])`. Doing so transitively
   loads every concern sibling under `re-frame.routing.*` (each owns
   one cohesive concern, see below) and runs the registrations
-  (`reg-event-fx` / `reg-fx` / `reg-sub` / `add-registration-hook!` /
+  (`reg-event` / `reg-fx` / `reg-sub` / `add-registration-hook!` /
   `register-error-listener!` / `reg-view*`) at the bottom of this file.
 
   The registrations live here (not in the siblings) so a

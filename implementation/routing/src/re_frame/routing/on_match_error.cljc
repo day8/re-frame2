@@ -66,7 +66,7 @@
   :on-match errors and route them to :on-error policies.
 
   Internal namespace; the public facade is `re-frame.routing`. The
-  facade owns the `events/reg-event-fx` + `error-emit/register-error-listener!`
+  facade owns the `events/reg-event` + `error-emit/register-error-listener!`
   calls so a `(require 're-frame.routing :reload)` on a fresh registrar
   (`clear-all!` test fixture) re-wires both. Per the rf2-2yabr cohesion
   split: ON-MATCH-ERROR-TRAP seam."

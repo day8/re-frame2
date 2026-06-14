@@ -57,8 +57,9 @@
   See also: `->interceptor` (the macro form, `re-frame.core`),
   `get-coeffect`, `assoc-coeffect`, `get-effect`, `assoc-effect`,
   `:rf.cofx/requires` (the declared-coeffect key), `path` / `unwrap`
-  (the std interceptors v2 ships), `reg-event-ctx` (full-context
-  handler)."
+  (the std interceptors v2 ships). An interceptor IS the public
+  `context -> context` primitive — full-context work that a
+  `reg-event-ctx` handler once expressed lives here (EP-0018)."
   [& {:keys [id before after source-coord] :as opts}]
   (cond-> (assoc opts :id (or id :unnamed))
     before       (assoc :before before)

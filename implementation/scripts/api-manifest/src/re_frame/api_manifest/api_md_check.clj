@@ -21,7 +21,7 @@
 
   QUALIFIER RESOLUTION (rf2-41j0a). API.md writes some var names
   namespace-qualified (`helix-adapter/adapter`, `re-frame.http/get`,
-  `re-frame.interop/debug-enabled?`) and others bare (`reg-event-db`). The
+  `re-frame.interop/debug-enabled?`) and others bare (`reg-event`). The
   two SHAPES resolve against DIFFERENT manifest indexes, because they carry
   different identity — exactly the rf2-0u8kz lesson the Xray-spec check
   already pins:
@@ -111,7 +111,7 @@
    QUALIFIED ident the qualifier is everything before the last `/`
    (`helix-adapter/adapter` -> `[\"helix-adapter\" \"adapter\"]`,
    `re-frame.http/get` -> `[\"re-frame.http\" \"get\"]`); for a BARE ident
-   the qualifier is nil (`reg-event-db` -> `[nil \"reg-event-db\"]`). The
+   the qualifier is nil (`reg-event` -> `[nil \"reg-event\"]`). The
    qualifier is PRESERVED (not stripped) so a qualified row can be resolved
    strictly against the manifest's `[namespace var]` index — see the ns
    docstring's QUALIFIER RESOLUTION note (rf2-41j0a)."

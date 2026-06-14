@@ -180,7 +180,7 @@
 
       (use-fixtures :each fixture)
 
-  Tests can `reg-event-db` / `reg-sub` / `reg-view` / etc. freely; the
+  Tests can `reg-event` / `reg-sub` / `reg-view` / etc. freely; the
   registrar is rolled back on the way out so those user registrations
   don't leak into the next test, while ns-load-time framework
   registrations (which are part of the captured snapshot) survive."
