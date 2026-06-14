@@ -226,7 +226,7 @@ Schemas registered against handlers and `app-db` paths are queryable via the pub
 
 ```clojure
 (rf/handler-meta :event :auth/login)
-;; → {:doc "..." :schema [:cat ...] :event/kind :fx :ns ... :line ... :file ...}
+;; → {:doc "..." :schema [:cat ...] :ns ... :line ... :file ...}
 
 (rf/app-schema-at [:user])
 ;; → UserSchema (the registered schema value, in whatever language the
