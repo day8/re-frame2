@@ -988,8 +988,9 @@
   Returns `id`. Returning `nil` from the handler is a documented no-op.
 
   Full-context work that a `(fn [context] context)` handler once expressed
-  is done with an interceptor (`->interceptor`, the public `context ->
-  context` primitive) on a `reg-event` registration.
+  is done with a registered interceptor (authored with `reg-interceptor`,
+  the public `context -> context` form) referenced by id from a `reg-event`
+  registration's `:interceptors` chain.
 
   Example — a pure db update (the common case):
 
@@ -1014,7 +1015,7 @@
 
   See also: `reg-fx` (register a custom fx), `reg-cofx` (register a
   coeffect supplier; declare consumption via `:rf.cofx/requires`),
-  `->interceptor` (the public `context -> context` primitive for
+  `reg-interceptor` (the public `context -> context` form for
   full-context work), `dispatch`, `dispatch-sync`."
   [id & args]
   (register-event! "reg-event" id args))
@@ -1082,15 +1083,17 @@
 (defn ^:no-doc reg-event-ctx
   "DEMOTED to a framework-internal primitive in EP-0018 (off the public
   surface). Calling public `reg-event-ctx` is the hard error
-  `:rf.error/reg-event-ctx-removed`, naming `->interceptor` as the public
+  `:rf.error/reg-event-ctx-removed`, naming `reg-interceptor` as the public
   replacement for application full-context work. See spec/001-Registration.md
   §The retired event-registration names."
   [& args]
   (raise-removed-reg-event! :rf.error/reg-event-ctx-removed "reg-event-ctx"
-                            'rf/reg-event-ctx (first args) "->interceptor"
-                            (str "express full-context work as an interceptor "
-                                 "(`rf/->interceptor` with `:before` / `:after`) "
-                                 "on a `reg-event` registration.")))
+                            'rf/reg-event-ctx (first args) "reg-interceptor"
+                            (str "express full-context work as a registered "
+                                 "interceptor (`rf/reg-interceptor` with "
+                                 "`:before` / `:after`) and reference it by id "
+                                 "from a `reg-event` registration's "
+                                 "`:interceptors` chain.")))
 
 (defn clear-event
   "Unregister an event handler. Zero-arity clears every registered

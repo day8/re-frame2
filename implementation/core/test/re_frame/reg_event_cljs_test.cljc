@@ -174,6 +174,15 @@
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
          (:rf.error/id (ex-data e)))))
 
+(defn- stub-throw-reason
+  "Call `f` (one of the retired throwing stubs) and return the `:reason` text it
+  raises, or `:no-throw` if it did not throw."
+  [f]
+  (try (f)
+       :no-throw
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+         (:reason (ex-data e)))))
+
 (deftest retired-reg-event-names-throw-their-removal-stubs
   (testing "EP-0018 Slice Z: the former additive coexistence is gone —
             reg-event-db / reg-event-fx are REMOVED and public reg-event-ctx is
@@ -200,3 +209,17 @@
     (rf/dispatch-sync [:reg-event-test/via-reg-event])
     (is (= [:reg-event] @(rf/subscribe [:reg-event-test/tally]))
         "only the reg-event handler committed; the retired-name stubs registered nothing")))
+
+(deftest reg-event-ctx-removed-names-reg-interceptor-not-arrow-interceptor
+  ;; Cross-wave coherence (rf2-0adhqs.12): EP-0022 demoted `->interceptor` to a
+  ;; framework-internal lowering constructor and made `reg-interceptor` the ONE
+  ;; public authoring form. The EP-0018 reg-event-ctx-removed stub must therefore
+  ;; point users at `reg-interceptor`, NOT the now-internal `->interceptor`.
+  (testing "the reg-event-ctx-removed :reason names reg-interceptor"
+    (let [reason (stub-throw-reason
+                   #(rf/reg-event-ctx :reg-event-test/ctx-reason (fn [_ _] nil)))]
+      (is (string? reason) "the stub raises an ex-info carrying a :reason string")
+      (is (re-find #"reg-interceptor" reason)
+          "the recovery names reg-interceptor (the public authoring form)")
+      (is (not (re-find #"->interceptor" reason))
+          "the recovery does NOT name ->interceptor (internal-only post-EP-0022)"))))

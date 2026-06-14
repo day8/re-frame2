@@ -272,15 +272,13 @@ Four ways to "reset between tests" ship in `re-frame.test-support`. They form a 
 ```clojure
 (def recorded (atom []))
 
-(def event-recorder
-  (rf/->interceptor
-    :id :test/event-recorder
-    :before (fn [ctx]
-              (swap! recorded conj (-> ctx :coeffects :event))
-              ctx)))
+(rf/reg-interceptor :test/event-recorder
+  {:before (fn [ctx]
+             (swap! recorded conj (-> ctx :coeffects :event))
+             ctx)})
 
 (rf/reg-frame :test/recorder-frame
-  {:interceptors [event-recorder]})
+  {:interceptors [:test/event-recorder]})
 ```
 
 After running a test sequence, `@recorded` contains the events that fired, in order. Useful for verifying control flow without checking every state transition.
