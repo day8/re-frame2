@@ -182,6 +182,29 @@
                 ;; always-on :node-test gate (`cljs-test$` matches); the JVM
                 ;; counterpart is derivation-conformance/deps.edn `:test`.
                 "derivation-conformance/test"
+                ;; rf2-xhfxcs.6 — EP-0018 one-form event-MODEL conformance tier
+                ;; (§Conformance + Bead Plan item 7). The umbrella REGRESSION
+                ;; LOCK on the public contract the EP-0018 flip settled:
+                ;; `reg-event` is the SINGLE public event form (reg-event-fx
+                ;; semantics — coeffects in, a closed effects map out,
+                ;; `:rf.cofx/requires` uniform); the THREE retired names
+                ;; (reg-event-db / -fx / -ctx) survive ONLY as facade-exported
+                ;; ^:no-doc throwing stubs raising their exact hard errors
+                ;; (production-survivable — fan out on the always-on error
+                ;; channel THEN throw); ONE :rf/event-handler wrapper
+                ;; (:rf/default? true), :event/kind gone, reg-event-ctx NOT a
+                ;; public facade var; realm-routing preserved (a15n62). Every
+                ;; assertion is ADVERSARIAL — a re-introduced old form, a second
+                ;; wrapper id, a returning :event/kind, or a reg-event-ctx
+                ;; facade promotion goes RED. The contract spans the events
+                ;; runtime + the public facade + the error-emit channel + the
+                ;; realm registrar — wider than any single artefact's test tree
+                ;; — so (like reply-conformance/ + derivation-conformance/) it
+                ;; lives in its own top-level event-conformance/ surface.
+                ;; Namespaces end in `-cljs-test`, so they run under the
+                ;; always-on :node-test gate (`cljs-test$` matches); the JVM
+                ;; counterpart is event-conformance/deps.edn `:test`.
+                "event-conformance/test"
                 ;; tools/mcp-base — the security tier's MCP-egress surface
                 ;; (`re-frame.mcp-base.sensitive`, the spec/009 §Privacy
                 ;; default-suppress filter) is CLJC and lives here. Source
