@@ -71,8 +71,8 @@
   {:namespace "re-frame.adapter.uix", :var "use-current-frame", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.uix", :var "use-subscribe", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.adapter.uix", :var "wrap-view", :tier :adapter, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "->interceptor", :tier :front-porch, :kind :macro, :owner "002", :status "v1 (preserved)", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "->interceptor*", :tier :advanced, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "->interceptor", :tier :internal-public, :kind :macro, :owner "002", :status "EP-0022 (internal lowering only)", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "->interceptor*", :tier :advanced, :kind :fn, :owner "002", :status "EP-0022 (internal lowering only)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "active-head", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "adapter-disposed?", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "app", :tier :advanced, :kind :fn, :owner "Runtime-Subsystems", :status "v1", :facade? true, :runtime-verified? true}

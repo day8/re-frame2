@@ -492,41 +492,86 @@
        :icpt-overrides     (merge per-frame-icpt per-call-icpt)
        :extra-interceptors (vec frame-interceptors)})))
 
+(defn- throw-override-invalid!
+  "Throw `:rf.error/interceptor-override-invalid` (Spec 002 §`:interceptor-
+  overrides` / §Error model) for a malformed override map key or replacement."
+  [k v reason]
+  (throw (ex-info ":rf.error/interceptor-override-invalid"
+                  {:rf.error/id :rf.error/interceptor-override-invalid
+                   :where       :rf.interceptor/overrides
+                   :recovery    :fix-overrides
+                   :reason      reason
+                   :key         k
+                   :replacement v})))
+
 (defn- override-replacement
   "Resolve an `:interceptor-overrides` replacement VALUE to an executable
-  interceptor (or nil to remove). ADDITIVE under EP-0022 (rf2-0adhqs.2): a
-  replacement may be an interceptor REFERENCE (keyword / `[id arg]`) — resolved
-  through the registrar — or (the additive window) an inline interceptor value,
-  or nil. A keyword replacement is resolved as a ref (the new EP-0022 shape:
-  `{:auth/required :story/skip-auth}`)."
-  [replacement]
+  interceptor (or nil to remove). Per EP-0022 Slice C, public override
+  replacements are a `nil` (remove) or an interceptor REFERENCE (keyword /
+  `[id arg]`, resolved through the registrar). An inline interceptor value is
+  still accepted at the additive window; a structurally-malformed replacement
+  (e.g. a non-ref non-value) is `:rf.error/interceptor-override-invalid`."
+  [k replacement]
   (cond
-    (nil? replacement)                    nil
+    (nil? replacement)                        nil
     (icpt-reg/interceptor-value? replacement) replacement
     (icpt-reg/interceptor-ref? replacement)   (icpt-reg/resolve-ref replacement)
-    :else                                 replacement))
+    :else
+    (throw-override-invalid!
+      k replacement
+      (str "interceptor-override replacement for key `" (pr-str k) "` is neither "
+           "an interceptor reference (keyword / `[id arg]`), an inline "
+           "interceptor value, nor `nil` (remove)."))))
+
+(defn- valid-override-key?
+  "True when `k` is a structurally-valid `:interceptor-overrides` key — an
+  interceptor reference (a bare keyword or an `[id arg]` 2-vector). A
+  malformed key is rejected with `:rf.error/interceptor-override-invalid`."
+  [k]
+  (icpt-reg/interceptor-ref? k))
 
 (defn- apply-icpt-overrides
-  "Per Spec 002 §`:interceptor-overrides`: walk `chain` and substitute
-  interceptors by `:id` against `overrides`. Entries whose `:id` is a key in
-  `overrides` are replaced by the override's value; `nil`-valued overrides
-  remove the interceptor from the chain.
+  "Per Spec 002 §`:interceptor-overrides` (EP-0022 Slice C — exact-reference
+  matching): walk `chain` and substitute / remove interceptors against
+  `overrides`. Matching is by **canonical interceptor reference**
+  (`icpt-reg/override-key-matches?`), not merely by `:id`:
 
-  `chain` carries EXECUTABLE interceptor values here (refs have already been
-  resolved by `prepare-handler-ctx`). Override-map VALUES may still be refs —
-  resolved via `override-replacement` (EP-0022 additive). Matching keys are
-  interceptor ids (keywords); exact-reference `[id arg]` key matching is a
-  later slice (the by-id match is the existing additive behaviour).
+    - a bare-keyword key matches a bare-keyword authored ref OR an entry `:id`
+      (covers inline values + the resolver-stamped `:id`);
+    - an `[id arg]` key matches ONLY the entry whose AUTHORED ref is `ref=` to
+      that exact vector — so `{[:rf.interceptor/path [:cart]] nil}` removes
+      only that exact reference, leaving a sibling `[:rf.interceptor/path
+      [:cart :items]]` in the chain.
+
+  A matched entry is replaced by its override value (`override-replacement`); a
+  `nil`-valued override removes the entry. `chain` carries EXECUTABLE
+  interceptor values (refs already resolved + authored-ref-stamped by
+  `prepare-handler-ctx`). A malformed override key or replacement is
+  `:rf.error/interceptor-override-invalid`.
 
   HOT PATH no-op: when `overrides` is empty the chain is returned unchanged."
   [chain overrides]
   (if (empty? overrides)
     chain
-    (->> chain
-         (mapv #(if (and (map? %) (contains? overrides (:id %)))
-                  (override-replacement (get overrides (:id %)))
-                  %))
-         (filterv some?))))
+    (do
+      ;; Validate keys once (cheap; override maps are tiny — test / story /
+      ;; SSR / tool surfaces). A malformed key fails the whole dispatch loudly.
+      (doseq [k (keys overrides)]
+        (when-not (valid-override-key? k)
+          (throw-override-invalid!
+            k (get overrides k)
+            (str "interceptor-override key `" (pr-str k) "` is not an interceptor "
+                 "reference (expected a keyword id or an `[id arg]` 2-vector)."))))
+      (->> chain
+           (mapv (fn [entry]
+                   (if-not (map? entry)
+                     entry
+                     (if-let [k (some (fn [k]
+                                        (when (icpt-reg/override-key-matches? k entry) k))
+                                      (keys overrides))]
+                       (override-replacement k (get overrides k))
+                       entry))))
+           (filterv some?)))))
 
 (defn- validate-event!
   "Per Spec 010 §Validation order step 1 (rf2-jwm4): validate the
@@ -1602,8 +1647,10 @@
   1. Prepend per-frame `:interceptors` to the handler's own chain
      (additive — §`:interceptors` — *add* interceptors).
   2. Walk the assembled chain and apply `:interceptor-overrides`
-     (replace-by-`:id` per §`:interceptor-overrides` lines 1108-1139);
-     `nil`-valued overrides remove an interceptor from the chain.
+     (replace / remove by EXACT canonical reference per
+     §`:interceptor-overrides` — a bare keyword matches by ref/`:id`, an
+     `[id arg]` matches only the exact authored reference); `nil`-valued
+     overrides remove the matched interceptor from the chain.
 
   HOT PATH: fires on every dispatch. On the override-free path (no
   per-frame / per-call `:fx-overrides`, no per-frame / per-call
