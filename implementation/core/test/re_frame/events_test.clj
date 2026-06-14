@@ -18,6 +18,7 @@
   `:interceptors` value is a loud `:rf.error/reg-event-bad-interceptors`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.events :as events]
             [re-frame.frame :as frame]
             [re-frame.interceptor :as interceptor]
             [re-frame.late-bind :as late-bind]
@@ -784,6 +785,53 @@
            (catch clojure.lang.ExceptionInfo _ nil))
       (is (nil? (registrar/lookup :event :test.i3uxo2/ref-no-side-effect))
           "no partial registry trace after the ref-form rejection"))))
+
+;; ---- rf2-48ypb6 — at-boundary-entry? detects BOTH ref forms (unit) ----------
+;;
+;; `at-boundary-entry?` (events.cljc) detects the `:rf.schema/at-boundary`
+;; attachment in two ref forms: a bare keyword `:rf.schema/at-boundary` AND an
+;; `[:rf.schema/at-boundary arg]` 2-vector. The existing registration-path
+;; tests above only exercise the BARE-KEYWORD form. This pins the predicate's
+;; 2-vector arm directly.
+;;
+;; REACHABILITY (rf2-48ypb6 verdict): the 2-vector arm is effectively VESTIGIAL
+;; through the public `reg-event` registration path. The standard
+;; `:rf.schema/at-boundary` interceptor is registered as a STATIC interceptor
+;; (no `:factory`), so an `[:rf.schema/at-boundary arg]` chain ref is rejected
+;; at `validate-refs-registered!` with `:rf.error/interceptor-factory-arity`
+;; BEFORE `reject-at-boundary-without-schema!` (which calls this predicate) ever
+;; runs — verified empirically (with AND without `:schema`). The predicate's
+;; 2-vector branch is therefore unreachable for its intended missing-schema
+;; rejection purpose via the public surface. The branch is still pinned here at
+;; the unit level (the predicate IS reachable + exercised by
+;; `attaches-validate-at-boundary-interceptor?`), and a follow-up bead tracks
+;; confirming / pruning the unreachable-via-registration 2-vector arm.
+
+(deftest at-boundary-entry?-detects-both-ref-forms
+  (testing "Per rf2-48ypb6 — the private at-boundary-entry? predicate detects the
+            `:rf.schema/at-boundary` attachment in BOTH legal ref forms."
+    (let [at-boundary-entry? @#'events/at-boundary-entry?]
+      (testing "bare-keyword ref"
+        (is (true? (boolean (at-boundary-entry? :rf.schema/at-boundary)))
+            "the bare keyword is detected"))
+
+      (testing "[id arg] 2-vector ref (the previously-untested arm)"
+        (is (true? (boolean (at-boundary-entry? [:rf.schema/at-boundary {:some :arg}])))
+            "the `[:rf.schema/at-boundary arg]` 2-vector is detected")
+        (is (true? (boolean (at-boundary-entry? [:rf.schema/at-boundary nil])))
+            "a nil arg in the 2-vector still detects (shape, not arg, drives it)"))
+
+      (testing "non-matching entries are NOT detected"
+        (is (false? (boolean (at-boundary-entry? :some/other-interceptor)))
+            "an unrelated bare keyword is not detected")
+        (is (false? (boolean (at-boundary-entry? [:some/other-interceptor {:k 1}])))
+            "an unrelated [id arg] 2-vector is not detected")
+        (is (false? (boolean (at-boundary-entry? [:rf.schema/at-boundary])))
+            "a 1-vector (wrong arity) is not detected by the 2-vector arm")
+        (is (false? (boolean (at-boundary-entry? [:rf.schema/at-boundary :a :b])))
+            "a 3-vector (wrong arity) is not detected by the 2-vector arm")
+        (is (false? (boolean (at-boundary-entry? {:id :rf.schema/at-boundary})))
+            "an inline map value is not a ref form and is not detected")))))
 
 ;; ---- rf2-3ut12 — a BARE interceptor is rejected loudly at registration ----
 ;;
