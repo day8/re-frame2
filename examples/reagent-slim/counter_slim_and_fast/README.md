@@ -20,13 +20,24 @@ Read that file as the example.
 ## Bundle-isolation fixture (not example practice)
 
 This build doubles as the example side of the slim adapter's
-bundle-isolation gate. That plumbing is **deliberately isolated** in
-[`bundle_isolation_fixture.cljs`](bundle_isolation_fixture.cljs) so it
-does not bleed into the teaching source: it exercises the slim's
-pure-CLJS `render-to-static-markup` at boot (the DCE-anchored
-`counterSlimPrerender` host-global write plus the sub-cache teardown)
-so the gate's non-vacuity contract has signal. A reader studying the
-example can ignore it.
+bundle-isolation gate. That plumbing is **deliberately isolated** from
+the teaching source so it does not bleed into `core.cljs`:
+
+- The SSR/sentinel exercise lives in
+  [`bundle_isolation_fixture.cljs`](bundle_isolation_fixture.cljs) — it
+  runs the slim's pure-CLJS `render-to-static-markup` (the DCE-anchored
+  `counterSlimPrerender` host-global write plus the sub-cache teardown)
+  so the gate's non-vacuity contract has signal.
+- The build's `:init-fn` is the gate-owned entrypoint
+  [`bundle_isolation_entry.cljs`](bundle_isolation_entry.cljs), **not**
+  `core/run`. It boots the same app as `core/run` and weaves the fixture
+  exercise in at the one point its ordering needs (under the frame scope,
+  before the client mount). This keeps `core.cljs` free of harness
+  mechanics: `core/run` is plain, idiomatic re-frame2 with nothing but
+  the example's own dataflow (rf2-vyl0vt).
+
+A reader studying the example can ignore both gate files and read
+`core.cljs`.
 
 The contract narrative — the four S3-008 / S3-005 contracts and the
 sentinel methodology — is owned by the gate, not duplicated here. See:
@@ -65,6 +76,7 @@ prefixed first.
 ```
 counter_slim_and_fast/
   core.cljs                          the teaching example: events/subs/views + mount
+  bundle_isolation_entry.cljs        gate-owned :init-fn — boots core + the SSR exercise (not app practice)
   bundle_isolation_fixture.cljs      SSR/sentinel proof for the gate (not app practice)
   index.html                         minimal host page
   README.md                          this file

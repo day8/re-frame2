@@ -1729,11 +1729,13 @@ jobs:
       # the sentinel set is re-derived.
       #
       # Dual contract: stock-Reagent impl + react-dom/server isolation.
-      # The slim build's run-fn deliberately exercises
+      # The slim build's gate-owned entry (counter-slim-and-fast.bundle-
+      # isolation-entry, the build's :init-fn) deliberately exercises
       # reagent2.dom.server/render-to-static-markup so the
       # react-dom/server-absence assertion is non-vacuous (the SSR path
       # IS in the slim bundle, just pure-CLJS — per IMPL-SPEC §8 +
-      # S3-005).
+      # S3-005). The teaching counter-slim-and-fast.core stays clean of
+      # the fixture (rf2-vyl0vt).
       - name: Verify Reagent Slim bundle isolates stock Reagent + react-dom/server
         run: npm run test:reagent-slim:bundle-isolation
 
