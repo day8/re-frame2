@@ -182,6 +182,19 @@ implementation/
                              (subscriptions, flows, resources, route facts, machines)
                              through the graph composer (`re-frame.derivation.graph`).
     test/re_frame/                 JVM + CLJS cross-family derivation conformance suites.
+
+  event-conformance/         One-form event-MODEL conformance tier (EP-0018) —
+                             test-only, no shipped namespace. Holds the umbrella
+                             regression lock on the one-form event-registration
+                             public contract: `reg-event` as the single public
+                             form (reg-event-fx semantics), the three retired
+                             names (`reg-event-db`/`-fx`/`-ctx`) surviving only as
+                             `^:no-doc` throwing stubs, the single
+                             `:rf/event-handler` wrapper (no `:event/kind` sub-tag),
+                             and preserved realm-routing. Spans the events runtime,
+                             the public facade, the error-emit channel, and the
+                             realm registrar.
+    test/re_frame/                 JVM + CLJS one-form event-model conformance suite.
 ```
 
 ## Status by spec area
