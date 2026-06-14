@@ -141,7 +141,7 @@ The v1 three-form family is retired from the public surface (EP-0018, EP-0007 ru
 |---|---|---|---|
 | `reg-event-db` | **Removed** — `reg-event` replaces it | `:rf.error/reg-event-db-removed` (shows the two-line conversion: destructure `:db` from the coeffects map; wrap the return in `{:db …}`) | `reg-event` |
 | `reg-event-fx` | **Removed** — `reg-event` is the same shape under the bare name | `:rf.error/reg-event-fx-removed` | `reg-event` |
-| `reg-event-ctx` | **Demoted to framework-internal** — the `context -> context` mechanism is retained (the lowering target for `reg-event`; used by subsystem dispatchers) but is no longer a public application-authoring form | `:rf.error/reg-event-ctx-removed` (names `->interceptor`) | `->interceptor` (the public `context -> context` primitive) |
+| `reg-event-ctx` | **Demoted to framework-internal** — the `context -> context` mechanism is retained (the lowering target for `reg-event`; used by subsystem dispatchers) but is no longer a public application-authoring form | `:rf.error/reg-event-ctx-removed` (names `reg-interceptor`) | `reg-interceptor` (the public `context -> context` authoring form; reference the registered interceptor by id from a `reg-event` chain) |
 
 The hard errors are catalogued in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue). Full-context application work that previously reached for `reg-event-ctx` — capture, short-circuit (`:rf/skip-handler?`), direct effect installation — is expressed as an interceptor's `:before` / `:after` (the public `context -> context` primitive). If a public path is later found that genuinely needs app-level full-context handlers, it returns by a follow-on with that specific consumer and a sharper name; the corpus shows none today.
 

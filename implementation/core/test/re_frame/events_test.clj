@@ -512,8 +512,10 @@
 
 (deftest reg-event-interceptor-can-set-effects-via-the-interceptor-api
   ;; Full-context work that the retired `reg-event-ctx` form once expressed is
-  ;; now done with an interceptor (`->interceptor`) on a `reg-event`
-  ;; registration. This pins that an interceptor :before can read a coeffect
+  ;; now done with a registered interceptor (authored with `reg-interceptor`,
+  ;; referenced by id from a `reg-event` registration's `:interceptors` chain;
+  ;; `->interceptor` is internal-only post-EP-0022). This pins that an
+  ;; interceptor :before can read a coeffect
   ;; and set a :db effect via the public interceptor API, threaded ahead of the
   ;; one `:rf/event-handler` wrapper.
   (testing "an interceptor :before reads :db coeffect and sets the :db effect"
@@ -952,7 +954,8 @@
 ;; facade names survive ONLY as `^:no-doc` throwing stubs so a stale call site
 ;; fails LOUDLY with an actionable hard error naming the replacement — never an
 ;; opaque "no such var". They register NOTHING. The -db / -fx errors name
-;; `reg-event`; the -ctx error names `->interceptor`.
+;; `reg-event`; the -ctx error names `reg-interceptor` (the public interceptor
+;; authoring form post-EP-0022 — `->interceptor` is internal-only).
 
 (defn- stub-throw-id
   "Call `reg-fn` (one of the retired throwing stubs) and return the
@@ -995,5 +998,7 @@
                           (catch clojure.lang.ExceptionInfo e (:reason (ex-data e))))]
       (is (re-find #"reg-event" db-reason)
           "the reg-event-db error names reg-event as the replacement")
-      (is (re-find #"->interceptor" ctx-reason)
-          "the reg-event-ctx error names ->interceptor as the replacement"))))
+      (is (re-find #"reg-interceptor" ctx-reason)
+          "the reg-event-ctx error names reg-interceptor as the replacement")
+      (is (not (re-find #"->interceptor" ctx-reason))
+          "the reg-event-ctx error does NOT name ->interceptor (internal-only post-EP-0022)"))))

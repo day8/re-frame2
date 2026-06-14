@@ -123,7 +123,7 @@
     ;; `reg-event-fx` were removed (no alias, EP-0007 rule 2) and public
     ;; `reg-event-ctx` demoted to a framework-internal primitive; each call
     ;; is now a hard error that fires in production too (a correctness
-    ;; contract — naming `reg-event` / `->interceptor` as the replacement),
+    ;; contract — naming `reg-event` / `reg-interceptor` as the replacement),
     ;; so the row rides the always-on axis. The emit SITES land across the
     ;; EP-0018 slices; this leg drives every always-on category through
     ;; `dispatch-on-error!` to prove the listener fan-out, so the literal
