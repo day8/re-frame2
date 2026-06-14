@@ -16,7 +16,7 @@ Most concepts map cleanly. A handful of slots re-frame2 **deliberately renames o
 | **transitions** (`on: { EVENT: ... }`) | `:on {event-keyword transition-spec}` on a state node | Convergence. Bare-target / explicit-map / guarded-vector forms. |
 | **guards** (`guard` / named guards) | `:guard` on a transition + the top-level `:guards` map | Convergence on the *name*. **Divergence:** no `{and: [...]}` compound-guard data form — compose with one fn or one named registered compound. Guards receive one context map `{:keys [data event state meta]}` and destructure what they need. |
 | **actions** (`actions` / named actions) | `:action` / `:entry` / `:exit` + the top-level `:actions` map | Convergence on the *name*. **Divergence:** no action-vector `[a1 a2 a3]` per slot — one fn or one named registered compound. `:entry`/`:exit` are a single fn or single keyword, never vectors. |
-| **`assign({...})`** | action returns `{:data new-data}` (and/or `{:fx [...]}`) | **Divergence (name/shape):** no `[:assign {...}]` form. Symmetric with `reg-event-fx`'s `{:db :fx}`. The invariant matches xstate's `assign` though: callbacks may only update `:data` — they cannot nudge the machine into an undeclared state. |
+| **`assign({...})`** | action returns `{:data new-data}` (and/or `{:fx [...]}`) | **Divergence (name/shape):** no `[:assign {...}]` form. Symmetric with `reg-event`'s `{:db :fx}` return. The invariant matches xstate's `assign` though: callbacks may only update `:data` — they cannot nudge the machine into an undeclared state. |
 | **`context`** (extended state) | `:data` (the machine's private map, distinct from `app-db`) | **Divergence (name):** re-frame2 calls the slot `:data`, tracking FSM / `gen_statem` "state data" vocabulary and avoiding re-frame's already-overloaded "context" (interceptor pipeline + React context). |
 | **typed `context`** (`setup({ types: { context } })`) | `:data-schema` (top-level Malli validator for `:data`) | Convergence on the role — both declare the context's shape and make it tool-renderable. **Divergence (enforcement):** XState's typed context is compile-time-only and erased at runtime; re-frame2's `:data-schema` is an *actually-running* Malli validation in dev (and an opt-in at production boundaries), at zero production cost. See §Declaring a `:data-schema`. |
 | **`invoke`** (state-bound child actor) | `:spawn` (and `:spawn-all` for fan-out-and-join) | **Divergence (name):** the most semantically-loaded slot is renamed on purpose, to break the "almost-correct xstate code" trap and align with the imperative `:rf.machine/spawn` fx. No `:onSnapshot`/`autoForward`/multiple-`:invoke`-per-state. See `spawn.md`. |
@@ -32,7 +32,7 @@ Most concepts map cleanly. A handful of slots re-frame2 **deliberately renames o
 | **`sendTo` / `sender` (reply to a request)** | include the reply event in the request vector | **Divergence:** no new API; the event vector carries its own reply target. |
 | **`ActorRef` runtime objects** | snapshots at `[:rf.runtime/machines :snapshots <id>]` in the runtime-db partition | **Divergence (architecture):** data-oriented, agent-friendly, no live-object leak footguns. Read via `sub-machine`. |
 | **`setup({actors, guards, actions})`** | per-machine `:guards` / `:actions` maps in the spec | **Divergence:** machine-scoped (not globally registered) — each machine has its own guard/action namespace, validated at registration; cross-machine reuse is via plain Clojure vars. |
-| **three creation modes** (`createActor` / `invoke` / `spawn`) | one mechanism, two patterns: singleton via `reg-event-fx`, dynamic via `:spawn` / `[:rf.machine/spawn ...]` | **Divergence:** lifetime is encoded by the snapshot's presence in the runtime-db partition (`[:rf.runtime/machines :snapshots <id>]`) + registration lifetime, not by which constructor you call. |
+| **three creation modes** (`createActor` / `invoke` / `spawn`) | one mechanism, two patterns: singleton via `reg-event`, dynamic via `:spawn` / `[:rf.machine/spawn ...]` | **Divergence:** lifetime is encoded by the snapshot's presence in the runtime-db partition (`[:rf.runtime/machines :snapshots <id>]`) + registration lifetime, not by which constructor you call. |
 
 The deliberate-divergence rows are catalogued in Spec 005 §Lessons from xstate and §Deliberate omissions vs xstate (and the full table in CP-5-MachineGuide §Lessons from xstate). When you reach for an xstate slot that isn't in the table — an action vector, `{and: [...]}`, multiple `:invoke` per state — that's a signal to stop and check the divergence rows rather than assume parity. (`invoke onError` *is* in the table — it maps to `:spawn`'s `:on-error` transition; don't hand-roll a dispatch-back where the declarative transition fits.)
 
@@ -208,12 +208,12 @@ Project off the snapshot with ordinary `reg-sub`:
   (fn sub-data [snap _] (get-in snap [:data :result])))
 ```
 
-## As an event-fx handler
+## As an event handler
 
-When a machine drives a discrete event-fx flow (boot, websocket-connection lifecycle), wrap its declaration with `re-frame.machines/make-machine-handler` and register the result under `rf/reg-event-fx`. (The `make-machine-handler` wrapper lives on the owning `re-frame.machines` namespace — it is no longer re-exported from `re-frame.core`, per the front-porch shrink; the `reg-machine` / `defmachine` registration macros stay on the `rf/` façade.) The wrapper produces the event-fx handler fn that dispatches into the machine on every invocation:
+When a machine drives a discrete event-driven flow (boot, websocket-connection lifecycle), wrap its declaration with `re-frame.machines/make-machine-handler` and register the result under `rf/reg-event`. (The `make-machine-handler` wrapper lives on the owning `re-frame.machines` namespace — it is no longer re-exported from `re-frame.core`, per the front-porch shrink; the `reg-machine` / `defmachine` registration macros stay on the `rf/` façade.) The wrapper produces the event-handler fn that dispatches into the machine on every invocation:
 
 ```clojure
-(rf/reg-event-fx :app/boot
+(rf/reg-event :app/boot
   (re-frame.machines/make-machine-handler
     {:initial :configuring
      :data    {:phase :configuring :config nil}

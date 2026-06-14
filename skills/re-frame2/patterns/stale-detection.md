@@ -50,7 +50,7 @@ For substrate-owned epochs (`:after` timers, nav-tokens), the application gets t
 A search-as-you-type input where each keystroke spawns a lookup; only the latest lookup's result should commit.
 
 ```clojure
-(rf/reg-event-fx :search/key-typed
+(rf/reg-event :search/key-typed
   (fn handler-search-key-typed [{:keys [db]} [_ query]]
     (let [next-epoch (inc (get-in db [:search :epoch] 0))]
       {:db (-> db
@@ -71,7 +71,7 @@ A search-as-you-type input where each keystroke spawns a lookup; only the latest
     (rf/emit-trace-event! :info :search/stale-result
                           {:carried carried :current current})))
 
-(rf/reg-event-fx :search/results-received
+(rf/reg-event :search/results-received
   (fn handler-search-results-received [{:keys [db]} [_ carried-epoch results]]
     (let [current-epoch (get-in db [:search :epoch] 0)]
       (if (= carried-epoch current-epoch)

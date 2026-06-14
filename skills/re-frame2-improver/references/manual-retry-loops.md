@@ -8,7 +8,7 @@ Greppable signals (run inside any `.cljs` / `.cljc` source under review):
 
 - `setTimeout` *and* `dispatch` in the same handler body — `(js/setTimeout #(rf/dispatch [...]) ...)`.
 - A retry counter in `app-db`: keys named `:*/retries`, `:*/attempts`, `:*/retry-count`, or `(update db :*/attempts inc)` paired with a re-dispatch.
-- A `cljs-http`, `js/fetch`, `goog.net.XhrIo`, or `axios` call inside `reg-event-fx` whose `:on-failure` (or shaped equivalent) re-dispatches the same originating event id.
+- A `cljs-http`, `js/fetch`, `goog.net.XhrIo`, or `axios` call inside a `reg-event` handler whose `:on-failure` (or shaped equivalent) re-dispatches the same originating event id.
 - Exponential-back-off arithmetic inline in a handler — `(* base (Math/pow 2 attempt))`, `js/Math.pow`, `(min max-ms (* ...))`.
 
 Structural signal: the originating event id appears in **both** the `:dispatch` of the failure branch and the initial-dispatch trigger.
@@ -28,7 +28,7 @@ Spec source: [`spec/014-HTTPRequests.md`](../../../spec/014-HTTPRequests.md) and
 **Before** — hand-rolled retry in a handler:
 
 ```clojure
-(rf/reg-event-fx :article/load
+(rf/reg-event :article/load
   (fn [{:keys [db]} [_ slug attempt]]
     (let [attempt (or attempt 0)]
       {:db (assoc-in db [:article :status] :loading)
@@ -37,7 +37,7 @@ Spec source: [`spec/014-HTTPRequests.md`](../../../spec/014-HTTPRequests.md) and
               :on-success [:article/loaded]
               :on-failure [:article/retry slug attempt]}]]})))
 
-(rf/reg-event-fx :article/retry
+(rf/reg-event :article/retry
   (fn [_ [_ slug attempt]]
     (when (< attempt 4)
       {:fx [[:dispatch-later
@@ -48,7 +48,7 @@ Spec source: [`spec/014-HTTPRequests.md`](../../../spec/014-HTTPRequests.md) and
 **After** — Managed HTTP:
 
 ```clojure
-(rf/reg-event-fx :article/load
+(rf/reg-event :article/load
   (fn [{:keys [db]} [_ {:keys [slug] :as msg}]]
     (if-let [reply (:rf/reply msg)]
       (case (:kind reply)

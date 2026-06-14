@@ -1,6 +1,6 @@
 # Anti-pattern — Imperative interop inside handlers
 
-Direct JS / DOM / browser-API interop inside the body of a `reg-event-db` or `reg-event-fx` handler. The handler stops being a pure function from `db` (and coeffects) to `db`; the impurity leaks out of the data-only channels (`:fx` for effects, the coeffect map for inputs).
+Direct JS / DOM / browser-API interop inside the body of a `reg-event` handler. The handler stops being a pure function from coeffects to effects; the impurity leaks out of the data-only channels (`:fx` for effects, the coeffect map for inputs).
 
 Two distinct directions of impurity hide under this one heading, and they route to **two different fixes**:
 
@@ -11,7 +11,7 @@ Getting the direction right matters: a read routed to `reg-fx` produces a broken
 
 ## Detection rules
 
-Greppable signals inside `reg-event-db` / `reg-event-fx` handler bodies, **grouped by direction**:
+Greppable signals inside `reg-event` handler bodies, **grouped by direction**:
 
 **Write signals → `reg-fx` (effect):**
 
@@ -84,12 +84,12 @@ Spec source: [`spec/Conventions.md`](../../../spec/Conventions.md) (data-only fx
 **Before** — both directions of leak in one handler (a write *and* an impure read):
 
 ```clojure
-(rf/reg-event-db :prefs/save-theme
-  (fn [db [_ theme]]
+(rf/reg-event :prefs/save-theme
+  (fn [{:keys [db]} [_ theme]]
     (.setItem js/localStorage "theme" (name theme))                  ;; <-- write: side-effect
     (set! (.-className js/document.body) (str "theme-" (name theme))) ;; <-- write: DOM mutation
-    (assoc db :prefs/theme       theme
-              :prefs/saved-at    (js/Date.now))))                     ;; <-- read: nondeterministic input
+    {:db (assoc db :prefs/theme    theme
+                   :prefs/saved-at (js/Date.now))}))                  ;; <-- read: nondeterministic input
 ```
 
 **After** — writes become data-only fx; the impure read is a **durable timestamp** (it lands in `:prefs/saved-at`), so it is the declared recordable `:rf/time-ms` coeffect, **not** a `js/Date`-reading `:now` cofx:
@@ -110,7 +110,7 @@ Spec source: [`spec/Conventions.md`](../../../spec/Conventions.md) (data-only fx
 ;; framework's one built-in fact, stamped once at enqueue and replayed from
 ;; the token on epoch restore. Declare it; read it flat. No :now cofx, no
 ;; js/Date re-read.
-(rf/reg-event-fx :prefs/save-theme
+(rf/reg-event :prefs/save-theme
   {:rf.cofx/requires [:rf/time-ms]}                                 ;; declare the fact you fold
   (fn [{:keys [db rf/time-ms]} [_ theme]]                           ;; arrives flat under its id
     {:db (assoc db :prefs/theme    theme

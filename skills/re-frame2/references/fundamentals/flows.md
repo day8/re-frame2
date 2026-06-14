@@ -94,7 +94,7 @@ From `examples/reagent/flows/core.cljs` — a cart whose subtotal and total are 
 ;; Reading a flow's output inside a handler — the central reason :total is a
 ;; flow and not a sub: a sub's value lives in the view-facing cache and is
 ;; awkward to read from a handler.
-(rf/reg-event-fx :checkout/place-order
+(rf/reg-event :checkout/place-order
   (fn [{:keys [db]} _]
     (let [total (get-in db [:cart :total])]
       {:fx [[:cart/order-placed total]]})))
@@ -120,7 +120,7 @@ A flow may read framework runtime-db state via a `[:rf.db/runtime …]` input an
 Two reserved fx-ids register / clear a flow mid-event. They route to the **dispatching frame** automatically — no `:frame` arg to set. This is how feature gates and wizard steps engage / disengage a derivation v1's `on-changes` could not:
 
 ```clojure
-(rf/reg-event-fx :cart/apply-discount
+(rf/reg-event :cart/apply-discount
   (fn [_ _]
     {:fx [[:rf.fx/reg-flow {:id     :cart/discount-rate
                             :inputs [[:cart :discount-engaged?]]
@@ -128,7 +128,7 @@ Two reserved fx-ids register / clear a flow mid-event. They route to the **dispa
                             :path   [:cart :discount-rate]}]
           [:dispatch [:cart/touch true]]]}))   ;; nudge a re-walk (see Sequencing)
 
-(rf/reg-event-fx :cart/remove-discount
+(rf/reg-event :cart/remove-discount
   (fn [_ _]
     {:fx [[:rf.fx/clear-flow :cart/discount-rate]   ;; dissoc-in's [:cart :discount-rate]
           [:dispatch [:cart/touch false]]]}))

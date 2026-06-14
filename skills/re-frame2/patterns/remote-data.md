@@ -15,8 +15,8 @@ The prompt mentions: fetching data from a server, an HTTP request lifecycle, a l
 The pattern composes:
 
 - **`reg-app-schema`** — schema-binds the slice path so the slice's shape is enforced at boundaries (per cardinal rule 4 — schemas at boundaries, not everywhere).
-- **`reg-event-fx` for `:feature/load`** — dispatches the HTTP effect; picks `:loading` vs `:fetching` based on whether prior `:data` exists; bumps `:attempt`.
-- **`reg-event-fx` for `:feature/loaded`** — folds the success reply into the slice and stamps a durable `:loaded-at` from the causal clock (declare `:rf.cofx/requires [:rf/time-ms]`, EP-0017), so it must be an event-fx that declares and reads the recorded time — not a host-clock read. **`reg-event-db` for `:feature/load-failed`** — folds the failure; **prior `:data` is kept**, only `:status` and `:error` change.
+- **`reg-event` for `:feature/load`** — dispatches the HTTP effect; picks `:loading` vs `:fetching` based on whether prior `:data` exists; bumps `:attempt`.
+- **`reg-event` for `:feature/loaded`** — folds the success reply into the slice and stamps a durable `:loaded-at` from the causal clock (declare `:rf.cofx/requires [:rf/time-ms]`, EP-0017), so it declares and reads the recorded time — not a host-clock read. **`reg-event` for `:feature/load-failed`** — folds the failure; **prior `:data` is kept**, only `:status` and `:error` change (a db-only handler that just returns `{:db ...}`).
 - **`:rf.http/managed` fx** (or the host's HTTP fx) — issues the request; its `:on-success` and `:on-failure` dispatch the lifecycle events. The reply each delivers is the **public HTTP compatibility payload** (`{:kind :success :value v}` / `{:kind :failure :failure m}`), reshaped from the internal EP-0011 reply envelope — NOT the canonical reply map itself (see managed-http.md).
 - **Layered subs `:feature/status`, `:feature/data`, `:feature/loading?`, `:feature/fetching?`** — convenience subs over the slice. `:loading?` means truly empty + in-flight; `:fetching?` means any in-flight (covers both `:loading` and `:fetching`).
 - **(machine variant) `:initial :idle` + states `:idle :loading :fetching :loaded :error` + `:tags`** — the lifecycle as machine states. `:rf/machine-has-tag?` answers the same question `:loading?` / `:fetching?` did.
@@ -38,7 +38,7 @@ The dominant shape; used wherever an explicit `:status` keyword and Pattern-Remo
 
 (rf/reg-app-schema [:articles] RequestSlice)
 
-(rf/reg-event-fx :articles/load
+(rf/reg-event :articles/load
   (fn [{:keys [db]} _]
     ;; First load runs against an EMPTY db — reg-app-schema validates app-db, it
     ;; does NOT materialise schema :default values into it, so (:attempt) is nil
@@ -53,7 +53,7 @@ The dominant shape; used wherever an explicit `:status` keyword and Pattern-Remo
               :on-success [:articles/loaded]
               :on-failure [:articles/load-failed]}]]})))
 
-(rf/reg-event-fx :articles/loaded
+(rf/reg-event :articles/loaded
   ;; :loaded-at is a DURABLE timestamp, so DECLARE the recorded clock fact
   ;; (EP-0017): :rf/time-ms is delivered flat under its id; reading it here
   ;; (not a fresh host clock) keeps the same reply replaying to the same
@@ -74,19 +74,19 @@ The dominant shape; used wherever an explicit `:status` keyword and Pattern-Remo
              (assoc-in [:articles :error]     nil)
              (assoc-in [:articles :loaded-at] time-ms))}))
 
-(rf/reg-event-db :articles/load-failed
+(rf/reg-event :articles/load-failed
   ;; Failure compat payload: `{:kind :failure :failure m}` — read `:failure`.
-  (fn [db [_ {:keys [failure]}]]
-    (-> db
-        (assoc-in [:articles :status] :error)
-        (assoc-in [:articles :error]  failure))))
+  (fn [{:keys [db]} [_ {:keys [failure]}]]
+    {:db (-> db
+             (assoc-in [:articles :status] :error)
+             (assoc-in [:articles :error]  failure))}))
 
 ;; The fourth lifecycle event: seed (or re-seed) the whole slice explicitly.
 ;; This is the supported way to initialise the slice — :default schema props
 ;; are validation hints, not an app-db seed, so the slice must be written.
-(rf/reg-event-db :articles/reset
-  (fn [db _]
-    (assoc db :articles {:status :idle :data nil :error nil :loaded-at nil :attempt 0})))
+(rf/reg-event :articles/reset
+  (fn [{:keys [db]} _]
+    {:db (assoc db :articles {:status :idle :data nil :error nil :loaded-at nil :attempt 0})}))
 
 (rf/reg-sub :articles            (fn [db _] (get db :articles)))
 (rf/reg-sub :articles/status     :<- [:articles] :status)

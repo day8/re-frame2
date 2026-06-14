@@ -117,7 +117,7 @@ A representative `:http-xhrio` request: fetch an article by slug, decode JSON, d
   (:require [re-frame.core :as rf]
             [re-frame.http-managed]))                  ;; per M-31 — registers the :rf.http/* fxs
 
-(rf/reg-event-fx :article/load
+(rf/reg-event :article/load
   (fn [{:keys [db]} [_ slug]]
     {:db (assoc-in db [:article :status] :loading)
      :fx [[:rf.http/managed
@@ -128,24 +128,24 @@ A representative `:http-xhrio` request: fetch an article by slug, decode JSON, d
             :on-success [:article/load-success]
             :on-failure [:article/load-failure]}]]}))
 
-(rf/reg-event-db :article/load-success
-  (fn [db [_ {:keys [value]}]]                         ;; reply lands as {:kind :success :value v}
-    (-> db
-        (assoc-in [:article :status] :loaded)
-        (assoc-in [:article :data]   value))))
+(rf/reg-event :article/load-success
+  (fn [{:keys [db]} [_ {:keys [value]}]]               ;; reply lands as {:kind :success :value v}
+    {:db (-> db
+             (assoc-in [:article :status] :loaded)
+             (assoc-in [:article :data]   value))}))
 
-(rf/reg-event-db :article/load-failure
-  (fn [db [_ {:keys [failure]}]]                        ;; reply lands as {:kind :failure :failure {...}}
-    (-> db
-        (assoc-in [:article :status] :error)
-        (assoc-in [:article :error]
-                  (case (:kind failure)
-                    :rf.http/http-4xx       {:kind :not-found   :status (:status failure)}
-                    :rf.http/http-5xx       {:kind :server-err  :status (:status failure)}
-                    :rf.http/transport      {:kind :network     :message (:message failure)}
-                    :rf.http/timeout        {:kind :timeout     :elapsed-ms (:elapsed-ms failure)}
-                    :rf.http/decode-failure {:kind :bad-payload :cause (:cause failure)}
-                    {:kind :unknown :failure failure})))))
+(rf/reg-event :article/load-failure
+  (fn [{:keys [db]} [_ {:keys [failure]}]]              ;; reply lands as {:kind :failure :failure {...}}
+    {:db (-> db
+             (assoc-in [:article :status] :error)
+             (assoc-in [:article :error]
+                       (case (:kind failure)
+                         :rf.http/http-4xx       {:kind :not-found   :status (:status failure)}
+                         :rf.http/http-5xx       {:kind :server-err  :status (:status failure)}
+                         :rf.http/transport      {:kind :network     :message (:message failure)}
+                         :rf.http/timeout        {:kind :timeout     :elapsed-ms (:elapsed-ms failure)}
+                         :rf.http/decode-failure {:kind :bad-payload :cause (:cause failure)}
+                         {:kind :unknown :failure failure})))}))
 ```
 
 What changed:

@@ -1,7 +1,7 @@
 # Decision tree — slice, region, or top-level machine?
 
 > **Audience:** authors writing re-frame2 ClojureScript application code.
-> **Use when:** you have feature-state to model and need to choose its shape — a key in `app-db` driven by `reg-event-db`, a region inside an existing `reg-machine`, or a brand-new top-level `reg-machine`.
+> **Use when:** you have feature-state to model and need to choose its shape — a key in `app-db` driven by `reg-event`, a region inside an existing `reg-machine`, or a brand-new top-level `reg-machine`.
 
 re-frame2 gives you three places to put state. The right choice usually falls out of one or two questions; this tree walks them in priority order. The four state-machine tells are listed first because if any of them holds, the choice is settled.
 
@@ -11,7 +11,7 @@ re-frame2 gives you three places to put state. The right choice usually falls ou
 
 | Shape | What it is | When it fits |
 |---|---|---|
-| **Slice** | a key (or sub-tree) inside `app-db`, written by `reg-event-db` and read by `reg-sub`. No FSM grammar. | A field, a list, a flag, a counter — values that change but whose *legal transitions* don't need enforcement. |
+| **Slice** | a key (or sub-tree) inside `app-db`, written by `reg-event` and read by `reg-sub`. No FSM grammar. | A field, a list, a flag, a counter — values that change but whose *legal transitions* don't need enforcement. |
 | **Region** | one axis inside an existing `reg-machine` declared with `:type :parallel` and `:regions {...}`. Each region runs its own state-tree. | A sub-concern that is *part of* a larger feature's lifecycle — e.g. a form's submission status inside a screen's load-then-edit lifecycle. |
 | **Top-level machine** | a free-standing `reg-machine`. Its snapshot lives at `[:rf.runtime/machines :snapshots <id>]` in the runtime-db partition (framework state, not app-db). | A feature whose answer to "what can happen next?" depends on the current mode, and which is not a sub-concern of another feature. |
 
@@ -130,7 +130,7 @@ If a reference declaration contradicts the leaf you'd pick from this tree, **the
 - [`../references/state-machines/spawn.md`](../references/state-machines/spawn.md) — `:spawn` and `:spawn-all` for child machines.
 - [`../references/state-machines/history.md`](../references/state-machines/history.md) — `:type :history` re-entry (shallow / deep / default).
 - [`../references/state-machines/cancellation.md`](../references/state-machines/cancellation.md) — the actor-destroy cascade.
-- [`../references/fundamentals/events.md`](../references/fundamentals/events.md) — `reg-event-db` / `reg-event-fx` for slice-shaped state.
+- [`../references/fundamentals/events.md`](../references/fundamentals/events.md) — `reg-event` for slice-shaped state.
 - [`../references/fundamentals/schemas.md`](../references/fundamentals/schemas.md) — `reg-app-schema` at boundaries.
 - [`../examples-map.md`](../examples-map.md) — example-app index for shape-verification.
 

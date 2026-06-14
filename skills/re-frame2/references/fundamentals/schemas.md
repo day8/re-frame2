@@ -40,10 +40,10 @@ Registrations are **frame-scoped** — the schema attaches to a path inside one 
 Every `reg-*` macro accepts a `:schema` key in its metadata-map:
 
 ```clojure
-(rf/reg-event-db :flight/set-trip-type
+(rf/reg-event :flight/set-trip-type
   {:doc    "User changed the trip-type combo."
    :schema [:cat [:= :flight/set-trip-type] [:enum :one-way :return]]}
-  (fn [db [_ trip-type]] (assoc-in db [:flight :trip-type] trip-type)))
+  (fn [{:keys [db]} [_ trip-type]] {:db (assoc-in db [:flight :trip-type] trip-type)}))
 ```
 
 In **dev builds** (`re-frame.interop/debug-enabled?` is `true`) the dispatched event vector is validated against the handler's `:schema` before the handler runs. Failure emits `:rf.error/schema-validation-failure` and skips the handler (sets `:rf/skip-handler?`; see `re-frame.spec`). In **`:advanced` + `goog.DEBUG=false` production builds** these dev-time call sites are elided.
@@ -56,7 +56,7 @@ For handlers that **must** validate even in production (HTTP response ingestion,
 (ns my-app.api
   (:require [re-frame.core :as rf]))
 
-(rf/reg-event-fx :api/response-received
+(rf/reg-event :api/response-received
   {:schema ApiResponseSchema
    :interceptors [rf/validate-at-boundary-interceptor]}
   (fn [_ [_ payload]] ...))
@@ -68,7 +68,7 @@ Behaviour matrix:
 
 - **Dev build** — no-op (step-1 validation already runs).
 - **Production with `:schema`** — runs the same validation inline.
-- **Registration without `:schema`** — rejected at `reg-event-*` time with `:rf.error/at-boundary-missing-schema`. The boundary interceptor is structurally meaningless without a schema; the registrar refuses to install the handler.
+- **Registration without `:schema`** — rejected at `reg-event` time with `:rf.error/at-boundary-missing-schema`. The boundary interceptor is structurally meaningless without a schema; the registrar refuses to install the handler.
 
 ## Canonical mini-example
 
@@ -83,10 +83,10 @@ From `examples/reagent/seven_guis/flight_booker/core.cljs`:
 
 (rf/reg-app-schema [:flight] FlightState)
 
-(rf/reg-event-db :flight/set-trip-type
+(rf/reg-event :flight/set-trip-type
   {:doc    "User changed the trip-type combo."
    :schema [:cat [:= :flight/set-trip-type] [:enum :one-way :return]]}
-  (fn [db [_ trip-type]] (assoc-in db [:flight :trip-type] trip-type)))
+  (fn [{:keys [db]} [_ trip-type]] {:db (assoc-in db [:flight :trip-type] trip-type)}))
 ```
 
 The `reg-app-schema` validates `app-db` shape at the `[:flight]` path; the `:schema` on the handler validates the dispatched event vector.
@@ -111,7 +111,7 @@ The `reg-app-schema` validates `app-db` shape at the `[:flight]` path; the `:sch
 
 - **`reg-app-schema` is a no-op without the schemas artefact.** The macro emits a `late-bind` lookup; without `re-frame.schemas` loaded, the call throws `:rf.error/schemas-artefact-missing` at runtime, not at compile time. Always require `re-frame.schemas` at app boot if you call this.
 - **`:schema` on a handler validates the event vector, not the `app-db` value.** The schema's first slot is typically `[:cat [:= :event-id] ...]`. For app-db-shape enforcement, use `reg-app-schema`.
-- **Boundary interceptor without `:schema` is rejected at registration.** Adding `rf/validate-at-boundary-interceptor` under metadata `:interceptors` on a handler that has no `:schema` metadata raises `:rf.error/at-boundary-missing-schema` from `reg-event-*` — the handler is not installed. Either attach a `:schema` to the metadata-map or remove the interceptor.
+- **Boundary interceptor without `:schema` is rejected at registration.** Adding `rf/validate-at-boundary-interceptor` under metadata `:interceptors` on a handler that has no `:schema` metadata raises `:rf.error/at-boundary-missing-schema` from `reg-event` — the handler is not installed. Either attach a `:schema` to the metadata-map or remove the interceptor.
 - **Boundary validation is dev-OR-prod, never both.** Dev-mode step-1 has already validated by the time the boundary interceptor runs; the boundary becomes the validator in production builds when step-1 is elided.
 - **Schemas are frame-scoped.** Re-registering a schema on the same `[path]` of the same frame replaces; the same path on a different frame is a separate registration.
 

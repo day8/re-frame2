@@ -9,7 +9,7 @@ Greppable signals inside `.cljs` / `.cljc` files containing views:
 - `(reagent/atom ...)` or `(r/atom ...)` declared **inside** a view function or at the top of a view namespace, and the resulting atom is **named & exported**, or referenced from a sibling view.
 - `(let [!state (reagent/atom ...)] ...)` inside a view body whose value is then derefed in a sibling component imported elsewhere.
 - React hooks (`uix.core/use-state`, `helix.hooks/use-state`, `(.useState js/React ...)`) holding values like `:current-filter`, `:selected-id`, `:modal-open?`, `:form-data` — concerns the rest of the application would want to query or dispatch about.
-- Event handlers (in `events.cljs`) reaching into a view-owned atom — e.g. `(deref view-ns/!current-tab)` from inside a `reg-event-fx`.
+- Event handlers (in `events.cljs`) reaching into a view-owned atom — e.g. `(deref view-ns/!current-tab)` from inside a `reg-event` handler.
 
 Structural signal: the state lives outside `app-db` *but* is consumed by anything other than the very component that declared it.
 
@@ -27,7 +27,7 @@ A `reagent/atom` is legitimate when its state is **render-local** — a hovered-
 
 ## The canonical fix
 
-Move the state to `app-db` behind a `reg-sub`. Reads use `(subscribe [:sub-id])`; writes go through `reg-event-db` / `reg-event-fx`. See [`skills/re-frame2/references/fundamentals/subs.md`](../../re-frame2/references/fundamentals/subs.md) and [`skills/re-frame2/references/fundamentals/events.md`](../../re-frame2/references/fundamentals/events.md).
+Move the state to `app-db` behind a `reg-sub`. Reads use `(subscribe [:sub-id])`; writes go through `reg-event`. See [`skills/re-frame2/references/fundamentals/subs.md`](../../re-frame2/references/fundamentals/subs.md) and [`skills/re-frame2/references/fundamentals/events.md`](../../re-frame2/references/fundamentals/events.md).
 
 Spec source: [`spec/Principles.md`](../../../spec/Principles.md) (single source of truth for application state) and [`spec/004-Views.md`](../../../spec/004-Views.md) (views as pure projections).
 
@@ -57,8 +57,8 @@ Spec source: [`spec/Principles.md`](../../../spec/Principles.md) (single source 
 **After** — `app-db` + sub + events:
 
 ```clojure
-(rf/reg-event-db :dashboard/select-tab
-  (fn [db [_ tab]] (assoc-in db [:dashboard :current-tab] tab)))
+(rf/reg-event :dashboard/select-tab
+  (fn [{:keys [db]} [_ tab]] {:db (assoc-in db [:dashboard :current-tab] tab)}))
 
 (rf/reg-sub :dashboard/current-tab
   (fn [db _] (get-in db [:dashboard :current-tab] :overview)))

@@ -30,11 +30,7 @@ Sanity-checking a mental model: tracing what happens between `(rf/dispatch ...)`
 
 **5. Validation (dev only).** If the handler carries a `:schema`, the runtime validates the event vector against it. Failure sets `:rf/skip-handler?` on the context and the handler short-circuits (the schema check + skip-handler honouring in `spec.cljc` / `events.cljc`). `validate-at-boundary-interceptor` runs this same check in production.
 
-**6. User handler.** The wrapped handler-fn fires:
-
-- `reg-event-db` receives `(db, event)` → returns `new-db`; runtime stashes under `(:effects ctx :db)`.
-- `reg-event-fx` receives `(cofx, event)` → returns `{:db ... :rf.db/runtime ... :fx [...]}`; runtime stashes them under `(:effects ctx ...)`.
-- `reg-event-ctx` receives `ctx` → returns `ctx` (advanced).
+**6. User handler.** The wrapped `reg-event` handler-fn fires: it receives `(cofx, event)` → returns `{:db ... :rf.db/runtime ... :fx [...]}` (or `nil` for a no-op); the runtime stashes the returned effects under `(:effects ctx ...)`. A handler whose only effect is a db write returns `{:db new-db}` — the db write is one effect, not a special return shape. Full-context manipulation is done by an **interceptor** (`->interceptor`, the public `context -> context` primitive), not a distinct handler form.
 
 **7. Effect-shape policing.** Top-level keys outside the closed set `#{:db :rf.db/runtime :fx}` emit `:rf.error/effect-map-shape` and are dropped (`police-effect-map-shape!` in `events.cljc`). v2's effect map is closed. `:rf.db/runtime` is inside the set — the framework-authority runtime-db partition (EP-0001); a non-framework handler emitting it gets a `:rf.warning/app-handler-runtime-effect` dev diagnostic, not a drop.
 
@@ -55,7 +51,7 @@ Sanity-checking a mental model: tracing what happens between `(rf/dispatch ...)`
 | Dispatch / queue | `router.cljc` (`dispatch!` / `dispatch-sync!`) | `rf/dispatch`, `rf/dispatch-sync` |
 | Interceptor chain | `events.cljc` (handler-wrapping fns) | metadata `:schema`, interceptors vector |
 | Coeffect assembly | `cofx.cljc` (`deliver-declared-cofx`) | `:rf.cofx/requires` metadata |
-| Handler invocation | `events.cljc` (handler-wrapping fns) | `reg-event-db` / `-fx` / `-ctx` |
+| Handler invocation | `events.cljc` (handler-wrapping fn) | `reg-event` (one form) |
 | Effect-map policing | `events.cljc` (`police-effect-map-shape!`) | `:rf.error/effect-map-shape` trace |
 | `:db` commit | `subs.cljc` + substrate adapter | atomic via `replace-container!` |
 | `:fx` walk | `fx.cljc` (`do-fx` / `handle-one-fx`) | `reg-fx`, `:fx-overrides` |
@@ -70,8 +66,8 @@ From `examples/reagent/todomvc/events.cljs`, one dispatch exercises the whole cy
 ;; (1) dispatch
 (rf/dispatch [:todo/delete 3])
 
-;; (6) handler returns the fx-map  (commits :db AND fires an fx)
-(rf/reg-event-fx :todo/delete
+;; (6) handler returns the effects map  (commits :db AND fires an fx)
+(rf/reg-event :todo/delete
   (fn [{:keys [db]} [_ id]]
     (let [next-db (update db :todos dissoc id)]
       {:db next-db

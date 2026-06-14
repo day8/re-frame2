@@ -1,7 +1,7 @@
 (ns counter.core
  "re-frame2-pair fixture counter.
 
- Deliberately tiny: one event-db (`:counter/inc`, `:counter/dec`,
+ Deliberately tiny: three `reg-event` handlers (`:counter/inc`, `:counter/dec`,
  `:counter/initialise`), one sub (`:count`), one reg-view
  (`counter-buttons`). Mirrors examples/reagent/counter/core.cljs and
  exists so re-frame2-pair's tests/shim, tests/e2e, and tests/prompts surfaces
@@ -19,14 +19,14 @@
 
 ;; -- Events / subs ------------------------------------------------------------
 
-(rf/reg-event-db :counter/initialise
- (fn [_db _event] {:count 5}))
+(rf/reg-event :counter/initialise
+ (fn [_cofx _event] {:db {:count 5}}))
 
-(rf/reg-event-db :counter/inc
- (fn [db _event] (update db :count inc)))
+(rf/reg-event :counter/inc
+ (fn [{:keys [db]} _event] {:db (update db :count inc)}))
 
-(rf/reg-event-db :counter/dec
- (fn [db _event] (update db :count dec)))
+(rf/reg-event :counter/dec
+ (fn [{:keys [db]} _event] {:db (update db :count dec)}))
 
 (rf/reg-sub :count
  (fn [db _query] (:count db)))

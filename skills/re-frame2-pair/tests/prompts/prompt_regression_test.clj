@@ -120,7 +120,7 @@
  :recipe-anchor "Experiment loop"
  :must-mention [["dispatch-and-collect"]
  ["restore-epoch"]
- ["reg-event-fx" "reg-event-db"]]}
+ ["reg-event" "reg-event-fx" "reg-event-db"]]}
 
  {:id :where-in-code
  :prompt "Where in the code does this button come from?"

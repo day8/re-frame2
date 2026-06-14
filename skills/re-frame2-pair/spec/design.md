@@ -15,7 +15,7 @@ Crucially, the skill consumes **re-frame2's own Tool-Pair contract** (per `spec/
 ## 2. Pillars (locked)
 
 1. **Correctness — structured ops over `repl/eval`.** Every operation is a named structured call that returns edn (`{:ok? true ...}` / `{:ok? false :reason ...}`). The skill teaches the AI to compose forms and read structured results; the raw `repl/eval` escape hatch exists for probes that don't fit the catalogue.
-2. **Idiomaticness — speak re-frame2's vocabulary.** Dispatch, reg-event-fx, reg-sub, reg-machine, frame, epoch, sub-cache. The AI never invents alternate vocabulary for the same concept.
+2. **Idiomaticness — speak re-frame2's vocabulary.** Dispatch, reg-event, reg-sub, reg-machine, frame, epoch, sub-cache. The AI never invents alternate vocabulary for the same concept.
 3. **Context economy — router skill + on-demand references.** SKILL.md (~130 lines) is the router and the connect-first rules; six references carry per-task depth, loaded at most two at a time.
 4. **Read before you write.** The AI grounds a hypothesis in live data (an epoch, a snapshot, a render entry) **before** proposing a change. Speculation without evidence is the single largest anti-pattern; the skill calls it out repeatedly.
 

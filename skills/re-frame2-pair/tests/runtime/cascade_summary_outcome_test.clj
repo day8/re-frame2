@@ -195,7 +195,7 @@
      :tags {:frame :machine-epochs :machine-id :door/lock :from :open :to :closed}}
     {:operation :rf.event/run-end :tags {:frame :machine-epochs}}]})
 
-;; A genuine non-machine fx error: a reg-event-fx handler returned an fx-id
+;; A genuine non-machine fx error: a reg-event handler returned an fx-id
 ;; whose handler threw. The epoch carries the per-effect :outcome :error AND
 ;; the `:rf.error/fx-handler-exception` trace.
 (def fx-error-epoch
@@ -266,7 +266,7 @@
     (is (true? (:db-changed? conseq)))))
 
 (deftest fx-error-surfaces-as-error
-  ;; A genuine non-machine reg-event-fx error: the fx-handler threw. It
+  ;; A genuine non-machine reg-event error: the fx-handler threw. It
   ;; carries the `:rf.error/fx-handler-exception` trace, so the same
   ;; contained-throw detection applies — :outcome :error, not a no-op.
   (let [summary (cascade-summary fx-error-epoch)

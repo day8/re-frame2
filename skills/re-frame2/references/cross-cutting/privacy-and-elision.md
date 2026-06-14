@@ -26,7 +26,7 @@ Classification attaches to **whoever owns the data shape**. That single rule has
 |---|---|---|---|
 | Durable, frame-wide `app-db` state (auth tokens, partner keys, big uploads); frame-local HTTP carrier names | the **frame** | `reg-frame` / `make-frame` `:sensitive` / `:large` path maps | a path map: `{:app-db [[:auth :token]]}` |
 | Owner-local schema'd data — machine `:data`, resource data/params, HTTP response bodies | the **schema** that already validates it | per-slot `:sensitive?` / `:large?` Malli props on that `:data-schema` / `:params-schema` / `:decode` schema | a boolean prop on one slot: `[:token {:sensitive? true} :string]` |
-| Transient payloads — event args, fx/cofx args, sub outputs, flow outputs, machine transition payloads | the **registration** that introduces the shape | `reg-event-*` / `reg-sub` / `reg-fx` / `reg-flow` `:sensitive` / `:large` metadata | a vector of paths: `[[:password]]` |
+| Transient payloads — event args, fx/cofx args, sub outputs, flow outputs, machine transition payloads | the **registration** that introduces the shape | `reg-event` / `reg-sub` / `reg-fx` / `reg-flow` `:sensitive` / `:large` metadata | a vector of paths: `[[:password]]` |
 
 Hold this one line in your head: *durable frame-wide facts → frame config path maps; owner-local schema'd data → per-slot schema props; transient payloads → registration metadata.* Three owners, three surfaces, no overlap. For any given datum exactly one owner applies — there is never "did I declare this on the frame *and* the schema?"
 
@@ -85,7 +85,7 @@ The `:sensitive?` slot redacts `[:data :payment :token]` everywhere the machine 
 Values that flow *through* the cascade rather than *living* in durable state are owned by the registration that introduces their shape:
 
 ```clojure
-(rf/reg-event-fx
+(rf/reg-event
   :auth/login
   {:sensitive [[:password] [:totp-code]]}
   (fn [{:keys [db]} [_ {:keys [email password]}]]

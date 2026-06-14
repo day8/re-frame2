@@ -133,9 +133,12 @@ step order, per `panels/epoch/projection.cljc`'s `project` (§021 §9.1.3):
  per throwing interceptor — id + `:before` / `:after` phase chip + the
  shared Exception card. Sits between COEFFECTS and HANDLER (the chain's
  cascade position).
-4. **EVENT HANDLER** — always present; body adapts to the handler flavour
- (`:reg-event-db` → `:db` diff · `:reg-event-fx` → `:db` + per-fx ·
- `:reg-machine` → the time-ordered machine cascade). Rendered
+4. **EVENT HANDLER** — always present; body adapts to **what the handler
+ returned**, not to a registrar flavour (post-EP-0018 there is one public
+ `reg-event` and the registry kind is simply `:event` — no `:db`-vs-`:fx`
+ sub-discriminator): a returned map carrying only `:db` → `:db` diff · a
+ map carrying `:db` + `:fx` → `:db` diff + per-fx · a `reg-machine` event
+ → the time-ordered machine cascade. Rendered
  as **SKIPPED** (⊘) when an upstream `:before`-chain throw — a coeffect
  supplier that threw while delivering, or a `:before` interceptor —
  aborted the cascade before the handler ran (NOT "ran, returned no :db").
@@ -187,7 +190,7 @@ APPLIED" split). Per `panels/epoch/projection.cljc`'s `side-effects-step`:
  every present row succeeded, CROSS when one or more FAILED; SKIPPED rows
  are neutral (`side-effects-badge-status`).
 - **The `:db` row** leads the ledger when a `:db` commit was attempted
- (incl. a plain reg-event-db returning only `:db`); its args slot is the
+ (incl. a handler that returned only `:db`); its args slot is the
  clickable **"→ app-db"** destination marker (the actual diff lives in
  the app-db panel — no duplication). Absent when the handler returned
  only `:fx` / nothing / threw (no phantom `:db`).

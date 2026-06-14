@@ -41,7 +41,7 @@ The loader machine fans out three fetches, joins, writes on `:ready`, and stamps
     :stage-result
     (fn [{data :data [_ slot payload] :event}]
       {:data (assoc-in data [:results slot] payload)})
-    ;; On :ready, hand the staged results to a real reg-event-fx that does
+    ;; On :ready, hand the staged results to a real reg-event that does
     ;; the app-db write — a machine :action cannot write :db itself.
     :apply-results
     (fn [{data :data}]
@@ -77,17 +77,17 @@ The loader machine fans out three fetches, joins, writes on `:ready`, and stamps
                        {:fx [[:rf.server/set-status 502]
                              [:dispatch [:pdp/stamp-error reason]]]}))}}})
 
-;; The real app-db writes happen in ordinary reg-event-fx handlers — a
+;; The real app-db writes happen in ordinary reg-event handlers — a
 ;; machine :action / :entry returns only :data + :fx, never :db (Spec 005
 ;; hard-disallows :db; there is no :db-fx key and no :assoc-in fx).
-(rf/reg-event-fx :pdp/apply-results
+(rf/reg-event :pdp/apply-results
   (fn [{:keys [db]} [_ {:keys [product related reviews]}]]
     {:db (-> db
              (assoc-in [:pdp :product] product)
              (assoc-in [:pdp :related] related)
              (assoc-in [:pdp :reviews] reviews))}))
 
-(rf/reg-event-fx :pdp/stamp-error
+(rf/reg-event :pdp/stamp-error
   (fn [{:keys [db]} [_ reason]]
     {:db (assoc-in db [:pdp :error] reason)}))
 ```
@@ -99,7 +99,7 @@ The per-fetch child is a thin shared machine — one state spawns `:rf.http/mana
 The SSR request wires it from `:rf/server-init`, reading request-derived values from the `:rf.server/request` cofx **once**, at the spawn site:
 
 ```clojure
-(rf/reg-event-fx :rf/server-init
+(rf/reg-event :rf/server-init
   {:platforms #{:server}
    :rf.cofx/requires [:rf.server/request]}
   (fn [{:keys [rf.server/request]} _]

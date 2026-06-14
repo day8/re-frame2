@@ -23,7 +23,9 @@ wrong skill — close this and answer from the spec corpus directly.
   structured op).
 - **subscribe** / **reg-sub** — the read-side of the cascade and its
   registration form. `sub-cache` is the per-frame memoisation surface.
-- **reg-event** / **reg-event-fx** — write-side handler registrations.
+- **reg-event** — the write-side handler registration form (the one
+  public event-registration form; its handler returns an effects map,
+  conventionally `{:db ...}` to write app-db).
 - **reg-fx** — effect-handler registrations; surfaced through
   `:effects` projections on each epoch record.
 - **reg-machine** — state-machine handler registrations (Spec 005).

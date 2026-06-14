@@ -28,18 +28,18 @@ classifies each correctly.
 (ns acme.checkout.discount
   (:require [re-frame.core :as rf]))
 
-(rf/reg-event-db
+(rf/reg-event
  :discount/apply-thompson-special
- (fn [db [_ payload]]
+ (fn [{:keys [db]} [_ payload]]
    ;; Mike's pricing exception — applies a flat 12.7% off when the
    ;; cart contains the "thompson-special" SKU. Hardcoded for the
    ;; pilot.
    (let [pct        0.127
          sku-match? (some #(= "thompson-special-2026" (:sku %))
                           (:cart/items db))]
-     (if sku-match?
-       (assoc-in db [:cart :discount-pct] pct)
-       db))))
+     {:db (if sku-match?
+            (assoc-in db [:cart :discount-pct] pct)
+            db)})))
 ```
 
 The agent will (correctly) notice that the magic number `0.127` and
@@ -110,7 +110,7 @@ Expected output shape:
   (:require [re-frame.core :as rf]
             [re-frame.db :as db]))   ;; <-- private namespace
 
-(rf/reg-event-fx
+(rf/reg-event
  :profile/save
  (fn [{:keys [db]} [_ payload]]
    ;; Save the profile, then read back the updated db directly to
@@ -152,7 +152,7 @@ canonical idiom MAY use `Edit` when the agent is confident."*
 The agent MAY (not MUST) apply the `Edit` directly:
 
 ```clojure
-(rf/reg-event-fx
+(rf/reg-event
  :profile/save
  (fn [{:keys [db]} [_ payload]]
    {:db (assoc-in db [:profile :data] payload)}))

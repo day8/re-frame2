@@ -109,9 +109,9 @@ Same for `uix` / `helix` variants.
 (:require [re-frame.alpha :as rf])  ; or :refer [reg sub]
 
 ;; REWRITE — remove the require; rewrite each call site:
-(reg :event-fx :id ...)              → (reg-event-fx :id ...)
-(reg :event-db :id ...)              → (reg-event-db :id ...)
-(reg :event-ctx :id ...)             → (reg-event-ctx :id ...)
+(reg :event-fx :id ...)              → (reg-event :id ...)        ; the one event form
+(reg :event-db :id ...)              → (reg-event :id ...)        ; + the {:keys [db]} / {:db BODY} reshape, per M-73
+(reg :event-ctx :id ...)             → an ->interceptor + (reg-event :id ...), per M-73
 (reg :sub :id ...)                   → (reg-sub :id ...)
 (reg :fx :id ...)                    → (reg-fx :id ...)
 (reg :cofx :id ...)                  → (reg-cofx :id ...)
@@ -187,13 +187,13 @@ M-52 above covers the **synchronous** test surface (`run-test-sync` → `dispatc
           [re-frame.test-support :as ts])
 
 ;; Epoch-free :each fixture — snapshot on entry, restore via a one-shot
-;; reg-event-db on exit. (If the suite DOES pull day8/re-frame2-epoch, the
+;; reg-event on exit. (If the suite DOES pull day8/re-frame2-epoch, the
 ;; M-26 replace-app-db! restore is the simpler path — use that instead.)
 ;; make-reset-runtime-fixture (M-64) handles registrar/runtime isolation;
 ;; this fixture stacks the app-db snapshot on top.
 (defn restore-app-db-fixture [t]
   (let [snap (rf/app-db-value :rf/default)]
-    (rf/reg-event-db ::restore-app-db (fn [_ [_ v]] v))   ; one-shot restorer
+    (rf/reg-event ::restore-app-db (fn [_ [_ v]] {:db v}))   ; one-shot restorer
     (try (t)
       (finally (rf/dispatch-sync [::restore-app-db snap])))))
 
@@ -316,7 +316,7 @@ The `opts-shape` shape carries the same content; only the slot key changes (it n
  :fx [[:dispatch <event-vec>]]}
 ```
 
-If the handler was `reg-event-db`, promote it to `reg-event-fx` so it can return an `:fx` slot.
+There is one event form, `reg-event` — the migrated handler returns `{:db ... :fx [...]}`, so it can carry the moved-in `:fx` slot directly (no separate db/fx form to promote between).
 
 ### M-16 — `^:flush-dom` metadata (two sub-cases: M-16a automatic, M-16b human-review)
 
@@ -367,7 +367,7 @@ There is no automatic rewrite. Surface every M-16b hit and let the operator pick
 **(ii) Preserve the latency — route through a one-shot trampoline.** If the call site genuinely wants a paint tick before the dispatched handler runs, register a one-shot event whose body is the M-16a rewrite, then dispatch through it:
 ```clojure
 ;; re-frame2 (ii) — register once (e.g. in a boot.cljc)
-(rf/reg-event-fx :rf/dispatch-later-once
+(rf/reg-event :rf/dispatch-later-once
   (fn [_ [_ ev]]
     {:fx [[:dispatch-later {:ms 0 :event ev}]]}))
 

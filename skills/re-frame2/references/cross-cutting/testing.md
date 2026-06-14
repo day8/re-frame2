@@ -22,7 +22,7 @@ Everything you need — fixtures, helpers — lives under `re-frame.test-support
   (ts/make-reset-runtime-fixture {:adapter reagent-adapter/adapter}))
 ```
 
-`make-reset-runtime-fixture` snapshot/restores the registrar around each test, resets every frame's `app-db` to `{}`, disposes any installed substrate adapter and reinstalls the one in `:adapter`, and ensures `:rf/default` is present. Per-test `reg-event-db` / `reg-sub` / `reg-machine` calls land cleanly inside the test and are rolled back on the way out — **without** wiping framework registrations (e.g. `:rf/route`, `:rf/machine` subs) that landed at namespace-load time.
+`make-reset-runtime-fixture` snapshot/restores the registrar around each test, resets every frame's `app-db` to `{}`, disposes any installed substrate adapter and reinstalls the one in `:adapter`, and ensures `:rf/default` is present. Per-test `reg-event` / `reg-sub` / `reg-machine` calls land cleanly inside the test and are rolled back on the way out — **without** wiping framework registrations (e.g. `:rf/route`, `:rf/machine` subs) that landed at namespace-load time.
 
 JVM tests pass the plain-atom adapter:
 
@@ -92,7 +92,7 @@ A handler that writes a durable timestamp / generated id **declares** the fact i
 
 ```clojure
 ;; Handler under test declares the clock and reads it flat:
-;; (rf/reg-event-fx :todo/create
+;; (rf/reg-event :todo/create
 ;;   {:rf.cofx/requires [:rf/time-ms]}
 ;;   (fn [{:keys [db rf/time-ms]} [_ text]]
 ;;     {:db (assoc-in db [:todos :t1] {:text text :created-at time-ms})}))
@@ -187,9 +187,9 @@ This is the dominant shape for an app-developer e2e view test — it compresses 
 (deftest counter-e2e
   (h/with-app-fixture
     {:install   (fn []
-                  (rf/reg-event-db :counter/inc (fn [db _] (update db :n inc)))
-                  (rf/reg-sub      :counter/n   (fn [db _] (:n db)))
-                  (rf/reg-view     :counter/view
+                  (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n inc)}))
+                  (rf/reg-sub   :counter/n   (fn [db _] (:n db)))
+                  (rf/reg-view  :counter/view
                     (fn [] [:span (h/testid "n") @(rf/subscribe [:counter/n])])))
      :root-view (fn [] [:counter/view])}
     (rf/dispatch-sync [:counter/inc])

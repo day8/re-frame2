@@ -13,7 +13,7 @@ For the *why* of each rule, see [`MIGRATION.md`](../../../migration/from-re-fram
 - Interceptor list cleanup (M-21 mechanical half)
 - Event interceptor chains → metadata `:interceptors` (M-70 — mechanical; **loud-at-runtime, not loud-at-compile**: structural grep up front)
 - View / hiccup rewrites (M-22, M-24)
-- `reg-event-fx` shape (M-26 mechanical half)
+- `reg-event` shape (M-26 mechanical half)
 - Init / adapter (M-40 — **Type B**; shape is here, the decision is asked-first)
 - Per-feature artefact adds (M-27 through M-33)
 
@@ -75,7 +75,7 @@ Closed mechanical rename set. Apply across all source files. The dual-key read `
  (fn ...))
 
 ;; REWRITE
-(rf/reg-event-fx :auth/login
+(rf/reg-event :auth/login
  {:doc "..." :schema LoginSchema}
  (fn ...))
 ```
@@ -164,7 +164,7 @@ Drop `debug` and `trim-v` from interceptor lists:
  <handler>)
 
 ;; REWRITE
-(rf/reg-event-fx :foo
+(rf/reg-event :foo
  {:interceptors [<other-interceptors>]}
  <handler>)
 ```
@@ -172,7 +172,7 @@ Drop `debug` and `trim-v` from interceptor lists:
 If the interceptor list becomes empty after dropping `debug`/`trim-v`, drop the empty vector slot entirely:
 
 ```clojure
-(rf/reg-event-fx :foo <handler>)
+(rf/reg-event :foo <handler>)
 ```
 
 **`trim-v` reaches M-19 territory** (the handler may have positional destructure). Flag the handler shape — the M-19 sweep handles destructure rewriting separately.
@@ -183,27 +183,28 @@ If the interceptor list becomes empty after dropping `debug`/`trim-v`, drop the 
 
 ## Event interceptor chains → metadata `:interceptors` (M-70 — mechanical; loud-at-runtime, not loud-at-compile)
 
-v2's `reg-event-db` / `reg-event-fx` / `reg-event-ctx` put per-event interceptor chains in the registration metadata map under `:interceptors`. Bare interceptors, positional vectors, and metadata-plus-vector forms all compile but throw at registration / ns-load. Move each chain into metadata:
+v2's `reg-event` puts per-event interceptor chains in the registration metadata map under `:interceptors`. Bare interceptors, positional vectors, and metadata-plus-vector forms all compile but throw at registration / ns-load. Move each chain into metadata:
 
 ```clojure
 ;; SEARCH — bare interceptor (Var, inline ->interceptor, path, …)
 (rf/reg-event-db :save-progress mw/with-progress-completion
  <handler>)
 
-;; REWRITE
-(rf/reg-event-db :save-progress
+;; REWRITE — db handler reshapes under the one form reg-event:
+;;   (fn [db ev] new-db) → (fn [{:keys [db]} ev] {:db new-db})
+(rf/reg-event :save-progress
  {:interceptors [mw/with-progress-completion]}
- <handler>)
+ (fn [{:keys [db]} ev] {:db <handler-body>}))
 
 ;; SEARCH — positional vector
 (rf/reg-event-db :save-progress
  [mw/with-progress-completion audit]
  <handler>)
 
-;; REWRITE
-(rf/reg-event-db :save-progress
+;; REWRITE — db handler reshapes to the {:db ...} return under reg-event
+(rf/reg-event :save-progress
  {:interceptors [mw/with-progress-completion audit]}
- <handler>)
+ (fn [{:keys [db]} ev] {:db <handler-body>}))
 
 ;; SEARCH — metadata + positional vector
 (rf/reg-event-db :save-progress
@@ -211,11 +212,11 @@ v2's `reg-event-db` / `reg-event-fx` / `reg-event-ctx` put per-event interceptor
  [mw/with-progress-completion]
  <handler>)
 
-;; REWRITE
-(rf/reg-event-db :save-progress
+;; REWRITE — db handler reshapes to the {:db ...} return under reg-event
+(rf/reg-event :save-progress
  {:doc "Track save progress."
   :interceptors [mw/with-progress-completion]}
- <handler>)
+ (fn [{:keys [db]} ev] {:db <handler-body>}))
 ```
 
 The rewrite is mechanical (`mw/x` / `[mw/x]` / `{:doc ...} [mw/x]` → metadata `:interceptors`), and **this rule is loud-at-runtime — but NOT loud-at-compile**. The throw fires at ns-load / first page-load, so a missed site **compiles clean** and only detonates when the app boots — where it **aborts the offending ns's load** (everything after it, incl. a boot machine's `reg-machine`, never registers → the app hangs). So the *compiler* can't find them: **grep every `reg-event-*` site up front and inspect the post-id SHAPES at each** — do NOT march-the-wall (the compiler never points you at the next occurrence), and the **boot smoke-test** ([`runtime-smoke-test.md`](runtime-smoke-test.md)) surfaces any survivor's throw on the console:
@@ -282,7 +283,7 @@ Default to Var-ref form unless the call site comments / context indicate late-bi
 
 ---
 
-## `reg-event-fx` shape (M-26 mechanical half)
+## `reg-event` shape (M-26 mechanical half)
 
 Drop / rewrite the dropped public surfaces:
 
@@ -294,8 +295,8 @@ rf/trace-api-version → drop (no replacement)
 (rf/purge-event-queue) → drop (no replacement); rewrite tests to use 008's helpers
 (rf/dispatch-and-settle e) → (rf/dispatch-sync e)
 @(rf/dispatch-and-settle e) → (rf/dispatch-sync e) ; the deref is gone; settle is default
-(rf/spawn-machine spec) → wrap in event-fx returning {:fx [[:rf.machine/spawn spec]]}
-(rf/destroy-machine id) → wrap in event-fx returning {:fx [[:rf.machine/destroy id]]}
+(rf/spawn-machine spec) → wrap in a reg-event handler returning {:fx [[:rf.machine/spawn spec]]}
+(rf/destroy-machine id) → wrap in a reg-event handler returning {:fx [[:rf.machine/destroy id]]}
 ```
 
 **Type B → see [`guided-interceptors-subs.md`](guided-interceptors-subs.md) (M-26) and [`guided-handlers-state.md`](guided-handlers-state.md) (M-13)**: `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`.

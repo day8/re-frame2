@@ -7,7 +7,7 @@ description: >
   (RemoteData, Resources, Forms, Boot, WebSocket, NineStates, ManagedHTTP,
   AsyncEffect, LongRunningWork, StaleDetection, ReusableComponents,
   StatefulComponents, FormAction, SSR-Loaders). Use whenever the user
-  mentions re-frame2, reg-event-db, reg-event-fx, reg-sub, reg-fx,
+  mentions re-frame2, reg-event, reg-sub, reg-fx,
   reg-cofx, reg-flow, reg-view, reg-machine, reg-route, reg-story,
   reg-app-schema, reg-resource, reg-mutation, dispatch, subscribe, app-db,
   flows, frames, regions, tags, the nine UI states, managed HTTP,
@@ -61,7 +61,7 @@ Authors re-frame2 ClojureScript application code. Router skill: this file carrie
 
 ## When to load
 
-`.cljs` / `.cljc` authoring of: event handlers, subscriptions, flows, state machines, views, schemas, routes, stories, or the canonical patterns. References to `reg-event-*`, `reg-sub`, `reg-fx`, `reg-flow`, `reg-machine`, `dispatch`, `subscribe`, `app-db`, flows, frames, regions, tags, or pattern names are sufficient triggers — re-frame2 need not be named.
+`.cljs` / `.cljc` authoring of: event handlers, subscriptions, flows, state machines, views, schemas, routes, stories, or the canonical patterns. References to `reg-event`, `reg-sub`, `reg-fx`, `reg-flow`, `reg-machine`, `dispatch`, `subscribe`, `app-db`, flows, frames, regions, tags, or pattern names are sufficient triggers — re-frame2 need not be named.
 
 ## When NOT to use
 

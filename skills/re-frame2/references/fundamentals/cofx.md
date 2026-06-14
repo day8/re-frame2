@@ -37,10 +37,10 @@ Verified in `implementation/core/src/re_frame/cofx.cljc` (the `reg-cofx`, `parse
 
 ## Declaration — `:rf.cofx/requires`
 
-A handler takes delivery by declaring the ids it consumes in `:rf.cofx/requires` (Spec 001 standard metadata key, on `reg-event-fx` and `reg-event-ctx`). The declared values arrive **flat** in the coeffects map under their ids — never a nested `:cofx` sub-map:
+A handler takes delivery by declaring the ids it consumes in `:rf.cofx/requires` (Spec 001 standard metadata key, on `reg-event` — uniformly available to every event handler). The declared values arrive **flat** in the coeffects map under their ids — never a nested `:cofx` sub-map:
 
 ```clojure
-(rf/reg-event-fx :counter/inc
+(rf/reg-event :counter/inc
   {:doc "Increment by a delta, stamping the durable update time."
    :rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} _event]
@@ -49,7 +49,7 @@ A handler takes delivery by declaring the ids it consumes in `:rf.cofx/requires`
 
 - A parameterized id appears as `[id arg]` (mirroring the binary supplier arity): `:rf.cofx/requires [[:ui/local-theme "theme"]]`.
 - Delivery is **declared-only**: a leaf on the token but not declared by this handler is **not staged** (`handler-meta` is the complete consumption record). Forgetting to declare what you destructure is a lint target ("consuming without declaring").
-- On `reg-event-db`, `:rf.cofx/requires` is a registration-time error — a db handler receives only the db and cannot take delivery. Needing the world is what graduates a handler to the `fx` form.
+- Every `reg-event` handler can carry `:rf.cofx/requires` — there is one event form, so there is no second-class handler that cannot declare its world facts (the EP-0018 collapse closed that gap).
 
 ## The two grades — ambient vs recordable
 
@@ -65,7 +65,7 @@ The grade is a property of the registration, not a namespace:
 The framework ships exactly **one** registration: `:rf/time-ms` — recordable, provided, stamped onto every dispatch and reply envelope at enqueue. It is the canonical durable wall-clock fact. A handler that folds a timestamp into durable state declares `:rf.cofx/requires [:rf/time-ms]` and reads `time-ms` flat. **Do not register a `:now` cofx that reads `js/Date` for a durable timestamp** — declare `:rf/time-ms`.
 
 ```clojure
-(rf/reg-event-fx :todo/create
+(rf/reg-event :todo/create
   {:rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} [_ {:keys [id text]}]]
     ;; the durable id rides the event payload (the caller pinned it);
@@ -100,7 +100,7 @@ From `examples/reagent/todomvc/db.cljs` (the boot localStorage read):
 And the handler that ingests it:
 
 ```clojure
-(rf/reg-event-fx :todo/initialise
+(rf/reg-event :todo/initialise
   {:rf.cofx/requires [:todo.storage/todos]}
   (fn [{:keys [todo.storage/todos]} _]
     {:db (assoc db/default-db :todos todos)}))
@@ -121,7 +121,7 @@ The **preferred** shape, when the read should be reusable / parameterised / stub
   {:doc "Ambient read of the [:user/current] sub value."}
   (fn [] (rf/subscribe-once [:user/current])))
 
-(rf/reg-event-fx :order/place
+(rf/reg-event :order/place
   {:rf.cofx/requires [:user/current]}
   (fn [{:keys [db user/current]} [_ order]]
     {:db (assoc-in db [:orders (:id order)] (assoc order :placed-by current))}))
@@ -133,7 +133,7 @@ Parameterise with the binary supplier + `[id arg]` declaration when the sub take
 (rf/reg-cofx :sub/value
   (fn [query-v] (rf/subscribe-once query-v)))
 
-(rf/reg-event-fx :order/cancel
+(rf/reg-event :order/cancel
   {:rf.cofx/requires [[:sub/value [:order/by-id 42]]]}
   (fn [{:keys [db sub/value]} _] ...))
 ```
@@ -168,7 +168,7 @@ The dispatch-opts key is `:rf.cofx` (`(rf/dispatch [:e] {:rf.cofx {...}})`); sup
 ## Common gotchas
 
 - **`reg-cofx` is value-returning now.** `(fn [] value)` or `(fn [arg] value)`. A ctx→ctx supplier (`(fn [ctx] (assoc-in ctx ...))`) is wrong shape — the returned ctx would be delivered as the value.
-- **`:rf.cofx/requires` is registration metadata, not an interceptor.** It goes in the metadata-map slot (`(reg-event-fx :id {:rf.cofx/requires [...]} handler)`). Actual interceptor chains also live in that map under `:interceptors`.
+- **`:rf.cofx/requires` is registration metadata, not an interceptor.** It goes in the metadata-map slot (`(reg-event :id {:rf.cofx/requires [...]} handler)`). Actual interceptor chains also live in that map under `:interceptors`.
 - **Declared-only delivery is about USER leaves.** You receive exactly the *user* coeffects you declare; an undeclared user leaf on the token is never staged — destructuring it gives `nil`. The base framework coeffects (`:db`, `:event`, `:rf.db/runtime`, `:rf.frame/id`, and the whole `:rf.cofx` map) are **always staged** on top of that and need no declaration — but they are filtered out of the Xray COEFFECTS lens, which shows only handler-declared leaves.
 - **A durable write folds facts.** A timestamp / generated id / persisted host fact written into app-db must be a recorded fact (`:rf/time-ms`, the event payload, or a slice-B recordable generator) — never an ambient read. Diagnostic / host-transient reads (deciding no durable write) stay ambient.
 - **`:platforms #{:client}` skips the supplier under an SSR-server frame** (`:rf.cofx/skipped-on-platform` warning trace). The declaring handler sees no value for that id. Check this first if a server-side cofx mysteriously delivers nothing. Spec: `spec/011-SSR.md`.

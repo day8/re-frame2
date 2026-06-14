@@ -20,7 +20,7 @@
  {"id": 10, "name": "neg-improve-workflow", "should_trigger": false, "prompt": "How can I improve my git workflow?", "rationale": "Generic workflow improvement, no pair surface."},
  {"id": 11, "name": "neg-static-improver", "should_trigger": false, "prompt": "Audit cart/events.cljs for re-frame2 anti-patterns.", "rationale": "Static code critique is re-frame2-improver."},
  {"id": 12, "name": "neg-live-pair", "should_trigger": false, "prompt": "Inspect app-db right now and tell me what's in :user.", "rationale": "Live-runtime inspection is re-frame2-pair, not the retro."},
- {"id": 13, "name": "neg-author-code", "should_trigger": false, "prompt": "Write me a re-frame2 reg-event-fx for posting a login form.", "rationale": "Authoring code is re-frame2."},
+ {"id": 13, "name": "neg-author-code", "should_trigger": false, "prompt": "Write me a re-frame2 reg-event for posting a login form.", "rationale": "Authoring code is re-frame2."},
  {"id": 14, "name": "neg-greenfield", "should_trigger": false, "prompt": "Set up a new re-frame2 project from scratch.", "rationale": "Greenfield is re-frame2-setup."},
  {"id": 15, "name": "neg-xray-tour", "should_trigger": false, "prompt": "Where in Xray do I see machine state?", "rationale": "Xray tour is its own skill."},
  {"id": 16, "name": "neg-routine-pair", "should_trigger": false, "prompt": "Help me dispatch an event into my running app and watch the result.", "rationale": "Routine pair work — not a retro request."},

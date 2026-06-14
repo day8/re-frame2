@@ -13,11 +13,11 @@ The prompt mentions: a form, validation, "show errors after submit", inline fiel
 ## The re-frame2 features that implement it
 
 - **`reg-app-schema`** for the slice path; **plus** a separate schema for the form's *value* (what the form collects, e.g. `LoginForm`). Two schemas: one for the slice container, one for the draft's shape.
-- **`reg-event-db :form.feature/initialise`** — seed `:draft` with defaults; `:status :idle`.
-- **`reg-event-db :form.feature/edit-field`** — update `:draft`; add the field to `:touched`.
-- **`reg-event-db :form.feature/blur-field`** — add to `:touched` (if not already); run per-field validation.
-- **`reg-event-fx :form.feature/submit`** — run full validation, latch `:submit-attempted? true`, dispatch the request, set `:status :submitting`.
-- **`reg-event-db :form.feature/submit-success` / `:submit-error`** — fold the server reply. **Structured server errors land in `:errors`** (same slot as client-side validation, including the reserved `:_form` key); **transport / non-field failures land in `:submit-error`**. Both set `:status :error`.
+- **`reg-event :form.feature/initialise`** — seed `:draft` with defaults; `:status :idle` (returns `{:db ...}`).
+- **`reg-event :form.feature/edit-field`** — update `:draft`; add the field to `:touched` (returns `{:db ...}`).
+- **`reg-event :form.feature/blur-field`** — add to `:touched` (if not already); run per-field validation (returns `{:db ...}`).
+- **`reg-event :form.feature/submit`** — run full validation, latch `:submit-attempted? true`, dispatch the request, set `:status :submitting` (returns `{:db ... :fx ...}`).
+- **`reg-event :form.feature/submit-success` / `:submit-error`** — fold the server reply. **Structured server errors land in `:errors`** (same slot as client-side validation, including the reserved `:_form` key); **transport / non-field failures land in `:submit-error`**. Both set `:status :error`.
 - **Layered convenience subs** — `:field-error` (per-field; shows when touched OR submit-attempted), `:form-errors` (reads `:_form`, always visible), `:dirty?` (draft differs from `:submitted` when non-nil, otherwise from defaults), `:can-submit?` (no errors AND not currently submitting).
 - **(machine variant) `reg-machine` with `:initial :neutral` + states `:neutral :incorrect :submitting :correct` + `:tags`** — the lifecycle as machine states. `:rf/machine-has-tag?` answers `(rf/machine-has-tag? :form-id :form/in-flight)` in place of `:submitting?`.
 
@@ -30,7 +30,7 @@ Two non-obvious rules:
 
 Password, TOTP, recovery-code, and similar secret fields are a **different lifecycle** to the everyday text input. The slice shape above does not change, but four extra disciplines apply:
 
-1. **Classify the secret at its owner.** Under the three-owner model (see [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md)): a secret that lands at a durable **app-db** slot is declared on the **frame** (`{:sensitive {:app-db [[:auth :login :password]]}}`); a secret that rides only in the **event payload** (a login `:password`, a one-time TOTP) is named in the submit handler's **registration** `:sensitive` metadata — `(rf/reg-event-fx :auth/login {:sensitive [[:password]]} handler)`. Either way the handler body still sees the real value (the `:event` coeffect is unredacted); only the trace / event-emit / error surfaces ship `:rf/redacted`. There is no handler-meta `{:sensitive? true}` privacy switch (removed from the runtime — it is a no-op).
+1. **Classify the secret at its owner.** Under the three-owner model (see [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md)): a secret that lands at a durable **app-db** slot is declared on the **frame** (`{:sensitive {:app-db [[:auth :login :password]]}}`); a secret that rides only in the **event payload** (a login `:password`, a one-time TOTP) is named in the submit handler's **registration** `:sensitive` metadata — `(rf/reg-event :auth/login {:sensitive [[:password]]} handler)`. Either way the handler body still sees the real value (the `:event` coeffect is unredacted); only the trace / event-emit / error surfaces ship `:rf/redacted`. There is no handler-meta `{:sensitive? true}` privacy switch (removed from the runtime — it is a no-op).
 2. **Do not copy a secret field into `:submitted`.** The `:dirty?` sub compares `:draft` against `:submitted`; persisting a password into `:submitted` keeps the secret in app-db longer than the form needs it. Either omit the secret from the `:submitted` mirror (the `:dirty?` sub falls back to comparing against defaults, which is fine for auth forms — re-submitting a login *should* feel "dirty" again), or clear the secret out of `:submitted` after the request resolves.
 3. **Clear secret fields out of `:draft` after submit.** Once the request is in flight, the secret has done its job — `assoc-in [:auth :login :draft :password] nil` in the `:submitting` transition (or the `:submit-success` / `:submit-error` handlers). Don't leave a credential sitting in app-db waiting for the next snapshot, recorder capture, or pair-tooling inspection.
 4. **Do not include the secret in `:errors`.** Server-side rejection ("password incorrect") lands under the reserved `:_form` key with a non-revealing message; the offending value never echoes back.
@@ -44,7 +44,7 @@ Worked auth example — minimal diff from the slice form above:
 ;; The slot's `:sensitive? true` schema metadata is what drives trace/error
 ;; redaction; `path` itself only focuses the slice. The handler body still
 ;; sees the real password via the unredacted :event coeffect.
-(rf/reg-event-fx :form.login/submit
+(rf/reg-event :form.login/submit
   {:interceptors [(rf/path :auth :login)]}
   (fn [{:keys [db]} _]                          ;; db here IS the [:auth :login] slice
     (let [draft  (:draft db)
@@ -90,7 +90,7 @@ The dominant shape. Lifted from `spec/Pattern-Forms.md` (mirrored in `examples/r
 (rf/reg-app-schema [:auth :login] FormSlice)
 (rf/reg-app-schema [:auth :login :draft] LoginForm)
 
-(rf/reg-event-fx :form.login/submit
+(rf/reg-event :form.login/submit
   (fn [{:keys [db]} _]
     (let [draft  (get-in db [:auth :login :draft])
           errors (validate-against LoginForm draft)

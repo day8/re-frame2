@@ -28,7 +28,7 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
 `make-machine-handler` lives on `re-frame.machines` (`(:require [re-frame.machines :as machines])`) — it is no longer re-exported from `re-frame.core` (front-porch shrink). The `reg-machine` / `defmachine` registration macros stay on the `rf/` façade.
 
 ```clojure
-(rf/reg-event-fx :app/boot
+(rf/reg-event :app/boot
   (machines/make-machine-handler
     {:initial :configuring
      :data    {:phase :configuring :config nil :user nil :error nil :phase-attempt 0}
@@ -100,15 +100,15 @@ The frame's `:on-create` dispatches `[:app/boot [:rf.machine/start]]` — the re
 For ≤3 phases, no error states, no progress UI:
 
 ```clojure
-(rf/reg-event-fx :app/init      (fn [_ _] {:fx [[:dispatch [:config/load]]]}))
-(rf/reg-event-fx :config/load   (fn [_ _] {:fx [[:rf.http/managed
-                                                  {:request {:url "/config"} :decode :json
-                                                   :on-success [:config/loaded]
-                                                   :on-failure [:app/init-failed]}]]}))
-(rf/reg-event-fx :config/loaded (fn [{:keys [db]} [_ c]]
-                                  {:db (assoc db :config c)
-                                   :fx [[:dispatch [:app/ready]]]}))
-(rf/reg-event-db :app/ready     (fn [db _] (assoc db :app/booted? true)))
+(rf/reg-event :app/init      (fn [_ _] {:fx [[:dispatch [:config/load]]]}))
+(rf/reg-event :config/load   (fn [_ _] {:fx [[:rf.http/managed
+                                               {:request {:url "/config"} :decode :json
+                                                :on-success [:config/loaded]
+                                                :on-failure [:app/init-failed]}]]}))
+(rf/reg-event :config/loaded (fn [{:keys [db]} [_ c]]
+                               {:db (assoc db :config c)
+                                :fx [[:dispatch [:app/ready]]]}))
+(rf/reg-event :app/ready     (fn [{:keys [db]} _] {:db (assoc db :app/booted? true)}))
 ```
 
 Each link is a Pattern-AsyncEffect interaction. Past three links, scatter wins; switch to the machine.
