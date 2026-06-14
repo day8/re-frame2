@@ -207,6 +207,107 @@
       (is (str/includes? out "(fn [{:keys [db]} _] {:db {:count 0 :items []}})")))))
 
 ;; ---------------------------------------------------------------------------
+;; reg-event-db — `_`-prefixed first param that IS referenced  (rf2-u6m0o9)
+;; ---------------------------------------------------------------------------
+;; `_`-prefix is a CONVENTION ("I intend not to use this"), not a guarantee. A
+;; handler may legally read an `_`-prefixed binding. Rebinding such a referenced
+;; param to `{:keys [db]}` orphaned every body reference to it (unbound-symbol
+;; compile error) — the rf2-xhfxcs.15 `{S :db}` bind-back covered non-`_` names
+;; but explicitly NOT `_`-prefixed ones. A referenced `_`-name must bind back
+;; under its original name `{_state :db}`; a TRULY-unreferenced one keeps the
+;; canonical `{:keys [db]}` (nothing to rebind). The reference test respects
+;; inner shadowing.
+
+(deftest db-underscore-referenced-param-binds-back
+  (testing "the bead/H repro: `_state` referenced in the body rebinds {_state :db}, body intact"
+    (let [src "(reg-event-db :y (fn [_state ev] (assoc _state :x 1)))"
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :reg-event-db (:form (first findings))))
+      (is (= :rewrite (:action (first findings))) "referenced `_`-param is still a faithful rewrite")
+      (is (str/includes? source "(reg-event "))
+      (is (not (str/includes? source "reg-event-db")))
+      ;; param binds the db value back under `_state`; NOT {:keys [db]}
+      (is (str/includes? source "{_state :db}"))
+      (is (not (str/includes? source "{:keys [db]}")))
+      ;; body keeps using `_state`, now resolving to the db coeffect — not unbound
+      (is (str/includes? source "{:db (assoc _state :x 1)}"))
+      ;; exact target shape from the bead
+      (is (str/includes? source "(fn [{_state :db} ev] {:db (assoc _state :x 1)})")))))
+
+(deftest db-underscore-unreferenced-param-keeps-keys-form
+  (testing "an `_`-prefixed param NOT read in the body keeps {:keys [db]} (nothing to rebind)"
+    (let [src "(rf/reg-event-db :init (fn [_state _] {:count 0 :items []}))"
+          out (rewrite src)]
+      (is (str/includes? out "(fn [{:keys [db]} _] {:db {:count 0 :items []}})"))
+      (is (not (str/includes? out "{_state :db}"))))))
+
+(deftest db-underscore-db-param-referenced-binds-back
+  (testing "`_db` referenced in the body binds back {_db :db} (the other classic ignore-name)"
+    (let [src "(rf/reg-event-db :touch (fn [_db _] (assoc _db :touched true)))"
+          out (rewrite src)]
+      (is (str/includes? out "(fn [{_db :db} _] {:db (assoc _db :touched true)})"))
+      (is (not (str/includes? out "{:keys [db]}"))))))
+
+(deftest db-underscore-referenced-named-fn
+  (testing "a referenced `_`-param on a NAMED handler fn binds back + leaves body intact"
+    (let [src "(rf/reg-event-db :x/y (fn handle [_s _] (assoc _s :ok true)))"
+          out (rewrite src)]
+      (is (str/includes? out "(fn handle [{_s :db} _] {:db (assoc _s :ok true)})")))))
+
+(deftest db-underscore-referenced-multiform-body
+  (testing "referenced `_`-param with a multi-form body: only LAST form wrapped, refs intact"
+    (let [src "(rf/reg-event-db :log/it\n  (fn [_state _]\n    (js/console.log \"hi\")\n    (assoc _state :logged true)))"
+          out (rewrite src)]
+      (is (str/includes? out "{_state :db}"))
+      (is (str/includes? out "(js/console.log \"hi\")"))
+      (is (str/includes? out "{:db (assoc _state :logged true)}")))))
+
+(deftest db-underscore-shadowed-in-let-not-over-rewritten
+  (testing "an inner `let` that REBINDS the `_`-name shadows it: the OUTER name is unreferenced -> {:keys [db]}"
+    ;; The body never reads the outer `_state` — every `_state` occurrence is the
+    ;; inner let-binding. So the outer param is genuinely unused; {:keys [db]} is
+    ;; correct, and the inner shadowing binding survives byte-for-byte.
+    (let [src "(rf/reg-event-db :shadow\n  (fn [_state [_ k]]\n    (let [_state {:fresh k}]\n      (assoc _state :touched true))))"
+          {:keys [source findings]} (cm/rewrite-string src)]
+      (is (= :rewrite (:action (first findings))))
+      ;; outer param: no free reference -> canonical {:keys [db]}
+      (is (str/includes? source "(fn [{:keys [db]} [_ k]]"))
+      (is (not (str/includes? source "{_state :db}")))
+      ;; inner let + both inner references survive verbatim
+      (is (str/includes? source "(let [_state {:fresh k}]"))
+      (is (str/includes? source "(assoc _state :touched true)")))))
+
+(deftest db-underscore-shadowed-in-fn-still-binds-back-when-also-free
+  (testing "an inner (fn [_s] ...) shadows _s locally, but an OUTER free ref still forces bind-back"
+    ;; `_s` is read once at the top of the body (free) and also rebound inside an
+    ;; inner fn (shadowed). The free outer occurrence means the param IS
+    ;; referenced -> {_s :db}; the inner shadowing fn is preserved untouched.
+    (let [src "(rf/reg-event-db :map-it\n  (fn [_s _]\n    (assoc _s :xs (map (fn [_s] (inc _s)) (:xs _s)))))"
+          out (rewrite src)]
+      (is (str/includes? out "(fn [{_s :db} _]"))
+      ;; inner fn rebinding `_s` preserved verbatim — not over-rewritten
+      (is (str/includes? out "(fn [_s] (inc _s))")))))
+
+(deftest db-underscore-only-shadowed-in-fn-is-unreferenced
+  (testing "when EVERY `_s` occurrence is inside an inner (fn [_s] ...), the outer param is unused -> {:keys [db]}"
+    ;; last form headed by `assoc` (non-nil-capable) so the D7 gate lets the
+    ;; rewrite proceed; the only `_s` uses are inside the inner mapped fn.
+    (let [src "(rf/reg-event-db :init\n  (fn [_s _]\n    (assoc {} :xs (mapv (fn [_s] (inc _s)) [1 2 3]))))"
+          out (rewrite src)]
+      (is (str/includes? out "(fn [{:keys [db]} _]"))
+      (is (not (str/includes? out "{_s :db}")))
+      ;; inner fn preserved
+      (is (str/includes? out "(fn [_s] (inc _s))")))))
+
+(deftest db-underscore-referenced-idempotent
+  (testing "running the codemod twice over a referenced `_`-param event is a no-op the 2nd time"
+    (let [src "(rf/reg-event-db :y (fn [_state ev] (assoc _state :x 1)))"
+          once (rewrite src)
+          twice (rewrite once)]
+      (is (= once twice))
+      (is (not (str/includes? once "reg-event-db"))))))
+
+;; ---------------------------------------------------------------------------
 ;; reg-event-ctx — always flagged, never rewritten
 ;; ---------------------------------------------------------------------------
 
