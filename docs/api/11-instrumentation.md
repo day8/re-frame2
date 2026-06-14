@@ -155,7 +155,7 @@ Event-handler registration accepts a `:rf.trace/no-emit? true` metadata flag. Wh
 
 | Metadata key | Where | Value | Default | Effect |
 |---|---|---|---|---|
-| `:rf.trace/no-emit?` | `reg-event-db` / `reg-event-fx` / `reg-event-ctx` metadata map | boolean | `false` | When `true`, suppresses all trace + event-emit emissions inside the handler's scope. |
+| `:rf.trace/no-emit?` | `reg-event` metadata map | boolean | `false` | When `true`, suppresses all trace + event-emit emissions inside the handler's scope. |
 
 Used by framework-internal bookkeeping handlers (Xray, Story, re-frame2-pair-mcp, story-mcp) that would otherwise saturate the trace stream. The `:rf.trace/*` namespace is framework-owned (per [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned)).
 

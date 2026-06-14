@@ -29,7 +29,7 @@ re-frame2 lets users attach a schema to any of these via the `:schema` metadata 
 Every registration accepts an optional `:schema` in its metadata map:
 
 ```clojure
-(rf/reg-event-fx :auth/login
+(rf/reg-event :auth/login
   {:doc    "Submit credentials for verification."
    :schema [:cat [:= :auth/login]
                 [:map [:email :string] [:password :string]]]}
@@ -202,7 +202,7 @@ Validation is **elided** by default — schemas remain registered (so tooling ca
 For users who want production validation at *system boundaries* — typically incoming events from untrusted sources (HTTP responses, websocket messages, postMessage) — re-frame2 ships a `:rf.schema/at-boundary` interceptor that the user adds to specific event handlers. Boundary validation runs even when global validation is elided.
 
 ```clojure
-(rf/reg-event-fx :api/response-received
+(rf/reg-event :api/response-received
   {:schema ApiResponseSchema
    :interceptors [rf/validate-at-boundary-interceptor]}
   (fn [m] ...))
@@ -655,7 +655,7 @@ An app that uses schemas as inert data — surfaced via `app-schemas` / `app-sch
 ;; surfaces via app-schemas / app-schemas-digest, but no validate
 ;; call ever runs against them.
 (rf/reg-app-schema [:user] [:map [:id :uuid]])
-(rf/reg-event-fx :auth/login
+(rf/reg-event :auth/login
   {:schema [:cat [:= :auth/login] [:map [:email :string]]]}
   ...)
 ```

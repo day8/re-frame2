@@ -29,7 +29,7 @@ Two equivalent surfaces register a machine; CP-5-generated scaffolds default to 
 
 Both forms live in `re-frame.machines` (the `day8/re-frame2-machines` artefact) and are re-exported under `re-frame.core`. See [API.md §Machines](API.md#machines) and [005 §`reg-machine` — public registration surface](005-StateMachines.md#reg-machine--public-registration-surface) for the canonical contract.
 
-The older `reg-event-fx + make-machine-handler` form (visible in [Construction-Prompts.md §CP-5](Construction-Prompts.md#cp-5-scaffold-a-state-machine) examples) registers the *same* slot — `reg-machine` is the convenience surface that wraps it and adds the metadata stamp.
+The older `reg-event + make-machine-handler` form (visible in [Construction-Prompts.md §CP-5](Construction-Prompts.md#cp-5-scaffold-a-state-machine) examples) registers the *same* slot — `reg-machine` is the convenience surface that wraps it and adds the metadata stamp.
 
 ## The inline-fn escape hatch
 
@@ -116,7 +116,7 @@ The media-player example uses two genuinely independent regions (audio and video
 ```clojure
 ;; ---- region 1: audio playback state ---------------------------------------
 
-(rf/reg-event-fx :media/audio
+(rf/reg-event :media/audio
   {:doc "Audio region — playing / paused."}
   (rf/make-machine-handler
     {:initial :paused
@@ -134,7 +134,7 @@ The media-player example uses two genuinely independent regions (audio and video
 
 ;; ---- region 2: video visibility state -------------------------------------
 
-(rf/reg-event-fx :media/video
+(rf/reg-event :media/video
   {:doc "Video region — visible / hidden."}
   (rf/make-machine-handler
     {:initial :hidden
@@ -151,18 +151,18 @@ The media-player example uses two genuinely independent regions (audio and video
 
 ;; ---- coordinator event — fans out to both regions atomically -------------
 
-(rf/reg-event-fx :media/play
+(rf/reg-event :media/play
   {:doc "Coordinator: start both regions atomically."}
   (fn [_ _]
     {:fx [[:dispatch [:media/audio [:media/play]]]
           [:dispatch [:media/video [:media/play]]]]}))
 
-(rf/reg-event-fx :media/pause
+(rf/reg-event :media/pause
   (fn [_ _]
     {:fx [[:dispatch [:media/audio [:media/pause]]]
           [:dispatch [:media/video [:media/pause]]]]}))
 
-(rf/reg-event-fx :media/stop
+(rf/reg-event :media/stop
   (fn [_ _]
     {:fx [[:dispatch [:media/audio [:media/stop]]]
           [:dispatch [:media/video [:media/stop]]]]}))
@@ -215,14 +215,14 @@ For readers familiar with xstate, the explicit list of where re-frame2 chose dif
 | `const ref = spawn(child)` captured into `context`, then `stopChild(ref)` | The declarative `:spawn` reducer binds the assigned id into the parent's `:data` under `:rf/spawned` (rf2-rc8wci); an action reads `(get-in data [:rf/spawned <invoke-id>])` and emits `[:rf.machine/destroy <id>]` | Same capability (an action holding the id of an actor it spawned) but the id rides the revertible, SSR-survivable snapshot rather than a live mutable ref — no leak footgun, and `restore-epoch!` reverts it for free |
 | Per-actor mailboxes | One per-frame router queue | Simpler model; drain at the frame level is the granularity that matters |
 | `raise` (self-event) vs `sendTo` (other-actor) | Single `dispatch`; `:raise` is sugar for self-dispatch with atomic semantics | One pipeline; no per-actor mailbox to put events at the front of |
-| Three creation modes (`createActor` / `invoke` / `spawn`) | One mechanism, two patterns (singleton via `reg-event-fx`; dynamic via the `[:rf.machine/spawn ...]` fx) | Lifetime is encoded in the runtime-db snapshot shape and registration lifetime |
+| Three creation modes (`createActor` / `invoke` / `spawn`) | One mechanism, two patterns (singleton via `reg-event`; dynamic via the `[:rf.machine/spawn ...]` fx) | Lifetime is encoded in the runtime-db snapshot shape and registration lifetime |
 | Machine hierarchy as a structural concept | Hierarchy encoded in `app-db` nested structure | Stay data-oriented; no new framework primitive |
 | Event-as-object API | Event vector + envelope metadata | Compatible with re-frame's existing event shape |
 | `:context` for extended state | `:data` | Avoid the triply-overloaded "context" name; align with `gen_statem` vocabulary |
 | Compound guards as `{and: [...]}` data | One fn or one named registered compound | Imperative composition is fns; named compounds carry semantic content |
 | Action-vector `[a1 a2 a3]` per slot | One fn or one named registered compound | Same reason as guards |
 | `setup({actors, guards, actions})` per-machine bundle | Per-machine `:guards` / `:actions` maps inside the `make-machine-handler` spec | Convergence: machine-scoped declaration (not globally-registered). Each machine has its own guard/action namespace, validated at registration time; cross-machine reuse is via Clojure vars |
-| `[:assign {...}]` action data form | Action returns `{:data {...}}` | Symmetric with `reg-event-fx`'s `{:db :fx}`; one fewer DSL to parse |
+| `[:assign {...}]` action data form | Action returns `{:data {...}}` | Symmetric with `reg-event`'s `{:db :fx}`; one fewer DSL to parse |
 | `invoke` (state-node spawn key) | `:spawn` (and `:spawn-all` for parallel-fanout-and-join) | Deliberate name divergence. Convergence is high enough on other keys (`:final?`, `:on-done`, `:guard`, `:action`, `:entry`, `:exit`, `:after`, `:always`, `:tags`) that AI agents trained on xstate would otherwise generate almost-correct code that misses re-frame2's per-feature spec nuances. Renaming the most semantically-loaded slot breaks the convergence trap and aligns the declarative key with the existing imperative `:rf.machine/spawn` fx. See [005 §Deliberate name divergence — `:spawn`](005-StateMachines.md#deliberate-name-divergence--spawn-not-invoke). |
 | v4 `internal: true` (opt OUT of external default) → **v5 `reenter: true`** (opt IN to external; internal is the default) | `:reenter?` boolean — internal self/ancestor transitions by default; `:reenter? true` makes them external | **Convergence with XState v5, not a divergence** (rf2-eicq0). re-frame2 follows the v5 default: a self / proper-ancestor `:target` is internal (no exit/entry, no `:after`/`:spawn` restart) unless `:reenter? true`. This is a deliberate divergence *from SCXML / XState v4* (whose targeted transitions are external by default) and an alignment *to* the v5 gold standard. An author trained on XState v5 ports their `reenter` intuition directly. See [005 §Self-transitions](005-StateMachines.md#self-transitions--internal-default-vs-external-reenter). |
 | `enqueueActions(({enqueue, check, context, event}) => …)` — v5's imperative action-list builder: a callback that pushes actions onto a queue, optionally guarded by inline `check(guard)` | An action returns the `{:data :fx}` effect map. `:fx` **is** the enqueue — a data vector of `[fx-id args]` pairs processed in order; `[:raise <event>]` entries **are** the internal-event enqueue; conditional pushes are ordinary Clojure `(when …)` / `cond` inside the action fn building the `:fx` vector | **Substrate reason: re-frame2 is data-first.** An imperative action-list *builder* is anti-idiomatic — re-frame2 already expresses "do this list of effects, some conditionally" as a returned data vector (`:fx`), not as imperative pushes to a mutable queue. There is no separate enqueue primitive *by design*: the effect model (`:fx` for external effects, `:raise` for internal self-events) already covers the entire `enqueueActions` use-case, and `check` collapses into the host language's own conditionals. Clean divergence, no capability gap. See [005 §Action effect map](005-StateMachines.md#action-effect-map--data-fx) and [005 §`:raise`, `:rf.machine/spawn`, and `:rf.machine/destroy` are reserved fx-ids](005-StateMachines.md#raise-rfmachinespawn-and-rfmachinedestroy-are-reserved-fx-ids-inside-fx). |

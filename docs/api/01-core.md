@@ -1,6 +1,6 @@
 # 01 — Core
 
-The Core chapter is what you `:require` from `re-frame.core` to make an app exist at all. Five clusters live in here, and they're the surfaces you'll see in every app you ever write: **registration** (`reg-event-*`, `reg-sub`, `reg-fx`, `reg-cofx`), **dispatch and subscribe** (the two verbs that drive the cascade), **frames** (the scoping primitive — `reg-frame` / `make-frame`), **runtime configuration** (`configure`), and **clearing** (the inverse of registration).
+The Core chapter is what you `:require` from `re-frame.core` to make an app exist at all. Five clusters live in here, and they're the surfaces you'll see in every app you ever write: **registration** (`reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`), **dispatch and subscribe** (the two verbs that drive the cascade), **frames** (the scoping primitive — `reg-frame` / `make-frame`), **runtime configuration** (`configure`), and **clearing** (the inverse of registration).
 
 If you read only one chapter of this reference, this is the one to read. Everything in the other chapters builds on these five clusters.
 
@@ -10,57 +10,37 @@ This is the surface every re-frame2 app touches. You're answering "what events c
 
 **Return value.** Every `reg-*` returns its **primary id** — the keyword (or path, for `reg-app-schema`) you registered with. This lets you write `(let [sub-id (rf/reg-sub ::foo ...)] ...)` to thread the id through your code without retyping it. The convention is uniform across the surface.
 
-### `reg-event-db`
+### `reg-event`
 
 - **Kind**: macro
 - **Signature**:
   ```clojure
-  (reg-event-db id ?metadata handler)
+  (reg-event id ?metadata handler)
   ```
-- **Description**: "When this event arrives, transform `app-db` and return the new one." The simplest handler shape — pure `(fn [db event-vec] new-db)`. Use it for the 80% of handlers that just update state.
+- **Description**: The **one** public event-registration form. The handler is two-arg `(fn [coeffects event-vec] effect-map)`: a coeffects map in, a **closed** effects map `{:db ... :fx [...]}` out (or `nil` for a no-op). The db write is an explicit `:db` effect — there is **no** db-only return shape. Use it for both the 80% of handlers that just update state and the richer handlers that dispatch follow-ups, fire HTTP, navigate, or read coeffects.
 - **Metadata-map — the extended form**: the optional middle slot is a metadata-map carrying reflection keys (`:doc`, `:schema`, `:tags`, …) **and** a reserved `:interceptors` vector — one superset shape for everything a registration declares:
   ```clojure
-  (rf/reg-event-db :cart/add
+  (rf/reg-event :cart/add
     {:doc "Add an item." :interceptors [undoable]}
-    (fn [db [_ item]] (update db :items conj item)))
+    (fn [{:keys [db]} [_ item]] {:db (update db :items conj item)}))
   ```
-  > **Migration note.** The historical bare interceptor vector middle slot — `(reg-event-db :id [undoable] handler)` — has been removed. Put event interceptor chains in the metadata map: `(reg-event-db :id {:interceptors [undoable]} handler)`.
-- **Example**:
+  > **Migration note.** The historical bare/positional interceptor vector middle slot — `(reg-event :id [undoable] handler)` — has been removed. Put event interceptor chains in the metadata map: `(reg-event :id {:interceptors [undoable]} handler)`.
+- **Full interceptor-context work**: there is no separate registrar for raw-context handlers. When you need to read or rewrite the interceptor context itself, write a `(rf/->interceptor {:id ... :before ... :after ...})` and add it under `:interceptors` — the same superset slot above.
+- **Example** — a pure state update and an effectful handler:
   ```clojure
-  (rf/reg-event-db :counter/inc
-    (fn [db _event] (update db :counter/value inc)))
-  ```
-- **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter)
+  ;; State-only: the db write is an explicit :db effect.
+  (rf/reg-event :counter/inc
+    (fn [{:keys [db]} _event] {:db (update db :counter/value inc)}))
 
-### `reg-event-fx`
-
-- **Kind**: macro
-- **Signature**:
-  ```clojure
-  (reg-event-fx id ?metadata handler)
-  ```
-- **Description**: "When this event arrives, return an effect map." The richer shape — `(fn [cofx event-vec] {:db ... :fx [...]})`. Use it when you need to dispatch follow-up events, fire HTTP, navigate, or read cofx.
-- **Metadata-map — the extended form**: same superset middle slot as `reg-event-db` — reflection keys plus the reserved `:interceptors` vector (e.g. `{:schema ... :interceptors [rf/validate-at-boundary-interceptor]}`). The historical positional vector is removed; use metadata `:interceptors`.
-- **Example**:
-  ```clojure
-  (rf/reg-event-fx :counter/load
+  ;; Effectful: an explicit :db write plus an :fx vector.
+  (rf/reg-event :counter/load
     (fn [{:keys [db]} _event]
       {:db (assoc db :status :loading)
        :fx [[:rf.http/managed {:request    {:method :get :url "/api/count"}
                                :on-success [:counter/loaded]
                                :on-failure [:counter/load-failed]}]]}))
   ```
-- **In the wild**: [managed_http_counter](https://github.com/day8/re-frame2/tree/main/examples/reagent/managed_http_counter)
-
-### `reg-event-ctx`
-
-- **Kind**: macro
-- **Signature**:
-  ```clojure
-  (reg-event-ctx id ?metadata handler)
-  ```
-- **Description**: The escape hatch — you get the raw interceptor context and return a modified context. Almost no app needs this; reach for it when you're writing infrastructure.
-- **Metadata-map — the extended form**: same superset middle slot — reflection keys plus the reserved `:interceptors` vector. The historical positional vector is removed; use metadata `:interceptors`.
+- **In the wild**: [counter](https://github.com/day8/re-frame2/tree/main/examples/reagent/counter), [managed_http_counter](https://github.com/day8/re-frame2/tree/main/examples/reagent/managed_http_counter)
 
 ### `reg-sub`
 
@@ -134,7 +114,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
       (some-> (.-localStorage js/globalThis) (.getItem storage-key))))
 
   ;; The handler declares the fact; the runtime supplies it flat in the coeffects map.
-  (rf/reg-event-fx :prefs/apply-theme
+  (rf/reg-event :prefs/apply-theme
     {:rf.cofx/requires [[:ui/local-theme "ui-theme"]]}
     (fn [{:keys [db ui/local-theme]} _]
       {:db (assoc db :ui/theme (or local-theme "system"))}))
@@ -390,7 +370,7 @@ The inverse surface. Each `clear-*` removes an entry from the registrar; the no-
 ### See also
 
 - [02 — Views](02-views.md) for `reg-view*` in detail, the `view` lookup form, and the substrate-agnostic ergonomic surface (`frame-handle`, `frame-bound-fn`, `with-frame`).
-- [03 — Effects and interceptors](03-effects.md) for what the `reg-event-fx` handler's return value can carry.
+- [03 — Effects and interceptors](03-effects.md) for what the `reg-event` handler's return value can carry.
 - [12 — Registrar](12-registrar.md) for the read-side of the registrar — `registrations`, `handler-ids`, `handler-meta`.
 
 ## Dispatch and subscribe

@@ -76,15 +76,15 @@ The v2 standard-interceptor surface is **two specific helpers** (`path`, `unwrap
   ```clojure
   validate-at-boundary-interceptor
   ```
-- **Description**: A **pre-built interceptor value**, not a fn (interceptor `:id` is `:rf.schema/at-boundary`). Add it to a `reg-event-*` metadata map's `:interceptors` vector for production-boundary schema validation. **Do not call it as a fn** — it has no fn arity; invoking `(rf/validate-at-boundary-interceptor ...)` raises `ArityException`.
+- **Description**: A **pre-built interceptor value**, not a fn (interceptor `:id` is `:rf.schema/at-boundary`). Add it to a `reg-event` metadata map's `:interceptors` vector for production-boundary schema validation. **Do not call it as a fn** — it has no fn arity; invoking `(rf/validate-at-boundary-interceptor ...)` raises `ArityException`.
 
 ### The `path` interceptor: focus on a slice
 
 ```clojure
-(rf/reg-event-db :cart/add-item
+(rf/reg-event :cart/add-item
   {:interceptors [(rf/path [:cart :items])]}
-  (fn [items {:keys [item]}]
-    (conj items item)))                       ;; the handler sees and returns the slice
+  (fn [{:keys [db]} {:keys [item]}]
+    {:db (conj db item)}))                     ;; the handler sees and returns the slice (as :db)
 ```
 
 The `:before` rewrites `(:db cofx)` to `(get-in db [:cart :items])`. The handler returns the new slice. The `:after` splices it back with `(assoc-in db [:cart :items] result)`. A handler that focuses on a slice with `path` and also needs auxiliary world facts declares those facts with `:rf.cofx/requires` — the slice arrives via the interceptor, the facts via the coeffect declaration (see [01 — Core §`reg-cofx`](01-core.md#reg-cofx)).
@@ -92,7 +92,7 @@ The `:before` rewrites `(:db cofx)` to `(get-in db [:cart :items])`. The handler
 ### The `unwrap` interceptor
 
 ```clojure
-(rf/reg-event-fx :foo/update
+(rf/reg-event :foo/update
   {:interceptors [rf/unwrap]}
   (fn [cofx {:keys [id new-value]}]           ;; :event coeffect is the payload map
     ...))
@@ -111,7 +111,7 @@ You wrote `(rf/dispatch [:foo/update {:id 1 :new-value "x"}])`; the handler rece
                 (js/console.error err))
               ctx)))
 
-(rf/reg-event-fx ::save-cart
+(rf/reg-event ::save-cart
   {:interceptors [log-on-error]}
   (fn [cofx _] ...))
 ```
@@ -191,6 +191,6 @@ At the pattern level (`(rf/dispatch event {:fx-overrides {:my/fx :other-fx-id}})
 
 ## See also
 
-- [01 — Core](01-core.md) — `reg-event-fx`, `reg-fx`, `reg-cofx`, `dispatch` rowed in the registration and dispatch sections.
+- [01 — Core](01-core.md) — `reg-event`, `reg-fx`, `reg-cofx`, `dispatch` rowed in the registration and dispatch sections.
 - [10 — Testing](10-testing.md) — `with-fx-overrides` and the testing fixtures that use it.
 - [09 — SSR](09-ssr.md) — `:platforms` metadata on `reg-fx` for client vs server gating.

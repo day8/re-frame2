@@ -85,7 +85,7 @@ This is the single least-obvious flow behaviour, so it is worth internalising be
 In the common case the lag is invisible — you register a flow in an `:enter`-style handler and the user's next interaction materialises the output. When you genuinely need the initial value *now*, dispatch a follow-up no-op event from the same handler to re-trigger the drain (the flow is in the registry by the time that dispatched event drains):
 
 ```clojure
-(rf/reg-event-fx :wizard/enter-step-2
+(rf/reg-event :wizard/enter-step-2
   (fn [_ _]
     {:fx [[:rf.fx/reg-flow {:id     :step-2/computed
                             :inputs [[:step-2 :foo] [:step-2 :bar]]
@@ -93,7 +93,7 @@ In the common case the lag is invisible — you register a flow in an `:enter`-s
                             :path   [:step-2 :result]}]
           [:dispatch [:wizard/settle]]]}))   ;; flow computes on THIS drain
 
-(rf/reg-event-db :wizard/settle (fn [db _] db))   ;; no-op; exists only to drain
+(rf/reg-event :wizard/settle (fn [{:keys [db]} _] {:db db}))   ;; no-op; exists only to drain
 ```
 
 This is a deliberate, explicit step — not a hidden one — and most apps never need it. The lag is by design: closing it would require a second `app-db` install per event, breaking the one-install-per-event invariant. See [Spec 013 §Sequencing — the one-event lag](../../spec/013-Flows.md#sequencing--the-one-event-lag) for the full rationale.

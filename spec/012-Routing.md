@@ -220,7 +220,7 @@ The cascade is **structural** — the score is computable from each pattern's pa
 
 #### Reserved route-metadata keys
 
-The pattern reserves twelve keys on `reg-route`'s metadata map. All are optional except `:path`. This is the largest registration shape in the v2 surface — for context, `reg-flow` carries six keys total ([013 §The registration shape](013-Flows.md#the-registration-shape)) and `reg-event-fx` reserves only the cross-kind registration metadata. The scale is justified by the cross-cutting concerns routing absorbs (URL ↔ params, query/path separation, lifecycle hooks at navigation boundaries, layout chains, scroll behaviour) but the keys do not cluster naturally as one flat list. The three axes below name the clusters so generators reading "what does `reg-route` accept?" can branch on intent rather than scan twelve docstrings.
+The pattern reserves twelve keys on `reg-route`'s metadata map. All are optional except `:path`. This is the largest registration shape in the v2 surface — for context, `reg-flow` carries six keys total ([013 §The registration shape](013-Flows.md#the-registration-shape)) and `reg-event` reserves only the cross-kind registration metadata. The scale is justified by the cross-cutting concerns routing absorbs (URL ↔ params, query/path separation, lifecycle hooks at navigation boundaries, layout chains, scroll behaviour) but the keys do not cluster naturally as one flat list. The three axes below name the clusters so generators reading "what does `reg-route` accept?" can branch on intent rather than scan twelve docstrings.
 
 ##### The three axes
 
@@ -289,7 +289,7 @@ A canonical schema for the slice is registered as `:rf/route-slice` (see [Spec-S
 ### Navigation is an event
 
 ```clojure
-(rf/reg-event-fx :rf.route/navigate
+(rf/reg-event :rf.route/navigate
   {:doc    "Navigate to a registered route."
    :schema [:cat [:= :rf.route/navigate] [:or :keyword [:map [:url :string]]]
                                     [:? :map]      ;; params
@@ -368,7 +368,7 @@ Neither delegates to the other — they are sibling handlers over one shared sli
 ;; through the reserved `:rf.db/runtime` effect — NOT the app `:db` effect. The
 ;; route registrar mints a framework-authority handler, so emitting
 ;; `:rf.db/runtime` is in-bounds (per [002 §Write authority is by convention]).
-(rf/reg-event-fx :rf.route/handle-url-change
+(rf/reg-event :rf.route/handle-url-change
   {:doc       "Triggered by URL change (popstate or initial load). Sets the route slice in runtime-db from the URL."
    :platforms #{:client :server}}                 ;; same handler is used by SSR
   (fn handler-route-handle-url-change [{rt :rf.db/runtime} [_ url]]
@@ -539,7 +539,7 @@ The two boundaries where route params enter the runtime — **programmatic navig
 
 The asymmetry is deliberate. Programmatic navigation is *caller code* — schema failures are bugs and should be surfaced loudly (throw / reject). URL-driven navigation is *user input* — schema failures are 404s, not exceptions. Both paths share the same `:params` / `:query` schemas (per [Spec 010](010-Schemas.md)), so a route that compiles cleanly with one validates the same way against the other.
 
-The event-boundary validation for `:rf.route/navigate` is a re-use of the standard schema-validation interceptor (the `:schema` slot on the `reg-event-fx` registration) — no routing-specific machinery.
+The event-boundary validation for `:rf.route/navigate` is a re-use of the standard schema-validation interceptor (the `:schema` slot on the `reg-event` registration) — no routing-specific machinery.
 
 ##### Validation-error surfacing across the three paths
 
@@ -628,7 +628,7 @@ If any event in `:on-match` errors (a handler throws, a registered fx errors, or
    :on-match [[:cart/load-items]]
    :on-error [:route/cart-load-failed]})
 
-(rf/reg-event-fx :route/cart-load-failed
+(rf/reg-event :route/cart-load-failed
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [error (get-in rt [:rf.runtime/routing :current :error])]   ;; route slice is runtime-db
       ;; surface a contextual error UI; toast; redirect; whatever the app needs.
@@ -688,7 +688,7 @@ When a route is loading and the user navigates away before the load completes, t
 2. **Capture.** An `:on-match`-reached handler declares the framework-supplied `:rf.route/nav-token` cofx via `{:rf.cofx/requires [:rf.route/nav-token]}`; the value-returning supplier delivers the current token (read from `[:rf.runtime/routing :current :nav-token]`) flat under `:rf.route/nav-token` in the handler's coeffects, so the handler captures the epoch live at scheduling time:
 
    ```clojure
-   (rf/reg-event-fx :cart/load-items
+   (rf/reg-event :cart/load-items
      {:rf.cofx/requires [:rf.route/nav-token]}          ;; <-- declare the cofx
      (fn [{:keys [db] :rf.route/keys [nav-token]} _]    ;; <-- "nav-42", the token at scheduling time
        ...))

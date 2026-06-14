@@ -293,7 +293,7 @@ deliberate, narrow, and load-bearing — not an oversight:
 > [`examples/reagent-slim/counter_slim_and_fast`](reagent-slim/counter_slim_and_fast/)
 > intentionally register the *same* `:counter/*` event and subscription
 > ids** — `:counter/initialise`, `:counter/inc`, `:counter/dec`
-> (`reg-event-db`) and `:counter/value` (`reg-sub`). The id-identity *is*
+> (`reg-event`) and `:counter/value` (`reg-sub`). The id-identity *is*
 > the demonstration: it proves **adapter parity** — byte-for-byte
 > identical dataflow driven through a different reactive substrate (the
 > stock `day8/re-frame2-reagent` bridge vs the ground-up

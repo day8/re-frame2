@@ -1,6 +1,6 @@
 # 04 — State machines
 
-A state machine in re-frame2 is registered with one call (`reg-machine`) and *is* an event handler. The transition table is data — a map of `:states`, `:on`, `:entry`, `:exit`, `:after` — that gets compiled into a `reg-event-fx` handler at registration time. Dispatch an event at the machine's id and the table decides the transition; the resulting `:db` and `:fx` flow through the normal cascade.
+A state machine in re-frame2 is registered with one call (`reg-machine`) and *is* an event handler. The transition table is data — a map of `:states`, `:on`, `:entry`, `:exit`, `:after` — that gets compiled into a `reg-event` handler at registration time. Dispatch an event at the machine's id and the table decides the transition; the resulting `:db` and `:fx` flow through the normal cascade.
 
 The point of the machine surface isn't novelty — Statecharts have been around since 1987 — it's that the same trace bus, time-travel, and override surfaces that work for plain event handlers also work for machines, *because the machine is an event handler*. There's no parallel runtime to debug, no second store to inspect, no separate event log. Xray shows the machine state alongside `app-db`; the epoch buffer captures the snapshot the same way it captures everything else.
 
@@ -158,7 +158,7 @@ From a **machine action** (which can't read app-db and whose `:on-spawn` return 
 ### Spawn pattern
 
 ```clojure
-(rf/reg-event-fx :session/start-logger
+(rf/reg-event :session/start-logger
   (fn [_ _]
     {:fx [[:rf.machine/spawn
            {:machine-id :machines/log-shipper
@@ -169,9 +169,9 @@ From a **machine action** (which can't read app-db and whose `:on-spawn` return 
 
 ;; The handler at :session/logger-spawned receives the gensym'd id:
 ;; [:session/logger-spawned :logger.4f7c2a]
-(rf/reg-event-db :session/logger-spawned
-  (fn [db [_ logger-id]]
-    (assoc-in db [:session :logger] logger-id)))
+(rf/reg-event :session/logger-spawned
+  (fn [{:keys [db]} [_ logger-id]]
+    {:db (assoc-in db [:session :logger] logger-id)}))
 ```
 
 ## Final states and `:on-done`

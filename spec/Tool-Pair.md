@@ -565,7 +565,7 @@ The full attachment surface, from the tool's point of view:
 | Source coords for any registration | `:ns`/`:line`/`:column`/`:file` keys on `(handler-meta ...)` return; shape `:rf/source-coord-meta` per [Spec-Schemas](Spec-Schemas.md#rfsource-coord-meta) | [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference) |
 | Dispatch | `(rf/dispatch event opts)` / `(rf/dispatch-sync event opts)` | [002 §Routing](002-Frames.md#routing-the-dispatch-envelope) |
 | Stub fx for an experiment | `:fx-overrides {:http stub-id}` on `dispatch` opts | [002 §Per-frame and per-call overrides](002-Frames.md#per-frame-and-per-call-overrides) |
-| Hot-swap a handler | Re-call `(rf/reg-event-fx id ...)`; `:rf.registry/handler-replaced` trace fires | [001 §Hot-reload semantics](001-Registration.md#hot-reload-semantics) |
+| Hot-swap a handler | Re-call `(rf/reg-event id ...)`; `:rf.registry/handler-replaced` trace fires | [001 §Hot-reload semantics](001-Registration.md#hot-reload-semantics) |
 | REPL eval against the runtime | The host's REPL (nREPL+CIDER for CLJS); private namespaces are off-contract | [§REPL-eval](#repl-eval) |
 
 > **Platform-availability note.** Rows tagged "(CLJS-only)" — `(rf/sub-cache frame-id)` is the load-bearing example — are CLJS-host-only surfaces; JVM hosts (SSR, headless tests, conformance runners) ship no equivalent. Pair tools driving JVM-side test runs MUST gate the call (e.g. `(when (cljs-host?) (rf/sub-cache frame-id))`) — JVM-host return shape is not yet specified (tracked separately) and consumers should not assume nil-vs-throw across hosts. Surfaces NOT tagged "(CLJS-only)" are portable by design.

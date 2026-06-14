@@ -24,7 +24,7 @@ tree (see [How to run](#how-to-run)).
   at the `:where :machine-data` boundary. (Machine snapshots are
   runtime-db, not app-db, so `reg-app-schema` — which validates the
   app-db partition only — is not the surface for them.)
-- **CP-1 + CP-2** — pure `reg-event-db` handlers and pure `reg-sub`
+- **CP-1 + CP-2** — pure `reg-event` handlers and pure `reg-sub`
   derivations off the machine snapshot.
 - **CP-3 registered fx** — `:rf.http/managed` (Spec 014) plus
   `:fx-overrides` redirecting to the framework-shipped canned-success

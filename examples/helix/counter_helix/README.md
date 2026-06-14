@@ -9,7 +9,7 @@ different substrate.
 - **`rf/init!` with the Helix adapter** — `(rf/init! helix-adapter/adapter)`.
   No default-adapter registry; the adapter spec map is passed
   explicitly.
-- **`reg-event-db` / `reg-event-fx` / `reg-sub`** —
+- **`reg-event` / `reg-sub`** —
   *substrate-agnostic*. The exact same registrations as the Reagent
   and UIx counters; the artefact layer doesn't know which substrate
   is below.

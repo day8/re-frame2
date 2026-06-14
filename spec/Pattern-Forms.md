@@ -100,25 +100,25 @@ Worked example — login form:
 ```clojure
 (def login-form-defaults {:email "" :password ""})
 
-(rf/reg-event-db :form.login/initialise
-  (fn [db _]
-    (assoc-in db [:auth :login]
-              {:draft             login-form-defaults
-               :submitted         nil
-               :submit-attempted? false
-               :status            :idle
-               :errors            {}
-               :touched           #{}
-               :submit-error      nil})))
+(rf/reg-event :form.login/initialise
+  (fn [{:keys [db]} _]
+    {:db (assoc-in db [:auth :login]
+                   {:draft             login-form-defaults
+                    :submitted         nil
+                    :submit-attempted? false
+                    :status            :idle
+                    :errors            {}
+                    :touched           #{}
+                    :submit-error      nil})}))
 
-(rf/reg-event-db :form.login/edit-field
+(rf/reg-event :form.login/edit-field
   {:schema [:cat [:= :form.login/edit-field] :keyword :string]}
-  (fn [db [_ field value]]
-    (-> db
-        (assoc-in  [:auth :login :draft field] value)
-        (update-in [:auth :login :touched] conj field))))
+  (fn [{:keys [db]} [_ field value]]
+    {:db (-> db
+             (assoc-in  [:auth :login :draft field] value)
+             (update-in [:auth :login :touched] conj field))}))
 
-(rf/reg-event-fx :form.login/submit
+(rf/reg-event :form.login/submit
   (fn [{:keys [db]} _]
     (let [draft  (get-in db [:auth :login :draft])
           errors (validate-against LoginForm draft)
@@ -137,29 +137,29 @@ Worked example — login form:
                       :on-error   [:form.login/submit-error]}]]}
         {:db (assoc-in db' [:auth :login :errors] errors)}))))
 
-(rf/reg-event-db :form.login/submit-success
-  (fn [db [_ resp]]
-    (-> db
-        (assoc-in [:auth :login :status]    :submitted)
-        (assoc-in [:auth :login :submitted] (get-in db [:auth :login :draft]))
-        (assoc-in [:auth :user] (:user resp)))))
+(rf/reg-event :form.login/submit-success
+  (fn [{:keys [db]} [_ resp]]
+    {:db (-> db
+             (assoc-in [:auth :login :status]    :submitted)
+             (assoc-in [:auth :login :submitted] (get-in db [:auth :login :draft]))
+             (assoc-in [:auth :user] (:user resp)))}))
 
 ;; Server rejection. Two shapes:
 ;;   - structured validation errors -> :errors (per-field and/or :_form)
 ;;   - opaque transport / non-field failure -> :submit-error
 ;; In both cases :status is :error.
-(rf/reg-event-db :form.login/submit-error
-  (fn [db [_ err]]
+(rf/reg-event :form.login/submit-error
+  (fn [{:keys [db]} [_ err]]
     (let [structured-errors (:errors err)]
-      (cond-> db
-        true
-        (assoc-in [:auth :login :status] :error)
+      {:db (cond-> db
+             true
+             (assoc-in [:auth :login :status] :error)
 
-        (map? structured-errors)
-        (assoc-in [:auth :login :errors] structured-errors)
+             (map? structured-errors)
+             (assoc-in [:auth :login :errors] structured-errors)
 
-        (not (map? structured-errors))
-        (assoc-in [:auth :login :submit-error] err)))))
+             (not (map? structured-errors))
+             (assoc-in [:auth :login :submit-error] err))})))
 ```
 
 ## Standard subs
