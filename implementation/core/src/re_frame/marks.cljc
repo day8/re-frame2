@@ -1330,12 +1330,13 @@
 
   All slots resolve marks via the SAME actor/machine-id lookup, so a spawned
   instance's id-keyed schema marks (rf2-fm1cpl) cover the instance's traces.
-  Per rf2-ws5thu the live-actor instance address now rides under `:actor-id`
-  on the `:rf.machine/transition` / `:rf.machine/snapshot-updated` rows
-  (reserving `:machine-id` for the registered TYPE); the lookup prefers
-  `:actor-id` and falls back to `:machine-id` for the rows that still carry
-  the addressed-id under that key (`:rf.machine/started` /
-  `:rf.machine/guard-evaluated` / `:rf.machine/action-ran`)."
+  Per rf2-ws5thu / rf2-yyvtk5 the live-actor instance address rides under
+  `:actor-id` on every live-runtime row (`:rf.machine/transition` /
+  `:rf.machine/snapshot-updated` plus the guard / action / microstep /
+  history rows yyvtk5 completed), reserving `:machine-id` for the registered
+  TYPE; the lookup prefers `:actor-id` and falls back to `:machine-id` for the
+  rows that still legitimately carry the addressed-id under that key
+  (`:rf.machine/started` — the BIRTH signal keyed by the type/singleton id)."
   [tags]
   (let [machine-id (or (:actor-id tags) (:machine-id tags))
         marks      (machine-marks machine-id)]
@@ -1407,9 +1408,15 @@
   The whole-Throwable `:exception` slot is left as-is — a Throwable is not
   a Clojure-walkable collection and consumers extract `:exception-message`
   (the plain string, untouched here) separately; this matches how every
-  other `:rf.error/*` trace handles the raw exception object."
+  other `:rf.error/*` trace handles the raw exception object.
+
+  Per rf2-yyvtk5 the `:rf.error/machine-action-exception` row now addresses
+  the throwing LIVE actor instance under `:actor-id` (reserving `:machine-id`
+  for the registered TYPE); the schema lookup prefers `:actor-id` and falls
+  back to `:machine-id` so a spawned instance's id-keyed `:data-schema` marks
+  still gate the exception payload."
   [tags]
-  (let [machine-id (:machine-id tags)
+  (let [machine-id (or (:actor-id tags) (:machine-id tags))
         marks      (machine-marks machine-id)]
     (if (and (contains? tags :exception-data)
              marks

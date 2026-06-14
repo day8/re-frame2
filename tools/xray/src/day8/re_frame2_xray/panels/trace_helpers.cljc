@@ -581,7 +581,10 @@
           (str vid (when cause (str " ← " cause)))))
 
       :machine
-      (let [mid  (or (:machine-id tags) (:rf/machine-id tags))
+      ;; rf2-ws5thu / rf2-yyvtk5 — live-runtime machine rows (transition /
+      ;; microstep) address the actor INSTANCE under `:actor-id`; prefer it,
+      ;; then fall back to `:machine-id` / `:rf/machine-id` for other rows.
+      (let [mid  (or (:actor-id tags) (:machine-id tags) (:rf/machine-id tags))
             from (get tags :from tags-absent)
             to   (get tags :to tags-absent)]
         (when mid

@@ -11,7 +11,8 @@
 
   Each timer record:
 
-      {:machine-id  <kw>      ;; the machine the timer belongs to
+      {:machine-id  <kw>      ;; the live actor the timer belongs to (read from
+                              ;; the trace's :actor-id; field name kept for callers)
        :state       <kw|vec>  ;; the bearing state-node
        :armed-at    <int>     ;; trace event time (ms epoch)
        :fires-at    <int>     ;; armed-at + duration-ms
@@ -20,6 +21,7 @@
        :status      <kw>      ;; :armed | :fired | :stale | :cancelled | :skipped
        :delay-key   <any>     ;; the original :after map key (literal/sub-vec/fn)
        :sub-id      <kw|nil>} ;; subscription id when :delay-source = :sub
+                              ;; (read from the trace's canonical :rf.sub/id; rf2-1b6uh5)
 
   ## Source events (per Spec 005 §Delayed :after transitions)
 
@@ -92,19 +94,17 @@
        (contains? timer-operations (:operation ev))))
 
 (defn- machine-id-of
-  "Per Spec 009 the timer events stamp `:machine-id` under `:tags`. The
-  `:scheduled` event has it at the top of the `:tags` map; the `:fired`
-  / `:stale-after` events emit only the state (per
-  `emit-pick-traces!` — the parent machine-id is implicit in the
-  cascade context). The fallback walks `:tags :handler-id` (which the
-  pure-transition emit DOES carry for fired events when present) and
-  finally drops down to whatever the trace projection layer left in
-  the top-level `:frame` slot.
+  "Per Spec 009 every `:rf.machine.timer/*` event stamps the timer's owning
+  actor INSTANCE under `:actor-id` (rf2-ws5thu / rf2-yyvtk5 — including the
+  `:fired` / `:stale-after` rows, which now carry it too); `:machine-id` is
+  reserved for the registered TYPE. Prefer `:actor-id`, then fall back to
+  `:machine-id` / `:handler-id` for legacy fixtures.
 
-  Returns nil when no machine-id can be resolved — the caller
-  filters those out before folding."
+  Returns nil when no id can be resolved — the caller filters those out
+  before folding."
   [ev]
-  (or (get-in ev [:tags :machine-id])
+  (or (get-in ev [:tags :actor-id])
+      (get-in ev [:tags :machine-id])
       (get-in ev [:tags :handler-id])))
 
 ;; ---- timer key resolution -----------------------------------------------
@@ -192,7 +192,11 @@
             delay      (:delay tags)
             delay-src  (:delay-source tags)
             delay-key  (:delay-key tags)
-            sub-id     (:sub-id tags)]
+            ;; rf2-1b6uh5 — the dynamic-delay subscription identity now rides
+            ;; under the canonical `:rf.sub/id` (`:sub-id` fallback for legacy
+            ;; fixtures). The projection record keeps the internal `:sub-id`
+            ;; field name (not a trace tag) for downstream readers.
+            sub-id     (or (:rf.sub/id tags) (:sub-id tags))]
         (cond
           (nil? machine-id) open
           (nil? state)      open

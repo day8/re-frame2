@@ -189,8 +189,8 @@
         (let [t (first errs)]
           (is (= :error (:op-type t)))
           (is (= :no-recovery (:recovery t)))
-          (is (= :rf2-dd3b/throws (-> t :tags :machine-id))
-              ":machine-id identifies the bootstrapping machine")
+          (is (= :rf2-dd3b/throws (-> t :tags :actor-id))
+              ":actor-id identifies the bootstrapping live actor (rf2-yyvtk5)")
           (is (= [:rf.machine/start] (-> t :tags :event))
               ":event tag identifies the synthetic creation marker")
           (is (some? (-> t :tags :exception))

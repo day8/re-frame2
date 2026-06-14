@@ -482,8 +482,11 @@ For the currently-focused event in the L2 event list:
    target a registered machine but matched no transition (xstate-v5 parity)
    so the machine stayed in its current state; a no-op emits no
    `:rf.machine/transition`, so it too would otherwise be invisible. Each
-   trace (transition, birth, or no-op) carries `:tags {:machine-id …}`
-   naming the instance. **Per-machine de-dup (Spec 005 — "a no-op is
+   trace (transition or no-op) carries `:tags {:actor-id …}` naming the live
+   instance (rf2-ws5thu / rf2-yyvtk5); the birth signal (`:rf.machine/started`)
+   keeps `:tags {:machine-id …}` (the type / singleton id). The Machine
+   Inspector's `machine-id-of` reader prefers `:actor-id` and falls back to
+   `:machine-id` so both shapes resolve. **Per-machine de-dup (Spec 005 — "a no-op is
    single-signalled"):** a machine that BOTH transitioned (or was born) AND
    no-op'd in the same cascade surfaces its transition / birth record only;
    the redundant no-op for that machine is dropped, so no ghost section.
@@ -774,9 +777,9 @@ true`; dispatch `[:door/close]`; the `:may-close? = (not held-open?)` guard
 fails → guard-blocked no-op.
 
 **The data already exists.** On the declining candidate the runtime emits
-`:rf.machine/guard-evaluated {:machine-id … :guard-id <named-guard> :outcome
+`:rf.machine/guard-evaluated {:actor-id … :guard-id <named-guard> :outcome
 :fail|:threw :input {:event <event>}}` (machines · `transition.cljc`
-`evaluate-guard`). The named guard is the PRECISION the bare transition trace
+`evaluate-guard`; rf2-yyvtk5 — the live actor INSTANCE rides under `:actor-id`). The named guard is the PRECISION the bare transition trace
 lacks: `(event, guard)` uniquely picks the declining candidate — even one arm
 of a guarded fork.
 

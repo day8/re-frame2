@@ -877,7 +877,11 @@
                            (some? event)
                            (transition/unhandled-event-no-op? event))
                   (trace/emit! :rf.machine :rf.machine.event/unhandled-no-op
-                               {:machine-id (or (:rf/parent-id machine) (:id machine))
+                               ;; rf2-yyvtk5 — a LIVE actor (every region
+                               ;; declined) received the unknown event; address
+                               ;; it by `:actor-id`, not `:machine-id` (the
+                               ;; registered TYPE). Mirrors the flat emission.
+                               {:actor-id   (or (:rf/parent-id machine) (:id machine))
                                 :event      event
                                 :state      (:state snapshot)
                                 :frame      (:rf/frame machine)}))
@@ -891,7 +895,11 @@
               ;; with the snapshot uncommitted, `:no-recovery`).
               (>= depth raise-limit)
               (do (trace/emit-error! :rf.error/machine-raise-depth-exceeded
-                                     {:machine-id (or (:rf/parent-id machine)
+                                     ;; rf2-yyvtk5 — the aborting actor is a
+                                     ;; LIVE INSTANCE; address it by `:actor-id`
+                                     ;; (mirrors the flat drain), not
+                                     ;; `:machine-id` (the registered TYPE).
+                                     {:actor-id   (or (:rf/parent-id machine)
                                                       (:id machine))
                                       :depth      depth
                                       :frame      (:rf/frame machine)

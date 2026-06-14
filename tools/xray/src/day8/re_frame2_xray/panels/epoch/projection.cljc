@@ -745,7 +745,9 @@
            :guard-id    (common/tag-of ev :guard-id)
            :outcome     (common/tag-of ev :outcome)
            :duration-ms (common/tag-of ev :duration-ms)
-           :machine-id  (common/tag-of ev :machine-id)}
+           ;; rf2-yyvtk5 — guard-evaluated now addresses the live actor under
+           ;; `:actor-id`; fall back to `:machine-id` for legacy fixtures.
+           :machine-id  (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))}
     (common/tag-of ev :spec-path)
     (assoc :spec-path (common/tag-of ev :spec-path))
     (common/tag-of ev :exception)
@@ -780,7 +782,9 @@
              :outcome     outcome
              :threw?      (= :rf.error/action-threw outcome)
              :duration-ms (common/tag-of ev :duration-ms)
-             :machine-id  (common/tag-of ev :machine-id)
+             ;; rf2-yyvtk5 — action-ran now addresses the live actor under
+             ;; `:actor-id`; fall back to `:machine-id` for legacy fixtures.
+             :machine-id  (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
              :input       input}
       ;; rf2-lai1qv — the substrate stamps the selected transition's EXACT
       ;; spec-path discriminator (`:transition-slot`) on the action-ran
@@ -864,7 +868,9 @@
   `machine-cascade-rows` stamps below)."
   [ev]
   {:kind       :no-op
-   :machine-id (common/tag-of ev :machine-id)
+   ;; rf2-yyvtk5 — unhandled-no-op now addresses the live actor under
+   ;; `:actor-id`; fall back to `:machine-id` for legacy fixtures.
+   :machine-id (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
    :event      (common/tag-of ev :event)
    :state      (common/tag-of ev :state)})
 
@@ -959,7 +965,10 @@
   (->> events
        (filter (fn [ev] (= :rf.machine.history/restored (op ev))))
        (mapv (fn [ev]
-               {:machine-id      (common/tag-of ev :machine-id)
+               ;; rf2-yyvtk5 — history rows now address the live actor under
+               ;; `:actor-id` (the join key to the transition row, which also
+               ;; carries `:actor-id`); fall back to `:machine-id` for legacy.
+               {:machine-id      (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
                 :compound-path   (common/tag-of ev :compound-path)
                 :kind            (common/tag-of ev :kind)
                 :source          (common/tag-of ev :source)
@@ -983,7 +992,9 @@
   (->> events
        (filter (fn [ev] (= :rf.machine.history/recorded (op ev))))
        (mapv (fn [ev]
-               {:machine-id      (common/tag-of ev :machine-id)
+               ;; rf2-yyvtk5 — live actor under `:actor-id` (join key to the
+               ;; transition row); fall back to `:machine-id` for legacy.
+               {:machine-id      (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
                 :compound-path   (common/tag-of ev :compound-path)
                 :kind            (common/tag-of ev :kind)
                 :recorded-config (common/tag-of ev :recorded-config)
@@ -3025,7 +3036,9 @@
       ;; vs a named transition. The `:rf/via-wildcard?` flag rides the
       ;; transition map (stamped by `transition/match-on-clause`).
       (= :rf.error/machine-action-exception (op ev))
-      (assoc :machine-id   (common/tag-of ev :machine-id)
+      ;; rf2-yyvtk5 — the throwing action's row now addresses the live actor
+      ;; under `:actor-id`; fall back to `:machine-id` for legacy fixtures.
+      (assoc :machine-id   (or (common/tag-of ev :actor-id) (common/tag-of ev :machine-id))
              :action-id    (common/tag-of ev :action-id)
              :event        (common/tag-of ev :event)
              :state-path   (common/tag-of ev :state-path)

@@ -992,9 +992,13 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 ;; --- runtime: state-machine errors (per [005](005-StateMachines.md)) ---
 
 (def MachineActionExceptionTags
+  ;; rf2-yyvtk5 — the throwing action ran in a LIVE actor's transition, so the
+  ;; addressed id is the running INSTANCE under `:actor-id`; `:machine-id` is
+  ;; reserved for the registered TYPE. `:failing-id` / `:handler-id` (already
+  ;; distinctly named) carry the same instance address for domain clarity.
   [:map
    [:category          [:= :rf.error/machine-action-exception]]
-   [:machine-id        :keyword]
+   [:actor-id          :keyword]
    [:action-id         :any]
    [:state-path        [:vector :any]]
    [:transition        :any]
@@ -1006,17 +1010,19 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:exception-data    {:optional true} :any]])
 
 (def MachineRaiseDepthExceededTags
+  ;; rf2-yyvtk5 — the aborting actor is a LIVE INSTANCE (`:actor-id`).
   [:map
-   [:category   :keyword]
-   [:machine-id :keyword]
-   [:depth      :int]])
+   [:category :keyword]
+   [:actor-id :keyword]
+   [:depth    :int]])
 
 (def MachineAlwaysDepthExceededTags
+  ;; rf2-yyvtk5 — the aborting actor is a LIVE INSTANCE (`:actor-id`).
   [:map
-   [:category   :keyword]
-   [:machine-id :keyword]
-   [:depth      :int]
-   [:path       [:vector :any]]])
+   [:category :keyword]
+   [:actor-id :keyword]
+   [:depth    :int]
+   [:path     [:vector :any]]])
 
 (def MachineUnresolvedGuardTags
   [:map
@@ -1051,9 +1057,10 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:value    :any]])
 
 (def MachineActionWroteDbTags
+  ;; rf2-yyvtk5 — the offending action ran in a LIVE actor (`:actor-id`).
   [:map
    [:category        :keyword]
-   [:machine-id      :keyword]
+   [:actor-id        :keyword]
    [:action-id       :any]
    [:state-path      [:vector :any]]
    [:offending-value :any]])
@@ -1069,10 +1076,11 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 ;; `:rf.machine`, operation `:rf.machine.event/unhandled-no-op`; NOT an error.
 ;; Retires the former `:rf.error/machine-unhandled-event` (`MachineUnhandledEventTags`).
 (def MachineUnhandledNoOpTags
+  ;; rf2-yyvtk5 — a LIVE actor received the unknown event (`:actor-id`).
   [:map
-   [:machine-id :keyword]
-   [:event      [:vector :any]]
-   [:state      :any]])
+   [:actor-id :keyword]
+   [:event    [:vector :any]]
+   [:state    :any]])
 
 (def MachineStateNotInDefinitionTags
   [:map
@@ -1103,18 +1111,22 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
 ;;     (per [005 §Trace events — guard evaluations and action runs] and) ---
 
 (def MachineGuardEvaluatedTags
+  ;; rf2-yyvtk5 — a guard is evaluated against a LIVE actor's snapshot, so the
+  ;; addressed id is the running INSTANCE (`:actor-id`); `:machine-id` is the TYPE.
   [:map
-   [:machine-id :keyword]
+   [:actor-id   :keyword]
    [:guard-id   :any]                       ;; keyword OR inline fn
    [:input      [:map
                  [:data  :any]
                  [:event [:vector :any]]]]
+   [:state      {:optional true} :any]      ;; the active state the guard ran against (rf2-tjm3u2)
    [:outcome    [:enum :pass :fail :threw]] ;; :threw added per 
    [:exception  {:optional true} :any]])    ;; present only on the :threw path
 
 (def MachineActionRanTags
+  ;; rf2-yyvtk5 — an action runs against a LIVE actor's snapshot (`:actor-id`).
   [:map
-   [:machine-id :keyword]
+   [:actor-id   :keyword]
    [:action-id  :any]                       ;; keyword OR inline fn
    [:phase      [:enum                      ;; closed set
                  :exit :transition :entry
@@ -1133,22 +1145,29 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
   ;; the unified `:rf.machine.timer/cancelled` event
   ;; emitted on every cancellation path. Payload shape mirrors
   ;; `:rf.machine.timer/scheduled` for arm-fire-cancel pairing by
-  ;; `(machine-id, state, epoch)`; `:reason` discriminates the
+  ;; `(actor-id, state, epoch)`; `:reason` discriminates the
   ;; cancellation cause from the closed set below.
+  ;;
+  ;; rf2-yyvtk5 — the timer's owning actor is a LIVE INSTANCE (`:actor-id`);
+  ;; `:machine-id` is reserved for the registered TYPE.
+  ;; rf2-1b6uh5 — a `:delay-source :sub` row carries the dynamic-delay
+  ;; subscription identity under the canonical `:rf.sub/id` (+ `:rf.sub/query-v`
+  ;; for the full vector), never the bare top-level `:sub-id`.
   [:map
-   [:machine-id   :keyword]
-   [:state        :any]                     ;; keyword OR vector path
-   [:delay        :int]                     ;; the resolved-ms the timer held
-   [:epoch        :int]
-   [:reason       [:enum
-                   :on-exit                 ;; bearing state exited
-                   :on-destroy              ;; machine destroyed
-                   :on-resolution           ;; sub-vec delay re-resolved
-                   :on-supersede            ;; re-armed on a still-live slot
-                   :on-frame-destroy]]      ;; frame teardown
-   [:frame        :keyword]
-   [:delay-source {:optional true} :any]
-   [:sub-id       {:optional true} :any]])  ;; present when :delay-source = :sub
+   [:actor-id      :keyword]
+   [:state         :any]                    ;; keyword OR vector path
+   [:delay         :int]                    ;; the resolved-ms the timer held
+   [:epoch         :int]
+   [:reason        [:enum
+                    :on-exit                ;; bearing state exited
+                    :on-destroy             ;; machine destroyed
+                    :on-resolution          ;; sub-vec delay re-resolved
+                    :on-supersede           ;; re-armed on a still-live slot
+                    :on-frame-destroy]]     ;; frame teardown
+   [:frame         :keyword]
+   [:delay-source  {:optional true} :any]
+   [:rf.sub/id     {:optional true} :any]   ;; present when :delay-source = :sub
+   [:rf.sub/query-v {:optional true} [:vector :any]]]) ;; full subscription vector, same gate
 
 (def SystemIdCollisionTags
   [:map
@@ -2107,7 +2126,7 @@ The recursive `::state-node` ref is registered under the spec id `:rf/state-node
 
 - **`:rf.error/machine-always-self-loop`** — an `:always` entry whose `:target` resolves to the declaring state itself (keyword target equal to the state's own key, or vector target equal to its own path) is rejected at registration time, with `:tags {:state <state-keyword> :machine-id <id>}`. An eventless self-`:target` re-evaluates the same guard on the state it just re-entered — it would either spin to depth-exceeded or be a no-op; in both cases the author meant something else. The rejection is decidable from the `:target` alone; a "re-enter on a changed condition" need is expressed by targeting a distinct state. An **internal** `:always` (no `:target`, only an `:action`) is permitted — that is the canonical action-microstep pattern. See [005 §Self-loop forbidden at registration](005-StateMachines.md#self-loop-forbidden-at-registration).
 
-A second `:always`-related category, **`:rf.error/machine-always-depth-exceeded`**, is a *runtime* error (not registration): emitted when the microstep loop exceeds its depth limit (default 16), with `:tags {:machine-id <id> :depth <limit> :path [<state> ...]}` and `:recovery :no-recovery`. The cascade halts with the snapshot uncommitted. See [005 §Bounded depth](005-StateMachines.md#bounded-depth).
+A second `:always`-related category, **`:rf.error/machine-always-depth-exceeded`**, is a *runtime* error (not registration): emitted when the microstep loop exceeds its depth limit (default 16), with `:tags {:actor-id <live-instance-id> :depth <limit> :path [<state> ...]}` (rf2-yyvtk5 — the aborting actor is a live INSTANCE) and `:recovery :no-recovery`. The cascade halts with the snapshot uncommitted. See [005 §Bounded depth](005-StateMachines.md#bounded-depth).
 
 **`:after` constraints.** Per [005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions), the `:after` slot's value is a map whose keys are one of three forms — positive-integer millisecond delays, **subscription vectors** (`[:sub-id & args]` resolved through `subscribe`'s machinery; re-resolves on subscription change per [005 §Dynamic delay re-resolution](005-StateMachines.md#dynamic-delay-re-resolution)), or fns of the entering snapshot returning a positive integer — and whose values admit the same three forms as an `:on` clause: keyword-target sugar (`{5000 :timeout}`), a full transition spec (`{5000 {:guard :still-loading? :target :hard-error}}`), or — **parallel to `:on`** — a vector of guarded transition candidates evaluated **first-match-wins** at timer expiry (`{5000 [{:guard :ok? :target :done} {:target :failed}]}`; the first candidate whose `:guard` passes fires, an unguarded candidate is the unconditional fallback). The `:after` value grammar is identical to the `:on` `EventMap` value (`[:or Transition [:vector Transition]]`) — the runtime normalises both through one shared candidate-walk, so the two slots can never drift. Per [005 §Value shape](005-StateMachines.md#value-shape). Sugar normalises at registration time. Cancellation is not a separate fx — staleness is detected via a **per-scheduling-node epoch map** stored in `:data` under the reserved key `:rf/after-epoch` (`{<decl-path-vector> <int>}`; the `:rf/`-namespace within `:data` is reserved for runtime-managed bookkeeping). Per-node tracking is required by [005 §Hierarchy interaction](005-StateMachines.md#hierarchy-interaction): a leaf-only sibling transition leaves a still-active parent's entry — and its in-flight timer — untouched. The clock primitives live in [`re-frame.interop`](002-Frames.md#interop-layer--clock-primitives--see-spec-005) (`now-ms`, `schedule-after!`, `cancel-scheduled!`); tests swap the interop layer rather than configuring a framework-level clock. Hosts whose interop layer hasn't been wired with a clock emit **`:rf.warning/no-clock-configured`** when `:after` is exercised — an advisory-not-fatal: the runtime falls back to a host-native clock if available. Trace events: `:rf.machine.timer/scheduled`, `:rf.machine.timer/fired`, `:rf.machine.timer/stale-after`, `:rf.machine.timer/cancelled` (with `:reason` closed set — replaces the `:cancelled-on-resolution`), `:rf.machine.timer/skipped-on-server` (added to the trace-op vocabulary above).
 

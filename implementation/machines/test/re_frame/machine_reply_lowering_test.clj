@@ -91,12 +91,14 @@
               (is (= :rf.machine.timer/after-epoch-mismatch (:rf.reply/stale-reason tags)))
               ;; rf2-niarhz — the canonical :work/id joins the uniform
               ;; work/reply rows (the timer work-id keyed on the SCHEDULED
-              ;; epoch — the timer's attempt identity). The pick-transition
-              ;; stale `match` carries no machine-id, so the logical-id is the
-              ;; bare declaring path (the timer's unique chart-local identity).
-              (is (= [:rf.work/timer [:loading] scheduled-epoch]
+              ;; epoch — the timer's attempt identity). Per rf2-yyvtk5 the
+              ;; pick-transition stale `match` now carries the owning actor
+              ;; INSTANCE under `:actor-id`, so the logical-id is
+              ;; `[<actor-id> & <decl-path>]` — the timer's full
+              ;; actor-scoped identity, not the bare declaring path.
+              (is (= [:rf.work/timer [:rl/after :loading] scheduled-epoch]
                      (:work/id tags))
-                  "canonical timer :work/id on the stale-after trace")
+                  "canonical timer :work/id on the stale-after trace (actor-scoped)")
               (is (= (:work/id tags) (:rf.reply/work-id tags)))
               (is (= :timer (:work/kind tags)))
               ;; the declaring path + epoch ARE the data-only suppression gate

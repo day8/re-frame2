@@ -811,8 +811,8 @@
                          @traces)]
         (is (seq errs)
             "an action throw surfaces as :rf.error/machine-action-exception")
-        (is (some #(= :test/m (get-in % [:tags :machine-id])) errs)
-            "the trace identifies the machine that threw")
+        (is (some #(= :test/m (get-in % [:tags :actor-id])) errs)
+            "the trace identifies the live actor that threw (rf2-yyvtk5 — :actor-id)")
         (is (some #(= :boom (get-in % [:tags :action-id])) errs)
             "the trace identifies the action that threw")
         (is (some #(= "kaboom" (get-in % [:tags :exception-message])) errs)
@@ -1033,8 +1033,8 @@
             "machine action throw surfaces as :rf.error/machine-action-exception under :ssr-server")
         (is (some #(= :req (get-in % [:tags :frame])) errs)
             "the trace records the request frame's id")
-        (is (some #(= :test/m (get-in % [:tags :machine-id])) errs)
-            "the trace identifies the machine"))
+        (is (some #(= :test/m (get-in % [:tags :actor-id])) errs)
+            "the trace identifies the live actor (rf2-yyvtk5 — :actor-id)"))
       (is (not (some #(= :rf.error/handler-exception (:operation %)) @traces))
           "the generic :rf.error/handler-exception does NOT also fire under :ssr-server")
       (let [snap (get-in (rf/runtime-db-value :req) [:rf.runtime/machines :snapshots :test/m])]

@@ -66,7 +66,7 @@
    {:operation :rf.event/run-start :tags {:rf.trace/event-id :test/m}}
    {:operation :rf.error/machine-action-exception
     :op-type   :error
-    :tags      {:machine-id        :test/m
+    :tags      {:actor-id          :test/m
                 :action-id         :boom
                 :exception-message "ssr-bang"
                 :reason            "Machine action threw."}}]

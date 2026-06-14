@@ -148,7 +148,15 @@
         ex-data    (when ex (ex-data ex))
         action-ref (:action-ref info)]
     (trace/emit-error! :rf.error/machine-action-exception
-                       {:machine-id        machine-id
+                       ;; rf2-yyvtk5 — the throwing action ran in a LIVE
+                       ;; actor's transition; `machine-id` here is the
+                       ;; event-handler key (the running INSTANCE address —
+                       ;; a singleton's registration id, or a spawned
+                       ;; actor's `<type>#<n>` / fixed id), so it rides
+                       ;; under `:actor-id`. Reserved `:machine-id` names
+                       ;; the registered TYPE only. `:failing-id` /
+                       ;; `:handler-id` are already distinctly named.
+                       {:actor-id          machine-id
                         :action-id         action-ref
                         :state-path        (:state-path info)
                         :transition        (:transition info)
@@ -173,7 +181,8 @@
         (spawn-error/dispatch-spawn-error!
           frame-id parent-id invoke-id
           {:rf.error/id       :rf.error/machine-action-exception
-           :machine-id        machine-id
+           ;; rf2-yyvtk5 — the failing child is a LIVE actor INSTANCE.
+           :actor-id          machine-id
            :action-id         action-ref
            :event             event
            :exception-message ex-msg
