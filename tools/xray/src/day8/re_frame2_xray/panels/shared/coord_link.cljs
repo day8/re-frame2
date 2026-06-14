@@ -10,7 +10,7 @@
   - **icon-only** — a glyph appended after an id (`:counter/value ↗`).
     The canonical home is `panels/shared/coord_chip.cljs` (rf2-xjgdk).
   - **label-as-link** — the verb / label TEXT itself is the hyperlink,
-    with the `external-link` glyph appended (`reg-event-fx ↗`). Before
+    with the `external-link` glyph appended (`reg-event ↗`). Before
     rf2-vw5pi this shape was hand-rolled ~7 times across
     `panels/epoch/view.cljs` (the HANDLER verb-link, the DISPATCH
     source label, the COEFFECT / FLOW verb ids, the machine cascade
@@ -31,7 +31,7 @@
   anchor for the static page, rf2-evgf5 / rf2-g5q8d) and is excluded
   by design. `coord-link` (like `coord-chip`) dispatches via the trace
   bus so the click is observable as a first-class operation on the
-  `:rf/xray` frame; the `:rf.xray/open-in-editor` reg-event-fx →
+  `:rf/xray` frame; the `:rf.xray/open-in-editor` reg-event →
   `:rf.editor/open` reg-fx pipeline resolves the URI.
 
   See `panels/shared/coord_chip.cljs` for the icon-only sibling and

@@ -335,8 +335,8 @@
      [:div {:data-testid "rf-xray-machine-event-handler-mini-pipeline"
             :data-machine-id (str machine-id)
             :style {:padding "10px 14px"}}
-      ;; `machine-id` IS the reg-event-fx id `handler-meta` resolves
-      ;; (a machine is registered as a `reg-event-fx` carrying its spec
+      ;; `machine-id` IS the `:event` handler id `handler-meta` resolves
+      ;; (a machine is registered as an `:event` handler carrying its spec
       ;; under `:rf/machine`), so the cascade rows' guard / action
       ;; source-coords resolve identically to the Epoch panel.
       (epoch-view/machine-cascade-mini-pipeline cascade machine-id)]
@@ -826,7 +826,7 @@
   ;; sub for those events; Prev/Next moves the spine focus, which moves
   ;; the resolved focused epoch, which re-feeds BOTH this mini-pipeline
   ;; AND the chart highlights together. `:event-id` is the head record's
-  ;; machine-id — the reg-event-fx id `handler-meta` resolves so the
+  ;; machine-id — the `:event` handler id `handler-meta` resolves so the
   ;; cascade rows' guard / action source-coords resolve identically to
   ;; the Epoch panel.
   (rf/reg-sub :rf.xray/machine-focused-epoch-cascade

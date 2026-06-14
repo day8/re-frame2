@@ -18,7 +18,7 @@
       ├── ③ COEFFECT      :session ↗
       │      + [:session] {:user-id 42 …}
       │
-      ├── ③ HANDLER       reg-event-db ↗               0.5ms
+      ├── ③ HANDLER       reg-event ↗                  0.5ms
       │      (fn [db [_ amount]]
       │        (update db :total + amount))
       │      ↳ :db diff
@@ -2090,7 +2090,7 @@
   (when (and (keyword? machine-id) (vector? state-path) (seq state-path))
     ;; rf2-dcsw1 (iwy0c-followup) — read the registration meta under the
     ;; `:event` kind, NOT the non-existent `:machine` kind. A machine is
-    ;; registered as a `reg-event-fx` carrying `:rf/machine? true` + the
+    ;; registered as an `:event` handler carrying `:rf/machine? true` + the
     ;; stamped spec (with co-located state-node `:source-coords`, rf2-vqja2)
     ;; under `:rf/machine` (rf2-ge6uj ISSUE 2 / rf2-iwy0c part C —
     ;; `machine-block` and `handler-source-block` already read `:event`).
@@ -2590,15 +2590,15 @@
   then the interceptor name + its single open-in-editor glyph.
 
   rf2-siheh — the jump-to-source coord rides the projection row's
-  `:coord` slot (captured by the `->interceptor` macro from `(meta &form)`
-  and threaded onto the trace by the router). The name hyperlinks via
+  `:coord` slot (captured by the `reg-interceptor` macro at the registration
+  site and threaded onto the trace by the router). The name hyperlinks via
   `coord-link`, which ALREADY emits `name ↗` (one glyph) — the row no
   longer appends a redundant standalone `coord-chip` (rf2-rvxem FIX 1:
   the HANDLER / COEFFECTS rows use `coord-link` alone; only the plain-
   label SUBS / VIEWS / SIDE-EFFECTS rows pair a label with `coord-chip`,
   and the interceptor row conflated the two). `coord-link` drops cleanly
-  to plain text + no glyph when the interceptor was built via the
-  `->interceptor*` fn, is a framework interceptor, or the bundle elided
+  to plain text + no glyph when the interceptor was registered via the
+  `reg-interceptor*` fn, is a framework interceptor, or the bundle elided
   the coord in production."
   [idx {:keys [interceptor-id phase errors coord]}]
   (let [label (fmt/ns-keyword interceptor-id)]
@@ -3629,7 +3629,7 @@
   [cascade event-id]
   ;; rf2-ge6uj ISSUE 2 — read the registration meta under the `:event`
   ;; kind, NOT a (non-existent) `:machine` kind. A machine is registered
-  ;; as a `reg-event-fx` carrying `:rf/machine? true` + the stamped spec
+  ;; as an `:event` handler carrying `:rf/machine? true` + the stamped spec
   ;; under `:rf/machine` (with co-located `:guards` / `:actions` entries
   ;; carrying `:source-coords` / `:source-code`, plus reference-site
   ;; `:source-coords` co-located on each `:states`-tree map node,
@@ -3675,7 +3675,7 @@
 ;; collapsing silently.
 ;;
 ;; For machine handlers the "source" is the machine spec — read via
-;; `rf/handler-meta :event event-id` (the machine IS a `reg-event-fx`
+;; `rf/handler-meta :event event-id` (the machine IS an `:event` handler
 ;; with the spec under `:rf/machine`; rf2-iwy0c part C — the prior
 ;; `:machine` kind resolved nil). The spec renders through the same
 ;; `edn/inspect` widget every other top-level EDN map uses.
@@ -3720,7 +3720,7 @@
       line (str ":" line))))
 
 (defn- handler-verb-link
-  "Render the HANDLER step's verb (e.g. `reg-event-fx`) as a
+  "Render the HANDLER step's verb (e.g. `reg-event`) as a
   clickable hyperlink + external-link glyph when the handler's
   registered meta carries `:file` / `:line` (clicks dispatch
   `:rf.xray/open-in-editor`). Falls back to a plain coloured span
@@ -3747,7 +3747,7 @@
   [flavour event-id]
   (let [meta     (when (some? event-id)
                    ;; Machine + plain event handlers BOTH live under the
-                   ;; `:event` kind (the machine is a `reg-event-fx` with
+                   ;; `:event` kind (the machine is an `:event` handler with
                    ;; `:rf/machine? true`); the call-site coord rides the
                    ;; top-level `:file` / `:line` for both.
                    (try (rf/handler-meta :event event-id)
@@ -3908,7 +3908,7 @@
 
   Per rf2-p2zy0 (Mike pair-debug 2026-05-27) the legacy per-fx-row
   list (one `fx-entry-line` per entry) is REPLACED by two
-  decomposed sections matching how a reg-event-fx author thinks
+  decomposed sections matching how a reg-event author thinks
   about the return map:
 
     - `:fx` — the canonical `:fx` vector-of-vectors (when present)
@@ -3972,8 +3972,8 @@
 
 (defn render-handler-step
   "Render the HANDLER step (always present). Per Mike pair-debug
-  2026-05-26: the verb (reg-event-db / reg-event-fx / reg-event-ctx
-  / reg-machine flavour label) is the click-to-source hyperlink;
+  2026-05-26: the verb (reg-event / reg-machine flavour label) is
+  the click-to-source hyperlink;
   the event-id is NOT repeated in the HANDLER line because the
   DISPATCH step's header already names it.
 
@@ -4276,7 +4276,7 @@
   "Render the SIDE EFFECTS step as a FLAT per-effect ledger (rf2-j630b —
   supersedes the rf2-kt6js 3-tier `:db` / `:fx` / other sub-step
   presentation). ALWAYS present when ANY side effect occurred — including
-  a bare reg-event-db that returns only `:db` (`db-commit?` keys off
+  a bare reg-event that returns only `:db` (`db-commit?` keys off
   `:rf.event/db-changed`).
 
   The SIDE EFFECTS badge carries NO overall stage glyph (the per-stage

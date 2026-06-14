@@ -43,7 +43,7 @@
 
       (mini   v)    ;; one-liner (no expansion, no diff)
 
-      (code-block {:source \"(reg-event-db :foo …)\"
+      (code-block {:source \"(reg-event :foo …)\"
                    :lang   :clojure})
 
   ## Posture
@@ -373,7 +373,7 @@
   cool-blue) in BOTH the light and dark theme. Keywords and builtins
   resolve to DIFFERENT hues — keyword on `:syntax-keyword` (red family,
   per Figma), builtin on `:accent` (the chrome blue, reading as
-  macro-call emphasis) — so a `:foo` keyword and a `reg-event-db`
+  macro-call emphasis) — so a `:foo` keyword and a `reg-event`
   builtin no longer paint identically against a real editor.
 
   The fallthrough is `:text-primary`, matching a real editor where
@@ -396,10 +396,11 @@
     "cond" "case" "do" "loop" "recur" "fn" "fn*" "reify"
     "deftype" "defrecord" "ns" "require" "reg-event"
     ;; EP-0018 collapsed the three public event registrars onto `reg-event`
-    ;; (above). The retired spellings stay in the highlighter set: during the
-    ;; additive window they still resolve, and the source-text highlighter
-    ;; renders whatever the substrate captured — including legacy
-    ;; `reg-event-db` / `-fx` / `-ctx` call sites in an app under inspection.
+    ;; (above); calling a retired name is now a hard error. The retired
+    ;; spellings nonetheless stay in the highlighter set because the
+    ;; source-text highlighter renders whatever source the substrate captured
+    ;; — including legacy `reg-event-db` / `-fx` / `-ctx` call sites in a v1
+    ;; or pre-migration app under inspection.
     "reg-event-db" "reg-event-fx" "reg-event-ctx" "reg-sub" "reg-fx" "reg-view"
     "reg-flow" "reg-machine" "dispatch" "dispatch-sync" "subscribe"
     "assoc" "assoc-in" "update" "update-in" "get" "get-in"

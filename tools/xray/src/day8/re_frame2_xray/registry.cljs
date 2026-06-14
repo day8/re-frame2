@@ -33,7 +33,7 @@
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
             ;; Load the first-class edn-inspector widget ns so its
-            ;; top-level `reg-sub` / `reg-event-db` calls land in
+            ;; top-level `reg-sub` / `reg-event` calls land in
             ;; the registrar at orchestrator-load time. The widget
             ;; owns `:rf.xray.edn-inspector/*` events/subs and is the
             ;; SINGLE source of truth for browse + diff + mini

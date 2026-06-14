@@ -461,7 +461,7 @@
   coeffect stamp when no granular events exist (older runtimes / test
   fixtures). Returns an empty vec when neither surface is present, or
   when every coeffect is system-injected — the latter is the typical
-  reg-event-db case where the operator gains nothing from a `:db`
+  db-only reg-event case where the operator gains nothing from a `:db`
   presence-pill."
   [events]
   (let [granular (coeffect-rows-from-runs events)]
@@ -510,7 +510,7 @@
     ;; commit transition at the source — no transition row either) is still
     ;; a machine cascade: classify it :reg-machine so the EVENT HANDLER
     ;; machine section renders the no-op notice rather than collapsing to a
-    ;; plain reg-event-db handler.
+    ;; plain reg-event handler.
     (some #(= :rf.machine.event/unhandled-no-op (op %)) events) :reg-machine
     ;; rf2-it4vt — an EAGER `[:rf.machine/start]` kick is a PURE init
     ;; (rf2-gl588 / F‴): it runs the initial-entry cascade then STOPS,
@@ -587,7 +587,7 @@
   dropped/`:skipped` `other` key (rf2-ff9b0d). The view conditions each
   section's render on its slot being non-empty.
 
-  Returns nil when no `:rf.fx/do-fx` fired (reg-event-db with no
+  Returns nil when no `:rf.fx/do-fx` fired (a reg-event with no `:fx`
   effects, or the cascade aborted before do-fx)."
   [events]
   (when-let [do-fx (find-op events :rf.fx/do-fx)]
@@ -1259,7 +1259,7 @@
   supersedes the flat `:rf.machine/state-coords` index of rf2-npvsx).
 
   Returns an empty vec when no machine-cascade events fired (vanilla
-  reg-event-db / reg-event-fx cascades — the redesign is
+  non-machine reg-event cascades — the redesign is
   machine-specific and the empty vec drives the view's empty-state
   branch off the prior handler-step rendering unchanged)."
   [events]
@@ -1782,7 +1782,7 @@
 ;;            ledger when present. ✓ on a successful commit; ✗ when the
 ;;            post-commit app-db schema check rejected the write and the
 ;;            cascade rolled back. Shown whenever a `:db` commit was
-;;            attempted — INCLUDING a plain reg-event-db that returns only
+;;            attempted — INCLUDING a plain reg-event that returns only
 ;;            `:db` (no `:fx`); ABSENT when the handler returned only
 ;;            `:fx` / only other / nothing, or THREW (no phantom `:db`,
 ;;            rf2-wnvid). Its args slot is the DESTINATION marker
@@ -1814,7 +1814,7 @@
 ;;   rollback) — it does NOT route `:db` through the fx pipeline. The
 ;;   pre-rf2-kt6js heuristic looked for a non-existent fx-id-less
 ;;   `:rf.fx/handled`, so the `:db` row only ever appeared on the
-;;   rollback path; a clean reg-event-db showed NO side-effects step at
+;;   rollback path; a clean reg-event showed NO side-effects step at
 ;;   all. Keying off `:rf.event/db-changed` fixes the ALWAYS-APPEARS
 ;;   contract tool-side.
 ;;
@@ -1907,7 +1907,7 @@
         effect!` emits this for EVERY actual `:db` install (forward
         commit), and a second one with `:rf.trace/phase :rollback` on a
         schema-fail rollback. This is the canonical `:db`-commit signal,
-        present for a plain reg-event-db that returns only `:db`.
+        present for a plain reg-event that returns only `:db`.
     (b) A `:where :app-db` schema violation — implies a commit was
         ATTEMPTED even on the abort path.
     (c) A `:rf.event/db-noop` trace (rf2-ekq28v) — the handler returned a
@@ -1930,7 +1930,7 @@
 (defn db-effect-row
   "The synthesised `:db` row — the handler's app-db write, leading the
   flat SIDE EFFECTS ledger (rf2-kt6js synthesis · rf2-j630b ledger).
-  nil when no `:db` commit was attempted (a reg-event-fx that returned no
+  nil when no `:db` commit was attempted (a reg-event that returned no
   `:db`, or a handler that threw — no phantom `:db`, rf2-wnvid). `:status`
   is `:error` on a schema-fail rollback (so the badge / `step-status`
   paints ✗ and the attached `:where :app-db` violation carries the reason
@@ -2158,7 +2158,7 @@
   nil (step OMITTED) when NO side effect occurred — no `:db` commit, no
   runtime-db commit, no `:fx`, no other effect. ALWAYS appears when a
   `:db` commit happened (`db-commit?` keys off `:rf.event/db-changed`),
-  INCLUDING a plain reg-event-db with no `:fx`, AND when a runtime-ONLY
+  INCLUDING a plain reg-event with no `:fx`, AND when a runtime-ONLY
   commit happened (`runtime-db-commit?` keys off the partition-tagged
   `:rf.event/frame-state-changed` — Mike ruling #6: a runtime-only commit
   emits NO `:rf.event/db-changed`).
@@ -3107,10 +3107,10 @@
 ;; threw in, so the operator reads WHICH interceptor failed on WHICH side
 ;; of the chain. rf2-siheh — the jump-to-source coord rides the row's
 ;; `:coord` slot, resolved here off the `:rf.error/interceptor-exception`
-;; trace's `:source-coord` tag (captured by the `->interceptor` macro from
-;; `(meta &form)`); it degrades to plain text when no coord was captured
-;; (the `->interceptor*` fn path, framework interceptors, or a production
-;; CLJS bundle). The shared "Exception Thrown" card (rf2-wnvid) attaches
+;; trace's `:source-coord` tag (captured by the `reg-interceptor` macro at
+;; the registration site); it degrades to plain text when no coord was
+;; captured (the `reg-interceptor*` fn path, framework interceptors, or a
+;; production CLJS bundle). The shared "Exception Thrown" card (rf2-wnvid) attaches
 ;; per the standard `attach-exceptions` path.
 
 (defn interceptor-exception-rows
@@ -3125,11 +3125,11 @@
   "Resolve the throwing interceptor's definition-site `{:ns :file :line}`
   source-coord off the `:rf.error/interceptor-exception` trace event
   (rf2-siheh). The router threads it onto the trace under the `:source-
-  coord` tag (the `->interceptor` macro captured it from `(meta &form)`,
-  riding the rf2-wvsxg absolutise path). Returns nil when no coord was
-  captured — the interceptor was built via the `->interceptor*` fn or is
-  a framework interceptor (`path` / `unwrap` / cofx injector), or the
-  build is a production CLJS bundle that elided the coord. The view's
+  coord` tag (the `reg-interceptor` macro captured it at the registration
+  site, riding the rf2-wvsxg absolutise path). Returns nil when no coord was
+  captured — the interceptor was registered via the `reg-interceptor*` fn or
+  is a framework interceptor (`:rf.interceptor/path` or a cofx injector), or
+  the build is a production CLJS bundle that elided the coord. The view's
   shared `coord-chip` drops out cleanly when nil (parity with the
   EVENT HANDLER / SUBSCRIPTIONS / VIEWS rows)."
   [ev]
@@ -3144,7 +3144,7 @@
   `:rf.error/interceptor-exception` with the matching `:phase`), each
   carrying the interceptor `:interceptor-id` (== the exception row's
   `:failing-id`), the `:phase` it threw in, and (rf2-siheh) the
-  interceptor's definition-site `:coord` (when the `->interceptor` macro
+  interceptor's definition-site `:coord` (when the `reg-interceptor` macro
   captured one) so the view renders a jump-to-source chip — parity with
   the EVENT HANDLER / SUBSCRIPTIONS / VIEWS rows. The shared exception
   card attaches to this step via `attach-exceptions`.
@@ -3509,7 +3509,7 @@
       :handler        — always present; adapts to handler flavour
       :flow           — only when flows fired
       :side-effects   — when ANY side effect occurred (a :db commit —
-                        including a bare reg-event-db — and/or :fx and/or
+                        including a bare reg-event — and/or :fx and/or
                         other top-level effects); :db / :fx / other
                         sub-steps each shown only when present (rf2-kt6js)
       :subscriptions  — only when subs recomputed
