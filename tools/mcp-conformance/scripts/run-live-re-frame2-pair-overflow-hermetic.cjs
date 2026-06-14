@@ -143,8 +143,9 @@ const FIXTURE_BUNDLE_PATH = path.join(FIXTURE_DIR, 'public', 'out', 'main.js');
 // typically 30-60s on GHA; warm restart is much faster. We give the
 // boot 360s so the first cold-cache run of the day (no `~/.m2`
 // restore hit at all) still has headroom while Maven resolves the
-// fixture's :local/root deps (core + reagent + epoch + Reagent/Malli
-// trees). The CI workflow's `mcp-conformance-re-frame2-pair` job hashes those
+// fixture's :local/root deps (core + reagent + epoch + schemas +
+// machines + Reagent/Malli trees). The CI workflow's
+// `mcp-conformance-re-frame2-pair` job hashes those
 // inputs into its actions/cache key (rf2-c565x), so this stopgap only
 // kicks in on the truly cold path; warm-cache runs still bind the
 // nREPL port in <60s.
