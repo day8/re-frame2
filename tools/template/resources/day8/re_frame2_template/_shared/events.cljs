@@ -1,8 +1,12 @@
 (ns {{namespace}}.events
   "Event handlers — the second domino in the re-frame2 pipeline.
 
-   The handler is a pure function `(fn [db event] new-db)`. The runtime
-   applies the returned db to the frame; views fan out from there."
+   The handler is a pure function `(fn [cofx event] effects-map)` — it
+   takes the coeffects map (its `:db` is the current app-db) and returns a
+   closed effects map (`{:db new-db}`, plus `:fx` when it has side-effects).
+   The runtime applies the returned `:db` to the frame and runs the `:fx`;
+   views fan out from there. `reg-event` is the one public event-registration
+   form (EP-0018)."
   (:require [re-frame.core :as rf]
             ;; The trace-listener surface (`register-listener!`)
             ;; lives in `re-frame.trace.tooling`, NOT `re-frame.core` —
@@ -82,10 +86,10 @@
 ;; core/run via `dispatch-sync` so the first render sees the initial
 ;; value rather than a transient empty frame.
 
-(rf/reg-event-db
+(rf/reg-event
   :counter/initialise
-  (fn [_db _event]
-    {:counter/value 0}))
+  (fn [_cofx _event]
+    {:db {:counter/value 0}}))
 
 ;; --- Counter increment -----------------------------------------------------
 ;;
@@ -93,10 +97,10 @@
 ;; effects, no side-channels. Everything else (re-render, trace emission,
 ;; epoch tagging, schema validation) is the runtime's job.
 
-(rf/reg-event-db
+(rf/reg-event
   :counter/increment
-  (fn [db _event]
-    (update db :counter/value inc)))
+  (fn [{:keys [db]} _event]
+    {:db (update db :counter/value inc)}))
 
 ;; --- HTTP failure matrix (commented exemplar) ------------------------------
 ;;
@@ -130,7 +134,7 @@
 ;; **out of scope** for `:retry`; lift those into a state machine per
 ;; Spec 014 §Boundary — transport vs semantic retry.
 ;;
-#_(rf/reg-event-fx
+#_(rf/reg-event
     :counter/load
     (fn [{:keys [db]} [_ msg]]
       (cond

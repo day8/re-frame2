@@ -676,7 +676,7 @@ sections that read top-to-bottom as the developer scans.
 │   :auth/require-login          src/auth/interceptors.cljs:42   [code]              │
 │                                                                                      │
 │ ▼ HANDLER                                                                            │
-│   reg-event-fx · src/cart/events.cljs:88                       [code]              │
+│   reg-event · src/cart/events.cljs:88                          [code]              │
 │                                                                                      │
 │ ▼ FLOWS  (3)                                                                         │
 │   ▸ :cart-total                wrote [:cart :total]   52.50                         │
@@ -1711,7 +1711,7 @@ Without the modal, large drill-ins can blow out the renderer and degrade INP. Th
 
 Per [spec/015-Data-Classification](../../../spec/015-Data-Classification.md):
 
-1. **Event handler** (`reg-event-db/fx/ctx`) — `{:sensitive [paths]}` on the registration map.
+1. **Event handler** (`reg-event`) — `{:sensitive [paths]}` on the registration map.
 2. **App-db** (per frame) — `(rf/add-marks <frame-id> {path mark, ...})` (additive merge) or `(rf/set-marks <frame-id> {path mark, ...})` (replace wholesale).
 3. **Subscription** — output marking via `{:sensitive [paths]}` or whole-output `{:sensitive? true/false}` override. Default = propagate from sensitive input paths.
 4. **Effect** (`reg-fx`) — input marking on the fx-args.

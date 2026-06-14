@@ -139,12 +139,12 @@
   ;; live variant frame regardless of the dispatch scope. Idempotent —
   ;; re-installing the same classification REPLACES the prior `:source
   ;; :frame` entries.
-  (rf/reg-event-db
+  (rf/reg-event
     ::reapply-frame-class
-    (fn [db [_ frame-id classification-config]]
+    (fn [{:keys [db]} [_ frame-id classification-config]]
       (frame-class/install! frame-id
         (frame-class/validate+extract frame-id classification-config))
-      db))
+      {:db db}))
   (t))
 
 (use-fixtures :each reset-story-and-config)
@@ -1692,8 +1692,8 @@
     ;; the race captured. We require at least one capture so the replay
     ;; path is genuinely exercised.
     (config/set-allow-writes! true)
-    ;; A real event-db handler whose effect is observable in app-db.
-    (rf/reg-event-db :test/bump (fn [db _] (update db :n (fnil inc 0))))
+    ;; A real event handler whose effect is observable in app-db.
+    (rf/reg-event :test/bump (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (drive-events-during-recording [[:test/bump] [:test/bump] [:test/bump]])
     (let [rec (invoke "record-as-variant"
                       {:variant-id     "story.button/primary"
