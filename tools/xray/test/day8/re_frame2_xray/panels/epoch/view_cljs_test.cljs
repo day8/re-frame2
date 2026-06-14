@@ -70,7 +70,11 @@
                 :fx [] :machine nil}
           tree (view/render-handler-step step)
           header-text (text-of tree "rf-xray-epoch-handler-header")]
-      (is (string/includes? header-text "reg-event-db"))
+      ;; EP-0018 — the HANDLER verb is now `reg-event` for both the db-only
+      ;; and fx-bearing event flavours (the panel no longer names the retired
+      ;; `reg-event-db` / `reg-event-fx` spellings). The internal `:flavour`
+      ;; discriminator keyword (`:reg-event-db`, fed above) is unchanged.
+      (is (string/includes? header-text "reg-event"))
       ;; The body's first slot is now the source block — never a
       ;; duplicate flavour pill.
       (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-source"))
@@ -81,7 +85,7 @@
       (is (not (string/includes?
                  (or (text-of tree "rf-xray-epoch-handler-source-placeholder")
                      "")
-                 "reg-event-db"))
+                 "reg-event"))
           "the source-placeholder slot MUST NOT echo the flavour pill"))))
 
 ;; ---- rf2-93a7s — DISPATCH body shows the event vector ----------------

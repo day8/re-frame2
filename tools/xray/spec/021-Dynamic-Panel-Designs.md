@@ -247,7 +247,8 @@ Section order (numbered; optional sections shown only when present):
      click-to-source link).
   2. **COEFFECTS** *(optional)* — user-injected coeffects: each id (click-to-source) + the
      value it added to context (`+ [:now] #inst…`).
-  3. **EVENT HANDLER** — the flavour (`reg-event-db` / `reg-event-fx`) as a click-to-source
+  3. **EVENT HANDLER** — the verb (`reg-event`, the one public event-registration form after
+     EP-0018; `reg-machine` for machine handlers) as a click-to-source
      link + the **syntax-highlighted handler source** in a code block + a **returned
      effects sub-block** (the t1 pre-commit observable: the pending `:db` VALUE + each
      entry of the returned `:fx` vector). Per rf2-ta0y7 (Mike 2026-05-25) the substrate
@@ -316,10 +317,10 @@ flows, and fx):
 │   │      + [:session]  {:user-id 42, :token "..."}                       │
 │   │                                                                       │
 │  ③  EVENT HANDLER ↗                                                       │
-│   │    (rf/reg-event-db :counter-inc          ← syntax-highlighted        │
-│   │      [:rf/db]                                                         │
-│   │      (fn [db _]                                                       │
-│   │        (update db :counter inc)))                                     │
+│   │    (rf/reg-event :counter-inc             ← syntax-highlighted        │
+│   │      (fn [{:keys [db]} _]                                             │
+│   │        {:db (update db :counter inc)                                  │
+│   │         :fx [[:dispatch [:title/flow [:rf/init]]]]}))                 │
 │   │    ↳ returned effects (pre-commit)                                    │
 │   │       :db   pending — see APP-DB CHANGES below for committed diff     │
 │   │       :fx   1 entry — see FX below for what ran                       │
@@ -360,7 +361,7 @@ the optional sections are simply omitted, so the visible steps renumber `①②�
 │   │    FROM: timer ↗                                                      │
 │   │                                                                       │
 │  ②  EVENT HANDLER ↗                                                       │
-│   │    (rf/reg-event-db :poll/tick …)        ← syntax-highlighted         │
+│   │    (rf/reg-event :poll/tick …)           ← syntax-highlighted         │
 │   │    ↳ returned effects (pre-commit)                                    │
 │   │       :db   pending — see APP-DB CHANGES below for committed diff     │
 │   │                                                                       │
@@ -1471,6 +1472,16 @@ from the trace stream:
 - **`:reg-event-fx`** — `:db` diff + per-fx-entry block.
 - **`:reg-machine`** — **TIME-ORDERED MACHINE CASCADE** per rf2-u69j7.
 
+> **EP-0018 note.** `:reg-event-db` / `:reg-event-fx` are INTERNAL
+> classification keywords describing the handler's OBSERVED EFFECT SHAPE
+> (`:db`-only vs `:db`+`:fx`), discovered purely from the trace stream — never
+> from the registration form. They are NOT user-facing registrar names: the
+> three public event registrars collapsed onto the one `reg-event` form
+> (EP-0018), so the HANDLER step's VERB renders `reg-event` for both event
+> flavours (`reg-machine` for machine handlers — see `handler-flavour-label`).
+> The effect-shape discrimination below still drives which body sections
+> render; it just no longer prints a retired registrar spelling.
+
 **Flavour discriminator (`handler-flavour`, rf2-eue07).** The classifier is
 a pure-data `cond` over the trace stream, machine-predicates FIRST (a machine
 handler always rides a `:rf.fx/do-fx` for its snapshot write, so `do-fx` must
@@ -2451,8 +2462,9 @@ source of truth.
 
 #### §9.1.6.1 HANDLER source affordance (rf2-ehd8v · rf2-80u5a · rf2-xjgdk · pair-debug 2026-05-26)
 
-The HANDLER step's flavour label (e.g. `reg-event-db` / `reg-event-fx`
-/ `reg-event-ctx` / `reg-machine`) IS the click-to-source affordance —
+The HANDLER step's verb label (`reg-event`, the one public event-registration
+form after EP-0018; `reg-machine` for machine handlers) IS the
+click-to-source affordance —
 the verb itself is the hyperlink, with an external-link glyph (↗)
 trailing inside it. The earlier rf2-ehd8v shape parked a separate
 `file:line + [open]` sub-header below the HANDLER header; Mike's pair-
