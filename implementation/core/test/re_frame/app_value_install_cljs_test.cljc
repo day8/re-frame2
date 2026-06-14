@@ -830,39 +830,102 @@
         (finally (rf/dispose-realm! :ok/constructed))))))
 
 ;; ---------------------------------------------------------------------------
-;; (5b) :frame descriptors into a non-default realm are refused (rf2-c6armm.1 #3)
+;; (5b) :frame descriptors into a non-default realm SEAT into that realm
+;;      (EP-0013 step 4, rf2-a15n62 — the refusal is LIFTED)
 ;; ---------------------------------------------------------------------------
 ;;
-;; The realm-aware frame-registration path is a NOT-YET-SHIPPED EP-0013 slice:
-;; `reg-frame` hardcodes `:realm default-realm-id`, and live dispatch/subscribe
-;; resolve through the default registrar. So a `:frame` seated into an explicit
-;; realm would be stamped default + keyed globally by frame-id (colliding across
-;; realms). install!/reinstall! refuse such descriptors loudly, BEFORE lowering,
-;; rather than silently mis-seating (fail-closed). The default realm is fine.
+;; The realm-aware frame-registration path has SHIPPED: `reg-frame` (reached via
+;; the install-descriptor hook under `seat-into-realm!`'s `*current-realm*`
+;; binding) STAMPS the frame with the target realm and keys the `frames` registry
+;; by the `[realm-id frame-id]` address (so the same id is legal in two realms).
+;; A `:frame` seated into an explicit realm is OWNED by it — `frame-realm` reports
+;; the constructed realm, not the default. The prior refusal
+;; (`:rf.error/realm-frames-unsupported`) is gone.
 
-(deftest install-frame-into-non-default-realm-is-refused-loudly
-  (testing "rf2-c6armm.1 #3: a :frame descriptor seated into a NON-default realm
-            throws :rf.error/realm-frames-unsupported BEFORE any mutation — the
-            realm-aware frame path is a later slice, so a :frame in an explicit
-            realm would be stamped default + collide globally"
+(deftest install-frame-into-non-default-realm-seats-into-that-realm
+  (testing "EP-0013 step 4 (rf2-a15n62): a :frame descriptor seated into a
+            NON-default realm creates a REAL frame stamped + keyed by that realm
+            — not a default-stamped, globally-keyed mis-seat"
     (let [r (rf/realm {:id :rf-frame/r})]
       (try
-        (let [a  (rf/app {:id :rf-frame/app :modules
-                          [(rf/module {:id :m :frames {:rf-frame/f {:doc "would mis-seat"}}})]})
-              ed (try (rf/install! r a)
-                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
-                        (ex-data e)))]
-          (is (= :rf.error/realm-frames-unsupported (:error/id ed))
-              "a non-default-realm :frame install is refused loudly")
-          (is (= :rf-frame/r (:realm ed)) "the diagnostic names the realm")
-          (is (= [:rf-frame/f] (:frame-ids ed)) "the refused frame id is enumerated")
-          ;; Atomic: no frame container was created (the throw is pre-lowering),
-          ;; so no live frame leaked into the global frame registry.
-          (is (not (contains? (frame/frame-ids) :rf-frame/f))
-              "no live frame was created — the refusal is pre-lowering (no orphan)")
-          (is (= {} @(realm/registrar r))
-              "the realm's own registrar is untouched"))
-        (finally (rf/dispose-realm! :rf-frame/r))))))
+        (rf/install! r (rf/app {:id :rf-frame/app :modules
+                                [(rf/module {:id :m :frames {:rf-frame/f {:doc "realm-owned frame"}}})]}))
+        ;; The frame is owned by the constructed realm (not default-stamped).
+        ;; `frame-realm` resolves the frame id WITHIN its realm scope (the bare
+        ;; id is unique only within a realm — no default-realm :rf-frame/f exists).
+        (is (= :rf-frame/r (frame/call-with-realm :rf-frame/r
+                             (fn [] (rf/frame-realm :rf-frame/f))))
+            "the seated frame's realm is the constructed realm, not the default")
+        (is (nil? (rf/frame-realm :rf-frame/f))
+            "the bare (default-scope) read finds no default-realm frame of that id")
+        ;; The realm's membership view includes it.
+        (is (contains? (realm/realm-frames :rf-frame/r) :rf-frame/f)
+            "the realm owns the seated frame in its membership view")
+        ;; The DEFAULT realm did NOT silently receive a frame by the same id.
+        (is (not (contains? (realm/realm-frames realm/default-realm-id) :rf-frame/f))
+            "no default-realm frame of the same id was created (no global collision)")
+        (finally
+          (rf/dispose-realm! :rf-frame/r))))))
+
+(deftest same-frame-id-in-two-realms-stays-isolated
+  (testing "EP-0013 step 4 (rf2-a15n62) — the headline: the SAME frame id +
+            SAME event/sub/fx/cofx ids installed into two realms stay ISOLATED
+            across event dispatch, subscription, fx AND cofx — each frame
+            resolves its OWN realm's program"
+    (let [ra (rf/realm {:id :iso/a})
+          rb (rf/realm {:id :iso/b})
+          ;; realm-distinguishing handler / sub / fx / cofx bodies
+          fx-log (atom [])
+          ;; A per-realm cofx supplier (`:iso/c` → the realm tag), DECLARED on the
+          ;; event via `:rf.cofx/requires` (EP-0017) so the handler reads its OWN
+          ;; realm's cofx value off the coeffects map. The fx (`:iso/fx`) is
+          ;; emitted via the canonical `:fx [[fx-id args]]` shape so it survives
+          ;; the effect-map police gate. Both `:iso/c` (cofx) and `:iso/fx` (fx)
+          ;; are realm-installed — resolution must route to the owning realm.
+          app-for (fn [tag]
+                    (rf/app {:id :iso/app :modules
+                             [(rf/module
+                                {:id :m
+                                 :frames {:iso/f {:doc "shared id"}}
+                                 :events {:iso/e {:event/kind :fx
+                                                  :rf.cofx/requires [:iso/c]
+                                                  :handler (fn [{:keys [db iso/c]} _]
+                                                             {:db (assoc db :tag tag :seen-cofx c)
+                                                              :fx [[:iso/fx tag]]})}}
+                                 :subs   {:iso/s {:handler (fn [db _] [tag (:tag db)])}}
+                                 :fx     {:iso/fx {:handler (fn [_ args]
+                                                              (swap! fx-log conj [tag args]))}}
+                                 :cofx   {:iso/c {:handler (fn [] tag)}}})]}))]
+      (try
+        (rf/install! ra (app-for :a))
+        (rf/install! rb (app-for :b))
+        ;; EVENT + COFX: dispatch the SAME event id into each realm's frame;
+        ;; each runs ITS realm's handler + injects ITS realm's cofx supplier.
+        (rf/dispatch-sync [:iso/e] {:realm :iso/a :frame :iso/f})
+        (rf/dispatch-sync [:iso/e] {:realm :iso/b :frame :iso/f})
+        ;; app-db of each realm's frame reflects its OWN handler + its OWN cofx
+        ;; value (`:seen-cofx`). Read each realm's frame under its realm scope.
+        (is (= {:tag :a :seen-cofx :a}
+               (frame/call-with-realm :iso/a (fn [] (frame/frame-app-db-value :iso/f))))
+            "realm a's frame ran realm a's :iso/e handler AND injected realm a's :iso/c cofx")
+        (is (= {:tag :b :seen-cofx :b}
+               (frame/call-with-realm :iso/b (fn [] (frame/frame-app-db-value :iso/f))))
+            "realm b's frame ran realm b's :iso/e handler AND injected realm b's :iso/c cofx")
+        ;; FX: each realm's fx handler fired with its own tag (realm-routed fx).
+        ;; `:fx [[:iso/fx tag]]` delivers `tag` as the fx args scalar.
+        (is (some #(= [:a :a] %) @fx-log) "realm a's :iso/fx fired with realm a's value")
+        (is (some #(= [:b :b] %) @fx-log) "realm b's :iso/fx fired with realm b's value")
+        ;; SUBSCRIPTION: subscribe the SAME sub id against each realm's frame;
+        ;; each resolves ITS realm's sub body (realm-routed sub resolution).
+        (is (= [:a :a] (frame/call-with-realm :iso/a
+                         (fn [] (rf/subscribe-once :iso/f [:iso/s]))))
+            "realm a's frame resolves realm a's :iso/s")
+        (is (= [:b :b] (frame/call-with-realm :iso/b
+                         (fn [] (rf/subscribe-once :iso/f [:iso/s]))))
+            "realm b's frame resolves realm b's :iso/s")
+        (finally
+          (rf/dispose-realm! :iso/a)
+          (rf/dispose-realm! :iso/b))))))
 
 (deftest install-frame-into-default-realm-still-works
   (testing "rf2-c6armm.1 #3: the refusal is scoped to NON-default realms — a
