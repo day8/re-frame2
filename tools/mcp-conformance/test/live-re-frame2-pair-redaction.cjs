@@ -148,12 +148,15 @@ const TRACE_WINDOW_MS = 1_000_000_000_000_000;
 // path write through). We declare the path with `{:source :declared}` so
 // the declaration is owned by us, not a schema refresh.
 //
-// Registration uses the fn-form `re-frame.events/reg-event-db` rather than
-// the `re-frame.core/reg-event-db` MACRO: a runtime cljs-eval form cannot
+// Registration uses the fn-form `re-frame.events/reg-event` rather than
+// the `re-frame.core/reg-event` MACRO: a runtime cljs-eval form cannot
 // expand a macro the analyzer hasn't seen, so the macro call would yield
 // nil. The fn-form is a plain call against the events ns the fixture
-// already loads (transitively via re-frame.core). dispatch uses the
-// fn-form `re-frame.core/dispatch-sync*` (the macro's runtime counterpart).
+// already loads (transitively via re-frame.core). `reg-event` is the one
+// public event form after EP-0018 (semantically reg-event-fx): the handler
+// takes the coeffects map and returns a closed effects map (`{:db ...}`).
+// dispatch uses the fn-form `re-frame.core/dispatch-sync*` (the macro's
+// runtime counterpart).
 //
 // Epoch recording must be ACTIVE for the pull-mode tools to have a record
 // to egress. The tiny fixture (`counter.core`) neither requires
@@ -204,9 +207,9 @@ const SEED_FORM = `
       (assoc-in (or reg {})
                 [:sensitive-declarations [${SECRET_KEY}]]
                 {:source :declared})))
-  (re-frame.events/reg-event-db
+  (re-frame.events/reg-event
     :rf-conformance/write-secret
-    (fn [db _] (assoc db ${SECRET_KEY} "${SENTINEL}")))
+    (fn [{:keys [db]} _] {:db (assoc db ${SECRET_KEY} "${SENTINEL}")}))
   (re-frame.core/dispatch-sync* [:rf-conformance/write-secret] {:frame fid})
   {:frame fid
    :declared (re-frame.elision/sensitive-declarations fid)
@@ -296,14 +299,14 @@ const INNER_WRITE_FORM = `
   ;; an EMPTY sensitive-paths set when our epoch is built (rollup ⇒ false).
   (re-frame.elision/swap-elision-slot!
     fid (fn [reg] (assoc (or reg {}) :sensitive-declarations {})))
-  (re-frame.events/reg-event-db
+  (re-frame.events/reg-event
     :rf-conformance/write-inner-secret
-    (fn [db _]
+    (fn [{:keys [db]} _]
       ;; Drop any prior declared-sensitive slot's value too, so even a
       ;; stray lingering declaration can't find a non-nil leaf.
-      (-> db
-          (dissoc ${SECRET_KEY})
-          (assoc ${INNER_SECRET_KEY} "${INNER_SENTINEL}"))))
+      {:db (-> db
+               (dissoc ${SECRET_KEY})
+               (assoc ${INNER_SECRET_KEY} "${INNER_SENTINEL}"))}))
   (re-frame.core/dispatch-sync* [:rf-conformance/write-inner-secret] {:frame fid})
   {:frame fid
    :rollup-at-assembly

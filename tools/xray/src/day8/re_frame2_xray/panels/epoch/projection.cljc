@@ -13,8 +13,12 @@
   - no `:rf.flow/computed` events → no FLOW step
   - no side effect (no `:db` commit, no `:fx`, no other effect) →
     no SIDE EFFECTS step
-  - HANDLER step adapts to the handler's flavour:
-      reg-event-db / reg-event-fx / reg-machine
+  - HANDLER step adapts to the handler's flavour — the OBSERVED effect
+    shape, read off the trace stream (NOT the registration form):
+      :reg-event-db (db-only) / :reg-event-fx (db+fx) / :reg-machine.
+    These are internal classification keywords; EP-0018 collapsed the
+    public event registrars onto the one `reg-event` form, so the HANDLER
+    VERB the panel displays is `reg-event` (see `format/handler-flavour-label`).
 
   Per the bead body, the panel's correctness depends on a pure-data
   projection layer that runs against the epoch record's `:trace-events`

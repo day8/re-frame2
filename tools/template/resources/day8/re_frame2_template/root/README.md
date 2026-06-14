@@ -32,7 +32,7 @@ you a clean reload:
 
 1. **Namespace reload re-runs your registrations.** Reloading
    `events.cljs` / `subs.cljs` / `views.cljs` re-evaluates the
-   `reg-event-db` / `reg-sub` / `reg-view` forms at the top level, so
+   `reg-event` / `reg-sub` / `reg-view` forms at the top level, so
    each handler / sub / view re-registers in place against the new
    code. Add a new `reg-*` form and it shows up live; rename or remove
    a handler and the next reload drops the old registration.
