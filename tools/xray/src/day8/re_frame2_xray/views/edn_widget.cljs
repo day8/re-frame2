@@ -394,8 +394,13 @@
   highlighter. Public so tests can assert membership."
   #{"def" "defn" "defn-" "defmacro" "let" "if" "when" "when-not"
     "cond" "case" "do" "loop" "recur" "fn" "fn*" "reify"
-    "deftype" "defrecord" "ns" "require" "reg-event-db"
-    "reg-event-fx" "reg-event-ctx" "reg-sub" "reg-fx" "reg-view"
+    "deftype" "defrecord" "ns" "require" "reg-event"
+    ;; EP-0018 collapsed the three public event registrars onto `reg-event`
+    ;; (above). The retired spellings stay in the highlighter set: during the
+    ;; additive window they still resolve, and the source-text highlighter
+    ;; renders whatever the substrate captured — including legacy
+    ;; `reg-event-db` / `-fx` / `-ctx` call sites in an app under inspection.
+    "reg-event-db" "reg-event-fx" "reg-event-ctx" "reg-sub" "reg-fx" "reg-view"
     "reg-flow" "reg-machine" "dispatch" "dispatch-sync" "subscribe"
     "assoc" "assoc-in" "update" "update-in" "get" "get-in"
     "->" "->>" "some->" "some->>"})
