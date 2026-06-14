@@ -29,8 +29,9 @@ Type: standards-track
 > `(fn [cofx event])` handler only; **D5** defer any static db-only metadata
 > signal; **D6** sequence behind EP-0017 slice A; **D7** the migration codemod
 > rewrites faithfully and *flags* nil-capable handlers. The design surface is
-> settled; the formal `proposal → accepted` flip and action epic are the next
-> governance step.
+> settled and the `proposal → accepted` flip is recorded (2026-06-14, Mike); the
+> action epic that lands the changes in the normative spec is the next governance
+> step.
 
 ## Abstract
 
@@ -497,5 +498,6 @@ Adopt the one-surface event model — `(rf/reg-event id ?metadata handler)` with
 `handler := (coeffects, event) -> effect-map-or-nil` — removing public
 `reg-event-db` / `reg-event-fx` and demoting `reg-event-ctx`, sequenced behind
 EP-0017 slice A, with the codemod and a mandatory corpus sweep. All seven design
-decisions are ruled (above); the next governance step is the
-`proposal → accepted` flip and the action epic.
+decisions are ruled (above) and the `proposal → accepted` flip is recorded
+(2026-06-14, Mike); the next governance step is the action epic that lands the
+changes in the normative spec.
