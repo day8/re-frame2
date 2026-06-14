@@ -62,11 +62,11 @@
         (fn [_ args] (swap! http-fired conj args)))
       (rf/reg-fx :test/http.stub
         (fn [_ args] (swap! http-stub conj args)))
-      (rf/reg-event-fx :test/parent
+      (rf/reg-event :test/parent
         (fn [_ _]
           {:fx [[:test/http {:tag :from-parent}]
                 [:dispatch [:test/child]]]}))
-      (rf/reg-event-fx :test/child
+      (rf/reg-event :test/child
         (fn [_ _]
           {:fx [[:test/http {:tag :from-child}]]}))
 
@@ -84,15 +84,15 @@
       (rf/reg-fx :test/http  (fn [_ _]))
       (rf/reg-fx :test/http.stub
         (fn [_ args] (swap! http-stub conj args)))
-      (rf/reg-event-fx :test/lvl-0
+      (rf/reg-event :test/lvl-0
         (fn [_ _]
           {:fx [[:test/http {:lvl 0}]
                 [:dispatch [:test/lvl-1]]]}))
-      (rf/reg-event-fx :test/lvl-1
+      (rf/reg-event :test/lvl-1
         (fn [_ _]
           {:fx [[:test/http {:lvl 1}]
                 [:dispatch [:test/lvl-2]]]}))
-      (rf/reg-event-fx :test/lvl-2
+      (rf/reg-event :test/lvl-2
         (fn [_ _]
           {:fx [[:test/http {:lvl 2}]]}))
 
@@ -119,7 +119,7 @@
     (let [seen (atom [])]
       (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
       (try
-        (rf/reg-event-fx :test/parent
+        (rf/reg-event :test/parent
           (fn [_ _]
             {:fx [[:dispatch [:test/child]]]}))
         (rf/reg-event-db :test/child (fn [db _] db))
@@ -152,7 +152,7 @@
     (let [captured-envelopes (atom [])]
       (rf/reg-fx :test/capture-envelope
         (fn [m _args] (swap! captured-envelopes conj (:envelope m))))
-      (rf/reg-event-fx :test/run
+      (rf/reg-event :test/run
         (fn [_ _]
           {:fx [[:test/capture-envelope]]}))
 
@@ -187,10 +187,10 @@
         (fn [_ args]
           (swap! stub-fired conj args)
           (deliver done :fired)))
-      (rf/reg-event-fx :test/parent
+      (rf/reg-event :test/parent
         (fn [_ _]
           {:fx [[:dispatch-later {:ms 1 :event [:test/child]}]]}))
-      (rf/reg-event-fx :test/child
+      (rf/reg-event :test/child
         (fn [_ _]
           {:fx [[:test/http {:tag :deferred}]]}))
 

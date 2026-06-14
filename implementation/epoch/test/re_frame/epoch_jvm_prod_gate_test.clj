@@ -53,8 +53,8 @@
             primary motivating concern of the audit (tokens / PII /
             secrets retained in SSR process memory) is addressed."
     (with-redefs [interop/debug-enabled? false]
-      (rf/reg-event-db :prod-gate.epoch/inc
-                       (fn [db _] (update db :n (fnil inc 0))))
+      (rf/reg-event :prod-gate.epoch/inc
+                       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:prod-gate.epoch/inc])
       (rf/dispatch-sync [:prod-gate.epoch/inc])
       (rf/dispatch-sync [:prod-gate.epoch/inc])
@@ -71,8 +71,8 @@
         (epoch/register-epoch-listener!
           :prod-gate.epoch/recorder
           (fn [record] (swap! seen conj record)))
-        (rf/reg-event-db :prod-gate.epoch/silent
-                         (fn [db _] (update db :n (fnil inc 0))))
+        (rf/reg-event :prod-gate.epoch/silent
+                         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
         (rf/dispatch-sync [:prod-gate.epoch/silent])
         (is (empty? @seen)
             "epoch listener silent under disabled debug gate")))))
@@ -101,8 +101,8 @@
             (dev parity), epoch recording continues to work. This
             test fails fast if a future refactor accidentally
             disables the surface in dev."
-    (rf/reg-event-db :prod-gate.epoch/dev-inc
-                     (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :prod-gate.epoch/dev-inc
+                     (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf/dispatch-sync [:prod-gate.epoch/dev-inc])
     (is (pos? (count (epoch/epoch-history :rf/default)))
         "epoch ring has at least one record under default gate")))
@@ -118,8 +118,8 @@
             no consumer can reach a record through under the disabled
             gate."
     (with-redefs [interop/debug-enabled? false]
-      (rf/reg-event-db :prod-gate.priv/silent
-                       (fn [db _] (update db :n (fnil inc 0))))
+      (rf/reg-event :prod-gate.priv/silent
+                       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:prod-gate.priv/silent])
       (is (= [] (epoch/projected-history :rf/default))
           "empty projected-history under the disabled gate"))))
@@ -131,9 +131,9 @@
             runs. We verify by asserting the ring stays empty — no
             record means no rollup compute path was reached."
     (with-redefs [interop/debug-enabled? false]
-      (rf/reg-event-db :prod-gate.priv/sensitive
+      (rf/reg-event :prod-gate.priv/sensitive
                        {:sensitive? true}
-                       (fn [db _] (assoc db :token "shh")))
+                       (fn [{:keys [db]} _] {:db (assoc db :token "shh")}))
       (rf/dispatch-sync [:prod-gate.priv/sensitive])
       (is (empty? (epoch/epoch-history :rf/default))
           "no record assembled — rollup never reached"))))
@@ -159,8 +159,8 @@
                       {:redact-fn (fn [r]
                                     (swap! invocations inc)
                                     r)})
-        (rf/reg-event-db :prod-gate.redact/inc
-                         (fn [db _] (update db :n (fnil inc 0))))
+        (rf/reg-event :prod-gate.redact/inc
+                         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
         (rf/dispatch-sync [:prod-gate.redact/inc])
         (rf/dispatch-sync [:prod-gate.redact/inc])
         (rf/dispatch-sync [:prod-gate.redact/inc])
@@ -180,8 +180,8 @@
       (rf/reg-frame :prod-gate.dev/frame {})
       (rf/configure! :epoch-history
                     {:redact-fn (fn [r] (swap! invocations inc) r)})
-      (rf/reg-event-db :prod-gate.redact/dev-inc
-                       (fn [db _] (update db :n (fnil inc 0))))
+      (rf/reg-event :prod-gate.redact/dev-inc
+                       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:prod-gate.redact/dev-inc] {:frame :prod-gate.dev/frame})
       (is (zero? @invocations)
           ":redact-fn NOT invoked by settle — it is projection-side only")
@@ -225,8 +225,8 @@
                                  (swap! warnings conj ev))))
       (rf/configure! :epoch-history
                     {:redact-fn (fn [_r] (throw (ex-info "boom" {})))})
-      (rf/reg-event-db :prod-gate.redact/throw
-                       (fn [db _] (update db :n (fnil inc 0))))
+      (rf/reg-event :prod-gate.redact/throw
+                       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:prod-gate.redact/throw] {:frame :prod-gate.throw/frame})
       (rf/dispatch-sync [:prod-gate.redact/throw] {:frame :prod-gate.throw/frame})
       (let [redact-warns (filter (fn [ev]

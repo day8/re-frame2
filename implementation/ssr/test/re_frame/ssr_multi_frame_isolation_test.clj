@@ -79,9 +79,9 @@
 ;; ----------------------------------------------------------------------------
 
 (defn- register-handlers! []
-  (rf/reg-event-db ::counter-init (fn [_db _ev] {:n 0}))
-  (rf/reg-event-db ::log-init     (fn [_db _ev] {:entries []}))
-  (rf/reg-event-db ::inc          (fn [db _ev] (update db :n (fnil inc 0))))
+  (rf/reg-event ::counter-init (fn [{:keys [db]} _ev] {:db {:n 0}}))
+  (rf/reg-event ::log-init     (fn [{:keys [db]} _ev] {:db {:entries []}}))
+  (rf/reg-event ::inc          (fn [{:keys [db]} _ev] {:db (update db :n (fnil inc 0))}))
   (rf/reg-sub :n         (fn [db _] (:n db)))
   (rf/reg-sub :entries   (fn [db _] (:entries db)))
   ;; EP-0001 (rf2-vzld77): the SSR hydration metadata is durable runtime-db

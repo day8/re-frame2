@@ -56,8 +56,8 @@
 (deftest live-dispatch-validates-app-db-under-reagent
   (testing "a malformed :db commit emits :rf.error/schema-validation-failure under the Reagent adapter"
     (rf/reg-app-schema [:n] [:int])
-    (rf/reg-event-db :n/init  (fn [_ _] {:n 0}))
-    (rf/reg-event-db :n/break (fn [db _] (assoc db :n "boom")))
+    (rf/reg-event :n/init  (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
     (let [traces (atom [])]
       (trace-tooling/register-listener! ::cljs-live (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:n/init])
@@ -81,8 +81,8 @@
 (deftest live-dispatch-well-typed-passes-silently
   (testing "well-typed :db commits trigger no schema-validation-failure trace"
     (rf/reg-app-schema [:n] [:int])
-    (rf/reg-event-db :n/init (fn [_ _] {:n 0}))
-    (rf/reg-event-db :n/inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :n/init (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :n/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (let [traces (atom [])]
       (trace-tooling/register-listener! ::cljs-ok (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:n/init])
@@ -119,8 +119,8 @@
             runtime `resolve` returned nil and Malli was never consulted,
             so this trace silently never fired."
     (rf/reg-app-schema [:user :age] :int)
-    (rf/reg-event-db :user/set-age-bad
-      (fn [db _] (assoc-in db [:user :age] "twenty-three")))
+    (rf/reg-event :user/set-age-bad
+      (fn [{:keys [db]} _] {:db (assoc-in db [:user :age] "twenty-three")}))
     (let [traces (atom [])]
       (trace-tooling/register-listener! ::t0hq (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:user/set-age-bad])
@@ -149,7 +149,7 @@
       (late-bind/set-fn! :schemas/malli-explain  nil)
       (try
         (rf/reg-app-schema [:n] :int)
-        (rf/reg-event-db :n/break (fn [db _] (assoc db :n "definitely-not-an-int")))
+        (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "definitely-not-an-int")}))
         (let [traces (atom [])]
           (trace-tooling/register-listener! ::no-adapter (fn [ev] (swap! traces conj ev)))
           (rf/dispatch-sync [:n/break])
@@ -297,9 +297,9 @@
     ;; inline `:schema` meta verbatim from button 18.
     (rf/reg-app-schema [:auth] [:map [:token :string]])
     (let [calls (atom 0)]
-      (rf/reg-event-db :rf2-lo28u/async-bad-event-args
+      (rf/reg-event :rf2-lo28u/async-bad-event-args
         {:schema [:cat [:= :rf2-lo28u/async-bad-event-args] pos-int?]}
-        (fn [db _ev] (swap! calls inc) (assoc db :baseline 1)))
+        (fn [{:keys [db]} _ev] (swap! calls inc) {:db (assoc db :baseline 1)}))
       (rf/reg-event-db :rf2-lo28u/noop (fn [db _] db))
       (let [traces (atom [])]
         (trace-tooling/register-listener! ::lo28u-async (fn [ev] (swap! traces conj ev)))
@@ -352,8 +352,8 @@
       (schemas/set-schema-validator! custom)
       (try
         (rf/reg-app-schema [:n] :int)
-        (rf/reg-event-db :n/init  (fn [_ _] {:n 42}))
-        (rf/reg-event-db :n/break (fn [db _] (assoc db :n 99)))
+        (rf/reg-event :n/init  (fn [{:keys [db]} _] {:db {:n 42}}))
+        (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n 99)}))
         (let [traces (atom [])]
           (trace-tooling/register-listener! ::cv (fn [ev] (swap! traces conj ev)))
           (rf/dispatch-sync [:n/init])
@@ -377,7 +377,7 @@
     (schemas/set-schema-validator! nil)
     (try
       (rf/reg-app-schema [:n] :int)
-      (rf/reg-event-db :n/break (fn [db _] (assoc db :n "definitely-not-an-int")))
+      (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "definitely-not-an-int")}))
       (let [traces (atom [])]
         (trace-tooling/register-listener! ::nv (fn [ev] (swap! traces conj ev)))
         (rf/dispatch-sync [:n/break])
@@ -413,7 +413,7 @@
             :rf/skip-handler? and does NOT emit a boundary-tagged trace.
             Step-1 validation in the router is what enforces the schema
             in dev; the boundary interceptor's prod-mode body never runs."
-    (rf/reg-event-fx :api/strict
+    (rf/reg-event :api/strict
       {:schema [:cat [:= :api/strict] :int]
        :interceptors [rf/validate-at-boundary-interceptor]}
       (fn [_ _] {}))
@@ -445,7 +445,7 @@
             (router did its job) and the absence of a :source :boundary
             trace tag (boundary itself stayed quiet)."
     (let [calls (atom 0)]
-      (rf/reg-event-fx :api/strict
+      (rf/reg-event :api/strict
         {:schema [:cat [:= :api/strict] :int]
          :interceptors [rf/validate-at-boundary-interceptor]}
         (fn [_ _] (swap! calls inc) {}))

@@ -121,11 +121,11 @@
       (rf/reg-frame :test/main {:doc "comprehensive flow frame (rev 2)"})
 
       ;; ---- Event handlers --------------------------------------------------
-      (rf/reg-event-db :seed (fn [_ _] {:n 0 :items [1 2 3]}))
-      (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0 :items [1 2 3]}}))
+      (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
       ;; Re-register :inc with a different fn body to fire
       ;; :rf.registry/handler-replaced.
-      (rf/reg-event-db :inc  (fn [db _] (update db :n (fnil inc 0))))
+      (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
 
       ;; Subs (used to demonstrate the absence of :sub/run / :sub/create
       ;; emit — see rf2-hyxg).
@@ -135,7 +135,7 @@
       ;; ---- A user-registered fx fires :event/do-fx wrapping the walk ------
       (let [fx-fired (atom 0)]
         (rf/reg-fx :test/incr (fn [_ _] (swap! fx-fired inc)))
-        (rf/reg-event-fx :do-fx-event
+        (rf/reg-event :do-fx-event
           (fn [_ _]
             {:db {:n 99}
              :fx [[:test/incr :go]]}))
@@ -145,7 +145,7 @@
       ;; ---- :rf.fx/override-applied ----------------------------------------
       (rf/reg-fx :prod/sender   (fn [_ _] :prod-fired))
       (rf/reg-fx :stub/sender   (fn [_ _] :stub-fired))
-      (rf/reg-event-fx :send
+      (rf/reg-event :send
         (fn [_ _] {:fx [[:prod/sender :payload]]}))
       (rf/dispatch-sync [:send]
                         {:frame        :test/main
@@ -159,7 +159,7 @@
                          :fx-overrides {:prod/sender :no-such/fx}})
 
       ;; ---- :rf.error/no-such-fx -------------------------------------------
-      (rf/reg-event-fx :send-broken
+      (rf/reg-event :send-broken
         (fn [_ _] {:fx [[:nonexistent/fx :payload]]}))
       (rf/dispatch-sync [:send-broken] {:frame :test/main})
 
@@ -172,7 +172,7 @@
 
       ;; ---- :rf.error/fx-handler-exception ---------------------------------
       (rf/reg-fx :throwing-fx (fn [_ _] (throw (ex-info "fx blew" {}))))
-      (rf/reg-event-fx :run-throwing-fx
+      (rf/reg-event :run-throwing-fx
         (fn [_ _] {:fx [[:throwing-fx :ignored]]}))
       (rf/dispatch-sync [:run-throwing-fx] {:frame :test/main})
 
@@ -180,7 +180,7 @@
       (rf/reg-fx :client-only-fx
                  {:platforms #{:client}}
                  (fn [_ _] :nope))
-      (rf/reg-event-fx :run-client-fx
+      (rf/reg-event :run-client-fx
         (fn [_ _] {:fx [[:client-only-fx :payload]]}))
       ;; The plain-atom adapter on JVM uses :server platform by default, so
       ;; this should skip-and-warn rather than execute.
@@ -199,7 +199,7 @@
       (rf/subscribe-once :test/main [:throwing-sub])
 
       ;; ---- :rf.error/dispatch-sync-in-handler -----------------------------
-      (rf/reg-event-fx :nested-sync
+      (rf/reg-event :nested-sync
         (fn [_ _]
           (rf/dispatch-sync [:inc] {:frame :test/main})
           {}))
@@ -212,7 +212,7 @@
       ;; ---- :rf.error/drain-depth-exceeded ---------------------------------
       ;; A handler that re-dispatches itself; the drain bound (default 100)
       ;; trips and emits the structured error.
-      (rf/reg-event-fx :loop-forever
+      (rf/reg-event :loop-forever
         (fn [_ _]
           {:fx [[:dispatch [:loop-forever]]]}))
       (rf/dispatch-sync [:loop-forever] {:frame :test/main})
@@ -265,10 +265,10 @@
         ;; Seed and trigger first tick.
         (rf/dispatch-sync [:seed] {:frame :test/main})
         ;; Initialise machine snapshot in app-db.
-        (rf/reg-event-db :machine/init
-          (fn [db _]
-            (assoc-in db [:rf.runtime/machines :snapshots :machine/tl]
-                      {:state :red :data {}})))
+        (rf/reg-event :machine/init
+          (fn [{:keys [db]} _]
+            {:db (assoc-in db [:rf.runtime/machines :snapshots :machine/tl]
+                      {:state :red :data {}})}))
         (rf/dispatch-sync [:machine/init] {:frame :test/main})
         (rf/dispatch-sync [:machine/tl [:tick]] {:frame :test/main})
         (rf/dispatch-sync [:machine/tl [:tick]] {:frame :test/main}))
@@ -569,7 +569,7 @@
                     :output (fn [n] (* 2 (or n 0)))
                     :path   [:doubled]})
       (rf/reg-fx :timing/side (fn [_ _] :ok))
-      (rf/reg-event-fx :timing/seed
+      (rf/reg-event :timing/seed
         (fn [_ _]
           {:db {:n 1}
            :fx [[:timing/side :go]]}))
@@ -607,7 +607,7 @@
       (rf/register-listener! ::b (fn [ev] (swap! b-events conj ev)))
       (rf/register-listener! ::c (fn [ev] (swap! c-events conj ev)))
 
-      (rf/reg-event-db :ping (fn [db _] (assoc db :ping? true)))
+      (rf/reg-event :ping (fn [{:keys [db]} _] {:db (assoc db :ping? true)}))
       (rf/dispatch-sync [:ping])
       (let [a1 (count @a-events)
             b1 (count @b-events)
@@ -648,8 +648,8 @@
       (rf/register-listener! ::survivor
         (fn [ev] (swap! survivor-events conj ev)))
 
-      (rf/reg-event-db :init (fn [_ _] {:n 0}))
-      (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+      (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 0}}))
+      (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
       ;; The dispatch flow MUST proceed despite the throwing listener.
       (rf/dispatch-sync [:init])
@@ -696,9 +696,9 @@
             run-end, not on db-commit (`:event/db-changed`), not for
             any in-cascade emit. Per Spec 009 §Trace-emission opt-out
             and rf2-qsjda."
-    (rf/reg-event-db :rf2-qsjda/internal-bookkeeping
+    (rf/reg-event :rf2-qsjda/internal-bookkeeping
                      {:rf.trace/no-emit? true}
-                     (fn [db _] (assoc db :bookkeeping/ran? true)))
+                     (fn [{:keys [db]} _] {:db (assoc db :bookkeeping/ran? true)}))
 
     (let [recorded (atom [])]
       (rf/register-listener! ::rec (fn [ev] (swap! recorded conj ev)))
@@ -736,9 +736,9 @@
             `:rf.trace/no-emit? true` produces the normal cascade
             traces (`:event/dispatched`, run-start, run-end,
             `:event/db-changed`). Pins the opt-out as the difference."
-    (rf/reg-event-db :rf2-qsjda/normal
+    (rf/reg-event :rf2-qsjda/normal
                      {:doc "without :rf.trace/no-emit?"}
-                     (fn [db _] (assoc db :normal/ran? true)))
+                     (fn [{:keys [db]} _] {:db (assoc db :normal/ran? true)}))
 
     (let [recorded (atom [])]
       (rf/register-listener! ::rec (fn [ev] (swap! recorded conj ev)))

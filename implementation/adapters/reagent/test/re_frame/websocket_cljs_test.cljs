@@ -140,7 +140,7 @@
   (rf/reg-sub :ws/queue-depth    :<- [:ws/snapshot] (fn [snap _] (count (get-in snap [:data :queue]))))
   (rf/reg-sub :ws/retries        :<- [:ws/snapshot] (fn [snap _] (get-in snap [:data :retries])))
   (rf/reg-sub :ws/error          :<- [:ws/snapshot] (fn [snap _] (get-in snap [:data :error])))
-  (rf/reg-event-fx :ws.connection/initialise
+  (rf/reg-event :ws.connection/initialise
     (fn handler-ws-connection-initialise [_ _]
       {:fx [[:dispatch [:ws/connection [:ws/noop]]]]}))
 
@@ -156,11 +156,11 @@
             (assoc-in [:messages :rx-count] (inc rx-seq))
             (cond-> (:request-id body)
               (assoc-in [:messages :last-reply] body))))))
-  (rf/reg-event-fx :ws.app/send
+  (rf/reg-event :ws.app/send
     (fn handler-app-send [{:keys [db]} [_ body]]
       {:db (assoc-in db [:messages :draft] "")
        :fx [[:dispatch [:ws/connection [:ws/send {:type :note :body body}]]]]}))
-  (rf/reg-event-fx :ws.app/request
+  (rf/reg-event :ws.app/request
     (fn handler-app-request [_ [_ body]]
       (let [rid (random-uuid)]
         {:fx [[:dispatch [:ws/connection
@@ -169,16 +169,16 @@
                                                      :body body}
                                         :reply      [:ws.app/request-reply]
                                         :timeout-ms 5000}]]]]})))
-  (rf/reg-event-db :ws.app/request-reply
-    (fn handler-app-request-reply [db [_ body]]
-      (assoc-in db [:messages :last-reply] body)))
-  (rf/reg-event-fx :ws.app/subscribe-demo
+  (rf/reg-event :ws.app/request-reply
+    (fn handler-app-request-reply [{:keys [db]} [_ body]]
+      {:db (assoc-in db [:messages :last-reply] body)}))
+  (rf/reg-event :ws.app/subscribe-demo
     (fn handler-app-subscribe-demo [_ _]
       {:fx [[:dispatch [:ws/connection [:ws/subscribe :demo-topic]]]]}))
-  (rf/reg-event-db :ws.app/edit-draft
-    (fn handler-app-edit-draft [db [_ text]]
-      (assoc-in db [:messages :draft] text)))
-  (rf/reg-event-fx :ws.messages/initialise
+  (rf/reg-event :ws.app/edit-draft
+    (fn handler-app-edit-draft [{:keys [db]} [_ text]]
+      {:db (assoc-in db [:messages :draft] text)}))
+  (rf/reg-event :ws.messages/initialise
     (fn handler-messages-initialise [{:keys [db]} _]
       {:db (assoc db :messages {:draft "" :received [] :last-reply nil :rx-count 0})}))
   (rf/reg-sub :messages            (fn [db _] (:messages db)))
@@ -187,7 +187,7 @@
   (rf/reg-sub :messages/last-reply :<- [:messages] (fn [m _] (:last-reply m)))
 
   ;; --- websocket.core ----------------------------------------------------
-  (rf/reg-event-fx :ws.app/initialise
+  (rf/reg-event :ws.app/initialise
     {:doc "App boot. Seeds the messages slice + materialises the
            connection machine's initial `:disconnected` snapshot.
 

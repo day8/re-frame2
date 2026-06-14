@@ -233,7 +233,7 @@
 ;; assert it under CAS contention rather than serialised calls.
 (deftest unsubscribe-drop-to-zero-no-spurious-fire-under-contention
   (testing "concurrent unsubscribe calls dispose exactly once per slot under contention"
-    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed] {:frame :rf/default})
 

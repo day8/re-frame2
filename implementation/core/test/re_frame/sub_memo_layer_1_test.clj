@@ -50,7 +50,7 @@
 (deftest layer-1-memo-skips-recompute-on-equal-db
   (testing "two consecutive derefs against the same db value run the body once"
     (let [runs (atom 0)]
-      (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
       (rf/reg-sub :n (fn [db _] (swap! runs inc) (:n db)))
       (rf/dispatch-sync [:seed])
       (let [r (rf/subscribe [:n])]
@@ -67,8 +67,8 @@
 (deftest layer-1-memo-recomputes-on-changed-db
   (testing "deref after an app-db change runs the body again"
     (let [runs (atom 0)]
-      (rf/reg-event-db :seed   (fn [_ _]      {:n 0}))
-      (rf/reg-event-db :update (fn [db [_ v]] (assoc db :n v)))
+      (rf/reg-event :seed   (fn [{:keys [db]} _]      {:db {:n 0}}))
+      (rf/reg-event :update (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
       (rf/reg-sub :n (fn [db _] (swap! runs inc) (:n db)))
       (rf/dispatch-sync [:seed])
       (let [r (rf/subscribe [:n])]
@@ -88,8 +88,8 @@
       ;; Two events that produce structurally-equal but non-identical maps.
       ;; `(assoc db :touched true)` would change the value; instead replace
       ;; with a fresh map that equals the old one.
-      (rf/reg-event-db :seed   (fn [_ _] {:n 42 :other :a}))
-      (rf/reg-event-db :reseed (fn [_ _] {:n 42 :other :a}))  ;; new map, =
+      (rf/reg-event :seed   (fn [{:keys [db]} _] {:db {:n 42 :other :a}}))
+      (rf/reg-event :reseed (fn [{:keys [db]} _] {:db {:n 42 :other :a}}))  ;; new map, =
       (rf/reg-sub :n (fn [db _] (swap! runs inc) (:n db)))
       (rf/dispatch-sync [:seed])
       (let [r (rf/subscribe [:n])]
@@ -105,7 +105,7 @@
   (testing "the body fn still receives the canonical (db, query-v) shape
             under the specialised wrapper — no shape regression"
     (let [captured (atom nil)]
-      (rf/reg-event-db :seed (fn [_ _] {:n 99}))
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 99}}))
       (rf/reg-sub :n (fn [db query-v]
                        (reset! captured [db query-v])
                        (:n db)))
@@ -131,9 +131,9 @@
             coercion produces). The `{:db nil}` coercion itself is pinned
             in `re-frame.db-noop-commit-test`."
     (let [runs (atom 0)]
-      (rf/reg-event-db :seed-false (fn [_ _] false))
-      (rf/reg-event-db :seed-empty (fn [_ _] {}))
-      (rf/reg-event-db :seed-map   (fn [_ _] {:n 1}))
+      (rf/reg-event :seed-false (fn [{:keys [db]} _] {:db false}))
+      (rf/reg-event :seed-empty (fn [{:keys [db]} _] {:db {}}))
+      (rf/reg-event :seed-map   (fn [{:keys [db]} _] {:db {:n 1}}))
       (rf/reg-sub :v (fn [db _] (swap! runs inc) db))
 
       (rf/dispatch-sync [:seed-false])
@@ -161,8 +161,8 @@
 (deftest layer-1-and-layer-2-produce-the-same-stream-of-values
   (testing "a layer-1 sub and a layer-2 sub chained off it produce the
             same stream of values across N db updates"
-    (rf/reg-event-db :seed   (fn [_ _]      {:n 0}))
-    (rf/reg-event-db :update (fn [db [_ v]] (assoc db :n v)))
+    (rf/reg-event :seed   (fn [{:keys [db]} _]      {:db {:n 0}}))
+    (rf/reg-event :update (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (rf/reg-sub :n        (fn [db _] (:n db)))
     (rf/reg-sub :n-via-l2 :<- [:n] (fn [n _] n))
     (rf/dispatch-sync [:seed])

@@ -63,8 +63,8 @@
 (deftest t1-emits-when-handler-returns-db
   (testing ":rf.event/db-pending fires once per dispatch when the handler
    returned a :db slot, carrying the returned value under :tags :rf.event/db"
-    (rf/reg-event-db :t1/seed-db
-      (fn [_ _] {:counter 42 :seeded? true}))
+    (rf/reg-event :t1/seed-db
+      (fn [{:keys [db]} _] {:db {:counter 42 :seeded? true}}))
     (let [acc (collect-traces! ::t1-db-only)]
       (try
         (rf/dispatch-sync [:t1/seed-db])
@@ -86,7 +86,7 @@
    :rf.event/db-pending — mirrors how :rf.event/db-present? rides on
    :rf.fx/do-fx as `false` when no :db was returned"
     (rf/reg-fx :t1/noop (fn [_ _] :ok))
-    (rf/reg-event-fx :t1/fx-only
+    (rf/reg-event :t1/fx-only
       (fn [_ _] {:fx [[:t1/noop {}]]}))
     (let [acc (collect-traces! ::t1-fx-only)]
       (try
@@ -127,7 +127,7 @@
    :rf.fx/do-fx). The atomicity-contract pipeline is reflected in the trace
    stream order: handler returns :db -> [t1] -> flows -> commit -> fx -> tail"
     (rf/reg-fx :t1/tail-fx (fn [_ _] :ok))
-    (rf/reg-event-fx :t1/order-probe
+    (rf/reg-event :t1/order-probe
       (fn [_ _] {:db {:tick 1}
                  :fx [[:t1/tail-fx {}]]}))
     (let [acc (collect-traces! ::t1-order)]
@@ -159,7 +159,7 @@
    value. The flows artefact is NOT a dependency of the core test fixture
    (no `(require 're-frame.flows :reload)` above), so this confirms the
    no-flows-app posture."
-    (rf/reg-event-db :t2/seed (fn [_ _] {:x 1}))
+    (rf/reg-event :t2/seed (fn [{:keys [db]} _] {:db {:x 1}}))
     (let [acc (collect-traces! ::t2-no-flows)]
       (try
         (rf/dispatch-sync [:t2/seed])
@@ -176,8 +176,8 @@
    — top level is reserved for substrate-hoisted slots
    (:rf.trace/call-site, :rf.trace/trigger-handler, :source, etc.).
    Mirrors the rf2-twt7m Change 2 placement of :rf.event/fx on :rf.fx/do-fx."
-    (rf/reg-event-db :t1/payload-shape
-      (fn [_ _] {:x 9}))
+    (rf/reg-event :t1/payload-shape
+      (fn [{:keys [db]} _] {:db {:x 9}}))
     (let [acc (collect-traces! ::payload-shape)]
       (try
         (rf/dispatch-sync [:t1/payload-shape])

@@ -89,7 +89,7 @@
     ;; A bare event handler emits the fx with a name nothing is bound to.
     ;; The walk must NOT raise :rf.error/no-such-fx (the fx is registered)
     ;; and must NOT throw — it simply finds no binding and does nothing.
-    (rf/reg-event-fx ::poke
+    (rf/reg-event ::poke
       (fn [_ _]
         {:fx [[:rf.machine/dispatch-to-system [:nobody [:whatever]]]]}))
     (is (nil? (rf/dispatch-sync [::poke]))

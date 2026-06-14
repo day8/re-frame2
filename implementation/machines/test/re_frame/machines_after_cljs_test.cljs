@@ -229,9 +229,9 @@
 
 (deftest machine-after-subscription-delay-cljs
   (testing "subscription-vector delay: :scheduled trace carries :delay-source :sub + :rf.sub/id + :rf.sub/query-v"
-    (rf/reg-event-db
+    (rf/reg-event
       :a/sub-config-set
-      (fn [db [_ ms]] (assoc db :timeout-config ms)))
+      (fn [{:keys [db]} [_ ms]] {:db (assoc db :timeout-config ms)}))
     (rf/reg-sub
       :a/timeout-config
       (fn [db _] (:timeout-config db)))

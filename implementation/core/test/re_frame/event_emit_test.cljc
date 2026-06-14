@@ -64,8 +64,8 @@
       (rf/register-event-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :evt/inc
-                       (fn [db _] (update db :n (fnil inc 0))))
+      (rf/reg-event :evt/inc
+                       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:evt/inc])
       (is (= 1 (count @seen))
           "listener fired exactly once for one dispatch")
@@ -121,8 +121,8 @@
       (rf/register-event-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :evt/writes
-                       (fn [db _] (assoc db :n 1)))
+      (rf/reg-event :evt/writes
+                       (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
       (rf/dispatch-sync [:evt/writes])
       (is (= 1 (count @seen)) "listener fired once for the dispatch")
       (let [outcome (:outcome (first @seen))]
@@ -153,8 +153,8 @@
       (rf/register-event-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :evt/writes
-                       (fn [db _] (assoc db :n 1)))
+      (rf/reg-event :evt/writes
+                       (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
       (rf/dispatch-sync [:evt/writes])
       (is (= 1 (count @seen)) "listener fired once for the dispatch")
       (let [outcome (:outcome (first @seen))]
@@ -179,8 +179,8 @@
       (rf/register-event-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :evt/writes
-                       (fn [db _] (assoc db :n 1)))
+      (rf/reg-event :evt/writes
+                       (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
       (rf/dispatch-sync [:evt/writes])
       (is (= 1 (count @seen)))
       (is (= :ok (:outcome (first @seen)))
@@ -305,8 +305,8 @@
       (rf/register-event-listener!
         :test/recorder
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :evt/normal
-                       (fn [db _] (assoc db :touched true)))
+      (rf/reg-event :evt/normal
+                       (fn [{:keys [db]} _] {:db (assoc db :touched true)}))
       (rf/dispatch-sync [:evt/normal "payload"])
       (is (= 1 (count @seen))
           "handler fans out normally")

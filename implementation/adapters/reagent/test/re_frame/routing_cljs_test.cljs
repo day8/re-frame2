@@ -58,8 +58,8 @@
                     {:path     "/cljs/articles/:id"
                      :params   [:map [:id :string]]
                      :on-match [[:cljs/article-load]]})
-      (rf/reg-event-db :cljs/article-load
-                       (fn [db _] (assoc db :article-loaded? true)))
+      (rf/reg-event :cljs/article-load
+                       (fn [{:keys [db]} _] {:db (assoc db :article-loaded? true)}))
       ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db
       ;; state — these custom subs read the runtime-db partition.
       (subs/reg-runtime-sub :rf.cljs.route/id

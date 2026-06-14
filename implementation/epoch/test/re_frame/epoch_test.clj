@@ -136,8 +136,8 @@
 (deftest record-on-drain-settle
   (testing "every drain-settle commits exactly one :rf/epoch-record"
     (rf/reg-frame :test/main {:doc "epoch test frame"})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (rf/dispatch-sync [:inc]  {:frame :test/main})
@@ -154,8 +154,8 @@
 (deftest record-shape-canonical
   (testing "an :rf/epoch-record carries the canonical shape"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (rf/dispatch-sync [:inc]  {:frame :test/main})
@@ -199,7 +199,7 @@
             token's `:rf.cofx` :time-ms — NOT an ambient now-ms
             read at assembly time (rf2-bh56rc / EP-0010 §Time)"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (let [token-time 1781078400123      ; the supplied causal token time
           clock-time 9999999999999]     ; the (wrong) ambient clock sentinel
       ;; Stub BOTH host clocks (the elapsed `interop/now-ms` AND the
@@ -225,8 +225,8 @@
             equal :committed-at even as the wall clock advances — the
             replay-stability EP-0010 §Time guarantees (rf2-bh56rc)"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (let [token-time 1781078400123]
       ;; First commit under one wall-clock, second under a DIFFERENT one —
       ;; both supply the SAME causal token :time-ms (the replay scenario).
@@ -256,12 +256,12 @@
             the parent's is its supplied token time (rf2-bh56rc / EP-0010
             §Dispatch Envelope Stamping — children are distinct causal tokens)"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:order []}))
-    (rf/reg-event-fx :parent
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:order []}}))
+    (rf/reg-event :parent
       (fn [{:keys [db]} _]
         {:db (update db :order conj :parent)
          :fx [[:dispatch [:child]]]}))
-    (rf/reg-event-db :child (fn [db _] (update db :order conj :child)))
+    (rf/reg-event :child (fn [{:keys [db]} _] {:db (update db :order conj :child)}))
     (let [parent-time 1781078400123
           ;; The child has no supplied token, so the router stamps its
           ;; :time-ms fresh at the causal boundary (envelope construction) from
@@ -289,14 +289,14 @@
             :fx [[:dispatch …]] child is a separate dequeued event, so it
             yields a separate record, NOT folded into the parent's epoch"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:order []}))
-    (rf/reg-event-fx :outer
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:order []}}))
+    (rf/reg-event :outer
       (fn [{:keys [db]} _]
         {:db (update db :order conj :outer)
          :fx [[:dispatch [:inner-1]]
               [:dispatch [:inner-2]]]}))
-    (rf/reg-event-db :inner-1 (fn [db _] (update db :order conj :inner-1)))
-    (rf/reg-event-db :inner-2 (fn [db _] (update db :order conj :inner-2)))
+    (rf/reg-event :inner-1 (fn [{:keys [db]} _] {:db (update db :order conj :inner-1)}))
+    (rf/reg-event :inner-2 (fn [{:keys [db]} _] {:db (update db :order conj :inner-2)}))
 
     (rf/dispatch-sync [:seed]  {:frame :test/main})
     ;; ONE drain: :outer runs, then its two :fx-dispatched children
@@ -352,8 +352,8 @@
   (testing "per rf2-nj6p7 (Spec 002 §Drain versus event): the frame-creation
             :on-create event is itself a dequeued event, so it commits its
             OWN epoch — distinct from any later user dispatch's epoch"
-    (rf/reg-event-db :app/init (fn [_ _] {:booted true :n 0}))
-    (rf/reg-event-db :inc      (fn [db _] (update db :n inc)))
+    (rf/reg-event :app/init (fn [{:keys [db]} _] {:db {:booted true :n 0}}))
+    (rf/reg-event :inc      (fn [{:keys [db]} _] {:db (update db :n inc)}))
     ;; reg-frame dispatch-syncs the :on-create event at registration.
     (rf/reg-frame :test/main {:on-create [:app/init]})
 
@@ -432,8 +432,8 @@
   (testing "each frame has its own epoch ring; cascades don't co-mingle"
     (rf/reg-frame :frame/a {})
     (rf/reg-frame :frame/b {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (rf/dispatch-sync [:seed] {:frame :frame/a})
     (rf/dispatch-sync [:inc]  {:frame :frame/a})
@@ -454,8 +454,8 @@
   (testing "when the ring fills, oldest records are evicted FIFO"
     (rf/configure! :epoch-history {:depth 3})
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (dotimes [_ 5] (rf/dispatch-sync [:inc] {:frame :test/main}))
@@ -483,8 +483,8 @@
     (let [depth 3]
       (rf/configure! :epoch-history {:depth depth})
       (rf/reg-frame :test/main {})
-      (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-      (rf/reg-event-db :inc  (fn [db [_ i]] (assoc db :n i)))
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+      (rf/reg-event :inc  (fn [{:keys [db]} [_ i]] {:db (assoc db :n i)}))
 
       (rf/dispatch-sync [:seed] {:frame :test/main})
       ;; Drive far more events than the depth so the cap fires many times.
@@ -513,7 +513,7 @@
   (testing "depth 0 disables ring recording"
     (rf/configure! :epoch-history {:depth 0})
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
@@ -524,8 +524,8 @@
 (deftest listener-fires-per-drain-settle
   (testing "register-epoch-listener! fires once per drain-settle with the assembled record"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (let [seen (atom [])]
       (rf/register-epoch-listener! ::watcher (fn [r] (swap! seen conj r)))
@@ -546,7 +546,7 @@
 (deftest listener-same-key-replaces
   (testing "register-epoch-listener! under the same key replaces the prior listener"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
 
     (let [a (atom 0)
           b (atom 0)]
@@ -583,7 +583,7 @@
             under the same id resets BOTH the listener entry and the
             observed-frames entry"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
 
     (let [observed (deref #'state/observed-frames-by-cb)
           a        (atom 0)
@@ -627,7 +627,7 @@
 (deftest listener-remove
   (testing "unregister-epoch-listener! stops the listener"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (let [count-a (atom 0)]
       (rf/register-epoch-listener! ::w (fn [_] (swap! count-a inc)))
       (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -639,7 +639,7 @@
 (deftest listener-exception-isolation
   (testing "a throwing epoch listener does not crash other listeners or the runtime"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
 
     (let [survivor (atom 0)
           throws   (atom 0)]
@@ -662,7 +662,7 @@
             invocation, carrying :cb-id, :frame, :rf.epoch/id; isolation
             still holds (other listeners continue to fire)"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
 
     (let [recorded (record-trace!)
           survivor (atom 0)]
@@ -706,8 +706,8 @@
 (deftest restore-rewinds-app-db
   (testing "restore-epoch! sets app-db to the named epoch's :db-after"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (rf/dispatch-sync [:inc]  {:frame :test/main})       ;; n=1
@@ -739,7 +739,7 @@
     (rf/reg-frame :test/main {})
     ;; A handler that writes BOTH partitions in one cascade — app-db via :db,
     ;; runtime-db via the reserved :rf.db/runtime effect.
-    (rf/reg-event-fx :seed-both
+    (rf/reg-event :seed-both
       (fn [{rt :rf.db/runtime} _]
         {:db            {:app-value 1}
          :rf.db/runtime (assoc-in (or rt {})
@@ -772,13 +772,13 @@
     (rf/reg-machine :m/x
       {:initial :live :states {:live {} :gone {}}})
     ;; Seed a known snapshot into the runtime-db partition + a marker in app-db.
-    (rf/reg-event-fx :put-machine
+    (rf/reg-event :put-machine
       (fn [{rt :rf.db/runtime} _]
         {:db {:phase :machine-alive}
          :rf.db/runtime (assoc-in (or rt {})
                                   [:rf.runtime/machines :snapshots :m/x]
                                   {:state :live :data {} :meta {}})}))
-    (rf/reg-event-fx :drop-machine
+    (rf/reg-event :drop-machine
       (fn [{rt :rf.db/runtime} _]
         {:db {:phase :machine-gone}
          :rf.db/runtime (update-in (or rt {}) [:rf.runtime/machines :snapshots]
@@ -882,13 +882,13 @@
             to install, so the FRAME's restored runtime-db carries the reconciled
             value (a mid-flight slice never installs verbatim)."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-fx :put-resource
+    (rf/reg-event :put-resource
       (fn [{rt :rf.db/runtime} _]
         {:db {:phase :mid-flight}
          :rf.db/runtime (assoc-in (or rt {})
                                   [:rf.runtime/resources :entries :k]
                                   {:status :loading :current-work [:w 1]})}))
-    (rf/reg-event-db :clear (fn [_ _] {:phase :cleared}))
+    (rf/reg-event :clear (fn [{:keys [db]} _] {:db {:phase :cleared}}))
 
     (let [hook-key :resources/reconcile-on-restore
           original (late-bind/get-fn hook-key)]
@@ -927,13 +927,13 @@
             the durable field comes from a causal input rather than an ambient
             world read at install (EP-0010 §Restore/Replay)."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-fx :put-resource
+    (rf/reg-event :put-resource
       (fn [{rt :rf.db/runtime} _]
         {:db {:phase :mid-flight}
          :rf.db/runtime (assoc-in (or rt {})
                                   [:rf.runtime/resources :entries :k]
                                   {:status :loading :current-work [:w 1]})}))
-    (rf/reg-event-db :clear (fn [_ _] {:phase :cleared}))
+    (rf/reg-event :clear (fn [{:keys [db]} _] {:db {:phase :cleared}}))
 
     (let [hook-key   :resources/reconcile-on-restore
           original   (late-bind/get-fn hook-key)
@@ -983,7 +983,7 @@
 (deftest restore-failure-unknown-epoch
   (testing "restore-epoch! with an epoch-id not in history fires :rf.epoch/restore-unknown-epoch"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
     (let [pre        (rf/app-db-value :test/main)
@@ -1000,13 +1000,13 @@
 (deftest restore-failure-schema-mismatch
   (testing "restore-epoch! on a db that no longer validates fires :rf.epoch/restore-schema-mismatch"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :set-bad
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :set-bad
       ;; Commit a value that LATER fails a tightened schema. We dispatch
       ;; this BEFORE the schema is registered so the pre-restore commit
       ;; succeeds; tightening the schema happens between dispatch and
       ;; restore.
-      (fn [db _] (assoc db :n "not-an-int")))
+      (fn [{:keys [db]} _] {:db (assoc db :n "not-an-int")}))
 
     (rf/dispatch-sync [:seed]    {:frame :test/main})
     (rf/dispatch-sync [:set-bad] {:frame :test/main})
@@ -1043,8 +1043,8 @@
             the :rf.epoch/restore-schema-mismatch trace carries non-nil
             :schema-digest-recorded and :schema-digest-current tags."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed    (fn [_ _]  {:n 0}))
-    (rf/reg-event-db :set-bad (fn [db _] (assoc db :n "not-an-int")))
+    (rf/reg-event :seed    (fn [{:keys [db]} _]  {:db {:n 0}}))
+    (rf/reg-event :set-bad (fn [{:keys [db]} _] {:db (assoc db :n "not-an-int")}))
 
     ;; Record an epoch with NO schemas registered yet — its
     ;; :schema-digest is the empty-set digest (still non-nil — Spec 010
@@ -1087,7 +1087,7 @@
             record carries a :schema-digest pinned at record time."
     (rf/reg-frame :test/digest {})
     (rf/reg-app-schema [:n] [:int] {:frame :test/digest})
-    (rf/reg-event-db :init (fn [_ _] {:n 0}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:init] {:frame :test/digest})
     (let [r (last (rf/epoch-history :test/digest))]
       (is (some? r) "an epoch record was committed")
@@ -1106,7 +1106,7 @@
     ;; EP-0001 (rf2-vzld77 / rf2-3aizt1): the route slice is runtime-db state
     ;; at [:rf.runtime/routing :current]; bead 7's missing-references reads the
     ;; recorded frame-state's runtime-db partition.
-    (rf/reg-event-fx :route-to
+    (rf/reg-event :route-to
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
                                   {:route-id :route/users})}))
@@ -1224,7 +1224,7 @@
     ;; runtime-db partition (EP-0001 rf2-vzld77 — machine snapshots are
     ;; runtime-db state; bead 7 reads the runtime-db partition of the recorded
     ;; frame-state for the version-drift precondition).
-    (rf/reg-event-fx :put-snap
+    (rf/reg-event :put-snap
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime
          (assoc-in (or rt {}) [:rf.runtime/machines :snapshots :machine/tl]
@@ -1255,17 +1255,17 @@
 (deftest restore-failure-during-drain
   (testing "restore-epoch! called from inside a drain fires :rf.epoch/restore-during-drain"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
     (let [target   (last (rf/epoch-history :test/main))
           recorded (record-trace!)
           attempt  (atom nil)]
       ;; A handler that calls restore-epoch! synchronously during a drain.
-      (rf/reg-event-db :try-restore
-        (fn [db _]
+      (rf/reg-event :try-restore
+        (fn [{:keys [db]} _]
           (reset! attempt (rf/restore-epoch! :test/main (:epoch-id target)))
-          (assoc db :n 99)))
+          {:db (assoc db :n 99)}))
       (rf/dispatch-sync [:try-restore] {:frame :test/main})
 
       (is (false? @attempt) "restore returned false from inside the drain")
@@ -1281,7 +1281,7 @@
 (deftest sub-runs-projection
   (testing ":sub-runs reflects each :rf.sub/run trace under the cascade"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-sub :n     (fn [db _] (:n db)))
     (rf/reg-sub :n*2   :<- [:n] (fn [n _] (* 2 (or n 0))))
 
@@ -1289,7 +1289,7 @@
     ;; from compute-sub when no cache exists for the query, AND from the
     ;; reactive path when a fresh subscription materialises). Either
     ;; way, the cascade contains :rf.sub/run traces.
-    (rf/reg-event-fx :read-sub
+    (rf/reg-event :read-sub
       (fn [_ _]
         ;; Read both subs to exercise layer-1 and layer-2.
         (let [_v (rf/subscribe-once :test/main [:n*2])]
@@ -1402,7 +1402,7 @@
     (rf/reg-frame :test/main {})
     (rf/reg-fx :client-only-fx {:platforms #{:client}}
                (fn [_ _] :nope))
-    (rf/reg-event-fx :run
+    (rf/reg-event :run
       (fn [_ _] {:fx [[:client-only-fx :payload]]}))
 
     (rf/dispatch-sync [:run] {:frame :test/main})
@@ -1416,7 +1416,7 @@
 (deftest effects-projection-no-such-fx
   (testing ":effects captures :error outcomes for unknown fx-ids"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-fx :run
+    (rf/reg-event :run
       (fn [_ _] {:fx [[:no/such-fx :payload]]}))
     (rf/dispatch-sync [:run] {:frame :test/main})
 
@@ -1431,7 +1431,7 @@
   (testing ":effects captures :error outcomes for fx that throw"
     (rf/reg-frame :test/main {})
     (rf/reg-fx :throwing-fx (fn [_ _] (throw (ex-info "boom" {}))))
-    (rf/reg-event-fx :run
+    (rf/reg-event :run
       (fn [_ _] {:fx [[:throwing-fx :payload]]}))
 
     (rf/dispatch-sync [:run] {:frame :test/main})
@@ -1448,7 +1448,7 @@
     (rf/reg-frame :test/main {})
     (let [calls (atom 0)]
       (rf/reg-fx :tally-fx (fn [_ args] (swap! calls + args)))
-      (rf/reg-event-fx :run
+      (rf/reg-event :run
         (fn [_ _] {:fx [[:tally-fx 5]]}))
 
       (rf/dispatch-sync [:run] {:frame :test/main})
@@ -1466,9 +1466,9 @@
 (deftest effects-projection-records-reserved-fx-success
   (testing ":effects captures :ok outcomes for reserved fx-ids (:dispatch)"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed   (fn [_ _]   {:n 0}))
-    (rf/reg-event-db :inc    (fn [db _]  (update db :n inc)))
-    (rf/reg-event-fx :outer
+    (rf/reg-event :seed   (fn [{:keys [db]} _]   {:db {:n 0}}))
+    (rf/reg-event :inc    (fn [{:keys [db]} _]  {:db (update db :n inc)}))
+    (rf/reg-event :outer
       (fn [_ _] {:fx [[:dispatch [:inc]]
                       [:dispatch [:inc]]]}))
 
@@ -1493,7 +1493,7 @@
     (rf/reg-fx :throwing-fx (fn [_ _] (throw (ex-info "boom" {}))))
     (rf/reg-fx :client-only {:platforms #{:client}}
                (fn [_ _] :nope))
-    (rf/reg-event-fx :run
+    (rf/reg-event :run
       (fn [_ _] {:fx [[:ok-fx       :a]
                       [:throwing-fx :b]
                       [:no/such-fx  :c]
@@ -1525,7 +1525,7 @@
             last-settled db. NOTE: this changes Spec 002 rule 3's pre-
             rf2-u6jsj whole-drain-rollback semantics — see report."
     (rf/reg-frame :test/main {:drain-depth 5})
-    (rf/reg-event-fx :loop
+    (rf/reg-event :loop
       (fn [{:keys [db]} _]
         {:db (update (or db {}) :n (fnil inc 0))
          :fx [[:dispatch [:loop]]]}))
@@ -1564,7 +1564,7 @@
             :ok event epoch as it settles, then the trailing :halted-depth
             marker."
     (rf/reg-frame :test/main {:drain-depth 5})
-    (rf/reg-event-fx :loop
+    (rf/reg-event :loop
       (fn [_ _] {:fx [[:dispatch [:loop]]]}))
 
     (let [received (atom [])]
@@ -1586,7 +1586,7 @@
             Emits :rf.epoch/restore-non-ok-record and leaves app-db
             unchanged."
     (rf/reg-frame :test/main {:drain-depth 5})
-    (rf/reg-event-fx :loop
+    (rf/reg-event :loop
       (fn [_ _] {:fx [[:dispatch [:loop]]]}))
 
     ;; Drive the halted cascade to land a non-:ok record in history.
@@ -1645,8 +1645,8 @@
             :outcome :ok tag. The two emits share the same :frame /
             :rf.epoch/id / :rf.trace/event-id so consumers can correlate."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (let [recorded (record-trace!)]
       (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -1671,7 +1671,7 @@
             projects to the :blocked consumer tier per rf2-18g1w).
             The durable :ok events that preceded it emit :outcome :ok."
     (rf/reg-frame :test/main {:drain-depth 5})
-    (rf/reg-event-fx :loop
+    (rf/reg-event :loop
       (fn [{:keys [db]} _]
         {:db (update (or db {}) :n (fnil inc 0))
          :fx [[:dispatch [:loop]]]}))
@@ -1696,7 +1696,7 @@
             same destroy step, so :epoch-history is empty — the outcome
             survives in the trace stream as evidence."
     (rf/reg-frame :test/short-lived {})
-    (rf/reg-event-fx :self-destruct
+    (rf/reg-event :self-destruct
       (fn [_ _]
         (rf/destroy-frame! :test/short-lived)
         {}))
@@ -1720,7 +1720,7 @@
             dropped in the same destroy step, so the record is observed via
             a register-epoch-listener! callback."
     (rf/reg-frame :test/short-lived {})
-    (rf/reg-event-fx :self-destruct
+    (rf/reg-event :self-destruct
       (fn [_ _]
         (rf/destroy-frame! :test/short-lived)
         {}))
@@ -1768,7 +1768,7 @@
             :trace-events. The schema-reserved :halted-handler-exception
             outcome is never committed by the reference runtime."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event-db :boom (fn [_ _] (throw (ex-info "handler blew" {:why :test}))))
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -1836,11 +1836,11 @@
             handler-exception-settles-ok-never-halted-handler-exception),
             and :trace-events carries a :rf.error/flow-eval-exception entry"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     ;; Handler returns a :db effect (so the normal flow path would
     ;; transform it). The flow's :output throws, so the router DISCARDS
     ;; the pending :db wholesale.
-    (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
+    (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
     ;; Seed a clean baseline FIRST, then register the throwing flow — the
     ;; flow throws on every eval, so registering it after the seed keeps
     ;; the baseline untouched and isolates the throw to the :bump drain.
@@ -1887,8 +1887,8 @@
             so a future regression that left :db-after equal to :db-before
             for clean flow evals is caught alongside the throw-path pin."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:w 2 :h 3}))
-    (rf/reg-event-db :bump-w (fn [db _] (update db :w inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 2 :h 3}}))
+    (rf/reg-event :bump-w (fn [{:keys [db]} _] {:db (update db :w inc)}))
     (rf/reg-flow {:id     :rect/area
                   :inputs [[:w] [:h]]
                   :output (fn [w h] (* (or w 0) (or h 0)))
@@ -1951,7 +1951,7 @@
 
     ;; A real cascade afterwards DOES commit — proving the skip is an
     ;; empty-buffer policy, not a frame-wide disable.
-    (rf/reg-event-db :real (fn [_ _] {:n 1}))
+    (rf/reg-event :real (fn [{:keys [db]} _] {:db {:n 1}}))
     (rf/dispatch-sync [:real] {:frame :test/main})
 
     (let [history (rf/epoch-history :test/main)]
@@ -1988,8 +1988,8 @@
             carry :trace-events; older records keep :sub-runs / :renders /
             :effects but drop :trace-events"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (rf/configure! :epoch-history {:depth 10 :trace-events-keep 2})
 
@@ -2037,8 +2037,8 @@
             retained record drops its :trace-events. The fixture forces 5 so
             this elision path is reachable with a handful of dispatches."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     ;; Fixture-configured cap (NOT the shipped default of 50). Reset-runtime
     ;; forces :trace-events-keep 5 so this elision path is exercised cheaply.
@@ -2069,8 +2069,8 @@
             :trace-events (the opt-back-in path for apps that want the
             whole ring's raw streams)"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     ;; Opt back into unbounded retention.
     (rf/configure! :epoch-history {:trace-events-keep 100})
@@ -2200,8 +2200,8 @@
   (testing "after restore-epoch!, subscribe-once reflects the restored db
   for both layer-1 and layer-2 subs (no manual cache invalidation)."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n   (fn [db _] (:n db)))
     (rf/reg-sub :n*2 :<- [:n] (fn [n _] (* 2 (or n 0))))
 
@@ -2229,8 +2229,8 @@
   subscription before the restore observes the rewind on the next deref
   without re-subscribing."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -2252,8 +2252,8 @@
   primitive — there is no global epoch sequence."
     (rf/reg-frame :frame/a {})
     (rf/reg-frame :frame/b {})
-    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))
 
     ;; Drive A through 0 → 1 → 2; B through 100 → 101.
@@ -2279,8 +2279,8 @@
   the second call lands on the same db-after, every observable surface
   reads the same value, and the call still returns true."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -2309,9 +2309,9 @@
   it 'survives ... time-travel revert.' After restore-epoch!, the flow's
   output reads through the restored db match the recorded epoch's output."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :init (fn [_ _]      {:w 2 :h 3}))
-    (rf/reg-event-db :w!   (fn [db [_ w]] (assoc db :w w)))
-    (rf/reg-event-db :h!   (fn [db [_ h]] (assoc db :h h)))
+    (rf/reg-event :init (fn [{:keys [db]} _]      {:db {:w 2 :h 3}}))
+    (rf/reg-event :w!   (fn [{:keys [db]} [_ w]] {:db (assoc db :w w)}))
+    (rf/reg-event :h!   (fn [{:keys [db]} [_ h]] {:db (assoc db :h h)}))
     (rf/reg-flow {:id     :rect/area
                   :inputs [[:w] [:h]]
                   :output (fn [w h] (* (or w 0) (or h 0)))
@@ -2339,8 +2339,8 @@
   in the next dispatch triggers recomputation. Pins that flow recompute
   state does not silently miss after a restore."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :init (fn [_ _]      {:w 1 :h 1}))
-    (rf/reg-event-db :w!   (fn [db [_ w]] (assoc db :w w)))
+    (rf/reg-event :init (fn [{:keys [db]} _]      {:db {:w 1 :h 1}}))
+    (rf/reg-event :w!   (fn [{:keys [db]} [_ w]] {:db (assoc db :w w)}))
     (rf/reg-flow {:id     :rect/area
                   :inputs [[:w] [:h]]
                   :output (fn [w h] (* (or w 0) (or h 0)))
@@ -2379,12 +2379,12 @@
     ;; Framework-authority handlers write the route slice into the runtime-db
     ;; partition via the reserved :rf.db/runtime effect (Mike ruling #4 — the
     ;; routing subsystem is a framework/runtime-extension writer).
-    (rf/reg-event-fx :go-home
+    (rf/reg-event :go-home
       {:rf/machine? true}
       (fn [{:keys [rf.db/runtime]} _]
         {:rf.db/runtime (assoc-in (or runtime {}) [:rf.runtime/routing :current]
                                   {:route-id :route/home :params {}})}))
-    (rf/reg-event-fx :go-article
+    (rf/reg-event :go-article
       {:rf/machine? true}
       (fn [{:keys [rf.db/runtime]} [_ id]]
         {:rf.db/runtime (assoc-in (or runtime {}) [:rf.runtime/routing :current]
@@ -2431,7 +2431,7 @@
 (deftest replace-app-db!-replaces-container
   (testing "replace-app-db! replaces the underlying app-db value"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (is (= {:n 0} (rf/app-db-value :test/main)))
 
@@ -2444,7 +2444,7 @@
             runtime-db (machines / routes) survives (EP-0001 rf2-tfepxu,
             Mike ruling #10 — the app-db sibling of whole-frame reset-frame!)"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 7 :cart {:items [1 2]}}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7 :cart {:items [1 2]}}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     ;; Seed a live runtime-db partition (framework-owned subsystem state).
     (rf/replace-runtime-db! :test/main {:rf.runtime/machines {:m 1}})
@@ -2462,7 +2462,7 @@
   (testing "reset-app-db! records a synthetic :rf.epoch/db-replaced epoch
             (it delegates to replace-app-db! with {})"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (let [pre   (count (rf/epoch-history :test/main))
           _     (rf/reset-app-db! :test/main)
@@ -2477,7 +2477,7 @@
   (testing "replace-app-db! records a synthetic epoch so restore-epoch!
             can rewind to the prior state"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
     (let [pre-history-count (count (rf/epoch-history :test/main))
@@ -2508,7 +2508,7 @@
   (testing "replace-app-db! emits :rf.epoch/db-replaced on success with
             :frame and :epoch-id tags"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
     (let [recorded (record-trace!)
@@ -2527,7 +2527,7 @@
   (testing "replace-app-db! fans out the assembled synthetic record to
             register-epoch-listener! listeners"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
     (let [received (atom [])]
@@ -2561,7 +2561,7 @@
             emits :rf.epoch/replace-during-drain; app-db unchanged
             by the rejected call"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
     (let [recorded (record-trace!)
@@ -2592,7 +2592,7 @@
     (rf/reg-frame :test/main {})
     ;; Per Spec 010 §Per-frame schemas — schema is frame-scoped.
     (rf/reg-app-schema [:n] [:int] {:frame :test/main})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
     (let [pre      (rf/app-db-value :test/main)
@@ -2617,7 +2617,7 @@
   (testing "When the frame has no registered schemas, replace-app-db!
             accepts any new-db (the validation step is a no-op)"
     (rf/reg-frame :test/loose {})
-    (rf/reg-event-db :seed (fn [_ _] {:anything 'goes}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:anything 'goes}}))
     (rf/dispatch-sync [:seed] {:frame :test/loose})
 
     (is (true? (rf/replace-app-db! :test/loose {:totally :different :shape true})))
@@ -2629,7 +2629,7 @@
             substrate's reactive container drives sub re-evaluation,
             same as restore-epoch!'s happy path)"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/reg-sub :n*2 :<- [:n] (fn [n _] (* 2 (or n 0))))
 
@@ -2693,7 +2693,7 @@
   (testing "replace-runtime-db! replaces ONLY the runtime-db partition
             (app-db preserved); returns true on success"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 7 :cart {:items [1 2]}}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7 :cart {:items [1 2]}}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (is (= {:n 7 :cart {:items [1 2]}} (rf/app-db-value :test/main)))
 
@@ -2709,7 +2709,7 @@
   (testing "replace-runtime-db! records a synthetic :rf.epoch/db-replaced
             epoch so restore-epoch! can rewind PAST the runtime-db injection"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     ;; A real cascade that seeds a runtime-db value to rewind back to.
     (rf/replace-runtime-db! :test/main {:rf.runtime/routing {:current {:route-id :start}}})
@@ -2783,7 +2783,7 @@
             emits :rf.epoch/replace-during-drain (the shared
             four-mutator failure op); runtime-db unchanged by the rejected call"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
     (let [recorded (record-trace!)
@@ -2842,7 +2842,7 @@
   (testing "replace-frame-state! installs BOTH partitions atomically; returns
             true on success"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
     (is (true? (rf/replace-frame-state! :test/main
@@ -2859,7 +2859,7 @@
   (testing "replace-frame-state! records a synthetic :rf.epoch/db-replaced
             epoch so restore-epoch! can rewind PAST the full-frame injection"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (let [seed-record (some (fn [r] (when (= :seed (:event-id r)) r))
                             (rf/epoch-history :test/main))
@@ -2915,7 +2915,7 @@
        :data        {:n 1}
        :data-schema [:map [:n [:int {:min 0}]]]
        :states      {:idle {}}})
-    (rf/reg-event-db :seed (fn [_ _] {:ok true}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:ok true}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
     (let [pre-app (rf/app-db-value :test/main)
@@ -2955,8 +2955,8 @@
             :trigger-event is the actual next dispatched event (NOT
             [:rf.epoch/db-replaced] picked from a leaked buffer)"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     ;; Cascade 1: a real event, lands a clean record.
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -3002,8 +3002,8 @@
     ;; Use the schema-mismatch path — easier to drive than during-drain.
     (rf/reg-frame :test/sm {})
     (rf/reg-app-schema [:n] [:int] {:frame :test/sm})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/dispatch-sync [:seed] {:frame :test/sm})
 
     ;; This fails — new-db doesn't validate. Emits
@@ -3028,8 +3028,8 @@
             cascade with :frame tags. None may bleed into the next
             real cascade's :trace-events for that frame."
     (rf/reg-frame :test/r {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (rf/dispatch-sync [:seed] {:frame :test/r})
     (rf/dispatch-sync [:bump] {:frame :test/r})
@@ -3107,8 +3107,8 @@
   (testing "every restore-family trace tag carries :rf.epoch/id (Spec 009 /
             Spec-Schemas) and never the unqualified :epoch-id alias"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (rf/dispatch-sync [:inc]  {:frame :test/main})
 
@@ -3222,7 +3222,7 @@
   (testing "(rf/epoch-history frame-id) returns [] for a destroyed frame
             and for a never-registered frame — the read-empty contract"
     (rf/reg-frame :test/short-lived {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/short-lived})
     (is (seq (rf/epoch-history :test/short-lived))
         "before destroy, the frame has at least one recorded epoch")
@@ -3237,7 +3237,7 @@
   (testing "(rf/app-db-value frame-id) returns nil for a destroyed frame
             and for a never-registered frame"
     (rf/reg-frame :test/short-lived {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/short-lived})
     (is (some? (rf/app-db-value :test/short-lived))
         "before destroy, app-db-value returns the live app-db")
@@ -3252,7 +3252,7 @@
   (testing "(rf/restore-epoch! destroyed _) emits :rf.error/no-such-handler
             (kind :frame) and returns false"
     (rf/reg-frame :test/short-lived {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/short-lived})
     (let [eid (-> (rf/epoch-history :test/short-lived) first :epoch-id)]
       (rf/destroy-frame! :test/short-lived)
@@ -3276,7 +3276,7 @@
             destroyed-frame race specifically (the frame existed, then
             was destroyed)"
     (rf/reg-frame :test/short-lived {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/short-lived})
     (rf/destroy-frame! :test/short-lived)
 
@@ -3298,7 +3298,7 @@
             frame do not re-emit. The callback registration itself
             remains in place."
     (rf/reg-frame :test/short-lived {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
 
     (let [received (atom [])
           recorded (record-trace!)]
@@ -3346,7 +3346,7 @@
   (testing "A repeat destroy of an already-destroyed frame does NOT
             re-emit :rf.epoch.cb/silenced-on-frame-destroy"
     (rf/reg-frame :test/short-lived {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
 
     (let [recorded (record-trace!)]
       (rf/register-epoch-listener! ::watcher (fn [_] nil))
@@ -3373,7 +3373,7 @@
             (there is nothing to silence)"
     (rf/reg-frame :test/observed     {})
     (rf/reg-frame :test/never-seen-by-cb {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
 
     (let [recorded (record-trace!)]
       (rf/register-epoch-listener! ::watcher (fn [_] nil))
@@ -3418,8 +3418,8 @@
             ring buffer regardless of whether the frame itself was
             destroyed via the usual frame/destroy-frame! path"
     (rf/reg-frame :test/other {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     ;; Populate :test/other's ring buffer.
     (rf/dispatch-sync [:seed] {:frame :test/other})
@@ -3449,7 +3449,7 @@
   (testing "on-frame-destroyed! is idempotent — repeated calls on the
             same frame are no-ops (no throw, no side-effect cascade)"
     (rf/reg-frame :test/repeat {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/repeat})
     (is (= 1 (count (rf/epoch-history :test/repeat))))
 
@@ -3496,8 +3496,8 @@
             replace-app-db! does NOT leak into the next cascade's
             harvested record for the same frame"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :foo  (fn [db _] (assoc db :foo? true)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :foo  (fn [{:keys [db]} _] {:db (assoc db :foo? true)}))
 
     ;; 1. Drive one cascade — clean record lands.
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -3624,7 +3624,7 @@
     (rf/reg-frame :test/main {})
     ;; Seed the frame so the pre-cascade app-db is a real, non-empty
     ;; value — proves the snapshots carry actual state, not {} / nil.
-    (rf/reg-event-db :seed (fn [_ _] {:n 7 :live true}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7 :live true}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (let [records (atom [])]
       (rf/register-epoch-listener! ::watch (fn [r] (swap! records conj r)))
@@ -3632,7 +3632,7 @@
       ;; committed db before destroying, so destroy-time db == pre-cascade
       ;; db here (the {:n 7 :live true} the :seed cascade settled) — both
       ;; REAL and non-nil, which is the contract (Spec-Schemas §Outcomes).
-      (rf/reg-event-fx :destroy-self
+      (rf/reg-event :destroy-self
                        (fn [_ _]
                          (frame/destroy-frame! :test/main)
                          {}))
@@ -3700,13 +3700,13 @@
       ;; Child: destroys the frame. Its pre-cascade db-before is whatever
       ;; the container held when it was dequeued — i.e. AFTER the parent's
       ;; {:phase :parent-done} write committed (per-event epoch boundary).
-      (rf/reg-event-fx :child-destroy
+      (rf/reg-event :child-destroy
                        (fn [_ _]
                          (frame/destroy-frame! :test/main)
                          {}))
       ;; Parent: commits a db write, then fx-dispatches the child. The
       ;; child runs as a SEPARATE dequeued event in the same drain.
-      (rf/reg-event-fx :parent-write-then-spawn
+      (rf/reg-event :parent-write-then-spawn
                        (fn [_ _]
                          {:db {:phase :parent-done :marker 42}
                           :fx [[:dispatch [:child-destroy]]]}))
@@ -3949,8 +3949,8 @@
             repeated drain-settles for a stable listener-observing-frame
             pairing leave the atom untouched (no watcher fires)"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (let [observed-atom @#'state/observed-frames-by-cb
           swap-count    (atom 0)]
@@ -4076,8 +4076,8 @@
             tags carry the current history-size, which equals depth)"
     (rf/configure! :epoch-history {:depth 3})
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
     ;; Capture the epoch-id of the FIRST cascade before later cascades
@@ -4123,8 +4123,8 @@
             still fans out to registered listeners"
     (rf/configure! :epoch-history {:depth 0})
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (let [seen (atom [])]
       (rf/register-epoch-listener! ::watcher (fn [r] (swap! seen conj r)))
@@ -4165,8 +4165,8 @@
             rejection path) leaves the history vector untouched and
             does not fire registered listeners"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (rf/dispatch-sync [:inc]  {:frame :test/main})
 
@@ -4186,7 +4186,7 @@
             simplest rejection path that exercises the reset surface)
             leaves history untouched and does not fire listeners"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
     (let [history-before (rf/epoch-history :test/main)
@@ -4235,7 +4235,7 @@
   (testing "rf2-mrsck — :rf.epoch/sensitive? is false on records whose
             cascade involves no sensitive paths and no sensitive handlers"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
     (let [r (last (rf/epoch-history :test/main))]
@@ -4248,9 +4248,9 @@
             Path-marked classification (schema-slot `:sensitive?`)
             is the v2 mechanism."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :secret-write
+    (rf/reg-event :secret-write
                      {:sensitive? true}   ;; stored, no longer consulted
-                     (fn [db _] (assoc db :token "shhh")))
+                     (fn [{:keys [db]} _] {:db (assoc db :token "shhh")}))
     (rf/dispatch-sync [:secret-write] {:frame :test/main})
 
     (let [r (last (rf/epoch-history :test/main))]
@@ -4271,9 +4271,9 @@
     (frame-class/install! :test/main
       (frame-class/validate+extract :test/main
         {:sensitive {:app-db [[:auth :password]]}}))
-    (rf/reg-event-db :login
-                     (fn [db [_ pw]]
-                       (assoc-in db [:auth :password] pw)))
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw]]
+                       {:db (assoc-in db [:auth :password] pw)}))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [raw       (last (rf/epoch-history :test/main))
@@ -4303,8 +4303,8 @@
   (testing "rf2-mrsck — projected-history walks the ring once and
             returns the projected vector"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (rf/dispatch-sync [:inc]  {:frame :test/main})
 
@@ -4389,8 +4389,8 @@
             :rf.epoch/restored. The drop is the no-op write
             adapter/replace-container! makes against the now-nil container."
     (rf/reg-frame :test/short-lived {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/dispatch-sync [:seed] {:frame :test/short-lived})
     (rf/dispatch-sync [:inc]  {:frame :test/short-lived})
 
@@ -4424,7 +4424,7 @@
             pass but BEFORE the container write. The precondition check is
             real; the destroy is injected into the validate→write window."
     (rf/reg-frame :test/short-lived {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/short-lived})
 
     (let [target-id (-> (rf/epoch-history :test/short-lived) first :epoch-id)
@@ -4454,7 +4454,7 @@
             synthetic epoch, emit :rf.epoch/db-replaced, or fan a record to
             listeners for the destroyed frame."
     (rf/reg-frame :test/short-lived {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/short-lived})
 
     ;; (1) Validate against the LIVE frame — passes.
@@ -4499,7 +4499,7 @@
             frame is destroyed AFTER a live precondition pass but BEFORE the
             container write."
     (rf/reg-frame :test/short-lived {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/short-lived})
 
     (let [real-check tool-pair/check-replace-app-db-preconditions!
@@ -4551,8 +4551,8 @@
             write-boundary liveness check passes but BEFORE replace-frame-state!
             returns (the nil-return post-liveness teardown window)."
     (rf/reg-frame :test/short-lived {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/dispatch-sync [:seed] {:frame :test/short-lived})
     (rf/dispatch-sync [:inc]  {:frame :test/short-lived})
 
@@ -4641,14 +4641,14 @@
             even though resources rode in the snapshot — the reconcile deferred
             them and the commit only fires on a successful install."
     (rf/reg-frame :test/obi8rr-fail {})
-    (rf/reg-event-fx :seed-res
+    (rf/reg-event :seed-res
       (fn [{rt :rf.db/runtime} _]
         {:db {:n 0}
          :rf.db/runtime (assoc-in (or rt {})
                                   [:rf.runtime/resources :entries :k]
                                   {:status :loaded :data {:x 1}
                                    :active-owners #{[:route :r "nav-OLD"]}})}))
-    (rf/reg-event-db :clear-res (fn [_ _] {:n 1}))
+    (rf/reg-event :clear-res (fn [{:keys [db]} _] {:db {:n 1}}))
     (with-stub-resources-restore-hooks
       (fn []
         (rf/dispatch-sync [:seed-res] {:frame :test/obi8rr-fail})
@@ -4678,14 +4678,14 @@
             after the install landed) — the deferral does not drop them on the
             happy path."
     (rf/reg-frame :test/obi8rr-ok {})
-    (rf/reg-event-fx :seed-res2
+    (rf/reg-event :seed-res2
       (fn [{rt :rf.db/runtime} _]
         {:db {:n 0}
          :rf.db/runtime (assoc-in (or rt {})
                                   [:rf.runtime/resources :entries :k]
                                   {:status :loaded :data {:x 1}
                                    :active-owners #{[:route :r "nav-OLD"]}})}))
-    (rf/reg-event-db :clear-res2 (fn [_ _] {:n 1}))
+    (rf/reg-event :clear-res2 (fn [{:keys [db]} _] {:db {:n 1}}))
     (with-stub-resources-restore-hooks
       (fn []
         (rf/dispatch-sync [:seed-res2] {:frame :test/obi8rr-ok})
@@ -4708,7 +4708,7 @@
             synthetic epoch, emit :rf.epoch/db-replaced, or fan out a record
             when replace-app-db! returns nil AFTER the liveness check passed."
     (rf/reg-frame :test/short-lived {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/short-lived})
 
     (let [fanned   (atom [])]
@@ -4745,7 +4745,7 @@
             synthetic epoch when replace-runtime-db! returns nil AFTER the
             liveness check passed."
     (rf/reg-frame :test/short-lived {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/short-lived})
 
     (let [fanned   (atom [])]
@@ -4783,7 +4783,7 @@
             synthetic epoch when replace-frame-state! returns nil AFTER the
             liveness check passed."
     (rf/reg-frame :test/short-lived {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/short-lived})
 
     (let [fanned   (atom [])]
@@ -4826,7 +4826,7 @@
             return, :rf.epoch/db-replaced emitted, synthetic epoch recorded —
             NOT a destroyed-frame drop."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
     (let [recorded (record-trace!)

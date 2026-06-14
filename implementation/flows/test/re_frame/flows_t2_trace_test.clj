@@ -65,7 +65,7 @@
                   :inputs [[:n]]
                   :output (fn [n] (* 2 n))
                   :path   [:doubled]})
-    (rf/reg-event-db :t2/set-n (fn [db _] (assoc db :n 7)))
+    (rf/reg-event :t2/set-n (fn [{:keys [db]} _] {:db (assoc db :n 7)}))
     (let [acc (collect-traces! ::t2-emit)]
       (try
         (rf/dispatch-sync [:t2/set-n])
@@ -92,7 +92,7 @@
                   :inputs [[:n]]
                   :output (fn [n] (* 2 n))
                   :path   [:doubled]})
-    (rf/reg-event-db :t2/set-n (fn [db _] (assoc db :n 5)))
+    (rf/reg-event :t2/set-n (fn [{:keys [db]} _] {:db (assoc db :n 5)}))
     (rf/dispatch-sync [:t2/set-n])      ; prime
     (let [acc (collect-traces! ::t2-skip)]
       (try
@@ -116,7 +116,7 @@
                   :inputs [[:a] [:b]]
                   :output +
                   :path   [:sum]})
-    (rf/reg-event-db :t2/seed (fn [_ _] {:a 3 :b 4}))
+    (rf/reg-event :t2/seed (fn [{:keys [db]} _] {:db {:a 3 :b 4}}))
     (let [acc (collect-traces! ::t2-order)]
       (try
         (rf/dispatch-sync [:t2/seed])
@@ -145,7 +145,7 @@
                   :inputs [[:items]]
                   :output (fn [items] (count items))
                   :path   [:item-count]})
-    (rf/reg-event-db :t2/add-items (fn [_ _] {:items [:a :b :c]}))
+    (rf/reg-event :t2/add-items (fn [{:keys [db]} _] {:db {:items [:a :b :c]}}))
     (let [acc (collect-traces! ::t1-t2-pair)]
       (try
         (rf/dispatch-sync [:t2/add-items])
@@ -174,7 +174,7 @@
                   :inputs [[:x]]
                   :output (fn [_] (throw (ex-info "boom" {})))
                   :path   [:boom]})
-    (rf/reg-event-db :t2/trigger-boom (fn [_ _] {:x 1}))
+    (rf/reg-event :t2/trigger-boom (fn [{:keys [db]} _] {:db {:x 1}}))
     (let [acc (collect-traces! ::t2-throw)]
       (try
         (rf/dispatch-sync [:t2/trigger-boom])

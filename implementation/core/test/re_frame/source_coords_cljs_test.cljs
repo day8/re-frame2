@@ -80,7 +80,7 @@
 
 (deftest reg-event-fx-file-is-not-no-source-path
   (testing "rf2-mdjp: reg-event-fx emits a real :file under CLJS"
-    (rf/reg-event-fx :rf2-mdjp/reg-event-fx-sample
+    (rf/reg-event :rf2-mdjp/reg-event-fx-sample
                      (fn [_ _] {}))
     (let [f (:file (rf/handler-meta :event :rf2-mdjp/reg-event-fx-sample))]
       (is (not= "NO_SOURCE_PATH" f)))))

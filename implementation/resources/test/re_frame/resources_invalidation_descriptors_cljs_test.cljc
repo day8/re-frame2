@@ -63,8 +63,8 @@
      :resolve (fn [{:keys [username]} _ctx]
                 (when username [:rf.scope/session {:username username}]))})
   ;; an app event that writes / removes the logged-in user (the resolver input)
-  (rf/reg-event-db :t/login (fn [db [_ username]] (assoc-in db [:auth :user :username] username)))
-  (rf/reg-event-db :t/logout (fn [db _] (update db :auth dissoc :user))))
+  (rf/reg-event :t/login (fn [{:keys [db]} [_ username]] {:db (assoc-in db [:auth :user :username] username)}))
+  (rf/reg-event :t/logout (fn [{:keys [db]} _] {:db (update db :auth dissoc :user)})))
 
 (defn- capturing-transport-fixture [f]
   (reset! last-managed-args nil)
@@ -250,7 +250,7 @@
   (let [replied (atom [])]
     (reg-article-resource!)
     (reg-feed-resource!)
-    (rf/reg-event-fx :test/saved (fn [_ event] (swap! replied conj event) {}))
+    (rf/reg-event :test/saved (fn [_ event] (swap! replied conj event) {}))
     (rf/dispatch-sync [:t/login "jake"])
     (rf/dispatch-sync [:rf.resource/ensure {:resource :r/feed :scope {:from-db :t/session}
                                             :params {} :owner [:v :feed]}])

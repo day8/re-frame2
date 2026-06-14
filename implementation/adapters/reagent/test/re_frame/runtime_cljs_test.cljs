@@ -52,8 +52,8 @@
 
 (deftest dispatch-sync-cljs
   (testing "dispatch-sync runs an event-db handler under the Reagent adapter"
-    (rf/reg-event-db :counter/init (fn [_ _] {:n 0}))
-    (rf/reg-event-db :counter/inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :counter/init (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :counter/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/dispatch-sync [:counter/init])
     (rf/dispatch-sync [:counter/inc])
     (rf/dispatch-sync [:counter/inc])
@@ -61,7 +61,7 @@
 
 (deftest sub-chain-cljs
   (testing "layer-1 + layer-2 subs return computed values"
-    (rf/reg-event-db :seed (fn [_ _] {:items [10 20 30]}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items [10 20 30]}}))
     (rf/reg-sub :items     (fn [db _] (:items db)))
     (rf/reg-sub :item-sum  :<- [:items] (fn [items _] (reduce + items)))
     (rf/dispatch-sync [:seed])
@@ -86,7 +86,7 @@
 (deftest frame-bound-fn-captures-frame
   (testing "frame-bound-fn captures the current frame and re-binds it inside the body"
     (rf/reg-frame :side {:doc "side frame"})
-    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
+    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/dispatch-sync [:seed 99] {:frame :side})
     (let [captured (with-frame :side (frame-bound-fn [] (rf/current-frame-id)))]
       ;; Outside the with-frame, dynamic var has reverted; the frame-bound-fn
@@ -194,8 +194,8 @@
   (testing "two frames carry independent app-db state, share handler registry"
     (rf/reg-frame :left  {:doc "left frame"})
     (rf/reg-frame :right {:doc "right frame"})
-    (rf/reg-event-db :counter/init (fn [_ [_ n]] {:count n}))
-    (rf/reg-event-db :counter/inc  (fn [db _] (update db :count inc)))
+    (rf/reg-event :counter/init (fn [{:keys [db]} [_ n]] {:db {:count n}}))
+    (rf/reg-event :counter/inc  (fn [{:keys [db]} _] {:db (update db :count inc)}))
     (rf/reg-sub :count (fn [db _] (:count db)))
     (rf/dispatch-sync [:counter/init 10] {:frame :left})
     (rf/dispatch-sync [:counter/init 100] {:frame :right})
@@ -211,8 +211,8 @@
 
 (deftest reactive-sub-tracks-changes
   (testing "a Reagent reaction's deref reflects post-event state"
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
     (let [r (rf/subscribe [:n])]
@@ -231,7 +231,7 @@
 
 (deftest sub-hot-reload-cljs
   (testing "re-registering a sub flips the next subscribe-once to the new body"
-    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :answer (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
     (is (= 7 (rf/subscribe-once [:answer])))
@@ -247,9 +247,9 @@
 
 (deftest flow-recomputes
   (testing "a flow recomputes when its inputs change"
-    (rf/reg-event-db :init (fn [_ _] {:w 0 :h 0}))
-    (rf/reg-event-db :w!   (fn [db [_ w]] (assoc db :w w)))
-    (rf/reg-event-db :h!   (fn [db [_ h]] (assoc db :h h)))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:w 0 :h 0}}))
+    (rf/reg-event :w!   (fn [{:keys [db]} [_ w]] {:db (assoc db :w w)}))
+    (rf/reg-event :h!   (fn [{:keys [db]} [_ h]] {:db (assoc db :h h)}))
     (rf/reg-flow {:id     :rect/area
                   :inputs [[:w] [:h]]
                   :output (fn [w h] (* w h))
@@ -286,7 +286,7 @@
 
 (deftest sub-exception-recovers-to-nil
   (testing "a sub whose body throws emits :rf.error/sub-exception and resolves to nil"
-    (rf/reg-event-db :init (fn [_ _] {:items "broken"}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:items "broken"}}))
     (rf/reg-sub :items (fn [db _] (:items db)))
     (rf/reg-sub :items-count :<- [:items]
       (fn [items _]
@@ -321,7 +321,7 @@
 
 (deftest ssr-end-to-end-cljs
   (testing "complete SSR flow runs against the Reagent adapter on CLJS"
-    (rf/reg-event-db :seed (fn [_ _] {:items ["a" "b" "c"]}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items ["a" "b" "c"]}}))
     (rf/reg-sub :items (fn [db _] (:items db)))
     (rf/reg-view ^{:rf/id :pages/list} pages-list []
       [:ul
@@ -348,7 +348,7 @@
 
 (deftest sub-topology-glitch-free-diamond
   (testing "diamond: app-db -> {a,b} -> c — c never sees a half-propagated state"
-    (rf/reg-event-db :diamond/init (fn [_ _] {:x 1 :y 2}))
+    (rf/reg-event :diamond/init (fn [{:keys [db]} _] {:db {:x 1 :y 2}}))
     (rf/reg-event-db :diamond/swap (fn [{:keys [x y] :as db} _]
                                      (assoc db :x y :y x)))
     (rf/reg-sub :diamond/a (fn [db _] (:x db)))
@@ -381,8 +381,8 @@
 
 (deftest sub-topology-glitch-free-chain
   (testing "chain: app-db -> a -> b -> c — each transition produces one final post-update value, no intermediates"
-    (rf/reg-event-db :chain/init (fn [_ _] {:n 10}))
-    (rf/reg-event-db :chain/set  (fn [db [_ n]] (assoc db :n n)))
+    (rf/reg-event :chain/init (fn [{:keys [db]} _] {:db {:n 10}}))
+    (rf/reg-event :chain/set  (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
     (rf/reg-sub :chain/a (fn [db _] (:n db)))
     (rf/reg-sub :chain/b :<- [:chain/a] (fn [a _] (* a 2)))
     (rf/reg-sub :chain/c :<- [:chain/b] (fn [b _] (inc b)))
@@ -408,11 +408,11 @@
   (testing "[Spec 006 §No-op via value equality, rf2-719e] a value-equal app-db replacement does NOT re-run the body fn of a layer-2 sub whose resolved input is value-equal — the wrapper short-circuits to the cached return value"
     (let [a-runs       (atom 0)
           squared-runs (atom 0)]
-      (rf/reg-event-db :stable/init (fn [_ _] {:n 5 :unrelated "z"}))
-      (rf/reg-event-db :stable/touch-unrelated
-                       (fn [db _] (assoc db :unrelated "z")))   ;; same value
-      (rf/reg-event-db :stable/bump-n
-                       (fn [db _] (update db :n inc)))          ;; real change
+      (rf/reg-event :stable/init (fn [{:keys [db]} _] {:db {:n 5 :unrelated "z"}}))
+      (rf/reg-event :stable/touch-unrelated
+                       (fn [{:keys [db]} _] {:db (assoc db :unrelated "z")}))   ;; same value
+      (rf/reg-event :stable/bump-n
+                       (fn [{:keys [db]} _] {:db (update db :n inc)}))          ;; real change
       (rf/reg-sub :stable/a
                   (fn [db _] (swap! a-runs inc) (:n db)))
       (rf/reg-sub :stable/squared
@@ -476,14 +476,14 @@
 
 (defn- reg-fw-runtime-handler!
   [id f]
-  (rf/reg-event-fx id {:doc "framework-authority" :rf/machine? true} f))
+  (rf/reg-event id {:doc "framework-authority" :rf/machine? true} f))
 
 (deftest runtime-only-commit-does-not-rerun-app-subs-cljs
   (testing "[EP-0001 #7, rf2-0sr0ai] a runtime-only commit leaves the app-db
   projection `=` and does NOT re-run an app-db layer-1 sub body under the
   Reagent reactive substrate"
     (let [runs (atom 0)]
-      (rf/reg-event-db :inval/seed-app (fn [_ _] {:n 1}))
+      (rf/reg-event :inval/seed-app (fn [{:keys [db]} _] {:db {:n 1}}))
       (rf/dispatch-sync [:inval/seed-app])
       (rf/reg-sub :inval/app-sub (fn [db _] (swap! runs inc) (:n db)))
       (let [r (rf/subscribe [:inval/app-sub])]
@@ -519,7 +519,7 @@
         (add-watch r ::touch (fn [_ _ _ _] nil))
         (is (= :home @r) "precondition: runtime-db sub primes to the seeded route id")
         (let [after-prime @runs]
-          (rf/reg-event-db :inval/app-write (fn [db _] (assoc db :touched? true)))
+          (rf/reg-event :inval/app-write (fn [{:keys [db]} _] {:db (assoc db :touched? true)}))
           (rf/dispatch-sync [:inval/app-write])
           (r/flush)
           @r
@@ -537,7 +537,7 @@
   partition's — under the Reagent reactive substrate"
     (let [app-runs (atom 0)
           rt-runs  (atom 0)]
-      (rf/reg-event-db :inval/seed-app2 (fn [_ _] {:n 1}))
+      (rf/reg-event :inval/seed-app2 (fn [{:keys [db]} _] {:db {:n 1}}))
       (rf/dispatch-sync [:inval/seed-app2])
       (reg-fw-runtime-handler! :inval/seed-rt2
         (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 1}}}))
@@ -554,7 +554,7 @@
         (let [app-baseline @app-runs
               rt-baseline  @rt-runs]
           ;; Real app-db change.
-          (rf/reg-event-db :inval/app-write2 (fn [db _] (update db :n inc)))
+          (rf/reg-event :inval/app-write2 (fn [{:keys [db]} _] {:db (update db :n inc)}))
           (rf/dispatch-sync [:inval/app-write2])
           (r/flush)
           (is (= 2 @ra) "the app sub re-derived to the new app-db value")
@@ -581,8 +581,8 @@
   (testing "calling dispatch-sync from inside a handler raises a structured error"
     (let [traces (atom [])]
       (trace-tooling/register-listener! ::dsih (fn [ev] (swap! traces conj ev)))
-      (rf/reg-event-db :outer (fn [db _] (assoc db :ran? true)))
-      (rf/reg-event-fx :nested
+      (rf/reg-event :outer (fn [{:keys [db]} _] {:db (assoc db :ran? true)}))
+      (rf/reg-event :nested
         (fn [_ _]
           (rf/dispatch-sync [:outer])
           {}))
@@ -600,7 +600,7 @@
   (testing "(rf/sub-cache frame-id) returns
            {query-v {:value v :ref-count n :input-kind k :realized-inputs [...]}}
            for every materialised subscription in the named frame"
-    (rf/reg-event-db :seed (fn [_ _] {:n 7 :name "ada"}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7 :name "ada"}}))
     (rf/reg-sub :n     (fn [db _] (:n db)))
     (rf/reg-sub :name* (fn [db _] (:name db)))
     (rf/dispatch-sync [:seed])
@@ -635,7 +635,7 @@
 
 (deftest sub-cache-surfaces-static-realized-inputs
   (testing "a :static :<- sub surfaces :input-kind :static + the literal realized edges"
-    (rf/reg-event-db :seed2 (fn [_ _] {:items [1 2 3] :filter :all}))
+    (rf/reg-event :seed2 (fn [{:keys [db]} _] {:db {:items [1 2 3] :filter :all}}))
     (rf/reg-sub :items  (fn [db _] (:items db)))
     (rf/reg-sub :filter (fn [db _] (:filter db)))
     (rf/reg-sub :visible-items
@@ -655,9 +655,9 @@
 (deftest sub-cache-surfaces-parametric-realized-inputs
   (testing "a :parametric input-fn sub surfaces :input-kind :parametric +
            the REALIZED input query-vectors for the concrete outer query-v"
-    (rf/reg-event-db :seed3 (fn [_ _] {:articles {:a1 {:title "T"}}
+    (rf/reg-event :seed3 (fn [{:keys [db]} _] {:db {:articles {:a1 {:title "T"}}
                                        :comments {:a1 [:c1]}
-                                       :viewer   {:edit? true}}))
+                                       :viewer   {:edit? true}}}))
     (rf/reg-sub :article/by-id        (fn [db [_ id]] (get-in db [:articles id])))
     (rf/reg-sub :comments/for-article (fn [db [_ id]] (get-in db [:comments id])))
     (rf/reg-sub :viewer/current       (fn [db _] (:viewer db)))
@@ -698,7 +698,7 @@
 (deftest sub-cache-algebra-view-exposes-the-live-node
   (testing "a live sub-cache entry exposes the full ephemeral / on-demand /
            cache-entry algebra node, keyed by its concrete query vector"
-    (rf/reg-event-db :seed-av (fn [_ _] {:n 7 :name "ada"}))
+    (rf/reg-event :seed-av (fn [{:keys [db]} _] {:db {:n 7 :name "ada"}}))
     (rf/reg-sub :n     (fn [db _] (:n db)))
     (rf/reg-sub :name* (fn [db _] (:name db)))
     (rf/dispatch-sync [:seed-av])
@@ -741,7 +741,7 @@
 
 (deftest sub-cache-algebra-view-lowers-static-realized-edges
   (testing "a static :<- entry lowers its literal realized inputs to [:sub q] edges"
-    (rf/reg-event-db :seed-av2 (fn [_ _] {:items [1 2 3] :filter :all}))
+    (rf/reg-event :seed-av2 (fn [{:keys [db]} _] {:db {:items [1 2 3] :filter :all}}))
     (rf/reg-sub :items  (fn [db _] (:items db)))
     (rf/reg-sub :filter (fn [db _] (:filter db)))
     (rf/reg-sub :visible-items
@@ -762,8 +762,8 @@
     ;; This is the load-bearing static/live distinction: the static
     ;; `sub-algebra-view` reports the :parametric marker; the live view
     ;; reports the concrete realized [:sub …] edges for THIS query vector.
-    (rf/reg-event-db :seed-av3 (fn [_ _] {:articles {:a1 {:title "T"}}
-                                          :comments {:a1 [:c1]}}))
+    (rf/reg-event :seed-av3 (fn [{:keys [db]} _] {:db {:articles {:a1 {:title "T"}}
+                                          :comments {:a1 [:c1]}}}))
     (rf/reg-sub :article/by-id        (fn [db [_ id]] (get-in db [:articles id])))
     (rf/reg-sub :comments/for-article (fn [db [_ id]] (get-in db [:comments id])))
     (rf/reg-sub :article/page
@@ -796,8 +796,8 @@
 (deftest epoch-history-cljs
   (testing "drain-settle commits a record; register-epoch-listener! fires per-cascade"
     (rf/reg-frame :epoch/cljs {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (let [seen (atom [])]
       (rf/register-epoch-listener! ::w (fn [r] (swap! seen conj r)))
@@ -938,7 +938,7 @@
 
 (deftest sub-cache-sync-disposes-on-last-unsubscribe
   (testing "ref-count → 0 disposes the slot synchronously (rf2-cmfln)"
-    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
     (rf/subscribe [:n])
@@ -968,8 +968,8 @@
   to the restored value — proving the restore goes through the same
   reactive-graph notification path as a drain :db commit."
     (rf/reg-frame :restore/cljs {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))
 
     (rf/dispatch-sync [:seed] {:frame :restore/cljs})  ;; n=0
@@ -993,8 +993,8 @@
   substrate."
     (rf/reg-frame :restore/a {})
     (rf/reg-frame :restore/b {})
-    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))
 
     (rf/dispatch-sync [:seed 0]   {:frame :restore/a})

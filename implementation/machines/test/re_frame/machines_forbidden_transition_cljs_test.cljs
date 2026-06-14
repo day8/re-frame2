@@ -46,7 +46,7 @@
   [machine-id snap]
   (let [seed-id (keyword "test" (str "seed-" (namespace machine-id) "-" (name machine-id)))]
     ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
-    (rf/reg-event-fx seed-id
+    (rf/reg-event seed-id
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/machines :snapshots machine-id] snap)}))
     (rf/dispatch-sync [seed-id])))

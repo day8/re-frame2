@@ -138,7 +138,7 @@
         (fn []
           (rf/reg-event-db :ev/same-id (fn [db _] db))
           ;; Save-triggered re-eval — same id, still no :doc; warning is silent.
-          (rf/reg-event-db :ev/same-id (fn [db _] (assoc db :touched? true)))
+          (rf/reg-event :ev/same-id (fn [{:keys [db]} _] {:db (assoc db :touched? true)}))
           (rf/reg-event-db :ev/same-id (fn [db _] db))))
       (is (= 1 (count (warnings-of recorded :rf.warning/missing-doc)))
           "exactly one warning across three registrations of the same id"))))
@@ -210,8 +210,8 @@
     (let [recorded (record-traces! ::collision-different)]
       (with-stamped-coords
         (fn []
-          (rf/reg-event-db :collide/id {:doc "first"}  (fn [db _] (assoc db :v 1)))
-          (rf/reg-event-db :collide/id {:doc "second"} (fn [db _] (assoc db :v 2)))))
+          (rf/reg-event :collide/id {:doc "first"}  (fn [{:keys [db]} _] {:db (assoc db :v 1)}))
+          (rf/reg-event :collide/id {:doc "second"} (fn [{:keys [db]} _] {:db (assoc db :v 2)}))))
       (let [warns (warnings-of recorded :rf.warning/registration-collision)]
         (is (= 1 (count warns))
             "exactly one collision warning fires on the second registration")
@@ -229,10 +229,10 @@
     (let [recorded (record-traces! ::collision-suppressed)]
       (with-stamped-coords
         (fn []
-          (rf/reg-event-db :churn/id {:doc "a"} (fn [db _] (assoc db :v 1)))
-          (rf/reg-event-db :churn/id {:doc "b"} (fn [db _] (assoc db :v 2)))
-          (rf/reg-event-db :churn/id {:doc "c"} (fn [db _] (assoc db :v 3)))
-          (rf/reg-event-db :churn/id {:doc "d"} (fn [db _] (assoc db :v 4)))))
+          (rf/reg-event :churn/id {:doc "a"} (fn [{:keys [db]} _] {:db (assoc db :v 1)}))
+          (rf/reg-event :churn/id {:doc "b"} (fn [{:keys [db]} _] {:db (assoc db :v 2)}))
+          (rf/reg-event :churn/id {:doc "c"} (fn [{:keys [db]} _] {:db (assoc db :v 3)}))
+          (rf/reg-event :churn/id {:doc "d"} (fn [{:keys [db]} _] {:db (assoc db :v 4)}))))
       (is (= 1 (count (warnings-of recorded :rf.warning/registration-collision)))
           "warn-once: only the first different-fn re-registration emits"))))
 
@@ -245,9 +245,9 @@
     (let [recorded (record-traces! ::coexist)]
       (with-stamped-coords
         (fn []
-          (rf/reg-event-db :coex/id {:doc "1"} (fn [db _] (assoc db :v 1)))
-          (rf/reg-event-db :coex/id {:doc "2"} (fn [db _] (assoc db :v 2)))
-          (rf/reg-event-db :coex/id {:doc "3"} (fn [db _] (assoc db :v 3)))))
+          (rf/reg-event :coex/id {:doc "1"} (fn [{:keys [db]} _] {:db (assoc db :v 1)}))
+          (rf/reg-event :coex/id {:doc "2"} (fn [{:keys [db]} _] {:db (assoc db :v 2)}))
+          (rf/reg-event :coex/id {:doc "3"} (fn [{:keys [db]} _] {:db (assoc db :v 3)}))))
       (let [replaced (filterv (fn [ev]
                                 (and (= :rf.registry (:op-type ev))
                                      (= :rf.registry/handler-replaced

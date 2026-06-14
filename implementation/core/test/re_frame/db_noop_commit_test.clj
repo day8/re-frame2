@@ -66,7 +66,7 @@
    is identical? before and after the dispatch — and emits :rf.event/db-noop
    (NOT :rf.event/db-changed)"
     ;; Seed a known app-db first.
-    (rf/reg-event-db :noop/seed (fn [_ _] {:counter 1 :seeded? true}))
+    (rf/reg-event :noop/seed (fn [{:keys [db]} _] {:db {:counter 1 :seeded? true}}))
     ;; The classic no-change idiom: the else-arm returns `db` UNCHANGED
     ;; (identical object), so the commit is a genuine no-op.
     (rf/reg-event-db :noop/maybe-inc
@@ -96,7 +96,7 @@
   (testing "the SAME handler on the do-it? = true path returns a CHANGED db
    → :rf.event/db-changed fires, :rf.event/db-noop does NOT, and the write
    lands (a new frame-state object is installed)"
-    (rf/reg-event-db :noop/seed (fn [_ _] {:counter 1}))
+    (rf/reg-event :noop/seed (fn [{:keys [db]} _] {:db {:counter 1}}))
     (rf/reg-event-db :noop/maybe-inc
       (fn [db [_ do-it?]] (if do-it? (update db :counter inc) db)))
     (rf/dispatch-sync [:noop/seed])
@@ -124,10 +124,10 @@
    change-DETECTION (`=`) reports no app-db change, so :rf.event/db-noop
    fires — but the WRITE was NOT skipped (only identical? skips), so the
    stored frame-state object identity changes."
-    (rf/reg-event-db :eq/seed (fn [_ _] {:counter 1 :tag :a}))
+    (rf/reg-event :eq/seed (fn [{:keys [db]} _] {:db {:counter 1 :tag :a}}))
     ;; Rebuild an equal-but-DISTINCT map (not the same object) every call.
-    (rf/reg-event-db :eq/rebuild-equal
-      (fn [_db _] {:counter 1 :tag :a}))
+    (rf/reg-event :eq/rebuild-equal
+      (fn [{:keys [db]} _] {:db {:counter 1 :tag :a}}))
     (rf/dispatch-sync [:eq/seed])
     (let [db-before-obj (frame/frame-app-db-value :rf/default)
           fs-before     (frame/frame-state-value :rf/default)
@@ -158,7 +158,7 @@
 (deftest db-nil-coerced-to-empty-map-with-diagnostic
   (testing "{:db nil} is coerced to {} (app-db is ALWAYS a map, never nil)
    and emits the :rf.warning/db-nil-coerced dev diagnostic"
-    (rf/reg-event-db :nil/seed (fn [_ _] {:counter 7}))
+    (rf/reg-event :nil/seed (fn [{:keys [db]} _] {:db {:counter 7}}))
     ;; A reg-event-db returning nil → {:db nil} effect.
     (rf/reg-event-db :nil/return-nil (fn [_ _] nil))
     (rf/dispatch-sync [:nil/seed])
@@ -181,8 +181,8 @@
 (deftest deliberate-empty-clear-does-not-fire-diagnostic
   (testing "a DELIBERATE clear ({:db {}}) commits {} WITHOUT firing the
    db-nil-coerced diagnostic — only the literal {:db nil} form is flagged"
-    (rf/reg-event-db :clear/seed (fn [_ _] {:counter 7}))
-    (rf/reg-event-db :clear/empty (fn [_ _] {}))
+    (rf/reg-event :clear/seed (fn [{:keys [db]} _] {:db {:counter 7}}))
+    (rf/reg-event :clear/empty (fn [{:keys [db]} _] {:db {}}))
     (rf/dispatch-sync [:clear/seed])
     (let [acc (collect-traces! ::deliberate-clear)]
       (try
@@ -202,7 +202,7 @@
    = to current → the coerced commit is a NO-OP (db-noop), and the
    diagnostic STILL fires (the nil was supplied regardless of the no-op
    outcome). The partition is never nil."
-    (rf/reg-event-db :nilnoop/seed (fn [_ _] {}))
+    (rf/reg-event :nilnoop/seed (fn [{:keys [db]} _] {:db {}}))
     (rf/reg-event-db :nilnoop/return-nil (fn [_ _] nil))
     (rf/dispatch-sync [:nilnoop/seed])
     (let [acc (collect-traces! ::nil-noop)]

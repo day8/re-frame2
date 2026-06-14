@@ -77,7 +77,7 @@
 (deftest destroy-frame-clears-last-inputs-rows-for-destroyed-frame
   (testing "destroying a frame removes the destroyed-frame entry from each flow's last-inputs row"
     (rf/reg-frame :fc/scratch {:doc "scratch frame for last-inputs teardown test"})
-    (rf/reg-event-db :fc/seed (fn [_ _] {:w 3 :h 4}))
+    (rf/reg-event :fc/seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
                   :output (fn [w h] (* w h))
@@ -101,8 +101,8 @@
   (testing "destroying frame A leaves frame B's last-inputs row for the same flow id intact"
     (rf/reg-frame :fc/a {:doc "frame A"})
     (rf/reg-frame :fc/b {:doc "frame B"})
-    (rf/reg-event-db :fc/seed-a (fn [_ _] {:w 2 :h 5}))
-    (rf/reg-event-db :fc/seed-b (fn [_ _] {:w 7 :h 9}))
+    (rf/reg-event :fc/seed-a (fn [{:keys [db]} _] {:db {:w 2 :h 5}}))
+    (rf/reg-event :fc/seed-b (fn [{:keys [db]} _] {:db {:w 7 :h 9}}))
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
                   :output (fn [w h] (* w h))
@@ -215,7 +215,7 @@
                         :output (fn [n] (or n 0))
                         :path   [:result]}
                        {:frame frame-id})
-          (rf/reg-event-db :fc/seed-churn (fn [_ [_ v]] {:n v}))
+          (rf/reg-event :fc/seed-churn (fn [{:keys [db]} [_ v]] {:db {:n v}}))
           (rf/dispatch-sync [:fc/seed-churn i] {:frame frame-id})
           (frame/destroy-frame! frame-id)))
       (is (empty? (flows/flows-snapshot))
@@ -230,7 +230,7 @@
 (deftest reg-frame-after-destroy-starts-clean
   (testing "registering a frame under a reused id after destroy starts with no leftover flow state"
     (rf/reg-frame :fc/scratch {:doc "first incarnation"})
-    (rf/reg-event-db :fc/seed (fn [_ _] {:w 3 :h 4}))
+    (rf/reg-event :fc/seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
                   :output (fn [w h] (* (or w 0) (or h 0)))
@@ -407,7 +407,7 @@
         "reg-flow on the dead frame is rejected")
     ;; Re-register the same id and drive a drain — the stale flow must NOT run.
     (rf/reg-frame :fc/scratch {:doc "second incarnation"})
-    (rf/reg-event-db :fc/set-n (fn [_ [_ v]] {:n v}))
+    (rf/reg-event :fc/set-n (fn [{:keys [db]} [_ v]] {:db {:n v}}))
     (rf/dispatch-sync [:fc/set-n 7] {:frame :fc/scratch})
     (is (not (contains? (flows/flows-snapshot) :fc/scratch))
         "the re-registered frame inherited no flow-registry slot")

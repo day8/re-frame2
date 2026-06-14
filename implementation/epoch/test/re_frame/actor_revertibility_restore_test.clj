@@ -106,7 +106,7 @@
     (rf/reg-machine :rev/parent (parent))
     ;; Seed an epoch that PRE-DATES the spawn (a no-op self-event on a
     ;; trivial handler so there is a clean :ok epoch to rewind to).
-    (rf/reg-event-db :test/noop (fn [db _] (assoc db :seeded true)))
+    (rf/reg-event :test/noop (fn [{:keys [db]} _] {:db (assoc db :seeded true)}))
     (rf/dispatch-sync [:test/noop] {:frame :test/main})
     (let [pre-spawn-epoch (last-epoch-id)]
       ;; Spawn the actor.
@@ -305,7 +305,7 @@
       ;; definition's :rf/machine-type :meta version (the "current" def). This
       ;; mirrors a hot-reload where an inline-spawned actor's definition moved
       ;; forward while an older recorded snapshot is being restored.
-      (rf/reg-event-fx :forge-drift
+      (rf/reg-event :forge-drift
         (fn [{rt :rf.db/runtime} _]
           (let [snap (get-in rt [:rf.runtime/machines :snapshots :rev/child#1])
                 bumped (-> snap

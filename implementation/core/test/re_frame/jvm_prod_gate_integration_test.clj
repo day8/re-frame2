@@ -36,8 +36,8 @@
             retain-N ring buffer. The buffer surface becomes
             inert — no allocation, no append, no storage."
     (with-redefs [interop/debug-enabled? false]
-      (rf/reg-event-db :prod-gate/inc
-                       (fn [db _] (update db :n (fnil inc 0))))
+      (rf/reg-event :prod-gate/inc
+                       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:prod-gate/inc])
       (is (empty? (trace/trace-buffer :rf/default))
           "trace buffer is empty under disabled gate — no event
@@ -53,8 +53,8 @@
         (rf/register-listener!
           :prod-gate/recorder
           (fn [event] (swap! seen conj event)))
-        (rf/reg-event-db :prod-gate/silent
-                         (fn [db _] (update db :n (fnil inc 0))))
+        (rf/reg-event :prod-gate/silent
+                         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
         (rf/dispatch-sync [:prod-gate/silent])
         (rf/unregister-listener! :prod-gate/recorder)
         (is (empty? @seen)
@@ -72,8 +72,8 @@
         (rf/register-event-listener!
           :prod-gate/event-rec
           (fn [record] (swap! seen conj record)))
-        (rf/reg-event-db :prod-gate/observable
-                         (fn [db _] (update db :n (fnil inc 0))))
+        (rf/reg-event :prod-gate/observable
+                         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
         (rf/dispatch-sync [:prod-gate/observable])
         (is (= 1 (count @seen))
             "event-emit substrate fired under disabled debug gate

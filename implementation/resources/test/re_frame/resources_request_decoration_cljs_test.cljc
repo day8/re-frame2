@@ -154,7 +154,7 @@
    :invalidates   (fn [{:keys [slug]} _r] #{[:article slug]})})
 
 (defn- seed-token! [token]
-  (rf/reg-event-db :test/login (fn [db _] (assoc-in db [:auth :token] token)))
+  (rf/reg-event :test/login (fn [{:keys [db]} _] {:db (assoc-in db [:auth :token] token)}))
   (rf/dispatch-sync [:test/login]))
 
 ;; ===========================================================================

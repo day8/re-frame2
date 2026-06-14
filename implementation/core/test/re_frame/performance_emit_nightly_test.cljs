@@ -106,8 +106,8 @@
             `re-frame.router/run-chain`)."
     (when performance/enabled?
       (clear-measures!)
-      (rf/reg-event-db :perf.emit-test/inc
-                       (fn [db _] (update db :n (fnil inc 0))))
+      (rf/reg-event :perf.emit-test/inc
+                       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:perf.emit-test/inc])
       (let [counts (bucket-counts)]
         (is (pos? (get counts "event" 0))
@@ -125,8 +125,8 @@
             is enough for the bracket to fire."
     (when performance/enabled?
       (clear-measures!)
-      (rf/reg-event-db :perf.emit-test/seed
-                       (fn [_ _] {:n 7}))
+      (rf/reg-event :perf.emit-test/seed
+                       (fn [{:keys [db]} _] {:db {:n 7}}))
       (rf/reg-sub :perf.emit-test/n
                   (fn [db _] (:n db)))
       (rf/dispatch-sync [:perf.emit-test/seed])
@@ -155,7 +155,7 @@
       (let [calls (atom [])]
         (rf/reg-fx :perf.emit-test/log
                    (fn [_ctx args] (swap! calls conj args)))
-        (rf/reg-event-fx :perf.emit-test/run-fx
+        (rf/reg-event :perf.emit-test/run-fx
                         (fn [_ctx _event]
                           {:fx [[:perf.emit-test/log :hello]]}))
         (rf/dispatch-sync [:perf.emit-test/run-fx])
@@ -182,7 +182,7 @@
       (let [log-calls (atom [])]
         (rf/reg-fx :perf.emit-test/counter-log
                    (fn [_ctx args] (swap! log-calls conj args)))
-        (rf/reg-event-fx :perf.emit-test/initialise
+        (rf/reg-event :perf.emit-test/initialise
                         (fn [_ctx _event]
                           {:db {:count 5}
                            :fx [[:perf.emit-test/counter-log :initialised]]}))

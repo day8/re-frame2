@@ -86,8 +86,8 @@
      :request       (fn [{:keys [page]} _ctx]
                       {:request {:method :get :url "/feed" :params {:page page}}})
      :tags          (fn [_p _v] #{[:feed]})})
-  (rf/reg-event-db :t/login  (fn [db [_ tenant]] (assoc-in db [:viewer :tenant-id] tenant)))
-  (rf/reg-event-db :t/logout (fn [db _] (update db :viewer dissoc :tenant-id))))
+  (rf/reg-event :t/login  (fn [{:keys [db]} [_ tenant]] {:db (assoc-in db [:viewer :tenant-id] tenant)}))
+  (rf/reg-event :t/logout (fn [{:keys [db]} _] {:db (update db :viewer dissoc :tenant-id)})))
 
 (use-fixtures :each
   (core-test-support/make-reset-runtime-fixture

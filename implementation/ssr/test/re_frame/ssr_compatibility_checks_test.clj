@@ -47,7 +47,7 @@
 
 (deftest check-version-matching-is-silent
   (testing "matching expected + actual → no :rf.ssr/version-mismatch trace"
-    (rf/reg-event-fx ::probe-check-version-match
+    (rf/reg-event ::probe-check-version-match
       {:platforms #{:client}}
       (fn [_ _]
         ;; rf2-g00l2t: :rf/version is canonically an INTEGER pattern-
@@ -67,7 +67,7 @@
 
 (deftest check-version-mismatch-emits-trace
   (testing "differing expected + actual → :rf.ssr/version-mismatch warning trace"
-    (rf/reg-event-fx ::probe-check-version-mismatch
+    (rf/reg-event ::probe-check-version-mismatch
       {:platforms #{:client}}
       (fn [_ _]
         {:fx [[:rf.ssr/check-version {:expected 1 :actual 2}]]}))
@@ -103,7 +103,7 @@
 
 (deftest check-schema-digest-matching-is-silent
   (testing "matching expected + actual → no :rf.ssr/schema-digest-mismatch trace"
-    (rf/reg-event-fx ::probe-check-digest-match
+    (rf/reg-event ::probe-check-digest-match
       {:platforms #{:client}}
       (fn [_ _]
         {:fx [[:rf.ssr/check-schema-digest
@@ -122,7 +122,7 @@
 
 (deftest check-schema-digest-mismatch-emits-trace
   (testing "differing expected + actual → :rf.ssr/schema-digest-mismatch warning trace"
-    (rf/reg-event-fx ::probe-check-digest-mismatch
+    (rf/reg-event ::probe-check-digest-mismatch
       {:platforms #{:client}}
       (fn [_ _]
         {:fx [[:rf.ssr/check-schema-digest
@@ -161,7 +161,7 @@
 
 (deftest check-version-scalar-with-no-hook-emits-skipped
   (testing "scalar form + absent :rf2/runtime-version hook → :rf.ssr/compatibility-check-skipped"
-    (rf/reg-event-fx ::probe-check-version-scalar-no-hook
+    (rf/reg-event ::probe-check-version-scalar-no-hook
       {:platforms #{:client}}
       (fn [_ _]
         {:fx [[:rf.ssr/check-version 1]]}))
@@ -190,7 +190,7 @@
     ;; remove after to keep the hook table clean for the next test.
     (late-bind/set-fn! :rf2/runtime-version (constantly 2))
     (try
-      (rf/reg-event-fx ::probe-check-version-scalar-with-hook
+      (rf/reg-event ::probe-check-version-scalar-with-hook
         {:platforms #{:client}}
         (fn [_ _]
           {:fx [[:rf.ssr/check-version 1]]}))
@@ -223,7 +223,7 @@
     (let [prior-hook (late-bind/get-fn :schemas/app-schemas-digest)]
       (swap! late-bind/hooks dissoc :schemas/app-schemas-digest)
       (try
-        (rf/reg-event-fx ::probe-check-digest-scalar-no-hook
+        (rf/reg-event ::probe-check-digest-scalar-no-hook
           {:platforms #{:client}}
           (fn [_ _]
             {:fx [[:rf.ssr/check-schema-digest "sha256:deadbeefcafef00d"]]}))

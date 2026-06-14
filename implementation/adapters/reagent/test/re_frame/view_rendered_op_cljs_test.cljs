@@ -84,7 +84,7 @@
       ;; Render INSIDE a dispatched event so the in-flight cascade
       ;; buffer has the :event/run-start the attribution walk consumes.
       (let [render (rf/view :rf2-25zo2/with-cause)]
-        (rf/reg-event-fx :rf2-25zo2/render-during-cascade
+        (rf/reg-event :rf2-25zo2/render-during-cascade
           (fn [_ _]
             (render)
             {}))
@@ -113,7 +113,7 @@
         [:span "x"])
 
       (let [render (rf/view :rf2-25zo2/with-upstream-sub)]
-        (rf/reg-event-fx :rf2-25zo2/cascade-with-sub
+        (rf/reg-event :rf2-25zo2/cascade-with-sub
           (fn [_ _]
             ;; Run a sub from inside the handler so :rf.sub/run lands in
             ;; the cascade buffer BEFORE the render emits.
@@ -212,7 +212,7 @@
                                      :shape :by-op}]
       (rf/reg-sub :rf2-hhh92/n (fn [_ _] 42))
       ;; A fresh subscribe forces the body's first recompute → :rf.sub/run.
-      (rf/reg-event-fx :rf2-hhh92/touch-sub
+      (rf/reg-event :rf2-hhh92/touch-sub
         (fn [_ _]
           @(rf/subscribe [:rf2-hhh92/n])
           {}))
@@ -245,7 +245,7 @@
       ;; then render the view (its deref-sink records [:rf2-8wrzz1/n]). The
       ;; intersection resolves :triggered-by to the changed own-sub.
       (let [render (rf/view :rf2-8wrzz1/reader)]
-        (rf/reg-event-fx :rf2-8wrzz1/run-then-render
+        (rf/reg-event :rf2-8wrzz1/run-then-render
           (fn [_ _]
             @(rf/subscribe [:rf2-8wrzz1/n])
             (render)

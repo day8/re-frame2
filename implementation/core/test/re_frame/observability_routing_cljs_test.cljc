@@ -76,9 +76,9 @@
                             :rf.egress/profile :rf.egress/off-box-observability
                             :opts {:service "checkout-spa"}}]}
          :sensitive {:app-db [[:auth :token]]}})
-      (rf/reg-event-db :auth/login
+      (rf/reg-event :auth/login
                        {:frame :obs/main}
-                       (fn [db _] (assoc-in db [:auth :token] "super-secret")))
+                       (fn [{:keys [db]} _] {:db (assoc-in db [:auth :token] "super-secret")}))
       (rf/dispatch-sync [:auth/login {:password "hunter2"}] {:frame :obs/main})
       (is (= 1 (count @seen)) "the declared sink fired exactly once")
       (let [r (first @seen)]

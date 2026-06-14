@@ -225,7 +225,7 @@
   (testing (str name " — MUST (1): dispose clears sub-caches across live frames")
     (let [fid (mint-kw substrate-kw "walk-a")]
       (rf/reg-frame fid {})
-      (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
       (rf/reg-sub :n (fn [db _] (:n db)))
       (rf/dispatch-sync [:seed] {:frame fid})
       (let [r-a (rf/subscribe fid [:n])]
@@ -260,7 +260,7 @@
           fid-b (mint-kw substrate-kw "best-effort-b")]
       (rf/reg-frame fid-a {})
       (rf/reg-frame fid-b {})
-      (rf/reg-event-db :seed (fn [_ _] {:n 1}))
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
       (rf/reg-sub :n (fn [db _] (:n db)))
       (rf/dispatch-sync [:seed] {:frame fid-a})
       (rf/dispatch-sync [:seed] {:frame fid-b})
@@ -937,7 +937,7 @@
         (is (= "Superset form." (:doc meta)))
         (is (= [:test/noop :rf/db-handler] (mapv :id (:interceptors meta))))))
     (testing (str name " — reg-event-fx metadata-map :interceptors threads the chain")
-      (rf/reg-event-fx fx-id
+      (rf/reg-event fx-id
         {:interceptors [noop-icpt]}
         (fn [_ _] {:db {}}))
       (is (= [:test/noop :rf/fx-handler]
@@ -1214,7 +1214,7 @@
                     {:path     art-path
                      :params   [:map [:id :string]]
                      :on-match [[load-ev]]})
-      (rf/reg-event-db load-ev (fn [db _] (assoc db :article-loaded? true)))
+      (rf/reg-event load-ev (fn [{:keys [db]} _] {:db (assoc db :article-loaded? true)}))
       ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
       (subs/reg-runtime-sub id-sub     (fn [rt _] (get-in rt [:rf.runtime/routing :current :route-id])))
       (subs/reg-runtime-sub params-sub (fn [rt _] (get-in rt [:rf.runtime/routing :current :params])))
@@ -1277,8 +1277,8 @@
   "dispatch-sync runs an event-db handler under the installed adapter."
   [{:keys [name]}]
   (testing (str name " — dispatch-sync runs an event-db handler")
-    (rf/reg-event-db :counter/init (fn [_ _] {:n 0}))
-    (rf/reg-event-db :counter/inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :counter/init (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :counter/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/dispatch-sync [:counter/init])
     (rf/dispatch-sync [:counter/inc])
     (rf/dispatch-sync [:counter/inc])
@@ -1288,7 +1288,7 @@
   "layer-1 + layer-2 subs return computed values under the adapter."
   [{:keys [name]}]
   (testing (str name " — layer-1 + layer-2 subs return computed values")
-    (rf/reg-event-db :seed (fn [_ _] {:items [10 20 30]}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items [10 20 30]}}))
     (rf/reg-sub :items     (fn [db _] (:items db)))
     (rf/reg-sub :item-sum  :<- [:items] (fn [items _] (reduce + items)))
     (rf/dispatch-sync [:seed])
@@ -1314,7 +1314,7 @@
   [{:keys [name]}]
   (testing (str name " — frame-bound-fn captures the current frame")
     (rf/reg-frame :side {:doc "side frame"})
-    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
+    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/dispatch-sync [:seed 99] {:frame :side})
     (let [captured (with-frame :side (frame-bound-fn [] (rf/current-frame-id)))]
       (is (= :rf/default (rf/current-frame-id)))
@@ -1326,8 +1326,8 @@
   (testing (str name " — two frames carry independent app-db state")
     (rf/reg-frame :left  {:doc "left frame"})
     (rf/reg-frame :right {:doc "right frame"})
-    (rf/reg-event-db :counter/init (fn [_ [_ n]] {:count n}))
-    (rf/reg-event-db :counter/inc  (fn [db _] (update db :count inc)))
+    (rf/reg-event :counter/init (fn [{:keys [db]} [_ n]] {:db {:count n}}))
+    (rf/reg-event :counter/inc  (fn [{:keys [db]} _] {:db (update db :count inc)}))
     (rf/reg-sub :count (fn [db _] (:count db)))
     (rf/dispatch-sync [:counter/init 10] {:frame :left})
     (rf/dispatch-sync [:counter/init 100] {:frame :right})
@@ -1343,8 +1343,8 @@
   spine's make-derived-value (IDeref+IWatchable), NOT a Reagent reaction."
   [{:keys [name]}]
   (testing (str name " — a subscription's deref reflects post-event state")
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
     (let [r (rf/subscribe [:n])]
@@ -1360,7 +1360,7 @@
   "Re-registering a sub flips the next subscribe-once to the new body."
   [{:keys [name]}]
   (testing (str name " — re-registering a sub flips the next subscribe-once")
-    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :answer (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
     (is (= 7 (rf/subscribe-once [:answer])))
@@ -1388,7 +1388,7 @@
   nil under :replaced-with-default recovery."
   [{:keys [name]}]
   (testing (str name " — a throwing sub recovers to nil + emits :rf.error/sub-exception")
-    (rf/reg-event-db :init (fn [_ _] {:items "broken"}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:items "broken"}}))
     (rf/reg-sub :items (fn [db _] (:items db)))
     ;; Deliberate broken sub: `items` resolves to the string "broken",
     ;; which has no `.something` method, so the call throws a TypeError
@@ -1450,7 +1450,7 @@
       (rf/reg-sub n-sub (fn [_ _] 1))
       (rf/reg-view* view-id (fn [] (React/createElement "span" #js {} "x")))
       (let [render (rf/view view-id)]
-        (rf/reg-event-fx cascade-ev
+        (rf/reg-event cascade-ev
           (fn [_ _]
             @(rf/subscribe [n-sub])
             (render)
@@ -1730,7 +1730,7 @@
   without tripping the dev runtime-write diagnostic (it keys on the same
   `:rf/machine? true` marker the machine registrar mints)."
   [id f]
-  (rf/reg-event-fx id {:doc "framework-authority" :rf/machine? true} f))
+  (rf/reg-event id {:doc "framework-authority" :rf/machine? true} f))
 
 (defn assert-runtime-only-commit-does-not-rerun-app-subs
   "(1) A runtime-only commit recomputes the app-db projection, finds it
@@ -1747,7 +1747,7 @@
           rt-id   (mint-kw substrate-kw "inval-app-touch-rt")
           runs    (atom 0)]
       (rf/reg-frame fid {})
-      (rf/reg-event-db seed-id (fn [_ _] {:n 1}))
+      (rf/reg-event seed-id (fn [{:keys [db]} _] {:db {:n 1}}))
       (rf/dispatch-sync [seed-id] {:frame fid})
       (rf/reg-sub app-id (fn [db _] (swap! runs inc) (:n db)))
       (let [r (rf/subscribe fid [app-id])]
@@ -1792,7 +1792,7 @@
         (is (= :home @r) "precondition: runtime-db sub primes to the seeded route id")
         (let [after-prime @runs]
           ;; App-only commit: replaces app-db, leaves runtime-db `=`.
-          (rf/reg-event-db app-id (fn [db _] (assoc db :touched? true)))
+          (rf/reg-event app-id (fn [{:keys [db]} _] {:db (assoc db :touched? true)}))
           (rf/dispatch-sync [app-id] {:frame fid})
           (is (= :home @r) "the runtime-db sub still derefs to the unchanged route id")
           (is (= after-prime @runs)
@@ -1820,7 +1820,7 @@
           app-runs  (atom 0)
           rt-runs   (atom 0)]
       (rf/reg-frame fid {})
-      (rf/reg-event-db seed-app (fn [_ _] {:n 1}))
+      (rf/reg-event seed-app (fn [{:keys [db]} _] {:db {:n 1}}))
       (rf/dispatch-sync [seed-app] {:frame fid})
       (reg-fw-runtime-handler! seed-rt
         (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 1}}}))
@@ -1835,7 +1835,7 @@
         (let [app-baseline @app-runs
               rt-baseline  @rt-runs]
           ;; Real app-db change.
-          (rf/reg-event-db app-write (fn [db _] (update db :n inc)))
+          (rf/reg-event app-write (fn [{:keys [db]} _] {:db (update db :n inc)}))
           (rf/dispatch-sync [app-write] {:frame fid})
           (is (= 2 @ra) "the app sub re-derived to the new app-db value")
           (is (= (inc app-baseline) @app-runs)
@@ -1922,7 +1922,7 @@
   "canned-success stub dispatches a default reply (Spec 014)."
   [{:keys [name]}]
   (testing (str name " — canned-success default reply addressing")
-    (rf/reg-event-fx :article/load
+    (rf/reg-event :article/load
       (fn [_ [_ msg]]
         (if-let [reply (:rf/reply msg)]
           (case (:kind reply)
@@ -1939,11 +1939,11 @@
   "Explicit :on-failure routes the failure reply to the named handler."
   [{:keys [name]}]
   (testing (str name " — canned-failure explicit :on-failure")
-    (rf/reg-event-fx :auth/login
+    (rf/reg-event :auth/login
       (fn [_ _]
         {:fx [[:rf.http/managed
                {:request {:method :post :url "/auth/login"} :on-failure [:auth/login-error]}]]}))
-    (rf/reg-event-db :auth/login-error (fn [db [_ payload]] (assoc db :auth-error payload)))
+    (rf/reg-event :auth/login-error (fn [{:keys [db]} [_ payload]] {:db (assoc db :auth-error payload)}))
     (rf/dispatch-sync [:auth/login]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
     (let [db (rf/app-db-value :rf/default)]
@@ -1955,11 +1955,11 @@
   "Explicit :on-success routes the success reply to the named handler."
   [{:keys [name]}]
   (testing (str name " — canned-success explicit :on-success")
-    (rf/reg-event-fx :article/load
+    (rf/reg-event :article/load
       (fn [_ _]
         {:fx [[:rf.http/managed
                {:request {:method :get :url "/articles/hello"} :on-success [:article/loaded]}]]}))
-    (rf/reg-event-db :article/loaded (fn [db [_ payload]] (assoc db :article payload)))
+    (rf/reg-event :article/loaded (fn [{:keys [db]} [_ payload]] {:db (assoc db :article payload)}))
     (rf/dispatch-sync [:article/load]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
     (let [db (rf/app-db-value :rf/default)]
@@ -1971,7 +1971,7 @@
   [{:keys [name]}]
   (testing (str name " — :on-success nil swallows the reply")
     (let [seen (atom 0)]
-      (rf/reg-event-fx :ping
+      (rf/reg-event :ping
         (fn [_ _]
           (swap! seen inc)
           {:fx [[:rf.http/managed {:request {:url "/ping"} :on-success nil}]]}))
@@ -1983,7 +1983,7 @@
   "with-managed-request-stubs* installs a per-call fx."
   [{:keys [name]}]
   (testing (str name " — with-managed-request-stubs* installs a per-call fx")
-    (rf/reg-event-fx :articles/list
+    (rf/reg-event :articles/list
       (fn [_ [_ msg]]
         (if-let [reply (:rf/reply msg)]
           {:db {:result reply}}
@@ -2005,7 +2005,7 @@
   {:reply {:failure ...}}."
   [{:keys [name]}]
   (testing (str name " — with-managed-request-stubs* failure mapping")
-    (rf/reg-event-fx :articles/list
+    (rf/reg-event :articles/list
       (fn [_ [_ msg]]
         (if-let [reply (:rf/reply msg)]
           {:db {:result reply}}
@@ -2025,7 +2025,7 @@
   "Managed requests issued from frame A reply into frame A's app-db."
   [{:keys [name]}]
   (testing (str name " — managed requests reply into the issuing frame's app-db")
-    (rf/reg-event-fx :article/load
+    (rf/reg-event :article/load
       (fn [_ [_ msg]]
         (if-let [reply (:rf/reply msg)]
           {:db {:article (:value reply)}}
@@ -2058,7 +2058,7 @@
   (testing (str name " — #1 frame disposal with active machine instances")
     (rf/reg-frame :tenant-x {:doc "tenant frame with two machines"})
     ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
-    (rf/reg-event-fx :seed
+    (rf/reg-event :seed
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/machines :snapshots]
                                   {:flow/login    {:state :authed  :data {}}
@@ -2078,7 +2078,7 @@
   "#2 Sub-cache hit inside a machine microstep."
   [{:keys [name]}]
   (testing (str name " — #2 sub-cache hit inside a machine microstep")
-    (rf/reg-event-db :seed (fn [_ _] {:user/role :admin}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:user/role :admin}}))
     (rf/reg-sub :user-role (fn [db _] (:user/role db)))
     (rf/dispatch-sync [:seed])
     (let [observed-by-action (atom nil)
@@ -2096,7 +2096,7 @@
   "#3 Machine spawn at boot before substrate adapter ready."
   [{:keys [name]}]
   (testing (str name " — #3 machine spawn at boot before adapter ready")
-    (rf/reg-event-fx :init-shape
+    (rf/reg-event :init-shape
       (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:snapshots {:flow/boot {:state :armed :data {}}}}}}))
     ;; EP-0002 (rf2-9o48ih): the reset-runtime fixture establishes an ambient
     ;; `*current-frame*` :rf/default scope. `reg-frame`'s `:on-create` dispatch
@@ -2158,7 +2158,7 @@
   "#11 Machine action throws."
   [{:keys [name]}]
   (testing (str name " — #11 machine action throws")
-    (rf/reg-event-db :seed-state (fn [_ _] {:val :before}))
+    (rf/reg-event :seed-state (fn [{:keys [db]} _] {:db {:val :before}}))
     (rf/dispatch-sync [:seed-state])
     (let [machine {:initial :idle :data {}
                    :states  {:idle {:on {:bang {:target :angry :action :boom}}} :angry {}}
@@ -2220,8 +2220,8 @@
   [{:keys [name]}]
   (testing (str name " — #14 re-entrant dispatch-sync from inside a handler")
     (let [traces (collect-traces ::xspec-14)]
-      (rf/reg-event-db :outer (fn [db _] (assoc db :ran? true)))
-      (rf/reg-event-fx :nested (fn [_ _] (rf/dispatch-sync [:outer]) {}))
+      (rf/reg-event :outer (fn [{:keys [db]} _] {:db (assoc db :ran? true)}))
+      (rf/reg-event :nested (fn [_ _] (rf/dispatch-sync [:outer]) {}))
       (rf/dispatch-sync [:nested])
       (stop-traces ::xspec-14)
       (is (some (fn [ev] (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
@@ -2253,7 +2253,7 @@
   [{:keys [name]}]
   (testing (str name " — #16 error projection on the server")
     (rf/reg-frame :req {:preset :ssr-server})
-    (rf/reg-event-fx :handler-throws (fn [_ _] (throw (ex-info "boom" {}))))
+    (rf/reg-event :handler-throws (fn [_ _] (throw (ex-info "boom" {}))))
     (let [traces (collect-traces ::xspec-16)]
       (rf/dispatch-sync [:handler-throws] {:frame :req})
       (stop-traces ::xspec-16)
@@ -2272,7 +2272,7 @@
   "#18 Re-registering a sub mid-cascade."
   [{:keys [name]}]
   (testing (str name " — #18 re-registering a sub mid-cascade")
-    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :answer (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
     (is (= 7 (rf/subscribe-once [:answer])) "the v1 sub computes from app-db")
@@ -2289,7 +2289,7 @@
       (rf/reg-fx :http             (fn [_ args] (swap! seen conj [:real-http args])))
       (rf/reg-fx :rf.test/http-stub (fn [_ args] (swap! seen conj [:stub args])))
       (rf/reg-frame :story-frame {:fx-overrides {:http :rf.test/http-stub}})
-      (rf/reg-event-fx :go (fn [_ _] {:fx [[:http {:url "/x"}]]}))
+      (rf/reg-event :go (fn [_ _] {:fx [[:http {:url "/x"}]]}))
       (rf/dispatch-sync [:go] {:frame :story-frame})
       (is (= [[:stub {:url "/x"}]] @seen)
           "the id-valued override redirected :http → :rf.test/http-stub"))))
@@ -2434,7 +2434,7 @@
     (frame/ensure-default-frame!)
     (rf/reg-frame tenant-a {:doc "tenant-a frame"})
     (rf/reg-frame tenant-b {:doc "tenant-b frame"})
-    (rf/reg-event-db seed (fn [_ [_ marker]] {:marker marker :received []}))
+    (rf/reg-event seed (fn [{:keys [db]} [_ marker]] {:db {:marker marker :received []}}))
     (rf/dispatch-sync [seed :rf/default] {:frame :rf/default})
     (rf/dispatch-sync [seed :tenant-a]  {:frame tenant-a})
     (rf/dispatch-sync [seed :tenant-b]  {:frame tenant-b})
@@ -2450,8 +2450,8 @@
     (let [{:keys [tenant-a]} (dfc-seed-frames! substrate-kw)
           parent (mint-kw substrate-kw "dfc-parent")
           landed (mint-kw substrate-kw "dfc-landed")]
-      (rf/reg-event-fx parent (fn [_ _] (rf/dispatch [landed]) {}))
-      (rf/reg-event-db landed (fn [db _] (update db :received (fnil conj []) :landed-sync)))
+      (rf/reg-event parent (fn [_ _] (rf/dispatch [landed]) {}))
+      (rf/reg-event landed (fn [{:keys [db]} _] {:db (update db :received (fnil conj []) :landed-sync)}))
       (rf/dispatch-sync [parent] {:frame tenant-a})
       (is (= [:landed-sync] (dfc-received tenant-a))
           "the :landed event must land on tenant-a, not :rf/default")
@@ -2465,8 +2465,8 @@
     (let [{:keys [tenant-a]} (dfc-seed-frames! substrate-kw)
           parent (mint-kw substrate-kw "dfc-parent-fx")
           landed (mint-kw substrate-kw "dfc-landed-fx")]
-      (rf/reg-event-fx parent (fn [_ _] {:fx [[:dispatch [landed]]]}))
-      (rf/reg-event-db landed (fn [db _] (update db :received (fnil conj []) :landed-fx)))
+      (rf/reg-event parent (fn [_ _] {:fx [[:dispatch [landed]]]}))
+      (rf/reg-event landed (fn [{:keys [db]} _] {:db (update db :received (fnil conj []) :landed-fx)}))
       (rf/dispatch-sync [parent] {:frame tenant-a})
       (is (= [:landed-fx] (dfc-received tenant-a))
           ":fx [[:dispatch ...]] threads the frame through fx/do-fx — lands on tenant-a")
@@ -2480,8 +2480,8 @@
     (let [{:keys [tenant-a tenant-b]} (dfc-seed-frames! substrate-kw)
           fan  (mint-kw substrate-kw "dfc-fan")
           leaf (mint-kw substrate-kw "dfc-leaf")]
-      (rf/reg-event-fx fan (fn [_ [_ payload]] (rf/dispatch [leaf payload]) {}))
-      (rf/reg-event-db leaf (fn [db [_ payload]] (update db :received (fnil conj []) payload)))
+      (rf/reg-event fan (fn [_ [_ payload]] (rf/dispatch [leaf payload]) {}))
+      (rf/reg-event leaf (fn [{:keys [db]} [_ payload]] {:db (update db :received (fnil conj []) payload)}))
       (rf/dispatch-sync [fan :a-payload] {:frame tenant-a})
       (rf/dispatch-sync [fan :b-payload] {:frame tenant-b})
       (is (= [:a-payload] (dfc-received tenant-a)) "tenant-a only sees its own :a-payload")
@@ -2505,7 +2505,7 @@
           defer  (mint-kw substrate-kw "dfc-defer-raw")
           landed (mint-kw substrate-kw "dfc-landed-raw")
           raised (atom nil)]
-      (rf/reg-event-fx defer
+      (rf/reg-event defer
         (fn [_ _]
           (js/setTimeout
             (fn []
@@ -2516,7 +2516,7 @@
                    (catch :default e (reset! raised (:rf.error/id (ex-data e))))))
             0)
           {}))
-      (rf/reg-event-db landed (fn [db _] (update db :received (fnil conj []) :landed-raw)))
+      (rf/reg-event landed (fn [{:keys [db]} _] {:db (update db :received (fnil conj []) :landed-raw)}))
       (rf/dispatch-sync [defer] {:frame tenant-a})
       (js/setTimeout
         (fn []
@@ -2540,9 +2540,9 @@
     (let [{:keys [tenant-a]} (dfc-seed-frames! substrate-kw)
           parent (mint-kw substrate-kw "dfc-parent-later")
           landed (mint-kw substrate-kw "dfc-landed-later")]
-      (rf/reg-event-fx parent
+      (rf/reg-event parent
         (fn [_ _] {:fx [[:dispatch-later {:ms 0 :event [landed]}]]}))
-      (rf/reg-event-db landed (fn [db _] (update db :received (fnil conj []) :landed-later)))
+      (rf/reg-event landed (fn [{:keys [db]} _] {:db (update db :received (fnil conj []) :landed-later)}))
       (rf/dispatch-sync [parent] {:frame tenant-a})
       (js/setTimeout
         (fn []
@@ -2563,12 +2563,12 @@
     (let [{:keys [tenant-a]} (dfc-seed-frames! substrate-kw)
           parent (mint-kw substrate-kw "dfc-parent-bound")
           landed (mint-kw substrate-kw "dfc-landed-bound")]
-      (rf/reg-event-fx parent
+      (rf/reg-event parent
         (fn [_ _]
           (let [d (:dispatch (rf/frame-handle))]
             (js/setTimeout (fn [] (d [landed])) 0))
           {}))
-      (rf/reg-event-db landed (fn [db _] (update db :received (fnil conj []) :landed-bound)))
+      (rf/reg-event landed (fn [{:keys [db]} _] {:db (update db :received (fnil conj []) :landed-bound)}))
       (rf/dispatch-sync [parent] {:frame tenant-a})
       (js/setTimeout
         (fn []
@@ -2931,8 +2931,8 @@
       (reset! probe-observed [])
       (reset! refcount-target us-frame)
       (rf/reg-frame us-frame {:doc "use-subscribe probe frame"})
-      (rf/reg-event-db ::us-seed (fn [_ _] {:n 1}))
-      (rf/reg-event-db ::us-inc  (fn [db _] (update db :n inc)))
+      (rf/reg-event ::us-seed (fn [{:keys [db]} _] {:db {:n 1}}))
+      (rf/reg-event ::us-inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
       (rf/dispatch-sync [::us-seed] {:frame us-frame})
       (rf/reg-sub us-query (fn [db _] (:n db)))
       (let [mount-node (make-mount-node!)
@@ -2991,8 +2991,8 @@
             (enable-react-act-env!)
             (reset! refcount-target fr-frame)
             (rf/reg-frame fr-frame {:doc "flush-render! synchronous-commit probe frame"})
-            (rf/reg-event-db ::fr-seed (fn [_ _] {:n 1}))
-            (rf/reg-event-db ::fr-inc  (fn [db _] (update db :n inc)))
+            (rf/reg-event ::fr-seed (fn [{:keys [db]} _] {:db {:n 1}}))
+            (rf/reg-event ::fr-inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
             (rf/dispatch-sync [::fr-seed] {:frame fr-frame})
             (rf/reg-sub fr-query (fn [db _] (:n db)))
             (let [mount-node (make-mount-node!)
@@ -3066,7 +3066,7 @@
       (binding [frame/*current-frame* nil]
         (reset! probe-frame-provider-observed [])
         (rf/reg-frame frame-provider-frame {:doc "use-subscribe frame-provider probe frame"})
-        (rf/reg-event-db ::frame-provider-seed (fn [_ _] {:k :wrapped}))
+        (rf/reg-event ::frame-provider-seed (fn [{:keys [db]} _] {:db {:k :wrapped}}))
         (rf/dispatch-sync [::frame-provider-seed] {:frame frame-provider-frame})
         (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
         (let [mount-node (make-mount-node!)
@@ -3105,7 +3105,7 @@
       (reset! probe-2arg-b-observed [])
       (rf/reg-frame tenant-a-frame {:doc "tenant-a"})
       (rf/reg-frame tenant-b-frame {:doc "tenant-b"})
-      (rf/reg-event-db ::explicit-pin-seed (fn [_ [_ n]] {:n n}))
+      (rf/reg-event ::explicit-pin-seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
       (rf/dispatch-sync [::explicit-pin-seed 10]  {:frame tenant-a-frame})
       (rf/dispatch-sync [::explicit-pin-seed 100] {:frame tenant-b-frame})
       (rf/reg-sub explicit-pin-query (fn [db _] (:n db)))
@@ -3182,7 +3182,7 @@
       (binding [frame/*current-frame* nil]
         (reset! probe-frame-provider-observed [])
         (rf/reg-frame provider-tier-frame {:doc "rf2-4mi2zj provider-tier (ambient cleared) frame"})
-        (rf/reg-event-db ::provider-tier-seed (fn [_ _] {:k :from-provider}))
+        (rf/reg-event ::provider-tier-seed (fn [{:keys [db]} _] {:db {:k :from-provider}}))
         (rf/dispatch-sync [::provider-tier-seed] {:frame provider-tier-frame})
         (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
         (let [mount-node (make-mount-node!)
@@ -3234,7 +3234,7 @@
       (reset! probe-frame-provider-observed [])
       (rf/reg-frame dynamic-precedence-provider-frame {:doc "rf2-4mi2zj provider (precedence loser)"})
       (rf/reg-frame dynamic-precedence-dynamic-frame  {:doc "rf2-4mi2zj dynamic-var (precedence winner)"})
-      (rf/reg-event-db ::precedence-seed (fn [_ [_ v]] {:k v}))
+      (rf/reg-event ::precedence-seed (fn [{:keys [db]} [_ v]] {:db {:k v}}))
       (rf/dispatch-sync [::precedence-seed :from-provider] {:frame dynamic-precedence-provider-frame})
       (rf/dispatch-sync [::precedence-seed :from-dynamic]  {:frame dynamic-precedence-dynamic-frame})
       (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
@@ -3334,7 +3334,7 @@
      (fn [act-fn]
       (reset! refcount-target rc-frame)
       (rf/reg-frame rc-frame {:doc "refcount probe frame"})
-      (rf/reg-event-db ::rc-seed (fn [_ _] {:m 0}))
+      (rf/reg-event ::rc-seed (fn [{:keys [db]} _] {:db {:m 0}}))
       (rf/dispatch-sync [::rc-seed] {:frame rc-frame})
       (rf/reg-sub rc-query (fn [db _] (:m db)))
       (let [cache-key-v [rc-query]
@@ -3401,8 +3401,8 @@
       (reset! siblings-observed-b [])
       (reset! refcount-target sib-frame)
       (rf/reg-frame sib-frame {:doc "rf2-e4pyb sibling-collision probe frame"})
-      (rf/reg-event-db ::sib-seed (fn [_ _] {:n 1}))
-      (rf/reg-event-db ::sib-inc  (fn [db _] (update db :n inc)))
+      (rf/reg-event ::sib-seed (fn [{:keys [db]} _] {:db {:n 1}}))
+      (rf/reg-event ::sib-inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
       (rf/dispatch-sync [::sib-seed] {:frame sib-frame})
       (rf/reg-sub sib-query (fn [db _] (:n db)))
       (let [cache-key-v [sib-query]
@@ -3455,7 +3455,7 @@
      (fn [act-fn]
       (reset! stable-deps-set-tick nil)
       (rf/reg-frame stable-deps-frame {:doc "rf2-mwft2 stable-deps probe frame"})
-      (rf/reg-event-db ::stable-deps-seed (fn [_ _] {:p 0}))
+      (rf/reg-event ::stable-deps-seed (fn [{:keys [db]} _] {:db {:p 0}}))
       (rf/dispatch-sync [::stable-deps-seed] {:frame stable-deps-frame})
       (rf/reg-sub stable-deps-query (fn [db _] (:p db)))
       (let [subscribe-calls   (atom 0)
@@ -3577,7 +3577,7 @@
      (fn [act-fn]
       (reset! refcount-target rc-frame)
       (rf/reg-frame rc-frame {:doc "rf2-nymuy StrictMode refcount probe frame"})
-      (rf/reg-event-db ::sm-seed (fn [_ _] {:m 7}))
+      (rf/reg-event ::sm-seed (fn [{:keys [db]} _] {:db {:m 7}}))
       (rf/dispatch-sync [::sm-seed] {:frame rc-frame})
       (rf/reg-sub rc-query (fn [db _] (:m db)))
       (let [subscribe-calls   (atom 0)
@@ -3695,7 +3695,7 @@
      (fn [act-fn]
       (reset! refcount-target rc-frame)
       (rf/reg-frame rc-frame {:doc "rf2-8u8tx.2 memo-recompute refcount probe frame"})
-      (rf/reg-event-db ::mr-seed (fn [_ _] {:m 0}))
+      (rf/reg-event ::mr-seed (fn [{:keys [db]} _] {:db {:m 0}}))
       (rf/dispatch-sync [::mr-seed] {:frame rc-frame})
       (rf/reg-sub rc-query (fn [db _] (:m db)))
       (let [cache-key-v [rc-query]
@@ -3755,7 +3755,7 @@
      (fn [act-fn]
       (reset! refcount-target rc-frame)
       (rf/reg-frame rc-frame {:doc "rf2-879fe abandoned-render refcount probe frame"})
-      (rf/reg-event-db ::ar-seed (fn [_ _] {:m 0}))
+      (rf/reg-event ::ar-seed (fn [{:keys [db]} _] {:db {:m 0}}))
       (rf/dispatch-sync [::ar-seed] {:frame rc-frame})
       (rf/reg-sub rc-query (fn [db _] (:m db)))
       (let [cache-key-v   [rc-query]
@@ -3820,7 +3820,7 @@
      (fn [act-fn]
       (reset! stable-deps-set-tick nil)
       (rf/reg-frame stable-deps-frame {:doc "rf2-gizlj arity probe frame"})
-      (rf/reg-event-db ::gizlj-seed (fn [_ _] {:p 0}))
+      (rf/reg-event ::gizlj-seed (fn [{:keys [db]} _] {:db {:p 0}}))
       (rf/dispatch-sync [::gizlj-seed] {:frame stable-deps-frame})
       (rf/reg-sub stable-deps-query (fn [db _] (:p db)))
       (let [unsubscribe-arg-counts (atom [])

@@ -258,9 +258,9 @@
 (defn- register-one-of-each! []
   ;; the seed event for the whole-value law (registered per-test, inside the
   ;; fixture's restored registrar baseline).
-  (rf/reg-event-db ::seed-cart
-                   (fn [db [_ items]]
-                     (assoc-in db [:cart :items] items)))
+  (rf/reg-event ::seed-cart
+                   (fn [{:keys [db]} [_ items]]
+                     {:db (assoc-in db [:cart :items] items)}))
   ;; :subs — a layer-1 `:db` reader, a static `:<-` derivation over it (the
   ;; :input edge source carrying the shared sum-cart fn), a PARAMETRIC
   ;; input-fn sub (the don't-execute / parametric-marker subject), and a

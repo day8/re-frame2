@@ -67,7 +67,7 @@
 
 (deftest trace-buffer-appends-events-as-cascades
   (testing "every emit lands in its frame's ring, grouped by :dispatch-id"
-    (rf/reg-event-db :ping (fn [db _] (assoc db :seen? true)))
+    (rf/reg-event :ping (fn [{:keys [db]} _] {:db (assoc db :seen? true)}))
     (rf/dispatch-sync [:ping])
     (let [cascades (rf/trace-buffer :rf/default)]
       (is (vector? cascades) "trace-buffer returns a vector")
@@ -500,8 +500,8 @@
     (is (nil? (get-in ev [:tags :rf.trace/parent-dispatch-id])))))
 
 (deftest fx-dispatch-inherits-parent-dispatch-id
-  (rf/reg-event-fx :outer (fn [_ _] {:fx [[:dispatch [:inner]]]}))
-  (rf/reg-event-db :inner (fn [db _] (assoc db :inner? true)))
+  (rf/reg-event :outer (fn [_ _] {:fx [[:dispatch [:inner]]]}))
+  (rf/reg-event :inner (fn [{:keys [db]} _] {:db (assoc db :inner? true)}))
   (rf/dispatch-sync [:outer])
   (let [evs   (dispatched-events (flat-events :rf/default))
         outer (->> evs
@@ -576,7 +576,7 @@
     ;; `:source :fx-dispatch` on the child envelope (the actor-message
     ;; path stamps `:machine-action` instead). Per rf2-1ve9h these are
     ;; the surviving axes after the `:rf/dispatch-origin` collapse.
-    (rf/reg-event-fx :parent (fn [_ _] {:fx [[:dispatch [:child]]]}))
+    (rf/reg-event :parent (fn [_ _] {:fx [[:dispatch [:child]]]}))
     (rf/reg-event-db :child (fn [db _] db))
     (rf/dispatch-sync [:parent] {:source :ui})
     (let [parent-ev (->> (flat-events :rf/default)
@@ -597,7 +597,7 @@
 (deftest tool-frame-emits-no-trace
   (testing "a frame registered :rf.trace/frame-no-emit? true grows the ring by 0"
     (rf/reg-frame :tool/inspector {:rf.trace/frame-no-emit? true})
-    (rf/reg-event-db :tool/work (fn [db _] (assoc db :ran? true)))
+    (rf/reg-event :tool/work (fn [{:keys [db]} _] {:db (assoc db :ran? true)}))
     (rf/clear-trace-buffer! :tool/inspector)
     (rf/dispatch-sync [:tool/work] {:frame :tool/inspector})
     (is (= [] (rf/trace-buffer :tool/inspector))
@@ -607,7 +607,7 @@
   (testing "an app frame's cascade DOES grow its ring; the tool frame's does NOT"
     (rf/reg-frame :tool/inspector {:rf.trace/frame-no-emit? true})
     (rf/reg-frame :app/main {:doc "ordinary application frame"})
-    (rf/reg-event-db :work (fn [db _] (assoc db :ran? true)))
+    (rf/reg-event :work (fn [{:keys [db]} _] {:db (assoc db :ran? true)}))
     (rf/clear-trace-buffer! :app/main)
     (rf/clear-trace-buffer! :tool/inspector)
     (dotimes [_ 20] (rf/dispatch-sync [:work] {:frame :tool/inspector}))
@@ -640,10 +640,10 @@
                                (when (= :rf.registry/handler-replaced
                                         (:operation ev))
                                  (swap! recv conj ev))))
-      (rf/reg-event-db :ev/hot {:doc "v1"} (fn [db _] (assoc db :v 1)))
+      (rf/reg-event :ev/hot {:doc "v1"} (fn [{:keys [db]} _] {:db (assoc db :v 1)}))
       (reset! recv [])
       ;; Real edit — different handler-fn body.
-      (rf/reg-event-db :ev/hot {:doc "v1"} (fn [db _] (assoc db :v 2)))
+      (rf/reg-event :ev/hot {:doc "v1"} (fn [{:keys [db]} _] {:db (assoc db :v 2)}))
       (rf/unregister-listener! ::probe)
       (is (= 1 (count @recv))
           "exactly one :rf.registry/handler-replaced emitted on real edit")

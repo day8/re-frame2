@@ -105,7 +105,7 @@
   (testing "no sensitive handler, no frame-declared sensitive path —
             rollup reads strict false"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (let [r (last-record :test/main)]
       (is (false? (:rf.epoch/sensitive? r)))
@@ -120,9 +120,9 @@
             false for a cascade whose only sensitive signal was the
             (now-ignored) handler annotation."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :secret-write
+    (rf/reg-event :secret-write
                      {:sensitive? true}   ;; stored, no longer consulted
-                     (fn [db _] (assoc db :token "shh")))
+                     (fn [{:keys [db]} _] {:db (assoc db :token "shh")}))
     (rf/dispatch-sync [:secret-write] {:frame :test/main})
     (let [r (last-record :test/main)]
       (is (false? (:rf.epoch/sensitive? r))
@@ -134,8 +134,8 @@
             in scope is sensitive"
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/reg-event-db :login
-                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
     (let [r (last-record :test/main)]
       (is (true? (:rf.epoch/sensitive? r))))))
@@ -147,7 +147,7 @@
             cascade carried no actual sensitive material)"
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/reg-event-db :unrelated (fn [db _] (assoc db :n 42)))
+    (rf/reg-event :unrelated (fn [{:keys [db]} _] {:db (assoc db :n 42)}))
     (rf/dispatch-sync [:unrelated] {:frame :test/main})
     (let [r (last-record :test/main)]
       (is (false? (:rf.epoch/sensitive? r))
@@ -160,10 +160,10 @@
             the value during the cascade"
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/reg-event-db :seed
-                     (fn [_ _] {:auth {:password "old-secret"}}))
-    (rf/reg-event-db :clear-pw
-                     (fn [db _] (update db :auth dissoc :password)))
+    (rf/reg-event :seed
+                     (fn [{:keys [db]} _] {:db {:auth {:password "old-secret"}}}))
+    (rf/reg-event :clear-pw
+                     (fn [{:keys [db]} _] {:db (update db :auth dissoc :password)}))
 
     (rf/dispatch-sync [:seed]     {:frame :test/main})
     (rf/dispatch-sync [:clear-pw] {:frame :test/main})
@@ -203,7 +203,7 @@
     (let [seen (atom [])]
       (rf/register-epoch-listener! ::halt-watcher
                              (fn [r] (swap! seen conj r)))
-      (rf/reg-event-fx :destroy-self
+      (rf/reg-event :destroy-self
                        (fn [_ _]
                          (frame/destroy-frame! :test/main)
                          {}))
@@ -259,8 +259,8 @@
             :rf/redacted in the projected record"
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/reg-event-db :login
-                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [raw       (last-record :test/main)
@@ -276,9 +276,9 @@
             record"
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/reg-event-db :seed
-                     (fn [_ _] {:auth {:password "original-secret"}}))
-    (rf/reg-event-db :inc (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :seed
+                     (fn [{:keys [db]} _] {:db {:auth {:password "original-secret"}}}))
+    (rf/reg-event :inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (rf/dispatch-sync [:inc]  {:frame :test/main})
@@ -297,9 +297,9 @@
             :rf.size/large-elided marker in the projected record"
     (rf/reg-frame :test/main {})
     (install-large-schema! :test/main)
-    (rf/reg-event-db :store
-                     (fn [db [_ payload]]
-                       (assoc-in db [:blob :payload] payload)))
+    (rf/reg-event :store
+                     (fn [{:keys [db]} [_ payload]]
+                       {:db (assoc-in db [:blob :payload] payload)}))
     (rf/dispatch-sync [:store (big-string 50000)] {:frame :test/main})
 
     (let [raw       (last-record :test/main)
@@ -326,7 +326,7 @@
             (`:sub-id`, `:query-v`, `:value-changed?`, `:cascade?`) is
             preserved, and the now-spent `:large?` row flag is stripped."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     ;; A whole-output `:large?` sub: its output is treated as large for
     ;; downstream egress regardless of any per-path declaration. The
     ;; reactive sub-cache records this via `mark-sub-output!` at build
@@ -337,7 +337,7 @@
     ;; Read the sub inside a handler so a `:rf.sub/run` lands in the
     ;; cascade's structured `:sub-runs` (mirrors epoch_test's
     ;; sub-runs-projection).
-    (rf/reg-event-fx :read-big
+    (rf/reg-event :read-big
                      (fn [_ _]
                        (let [_v (rf/subscribe-once :test/main [:big])]
                          {})))
@@ -395,8 +395,8 @@
             projection only mutates payload-bearing slots"
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/reg-event-db :login
-                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [raw       (last-record :test/main)
@@ -421,8 +421,8 @@
             pinned by the rf2-rlt3sv tests below.)"
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/reg-event-db :login
-                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [raw       (last-record :test/main)
@@ -453,7 +453,7 @@
     (rf/reg-frame :test/main {})
     (let [secret {:password "topsecret" :token "abc123"}]
       (rf/reg-fx :fxp/login (fn [_ _] nil))
-      (rf/reg-event-fx :do-login
+      (rf/reg-event :do-login
                        (fn [_ [_ creds]] {:fx [[:fxp/login creds]]}))
       (rf/dispatch-sync [:do-login secret] {:frame :test/main})
 
@@ -484,7 +484,7 @@
     (let [secret {:k "session-key" :v "secret-value"}]
       ;; :client-only fx is skipped on the JVM (:server) host.
       (rf/reg-fx :fxp/local-storage {:platforms #{:client}} (fn [_ _] nil))
-      (rf/reg-event-fx :save
+      (rf/reg-event :save
                        (fn [_ [_ payload]] {:fx [[:fxp/local-storage payload]]}))
       (rf/dispatch-sync [:save secret] {:frame :test/main})
 
@@ -505,7 +505,7 @@
     (rf/reg-frame :test/main {})
     (let [secret {:card "4111-1111-1111-1111"}]
       ;; No fx registered under :fxp/missing → :rf.error/no-such-fx.
-      (rf/reg-event-fx :charge
+      (rf/reg-event :charge
                        (fn [_ [_ payload]] {:fx [[:fxp/missing payload]]}))
       (rf/dispatch-sync [:charge secret] {:frame :test/main})
 
@@ -528,7 +528,7 @@
     (rf/reg-frame :test/main {})
     (let [secret {:ssn "123-45-6789"}]
       (rf/reg-fx :fxp/boom (fn [_ _] (throw (ex-info "boom" {}))))
-      (rf/reg-event-fx :explode
+      (rf/reg-event :explode
                        (fn [_ [_ payload]] {:fx [[:fxp/boom payload]]}))
       (rf/dispatch-sync [:explode secret] {:frame :test/main})
 
@@ -550,7 +550,7 @@
             :rf/redacted sentinel (no drift under double-projection)"
     (rf/reg-frame :test/main {})
     (rf/reg-fx :fxp/login (fn [_ _] nil))
-    (rf/reg-event-fx :do-login
+    (rf/reg-event :do-login
                      (fn [_ [_ creds]] {:fx [[:fxp/login creds]]}))
     (rf/dispatch-sync [:do-login {:password "topsecret"}] {:frame :test/main})
 
@@ -576,8 +576,8 @@
     ;; This test pins that the projection RAN against :trigger-event
     ;; (the slot exists in the projected record) — what it changes
     ;; depends on the registered declarations.
-    (rf/reg-event-db :login
-                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [raw       (last-record :test/main)
@@ -600,9 +600,9 @@
       (frame-class/validate+extract :test/main
         {:sensitive {:app-db [[:secret-pdf]]}
          :large     {:app-db [[:secret-pdf]]}}))
-    (rf/reg-event-db :store-pdf
-                     (fn [db [_ payload]]
-                       (assoc db :secret-pdf payload)))
+    (rf/reg-event :store-pdf
+                     (fn [{:keys [db]} [_ payload]]
+                       {:db (assoc db :secret-pdf payload)}))
     (rf/dispatch-sync [:store-pdf (big-string 50000)] {:frame :test/main})
 
     (let [raw       (last-record :test/main)
@@ -648,9 +648,9 @@
             entry, in oldest-first order"
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/reg-event-db :seed (fn [_ _] {}))
-    (rf/reg-event-db :login
-                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {}}))
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
 
     (rf/dispatch-sync [:seed]              {:frame :test/main})
     (rf/dispatch-sync [:login "secret-1"]  {:frame :test/main})
@@ -687,8 +687,8 @@
     (let [seen (atom [])]
       (rf/register-epoch-listener! ::raw-listener
                              (fn [r] (swap! seen conj r)))
-      (rf/reg-event-db :login
-                       (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+      (rf/reg-event :login
+                       (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
       (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
       (is (= 1 (count @seen)) "listener fired once")
       (is (= "topsecret"
@@ -707,8 +707,8 @@
                     ;; Tool-side forwarder body — project here.
                     (swap! shipped conj (epoch/projected-record record)))]
       (rf/register-epoch-listener! ::forwarder ship!)
-      (rf/reg-event-db :login
-                       (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+      (rf/reg-event :login
+                       (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
       (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
       (is (= 1 (count @shipped)))
       (is (= :rf/redacted
@@ -724,8 +724,8 @@
             oldest records lose :trace-events but keep the structured
             projections (per rf2-mrsck)"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (is (= 5 (:trace-events-keep (epoch/current-config)))
         "fixture OVERRIDE — the shipped runtime default is 50 (= :depth)")
@@ -750,8 +750,8 @@
             record — the structured projections survive"
     (rf/configure! :epoch-history {:trace-events-keep 0})
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (rf/dispatch-sync [:inc]  {:frame :test/main})
@@ -769,8 +769,8 @@
             keeps every record's :trace-events — the opt-back-in path"
     (rf/configure! :epoch-history {:trace-events-keep 100})
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (dotimes [_ 6] (rf/dispatch-sync [:inc] {:frame :test/main}))
@@ -789,8 +789,8 @@
             an empty ring is the empty vector — projected-record never
             gets called against a record."
     (with-redefs [interop/debug-enabled? false]
-      (rf/reg-event-db :prod.priv/inc
-                       (fn [db _] (update db :n (fnil inc 0))))
+      (rf/reg-event :prod.priv/inc
+                       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:prod.priv/inc])
       (is (= [] (epoch/projected-history :rf/default))
           "no records to project under disabled gate"))))
@@ -828,8 +828,8 @@
             path drops the entire surface — the rollup is dev-only
             because the records are dev-only."
     (with-redefs [interop/debug-enabled? false]
-      (rf/reg-event-db :prod.priv/silent
-                       (fn [db _] (update db :n (fnil inc 0))))
+      (rf/reg-event :prod.priv/silent
+                       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:prod.priv/silent])
       (is (empty? (rf/epoch-history :rf/default))
           "ring stays empty — rollup never computed"))))

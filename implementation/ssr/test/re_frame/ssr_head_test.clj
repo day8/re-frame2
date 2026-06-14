@@ -81,7 +81,7 @@
                :on-create [:set-test-state]})]
       ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db
       ;; state — seed it via :rf.db/runtime; :articles stays in app-db.
-      (rf/reg-event-fx :set-test-state
+      (rf/reg-event :set-test-state
                        (fn [{:keys [db] rt :rf.db/runtime} _]
                          {:db (assoc-in db [:articles "123"]
                                         {:title   "Hello SSR"
@@ -155,7 +155,7 @@
       ;; directly — the framework's [:rf.runtime/routing :current] slice
       ;; populates via dispatch-driven routing.
       ;; We bypass with a one-shot event below.
-      (rf/reg-event-fx ::seed-route
+      (rf/reg-event ::seed-route
                        (fn [{rt :rf.db/runtime} _]
                          {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
                                                    {:route-id :route/article :params {:id "42"}})}))
@@ -169,7 +169,7 @@
                   {:doc  "Bare route"
                    :path "/"})
     (let [f (rf/make-frame {:doc "Default-head probe" :platform :server})]
-      (rf/reg-event-fx ::seed-route-no-head
+      (rf/reg-event ::seed-route-no-head
                        (fn [{rt :rf.db/runtime} _]
                          {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/no-head})}))
       (rf/dispatch-sync [::seed-route-no-head] {:frame f})
@@ -566,7 +566,7 @@
             :head :head/article; the head fn derives title/meta/link from
             app-db; active-head → head-model->html emits the tags in
             canonical order"
-    (rf/reg-event-fx :seed-article
+    (rf/reg-event :seed-article
                      (fn [{:keys [db] rt :rf.db/runtime} _]
                        {:db (assoc-in db [:articles "123"]
                                       {:title   "re-frame2 SSR"
@@ -630,7 +630,7 @@
                   {:doc  "French article page"
                    :path "/fr/articles/:id"
                    :head :head/with-attrs})
-    (rf/reg-event-fx :seed-fr
+    (rf/reg-event :seed-fr
                      (fn [{rt :rf.db/runtime} _]
                        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
                                                  {:route-id :route/article-fr :params {:id "1"}})}))

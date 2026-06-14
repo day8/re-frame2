@@ -111,7 +111,7 @@
         ;; carries a frame stamp (the carried invariant).
         (frame/ensure-default-frame!)
         (binding [frame/*current-frame* :rf/default]
-          (rf/reg-event-db :flows-absent/init (fn [_ _] {:probe :ok}))
+          (rf/reg-event :flows-absent/init (fn [{:keys [db]} _] {:db {:probe :ok}}))
           (is (do (rf/dispatch-sync [:flows-absent/init]) :ok)
               "dispatch completes without throwing when the run-flows! hook is absent")
           (is (= {:probe :ok} (rf/app-db-value :rf/default))

@@ -95,7 +95,7 @@
    the JVM cascade test's emit count + payload shape, but with the
    Reagent adapter installed so the path under test is the substrate
    integration end-to-end"
-    (rf/reg-event-db :rf2-e9g4g/init (fn [_ _] {:a 2 :b 3}))
+    (rf/reg-event :rf2-e9g4g/init (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
     (rf/reg-sub :rf2-e9g4g.view/a (fn [db _] (:a db)))
     (rf/reg-sub :rf2-e9g4g.view/b (fn [db _] (:b db)))
     (rf/reg-sub :rf2-e9g4g.view/sum
@@ -153,7 +153,7 @@
    evicts with :reason :no-more-derefers. The component-stays-mounted
    shape is the rf2-mrnur audit's explicit gap from the JVM-only
    cache tests"
-    (rf/reg-event-db :rf2-e9g4g/init (fn [_ _] {:n 7 :a 1 :b 2}))
+    (rf/reg-event :rf2-e9g4g/init (fn [{:keys [db]} _] {:db {:n 7 :a 1 :b 2}}))
     (rf/reg-sub :rf2-e9g4g.cond/n (fn [db _] (:n db)))
     (rf/reg-sub :rf2-e9g4g.cond/a (fn [db _] (:a db)))
     (rf/reg-sub :rf2-e9g4g.cond/b (fn [db _] (:b db)))
@@ -216,7 +216,7 @@
    :rf.sub/dispose — the slot's ref-count drops 2→1 but stays > 0.
    Only the second unsubscribe (the last derefer dropping 1→0)
    emits"
-    (rf/reg-event-db :rf2-e9g4g/init (fn [_ _] {:v 42}))
+    (rf/reg-event :rf2-e9g4g/init (fn [{:keys [db]} _] {:db {:v 42}}))
     (rf/reg-sub :rf2-e9g4g.multi/v (fn [db _] (:v db)))
     (rf/reg-sub :rf2-e9g4g.multi/doubled
       :<- [:rf2-e9g4g.multi/v]
@@ -293,7 +293,7 @@
    watcher on componentWillUnmount) drives the production teardown
    sequence: `compute-and-cache!`'s `add-on-dispose!` callback fires,
    input refs release, input slots evict + emit `:rf.sub/dispose`."
-    (rf/reg-event-db :rf2-b2bxk/init (fn [_ _] {:a 11 :b 13}))
+    (rf/reg-event :rf2-b2bxk/init (fn [{:keys [db]} _] {:db {:a 11 :b 13}}))
     (rf/reg-sub :rf2-b2bxk.rea/a (fn [db _] (:a db)))
     (rf/reg-sub :rf2-b2bxk.rea/b (fn [db _] (:b db)))
     (rf/reg-sub :rf2-b2bxk.rea/sum
@@ -361,7 +361,7 @@
    `reaction-disposal-fires-rf-sub-dispose` test above (which
    exercises Reagent's reap-on-no-watchers leg via direct
    `interop/dispose!`)."
-    (rf/reg-event-db :rf2-b2bxk/init (fn [_ _] {:n 5 :a 3 :b 4}))
+    (rf/reg-event :rf2-b2bxk/init (fn [{:keys [db]} _] {:db {:n 5 :a 3 :b 4}}))
     (rf/reg-sub :rf2-b2bxk.cond-rea/n (fn [db _] (:n db)))
     (rf/reg-sub :rf2-b2bxk.cond-rea/a (fn [db _] (:a db)))
     (rf/reg-sub :rf2-b2bxk.cond-rea/b (fn [db _] (:b db)))

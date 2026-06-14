@@ -93,7 +93,7 @@
                               {:id "b" :title "Article B" :body "Body B"}])
                        {:frame frame}))))
 
-    (rf/reg-event-fx :rf/server-init
+    (rf/reg-event :rf/server-init
       (fn [{:keys [db]} [_ request]]
         {:db (-> db
                  (assoc :request request)
@@ -101,9 +101,9 @@
          :fx [[:http/get {:url        "/api/articles"
                           :on-success [:articles/loaded]}]]}))
 
-    (rf/reg-event-db :articles/loaded
-      (fn [db [_ articles]]
-        (assoc db :articles articles)))
+    (rf/reg-event :articles/loaded
+      (fn [{:keys [db]} [_ articles]]
+        {:db (assoc db :articles articles)}))
 
     (rf/reg-sub :articles (fn [db _] (:articles db)))
     ;; Plain-fn surface (reg-view*): the SSR test references the view by
@@ -199,9 +199,9 @@
 
             ;; (7) Mutate the hydrated app-db; re-render; hash differs;
             ;;     verify-hydration! emits the mismatch trace.
-            (rf/reg-event-db :articles/append
-              (fn [db [_ extra]]
-                (update db :articles conj extra)))
+            (rf/reg-event :articles/append
+              (fn [{:keys [db]} [_ extra]]
+                {:db (update db :articles conj extra)}))
             (rf/dispatch-sync [:articles/append
                                {:id "c" :title "Article C" :body "Body C"}]
                               {:frame client-frame})
@@ -243,7 +243,7 @@
 (deftest ssr-set-status-precedence
   (testing "two :rf.server/set-status fx → last write wins + :rf.warning/multiple-status-set"
     (let [traces (atom [])]
-      (rf/reg-event-fx :auth/forbid
+      (rf/reg-event :auth/forbid
         (fn [_ _]
           {:fx [[:rf.server/set-status 401]
                 [:rf.server/set-status 403]]}))                          ;; second write replaces
@@ -271,7 +271,7 @@
 
 (deftest ssr-multi-cookie
   (testing "multiple :rf.server/set-cookie fxs accumulate; runtime stores structured maps not strings"
-    (rf/reg-event-fx :auth/establish
+    (rf/reg-event :auth/establish
       (fn [_ _]
         {:fx [[:rf.server/set-cookie {:name      "session"
                                       :value     "abc123"
@@ -317,7 +317,7 @@
 
 (deftest ssr-delete-cookie
   (testing ":rf.server/delete-cookie writes a structured cookie with :max-age 0 and empty :value"
-    (rf/reg-event-fx :auth/logout
+    (rf/reg-event :auth/logout
       (fn [_ _]
         {:fx [[:rf.server/delete-cookie {:name "session" :path "/"}]]}))
 
@@ -336,13 +336,13 @@
 
 (deftest ssr-set-and-append-header
   (testing ":rf.server/set-header replaces case-insensitively; :rf.server/append-header preserves duplicates"
-    (rf/reg-event-fx :hdr/set-then-replace
+    (rf/reg-event :hdr/set-then-replace
       (fn [_ _]
         ;; First :set-header writes the default; the second replaces it
         ;; (case-insensitive name match per Spec 011 §Header replacement).
         {:fx [[:rf.server/set-header {:name "X-Foo" :value "first"}]
               [:rf.server/set-header {:name "x-foo" :value "second"}]]}))
-    (rf/reg-event-fx :hdr/append-twice
+    (rf/reg-event :hdr/append-twice
       (fn [_ _]
         {:fx [[:rf.server/append-header {:name "Set-Cookie" :value "a=1"}]
               [:rf.server/append-header {:name "Set-Cookie" :value "b=2"}]]}))
@@ -418,7 +418,7 @@
             cause of :rf.error/fx-handler-exception (fx exceptions are
             captured by the dispatch loop and re-emitted as traces;
             rf2-hbty2 throws at the fx boundary)"
-    (rf/reg-event-fx :hdr/inject-crlf
+    (rf/reg-event :hdr/inject-crlf
       (fn [_ _]
         {:fx [[:rf.server/set-header
                {:name  "X-Forwarded-For"
@@ -433,7 +433,7 @@
 
   (testing "rf2-hbty2 §P1.3 — bare LF / bare CR / NUL all rejected"
     (doseq [hostile ["lf\nbad" "cr\rbad" (str "nul" (char 0) "bad")]]
-      (rf/reg-event-fx :hdr/probe-injection
+      (rf/reg-event :hdr/probe-injection
         (fn [_ _]
           {:fx [[:rf.server/set-header {:name "X-Probe" :value hostile}]]}))
       (let [f      (rf/make-frame {:platform :server})
@@ -446,7 +446,7 @@
 (deftest ssr-append-header-rejects-crlf-injection
   (testing "rf2-hbty2 §P1.3 — :rf.server/append-header with CR/LF in
             value surfaces :rf.error/header-invalid-value"
-    (rf/reg-event-fx :hdr/append-crlf
+    (rf/reg-event :hdr/append-crlf
       (fn [_ _]
         {:fx [[:rf.server/append-header
                {:name  "X-Audit"
@@ -463,7 +463,7 @@
             surfaces :rf.error/redirect-invalid-location. The standard
             exploit shape: a `?next=…` query param that URL-decodes into
             literal CRLF would split the Location header on the wire."
-    (rf/reg-event-fx :redirect/crlf-in-location
+    (rf/reg-event :redirect/crlf-in-location
       (fn [_ _]
         {:fx [[:rf.server/redirect
                {:location "https://example.com\r\nSet-Cookie: stolen=1"}]]}))
@@ -480,10 +480,10 @@
             error fires BEFORE the no-target warning path so the vocabulary
             mistake is loud, not hidden behind a malformed-redirect warning.
             (Pre-alpha EP-0007 one-name-per-fact prune — no back-compat alias.)"
-    (rf/reg-event-fx :redirect/via-url
+    (rf/reg-event :redirect/via-url
       (fn [_ _]
         {:fx [[:rf.server/redirect {:url "/ok"}]]}))
-    (rf/reg-event-fx :redirect/via-to
+    (rf/reg-event :redirect/via-to
       (fn [_ _]
         {:fx [[:rf.server/redirect {:to "/ok"}]]}))
     (doseq [ev [:redirect/via-url :redirect/via-to]]
@@ -500,7 +500,7 @@
             :location). This is the failure-mode lock: the error must point
             the programmer at the right spelling, and must be DISTINCT from
             the generic no-target/malformed-redirect warning path."
-    (rf/reg-event-fx :redirect/retired-spelling
+    (rf/reg-event :redirect/retired-spelling
       (fn [_ _]
         {:fx [[:rf.server/redirect {:url "/login"}]]}))
     (let [f      (rf/make-frame {:platform :server})
@@ -536,7 +536,7 @@
                          ["unbalanced brace"       "/path/{id"]
                          ["malformed percent-esc"  "/path%zz"]
                          ["bare control via %1"    "/path%1"]]]
-      (rf/reg-event-fx :redirect/malformed
+      (rf/reg-event :redirect/malformed
         (fn [_ _]
           {:fx [[:rf.server/redirect {:location loc}]]}))
       (let [f      (rf/make-frame {:platform :server})
@@ -559,7 +559,7 @@
                  "dashboard"
                  "a/b/c"
                  "/path%20with%20encoded%20space"]]
-      (rf/reg-event-fx :redirect/well-formed
+      (rf/reg-event :redirect/well-formed
         (fn [_ _]
           {:fx [[:rf.server/redirect {:location loc}]]}))
       (let [f    (rf/make-frame {:platform :server :on-create [:redirect/well-formed]})
@@ -571,7 +571,7 @@
   (testing "rf2-hbty2 — regression guard: legitimate header values still flow
             through. Whitespace, semicolons, quoted-strings, full URLs are
             all valid (only CR/LF/NUL is banned)."
-    (rf/reg-event-fx :hdr/clean
+    (rf/reg-event :hdr/clean
       (fn [_ _]
         {:fx [[:rf.server/set-header {:name "Cache-Control"
                                       :value "no-cache, must-revalidate, max-age=0"}]
@@ -596,7 +596,7 @@
 
 (deftest ssr-redirect-short-circuits
   (testing ":rf.server/redirect populates :redirect and the response payload omits HTML"
-    (rf/reg-event-fx :auth/check-session
+    (rf/reg-event :auth/check-session
       (fn [_ _]
         {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
 
@@ -626,7 +626,7 @@
               "no HTML body when redirected")))))
 
   (testing "a redirect with default :status defaults to 302"
-    (rf/reg-event-fx :auth/check-no-status
+    (rf/reg-event :auth/check-no-status
       (fn [_ _]
         {:fx [[:rf.server/redirect {:location "/login"}]]}))
     (let [f (rf/make-frame {:platform  :server
@@ -679,10 +679,10 @@
 
 (deftest ssr-default-error-projector-handler-exception
   (testing "a handler that throws → default projector → 500"
-    (rf/reg-event-fx :load/article
+    (rf/reg-event :load/article
       (fn [_ _]
         (throw (ex-info "Database connection failed: SECRET_TOKEN=xyz" {}))))
-    (rf/reg-event-fx :rf/server-init
+    (rf/reg-event :rf/server-init
       (fn [_ _]
         {:fx [[:dispatch [:load/article]]]}))
 
@@ -897,7 +897,7 @@
             `:rf.server/_status-writes` / `:rf.server/_redirect-writes`
             bookkeeping keys, so a host adapter never sees them on the wire
             shape."
-    (rf/reg-event-fx :resp/multi-status
+    (rf/reg-event :resp/multi-status
       (fn [_ _]
         {:fx [[:rf.server/set-status 201]
               [:rf.server/set-status 202]]}))
@@ -935,7 +935,7 @@
 (deftest ssr-multi-redirect
   (testing "two :rf.server/redirect fxs → last write wins + :rf.warning/multiple-redirects"
     (let [traces (atom [])]
-      (rf/reg-event-fx :auth/double-redirect
+      (rf/reg-event :auth/double-redirect
         (fn [_ _]
           {:fx [[:rf.server/redirect {:status 302 :location "/login"}]
                 [:rf.server/redirect {:status 301 :location "/canonical"}]]}))
@@ -1218,7 +1218,7 @@
   (testing "rf2-vngir: {:url \"...\"} is rejected with
             :rf.error/redirect-retired-target-key (naming :location); it is
             NOT normalised onto :location, and the :redirect slot stays unset"
-    (rf/reg-event-fx :retired/url-redirect
+    (rf/reg-event :retired/url-redirect
       (fn [_ _]
         {:fx [[:rf.server/redirect {:url "/dashboard"}]]}))
     (let [f      (rf/make-frame {:platform :server})
@@ -1234,7 +1234,7 @@
   (testing "rf2-vngir: {:to \"...\"} is rejected with
             :rf.error/redirect-retired-target-key, even with an explicit
             :status — the retired-key check fires before the status path"
-    (rf/reg-event-fx :retired/to-redirect
+    (rf/reg-event :retired/to-redirect
       (fn [_ _]
         {:fx [[:rf.server/redirect {:to "/welcome" :status 301}]]}))
     (let [f      (rf/make-frame {:platform :server})
@@ -1258,14 +1258,14 @@
 (deftest redirect-suppresses-projector-status-overwrite
   (testing "a request that redirects AND surfaces an error trace → response :status
             stays at the redirect's status; the projector does not overwrite it"
-    (rf/reg-event-fx :redirect-then-error
+    (rf/reg-event :redirect-then-error
       (fn [_ _]
         {:fx [[:rf.server/redirect {:status 302 :location "/login"}]
               ;; Then trigger a handler-exception trace — the default
               ;; projector maps this to 500. The redirect was set
               ;; first; the projector must NOT promote 302 → 500.
               [:dispatch [:throw-from-handler]]]}))
-    (rf/reg-event-fx :throw-from-handler
+    (rf/reg-event :throw-from-handler
       (fn [_ _] (throw (ex-info "post-redirect failure" {}))))
 
     (let [traces (atom [])
@@ -1335,7 +1335,7 @@
   (testing "rf2-2brsn step 1: a :location that cannot be parsed as a URL
             → :rf.error/safe-redirect-invalid-url trace AND no :redirect
             is set on the response (the fx is a no-op on rejection)"
-    (rf/reg-event-fx :sr/unparseable
+    (rf/reg-event :sr/unparseable
       (fn [_ _]
         ;; A space-after-colon makes this URISyntax-invalid in java.net.URI
         ;; (the colon makes it look like a scheme, but the space after is
@@ -1357,7 +1357,7 @@
 (deftest safe-redirect-rejects-javascript-scheme
   (testing "rf2-2brsn step 2: javascript: scheme → :rf.error/safe-redirect-scheme-rejected
             (XSS vector — script execution on click of the redirect)"
-    (rf/reg-event-fx :sr/javascript
+    (rf/reg-event :sr/javascript
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
                {:location "javascript:alert(1)"}]]}))
@@ -1376,7 +1376,7 @@
 
 (deftest safe-redirect-rejects-data-scheme
   (testing "rf2-2brsn step 2: data: scheme rejected (data-URL phishing)"
-    (rf/reg-event-fx :sr/data
+    (rf/reg-event :sr/data
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
                {:location "data:text/html,<script>alert(1)</script>"}]]}))
@@ -1390,7 +1390,7 @@
 
 (deftest safe-redirect-rejects-vbscript-scheme
   (testing "rf2-2brsn step 2: vbscript: scheme rejected (IE-era VBScript exec)"
-    (rf/reg-event-fx :sr/vbscript
+    (rf/reg-event :sr/vbscript
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
                {:location "vbscript:msgbox(\"x\")"}]]}))
@@ -1406,7 +1406,7 @@
   (testing "rf2-2brsn step 2: JavaScript: / DATA: / VBScript: all rejected
             (case-insensitive scheme match per the lowercase-on-compare pattern)"
     (doseq [hostile ["JavaScript:alert(1)" "DATA:text/html,evil" "VBScript:evil"]]
-      (rf/reg-event-fx :sr/probe-case
+      (rf/reg-event :sr/probe-case
         (fn [_ _]
           {:fx [[:rf.server/safe-redirect {:location hostile}]]}))
       (let [f      (rf/make-frame {:platform :server})
@@ -1421,7 +1421,7 @@
 (deftest safe-redirect-relative-only-rejects-absolute-url
   (testing "rf2-2brsn step 3: :relative-only? true AND URL has host →
             :rf.error/safe-redirect-host-disallowed (:reason :relative-only-violation)"
-    (rf/reg-event-fx :sr/abs-with-relative-only
+    (rf/reg-event :sr/abs-with-relative-only
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
                {:location       "https://evil.example.com/phish"
@@ -1445,7 +1445,7 @@
 (deftest safe-redirect-relative-only-accepts-relative-path
   (testing "rf2-2brsn step 3 happy path: :relative-only? true + relative URL →
             redirect succeeds (no trace)"
-    (rf/reg-event-fx :sr/relative-ok
+    (rf/reg-event :sr/relative-ok
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
                {:location       "/dashboard"
@@ -1466,7 +1466,7 @@
 (deftest safe-redirect-allowlist-rejects-off-allowlist-host
   (testing "rf2-2brsn step 4: :allow supplied AND URL's host NOT in allow →
             :rf.error/safe-redirect-host-disallowed (:reason :not-in-allowlist)"
-    (rf/reg-event-fx :sr/not-in-allow
+    (rf/reg-event :sr/not-in-allow
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
                {:location "https://evil.example.com/phish"
@@ -1492,7 +1492,7 @@
 
 (deftest safe-redirect-allowlist-accepts-on-allowlist-host
   (testing "rf2-2brsn step 4 happy path: host IN allowlist → redirect succeeds"
-    (rf/reg-event-fx :sr/in-allow
+    (rf/reg-event :sr/in-allow
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
                {:location "https://app.example.com/dashboard"
@@ -1511,7 +1511,7 @@
   (testing "rf2-lgmiw step 4: DNS hostnames are case-insensitive (RFC 1035
             §2.3.3) — a mixed-case host matches a lowercase :allow entry and
             the redirect succeeds with no trace"
-    (rf/reg-event-fx :sr/in-allow-mixed-case
+    (rf/reg-event :sr/in-allow-mixed-case
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
                {:location "https://APP.Example.COM/dashboard"
@@ -1532,7 +1532,7 @@
   (testing "rf2-2brsn: a fundamentally-unparseable URL surfaces the parse
             error, NOT the scheme error (validation runs in order — see
             Spec 009 §Error event catalogue)"
-    (rf/reg-event-fx :sr/order-parse-first
+    (rf/reg-event :sr/order-parse-first
       (fn [_ _]
         ;; This is BOTH unparseable AND vaguely-javascript-shaped — the
         ;; parser-fail must fire FIRST because step 1 runs before step 2.
@@ -1553,7 +1553,7 @@
   (testing "rf2-2brsn step 1: an empty / blank :location string is rejected
             as :rf.error/safe-redirect-invalid-url — an empty redirect has
             no defensible interpretation"
-    (rf/reg-event-fx :sr/empty
+    (rf/reg-event :sr/empty
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect {:location ""}]]}))
     (let [f      (rf/make-frame {:platform :server})
@@ -1586,7 +1586,7 @@
     (doseq [[label policy] [["no-policy"      {}]
                             ["relative-only?" {:relative-only? true}]
                             ["allow"          {:allow ["app.example.com"]}]]]
-      (rf/reg-event-fx :sr/opaque-http
+      (rf/reg-event :sr/opaque-http
         (fn [_ _]
           {:fx [[:rf.server/safe-redirect
                  (merge {:location "http:evil.example.com"} policy)]]}))
@@ -1604,7 +1604,7 @@
   (testing "rf2-v3eg3 finding 1: `https:evil.example.com` (opaque, host=nil)
             rejected as :rf.error/safe-redirect-invalid-url
             (:reason :scheme-without-host)"
-    (rf/reg-event-fx :sr/opaque-https
+    (rf/reg-event :sr/opaque-https
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect {:location "https:evil.example.com"}]]}))
     (let [f      (rf/make-frame {:platform :server})
@@ -1621,7 +1621,7 @@
   (testing "rf2-v3eg3 finding 1: `mailto:user@example.com` — a non-http(s)
             scheme is rejected outright as scheme-rejected
             (:reason :scheme-not-allowed)"
-    (rf/reg-event-fx :sr/mailto
+    (rf/reg-event :sr/mailto
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect {:location "mailto:user@example.com"}]]}))
     (let [f      (rf/make-frame {:platform :server})
@@ -1638,7 +1638,7 @@
 (deftest safe-redirect-rejects-ftp-scheme
   (testing "rf2-v3eg3 finding 1: `ftp:example.com` — non-http(s) scheme
             rejected outright (opaque form, host=nil)"
-    (rf/reg-event-fx :sr/ftp
+    (rf/reg-event :sr/ftp
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect {:location "ftp:example.com"}]]}))
     (let [f      (rf/make-frame {:platform :server})
@@ -1657,7 +1657,7 @@
     (doseq [[label policy expected-reason]
             [["relative-only?" {:relative-only? true} :relative-only-violation]
              ["allow"          {:allow ["app.example.com"]} :not-in-allowlist]]]
-      (rf/reg-event-fx :sr/protocol-relative
+      (rf/reg-event :sr/protocol-relative
         (fn [_ _]
           {:fx [[:rf.server/safe-redirect
                  (merge {:location "//evil.example.com/path"} policy)]]}))
@@ -1676,7 +1676,7 @@
   (testing "rf2-v3eg3 finding 1 CONTROL: a normal relative path still passes
             cleanly under :relative-only? — the hardening did not over-reject
             the legitimate same-origin case"
-    (rf/reg-event-fx :sr/relative-control
+    (rf/reg-event :sr/relative-control
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
                {:location "/account/settings" :relative-only? true}]]}))
@@ -1695,7 +1695,7 @@
   (testing "rf2-v3eg3 finding 1 CONTROL: a well-formed absolute http(s) URL
             whose host IS in the allowlist still passes — the shape gate
             did not break the legitimate absolute-redirect path"
-    (rf/reg-event-fx :sr/abs-control
+    (rf/reg-event :sr/abs-control
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
                {:location "https://app.example.com/dashboard"
@@ -1716,7 +1716,7 @@
             an attacker passing a CRLF-bearing location is presumably trying
             both vectors. Same fx-boundary throw as redirect-fx; the throw
             propagates as :rf.error/fx-handler-exception"
-    (rf/reg-event-fx :sr/crlf
+    (rf/reg-event :sr/crlf
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
                {:location "/path\r\nSet-Cookie: stolen=1"}]]}))
@@ -1819,7 +1819,7 @@
   (testing "rf2-z7gor — :rf.server/set-header with CRLF in :name surfaces
             :rf.error/header-invalid-name (sister gate to rf2-hbty2's
             header-value gate)"
-    (rf/reg-event-fx :hdr/crlf-in-name
+    (rf/reg-event :hdr/crlf-in-name
       (fn [_ _]
         {:fx [[:rf.server/set-header
                {:name  "X-Test\r\nSet-Cookie: evil=1"
@@ -1834,7 +1834,7 @@
   (testing "rf2-z7gor — separators / whitespace / empty all rejected"
     (doseq [hostile ["Bad: Name" "Bad Name" "" "with(parens)"
                      (str "nul" (char 0) "bad")]]
-      (rf/reg-event-fx :hdr/probe-name
+      (rf/reg-event :hdr/probe-name
         (fn [_ _]
           {:fx [[:rf.server/set-header {:name hostile :value "ok"}]]}))
       (let [f      (rf/make-frame {:platform :server})
@@ -1847,7 +1847,7 @@
 (deftest ssr-append-header-rejects-invalid-name
   (testing "rf2-z7gor — :rf.server/append-header with CRLF in :name surfaces
             :rf.error/header-invalid-name (same gate as set-header)"
-    (rf/reg-event-fx :hdr/append-crlf-name
+    (rf/reg-event :hdr/append-crlf-name
       (fn [_ _]
         {:fx [[:rf.server/append-header
                {:name  "X-Audit\r\nSet-Cookie: forged=1"
@@ -1862,7 +1862,7 @@
 (deftest ssr-set-cookie-rejects-invalid-fields
   (testing "rf2-z7gor — :rf.server/set-cookie with CRLF in :name surfaces
             :rf.error/cookie-invalid-name (RFC 6265 §4.1.1 token grammar)"
-    (rf/reg-event-fx :ck/crlf-in-name
+    (rf/reg-event :ck/crlf-in-name
       (fn [_ _]
         {:fx [[:rf.server/set-cookie
                {:name  "session\r\nSet-Cookie: stolen=1"
@@ -1876,7 +1876,7 @@
 
   (testing "rf2-z7gor — :rf.server/set-cookie with CRLF in :value surfaces
             :rf.error/cookie-invalid-value"
-    (rf/reg-event-fx :ck/crlf-in-value
+    (rf/reg-event :ck/crlf-in-value
       (fn [_ _]
         {:fx [[:rf.server/set-cookie
                {:name  "session"
@@ -1890,7 +1890,7 @@
 
   (testing "rf2-z7gor — :rf.server/set-cookie with CRLF in :path surfaces
             :rf.error/cookie-invalid-path"
-    (rf/reg-event-fx :ck/crlf-in-path
+    (rf/reg-event :ck/crlf-in-path
       (fn [_ _]
         {:fx [[:rf.server/set-cookie
                {:name  "session"
@@ -1905,7 +1905,7 @@
 
   (testing "rf2-z7gor — :rf.server/set-cookie with CRLF in :domain surfaces
             :rf.error/cookie-invalid-domain"
-    (rf/reg-event-fx :ck/crlf-in-domain
+    (rf/reg-event :ck/crlf-in-domain
       (fn [_ _]
         {:fx [[:rf.server/set-cookie
                {:name   "session"
@@ -1921,7 +1921,7 @@
 (deftest ssr-delete-cookie-rejects-invalid-fields
   (testing "rf2-z7gor — :rf.server/delete-cookie runs the same validators
             as set-cookie (it's sugar over set-cookie)"
-    (rf/reg-event-fx :ck/del-crlf-path
+    (rf/reg-event :ck/del-crlf-path
       (fn [_ _]
         {:fx [[:rf.server/delete-cookie
                {:name "session" :path "/admin\r\nbad"}]]}))
@@ -1942,7 +1942,7 @@
     ;; The concrete failing scenario from the bead: string :max-age
     ;; carrying a forged second Set-Cookie line.
     (testing ":max-age (string form) with CRLF → :rf.error/cookie-invalid-max-age"
-      (rf/reg-event-fx :ck/crlf-in-max-age
+      (rf/reg-event :ck/crlf-in-max-age
         (fn [_ _]
           {:fx [[:rf.server/set-cookie
                  {:name    "session"
@@ -1958,7 +1958,7 @@
             "no cookie lands on the accumulator — rejection is a no-op")))
 
     (testing ":same-site with CRLF → :rf.error/cookie-invalid-same-site"
-      (rf/reg-event-fx :ck/crlf-in-same-site
+      (rf/reg-event :ck/crlf-in-same-site
         (fn [_ _]
           {:fx [[:rf.server/set-cookie
                  {:name      "session"
@@ -1972,7 +1972,7 @@
           "set-cookie with CRLF in :same-site")))
 
     (testing ":expires with CRLF → :rf.error/cookie-invalid-expires"
-      (rf/reg-event-fx :ck/crlf-in-expires
+      (rf/reg-event :ck/crlf-in-expires
         (fn [_ _]
           {:fx [[:rf.server/set-cookie
                  {:name    "session"
@@ -1987,7 +1987,7 @@
 
     (testing "bare LF / bare CR / NUL in :max-age all rejected"
       (doseq [hostile ["lf\nbad" "cr\rbad" (str "nul" (char 0) "bad")]]
-        (rf/reg-event-fx :ck/probe-max-age
+        (rf/reg-event :ck/probe-max-age
           (fn [_ _]
             {:fx [[:rf.server/set-cookie
                    {:name "s" :value "x" :max-age hostile}]]}))
@@ -2003,7 +2003,7 @@
             flow — integer :max-age, keyword/string :same-site, a clean
             :expires string. The CRLF gate str-coerces and only bans
             CR/LF/NUL; benign values pass."
-    (rf/reg-event-fx :ck/clean-attrs
+    (rf/reg-event :ck/clean-attrs
       (fn [_ _]
         {:fx [[:rf.server/set-cookie
                {:name      "session"
@@ -2024,7 +2024,7 @@
 (deftest ssr-clean-names-still-accepted
   (testing "rf2-z7gor — regression guard: legitimate header names + cookie
             field shapes still flow"
-    (rf/reg-event-fx :clean/all
+    (rf/reg-event :clean/all
       (fn [_ _]
         {:fx [[:rf.server/set-header  {:name "Cache-Control"
                                        :value "no-cache"}]
@@ -2117,7 +2117,7 @@
       ;; onto the response — a clean, surfaced failure instead of a
       ;; malformed wire status. End-to-end, the fix turns a silent wire
       ;; defect into a proper 400.
-      (rf/reg-event-fx :bad/status
+      (rf/reg-event :bad/status
         (fn [_ _] {:fx [[:rf.server/set-status "not-an-int"]]}))
       (let [f      (rf/make-frame {:platform :server})
             traces (capture-schema-failures!
@@ -2136,7 +2136,7 @@
             "schema-validation-failure projected to 400 :bad-request")))
 
     (testing ":rf.server/set-header missing :value → rejected + skipped"
-      (rf/reg-event-fx :bad/header
+      (rf/reg-event :bad/header
         (fn [_ _] {:fx [[:rf.server/set-header {:name "X-Foo"}]]}))   ;; :value absent
       (let [f      (rf/make-frame {:platform :server})
             traces (capture-schema-failures!
@@ -2147,7 +2147,7 @@
             "the malformed header was skipped; nothing landed")))
 
     (testing ":rf.server/append-header with non-string :value → rejected"
-      (rf/reg-event-fx :bad/append
+      (rf/reg-event :bad/append
         (fn [_ _] {:fx [[:rf.server/append-header {:name "X-Bar" :value 42}]]}))
       (let [f      (rf/make-frame {:platform :server})
             traces (capture-schema-failures!
@@ -2156,7 +2156,7 @@
           traces :rf.server/append-header ":rf.server/append-header non-string :value")))
 
     (testing ":rf.server/set-cookie missing :value → rejected via [:ref :rf.server/cookie]"
-      (rf/reg-event-fx :bad/cookie
+      (rf/reg-event :bad/cookie
         (fn [_ _] {:fx [[:rf.server/set-cookie {:name "session"}]]})) ;; :value absent
       (let [f      (rf/make-frame {:platform :server})
             traces (capture-schema-failures!
@@ -2169,7 +2169,7 @@
     (testing ":rf.server/set-cookie with bogus :same-site keyword → rejected"
       ;; :same-site accepts the enum #{:strict :lax :none} (or a string,
       ;; per the documented divergence) — a bogus KEYWORD is neither.
-      (rf/reg-event-fx :bad/cookie-samesite
+      (rf/reg-event :bad/cookie-samesite
         (fn [_ _] {:fx [[:rf.server/set-cookie
                          {:name "s" :value "v" :same-site :bogus}]]}))
       (let [f      (rf/make-frame {:platform :server})
@@ -2179,7 +2179,7 @@
           traces :rf.server/set-cookie ":rf.server/set-cookie bogus :same-site keyword")))
 
     (testing ":rf.server/delete-cookie missing :name → rejected"
-      (rf/reg-event-fx :bad/delete
+      (rf/reg-event :bad/delete
         (fn [_ _] {:fx [[:rf.server/delete-cookie {:path "/"}]]}))    ;; :name absent
       (let [f      (rf/make-frame {:platform :server})
             traces (capture-schema-failures!
@@ -2200,7 +2200,7 @@
       ;; target would 400 here BEFORE the warn→302 path runs, contradicting
       ;; ee38b.11; this test pins that the redirect schema stays a pure
       ;; shape check and does NOT reject the no-target redirect.
-      (rf/reg-event-fx :soft/redirect-no-target
+      (rf/reg-event :soft/redirect-no-target
         (fn [_ _] {:fx [[:rf.server/redirect {:status 302}]]}))
       (let [f      (rf/make-frame {:platform :server})
             traces (capture-schema-failures!
@@ -2218,7 +2218,7 @@
                  " downstream"))))
 
     (testing ":rf.server/redirect with non-int :status → rejected"
-      (rf/reg-event-fx :bad/redirect-status
+      (rf/reg-event :bad/redirect-status
         (fn [_ _] {:fx [[:rf.server/redirect {:location "/x" :status "oops"}]]}))
       (let [f      (rf/make-frame {:platform :server})
             traces (capture-schema-failures!
@@ -2235,7 +2235,7 @@
       ;; :status surfaces at the Spec 010 §step-5 fx-args boundary, the fx
       ;; is SKIPPED, and the response is left unmodified — matching the
       ;; sibling six.
-      (rf/reg-event-fx :bad/safe-redirect-status
+      (rf/reg-event :bad/safe-redirect-status
         (fn [_ _] {:fx [[:rf.server/safe-redirect
                          {:location "/ok" :status "not-int"}]]}))
       (let [f      (rf/make-frame {:platform :server})
@@ -2255,7 +2255,7 @@
       ;; no-target graceful path that the caller-trusted :rf.server/redirect
       ;; carries. The schema marks :location required, so a no-location call
       ;; fails the shape gate.
-      (rf/reg-event-fx :bad/safe-redirect-no-location
+      (rf/reg-event :bad/safe-redirect-no-location
         (fn [_ _] {:fx [[:rf.server/safe-redirect {:status 302}]]}))
       (let [f      (rf/make-frame {:platform :server})
             traces (capture-schema-failures!
@@ -2268,7 +2268,7 @@
             the :schema boundary cleanly (no :rf.error/schema-validation-
             failure) and land on the accumulator. The boundary rejects the
             malformed and admits the valid — it is not a blanket gate."
-    (rf/reg-event-fx :good/all
+    (rf/reg-event :good/all
       (fn [_ _]
         {:fx [[:rf.server/set-status 201]
               [:rf.server/set-header  {:name "Cache-Control" :value "no-store"}]
@@ -2302,7 +2302,7 @@
             (string :location, int :status, boolean :relative-only?,
             vector :allow) passes the new :rf.fx.server/safe-redirect-args
             boundary cleanly and lands its redirect"
-    (rf/reg-event-fx :good/safe-redirect
+    (rf/reg-event :good/safe-redirect
       (fn [_ _]
         {:fx [[:rf.server/safe-redirect
                {:location       "https://app.example.com/dashboard"
@@ -2354,13 +2354,13 @@
         {:platforms #{:server :client}}
         (fn [_ _] nil))
 
-      (rf/reg-event-fx :rf/server-init
+      (rf/reg-event :rf/server-init
         (fn [{:keys [db]} [_ _request]]
           {:db (assoc-in db [:rf.runtime/routing :current] {:route-id :route/articles})
            :fx [[:http/get {:url "/api/articles"
                             :on-success [:articles/loaded]}]]}))
-      (rf/reg-event-db :articles/loaded
-        (fn [db [_ articles]] (assoc db :articles articles)))
+      (rf/reg-event :articles/loaded
+        (fn [{:keys [db]} [_ articles]] {:db (assoc db :articles articles)}))
 
       (let [traces (atom [])]
         (rf/register-listener! ::ssr (fn [ev] (swap! traces conj ev)))
@@ -2379,9 +2379,9 @@
   (testing "complete SSR flow: dispatch-sync → render-to-string → embedded hash"
     ;; Register a trivial articles app — an event seeds state, a sub
     ;; reads it, a view renders it.
-    (rf/reg-event-db :articles/seed
-      (fn [_ _] {:articles [{:id "a" :title "Article A" :body "Body A"}
-                            {:id "b" :title "Article B" :body "Body B"}]}))
+    (rf/reg-event :articles/seed
+      (fn [{:keys [db]} _] {:db {:articles [{:id "a" :title "Article A" :body "Body A"}
+                            {:id "b" :title "Article B" :body "Body B"}]}}))
     (rf/reg-sub :articles (fn [db _] (:articles db)))
     ;; Test exercises the keyword-id [:pages/articles] hiccup head — not
     ;; the macro shape — so it uses the plain-fn surface reg-view* with

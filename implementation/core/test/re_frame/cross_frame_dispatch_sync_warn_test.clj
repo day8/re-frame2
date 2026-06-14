@@ -65,13 +65,13 @@
     (rf/reg-frame :cfx.test/b {:doc "target frame"})
 
     (let [b-ran (atom false)]
-      (rf/reg-event-db :b/leaf
+      (rf/reg-event :b/leaf
         {:frame :cfx.test/b}
-        (fn [db _]
+        (fn [{:keys [db]} _]
           (reset! b-ran true)
-          (assoc db :b-ran? true)))
+          {:db (assoc db :b-ran? true)}))
 
-      (rf/reg-event-fx :a/cross
+      (rf/reg-event :a/cross
         {:frame :cfx.test/a}
         (fn [_ _]
           ;; A is mid-drain here; this dispatch-sync! lands on B.
@@ -123,8 +123,8 @@
     ;; reentry guard (rather than raising :rf.error/no-frame-context for a
     ;; frameless call — there is no longer a :rf/default floor).
     (rf/reg-frame :cfx.test/a {:doc "same-frame reentry frame"})
-    (rf/reg-event-db :leaf {:frame :cfx.test/a} (fn [db _] (assoc db :leaf? true)))
-    (rf/reg-event-fx :nested-same-frame
+    (rf/reg-event :leaf {:frame :cfx.test/a} (fn [{:keys [db]} _] {:db (assoc db :leaf? true)}))
+    (rf/reg-event :nested-same-frame
       {:frame :cfx.test/a}
       (fn [_ _]
         ;; Same frame, explicit :frame opt — hits the same-frame reentry
@@ -147,8 +147,8 @@
     ;; the warning is specifically for the IN-FLIGHT-DRAIN case.
     (rf/reg-frame :cfx.test/a {})
     (rf/reg-frame :cfx.test/b {})
-    (rf/reg-event-db :b/leaf {:frame :cfx.test/b}
-      (fn [db _] (assoc db :b-ran? true)))
+    (rf/reg-event :b/leaf {:frame :cfx.test/b}
+      (fn [{:keys [db]} _] {:db (assoc db :b-ran? true)}))
 
     (let [recorded (record-traces! ::no-drain-no-warn)]
       ;; Plain top-level dispatch-sync against B — no frame is mid-drain.
@@ -176,7 +176,7 @@
         (fn [db _]
           (reset! b-ran true)
           db))
-      (rf/reg-event-fx :a/touch-b
+      (rf/reg-event :a/touch-b
         {:frame :cfx.test/a}
         (fn [_ _]
           (rf/dispatch-sync [:b/leaf] {:frame :cfx.test/b})

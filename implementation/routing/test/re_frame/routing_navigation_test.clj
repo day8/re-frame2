@@ -616,7 +616,7 @@
 (deftest transitioned-transition-loading-when-on-match-fires
   (testing ":rf.route/transitioned sets :transition :loading when the route
             declares :on-match events"
-    (rf/reg-event-db :prefs/loaded (fn [db _] (assoc db :prefs/loaded? true)))
+    (rf/reg-event :prefs/loaded (fn [{:keys [db]} _] {:db (assoc db :prefs/loaded? true)}))
     (rf/reg-route :route/cart
                   {:path     "/cart"
                    :on-match [[:prefs/loaded]]})
@@ -638,7 +638,7 @@
     (let [observed (atom nil)]
       ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db
       ;; state — the :on-match observer reads :transition off :rf.db/runtime.
-      (rf/reg-event-fx :prefs/loaded
+      (rf/reg-event :prefs/loaded
                        (fn [{:keys [db] rt :rf.db/runtime} _]
                          (reset! observed
                                  (get-in rt [:rf.runtime/routing :current :transition]))
@@ -741,11 +741,11 @@
       ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db
       ;; state, so the :on-match observers read `:transition` off the
       ;; `:rf.db/runtime` coeffect.
-      (rf/reg-event-fx :load/a
+      (rf/reg-event :load/a
                        (fn [{:keys [db] rt :rf.db/runtime} _]
                          (swap! observed conj [:a (get-in rt [:rf.runtime/routing :current :transition])])
                          {:db (assoc db :load/a-done? true)}))
-      (rf/reg-event-fx :load/b
+      (rf/reg-event :load/b
                        (fn [{:keys [db] rt :rf.db/runtime} _]
                          (swap! observed conj [:b (get-in rt [:rf.runtime/routing :current :transition])])
                          {:db (assoc db :load/b-done? true)}))

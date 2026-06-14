@@ -69,7 +69,7 @@
 
 (deftest helper-get-routes-through-managed
   (testing "(rf.http/get ...) in :fx is indistinguishable from a hand-written :rf.http/managed entry"
-    (rf/reg-event-fx :items/load
+    (rf/reg-event :items/load
       (fn [{:keys [db]} [_ msg]]
         (if-let [reply (:rf/reply msg)]
           (case (:kind reply)
@@ -85,15 +85,15 @@
 
 (deftest helper-post-routes-with-explicit-on-success
   (testing "(rf.http/post ...) with explicit :on-success dispatches there"
-    (rf/reg-event-fx :item/create
+    (rf/reg-event :item/create
       (fn [_ _]
         {:fx [(rf.http/post "/api/items"
                             {:request    {:body {:title "new"}
                                           :request-content-type :json}
                              :on-success [:item/created]})]}))
-    (rf/reg-event-db :item/created
-      (fn [db [_ payload]]
-        (assoc db :created payload)))
+    (rf/reg-event :item/created
+      (fn [{:keys [db]} [_ payload]]
+        {:db (assoc db :created payload)}))
     (rf/dispatch-sync [:item/create]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
     (let [db (await-reply! #(some? (:created %)))]
@@ -103,13 +103,13 @@
 
 (deftest helper-delete-routes-with-explicit-on-failure
   (testing "(rf.http/delete ...) with explicit :on-failure dispatches there on failure"
-    (rf/reg-event-fx :item/delete
+    (rf/reg-event :item/delete
       (fn [_ _]
         {:fx [(rf.http/delete "/api/items/42"
                               {:on-failure [:item/delete-failed]})]}))
-    (rf/reg-event-db :item/delete-failed
-      (fn [db [_ payload]]
-        (assoc db :delete-error payload)))
+    (rf/reg-event :item/delete-failed
+      (fn [{:keys [db]} [_ payload]]
+        {:db (assoc db :delete-error payload)}))
     (rf/dispatch-sync [:item/delete]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
     (let [db (await-reply! #(some? (:delete-error %)))]
@@ -138,7 +138,7 @@
 
 (deftest helper-get-minimal-default-reply-addressing
   (testing "(rf.http/get url) — no extra args; reply lands back at originating handler"
-    (rf/reg-event-fx :ping
+    (rf/reg-event :ping
       (fn [{:keys [db]} [_ msg]]
         (if-let [reply (:rf/reply msg)]
           {:db (assoc db :pong (:value reply))}

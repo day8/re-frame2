@@ -120,10 +120,10 @@
   Returns the resulting `(epoch-history frame-id)` for direct comparison
   with `(projected-history frame-id)`."
   [frame-id]
-  (rf/reg-event-db :seed   (fn [_ _] {:n 0}))
-  (rf/reg-event-db :login  (fn [db _] (assoc-in db [:auth :password] secret-password)))
-  (rf/reg-event-db :upload (fn [db _] (assoc-in db [:blob :payload] (big-string payload-size))))
-  (rf/reg-event-db :inc    (fn [db _] (update db :n (fnil inc 0))))
+  (rf/reg-event :seed   (fn [{:keys [db]} _] {:db {:n 0}}))
+  (rf/reg-event :login  (fn [{:keys [db]} _] {:db (assoc-in db [:auth :password] secret-password)}))
+  (rf/reg-event :upload (fn [{:keys [db]} _] {:db (assoc-in db [:blob :payload] (big-string payload-size))}))
+  (rf/reg-event :inc    (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
   (rf/dispatch-sync [:seed]   {:frame frame-id})
   (rf/dispatch-sync [:login]  {:frame frame-id})
   (rf/dispatch-sync [:upload] {:frame frame-id})
@@ -497,7 +497,7 @@
       (rf/reg-fx :fxp/login (fn [_ _] nil))
       ;; Write the app-db sensitive path AND fire a payload-bearing fx whose
       ;; :args carry the same secret bytes.
-      (rf/reg-event-fx :do-login
+      (rf/reg-event :do-login
                        (fn [_ [_ c]]
                          {:db {:auth {:password (:password c)}}
                           :fx [[:fxp/login c]]}))
@@ -525,7 +525,7 @@
     (install-fx-and-runtime-schemas! :test/mcp)
     ;; Write BOTH the app-db sensitive leaf and a runtime-db partition value
     ;; (via the reserved :rf.db/runtime effect) in one cascade.
-    (rf/reg-event-fx :seed-both
+    (rf/reg-event :seed-both
                      (fn [{rt :rf.db/runtime} _]
                        {:db            {:auth {:password secret-password}}
                         :rf.db/runtime (assoc-in (or rt {})
@@ -564,9 +564,9 @@
             the sensitive opt-in must not pull the full payload off-box."
     (rf/reg-frame :test/mcp {})
     (install-fx-and-runtime-schemas! :test/mcp)
-    (rf/reg-event-db :seed-large
-                     (fn [_ _] {:auth {:password secret-password}
-                                :blob {:payload (big-string payload-size)}}))
+    (rf/reg-event :seed-large
+                     (fn [{:keys [db]} _] {:db {:auth {:password secret-password}
+                                :blob {:payload (big-string payload-size)}}}))
     (rf/dispatch-sync [:seed-large] {:frame :test/mcp})
     (let [raw  (last (rf/epoch-history :test/mcp))
           proj (epoch/projected-record raw {:include-sensitive? true})]
@@ -597,8 +597,8 @@
     (rf/configure! :epoch-history
                    {:redact-fn (fn [record]
                                  (assoc record :rf.test/redact-fn-ran true))})
-    (rf/reg-event-db :seed-sensitive
-                     (fn [_ _] {:auth {:password secret-password}}))
+    (rf/reg-event :seed-sensitive
+                     (fn [{:keys [db]} _] {:db {:auth {:password secret-password}}}))
     (rf/dispatch-sync [:seed-sensitive] {:frame :test/mcp})
     (let [raw  (last (rf/epoch-history :test/mcp))
           proj (epoch/projected-record raw {:include-sensitive? true})]

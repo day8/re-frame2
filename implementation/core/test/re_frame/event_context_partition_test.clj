@@ -115,7 +115,7 @@
     (let [recorded (record-traces! ::no-shape-err)]
       ;; :rf/machine? marks framework-write authority (machine registrar mints
       ;; framework-authority handlers — Spec 002 §Write authority).
-      (rf/reg-event-fx :ctx/fw-runtime
+      (rf/reg-event :ctx/fw-runtime
         {:doc "framework-authority runtime write" :rf/machine? true}
         (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {}} :fx []}))
       (rf/dispatch-sync [:ctx/fw-runtime] {:frame :ctx/runtime-fx})
@@ -126,7 +126,7 @@
   (testing "a foreign top-level key (legacy :http) is still policed after the widening"
     (rf/reg-frame :ctx/foreign-fx {:doc "ctx"})
     (let [recorded (record-traces! ::foreign-err)]
-      (rf/reg-event-fx :ctx/foreign
+      (rf/reg-event :ctx/foreign
         (fn [_ _] {:db {:ok? true} :http {:url "/api"}}))
       (rf/dispatch-sync [:ctx/foreign] {:frame :ctx/foreign-fx})
       (let [errs (error-events recorded :rf.error/effect-map-shape)]
@@ -146,7 +146,7 @@
   (testing "an ORDINARY app handler returning :rf.db/runtime fires the dev diagnostic"
     (rf/reg-frame :ctx/app-runtime {:doc "ctx"})
     (let [recorded (record-traces! ::app-warn)]
-      (rf/reg-event-fx :ctx/app-emits-runtime
+      (rf/reg-event :ctx/app-emits-runtime
         (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {}}}))
       (rf/dispatch-sync [:ctx/app-emits-runtime] {:frame :ctx/app-runtime})
       (let [warns (warning-events recorded :rf.warning/app-handler-runtime-effect)]
@@ -166,7 +166,7 @@
   (testing "a framework-authority handler (:rf/machine? true) does NOT fire the diagnostic"
     (rf/reg-frame :ctx/fw-authority {:doc "ctx"})
     (let [recorded (record-traces! ::fw-quiet)]
-      (rf/reg-event-fx :ctx/fw-emits-runtime
+      (rf/reg-event :ctx/fw-emits-runtime
         {:doc "framework-authority" :rf/machine? true}
         (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {}}}))
       (rf/dispatch-sync [:ctx/fw-emits-runtime] {:frame :ctx/fw-authority})
@@ -177,7 +177,7 @@
   (testing "an ordinary handler that does NOT return :rf.db/runtime stays silent"
     (rf/reg-frame :ctx/plain {:doc "ctx"})
     (let [recorded (record-traces! ::plain-quiet)]
-      (rf/reg-event-fx :ctx/plain-db
+      (rf/reg-event :ctx/plain-db
         (fn [{:keys [db]} _] {:db (assoc db :touched? true) :fx []}))
       (rf/dispatch-sync [:ctx/plain-db] {:frame :ctx/plain})
       (is (empty? (warning-events recorded :rf.warning/app-handler-runtime-effect))
@@ -224,8 +224,8 @@
   (testing "a reg-event-db handler returning a :rf/runtime root surfaces :rf.error/legacy-runtime-root"
     (rf/reg-frame :ctx/legacy-db {:doc "ctx"})
     (let [recorded (record-traces! ::legacy-db)]
-      (rf/reg-event-db :ctx/writes-legacy-root
-        (fn [db _] (assoc db :rf/runtime {:rf.runtime/machines {:m 1}})))
+      (rf/reg-event :ctx/writes-legacy-root
+        (fn [{:keys [db]} _] {:db (assoc db :rf/runtime {:rf.runtime/machines {:m 1}})}))
       (rf/dispatch-sync [:ctx/writes-legacy-root] {:frame :ctx/legacy-db})
       ;; The throw is captured by the interceptor machinery and surfaced as
       ;; :rf.error/handler-exception carrying the original ex-info.
@@ -242,7 +242,7 @@
   (testing "a reg-event-fx handler whose :db effect carries :rf/runtime surfaces the hard error"
     (rf/reg-frame :ctx/legacy-fx {:doc "ctx"})
     (let [recorded (record-traces! ::legacy-fx)]
-      (rf/reg-event-fx :ctx/fx-writes-legacy-root
+      (rf/reg-event :ctx/fx-writes-legacy-root
         (fn [{:keys [db]} _] {:db (assoc db :rf/runtime {:rf.runtime/routing {}})}))
       (rf/dispatch-sync [:ctx/fx-writes-legacy-root] {:frame :ctx/legacy-fx})
       (let [errs (error-events recorded :rf.error/handler-exception)
@@ -256,7 +256,7 @@
   (testing "a framework :rf.db/runtime effect (the NEW partition) is NOT the legacy-root hard error"
     (rf/reg-frame :ctx/new-runtime {:doc "ctx"})
     (let [recorded (record-traces! ::new-runtime)]
-      (rf/reg-event-fx :ctx/fw-runtime
+      (rf/reg-event :ctx/fw-runtime
         {:doc "framework-authority" :rf/machine? true}
         (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 1}}}))
       (rf/dispatch-sync [:ctx/fw-runtime] {:frame :ctx/new-runtime})
@@ -302,12 +302,12 @@
           ;; `commit-fx-effects`/`fx-value-ok?` never saw this value.
           bad-fx   (after-icpt (fn [ctx]
                                  (interceptor/assoc-effect ctx :fx :oops)))]
-      (rf/reg-event-fx :ctx/writes-db
+      (rf/reg-event :ctx/writes-db
         {:interceptors [bad-fx]}
         (fn [{:keys [db]} _] {:db (assoc db :committed? true)
                               :fx []}))
       ;; A downstream event proves the drain was not abandoned by a raw throw.
-      (rf/reg-event-db :ctx/downstream (fn [db _] (assoc db :downstream? true)))
+      (rf/reg-event :ctx/downstream (fn [{:keys [db]} _] {:db (assoc db :downstream? true)}))
       (rf/dispatch-sync [:ctx/writes-db] {:frame :ctx/after-bad-fx})
       (rf/dispatch-sync [:ctx/downstream] {:frame :ctx/after-bad-fx})
       (let [errs (error-events recorded :rf.error/effect-map-shape)]
@@ -327,7 +327,7 @@
     (let [recorded (record-traces! ::after-foreign)
           foreign  (after-icpt (fn [ctx]
                                  (interceptor/assoc-effect ctx :http {:url "/api"})))]
-      (rf/reg-event-fx :ctx/writes-db2
+      (rf/reg-event :ctx/writes-db2
         {:interceptors [foreign]}
         (fn [{:keys [db]} _] {:db (assoc db :ok? true)}))
       (rf/dispatch-sync [:ctx/writes-db2] {:frame :ctx/after-foreign})
@@ -349,10 +349,10 @@
                                  (let [db (interceptor/get-effect ctx :db)]
                                    (interceptor/assoc-effect
                                      ctx :db (assoc db :rf/runtime {:rf.runtime/machines {}})))))]
-      (rf/reg-event-db :ctx/clean-db
+      (rf/reg-event :ctx/clean-db
         {:interceptors [legacy]}
-        (fn [db _] (assoc db :user/id 7)))
-      (rf/reg-event-db :ctx/after-legacy-downstream (fn [db _] (assoc db :downstream? true)))
+        (fn [{:keys [db]} _] {:db (assoc db :user/id 7)}))
+      (rf/reg-event :ctx/after-legacy-downstream (fn [{:keys [db]} _] {:db (assoc db :downstream? true)}))
       (rf/dispatch-sync [:ctx/clean-db] {:frame :ctx/after-legacy})
       (rf/dispatch-sync [:ctx/after-legacy-downstream] {:frame :ctx/after-legacy})
       (let [errs (error-events recorded :rf.error/legacy-runtime-root)]
@@ -410,7 +410,7 @@
     (rf/reg-frame :ctx/clean-final {:doc "ctx"})
     (let [recorded (record-traces! ::clean-final)]
       (rf/reg-fx :ctx/noop-fx (fn [_ _]))
-      (rf/reg-event-fx :ctx/clean
+      (rf/reg-event :ctx/clean
         (fn [{:keys [db]} _] {:db (assoc db :n 1)
                               :fx [[:ctx/noop-fx {}]]}))
       (rf/dispatch-sync [:ctx/clean] {:frame :ctx/clean-final})

@@ -107,7 +107,7 @@
           {:before (fn [ctx]
                      (assoc-in ctx [:request :headers "Authorization"]
                                "Bearer secret-token-42"))})
-        (rf/reg-event-fx :load
+        (rf/reg-event :load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -150,7 +150,7 @@
                      (swap! order conj :third)
                      (is (= "2" (get-in ctx [:request :headers "X-Two"])))
                      (assoc-in ctx [:request :headers "X-Three"] "3"))})
-        (rf/reg-event-fx :load
+        (rf/reg-event :load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -199,13 +199,13 @@
            :before (fn [ctx]
                      (assoc-in ctx [:request :headers "X-Marker"] "default-only"))})
         ;; Two events — one on each frame — both fire :rf.http/managed.
-        (rf/reg-event-fx :load-default
+        (rf/reg-event :load-default
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request {:url (str "http://127.0.0.1:" port "/from-default")}
                     :decode  :json
                     :on-success nil}]]}))
-        (rf/reg-event-fx :load-other
+        (rf/reg-event :load-other
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request {:url (str "http://127.0.0.1:" port "/from-other")}
@@ -244,7 +244,7 @@
         (rf/reg-http-interceptor :boom
           {:before (fn [_ctx]
                      (throw (ex-info "kaboom" {:detail :synthetic})))})
-        (rf/reg-event-fx :load
+        (rf/reg-event :load
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request {:url (str "http://127.0.0.1:" port "/x")}
@@ -290,7 +290,7 @@
         (rf/reg-http-interceptor :boom
           {:before (fn [_ctx]
                      (throw (ex-info "kaboom" {:detail :synthetic})))})
-        (rf/reg-event-fx :load
+        (rf/reg-event :load
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request {:url "https://api.example.invalid/v1?api_key=SECRET&page=2"}
@@ -331,7 +331,7 @@
           {:before (fn [ctx]
                      (assoc-in ctx [:request :headers "Authorization"]
                                "Bearer A"))})
-        (rf/reg-event-fx :load
+        (rf/reg-event :load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (-> db
@@ -393,7 +393,7 @@
         (rf/reg-http-interceptor :b {:before (fn [ctx] (swap! order conj :b)    ctx)})
         ;; Replace :a — should keep its position (first), not append.
         (rf/reg-http-interceptor :a {:before (fn [ctx] (swap! order conj :a-v2) ctx)})
-        (rf/reg-event-fx :load
+        (rf/reg-event :load
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request {:url (str "http://127.0.0.1:" port "/x")}
@@ -448,7 +448,7 @@
           (is (= [:b :c :a] (mapv :id chain))
               "after clear-then-reg, :a moved to the end (was first; now last)"))
 
-        (rf/reg-event-fx :kg5nw/load
+        (rf/reg-event :kg5nw/load
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:url (str "http://127.0.0.1:" port "/x")}
@@ -564,7 +564,7 @@
                  (set (map :id chain)))
               "all three ids appear in the :rf/default chain"))
 
-        (rf/reg-event-fx :test.lfvi/load
+        (rf/reg-event :test.lfvi/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (-> db (update :replies (fnil conj []) reply))}
@@ -657,7 +657,7 @@
         ;; Second :before throws — fires AFTER the mark.
         (rf/reg-http-interceptor :boom
           {:before (fn [_ctx] (throw (ex-info "kaboom" {})))})
-        (rf/reg-event-fx :rznrz/load
+        (rf/reg-event :rznrz/load
           (fn [_ _]
             {:fx [[:rf.http/managed
                    ;; customer_email is NOT in the query-param denylist, so
@@ -713,7 +713,7 @@
         ;; adds :credentials into the request map.
         (rf/reg-http-interceptor :add-credentials
           {:before (fn [ctx] (assoc-in ctx [:request :credentials] :include))})
-        (rf/reg-event-fx :rznrz.cljsonly/load
+        (rf/reg-event :rznrz.cljsonly/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -746,7 +746,7 @@
   (testing "rf2-oyd1b — [:rf.fx/reg-http-interceptor {...}] adds an
             interceptor to the :rf/default frame's chain (observed via
             interceptors-snapshot)."
-    (rf/reg-event-fx :oyd1b/register
+    (rf/reg-event :oyd1b/register
       (fn [_ _]
         {:fx [[:rf.fx/reg-http-interceptor
                {:id     :oyd1b/auth
@@ -770,7 +770,7 @@
 
 (deftest reg-http-interceptor-fx-honours-explicit-frame-rf2-oyd1b
   (testing "rf2-oyd1b — explicit :frame routes to the named slot, not :rf/default"
-    (rf/reg-event-fx :oyd1b/register-on-named
+    (rf/reg-event :oyd1b/register-on-named
       (fn [_ _]
         {:fx [[:rf.fx/reg-http-interceptor
                {:frame  :rf/api
@@ -792,7 +792,7 @@
     (is (= 1 (count (http-managed/interceptors-snapshot :rf/default)))
         "pre-clear: the slot is present")
 
-    (rf/reg-event-fx :oyd1b/clear
+    (rf/reg-event :oyd1b/clear
       (fn [_ _]
         {:fx [[:rf.fx/clear-http-interceptor {:id :oyd1b/to-clear}]]}))
     (rf/dispatch-sync [:oyd1b/clear])
@@ -805,7 +805,7 @@
     (http-managed/reg-http-interceptor :oyd1b/scoped {:frame :rf/api :before identity})
     (http-managed/reg-http-interceptor :oyd1b/default-survivor {:before identity})
 
-    (rf/reg-event-fx :oyd1b/clear-on-named
+    (rf/reg-event :oyd1b/clear-on-named
       (fn [_ _]
         {:fx [[:rf.fx/clear-http-interceptor
                {:frame :rf/api :id :oyd1b/scoped}]]}))
@@ -820,7 +820,7 @@
   (testing "rf2-oyd1b — when :frame is nil/absent the fx routes to :rf/default
             (matching the fn-form behaviour)."
     (http-managed/reg-http-interceptor :oyd1b/dflt {:before identity})
-    (rf/reg-event-fx :oyd1b/clear-no-frame
+    (rf/reg-event :oyd1b/clear-no-frame
       (fn [_ _]
         ;; No :frame key — must default to :rf/default.
         {:fx [[:rf.fx/clear-http-interceptor {:id :oyd1b/dflt}]]}))
@@ -844,7 +844,7 @@
               (swap! errors conj ev))))
 
         ;; missing :id
-        (rf/reg-event-fx :oyd1b/bad-no-id
+        (rf/reg-event :oyd1b/bad-no-id
           (fn [_ _]
             {:fx [[:rf.fx/reg-http-interceptor {:before identity}]]}))
         (try (rf/dispatch-sync [:oyd1b/bad-no-id])
@@ -854,7 +854,7 @@
 
         ;; missing both :before AND :after (a no-op interceptor is rejected
         ;; under the rf2-uheqq shape-iii contract)
-        (rf/reg-event-fx :oyd1b/bad-no-fns
+        (rf/reg-event :oyd1b/bad-no-fns
           (fn [_ _]
             {:fx [[:rf.fx/reg-http-interceptor {:id :x}]]}))
         (try (rf/dispatch-sync [:oyd1b/bad-no-fns])
@@ -863,7 +863,7 @@
             "missing both :before and :after → no interceptor registered")
 
         ;; non-keyword :id
-        (rf/reg-event-fx :oyd1b/bad-string-id
+        (rf/reg-event :oyd1b/bad-string-id
           (fn [_ _]
             {:fx [[:rf.fx/reg-http-interceptor
                    {:id "not-a-keyword" :before identity}]]}))
@@ -878,7 +878,7 @@
 (deftest reg-and-clear-http-interceptor-fxs-roundtrip-rf2-oyd1b
   (testing "rf2-oyd1b — register-then-clear via fxs round-trips cleanly,
             mirroring the fn-form's idempotency."
-    (rf/reg-event-fx :oyd1b/round-trip
+    (rf/reg-event :oyd1b/round-trip
       (fn [_ _]
         {:fx [[:rf.fx/reg-http-interceptor
                {:id :oyd1b/rt :before identity}]
@@ -930,7 +930,7 @@
           {:after (fn [_ctx resp] (swap! order conj :b) resp)})
         (rf/reg-http-interceptor :c
           {:after (fn [_ctx resp] (swap! order conj :c) resp)})
-        (rf/reg-event-fx :uheqq/load
+        (rf/reg-event :uheqq/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -962,7 +962,7 @@
                               :delta-ns (- (System/nanoTime)
                                            (::start ctx))})
                      resp)})
-        (rf/reg-event-fx :uheqq/load-timing
+        (rf/reg-event :uheqq/load-timing
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -992,7 +992,7 @@
                     ;; the :on-success target saw the modified shape.
                     (update resp :value
                             (fn [v] (assoc v :touched-by :after))))})
-        (rf/reg-event-fx :uheqq/load-xform
+        (rf/reg-event :uheqq/load-xform
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -1027,7 +1027,7 @@
           {:after (fn [_ctx resp]
                     (swap! order conj :after-only-fired)
                     resp)})
-        (rf/reg-event-fx :uheqq/load-transparent
+        (rf/reg-event :uheqq/load-transparent
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -1080,7 +1080,7 @@
                             {:remaining 37
                              :limit     100
                              :ctx-aware (::rate-limit-aware ctx)}))})
-        (rf/reg-event-fx :uheqq/load-rate
+        (rf/reg-event :uheqq/load-rate
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -1116,7 +1116,7 @@
                            delta   (- ended started)]
                        (reset! observed {:delta-ms delta :start started})
                        (assoc resp :telemetry {:elapsed-ms delta})))})
-        (rf/reg-event-fx :uheqq/load-telemetry
+        (rf/reg-event :uheqq/load-telemetry
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -1156,7 +1156,7 @@
                     ;; structured :cache slot derived from a parse of
                     ;; the canonical form.
                     (assoc resp :cache {:max-age 600 :public? true}))})
-        (rf/reg-event-fx :uheqq/load-cache
+        (rf/reg-event :uheqq/load-cache
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -1192,7 +1192,7 @@
                              (= 401 (get-in resp [:failure :status])))
                       (assoc resp :auth-refresh-required true)
                       resp))})
-        (rf/reg-event-fx :uheqq/load-401
+        (rf/reg-event :uheqq/load-401
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}

@@ -292,8 +292,8 @@
                 (rf/reg-event-db id meta handler)
                 (rf/reg-event-db id handler))
           :fx (if (seq meta)
-                (rf/reg-event-fx id meta handler)
-                (rf/reg-event-fx id handler)))))
+                (rf/reg-event id meta handler)
+                (rf/reg-event id handler)))))
     ;; ---- subs ----------------------------------------------------------
     (doseq [[id steps] (:sub hmap)]
       (let [{:keys [kind inputs body]} (conformance/realise-sub steps)

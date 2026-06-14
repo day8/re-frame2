@@ -109,8 +109,8 @@
             so the result/input-values payload construction elides too."
     (let [seen (listener-fixture
                  (fn []
-                   (rf/reg-event-db :prod-elision/seed-rect
-                     (fn [db _] (assoc db :w 3 :h 4)))
+                   (rf/reg-event :prod-elision/seed-rect
+                     (fn [{:keys [db]} _] {:db (assoc db :w 3 :h 4)}))
                    (rf/reg-flow
                      {:id     :prod-elision/area
                       :inputs [[:w] [:h]]
@@ -138,8 +138,8 @@
             nothing."
     (let [seen (listener-fixture
                  (fn []
-                   (rf/reg-event-db :prod-elision/seed-throw-input
-                     (fn [db _] (assoc db :trigger? true)))
+                   (rf/reg-event :prod-elision/seed-throw-input
+                     (fn [{:keys [db]} _] {:db (assoc db :trigger? true)}))
                    (rf/reg-flow
                      {:id     :prod-elision/throwing
                       :inputs [[:trigger?]]
@@ -160,10 +160,10 @@
             dirty-check still runs (it's necessary for correctness);
             only the trace emit elides."
     ;; First drain installs the flow + populates :last-inputs.
-    (rf/reg-event-db :prod-elision/seed-skip
-      (fn [db _] (assoc db :a 1)))
-    (rf/reg-event-db :prod-elision/touch-skip
-      (fn [db _] (update db :touched (fnil inc 0))))
+    (rf/reg-event :prod-elision/seed-skip
+      (fn [{:keys [db]} _] {:db (assoc db :a 1)}))
+    (rf/reg-event :prod-elision/touch-skip
+      (fn [{:keys [db]} _] {:db (update db :touched (fnil inc 0))}))
     (rf/reg-flow
       {:id     :prod-elision/skipper
        :inputs [[:a]]
@@ -211,8 +211,8 @@
     ;; Register a validator that REJECTS every value — if validation ran,
     ;; a violation would surface.
     (schemas/set-schema-fns! {:validate (fn [_ _] false)})
-    (rf/reg-event-db :prod-elision/seed-validate
-      (fn [db _] (assoc db :w 3 :h 4)))
+    (rf/reg-event :prod-elision/seed-validate
+      (fn [{:keys [db]} _] {:db (assoc db :w 3 :h 4)}))
     (rf/reg-flow
       {:id     :prod-elision/validated
        :inputs [[:w] [:h]]

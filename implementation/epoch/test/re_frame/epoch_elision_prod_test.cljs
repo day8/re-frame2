@@ -63,8 +63,8 @@
             `(when interop/debug-enabled? ...)` — the per-frame
             history vector stays empty."
     (rf/configure! :epoch-history {:depth 100})
-    (rf/reg-event-db :prod-epoch/inc
-                     (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :prod-epoch/inc
+                     (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf/dispatch-sync [:prod-epoch/inc])
     (rf/dispatch-sync [:prod-epoch/inc])
     (rf/dispatch-sync [:prod-epoch/inc])
@@ -84,8 +84,8 @@
     (let [seen (atom [])]
       (rf/register-epoch-listener! ::prod-epoch-listener
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :prod-epoch/ping
-                       (fn [db _] (assoc db :pinged? true)))
+      (rf/reg-event :prod-epoch/ping
+                       (fn [{:keys [db]} _] {:db (assoc db :pinged? true)}))
       (rf/dispatch-sync [:prod-epoch/ping])
       (rf/dispatch-sync [:prod-epoch/ping])
       (is (empty? @seen)
@@ -116,8 +116,8 @@
             via an `(if-not …)` early-return. Under prod it returns
             `false` WITHOUT mutating app-db — the dev-only Pair-tool
             write surface is firewalled from production state."
-    (rf/reg-event-db :prod-epoch/seed
-                     (fn [_db _] {:original true}))
+    (rf/reg-event :prod-epoch/seed
+                     (fn [{:keys [db]} _] {:db {:original true}}))
     (rf/dispatch-sync [:prod-epoch/seed])
     (is (= {:original true}
            (rf/app-db-value :rf/default))

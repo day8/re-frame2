@@ -275,7 +275,7 @@
       (reset! last-managed-args nil)
       ;; capture the :reply-to continuation
       (let [replied (atom [])]
-        (rf/reg-event-fx :test/favorited
+        (rf/reg-event :test/favorited
           (fn [_ ev] (swap! replied conj ev) {}))
         (rf/dispatch-sync [:rf.mutation/execute
                            {:mutation :realworld/favorite

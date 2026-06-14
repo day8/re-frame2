@@ -120,10 +120,10 @@
           v1-fn (fn v1 [db [_ n]]
                   (swap! observations conj [:v1-pre n])
                   ;; Mid-handler self re-registration.
-                  (rf/reg-event-db :tick
-                    (fn v2 [db [_ n]]
+                  (rf/reg-event :tick
+                    (fn v2 [{:keys [db]} [_ n]]
                       (swap! observations conj [:v2 n])
-                      (assoc db :seen-version :v2)))
+                      {:db (assoc db :seen-version :v2)}))
                   ;; The remainder of THIS invocation runs in the v1 closure.
                   (swap! observations conj [:v1-post n])
                   (assoc db :seen-version :v1))]
@@ -144,7 +144,7 @@
   (testing "re-registering a :sub disposes its cached reaction in every frame"
     (rf/reg-frame :left  {:doc "left frame"})
     (rf/reg-frame :right {:doc "right frame"})
-    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
+    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     ;; Two frames each carrying their own :n.
     (rf/dispatch-sync [:seed 3] {:frame :left})
     (rf/dispatch-sync [:seed 5] {:frame :right})
@@ -189,7 +189,7 @@
 (deftest sub-re-register-evicts-transitive-dependents
   (testing "re-registering an upstream sub evicts its DOWNSTREAM :<- dependents
             so they recompute against the new upstream body"
-    (rf/reg-event-db :seed (fn [_ _] {:n 10}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 10}}))
     (rf/dispatch-sync [:seed] {:frame :rf/default})
     ;; v1 of :a is the identity over :n (= 10); :sum is :a + 0 (= 10).
     (rf/reg-sub :a (fn [db _] (:n db)))
@@ -230,7 +230,7 @@
     ;; registrar permits the registrations; we synthesise the cyclic cache
     ;; entries directly so the closure walk is exercised against a cycle
     ;; without needing the reactive build to succeed.
-    (rf/reg-event-db :seed (fn [_ _] {:n 1}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
     (rf/dispatch-sync [:seed] {:frame :rf/default})
     (rf/reg-sub :base (fn [db _] (:n db)))
     (let [cache (:sub-cache (frame/frame :rf/default))]
@@ -262,7 +262,7 @@
     ;; Build a tiny machine and dispatch into it so [:rf.runtime/machines :snapshots] is
     ;; populated. We use a machine handler so the snapshot lands at
     ;; [:rf.runtime/machines :snapshots :traffic-light] per Spec 005.
-    (rf/reg-event-fx :traffic-light
+    (rf/reg-event :traffic-light
       (machines/make-machine-handler
         {:initial :red
          :data    {:ticks 0}

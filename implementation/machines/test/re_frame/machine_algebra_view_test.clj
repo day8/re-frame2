@@ -241,7 +241,7 @@
   hierarchical-test pattern). EP-0001: snapshots are durable runtime-db state."
   [machine-id snap]
   (let [seed-id (keyword "test" (str "seed-" (name machine-id)))]
-    (rf/reg-event-fx seed-id
+    (rf/reg-event seed-id
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) (paths/snapshot-path machine-id) snap)}))
     (rf/dispatch-sync [seed-id])))

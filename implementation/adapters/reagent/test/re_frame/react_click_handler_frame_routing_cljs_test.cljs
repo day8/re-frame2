@@ -50,8 +50,8 @@
   ;; reducer + sub that pivot on a per-frame slot so a routing leak is
   ;; visible as 'reducer ran on wrong frame's db'.
   (rf/reg-frame :rf/xray {:doc "Xray surrogate for the routing tests"})
-  (rf/reg-event-db :rf-tvu99/set-mode
-                   (fn [db [_ mode]] (assoc db :mode mode)))
+  (rf/reg-event :rf-tvu99/set-mode
+                   (fn [{:keys [db]} [_ mode]] {:db (assoc db :mode mode)}))
   (rf/reg-sub      :rf-tvu99/mode
                    (fn [db _] (get db :mode :diff))))
 

@@ -106,12 +106,12 @@
           current-cnt (atom (atom 0))
           ;; How many :b/leaf events each :a/cross-fire fans out.
           fanout      4]
-      (rf/reg-event-db :b/leaf
+      (rf/reg-event :b/leaf
         {:frame :rgj.exec/b}
-        (fn [db _]
+        (fn [{:keys [db]} _]
           (swap! @current-cnt inc)
-          (update db :n (fnil inc 0))))
-      (rf/reg-event-fx :a/cross-fire
+          {:db (update db :n (fnil inc 0))}))
+      (rf/reg-event :a/cross-fire
         {:frame :rgj.exec/a}
         (fn [_ _]
           ;; Returning fx with N cross-frame :dispatch fxs.
@@ -200,8 +200,8 @@
                                 :drain-depth 200000})
     (rf/reg-frame :rgj.sync/b {:doc "frame B — main-thread sync drainer"
                                 :drain-depth 200000})
-    (rf/reg-event-db :bump
-      (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :bump
+      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
 
     (let [warnings    (atom 0)
           n-a         stress-iters

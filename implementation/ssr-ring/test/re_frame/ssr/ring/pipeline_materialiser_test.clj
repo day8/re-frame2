@@ -422,7 +422,7 @@
 ;; ===========================================================================
 
 (defn- register-blank-app! []
-  (rf/reg-event-fx :init/mw-blank {:platforms #{:server}} (fn [_ _] {}))
+  (rf/reg-event :init/mw-blank {:platforms #{:server}} (fn [_ _] {}))
   (rf/reg-view* :pages/mw-blank (fn [] [:div "ssr body"])))
 
 (deftest middleware-default-match-renders-get

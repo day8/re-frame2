@@ -53,7 +53,7 @@
   (testing "two consecutive derefs against an unchanged upstream value
             run the layer-2 body once"
     (let [runs (atom 0)]
-      (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
       (rf/reg-sub :n  (fn [db _] (:n db)))
       (rf/reg-sub :n*2 :<- [:n] (fn [n _] (swap! runs inc) (* 2 n)))
       (rf/dispatch-sync [:seed])
@@ -69,8 +69,8 @@
 (deftest layer-n-1-memo-recomputes-on-changed-upstream
   (testing "deref after an upstream change runs the body again"
     (let [runs (atom 0)]
-      (rf/reg-event-db :seed   (fn [_ _]      {:n 0}))
-      (rf/reg-event-db :update (fn [db [_ v]] (assoc db :n v)))
+      (rf/reg-event :seed   (fn [{:keys [db]} _]      {:db {:n 0}}))
+      (rf/reg-event :update (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
       (rf/reg-sub :n   (fn [db _] (:n db)))
       (rf/reg-sub :n*2 :<- [:n] (fn [n _] (swap! runs inc) (* 2 n)))
       (rf/dispatch-sync [:seed])
@@ -90,8 +90,8 @@
             This is the headline value of the no-op-by-equality contract
             — diamond-shape graphs do not over-compute downstream."
     (let [runs (atom 0)]
-      (rf/reg-event-db :seed     (fn [_ _]      {:n 1 :other :a}))
-      (rf/reg-event-db :touch    (fn [db _]     (assoc db :other :b)))
+      (rf/reg-event :seed     (fn [{:keys [db]} _]      {:db {:n 1 :other :a}}))
+      (rf/reg-event :touch    (fn [{:keys [db]} _]     {:db (assoc db :other :b)}))
       (rf/reg-sub :n   (fn [db _] (:n db)))
       (rf/reg-sub :n*2 :<- [:n] (fn [n _] (swap! runs inc) (* 2 n)))
       (rf/dispatch-sync [:seed])
@@ -108,7 +108,7 @@
   (testing "the body fn still receives the canonical (upstream, query-v)
             shape under the specialised wrapper — no shape regression"
     (let [captured (atom nil)]
-      (rf/reg-event-db :seed (fn [_ _] {:n 99}))
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 99}}))
       (rf/reg-sub :n   (fn [db _] (:n db)))
       (rf/reg-sub :n*2 :<- [:n]
                   (fn [n query-v]
@@ -127,9 +127,9 @@
             sentinel — the body runs once for each, memo skips on
             repeat"
     (let [runs (atom 0)]
-      (rf/reg-event-db :seed-nil   (fn [_ _] {:n nil}))
-      (rf/reg-event-db :seed-false (fn [_ _] {:n false}))
-      (rf/reg-event-db :seed-val   (fn [_ _] {:n 1}))
+      (rf/reg-event :seed-nil   (fn [{:keys [db]} _] {:db {:n nil}}))
+      (rf/reg-event :seed-false (fn [{:keys [db]} _] {:db {:n false}}))
+      (rf/reg-event :seed-val   (fn [{:keys [db]} _] {:db {:n 1}}))
       (rf/reg-sub :n   (fn [db _] (:n db)))
       (rf/reg-sub :n-shadow :<- [:n]
                   (fn [n _] (swap! runs inc) n))
@@ -160,8 +160,8 @@
   (testing "a 1-input layer-2 sub and a 2-input layer-2 sub (one of the
             inputs constant) produce the same stream of values across
             N db updates"
-    (rf/reg-event-db :seed   (fn [_ _]      {:n 0 :k :stable}))
-    (rf/reg-event-db :update (fn [db [_ v]] (assoc db :n v)))
+    (rf/reg-event :seed   (fn [{:keys [db]} _]      {:db {:n 0 :k :stable}}))
+    (rf/reg-event :update (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (rf/reg-sub :n  (fn [db _] (:n db)))
     (rf/reg-sub :k  (fn [db _] (:k db)))
     (rf/reg-sub :n*2-1 :<- [:n]
@@ -186,9 +186,9 @@
   (let [a-runs (atom 0)
         b-runs (atom 0)
         c-runs (atom 0)]
-    (rf/reg-event-db :seed   (fn [_ _]      {:n 1 :other :x}))
-    (rf/reg-event-db :update (fn [db [_ v]] (assoc db :n v)))
-    (rf/reg-event-db :touch  (fn [db _]     (assoc db :other :y)))
+    (rf/reg-event :seed   (fn [{:keys [db]} _]      {:db {:n 1 :other :x}}))
+    (rf/reg-event :update (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
+    (rf/reg-event :touch  (fn [{:keys [db]} _]     {:db (assoc db :other :y)}))
     (rf/reg-sub :a (fn [db _] (swap! a-runs inc) (:n db)))
     (rf/reg-sub :b :<- [:a] (fn [a _] (swap! b-runs inc) (inc a)))
     (rf/reg-sub :c :<- [:b] (fn [b _] (swap! c-runs inc) (inc b)))

@@ -269,10 +269,10 @@
             value"
     ;; Malli app-db schema: [:derived :doubled] must be a NON-NEGATIVE int.
     (rf/reg-app-schema [:derived] [:map [:doubled [:int {:min 0}]]])
-    (rf/reg-event-db :seed (fn [_ _] {:n 1 :derived {:doubled 0}}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1 :derived {:doubled 0}}}))
     ;; The handler writes :n; the flow reads :n and writes a value that the
     ;; app-db schema will REJECT (negative when :n is negative).
-    (rf/reg-event-db :set-n (fn [db [_ v]] (assoc db :n v)))
+    (rf/reg-event :set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (rf/reg-flow {:id     :doubler
                   :inputs [[:n]]
                   :output (fn [n] (* 2 n))
@@ -333,9 +333,9 @@
             is discarded, NO :rf.event/db-changed fires, the handler's own
             :db does NOT land — distinct from the schema-rollback signature
             (no commit at all, vs commit-then-unwind)"
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     ;; The handler writes :n; the flow reads :n and THROWS.
-    (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
+    (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
     ;; Seed a clean baseline FIRST, then register the throwing flow — the
     ;; flow throws on every eval, so registering it after the seed keeps the
     ;; baseline (and isolates the throw to the :bump drain we observe).
@@ -380,7 +380,7 @@
   (testing "under SSR's synchronous drain a sub over a flow's :path renders
             the flow-augmented value into the output HTML — the flow ran
             before install; the render reads the installed flow-augmented db"
-    (rf/reg-event-db :ssr/seed (fn [_ _] {:user {:first "Ada" :last "Lovelace"}}))
+    (rf/reg-event :ssr/seed (fn [{:keys [db]} _] {:db {:user {:first "Ada" :last "Lovelace"}}}))
     ;; A flow derives a display name from the user map into [:derived :full-name].
     (rf/reg-flow {:id     :user/full-name
                   :inputs [[:user :first] [:user :last]]
@@ -432,13 +432,13 @@
                     :output (fn [n] (swap! flow-inputs conj n) (* 10 n))
                     :path   [:derived :scaled]})
       ;; The parent writes :n=1 then :fx :dispatches the child.
-      (rf/reg-event-fx :parent
+      (rf/reg-event :parent
                        (fn [{:keys [db]} _]
                          {:db (assoc db :n 1)
                           :fx [[:dispatch [:child]]]}))
       ;; The child writes :n=2 — a DIFFERENT value, so the flow's dirty-
       ;; check recomputes for the child (proving an independent eval).
-      (rf/reg-event-db :child (fn [db _] (assoc db :n 2)))
+      (rf/reg-event :child (fn [{:keys [db]} _] {:db (assoc db :n 2)}))
 
       (reset! *captured* [])
       (rf/dispatch-sync [:parent])
@@ -571,10 +571,10 @@
             in the handler's :fx are NEVER walked (post-install stage
             skipped per the atomicity contract — rule a)"
     (let [on-match-fired (atom 0)]
-      (rf/reg-event-db :route/load-article
-                       (fn [db _]
+      (rf/reg-event :route/load-article
+                       (fn [{:keys [db]} _]
                          (swap! on-match-fired inc)
-                         (assoc db :article/loaded? true)))
+                         {:db (assoc db :article/loaded? true)}))
       ;; :route/article carries an :on-match — :rf.route/transitioned's
       ;; handler will return `[:dispatch [:route/load-article]]` inside :fx
       ;; for a successful transition. The flow throw must skip that :fx.
@@ -729,7 +729,7 @@
     (rf/reg-route :route/article {:path   "/articles/:id"
                                   :params [:map [:id :string]]})
     (rf/reg-route :route/home    {:path "/"})
-    (rf/reg-event-db :set-greeting (fn [db [_ g]] (assoc db :greeting g)))
+    (rf/reg-event :set-greeting (fn [{:keys [db]} [_ g]] {:db (assoc db :greeting g)}))
     (let [flow-evals (atom [])]
       ;; Bare [:greeting] reads app-db; qualified route id reads runtime-db.
       (rf/reg-flow {:id     :nav/banner

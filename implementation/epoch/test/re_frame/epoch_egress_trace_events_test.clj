@@ -124,7 +124,7 @@
             the not-emit-redacted shapes (pinned by the unit tests)"
     (rf/reg-frame :test/eg {})
     (install-sensitive-schema! :test/eg)
-    (rf/reg-event-db :login (fn [db _] (assoc-in db [:auth :password] secret)))
+    (rf/reg-event :login (fn [{:keys [db]} _] {:db (assoc-in db [:auth :password] secret)}))
     (rf/dispatch-sync [:login] {:frame :test/eg})
 
     (let [raw    (last (rf/epoch-history :test/eg))
@@ -156,7 +156,7 @@
             redacted (pinned directly by the unit tests below)"
     (rf/reg-frame :test/eg {})
     (install-sensitive-schema! :test/eg)
-    (rf/reg-event-db :login (fn [db _] (assoc-in db [:auth :password] secret)))
+    (rf/reg-event :login (fn [{:keys [db]} _] {:db (assoc-in db [:auth :password] secret)}))
     (rf/dispatch-sync [:login] {:frame :test/eg})
 
     (let [raw       (last (rf/epoch-history :test/eg))
@@ -182,8 +182,8 @@
             :rf.event/db tag"
     (rf/reg-frame :test/eg {})
     (install-sensitive-schema! :test/eg)
-    (rf/reg-event-db :seed  (fn [_ _] {}))
-    (rf/reg-event-db :login (fn [db _] (assoc-in db [:auth :password] secret)))
+    (rf/reg-event :seed  (fn [{:keys [db]} _] {:db {}}))
+    (rf/reg-event :login (fn [{:keys [db]} _] {:db (assoc-in db [:auth :password] secret)}))
     (rf/dispatch-sync [:seed]  {:frame :test/eg})
     (rf/dispatch-sync [:login] {:frame :test/eg})
 
@@ -362,7 +362,7 @@
             double-project do not corrupt or re-leak the nested slot"
     (rf/reg-frame :test/eg {})
     (install-sensitive-schema! :test/eg)
-    (rf/reg-event-db :login (fn [db _] (assoc-in db [:auth :password] secret)))
+    (rf/reg-event :login (fn [{:keys [db]} _] {:db (assoc-in db [:auth :password] secret)}))
     (rf/dispatch-sync [:login] {:frame :test/eg})
 
     (let [raw    (last (rf/epoch-history :test/eg))

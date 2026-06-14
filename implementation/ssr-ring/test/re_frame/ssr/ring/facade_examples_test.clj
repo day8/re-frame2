@@ -89,7 +89,7 @@
       ;; Stronger than textual presence: the example opts map must pass
       ;; the live construction validator (with placeholder event/view
       ;; registered) — proving the example is actually constructible.
-      (rf/reg-event-fx :init/facade-example {:platforms #{:server}} (fn [_ _] {}))
+      (rf/reg-event :init/facade-example {:platforms #{:server}} (fn [_ _] {}))
       (rf/reg-view* :pages/facade-example (fn [] [:div "facade example"]))
       (is (= (assoc opts :on-create [:init/facade-example]
                          :root-view [:pages/facade-example])

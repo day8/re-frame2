@@ -62,8 +62,8 @@
         (is (fn? flush!)
             "the Reagent adapter map exposes :flush-render! (rf2-40a84 contract slot)")
         (rf/reg-frame frame-kw {:doc "flush-render! synchronous-commit probe frame"})
-        (rf/reg-event-db ::seed (fn [_ _] {:n 1}))
-        (rf/reg-event-db ::inc  (fn [db _] (update db :n inc)))
+        (rf/reg-event ::seed (fn [{:keys [db]} _] {:db {:n 1}}))
+        (rf/reg-event ::inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
         (rf/dispatch-sync [::seed] {:frame frame-kw})
         (rf/reg-sub ::n (fn [db _] (:n db)))
         (rf/reg-view* :rf.reagent-flush-render/probe

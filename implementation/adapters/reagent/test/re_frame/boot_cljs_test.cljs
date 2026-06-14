@@ -326,5 +326,5 @@
 ;; A tiny event used only by the test above to write a malformed [:config]
 ;; app-db slice, so the app-db slice schema's :where :app-db boundary is
 ;; exercised distinctly from the machine :data boundary.
-(rf/reg-event-db ::write-bad-config
-  (fn [db _] (assoc db :config {:api-base "/api"})))   ;; missing required Config keys
+(rf/reg-event ::write-bad-config
+  (fn [{:keys [db]} _] {:db (assoc db :config {:api-base "/api"})}))   ;; missing required Config keys

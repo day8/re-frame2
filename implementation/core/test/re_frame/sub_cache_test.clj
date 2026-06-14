@@ -67,7 +67,7 @@
 
 (deftest cache-entry-shape-matches-spec-006
   (testing "a freshly-built cache entry stores exactly :reaction :inputs :ref-count"
-    (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :sum :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
@@ -96,7 +96,7 @@
 
 (deftest sync-disposal-on-last-unsubscribe
   (testing "ref-count → 0 disposes the cache slot synchronously (rf2-cmfln)"
-    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
 
@@ -111,7 +111,7 @@
 
 (deftest sync-disposal-respects-multiple-subscribers
   (testing "only the LAST subscriber dropping disposes"
-    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
 
@@ -141,8 +141,8 @@
             the sub's compute fn — the reaction has been disposed
             synchronously, its watch on app-db unwound (rf2-cmfln #2/#3)"
     (let [recompute-count (atom 0)]
-      (rf/reg-event-db :seed   (fn [_ _]      {:n 0}))
-      (rf/reg-event-db :update (fn [db [_ n]] (assoc db :n n)))
+      (rf/reg-event :seed   (fn [{:keys [db]} _]      {:db {:n 0}}))
+      (rf/reg-event :update (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
       (rf/reg-sub :n (fn [db _]
                        (swap! recompute-count inc)
                        (:n db)))
@@ -186,7 +186,7 @@
 
 (deftest clear-subscription-cache-empties-the-cache
   (testing "clear-sub-cache! disposes every cached entry"
-    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
 
@@ -200,7 +200,7 @@
 
 (deftest hot-reload-evicts-cached-entries
   (testing "re-registering a sub disposes the cached slot"
-    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
 
@@ -221,7 +221,7 @@
 
 (deftest subscribe-once-disposes-synchronously
   (testing "subscribe-once's teardown is synchronous"
-    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
 
@@ -233,7 +233,7 @@
 
 (deftest subscribe-once-respects-concurrent-subscriber
   (testing "subscribe-once's teardown only disposes when it drove the 1 → 0"
-    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
 
@@ -265,7 +265,7 @@
 
 (deftest subscribe-before-register-does-not-cache
   (testing "subscribing before reg-sub does not cache; later registration is observed"
-    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/dispatch-sync [:init])
 
     ;; Subscribe BEFORE the sub is registered.
@@ -293,7 +293,7 @@
 
 (deftest subscribe-before-register-survives-multiple-misses
   (testing "repeated subscribe-before-register calls do not poison the cache"
-    (rf/reg-event-db :init (fn [_ _] {:n 11}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 11}}))
     (rf/dispatch-sync [:init])
 
     (dotimes [_ 3]
@@ -314,7 +314,7 @@
 
 (deftest clear-sub-id-leaves-cache-intact
   (testing "(clear-sub id) removes the registration but does not evict cache slots"
-    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
 
@@ -342,7 +342,7 @@
 
 (deftest clear-sub-no-arg-leaves-cache-intact
   (testing "(clear-sub) clears every registration but leaves the cache untouched"
-    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :a (fn [db _] (:n db)))
     (rf/reg-sub :b (fn [db _] (* 2 (:n db))))
     (rf/dispatch-sync [:init])
@@ -370,7 +370,7 @@
 
 (deftest unsubscribe-past-zero-is-idempotent
   (testing "calling unsubscribe more than once for the same sub-id does not throw or schedule extra work (rf2-zikr / rf2-cmfln)"
-    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
 
@@ -390,7 +390,7 @@
         "repeated unsubscribe against a disposed slot is a no-op"))
 
   (testing "extra unsubscribe before any subscribe is a complete no-op"
-    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:init])
     ;; No subscribe — the entry doesn't exist; unsubscribe must not
@@ -413,7 +413,7 @@
 
 (deftest layer-2-disposal-decrements-input-ref-counts
   (testing "disposing a layer-2 sub decrements ref-counts on every :<- input"
-    (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :sum
@@ -443,7 +443,7 @@
 
 (deftest layer-2-disposal-respects-shared-inputs
   (testing "disposing one layer-2 sub decrements shared input only by one"
-    (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3 :c 4}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2 :b 3 :c 4}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :c (fn [db _] (:c db)))
@@ -485,7 +485,7 @@
 
 (deftest layer-2-disposal-respects-externally-held-input
   (testing "an input also held by a direct subscribe is not over-disposed"
-    (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :sum :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
@@ -517,7 +517,7 @@
 
 (deftest layer-3-disposal-cascades-through-chain
   (testing "disposal cascades recursively through a layer-3 chain"
-    (rf/reg-event-db :init (fn [_ _] {:a 2}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :a*2 :<- [:a]   (fn [a _] (* 2 a)))
     (rf/reg-sub :a*4 :<- [:a*2] (fn [a2 _] (* 2 a2)))
@@ -538,7 +538,7 @@
 
 (deftest layer-2-multi-subscriber-disposal-keeps-inputs-alive
   (testing "with two parent subscribers, dropping one keeps inputs at ref-count 1"
-    (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :sum :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
@@ -586,7 +586,7 @@
 (deftest layer-2-input-refs-released-when-frame-destroyed-mid-build
   (testing "a layer-2 build whose parent cache-read sees a destroyed frame
             still releases the inputs it subscribed (no ref-count leak)"
-    (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :sum :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
@@ -640,7 +640,7 @@
 
 (deftest no-such-sub-trace-tags-match-spec-009
   (testing "subscribing an unregistered sub emits Spec-009 tag-shape"
-    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/dispatch-sync [:init])
     (let [traces (atom [])]
       (rf/register-listener! ::no-such (fn [ev] (swap! traces conj ev)))
@@ -670,7 +670,7 @@
 
 (deftest sub-cache-ref-counting
   (testing "subscribe / unsubscribe pair tracks ref-count and disposes on zero"
-    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     (rf/dispatch-sync [:seed])
     (let [cache (:sub-cache (frame/frame :rf/default))]
@@ -691,7 +691,7 @@
 
 (deftest sub-hot-reload-invalidates-cache
   (testing "re-registering a :sub disposes cached reactions and emits a trace"
-    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/dispatch-sync [:seed])
     ;; v1 of :answer returns the value as-is.
     (rf/reg-sub :answer (fn [db _] (:n db)))
@@ -735,7 +735,7 @@
   (testing "1-arity subscribe / subscribe-once / unsubscribe / clear-sub-cache!
             under NO established scope raise :rf.error/no-frame-context
             instead of falling through to :rf/default (rf2-jue6sp)"
-    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
     ;; Unwind the fixture's with-frame :rf/default scope → genuinely no
     ;; carried stamp and no React-context provider (JVM).
@@ -767,7 +767,7 @@
   (testing "1-arity subscribe under with-frame routes to the scope's frame —
             the ambient form still works INSIDE a real scope (rf2-jue6sp)"
     (rf/reg-frame :jue/scoped {:doc "explicit non-default scope"})
-    (rf/reg-event-db :seed (fn [_ [_ v]] {:v v}))
+    (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db {:v v}}))
     (rf/reg-sub :v (fn [db _] (:v db)))
     (rf/dispatch-sync [:seed :scoped-value] {:frame :jue/scoped})
     ;; Unwind the fixture scope first, then establish :jue/scoped.
@@ -782,7 +782,7 @@
             (rf2-jue6sp; wrong-frame prevention for READS as well as writes)"
     (rf/reg-frame :jue/left  {:doc "left frame"})
     (rf/reg-frame :jue/right {:doc "right frame"})
-    (rf/reg-event-db :seed (fn [_ [_ v]] {:v v}))
+    (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db {:v v}}))
     (rf/reg-sub :v (fn [db _] (:v db)))
     (rf/dispatch-sync [:seed :left-value]  {:frame :jue/left})
     (rf/dispatch-sync [:seed :right-value] {:frame :jue/right})

@@ -200,7 +200,7 @@
                   (write-response! ex 200 "application/json"
                                    "{\"title\":\"hello\",\"id\":42}")))]
       (try
-        (rf/reg-event-fx :article/load
+        (rf/reg-event :article/load
           (fn [{:keys [db]} [_ msg]]
             (if-let [reply (:rf/reply msg)]
               {:db (assoc db :reply reply)}
@@ -225,12 +225,12 @@
                 (fn [^HttpExchange ex]
                   (write-response! ex 503 "text/plain" "down")))]
       (try
-        (rf/reg-event-fx :svc/call
+        (rf/reg-event :svc/call
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:url (str "http://127.0.0.1:" (:port srv) "/x")}
                     :on-failure [:svc/failed]}]]}))
-        (rf/reg-event-db :svc/failed (fn [db [_ payload]] (assoc db :got payload)))
+        (rf/reg-event :svc/failed (fn [{:keys [db]} [_ payload]] {:db (assoc db :got payload)}))
         (rf/dispatch-sync [:svc/call])
         (let [db (await-reply! #(some? (:got %)))]
           (is (= :failure (get-in db [:got :kind])))
@@ -248,7 +248,7 @@
           lid     ::replied-trace]
       (try
         (trace/register-listener! lid (fn [ev] (swap! traces conj ev)))
-        (rf/reg-event-fx :t/load
+        (rf/reg-event :t/load
           (fn [{:keys [db]} [_ msg]]
             (if (:rf/reply msg)
               {:db (assoc db :done true)}
@@ -296,7 +296,7 @@
           (fn [db [_ payload]]
             (swap! replies conj payload)
             db))
-        (rf/reg-event-fx :search/go
+        (rf/reg-event :search/go
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:url (str "http://127.0.0.1:" (:port srv) "/s")}
@@ -338,7 +338,7 @@
         (trace/register-listener! lid (fn [ev] (swap! traces conj ev)))
         (rf/reg-event-db :search/replied
           (fn [db [_ payload]] (swap! replies conj payload) db))
-        (rf/reg-event-fx :search/go
+        (rf/reg-event :search/go
           (fn [_ _]
             {:fx [[:rf.http/managed
                    {:request    {:url (str "http://127.0.0.1:" (:port srv) "/s")}

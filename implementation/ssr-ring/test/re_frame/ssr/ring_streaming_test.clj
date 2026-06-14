@@ -24,9 +24,9 @@
   [test-fn]
   (ts/reset-runtime
     (fn []
-      (rf/reg-event-db :rf.test/seed-articles
-        (fn [_ [_ arts]] {:articles arts}))
-      (rf/reg-event-fx :rf.test.server/init
+      (rf/reg-event :rf.test/seed-articles
+        (fn [{:keys [db]} [_ arts]] {:db {:articles arts}}))
+      (rf/reg-event :rf.test.server/init
         {:platforms #{:server}}
         (fn [_ _]
           {:db {:articles [{:id "a" :title "Article A"}
@@ -261,9 +261,9 @@
             script — not an inert `{}` chunk."
     ;; A db-mutating event the deferred subtree dispatches during its render
     ;; — produces a non-empty per-subtree delta for the :changed boundary.
-    (rf/reg-event-db :rf.test/bump-counter
+    (rf/reg-event :rf.test/bump-counter
       {:platforms #{:server}}
-      (fn [db _] (update db :counter (fnil inc 0))))
+      (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
     ;; Subtree that mutates app-db during render → non-empty delta.
     (rf/reg-view ^{:rf/id :test/mutating-section} mutating-section []
       (rf/dispatch-sync [:rf.test/bump-counter])
@@ -328,7 +328,7 @@
             request frame inline — no frame / side-channel-slot leak.
             The redirect branch never spawns the writer thread, so the
             teardown CANNOT defer to the writer's finally."
-    (rf/reg-event-fx :rf.test.stream/redirect
+    (rf/reg-event :rf.test.stream/redirect
       {:platforms #{:server}}
       (fn [_ _]
         {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
@@ -367,7 +367,7 @@
             non-streaming redirect path (which passes no default-content-
             type). A redirect has no body, so a defaulted Content-Type is
             meaningless; the two handlers must not diverge."
-    (rf/reg-event-fx :rf.test.stream/redirect-ct
+    (rf/reg-event :rf.test.stream/redirect-ct
       {:platforms #{:server}}
       (fn [_ _]
         {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
@@ -433,7 +433,7 @@
             closed to a non-200 PROJECTED error response on the request
             thread — NOT a streamed 200. No InputStream body is handed
             out (the chunked response was never committed)."
-    (rf/reg-event-fx :rf.test.server/init-min
+    (rf/reg-event :rf.test.server/init-min
       {:platforms #{:server}}
       (fn [_ _] {:db {}}))
     (let [throwing-root (fn root-view-fn []
@@ -460,7 +460,7 @@
             non-200 — the shell-walk throw is a structural failure that
             escalates per Spec 011 §954 (the inline-fallback boundary
             stops at continuations)."
-    (rf/reg-event-fx :rf.test.server/init-min
+    (rf/reg-event :rf.test.server/init-min
       {:platforms #{:server}}
       (fn [_ _] {:db {}}))
     ;; A view that throws during the shell walk — it is NOT wrapped in a
@@ -499,7 +499,7 @@
         [:main.broken
          [:h1 "header that renders"]
          [:p (str "value: " v)]]))
-    (rf/reg-event-fx :rf.test.server/init-min
+    (rf/reg-event :rf.test.server/init-min
       {:platforms #{:server}}
       (fn [_ _] {:db {}}))
     (let [handler (ssr-ring/stream-handler
@@ -537,7 +537,7 @@
     (rf/reg-view ^{:rf/id :test/uses-clean-sub} uses-clean-sub []
       (let [v @(rf/subscribe [:clean-sub])]
         [:main [:h1 "clean"] [:p (str "value: " v)]]))
-    (rf/reg-event-fx :rf.test.server/init-min
+    (rf/reg-event :rf.test.server/init-min
       {:platforms #{:server}}
       (fn [_ _] {:db {}}))
     (let [handler  (ssr-ring/stream-handler
@@ -589,7 +589,7 @@
   (testing "rf2-5knxf.1: a :redirect surfacing at the POST-SHELL get-response
             re-read ships a bodiless Location response (NOT a streamed
             body), spawns NO writer thread, and destroys the frame inline."
-    (rf/reg-event-fx :rf.test.server/init-min
+    (rf/reg-event :rf.test.server/init-min
       {:platforms #{:server}}
       (fn [_ _] {:db {}}))
     (rf/reg-view ^{:rf/id :test/plain-root} plain-root []
@@ -671,7 +671,7 @@
             root view EQUALS the client's `#((rf/view :root))` hash — the
             suspense marker is NOT a divergence (render-tree-hash is a pure
             structural hash that does not expand or reject the marker)."
-    (rf/reg-event-fx :rf.test.server/init
+    (rf/reg-event :rf.test.server/init
       {:platforms #{:server}}
       (fn [_ _] {:db {:comments [{:body "First!"}]}}))
     (rf/reg-sub :comments (fn [db _] (:comments db)))
@@ -750,7 +750,7 @@
                    :path "/stream-head-throws"
                    :head :test.stream/head-throws})
     ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
-    (rf/reg-event-fx :rf.test.stream/seed-throwing-head-route
+    (rf/reg-event :rf.test.stream/seed-throwing-head-route
       {:platforms #{:server}}
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
@@ -828,7 +828,7 @@
             (case-insensitively) from the streamed response so the Ring
             server owns chunked-transfer framing; the body still streams in
             full with NO Content-Length header surviving"
-    (rf/reg-event-fx :rf.test.server/init-with-content-length
+    (rf/reg-event :rf.test.server/init-with-content-length
       {:platforms #{:server}}
       (fn [_ _]
         {:db {:articles [{:id "a" :title "Article A"}]
@@ -870,7 +870,7 @@
   (testing "rf2-h3dg0: stripping Content-Length leaves the other head
             machinery intact — Content-Type still rides the streamed
             response"
-    (rf/reg-event-fx :rf.test.server/init-cl-and-ct
+    (rf/reg-event :rf.test.server/init-cl-and-ct
       {:platforms #{:server}}
       (fn [_ _]
         {:db {:articles [] :comments []}

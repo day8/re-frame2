@@ -70,7 +70,7 @@
 (deftest dispatch-id-rides-every-event-in-the-cascade
   (testing "every trace event emitted while a drain is in flight carries the cascade's :rf.trace/dispatch-id"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-fx :seed
+    (rf/reg-event :seed
                      (fn [_ _]
                        {:db {:n 1}
                         :fx [[:test/incr :go]]}))
@@ -111,10 +111,10 @@
 (deftest child-dispatch-gets-its-own-dispatch-id-and-parents-the-outer
   (testing "child dispatches from inside fx handlers get a fresh :rf.trace/dispatch-id and the parent's id rides on :rf.trace/parent-dispatch-id"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-fx :parent
+    (rf/reg-event :parent
                      (fn [_ _]
                        {:fx [[:dispatch [:child]]]}))
-    (rf/reg-event-db :child (fn [db _] (assoc db :got-child true)))
+    (rf/reg-event :child (fn [{:keys [db]} _] {:db (assoc db :got-child true)}))
     (let [evs        (record-traces
                        (fn [] (rf/dispatch-sync [:parent] {:frame :test/main})))
           dispatches (vec (events-of evs #(= :rf.event/dispatched (:operation %))))
@@ -133,8 +133,8 @@
 (deftest parent-dispatch-id-only-on-event-dispatched
   (testing ":rf.trace/parent-dispatch-id is scoped to :rf.event/dispatched events only — not on :rf.sub/run, :rf.event/db-changed, :rf.fx/handled, etc."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-fx :outer (fn [_ _] {:fx [[:dispatch [:inner]]]}))
-    (rf/reg-event-db :inner (fn [db _] (assoc db :v 1)))
+    (rf/reg-event :outer (fn [_ _] {:fx [[:dispatch [:inner]]]}))
+    (rf/reg-event :inner (fn [{:keys [db]} _] {:db (assoc db :v 1)}))
     (let [evs (record-traces
                 (fn [] (rf/dispatch-sync [:outer] {:frame :test/main})))]
       (doseq [ev evs
@@ -169,7 +169,7 @@
 (deftest dispatch-id-is-fresh-across-cascade-boundaries
   (testing "two sequential dispatches get distinct :dispatch-ids on every event in their respective cascades"
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :bump (fn [db _] (update db :n (fnil inc 0))))
+    (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [evs1 (record-traces
                  (fn [] (rf/dispatch-sync [:bump] {:frame :test/main})))
           evs2 (record-traces

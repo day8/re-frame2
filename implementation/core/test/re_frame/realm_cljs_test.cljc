@@ -102,9 +102,9 @@
   (testing "the registry shape + read API are byte-stable — a registration
             made through the public reg-* surface is visible through the
             existing registrar read API the EP-0014 tooling sibling uses"
-    (rf/reg-event-db :realm-test/inc
+    (rf/reg-event :realm-test/inc
       {:doc "increment counter"}
-      (fn [db _] (update db :n (fnil inc 0))))
+      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf/reg-sub :realm-test/n
       {:doc "the counter"}
       (fn [db _] (:n db)))
@@ -125,9 +125,9 @@
   (testing "reg-* / dispatch / subscribe work UNCHANGED through the default
             realm — the zero-ergonomic-regression headline"
     (rf/reg-frame :realm-test/app {:doc "transparency app"})
-    (rf/reg-event-db :realm-test/set
+    (rf/reg-event :realm-test/set
       {:doc "set n"}
-      (fn [db [_ v]] (assoc db :n v)))
+      (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (rf/reg-sub :realm-test/read-n
       {:doc "read n"}
       (fn [db _] (:n db)))

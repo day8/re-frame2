@@ -102,7 +102,7 @@
 
 (deftest source-coords-on-reg-event-fx
   (testing "reg-event-fx stamps :ns / :line / :file"
-    (rf/reg-event-fx :rf2-k84s/reg-event-fx-sample
+    (rf/reg-event :rf2-k84s/reg-event-fx-sample
                      (fn [_ _] {}))
     (assert-coords (rf/handler-meta :event :rf2-k84s/reg-event-fx-sample)
                    :event :rf2-k84s/reg-event-fx-sample)))

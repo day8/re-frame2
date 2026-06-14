@@ -203,8 +203,8 @@
       (doseq [{:keys [frame-id]} per-thread]
         (rf/reg-frame frame-id
                       {:doc "per-thread frame for epoch settle stress"}))
-      (rf/reg-event-db :bump (fn [db [_ i]]
-                               (assoc db :last i)))
+      (rf/reg-event :bump (fn [{:keys [db]} [_ i]]
+                               {:db (assoc db :last i)}))
 
       (let [latch   (CountDownLatch. 1)
             futures (vec
@@ -293,8 +293,8 @@
     ;; `ring-depth-evicts-oldest` pin.
     (rf/configure! :epoch-history {:depth (* 2 stress-iters)})
     (rf/reg-frame :rd7a7.fanout/main {:doc "fanout-stress frame"})
-    (rf/reg-event-db :bump (fn [db [_ i]]
-                             (assoc db :last i)))
+    (rf/reg-event :bump (fn [{:keys [db]} [_ i]]
+                             {:db (assoc db :last i)}))
 
     ;; Two pinned listeners share one `let`-scope so both atoms stay
     ;; live through the assertion phase below:
@@ -429,8 +429,8 @@
     ;; covers the cap behaviour.
     (rf/configure! :epoch-history {:depth (* 2 stress-iters)})
     (rf/reg-frame :rd7a7.race/main {:doc "ring-buffer race frame"})
-    (rf/reg-event-db :bump (fn [db [_ i]]
-                             (assoc db :last i)))
+    (rf/reg-event :bump (fn [{:keys [db]} [_ i]]
+                             {:db (assoc db :last i)}))
 
     (let [consumer-stop  (atom false)
           consumer-error (atom nil)
@@ -585,7 +585,7 @@
           frames (mapv (fn [t] (keyword "ep0015.cas" (str "frame-" t)))
                        (range n))]
       ;; Seed each frame with one settled epoch (the back-fill target).
-      (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
       (doseq [frame-id frames]
         (rf/reg-frame frame-id {})
         (rf/dispatch-sync [:seed] {:frame frame-id}))

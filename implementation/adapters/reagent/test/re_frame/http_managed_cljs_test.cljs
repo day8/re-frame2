@@ -60,7 +60,7 @@
 
 (deftest canned-success-default-reply-addressing-cljs
   (testing "the canned-success stub dispatches a default reply (originating event-id with :rf/reply)"
-    (rf/reg-event-fx :article/load
+    (rf/reg-event :article/load
       (fn [_ [_ msg]]
         (if-let [reply (:rf/reply msg)]
           (case (:kind reply)
@@ -79,14 +79,14 @@
 
 (deftest canned-failure-explicit-on-failure-cljs
   (testing "explicit :on-failure routes the failure reply to the named handler"
-    (rf/reg-event-fx :auth/login
+    (rf/reg-event :auth/login
       (fn [_ _]
         {:fx [[:rf.http/managed
                {:request    {:method :post :url "/auth/login"}
                 :on-failure [:auth/login-error]}]]}))
-    (rf/reg-event-db :auth/login-error
-      (fn [db [_ payload]]
-        (assoc db :auth-error payload)))
+    (rf/reg-event :auth/login-error
+      (fn [{:keys [db]} [_ payload]]
+        {:db (assoc db :auth-error payload)}))
     (rf/dispatch-sync [:auth/login]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
     (let [db (rf/app-db-value :rf/default)]
@@ -98,14 +98,14 @@
 
 (deftest canned-success-explicit-on-success-cljs
   (testing "explicit :on-success routes the success reply to the named handler"
-    (rf/reg-event-fx :article/load
+    (rf/reg-event :article/load
       (fn [_ _]
         {:fx [[:rf.http/managed
                {:request    {:method :get :url "/articles/hello"}
                 :on-success [:article/loaded]}]]}))
-    (rf/reg-event-db :article/loaded
-      (fn [db [_ payload]]
-        (assoc db :article payload)))
+    (rf/reg-event :article/loaded
+      (fn [{:keys [db]} [_ payload]]
+        {:db (assoc db :article payload)}))
     (rf/dispatch-sync [:article/load]
                       {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
     (let [db (rf/app-db-value :rf/default)]
@@ -117,7 +117,7 @@
 (deftest silenced-reply-on-success-nil-cljs
   (testing "explicit :on-success nil swallows the reply silently"
     (let [seen (atom 0)]
-      (rf/reg-event-fx :ping
+      (rf/reg-event :ping
         (fn [_ _]
           (swap! seen inc)
           {:fx [[:rf.http/managed
@@ -132,7 +132,7 @@
 
 (deftest decode-reflection-metadata-cljs
   (testing ":rf.http/decode-schemas declared on the handler is queryable via handler-meta"
-    (rf/reg-event-fx :article/load
+    (rf/reg-event :article/load
       {:doc                    "Load an article."
        :rf.http/decode-schemas [::ArticleResponse ::ArticleSummary]}
       (fn [_ _] {}))
@@ -147,7 +147,7 @@
   (testing "rf2-rzqan — with-managed-request-stubs* routes [method url] → reply
             with NO per-call :fx-overrides (the helper installs the
             :rf.http/managed override for the thunk's dynamic extent)"
-    (rf/reg-event-fx :articles/list
+    (rf/reg-event :articles/list
       (fn [_ [_ msg]]
         (if-let [reply (:rf/reply msg)]
           {:db {:result reply}}
@@ -178,7 +178,7 @@
     (let [real-fx-invoked? (atom false)]
       (rf/reg-fx :rf.http/managed
                  (fn [_frame-ctx _args] (reset! real-fx-invoked? true) nil))
-      (rf/reg-event-fx :rzqan/load
+      (rf/reg-event :rzqan/load
         (fn [_ [_ msg]]
           (if-let [reply (:rf/reply msg)]
             {:db {:result reply}}
@@ -201,7 +201,7 @@
 
 (deftest with-managed-request-stubs-failure-cljs
   (testing "with-managed-request-stubs* synthesises a failure reply when {:reply {:failure ...}}"
-    (rf/reg-event-fx :articles/list
+    (rf/reg-event :articles/list
       (fn [_ [_ msg]]
         (if-let [reply (:rf/reply msg)]
           {:db {:result reply}}
@@ -223,7 +223,7 @@
 
 (deftest with-managed-request-stubs-unmatched-cljs
   (testing "an unmatched [method url] under stubs synthesises a :rf.http/transport failure"
-    (rf/reg-event-fx :unmatched/load
+    (rf/reg-event :unmatched/load
       (fn [_ [_ msg]]
         (if-let [reply (:rf/reply msg)]
           {:db {:result reply}}
@@ -246,7 +246,7 @@
 
 (deftest canned-failure-custom-kind-cljs
   (testing ":rf.http/managed-canned-failure honours :kind and :tags args"
-    (rf/reg-event-fx :flaky/load
+    (rf/reg-event :flaky/load
       (fn [_ _]
         {:fx [[:rf.http/managed-canned-failure
                {:on-failure [:flaky/load-error]
@@ -255,9 +255,9 @@
                              :status-text "Service Unavailable"
                              :body        {:err true}
                              :headers     {}}}]]}))
-    (rf/reg-event-db :flaky/load-error
-      (fn [db [_ payload]]
-        (assoc db :error payload)))
+    (rf/reg-event :flaky/load-error
+      (fn [{:keys [db]} [_ payload]]
+        {:db (assoc db :error payload)}))
     (rf/dispatch-sync [:flaky/load])
     (let [db (rf/app-db-value :rf/default)]
       (is (= :failure (get-in db [:error :kind])))
@@ -268,7 +268,7 @@
 
 (deftest multi-frame-reply-isolation-cljs
   (testing "managed requests issued from frame A reply into frame A's app-db"
-    (rf/reg-event-fx :article/load
+    (rf/reg-event :article/load
       (fn [_ [_ msg]]
         (if-let [reply (:rf/reply msg)]
           {:db {:article (:value reply)}}

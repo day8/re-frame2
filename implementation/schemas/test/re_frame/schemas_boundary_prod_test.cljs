@@ -70,7 +70,7 @@
             body has DCE'd — only the boundary interceptor is enforcing
             the schema at this dispatch."
     (let [calls (atom 0)]
-      (rf/reg-event-fx :api/strict
+      (rf/reg-event :api/strict
         {:schema [:cat [:= :api/strict] :int]
          :interceptors [rf/validate-at-boundary-interceptor]}
         (fn [_ _] (swap! calls inc) {}))
@@ -85,7 +85,7 @@
             `:schema` flows through the boundary interceptor unchanged.
             The handler runs exactly once."
     (let [calls (atom 0)]
-      (rf/reg-event-fx :api/strict
+      (rf/reg-event :api/strict
         {:schema [:cat [:= :api/strict] :int]
          :interceptors [rf/validate-at-boundary-interceptor]}
         (fn [_ _] (swap! calls inc) {}))
@@ -106,7 +106,7 @@
             trace callback would never see a boundary emission because
             the entire emit body has DCE'd."
     (let [calls (atom 0)]
-      (rf/reg-event-fx :api/strict
+      (rf/reg-event :api/strict
         {:schema [:cat [:= :api/strict] :int]
          :interceptors [rf/validate-at-boundary-interceptor]}
         (fn [_ _] (swap! calls inc) {}))
@@ -130,7 +130,7 @@
             `:advanced` + `goog.DEBUG=false` (production), the
             `:before` slot's prod branch validates the event and sets
             `:rf/skip-handler?` on the context when the schema fails."
-    (rf/reg-event-fx :api/strict
+    (rf/reg-event :api/strict
       {:schema [:cat [:= :api/strict] :int]
        :interceptors [rf/validate-at-boundary-interceptor]}
       (fn [_ _] {}))
@@ -151,7 +151,7 @@
     (schemas/set-schema-validator! nil)
     (try
       (let [calls (atom 0)]
-        (rf/reg-event-fx :api/disabled
+        (rf/reg-event :api/disabled
           {:schema [:cat [:= :api/disabled] :int]
            :interceptors [rf/validate-at-boundary-interceptor]}
           (fn [_ _] (swap! calls inc) {}))

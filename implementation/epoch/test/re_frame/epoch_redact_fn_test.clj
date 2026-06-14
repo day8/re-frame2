@@ -177,8 +177,8 @@
     ;; A :redact-fn that WOULD wipe :db-after if it ran at storage time.
     (rf/configure! :epoch-history
                   {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))})
-    (rf/reg-event-db :login
-                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [r (last-record :test/main)]
@@ -195,8 +195,8 @@
       (rf/configure! :epoch-history
                     {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))})
       (rf/register-epoch-listener! ::watch (fn [r] (reset! seen r)))
-      (rf/reg-event-db :login
-                       (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+      (rf/reg-event :login
+                       (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
       (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
       (is (= {:auth {:password "topsecret"}} (:db-after @seen))
@@ -215,7 +215,7 @@
       (rf/configure! :epoch-history
                     {:redact-fn (fn [r] (swap! invocations inc) r)})
       (rf/register-epoch-listener! ::watch (fn [_] nil))
-      (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
       (rf/dispatch-sync [:seed] {:frame :test/main})
 
       (is (= 0 @invocations)
@@ -236,7 +236,7 @@
                     {:redact-fn (fn [r]
                                   (swap! invocations inc)
                                   (assoc r :rf/test-tag :redacted))})
-      (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
       (rf/dispatch-sync [:seed] {:frame :test/main})
 
       (let [r         (last-record :test/main)
@@ -267,11 +267,11 @@
                                     (get-in r [:db-after :session :token])
                                     (assoc-in [:db-after :session :token]
                                               :rf/redacted)))})
-      (rf/reg-event-db :login
-                       (fn [db [_ pw tok]]
-                         (-> db
+      (rf/reg-event :login
+                       (fn [{:keys [db]} [_ pw tok]]
+                         {:db (-> db
                              (assoc-in [:auth :password] pw)
-                             (assoc-in [:session :token] tok))))
+                             (assoc-in [:session :token] tok))}))
       (rf/dispatch-sync [:login "topsecret" "tok-xyz"] {:frame :test/main})
 
       (let [r         (last-record :test/main)
@@ -295,7 +295,7 @@
     (let [invocations (atom 0)]
       (rf/configure! :epoch-history
                     {:redact-fn (fn [r] (swap! invocations inc) r)})
-      (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
       (rf/dispatch-sync [:seed] {:frame :test/main})
 
       (let [r (last-record :test/main)]
@@ -315,8 +315,8 @@
             projection-side redaction."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/reg-event-db :login
-                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [r         (last-record :test/main)
@@ -338,8 +338,8 @@
             egress breaks, and the RAW ring record is untouched."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/reg-event-db :login
-                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
 
     (let [warnings (record-warnings!)]
       (rf/configure! :epoch-history
@@ -378,7 +378,7 @@
             re-attempts (the registration is not removed on first throw;
             the framework's posture is 'log and continue')."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
 
     (let [call-count (atom 0)]
@@ -404,11 +404,11 @@
             passes through."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    (rf/reg-event-db :login
-                     (fn [db [_ pw]]
-                       (-> db
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw]]
+                       {:db (-> db
                            (assoc-in [:auth :password] pw)
-                           (assoc-in [:public :name] "alice"))))
+                           (assoc-in [:public :name] "alice"))}))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [r         (last-record :test/main)
@@ -425,7 +425,7 @@
             the raw shape (the default-nil posture — apps opt in to the
             advanced override explicitly)."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (let [r (last-record :test/main)]
       (is (= {:n 0} (:db-after r))
@@ -444,7 +444,7 @@
     (rf/reg-frame :test/main {})
     (rf/configure! :epoch-history
                   {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (is (not (contains? (last-record :test/main) :rf/test-tag))
         "settle! path: ring record is RAW (override not applied at storage)")
@@ -488,7 +488,7 @@
                                  (swap! halted-records conj r))))
       (rf/configure! :epoch-history
                     {:redact-fn (fn [r] (assoc r :rf/test-tag :redacted))})
-      (rf/reg-event-fx :destroy-self
+      (rf/reg-event :destroy-self
                        (fn [_ _]
                          (frame/destroy-frame! :test/main)
                          {}))
@@ -515,7 +515,7 @@
             no override stage."
     (rf/reg-frame :test/main {})
     (rf/configure! :epoch-history {:redact-fn nil})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (let [r (last-record :test/main)]
       (is (= {:n 0} (:db-after r)))
@@ -562,8 +562,8 @@
     ;; A :redact-fn that WOULD scrub the value if it ran at storage time.
     (rf/configure! :epoch-history
                   {:redact-fn (fn [r] (assoc r :rf/scrubbed true))})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (let [seen (atom [])]
       (rf/register-epoch-listener! ::watch (fn [r] (swap! seen conj r)))
@@ -610,8 +610,8 @@
                                                       (assoc row :value :rf/redacted)
                                                       row))
                                                   rows)))))})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (rf/dispatch-sync [:inc]  {:frame :test/main})
     (emit-sub-run! :test/main :secret nil "topsecret")
@@ -634,8 +634,8 @@
             projection unchanged (the attribution behaviour is intact;
             redaction is opt-in via the override or schema classification)."
     (rf/reg-frame :test/main {})
-    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
-    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 
     (let [seen (atom [])]
       (rf/register-epoch-listener! ::watch (fn [r] (swap! seen conj r)))
@@ -687,10 +687,10 @@
     (install-sensitive-schema! :test/main)
     (rf/configure! :epoch-history
                   {:redact-fn (fn [r] (assoc r :db-after :rf/redacted))})
-    (rf/reg-event-db :login
-                     (fn [db [_ pw]] (assoc-in db [:auth :password] pw)))
-    (rf/reg-event-db :logout
-                     (fn [db _] (assoc-in db [:auth :password] nil)))
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
+    (rf/reg-event :logout
+                     (fn [{:keys [db]} _] {:db (assoc-in db [:auth :password] nil)}))
 
     ;; (a) Dispatch a sensitive event — the password lands at the
     ;; frame-sensitive [:auth :password] path.

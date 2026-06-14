@@ -100,8 +100,8 @@
   `tf/reset-runtime` fixture clears registrations before each test, so
   this runs inside the test body."
   []
-  (rf/reg-event-db ::inc       (fn [db _ev]   (update db :count (fnil inc 0))))
-  (rf/reg-event-db ::set-title (fn [db [_ t]] (assoc db :title t)))
+  (rf/reg-event ::inc       (fn [{:keys [db]} _ev]   {:db (update db :count (fnil inc 0))}))
+  (rf/reg-event ::set-title (fn [{:keys [db]} [_ t]] {:db (assoc db :title t)}))
   (rf/reg-sub :count (fn [db _] (or (:count db) 0)))
   (rf/reg-sub :title (fn [db _] (or (:title db) "untitled")))
   ;; EP-0001 (rf2-vzld77): hydration metadata is durable runtime-db state.

@@ -118,8 +118,8 @@
             (into existing delta) merge is lossless (untouched sibling
             sub-keys are not silently dropped). Per Spec 011 §Hydration
             interleaving."
-    (rf/reg-event-db :rf.test/change-nested
-      (fn [db _] (assoc-in db [:user :name] "after")))
+    (rf/reg-event :rf.test/change-nested
+      (fn [{:keys [db]} _] {:db (assoc-in db [:user :name] "after")}))
     (let [;; before-db: {:user {:name "before" :role "admin"}}
           fid     (make-frame {:db {:user {:name "before" :role "admin"}
                                     :other :unchanged}})

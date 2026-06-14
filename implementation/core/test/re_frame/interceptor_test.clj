@@ -51,11 +51,11 @@
   (testing "(path :foo :bar) scopes a handler to the [:foo :bar] sub-tree:
             the handler sees only the slice as :db, and its returned value
             is spliced back at that path."
-    (rf/reg-event-db :path-test/init
-                     (fn [_ _]
-                       {:foo {:bar  10
+    (rf/reg-event :path-test/init
+                     (fn [{:keys [db]} _]
+                       {:db {:foo {:bar  10
                               :keep :untouched}
-                        :other :preserved}))
+                        :other :preserved}}))
     (rf/reg-event-db :path-test/inc
                      {:interceptors [(rf/path :foo :bar)]}
                      ;; The handler's `db` is the SLICE value, not the full
@@ -83,7 +83,7 @@
       ;; A spy interceptor sandwiched between `path` and the handler runs
       ;; AFTER path's :before, so the context it sees must carry the stash
       ;; under :rf/path-stack — not the bare :path-stack.
-      (rf/reg-event-db :path-ns/init (fn [_ _] {:foo {:bar 10}}))
+      (rf/reg-event :path-ns/init (fn [{:keys [db]} _] {:db {:foo {:bar 10}}}))
       (rf/reg-event-db :path-ns/inc
                        {:interceptors [(rf/path :foo :bar)
                                        (interceptor/->interceptor*
@@ -110,7 +110,7 @@
             restores the outer slice and the outer :after splices back into
             the full app-db. Pins the stack semantics independent of the
             slot-key rename (rf2-mn0qc)."
-    (rf/reg-event-db :path-nest/init (fn [_ _] {:a {:b {:c 7} :sib :keep}}))
+    (rf/reg-event :path-nest/init (fn [{:keys [db]} _] {:db {:a {:b {:c 7} :sib :keep}}}))
     (rf/reg-event-db :path-nest/inc
                      ;; The outer `path` focuses to {:b {:c 7} :sib :keep};
                      ;; the inner `path` focuses to 7. The handler returns 8.
@@ -140,13 +140,13 @@
             emits none — `:fx`-only handlers stay `:fx`-only through
             the path interceptor"
     (let [final-ctx (atom nil)]
-      (rf/reg-event-db :path-noop/init
-                       (fn [_ _] {:foo {:bar 10} :other :preserved}))
+      (rf/reg-event :path-noop/init
+                       (fn [{:keys [db]} _] {:db {:foo {:bar 10} :other :preserved}}))
       ;; A `reg-event-fx` handler that emits ONLY `:fx`, no `:db`.
       ;; Pre-fix the path interceptor would have spliced the unchanged
       ;; slice back into `:effects :db` regardless — producing a
       ;; spurious DB write the handler never asked for.
-      (rf/reg-event-fx :path-noop/fx-only
+      (rf/reg-event :path-noop/fx-only
                        {:interceptors [(rf/path :foo :bar)
                                        ;; Sandwich-spy that captures the effects map
                                        ;; produced by the handler-side chain — i.e.
@@ -180,8 +180,8 @@
 (deftest path-interceptor-still-splices-back-when-handler-emits-db
   (testing "(path ...) still splices when the handler DOES emit :db —
             rf2-rwlj2 fix preserves the happy path"
-    (rf/reg-event-db :path-emit/init (fn [_ _] {:foo {:bar 10}}))
-    (rf/reg-event-fx :path-emit/inc
+    (rf/reg-event :path-emit/init (fn [{:keys [db]} _] {:db {:foo {:bar 10}}}))
+    (rf/reg-event :path-emit/inc
                      {:interceptors [(rf/path :foo :bar)]}
                      (fn [{:keys [db]} _]
                        ;; Explicitly emit `:db` (the slice + 1).
@@ -237,7 +237,7 @@
   (testing "[unwrap] replaces the :event coeffect with the payload map from
             the canonical [event-id payload-map] envelope shape."
     (let [seen-event (atom ::not-set)]
-      (rf/reg-event-fx :unwrap-test/consume
+      (rf/reg-event :unwrap-test/consume
                        {:interceptors [rf/unwrap-interceptor]}
                        ;; With unwrap, the second arg is the payload map
                        ;; itself — not the [id payload] vector.
@@ -266,7 +266,7 @@
     (let [traces     (atom [])
           seen-event (atom ::not-set)]
       (rf/register-listener! ::unwrap-bad (fn [ev] (swap! traces conj ev)))
-      (rf/reg-event-fx :unwrap-bad-test/consume
+      (rf/reg-event :unwrap-bad-test/consume
                        {:interceptors [rf/unwrap-interceptor]}
                        (fn [_cofx event-arg]
                          (reset! seen-event event-arg)
@@ -301,7 +301,7 @@
     (let [traces     (atom [])
           seen-event (atom ::not-set)]
       (rf/register-listener! ::unwrap-arity (fn [ev] (swap! traces conj ev)))
-      (rf/reg-event-fx :unwrap-bad-test/arity
+      (rf/reg-event :unwrap-bad-test/arity
                        {:interceptors [rf/unwrap-interceptor]}
                        (fn [_cofx event-arg]
                          (reset! seen-event event-arg)
@@ -319,7 +319,7 @@
     ;; coverage above is genuinely catching the negative branch.
     (let [traces (atom [])]
       (rf/register-listener! ::unwrap-ok (fn [ev] (swap! traces conj ev)))
-      (rf/reg-event-fx :unwrap-bad-test/ok
+      (rf/reg-event :unwrap-bad-test/ok
                        {:interceptors [rf/unwrap-interceptor]}
                        (fn [_ _] {}))
       (rf/dispatch-sync [:unwrap-bad-test/ok {:k 1}])
@@ -342,7 +342,7 @@
             alongside the standard :db / :event coeffects (EP-0017 §5)"
     (rf/reg-cofx :now (fn [] 1234567890))
     (let [seen-cofx (atom nil)]
-      (rf/reg-event-fx :cofx-test/read-now
+      (rf/reg-event :cofx-test/read-now
                        {:rf.cofx/requires [:now]}
                        (fn [cofx _event]
                          (reset! seen-cofx cofx)
@@ -358,7 +358,7 @@
   (testing "a `[id arg]` declaration passes the arg to the supplier's 1-arity"
     (rf/reg-cofx :greeting (fn [greeting] greeting))
     (let [seen (atom nil)]
-      (rf/reg-event-fx :cofx-test/use-greeting
+      (rf/reg-event :cofx-test/use-greeting
                        {:rf.cofx/requires [[:greeting "hello"]]}
                        (fn [cofx _]
                          (reset! seen (:greeting cofx))
@@ -386,7 +386,7 @@
                  :after  (fn [ctx]
                            (swap! trail conj [:after tag])
                            ctx)))]
-      (rf/reg-event-fx :primitive/run
+      (rf/reg-event :primitive/run
                        {:interceptors [(mk :a) (mk :b) (mk :c)]}
                        (fn [_ _]
                          (swap! trail conj :handler)

@@ -80,7 +80,7 @@
             :no-more-derefers when the last subscriber detaches;
             carries the canonical tags (frame, id, query-v, reason);
             op-type rides :rf.sub"
-    (rf/reg-event-db :init (fn [_ _] {:a 42}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 42}}))
     (rf/reg-sub :sub/a (fn [db _] (:a db)))
     (rf/dispatch-sync [:init])
     (let [acc (collect-traces! ::layer-1-no-derefers)]
@@ -110,7 +110,7 @@
   (testing "with two subscribers, one unsubscribe does NOT emit
             :rf.sub/dispose — the slot's ref-count is still > 0; only
             the SECOND unsubscribe (the last derefer dropping) emits"
-    (rf/reg-event-db :init (fn [_ _] {:a 42}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 42}}))
     (rf/reg-sub :sub/a (fn [db _] (:a db)))
     (rf/dispatch-sync [:init])
     (let [acc (collect-traces! ::two-subs)]
@@ -132,7 +132,7 @@
   (testing "a layer-2 sub's disposal cascades to its layer-1 inputs —
             each evicted slot emits its own :rf.sub/dispose with
             :reason :no-more-derefers"
-    (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
     (rf/reg-sub :sub/a (fn [db _] (:a db)))
     (rf/reg-sub :sub/b (fn [db _] (:b db)))
     (rf/reg-sub :sub/sum
@@ -165,7 +165,7 @@
             subscribe/unsubscribe cycle — only the one at the
             unsubscribe — but the rebuild does produce a NEW reaction
             (no identity equality with the disposed one)"
-    (rf/reg-event-db :init (fn [_ _] {:a 42}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 42}}))
     (rf/reg-sub :sub/a (fn [db _] (:a db)))
     (rf/dispatch-sync [:init])
     (let [acc (collect-traces! ::sync-dispose-then-resub)]
@@ -197,7 +197,7 @@
 (deftest dispose-emits-on-hot-reload
   (testing "re-registering a :sub fires :rf.sub/dispose with :reason
             :hot-reload for the affected slot (regardless of ref-count)"
-    (rf/reg-event-db :init (fn [_ _] {:a 42}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 42}}))
     (rf/reg-sub :sub/a (fn [db _] (:a db)))
     (rf/dispatch-sync [:init])
     (let [acc (collect-traces! ::hot-reload)]
@@ -222,7 +222,7 @@
   (testing "hot-reloading a sub with N cached query-arg variants fires
             N :rf.sub/dispose events, one per evicted slot, all with
             :reason :hot-reload"
-    (rf/reg-event-db :init (fn [_ _] {:items {:a 1 :b 2 :c 3}}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:items {:a 1 :b 2 :c 3}}}))
     (rf/reg-sub :sub/item
       (fn [db [_ k]] (get-in db [:items k])))
     (rf/dispatch-sync [:init])
@@ -255,7 +255,7 @@
 (deftest dispose-emits-on-clear-sub-cache
   (testing "(clear-sub-cache!) fires :rf.sub/dispose per evicted slot
             with :reason :cache-clear (regardless of ref-count)"
-    (rf/reg-event-db :init (fn [_ _] {:a 1 :b 2}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 1 :b 2}}))
     (rf/reg-sub :sub/a (fn [db _] (:a db)))
     (rf/reg-sub :sub/b (fn [db _] (:b db)))
     (rf/dispatch-sync [:init])
@@ -287,7 +287,7 @@
             canonical tags + nothing extra: :frame, :rf.sub/id,
             :rf.sub/query-v, :rf.sub/reason. Required for consumer
             compatibility with rf2-wpfjo (Xray Epoch panel)."
-    (rf/reg-event-db :init (fn [_ _] {:a 1}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 1}}))
     (rf/reg-sub :sub/a (fn [db _] (:a db)))
     (rf/dispatch-sync [:init])
     (let [acc (collect-traces! ::tag-shape)]
@@ -324,7 +324,7 @@
 (deftest emits-fire-under-jvm-debug-enabled
   (testing "debug-enabled? is true on the JVM test runtime — dispose
             emits land in the trace stream"
-    (rf/reg-event-db :init (fn [_ _] {:x 1}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:x 1}}))
     (rf/reg-sub :sub/x (fn [db _] (:x db)))
     (rf/dispatch-sync [:init])
     (let [acc (collect-traces! ::elision-pin)]

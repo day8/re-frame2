@@ -38,7 +38,7 @@
   (testing "rf2-uatcy — disposing a layer-2 sub on the CLJS-plain-atom
             adapter decrements ref-counts on every :<- input and cascades
             their disposal, mirroring the JVM contract"
-    (rf/reg-event-db :init(fn [_ _] {:a 2 :b 3}))
+    (rf/reg-event :init(fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :sum
@@ -74,7 +74,7 @@
   (testing "rf2-uatcy — a shared input is decremented by exactly one when
             one of its layer-2 holders disposes; it survives while another
             holder remains"
-    (rf/reg-event-db :init(fn [_ _] {:a 2 :b 3 :c 4}))
+    (rf/reg-event :init(fn [{:keys [db]} _] {:db {:a 2 :b 3 :c 4}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :c (fn [db _] (:c db)))
@@ -105,7 +105,7 @@
 (deftest layer-3-disposal-cascades-on-cljs-plain-atom
   (testing "rf2-uatcy — disposal cascades recursively through a layer-3
             chain on the CLJS-plain-atom adapter"
-    (rf/reg-event-db :init(fn [_ _] {:a 2}))
+    (rf/reg-event :init(fn [{:keys [db]} _] {:db {:a 2}}))
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :a*2 :<- [:a]   (fn [a _] (* 2 a)))
     (rf/reg-sub :a*4 :<- [:a*2] (fn [a2 _] (* 2 a2)))

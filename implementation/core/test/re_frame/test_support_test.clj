@@ -67,11 +67,11 @@
     @recorded))
 
 (defn- register-counter-handlers! []
-  (rf/reg-event-db :counter/init (fn [_ _] {:n 0}))
-  (rf/reg-event-db :counter/inc  (fn [db _] (update db :n inc)))
-  (rf/reg-event-db :counter/dec  (fn [db _] (update db :n dec)))
-  (rf/reg-event-db :counter/add
-    (fn [db [_ amt]] (update db :n + amt))))
+  (rf/reg-event :counter/init (fn [{:keys [db]} _] {:db {:n 0}}))
+  (rf/reg-event :counter/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
+  (rf/reg-event :counter/dec  (fn [{:keys [db]} _] {:db (update db :n dec)}))
+  (rf/reg-event :counter/add
+    (fn [{:keys [db]} [_ amt]] {:db (update db :n + amt)})))
 
 ;; ---- dispatch-sequence ----------------------------------------------------
 

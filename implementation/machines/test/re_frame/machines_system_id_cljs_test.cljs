@@ -110,12 +110,12 @@
           traces (atom [])]
       (rf/reg-machine :w/proc child)
       ;; First spawn under :primary
-      (rf/reg-event-fx ::spawn1
+      (rf/reg-event ::spawn1
         (fn [_ _]
           {:fx [[:rf.machine/spawn {:machine-id :w/proc
                                     :id-prefix  :w/proc
                                     :system-id  :primary}]]}))
-      (rf/reg-event-fx ::spawn2
+      (rf/reg-event ::spawn2
         (fn [_ _]
           {:fx [[:rf.machine/spawn {:machine-id :w/proc
                                     :id-prefix  :w/proc
@@ -139,7 +139,7 @@
   (testing "spawn-without-system-id leaves [:rf.runtime/machines :system-ids] empty"
     (let [child {:initial :running :data {} :states {:running {}}}]
       (rf/reg-machine :w2/proc child)
-      (rf/reg-event-fx ::spawn-anon
+      (rf/reg-event ::spawn-anon
         (fn [_ _]
           {:fx [[:rf.machine/spawn {:machine-id :w2/proc :id-prefix :w2/proc}]]}))
       (rf/dispatch-sync [::spawn-anon])

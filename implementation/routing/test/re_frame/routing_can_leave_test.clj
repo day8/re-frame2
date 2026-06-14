@@ -27,8 +27,8 @@
                    :can-leave :editor/can-leave?})
     (rf/reg-route :route/cart {:path "/cart"})
 
-    (rf/reg-event-db :editor/dirty
-                     (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-event :editor/dirty
+                     (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _]
                   ;; "OK to leave" = NOT dirty.
@@ -130,7 +130,7 @@
                    :params    [:map [:id :string]]
                    :can-leave :editor/can-leave?})
     (rf/reg-route :route/cart {:path "/cart"})
-    (rf/reg-event-db :editor/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
     (rf/reg-fx :rf.nav/push-url
@@ -160,7 +160,7 @@
                    :params    [:map [:id :string]]
                    :can-leave :editor/can-leave?})
     (rf/reg-route :route/cart {:path "/cart"})
-    (rf/reg-event-db :editor/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
     (rf/reg-fx :rf.nav/push-url
@@ -193,7 +193,7 @@
                    :params    [:map [:id :string]]
                    :can-leave :editor/can-leave?})
     (rf/reg-route :route/cart {:path "/cart"})
-    (rf/reg-event-db :editor/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
     (rf/reg-fx :rf.nav/push-url
@@ -223,7 +223,7 @@
                    :params    [:map [:id :string]]
                    :can-leave [:editor/can-leave?]})
     (rf/reg-route :route/cart {:path "/cart"})
-    (rf/reg-event-db :editor/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
     (rf/reg-fx :rf.nav/push-url
@@ -247,7 +247,7 @@
                    :params    [:map [:id :string]]
                    :can-leave [:editor/can-leave?]})
     (rf/reg-route :route/cart {:path "/cart"})
-    (rf/reg-event-db :editor/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
     (let [pushed (atom [])]
@@ -272,7 +272,7 @@
                    :params    [:map [:id :string]]
                    :can-leave [:editor/can-leave?]})
     (rf/reg-route :route/cart {:path "/cart"})
-    (rf/reg-event-db :editor/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
     (rf/reg-fx :rf.nav/push-url
@@ -294,7 +294,7 @@
                    :params    [:map [:id :string]]
                    :can-leave [:editor/can-leave?]})
     (rf/reg-route :route/cart {:path "/cart"})
-    (rf/reg-event-db :editor/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
     (rf/reg-fx :rf.nav/push-url
@@ -337,14 +337,14 @@
                      :params    [:map [:id :string]]
                      :can-leave :editor/can-leave?})
       (rf/reg-route :route/cart {:path "/cart"})
-      (rf/reg-event-db :editor/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+      (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
       (rf/reg-sub :editor/can-leave?
                   (fn [db _] (not (get-in db [:editor :dirty?]))))
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       ;; App registers its OWN handler over the framework default no-op.
-      (rf/reg-event-fx :rf.route/navigation-blocked
+      (rf/reg-event :rf.route/navigation-blocked
                        (fn [_ [_ pending-nav]]
                          (reset! seen pending-nav)
                          {}))
@@ -368,8 +368,8 @@
                    :params    [:map [:id :string]]
                    :can-leave [:editor/leave?]})
     (rf/reg-route :route/cart {:path "/cart"})
-    (rf/reg-event-db :editor/set-dirty
-                     (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-event :editor/set-dirty
+                     (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     ;; Polarity bug: returns a truthy non-boolean (42).
     (rf/reg-sub :editor/leave? (fn [db _] (get-in db [:editor :dirty?])))
     (rf/reg-fx :rf.nav/push-url
@@ -402,8 +402,8 @@
                    :params    [:map [:id :string]]
                    :can-leave [:editor/leave?]})
     (rf/reg-route :route/cart {:path "/cart"})
-    (rf/reg-event-db :editor/set-dirty
-                     (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-event :editor/set-dirty
+                     (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     ;; Polarity bug: return the dirty-flag directly (truthy when dirty).
     ;; A truthy non-boolean must BLOCK nav (rf2-5pyyl).
     (rf/reg-sub :editor/leave?
@@ -462,7 +462,7 @@
                    :params    [:map [:id :string]]
                    :can-leave :editor/can-leave?})
     (rf/reg-route :route/cart {:path "/cart"})
-    (rf/reg-event-db :editor/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
     (rf/reg-fx :rf.nav/push-url
@@ -491,7 +491,7 @@
                    :params    [:map [:id :string]]
                    :can-leave [:editor/leave?]})
     (rf/reg-route :route/cart {:path "/cart"})
-    (rf/reg-event-db :editor/set-dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-event :editor/set-dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     ;; Polarity bug: return the dirty-flag directly → truthy non-boolean.
     (rf/reg-sub :editor/leave? (fn [db _] (get-in db [:editor :dirty?])))
     (rf/reg-fx :rf.nav/push-url

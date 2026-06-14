@@ -64,8 +64,8 @@
 (defn- counter-install!
   "Tiny app — :counter/inc bumps :n; :counter/init seeds to zero."
   []
-  (rf/reg-event-db ::counter-init (fn [db _]   (assoc db :n 0)))
-  (rf/reg-event-db ::counter-inc  (fn [db _]   (update db :n inc)))
+  (rf/reg-event ::counter-init (fn [{:keys [db]} _]   {:db (assoc db :n 0)}))
+  (rf/reg-event ::counter-inc  (fn [{:keys [db]} _]   {:db (update db :n inc)}))
   (rf/dispatch-sync [::counter-init]))
 
 (defn- counter-view

@@ -179,7 +179,7 @@
       (when on-success
         (rf/dispatch (conj on-success articles) {:frame frame}))))
 
-  (rf/reg-event-fx :rf/server-init
+  (rf/reg-event :rf/server-init
     {:platforms        #{:server}
      :rf.cofx/requires [:rf.server/request]}
     (fn [{:keys [db rf.server/request]} _]
@@ -187,9 +187,9 @@
        :fx [[:http/get {:url        "/api/articles"
                         :on-success [:articles/loaded]}]]}))
 
-  (rf/reg-event-db :articles/loaded
-    (fn [db [_ articles]]
-      (assoc db :articles articles)))
+  (rf/reg-event :articles/loaded
+    (fn [{:keys [db]} [_ articles]]
+      {:db (assoc db :articles articles)}))
 
   (rf/reg-sub :articles (fn [db _] (:articles db)))
 
@@ -271,7 +271,7 @@
 
 (deftest handler-redirect-short-circuits
   (testing ":rf.server/redirect emits status + Location with empty body"
-    (rf/reg-event-fx :init/redirect
+    (rf/reg-event :init/redirect
       {:platforms #{:server}}
       (fn [_ _]
         {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
@@ -300,7 +300,7 @@
             the last line: it emits :rf.ssr/ssr-redirect-no-target so the
             defect is observable rather than silently shipping a broken
             redirect."
-    (rf/reg-event-fx :init/redirect-no-target
+    (rf/reg-event :init/redirect-no-target
       {:platforms #{:server}}
       (fn [_ _]
         {:fx [[:rf.server/redirect {:status 302}]]}))
@@ -329,7 +329,7 @@
 
 (deftest handler-cookies-become-set-cookie-headers
   (testing "structured cookies materialise to Set-Cookie wire form"
-    (rf/reg-event-fx :init/with-cookies
+    (rf/reg-event :init/with-cookies
       {:platforms #{:server}}
       (fn [_ _]
         {:fx [[:rf.server/set-cookie {:name      "session"
@@ -375,7 +375,7 @@
             SSR error projector (Spec 011 §View-time exceptions), not
             through the Ring :on-error hook. Wire body carries the
             projector's :message / :code, never .getMessage."
-    (rf/reg-event-fx :init/ok
+    (rf/reg-event :init/ok
       {:platforms #{:server}}
       (fn [_ _] {}))
 
@@ -420,7 +420,7 @@
             body via a custom :rf.error/* projector mapping, NOT via
             the :on-error Ring hook (which now only catches
             transport/projector-undeliverable failures)."
-    (rf/reg-event-fx :init/ok
+    (rf/reg-event :init/ok
       {:platforms #{:server}}
       (fn [_ _] {}))
 
@@ -466,7 +466,7 @@
             map as its single prop — replacing the hardcoded default
             error template. The public-error's :message rides the wire
             HTML-escaped (the emitter escapes text-node children)."
-    (rf/reg-event-fx :init/ok {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/broken-ev
       (fn [] (throw (ex-info "boom-internal" {}))))
     (rf/reg-view* :myapp/error-page
@@ -498,7 +498,7 @@
 (deftest handler-render-error-view-as-fn
   (testing "rf2-ee38b.11: :error-view accepts a 1-arity fn receiving the
             public-error map and returning hiccup"
-    (rf/reg-event-fx :init/ok {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/broken-evf
       (fn [] (throw (ex-info "boom" {}))))
     (let [handler  (ssr-ring/ssr-handler
@@ -520,7 +520,7 @@
             bypass the error boundary — the host falls back to the
             default error template and emits
             :rf.error/ssr-ring-error-view-failed on the trace bus."
-    (rf/reg-event-fx :init/ok {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/broken-evt
       (fn [] (throw (ex-info "boom" {}))))
     (let [traces (atom [])]
@@ -565,7 +565,7 @@
 (deftest fn-form-root-view-invoked-exactly-once-per-request
   (testing "rf2-6t36h: a 0-arity fn :root-view fires exactly once per request"
     (let [call-count (atom 0)]
-      (rf/reg-event-fx :init/ok-once
+      (rf/reg-event :init/ok-once
         {:platforms #{:server}}
         (fn [_ _] {}))
 
@@ -590,7 +590,7 @@
             hash that matches the payload hash — the same tree is used for
             both, so the client mismatch check does NOT fire spuriously"
     (let [counter (atom 0)]
-      (rf/reg-event-fx :init/ok-noni
+      (rf/reg-event :init/ok-noni
         {:platforms #{:server}}
         (fn [_ _] {}))
 
@@ -710,10 +710,10 @@
     (rf/reg-head :head/variant-b (fn [_db _route] {:title "Route head B"}))
     (rf/reg-route :route/head-a {:doc "A" :path "/" :head :head/variant-a})
     (rf/reg-route :route/head-b {:doc "B" :path "/" :head :head/variant-b})
-    (rf/reg-event-fx :init/seed-head-a
+    (rf/reg-event :init/seed-head-a
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/head-a})}))
-    (rf/reg-event-fx :init/seed-head-b
+    (rf/reg-event :init/seed-head-b
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/head-b})}))
     (rf/reg-view* :pages/shared-body (fn [] [:div.body "same body, different head"]))
@@ -745,10 +745,10 @@
                  (fn [_db _route] {:title "T" :html-attrs {:lang "fr"}}))
     (rf/reg-route :route/attrs-a {:doc "A" :path "/" :head :head/attrs-a})
     (rf/reg-route :route/attrs-b {:doc "B" :path "/" :head :head/attrs-b})
-    (rf/reg-event-fx :init/seed-attrs-a
+    (rf/reg-event :init/seed-attrs-a
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/attrs-a})}))
-    (rf/reg-event-fx :init/seed-attrs-b
+    (rf/reg-event :init/seed-attrs-b
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/attrs-b})}))
     (rf/reg-view* :pages/attrs-body (fn [] [:div.body "body"]))
@@ -780,7 +780,7 @@
 (deftest handler-surfaces-request-via-cofx
   (testing "the Ring request map flows through to handlers via :rf.server/request"
     (let [captured (atom ::not-captured)]
-      (rf/reg-event-fx :init/capture-request-cofx
+      (rf/reg-event :init/capture-request-cofx
         {:platforms        #{:server}
          :rf.cofx/requires [:rf.server/request]}
         (fn [{:keys [rf.server/request]} _]
@@ -804,7 +804,7 @@
 (deftest handler-clears-request-slot-after-response
   (testing "the per-frame request slot is dropped when the request frame is destroyed"
     (let [captured-fid (atom nil)]
-      (rf/reg-event-fx :init/capture-frame-id
+      (rf/reg-event :init/capture-frame-id
         {:platforms #{:server}}
         ;; The running frame's stamp reaches the event context under
         ;; :rf.frame/id (rf2-1m6rf1 — the bare :frame coeffect is retired).
@@ -827,7 +827,7 @@
 (deftest handler-isolates-request-slots-across-requests
   (testing "two sequential requests carry independent request data — no slot bleed"
     (let [observed (atom [])]
-      (rf/reg-event-fx :init/observe-request
+      (rf/reg-event :init/observe-request
         {:platforms        #{:server}
          :rf.cofx/requires [:rf.server/request]}
         (fn [{:keys [rf.server/request]} _]
@@ -860,7 +860,7 @@
 (deftest handler-passes-through-ssr-opt-to-frame-meta
   (testing ":ssr opt → per-request frame's :ssr metadata (rf2-8cx3y)"
     (let [captured (atom :unset)]
-      (rf/reg-event-fx :init/capture-ssr-meta
+      (rf/reg-event :init/capture-ssr-meta
         {:platforms #{:server}}
         ;; The running frame's stamp reaches the event context under
         ;; :rf.frame/id (rf2-1m6rf1 — the bare :frame coeffect is retired).
@@ -889,7 +889,7 @@
 
 (deftest handler-payload-keys-slices-app-db
   (testing ":payload allowlist ships a subset of app-db in the hydration payload"
-    (rf/reg-event-fx :init/many-keys
+    (rf/reg-event :init/many-keys
       {:platforms #{:server}}
       (fn [_ _]
         {:db {:public/articles [:a :b :c]
@@ -925,7 +925,7 @@
   ;; coherent frame-state. Transient runtime-db state (scroll-position cache)
   ;; is excluded by `project-runtime-db`.
   (testing "the hydration payload carries the durable :rf/runtime-db slice and omits transient runtime-db state"
-    (rf/reg-event-fx :init/seed-runtime
+    (rf/reg-event :init/seed-runtime
       {:platforms #{:server}}
       (fn [{rt :rf.db/runtime} _]
         {:db {:public/page :dashboard}
@@ -992,7 +992,7 @@
             :rf.error/ssr-missing-payload-policy at construction time —
             the canonical fail-closed pattern. Misconfigured deployments
             fail at boot, not at first request."
-    (rf/reg-event-fx :init/no-policy {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-event :init/no-policy {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/no-policy (fn [] [:div "no policy"]))
 
     (is (thrown-with-msg?
@@ -1009,7 +1009,7 @@
   (testing "rf2-gtgf9: stream-handler shares the policy contract —
             mirror of ssr-handler-construction test for the chunked
             host adapter"
-    (rf/reg-event-fx :init/no-policy-stream {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-event :init/no-policy-stream {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/no-policy-stream (fn [] [:div "no policy stream"]))
 
     (is (thrown-with-msg?
@@ -1057,7 +1057,7 @@
             :rf.error/ssr-ring-missing-root-view at construction — pre-fix
             this surfaced only inside the writer thread, truncating the
             chunked response instead of failing at boot"
-    (rf/reg-event-fx :init/no-rootview-stream {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-event :init/no-rootview-stream {:platforms #{:server}} (fn [_ _] {}))
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf\.error/ssr-ring-missing-root-view"
@@ -1072,7 +1072,7 @@
             allowlist gate an unaudited new app-db key would silently
             ride the wire on every request — the allowlist is load-
             bearing."
-    (rf/reg-event-fx :init/with-secret
+    (rf/reg-event :init/with-secret
       {:platforms #{:server}}
       (fn [_ _]
         {:db {:public/articles          [{:id "a" :title "A"}]
@@ -1131,7 +1131,7 @@
   (testing "rf2-gtgf9: explicit :payload :rf.ssr.payload/whole-app-db is
             the documented opt-in for apps whose entire app-db is intended
             for the wire"
-    (rf/reg-event-fx :init/wholeapp
+    (rf/reg-event :init/wholeapp
       {:platforms #{:server}}
       (fn [_ _]
         {:db {:public/articles [:a :b :c]
@@ -1161,7 +1161,7 @@
 (deftest handler-construction-rejects-unknown-policy-keyword
   (testing "rf2-gtgf9 / rf2-pffil: a typo'd :payload keyword surfaces as a
             distinct error so the developer can tell the failure modes apart"
-    (rf/reg-event-fx :init/typo-policy {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-event :init/typo-policy {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/typo-policy (fn [] [:div]))
 
     (is (thrown-with-msg?
@@ -1197,7 +1197,7 @@
 (deftest handler-construction-rejects-non-string-trusted-shell-opts
   (testing "rf2-o6ndb: ssr-handler structural-shape-checks the four
             trusted-shell-hook opts at construction time"
-    (rf/reg-event-fx :init/trusted-opt-test
+    (rf/reg-event :init/trusted-opt-test
                      {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/trusted-opt-test (fn [] [:div]))
 
@@ -1277,7 +1277,7 @@
             structural contract — mirror of the ssr-handler test for the
             chunked host adapter. The streaming prefix/suffix injects
             the same four opts RAW into the rendered HTML envelope."
-    (rf/reg-event-fx :init/trusted-opt-stream
+    (rf/reg-event :init/trusted-opt-stream
                      {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/trusted-opt-stream (fn [] [:div]))
 
@@ -1383,7 +1383,7 @@
                    :path "/"
                    :head :head/main})
     ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
-    (rf/reg-event-fx :init/seed-route
+    (rf/reg-event :init/seed-route
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/x})}))
     (rf/reg-view* :pages/blank-for-title (fn [] [:div]))
@@ -1435,7 +1435,7 @@
                   {:doc  "Route no-title"
                    :path "/"
                    :head :head/no-title})
-    (rf/reg-event-fx :init/seed-no-title
+    (rf/reg-event :init/seed-no-title
       (fn [{rt :rf.db/runtime} _]
         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/no-title})}))
     (rf/reg-view* :pages/blank-no-title (fn [] [:div]))
@@ -1469,7 +1469,7 @@
                 {:doc  "Route exercising :html-attrs / :body-attrs"
                  :path "/"
                  :head :head/with-attrs})
-  (rf/reg-event-fx :init/seed-attrs-route
+  (rf/reg-event :init/seed-attrs-route
     (fn [{rt :rf.db/runtime} _] {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/with-attrs})}))
   (rf/reg-view* :pages/blank-attrs (fn [] [:div])))
 
@@ -1623,7 +1623,7 @@
   (testing "rf2-jbcmt: the :rf/response accumulator is side-channel — it
             never appears in the hydration payload, even when a login-shape
             request sets server-only cookies / headers / status"
-    (rf/reg-event-fx :auth/login
+    (rf/reg-event :auth/login
       {:platforms #{:server}}
       (fn [{:keys [db]} _]
         {:db (assoc db :public/article-title "Public Title"
@@ -1770,7 +1770,7 @@
             hydration payload script tag; the EDN reader still recovers
             the original string verbatim"
     (let [hostile "</script><script>alert('xss')</script>"]
-      (rf/reg-event-fx :init/hostile
+      (rf/reg-event :init/hostile
         {:platforms #{:server}}
         (fn [_ _]
           {:db {:public/article-title hostile}}))
@@ -2185,7 +2185,7 @@
                 {:doc  "Route whose head fn throws"
                  :path "/head-throws"
                  :head :head/throws})
-  (rf/reg-event-fx :init/seed-throwing-head-route
+  (rf/reg-event :init/seed-throwing-head-route
     {:platforms #{:server}}
     (fn [{rt :rf.db/runtime} _]
       {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
@@ -2530,7 +2530,7 @@
             catch (its error-path materialise re-folds the SAME bad
             cookie and throws again), reaching the handler body's
             :on-error catch — the success-path call site."
-    (rf/reg-event-fx :rf.test/init-bad-cookie
+    (rf/reg-event :rf.test/init-bad-cookie
       {:platforms #{:server}}
       (fn [_ _]
         ;; A non-integer :expires escapes the fx boundary
@@ -2596,7 +2596,7 @@
             under debug-off. Promotion adds the off-box record; the 5xx
             wire outcome is unchanged."
     (error-emit/clear-error-listeners!)
-    (rf/reg-event-fx :init/ok {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/render-throws
       (fn [] (throw (ex-info "render boom" {}))))
     (let [seen (capture-always-on-categories!)]
@@ -2649,7 +2649,7 @@
             AND delivers a :rf.error/ssr-ring-error-view-failed record to
             register-error-listener! under debug-off."
     (error-emit/clear-error-listeners!)
-    (rf/reg-event-fx :init/ok {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
     (rf/reg-view* :pages/broken-evt-hhutya
       (fn [] (throw (ex-info "boom" {}))))
     (let [seen (capture-always-on-categories!)]

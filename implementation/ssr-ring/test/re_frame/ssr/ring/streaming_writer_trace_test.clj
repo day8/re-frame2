@@ -138,7 +138,7 @@
             render fail-closed catch arm), not in a spawned-thread
             finally — the throw never reaches a writer thread. Without
             this every failed streaming request would leak a frame record."
-    (rf/reg-event-fx :rf.test.writer/init
+    (rf/reg-event :rf.test.writer/init
       {:platforms #{:server}}
       (fn [_ _] {:db {}}))
     (let [throwing-root (fn [] (throw (ex-info "shell-render teardown probe"
@@ -231,7 +231,7 @@
   (testing "rf2-l1qgjw: forcing different writer chunks to throw produces
             writer-failed traces with DISTINCT :phase tags (shell-prefix
             vs final-payload vs suffix), all marked :committed? true"
-    (rf/reg-event-fx :rf.test.phase/init
+    (rf/reg-event :rf.test.phase/init
       {:platforms #{:server}}
       (fn [_ _] {:db {:n 1}}))
     (rf/reg-sub :rf.test.phase/n (fn [db _] (:n db)))
@@ -279,7 +279,7 @@
   (testing "rf2-l1qgjw: a write throw during a continuation drain tags the
             trace :phase :continuation-template AND :boundary-id <id>, so
             ops correlate the failure to a specific deferred subtree"
-    (rf/reg-event-fx :rf.test.phase/init-sb
+    (rf/reg-event :rf.test.phase/init-sb
       {:platforms #{:server}}
       (fn [_ _] {:db {:items [:a :b]}}))
     (rf/reg-sub :rf.test.phase/items (fn [db _] (:items db)))

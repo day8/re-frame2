@@ -157,7 +157,7 @@
     ;; matches NONE of them, so url-change-fx falls back to not-found and
     ;; emits the drain-time :rf.error/no-such-handler.
     (rf/reg-route :route/home {:path "/"})
-    (rf/reg-event-fx :init/route-to-missing
+    (rf/reg-event :init/route-to-missing
       {:platforms #{:server}}
       (fn [_ _]
         ;; Drain-time error: dispatch a URL-change to an unmatched URL.
@@ -237,7 +237,7 @@
         (rf/reg-fx :rf.nav/push-url
                    {:platforms #{:server :client}}
                    (fn [_ _url] nil))
-        (rf/reg-event-fx :init/navigate-bad-param
+        (rf/reg-event :init/navigate-bad-param
           {:platforms #{:server}}
           (fn [_ _]
             ;; Drain-time error: a navigate whose :id ("zoo") fails the
@@ -303,7 +303,7 @@
     ;; The :on-create reads the request URI via the :rf.server/request
     ;; cofx and routes a URL-change to it. A `/missing/*` URI matches no
     ;; route → drain-time 404; a `/` URI matches :route/home → 200.
-    (rf/reg-event-fx :init/route-from-uri
+    (rf/reg-event :init/route-from-uri
       {:platforms        #{:server}
        :rf.cofx/requires [:rf.server/request]}
       (fn [{request :rf.server/request} _]

@@ -96,7 +96,7 @@
    machine, carrying :reason :parent-frame-destroyed."
   (rf/reg-frame :tenant-x {:doc "tenant frame with two machines"})
   ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
-  (rf/reg-event-fx :seed
+  (rf/reg-event :seed
     (fn [{rt :rf.db/runtime} _]
       {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/machines :snapshots]
                                 {:flow/login    {:state :authed   :data {}}
@@ -128,7 +128,7 @@
   "#2 Sub-cache hit inside a machine microstep —
    subscribe inside an action body sees the pre-cascade app-db, not the
    in-flight :data."
-  (rf/reg-event-db :seed (fn [_ _] {:user/role :admin}))
+  (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:user/role :admin}}))
   (rf/reg-sub :user-role (fn [db _] (:user/role db)))
   (rf/dispatch-sync [:seed])
   (let [observed-by-action (atom nil)
@@ -162,7 +162,7 @@
   ;; This test pins that property: a frame's :on-create event reaches a
   ;; live sub-cache and the spawned machine's snapshot lands in app-db.
   ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
-  (rf/reg-event-fx :init-shape
+  (rf/reg-event :init-shape
     (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:snapshots {:flow/boot {:state :armed
                                                                             :data  {}}}}}}))
   ;; EP-0002 (rf2-9o48ih): the reset-runtime fixture establishes an ambient
@@ -239,7 +239,7 @@
    coherent runtime-db write (the payload carries an app-db slice + a
    runtime-db slice) — they survive the standard hydration with the rest of
    the frame-state, no separate machine channel."
-  (rf/reg-event-fx :hydrate-payload
+  (rf/reg-event :hydrate-payload
     (fn [_ [_ {:keys [app-db runtime-db]}]]
       {:db app-db :rf.db/runtime runtime-db}))
   (let [server-app-db {:user/id 7}
@@ -271,7 +271,7 @@
   (rf/reg-fx :rf.nav/push-url
     {:platforms #{:client}}
     (fn [_ _] :should-not-run-on-server))
-  (rf/reg-event-fx :emit-nav
+  (rf/reg-event :emit-nav
     (fn [_ _]
       {:fx [[:rf.nav/push-url "/users/42"]]}))
   (with-trace-recorder! [traces]
@@ -356,7 +356,7 @@
                                     :data-db          (pr-str db)}
                             "ok"]))]
       (rf/reg-frame target-frame {:doc "frame destroyed mid-render"})
-      (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
       (rf/dispatch-sync [:seed] {:frame target-frame})
       (with-trace-recorder! [traces]
         ;; Mount under frame-provider so the subtree is scoped to
@@ -466,7 +466,7 @@
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (let [target-frame :tenant-plain-fn-warn]
       (rf/reg-frame target-frame {:doc "non-default frame for plain-fn no-frame-context test"})
-      (rf/reg-event-db :seed-plain-fn (fn [_ _] {:n 7}))
+      (rf/reg-event :seed-plain-fn (fn [{:keys [db]} _] {:db {:n 7}}))
       (rf/dispatch-sync [:seed-plain-fn] {:frame target-frame})
       (rf/reg-sub :plain-fn-test/n (fn [db _] (:n db)))
       (let [render-error (atom nil)
@@ -515,7 +515,7 @@
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (do
-      (rf/reg-event-db :seed-plain-default (fn [_ _] {:m 9}))
+      (rf/reg-event :seed-plain-default (fn [{:keys [db]} _] {:db {:m 9}}))
       (rf/reg-sub :plain-default-test/m (fn [db _] (:m db)))
       (let [render-error (atom nil)
             plain-default (fn plain-default-impl []
@@ -554,7 +554,7 @@
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (let [target-frame :tenant-reg-view-no-warn]
       (rf/reg-frame target-frame {:doc "non-default frame for reg-view negative test"})
-      (rf/reg-event-db :seed-reg-view (fn [_ _] {:k 11}))
+      (rf/reg-event :seed-reg-view (fn [{:keys [db]} _] {:db {:k 11}}))
       (rf/dispatch-sync [:seed-reg-view] {:frame target-frame})
       (rf/reg-sub :reg-view-test/k (fn [db _] (:k db)))
       (when-let [clear! (re-frame.late-bind/get-fn
@@ -614,8 +614,8 @@
       ;; Two distinct frames whose app-dbs hold different values so the
       ;; subscribed reaction tells us unambiguously which one served it.
       (rf/reg-frame target-frame {:doc "non-default frame — :v 42"})
-      (rf/reg-event-db :seed-target (fn [_ _] {:v 42}))
-      (rf/reg-event-db :seed-default (fn [_ _] {:v 7}))
+      (rf/reg-event :seed-target (fn [{:keys [db]} _] {:db {:v 42}}))
+      (rf/reg-event :seed-default (fn [{:keys [db]} _] {:db {:v 7}}))
       (rf/dispatch-sync [:seed-target]  {:frame target-frame})
       (rf/dispatch-sync [:seed-default] {:frame :rf/default})
       (rf/reg-sub :rf2-d4sf/v (fn [db _] (:v db)))
@@ -661,7 +661,7 @@
   (if-not (browser?)
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (do
-      (rf/reg-event-db :seed-no-provider (fn [_ _] {:w 99}))
+      (rf/reg-event :seed-no-provider (fn [{:keys [db]} _] {:db {:w 99}}))
       (rf/dispatch-sync [:seed-no-provider])
       (rf/reg-sub :rf2-d4sf/w (fn [db _] (:w db)))
       (let [resolved-frame (atom nil)
@@ -758,7 +758,7 @@
     (is true ":node-test: no DOM — browser-test runner exercises the assertions")
     (let [target-frame :tenant-d4sf-dispatch]
       (rf/reg-frame target-frame {:doc "non-default frame for dispatch routing test"})
-      (rf/reg-event-db :rf2-d4sf/record-here (fn [db _] (assoc db :stamped :here)))
+      (rf/reg-event :rf2-d4sf/record-here (fn [{:keys [db]} _] {:db (assoc db :stamped :here)}))
       (rf/reg-view* :rf.cross-spec-d4sf/dispatcher-probe
                     (fn dispatcher-probe-impl []
                       ;; Dispatch with no :frame opt — must route to the
@@ -796,7 +796,7 @@
    as :rf.error/machine-action-exception (machine-scoped, distinct
    from the generic :rf.error/handler-exception). The pre-action
    machine snapshot is preserved; no :db effect commits."
-  (rf/reg-event-db :seed-state (fn [_ _] {:val :before}))
+  (rf/reg-event :seed-state (fn [{:keys [db]} _] {:db {:val :before}}))
   (rf/dispatch-sync [:seed-state])
   (let [machine {:initial :idle
                  :data    {}
@@ -901,8 +901,8 @@
    :rf.error/dispatch-sync-in-handler. (The render-time variant of this
    is identical at the runtime layer.)"
   (with-trace-recorder! [traces]
-    (rf/reg-event-db :outer (fn [db _] (assoc db :ran? true)))
-    (rf/reg-event-fx :nested
+    (rf/reg-event :outer (fn [{:keys [db]} _] {:db (assoc db :ran? true)}))
+    (rf/reg-event :nested
       (fn [_ _]
         (rf/dispatch-sync [:outer])
         {}))
@@ -979,7 +979,7 @@
    re-frame.ssr-end-to-end-test/ssr-default-error-projector-handler-
    exception."
   (rf/reg-frame :req {:preset :ssr-server})
-  (rf/reg-event-fx :handler-throws
+  (rf/reg-event :handler-throws
     (fn [_ _] (throw (ex-info "boom" {}))))
   (with-trace-recorder! [traces]
     (rf/dispatch-sync [:handler-throws] {:frame :req})
@@ -1051,7 +1051,7 @@
    re-registering a sub disposes the cache slot and the next subscribe
    sees the new body, even when an active subscriber was holding a
    reaction on the old version."
-  (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+  (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
   (rf/reg-sub :answer (fn [db _] (:n db)))
   (rf/dispatch-sync [:seed])
   (is (= 7 (rf/subscribe-once [:answer]))
@@ -1078,7 +1078,7 @@
     (rf/reg-fx :rf.test/http-stub (fn [_ args] (swap! seen conj [:stub args])))
     ;; Frame with an id-valued override: :http is rerouted to :rf.test/http-stub.
     (rf/reg-frame :story-frame {:fx-overrides {:http :rf.test/http-stub}})
-    (rf/reg-event-fx :go (fn [_ _] {:fx [[:http {:url "/x"}]]}))
+    (rf/reg-event :go (fn [_ _] {:fx [[:http {:url "/x"}]]}))
     (rf/dispatch-sync [:go] {:frame :story-frame})
     (is (= [[:stub {:url "/x"}]] @seen)
         "the id-valued override redirected :http → :rf.test/http-stub")))

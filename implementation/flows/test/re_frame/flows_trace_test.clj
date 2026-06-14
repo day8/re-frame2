@@ -230,7 +230,7 @@
 
 (deftest flow-computed-fires-on-input-change
   (testing "first drain after registration emits :rf.flow/computed with :input-values, :result, :path, :frame"
-    (rf/reg-event-db :init (fn [_ _] {:w 3 :h 4}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
                   :output (fn [w h] (* w h))
@@ -281,8 +281,8 @@
 
 (deftest computed-before-equals-prior-result-on-second-compute
   (testing "second :rf.flow/computed's :before equals the first compute's :result"
-    (rf/reg-event-db :init      (fn [_ _] {:n 3}))
-    (rf/reg-event-db :replace-n (fn [db [_ v]] (assoc db :n v)))
+    (rf/reg-event :init      (fn [{:keys [db]} _] {:db {:n 3}}))
+    (rf/reg-event :replace-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
                   :output (fn [n] (* 2 n))
@@ -305,7 +305,7 @@
     ;; Seed [:doubled] with a value the event handler put there before
     ;; the flow ever fires. The first compute's :before MUST be that
     ;; prior value — not nil — because the slot was non-empty.
-    (rf/reg-event-db :seed (fn [_ _] {:n 3 :doubled :preseeded}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 3 :doubled :preseeded}}))
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
                   :output (fn [n] (* 2 n))
@@ -320,8 +320,8 @@
 
 (deftest computed-before-on-nested-path
   (testing ":before reads the pre-write value at a deeply-nested :path"
-    (rf/reg-event-db :init  (fn [_ _] {:w 3 :h 4 :rect {:area :initial-area}}))
-    (rf/reg-event-db :grow  (fn [db _] (assoc db :w 5)))
+    (rf/reg-event :init  (fn [{:keys [db]} _] {:db {:w 3 :h 4 :rect {:area :initial-area}}}))
+    (rf/reg-event :grow  (fn [{:keys [db]} _] {:db (assoc db :w 5)}))
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
                   :output (fn [w h] (* w h))
@@ -345,8 +345,8 @@
     ;; reflect the pre-drain value at [:b-out] (here nil on first
     ;; compute), NOT some intermediate state from :A's write. Each
     ;; flow's :before is independent — captured against its own :path.
-    (rf/reg-event-db :init (fn [_ _] {:n 3}))
-    (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 3}}))
+    (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-flow {:id     :A
                   :inputs [[:n]]
                   :output (fn [n] (* 2 n))
@@ -383,8 +383,8 @@
 
 (deftest flow-skip-fires-on-value-equal-rewrite
   (testing "writing :n with =-equal value emits :rf.flow/skip not :rf.flow/computed"
-    (rf/reg-event-db :init       (fn [_ _] {:n 5}))
-    (rf/reg-event-db :replace-n  (fn [db [_ v]] (assoc db :n v)))
+    (rf/reg-event :init       (fn [{:keys [db]} _] {:db {:n 5}}))
+    (rf/reg-event :replace-n  (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
                   :output (fn [n] (* 2 n))
@@ -424,8 +424,8 @@
     ;; Two distinct input paths. On a value-equal rewrite the cascade-DAG
     ;; consumer must learn BOTH inputs were considered-and-unchanged, so
     ;; the tag must enumerate every declared input path.
-    (rf/reg-event-db :init       (fn [_ _] {:w 3 :h 4}))
-    (rf/reg-event-db :rewrite-wh (fn [db [_ w h]] (assoc db :w w :h h)))
+    (rf/reg-event :init       (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
+    (rf/reg-event :rewrite-wh (fn [{:keys [db]} [_ w h]] {:db (assoc db :w w :h h)}))
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
                   :output (fn [w h] (* w h))
@@ -442,8 +442,8 @@
 
 (deftest flow-skip-then-computed-on-real-change
   (testing "skip fires on equal rewrite; subsequent real change fires :rf.flow/computed"
-    (rf/reg-event-db :init      (fn [_ _] {:n 5}))
-    (rf/reg-event-db :replace-n (fn [db [_ v]] (assoc db :n v)))
+    (rf/reg-event :init      (fn [{:keys [db]} _] {:db {:n 5}}))
+    (rf/reg-event :replace-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
                   :output (fn [n] (* 2 n))
@@ -461,7 +461,7 @@
 
 (deftest clear-flow-emits-cleared-trace
   (testing "clear-flow emits :rf.flow/cleared with :flow-id, :path, :frame"
-    (rf/reg-event-db :seed (fn [_ _] {:rect {:w 3 :h 4}}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:rect {:w 3 :h 4}}}))
     (rf/reg-flow {:id     :area
                   :inputs [[:rect :w] [:rect :h]]
                   :output (fn [w h] (* w h))
@@ -487,8 +487,8 @@
 
 (deftest flow-failed-fires-when-output-throws
   (testing "a flow whose :output fn throws emits :rf.flow/failed; the exception propagates"
-    (rf/reg-event-db :init       (fn [_ _] {:n 1}))
-    (rf/reg-event-db :bump       (fn [db _] (update db :n inc)))
+    (rf/reg-event :init       (fn [{:keys [db]} _] {:db {:n 1}}))
+    (rf/reg-event :bump       (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-flow {:id     :boom
                   :inputs [[:n]]
                   :output (fn [_] (throw (ex-info "boom" {:why :test})))
@@ -539,7 +539,7 @@
       (rf/register-error-listener!
         :test/flow-eval-recorder
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-db :init (fn [_ _] {:n 1}))
+      (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
       (rf/reg-flow {:id     :boom
                     :inputs [[:n]]
                     :output (fn [_] (throw (ex-info "flow boom" {:why :test})))
@@ -607,7 +607,7 @@
                     :path   [:a-out]})
       ;; Now dispatch an event whose :fx registers :b such that
       ;; :b's :inputs overlap :a's :path → cycle.
-      (rf/reg-event-fx :introduce-cycle
+      (rf/reg-event :introduce-cycle
                        (fn [_ _]
                          {:fx [[:rf.fx/reg-flow
                                 {:id     :b
@@ -645,7 +645,7 @@
           (when (= :rf.error/flow-eval-exception (:operation ev))
             (reset! trace-saw ev))))
       (try
-        (rf/reg-event-db :init (fn [_ _] {:n 1}))
+        (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
         (rf/reg-flow {:id     :boom
                       :inputs [[:n]]
                       :output (fn [_] (throw (ex-info "boom" {})))
@@ -665,8 +665,8 @@
 
 (deftest typical-lifecycle-fires-all-five-events
   (testing "register → first compute → skip on equal rewrite → real recompute → clear"
-    (rf/reg-event-db :init      (fn [_ _] {:n 3}))
-    (rf/reg-event-db :replace-n (fn [db [_ v]] (assoc db :n v)))
+    (rf/reg-event :init      (fn [{:keys [db]} _] {:db {:n 3}}))
+    (rf/reg-event :replace-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
                   :output (fn [n] (* 2 n))
@@ -705,7 +705,7 @@
     ;; in app-db under `:rf/runtime`, where a replacing handler WOULD have
     ;; clobbered it; that footgun is structurally gone — see
     ;; `re-frame.events/reject-legacy-runtime-root!`.)
-    (rf/reg-event-db :init (fn [_ _] {:n 1}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
     (rf/reg-flow {:id     :payload
                   :inputs [[:n]]
                   :output (fn [_] {:bytes "BIG"})
@@ -728,7 +728,7 @@
   (testing ":rf.flow/failed :inputs rides through elide-wire-value"
     ;; Register the flow that will throw; the input path is frame-
     ;; declared large so the walker substitutes the marker on emit.
-    (rf/reg-event-db :init (fn [_ _] {:payload {:big "value"}}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:payload {:big "value"}}}))
     (rf/reg-flow {:id     :boom
                   :inputs [[:payload]]
                   :output (fn [_] (throw (ex-info "boom" {})))
@@ -764,8 +764,8 @@
     ;; (A.path → B.input, B.path → C.input) pin topo order A → B → C.
     ;; Seed :n via a FIRST clean drain so we can prove the SECOND
     ;; (throwing) drain installs nothing on top of it.
-    (rf/reg-event-db :seed (fn [_ _] {:n 5}))
-    (rf/reg-event-db :touch (fn [db _] (assoc db :touched true)))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 5}}))
+    (rf/reg-event :touch (fn [{:keys [db]} _] {:db (assoc db :touched true)}))
     (rf/reg-flow {:id     :A
                   :inputs [[:n]]
                   :output (fn [n] (* 2 n))
@@ -832,7 +832,7 @@
     ;; :init writes the SAME db each drain, so absent rollback :A's
     ;; dirty-check would suppress its recompute on the 2nd+ drain. Because
     ;; the throw rolls back last-inputs, :A recomputes on EVERY drain.
-    (rf/reg-event-db :init (fn [_ _] {:n 5}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 5}}))
     (let [a-calls (atom 0)
           b-calls (atom 0)]
       (rf/reg-flow {:id     :A
@@ -861,7 +861,7 @@
 
 (deftest failed-flow-app-db-unchanged-across-multiple-failing-drains
   (testing "across multiple failing drains, NOTHING lands — app-db stays unchanged (no partial commit)"
-    (rf/reg-event-db :n!   (fn [db [_ v]] (assoc db :n v)))
+    (rf/reg-event :n!   (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (rf/reg-flow {:id     :A
                   :inputs [[:n]]
                   :output (fn [n] (* 10 n))
@@ -914,7 +914,7 @@
     (let [child-fired? (atom false)]
       (rf/reg-event-db :after-throw
                        (fn [db _] (reset! child-fired? true) db))
-      (rf/reg-event-fx :run-with-throwing-flow
+      (rf/reg-event :run-with-throwing-flow
                        (fn [_ _]
                          {:db {:n 2}
                           :fx [[:dispatch [:after-throw]]]}))
@@ -937,10 +937,10 @@
 (deftest fx-after-successful-flow-still-runs
   (testing "Per rf2-fslx0: when flows succeed, :fx still walks normally (negative control)"
     (let [child-fired? (atom false)]
-      (rf/reg-event-db :init (fn [_ _] {:n 1}))
+      (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
       (rf/reg-event-db :after-ok
                        (fn [db _] (reset! child-fired? true) db))
-      (rf/reg-event-fx :run-with-ok-flow
+      (rf/reg-event :run-with-ok-flow
                        (fn [_ _]
                          {:db {:n 2}
                           :fx [[:dispatch [:after-ok]]]}))
@@ -965,7 +965,7 @@
       (rf/register-error-listener!
         :test/fx-skip-recorder
         (fn [record] (swap! seen conj record)))
-      (rf/reg-event-fx :run-with-throwing-flow
+      (rf/reg-event :run-with-throwing-flow
                        (fn [_ _]
                          {:db {:n 2}
                           :fx [[:dispatch [:must-not-fire]]]}))
@@ -1005,7 +1005,7 @@
       ;; Handler writes :n; flow :double reads :n and writes :doubled. The
       ;; :fx vector has a throwing fx alongside an ok fx — the throw must
       ;; NOT discard the already-committed handler :db or flow output.
-      (rf/reg-event-fx :commit-then-fx-throw
+      (rf/reg-event :commit-then-fx-throw
                        (fn [_ _]
                          {:db {:n 5}
                           :fx [[:test/ok-fx true]
@@ -1043,9 +1043,9 @@
             inputs are unchanged, emits ZERO :rf.event/db-changed"
     (rf/reg-fx :test/noop (fn [& _] nil))
     ;; Seed :n so the flow computes once on the seed drain.
-    (rf/reg-event-db :seed (fn [_ _] {:n 7}))
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
     ;; This handler writes NO :db — only an :fx that is a noop.
-    (rf/reg-event-fx :no-write
+    (rf/reg-event :no-write
                      (fn [_ _] {:fx [[:test/noop true]]}))
     (rf/reg-flow {:id     :double
                   :inputs [[:n]]
@@ -1078,7 +1078,7 @@
   (testing "absent any declaration, :input-values and :result pass through unchanged"
     ;; Belt-and-braces against an over-eager rewrite — the walker must be
     ;; a no-op on plain values not nominated for elision.
-    (rf/reg-event-db :init (fn [_ _] {:w 3 :h 4}))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
     (rf/reg-flow {:id     :area
                   :inputs [[:w] [:h]]
                   :output (fn [w h] (* w h))
@@ -1097,8 +1097,8 @@
     ;; nil on the FIRST flow drain we observe. Then bump :n to drive
     ;; a recompute whose :before reads the previous blob and is
     ;; therefore frame-large. The walker must substitute the marker.
-    (rf/reg-event-db :init (fn [db _] (merge db {:n 1 :derived {:blob {:bytes "PRESEEDED"}}})))
-    (rf/reg-event-db :bump (fn [db _] (update db :n inc)))
+    (rf/reg-event :init (fn [{:keys [db]} _] {:db (merge db {:n 1 :derived {:blob {:bytes "PRESEEDED"}}})}))
+    (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-flow {:id     :payload
                   :inputs [[:n]]
                   :output (fn [n] {:bytes (str "blob-" n)})
@@ -1156,9 +1156,9 @@
                   :inputs [[:auth :token]]
                   :output (fn [t] (str "user-of-" t))
                   :path   [:auth :derived-user]})
-    (rf/reg-event-db :auth/signed-in
+    (rf/reg-event :auth/signed-in
                      {:interceptors [(rf/path :auth)]}
-                     (fn [auth [_ token]] (assoc auth :token token)))
+                     (fn [{:keys [db]} [_ token]] {:db (assoc auth :token token)}))
     (reset! *captured* [])
     (rf/dispatch-sync [:auth/signed-in "secret-token"])
     (let [computes (by-op :rf.flow/computed)]
@@ -1176,9 +1176,9 @@
                   :inputs [[:auth :token]]
                   :output (fn [_] (throw (ex-info "derive boom" {})))
                   :path   [:auth :derived-user]})
-    (rf/reg-event-db :auth/signed-in
+    (rf/reg-event :auth/signed-in
                      {:interceptors [(rf/path :auth)]}
-                     (fn [auth [_ token]] (assoc auth :token token)))
+                     (fn [{:keys [db]} [_ token]] {:db (assoc auth :token token)}))
     (reset! *captured* [])
     (rf/dispatch-sync [:auth/signed-in "secret-token"])
     (let [failures (by-op :rf.flow/failed)]
@@ -1195,9 +1195,9 @@
                   :inputs [[:auth :token]]
                   :output (fn [t] (str "user-of-" t))
                   :path   [:auth :derived-user]})
-    (rf/reg-event-db :auth/signed-in
+    (rf/reg-event :auth/signed-in
                      {:interceptors [(rf/path :auth)]}
-                     (fn [auth [_ token]] (assoc auth :token token)))
+                     (fn [{:keys [db]} [_ token]] {:db (assoc auth :token token)}))
     ;; First sign-in computes; second sign-in with the SAME token leaves
     ;; the input value-equal → `:rf.flow/skip` fires, still inside the
     ;; frame-sensitive handler scope.
@@ -1223,9 +1223,9 @@
                   :inputs [[:profile :name]]
                   :output (fn [n] (str "hello-" n))
                   :path   [:profile :greeting]})
-    (rf/reg-event-db :profile/rename
+    (rf/reg-event :profile/rename
                      {:interceptors [(rf/path :profile)]}
-                     (fn [profile [_ name]] (assoc profile :name name)))
+                     (fn [{:keys [db]} [_ name]] {:db (assoc profile :name name)}))
     (reset! *captured* [])
     (rf/dispatch-sync [:profile/rename "ada"])
     (let [computes (by-op :rf.flow/computed)]
@@ -1248,9 +1248,9 @@
                   :inputs [[:auth :token]]
                   :output (fn [t] (str "derived-" t))
                   :path   [:auth :derived-token]})
-    (rf/reg-event-db :auth/signed-in
+    (rf/reg-event :auth/signed-in
                      {:interceptors [(rf/path :auth)]}
-                     (fn [auth [_ token]] (assoc auth :token token)))
+                     (fn [{:keys [db]} [_ token]] {:db (assoc auth :token token)}))
     (reset! *captured* [])
     (rf/dispatch-sync [:auth/signed-in "secret-token"])
     (let [ev   (first (by-op :rf.flow/computed))
@@ -1285,7 +1285,7 @@
                   ;; The handler writes :n AND prior flow :ok writes :a-out,
                   ;; so a :db effect + a prior-flow write both exist when
                   ;; :boom throws — proving that EVEN THEN nothing installs.
-                  (rf/reg-event-db :bump (fn [db _] (update db :n (fnil inc 0))))
+                  (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
                   (rf/reg-flow {:id     :ok
                                 :inputs [[:n]]
                                 :output (fn [n] (* 10 n))
@@ -1360,7 +1360,7 @@
                   ;; (user-registered) fx fires — so the cascade exercises
                   ;; install + flow + fx all on the success path.
                   (rf/reg-fx :test/noop (fn [& _] nil))
-                  (rf/reg-event-fx :go
+                  (rf/reg-event :go
                                    (fn [_ _]
                                      {:db {:n 3}
                                       :fx [[:test/noop true]]}))

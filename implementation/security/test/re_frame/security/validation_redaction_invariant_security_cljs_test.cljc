@@ -433,7 +433,7 @@
         ;; the :sensitive? output schema. The failing value carries the
         ;; sentinel so, absent redaction, it rides verbatim in :value /
         ;; :explain on the trace bus.
-        (rf/reg-event-db :flow/seed (fn [_ _] {:in failing-sensitive-value}))
+        (rf/reg-event :flow/seed (fn [{:keys [db]} _] {:db {:in failing-sensitive-value}}))
         (rf/reg-flow {:id     :flow/secret
                       :inputs [[:in]]
                       :output (fn [in] in)            ;; pass the bad value through

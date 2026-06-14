@@ -60,10 +60,10 @@
 (deftest per-call-interceptor-override-removes-by-id
   (testing "per-call {:icpt nil} drops the interceptor from the chain"
     (let [log (atom [])]
-      (rf/reg-event-db :test/run
+      (rf/reg-event :test/run
         {:interceptors [(logger-interceptor log ::log-a)
                         (logger-interceptor log ::log-b)]}
-        (fn [db _] (assoc db :ran? true)))
+        (fn [{:keys [db]} _] {:db (assoc db :ran? true)}))
 
       (rf/dispatch-sync [:test/run]
                         {:interceptor-overrides {::log-a nil}})

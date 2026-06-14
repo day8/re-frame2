@@ -66,9 +66,9 @@
             id / handler lifted out of :handler-fn, source coords lifted into
             :source, the rest of the Spec 001 metadata under :metadata, each
             fact carried exactly once"
-    (rf/reg-event-db :av/add
+    (rf/reg-event :av/add
       {:doc "Add an item."}
-      (fn add-handler [db _] (update db :items (fnil conj []) :x)))
+      (fn add-handler [{:keys [db]} _] {:db (update db :items (fnil conj []) :x)}))
     (let [d (get-in (av/app-value) [:registrations :event :av/add])]
       (is (= :event (:kind d)) "the descriptor carries the kind")
       (is (= :av/add (:id d)) "the descriptor carries the id")
@@ -81,8 +81,10 @@
       ;; DESCRIPTION, not framework book-keeping.
       (is (= "Add an item." (get-in d [:metadata :doc]))
           ":doc is preserved under :metadata")
-      (is (= :db (get-in d [:metadata :event/kind]))
-          "the kind-specific :event/kind extra is preserved under :metadata")
+      (is (= :fx (get-in d [:metadata :event/kind]))
+          "the kind-specific :event/kind extra is preserved under :metadata
+           (reg-event shares the reg-event-fx path during the EP-0018 additive
+           window, so :event/kind is :fx)")
       ;; The handler and source-coord slots are NOT double-carried in :metadata.
       (is (not (contains? (:metadata d) :handler-fn))
           ":handler-fn is removed from :metadata (carried under :handler)")
@@ -260,7 +262,7 @@
             app-value projection is read-only and adds no registration-path
             behaviour (zero ergonomic regression)"
     (rf/reg-frame :av/app {:doc "ergonomics app"})
-    (rf/reg-event-db :av/set {:doc "set n"} (fn [db [_ v]] (assoc db :n v)))
+    (rf/reg-event :av/set {:doc "set n"} (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
     (rf/reg-sub :av/read-n {:doc "read n"} (fn [db _] (:n db)))
     ;; Dispatch + subscribe against the default-realm frame — unchanged.
     (rf/dispatch-sync [:av/set 9] {:frame :av/app})

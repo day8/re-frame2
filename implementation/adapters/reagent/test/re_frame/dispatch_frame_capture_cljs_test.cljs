@@ -73,8 +73,8 @@
   []
   (rf/reg-frame :rf-l5q3/tenant-a {:doc "tenant-a frame"})
   (rf/reg-frame :rf-l5q3/tenant-b {:doc "tenant-b frame"})
-  (rf/reg-event-db :rf-l5q3/seed
-                   (fn [_ [_ marker]] {:marker marker :received []}))
+  (rf/reg-event :rf-l5q3/seed
+                   (fn [{:keys [db]} [_ marker]] {:db {:marker marker :received []}}))
   (rf/dispatch-sync [:rf-l5q3/seed :rf/default] {:frame :rf/default})
   (rf/dispatch-sync [:rf-l5q3/seed :tenant-a] {:frame :rf-l5q3/tenant-a})
   (rf/dispatch-sync [:rf-l5q3/seed :tenant-b] {:frame :rf-l5q3/tenant-b}))
@@ -100,13 +100,13 @@
 (deftest sync-dispatch-from-handler-body-routes-to-handlers-frame
   (testing "rf/dispatch called synchronously from inside a handler routes to that handler's frame"
     (seed-frames!)
-    (rf/reg-event-fx :rf-l5q3/parent
+    (rf/reg-event :rf-l5q3/parent
                      (fn [_ _]
                        (rf/dispatch [:rf-l5q3/landed])
                        {}))
-    (rf/reg-event-db :rf-l5q3/landed
-                     (fn [db _]
-                       (update db :received (fnil conj []) :landed-sync)))
+    (rf/reg-event :rf-l5q3/landed
+                     (fn [{:keys [db]} _]
+                       {:db (update db :received (fnil conj []) :landed-sync)}))
     ;; Fire the parent under :tenant-a; the synchronous dispatch inside
     ;; its body MUST route to :tenant-a too. dispatch-sync drains the
     ;; full cascade before returning.
@@ -145,7 +145,7 @@
     (async done
       (seed-frames!)
       (let [raised (atom nil)]
-        (rf/reg-event-fx :rf-l5q3/defer-raw
+        (rf/reg-event :rf-l5q3/defer-raw
                          (fn [_ _]
                            (js/setTimeout
                              (fn []
@@ -154,9 +154,9 @@
                                       (reset! raised (:rf.error/id (ex-data e))))))
                              0)
                            {}))
-        (rf/reg-event-db :rf-l5q3/landed-raw
-                         (fn [db _]
-                           (update db :received (fnil conj []) :landed-raw)))
+        (rf/reg-event :rf-l5q3/landed-raw
+                         (fn [{:keys [db]} _]
+                           {:db (update db :received (fnil conj []) :landed-raw)}))
         (rf/dispatch-sync [:rf-l5q3/defer-raw] {:frame :rf-l5q3/tenant-a})
         ;; Wait two macrotasks: one for the setTimeout(0), one for the
         ;; router's next-tick drain (had the dispatch enqueued).
@@ -192,12 +192,12 @@
 (deftest fx-dispatch-from-handler-routes-to-handlers-frame
   (testing ":fx [[:dispatch ...]] routes to the handler's frame — canonical pattern"
     (seed-frames!)
-    (rf/reg-event-fx :rf-l5q3/parent-fx
+    (rf/reg-event :rf-l5q3/parent-fx
                      (fn [_ _]
                        {:fx [[:dispatch [:rf-l5q3/landed-fx]]]}))
-    (rf/reg-event-db :rf-l5q3/landed-fx
-                     (fn [db _]
-                       (update db :received (fnil conj []) :landed-fx)))
+    (rf/reg-event :rf-l5q3/landed-fx
+                     (fn [{:keys [db]} _]
+                       {:db (update db :received (fnil conj []) :landed-fx)}))
     (rf/dispatch-sync [:rf-l5q3/parent-fx] {:frame :rf-l5q3/tenant-a})
     (is (= [:landed-fx] (received :rf-l5q3/tenant-a))
         ":fx [[:dispatch ...]] threads the frame through fx/do-fx — lands on :tenant-a")
@@ -216,14 +216,14 @@
   (testing ":dispatch-later threads :frame through the closure — survives the async escape"
     (async done
       (seed-frames!)
-      (rf/reg-event-fx :rf-l5q3/parent-later
+      (rf/reg-event :rf-l5q3/parent-later
                        (fn [_ _]
                          {:fx [[:dispatch-later
                                 {:ms    0
                                  :event [:rf-l5q3/landed-later]}]]}))
-      (rf/reg-event-db :rf-l5q3/landed-later
-                       (fn [db _]
-                         (update db :received (fnil conj []) :landed-later)))
+      (rf/reg-event :rf-l5q3/landed-later
+                       (fn [{:keys [db]} _]
+                         {:db (update db :received (fnil conj []) :landed-later)}))
       (rf/dispatch-sync [:rf-l5q3/parent-later] {:frame :rf-l5q3/tenant-a})
       ;; Wait long enough for the setTimeout(0) and the resulting
       ;; next-tick drain (goog.async.nextTick). Two 50ms macrotasks
@@ -255,16 +255,16 @@
   (testing "(:dispatch (rf/frame-handle)) captures the in-flight frame; the captured fn is safe to call from setTimeout"
     (async done
       (seed-frames!)
-      (rf/reg-event-fx :rf-l5q3/parent-bound
+      (rf/reg-event :rf-l5q3/parent-bound
                        (fn [_ _]
                          (let [d (:dispatch (rf/frame-handle))]
                            (js/setTimeout
                              (fn [] (d [:rf-l5q3/landed-bound]))
                              0))
                          {}))
-      (rf/reg-event-db :rf-l5q3/landed-bound
-                       (fn [db _]
-                         (update db :received (fnil conj []) :landed-bound)))
+      (rf/reg-event :rf-l5q3/landed-bound
+                       (fn [{:keys [db]} _]
+                         {:db (update db :received (fnil conj []) :landed-bound)}))
       (rf/dispatch-sync [:rf-l5q3/parent-bound] {:frame :rf-l5q3/tenant-a})
       (js/setTimeout
         (fn []
@@ -290,13 +290,13 @@
 (deftest sync-dispatch-isolation-between-frames
   (testing "synchronous dispatch from :tenant-a handler stays in :tenant-a; :tenant-b is untouched"
     (seed-frames!)
-    (rf/reg-event-fx :rf-l5q3/fan
+    (rf/reg-event :rf-l5q3/fan
                      (fn [_ [_ payload]]
                        (rf/dispatch [:rf-l5q3/leaf payload])
                        {}))
-    (rf/reg-event-db :rf-l5q3/leaf
-                     (fn [db [_ payload]]
-                       (update db :received (fnil conj []) payload)))
+    (rf/reg-event :rf-l5q3/leaf
+                     (fn [{:keys [db]} [_ payload]]
+                       {:db (update db :received (fnil conj []) payload)}))
     (rf/dispatch-sync [:rf-l5q3/fan :a-payload] {:frame :rf-l5q3/tenant-a})
     (rf/dispatch-sync [:rf-l5q3/fan :b-payload] {:frame :rf-l5q3/tenant-b})
     (is (= [:a-payload] (received :rf-l5q3/tenant-a))

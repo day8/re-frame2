@@ -88,8 +88,8 @@
                    :params    [:map [:id :string]]
                    :can-leave :editor/can-leave?})
     (rf/reg-route :route/cart {:path "/cart"})
-    (rf/reg-event-db :editor/dirty
-                     (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-event :editor/dirty
+                     (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
     (stub-push-url!)
@@ -141,7 +141,7 @@
   (testing "an ordinary app handler returning :rf.db/runtime DOES fire the diagnostic"
     ;; Proves the listener + diagnostic are live in this fixture — the
     ;; framework-quiet assertions above are not vacuously empty.
-    (rf/reg-event-fx :app/sneaky-runtime-write
+    (rf/reg-event :app/sneaky-runtime-write
                      (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :hijacked}}}}))
     (let [warns (record-runtime-warnings! ::app-sneaky)]
       (rf/dispatch-sync [:app/sneaky-runtime-write])
@@ -156,7 +156,7 @@
 
 (deftest machine-handler-still-mints-authority
   (testing "a :rf/machine? true handler returning :rf.db/runtime stays silent (no regression)"
-    (rf/reg-event-fx :machine/runtime-write
+    (rf/reg-event :machine/runtime-write
                      {:doc "framework-authority" :rf/machine? true}
                      (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 1}}}))
     (let [warns (record-runtime-warnings! ::machine)]

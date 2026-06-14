@@ -242,7 +242,7 @@
     ;; :rf/default frame exists under it.
     (reset! frame/frames {})
     (frame/ensure-default-frame!)
-    (rf/reg-event-db ::seed (fn [_ [_ v]] {:n v}))
+    (rf/reg-event ::seed (fn [{:keys [db]} [_ v]] {:db {:n v}}))
     (rf/reg-sub ::n (fn [db _] (:n db)))
     (try
       ;; Seed app-db = {:n 1} and materialise a sub-cache entry by subscribing.
