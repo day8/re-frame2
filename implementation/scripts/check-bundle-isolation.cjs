@@ -225,7 +225,7 @@ const ARTEFACTS = [
   // zero epoch symbols — the `day8/re-frame2-epoch` artefact must
   // DCE entirely when the consuming app doesn't `:require`
   // `re-frame.epoch`. Core's public re-exports (`rf/epoch-history`,
-  // `rf/restore-epoch`, …) look the producing fns up through the
+  // `rf/restore-epoch!`, …) look the producing fns up through the
   // late-bind hook table at call time; a non-zero internal-sentinel
   // hit here means the epoch namespace got dragged in (most likely
   // a stray `:require` in a core/* ns). The trace-op keywords below
@@ -254,7 +254,7 @@ const ARTEFACTS = [
     // publishes the call site so the epoch artefact can populate the
     // hook at ns-load time; when the artefact is absent the lookup
     // returns nil and the call is a no-op. Sibling `:epoch/*` hook
-    // keys (epoch-history, restore-epoch, …) get DCE'd in counter
+    // keys (epoch-history, restore-epoch!, …) get DCE'd in counter
     // because their wrappers in core_epoch.cljc are unreachable from
     // the example's entry points.
     consumerAllowList: /epoch\/settle!/g,

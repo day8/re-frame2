@@ -813,7 +813,7 @@
   (sorted-set
    :rf.xray.fx/copy-to-clipboard
    ;; rf2-hga49 — tab-ribbon Reset rewind affordance: calls
-   ;; `rf/restore-epoch` against the observed frame + focused epoch, and
+   ;; `rf/restore-epoch!` against the observed frame + focused epoch, and
    ;; dispatches the inline failure flash on a false return.
    :rf.xray.fx/restore-epoch
    ;; rf2-nugvv (2026-06-04) — the Share affordance new-tab fx

@@ -142,7 +142,7 @@
     (when-not (:running? s)
       (swap! results-atom assoc-in [variant-id :selected-step] idx)
       (when target-id
-        (rf/restore-epoch variant-id target-id)))))
+        (rf/restore-epoch! variant-id target-id)))))
 
 (defn toggle-expanded!
   "Toggle the expand state of an assertion row, keyed by stable

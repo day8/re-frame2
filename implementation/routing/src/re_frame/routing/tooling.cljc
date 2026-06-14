@@ -25,7 +25,7 @@
   READ-ONLY over the registry. Like slice-2's subs.tooling read the sub
   registrar and slice-3's flows.tooling read the flow registry, this ns
   touches NEITHER the routing registrar write-path (`reg-route` /
-  `unregister-route!`) NOR the route registration signatures. It reads the
+  `clear-route`) NOR the route registration signatures. It reads the
   `:route` registrar kind (the same source `re-frame.routing.registry/route-table`
   iterates) and a frame's live runtime-db route slice through the existing
   `re-frame.frame/frame-runtime-db-value` read seam.

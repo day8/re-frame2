@@ -8,7 +8,7 @@
     1. Recording — every drain-settle commits one `:rf/epoch-record` and
        the record carries the canonical shape (`:event-id`, `:db-before`,
        `:db-after`, `:effects`, `:outcome :ok`).
-    2. Restore happy path — `restore-epoch` rewinds `app-db` to a named
+    2. Restore happy path — `restore-epoch!` rewinds `app-db` to a named
        earlier epoch's `:db-after`.
     3. Ring depth cap — `(rf/configure! :epoch-history {:depth 3})`
        followed by five dispatches keeps the last three; the oldest two
@@ -172,8 +172,8 @@
           target-id (:epoch-id target)]
       (is (= {:n 1} (:db-after target))
           "sanity — the targeted epoch has the expected :db-after")
-      (is (true? (rf/restore-epoch :rf/default target-id))
-          "restore-epoch returns true on the happy path")
+      (is (true? (rf/restore-epoch! :rf/default target-id))
+          "restore-epoch! returns true on the happy path")
       (is (= {:n 1} (rf/app-db-value :rf/default))
           "app-db now matches the named epoch's :db-after"))))
 
@@ -253,7 +253,7 @@
     (is (true? interop/debug-enabled?)
         "the dev gate reads true under :node-test — surface is live")
     ;; The surface's actual liveness — recording, listener fan-out, the
-    ;; ring buffer, restore-epoch's happy / failure paths — is locked
+    ;; ring buffer, restore-epoch!'s happy / failure paths — is locked
     ;; by the four deftests above. This test is the lone gate-state
     ;; assertion; pairing it with the framework-level grep gives the
     ;; cross-mode pin (`gate=true` => surface lives; `gate=false`

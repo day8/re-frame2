@@ -1,12 +1,12 @@
 (ns re-frame.epoch-jvm-prod-gate-test
   "Per rf2-0la4f (security audit): the epoch artefact's dev-only
-  surfaces — `register-epoch-listener!`, `restore-epoch`, `replace-app-db!`,
+  surfaces — `register-epoch-listener!`, `restore-epoch!`, `replace-app-db!`,
   the per-frame ring buffer carrying `:db-before` / `:db-after` /
   raw `:trace-events` — MUST honour the JVM-side production gate
   `re-frame.interop/debug-enabled?`. When the gate reads `false`
   (the SSR production posture per rf2-vnjfg / rf2-0la4f), the epoch
   surface drops to its no-op floor: no record lands in the ring, no
-  cb fires, `restore-epoch` and `replace-app-db!` return `false`.
+  cb fires, `restore-epoch!` and `replace-app-db!` return `false`.
 
   The companion core gate vocabulary suite is
   `re-frame.interop-debug-gate-test`; the core integration suite is
@@ -37,7 +37,7 @@
 ;; ensures the conventional `:rf/default` frame and binds it as the body's
 ;; ambient scope — the carried-invariant equivalent of wrapping every test
 ;; in `(with-frame :rf/default …)`. So the bare framework-operation surfaces
-;; this suite drives (dispatch / epoch / restore-epoch / replace-app-db!)
+;; this suite drives (dispatch / epoch / restore-epoch! / replace-app-db!)
 ;; resolve a carried frame stamp without a hand-rolled `reg-frame` + `with-
 ;; frame` dance here. Explicit `{:frame …}` opts in the bodies still win.
 (use-fixtures :each
@@ -78,19 +78,19 @@
             "epoch listener silent under disabled debug gate")))))
 
 (deftest restore-epoch-refuses-when-debug-disabled
-  (testing "Per rf2-0la4f: `restore-epoch` MUST refuse to operate
+  (testing "Per rf2-0la4f: `restore-epoch!` MUST refuse to operate
             when the JVM debug gate is off. The state-rewrite admin
             surface is dev-only; SSR production processes do NOT
             give arbitrary in-process code the ability to mutate
             `app-db` out of band."
     (with-redefs [interop/debug-enabled? false]
-      (is (false? (rf/restore-epoch :rf/default :some-epoch-id))
-          "restore-epoch returns false (refuses to operate)"))))
+      (is (false? (rf/restore-epoch! :rf/default :some-epoch-id))
+          "restore-epoch! returns false (refuses to operate)"))))
 
 (deftest replace-app-db-refuses-when-debug-disabled
   (testing "Per rf2-0la4f: `replace-app-db!` MUST refuse to operate
             when the JVM debug gate is off. Same admin-surface
-            concern as `restore-epoch` — pair-tool writes (Tool-Pair
+            concern as `restore-epoch!` — pair-tool writes (Tool-Pair
             §Pair-tool writes) are a dev-only surface."
     (with-redefs [interop/debug-enabled? false]
       (is (false? (rf/replace-app-db! :rf/default {:any "db"}))

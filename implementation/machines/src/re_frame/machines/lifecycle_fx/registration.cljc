@@ -443,7 +443,7 @@
   signal Xray renders as the `[START]` badge (rf2-it4vt) in BOTH paths
   automatically. The trace is emitted only on success (a thrown `:entry`
   action short-circuits to `:fail` → `trace-action-failure!` instead).
-  Restoration paths (SSR / `restore-epoch` / `replace-app-db`) install a
+  Restoration paths (SSR / `restore-epoch!` / `replace-app-db`) install a
   present, non-pending snapshot, so `:needs-bootstrap?` is false and NO
   `:rf.machine/started` fires — the snapshot IS the state."
   [ctx]
@@ -1091,7 +1091,7 @@
   `resolver/spec-from-snapshot`, and materialise the handler-meta from
   the spec. No live snapshot (or no resolvable type) → nil: the actor
   isn't alive in this frame value, which is the correct
-  `:no-such-handler` — and exactly the property `restore-epoch` reverts.
+  `:no-such-handler` — and exactly the property `restore-epoch!` reverts.
 
   The materialised handler-meta is shape-identical to a registered
   machine's, so the rest of `process-event*` is unchanged — it runs the
@@ -1108,7 +1108,7 @@
   Per rf2-egvm4t this is ALSO the restore/replay REHYDRATION seam for a
   spawned actor's per-instance `:data-schema` marks. The destroy / finalize /
   frame-teardown lifecycle clears those marks (so a destroyed actor leaves no
-  marks residue), and `restore-epoch` (since EP-0001) reverts the WHOLE
+  marks residue), and `restore-epoch!` (since EP-0001) reverts the WHOLE
   frame-state — both partitions — so it brings the runtime-db snapshot back
   but does NOT re-run the spawn bridge that originally declared the marks. The
   first dispatch to a

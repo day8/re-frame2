@@ -7,7 +7,7 @@
   runtime-db write (install the snapshot + the spawn-registry slot); destroy
   is a pure runtime-db remove. An actor's liveness IS exactly the presence
   of its snapshot at `[:rf.runtime/machines :snapshots <actor-id>]` in
-  the frame's value — so `restore-epoch` (which since EP-0001 reverts the
+  the frame's value — so `restore-epoch!` (which since EP-0001 reverts the
   WHOLE frame-state, both the app-db AND runtime-db partitions, via
   `replace-frame-state!` against the epoch's `:frame-state-after`) reverts
   liveness perfectly, with ZERO registrar drift. This closes the

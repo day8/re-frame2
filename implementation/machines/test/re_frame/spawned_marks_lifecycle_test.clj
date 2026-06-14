@@ -10,7 +10,7 @@
   frame teardown now CLEAR that per-instance entry (so a destroyed actor
   leaves no marks-table residue — an unbounded leak under spawn/destroy
   churn), and the lazy actor-handler resolver REHYDRATES it from the restored
-  snapshot's spec on the first dispatch after a `restore-epoch` / replay (so
+  snapshot's spec on the first dispatch after a `restore-epoch!` / replay (so
   epoch restore stays safe — the marks track the revertible snapshot in
   lock-step).
 
@@ -24,7 +24,7 @@
       clear them on the SAME three teardown call-sites the snapshot dissoc /
       registrar unregister / spawn-order forget already route through
       (`destroy-single-actor!`, `destroy-single!`, `finalize-machine`).
-    - Spawn is a pure app-db (runtime-db) write; `restore-epoch` reverts
+    - Spawn is a pure app-db (runtime-db) write; `restore-epoch!` reverts
       app-db only and does NOT re-run the spawn bridge. The first dispatch to
       a restored/replayed actor hits the lazy resolver
       (`resolve-actor-handler-meta`) — the COLD path with no registered
@@ -37,9 +37,9 @@
       marks table by design — keeping the table populated in lock-step with
       liveness is both simpler and faster.
 
-  The restore/replay test simulates `restore-epoch`'s app-db revert WITHIN the
+  The restore/replay test simulates `restore-epoch!`'s app-db revert WITHIN the
   machines artefact (re-seeding the snapshot into runtime-db, then dispatching
-  to the actor) — the genuine end-to-end `restore-epoch` repros live in the
+  to the actor) — the genuine end-to-end `restore-epoch!` repros live in the
   epoch artefact (actor_revertibility_restore_test). This exercises the
   machines-side rehydration mechanism the lifecycle model rests on."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -181,9 +181,9 @@
       (marks/clear-machine-schema-marks! spawned-id)
       (is (nil? (marks/marks-for :event spawned-id))
           "marks cleared (destroy simulation)")
-      ;; Simulate restore-epoch's frame-state revert: re-seed the captured
+      ;; Simulate restore-epoch!'s frame-state revert: re-seed the captured
       ;; snapshot into runtime-db (the partition machine snapshots live in
-      ;; post-EP-0001). restore-epoch reverts the WHOLE frame-state — both
+      ;; post-EP-0001). restore-epoch! reverts the WHOLE frame-state — both
       ;; partitions — but it does NOT re-run the spawn bridge, so the
       ;; per-instance marks (which live in the marks artefact's own table,
       ;; outside frame-state) are still absent at this point.

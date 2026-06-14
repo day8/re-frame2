@@ -1163,7 +1163,7 @@
   nil)
 
 (defn reconcile-on-restore
-  "Reconcile a freshly-INSTALLED resource subtree on `restore-epoch` (the body
+  "Reconcile a freshly-INSTALLED resource subtree on `restore-epoch!` (the body
   behind the `:resources/reconcile-on-restore` hook epoch `perform-restore!`
   consults). `runtime-db` is the runtime-db partition the epoch restore is about
   to install (the UNPROJECTED captured snapshot — `:rf.runtime/resources`,
@@ -1534,7 +1534,7 @@
     - `:resources/hydrate-runtime-db` — the SSR `:rf/hydrate` handler
       reconciles the installed resource subtree (recompute indexes, orphan
       SSR owners, surface clock skew);
-    - `:resources/reconcile-on-restore` — epoch `restore-epoch`'s
+    - `:resources/reconcile-on-restore` — epoch `restore-epoch!`'s
       `perform-restore!` reconciles the UNPROJECTED captured snapshot it is
       about to install (everything the hydrate reconcile does PLUS settling
       mid-flight `:loading` / `:fetching` entries to last-stable and recording

@@ -31,7 +31,7 @@
   {:hook :epoch/epoch-history :artefact epoch-artefact :on-absent :empty-vec}
   ([frame-id] :delegate))
 
-(defwrapper restore-epoch
+(defwrapper restore-epoch!
   "Rewind the named frame's WHOLE frame-state — BOTH the app-db AND
   runtime-db partitions — to the named epoch's `:frame-state-after`, via
   `replace-frame-state!` (EP-0001 rf2-3aizt1, decisions #2 + #9). This
@@ -51,8 +51,8 @@
   `:ok`), `:rf.epoch/restore-schema-mismatch`,
   `:rf.epoch/restore-missing-handler`, and
   `:rf.epoch/restore-version-mismatch`.
-  Late-bound via `:epoch/restore-epoch`."
-  {:hook :epoch/restore-epoch :artefact epoch-artefact :on-absent :false}
+  Late-bound via `:epoch/restore-epoch!`."
+  {:hook :epoch/restore-epoch! :artefact epoch-artefact :on-absent :false}
   ([frame-id epoch-id] :delegate))
 
 (defwrapper register-epoch-listener!
@@ -81,7 +81,7 @@
   tools use it for evolved-state-shape probes after a handler hot-swap,
   story-tool fixture setup, conformance-harness state seeding, and
   time-travel from JSON-loaded bug repros. Records a synthetic
-  `:rf/epoch-record` so `restore-epoch` can rewind the previous state;
+  `:rf/epoch-record` so `restore-epoch!` can rewind the previous state;
   emits `:rf.epoch/db-replaced` on success.
 
   Failure modes (each is a no-op on `app-db` and emits a structured
@@ -127,7 +127,7 @@
   §Pair-tool writes). Privileged runtime / full-frame tool surface for
   injecting framework-owned subsystem state (machine snapshots, route
   slice, …); the app-db partition is preserved unchanged. Records a
-  synthetic `:rf/epoch-record` so `restore-epoch` can rewind the previous
+  synthetic `:rf/epoch-record` so `restore-epoch!` can rewind the previous
   state; emits `:rf.epoch/db-replaced` on success.
 
   Failure modes (each is a no-op on `runtime-db` and emits a structured
@@ -158,7 +158,7 @@
   db-shaped name never silently replaces runtime-db, so this is the
   explicit full-frame surface (Mike ruling #10). A missing partition key
   installs `nil` for that partition (a full-frame replace is whole-value
-  by contract). Records a synthetic `:rf/epoch-record` so `restore-epoch`
+  by contract). Records a synthetic `:rf/epoch-record` so `restore-epoch!`
   can rewind the previous state; emits `:rf.epoch/db-replaced` on success.
 
   Failure modes (each is a no-op on the frame-state and emits a structured
@@ -200,7 +200,7 @@
   `watch-epochs`, story / pair recorders, hosted forwarders) MUST
   route through this fn. The on-box ring buffer and
   `register-epoch-listener!` listener fan-out continue to deliver the RAW
-  record so on-box devtools (Xray diff, REPL, `restore-epoch`) can
+  record so on-box devtools (Xray diff, REPL, `restore-epoch!`) can
   reason about exact state. Returns `nil` for non-map input. No-op
   (returns `nil`) when the `day8/re-frame2-epoch` artefact is not on
   the classpath. Late-bound via `:epoch/projected-record`.

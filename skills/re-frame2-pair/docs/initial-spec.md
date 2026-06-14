@@ -97,7 +97,7 @@ Where v1 reached into re-frame-10x's internal epoch buffer, v2 consumes re-frame
 - `(rf/register-epoch-listener! :re-frame2-pair-epoch cb)` — assembled-epoch stream. Mirrors `register-listener!`'s contract.
 - `(re-frame.trace.tooling/trace-buffer opts)` — retain-N trace ring (default 200, configurable via `(rf/configure! :trace-buffer {:cascades-retained N})`). CLJS callers must use the `re-frame.trace.tooling` ns — `rf/trace-buffer` is a JVM-only alias and returns nil in the browser runtime.
 - `(rf/epoch-history frame-id)` — per-frame epoch ring (default 50, configurable via `(rf/configure! :epoch-history {:depth N})`).
-- `(rf/restore-epoch frame-id epoch-id)` — first-class time-travel with seven documented failure modes (Tool-Pair §Time-travel).
+- `(rf/restore-epoch! frame-id epoch-id)` — first-class time-travel with seven documented failure modes (Tool-Pair §Time-travel).
 
 No adapter layer; no internal-state introspection; no second source of truth. If a feature isn't in the Tool-Pair contract, the skill doesn't ship it (and the gap becomes a `bd` bead candidate — see "Asymmetries to monitor in the spec" in `STATUS.md`).
 

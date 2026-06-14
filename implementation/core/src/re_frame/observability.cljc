@@ -48,7 +48,7 @@
   ## Sinks receive ALREADY-PROJECTED records (never re-implement redaction)
 
   Each sink entry names a `:sink` keyword id. The actual sink FN is
-  registered against that id via [[reg-observability-sink!]] (an
+  registered against that id via [[register-observability-sink!]] (an
   app/integration-library concern — the framework does not ship Datadog /
   Sentry clients, EP-0015 Non-Goals). At routing time the runtime:
 
@@ -108,7 +108,7 @@
 
 (defonce ^:private sinks (atom {}))
 
-(defn reg-observability-sink!
+(defn register-observability-sink!
   "Register an observability sink FN `f` under the keyword `sink-id`. The
   `sink-id` is the same user/library-owned id named by a frame's
   `:observability` `{:sink <sink-id> ...}` entry. Re-registering the same

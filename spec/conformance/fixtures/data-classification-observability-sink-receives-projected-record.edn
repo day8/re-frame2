@@ -22,7 +22,7 @@
 ;;
 ;; The RUNTIME WIRING leg — that a real `dispatch-sync` routes these projected
 ;; records through `route-handled-event!` / `route-error!` to a frame-declared
-;; sink (`reg-observability-sink!`), fail-closed on an unresolved frame, with
+;; sink (`register-observability-sink!`), fail-closed on an unresolved frame, with
 ;; sibling-sink isolation — is pinned end-to-end by the dual-runtime CLJC test
 ;; `re-frame.observability-routing-cljs-test` (rf2-t55hxg.7 / .4), which runs
 ;; under BOTH `npm run test:cljs` and the JVM `clojure -M:test`. The corpus

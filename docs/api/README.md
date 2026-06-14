@@ -32,7 +32,7 @@ The core surfaces live in `re-frame.core`. Per-feature artefacts ship their own 
 | `re-frame.machines` | `day8/re-frame2-machines` | Direct machine surface (the `reg-machine` macro is re-exported through `re-frame.core`). |
 | `re-frame.ssr` | `day8/re-frame2-ssr` | Server-side rendering — `render-to-string`, streaming, head model, error projection. |
 | `re-frame.ssr.ring` | `day8/re-frame2-ssr-ring` | Ring host-adapter for SSR. |
-| `re-frame.epoch` | `day8/re-frame2-epoch` | Time-travel surfaces — `epoch-history`, `restore-epoch`, `replace-app-db!`. Re-exported through `re-frame.core` via late-bind. |
+| `re-frame.epoch` | `day8/re-frame2-epoch` | Time-travel surfaces — `epoch-history`, `restore-epoch!`, `replace-app-db!`. Re-exported through `re-frame.core` via late-bind. |
 | `re-frame.adapter.uix` / `re-frame.adapter.helix` | `day8/re-frame2-uix` / `-helix` | The per-substrate adapter surfaces and hooks. |
 | `re-frame.resources` | `day8/re-frame2-resources` | Declarative server-state — `reg-resource` + `reg-mutation`, the `:rf.resource/*` and `:rf.mutation/*` events and subs, route `:resources` metadata. Optional, post-v1. |
 

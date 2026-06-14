@@ -6,7 +6,7 @@
   The design defect this pins the fix for: machine STATE lived in the frame
   value (revertible) but a spawned actor's LIVENESS — its per-instance
   event-handler registration — lived OUTSIDE the frame value, in the
-  registrar. `restore-epoch` reverts the frame value, not the registrar, so
+  registrar. `restore-epoch!` reverts the frame value, not the registrar, so
   it could never revert the registration: rewinding past a spawn orphaned
   the handler; rewinding past a destroy left the snapshot inspectable but the
   handler gone → `:rf.error/no-such-handler`. The fix (Mike-ruled
@@ -20,9 +20,9 @@
   These JVM+CLJS unit tests pin the machines-side invariants WITHOUT the
   epoch artefact: spawn/destroy mutate ZERO registrar state, dispatch
   lazy-resolves through the snapshot, and a runtime-db revert (the partition
-  `restore-epoch` walks machine snapshots back through, as part of its
+  `restore-epoch!` walks machine snapshots back through, as part of its
   whole-frame-state rewind) reverts an actor's liveness perfectly. The
-  genuine end-to-end `restore-epoch` repros live in
+  genuine end-to-end `restore-epoch!` repros live in
   `implementation/epoch/test/.../actor_revertibility_restore_test.clj`
   (the epoch artefact already test-deps machines).
 
@@ -55,7 +55,7 @@
 
 (defn- revert-app-db!
   "Reset `frame-id`'s RUNTIME-DB to `runtime-db` — the partition a
-  `restore-epoch` / frame-state revert walks machine snapshots back through.
+  `restore-epoch!` / frame-state revert walks machine snapshots back through.
   Used here so the machines unit test exercises the revertibility property
   without test-dep'ing the epoch artefact.
 
@@ -154,7 +154,7 @@
       (is (nil? (snapshot :al3/child#1))
           "no snapshot was fabricated"))))
 
-;; ---- liveness reverts with a runtime-db reset (what restore-epoch does) ----
+;; ---- liveness reverts with a runtime-db reset (what restore-epoch! does) ----
 
 (deftest actor-liveness-reverts-with-runtime-db
   (testing "rf2-a2sn1 / rf2-vzld77 — resetting the frame's runtime-db to a

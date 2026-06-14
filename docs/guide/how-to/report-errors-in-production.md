@@ -80,7 +80,7 @@ The raw listener above is the **corpus-wide** hook: every frame, one fan-out. It
 
 !!! note "When to reach for the sink instead"
 
-    For everything that isn't post-mortem — handled-event metrics to Datadog or Honeycomb, or error records projected under a specific frame's privacy policy — use the front-door surface instead: a frame `:observability` sink registered with `rf/reg-observability-sink!`. The runtime hands your sink an **already-projected** record, with sensitive fields redacted for you, and routing is fail-closed per frame. Start there unless you specifically need the corpus-wide raw-exception hook this page wires.
+    For everything that isn't post-mortem — handled-event metrics to Datadog or Honeycomb, or error records projected under a specific frame's privacy policy — use the front-door surface instead: a frame `:observability` sink registered with `rf/register-observability-sink!`. The runtime hands your sink an **already-projected** record, with sensitive fields redacted for you, and routing is fail-closed per frame. Start there unless you specifically need the corpus-wide raw-exception hook this page wires.
 
 ## Verify it in dev
 

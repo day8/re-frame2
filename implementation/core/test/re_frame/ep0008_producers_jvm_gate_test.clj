@@ -174,7 +174,7 @@
     (with-redefs [interop/debug-enabled? false]
       (let [listener-seen (atom [])
             sink-seen     (atom [])]
-        (rf/reg-observability-sink! :test.sinks/sentry
+        (rf/register-observability-sink! :test.sinks/sentry
                                     (fn [r] (swap! sink-seen conj r)))
         (rf/register-error-listener! :test/listener
                                      (fn [r] (swap! listener-seen conj r)))
@@ -213,7 +213,7 @@
             project-egress)."
     (with-redefs [interop/debug-enabled? false]
       (let [sink-seen (atom [])]
-        (rf/reg-observability-sink! :test.sinks/sentry
+        (rf/register-observability-sink! :test.sinks/sentry
                                     (fn [r] (swap! sink-seen conj r)))
         (rf/reg-frame :gate/evt
           {:observability

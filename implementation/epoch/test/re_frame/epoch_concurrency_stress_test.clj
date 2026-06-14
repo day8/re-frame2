@@ -67,13 +67,13 @@
   ### Scenario 3 — ring-buffer write/read race (concurrent record + restore)
 
     One producer thread fires settles into a single frame; one consumer
-    thread concurrently reads `epoch-history` AND fires `restore-epoch`
+    thread concurrently reads `epoch-history` AND fires `restore-epoch!`
     against arbitrary epoch-ids from the snapshot it just read. The
     producer's `swap!` into `histories` races the consumer's deref +
     `find-epoch-in` walk + the `replace-container!` path inside
     `perform-restore!`.
 
-    Note: `restore-epoch` validates a precondition that no drain is
+    Note: `restore-epoch!` validates a precondition that no drain is
     in flight on the target frame (`drain-in-flight?`); when the
     producer is mid `dispatch-sync`, the consumer's restore correctly
     refuses with `:rf.epoch/restore-during-drain`. That refusal IS the
@@ -83,7 +83,7 @@
 
     Invariants:
     1. **No exception escapes.** Both threads run their full loop;
-       `restore-epoch` either returns true/false but never throws, and
+       `restore-epoch!` either returns true/false but never throws, and
        `epoch-history` always returns a vector (possibly empty).
     2. **No event dropped.** Producer's settle count = `iters`. After
        both threads join, the frame's history has either exactly
@@ -411,10 +411,10 @@
 
 ;; ---- Scenario 3 -----------------------------------------------------------
 ;;
-;; Concurrent record (settle!) + read (epoch-history + restore-epoch).
+;; Concurrent record (settle!) + read (epoch-history + restore-epoch!).
 ;; One producer fires settles; one consumer reads history and tries
 ;; restore against arbitrary epoch-ids it observed in the snapshot.
-;; Because restore-epoch's precondition refuses while a drain is in
+;; Because restore-epoch!'s precondition refuses while a drain is in
 ;; flight, we expect a mix of ok and `:rf.epoch/restore-during-drain`
 ;; outcomes — the contract is that NEITHER thread throws and the
 ;; producer's records all land in dispatch order.
@@ -470,7 +470,7 @@
                       ;; the precondition will often refuse — that's
                       ;; the contract.
                       (let [target-id (:epoch-id (rand-nth history))
-                            result    (rf/restore-epoch
+                            result    (rf/restore-epoch!
                                         :rd7a7.race/main target-id)]
                         (if result
                           (swap! ok-count inc)

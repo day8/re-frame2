@@ -154,7 +154,7 @@ The pair-tool surfaces all share a common behaviour against destroyed frames, do
 
 - `app-db-value` → `nil`
 - `epoch-history` → `[]`
-- `restore-epoch` → `false` (and emits `:rf.error/no-such-handler` of kind `:frame`)
+- `restore-epoch!` → `false` (and emits `:rf.error/no-such-handler` of kind `:frame`)
 - `replace-app-db!` → `false` (same error)
 - `register-epoch-listener!` whose observed frame is destroyed → receives a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace
 

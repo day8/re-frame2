@@ -82,7 +82,7 @@
 
 ;; Registry
 (def reg-route                  registry/reg-route)
-(def unregister-route!          registry/unregister-route!)
+(def clear-route                registry/clear-route)
 (def match-url                  registry/match-url)
 (def route-url                  registry/route-url)
 (def malformed-url?             registry/malformed-url?)
@@ -359,7 +359,7 @@
 ;; unregistered and the active surfaces throw cleanly.
 
 (late-bind/set-fn! :routing/reg-route          reg-route)
-(late-bind/set-fn! :routing/unregister-route!  unregister-route!)
+(late-bind/set-fn! :routing/clear-route        clear-route)
 (late-bind/set-fn! :routing/match-url          match-url)
 (late-bind/set-fn! :routing/route-url          route-url)
 (late-bind/set-fn! :routing/reset-counters!    reset-counters!)

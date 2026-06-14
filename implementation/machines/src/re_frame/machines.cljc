@@ -455,7 +455,7 @@
 ;; consults this hook on `:rf.error/no-such-handler` BEFORE erroring:
 ;; given an unresolved event-id (a spawned actor-id with no per-instance
 ;; registration), the resolver materialises the actor's handler-meta from
-;; its (revertible) app-db snapshot, so `restore-epoch` reverts actor
+;; its (revertible) app-db snapshot, so `restore-epoch!` reverts actor
 ;; liveness with ZERO registrar drift. Returns nil when no live snapshot
 ;; exists → core surfaces the genuine `:no-such-handler` (correct: the
 ;; actor is not alive in this frame value). The companion

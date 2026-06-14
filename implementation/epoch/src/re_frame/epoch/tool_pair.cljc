@@ -1,6 +1,6 @@
 (ns re-frame.epoch.tool-pair
   "Tool-Pair boundary surfaces — the preconditions, restore-perform, and
-  off-box projection helpers behind `restore-epoch`, `replace-app-db!`,
+  off-box projection helpers behind `restore-epoch!`, `replace-app-db!`,
   `projected-record`, and `projected-history`.
 
   The name (rf2-dga99) covers BOTH halves of the seam: the WRITE-in
@@ -45,7 +45,7 @@
       record-level bookkeeping pass through unchanged. `projected-record`'s
       own docstring is the authoritative per-slot contract.
 
-  Per rf2-0wi86 Phase-2 seam E. The orchestrators `restore-epoch` and
+  Per rf2-0wi86 Phase-2 seam E. The orchestrators `restore-epoch!` and
   `replace-app-db!` live in the `re-frame.epoch` facade — they wire
   the precondition check + the trace emission + the perform / listener
   fan-out steps together. Pure-data shape of the preconditions makes
@@ -86,7 +86,7 @@
 (defn- registered-app-schemas
   "Return the {path → schema-meta} map registered against the named
   frame, or {}. Per Spec 010 §Per-frame schemas the schema set is
-  frame-scoped; restore-epoch validates against the schemas registered
+  frame-scoped; restore-epoch! validates against the schemas registered
   against the frame the epoch belongs to, not a process-global set."
   [frame-id]
   (if-let [entries (late-bind/get-fn :schemas/frame-schema-entries)]
@@ -323,7 +323,7 @@
   registrar for EVERY snapshot, so a spawned actor's instance-id key never
   resolved and a hot-reloaded actor TYPE's version drift silently passed — an
   older, incompatible spawned-actor snapshot could be installed by
-  `restore-epoch` reporting success.
+  `restore-epoch!` reporting success.
 
   Per rf2-ocg1: the recorded version is read through the public Spec 005
   §Snapshot shape contract — the snapshot's `[:meta :rf/snapshot-version]`;
@@ -399,7 +399,7 @@
                    precondition test stays a pure data check.
 
   Failure modes preserve the exact operation keywords and tag shapes
-  the public surface has always emitted (see `restore-epoch`'s
+  the public surface has always emitted (see `restore-epoch!`'s
   docstring for the catalogue)."
   [frame-id epoch-id]
   (let [frame-result (frame-exists-or-fail frame-id)]
@@ -837,7 +837,7 @@
 ;; open-issue 6 (RULED), and rf2-mrsck: the framework's single normative
 ;; projection emission site for off-box epoch egress. The in-process ring
 ;; buffer (`epoch-history`) and `register-epoch-listener!` listener fan-out
-;; deliver RAW records — restore-epoch and on-box devtools (Xray diff,
+;; deliver RAW records — restore-epoch! and on-box devtools (Xray diff,
 ;; REPL inspection) need them, and post-EP-0010 those raw records are
 ;; causal replay material. Tools that egress an epoch record across a
 ;; process boundary (Xray-MCP `watch-epochs`, story / pair recorders,
@@ -894,7 +894,7 @@
 ;; PROJECTED record — the rare advanced escape for material the
 ;; declaration-driven projection cannot prove (a slot no frame / schema
 ;; declaration covers). It runs ONLY here, on the off-box
-;; egress copy; the ring stays raw, so it can never affect `restore-epoch`
+;; egress copy; the ring stays raw, so it can never affect `restore-epoch!`
 ;; fidelity (the §15 hazard is gone by construction).
 ;;
 ;; Per-tool reimplementation of the projection is prohibited (the
@@ -1295,7 +1295,7 @@
        rare advanced escape for material the frame/profile projection
        cannot prove. It runs ONLY here, on the off-box egress copy — the
        ring stays raw (post-EP-0010 causal replay material), so the fn can
-       never affect `restore-epoch` fidelity.
+       never affect `restore-epoch!` fidelity.
 
   ## Egress opts (rf2-5w06uu)
 
@@ -1356,7 +1356,7 @@
   forwarders) MUST route through this fn at the wire boundary; the
   on-box ring buffer and `register-epoch-listener!` listener fan-out
   continue to deliver the RAW record so on-box devtools (Xray diff,
-  REPL, `restore-epoch`) can reason about exact state.
+  REPL, `restore-epoch!`) can reason about exact state.
 
   After the frame/profile projection lands, the installed `:redact-fn`
   advanced override (`assembly/apply-redact-fn`) runs over the PROJECTED

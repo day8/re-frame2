@@ -612,7 +612,7 @@ chrome affordances besides the tabs:
   frame (`:rf.xray/observed-frame` — the frame-switcher selection, NEVER
   `:rf/xray`) and the **focused** epoch-id (`:rf.xray/focus-epoch-id`),
   which trampolines into the `:rf.xray.fx/restore-epoch` effect →
-  `(rf/restore-epoch <observed-frame> <epoch-id>)`. The target is the
+  `(rf/restore-epoch! <observed-frame> <epoch-id>)`. The target is the
   epoch's `:db-after` ("if the event still exists, app state must be as if
   the event happened" — matches the shipped runtime, zero framework
   change).
@@ -624,7 +624,7 @@ chrome affordances besides the tabs:
     [Tool-Pair §Time-travel: epoch snapshots and undo](../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo).
   - **Disabled** (dimmed, `not-allowed` cursor) when no epoch is focused.
   - **Failure** (the rare framework cases — epoch aged out of the buffer,
-    or a restore-during-drain rejection → `rf/restore-epoch` returns
+    or a restore-during-drain rejection → `rf/restore-epoch!` returns
     `false`) sets `:rf.xray/reset-flash`, a brief **inline** message left of
     the button (`role=status`), NEVER a modal — and never a silent lie. The
     framework's structured `:rf.epoch/*` failure row also lands on the trace

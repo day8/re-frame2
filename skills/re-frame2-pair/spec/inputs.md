@@ -12,7 +12,7 @@ Path: `spec/Tool-Pair.md` (the contract specification) + `spec/009-Instrumentati
 
 - `(re-frame.trace.tooling/register-listener! id cb)` / `(re-frame.trace.tooling/trace-buffer opts)` — the trace stream. (`register-listener!` is also re-exported on `rf/`; `trace-buffer` is a JVM-only `rf/` alias, so CLJS callers use the `re-frame.trace.tooling` form.)
 - `(rf/register-epoch-listener! id cb)` / `(rf/epoch-history frame-id)` — the assembled epoch stream and per-frame ring.
-- `(rf/restore-epoch ...)` — first-class time-travel.
+- `(rf/restore-epoch! ...)` — first-class time-travel.
 - `(rf/frame-ids)` / `(rf/frame-meta id)` — multi-frame inspection.
 - `(rf/app-schemas)` / `(rf/handler-meta kind id)` — registrar reflection (source-coords).
 - `(rf/configure! :epoch-history {:depth N})` — ring retention.

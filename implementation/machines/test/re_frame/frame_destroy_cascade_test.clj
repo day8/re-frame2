@@ -299,7 +299,7 @@
 ;; ---- restore / hydration: spawned snapshots absent from spawn-order ------
 ;;
 ;; Per rf2-apfait — restore / SSR hydration / `replace-runtime-db!` /
-;; `restore-epoch` repopulate the DURABLE runtime-db snapshots WITHOUT
+;; `restore-epoch!` repopulate the DURABLE runtime-db snapshots WITHOUT
 ;; repopulating the PROCESS-SIDE (transient) `spawn-order` atom (Spec 002
 ;; §Durable vs transient: the atom is runtime bookkeeping, not durable
 ;; state). Before the fix, `destroy-frame!` saw such snapshots only via the

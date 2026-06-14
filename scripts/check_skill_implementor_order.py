@@ -12,7 +12,7 @@ conformance fixtures, the point at which a port may declare "v1-core-complete".
 Spec 015 (Data Classification) is **v1-required** (`spec/015-Data-Classification.md`
 opens "Status: Drafting. **v1-required.**") and `spec/API.md` exposes the
 frame-owned `:sensitive` / `:large` classification surface plus the `project-egress`
-record-level boundary primitive and `reg-observability-sink!` as v1 API (EP-0015
+record-level boundary primitive and `register-observability-sink!` as v1 API (EP-0015
 frame-owned egress policy; the earlier imperative `add-marks` / `set-marks` path
 API is removed from the public facade). It rides the 009 emission boundary, so it
 MUST sit inside the foundation cluster — ahead of the `:core/*` gate, NOT among the

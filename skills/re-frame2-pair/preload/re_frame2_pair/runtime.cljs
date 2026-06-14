@@ -1086,7 +1086,7 @@
 ;;
 ;; The cache is updated whenever an epoch settles — every mutation path
 ;; (dispatch via the router, `rf/replace-app-db!` synthetic `:rf.epoch/
-;; db-replaced`, `rf/restore-epoch`) produces an assembled-epoch record
+;; db-replaced`, `rf/restore-epoch!`) produces an assembled-epoch record
 ;; that arrives at `on-epoch-streaming`. We update the cache there from
 ;; `(:db-after record)`. On the first read for a frame, if the slot is
 ;; absent (no epoch has fired yet for this frame), we compute it lazily
@@ -2659,7 +2659,7 @@
                ;; restore-epoch rewinds app-db AND trims the ring back
                ;; to the target (the assembled would-be epoch is
                ;; removed from history).
-               rolled-back? (boolean (rf/restore-epoch frame-id before-id))
+               rolled-back? (boolean (rf/restore-epoch! frame-id before-id))
                base {:ok?                       true
                      :dry-run?                  true
                      :rolled-back?              rolled-back?
@@ -2678,7 +2678,7 @@
              (assoc base :rollback-hint
                     (str "restore-epoch returned false; the would-be db "
                          "IS the live db. Re-restore manually via "
-                         "(rf/restore-epoch <frame> <before-epoch-id>)."
+                         "(rf/restore-epoch! <frame> <before-epoch-id>)."
                          " Should not occur — the id we just produced "
                          "is at the head of the ring.")))))))))
 
@@ -2742,7 +2742,7 @@
        :unreplayable-effects unreplayable})))
 
 (defn restore-epoch
-  "(rf/restore-epoch frame-id epoch-id). Returns a structured envelope
+  "(rf/restore-epoch! frame-id epoch-id). Returns a structured envelope
    per rf2-6yqdl:
 
      - `{:ok? true :restored? true :epoch-id <id> :frame <id>
@@ -2760,7 +2760,7 @@
   ([epoch-id] (restore-epoch epoch-id (current-frame)))
   ([epoch-id frame-id]
    (let [pre-db (rf/app-db-value frame-id)
-         ok?    (rf/restore-epoch frame-id epoch-id)]
+         ok?    (rf/restore-epoch! frame-id epoch-id)]
      (if ok?
        (let [extras (restore-cascade-summary pre-db frame-id epoch-id)]
          (merge {:ok? true :restored? true :epoch-id epoch-id :frame frame-id}
@@ -2787,7 +2787,7 @@
        (let [prior     (nth history (- n 2))
              epoch-id  (:epoch-id prior)
              pre-db    (rf/app-db-value frame-id)
-             ok?       (rf/restore-epoch frame-id epoch-id)]
+             ok?       (rf/restore-epoch! frame-id epoch-id)]
          (if ok?
            (merge {:ok? true :epoch-id epoch-id :restored? true :frame frame-id}
                   (restore-cascade-summary pre-db frame-id epoch-id))
@@ -2801,7 +2801,7 @@
   ([epoch-id] (undo-to-epoch epoch-id (current-frame)))
   ([epoch-id frame-id]
    (let [pre-db (rf/app-db-value frame-id)
-         ok?    (rf/restore-epoch frame-id epoch-id)]
+         ok?    (rf/restore-epoch! frame-id epoch-id)]
      (if ok?
        (merge {:ok? true :epoch-id epoch-id :restored? true :frame frame-id}
               (restore-cascade-summary pre-db frame-id epoch-id))

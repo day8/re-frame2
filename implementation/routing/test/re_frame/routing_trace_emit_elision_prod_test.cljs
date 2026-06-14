@@ -20,7 +20,7 @@
   - `:rf.route/fragment-changed`         (emitted by `:rf.route/transitioned` on fragment-only nav; rf2-cj9fn)
   - `:rf.route.nav-token/allocated`      (emitted by `navigate` / `handle-url-change`)
   - `:rf.route/registered`               (emitted by `reg-route` on first-time register; rf2-dn26r)
-  - `:rf.route/cleared`                  (emitted by `unregister-route!`; rf2-dn26r)
+  - `:rf.route/cleared`                  (emitted by `clear-route`; rf2-dn26r)
   - `:rf.route/activated` / `:rf.route/deactivated` (emitted on navigation cross-route transition; rf2-dn26r)
   - `:rf.warning/malformed-url`          (emitted on URL parse failure)
   - `:rf.warning/no-not-found-route`     (emitted when unmatched and no fallback)

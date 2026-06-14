@@ -340,7 +340,7 @@ The sink consumes the already-projected record:
 ;; The app registers the concrete sink fn against the id the frame
 ;; policy names. The framework ships no Datadog / Sentry client; the sink
 ;; fn is an app / integration-library concern.
-(rf/reg-observability-sink! :my-app.sinks/datadog
+(rf/register-observability-sink! :my-app.sinks/datadog
   (fn [projected-record]
     ;; Already projected. No sink-local redaction.
     (datadog/send projected-record)))
@@ -357,7 +357,7 @@ An entry that omits `:rf.egress/profile` defaults to **`:rf.egress/off-box-obser
 
 Routing is **fail-closed** and frame-scoped (EP-0002): an unresolved frame (destroyed / never-registered) or a frame with no `:observability` policy routes **nothing** — the runtime never synthesizes `:rf/default`, never borrows another frame's sink policy, and never ships a record under unknown classification. (`project-egress` is *also* per-slot fail-closed, so a record reaching the projector frameless redacts rather than leaks — belt-and-braces.)
 
-Low-level listener registries (`register-event-listener!`, `register-error-listener!`) may still exist as **advanced integration APIs**, but they are not the normal production Datadog / Sentry story — the normal story is declaring a sink under frame `:observability` and registering its fn with `rf/reg-observability-sink!`. (`rf/reg-observability-sink!` / `rf/unregister-observability-sink!` are new `re-frame.core` façade exports, subject to the facade-export classification rule when they land.)
+Low-level listener registries (`register-event-listener!`, `register-error-listener!`) may still exist as **advanced integration APIs**, but they are not the normal production Datadog / Sentry story — the normal story is declaring a sink under frame `:observability` and registering its fn with `rf/register-observability-sink!`. (`rf/register-observability-sink!` / `rf/unregister-observability-sink!` are new `re-frame.core` façade exports, subject to the facade-export classification rule when they land.)
 
 ## The three observation streams
 
@@ -544,7 +544,7 @@ Conformance fixtures under [conformance/](conformance/README.md) assert the obse
 | `data-classification/machine-data-schema-prop-redacts.edn` | A `reg-machine` whose `:data-schema` marks `[:payment :token {:sensitive? true}]`, after a transition writing a token into `:data`, projects `:rf/redacted` at `[:data :payment :token]` in `:rf.machine/snapshot-updated`. |
 | `data-classification/project-egress-omits-event-args-off-box.edn` | `project-egress` of an `:rf.observe/handled-event` under `:rf.egress/off-box-observability` carries `:frame` / `:event-id` / `:status` / `:elapsed-ms` / `:effects` / correlation ids and **omits the `:event` args slot entirely**. |
 | `data-classification/project-egress-fails-closed-no-frame.edn` | `project-egress` of a value with no known frame **fails closed** (does not synthesize `:rf/default`). |
-| `data-classification/observability-sink-receives-projected-record.edn` | A frame declaring an `:observability {:handled-events [{:sink … :rf.egress/profile :rf.egress/off-box-observability}]}` sink, with the sink fn registered via `reg-observability-sink!`, delivers an **already-projected** `:rf.observe/handled-event` record to the sink on each processed event (the off-box default omits the `:event` args slot); a declared `:errors` sink likewise receives a projected `:rf.observe/error` record on a handler exception, with a frame-sensitive path inside the error's `:event` redacted. An unresolved frame or absent `:observability` policy routes **nothing** (no `:rf/default` synthesis). |
+| `data-classification/observability-sink-receives-projected-record.edn` | A frame declaring an `:observability {:handled-events [{:sink … :rf.egress/profile :rf.egress/off-box-observability}]}` sink, with the sink fn registered via `register-observability-sink!`, delivers an **already-projected** `:rf.observe/handled-event` record to the sink on each processed event (the off-box default omits the `:event` args slot); a declared `:errors` sink likewise receives a projected `:rf.observe/error` record on a handler exception, with a frame-sensitive path inside the error's `:event` redacted. An unresolved frame or absent `:observability` policy routes **nothing** (no `:rf/default` synthesis). |
 | `data-classification/derived-output-inherits-sensitivity.edn` | A `reg-sub` reading a frame-sensitive input with no `:rf.egress/output-sensitivity` projects its output as sensitive. |
 | `data-classification/derived-output-declassified-public.edn` | A `reg-sub` reading a sensitive input with `:rf.egress/output-sensitivity :rf.egress/public` projects its output **unredacted**, and the claim is enumerable as a standing audit surface. |
 | `data-classification/ssr-hydration-allowlist-first.edn` | An `:ssr {:hydrate {:include-app-db […]}}` frame hydrates **only** the allowlisted slice; an unlisted path does not cross even if unclassified, and a sensitive child of an allowlisted slice is redacted as defence-in-depth. |

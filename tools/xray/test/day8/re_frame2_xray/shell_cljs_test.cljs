@@ -2691,26 +2691,26 @@
 (deftest reset-to-epoch-event-trampolines-into-restore-fx
   (testing "rf2-hga49 — `:rf.xray/reset-to-epoch` is a thin event-fx that
             routes into the `:rf.xray.fx/restore-epoch` effect, which calls
-            the framework's `rf/restore-epoch` with the supplied frame +
+            the framework's `rf/restore-epoch!` with the supplied frame +
             epoch-id (the framework call lives in the fx, not a db
             reducer)."
     (xray-setup!)
     (let [restore-calls (atom [])]
-      (with-redefs [rf/restore-epoch (fn [frame epoch-id]
+      (with-redefs [rf/restore-epoch! (fn [frame epoch-id]
                                        (swap! restore-calls conj [frame epoch-id])
                                        true)]
         (rf/with-frame :rf/xray
           (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-7"])))
       (is (= [[:rf/default "epoch-7"]] @restore-calls)
-          "the event→fx chain called rf/restore-epoch with frame + epoch-id"))))
+          "the event→fx chain called rf/restore-epoch! with frame + epoch-id"))))
 
 (deftest reset-to-epoch-fx-flashes-on-restore-failure
-  (testing "rf2-hga49 — when `rf/restore-epoch` returns false (a documented
+  (testing "rf2-hga49 — when `rf/restore-epoch!` returns false (a documented
             failure mode), the fx dispatches the inline failure flash; a
             true return sets no flash."
     (xray-setup!)
     ;; failure path → flash set
-    (with-redefs [rf/restore-epoch (fn [_frame _epoch-id] false)]
+    (with-redefs [rf/restore-epoch! (fn [_frame _epoch-id] false)]
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-9"])))
     (rf/with-frame :rf/xray
@@ -2721,7 +2721,7 @@
     ;; documented "next successful reset" contract). Pre-fix the stale
     ;; "Reset failed" string survived a subsequent successful reset —
     ;; a silent lie on the ribbon.
-    (with-redefs [rf/restore-epoch (fn [_frame _epoch-id] true)]
+    (with-redefs [rf/restore-epoch! (fn [_frame _epoch-id] true)]
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-9"])))
     (rf/with-frame :rf/xray
@@ -2739,7 +2739,7 @@
             `:rf.xray/clear-reset-flash` — papering over the bug."
     (xray-setup!)
     ;; first attempt fails → flash set
-    (with-redefs [rf/restore-epoch (fn [_frame _epoch-id] false)]
+    (with-redefs [rf/restore-epoch! (fn [_frame _epoch-id] false)]
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-1"])))
     (rf/with-frame :rf/xray
@@ -2747,7 +2747,7 @@
           "first failed reset sets the flash"))
     ;; second attempt ALSO fails → the fresh attempt clears the old
     ;; string first, then the fx re-sets a (current) failure flash.
-    (with-redefs [rf/restore-epoch (fn [_frame _epoch-id] false)]
+    (with-redefs [rf/restore-epoch! (fn [_frame _epoch-id] false)]
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-2"])))
     (rf/with-frame :rf/xray
@@ -2755,7 +2755,7 @@
           "a second failed reset still surfaces a flash (re-set by the fx)"))
     ;; third attempt succeeds → no manual clear; the attempt's own
     ;; dissoc must wipe the flash.
-    (with-redefs [rf/restore-epoch (fn [_frame _epoch-id] true)]
+    (with-redefs [rf/restore-epoch! (fn [_frame _epoch-id] true)]
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-3"])))
     (rf/with-frame :rf/xray

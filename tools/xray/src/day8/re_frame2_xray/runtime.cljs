@@ -1297,7 +1297,7 @@
 
 (defn restore-epoch!
   "Tool: `restore-epoch`. Rewind a frame's `app-db` to the named
-  epoch's `:db-after` via `rf/restore-epoch`. The framework's wrapper
+  epoch's `:db-after` via `rf/restore-epoch!`. The framework's wrapper
   returns `true` on success and `false` on any of the six documented
   failure modes (per Tool-Pair §Time-travel — Restore — each emits a
   structured `:rf.epoch/*` error trace and leaves `app-db` unchanged);
@@ -1326,7 +1326,7 @@
        :hint "Pass :epoch-id <uuid>."}
 
       :else
-      (let [ok? (rf/restore-epoch fid epoch-id)]
+      (let [ok? (rf/restore-epoch! fid epoch-id)]
         (cond-> {:ok?      (boolean ok?)
                  :frame    fid
                  :epoch-id epoch-id

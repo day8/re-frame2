@@ -668,15 +668,15 @@
 ;; is "verify with a restore/replay test", and the rf2-kkfd3g tail-1 review
 ;; found the property was pinned only COMPOSITIONALLY — `invariant-1-ring-
 ;; record-is-raw-even-with-redact-fn-installed` stops at the ring READ (never
-;; calls restore-epoch), and `epoch_test.clj`'s genuine restore tests run with
+;; calls restore-epoch!), and `epoch_test.clj`'s genuine restore tests run with
 ;; NO `:redact-fn` installed. This test closes that gap: it COMBINES a live
-;; projection-side `:redact-fn` install with a `restore-epoch` call and asserts
+;; projection-side `:redact-fn` install with a `restore-epoch!` call and asserts
 ;; the restored frame-state equals the RAW un-redacted value — the literal
 ;; combined assertion the disposition asks for.
 
 (deftest restore-replays-raw-value-under-redact-fn
   (testing "disposition 6 — a wiping projection-side :redact-fn installed, a
-            sensitive event dispatched, then restore-epoch: the RESTORED
+            sensitive event dispatched, then restore-epoch!: the RESTORED
             frame-state equals the RAW un-redacted value. Redaction is a
             projection-side EGRESS concern; the durable ring the restore reads
             is replay-faithful, untouched by the override."
@@ -702,7 +702,7 @@
           "after logout the live password is cleared")
 
       ;; (c) Restore to the sensitive epoch.
-      (is (true? (rf/restore-epoch :test/main login-epoch))
+      (is (true? (rf/restore-epoch! :test/main login-epoch))
           "restore to the sensitive login epoch succeeded")
 
       ;; (d) The RESTORED frame-state equals the RAW un-redacted value — the

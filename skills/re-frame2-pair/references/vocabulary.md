@@ -182,7 +182,7 @@ with a separate gate:
   referencing / recovery, and only pour raw state into an eval when the
   user / operator explicitly asks for the unmasked value.
 - The same carve-out applies to the state-injection / time-travel **eval
-  forms** (`app-db-reset!`, `rf/restore-epoch`): they are un-elided and
+  forms** (`app-db-reset!`, `rf/restore-epoch!`): they are un-elided and
   un-gated because eval is default-ON. For a *named* write, prefer the
   dedicated `--allow-writes`-gated tools (`replace-app-db` /
   `restore-epoch`) — they are the canonical, audited path; the eval forms
@@ -274,7 +274,7 @@ opt-in under the same flag name.
   server tools are reachable) and are the canonical named-write path —
   the **server's gate, not the allow-list**, is the write-authority
   boundary, so allow-listing them is safe. The eval forms
-  (`(rf/restore-epoch …)` / `app-db-reset!`) are the backstop for a
+  (`(rf/restore-epoch! …)` / `app-db-reset!`) are the backstop for a
   gate-OFF server, since eval-cljs is default-ON and sits outside this
   gate. See [mcp-transport.md](mcp-transport.md) §MCP tool reference.
 - story-mcp `--allow-sensitive-reads` — the parallel story-side gate

@@ -480,7 +480,7 @@ threads the variant frame's epoch history (per
 [spec/006-ReactiveSubstrate.md](../../../spec/006-ReactiveSubstrate.md)
 §Epoch buffer): BEFORE each forward step it captures the current
 `:epoch-id` (the head of `epoch-history`) and pushes it onto an
-`:epoch-stack`. Step-back POPS the stack and `epoch/restore-epoch`s
+`:epoch-stack`. Step-back POPS the stack and `epoch/restore-epoch!`s
 against the new head, then decrements the cursor. Rewind restores
 against the bottom-of-stack epoch (the pre-play state) and resets
 the cursor to 0. That epoch-restore alone rewinds the frame's

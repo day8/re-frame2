@@ -566,7 +566,7 @@
   ["re-frame.core" "route-url"]      {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.core" "route-link"]     {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.core" "current-url"]    {:tier :advanced :owner "012" :status "v1"}
-  ["re-frame.core" "unregister-route!"] {:tier :tooling :owner "012" :status "v1"}
+  ["re-frame.core" "clear-route"] {:tier :tooling :owner "012" :status "v1"}
   ["re-frame.core" "install-history-listener!"] {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.core" "remove-history-listener!"]  {:tier :advanced :owner "012" :status "v1"}
   ;; HTTP test-support re-exports (canonical home: re-frame.http-test-support).
@@ -590,7 +590,7 @@
   ["re-frame.core" "domino-bucket"]         {:tier :tooling :owner "009" :status "v1 (dev-only)"}
   ;; Epoch history re-exports (canonical home: re-frame.epoch) — §Tool-Pair.
   ["re-frame.core" "epoch-history"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.core" "restore-epoch"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.core" "restore-epoch!"]             {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ;; EP-0001 two-partition mutators (rf2-q4i9ko / bead 3 + rf2-tfepxu /
   ;; bead 9). Per spec/API.md §Epoch / Tool-Pair rows. replace-app-db! is the
   ;; direct rename of the former reset-frame-db! Tool-Pair surface (bead 9);
@@ -616,7 +616,7 @@
   ;; the runtime routes projected handled-event/error records to it. :tooling
   ;; (a production-observability integration surface, not a front-porch app
   ;; primitive), owned by Spec 015.
-  ["re-frame.core" "reg-observability-sink!"]           {:tier :tooling  :owner "015" :status "v1"}
+  ["re-frame.core" "register-observability-sink!"]      {:tier :tooling  :owner "015" :status "v1"}
   ["re-frame.core" "unregister-observability-sink!"]    {:tier :tooling  :owner "015" :status "v1"}
   ["re-frame.core" "elision-declarations"]              {:tier :tooling  :owner "009" :status "v1"}
   ["re-frame.core" "elision-sensitive-declarations"]    {:tier :tooling  :owner "009" :status "v1"}
@@ -782,7 +782,7 @@
   ["re-frame.routing" "route-url"]              {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.routing" "current-url"]            {:tier :advanced :owner "012" :status "v1"}
   ["re-frame.routing" "reg-route"]              {:tier :internal-public :owner "012" :status "v1"}
-  ["re-frame.routing" "unregister-route!"]      {:tier :tooling :owner "012" :status "v1"}
+  ["re-frame.routing" "clear-route"]            {:tier :tooling :owner "012" :status "v1"}
   ["re-frame.routing" "malformed-url?"]         {:tier :internal-public :owner "012" :status "v1"}
   ["re-frame.routing" "url-owner-frame-id"]     {:tier :internal-public :owner "012" :status "v1"}
   ["re-frame.routing" "route-sub-fn"]           {:tier :internal-public :owner "012" :status "v1"}
@@ -927,7 +927,7 @@
   ;; The whole surface is the Tool-Pair time-travel surface (tooling).
   ;; =========================================================================
   ["re-frame.epoch" "epoch-history"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
-  ["re-frame.epoch" "restore-epoch"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.epoch" "restore-epoch!"]             {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "replace-app-db!"]            {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "reset-app-db!"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "replace-runtime-db!"]        {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}

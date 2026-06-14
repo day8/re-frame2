@@ -195,7 +195,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 #### S2. Snapshot/restore mechanism
 
-- **Why it matters.** Test fixtures, epoch history (`epoch/restore-epoch` + `epoch/replace-app-db!`), and time-travel all depend on full-frame-state capture-and-restore being a value swap.
+- **Why it matters.** Test fixtures, epoch history (`epoch/restore-epoch!` + `epoch/replace-app-db!`), and time-travel all depend on full-frame-state capture-and-restore being a value swap.
 - **Options by host.** With persistent collections (per **F2**), a snapshot is a pointer; restore is `replace-container!`. Without persistent collections, snapshot is deep-copy and expensive.
 - **Reference-impl picks.** CLJS captures the full app-db value; restore swaps it.
 - **Trade-offs.** This is why **F2** is pattern-required — the cost profile of revertibility depends on it.
@@ -451,7 +451,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 - **The full attachment surface.** Per [Tool-Pair §How AI tools attach](Tool-Pair.md#how-ai-tools-attach):
   - **Trace listener** — `(rf/register-listener! key callback)` for live events.
   - **Trace buffer** — `(rf/trace-buffer ...)` for recent events (retain-N ring buffer; default 200).
-  - **Epoch history** — `(rf/epoch-history frame-id)`, `(rf/restore-epoch frame-id epoch-id)`, `(rf/configure! :epoch-history {:depth N})`.
+  - **Epoch history** — `(rf/epoch-history frame-id)`, `(rf/restore-epoch! frame-id epoch-id)`, `(rf/configure! :epoch-history {:depth N})`.
   - **Registrar query** — `(rf/registrations kind)`, `(rf/handler-meta kind id)`, `(rf/machines)`, `(rf/machine-meta id)`, `(rf/frame-ids)`, `(rf/frame-meta id)`.
   - **App-db query** — `(rf/app-db-value frame-id)`, `(rf/snapshot-of path opts)`.
   - **Sub-cache (CLJS-only)** — `(rf/sub-cache frame-id)`.

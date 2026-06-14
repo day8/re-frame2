@@ -385,7 +385,7 @@
   (revertible) app-db snapshot — so the resolver rebuilds the actor's
   handler-meta from the snapshot's `:rf/machine-type` on demand. This is
   how an actor's liveness becomes a pure function of app-db: spawn/destroy
-  write only the snapshot, and `restore-epoch` reverts liveness with zero
+  write only the snapshot, and `restore-epoch!` reverts liveness with zero
   registrar drift.
 
   Returns a registrar-shaped handler-meta map (which `process-event*`
@@ -2037,7 +2037,7 @@
   `:frame-state-after` both equal the current (last-settled) frame-state
   value and its buffer is empty — `commit-halt-record!` synthesises the
   record from the halting event's trigger. Listeners receive it like any
-  other; `restore-epoch` refuses non-`:ok` targets."
+  other; `restore-epoch!` refuses non-`:ok` targets."
   [frame-id router depth last-event]
   (let [{:keys [queue]} @router
         queue-size      (count queue)
@@ -2254,7 +2254,7 @@
       ;; hook (`on-frame-destroyed!`), which fired synchronously inside the
       ;; handler that called `destroy-frame!`, carrying the cascade buffer
       ;; and real db snapshots; this seam only drops the queue and emits the
-      ;; `:rf.frame/drain-interrupted` lifecycle trace. `restore-epoch`
+      ;; `:rf.frame/drain-interrupted` lifecycle trace. `restore-epoch!`
       ;; refuses non-:ok records, preserving the original "time-travel never
       ;; lands in a misleading state" invariant.
       (frame/frame-disposed-for-drain? frame-id)
@@ -2270,7 +2270,7 @@
         ;;
         ;; EP-0001 (rf2-3aizt1, decision #2): the canonical snapshot unit is
         ;; the whole frame-state (both partitions — app-db + runtime-db), so
-        ;; an epoch carries (and `restore-epoch` rewinds to) machine snapshots
+        ;; an epoch carries (and `restore-epoch!` rewinds to) machine snapshots
         ;; / the route slice / SSR metadata, not just app-db.
         (let [fs-before (frame/frame-state-value frame-id)
               ;; rf2-bh56rc: this event's causal `:rf/time-ms` — the

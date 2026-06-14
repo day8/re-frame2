@@ -87,7 +87,7 @@ Audience column: **user** = an event apps dispatch or handle directly; **runtime
 Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 
 - `:rf.route/registered` — first-time `reg-route`. Re-registration rides the cross-kind `:rf.registry/handler-replaced` trace; not re-emitted here. Mirrors the `:rf.flow/registered` symmetry.
-- `:rf.route/cleared` — explicit `unregister-route!`. Mirrors the `:rf.flow/cleared` symmetry.
+- `:rf.route/cleared` — explicit `clear-route`. Mirrors the `:rf.flow/cleared` symmetry.
 - `:rf.route/activated` / `:rf.route/deactivated` — fire on every cross-route navigation commit, in `deactivated → activated` order. Same-id navigation (path/query change with no route-id shift) emits neither. First-ever navigation emits `:rf.route/activated` only (no prior route). Both carry `:tags {:route-id <id> :frame <navigating-frame>}`.
 - `:rf.route.nav-token/allocated` — fresh nav-token cascade begins. Carries `:tags {:route-id <id> :nav-token <token> :frame <navigating-frame>}`.
 - `:rf.route.nav-token/stale-suppressed` — async result carrying a now-superseded token.
