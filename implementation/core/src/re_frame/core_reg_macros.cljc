@@ -12,9 +12,9 @@
   facade focused on user-visible Var resolution rather than macro
   expansion bulk; this ns owns the cohesive responsibility of every
   registration-site `reg-*` macro's compile-time coord stamping. The
-  user-facing `defmacro reg-event-db` / `reg-sub` / `reg-flow` / …
+  user-facing `defmacro reg-event` / `reg-sub` / `reg-flow` / …
   shells live in `re-frame.core` itself (they MUST, so
-  `rf/reg-event-db` resolves alias-qualified per Clojure's
+  `rf/reg-event` resolves alias-qualified per Clojure's
   `ns-alias/Var` lookup); each shell is a one-line `(defreg-macro …)`
   form that delegates here.
 
@@ -161,7 +161,7 @@
 ;; namespace never needs to alias the producing ns). `re-frame.core` is
 ;; the resolution namespace because (a) defreg-macro is called FROM
 ;; re-frame.core to define the user-facing macros in that ns (so
-;; `rf/reg-event-db` etc. resolve via standard alias-qualified lookup),
+;; `rf/reg-event` etc. resolve via standard alias-qualified lookup),
 ;; and (b) re-frame.core aliases all the delegate namespaces.
 
 #?(:clj
@@ -203,17 +203,17 @@
 ;; ---- defreg-event-macro --------------------------------------------------
 ;;
 ;; Per Spec 009 §`:rf.handler/source` and Xray Spec 021 §11.2 B.7
-;; stretch (rf2-xgfuy): `reg-event-db` / `reg-event-fx` / `reg-event-ctx`
-;; additionally capture the WHOLE `(reg-event-X :id ...)` form as a
-;; string under `:rf.handler/source` so Xray's Event panel can render
-;; the source inline.
+;; stretch (rf2-xgfuy): the one `reg-event` macro (EP-0018) additionally
+;; captures the WHOLE `(reg-event :id ...)` form as a string under
+;; `:rf.handler/source` so Xray's Event panel can render the source
+;; inline.
 ;;
-;; Scope decision (rf2-xgfuy): capture the WHOLE form (`(reg-event-X
+;; Scope decision (rf2-xgfuy): capture the WHOLE form (`(reg-event
 ;; :id [interceptors] (fn ...))`), not just the handler-fn. The Xray
 ;; Event panel mockup (Spec 021 §2.2) renders the macro name + id +
 ;; full handler-fn body — the whole form gives the consumer everything
 ;; in one slot rather than forcing it to re-derive the wrapping shape
-;; from `:event/kind` + `:handler-fn`.
+;; from `:handler-fn`.
 ;;
 ;; CLJS production elision: the emitted form binds
 ;; `source-coords/*pending-form-source*` to
@@ -228,8 +228,8 @@
    (defn with-form-source-form
      "Wrap `body-form` in a binding of `source-coords/*pending-form-
      source*` to the compile-time `pr-str` of `whole-form` (the entire
-     `(reg-event-X :id ...)` form as the user wrote it). Returns a
-     syntax-quote-safe form suitable for a reg-event-* defmacro to
+     `(reg-event :id ...)` form as the user wrote it). Returns a
+     syntax-quote-safe form suitable for the `reg-event` defmacro to
      emit. Per rf2-xgfuy.
 
      The bound value rides an outer `(if interop/debug-enabled? <src>

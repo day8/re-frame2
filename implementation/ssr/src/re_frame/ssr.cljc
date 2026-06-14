@@ -8,7 +8,7 @@
 
   Façade over eight flat sub-namespaces (`emit`, `hash`, `substrate`,
   `hydrate`, `response`, `error-projector`, `error-listener`,
-  `request`). All `reg-fx` / `reg-cofx` / `reg-event-fx` /
+  `request`). All `reg-fx` / `reg-cofx` / `reg-event` /
   `reg-error-projector` / `register-error-listener!` /
   `register-listener!` side-effects fire HERE so
   `(require 're-frame.ssr :reload)` after `(registrar/clear-all!)`

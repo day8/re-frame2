@@ -166,7 +166,7 @@
   deliver to). A well-formed entry's requires is parsed via the SAME
   `re-frame.cofx/parse-requires` the event-handler path uses, so a malformed
   declaration raises `:rf.error/cofx-request-invalid` / a duplicate id
-  `:rf.error/cofx-name-collision` IDENTICALLY to a `reg-event-fx` handler.
+  `:rf.error/cofx-name-collision` IDENTICALLY to a `reg-event` handler.
   `failing-id` is the `[machine-id-placeholder slot id]`-style label for the
   error payload. Returns `[]` for an entry with no requires."
   [slot entry-id v]

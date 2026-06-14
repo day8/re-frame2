@@ -8,7 +8,7 @@
   :query-retain merge, and the rule-3 no-op short-circuit.
 
   Internal namespace; the public facade is `re-frame.routing`. The
-  facade owns the `events/reg-event-fx :rf.route/navigate` call so a
+  facade owns the `events/reg-event :rf.route/navigate` call so a
   `:reload` re-wires it on a fresh registrar. Per the rf2-2yabr cohesion
   split: NAVIGATE-EVENT seam."
   (:require [clojure.string :as str]

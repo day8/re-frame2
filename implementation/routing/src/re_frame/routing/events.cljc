@@ -20,7 +20,7 @@
       mid-drain bumps `:nav-token` and the stale settle becomes a no-op).
 
   Internal namespace; the public facade is `re-frame.routing`. The
-  facade's `(events/reg-event-db :rf.route.internal/settle-transition ...)`
+  facade's `(events/reg-event :rf.route.internal/settle-transition ...)`
   wires `settle-transition-handler` into the registrar — keeping the
   registration in the facade so a `(require 're-frame.routing :reload)`
   on a fresh registrar (`clear-all!` test fixture) re-runs it. Per the
@@ -324,8 +324,8 @@
 
   EP-0001 (rf2-vzld77): the route slice is durable framework runtime-db
   state, so this reads the `:rf.db/runtime` coeffect and returns a
-  `:rf.db/runtime` effect (the runtime-db sibling of a `reg-event-db`
-  handler)."
+  `:rf.db/runtime` effect (the runtime-db sibling of a `reg-event`
+  handler's `:db` effect)."
   [{rt :rf.db/runtime} [_ token]]
   (let [runtime-db (or rt {})
         current    (get-in runtime-db [:rf.runtime/routing :current :nav-token])

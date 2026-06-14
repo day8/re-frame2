@@ -53,7 +53,7 @@
 ;;
 ;; `register-machine-event!` below is the SINGLE HOME that runs BOTH (it is
 ;; the body of `reg-machine*` AND the new event-`:schema` arity). The bare
-;; `(reg-event-fx id meta (make-machine-handler spec))` direct path runs
+;; `(reg-event id meta (make-machine-handler spec))` direct path runs
 ;; NEITHER automatically — which is exactly how this bug hid. So
 ;; `make-machine-handler` FAILS LOUD when it is handed a `:data-schema`-bearing
 ;; spec OUTSIDE the home (`*in-registration-home?*` unbound to true): a
@@ -651,7 +651,7 @@
          :fx            merged-fx}))))
 
 (defn make-machine-handler
-  "Returns a function suitable for registration with `reg-event-fx`.
+  "Returns a function suitable for registration with `reg-event`.
 
   Per Spec 005 §Registration — the machine IS the event handler. The
   machine spec MUST NOT carry `:id`; the machine's id is the surrounding
@@ -687,7 +687,7 @@
   ;; registered through the single home (`reg-machine` / `reg-machine*` / the
   ;; event-`:schema` arity), which is the ONLY place the `:rf/machine?` /
   ;; `:rf/machine` meta stamp AND `register-data-schema-marks!` BOTH run. The
-  ;; bare `(reg-event-fx id meta (make-machine-handler spec))` direct path runs
+  ;; bare `(reg-event id meta (make-machine-handler spec))` direct path runs
   ;; neither — so a `:data-schema` reached here outside the home would be
   ;; silently inert (validates nothing) AND a privacy leak (a `:sensitive?`
   ;; `:data` slot egresses raw). Surface it at the moment of construction
@@ -702,7 +702,7 @@
               :recovery    :use-reg-machine
               :reason
               (str "make-machine-handler was handed a machine spec carrying a "
-                   ":data-schema via the bare (reg-event-fx id meta "
+                   ":data-schema via the bare (reg-event id meta "
                    "(make-machine-handler spec)) direct path. That path stamps "
                    "neither the :rf/machine? / :rf/machine registration "
                    "metadata (so the :data-schema validates NOTHING) NOR the "
@@ -881,12 +881,12 @@
   UNIONS the two at read time. This makes the schema-vs-author composition
   (Spec 015 §union-by-source, EP-0005 ruling #3 — a machine with both a
   `:data-schema` AND a manual `register-marks!` keeps both) truly
-  ORDER-INDEPENDENT: the `reg-event-fx` registration's bare-meta
+  ORDER-INDEPENDENT: the `reg-event` registration's bare-meta
   `register-marks!` REPLACES the `:event` entry (clearing any manual machine
   marks), but it cannot drop the schema marks because they are not stored
   there — and a manual `register-marks!` called AFTER `reg-machine` likewise
   cannot clobber them. The prior bridge (rf2-w46fpt) re-unioned manual marks
-  CAPTURED before `reg-event-fx` ran, which only held for manual-before; the
+  CAPTURED before `reg-event` ran, which only held for manual-before; the
   separate-table read-time union removes that asymmetry, so no `prior-marks`
   capture is needed.
 
@@ -952,7 +952,7 @@
        redaction).
 
   `reg-machine*` (both arities) routes through here, so the bare
-  `(reg-event-fx id meta (make-machine-handler spec))` direct path — which ran
+  `(reg-event id meta (make-machine-handler spec))` direct path — which ran
   NEITHER side-effect and so left a `:data-schema` inert AND a privacy leak — is
   no longer needed (and `make-machine-handler` now fails loud when handed a
   `:data-schema`-bearing spec outside this home; see its guard).
@@ -1002,7 +1002,7 @@
     ;; unions with the author-sourced `:event` entry at read time — so the
     ;; schema-vs-manual composition is order-independent regardless of whether
     ;; a manual `register-marks!` ran before OR after `reg-machine` (no
-    ;; prior-marks capture needed; `reg-event-fx`'s bare-meta `register-marks!`
+    ;; prior-marks capture needed; `reg-event`'s bare-meta `register-marks!`
     ;; can no longer clobber the schema set).
     (register-data-schema-marks! machine-id machine)
     ;; Per EP-0017 slice-B.9 (rf2-mjmxgb) — the dev-only consumer-attachment
@@ -1022,7 +1022,7 @@
 (defn reg-machine*
   "Plain-fn surface beneath the `reg-machine` macro. Registers a machine
   as an event handler under `machine-id`. Equivalent to
-  `(reg-event-fx machine-id (make-machine-handler machine))`.
+  `(reg-event machine-id (make-machine-handler machine))`.
 
   Per Spec 005 §reg-machine vs reg-machine*: the macro `reg-machine`
   walks the literal spec form at expansion time and co-locates per-element
@@ -1042,7 +1042,7 @@
   Per Spec 001 §Source-coordinate capture, the call-site `:ns` /
   `:line` / `:file` carried by `re-frame.source-coords/*pending-coords*`
   (set by the `reg-machine` macro) is merged into the registration
-  metadata via the `reg-event-fx` defn's `merge-coords` call."
+  metadata via the `reg-event` defn's `merge-coords` call."
   ([machine-id machine]
    (reg-machine* machine-id machine nil))
   ;; rf2-wgmipl — event-vector `:schema` arity. `opts` is an OPTIONAL
@@ -1066,7 +1066,7 @@
   The region-machine cache is installed (mirroring `reg-machine*`) so
   parallel-region transitions resolve, then `make-machine-handler` builds
   the handler-fn and `events/event-handler-meta` wraps it into the same
-  `{:rf/machine? true :rf/machine <spec> :event/kind :fx :handler-fn …
+  `{:rf/machine? true :rf/machine <spec> :handler-fn …
   :interceptors […]}` shape the registrar holds for a registered
   machine. `process-event*` runs the returned meta unchanged — the
   handler reads the actor's own snapshot keyed on the dispatched event's

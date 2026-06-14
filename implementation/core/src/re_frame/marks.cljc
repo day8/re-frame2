@@ -79,7 +79,7 @@
 ;; of whether the manual `register-marks!` ran before OR after `reg-machine`.
 ;;
 ;; The prior bridge (rf2-w46fpt) worked around the replace by capturing the
-;; manual marks BEFORE `reg-event-fx` and re-unioning them, which only held
+;; manual marks BEFORE `reg-event` and re-unioning them, which only held
 ;; for manual-BEFORE-reg-machine; a manual `register-marks!` AFTER reg-machine
 ;; still clobbered the schema marks. The separate-table read-time union fixes
 ;; that asymmetry.

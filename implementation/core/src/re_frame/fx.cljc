@@ -34,7 +34,7 @@
 
 (defn reg-fx
   "Register an effect handler under `id`. The handler runs when a
-  `reg-event-fx` returns an effect-map carrying `[id args]` inside its
+  `reg-event` handler returns an effect-map carrying `[id args]` inside its
   `:fx` vector — `{:fx [[:my-fx args] ...]}`.
 
   Handler signature: `(fn [ctx args] ...)` — **v2 changed from v1**.
@@ -85,7 +85,7 @@
   `(rf/handler-meta :fx <id>)`.
 
   See also: `reg-cofx` (the input-side counterpart), `clear-fx`,
-  `reg-event-fx` (the consumer)."
+  `reg-event` (the consumer)."
   [id metadata-or-handler & maybe-handler]
   (let [[meta handler-fn]
         (if (map? metadata-or-handler)

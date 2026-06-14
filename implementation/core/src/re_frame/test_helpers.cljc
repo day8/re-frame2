@@ -500,7 +500,7 @@
 ;;         (th/expect-text :counter-display \"2\")))
 ;;
 ;; `with-app-fixture` creates the frame, pins it as `*current-frame*`,
-;; calls the `:install` fn inside that scope (so any `reg-event-db` /
+;; calls the `:install` fn inside that scope (so any `reg-event` /
 ;; `reg-sub` etc. land while the frame is active), then runs `body`
 ;; with the root view stashed for `expect-text`. On exit (success or
 ;; exception) the frame is destroyed.
@@ -537,7 +537,7 @@
 
        :install         zero-arg fn called *inside* the frame's dynamic
                         extent, after the frame is created. Typical
-                        body: `(reg-event-db ...)` / `(reg-sub ...)` /
+                        body: `(reg-event ...)` / `(reg-sub ...)` /
                         `(reg-view ...)` calls that the test relies on.
                         Registrations land in the global registrar; pair
                         this fixture with `re-frame.test-support/make-reset-runtime-fixture`
