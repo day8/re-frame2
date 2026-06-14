@@ -469,14 +469,27 @@
   "Hover/title text for a `:skipped-on-platform` ledger row (rf2-j630b)."
   "skipped on this platform — gated, didn't run here")
 
+(def noop-glyph
+  "The empty-set glyph for a NO-OP `:db` ledger row (rf2-ekq28v) — the
+  handler returned an unchanged db (`:rf.event/db-noop`), so the commit
+  skipped the write. Distinct from the `:skipped` en-dash (a gated /
+  dropped effect) and the `:ok` tick (a real commit); reads NEUTRAL —
+  the event ran and committed nothing."
+  "∅")
+
+(def noop-hover
+  "Hover/title text for a NO-OP `:db` ledger row (rf2-ekq28v)."
+  "returned unchanged db — nothing committed")
+
 (defn fx-row-status-glyph
   "Single-char leading glyph for a flat SIDE EFFECTS ledger row
   (rf2-j630b). Closed set over the `fx-outcome-op->status` outcomes plus
-  the synthesised `:db` row's `:ok` / `:rollback`:
+  the synthesised `:db` row's `:ok` / `:rollback` / `:noop`:
     :ok / :db-commit → ✓
     :error / :rollback → ✗
     :overridden      → ↺
     :skipped         → – (muted en-dash, NEUTRAL)
+    :noop            → ∅ (empty-set, NEUTRAL — db unchanged, rf2-ekq28v)
   Defaults to the success tick for unknown statuses."
   [status]
   (case status
@@ -484,6 +497,7 @@
     :rollback   "✗"
     :overridden "↺"
     :skipped    skipped-glyph
+    :noop       noop-glyph
     "✓"))
 
 (defn fx-row-status-token-key
@@ -494,6 +508,7 @@
     :rollback   → :error
     :overridden → :accent
     :skipped    → :text-tertiary  (muted/tertiary — NEUTRAL)
+    :noop       → :text-tertiary  (muted/tertiary — NEUTRAL, rf2-ekq28v)
   Falls back to `:success` for unknown statuses (the quiet tick)."
   [status]
   (case status
@@ -501,6 +516,7 @@
     :rollback   :error
     :overridden :accent
     :skipped    :text-tertiary
+    :noop       :text-tertiary
     :success))
 
 (defn fx-row-status-colour

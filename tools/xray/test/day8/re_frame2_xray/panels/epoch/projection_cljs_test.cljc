@@ -63,6 +63,7 @@
 (def ^:private run-end-ev           teb/run-end-ev)
 (def ^:private cofx-run-ev          teb/cofx-run-ev)
 (def ^:private db-changed-ev        teb/db-changed-ev)
+(def ^:private db-noop-ev           teb/db-noop-ev)
 (def ^:private frame-state-changed-ev teb/frame-state-changed-ev)
 (def ^:private do-fx-ev             teb/do-fx-ev)
 (def ^:private fx-handled-ev        teb/fx-handled-ev)
@@ -2289,6 +2290,42 @@
       (is (= :error (-> (row-with-id s :db) :status)) ":db row ✗ on schema-fail")
       (is (= :error (proj/side-effects-badge-status (:rows s)))
           "badge cross when the :db row failed"))))
+
+;; ---- :db row — NO-OP commit (rf2-ekq28v) -------------------------------
+
+(deftest side-effects-db-row-noop-test
+  (testing "rf2-ekq28v — a :db effect that left app-db UNCHANGED emits
+            :rf.event/db-noop (the complement of db-changed). The SIDE
+            EFFECTS step STILL surfaces the :db row, status :noop (∅ —
+            'returned unchanged db, nothing committed'), so the operator
+            sees the event ran and committed nothing rather than the row
+            silently vanishing."
+    (let [s (proj/side-effects-step [(db-noop-ev)])]
+      (is (= :side-effects (:step s)) "SIDE EFFECTS step present on a no-op :db")
+      (is (= [:db] (ids-of s)) "the only row is the :db row")
+      (is (= :noop (-> (row-with-id s :db) :status)) ":db no-op → ∅ status")
+      ;; A :noop row is NEUTRAL — it must NOT trip the badge to error.
+      (is (= :ok (proj/side-effects-badge-status (:rows s)))
+          "a :noop :db row is neutral, never a failure")))
+
+  (testing "rf2-ekq28v — db-commit? / db-noop? predicates: db-noop fires,
+            db-changed does not"
+    (let [evs [(db-noop-ev)]]
+      (is (true? (proj/db-commit? evs)) "db-commit? true on a no-op (commit attempted)")
+      (is (true? (proj/db-noop? evs))   "db-noop? true on a db-noop trace")
+      (is (false? (proj/db-rolled-back? evs)) "not a rollback")))
+
+  (testing "rf2-ekq28v — a REAL commit (db-changed) takes precedence: status
+            :ok, db-noop? false (exactly one of db-changed / db-noop fires)"
+    (let [evs [(db-changed-ev [[[:counter] 0 1 :edit]])]]
+      (is (false? (proj/db-noop? evs)) "db-noop? false when db-changed fired")
+      (is (= :ok (-> (proj/db-effect-row evs) :status)) "real commit → :ok")))
+
+  (testing "rf2-ekq28v — handler-wrote-db? recognises db-noop: the HANDLER
+            step's :db section shows the returned db, not the no-write
+            placeholder (the handler DID return a :db, it just didn't change)"
+    (is (true? (proj/handler-wrote-db? [(db-noop-ev)]))
+        "handler-wrote-db? true on a db-noop (a :db was returned)")))
 
 ;; ---- per-row glyph + badge AND-of-rows (rf2-j630b) ----------------------
 

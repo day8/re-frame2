@@ -116,32 +116,42 @@
           (is (= {:n 99} db) "body receives the full db value")
           (is (= [:n :arg1 :arg2] query-v) "body receives the full query-v"))))))
 
-(deftest layer-1-memo-handles-nil-and-false
-  (testing "nil and false db values are not confused with the ::unset
-            sentinel — the body runs once for each, memo skips on
-            repeat"
+(deftest layer-1-memo-handles-false-and-empty
+  (testing "false and empty-map db values are not confused with the
+            ::unset sentinel — the body runs once for each, memo skips on
+            repeat.
+
+            NOTE (rf2-ekq28v): a `{:db nil}` return is now COERCED to
+            `{:db {}}` at the commit boundary (app-db is always a map,
+            never nil — the v1 nil-footgun is removed structurally), so a
+            handler can no longer drive app-db to nil. The nil-vs-::unset
+            sentinel concern is still exercised by the `false` value (a
+            falsey, non-map db that the memo wrapper must distinguish from
+            ::unset) and by the empty-map `{}` (a falsey-adjacent value the
+            coercion produces). The `{:db nil}` coercion itself is pinned
+            in `re-frame.db-noop-commit-test`."
     (let [runs (atom 0)]
-      (rf/reg-event-db :seed-nil   (fn [_ _] nil))
       (rf/reg-event-db :seed-false (fn [_ _] false))
+      (rf/reg-event-db :seed-empty (fn [_ _] {}))
       (rf/reg-event-db :seed-map   (fn [_ _] {:n 1}))
       (rf/reg-sub :v (fn [db _] (swap! runs inc) db))
 
-      (rf/dispatch-sync [:seed-nil])
+      (rf/dispatch-sync [:seed-false])
       (let [r (rf/subscribe [:v])]
-        (is (nil? @r))
-        (is (= 1 @runs) "first deref against nil db runs body once")
-        (is (nil? @r))
-        (is (= 1 @runs) "repeat deref against nil db skips memo")
+        (is (= false @r))
+        (is (= 1 @runs) "first deref against false db runs body once")
+        (is (= false @r))
+        (is (= 1 @runs) "repeat deref against false db skips memo")
 
-        (rf/dispatch-sync [:seed-false])
-        (is (= false @r))
-        (is (= 2 @runs) "transition nil → false re-runs body")
-        (is (= false @r))
-        (is (= 2 @runs) "repeat deref against false db skips memo")
+        (rf/dispatch-sync [:seed-empty])
+        (is (= {} @r))
+        (is (= 2 @runs) "transition false → {} re-runs body")
+        (is (= {} @r))
+        (is (= 2 @runs) "repeat deref against {} db skips memo")
 
         (rf/dispatch-sync [:seed-map])
         (is (= {:n 1} @r))
-        (is (= 3 @runs) "transition false → map re-runs body")))))
+        (is (= 3 @runs) "transition {} → map re-runs body")))))
 
 ;; ---- equivalence with layer-2+ -------------------------------------------
 ;;

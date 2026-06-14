@@ -4199,6 +4199,7 @@
   [idx {:keys [fx-id status args value duration-ms attributed-to]}]
   (let [db-row?  (= :db fx-id)
         skipped? (= :skipped status)
+        noop?    (= :noop status)
         ;; :fx rows carry `:args`; `other` (dropped top-level) rows carry
         ;; `:value` — both render through the same edn-inspector slot.
         payload  (if (some? args) args value)]
@@ -4209,7 +4210,8 @@
            :style fx-row-style}
      [:span {:style (assoc diff-glyph-bold-style
                            :color (badge/fx-row-status-colour status))
-             :title (when skipped? badge/skipped-hover)}
+             :title (cond skipped? badge/skipped-hover
+                          noop?    badge/noop-hover)}
       (badge/fx-row-status-glyph status)]
      [:span {:style fx-row-id-style}
       (fmt/ns-keyword fx-id)

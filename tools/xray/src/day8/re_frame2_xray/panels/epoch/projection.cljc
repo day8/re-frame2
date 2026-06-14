@@ -1620,7 +1620,13 @@
   no-write placeholder."
   [events]
   (or (some? (db-pending-t1 events))
-      (some? (find-op events :rf.event/db-changed))))
+      (some? (find-op events :rf.event/db-changed))
+      ;; rf2-ekq28v — an unchanged-db `:db` commit emits :rf.event/db-noop
+      ;; (the complement of db-changed) instead of db-changed. The handler
+      ;; DID return a `:db` (it just didn't change app-db), so the HANDLER
+      ;; step's `:db` section must still show the returned db rather than the
+      ;; no-write placeholder.
+      (some? (find-op events :rf.event/db-noop))))
 
 (defn handler-row
   "Build the step-N HANDLER row. ALWAYS present (every epoch has a
@@ -1875,9 +1881,23 @@
                  (true? (common/tag-of ev :rollback?))))
           events)))
 
+(defn db-noop?
+  "True iff this cascade's `:db` commit was a NO-OP (rf2-ekq28v) — the
+  handler returned a `:db` effect that left app-db UNCHANGED, so the
+  framework emitted `:rf.event/db-noop` (the complement of db-changed)
+  and skipped the container write. Used to paint the `:db` ledger row's
+  status `:noop` (∅ — \"returned unchanged db, nothing committed\")
+  instead of the `:ok` commit tick. A real commit (db-changed) and a
+  rollback (db-rolled-back?) take precedence — a cascade fires exactly
+  one of db-changed / db-noop for a `:db`-bearing commit."
+  [events]
+  (and (some? (find-op events :rf.event/db-noop))
+       (not (some? (find-op events :rf.event/db-changed)))
+       (not (db-rolled-back? events))))
+
 (defn db-commit?
-  "True iff this cascade attempted a `:db` commit (rf2-kt6js). Two
-  signals, EITHER sufficient:
+  "True iff this cascade attempted a `:db` commit (rf2-kt6js). Three
+  signals, ANY sufficient:
 
     (a) A `:rf.event/db-changed` trace — the framework's `commit-db-
         effect!` emits this for EVERY actual `:db` install (forward
@@ -1886,6 +1906,12 @@
         present for a plain reg-event-db that returns only `:db`.
     (b) A `:where :app-db` schema violation — implies a commit was
         ATTEMPTED even on the abort path.
+    (c) A `:rf.event/db-noop` trace (rf2-ekq28v) — the handler returned a
+        `:db` effect that left app-db unchanged (the no-op fast-path
+        skipped the write). The commit was ATTEMPTED, so the SIDE EFFECTS
+        step still surfaces the `:db` row (status `:noop`) so the operator
+        sees the event ran and committed nothing rather than the row
+        silently vanishing.
 
   Pre-rf2-kt6js this keyed off a fx-id-less `:rf.fx/handled` that the
   substrate never emits (`emit-handled!` always stamps `:rf.fx/id`), so
@@ -1894,7 +1920,8 @@
   bare `:db`."
   [events]
   (or (db-rolled-back? events)
-      (some? (find-op events :rf.event/db-changed))))
+      (some? (find-op events :rf.event/db-changed))
+      (some? (find-op events :rf.event/db-noop))))
 
 (defn db-effect-row
   "The synthesised `:db` row — the handler's app-db write, leading the
@@ -1903,10 +1930,12 @@
   `:db`, or a handler that threw — no phantom `:db`, rf2-wnvid). `:status`
   is `:error` on a schema-fail rollback (so the badge / `step-status`
   paints ✗ and the attached `:where :app-db` violation carries the reason
-  box), else `:ok`. Carries the `:fx-id :db` marker — the view renders
-  its args slot as the clickable \"→ app-db\" DESTINATION marker (the
-  actual db diff lives in the App-db panel; no duplication) and the
-  attachment machinery matches `:fx-id :db` for the rollback reason box.
+  box), `:noop` when the commit left app-db unchanged (∅ — \"returned
+  unchanged db, nothing committed\"; rf2-ekq28v), else `:ok`. Carries the
+  `:fx-id :db` marker — the view renders its args slot as the clickable
+  \"→ app-db\" DESTINATION marker (the actual db diff lives in the App-db
+  panel; no duplication) and the attachment machinery matches `:fx-id :db`
+  for the rollback reason box.
 
   Reconciles with rf2-4wywy: this is the HANDLER db write (the post-
   handler / pre-flow `:db` effect). The FLOW step's `:db` diff (the
@@ -1914,7 +1943,10 @@
   [events]
   (when (db-commit? events)
     {:fx-id  :db
-     :status (if (db-rolled-back? events) :error :ok)}))
+     :status (cond
+               (db-rolled-back? events) :error
+               (db-noop? events)        :noop
+               :else                    :ok)}))
 
 ;; ---- runtime-db (`:rf.db/runtime`) state effect — EP-0001 (rf2-ff9b0d) --
 ;;

@@ -843,6 +843,17 @@ sections that read top-to-bottom as the developer scans.
 - **No ambient coeffects** — COEFFECTS section ABSENT entirely.
 - **No user interceptors** — INTERCEPTORS section ABSENT entirely.
 - **No effects returned** — EFFECTS RETURNED section ABSENT.
+- **`:db` returned but UNCHANGED (no-op commit, rf2-ekq28v)** — the handler
+  returned a `:db` effect that left app-db unchanged, so the framework
+  emits `:rf.event/db-noop` (the complement of `:rf.event/db-changed`) and
+  the identical?-noop fast-path skips the container write. The SIDE EFFECTS
+  ledger still surfaces the `:db` row — status `:noop`, glyph `∅`, caption
+  "returned unchanged db — nothing committed" — so the operator sees the
+  event ran and committed nothing rather than the row silently vanishing.
+  The App-db diff for that epoch is empty (`db-before == db-after`). The
+  Trace panel renders the `:rf.event/db-noop` op in the DB area with the
+  "unchanged" verb. Distinct from a schema-fail rollback (✗, red) and a
+  real commit (✓, the per-path diff).
 - **No fx handlers ran** — EFFECTS HANDLERS RAN section ABSENT.
 - **No flows fired** — FLOWS section ABSENT entirely (silent-by-
   default; no '(none)' placeholder).

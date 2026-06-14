@@ -161,6 +161,18 @@
   (ev :rf.event :rf.event/db-changed
       {:rf.event/db-changed-paths paths}))
 
+(defn db-noop-ev
+  "`:rf.event/db-noop` trace (rf2-ekq28v) — the commit-level app-db NO-OP
+  signal. Fired when a `:db` effect was present but app-db did NOT change
+  (the handler returned an unchanged db; the identical?-noop fast-path
+  skipped the container write). The complement of `:rf.event/db-changed`:
+  for a `:db`-bearing commit EXACTLY ONE of the two fires. APP-DB-ONLY.
+  Carries the same routing slots as `db-changed-ev` (no value payload —
+  the no-op committed nothing). Drives the SIDE EFFECTS `:db` row's
+  `:noop` status (∅ — \"returned unchanged db, nothing committed\")."
+  []
+  (ev :rf.event :rf.event/db-noop {}))
+
 (defn frame-state-changed-ev
   "`:rf.event/frame-state-changed` trace (EP-0001 · Spec 009 §Canonical
   per-event trace sequence) — the FRAME-LEVEL partition-commit signal.
