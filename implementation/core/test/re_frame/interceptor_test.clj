@@ -55,7 +55,7 @@
                               :keep :untouched}
                         :other :preserved}))
     (rf/reg-event-db :path-test/inc
-                     [(rf/path :foo :bar)]
+                     {:interceptors [(rf/path :foo :bar)]}
                      ;; The handler's `db` is the SLICE value, not the full
                      ;; app-db. Returning a new slice value writes it back
                      ;; at [:foo :bar].
@@ -83,12 +83,12 @@
       ;; under :rf/path-stack — not the bare :path-stack.
       (rf/reg-event-db :path-ns/init (fn [_ _] {:foo {:bar 10}}))
       (rf/reg-event-db :path-ns/inc
-                       [(rf/path :foo :bar)
-                        (interceptor/->interceptor*
-                         :id     :path-ns/spy
-                         :before (fn [ctx]
-                                   (reset! seen-keys (set (keys ctx)))
-                                   ctx))]
+                       {:interceptors [(rf/path :foo :bar)
+                                       (interceptor/->interceptor*
+                                         :id     :path-ns/spy
+                                         :before (fn [ctx]
+                                                   (reset! seen-keys (set (keys ctx)))
+                                                   ctx))]}
                        ;; reg-event-db handlers receive (slice, event-vec);
                        ;; `inc` is arity-1 so wrap it explicitly to honour
                        ;; the (fn [db event] new-db) contract.
@@ -112,8 +112,8 @@
     (rf/reg-event-db :path-nest/inc
                      ;; The outer `path` focuses to {:b {:c 7} :sib :keep};
                      ;; the inner `path` focuses to 7. The handler returns 8.
-                     [(rf/path :a)
-                      (rf/path :b :c)]
+                     {:interceptors [(rf/path :a)
+                                     (rf/path :b :c)]}
                      (fn [slice _] (inc slice)))
     (rf/dispatch-sync [:path-nest/init])
     (rf/dispatch-sync [:path-nest/inc])
@@ -145,16 +145,16 @@
       ;; slice back into `:effects :db` regardless — producing a
       ;; spurious DB write the handler never asked for.
       (rf/reg-event-fx :path-noop/fx-only
-                       [(rf/path :foo :bar)
-                        ;; Sandwich-spy that captures the effects map
-                        ;; produced by the handler-side chain — i.e.
-                        ;; AFTER the handler ran and BEFORE the path
-                        ;; interceptor's :after re-runs.
-                        (interceptor/->interceptor*
-                          :id    :path-noop/spy
-                          :after (fn [ctx]
-                                   (reset! final-ctx ctx)
-                                   ctx))]
+                       {:interceptors [(rf/path :foo :bar)
+                                       ;; Sandwich-spy that captures the effects map
+                                       ;; produced by the handler-side chain — i.e.
+                                       ;; AFTER the handler ran and BEFORE the path
+                                       ;; interceptor's :after re-runs.
+                                       (interceptor/->interceptor*
+                                         :id    :path-noop/spy
+                                         :after (fn [ctx]
+                                                  (reset! final-ctx ctx)
+                                                  ctx))]}
                        (fn [_cofx _ev]
                          ;; No `:db` in the returned effect map.
                          {:fx []}))
@@ -180,7 +180,7 @@
             rf2-rwlj2 fix preserves the happy path"
     (rf/reg-event-db :path-emit/init (fn [_ _] {:foo {:bar 10}}))
     (rf/reg-event-fx :path-emit/inc
-                     [(rf/path :foo :bar)]
+                     {:interceptors [(rf/path :foo :bar)]}
                      (fn [{:keys [db]} _]
                        ;; Explicitly emit `:db` (the slice + 1).
                        {:db (inc db)}))
@@ -236,7 +236,7 @@
             the canonical [event-id payload-map] envelope shape."
     (let [seen-event (atom ::not-set)]
       (rf/reg-event-fx :unwrap-test/consume
-                       [rf/unwrap-interceptor]
+                       {:interceptors [rf/unwrap-interceptor]}
                        ;; With unwrap, the second arg is the payload map
                        ;; itself — not the [id payload] vector.
                        (fn [_cofx event-arg]
@@ -265,7 +265,7 @@
           seen-event (atom ::not-set)]
       (rf/register-listener! ::unwrap-bad (fn [ev] (swap! traces conj ev)))
       (rf/reg-event-fx :unwrap-bad-test/consume
-                       [rf/unwrap-interceptor]
+                       {:interceptors [rf/unwrap-interceptor]}
                        (fn [_cofx event-arg]
                          (reset! seen-event event-arg)
                          {}))
@@ -300,7 +300,7 @@
           seen-event (atom ::not-set)]
       (rf/register-listener! ::unwrap-arity (fn [ev] (swap! traces conj ev)))
       (rf/reg-event-fx :unwrap-bad-test/arity
-                       [rf/unwrap-interceptor]
+                       {:interceptors [rf/unwrap-interceptor]}
                        (fn [_cofx event-arg]
                          (reset! seen-event event-arg)
                          {}))
@@ -318,7 +318,7 @@
     (let [traces (atom [])]
       (rf/register-listener! ::unwrap-ok (fn [ev] (swap! traces conj ev)))
       (rf/reg-event-fx :unwrap-bad-test/ok
-                       [rf/unwrap-interceptor]
+                       {:interceptors [rf/unwrap-interceptor]}
                        (fn [_ _] {}))
       (rf/dispatch-sync [:unwrap-bad-test/ok {:k 1}])
       (rf/unregister-listener! ::unwrap-ok)
@@ -385,7 +385,7 @@
                            (swap! trail conj [:after tag])
                            ctx)))]
       (rf/reg-event-fx :primitive/run
-                       [(mk :a) (mk :b) (mk :c)]
+                       {:interceptors [(mk :a) (mk :b) (mk :c)]}
                        (fn [_ _]
                          (swap! trail conj :handler)
                          {}))
@@ -734,9 +734,9 @@
 
   (testing "user interceptor :BEFORE throw → :rf.error/interceptor-exception (failing-id = interceptor, phase :before)"
     (rf/reg-event-db :mszrz/before-boom
-                     [(rf/->interceptor
-                        :id     :mszrz/before-icpt
-                        :before (fn [_] (throw (ex-info "before blew up" {}))))]
+                     {:interceptors [(rf/->interceptor
+                                       :id     :mszrz/before-icpt
+                                       :before (fn [_] (throw (ex-info "before blew up" {}))))]}
                      (fn [db _] db))
     (let [errs (capture-error-traces [:mszrz/before-boom])
           ix   (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
@@ -754,9 +754,9 @@
     ;; attribute to the interceptor (phase :after), not the handler — the
     ;; collapse rf2-mszrz explicitly fixes for the :after side too.
     (rf/reg-event-db :mszrz/after-boom
-                     [(rf/->interceptor
-                        :id    :mszrz/after-icpt
-                        :after (fn [_] (throw (ex-info "after blew up" {}))))]
+                     {:interceptors [(rf/->interceptor
+                                       :id    :mszrz/after-icpt
+                                       :after (fn [_] (throw (ex-info "after blew up" {}))))]}
                      (fn [db _] db))
     (let [errs (capture-error-traces [:mszrz/after-boom])
           ix   (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
@@ -815,9 +815,9 @@
             onto the :rf.error/interceptor-exception trace (the slot the
             Xray Epoch INTERCEPTOR row's jump-to-source chip reads)"
     (rf/reg-event-db :siheh/before-boom
-                     [(rf/->interceptor
-                        :id     :siheh/before-icpt
-                        :before (fn [_] (throw (ex-info "before blew up" {}))))]
+                     {:interceptors [(rf/->interceptor
+                                       :id     :siheh/before-icpt
+                                       :before (fn [_] (throw (ex-info "before blew up" {}))))]}
                      (fn [db _] db))
     (let [errs (capture-error-traces [:siheh/before-boom])
           ix   (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
@@ -832,9 +832,9 @@
   (testing "a throwing ->interceptor*-built interceptor threads NO
             :source-coord tag (degrades to plain text in the panel)"
     (rf/reg-event-db :siheh/fn-before-boom
-                     [(interceptor/->interceptor*
-                        :id     :siheh/fn-before-icpt
-                        :before (fn [_] (throw (ex-info "fn before blew up" {}))))]
+                     {:interceptors [(interceptor/->interceptor*
+                                       :id     :siheh/fn-before-icpt
+                                       :before (fn [_] (throw (ex-info "fn before blew up" {}))))]}
                      (fn [db _] db))
     (let [errs (capture-error-traces [:siheh/fn-before-boom])
           ix   (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]

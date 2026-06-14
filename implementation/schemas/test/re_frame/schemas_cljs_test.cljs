@@ -414,8 +414,8 @@
             Step-1 validation in the router is what enforces the schema
             in dev; the boundary interceptor's prod-mode body never runs."
     (rf/reg-event-fx :api/strict
-      {:schema [:cat [:= :api/strict] :int]}
-      [rf/validate-at-boundary-interceptor]
+      {:schema [:cat [:= :api/strict] :int]
+       :interceptors [rf/validate-at-boundary-interceptor]}
       (fn [_ _] {}))
     (let [traces (atom [])]
       (trace-tooling/register-listener! ::boundary-dev (fn [ev] (swap! traces conj ev)))
@@ -446,8 +446,8 @@
             trace tag (boundary itself stayed quiet)."
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/strict
-        {:schema [:cat [:= :api/strict] :int]}
-        [rf/validate-at-boundary-interceptor]
+        {:schema [:cat [:= :api/strict] :int]
+         :interceptors [rf/validate-at-boundary-interceptor]}
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]
         (trace-tooling/register-listener! ::dev-dispatch (fn [ev] (swap! traces conj ev)))

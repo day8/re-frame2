@@ -25,8 +25,8 @@
     (:require [re-frame.core :as rf]))
 
   (rf/reg-event-fx :api/response-received
-    {:schema ApiResponseSchema}
-    [rf/validate-at-boundary-interceptor]
+    {:schema ApiResponseSchema
+     :interceptors [rf/validate-at-boundary-interceptor]}
     (fn [_ [_ payload]] ...))
   ```
 
@@ -116,7 +116,7 @@
 
 (def validate-at-boundary-interceptor
   "Production-side schema validation interceptor. Per Spec 010 §Production
-  builds. Add to a `reg-event-*` handler's positional interceptor vector
+  builds. Add to a `reg-event-*` handler's metadata `:interceptors` vector
   to force `:schema` validation against the dispatched event vector even
   in production builds where dev-time validation is elided.
 

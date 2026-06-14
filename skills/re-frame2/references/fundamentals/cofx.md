@@ -168,7 +168,7 @@ The dispatch-opts key is `:rf.cofx` (`(rf/dispatch [:e] {:rf.cofx {...}})`); sup
 ## Common gotchas
 
 - **`reg-cofx` is value-returning now.** `(fn [] value)` or `(fn [arg] value)`. A ctx→ctx supplier (`(fn [ctx] (assoc-in ctx ...))`) is wrong shape — the returned ctx would be delivered as the value.
-- **`:rf.cofx/requires` is registration metadata, not an interceptor.** It goes in the metadata-map slot (`(reg-event-fx :id {:rf.cofx/requires [...]} handler)`), not the positional interceptors vector.
+- **`:rf.cofx/requires` is registration metadata, not an interceptor.** It goes in the metadata-map slot (`(reg-event-fx :id {:rf.cofx/requires [...]} handler)`). Actual interceptor chains also live in that map under `:interceptors`.
 - **Declared-only delivery is about USER leaves.** You receive exactly the *user* coeffects you declare; an undeclared user leaf on the token is never staged — destructuring it gives `nil`. The base framework coeffects (`:db`, `:event`, `:rf.db/runtime`, `:rf.frame/id`, and the whole `:rf.cofx` map) are **always staged** on top of that and need no declaration — but they are filtered out of the Xray COEFFECTS lens, which shows only handler-declared leaves.
 - **A durable write folds facts.** A timestamp / generated id / persisted host fact written into app-db must be a recorded fact (`:rf/time-ms`, the event payload, or a slice-B recordable generator) — never an ambient read. Diagnostic / host-transient reads (deciding no durable write) stay ambient.
 - **`:platforms #{:client}` skips the supplier under an SSR-server frame** (`:rf.cofx/skipped-on-platform` warning trace). The declaring handler sees no value for that id. Check this first if a server-side cofx mysteriously delivers nothing. Spec: `spec/011-SSR.md`.

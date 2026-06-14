@@ -608,7 +608,7 @@
       (fn [db _] (update db :n (fnil inc 0))))
     ;; Use `redact-interceptor` so the trace surface sees the redacted payload.
     (rf/reg-event-db :auth/login
-      [(privacy/redact-interceptor [[:password] [:totp]])]
+      {:interceptors [(privacy/redact-interceptor [[:password] [:totp]])]}
       (fn [db _] db))
     (story/reg-variant :story.recorder/sens-end-to-end {})
     (async/deref-blocking (story/run-variant :story.recorder/sens-end-to-end) 5000)

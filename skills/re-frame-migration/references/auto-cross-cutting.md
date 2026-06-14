@@ -11,7 +11,7 @@ For the *why* of each rule, see [`MIGRATION.md`](../../../migration/from-re-fram
 - Listener-registration verb unification (M-55)
 - `:rf.http/managed` `:retry :on` closed-set (M-31b)
 - Interceptor list cleanup (M-21 mechanical half)
-- Bare interceptor → `[vector]` wrap (M-70 — mechanical; **loud-at-runtime, not loud-at-compile**: structural grep up front)
+- Event interceptor chains → metadata `:interceptors` (M-70 — mechanical; **loud-at-runtime, not loud-at-compile**: structural grep up front)
 - View / hiccup rewrites (M-22, M-24)
 - `reg-event-fx` shape (M-26 mechanical half)
 - Init / adapter (M-40 — **Type B**; shape is here, the decision is asked-first)
@@ -61,8 +61,8 @@ Closed mechanical rename set. Apply across all source files. The dual-key read `
 :spec-id → :schema-id
 
 ;; Per-`reg-*` metadata key rename — only inside registration metadata maps
-;; (the position immediately after the reg-* id, before any interceptor
-;; vector / handler-fn):
+;; (the position immediately after the reg-* id, before the handler-fn; for
+;; event registrations, interceptor chains live in this map under :interceptors):
 {:spec <schema>} → {:schema <schema>}
 ```
 
@@ -165,7 +165,7 @@ Drop `debug` and `trim-v` from interceptor lists:
 
 ;; REWRITE
 (rf/reg-event-fx :foo
- [<other-interceptors>]
+ {:interceptors [<other-interceptors>]}
  <handler>)
 ```
 
@@ -181,9 +181,9 @@ If the interceptor list becomes empty after dropping `debug`/`trim-v`, drop the 
 
 ---
 
-## Bare interceptor → `[vector]` wrap (M-70 — mechanical; loud-at-runtime, not loud-at-compile)
+## Event interceptor chains → metadata `:interceptors` (M-70 — mechanical; loud-at-runtime, not loud-at-compile)
 
-v2's `reg-event-db` / `reg-event-fx` / `reg-event-ctx` require the interceptors slot (the 2nd arg, between id and handler) to be a **vector**. A **bare** (non-vector) interceptor in that slot now **throws `:rf.error/reg-event-bare-interceptor` at registration / ns-load** (the registration guard landed; it was silently dropped before). v1 tolerated the bare form (it wrapped/flattened a single interceptor), so a v1 app carries it pervasively. Wrap each in a vector:
+v2's `reg-event-db` / `reg-event-fx` / `reg-event-ctx` put per-event interceptor chains in the registration metadata map under `:interceptors`. Bare interceptors, positional vectors, and metadata-plus-vector forms all compile but throw at registration / ns-load. Move each chain into metadata:
 
 ```clojure
 ;; SEARCH — bare interceptor (Var, inline ->interceptor, path, …)
@@ -191,20 +191,43 @@ v2's `reg-event-db` / `reg-event-fx` / `reg-event-ctx` require the interceptors 
  <handler>)
 
 ;; REWRITE
-(rf/reg-event-db :save-progress [mw/with-progress-completion]
+(rf/reg-event-db :save-progress
+ {:interceptors [mw/with-progress-completion]}
+ <handler>)
+
+;; SEARCH — positional vector
+(rf/reg-event-db :save-progress
+ [mw/with-progress-completion audit]
+ <handler>)
+
+;; REWRITE
+(rf/reg-event-db :save-progress
+ {:interceptors [mw/with-progress-completion audit]}
+ <handler>)
+
+;; SEARCH — metadata + positional vector
+(rf/reg-event-db :save-progress
+ {:doc "Track save progress."}
+ [mw/with-progress-completion]
+ <handler>)
+
+;; REWRITE
+(rf/reg-event-db :save-progress
+ {:doc "Track save progress."
+  :interceptors [mw/with-progress-completion]}
  <handler>)
 ```
 
-The rewrite is mechanical (`mw/x` → `[mw/x]`), and **this rule is loud-at-runtime — but NOT loud-at-compile**. The throw fires at ns-load / first page-load, so a missed site **compiles clean** and only detonates when the app boots — where it **aborts the offending ns's load** (everything after it, incl. a boot machine's `reg-machine`, never registers → the app hangs). So the *compiler* can't find them: **grep every `reg-event-*` site up front and inspect the 2nd-arg SHAPE at each** — do NOT march-the-wall (the compiler never points you at the next occurrence), and the **boot smoke-test** ([`runtime-smoke-test.md`](runtime-smoke-test.md)) surfaces any survivor's throw on the console:
+The rewrite is mechanical (`mw/x` / `[mw/x]` / `{:doc ...} [mw/x]` → metadata `:interceptors`), and **this rule is loud-at-runtime — but NOT loud-at-compile**. The throw fires at ns-load / first page-load, so a missed site **compiles clean** and only detonates when the app boots — where it **aborts the offending ns's load** (everything after it, incl. a boot machine's `reg-machine`, never registers → the app hangs). So the *compiler* can't find them: **grep every `reg-event-*` site up front and inspect the post-id SHAPES at each** — do NOT march-the-wall (the compiler never points you at the next occurrence), and the **boot smoke-test** ([`runtime-smoke-test.md`](runtime-smoke-test.md)) surfaces any survivor's throw on the console:
 
 ```bash
-# Surface every reg-event-* registration; a hit = the form after the id is
-# NOT a [ vector and NOT the handler fn / metadata map. STRUCTURAL — flag ANY
-# bare interceptor (custom, mw/*, registered, rf/unwrap), not only rf/unwrap.
+# Surface every reg-event-* registration; a hit = bare interceptor, positional
+# vector, or metadata map followed by a vector. STRUCTURAL — flag ANY chain
+# shape, not only rf/unwrap.
 rg -n '\(rf/reg-event-(db|fx|ctx)\b' src
 ```
 
-A `{:doc … :schema …}` metadata map in the 2nd slot (M-70 is **not** triggered — that's the O-1 metadata shape) and an already-`[vector]` slot are both fine; only a bare *interceptor* value is the M-70 trigger. The detection is **by slot-shape, not by interceptor identity** — a real worker missed a bare `mw/complete-progress` by anchoring on `unwrap`; flag any non-vector in the slot. The registration guard has landed (it throws `:rf.error/reg-event-bare-interceptor`), but because it's loud-at-*runtime* only, the structural up-front grep + boot smoke-test remain the detectors.
+An existing metadata map with `:interceptors [...]` is already canonical. A metadata map without `:interceptors` and no following vector is fine. The detection is **by slot-shape, not by interceptor identity** — a real worker missed a bare `mw/complete-progress` by anchoring on `unwrap`; flag any bare, vector, or metadata-plus-vector chain shape. The registration guard is loud-at-*runtime* only, so the structural up-front grep + boot smoke-test remain the detectors.
 
 ---
 

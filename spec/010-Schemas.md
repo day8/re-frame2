@@ -203,8 +203,8 @@ For users who want production validation at *system boundaries* — typically in
 
 ```clojure
 (rf/reg-event-fx :api/response-received
-  {:schema ApiResponseSchema}
-  [rf/validate-at-boundary-interceptor]
+  {:schema ApiResponseSchema
+   :interceptors [rf/validate-at-boundary-interceptor]}
   (fn [m] ...))
 ```
 

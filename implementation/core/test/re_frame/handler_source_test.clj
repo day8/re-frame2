@@ -70,12 +70,12 @@
                       (fn [ctx] ctx))
     (assert-source :event :rf2-xgfuy/event-ctx-sample "reg-event-ctx")))
 
-;; ---- middle slot: metadata-map / interceptor-vector ----------------------
+;; ---- middle slot: metadata-map / metadata :interceptors -------------------
 ;;
-;; The reg-event-* surface accepts three shapes for the variadic tail
-;; (per re-frame.events/normalise-args). The form-source capture is
-;; mechanically `pr-str` of the WHOLE form, so all three shapes round-
-;; trip through the slot — no special-casing.
+;; The reg-event-* surface accepts a metadata-map middle slot (per
+;; re-frame.events/normalise-args). The form-source capture is mechanically
+;; `pr-str` of the WHOLE form, so metadata and metadata `:interceptors`
+;; round-trip through the slot — no special-casing.
 
 (deftest captures-form-source-with-metadata-map
   (testing "rf2-xgfuy: middle metadata-map round-trips into :rf.handler/source"
@@ -88,10 +88,10 @@
       (is (str/includes? src ":doc"))
       (is (str/includes? src "metadata-shape middle slot")))))
 
-(deftest captures-form-source-with-interceptor-vector
-  (testing "rf2-xgfuy: middle interceptor-vector round-trips into :rf.handler/source"
+(deftest captures-form-source-with-metadata-interceptors
+  (testing "rf2-xgfuy: metadata :interceptors round-trips into :rf.handler/source"
     (rf/reg-event-fx :rf2-xgfuy/event-with-icpts
-                     [rf/unwrap-interceptor]
+                     {:interceptors [rf/unwrap-interceptor]}
                      (fn [_cofx {:keys [v]}] {:db {:v v}}))
     (let [src (:rf.handler/source
                (rf/handler-meta :event :rf2-xgfuy/event-with-icpts))]

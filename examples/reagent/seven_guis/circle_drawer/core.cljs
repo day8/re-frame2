@@ -105,8 +105,8 @@
          world inputs — a durable id must be a function of prior frame-state,
          not an ambient `(random-uuid)` read), then the counter is bumped. The
          counter is NOT in the undoable `:circles` snapshot, so it advances
-         monotonically across undo/redo and never re-mints a live id."}
-  [undoable]
+         monotonically across undo/redo and never re-mints a live id."
+   :interceptors [undoable]}
   (fn handler-drawer-add-circle [db [_ x y]]
     (let [id (get-in db [:drawer :next-id])]
       (-> db
@@ -134,8 +134,8 @@
   {:doc "Dialog closed (committing the new radius). The :circles vector
          was untouched while the slider moved, so the undoable
          interceptor's prior-snapshot is exactly the pre-dialog state —
-         the whole edit collapses into a single undo step."}
-  [undoable]
+         the whole edit collapses into a single undo step."
+   :interceptors [undoable]}
   (fn handler-drawer-close-dialog [db _]
     (let [{:keys [circle-id draft-radius]} (get-in db [:drawer :dialog])]
       (-> db

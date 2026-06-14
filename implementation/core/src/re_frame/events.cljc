@@ -29,15 +29,11 @@
 
 ;; ---- metadata-map `:interceptors` — the superset middle slot (rf2-bpmszk) -
 ;;
-;; Per the rf2-iczn3 resolution (Mike, 2026-06-10): the `reg-event-*`
-;; metadata-map carries a RESERVED `:interceptors` key, making the map the
-;; ONE superset middle-slot shape — `{:doc … :schema … :sensitive … :interceptors [i1 i2]}`.
-;; The historical positional interceptor VECTOR form (`[i1 i2]`) becomes
-;; definable SUGAR — `[i1 i2]` ≡ `{:interceptors [i1 i2]}` — still accepted,
-;; threaded into the identical position (declaration order preserved; `:before`
-;; runs in order, `:after` reversed — identical semantics). This closes the
-;; real gap (a registration could not carry BOTH reflection metadata AND an
-;; interceptor chain in one map) additively, with ZERO call-site migration.
+;; The `reg-event-*` metadata-map carries a RESERVED `:interceptors` key,
+;; making the map the ONE superset middle-slot shape:
+;; `{:doc … :schema … :sensitive … :interceptors [i1 i2]}`.
+;; The historical positional interceptor VECTOR form (`[i1 i2]`) is retired:
+;; put the chain under `:interceptors` in the metadata map.
 ;;
 ;; This SUPERSEDES the former rf2-bbea warning
 ;; (`:rf.warning/interceptors-in-metadata-map`): `:interceptors` inside the
@@ -45,21 +41,15 @@
 ;; footgun rf2-w3vn flagged (a silently-dropped chain) is structurally gone —
 ;; the chain is now honoured, not dropped.
 ;;
-;; Two guard rails (below) keep the superset honest:
-;;   (a) BOTH-PLACES guard — supplying interceptors via the map `:interceptors`
-;;       AND the positional vector slot at once is a LOUD registration error
-;;       (`:rf.error/interceptors-supplied-twice`), never a silent merge, per
-;;       the one-home-per-fact discipline (EP-0007 / Conventions §No silent
-;;       swallow). The reason names BOTH sources.
-;;   (b) MALFORMED-VALUE guard — a non-vector `:interceptors` value, or a vector
-;;       carrying a non-map (non-interceptor) entry, is a LOUD registration
-;;       error (`:rf.error/reg-event-bad-interceptors`), consistent with the
-;;       existing reg-event arg policing (bare-interceptor / bad-middle-slot).
+;; The malformed-value guard below keeps the superset honest: a non-vector
+;; `:interceptors` value, or a vector carrying a non-map (non-interceptor)
+;; entry, is a LOUD registration error (`:rf.error/reg-event-bad-interceptors`),
+;; consistent with the existing reg-event arg policing (bare-interceptor /
+;; bad-middle-slot / bad-arity).
 
 (defn- interceptor-entry?
   "True when `x` is shaped like an interceptor — a map carrying any of the
-  interceptor keys (`:id` / `:before` / `:after`). The positional-vector form
-  has never policed its entries' shape, so the bar here matches `:before` /
+  interceptor keys (`:id` / `:before` / `:after`). The bar matches `:before` /
   `:after` detection used elsewhere (`bare-interceptor-map?`) while also
   admitting an `:id`-only map (a named no-op interceptor). A non-map entry
   (keyword, string, number, …) is the unambiguous malformed tell."
@@ -111,31 +101,6 @@
 
     :else value))
 
-(defn- throw-interceptors-supplied-twice!
-  "Raise `:rf.error/interceptors-supplied-twice` (ex-info) when interceptors
-  are supplied via BOTH the metadata-map `:interceptors` key AND the positional
-  vector slot. Per the one-home-per-fact discipline (EP-0007 / Conventions §No
-  silent swallow): there is exactly one home for the chain per registration —
-  the two sources are never silently merged. The reason names both sources."
-  [reg-fn-name id meta-interceptors positional-interceptors]
-  (throw (ex-info
-           ":rf.error/interceptors-supplied-twice"
-           {:rf.error/id :rf.error/interceptors-supplied-twice
-            :where       'rf/reg-event-db
-            :reg-fn      reg-fn-name
-            :id          id
-            :recovery    :fix-registration
-            :reason
-            (str reg-fn-name " for `" id "` supplied interceptors TWICE: via the "
-                 "metadata-map `:interceptors` key AND the positional interceptors "
-                 "vector. There is exactly one home for the chain per registration. "
-                 "Keep them in ONE place — either the metadata-map "
-                 "`{:interceptors [...]}` (the superset form) or the positional "
-                 "vector `(" reg-fn-name " id [...] handler)` (sugar for the same), "
-                 "not both.")
-            :meta-interceptors       meta-interceptors
-            :positional-interceptors positional-interceptors})))
-
 ;; ---- validate-at-boundary-interceptor registration-time validation (rf2-iftj4) -----------------
 ;;
 ;; The `:rf.schema/at-boundary` interceptor (per Spec 010 §Production builds)
@@ -150,7 +115,7 @@
 ;; transitively on this ns via core re-exports).
 
 (defn- attaches-validate-at-boundary-interceptor?
-  "Truthy when `interceptors` (the positional vector) contains the
+  "Truthy when the effective user interceptor chain contains the
   `:rf.schema/at-boundary` interceptor. Detects by `:id` so the check
   stays cycle-free against `re-frame.spec`."
   [interceptors]
@@ -162,7 +127,7 @@
 
 (defn- reject-at-boundary-without-schema!
   "Raise `:rf.error/at-boundary-missing-schema` (ex-info) when the
-  positional `interceptors` vector includes `:rf.schema/at-boundary`
+  metadata-map `:interceptors` chain includes `:rf.schema/at-boundary`
   but the metadata-map carries no `:schema`. Per Spec 010 §Production
   builds + rf2-iftj4: the boundary interceptor is structurally
   meaningless without a `:schema`, so the registrar rejects the call
@@ -188,7 +153,7 @@
                           "meaningless without one. Either attach a "
                           "`:schema` to the metadata-map "
                           "(recommended) or remove the boundary "
-                          "interceptor from the positional vector.")
+                          "interceptor from metadata `:interceptors`.")
                      :recovery :no-recovery})))
   nil)
 
@@ -622,7 +587,7 @@
 
   `meta` is the registration metadata map (for a machine:
   `{:rf/machine? true :rf/machine <spec>}`); `interceptors` is the
-  positional interceptor prefix (empty for machines)."
+  already-resolved interceptor prefix (empty for machines)."
   ([handler-fn] (event-handler-meta {} [] handler-fn))
   ([meta interceptors handler-fn]
    (assoc meta
@@ -708,10 +673,11 @@
 
 ;; ---- bare-interceptor detection (rf2-3ut12) -------------------------------
 ;;
-;; The `reg-event-*` interceptor chain is POSITIONAL and MUST be a VECTOR
-;; (per Spec 001 §Allowed forms of the middle slot). A BARE interceptor —
+;; The `reg-event-*` interceptor chain lives under metadata `:interceptors`
+;; and MUST be a VECTOR (per Spec 001 §Allowed forms of the middle slot).
+;; A BARE interceptor —
 ;; `(reg-event-db id mw/some-interceptor handler)` rather than
-;; `(reg-event-db id [mw/some-interceptor] handler)` — used to be SILENTLY
+;; `(reg-event-db id {:interceptors [mw/some-interceptor]} handler)` — used to be SILENTLY
 ;; dropped: an interceptor built by `->interceptor` / `->interceptor*` is a
 ;; *map* (`{:id … :before … :after …}`), so `normalise-args`' two-arg branch
 ;; read it as the metadata-map, the chain never reached the registrar, and
@@ -727,12 +693,12 @@
 ;; — an ERROR, not a warning, consistent with the sibling registration-time
 ;; throws (`:rf.error/reg-event-bad-middle-slot`, `:rf.error/reg-event-bad-arity`,
 ;; `:rf.error/at-boundary-missing-schema`). We do NOT silently coerce
-;; `bare → [bare]`: that would be magic; the caller wraps it.
+;; `bare → {:interceptors [bare]}`: that would be magic; the caller wraps it.
 
 (defn- bare-interceptor-map?
   "True when `x` is a map carrying interceptor fn keys (`:before` / `:after`)
-  — i.e. a bare interceptor passed where the metadata-map / interceptors
-  slot was expected. A legitimate registration metadata-map (`:doc`,
+  — i.e. a bare interceptor passed where the metadata-map was expected.
+  A legitimate registration metadata-map (`:doc`,
   `:schema`, `:tags`, `:platforms`, …) never carries `:before` / `:after`,
   so those keys are an unambiguous bare-interceptor tell. Detection is by
   shape (not by `->interceptor` provenance) so it catches HoF / hand-rolled
@@ -744,7 +710,7 @@
 
 (defn- throw-bare-interceptor!
   "Raise `:rf.error/reg-event-bare-interceptor` (ex-info) for a bare
-  interceptor handed to `reg-event-*` where a `[vector]` was required.
+  interceptor handed to `reg-event-*` where a metadata map was required.
   Loud-fail at registration per Conventions §No silent swallow — the
   interceptor would otherwise be silently dropped and never run."
   [reg-fn-name slot offending args]
@@ -757,59 +723,50 @@
             :recovery    :fix-registration
             :reason
             (str reg-fn-name " received a BARE interceptor in the " (name slot)
-                 " slot; the interceptor chain is positional and MUST be a "
-                 "vector. A bare interceptor map would be silently dropped "
-                 "(never run). Wrap it: `(" reg-fn-name " id [the-interceptor] "
-                 "handler)` — not `(" reg-fn-name " id the-interceptor handler)`.")
+                 " slot; the interceptor chain belongs in metadata "
+                 "`:interceptors` and MUST be a vector. A bare interceptor map "
+                 "would be silently dropped (never run). Wrap it: `("
+                 reg-fn-name " id {:interceptors [the-interceptor]} handler)` "
+                 "— not `(" reg-fn-name " id the-interceptor handler)`.")
             :got         offending
-            :expected    "interceptor-vector (e.g. [(path :a)])"
+            :expected    "metadata-map with :interceptors (e.g. {:interceptors [(path :a)]})"
             :args        args})))
 
 (defn- normalise-args
-  "Accept the three documented shapes for the variadic tail of reg-event-*:
-    (handler)                          — bare handler
-    (metadata-or-interceptors handler) — middle slot is one or the other
-    (metadata interceptors handler)    — explicit pair
+  "Accept the two documented shapes for the variadic tail of reg-event-*:
+    (handler)          — bare handler
+    (metadata handler) — metadata-map, optionally carrying `:interceptors`
   Per Spec 001 §Allowed forms of the middle slot. Returns
-  `[metadata interceptors handler]`.
+  `[metadata handler]`.
 
   Loud-fails on a BARE interceptor (rf2-3ut12): an interceptor map handed
-  where a metadata-map or `[vector]` was expected is rejected with
+  where a metadata-map was expected is rejected with
   `:rf.error/reg-event-bare-interceptor` rather than silently dropped — the
   two-arg branch catches `(reg-event-* id bare-icpt handler)` (a map with
-  `:before` / `:after`), and the three-arg branch catches a non-vector
-  positional interceptors slot."
+  `:before` / `:after`)."
   [reg-fn-name args]
   (case (count args)
-    1 [{} [] (first args)]
+    1 [{} (first args)]
     2 (let [[middle handler] args]
         (cond
           (bare-interceptor-map? middle)
           (throw-bare-interceptor! reg-fn-name :middle middle args)
-          (map? middle)    [middle [] handler]
-          (vector? middle) [{} middle handler]
+          (map? middle)    [middle handler]
           :else            (throw (ex-info
                                     ":rf.error/reg-event-bad-middle-slot"
                                     {:rf.error/id :rf.error/reg-event-bad-middle-slot
                                      :where       'rf/reg-event-db
                                      :recovery    :fix-registration
-                                     :reason      "the middle slot of a reg-event-* call must be a metadata-map (e.g. {:doc \"...\"}) or an interceptor-vector (e.g. [(path :a)])"
+                                     :reason      "the middle slot of a reg-event-* call must be a metadata-map (e.g. {:doc \"...\" :interceptors [(path :a)]}); the positional interceptor vector is retired"
                                      :args        args
                                      :got         middle
-                                     :expected    "metadata-map (e.g. {:doc \"...\"}) OR interceptor-vector (e.g. [(path :a)])"}))))
-    3 (let [[meta interceptors handler] args]
-        (when (and (some? interceptors) (not (vector? interceptors)))
-          ;; The positional interceptors slot must be a vector. A bare
-          ;; interceptor map (or any other non-vector) here would be
-          ;; `(into [] …)`'d into MapEntries / corruption — reject it loud.
-          (throw-bare-interceptor! reg-fn-name :interceptors interceptors args))
-        [meta (or interceptors []) handler])
+                                     :expected    "metadata-map (e.g. {:doc \"...\" :interceptors [(path :a)]})"}))))
     (throw (ex-info
              ":rf.error/reg-event-bad-arity"
              {:rf.error/id :rf.error/reg-event-bad-arity
               :where       'rf/reg-event-db
               :recovery    :fix-registration
-              :reason      "reg-event-* expects (id handler), (id metadata handler), or (id metadata interceptors handler)"
+              :reason      "reg-event-* expects (id handler) or (id metadata handler); put interceptor chains in metadata :interceptors"
               :args        args
               :count       (count args)}))))
 
@@ -841,52 +798,36 @@
         m))))
 
 (defn- resolve-interceptors
-  "Per rf2-bpmszk — collapse the metadata-map `:interceptors` superset form and
-  the positional interceptor-vector sugar into the ONE effective user-supplied
-  interceptor chain, returning `[clean-meta effective-interceptors]`.
+  "Resolve the metadata-map `:interceptors` superset form into the effective
+  user-supplied interceptor chain, returning `[clean-meta effective-interceptors]`.
 
-  The metadata-map carries a reserved `:interceptors` key (the superset shape,
-  per the rf2-iczn3 resolution); the positional vector `[i1 i2]` is definable
-  SUGAR for `{:interceptors [i1 i2]}`. Both forms thread into the IDENTICAL
-  position (declaration order; `:before` in order, `:after` reversed — the
-  semantics `wrap-event-handler` already gives the positional chain).
-
-  Guard rails:
-    - BOTH-PLACES — interceptors via the map `:interceptors` AND the positional
-      vector at once raises `:rf.error/interceptors-supplied-twice` (never a
-      silent merge; EP-0007 one-home-per-fact).
-    - MALFORMED — a non-vector / non-interceptor `:interceptors` value raises
-      `:rf.error/reg-event-bad-interceptors`.
+  The metadata-map carries a reserved `:interceptors` key. A non-vector /
+  non-interceptor value raises `:rf.error/reg-event-bad-interceptors`.
 
   RETAIN-vs-STRIP decision (one line, per the bead): the raw `:interceptors`
   key is STRIPPED from the stored metadata. The registrar entry already stores
   the EFFECTIVE chain (user interceptors + the framework wrapper) under
   `:interceptors`; retaining the raw user value under the same key would collide
   with — and shadow — that authoritative introspection surface, while a
-  different key would duplicate it. Stripping makes the two middle-slot forms
-  produce TRULY identical registrar entries (clean sugar-equivalence), and
-  tooling answers \"which interceptors does this handler carry?\" from the one
+  different key would duplicate it. Tooling answers \"which interceptors does
+  this handler carry?\" from the one
   effective `:interceptors` chain the registrar already holds (the user chain is
   recoverable as `(remove :rf/default? interceptors)`)."
-  [reg-fn-name id meta positional-interceptors]
+  [reg-fn-name id meta]
   (if-not (and (map? meta) (contains? meta :interceptors))
-    [meta positional-interceptors]
+    [meta []]
     (let [meta-interceptors (validate-meta-interceptors!
                               reg-fn-name id (:interceptors meta))]
-      (when (seq positional-interceptors)
-        (throw-interceptors-supplied-twice!
-          reg-fn-name id meta-interceptors positional-interceptors))
       [(dissoc meta :interceptors) meta-interceptors])))
 
 (defn- register-event!
   "Common registration body for the three reg-event-* forms.
 
   Steps (uniform across :db / :fx / :ctx kinds):
-    1. parse the variadic middle slot into [metadata interceptors handler];
-    2. resolve the interceptor chain — the metadata-map `:interceptors` superset
-       form and the positional-vector sugar collapse to one effective chain via
-       `resolve-interceptors` (rf2-bpmszk): validates the map value, enforces the
-       both-places guard, and strips the raw key from the stored meta;
+    1. parse the variadic tail into [metadata handler];
+    2. resolve the interceptor chain from metadata `:interceptors` via
+       `resolve-interceptors` (rf2-bpmszk): validates the map value and strips
+       the raw key from the stored meta;
     3. wrap the user handler into the kind-appropriate interceptor via
        `wrap-event-handler` (see `kind-spec`);
     4. register under `:event` with `:event/kind` recording which form was
@@ -898,8 +839,8 @@
 
   Returns the event id."
   [kind reg-fn-name id args]
-  (let [[raw-meta raw-interceptors handler-fn] (normalise-args reg-fn-name args)
-        [meta interceptors] (resolve-interceptors reg-fn-name id raw-meta raw-interceptors)
+  (let [[raw-meta handler-fn] (normalise-args reg-fn-name args)
+        [meta interceptors] (resolve-interceptors reg-fn-name id raw-meta)
         wrapped (wrap-event-handler kind handler-fn)]
     ;; Per Spec 010 §Production builds + rf2-iftj4: reject the
     ;; registration when `:rf.schema/at-boundary` is attached but no
@@ -958,22 +899,15 @@
 
   Shapes (the optional middle slot is the **superset** metadata map —
   it carries reflection metadata (`:doc`, `:schema`, …) **and** a
-  reserved `:interceptors` chain in one map; the positional interceptor
-  vector is sugar for `{:interceptors [...]}` — per Conventions
-  §`:interceptors` in the metadata-map — the superset middle slot):
+  reserved `:interceptors` chain in one map):
 
       (reg-event-db :id                            (fn [db ev] new-db))
       (reg-event-db :id {:doc \"...\" :schema ...} (fn [db ev] new-db))
-      (reg-event-db :id [(path :counter)]          (fn [slice ev] new-slice))
       (reg-event-db :id {:doc \"...\" :interceptors [(path :counter)]}
                                                     (fn [slice ev] new-slice))
-      (reg-event-db :id {:doc \"...\"} [icpt]        (fn [db ev] new-db))
 
-  The positional vector and the metadata-map `:interceptors` key are
-  exactly equivalent (`[i1 i2]` ≡ `{:interceptors [i1 i2]}`). Supplying
-  a chain in **both** slots at once raises the loud registration error
-  `:rf.error/interceptors-supplied-twice` — the two sources are never
-  silently merged.
+  The historical positional interceptor vector middle slot is removed.
+  Put the chain under metadata `:interceptors`.
 
   Returns `id`.
 
@@ -1013,8 +947,7 @@
 
   Shapes (the optional middle slot is the **superset** metadata map —
   it carries reflection metadata **and** a reserved `:interceptors`
-  chain in one map; the positional interceptor vector is sugar for
-  `{:interceptors [...]}`):
+  chain in one map):
 
       (reg-event-fx :id                              (fn [cofx ev] {...}))
       (reg-event-fx :id {:doc \"...\"}                 (fn [cofx ev] {...}))
@@ -1022,14 +955,11 @@
                                                      (fn [cofx ev] {...}))
       (reg-event-fx :id {:doc \"...\" :interceptors [(path :a)]}
                                                      (fn [cofx ev] {...}))
-      (reg-event-fx :id {:doc \"...\"} [icpt]          (fn [cofx ev] {...}))
 
   Coeffects are declared via `:rf.cofx/requires` on the metadata map (the
   value arrives FLAT in the cofx map under its id); `inject-cofx` is removed
-  (EP-0017). `[i1 i2]` ≡ `{:interceptors [i1 i2]}`; supplying a chain in
-  **both** slots raises `:rf.error/interceptors-supplied-twice` (per
-  Conventions §`:interceptors` in the metadata-map — the superset middle
-  slot).
+  (EP-0017). The historical positional interceptor vector middle slot is
+  removed; put the chain under metadata `:interceptors`.
 
   Returns `id`. Returning `nil` from the handler is a documented no-op.
 
@@ -1068,14 +998,12 @@
 
   Shapes (the optional middle slot is the **superset** metadata map —
   it carries reflection metadata **and** a reserved `:interceptors`
-  chain in one map; the positional interceptor vector is sugar for
-  `{:interceptors [...]}`):
+  chain in one map):
 
       (reg-event-ctx :id                  (fn [ctx] new-ctx))
       (reg-event-ctx :id {:doc \"...\"}     (fn [ctx] new-ctx))
       (reg-event-ctx :id {:rf.cofx/requires [:rf/time-ms]}
                                           (fn [ctx] new-ctx))
-      (reg-event-ctx :id [icpt1 icpt2]    (fn [ctx] new-ctx))
       (reg-event-ctx :id {:doc \"...\" :interceptors [icpt1 icpt2]}
                                           (fn [ctx] new-ctx))
 
@@ -1085,9 +1013,8 @@
   envelope is reachable as `:rf.cofx` through the context (EP-0017 §5).
   `inject-cofx` is removed.
 
-  `[i1 i2]` ≡ `{:interceptors [i1 i2]}`; supplying a chain in **both**
-  slots raises `:rf.error/interceptors-supplied-twice` (per Conventions
-  §`:interceptors` in the metadata-map — the superset middle slot).
+  The historical positional interceptor vector middle slot is removed;
+  put the chain under metadata `:interceptors`.
 
   See also: `reg-event-db`, `reg-event-fx`, `reg-cofx` (register a
   coeffect supplier), `->interceptor`, `assoc-coeffect`, `assoc-effect`."

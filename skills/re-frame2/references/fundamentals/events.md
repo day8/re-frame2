@@ -10,10 +10,10 @@ Two surfaces: a CLJ `defmacro` (captures `:ns` / `:line` / `:file`) and a CLJS `
 
 ```clojure
 (rf/reg-event-db id           handler-fn)                   ;; (db, event) -> new-db
-(rf/reg-event-db id metadata? interceptors? handler-fn)
+(rf/reg-event-db id metadata? handler-fn)
 
 (rf/reg-event-fx id           handler-fn)                   ;; (cofx, event) -> effect-map
-(rf/reg-event-fx id metadata? interceptors? handler-fn)
+(rf/reg-event-fx id metadata? handler-fn)
 
 (rf/reg-event-ctx id          handler-fn)                   ;; (context) -> context  (advanced)
 ```
@@ -23,10 +23,8 @@ Verified in `implementation/core/src/re_frame/events.cljc` (`reg-event-db` / `re
 - `(reg-event-db :id handler)`
 - `(reg-event-db :id {:doc "..." :schema ...} handler)`
 - `(reg-event-db :id {:doc "..." :interceptors [icpt1 icpt2]} handler)`  ← the superset form
-- `(reg-event-db :id [icpt1 icpt2] handler)`  ← sugar for `{:interceptors [icpt1 icpt2]}`
-- `(reg-event-db :id {:doc "..."} [icpt1 icpt2] handler)`
 
-The **metadata-map** is the one superset middle slot: reflection keys (`:doc`, `:schema`, `:tags`, `:platforms`, ...) **plus** a reserved `:interceptors` key. The positional **interceptors vector** is sugar for `{:interceptors [...]}` (`[i1 i2]` ≡ `{:interceptors [i1 i2]}`, identical semantics). Supplying interceptors in **both** slots at once is a loud `:rf.error/interceptors-supplied-twice` (one home per fact); a malformed `:interceptors` value is `:rf.error/reg-event-bad-interceptors`.
+The **metadata-map** is the one superset middle slot: reflection keys (`:doc`, `:schema`, `:tags`, `:platforms`, ...) **plus** a reserved `:interceptors` key. The historical positional interceptor vector is retired: `(reg-event-db :id [i1 i2] handler)` now throws `:rf.error/reg-event-bad-middle-slot`, and `(reg-event-db :id {:doc "..."} [i1 i2] handler)` throws `:rf.error/reg-event-bad-arity`. A malformed `:interceptors` value is `:rf.error/reg-event-bad-interceptors`.
 
 ## Event vector shape
 
@@ -72,7 +70,7 @@ The effect map is a **closed shape**: the only legal top-level keys are `:db` (a
 ## Common gotchas
 
 - **`:dispatch` and `:dispatch-n` are NOT top-level effect keys in v2.** They moved into `:fx` as `[[:dispatch event]]` entries. The runtime emits `:rf.error/effect-map-shape` and drops any top-level key outside the closed set `#{:db :rf.db/runtime :fx}` (`police-effect-map-shape!` + `closed-effect-map-keys` in `events.cljc`). Note `:rf.db/runtime` is **inside** the closed set — it is the framework-authority runtime-db partition, not a shape error.
-- **`:interceptors` is not a metadata key.** Pass the chain as the positional third argument, not as `{:interceptors [...]}`.
+- **`:interceptors` lives in event metadata.** Put per-event chains in the metadata map: `{:interceptors [i1 i2]}`. The old positional vector middle slot is rejected.
 - **The event vector's first element is the event id.** Always destructure it as `[_ arg1 arg2]` — the id is in `args` because the whole vector is passed.
 - **`reg-event-ctx` is rarely the right tool.** It hands you the raw interceptor context. Use it only when you need to manipulate the chain itself; otherwise `reg-event-db` or `reg-event-fx`.
 - **Metadata-map fields surface to tooling, not to the runtime.** `:doc`, `:schema`, `:tags`, `:platforms` are read by Xray, re-frame2-pair, and the dev-time validator. They do not affect runtime behaviour except where called out (`:schema` for dev validation; `:platforms` on `reg-fx`).

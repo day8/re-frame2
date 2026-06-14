@@ -204,8 +204,8 @@
 
 (defn- collect-cofx-keys
   "Walk DSL body steps and collect every cofx-id referenced via
-  `[:cofx-key K]`. Used to auto-wire `(inject-cofx K)` interceptors per
-  the rf2-g25p convention.
+  `[:cofx-key K]`. Used to auto-wire generated cofx interceptors under
+  event metadata `:interceptors` per the rf2-g25p convention.
 
   Per Spec 010 §Where schemas attach §On every reg-*, the cofx-id is
   the slot key — so a handler body that reads `[:cofx-key :app-version]`
@@ -261,10 +261,10 @@
         cofx-registry (get-in fixture [:fixture/registry :cofx] {})
         cofx-bodies   (get hmap :cofx)
         helpers       (adapter-helpers)
-        ;; cofx that auto-wire as inject-cofx interceptors on event
-        ;; handlers (per rf2-g25p — the runner's first-pass auto-
-        ;; injection convention). Stable lex order on cofx-id so the
-        ;; last-write-wins outcome is deterministic.
+        ;; cofx that auto-wire as generated interceptors on event handlers
+        ;; (per rf2-g25p — the runner's first-pass auto-injection
+        ;; convention). Stable lex order on cofx-id so the last-write-wins
+        ;; outcome is deterministic.
         cofx-by-key
         (->> cofx-registry
              (sort-by key)
@@ -285,8 +285,8 @@
     ;; ---- events --------------------------------------------------------
     ;; Per Spec 010 §step 1 (rf2-jwm4): event meta carries :schema; the
     ;; runtime calls `:schemas/validate-event!` before the handler runs.
-    ;; Per rf2-g25p: scan the body for [:cofx-key K]; for each K,
-    ;; auto-wire (inject-cofx C) for every C whose namespace matches K.
+    ;; Per rf2-g25p: scan the body for [:cofx-key K]; for each K, auto-wire a
+    ;; generated cofx interceptor for every C whose namespace matches K.
     (doseq [[id steps] (:event hmap)]
       (let [[kind handler] (conformance/realise-event-handler steps)
             meta           (get event-meta id {})
@@ -295,18 +295,17 @@
                                           (or (get cofx-by-key k)
                                               (when (contains? cofx-registry k) [k])))
                                         ks))
-            interceptors   (mapv cofx/inject-cofx cofx-ids)]
+            interceptors   (mapv cofx/inject-cofx cofx-ids)
+            meta'          (cond-> meta
+                             (seq interceptors)
+                             (update :interceptors (fnil into []) interceptors))]
         (case kind
-          :db (if (seq meta)
-                (rf/reg-event-db id meta interceptors handler)
-                (if (seq interceptors)
-                  (rf/reg-event-db id interceptors handler)
-                  (rf/reg-event-db id handler)))
-          :fx (if (seq meta)
-                (rf/reg-event-fx id meta interceptors handler)
-                (if (seq interceptors)
-                  (rf/reg-event-fx id interceptors handler)
-                  (rf/reg-event-fx id handler))))))
+          :db (if (seq meta')
+                (rf/reg-event-db id meta' handler)
+                (rf/reg-event-db id handler))
+          :fx (if (seq meta')
+                (rf/reg-event-fx id meta' handler)
+                (rf/reg-event-fx id handler)))))
     ;; ---- subs ----------------------------------------------------------
     ;; Per Spec 010 §step 6 (rf2-wcam): sub meta carries :schema; the
     ;; runtime calls `:schemas/validate-sub!` after each compute.

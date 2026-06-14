@@ -45,7 +45,7 @@ Worked auth example — minimal diff from the slice form above:
 ;; redaction; `path` itself only focuses the slice. The handler body still
 ;; sees the real password via the unredacted :event coeffect.
 (rf/reg-event-fx :form.login/submit
-  [(rf/path :auth :login)]
+  {:interceptors [(rf/path :auth :login)]}
   (fn [{:keys [db]} _]                          ;; db here IS the [:auth :login] slice
     (let [draft  (:draft db)
           errors (validate-against LoginForm draft)

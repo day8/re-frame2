@@ -61,8 +61,8 @@
   (testing "per-call {:icpt nil} drops the interceptor from the chain"
     (let [log (atom [])]
       (rf/reg-event-db :test/run
-        [(logger-interceptor log ::log-a)
-         (logger-interceptor log ::log-b)]
+        {:interceptors [(logger-interceptor log ::log-a)
+                        (logger-interceptor log ::log-b)]}
         (fn [db _] (assoc db :ran? true)))
 
       (rf/dispatch-sync [:test/run]
@@ -81,7 +81,7 @@
                           :id     ::log-x
                           :before (fn [ctx] (swap! log conj [::stub :fired]) ctx))]
       (rf/reg-event-db :test/run
-        [original-icpt]
+        {:interceptors [original-icpt]}
         (fn [db _] db))
 
       (rf/dispatch-sync [:test/run]
@@ -98,8 +98,8 @@
       (rf/reg-frame :test/silent
         {:interceptor-overrides {::log-a nil}})
       (rf/reg-event-db :test/run
-        [(logger-interceptor log ::log-a)
-         (logger-interceptor log ::log-b)]
+        {:interceptors [(logger-interceptor log ::log-a)
+                        (logger-interceptor log ::log-b)]}
         (fn [db _] db))
 
       (rf/dispatch-sync [:test/run] {:frame :test/silent})
@@ -123,7 +123,7 @@
       (rf/reg-frame :test/scoped
         {:interceptor-overrides {::log frame-stub}})
       (rf/reg-event-db :test/run
-        [(logger-interceptor log ::log)]
+        {:interceptors [(logger-interceptor log ::log)]}
         (fn [db _] db))
 
       (rf/dispatch-sync [:test/run]
@@ -139,8 +139,8 @@
   (testing "interceptors whose :id is not a key in the override map fire normally"
     (let [log (atom [])]
       (rf/reg-event-db :test/run
-        [(logger-interceptor log ::log-a)
-         (logger-interceptor log ::log-b)]
+        {:interceptors [(logger-interceptor log ::log-a)
+                        (logger-interceptor log ::log-b)]}
         (fn [db _] db))
 
       (rf/dispatch-sync [:test/run]

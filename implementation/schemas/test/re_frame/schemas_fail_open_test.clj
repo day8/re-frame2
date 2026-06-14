@@ -110,7 +110,7 @@
       (fn [ctx] (assoc-in ctx [:coeffects :cf/malformed] :whatever)))
     (let [calls (atom 0)]
       (rf/reg-event-fx :use/malformed-cofx
-        [(rf/inject-cofx :cf/malformed)]
+        {:interceptors [(rf/inject-cofx :cf/malformed)]}
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (capture #(rf/dispatch-sync [:use/malformed-cofx]))]
         (is (= 0 @calls) "handler skipped — cofx malformed-schema is no longer a silent pass")

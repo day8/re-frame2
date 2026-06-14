@@ -85,7 +85,7 @@ Three things in those twelve lines tend to trip people up the first time:
 
 Both slots are optional. An interceptor is just a map carrying `:id`, `:before`, `:after`. What `->interceptor` adds over a hand-rolled map is definition-site coordinates, so tools jump to your source when a stage throws. Beyond the constructor, the shipped helpers are `rf/path` (focus a handler on an `app-db` sub-slice — `:before` narrows `:db`, `:after` splices the result back) and `rf/unwrap-interceptor` (replace `:event` with its payload map on the way in). v1's grab-bag of one-liner helpers (`debug`, `trim-v`, `enrich`, `after`, `on-changes`) is gone; anything else is three lines of `->interceptor`.
 
-Attach it where the event is registered: the metadata map's `:interceptors` key, or the bare positional vector, which is sugar for the same. Use exactly one of those two slots — both at once is a registration error. A metadata map *without* `:interceptors` beside a positional vector is fine (the undo example below uses that shape):
+Attach it where the event is registered: the metadata map's `:interceptors` key. The historical positional vector has been removed, so interceptor chains always live alongside the rest of the registration metadata:
 
 ```clojure
 (rf/reg-event-db :cart.item/add
@@ -172,8 +172,8 @@ Read it through the two-key lens. `:before` reads the *inputs* (`:coeffects`, wh
 
 ```clojure
 (rf/reg-event-db :drawer/add-circle
-  {:doc "Click on canvas — add a circle of default radius."}
-  [undoable]
+  {:doc "Click on canvas — add a circle of default radius."
+   :interceptors [undoable]}
   (fn [db [_ x y]]
     (let [id (get-in db [:drawer :next-id])]
       (-> db
@@ -186,8 +186,8 @@ Read it through the two-key lens. `:before` reads the *inputs* (`:coeffects`, wh
     (assoc-in db [:drawer :dialog :draft-radius] new-radius)))
 
 (rf/reg-event-db :drawer/close-dialog
-  {:doc "Commit the dialog's draft radius onto its circle. One undo step."}
-  [undoable]
+  {:doc "Commit the dialog's draft radius onto its circle. One undo step."
+   :interceptors [undoable]}
   (fn [db _]
     (let [{:keys [circle-id draft-radius]} (get-in db [:drawer :dialog])]
       (-> db

@@ -53,7 +53,7 @@ The complete imperative + declarative surface, grouped by owning namespace. Ever
 | `:large` | reg-meta key | Symmetric to `:sensitive` — paths to slots elided with `:rf.size/large-elided` | [015 §3](015-Data-Classification.md#3-subscriptions--reg-sub) |
 | `:sensitive?` / `:large?` | reg-meta key (`reg-sub`, `reg-flow`) | Whole-output override (`true` = force-mark, `false` = opt out of propagation) | [015 §3](015-Data-Classification.md#3-subscriptions--reg-sub), [015 §7](015-Data-Classification.md#7-flows--reg-flow) |
 | `add-marks` / `set-marks` | registration kinds | Frame-scoped declarations of path-marks against `app-db`. `(rf/add-marks frame-id {path mark, ...})` merges additively; `(rf/set-marks frame-id {path mark, ...})` replaces wholesale. | [015 §2](015-Data-Classification.md#2-app-db-marks-per-frame--add-marks--set-marks) |
-| `redact-interceptor` | interceptor factory | `(rf/redact-interceptor paths)` → positional interceptor. Overwrites named event-payload keys with `:rf/redacted` on the **trace surface** before the handler runs; handler body itself sees the unredacted value via `:event` coeffect. | [API.md §Privacy](API.md#privacy-spec-009-privacy--sensitive-data-in-traces) |
+| `redact-interceptor` | interceptor factory | `(rf/redact-interceptor paths)` → interceptor value attached via registration metadata `:interceptors`. Overwrites named event-payload keys with `:rf/redacted` on the **trace surface** before the handler runs; handler body itself sees the unredacted value via `:event` coeffect. | [API.md §Privacy](API.md#privacy-spec-009-privacy--sensitive-data-in-traces) |
 | `sensitive?` | predicate | `(rf/sensitive? trace-event)` → bool. True iff the event carries `:sensitive? true` at the top level. The framework-published predicate every forwarder composes against. | [009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces) |
 | `elide-wire-value` | walker | `(rf/elide-wire-value v opts)` → walked `v`. The **single normative emission site** for `:rf/redacted` + `:rf.size/large-elided`. Consumed by every off-box egress. | [API.md §wire-elision walker](API.md#elide-wire-value-the-wire-boundary-walker), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
 | `elision-declarations` | reader | `(rf/elision-declarations frame-id)` → schema-derived `:large?` declarations for the frame. Pair-tool / introspection. | [API.md](API.md), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
@@ -148,7 +148,7 @@ Both write through the runtime-db `[:rf.runtime/elision :sensitive-declarations]
 
 ### Imperative — interceptor-based scrub
 
-- `(rf/redact-interceptor paths)` — positional interceptor that scrubs named event-payload keys with `:rf/redacted` before the handler runs. The handler body sees the unredacted value via `:event` coeffect; the trace surface sees the scrubbed version via `:rf/redacted-event`. Composes additively with the router's internal schema-redaction interceptor (when both are present, the union of paths is scrubbed).
+- `(rf/redact-interceptor paths)` — interceptor value, attached via metadata `:interceptors`, that scrubs named event-payload keys with `:rf/redacted` before the handler runs. The handler body sees the unredacted value via `:event` coeffect; the trace surface sees the scrubbed version via `:rf/redacted-event`. Composes additively with the router's internal schema-redaction interceptor (when both are present, the union of paths is scrubbed).
 
 ### Runtime config — epoch redact hook
 

@@ -44,7 +44,7 @@ The **metadata map** is open (consumers tolerate unknown keys; new keys are adde
 | `:tags` | set of ids | optional | Application-defined tags for filtering (e.g., `#{:critical :auth}`). |
 | `:platforms` | set of platform-ids | optional | Where the registration is allowed to run. Set of `:client`, `:server`, etc. (See [011](011-SSR.md).) |
 
-For `reg-event-*`, the metadata-map carries a reserved **`:interceptors`** key — the map is the one **superset** middle-slot shape (`{:doc … :schema … :interceptors [i1 i2]}`). The historical positional interceptor **vector** form (`[i1 i2]`) is definable **sugar** for `{:interceptors [i1 i2]}`, threaded into the identical position with identical semantics. See §Allowed forms of the middle slot below and [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-) for the sugar-equivalence, the both-places rule, and the rationale.
+For `reg-event-*`, the metadata-map carries a reserved **`:interceptors`** key — the map is the one **superset** middle-slot shape (`{:doc … :schema … :interceptors [i1 i2]}`). The historical positional interceptor **vector** form (`[i1 i2]`) is retired; callers put interceptor chains in metadata `:interceptors`. See §Allowed forms of the middle slot below and [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-) for the rationale and failure modes.
 
 ### Return value
 
@@ -54,42 +54,33 @@ Per-kind extensions (e.g., `:on-create` on `reg-frame`, `:path` on `reg-route`) 
 
 ### Allowed forms of the middle slot
 
-The metadata-map is the **superset** middle slot: it carries reflection metadata (`:doc`, `:schema`, `:tags`, …) **and** a reserved `:interceptors` key (a vector of interceptor maps). The positional interceptor vector is **sugar** for the same. The allowed forms:
+The metadata-map is the **superset** middle slot: it carries reflection metadata (`:doc`, `:schema`, `:tags`, …) **and** a reserved `:interceptors` key (a vector of interceptor maps). The historical positional interceptor vector is retired. The allowed forms:
 
-1. **Metadata map carrying `:interceptors`** — the superset form (reflection metadata AND an interceptor chain in one map):
+1. **Metadata map carrying `:interceptors`** — reflection metadata AND an interceptor chain in one map:
    ```clojure
    (rf/reg-event-fx :foo
      {:doc "..." :schema ... :interceptors [some-interceptor another-interceptor]}
      (fn [m _] ...))
    ```
 
-2. **A metadata map without `:interceptors`** (reflection metadata only):
+2. **A metadata map without `:interceptors`** — reflection metadata only:
    ```clojure
    (rf/reg-event-fx :foo
      {:doc "..." :schema ...}
      (fn [m _] ...))
    ```
 
-3. **A vector of interceptors** — sugar for `{:interceptors [...]}`, no reflection metadata:
+3. **No metadata map** — handler only:
    ```clojure
    (rf/reg-event-fx :foo
-     [some-interceptor another-interceptor]
      (fn [m _] ...))
    ```
 
-4. **Metadata map AND a positional interceptors vector** — accepted only when the interceptors live in **exactly one** of the two slots; supplying interceptors in both is a both-places error (below):
-   ```clojure
-   (rf/reg-event-fx :foo
-     {:doc "..." :schema ...}              ;; metadata, no :interceptors key
-     [some-interceptor another-interceptor] ;; the chain (sugar)
-     (fn [m _] ...))
-   ```
+**Retired positional vector.** `[i1 i2]` in the middle slot, or `{...metadata...} [i1 i2] handler`, is a loud registration error. The repair is always to merge the chain into metadata: `{:interceptors [i1 i2]}`. This is a pre-alpha breaking cleanup of the earlier rf2-bpmszk sugar decision; the runtime no longer accepts two homes for the same fact.
 
-**Sugar-equivalence.** `[i1 i2]` (the positional vector) is exactly equivalent to `{:interceptors [i1 i2]}` (the metadata-map key): both thread the chain into the identical position with identical semantics — `:before` runs in declaration order, `:after` in reverse declaration order. The two forms produce identical registrar entries (the runtime threads the metadata-map `:interceptors` into the same effective chain the positional vector produces; the raw key is not separately retained, so there is no entry delta). EP-0013's app-as-value descriptor format inherits this shape — its descriptor map *is* this metadata-map.
+**Malformed `:interceptors`.** A malformed `:interceptors` value (a non-vector, or a vector carrying a non-interceptor entry) is a loud `:rf.error/reg-event-bad-interceptors`.
 
-**The both-places rule.** Supplying interceptors via the metadata-map `:interceptors` key **and** the positional vector slot at once is a **loud registration error** — `:rf.error/interceptors-supplied-twice` (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) and the one-home-per-fact discipline of [Conventions §No silent swallow](Conventions.md#no-silent-swallow--recognised-input-must-signal) / EP-0007). The two sources are never silently merged; the reason names both. A malformed `:interceptors` value (a non-vector, or a vector carrying a non-interceptor entry) is likewise a loud `:rf.error/reg-event-bad-interceptors`.
-
-**A *bare* interceptor is rejected loudly.** Because the discriminator reads a map as metadata, a *bare* interceptor in the middle slot — `(rf/reg-event-db :id some-interceptor (fn …))` rather than `(rf/reg-event-db :id [some-interceptor] (fn …))` — is itself a map (`{:id … :before … :after …}`) and would otherwise be read as the metadata-map, silently dropping the chain. The runtime instead throws `:rf.error/reg-event-bare-interceptor` at registration (an ERROR — the interceptor chain is positional and MUST be a vector; the call is rejected, not coerced `bare → [bare]`). A map carrying `:before` / `:after` in the middle slot, or any non-vector in the positional interceptors slot, is the bare-interceptor tell. See [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-) and [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives) (rf2-3ut12).
+**A *bare* interceptor is rejected loudly.** Because the discriminator reads a map as metadata, a *bare* interceptor in the middle slot — `(rf/reg-event-db :id some-interceptor (fn …))` rather than `(rf/reg-event-db :id {:interceptors [some-interceptor]} (fn …))` — is itself a map (`{:id … :before … :after …}`) and would otherwise be read as the metadata-map, silently dropping the chain. The runtime instead throws `:rf.error/reg-event-bare-interceptor` at registration (an ERROR — the interceptor chain belongs in metadata `:interceptors`; the call is rejected, not coerced). A map carrying `:before` / `:after` in the middle slot is the bare-interceptor tell. See [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-) and [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives) (rf2-3ut12).
 
 For `reg-sub`, `reg-fx`, `reg-cofx`, `reg-frame`, `reg-app-schema`, etc., the middle-slot is the metadata map only — there's no legacy vector form to compete with. `reg-view` is the **only registration that ships as a macro** (defn-shape — auto-defs the symbol, auto-derives the id, auto-injects `dispatch` / `subscribe` lexically); the plain-fn surface for runtime / programmatic registration is `reg-view*`. See [Cross-Spec-Interactions §21 Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier) for why the family is asymmetric.
 
@@ -450,8 +441,8 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 | Decision | Pointer |
 |---|---|
 | `:doc` is SHOULD (dev-warned) — absent registrations emit `:rf.warning/missing-doc` once per `(kind, id)` pair in dev; production elides the check; the metadata schema keeps `:doc` `{:optional true}` (the warning is the nudge, not a structural gate) | [§`:doc` is dev-warned when absent](#doc-is-dev-warned-when-absent), [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives), [Spec-Schemas §`:rf/registration-metadata`](Spec-Schemas.md#rfregistration-metadata) |
-| `:interceptors` in the metadata-map of `reg-event-*` is the **superset** middle slot; the positional vector is **sugar** for the same (`[i1 i2]` ≡ `{:interceptors [i1 i2]}`). Supplying interceptors in **both** slots is a loud `:rf.error/interceptors-supplied-twice`; a malformed value is `:rf.error/reg-event-bad-interceptors` (rf2-bpmszk, the rf2-iczn3 resolution) | [§Allowed forms of the middle slot](#allowed-forms-of-the-middle-slot), [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-) |
-| A *bare* interceptor handed to `reg-event-*` (not wrapped in the positional vector) is rejected loudly — `:rf.error/reg-event-bare-interceptor` (ERROR) at registration rather than silently dropped; the chain is not coerced `bare → [bare]` (rf2-3ut12) | [§Allowed forms of the middle slot](#allowed-forms-of-the-middle-slot), [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-) |
+| `:interceptors` in the metadata-map of `reg-event-*` is the **only** home for per-event interceptor chains; the historical positional vector middle slot is retired. A malformed value is `:rf.error/reg-event-bad-interceptors` (rf2-bpmszk, updated by rf2-iczn3 pre-alpha cleanup) | [§Allowed forms of the middle slot](#allowed-forms-of-the-middle-slot), [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-) |
+| A *bare* interceptor handed to `reg-event-*` is rejected loudly — `:rf.error/reg-event-bare-interceptor` (ERROR) at registration rather than silently dropped; the repair is metadata `{:interceptors [interceptor]}` (rf2-3ut12) | [§Allowed forms of the middle slot](#allowed-forms-of-the-middle-slot), [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-) |
 | Every `reg-*` returns its primary id — the keyword (or path, for `reg-app-schema`) the caller registered with | [§Return value](#return-value), [Conventions §`reg-*` return-value convention](Conventions.md#reg--return-value-convention) |
 | Re-registration is non-destructive to in-flight work; cached values invalidate on relevant re-registration; active machine instances continue with their captured spec; dispatch is not paused | [§The hot-reload contract](#the-hot-reload-contract) |
 | Re-registration with a *different* fn is silent last-write-wins by default; the runtime can warn at registration time via `:rf.warning/registration-collision` (recommended on in dev) | [§Re-registration of a different function — collision warning](#re-registration-of-a-different-function--collision-warning) |

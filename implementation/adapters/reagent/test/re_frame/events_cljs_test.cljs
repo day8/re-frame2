@@ -1,7 +1,8 @@
 (ns re-frame.events-cljs-test
   "Per rf2-bpmszk (the rf2-iczn3 resolution) — CLJS-side coverage that the
   `reg-event-*` metadata-map `:interceptors` superset form threads the chain
-  under the Reagent reactive substrate, and that the both-places guard fires.
+  under the Reagent reactive substrate, and that the retired positional vector
+  middle slot fails loudly.
 
   This SUPERSEDES the former rf2-bbea CLJS coverage (which asserted
   `:rf.warning/interceptors-in-metadata-map` fired): `:interceptors` inside the
@@ -49,13 +50,12 @@
   (let [ids (mapv :id (:interceptors (rf/handler-meta :event :test.bpmszk.cljs/ctx-super)))]
     (is (= [:test/noop :rf/ctx-handler] ids))))
 
-(deftest both-places-guard-fires-under-reagent
-  (testing "metadata-map :interceptors + positional vector throws :rf.error/interceptors-supplied-twice"
+(deftest positional-vector-form-fails-under-reagent
+  (testing "positional vector middle slot throws :rf.error/reg-event-bad-middle-slot"
     (is (thrown-with-msg?
           cljs.core/ExceptionInfo
-          #":rf\.error/interceptors-supplied-twice"
-          (rf/reg-event-db :test.bpmszk.cljs/twice
-            {:interceptors [noop-icpt]}
+          #":rf\.error/reg-event-bad-middle-slot"
+          (rf/reg-event-db :test.bpmszk.cljs/vector-slot
             [{:id :other :before identity}]
             (fn [db _] db))))))
 
@@ -68,15 +68,11 @@
             {:interceptors noop-icpt}
             (fn [db _] db))))))
 
-(deftest sugar-equivalence-under-reagent
-  (testing "[i] and {:interceptors [i]} register the identical effective chain"
-    (rf/reg-event-db :test.bpmszk.cljs/via-vector
-      [noop-icpt]
-      (fn [db _] db))
+(deftest metadata-interceptors-under-reagent
+  (testing "{:interceptors [i]} registers the effective chain"
     (rf/reg-event-db :test.bpmszk.cljs/via-map
       {:interceptors [noop-icpt]}
       (fn [db _] db))
-    (let [vec-ids (mapv :id (:interceptors (rf/handler-meta :event :test.bpmszk.cljs/via-vector)))
-          map-ids (mapv :id (:interceptors (rf/handler-meta :event :test.bpmszk.cljs/via-map)))]
-      (is (= vec-ids map-ids)
-          "both forms register the identical effective chain (ids + order)"))))
+    (let [map-ids (mapv :id (:interceptors (rf/handler-meta :event :test.bpmszk.cljs/via-map)))]
+      (is (= [:test/noop :rf/db-handler] map-ids)
+          "the metadata map registers the effective chain (ids + order)"))))

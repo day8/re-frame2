@@ -943,12 +943,12 @@ path semantics:
 
 ;; 4. Path interceptor: varargs segments, not a vector.
 (rf/reg-event-db :invoice/clear
-  [(path :billing :invoices)]
+  {:interceptors [(path :billing :invoices)]}
   (fn [_ _] {}))
 ```
 
-Under this EP the four surfaces keep their call shapes, but all four mean the
-same thing by "path": each registration boundary normalizes to a canonical
+Under this EP the four surfaces keep their local path shapes, but all four mean
+the same thing by "path": each registration boundary normalizes to a canonical
 `:rf/path` vector, malformed paths fail loudly through the shared path error
 vocabulary instead of surface-local error families, and the flow overlap check
 is the shared `overlap?` relation rather than a private one. Root selection

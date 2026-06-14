@@ -302,7 +302,8 @@
           ;; `commit-fx-effects`/`fx-value-ok?` never saw this value.
           bad-fx   (after-icpt (fn [ctx]
                                  (interceptor/assoc-effect ctx :fx :oops)))]
-      (rf/reg-event-fx :ctx/writes-db [bad-fx]
+      (rf/reg-event-fx :ctx/writes-db
+        {:interceptors [bad-fx]}
         (fn [{:keys [db]} _] {:db (assoc db :committed? true)
                               :fx []}))
       ;; A downstream event proves the drain was not abandoned by a raw throw.
@@ -326,7 +327,8 @@
     (let [recorded (record-traces! ::after-foreign)
           foreign  (after-icpt (fn [ctx]
                                  (interceptor/assoc-effect ctx :http {:url "/api"})))]
-      (rf/reg-event-fx :ctx/writes-db2 [foreign]
+      (rf/reg-event-fx :ctx/writes-db2
+        {:interceptors [foreign]}
         (fn [{:keys [db]} _] {:db (assoc db :ok? true)}))
       (rf/dispatch-sync [:ctx/writes-db2] {:frame :ctx/after-foreign})
       (let [errs (error-events recorded :rf.error/effect-map-shape)]
@@ -347,7 +349,8 @@
                                  (let [db (interceptor/get-effect ctx :db)]
                                    (interceptor/assoc-effect
                                      ctx :db (assoc db :rf/runtime {:rf.runtime/machines {}})))))]
-      (rf/reg-event-db :ctx/clean-db [legacy]
+      (rf/reg-event-db :ctx/clean-db
+        {:interceptors [legacy]}
         (fn [db _] (assoc db :user/id 7)))
       (rf/reg-event-db :ctx/after-legacy-downstream (fn [db _] (assoc db :downstream? true)))
       (rf/dispatch-sync [:ctx/clean-db] {:frame :ctx/after-legacy})

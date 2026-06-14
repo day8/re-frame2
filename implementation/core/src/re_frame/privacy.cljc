@@ -191,7 +191,7 @@
   Internal usage (no longer a public `rf/` surface):
 
       (rf/reg-event-fx :auth/login
-        [(privacy/redact-interceptor [[:password] [:token]])]
+        {:interceptors [(privacy/redact-interceptor [[:password] [:token]])]}
         (fn [{:keys [db]} [_ {:keys [username password token]}]]
           ;; password + token visible HERE (unredacted via :event coeffect)
           ;; trace surface sees them as :rf/redacted

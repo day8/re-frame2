@@ -946,7 +946,7 @@
       (fn [ctx] (assoc-in ctx [:coeffects :auth/ctx]
                           {:token "SECRET-COFX-tok" :count "not-an-int"})))
     (rf/reg-event-fx :auth/use-ctx
-      [(rf/inject-cofx :auth/ctx)]
+      {:interceptors [(rf/inject-cofx :auth/ctx)]}
       (fn [_ _] {}))
     (let [traces (atom [])]
       (rf/register-listener! ::ctx (fn [ev] (swap! traces conj ev)))
@@ -975,7 +975,7 @@
       (fn [ctx] (assoc-in ctx [:coeffects :auth/ctx2]
                           {:token 1234 :count 3})))
     (rf/reg-event-fx :auth/use-ctx2
-      [(rf/inject-cofx :auth/ctx2)]
+      {:interceptors [(rf/inject-cofx :auth/ctx2)]}
       (fn [_ _] {}))
     (let [traces (atom [])]
       (rf/register-listener! ::ctx2 (fn [ev] (swap! traces conj ev)))
@@ -1227,7 +1227,7 @@
        :schema :string}
       (fn [ctx] (assoc-in ctx [:coeffects :auth/credentials] 42)))
     (rf/reg-event-fx :auth/use-creds
-      [(rf/inject-cofx :auth/credentials)]
+      {:interceptors [(rf/inject-cofx :auth/credentials)]}
       (fn [_ _] {}))
     (let [traces (atom [])]
       (rf/register-listener! ::cf (fn [ev] (swap! traces conj ev)))
@@ -1253,7 +1253,7 @@
       {:schema [:string {:sensitive? true}]}
       (fn [ctx] (assoc-in ctx [:coeffects :secret-blob] 99))) ; int, fails :string
     (rf/reg-event-fx :use-secret
-      [(rf/inject-cofx :secret-blob)]
+      {:interceptors [(rf/inject-cofx :secret-blob)]}
       (fn [_ _] {}))
     (let [traces (atom [])]
       (rf/register-listener! ::cb (fn [ev] (swap! traces conj ev)))
