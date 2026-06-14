@@ -27,9 +27,14 @@ For handler- / view- / db-seeding- / error-handler-shaped Type B rewrites, see [
 > (rf/reg-global-interceptor my-audit-icpt)
 > (rf/reg-global-interceptor recorder-icpt)
 >
-> ;; v2 — ONE reg-frame, BOTH in the same vector (NOT two reg-frame calls)
+> ;; v2 — register each value once, then ONE reg-frame referencing BOTH by id,
+> ;; in the same vector (NOT two reg-frame calls).
+> ;; A frame `:interceptors` chain carries references, never inline values (EP-0022) —
+> ;; an inline value here throws :rf.error/inline-interceptor-removed.
+> (rf/reg-interceptor :app/audit  my-audit-icpt)
+> (rf/reg-interceptor :app/record recorder-icpt)
 > (rf/reg-frame :rf/default
->   {:interceptors [my-audit-icpt recorder-icpt]})
+>   {:interceptors [:app/audit :app/record]})
 > ```
 >
 > This applies to the single-frame Type-A rewrite too (it's a correctness fact about re-registration, not a multi-frame concern) — but it's stated here because a multi-frame fold makes the trap easy to walk into when you're replicating "globals" across several `reg-frame` sites.
@@ -342,7 +347,7 @@ The author picks the flow's `:id`; the agent suggests `:legacy/<original-event-i
 
 1. **Computing derived state** → Spec 013 flow. Same rewrite as `on-changes`.
 2. **Post-handler validation** → registered `:schema` per Spec 010 (Malli schema on the registration's metadata map; `:spec` is no longer accepted — see M-54).
-3. **Imperative escape hatch** → custom `->interceptor` with the original body.
+3. **Imperative escape hatch** → register the original body with `reg-interceptor` (the public `context -> context` authoring form; `->interceptor` is internal-only under EP-0022) and reference it by id from the event's `:interceptors` chain.
 
 Read the `enrich` body and propose the path; author confirms.
 
@@ -351,7 +356,7 @@ Read the `enrich` body and propose the path; author confirms.
 **Risk**: ran an arbitrary fn `:after` for side effects. Three replacement paths:
 
 1. **Pure side effect, event-shaped** (analytics, logging, telemetry): canonical replacement is a registered fx returned from the handler: `:fx [[:analytics/track ...]]`.
-2. **Must run for every event of a kind**: user-defined `(rf/->interceptor :id :my-thing :after (fn [ctx] ...))`. Named, addressable, queryable.
+2. **Must run for every event of a kind**: register the behaviour with `(rf/reg-interceptor :my/thing {:after (fn [ctx] ...)})` and reference `:my/thing` from each affected event's (or the frame's) `:interceptors` chain. Named, addressable, queryable — `reg-interceptor` is the public authoring form (EP-0022), not `->interceptor`.
 3. **Vendor-from-v1**: copy `re-frame.std-interceptors/after` into the project as a 7-line utility. Acceptable if the codebase uses it widely as convention.
 
 Read the body and propose; author confirms.
