@@ -104,25 +104,38 @@
        allocation (assoc-in [:rf.cofx :rf.resource/generation-allocation] allocation)))))
 
 (defn- reply-success!
-  "Dispatch the captured `:on-success` reply with the transport success
-  result appended as the LAST arg (the live transport shape), carrying a
-  scripted reply token time."
-  [data]
-  (rf/dispatch-sync (conj (:on-success @last-managed-args)
-                          {:kind :success :value data})
-                    {:frame frame-id :rf.cofx {:rf/time-ms 1781078400250}}))
+  "Dispatch an `:on-success` reply with the transport success result appended
+  as the LAST arg (the live transport shape), carrying a scripted reply token
+  time. With no `on-success` argument, replays the most-recently captured
+  reply token (`@last-managed-args`); with an explicit `on-success` vector,
+  replays THAT token — used by phase 3 to replay the RECORDED (generation-1)
+  reply against a re-minted (generation-11) entry."
+  ([data] (reply-success! data (:on-success @last-managed-args)))
+  ([data on-success]
+   (rf/dispatch-sync (conj on-success {:kind :success :value data})
+                     {:frame frame-id :rf.cofx {:rf/time-ms 1781078400250}})))
 
 (defn- live-entry []
   (get-in (rf/runtime-db-value frame-id) (state/entry-path @scoped-key)))
 
-(defn- reset-all! []
+(defn- with-fresh-runtime
+  "Run `body` (a zero-arg thunk) inside a FRESH runtime — re-runs the `:each`
+  reset fixture (clean registrar / frames / host-transient generation
+  allocator + caches), re-installs the capturing transport, then invokes
+  `body`. `body` MUST run INSIDE the fixture call: the fixture restores the
+  registrar + resets `frame/frames` to `{}` in a `finally` on return, so a
+  fire-and-forget reset would tear the runtime down before the caller's next
+  dispatch (no installed frame ⇒ nil entries). Mirrors the in-test reset of
+  `replay_determinism_e2e_cljs_test`. Returns `body`'s value."
+  [body]
   ((core-test-support/make-reset-runtime-fixture
      #?(:clj  {:adapter plain-atom/adapter}
         :cljs {:adapter reagent-adapter/adapter}))
    (fn []
      (reset! last-managed-args nil)
      (rf/reg-fx :rf.http/managed
-                (fn [_ctx args] (reset! last-managed-args args) nil)))))
+                (fn [_ctx args] (reset! last-managed-args args) nil))
+     (body))))
 
 (deftest generation-allocation-is-recorded-so-replay-keeps-the-reply-current
   (testing "rf2-abyycr — the resource generation is a RECORDABLE allocation:
@@ -149,7 +162,14 @@
                           (filter #(= :rf.resource/generation-allocation
                                       (:rf.cofx/id (:tags %))))
                           first)
-            recorded-allocation (:rf.cofx/value (:tags alloc-ev))]
+            recorded-allocation (:rf.cofx/value (:tags alloc-ev))
+            ;; capture the RECORD-time reply token (the lowered :on-success
+            ;; carrying work-id + generation 1) BEFORE any reset — phase 3
+            ;; replays THIS gen-1 reply against a re-minted gen-11 entry to
+            ;; prove the divergence. Reusing the live `@last-managed-args`
+            ;; there would replay phase 3's OWN gen-11 reply (which matches,
+            ;; so it would NOT be suppressed — a vacuous control).
+            recorded-on-success (:on-success @last-managed-args)]
         (is (some? alloc-ev)
             "the runtime recorded the generation allocation on the token under
              :live (a :rf.cofx/generated trace op was emitted)")
@@ -171,49 +191,59 @@
 
         ;; ===== 2. REPLAY-CORRECT — allocator at a DIFFERENT high-water; =====
         ;; =====    replay SUPPLIES the recorded allocation; reply current ====
-        (reset-all!)
-        (register-resource!)
-        ;; the replay process's host allocator already minted 10 generations
-        ;; (a different frame's work, a longer-lived process) — restore /
-        ;; replay cannot rewind it.
-        (state/commit-generation! frame-id 10)
-        ;; replay the ensure SUPPLYING the recorded allocation: the handler
-        ;; reads generation 1 (the recorded value), NOT (inc 10) = 11.
-        (ensure! recorded-allocation)
-        (is (= 1 (:generation (live-entry)))
-            "replay reproduced the recorded generation 1 from the recorded
-             allocation — NOT a re-mint from the live high-water (inc 10)")
-        ;; replay the recorded reply (generation 1) — ACCEPTED again.
-        (reply-success! {:title "Welcome"})
-        (is (= :loaded (:status (live-entry)))
-            "the recorded reply (generation 1) is ACCEPTED on replay — the
-             recordable allocation kept it current (the fix)")
-        (is (= {:title "Welcome"} (:data (live-entry)))
-            "replay installed the same durable value as the record")
+        ;; Run the replay phase INSIDE a fresh runtime — the fixture restores
+        ;; the registrar + resets frames on RETURN (in a finally), so the
+        ;; assertions must run inside the body thunk (a fire-and-forget reset
+        ;; would tear the runtime down before the next dispatch).
+        (with-fresh-runtime
+          (fn []
+            (register-resource!)
+            ;; the replay process's host allocator already minted 10
+            ;; generations (a different frame's work, a longer-lived process)
+            ;; — restore / replay cannot rewind it.
+            (state/commit-generation! frame-id 10)
+            ;; replay the ensure SUPPLYING the recorded allocation: the handler
+            ;; reads generation 1 (the recorded value), NOT (inc 10) = 11.
+            (ensure! recorded-allocation)
+            (is (= 1 (:generation (live-entry)))
+                "replay reproduced the recorded generation 1 from the recorded
+                 allocation — NOT a re-mint from the live high-water (inc 10)")
+            ;; replay the recorded reply (generation 1) — ACCEPTED again.
+            (reply-success! {:title "Welcome"})
+            (is (= :loaded (:status (live-entry)))
+                "the recorded reply (generation 1) is ACCEPTED on replay — the
+                 recordable allocation kept it current (the fix)")
+            (is (= {:title "Welcome"} (:data (live-entry)))
+                "replay installed the same durable value as the record")))
 
         ;; ===== 3. REPLAY-DIVERGENT (the bug, control) — same allocator, =====
         ;; =====    NO recorded allocation ⇒ generator re-mints; reply stale ==
-        (reset-all!)
-        (register-resource!)
-        (state/commit-generation! frame-id 10)
-        ;; replay the ensure WITHOUT the recorded allocation — the generator
-        ;; re-mints from the live high-water (the old ambient behaviour):
-        ;; generation 11.
-        (ensure!)
-        (is (= 11 (:generation (live-entry)))
-            "without the recorded allocation the generation is RE-MINTED from
-             the live high-water (inc 10) = 11 — divergent from the record")
-        ;; replay the RECORDED reply (generation 1) against the re-minted
-        ;; entry (generation 11): STALE-SUPPRESSED — generation 1 no longer
-        ;; matches the live entry's generation 11.
-        (reply-success! {:title "Welcome"})
-        (is (not= {:title "Welcome"} (:data (live-entry)))
-            "the recorded reply (generation 1) is STALE-SUPPRESSED against the
-             re-minted entry (generation 11) — the divergence the recordable
-             allocation kills; the entry never loads the recorded reply value")
-        (is (not= :loaded (:status (live-entry)))
-            "the entry stays in-flight (the suppressed reply settled no
-             durable data) — proving the assertion above is non-vacuous")))))
+        (with-fresh-runtime
+          (fn []
+            (register-resource!)
+            (state/commit-generation! frame-id 10)
+            ;; replay the ensure WITHOUT the recorded allocation — the
+            ;; generator re-mints from the live high-water (the old ambient
+            ;; behaviour): generation 11.
+            (ensure!)
+            (is (= 11 (:generation (live-entry)))
+                "without the recorded allocation the generation is RE-MINTED
+                 from the live high-water (inc 10) = 11 — divergent from the
+                 record")
+            ;; replay the RECORDED reply (generation 1 — the record-time
+            ;; :on-success token captured in phase 1) against the re-minted
+            ;; entry (generation 11): STALE-SUPPRESSED — generation 1 no longer
+            ;; matches the live entry's generation 11.
+            (reply-success! {:title "Welcome"} recorded-on-success)
+            (is (not= {:title "Welcome"} (:data (live-entry)))
+                "the recorded reply (generation 1) is STALE-SUPPRESSED against
+                 the re-minted entry (generation 11) — the divergence the
+                 recordable allocation kills; the entry never loads the
+                 recorded reply value")
+            (is (not= :loaded (:status (live-entry)))
+                "the entry stays in-flight (the suppressed reply settled no
+                 durable data) — proving the assertion above is
+                 non-vacuous")))))))
 
 (deftest mutation-generation-allocation-is-recorded
   (testing "rf2-abyycr — the mutation writer mints `generation` from the SAME
