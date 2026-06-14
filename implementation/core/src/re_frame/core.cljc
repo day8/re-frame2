@@ -2101,14 +2101,15 @@
 (def ^{:doc "Returns an interceptor that focuses the handler on the
   app-db sub-slice at the given path — the handler receives the slice
   value as `:db` (not the full app-db); its returned `:db` is spliced
-  back. Usage: `(reg-event-db :inc [(path :counter)] (fn [n _] (inc n)))`.
+  back. Usage:
+  `(reg-event-db :inc {:interceptors [(path :counter)]} (fn [n _] (inc n)))`.
   Per spec/API.md §Interceptors."}
   path            std-interceptors/path)
 
 (def ^{:doc "Pre-registered interceptor (a value, not a fn) that asserts
   the dispatched event has shape `[<id> <payload-map>]` and replaces
   the `:event` coeffect with the payload map itself. Usage:
-  `(reg-event-fx :foo [unwrap-interceptor] (fn [_ {:keys [a b]}] ...))`.
+  `(reg-event-fx :foo {:interceptors [unwrap-interceptor]} (fn [_ {:keys [a b]}] ...))`.
   Per Conventions §Canonical event-vector shape (M-19) and §Value-vs-fn
   naming."}
   unwrap-interceptor std-interceptors/unwrap-interceptor)
@@ -2130,7 +2131,7 @@
   sensitive?           privacy/sensitive?)
 
 (def ^{:doc "Production-side schema validation interceptor. Add to a
-  `reg-event-*` handler's positional interceptor vector to force `:schema`
+  `reg-event-*` handler's metadata `:interceptors` vector to force `:schema`
   validation against the dispatched event vector even in production
   builds where dev-time validation is elided. The verb `validate-`
   telegraphs the time/build-mode axis the interceptor lives on (no-op in

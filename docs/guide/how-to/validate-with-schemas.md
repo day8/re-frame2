@@ -148,8 +148,8 @@ One place does want production validation, though: untrusted data crossing a sys
 
 ```clojure
 (rf/reg-event-fx :api/tags-received
-  {:schema [:cat [:= :api/tags-received] [:map [:tags [:vector :string]]]]}
-  [rf/validate-at-boundary-interceptor]
+  {:schema [:cat [:= :api/tags-received] [:map [:tags [:vector :string]]]]
+   :interceptors [rf/validate-at-boundary-interceptor]}
   (fn [{:keys [db]} [_ body]]
     {:db (assoc db :tags (:tags body))}))
 ```

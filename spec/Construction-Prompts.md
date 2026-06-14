@@ -57,8 +57,9 @@ Each entry below is one CP:
 ```clojure
 (rf/reg-event-fx :feature/verb-noun
   {:doc    "One-sentence what-and-why."
-   :schema EventSchema}
-  ;; A positional interceptor vector goes here when needed; usually omitted.
+   :schema EventSchema
+   ;; Add :interceptors [...] here when this handler needs an event chain.
+   }
   (fn handler-feature-verb-noun [{:keys [db] :as cofx} [_ payload]]
     ;; Pure: read db and any injected cofx, return an effect map.
     ;; payload is a single scalar (for single-arg events) or a map (for multi-arg events
@@ -914,8 +915,8 @@ Routing has two co-equal URL-change events. Popstate and the initial sync (above
    [:timestamp  :int]])
 
 (rf/reg-event-fx :webhook/handle
-  {:schema [:cat [:= :webhook/handle] IncomingWebhookPayload]}
-  [rf/validate-at-boundary-interceptor]                                   ;; positional; rejects payload at boundary if invalid
+  {:schema [:cat [:= :webhook/handle] IncomingWebhookPayload]
+   :interceptors [rf/validate-at-boundary-interceptor]}                   ;; rejects payload at boundary if invalid
   ...)
 ```
 

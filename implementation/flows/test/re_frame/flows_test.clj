@@ -1501,11 +1501,11 @@
     (let [seen-db (atom :unset)]
       (rf/reg-event-db :init (fn [_ _] {:n 0}))
       (rf/reg-event-db :set-n
-        [(rf/->interceptor
-           :id    :test/capture-after
-           :after (fn [ctx]
-                    (reset! seen-db (rf/get-effect ctx :db))
-                    ctx))]
+        {:interceptors [(rf/->interceptor
+                         :id    :test/capture-after
+                         :after (fn [ctx]
+                                  (reset! seen-db (rf/get-effect ctx :db))
+                                  ctx))]}
         (fn [db [_ v]] (assoc db :n v)))
       (rf/reg-flow {:id     :double
                     :inputs [[:n]]
@@ -1579,7 +1579,7 @@
     ;; mis-compute.
     (rf/reg-event-db :seed (fn [_ _] {:counter {:n 0}}))
     (rf/reg-event-db :inc
-                     [(rf/path :counter)]
+                     {:interceptors [(rf/path :counter)]}
                      (fn [c _] (update c :n inc)))
     (rf/reg-flow {:id     :counter/doubled
                   :inputs [[:counter :n]]

@@ -1157,7 +1157,7 @@
                   :output (fn [t] (str "user-of-" t))
                   :path   [:auth :derived-user]})
     (rf/reg-event-db :auth/signed-in
-                     [(rf/path :auth)]
+                     {:interceptors [(rf/path :auth)]}
                      (fn [auth [_ token]] (assoc auth :token token)))
     (reset! *captured* [])
     (rf/dispatch-sync [:auth/signed-in "secret-token"])
@@ -1177,7 +1177,7 @@
                   :output (fn [_] (throw (ex-info "derive boom" {})))
                   :path   [:auth :derived-user]})
     (rf/reg-event-db :auth/signed-in
-                     [(rf/path :auth)]
+                     {:interceptors [(rf/path :auth)]}
                      (fn [auth [_ token]] (assoc auth :token token)))
     (reset! *captured* [])
     (rf/dispatch-sync [:auth/signed-in "secret-token"])
@@ -1196,7 +1196,7 @@
                   :output (fn [t] (str "user-of-" t))
                   :path   [:auth :derived-user]})
     (rf/reg-event-db :auth/signed-in
-                     [(rf/path :auth)]
+                     {:interceptors [(rf/path :auth)]}
                      (fn [auth [_ token]] (assoc auth :token token)))
     ;; First sign-in computes; second sign-in with the SAME token leaves
     ;; the input value-equal → `:rf.flow/skip` fires, still inside the
@@ -1224,7 +1224,7 @@
                   :output (fn [n] (str "hello-" n))
                   :path   [:profile :greeting]})
     (rf/reg-event-db :profile/rename
-                     [(rf/path :profile)]
+                     {:interceptors [(rf/path :profile)]}
                      (fn [profile [_ name]] (assoc profile :name name)))
     (reset! *captured* [])
     (rf/dispatch-sync [:profile/rename "ada"])
@@ -1249,7 +1249,7 @@
                   :output (fn [t] (str "derived-" t))
                   :path   [:auth :derived-token]})
     (rf/reg-event-db :auth/signed-in
-                     [(rf/path :auth)]
+                     {:interceptors [(rf/path :auth)]}
                      (fn [auth [_ token]] (assoc auth :token token)))
     (reset! *captured* [])
     (rf/dispatch-sync [:auth/signed-in "secret-token"])

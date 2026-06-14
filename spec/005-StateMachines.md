@@ -3927,7 +3927,7 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
     {:db {:drawer {:circles [] :undo [] :redo []}}}))
 
 (rf/reg-event-db :drawer/add-circle
-  [undoable]
+  {:interceptors [undoable]}
   (fn [db [_ x y]]
     (update-in db [:drawer :circles] conj
                {:id (random-uuid) :x x :y y :radius 30})))

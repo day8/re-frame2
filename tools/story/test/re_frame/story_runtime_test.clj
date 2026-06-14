@@ -1341,7 +1341,7 @@
                       :id :test/boom-icpt
                       :before (fn [_ctx] (throw (ex-info "icpt blew up" {:why :icpt}))))]
       (rf/reg-event-db :test/uses-boom-icpt
-        [boom-icpt]
+        {:interceptors [boom-icpt]}
         (fn [db _] db))
       (story/reg-variant :story.icpt-boom/v
         {:events [[:test/uses-boom-icpt]]})

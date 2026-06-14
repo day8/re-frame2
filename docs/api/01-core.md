@@ -24,7 +24,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
     {:doc "Add an item." :interceptors [undoable]}
     (fn [db [_ item]] (update db :items conj item)))
   ```
-  > **Legacy note.** A bare interceptor vector in the middle slot — `(reg-event-db :id [undoable] handler)` — is still accepted as **sugar** for `{:interceptors [undoable]}` (identical semantics). Supplying interceptors in *both* the map key and the positional vector at once is a registration error (`:rf.error/interceptors-supplied-twice`).
+  > **Migration note.** The historical bare interceptor vector middle slot — `(reg-event-db :id [undoable] handler)` — has been removed. Put event interceptor chains in the metadata map: `(reg-event-db :id {:interceptors [undoable]} handler)`.
 - **Example**:
   ```clojure
   (rf/reg-event-db :counter/inc
@@ -40,7 +40,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   (reg-event-fx id ?metadata handler)
   ```
 - **Description**: "When this event arrives, return an effect map." The richer shape — `(fn [cofx event-vec] {:db ... :fx [...]})`. Use it when you need to dispatch follow-up events, fire HTTP, navigate, or read cofx.
-- **Metadata-map — the extended form**: same superset middle slot as `reg-event-db` — reflection keys plus the reserved `:interceptors` vector (e.g. `{:schema ... :interceptors [rf/validate-at-boundary-interceptor]}`). The bare positional vector remains accepted as sugar for `{:interceptors [...]}`.
+- **Metadata-map — the extended form**: same superset middle slot as `reg-event-db` — reflection keys plus the reserved `:interceptors` vector (e.g. `{:schema ... :interceptors [rf/validate-at-boundary-interceptor]}`). The historical positional vector is removed; use metadata `:interceptors`.
 - **Example**:
   ```clojure
   (rf/reg-event-fx :counter/load
@@ -60,7 +60,7 @@ This is the surface every re-frame2 app touches. You're answering "what events c
   (reg-event-ctx id ?metadata handler)
   ```
 - **Description**: The escape hatch — you get the raw interceptor context and return a modified context. Almost no app needs this; reach for it when you're writing infrastructure.
-- **Metadata-map — the extended form**: same superset middle slot — reflection keys plus the reserved `:interceptors` vector; the bare positional vector remains accepted as sugar.
+- **Metadata-map — the extended form**: same superset middle slot — reflection keys plus the reserved `:interceptors` vector. The historical positional vector is removed; use metadata `:interceptors`.
 
 ### `reg-sub`
 

@@ -55,8 +55,8 @@ For handlers that **must** validate even in production (HTTP response ingestion,
   (:require [re-frame.core :as rf]))
 
 (rf/reg-event-fx :api/response-received
-  {:schema ApiResponseSchema}
-  [rf/validate-at-boundary-interceptor]
+  {:schema ApiResponseSchema
+   :interceptors [rf/validate-at-boundary-interceptor]}
   (fn [_ [_ payload]] ...))
 ```
 
@@ -109,7 +109,7 @@ The `reg-app-schema` validates `app-db` shape at the `[:flight]` path; the `:sch
 
 - **`reg-app-schema` is a no-op without the schemas artefact.** The macro emits a `late-bind` lookup; without `re-frame.schemas` loaded, the call throws `:rf.error/schemas-artefact-missing` at runtime, not at compile time. Always require `re-frame.schemas` at app boot if you call this.
 - **`:schema` on a handler validates the event vector, not the `app-db` value.** The schema's first slot is typically `[:cat [:= :event-id] ...]`. For app-db-shape enforcement, use `reg-app-schema`.
-- **Boundary interceptor without `:schema` is rejected at registration.** Adding `[rf/validate-at-boundary-interceptor]` to a handler that has no `:schema` metadata raises `:rf.error/at-boundary-missing-schema` from `reg-event-*` — the handler is not installed. Either attach a `:schema` to the metadata-map or remove the interceptor.
+- **Boundary interceptor without `:schema` is rejected at registration.** Adding `rf/validate-at-boundary-interceptor` under metadata `:interceptors` on a handler that has no `:schema` metadata raises `:rf.error/at-boundary-missing-schema` from `reg-event-*` — the handler is not installed. Either attach a `:schema` to the metadata-map or remove the interceptor.
 - **Boundary validation is dev-OR-prod, never both.** Dev-mode step-1 has already validated by the time the boundary interceptor runs; the boundary becomes the validator in production builds when step-1 is elided.
 - **Schemas are frame-scoped.** Re-registering a schema on the same `[path]` of the same frame replaces; the same path on a different frame is a separate registration.
 

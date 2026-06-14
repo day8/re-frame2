@@ -412,8 +412,8 @@
 (rf/reg-event-db :standard-epochs/throw-interceptor
   {:doc "Button 13 — an interceptor throws in :before. The chain aborts on
          the way IN; Issues shows the interceptor :before exception and the
-         handler never runs."}
-  [throwing-interceptor]
+         handler never runs."
+   :interceptors [throwing-interceptor]}
   (fn handler-after-throwing-interceptor [db _ev] db))
 
 ;; -- 14. exception in an interceptor :after → Issues: interceptor exc. -------
@@ -422,8 +422,8 @@
          13: the handler runs to completion (the :db is computed), THEN the
          interceptor throws on the way OUT. Issues shows the interceptor
          :after exception; per-step placement renders it under the
-         interceptor's :after step, distinct from a handler exception."}
-  [throwing-interceptor-after]
+         interceptor's :after step, distinct from a handler exception."
+   :interceptors [throwing-interceptor-after]}
   (fn handler-before-throwing-after-interceptor [db _ev] db))
 
 ;; -- 15. exception in a coeffect supplier → Issues: cofx error ---------------

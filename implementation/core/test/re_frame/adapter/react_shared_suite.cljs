@@ -911,9 +911,9 @@
 ;; reg-event metadata-map :interceptors superset form (rf2-bpmszk) — port of
 ;; `*_events`. SUPERSEDES the rf2-bbea metadata-misuse warning coverage:
 ;; `:interceptors` inside the metadata-map is now the documented superset home
-;; (the rf2-iczn3 resolution), threaded into the same position the positional
-;; vector occupies. These assertions pin that the superset form + both-places
-;; guard behave correctly under the installed React adapter's late-bind stack.
+;; (the rf2-iczn3 resolution). These assertions pin that the superset form and
+;; retired positional vector rejection behave correctly under the installed
+;; React adapter's late-bind stack.
 ;; ===========================================================================
 
 (def ^:private noop-icpt
@@ -949,17 +949,15 @@
       (is (= [:test/noop :rf/ctx-handler]
              (mapv :id (:interceptors (rf/handler-meta :event ctx-id))))))))
 
-(defn assert-reg-event-both-places-guard-fires
-  "Supplying interceptors via BOTH the metadata-map `:interceptors` AND the
-  positional vector raises `:rf.error/interceptors-supplied-twice` under the
-  installed adapter (rf2-bpmszk both-places guard)."
+(defn assert-reg-event-positional-vector-rejected
+  "Supplying interceptors via the retired positional vector middle slot raises
+  `:rf.error/reg-event-bad-middle-slot` under the installed adapter."
   [{:keys [substrate-kw name]}]
-  (testing (str name " — both-places interceptors throw :rf.error/interceptors-supplied-twice")
+  (testing (str name " — positional vector interceptors throw :rf.error/reg-event-bad-middle-slot")
     (is (thrown-with-msg?
           cljs.core/ExceptionInfo
-          #":rf\.error/interceptors-supplied-twice"
-          (rf/reg-event-db (mint-kw substrate-kw "events-twice")
-            {:interceptors [noop-icpt]}
+          #":rf\.error/reg-event-bad-middle-slot"
+          (rf/reg-event-db (mint-kw substrate-kw "events-vector-slot")
             [{:id :other :before identity}]
             (fn [db _] db))))))
 

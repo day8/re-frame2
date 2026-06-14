@@ -1778,7 +1778,7 @@ The migration message string carries the migration target inline so a stack-trac
 
 ## Type-tag summary
 
-- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame2` — target is unambiguous), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**, **M-27** (`day8/re-frame2-schemas` dep when the app uses Spec 010), **M-28** (`day8/re-frame2-machines` dep when the app uses Spec 005), **M-29** (`day8/re-frame2-routing` dep when the app uses Spec 012), **M-30** (`day8/re-frame2-flows` dep when the app uses Spec 013), **M-31** (`day8/re-frame2-http` dep when the app uses Spec 014), **M-32** (`day8/re-frame2-ssr` dep when the app uses Spec 011), **M-33** (`day8/re-frame2-epoch` dep when the app uses the Tool-Pair time-travel / pair-tool surface), **M-35** (`:spawn` / `:destroy-machine` → `:rf.machine/spawn` / `:rf.machine/destroy` rename), **M-37** (adapters relocated under `implementation/adapters/<name>/` — note only; Maven artefact names are unchanged), **M-38** (CLJS namespace rename `re-frame.substrate.<name>` → `re-frame.adapter.<name>`; mechanical `:require`-line substring swap), **M-39** (additive `reg-http-interceptor` / `clear-http-interceptor` surface on `:rf.http/managed`; no rewrite — opt-in collapse of per-call-site request-builder threading), **M-41** (subscribe + dispatch consult the React-context tier; additive, no rewrite), **M-47** (state-tag capability shipped; additive — no rewrite required for existing machines, optional adoption via `:tags` on state nodes), **M-70** (bare interceptor → vector wrap — mechanical `mw/x` → `[mw/x]`; **loud-at-runtime** — it throws `:rf.error/reg-event-bare-interceptor` at ns-load (the guard landed), but the *compile* still passes, so swept by a **structural** up-front grep + the boot smoke-test, not march-the-wall).
+- **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame2` — target is unambiguous), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**, **M-27** (`day8/re-frame2-schemas` dep when the app uses Spec 010), **M-28** (`day8/re-frame2-machines` dep when the app uses Spec 005), **M-29** (`day8/re-frame2-routing` dep when the app uses Spec 012), **M-30** (`day8/re-frame2-flows` dep when the app uses Spec 013), **M-31** (`day8/re-frame2-http` dep when the app uses Spec 014), **M-32** (`day8/re-frame2-ssr` dep when the app uses Spec 011), **M-33** (`day8/re-frame2-epoch` dep when the app uses the Tool-Pair time-travel / pair-tool surface), **M-35** (`:spawn` / `:destroy-machine` → `:rf.machine/spawn` / `:rf.machine/destroy` rename), **M-37** (adapters relocated under `implementation/adapters/<name>/` — note only; Maven artefact names are unchanged), **M-38** (CLJS namespace rename `re-frame.substrate.<name>` → `re-frame.adapter.<name>`; mechanical `:require`-line substring swap), **M-39** (additive `reg-http-interceptor` / `clear-http-interceptor` surface on `:rf.http/managed`; no rewrite — opt-in collapse of per-call-site request-builder threading), **M-41** (subscribe + dispatch consult the React-context tier; additive, no rewrite), **M-47** (state-tag capability shipped; additive — no rewrite required for existing machines, optional adoption via `:tags` on state nodes), **M-70** (event interceptor chains → metadata `:interceptors` — mechanical `mw/x` / `[mw/x]` / `{:doc ...} [mw/x]` → `{:interceptors [mw/x]}` merged into the metadata map; **loud-at-runtime** for bare/retired shapes, but the *compile* still passes, so swept by a **structural** up-front grep + the boot smoke-test, not march-the-wall).
 - **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns that depend on the surrounding frame; a bare `subscribe`/`dispatch` in an unregistered plain fn can't read the provider's frame and now raises `:rf.error/no-frame-context` — fix is `reg-view` or a captured `frame-handle`); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape); **M-26 (`add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler` portions)** (rewrite path depends on whether the v1 callback / handler was observer-shaped or behaviour-modifying); **M-34** (declarative-`:spawn` spawn-id tracking moved from `:data :pending` to runtime-owned `[:rf.runtime/machines :spawned ...]`; rewrite depends on whether user code or tests asserted on the old leak-on-missing-`:on-spawn` behaviour); **M-40** (`(rf/init!)` requires an explicit adapter spec map; agent identifies hit sites but human confirms which adapter each call site should boot — single-substrate apps are mechanical, mixed-substrate or `.cljc` apps with platform branches need per-site direction); **M-42** (React-19-removed Reagent surfaces ship as throw-on-call shims under the slim adapter; mount-path rewrites are mechanical once the container reference is identified, but `dom-node` / `force-update-all` call sites need per-site direction — there is no static-analysable replacement for `findDOMNode` consumers or `force-update-all` global-rebuild scripts); **M-71** (v1 signal functions → v2 `input-fn`s; the vector-of-reactions rewrite is mechanical, but a **map-returning** signal fn forces the author to choose and preserve an explicit input order, and an `app-db`-reading signal fn must thread the state-derived parameter through the outer query vector at the call site — both are intent the agent cannot recover statically); **M-72** (`inject-cofx` removal / `:rf.world/inputs` → `:rf.cofx` rename / value-returning `reg-cofx`; the *mechanical reshape* — drop the injector interceptor, declare `:rf.cofx/requires`, return the value from the supplier — is structural, but the **durable-read judgment** is Type B: which host reads behind a cofx feed durable state and so must become recorded facts vs may stay ambient is intent the agent cannot recover statically; see `causal-world-inputs.md`).
 
 Per [000-Vision §C1](../../spec/000-Vision.md#c1-mechanical-migration-via-ai-agent), Type B rules require human review precisely because side-effects can be silently reordered with observable consequences.
@@ -2190,7 +2190,7 @@ The dual schemas vocabulary — v1's `:spec` metadata key, v2's `:rf.spec/*` res
 
 **Migration agent token rewrites** (the canonical search-and-replace set):
 
-1. `:spec` → `:schema` **only inside a registration metadata-map** (the position immediately after the registration id, before the optional interceptor vector / handler-fn). Do NOT rewrite `:spec` when it appears as a destructure key, fn arg, or other binding — the rename targets the v1-fixed metadata-map slot, not the keyword in general.
+1. `:spec` → `:schema` **only inside a registration metadata-map** (the position immediately after the registration id, before the handler-fn; event interceptor chains also live in this map under `:interceptors` after M-70). Do NOT rewrite `:spec` when it appears as a destructure key, fn arg, or other binding — the rename targets the v1-fixed metadata-map slot, not the keyword in general.
 2. `:rf.spec/violation` → `:rf.schema/violation` (single global token; safe to rewrite verbatim).
 3. `:spec/at-boundary` → `:rf.schema/at-boundary` (single global token; the namespace segment `:spec/` is reserved at the *keyword* level, so the only conformant tail is `at-boundary`).
 4. `:spec-id` → `:schema-id` **only inside trace-tag map literals or trace-handler destructures** (`(-> ev :tags :spec-id)`, `(let [{:keys [spec-id]} (:tags ev)] ...)`). Avoid renaming unrelated `:spec-id` keys outside the framework's trace surface.
@@ -2354,7 +2354,7 @@ Per audit-of-audits state-machines #12, the machine-handler builder is renamed f
 
 **Type A** (mechanical). Single-symbol global rename.
 
-Per audit-of-audits naming: the `with-redacted` factory's `with-*` prefix misled — `with-*` macros conventionally take a body (`with-frame`, `with-fx-overrides`), but `with-redacted` returns an interceptor value to drop into a `:interceptors` vector. The new name `redact-interceptor` matches the value-shape it produces and aligns with the interceptor-value family (`at-boundary-interceptor`, `unwrap-interceptor`).
+Per audit-of-audits naming: the `with-redacted` factory's `with-*` prefix misled — `with-*` macros conventionally take a body (`with-frame`, `with-fx-overrides`), but `with-redacted` returns an interceptor value to attach via metadata `:interceptors`. The new name `redact-interceptor` matches the value-shape it produces and aligns with the interceptor-value family (`at-boundary-interceptor`, `unwrap-interceptor`).
 
 | Old | New | Surface |
 |---|---|---|
@@ -2401,14 +2401,14 @@ The interceptor `:id` keywords (`:rf.schema/at-boundary`, `:unwrap`) are **uncha
 ```clojure
 ;; before
 (rf/reg-event-fx :api/payload
-  {:schema PayloadSchema}
-  [rf/at-boundary rf/unwrap]
+  {:schema PayloadSchema
+   :interceptors [rf/at-boundary rf/unwrap]}
   (fn [_ {:keys [...]}] ...))
 
 ;; after
 (rf/reg-event-fx :api/payload
-  {:schema PayloadSchema}
-  [rf/validate-at-boundary-interceptor rf/unwrap-interceptor]
+  {:schema PayloadSchema
+   :interceptors [rf/validate-at-boundary-interceptor rf/unwrap-interceptor]}
   (fn [_ {:keys [...]}] ...))
 ```
 
@@ -2724,41 +2724,75 @@ The `-trace-` infix is dropped because the canonical home namespace (`re-frame.t
 
 ---
 
-### M-70. A BARE (non-vector) interceptor arg to `reg-event-db` / `reg-event-fx` / `reg-event-ctx` throws at registration — wrap it in a vector
+### M-70. Event interceptor chains live in metadata `:interceptors`
 
-**Type A** (mechanical, closed shape: `mw/x` → `[mw/x]`). The failure mode is **loud-at-runtime** — `reg-event-*` now **throws `:rf.error/reg-event-bare-interceptor`** when it sees a bare interceptor in the interceptors slot (the rf2-3ut12 guard landed; this was *silent* before). **The critical nuance: loud-at-runtime ≠ loud-at-compile.** The throw fires at **first page-load** (ns-load / registration), not at compile — the *compile still passes clean*. So march-the-wall (driven by the compiler) does **not** find these sites, exactly as if they were silent. The site gets a **structural up-front grep** + the **boot smoke-test** ([`runtime-smoke-test.md`](../../skills/re-frame-migration/references/runtime-smoke-test.md)), which surfaces the throw on the console the instant the app boots. (The migration skill's loud-fail/silent-fail axis is in [`breaking-changes.md` §Failure-visibility axis](../../skills/re-frame-migration/references/breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab); M-70 is its loud-at-runtime-only special case.)
-
-**What to look for.** Any `reg-event-db` / `reg-event-fx` / `reg-event-ctx` registration whose **second** argument (the interceptors slot, between the id and the handler) is a **bare interceptor value** rather than a vector:
+**Type A** (mechanical, closed shape). Every per-event interceptor chain on `reg-event-db` / `reg-event-fx` / `reg-event-ctx` moves into the registration metadata map under `:interceptors`. This covers three source shapes:
 
 ```clojure
-;; v1-tolerated bare form — v2 THROWS :rf.error/reg-event-bare-interceptor at ns-load
+;; v1 bare form — v2 throws :rf.error/reg-event-bare-interceptor at ns-load
 (rf/reg-event-db :save-progress mw/with-progress-completion
   (fn [db _] ...))
 
-;; v2 — the interceptor must be a VECTOR
-(rf/reg-event-db :save-progress [mw/with-progress-completion]
+;; historical positional vector form — v2 throws :rf.error/reg-event-bad-middle-slot
+(rf/reg-event-db :save-progress
+  [mw/with-progress-completion]
+  (fn [db _] ...))
+
+;; historical metadata + positional vector form — v2 throws :rf.error/reg-event-bad-arity
+(rf/reg-event-db :save-progress
+  {:doc "Track save progress."}
+  [mw/with-progress-completion]
   (fn [db _] ...))
 ```
 
-The bare value can be a Var referencing an interceptor (`mw/with-progress-completion`), an inline `(rf/->interceptor …)`, a `(rf/path …)` call, or any other single interceptor map. **The trigger is the *shape* of the slot — a non-vector in the interceptors position — not the identity of the interceptor.** This matters: it is a **structural** check. Flag *any* bare symbol in the slot — a custom interceptor, a registered one, an `mw/*` from the app's middleware namespace, or `rf/unwrap` — not only the obvious `rf/unwrap`. (A real migration worker missed a bare `mw/complete-progress` because their attention anchored on `unwrap`; the grep must be by slot-shape, never by interceptor name.)
+All three become:
 
-**Why this is a runtime trap, not a compile error.** v2's `reg-event-*` require the interceptors arg to be a **vector**; a bare interceptor in that slot now **throws `:rf.error/reg-event-bare-interceptor`** (an `ex-info`) — but **at registration / ns-load, not at compile**. The code **compiles clean**; the throw fires only when the app first loads the ns. And because it throws during `:require`d ns load, it **aborts the rest of that namespace** — every form after the offending `reg-event-*` (fatally, a boot machine's `reg-machine`) **never registers**, so the app typically **hangs at boot** (spinner never clears) rather than just losing one handler. A blind sweep that treats every `reg-event-*` as "preserved, no rewrite" leaves these sites to detonate at first page-load. v1 tolerated the bare form (it wrapped/flattened a single interceptor), so a v1 app carries it **pervasively** — one real migration had 12+ such handlers (progress-completion, wizard criteria-registration, spec-check, datadog-logging). (Before the rf2-3ut12 guard landed this was *silent* — the interceptor simply never ran; it is now loud-at-runtime.)
+```clojure
+(rf/reg-event-db :save-progress
+  {:doc "Track save progress."
+   :interceptors [mw/with-progress-completion]}
+  (fn [db _] ...))
+```
 
-**What to do.** Wrap every bare interceptor in a vector — `mw/x` → `[mw/x]`; multiple bare interceptors (rare, and itself an arity error in v1) → `[mw/x mw/y]`. Mechanical once located. Because the *compile* won't surface these (the throw is at ns-load), **grep every `reg-event-*` site up front** and inspect the interceptors slot at each by **shape** — do **not** rely on the compiler to surface the next occurrence after you fix the first (it never will), and do **not** anchor the grep on a specific interceptor name (`unwrap`) — any non-vector value in the slot is a hit.
+If the source site has no metadata map, create one. If it already has metadata, merge `:interceptors` into that map. Multiple interceptors keep their order: `[i1 i2]` becomes `{:interceptors [i1 i2]}`. The runtime still runs `:before` in declaration order and `:after` in reverse declaration order.
+
+**Why this is a runtime trap, not a compile error.** The invalid shapes still parse and compile; the throw happens at registration / ns-load, when the app first loads the namespace. A missed site can abort the rest of that namespace — every form after it (fatally, a boot machine's `reg-machine`) never registers, so the app can hang at boot. Because the compile will not point at the next site, M-70 is swept by structural grep plus the boot smoke-test ([`runtime-smoke-test.md`](../../skills/re-frame-migration/references/runtime-smoke-test.md)), not by march-the-wall.
+
+**What to look for.** Inspect every `reg-event-db` / `reg-event-fx` / `reg-event-ctx` registration. A hit is any of:
+
+- The form after the id is a bare interceptor value: a Var (`mw/x`), inline `(rf/->interceptor ...)`, `(rf/path ...)`, `(rf/unwrap-interceptor)`, `(rf/redact-interceptor ...)`, etc.
+- The form after the id is a vector: `[i1 i2]`.
+- The call has both a metadata map and a following vector.
+
+This is a **slot-shape** scan, not an interceptor-name scan. Do not anchor on `unwrap`; flag custom interceptors, `mw/*`, framework interceptors, and inline interceptor constructors equally.
 
 ```bash
-# Surface every reg-event-* registration; inspect the 2nd arg's SHAPE at each.
-# A hit = the form after the id is NOT a [ vector (and not the handler fn /
-# metadata map) — regardless of WHICH interceptor it is (custom, mw/*,
-# registered, or rf/unwrap).
+# Surface every event registration; inspect the forms after the id by shape.
 rg -n '\(rf/reg-event-(db|fx|ctx)\b' src
 ```
 
-A site is a hit when the form after the event id is **not** a `[` vector (and not the handler fn / metadata map). The metadata-map form (`{:doc … :schema …}`, per [O-1](#o-1-convert-interceptor-vectors-to-metadata-maps-for-richer-registrations)) is a *separate* second-arg shape and is **not** affected — only a bare *interceptor* in the interceptors position is the M-70 trigger.
+**What to do.** Create or update the metadata map:
 
-**Why** (framework side). The bare form should never have been silently swallowed — it violated re-frame2's loud-failure / no-silent-swallow posture. The guard **has landed** (rf2-3ut12): `reg-event-*` now **throws `:rf.error/reg-event-bare-interceptor` at registration** (an ERROR, no silent `bare → [bare]` coercion) rather than dropping it, so the failure mode flipped from silent to **loud-at-runtime**. But "loud" here means *loud at first page-load*, not at compile — the throw is at ns-load, the compile is unaffected, so the structural up-front grep + the boot smoke-test (where the throw lands on the console) remain the detectors; the compiler still won't point you at the next site.
+```clojure
+;; bare interceptor
+(rf/reg-event-fx :id mw/x handler)
+;; ->
+(rf/reg-event-fx :id {:interceptors [mw/x]} handler)
 
-**Cross-references.** [`breaking-changes.md` §Failure-visibility axis](../../skills/re-frame-migration/references/breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab) (the loud-fail/silent-fail axis — M-70 is its **loud-at-runtime-only** special case: loud at first page-load, *not* at compile, so the compile gate misses it just as it misses the silent rows like the [M-8](#m-8-effect-map-keys-consolidated--only-db-and-fx-at-the-top-level) silent no-op); [`runtime-smoke-test.md`](../../skills/re-frame-migration/references/runtime-smoke-test.md) (row #6 — the boot smoke-test catches the throw on the console); [What stays the same](#what-stays-the-same-do-not-change-these) (`reg-event-*` direct invocation is preserved, but the interceptors slot **must** be a vector — this rule is the carve-out); [O-1](#o-1-convert-interceptor-vectors-to-metadata-maps-for-richer-registrations) (the metadata-map second-arg shape, distinct from the interceptors slot).
+;; positional vector
+(rf/reg-event-fx :id [mw/x mw/y] handler)
+;; ->
+(rf/reg-event-fx :id {:interceptors [mw/x mw/y]} handler)
+
+;; metadata + vector
+(rf/reg-event-fx :id {:doc "..."} [mw/x] handler)
+;; ->
+(rf/reg-event-fx :id {:doc "..." :interceptors [mw/x]} handler)
+```
+
+**Why** (framework side). The metadata map is the one superset middle slot: reflection keys and the interceptor chain live in one open map. Pre-alpha is the window to retire the positional vector before it becomes public API debt. Bare interceptors remain a loud no-silent-swallow error because an interceptor is itself a map and can otherwise masquerade as metadata.
+
+**Cross-references.** [`breaking-changes.md` §Failure-visibility axis](../../skills/re-frame-migration/references/breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab) (M-70 is loud-at-runtime-only: loud at first page-load, not at compile); [`runtime-smoke-test.md`](../../skills/re-frame-migration/references/runtime-smoke-test.md) (row #6 — the boot smoke-test catches survivor throws on the console); [What stays the same](#what-stays-the-same-do-not-change-these) (`reg-event-*` direct invocation is preserved, but interceptor chains must live in metadata `:interceptors`).
 
 ---
 
@@ -2766,30 +2800,30 @@ A site is a hit when the form after the event id is **not** a `[` vector (and no
 
 These are not required for migration. Apply them only if the user has explicitly asked to modernise the codebase to use re-frame2's new features.
 
-### O-1. Convert interceptor vectors to metadata maps for richer registrations
+### O-1. Add richer registration metadata around migrated interceptor chains
 
-re-frame2 lets the middle argument of `reg-event-db`/`reg-event-fx`/etc. be either the legacy interceptor vector or a metadata map. The map form lets you attach `:doc`, `:schema` (Malli), and other introspection-friendly fields.
+M-70 already moves every event interceptor chain into metadata `:interceptors`. O-1 is now only the optional follow-up of adding richer metadata — `:doc`, `:schema` (Malli), tags, and named handlers — around those migrated registrations.
 
-**Transformation:**
+**Optional transformation:**
 
 ```clojure
 ;; before
 (rf/reg-event-fx :load-todo
-  [interceptor-1 interceptor-2]
+  {:interceptors [interceptor-1 interceptor-2]}
   (fn [ctx event] ...))
 
 ;; after
 (rf/reg-event-fx :load-todo
   {:doc    "Loads a todo by id from the API."
-   :schema [:cat [:= :load-todo] :int]}                   ;; Malli, optional
-  [interceptor-1 interceptor-2]                           ;; positional; NOT a metadata-map key
+   :schema [:cat [:= :load-todo] :int]                    ;; Malli, optional
+   :interceptors [interceptor-1 interceptor-2]}
   (fn load-todo-handler [ctx]
     ...))
 ```
 
 Consider also giving the handler fn a name (it appears in stack traces and tooling).
 
-Apply only when the user wants the richer metadata. Don't make this change wholesale — the legacy form continues to work indefinitely.
+Apply only when the user wants the richer metadata. The required compatibility rewrite is M-70; O-1 is for improving the metadata once the app is already on the canonical shape.
 
 ### O-2. Convert plain Reagent view fns to `reg-view` for multi-frame readiness
 
@@ -3074,7 +3108,7 @@ Apply this rule whenever the codebase has any observability sites (the discovery
 
 A non-exhaustive list of public API surface that is **preserved unchanged** in re-frame2. If your code uses any of these, leave it alone.
 
-- **Direct invocation of `reg-event-db` / `reg-event-fx` / `reg-event-ctx` / `reg-sub` / `reg-fx` / `reg-cofx`.** Same names, same call shapes. See M-5 for the one edge case (higher-order use). **One carve-out on the interceptors slot:** the interceptors argument (2nd of 3) **must be a VECTOR** — a **bare** (non-vector) interceptor **throws `:rf.error/reg-event-bare-interceptor` at registration / ns-load** in v2 (loud-at-runtime, *not* at compile — the compile passes), where v1 tolerated the bare form. Wrap every `mw/x` → `[mw/x]` per [M-70](#m-70-a-bare-non-vector-interceptor-arg-to-reg-event-db--reg-event-fx--reg-event-ctx-throws-at-registration--wrap-it-in-a-vector). **`reg-sub` carve-out:** the name and the layer-1 `(fn [db query-v] …)` form are preserved, but the v1 reaction-returning **two-function signal-fn form** is **not** preserved as-is — the signal fn must become a v2 **`input-fn` returning a vector of query vectors**; see [M-71](#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors). `reg-sub-raw` is **not** preserved — see M-18; `reg-event-error-handler` is **not** preserved — see [M-13](#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error) and [M-26](#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces).
+- **Direct invocation of `reg-event-db` / `reg-event-fx` / `reg-event-ctx` / `reg-sub` / `reg-fx` / `reg-cofx`.** Same names and handler signatures. See M-5 for the one edge case (higher-order use). **One carve-out on event interceptor chains:** bare interceptors, positional interceptor vectors, and metadata-plus-vector forms all migrate to metadata `{:interceptors [...]}` per [M-70](#m-70-event-interceptor-chains-live-in-metadata-interceptors). Missed sites compile but throw at registration / ns-load. **`reg-sub` carve-out:** the name and the layer-1 `(fn [db query-v] …)` form are preserved, but the v1 reaction-returning **two-function signal-fn form** is **not** preserved as-is — the signal fn must become a v2 **`input-fn` returning a vector of query vectors**; see [M-71](#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors). `reg-sub-raw` is **not** preserved — see M-18; `reg-event-error-handler` is **not** preserved — see [M-13](#m-13-reg-event-error-handler-is-dropped--error-policy-is-per-frame-on-error) and [M-26](#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces).
 - **Handler signatures.** `(fn [db [_ args]] ...)` for `reg-event-db`; `(fn [ctx event] ...)` or `(fn [m] ...)` for `reg-event-fx`; `(fn [context] ...)` for `reg-event-ctx`. Unchanged. Existing handlers continue to work; new keys appear additively in the cofx-context map.
 - **`dispatch` and `dispatch-sync`.** Same names; the optional second `opts` arg is a new addition that doesn't affect single-arg calls.
 - **`subscribe`.** Same. Optional second `opts` arg.

@@ -71,8 +71,8 @@
             the schema at this dispatch."
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/strict
-        {:schema [:cat [:= :api/strict] :int]}
-        [rf/validate-at-boundary-interceptor]
+        {:schema [:cat [:= :api/strict] :int]
+         :interceptors [rf/validate-at-boundary-interceptor]}
         (fn [_ _] (swap! calls inc) {}))
       ;; Malformed payload: handler MUST be skipped.
       (rf/dispatch-sync [:api/strict "not-an-int"])
@@ -86,8 +86,8 @@
             The handler runs exactly once."
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/strict
-        {:schema [:cat [:= :api/strict] :int]}
-        [rf/validate-at-boundary-interceptor]
+        {:schema [:cat [:= :api/strict] :int]
+         :interceptors [rf/validate-at-boundary-interceptor]}
         (fn [_ _] (swap! calls inc) {}))
       (rf/dispatch-sync [:api/strict 42])
       (is (= 1 @calls)
@@ -107,8 +107,8 @@
             the entire emit body has DCE'd."
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/strict
-        {:schema [:cat [:= :api/strict] :int]}
-        [rf/validate-at-boundary-interceptor]
+        {:schema [:cat [:= :api/strict] :int]
+         :interceptors [rf/validate-at-boundary-interceptor]}
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]
         (trace-tooling/register-listener! ::prod-no-trace (fn [ev] (swap! traces conj ev)))
@@ -131,8 +131,8 @@
             `:before` slot's prod branch validates the event and sets
             `:rf/skip-handler?` on the context when the schema fails."
     (rf/reg-event-fx :api/strict
-      {:schema [:cat [:= :api/strict] :int]}
-      [rf/validate-at-boundary-interceptor]
+      {:schema [:cat [:= :api/strict] :int]
+       :interceptors [rf/validate-at-boundary-interceptor]}
       (fn [_ _] {}))
     (let [before    (:before rf/validate-at-boundary-interceptor)
           valid-ctx (before {:coeffects {:event [:api/strict 42]}})
@@ -152,8 +152,8 @@
     (try
       (let [calls (atom 0)]
         (rf/reg-event-fx :api/disabled
-          {:schema [:cat [:= :api/disabled] :int]}
-          [rf/validate-at-boundary-interceptor]
+          {:schema [:cat [:= :api/disabled] :int]
+           :interceptors [rf/validate-at-boundary-interceptor]}
           (fn [_ _] (swap! calls inc) {}))
         (rf/dispatch-sync [:api/disabled "wildly-malformed"])
         (is (= 1 @calls)

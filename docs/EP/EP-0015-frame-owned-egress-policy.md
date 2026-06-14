@@ -128,7 +128,7 @@ Today the design asks the author to understand too many overlapping mechanisms:
 
 ;; event payload via interceptor
 (rf/reg-event-fx :auth/login
-  [(rf/redact-interceptor [[:password]])]
+  {:interceptors [(rf/redact-interceptor [[:password]])]}
   handler)
 
 ;; HTTP carrier names via process-global mutation

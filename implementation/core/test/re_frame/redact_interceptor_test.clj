@@ -92,7 +92,7 @@
             surface that uses `redacted-event-from-ctx` sees the scrub"
     (let [seen (atom nil)]
       (rf/reg-event-db :auth/login
-        [(privacy/redact-interceptor [[:password] [:token]])]
+        {:interceptors [(privacy/redact-interceptor [[:password] [:token]])]}
         (fn [db [_ payload]]
           (reset! seen payload)
           (assoc db :last-login payload)))
@@ -120,7 +120,7 @@
             payload. Opt-in privacy is additive, not conditional;
             consistent with the schema-redaction helper's `redact-path`."
     (rf/reg-event-db :neutral/save
-      [(privacy/redact-interceptor [[:declared]])]
+      {:interceptors [(privacy/redact-interceptor [[:declared]])]}
       (fn [db [_ payload]] (assoc db :saved payload)))
     (let [evs        (record-traces
                        #(rf/dispatch-sync [:neutral/save {:keep "me"}]))
@@ -145,7 +145,7 @@
 (deftest empty-path-scrubs-entire-payload
   (testing "an empty path is the documented 'scrub everything' form"
     (rf/reg-event-db :whole/payload
-      [(privacy/redact-interceptor [[]])]
+      {:interceptors [(privacy/redact-interceptor [[]])]}
       (fn [db _] (assoc db :ran? true)))
     (let [evs        (record-traces
                        #(rf/dispatch-sync [:whole/payload {:any "thing"}]))
@@ -157,7 +157,7 @@
             is `[id payload-map ...]`); the interceptor must not throw or
             mangle a non-conforming event"
     (rf/reg-event-db :raw/vec-payload
-      [(privacy/redact-interceptor [[:password]])]
+      {:interceptors [(privacy/redact-interceptor [[:password]])]}
       (fn [db _] (assoc db :ran? true)))
     (let [evs        (record-traces
                        #(rf/dispatch-sync [:raw/vec-payload "scalar"]))
@@ -179,7 +179,7 @@
       ;; string, so the parent (get-in payload [:auth]) is non-nil but
       ;; non-associative — the exact mis-declaration the bead calls out.
       (rf/reg-event-db :auth/scalar-parent
-        [(privacy/redact-interceptor [[:auth :password]])]
+        {:interceptors [(privacy/redact-interceptor [[:auth :password]])]}
         (fn [db [_ payload]]
           (reset! seen payload)
           (assoc db :committed payload)))
@@ -224,8 +224,8 @@
         ;; `path` focuses on `:auth`, which makes the auto-redaction
         ;; install for `:password` (frame-declared sensitive). The user
         ;; `redact-interceptor` adds `:token` (NOT frame-declared).
-        [(rf/path :auth)
-         (privacy/redact-interceptor [[:token]])]
+        {:interceptors [(rf/path :auth)
+                        (privacy/redact-interceptor [[:token]])]}
         (fn [auth [_ payload]]
           (reset! seen payload)
           (assoc auth :last payload)))
@@ -259,7 +259,7 @@
             stamper. The `:sensitive?` boolean on emitted events is the
             registration-meta / schema-derived signal only."
     (rf/reg-event-db :plain/scrub
-      [(privacy/redact-interceptor [[:password]])]
+      {:interceptors [(privacy/redact-interceptor [[:password]])]}
       (fn [db _] db))
     (let [evs       (record-traces
                       #(rf/dispatch-sync [:plain/scrub {:password "shh"}]))
@@ -275,7 +275,7 @@
             had a `redact-interceptor` interceptor surfaces the scrub in the
             `:rf.error/handler-exception` trace event"
     (rf/reg-event-db :auth/explode
-      [(privacy/redact-interceptor [[:password] [:token]])]
+      {:interceptors [(privacy/redact-interceptor [[:password] [:token]])]}
       (fn [_ _] (throw (ex-info "boom" {}))))
     (let [evs   (record-traces
                   #(rf/dispatch-sync
@@ -296,8 +296,8 @@
             ships its own privacy interceptor and the registration also
             wants per-call scrubs."
     (rf/reg-event-db :auth/dual
-      [(privacy/redact-interceptor [[:password]])
-       (privacy/redact-interceptor [[:token]])]
+      {:interceptors [(privacy/redact-interceptor [[:password]])
+                      (privacy/redact-interceptor [[:token]])]}
       (fn [db _] (assoc db :ran? true)))
     (let [evs        (record-traces
                        #(rf/dispatch-sync

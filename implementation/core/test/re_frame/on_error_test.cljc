@@ -584,7 +584,7 @@
       ;; then throws — so a :db effect IS present when the throw fires,
       ;; yet nothing installs (the error path returns before the commit).
       (rf/reg-event-db :writes-then-after-throws
-                       [boom-after]
+                       {:interceptors [boom-after]}
                        (fn [db _] (assoc db :written 99)))
       (rf/register-listener! ::rec (fn [ev] (swap! traces conj ev)))
       (try

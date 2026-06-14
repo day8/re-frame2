@@ -6,9 +6,9 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 
 | Surface | Shape |
 |---|---|
-| `rf/reg-event-db` | `(id meta? intercept? (fn [db ev] new-db))` |
-| `rf/reg-event-fx` | `(id meta? intercept? (fn [cofx ev] fx-map))` |
-| `rf/reg-event-ctx` | `(id meta? intercept? (fn [ctx] ctx'))` |
+| `rf/reg-event-db` | `(id meta? (fn [db ev] new-db))` |
+| `rf/reg-event-fx` | `(id meta? (fn [cofx ev] fx-map))` |
+| `rf/reg-event-ctx` | `(id meta? (fn [ctx] ctx'))` |
 | `rf/reg-fx` | `(id [metadata?] (fn [ctx args] ...))` — `ctx` is `{:frame :event}`; `args` is the `:fx` entry's 2nd slot |
 | `rf/reg-cofx` | `(id [metadata?] (fn [] value) \| (fn [arg] value))` — **value-returning** supplier (EP-0017); returns the coeffect value directly. `arg` is the per-call arg from a `[id arg]` declaration. `meta` may carry `:recordable?` / `:provided?` / `:schema` / `:platforms`. Consumed via `:rf.cofx/requires` (not `inject-cofx`, removed) |
 | `rf/reg-sub` | `(id (fn [db query-v] value))` layer-1 · `(id :<- […] … (fn [inputs query-v] value))` static · `(id (fn [query-v] [[:q…]…]) (fn [inputs query-v] value))` parametric — input fn returns a **vector of query vectors** (EP-0004), NOT `subscribe` reactions |
@@ -22,7 +22,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/reg-error-projector` | `(id metadata? (fn [trace-event] public-error))` — needs `day8/re-frame2-ssr` |
 | `rf/reg-http-interceptor` | `(id interceptor-map)` — `interceptor-map` carries `:before` / `:after` / `:frame` / metadata; needs `day8/re-frame2-http` |
 
-The `reg-event-*` metadata-map is the one **superset** middle slot — reflection keys **and** a reserved `:interceptors` key: `(id {:doc ... :schema ... :interceptors [...]} handler)`. The positional interceptor vector is **sugar** for the same: `[i1 i2]` ≡ `{:interceptors [i1 i2]}`. So `(reg-event-fx :id {:doc ... :schema ... :interceptors [rf/validate-at-boundary-interceptor]} handler)` and `(reg-event-fx :id {:doc ... :schema ...} [rf/validate-at-boundary-interceptor] handler)` are equivalent. Supplying interceptors via **both** the map `:interceptors` key AND the positional vector at once is a loud `:rf.error/interceptors-supplied-twice` (one home per fact); a malformed value is `:rf.error/reg-event-bad-interceptors`. Verified against `implementation/core/src/re_frame/events.cljc` `resolve-interceptors` and Spec 001 §Allowed forms of the middle slot. `reg-fx`/`reg-cofx`/`reg-error-projector` take a metadata-map only in that slot.
+The `reg-event-*` metadata-map is the one **superset** middle slot — reflection keys **and** a reserved `:interceptors` key: `(id {:doc ... :schema ... :interceptors [...]} handler)`. The historical positional interceptor vector is retired; `(reg-event-fx :id [i1 i2] handler)` and `(reg-event-fx :id {:doc ...} [i1 i2] handler)` are registration errors. A malformed metadata value is `:rf.error/reg-event-bad-interceptors`. Verified against `implementation/core/src/re_frame/events.cljc` `resolve-interceptors` and Spec 001 §Allowed forms of the middle slot. `reg-fx`/`reg-cofx`/`reg-error-projector` take a metadata-map only in that slot.
 
 ## Dispatch, subscribe, frames
 

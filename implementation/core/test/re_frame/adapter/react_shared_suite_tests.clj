@@ -138,8 +138,8 @@
    {:section "reg-event metadata-map :interceptors superset (rf2-bpmszk / *_events)"}
    {:test 'events-meta-interceptors-threads-chain
     :fn   'assert-reg-event-meta-interceptors-threads-the-chain}
-   {:test 'events-both-places-guard-fires
-    :fn   'assert-reg-event-both-places-guard-fires}
+   {:test 'events-positional-vector-rejected
+    :fn   'assert-reg-event-positional-vector-rejected}
 
    {:section "render-to-string + late-bind chain (*_render_to_string)"}
    {:test 'rts-throws-with-no-emitter

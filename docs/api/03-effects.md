@@ -76,13 +76,13 @@ The v2 standard-interceptor surface is **two specific helpers** (`path`, `unwrap
   ```clojure
   validate-at-boundary-interceptor
   ```
-- **Description**: A **pre-built interceptor value**, not a fn (interceptor `:id` is `:rf.schema/at-boundary`). Add it to a `reg-event-*`'s positional interceptor vector for production-boundary schema validation. **Do not call it as a fn** — it has no fn arity; invoking `(rf/validate-at-boundary-interceptor ...)` raises `ArityException`.
+- **Description**: A **pre-built interceptor value**, not a fn (interceptor `:id` is `:rf.schema/at-boundary`). Add it to a `reg-event-*` metadata map's `:interceptors` vector for production-boundary schema validation. **Do not call it as a fn** — it has no fn arity; invoking `(rf/validate-at-boundary-interceptor ...)` raises `ArityException`.
 
 ### The `path` interceptor: focus on a slice
 
 ```clojure
 (rf/reg-event-db :cart/add-item
-  [(rf/path [:cart :items])]
+  {:interceptors [(rf/path [:cart :items])]}
   (fn [items {:keys [item]}]
     (conj items item)))                       ;; the handler sees and returns the slice
 ```
@@ -93,7 +93,7 @@ The `:before` rewrites `(:db cofx)` to `(get-in db [:cart :items])`. The handler
 
 ```clojure
 (rf/reg-event-fx :foo/update
-  [rf/unwrap]
+  {:interceptors [rf/unwrap]}
   (fn [cofx {:keys [id new-value]}]           ;; :event coeffect is the payload map
     ...))
 ```
@@ -111,7 +111,8 @@ You wrote `(rf/dispatch [:foo/update {:id 1 :new-value "x"}])`; the handler rece
                 (js/console.error err))
               ctx)))
 
-(rf/reg-event-fx ::save-cart [log-on-error]
+(rf/reg-event-fx ::save-cart
+  {:interceptors [log-on-error]}
   (fn [cofx _] ...))
 ```
 

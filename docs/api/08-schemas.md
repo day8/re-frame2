@@ -139,11 +139,11 @@ The three setters answer three different questions: validation correctness (`val
   ```clojure
   validate-at-boundary-interceptor
   ```
-- **Description**: A **pre-built interceptor value**, not a fn (interceptor `:id` is `:rf.schema/at-boundary`). Add it to a `reg-event-*`'s positional interceptor vector for production-boundary validation. **Do not call it as a fn** — it has no fn arity; invoking `(rf/validate-at-boundary-interceptor ...)` raises `ArityException`.
+- **Description**: A **pre-built interceptor value**, not a fn (interceptor `:id` is `:rf.schema/at-boundary`). Add it to a `reg-event-*` metadata map's `:interceptors` vector for production-boundary validation. **Do not call it as a fn** — it has no fn arity; invoking `(rf/validate-at-boundary-interceptor ...)` raises `ArityException`.
 
 ```clojure
 (rf/reg-event-db ::receive-from-server
-  [rf/validate-at-boundary-interceptor]
+  {:interceptors [rf/validate-at-boundary-interceptor]}
   (fn [db [_ payload]] (assoc db :data payload)))
 ```
 

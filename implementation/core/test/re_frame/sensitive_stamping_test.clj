@@ -90,7 +90,7 @@
     (install-sensitive! :rf/default [[:auth :password]])
     (let [seen (atom nil)]
       (rf/reg-event-db :auth/login
-                       [(rf/path :auth)]
+                       {:interceptors [(rf/path :auth)]}
                        (fn [auth [_ payload]]
                          (reset! seen payload)
                          (assoc auth :last-login payload)))
@@ -112,7 +112,7 @@
 (deftest frame-class-auto-redaction-stamps-handler-exception
   (install-sensitive! :rf/default [[:auth :password]])
   (rf/reg-event-db :auth/throws
-                   [(rf/path :auth)]
+                   {:interceptors [(rf/path :auth)]}
                    (fn [_ _] (throw (ex-info "boom" {}))))
   (let [evs (record-traces
               #(rf/dispatch-sync
@@ -125,7 +125,7 @@
 (deftest frame-class-auto-redaction-does-not-affect-unrelated-paths
   (install-sensitive! :rf/default [[:auth :password]])
   (rf/reg-event-db :profile/save
-                   [(rf/path :profile)]
+                   {:interceptors [(rf/path :profile)]}
                    (fn [profile [_ payload]]
                      (assoc profile :saved payload)))
   (let [evs (record-traces
@@ -144,7 +144,7 @@
   (rf/configure! :trace-buffer {:cascades-retained 100})
   (install-sensitive! :rf/default [[:auth :password]])
   (rf/reg-event-db :sensitive/buf
-                   [(rf/path :auth)]
+                   {:interceptors [(rf/path :auth)]}
                    (fn [auth _] auth))
   (rf/reg-event-db :plain/buf
                    (fn [db _] db))

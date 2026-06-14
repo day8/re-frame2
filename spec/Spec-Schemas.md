@@ -204,7 +204,7 @@ Per-kind extensions (sub-specific, fx-specific, view-specific) are additive maps
 
 `:doc` is `{:optional true}` in the schema but normatively SHOULD appear on every registration. The dev runtime surfaces missing-`:doc` registrations through `:rf.warning/missing-doc` (emitted at most once per `(kind, id)` pair; production-elided) — see [001 §`:doc` is dev-warned when absent](001-Registration.md#doc-is-dev-warned-when-absent) and [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives) for the emission contract. The schema stays `{:optional true}` so programmatic re-registration paths and tooling that compose metadata maps without `:doc` still validate; the warning is the nudge, not a structural gate.
 
-The `reg-event-*` metadata-map carries a reserved `:interceptors` key — the map is the one superset middle-slot shape. The positional interceptor vector is **sugar** for `{:interceptors [...]}`. Per [001-Registration §Allowed forms of the middle slot](001-Registration.md#allowed-forms-of-the-middle-slot) and [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-): the two forms produce identical registrar entries; supplying interceptors in both at once is the loud `:rf.error/interceptors-supplied-twice`, and a malformed value is `:rf.error/reg-event-bad-interceptors`. (`reg-frame`'s metadata-map *also* carries an `:interceptors` key — a per-kind extension defined in [Spec 002 §`:interceptors`](002-Frames.md#interceptors--add-interceptors-to-a-frames-events).)
+The `reg-event-*` metadata-map carries a reserved `:interceptors` key — the map is the one superset middle-slot shape and the only supported home for per-event interceptor chains. The historical positional interceptor vector is retired. Per [001-Registration §Allowed forms of the middle slot](001-Registration.md#allowed-forms-of-the-middle-slot) and [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-): a malformed value is `:rf.error/reg-event-bad-interceptors`, and positional-vector legacy calls are rejected loudly. (`reg-frame`'s metadata-map *also* carries an `:interceptors` key — a per-kind extension defined in [Spec 002 §`:interceptors`](002-Frames.md#interceptors--add-interceptors-to-a-frames-events).)
 
 ### Per-kind refinements
 
@@ -222,14 +222,14 @@ The metadata map accepted by `reg-event-db` / `reg-event-fx` / `reg-event-ctx`. 
    RegistrationMetadata
    [:map
     [:event/kind       {:optional true} [:enum :db :fx :ctx]]                ;; runtime stamps this; user code MUST NOT set it
-    [:interceptors     {:optional true} [:vector :map]]                      ;; the interceptor chain (superset middle slot; rf2-bpmszk) — vector form is sugar for this
+    [:interceptors     {:optional true} [:vector :map]]                      ;; the interceptor chain (superset middle slot; rf2-bpmszk / rf2-iczn3)
     [:rf.cofx/requires {:optional true} [:ref :rf.cofx/requires]]            ;; EP-0017 — declared consumed coeffects (reg-event-fx / reg-event-ctx only; a registration error on reg-event-db)
     [:rf/machine?      {:optional true} :boolean]                            ;; true iff this :event entry is a machine handler (reg-machine path)
     [:rf/machine       {:optional true} [:ref :rf/machine-spec]]             ;; the captured machine spec (when :rf/machine? true); see [005](005-StateMachines.md)
     ]])
 ```
 
-The interceptor chain is the reserved `:interceptors` key — the superset middle slot — and the positional vector is sugar for it (see the §Registration-metadata section above and [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-)). The registrar stores the *effective* chain (user interceptors + the framework wrapper) under this key; tooling reads it to answer "which interceptors does this handler carry?" (`(remove :rf/default? interceptors)` recovers the user chain). `:event/kind` is **runtime-stamped** by the dispatch macro; explicit user assignment is silently overwritten. `:rf/machine?` / `:rf/machine` are stamped by `reg-machine` / `reg-machine*` only.
+The interceptor chain is the reserved `:interceptors` key — the superset middle slot and the only supported per-event chain home (see the §Registration-metadata section above and [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event-)). The registrar stores the *effective* chain (user interceptors + the framework wrapper) under this key; tooling reads it to answer "which interceptors does this handler carry?" (`(remove :rf/default? interceptors)` recovers the user chain). `:event/kind` is **runtime-stamped** by the dispatch macro; explicit user assignment is silently overwritten. `:rf/machine?` / `:rf/machine` are stamped by `reg-machine` / `reg-machine*` only.
 
 #### `:rf/sub-meta`
 
