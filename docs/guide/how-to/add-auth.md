@@ -113,22 +113,23 @@ Then comes the guard. There's one thing it absolutely must get right: **gate eve
                                   {:id route-id :params (or params {})})  ;; URL bar / reload / back-forward
     nil))
 
-(def auth-guard
-  {:id     :my-app/auth-guard
-   :before (fn [ctx]
-             (if-let [{:keys [id params]} (nav-target (get-in ctx [:coeffects :event]))]
-               (let [needs-auth? (contains? (:tags (rf/handler-meta :route id)) :requires-auth)
-                     logged-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
-                 (if (and needs-auth? (not logged-in?))
-                   (-> ctx
-                       (assoc :rf/skip-handler? true)        ;; the protected route never commits
-                       (assoc-in [:effects :db]              ;; stash the target for the bounce-back
-                                 (assoc-in (get-in ctx [:coeffects :db])
-                                           [:auth :return-to] {:id id :params params}))
-                       (assoc-in [:effects :fx]
-                                 [[:dispatch [:rf.route/navigate :app/login]]]))
-                   ctx))
-               ctx))})
+(rf/reg-interceptor :my-app/auth-guard
+  {:doc "Redirect logged-out users away from :requires-auth routes; stash the target."}
+  {:before
+   (fn [ctx]
+     (if-let [{:keys [id params]} (nav-target (get-in ctx [:coeffects :event]))]
+       (let [needs-auth? (contains? (:tags (rf/handler-meta :route id)) :requires-auth)
+             logged-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
+         (if (and needs-auth? (not logged-in?))
+           (-> ctx
+               (assoc :rf/skip-handler? true)        ;; the protected route never commits
+               (assoc-in [:effects :db]              ;; stash the target for the bounce-back
+                         (assoc-in (get-in ctx [:coeffects :db])
+                                   [:auth :return-to] {:id id :params params}))
+               (assoc-in [:effects :fx]
+                         [[:dispatch [:rf.route/navigate :app/login]]]))
+           ctx))
+       ctx))})
 ```
 
 The redirect works by *skip-and-dispatch*. `:rf/skip-handler?` stops the original handler, so the protected slice never commits and its `:on-match` loads never fire. The guard then dispatches the login navigation itself.
@@ -137,7 +138,7 @@ The redirect works by *skip-and-dispatch*. `:rf/skip-handler?` stops the origina
 
     The runtime picks the handler from the *original* event id, so editing the event would run the wrong handler. Use skip-and-dispatch instead. And stash the target in `app-db`, not on the navigate opts — the navigate handler drops unknown opts, so a target smuggled onto the options map would simply vanish.
 
-Now wire it frame-wide. It short-circuits in a single `case` lookup for every non-navigation event, so the cost on ordinary traffic is negligible:
+Now wire it frame-wide — by reference. The guard is registered once under `:my-app/auth-guard`; the frame's `:interceptors` chain names that id, never the interceptor value. It short-circuits in a single `case` lookup for every non-navigation event, so the cost on ordinary traffic is negligible:
 
 ```clojure
 ;; Adapted from examples/reagent/realworld/core.cljs
@@ -145,7 +146,7 @@ Now wire it frame-wide. It short-circuits in a single `case` lookup for every no
   {:doc          "The app frame."
    :url-bound?   true                           ;; this frame owns the browser URL
    :sensitive    {:app-db [[:auth :token]]}     ;; step 1's egress protection
-   :interceptors [auth-guard]})
+   :interceptors [:my-app/auth-guard]})         ;; reference the registered guard by id
 ```
 
 ## 5. Bounce back after login
