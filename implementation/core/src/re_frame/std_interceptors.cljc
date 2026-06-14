@@ -27,11 +27,15 @@
   path argument is `:rf.error/path-interceptor-bad-path`.
 
   This standard interceptor is DISTINCT from the legacy `path` fn / the
-  `rf/path` value constructor (the additive-window inline shape): the
-  standard interceptor is the canonical `:factory` consumer and is the
-  carrier of the rule-4 identity-fast-path; the legacy `path` fn stays for
-  the inline-value window (its `:after` only short-circuits the no-`:db`
-  case, not the unchanged-slice case)."
+  `rf/path` value constructor: the standard interceptor is the canonical
+  `:factory` consumer and is the carrier of the rule-4 identity-fast-path.
+  Since the EP-0022 reference-only flip (rf2-0adhqs.9) chains carry refs
+  only, the `path` fn's value is no longer a legal inline chain entry —
+  it is the underlying value builder the `:rf.interceptor/path` factory
+  consumes, and may still be registered at the `reg-interceptor` boundary
+  and referenced by id. (The legacy `path` value's own `:after` only
+  short-circuits the no-`:db` case, not the unchanged-slice case — which is
+  why the standard interceptor, not the legacy value, carries rule 4.)"
   (:require [re-frame.interceptor :as interceptor]
             [re-frame.interceptor-registry :as icpt-reg]
             [re-frame.trace :as trace]))
@@ -105,7 +109,7 @@
 ;; the frame-commit `identical?` no-op (rf2-ekq28v) is preserved.
 ;;
 ;; This is DISTINCT from the legacy `path` fn above. The legacy fn (the
-;; additive-window `rf/path` inline value) only short-circuits the no-`:db`
+;; `rf/path` value builder) only short-circuits the no-`:db`
 ;; case; it still does `(assoc-in original-db path slice)` when a `:db` effect
 ;; is present, allocating a fresh top-level map even for an unchanged slice —
 ;; which defeats the commit no-op. The standard interceptor knows BOTH the

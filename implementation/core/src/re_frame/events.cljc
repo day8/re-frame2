@@ -167,8 +167,10 @@
   validation: every interceptor REFERENCE in `chain` must name a registered
   interceptor. A reference to an absent id throws
   `:rf.error/unregistered-interceptor` at registration so typos die before
-  dispatch. INLINE values (the additive window) and the appended framework
-  handler-wrapper are skipped. Resolution is deferred to chain assembly (the
+  dispatch. Only refs are checked here; the appended framework handler-wrapper
+  (the one inline value a chain carries since the reference-only flip) is
+  skipped — any other inline value has already been rejected by
+  `validate-meta-interceptors!`. Resolution is deferred to chain assembly (the
   router) so hot-reloaded descriptors are picked up on the next dispatch."
   [chain]
   (doseq [entry chain]
