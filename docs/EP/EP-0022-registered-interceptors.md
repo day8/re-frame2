@@ -1,16 +1,21 @@
 # EP-0022: Registered Interceptors
 
-Status: proposal
+Status: accepted
 Type: standards-track
 
-> This EP proposes making interceptors a first-class registered program member:
+> **`accepted` means the decisions are settled; the build is pending (flip
+> recorded 2026-06-15, Mike, in-session).** The chain grammar and the five
+> open-issue decisions are settled per the [§Recommendation](#recommendation);
+> the action epic that lands the changes in the normative spec is the next
+> governance step (`rf2-0adhqs`, sequenced behind EP-0018).
+
+> This EP makes interceptors a first-class registered program member:
 > application-authored interceptor behavior is registered with
 > `reg-interceptor`, and event/frame interceptor chains contain serializable
 > interceptor references rather than inline interceptor values. Its normative
-> home after acceptance would be `spec/001-Registration.md`,
-> `spec/002-Frames.md`, `spec/Conventions.md`, `API.md`, and the v1 migration
-> guide. At `proposal` it binds nothing; acceptance would settle the public
-> chain grammar and trigger the spec/implementation wave.
+> home is `spec/001-Registration.md`, `spec/002-Frames.md`,
+> `spec/Conventions.md`, `API.md`, and the v1 migration guide. The action wave
+> settles the public chain grammar and lands the spec/implementation changes.
 
 ## Abstract
 
