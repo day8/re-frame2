@@ -56,9 +56,17 @@ actual server path rather than a skeleton stand-in: the blocking-drain
 (rf2-er7qx2), the per-entry projection with redaction / omission / scoped-key
 privacy / index omission (rf2-otms75 / rf2-fopuj9), and the client hydration
 reconcile + refetch plan (rf2-ctk2av) all run end-to-end. The example tree is
-test-free (rf2-8cevm); SSR-resource contract coverage lives in
-`implementation/resources/test/` (the SSR + restore CLJS suites) and the
-EP-0003 §9 conformance fixtures.
+test-free (rf2-8cevm), but THIS example's own SSR preload → projection → client
+hydration path is pinned by a direct headless JVM fixture,
+**`resources-ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch`** in
+`implementation/core/test/re_frame/examples_test.clj` (run by `clojure -M:test`):
+it drives the example's `handle-request`, asserts the SSR-preloaded resource
+settled `:loaded` and rode `:rf/runtime-db` as the `:entries` projection (not the
+indexes), then hydrates the example's own `:rf/default` client frame and asserts
+the entry installed `:loaded` (renders immediately, no double-fetch). Broader
+SSR-resource contract coverage (redaction / scoped-key privacy / restore) lives
+in `implementation/resources/test/` (the SSR + restore CLJS suites) and the
+EP-0003 §9 conformance fixtures. See the [coverage table](../README.md#coverage-level-per-reagent-example).
 
 ## Deferred — not built here
 

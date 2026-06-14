@@ -112,9 +112,25 @@ folder's hand-written [`index.html`](index.html) (and the shared assets it
 references under [`../../_shared/`](../../_shared/)) alongside it, then serve
 `out/examples/resources/` over HTTP. (`npm run test:examples` does not build
 this example — it compiles and serves only the three adapter testbeds; see
-[`examples/reagent/README.md`](../README.md).) Examples are test-free per
-[`examples/README.md`](../../README.md); resource contract testing lives in
-`implementation/resources/test/` and the conformance fixtures.
+[`examples/reagent/README.md`](../README.md).)
+
+## Coverage
+
+The example tree is test-free (rf2-8cevm), but this example's wiring is pinned by
+a direct headless CLJS fixture, **`re-frame.resources-example-cljs-test`**
+(`implementation/adapters/reagent/test/re_frame/`, run by `npm run test:cljs`).
+It requires this example's production `resources.core` and drives the four causal
+patterns directly: route-driven page load (the `:resources` route metadata
+ensures under a `[:route …]` owner; the view reads passively and settles
+`:loaded`), event-driven lease ensure/release (`:resources.app/preview-opened` /
+`-closed` under a `[:lease …]` owner), manual refresh as a cause (no owner;
+re-fetches a loaded list into `:fetching` keeping prior data), and the reader
+machine's start/stop event glue. The machine-owned-resource ENSURE step itself
+(the reader's `:reading` `:entry`) is left to the resources artefact runtime
+suites — its `[:machine …]` owner is fail-closed bound to a live actor, so
+pinning the entry deterministically in a shared headless bundle is brittle; the
+generic ensure-under-owner + release-on-destroy mechanics it composes are pinned
+in `implementation/resources/test/`. See the [coverage table](../README.md#coverage-level-per-reagent-example).
 
 ## Cross-references
 

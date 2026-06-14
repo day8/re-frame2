@@ -179,7 +179,11 @@
 ;; mount. The interceptor returns ctx unchanged when no token is present, so
 ;; login / register / the public reads (logged-out) are unaffected.
 
-(defn- bearer-auth-interceptor [ctx]
+;; Public (not `defn-`) so a headless fixture can wire it into a test frame
+;; and assert the decoration — mirroring how the sibling's `routing/auth-guard`
+;; is referenced from `re-frame.realworld-resources-cljs-test`. The example
+;; tree stays test-free (rf2-8cevm); the visibility is the only concession.
+(defn bearer-auth-interceptor [ctx]
   (let [token (some-> (rf/app-db-value (:frame ctx))
                       :auth :token)]
     (cond-> ctx
