@@ -142,6 +142,47 @@
       (is (true? (:rf/skip-handler? bad-ctx))
           "MALFORMED event in prod: :rf/skip-handler? set true — handler is skipped"))))
 
+;; ---- EP-0022 by-ref chain form (rf2-i3uxo2) ------------------------------
+;;
+;; Per EP-0022 + API.md §`validate-at-boundary-interceptor`: a public
+;; `:interceptors` chain carries interceptor REFERENCES, not inline values.
+;; The canonical opt-in is `{:interceptors [:rf.schema/at-boundary]}` (a
+;; bare-keyword ref) — NOT the inline `rf/validate-at-boundary-interceptor`
+;; Var. rf2-i3uxo2 registers `:rf.schema/at-boundary` under the `:interceptor`
+;; registrar kind (re-seeded by the fixture's `rf/init!`), so the bare-keyword
+;; ref resolves at chain assembly and runs the SAME boundary validation as the
+;; inline value. These two tests are the by-ref counterparts of
+;; `boundary-skips-handler-on-invalid-event-in-prod` /
+;; `boundary-passes-valid-event-through-in-prod` above.
+
+(deftest boundary-ref-form-skips-handler-on-invalid-event-in-prod
+  (testing "Per rf2-i3uxo2 — the EP-0022 by-ref chain form
+            `{:interceptors [:rf.schema/at-boundary]}` resolves at chain
+            assembly and runs boundary validation. Under `:advanced` +
+            `goog.DEBUG=false`, a malformed event causes the handler to be
+            SKIPPED — identical behaviour to the inline-value form."
+    (let [calls (atom 0)]
+      (rf/reg-event :api/strict-ref
+        {:schema [:cat [:= :api/strict-ref] :int]
+         :interceptors [:rf.schema/at-boundary]}   ;; EP-0022 ref by id
+        (fn [_ _] (swap! calls inc) {}))
+      (rf/dispatch-sync [:api/strict-ref "not-an-int"])
+      (is (= 0 @calls)
+          "by-ref boundary interceptor resolved and skipped the handler on a malformed payload"))))
+
+(deftest boundary-ref-form-passes-valid-event-through-in-prod
+  (testing "Per rf2-i3uxo2 — the by-ref form passes a VALID event through
+            the boundary unchanged; the handler runs exactly once. Confirms
+            the resolved ref is a live boundary interceptor, not a no-op."
+    (let [calls (atom 0)]
+      (rf/reg-event :api/strict-ref
+        {:schema [:cat [:= :api/strict-ref] :int]
+         :interceptors [:rf.schema/at-boundary]}
+        (fn [_ _] (swap! calls inc) {}))
+      (rf/dispatch-sync [:api/strict-ref 42])
+      (is (= 1 @calls)
+          "valid payload — by-ref boundary passed through, handler ran once"))))
+
 (deftest boundary-noop-when-validator-is-nil-in-prod
   (testing "Per Spec 010 §Non-Malli validators (rf2-froe): even under
             `:advanced` + `goog.DEBUG=false`, setting the validator to

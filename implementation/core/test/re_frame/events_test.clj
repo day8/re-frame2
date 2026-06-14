@@ -660,6 +660,63 @@
              {:doc "no boundary, no schema"}
              (fn [_ _] {}))))))
 
+;; ---- rf2-i3uxo2 — missing-schema detection fires for the BY-REF form too --
+;;
+;; Per EP-0022 + API.md §`validate-at-boundary-interceptor` a public
+;; `:interceptors` chain carries REFS, not inline values: the canonical
+;; opt-in is `{:interceptors [:rf.schema/at-boundary]}` (a bare-keyword ref),
+;; not the inline `validate-at-boundary-interceptor` Var. The chain stores
+;; refs UNRESOLVED, so the missing-schema detection (`register-event!` →
+;; `reject-at-boundary-without-schema!`) sees the RAW bare keyword, not a map.
+;; rf2-i3uxo2 extends the detection so it fires for BOTH the by-ref form and
+;; the legacy inline-value form. The interceptor itself is registered by
+;; `re-frame.spec/register-schema-interceptors!` (re-seeded by `rf/init!`,
+;; which the fixture calls AFTER `clear-all!`), so the ref resolves at
+;; registration's `validate-refs-registered!` step BEFORE the missing-schema
+;; check runs — i.e. an unregistered-interceptor error does NOT pre-empt it.
+
+(deftest at-boundary-ref-form-resolves-at-registration
+  (testing "Per rf2-i3uxo2 — the bare-keyword ref `[:rf.schema/at-boundary]`
+            resolves at chain assembly (the interceptor is registered, re-seeded
+            by init!). A handler carrying the ref AND a `:schema` registers
+            cleanly — no :rf.error/unregistered-interceptor, no missing-schema."
+    (is (= :test.i3uxo2/ref-ok
+           (rf/reg-event :test.i3uxo2/ref-ok
+             {:schema [:cat [:= :test.i3uxo2/ref-ok] :int]
+              :interceptors [:rf.schema/at-boundary]}
+             (fn [_ _] {})))
+        "by-ref form with :schema registers and returns the id")))
+
+(deftest at-boundary-ref-form-without-schema-rejected-at-registration
+  (testing "Per rf2-i3uxo2 — the missing-schema detection fires for the BY-REF
+            form (bare keyword) exactly as it does for the inline value: a
+            handler that references `:rf.schema/at-boundary` but declares no
+            `:schema` raises :rf.error/at-boundary-missing-schema at reg time."
+    (testing "bare-keyword ref, no :schema"
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/at-boundary-missing-schema"
+            (rf/reg-event :test.i3uxo2/ref-no-schema
+              {:interceptors [:rf.schema/at-boundary]}
+              (fn [_ _] {})))))
+
+    (testing "ex-data carries the same actionable slots as the inline form"
+      (let [data (try (rf/reg-event :test.i3uxo2/ref-probe
+                        {:interceptors [:rf.schema/at-boundary]}
+                        (fn [_ _] {}))
+                      (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+        (is (= :rf.error/at-boundary-missing-schema (:rf.error/id data)))
+        (is (= :test.i3uxo2/ref-probe (:id data)))
+        (is (re-find #":rf\.schema/at-boundary" (:reason data)))))
+
+    (testing "rejection happens BEFORE the registry slot is written (ref form)"
+      (try (rf/reg-event :test.i3uxo2/ref-no-side-effect
+             {:interceptors [:rf.schema/at-boundary]}
+             (fn [_ _] {}))
+           (catch clojure.lang.ExceptionInfo _ nil))
+      (is (nil? (registrar/lookup :event :test.i3uxo2/ref-no-side-effect))
+          "no partial registry trace after the ref-form rejection"))))
+
 ;; ---- rf2-3ut12 — a BARE interceptor is rejected loudly at registration ----
 ;;
 ;; Field-confirmed via the rf8 migration: `reg-event` requires the

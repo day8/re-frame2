@@ -201,14 +201,16 @@ Validation is **elided** by default — schemas remain registered (so tooling ca
 
 For users who want production validation at *system boundaries* — typically incoming events from untrusted sources (HTTP responses, websocket messages, postMessage) — re-frame2 ships a `:rf.schema/at-boundary` interceptor that the user adds to specific event handlers. Boundary validation runs even when global validation is elided.
 
+Per EP-0022 a public `:interceptors` chain carries interceptor **references**, not inline values — so reference the framework-registered boundary interceptor by id (`:rf.schema/at-boundary`):
+
 ```clojure
 (rf/reg-event :api/response-received
   {:schema ApiResponseSchema
-   :interceptors [rf/validate-at-boundary-interceptor]}
+   :interceptors [:rf.schema/at-boundary]}   ;; ref by id (EP-0022) — not the inline Var value
   (fn [m] ...))
 ```
 
-The interceptor is exposed as a value at both `re-frame.core/validate-at-boundary-interceptor` (for users who already alias `re-frame.core` as `rf`) and `re-frame.spec/validate-at-boundary-interceptor` (the namespace name is preserved as a v2 alias — the historical `:spec` segment of the segment-name no longer matches the canonical `schema` vocabulary, but the ns rename is deferred to avoid churn; reach the interceptor through `re-frame.core/validate-at-boundary-interceptor` going forward). Both refer to the same value; pick whichever fits the surrounding code's import style.
+The interceptor is **registered** under the `:interceptor` registrar kind (id `:rf.schema/at-boundary`), so the bare-keyword ref resolves at chain assembly. The `validate-at-boundary-interceptor` **value Var** is the registration-boundary *input* (the value the framework registers), not a chain entry — do not drop it into the chain; reference the registered id instead. The Var is exposed at both `re-frame.core/validate-at-boundary-interceptor` (for users who already alias `re-frame.core` as `rf`) and `re-frame.spec/validate-at-boundary-interceptor` (the namespace name is preserved as a v2 alias — the historical `:spec` segment of the segment-name no longer matches the canonical `schema` vocabulary, but the ns rename is deferred to avoid churn). Both refer to the same value.
 
 **Relationship to the handler's `:schema`.** `:rf.schema/at-boundary` re-uses the handler's existing `:schema` — it does **not** introduce a parallel schema. The interceptor's only job is to **force** validation against `:schema` regardless of the global elision flag. Concretely:
 

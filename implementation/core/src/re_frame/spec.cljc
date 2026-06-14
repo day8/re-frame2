@@ -62,6 +62,7 @@
   the interceptor falls through as a no-op."
   (:require [re-frame.error :as error]
             [re-frame.interceptor :as interceptor]
+            [re-frame.interceptor-registry :as icpt-reg]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
@@ -244,3 +245,56 @@
                       ;; checks `:rf/skip-handler?` in its :before slot
                       ;; (see events.cljc).
                       (assoc ctx :rf/skip-handler? true))))))))))))
+
+;; ---- :rf.schema/at-boundary registration (EP-0022, rf2-i3uxo2) ------------
+;;
+;; Per EP-0022 chain grammar + API.md §`validate-at-boundary-interceptor`:
+;; a public `:interceptors` chain carries REFERENCES, not inline values.
+;; A handler opts into boundary validation by referencing the registered
+;; `:rf.schema/at-boundary` interceptor by id — `{:interceptors [:rf.schema/at-boundary]}`
+;; — NOT by dropping the `validate-at-boundary-interceptor` Var into the
+;; chain. The Var stays the registration-boundary INPUT (the value this ns
+;; registers); the chain references the registered interceptor.
+;;
+;; For the bare-keyword ref `[:rf.schema/at-boundary]` to resolve at chain
+;; assembly (rather than failing `:rf.error/unregistered-interceptor`), the
+;; interceptor must live under the `:interceptor` registrar kind. We register
+;; it as a STATIC descriptor (`{:before …}`) — boundary validation runs
+;; entirely in the `:before` slot. The descriptor reuses the SAME `:before`
+;; fn as the `validate-at-boundary-interceptor` value Var, so the inline-value
+;; (migration boundary) form and the by-ref form share one implementation.
+;;
+;; Mirrors `re-frame.std-interceptors/register-standard-interceptors!`: called
+;; at namespace load so standalone require'rs (no `init!`) get the ref, AND
+;; re-seeded from `re-frame.core/init!` so the ref survives a test fixture's
+;; `registrar/clear-all!` (which wipes the `:interceptor` kind).
+
+(defn register-schema-interceptors!
+  "Register the framework-standard `:rf.schema/at-boundary` interceptor into
+  the active registrar so the EP-0022 ref form `[:rf.schema/at-boundary]`
+  resolves at chain assembly (Spec 010 §Production builds + rf2-i3uxo2).
+
+  Registered as a STATIC descriptor reusing the same `:before` slot as the
+  `validate-at-boundary-interceptor` value Var — the inline-value (migration
+  boundary) and by-ref forms therefore run identical boundary validation.
+
+  Idempotent — called at namespace load AND from `re-frame.core/init!` so the
+  ref survives a test fixture's `registrar/clear-all!` (which wipes the
+  `:interceptor` kind along with everything else). Mirrors how
+  `re-frame.std-interceptors/register-standard-interceptors!` re-seeds the
+  standard `:rf.interceptor/path` interceptor."
+  []
+  (icpt-reg/reg-interceptor*
+    :rf.schema/at-boundary
+    {:doc "Framework-standard production-boundary schema-validation interceptor
+          (Spec 010 §Production builds). Referenced as `[:rf.schema/at-boundary]`
+          from an event's metadata `:interceptors`; forces the handler's own
+          `:schema` check at the boundary even in production builds where
+          dev-time validation is elided. Registration without `:schema` is
+          rejected at reg time (`:rf.error/at-boundary-missing-schema`)."}
+    {:before (:before validate-at-boundary-interceptor)})
+  nil)
+
+;; Register at namespace load so standalone require'rs (no `init!`) get the
+;; ref; `init!` re-registers (idempotent) for the post-clear-all! test path.
+(register-schema-interceptors!)

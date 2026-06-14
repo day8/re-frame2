@@ -2590,6 +2590,11 @@
       ;; (`:rf.interceptor/path`) so the standard refs survive a test fixture's
       ;; `registrar/clear-all!`. Idempotent.
       (std-interceptors/register-standard-interceptors!)
+      ;; EP-0022 (rf2-i3uxo2): re-seed the framework-standard
+      ;; `:rf.schema/at-boundary` interceptor so the ref form
+      ;; `[:rf.schema/at-boundary]` resolves after a `registrar/clear-all!`.
+      ;; Idempotent.
+      (spec/register-schema-interceptors!)
       nil)))
 
 (defn init-platform
