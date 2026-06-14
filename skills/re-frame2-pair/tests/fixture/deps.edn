@@ -10,7 +10,11 @@
 ;;
 ;; The fixture needs core + reagent (for the view substrate) + epoch
 ;; (otherwise epoch-history is empty and re-frame2-pair's tests can't observe
-;; dispatch cascades).
+;; dispatch cascades) + schemas + machines (the re-frame2-pair runtime
+;; preload `:require`s `re-frame.schemas` and `re-frame.machines` directly
+;; for its `get-path`/`orient`/list-machines surfaces — those vars were
+;; demoted off the `re-frame.core` facade by the wad2fl front-porch
+;; shrink, so the owned-namespace artefacts must be on the classpath).
 ;;
 ;; `thheller/shadow-cljs` is listed here because `shadow-cljs.edn` runs
 ;; with `:deps true` — shadow-cljs builds the classpath from this file
@@ -24,6 +28,8 @@
  :deps {day8/re-frame2 {:local/root "../../../../implementation/core"}
  day8/re-frame2-reagent {:local/root "../../../../implementation/adapters/reagent"}
  day8/re-frame2-epoch {:local/root "../../../../implementation/epoch"}
+ day8/re-frame2-schemas {:local/root "../../../../implementation/schemas"}
+ day8/re-frame2-machines {:local/root "../../../../implementation/machines"}
  reagent/reagent {:mvn/version "2.0.1"}
  metosin/malli {:mvn/version "0.20.1"}
  thheller/shadow-cljs {:mvn/version "3.4.10"}}}
