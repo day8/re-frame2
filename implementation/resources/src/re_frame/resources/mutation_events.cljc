@@ -61,6 +61,7 @@
   half without a shape change."
   (:require [clojure.set :as set]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.reply :as reply]
             [re-frame.resources.events :as events]
             [re-frame.resources.mutation-registry :as mreg]
@@ -508,6 +509,115 @@
        :unresolved (vec (:unresolved plan))
        :populate-exempt populate-exempt})))
 
+;; ---- dev-only write-side scope-mismatch diagnostic (rf2-byl7bk.4) ----------
+;;
+;; The mutation-scope footgun (Spec 016 §Mutation scope is two distinct scopes
+;; — Scope-match guidance): a mutation's resolved (execution) scope defaults
+;; FAIL-OPEN to `:rf.scope/global` when neither the execute payload nor the
+;; `reg-mutation` spec declares `:scope`, and a bare-tag-set / `:rf.scope/same`
+;; `:invalidates` descriptor then inherits that resolved scope. If the resources
+;; carrying the invalidated tags live in a NON-global scope (session / tenant /
+;; user-scoped reads), the invalidation runs in the WRONG scope, matches NOTHING,
+;; and SILENTLY misses — no error is raised (a scoped invalidation that matches
+;; no entry in its own scope is a legitimate "no match in this scope").
+;;
+;; This is the WRITE-SIDE complement of the read-side `:rf.warning/resource-sub-
+;; scope-mismatch` (`subs.cljc`): the SAME silent-miss footgun, observed at the
+;; mutation-settlement boundary. The runtime tripwire reuses the SHARED
+;; `events/match-invalidation-keys` `:other-scope-hit?` signal — a descriptor
+;; that matched ZERO keys in its resolved scope WHILE the same tags DO match an
+;; entry in a DIFFERENT scope is a likely scope mismatch (the precise case;
+;; a tag that simply has no cache entry anywhere does NOT warn — it is a true
+;; "nothing to invalidate", not a mismatch). A `:cross-scope? true` descriptor
+;; is the AUDITED deliberate escape and is never flagged.
+
+(defonce ^:private
+  ^{:doc "One-shot dedupe set of `[mutation-id descriptor-scope other-scope tags]`
+   tuples already warned about, so a mutation re-executed many times (or a form
+   firing on every keystroke) emits the write-side scope-mismatch dev warning
+   ONCE per genuine mismatch rather than flooding the trace. Host-side transient
+   dev state (NOT runtime-db); cleared per-test by the resources reset hook
+   (`re-frame.resources.test-support`). Mirrors the sub-side
+   `re-frame.resources.subs/warned-scope-mismatch`."}
+  warned-mutation-scope-mismatch
+  (atom #{}))
+
+(defn reset-mutation-scope-mismatch-warnings!
+  "Drop every recorded write-side scope-mismatch warning dedupe key (test
+  isolation). Published through the resources reset hook so the shared CLJS
+  reset-runtime fixture clears it per test — it is host-side transient dev
+  state, not runtime-db, so the runtime/frames reset does not touch it. Mirrors
+  `re-frame.resources.subs/reset-scope-mismatch-warnings!`. Returns nil."
+  []
+  (reset! warned-mutation-scope-mismatch #{})
+  nil)
+
+(defn maybe-warn-scope-mismatch!
+  "Emit the dev-only write-side likely-scope-mismatch warning
+  (`:rf.warning/mutation-scope-mismatch`, rf2-byl7bk.4) for each dispatched
+  invalidation descriptor whose resolved scope matched NO cache entry while the
+  SAME tags DO match an entry in a DIFFERENT scope — the write-side complement
+  of the read-side `:rf.warning/resource-sub-scope-mismatch`, and the runtime
+  tripwire for the mutation-scope footgun (Spec 016 §Mutation scope is two
+  distinct scopes — Scope-match guidance).
+
+  DEV-ONLY: the whole body is behind `interop/debug-enabled?` so Closure DCE
+  elides it in production (`:advanced` + `goog.DEBUG=false`), and the emit rides
+  `trace/emit!` (same gate). One-shot idempotent per distinct
+  `[mutation-id descriptor-scope other-scope sorted-tags]` so a mutation
+  re-executed repeatedly warns once per genuine mismatch.
+
+  A `:cross-scope? true` descriptor (the AUDITED deliberate escape) is never
+  flagged — it ignores the scope filter by construction, so a 'no match in this
+  scope' is impossible / intentional for it. Reuses the SHARED pure
+  `events/match-invalidation-keys` (against the settle-time `entries`), so the
+  diagnostic, the dispatched `:rf.resource/invalidate-tags`, and the settlement
+  trace never disagree on the match set. Returns nil."
+  [plan {:keys [frame-id mutation-id instance-id mut-scope entries]}]
+  (when (and interop/debug-enabled? plan)
+    (doseq [{:keys [scope cross-scope? tags]} (:dispatches plan)]
+      ;; a cross-scope sweep cannot mis-scope; only a scoped descriptor that
+      ;; matched nothing-here-but-something-elsewhere is the footgun.
+      (when (and (not cross-scope?) (seq tags))
+        (let [tag-set (set tags)
+              {:keys [matched other-scope-hit?]}
+              (events/match-invalidation-keys entries scope cross-scope? tag-set #{})]
+          (when (and (empty? matched) other-scope-hit?)
+            (let [other-scope (some (fn [[_k-id entry]]
+                                      (let [[s] (:resource/key entry)]
+                                        (when (and (not= s scope)
+                                                   (seq (set/intersection (set (:tags entry)) tag-set)))
+                                          s)))
+                                    entries)
+                  dedupe-key  [mutation-id scope other-scope (vec (sort-by pr-str tag-set))]]
+              (when-not (contains? @warned-mutation-scope-mismatch dedupe-key)
+                (swap! warned-mutation-scope-mismatch conj dedupe-key)
+                (trace/emit! :warning :rf.warning/mutation-scope-mismatch
+                             {:rf.frame/id        frame-id
+                              :mutation           mutation-id
+                              :instance           instance-id
+                              :descriptor-scope   scope
+                              :mutation-scope     mut-scope
+                              :other-scope        other-scope
+                              :tags               (vec tag-set)
+                              :recovery           :fix-scope
+                              :hint               (str "mutation " (pr-str mutation-id)
+                                                       " invalidated tags " (pr-str (vec tag-set))
+                                                       " in scope " (pr-str scope)
+                                                       " but NO cache entry matched there, while a "
+                                                       "DIFFERENT scope " (pr-str other-scope)
+                                                       " DOES hold a matching entry — the "
+                                                       "invalidation SILENTLY MISSED (the scoped "
+                                                       "read is never refreshed). The mutation's "
+                                                       "resolved scope (" (pr-str mut-scope)
+                                                       ") does not match the scope of the resources "
+                                                       "it affects. Declare the matching scope on "
+                                                       "the execute payload :scope, or use a "
+                                                       "per-target :invalidates descriptor "
+                                                       "{:scope … :tags …} (e.g. {:scope {:from-db "
+                                                       ":your/session} :tags …}). Per Spec 016 "
+                                                       "§Mutation scope is two distinct scopes.")})))))))))
+
 ;; ---- mutation completion continuation — call-site :reply-to (D1) -----------
 ;;
 ;; EP-0016 Decision 1 / Spec 016 §Mutation completion continuations. A
@@ -753,6 +863,13 @@
                    ;; nil-resolved `{:from-db …}` ids) to the started trace.
                    ;; No populates before the request, so the exempt set is empty.
                    before-plan (assoc :invalidation (plan-trace before-plan #{} runtime-db))))
+    ;; DEV-ONLY write-side scope-mismatch tripwire (rf2-byl7bk.4) — a
+    ;; `:before-request` invalidation can mis-scope exactly as a success-time
+    ;; one (it lowers the same scoped descriptors). Checked against the
+    ;; execute-time runtime-db entries (the cache state before the write).
+    (maybe-warn-scope-mismatch!
+      before-plan {:frame-id frame-id :mutation-id mutation :instance-id instance-id
+                   :mut-scope cscope :entries (get-in runtime-db (state/entries-path))})
     {:rf.db/runtime rdb'
      ;; rf2-agrjvk — `:before-request` invalidation must precede the request
      ;; being lowered to transport. fx run in order, so the invalidation
@@ -1176,6 +1293,16 @@
                        ;; exempted from this mutation's refetch) rides the same
                        ;; facet (Spec 016 §Populate is an authoritative load).
                        inv-plan (assoc :invalidation (plan-trace inv-plan populated-ks rdb3))))
+        ;; DEV-ONLY write-side scope-mismatch tripwire (rf2-byl7bk.4) — for each
+        ;; dispatched descriptor that matched NO entry in its resolved scope while
+        ;; the same tags DO match an entry in a DIFFERENT scope, emit the loud
+        ;; `:rf.warning/mutation-scope-mismatch` diagnostic (the write-side
+        ;; complement of the sub-side `:rf.warning/resource-sub-scope-mismatch`).
+        ;; Computed against `rdb3` (the post-cache-consequence settle-time
+        ;; entries the dispatched invalidate-tags will themselves see).
+        (maybe-warn-scope-mismatch!
+          inv-plan {:frame-id frame-id :mutation-id mutation-id :instance-id instance-id
+                    :mut-scope scope :entries (get-in rdb3 (state/entries-path))})
         ;; PHASE 6 evidence — emitted AFTER `:rf.mutation/succeeded` so the
         ;; `:rf.mutation/replied` trace row truthfully follows settlement in the
         ;; phase order (rf2-ru73k6 F2). No-op when no `:reply-to` continued.
@@ -1307,6 +1434,15 @@
                        ;; populated keys on a failure, so the Rider 1 exempt
                        ;; set is empty).
                        inv-plan (assoc :invalidation (plan-trace inv-plan #{} runtime-db))))
+        ;; DEV-ONLY write-side scope-mismatch tripwire (rf2-byl7bk.4) — also fires
+        ;; on the `:after-failure` / `:after-settle` invalidation timing (a write
+        ;; that invalidates on failure to force a re-read of authoritative server
+        ;; state can mis-scope exactly as a success-time one). A failure applies
+        ;; no patch/populate, so the settle-time entries are the unchanged
+        ;; `runtime-db`.
+        (maybe-warn-scope-mismatch!
+          inv-plan {:frame-id frame-id :mutation-id mutation-id :instance-id instance-id
+                    :mut-scope scope :entries (get-in runtime-db (state/entries-path))})
         ;; PHASE 6 evidence — emitted AFTER `:rf.mutation/failed` so the
         ;; `:rf.mutation/replied` row truthfully follows settlement in the phase
         ;; order (rf2-ru73k6 F2). No-op when no `:reply-to` continued.

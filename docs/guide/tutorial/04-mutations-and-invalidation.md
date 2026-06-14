@@ -75,6 +75,34 @@ Three keys do the work:
 
 Register `:conduit/unfavorite` the same way — same shape, `:method :delete`. The full registration surface lives in [Spec 016](../../../spec/016-Resources.md).
 
+!!! warning "The scope footgun — and the safe pattern"
+
+    The single most common mutation bug is a **scope mismatch**: a write invalidates a tag in the *wrong* scope, so the invalidation matches no cache entry and the stale read is never refreshed. It is silent by construction — invalidating a tag that has no entry in *this* scope is a legitimate "nothing to do," so the runtime can't tell a true no-op from a miss by the match alone.
+
+    The footgun looks like this. A mutation with **no `:scope`** defaults its execution scope to `:rf.scope/global` (writes are fail-open — a write leaks nothing, so global is a safe default). A **bare tag set** on `:invalidates` then inherits that resolved scope. So this:
+
+    ```clojure
+    ;; ✗ WRONG — the feed lives in the SESSION scope, but this invalidates GLOBAL
+    (rf/reg-mutation :conduit/post-to-feed
+      {:params-schema [:map …]
+       :request       (fn [_ _] {:request {:method :post :url (rh/full-url "/articles")}})
+       :invalidates   (fn [_ _result] #{[:feed]})})   ;; resolves to :rf.scope/global
+    ```
+
+    quietly *misses* `:conduit/feed`, because that resource is `:scope {:from-db :conduit/session}` — its entries live under `[:rf.scope/session {:username …}]`, never under global. The feed stays stale.
+
+    The fix is the per-scope descriptor form you already used above: name the scope each tag actually lives in.
+
+    ```clojure
+    ;; ✓ RIGHT — name the session scope, via the same resolver the resource uses
+    :invalidates (fn [_ _result]
+                   [{:scope {:from-db :conduit/session} :tags #{[:feed]}}])
+    ```
+
+    The same rule covers route- and tenant-scoped reads: **a write's invalidation scope must match the scope of the resources it breaks.** When a write touches both a global fact and a session fact, return one descriptor per scope (exactly as `:conduit/favorite` does above) — never a blanket `:cross-scope? true`, which is the audited multi-tenant escape, not the default.
+
+    You don't have to spot this by eye. In dev builds the framework emits a loud **`:rf.warning/mutation-scope-mismatch`** at the moment a mutation invalidates in a scope that holds no matching entry *while a different scope does* — the write-side complement of the read-side `:rf.warning/resource-sub-scope-mismatch`. It names the mutation, the scope it invalidated in, the scope that actually held the entry, and the tags, and its `:hint` points at the fix. It's dev-only (elided from production by `goog.DEBUG`), dedupe-keyed so a form firing on every keystroke warns once, and it fires only on a genuine *mismatch* — a tag with no entry anywhere (a true nothing-to-invalidate) and a deliberate `:cross-scope? true` sweep are both quiet. Watch for it in the trace stream or in Xray.
+
 !!! note "Honest limits on `:populates`"
 
     `:populates` is a *forward-only* seed — optimistic rollback is a deferred feature, not a current one. Here that's harmless, because populate runs only on success. But don't reach for populate expecting TanStack-style optimistic updates that revert on failure; that shape isn't available yet.
