@@ -34,14 +34,15 @@
   shape with an `:rf.source/uri` string — so the AI host renders an
   immediate jump-to-editor link off the handler-meta response.
 
-  Supported kinds: `event`, `sub`, `fx`, `cofx`, `view`, `frame`,
-  `route`, `flow`, `head`, `error-projector`, `resource`, `mutation`,
-  `resource-scope`, `machine` — the closed v1 registrar set (per Spec
-  001 §Registry model; the three resources-artefact kinds are EP-0016 /
-  rf2-f8s9g6). App-db schemas are NOT a registrar kind (rf2-cq1ak);
-  their metadata lives in the schemas artefact's per-frame side-table,
-  surfaced via `rf/app-schemas` / `rf/app-schema-meta-at`. The thirteen
-  registrar kinds map directly to `rf/handler-meta`; `machine` routes
+  Supported kinds: `event`, `sub`, `fx`, `cofx`, `interceptor`, `view`,
+  `frame`, `route`, `flow`, `head`, `error-projector`, `resource`,
+  `mutation`, `resource-scope`, `machine` — the closed v1 registrar set
+  (per Spec 001 §Registry model; the three resources-artefact kinds are
+  EP-0016 / rf2-f8s9g6; `interceptor` is EP-0022). App-db schemas are NOT
+  a registrar kind (rf2-cq1ak); their metadata lives in the schemas
+  artefact's per-frame side-table, surfaced via `rf/app-schemas` /
+  `rf/app-schema-meta-at`. The fourteen registrar kinds map directly to
+  `rf/handler-meta`; `machine` routes
   through the dedicated `rf/machine-meta` surface (Spec 005 §Querying machines —
   machines are registered as `:event` handlers carrying
   `:rf/machine? true` with their spec in the `:rf/machine` slot, and
@@ -57,9 +58,10 @@
   surface. Agents call `list-handlers {kind \"event\"}` first to find
   out what's registered, then `handler-meta` to drill in.
 
-  For every registrar kind (`event` / `sub` / `fx` / `cofx` / `view`
-  / `frame` / `route` / `flow` / `head` / `error-projector` /
-  `resource` / `mutation` / `resource-scope`) the list comes from
+  For every registrar kind (`event` / `sub` / `fx` / `cofx` /
+  `interceptor` / `view` / `frame` / `route` / `flow` / `head` /
+  `error-projector` / `resource` / `mutation` / `resource-scope`) the
+  list comes from
   `re-frame2-pair.runtime/registrar-list`. For `machine` the list
   comes from `re-frame.core/machines` — every event handler flagged
   `:rf/machine? true`.
@@ -104,17 +106,31 @@
   fns (`:request` / `:tags` / `:invalidates` / `:populates` / `:resolve`)
   off the EDN wire so the serializable structure rides cleanly.
 
+  `:interceptor` (EP-0022 / Spec 001 §Interceptors) is the registered-
+  interceptor registrar kind — `reg-interceptor` stores an interceptor
+  DESCRIPTOR (`{:before}` / `{:after}` / `{:before :after}` / `{:factory}`)
+  under it, keyed by a qualified keyword id. Event/frame `:interceptors`
+  chains carry REFERENCES (bare keyword / `[id arg]`) into this kind; the
+  runtime resolves the refs to executable interceptor values at chain
+  assembly. It enumerates / describes through the same kind-agnostic
+  `registrar-list` + `registrar-describe` accessors as every other kind —
+  so `list-handlers {kind \"interceptor\"}` enumerates the registered ids
+  and `handler-meta {kind \"interceptor\" id …}` surfaces the descriptor
+  (the `:rf/interceptor-descriptor` slot the registrar retains for tooling).
+  Without it, registered interceptors were not inspectable via the pair-MCP
+  handler-meta tool (flagged during rf2-0adhqs.2).
+
   App-db schemas (rf2-cq1ak) are intentionally absent — they are NOT
   a registrar kind; their metadata lives in the schemas artefact's
   per-frame side-table. `machine` is intentionally absent here too —
   it routes through `rf/machine-meta` (which inspects `:event`-kind
   metadata for the `:rf/machine?` flag) — but is in `supported-kinds`
   below."
-  #{:event :sub :fx :cofx :view :frame :route :flow :head :error-projector
-    :resource :mutation :resource-scope})
+  #{:event :sub :fx :cofx :interceptor :view :frame :route :flow :head
+    :error-projector :resource :mutation :resource-scope})
 
 (def ^:private supported-kinds
-  "The full set of kinds the tool accepts. The ten registrar kinds
+  "The full set of kinds the tool accepts. The fourteen registrar kinds
   above plus the virtual `:machine` kind."
   (conj registrar-kinds :machine))
 
@@ -179,7 +195,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Tool — handler-meta.
 ;;
-;; Eval-form composition: for the ten registrar kinds we route through
+;; Eval-form composition: for the fourteen registrar kinds we route through
 ;; `re-frame2-pair.runtime/registrar-describe` (already published; carries
 ;; the `:not-registered` envelope on miss). For `:machine` we wrap
 ;; `re-frame.core/machine-meta` directly — the runtime ns has no
@@ -337,7 +353,7 @@
 (defn- list-form
   "Build the eval form returning the sorted id vector for a kind.
 
-  DEFAULT realm (`realm` is nil): the ten registrar kinds route through
+  DEFAULT realm (`realm` is nil): the fourteen registrar kinds route through
   `re-frame2-pair.runtime/registrar-list`; `:machine` wraps
   `re-frame.core/machines` (Spec 005 §Querying machines — every event
   handler with `:rf/machine? true`). Byte-identical to before.

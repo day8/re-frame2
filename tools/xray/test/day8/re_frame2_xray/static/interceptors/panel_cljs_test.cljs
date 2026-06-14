@@ -75,6 +75,29 @@
    :anon/no-chain
    {:interceptors []}})
 
+;; EP-0022 (rf2-0adhqs.7) — a chain may carry REFERENCES (bare keyword /
+;; `[id arg]`) into the `:interceptor` registrar alongside inline values.
+;; The catalogue must surface refs by their authored form + enrich them
+;; from the registered descriptor.
+(def sample-events-with-refs
+  {:cart/add
+   {:interceptors [:my/logging                       ; bare-keyword ref
+                   [:rf.interceptor/path [:cart]]     ; parameterized [id arg] ref
+                   {:id :rf/event-handler :rf/default? true :before identity}]}
+
+   :cart/clear
+   {:interceptors [:my/logging                       ; same ref → collapses
+                   {:id :rf/event-handler :rf/default? true :before identity}]}})
+
+;; A stub resolver standing in for `(rf/handler-meta :interceptor id)` so the
+;; pure helper test never needs a live registrar.
+(defn- stub-resolve-ref [icpt-id]
+  (get {:my/logging          {:rf/interceptor-descriptor {:before identity}
+                              :doc "logs every dispatch"}
+        :rf.interceptor/path {:rf/interceptor-descriptor {:factory identity}
+                              :doc "framework path interceptor"}}
+       icpt-id))
+
 ;; -------------------------------------------------------------------------
 ;; (1) pure helpers
 ;; -------------------------------------------------------------------------
@@ -120,6 +143,55 @@
     (is (false? (:silent? data)))
     (is (true? (:silent? (panel/project-data {} nil)))
         "no events → silent")))
+
+;; -------------------------------------------------------------------------
+;; (1b) EP-0022 ref-aware collection (rf2-0adhqs.7)
+;; -------------------------------------------------------------------------
+
+(deftest collect-interceptors-surfaces-keyword-refs
+  (let [rows  (panel/collect-interceptors sample-events-with-refs stub-resolve-ref)
+        by-id (into {} (map (juxt :id identity) rows))]
+    ;; 3 distinct ids: :my/logging (ref), :rf.interceptor/path (factory ref),
+    ;; :rf/event-handler (inline value).
+    (is (= 3 (count rows)))
+    (is (true? (get-in by-id [:my/logging :ref?]))
+        "a bare-keyword chain entry is surfaced as a reference")
+    (is (= :my/logging (get-in by-id [:my/logging :authored]))
+        "the authored ref form is the keyword itself")
+    (is (= 2 (get-in by-id [:my/logging :chain-count]))
+        "the ref collapses across both chains")
+    (is (true? (get-in by-id [:my/logging :before?]))
+        "the ref is enriched with its resolved descriptor's :before hook")
+    (is (= "logs every dispatch" (get-in by-id [:my/logging :doc]))
+        "the ref is enriched with the registered :doc")))
+
+(deftest collect-interceptors-surfaces-factory-refs
+  (let [rows  (panel/collect-interceptors sample-events-with-refs stub-resolve-ref)
+        by-id (into {} (map (juxt :id identity) rows))
+        path  (get by-id :rf.interceptor/path)]
+    (is (true? (:ref? path)) "[id arg] entry is a reference")
+    (is (= [:rf.interceptor/path [:cart]] (:authored path))
+        "the authored form is the full [id arg] vector")
+    (is (= [:cart] (:arg path)) "the factory arg is surfaced")
+    (is (true? (:factory? path))
+        "a :factory descriptor is reported as a factory ref")))
+
+(deftest collect-interceptors-keeps-inline-values-non-ref
+  (let [rows  (panel/collect-interceptors sample-events-with-refs stub-resolve-ref)
+        by-id (into {} (map (juxt :id identity) rows))]
+    (is (false? (get-in by-id [:rf/event-handler :ref?]))
+        "an inline interceptor value is NOT a reference")
+    (is (true? (get-in by-id [:rf/event-handler :default?]))
+        "inline framework wrapper still flags :default?")))
+
+(deftest collect-interceptors-arity-1-uses-default-resolver
+  ;; The 1-arity (production) form must not throw on an unregistered ref —
+  ;; default-resolve-ref is fail-soft.
+  (let [rows (panel/collect-interceptors {:x {:interceptors [:unregistered/icpt]}})
+        row  (first rows)]
+    (is (= :unregistered/icpt (:id row)))
+    (is (true? (:ref? row)))
+    (is (false? (:before? row)) "unresolved ref reports no hooks")))
 
 ;; -------------------------------------------------------------------------
 ;; (2) registry wiring
