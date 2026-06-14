@@ -5,7 +5,7 @@
   Frames isolate STATE; the registrar is shared across all frames.
 
   Reserved kinds (closed v1 set, per Spec 001 §Registry model):
-    :event :sub :fx :cofx :view :frame :route :head
+    :event :sub :fx :cofx :interceptor :view :frame :route :head
     :error-projector :flow :resource
 
   Machine guards and actions are NOT a registrar kind (rf2-ftrcv,
@@ -101,8 +101,17 @@
   currency reused by resource registration, route resources, ensure /
   subscriptions, invalidation descriptors, and clear-scope). Deliberately a
   distinct kind, not folded into `:resource`. Reserved whether or not the
-  Resources artefact ships."
-  #{:event :sub :fx :cofx :view :frame :route :head
+  Resources artefact ships.
+
+  `:interceptor` (rf2-0adhqs.2, Spec 001 §Interceptors / EP-0022) is the
+  registered-interceptor registrar kind — `reg-interceptor` stores an
+  interceptor DESCRIPTOR (`{:before}` / `{:after}` / `{:before :after}` /
+  `{:factory}`) under it, keyed by a qualified keyword id. Event/frame
+  `:interceptors` chains carry REFERENCES (bare keyword / `[id arg]`) into
+  this kind; the runtime resolves the refs to executable interceptor values
+  at chain assembly (`re-frame.interceptor-registry`). Application ids are
+  application-owned; framework standard refs live under `:rf.interceptor/*`."
+  #{:event :sub :fx :cofx :interceptor :view :frame :route :head
     :error-projector :flow :resource :mutation :resource-scope})
 
 (defn valid-kind? [k]

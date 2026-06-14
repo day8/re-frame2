@@ -203,17 +203,13 @@
    ;; replace-app-db! / replace-runtime-db! / replace-frame-state! as live
    ;; vars — they are now manifested and classified below, so they are removed
    ;; from this allowlist.
-   "reset-app-db!"          ; EP-0001 app-db-only reset (Tool-Pair) — unshipped (rf2-tfepxu / bead 9)
-   ;; EP-0022 registered interceptors (Slice A, rf2-0adhqs.1) — the SPEC
-   ;; landed ahead of the runtime: spec/API.md §Registration rows
-   ;; `reg-interceptor` / `reg-interceptor*` (and the §Standard interceptors
-   ;; reg-interceptor row) describe the public interceptor-authoring surface
-   ;; normatively, but the runtime is the NEXT slice — these vars are not yet
-   ;; live `re-frame.core` facade vars, so the generated manifest cannot carry
-   ;; them. Remove both from this allowlist when the runtime slice ships and
-   ;; the regenerated manifest picks them up (then classify them below).
-   "reg-interceptor"        ; EP-0022 §Registration — registered-interceptor registrar macro, runtime unshipped
-   "reg-interceptor*"}      ; EP-0022 §Registration — plain-fn registrar beneath reg-interceptor, runtime unshipped
+   "reset-app-db!"}         ; EP-0001 app-db-only reset (Tool-Pair) — unshipped (rf2-tfepxu / bead 9)
+ ;; EP-0022 registered interceptors (Slice B, rf2-0adhqs.2) — the runtime
+ ;; landed: `reg-interceptor` (macro) / `reg-interceptor*` (plain fn) now ship
+ ;; as live `re-frame.core` facade vars (the inverse of Slice A's spec-ahead
+ ;; reservation), so the generated manifest carries them and their tier/owner/
+ ;; status classification moves into the `:classification` map below. They are
+ ;; NO LONGER on the `:api-md-known-unmanifested` allowlist above.
  ;; EP-0016 named resource-scope resolvers (slice 2, rf2-hls77w) — the impl
  ;; landed: `reg-resource-scope` / `clear-resource-scope` /
  ;; `resolve-resource-scope` now ship as live `re-frame.core` facade vars
@@ -370,6 +366,15 @@
   ;; which carries Status `EP-0017` for this row). See spec/001-Registration.md
   ;; §Coeffects — `reg-cofx` (value-returning, graded).
   ["re-frame.core" "reg-cofx"]            {:tier :front-porch :owner "002" :status "v1 (changed, EP-0017)"}
+  ;; EP-0022 (rf2-0adhqs.2): the public interceptor-authoring registrar.
+  ;; `reg-interceptor` (macro, captures source coords) is the front-porch form;
+  ;; `reg-interceptor*` (plain fn) is the advanced HoF / programmatic variant
+  ;; (per the `*`-suffix convention, mirroring `reg-view` / `reg-view*`). The
+  ;; `:interceptor` registrar kind + descriptor forms are owned by
+  ;; spec/001-Registration §Interceptors; the by-reference chain grammar is
+  ;; spec/002-Frames §Registered interceptors.
+  ["re-frame.core" "reg-interceptor"]     {:tier :front-porch :owner "001" :status "EP-0022"}
+  ["re-frame.core" "reg-interceptor*"]    {:tier :advanced    :owner "001" :status "EP-0022"}
   ["re-frame.core" "reg-frame"]           {:tier :front-porch :owner "002" :status "v1"}
   ["re-frame.core" "make-frame"]          {:tier :advanced    :owner "002" :status "v1"}
   ["re-frame.core" "reg-view"]            {:tier :front-porch :owner "004" :status "v1"}

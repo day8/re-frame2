@@ -32,6 +32,7 @@
   (:require [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
+            [re-frame.interceptor-registry :as icpt-reg]
             [re-frame.late-bind :as late-bind]
             [re-frame.cofx :as cofx]
             [re-frame.source-coords :as source-coords]
@@ -60,16 +61,16 @@
 ;; bad-middle-slot / bad-arity).
 
 (defn- interceptor-entry?
-  "True when `x` is shaped like an interceptor — a map carrying any of the
-  interceptor keys (`:id` / `:before` / `:after`). The bar matches `:before` /
-  `:after` detection used elsewhere (`bare-interceptor-map?`) while also
-  admitting an `:id`-only map (a named no-op interceptor). A non-map entry
-  (keyword, string, number, …) is the unambiguous malformed tell."
+  "True when `x` is a valid `:interceptors` chain entry. ADDITIVE under
+  EP-0022 (rf2-0adhqs.2): an entry is either an interceptor REFERENCE — a bare
+  keyword id or an `[id arg]` 2-vector — OR (the additive window) an INLINE
+  interceptor value, a map carrying `:id` / `:before` / `:after`. Refs resolve
+  to their registered values at chain assembly; inline values flow through
+  unchanged while the additive window is open. A non-ref non-map entry
+  (a string, number, …) is the unambiguous malformed tell."
   [x]
-  (and (map? x)
-       (or (contains? x :id)
-           (contains? x :before)
-           (contains? x :after))))
+  (or (icpt-reg/interceptor-ref? x)
+      (icpt-reg/interceptor-value? x)))
 
 (defn- throw-bad-interceptors-value!
   "Raise `:rf.error/reg-event-bad-interceptors` (ex-info) for a malformed
@@ -91,9 +92,11 @@
 
 (defn- validate-meta-interceptors!
   "Validate the metadata-map `:interceptors` value at registration. The value
-  MUST be a vector, and every entry MUST be an interceptor map (per
-  `interceptor-entry?`). Raises `:rf.error/reg-event-bad-interceptors` on a
-  malformed value. A no-op (returns `value`) for a well-shaped vector."
+  MUST be a vector, and every entry MUST be a valid chain entry — an
+  interceptor REFERENCE (bare keyword / `[id arg]`) or (the EP-0022 additive
+  window) an INLINE interceptor value (per `interceptor-entry?`). Raises
+  `:rf.error/reg-event-bad-interceptors` on a malformed value. A no-op
+  (returns `value`) for a well-shaped vector."
   [reg-fn-name id value]
   (cond
     (not (vector? value))
@@ -101,17 +104,35 @@
       reg-fn-name id value
       (str reg-fn-name " for `" id "` carried a non-vector `:interceptors` value in "
            "its metadata-map; `:interceptors` must be a vector of interceptor "
-           "maps (e.g. `{:interceptors [(path :a) some-interceptor]}`)."))
+           "references (e.g. `{:interceptors [:auth/required [:rf.interceptor/path [:cart]]]}`)."))
 
     (not (every? interceptor-entry? value))
     (throw-bad-interceptors-value!
       reg-fn-name id value
-      (str reg-fn-name " for `" id "` carried a `:interceptors` vector with a "
-           "non-interceptor entry; every entry must be an interceptor map "
-           "(carrying `:id` / `:before` / `:after`). Build interceptors with "
-           "`rf/->interceptor` or the framework helpers (e.g. `(path :a)`)."))
+      (str reg-fn-name " for `" id "` carried a `:interceptors` vector with an "
+           "entry that is neither an interceptor reference (a keyword id, or an "
+           "`[id arg]` 2-vector) nor an inline interceptor value; register the "
+           "interceptor with `rf/reg-interceptor` and reference it by id."))
 
     :else value))
+
+(defn- validate-refs-registered!
+  "Per Spec 002 §Validation and resolution timing — registration-time
+  validation: every interceptor REFERENCE in `chain` must name a registered
+  interceptor. A reference to an absent id throws
+  `:rf.error/unregistered-interceptor` at registration so typos die before
+  dispatch. INLINE values (the additive window) and the appended framework
+  handler-wrapper are skipped. Resolution is deferred to chain assembly (the
+  router) so hot-reloaded descriptors are picked up on the next dispatch."
+  [chain]
+  (doseq [entry chain]
+    (when (icpt-reg/interceptor-ref? entry)
+      ;; resolve-ref throws the structured :rf.error/unregistered-interceptor /
+      ;; :rf.error/interceptor-factory-arity if the ref cannot resolve. We
+      ;; discard the resolved value — this is a pure existence/shape check; the
+      ;; actual resolution rides the dispatch-time chain assembly.
+      (icpt-reg/resolve-ref entry)))
+  chain)
 
 ;; ---- validate-at-boundary-interceptor registration-time validation (rf2-iftj4) -----------------
 ;;
@@ -776,6 +797,12 @@
     [meta []]
     (let [meta-interceptors (validate-meta-interceptors!
                               reg-fn-name id (:interceptors meta))]
+      ;; Per Spec 002 §Validation and resolution timing: validate that every
+      ;; REFERENCE resolves at registration (typos die before dispatch), but
+      ;; store the chain UNRESOLVED — the router resolves refs at chain
+      ;; assembly so a hot-reloaded interceptor descriptor is picked up on the
+      ;; next dispatch (EP-0022, rf2-0adhqs.2).
+      (validate-refs-registered! meta-interceptors)
       [(dissoc meta :interceptors) meta-interceptors])))
 
 (defn- register-event!
