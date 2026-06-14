@@ -18,7 +18,7 @@ Story installs runtime slots into every variant frame's `app-db` under the reser
 - `:rf.story/loaders-complete?` — boolean signal read by the `:loaders-complete-when` predicate path.
 - `:rf.story/assertions` — vector of assertion records appended by `:rf.assert/*` handlers during phase 4.
 
-A host application's `reg-event-db` handlers — and any other code path that writes `app-db` — MUST preserve the `:rf.story/*` namespace when seeding or resetting `db`. The hazard is the "replace-the-whole-db" idiom: `(fn [_db _event] {...})` wipes the reserved slots and corrupts every Story variant that runs the event. Use `(fn [db _event] (assoc db ...))` or `(merge db {...})` instead — thread `db` through; don't throw it away.
+A host application's `reg-event` handlers — and any other code path that writes `app-db` — MUST preserve the `:rf.story/*` namespace when seeding or resetting `db`. The hazard is the "replace-the-whole-db" idiom: a handler returning `{:db {...}}` built from scratch wipes the reserved slots and corrupts every Story variant that runs the event. Build the `:db` return by threading the incoming `db` through — `{:db (assoc db ...)}` or `{:db (merge db {...})}` — don't throw it away.
 
 ## The four-phase lifecycle
 

@@ -125,7 +125,7 @@ Every `reg-*` accepts `:sensitive` / `:large` (vectors of paths) plus, for subs 
 
 | Reg kind | Path root | Owner |
 |---|---|---|
-| `reg-event-db` / `reg-event-fx` / `reg-event-ctx` | the event arg-map (second element of `[:event-id {arg-map}]`) | [015 §1](015-Data-Classification.md#1-event-handlers--reg-event-dbfxctx) |
+| `reg-event` | the event arg-map (second element of `[:event-id {arg-map}]`) | [015 §1](015-Data-Classification.md#1-event-handlers--reg-event-dbfxctx) |
 | `reg-sub` | the sub's output value; `:sensitive?` is the whole-output override | [015 §3](015-Data-Classification.md#3-subscriptions--reg-sub) |
 | `reg-fx` | the fx-input map | [015 §4](015-Data-Classification.md#4-effects--reg-fx) |
 | `reg-cofx` | the injected value (`[[]]` = the whole injection) | [015 §5](015-Data-Classification.md#5-coeffects--reg-cofx) |
@@ -358,7 +358,7 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
 
 ;; 2. Declare the event-arg-side mark on the login handler — the password
 ;;    arrives in the event arg-map before it lands in app-db.
-(rf/reg-event-fx :auth/log-in
+(rf/reg-event :auth/log-in
   {:sensitive [[:password] [:totp-code]]}
   (fn [{:keys [db]} [_ {:keys [email password totp-code]}]]
     ;; The handler sees real password / totp-code values.
@@ -382,7 +382,7 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
 
 ;; 4. The on-success event receives the JWT in the response payload. Mark
 ;;    its event arg so the trace surface sees :rf/redacted there too.
-(rf/reg-event-fx :auth/log-in-success
+(rf/reg-event :auth/log-in-success
   {:sensitive [[:jwt] [:refresh-token]]}
   (fn [{:keys [db]} [_ {:keys [jwt refresh-token user]}]]
     ;; Writing the JWT into app-db [:auth :token] — the set-marks

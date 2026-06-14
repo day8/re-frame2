@@ -52,7 +52,7 @@ The canonical concrete instance. Pattern-RemoteData specifies the lifecycle slic
                                             {:frame frame-id}))))))))
 
 ;; 2. The event handler returns :fx pointing at the registered fx.
-(rf/reg-event-fx :articles/load
+(rf/reg-event :articles/load
   (fn handler-articles-load [{:keys [db]} _]
     {:db (assoc-in db [:articles :status] :loading)
      :fx [[:http {:method     :get
@@ -65,17 +65,17 @@ The canonical concrete instance. Pattern-RemoteData specifies the lifecycle slic
 ;; into a dispatch of the user-supplied :on-success / :on-error event.
 
 ;; 6. The dispatched event handler updates state.
-(rf/reg-event-db :articles/loaded
-  (fn handler-articles-loaded [db [_ articles]]
-    (-> db
-        (assoc-in [:articles :status] :loaded)
-        (assoc-in [:articles :data]   articles))))
+(rf/reg-event :articles/loaded
+  (fn handler-articles-loaded [{:keys [db]} [_ articles]]
+    {:db (-> db
+             (assoc-in [:articles :status] :loaded)
+             (assoc-in [:articles :data]   articles))}))
 
-(rf/reg-event-db :articles/load-failed
-  (fn handler-articles-load-failed [db [_ err]]
-    (-> db
-        (assoc-in [:articles :status] :error)
-        (assoc-in [:articles :error]  err))))
+(rf/reg-event :articles/load-failed
+  (fn handler-articles-load-failed [{:keys [db]} [_ err]]
+    {:db (-> db
+             (assoc-in [:articles :status] :error)
+             (assoc-in [:articles :error]  err))}))
 ```
 
 The handler stays pure; the fx-handler does the impure POST; the reply is a normal dispatched event. Nothing about HTTP is special — replace `perform-http-request` with `postMessage` to a worker, an IndexedDB request, a WebAuthn challenge, or a native bridge call, and the shape is identical.
@@ -86,7 +86,7 @@ Worked examples in the pattern docs (Pattern-LongRunningWork, Pattern-WebSocket,
 
 ### Mechanism 1 — Via the dispatched-event payload
 
-The most flexible option, and the right default for **per-call overrides**. The dispatching site supplies an opts map; the receiving action reads it and threads values into `:data`. Works for any machine — singleton or spawned — and for any `reg-event-fx` handler.
+The most flexible option, and the right default for **per-call overrides**. The dispatching site supplies an opts map; the receiving action reads it and threads values into `:data`. Works for any machine — singleton or spawned — and for any `reg-event` handler.
 
 ```clojure
 ;; Caller — pass per-call opts in the event payload.
@@ -194,9 +194,9 @@ All of these instantiate the same shape:
       (when-let [h @raf-handle] (js/cancelAnimationFrame h))
       (reset! raf-handle nil)))
 
-  (rf/reg-event-db :scene/tick
-    (fn handler-scene-tick [db [_ dt-ms]]
-      (update db :scene physics/step dt-ms)))
+  (rf/reg-event :scene/tick
+    (fn handler-scene-tick [{:keys [db]} [_ dt-ms]]
+      {:db (update db :scene physics/step dt-ms)}))
   ```
 - **Geolocation, sensor APIs, background sync** — registered listener dispatches reply events on each emission.
 

@@ -17,7 +17,7 @@
  *                       the last form's value as a reagent2 component into the
  *                       result div (Phase 3). The cell may `require`
  *                       re-frame.core / reagent2.core and call re-frame2's
- *                       reg-event-db / reg-sub / dispatch / subscribe. Backed by
+ *                       reg-event / reg-sub / dispatch / subscribe. Backed by
  *                       a self-contained SCI bundle (cljs/playground-rf2.js,
  *                       built by docs/tools/playground/sci) — NOT Scittle: there is
  *                       no published scittle.core artefact to build a plugin

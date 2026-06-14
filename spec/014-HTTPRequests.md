@@ -39,7 +39,7 @@ Single fx-id, single args map. The recommended shape names two explicit reply ta
 
 ```clojure
 ;; Issue the request — name where the success and failure replies land.
-(rf/reg-event-fx :article/load
+(rf/reg-event :article/load
   (fn [{:keys [db]} [_ {:keys [slug]}]]
     {:db (-> db
              (assoc-in [:article :status] :loading)
@@ -63,19 +63,19 @@ Single fx-id, single args map. The recommended shape names two explicit reply ta
             :on-failure [:article/load-error]}]]}))
 
 ;; Success reply — the payload rides as the last event arg.
-(rf/reg-event-db :article/loaded
-  (fn [db [_ {:keys [value]}]]
-    (-> db
-        (assoc-in [:article :status] :loaded)
-        (assoc-in [:article :data]   value)
-        (assoc-in [:article :error]  nil))))
+(rf/reg-event :article/loaded
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    {:db (-> db
+             (assoc-in [:article :status] :loaded)
+             (assoc-in [:article :data]   value)
+             (assoc-in [:article :error]  nil))}))
 
 ;; Failure reply — named, not a branch.
-(rf/reg-event-db :article/load-error
-  (fn [db [_ {:keys [failure]}]]
-    (-> db
-        (assoc-in [:article :status] :error)
-        (assoc-in [:article :error]  failure))))
+(rf/reg-event :article/load-error
+  (fn [{:keys [db]} [_ {:keys [failure]}]]
+    {:db (-> db
+             (assoc-in [:article :status] :error)
+             (assoc-in [:article :error]  failure))}))
 ```
 
 When the request resolves, the runtime dispatches `[:article/loaded {:kind :success :value article}]` (or `[:article/load-error {:kind :failure :failure ...}]`) — the reply payload is appended as the last argument to the named event.
@@ -85,7 +85,7 @@ When the request resolves, the runtime dispatches `[:article/loaded {:kind :succ
 When the request and its reply genuinely belong together, omit `:on-success` / `:on-failure` and the reply routes back to the originating event id with the payload merged under `:rf/reply`. One handler then branches on the `(:rf/reply msg)` sentinel to serve both roles:
 
 ```clojure
-(rf/reg-event-fx :article/load
+(rf/reg-event :article/load
   (fn [{:keys [db]} [_ {:keys [slug] :as msg}]]
     (if-let [reply (:rf/reply msg)]
       ;; Reply path — same handler, different branch.
@@ -275,7 +275,7 @@ The warning is informational, not an error — auto-decode is supported and stab
 Pair tools, generators, and AI-assisted tooling want to know which schemas a handler expects from the wire — without invoking the handler. The user can declare them at registration time via the `:rf.http/decode-schemas` metadata key:
 
 ```clojure
-(rf/reg-event-fx :article/load
+(rf/reg-event :article/load
   {:doc                    "Load an article."
    :rf.http/decode-schemas [ArticleResponse]}     ;; declared up-front for tooling
   (fn [{:keys [db]} [_ {:keys [slug] :as msg}]]
@@ -673,7 +673,7 @@ When actor A is destroyed, only A's in-flight requests are aborted. Actor B's in
 
 #### Direct dispatches from event handlers — NOT covered
 
-Per the spec 005 cross-feature contract, `:rf.http/managed` requests dispatched directly from ordinary `reg-event-fx` handlers — i.e. NOT from inside a spawned actor's event handler — are NOT subject to actor-destroy cancellation. The originating event vector's first element is an ordinary registered event-id, not a spawned-actor address; there is no actor-id to correlate against.
+Per the spec 005 cross-feature contract, `:rf.http/managed` requests dispatched directly from ordinary `reg-event` handlers — i.e. NOT from inside a spawned actor's event handler — are NOT subject to actor-destroy cancellation. The originating event vector's first element is an ordinary registered event-id, not a spawned-actor address; there is no actor-id to correlate against.
 
 This is **deliberate.** Cancellation tied to actor lifetime is the right scope: the child actor exists to run until the parent says "we no longer care"; the parent destroying the actor kills its outstanding work. Ordinary event handlers have no analogous lifecycle peg — their work is launched as a side effect and outlives the handler.
 
@@ -792,7 +792,7 @@ Hot-reload tools that re-evaluate registration call sites get the right behaviou
 ;; reads the auth slice on every request, so token rotation is picked
 ;; up without re-registration.
 
-(rf/reg-event-fx :articles/list
+(rf/reg-event :articles/list
   (fn [_ _]
     {:fx [[:rf.http/managed
            {:request {:url "/articles"}                ;; no auth threading
@@ -879,7 +879,7 @@ The helpers are NOT re-exported from `re-frame.core` — users explicitly `(:req
 ### A — Simplest possible (sugar all the way down)
 
 ```clojure
-(rf/reg-event-fx :ping
+(rf/reg-event :ping
   (fn [{:keys [db]} [_ msg]]
     (if-let [reply (:rf/reply msg)]
       {:db (assoc db :pinged-at (:elapsed-at reply))}
@@ -891,7 +891,7 @@ No decode (default `:auto`), no accept (default success-on-2xx), no retry, defau
 ### B — Schema-driven with retry
 
 ```clojure
-(rf/reg-event-fx :articles/list
+(rf/reg-event :articles/list
   (fn [{:keys [db]} [_ {:keys [page] :as msg}]]
     (if-let [reply (:rf/reply msg)]
       (case (:kind reply)
@@ -910,7 +910,7 @@ No decode (default `:auto`), no accept (default success-on-2xx), no retry, defau
 ### C — POST with form body and explicit error handler
 
 ```clojure
-(rf/reg-event-fx :auth/login
+(rf/reg-event :auth/login
   (fn [{:keys [db]} [_ creds]]
     {:fx [[:rf.http/managed
            {:request {:method :post
@@ -939,7 +939,7 @@ The auth flow has separate success/error handlers (often a state machine), so th
 ### E — Aborting a stale search
 
 ```clojure
-(rf/reg-event-fx :search/query
+(rf/reg-event :search/query
   (fn [{:keys [db]} [_ {:keys [q] :as msg}]]
     (if-let [reply (:rf/reply msg)]
       ;; ...handle results...
@@ -958,14 +958,14 @@ The `:rf.http/managed-abort` fx cancels any in-flight `:request-id :search`, the
 (:require [re-frame.http :as rf.http])
 
 ;; A — minimal GET, default reply addressing:
-(rf/reg-event-fx :ping
+(rf/reg-event :ping
   (fn [{:keys [db]} [_ msg]]
     (if-let [reply (:rf/reply msg)]
       {:db (assoc db :pinged-at (:elapsed-at reply))}
       {:fx [(rf.http/get "/ping")]})))                       ;; ← 1 line vs 1 envelope
 
 ;; B — schema-driven GET with retry:
-(rf/reg-event-fx :articles/list
+(rf/reg-event :articles/list
   (fn [{:keys [db]} [_ {:keys [page] :as msg}]]
     (if-let [reply (:rf/reply msg)]
       ...
@@ -977,7 +977,7 @@ The `:rf.http/managed-abort` fx cancels any in-flight `:request-id :search`, the
                                     :backoff      {:base-ms 200 :factor 2 :max-ms 2000 :jitter true}}})]})))
 
 ;; C — POST with body and explicit reply targets:
-(rf/reg-event-fx :auth/login
+(rf/reg-event :auth/login
   (fn [{:keys [db]} [_ creds]]
     {:fx [(rf.http/post "/auth/login"
                         {:request    {:body creds :request-content-type :json}
@@ -986,7 +986,7 @@ The `:rf.http/managed-abort` fx cancels any in-flight `:request-id :search`, the
                          :on-failure [:auth/login-error]})]}))
 
 ;; E — aborting a stale search:
-(rf/reg-event-fx :search/query
+(rf/reg-event :search/query
   (fn [{:keys [db]} [_ {:keys [q] :as msg}]]
     (if-let [reply (:rf/reply msg)]
       ...
@@ -1288,14 +1288,14 @@ Handler-meta `:sensitive?` is **not** a source — the handler-level `:rf/regist
 
 ```clojure
 ;; Per-request — opt a single request in:
-(rf/reg-event-fx :api/proxy
+(rf/reg-event :api/proxy
   (fn [_ [_ {:keys [target body]}]]
     {:fx [[:rf.http/managed
            {:request    {:method :post :url target :body body
                          :sensitive? (= target "/auth/login")}}]]}))
 
 ;; Per-call — same effect, top-level:
-(rf/reg-event-fx :api/login
+(rf/reg-event :api/login
   (fn [_ [_ creds]]
     {:fx [[:rf.http/managed
            {:request    {:method :post :url "/auth/login" :body creds}
@@ -1343,7 +1343,7 @@ Header and query-param policy covers the request carriers; the **response body**
 ```clojure
 ;; The :decode schema is the owner's declaration of the body shape AND its
 ;; per-slot sensitivity. [:token] is sensitive; [:user-id] is not.
-(rf/reg-event-fx :auth/login
+(rf/reg-event :auth/login
   (fn [_ [_ creds]]
     {:fx [[:rf.http/managed
            {:request {:method :post :url "/auth/login" :body creds}

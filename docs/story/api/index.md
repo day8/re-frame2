@@ -19,7 +19,7 @@ Every row carries:
 - a **status** — `v1` (stable), `v1 (dev-only)` (elided in `:advanced` + `re-frame.story.config/enabled?=false`)
 - an **intuition** — the one-line answer to "what's this for and when do I reach for it?"
 
-Where a surface lives in more than one namespace (e.g. `add-marks` / `set-marks` are re-exported from `re-frame.story` for author-discoverability over the framework's `re-frame.core` definitions) the canonical home is the one named. The registration macros and their `*`-fn partners follow the same convention as `re-frame.core`'s own pair (`dispatch` / `dispatch*`, `reg-event-db` / `reg-event-db*`): the un-starred form is the macro, the `*` form is the underlying runtime fn for higher-order code, fixture loaders, MCP write paths, and hot-reload tooling that synthesises registrations.
+Where a surface lives in more than one namespace (e.g. `add-marks` / `set-marks` are re-exported from `re-frame.story` for author-discoverability over the framework's `re-frame.core` definitions) the canonical home is the one named. The registration macros and their `*`-fn partners follow the same convention as `re-frame.core`'s own pair (`dispatch` / `dispatch*`, `subscribe` / `subscribe*`): the un-starred form is the macro, the `*` form is the underlying runtime fn for higher-order code, fixture loaders, MCP write paths, and hot-reload tooling that synthesises registrations.
 
 ## Where surfaces live
 

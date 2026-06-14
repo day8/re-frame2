@@ -24,16 +24,16 @@ This chapter covers the canonical fx, the verb helpers, the test stubs, the requ
 ### A minimal request
 
 ```clojure
-(rf/reg-event-fx :cart/load
+(rf/reg-event :cart/load
   (fn [_ _]
     {:fx [[:rf.http/managed
            {:request    {:method :get :url "/api/cart"}
             :on-success [:cart/loaded]
             :on-failure [:cart/load-failed]}]]}))
 
-(rf/reg-event-db :cart/loaded
-  (fn [db [_ {:keys [rf/reply]}]]
-    (assoc-in db [:cart :items] (:value reply))))
+(rf/reg-event :cart/loaded
+  (fn [{:keys [db]} [_ {:keys [rf/reply]}]]
+    {:db (assoc-in db [:cart :items] (:value reply))}))
 ```
 
 That's enough to issue a request, decode the JSON reply, and dispatch the result back. Retries, timeouts, schema validation, abort, decode customisation, accept-fn refinement — all of those are optional keys in the args map; you reach for them when the problem asks for them.
@@ -250,7 +250,7 @@ All the test-support surfaces live in `re-frame.http-test-support` (the single h
 
 ## Schema-reflection metadata
 
-Handlers may declare `:rf.http/decode-schemas [<schema> ...]` in their `reg-event-fx` metadata-map; pair tools and generators read it via `(rf/handler-meta :event id)`. Optional, never enforced — pure metadata for tooling. See [014 §Schema reflection](../../spec/014-HTTPRequests.md#schema-reflection-optional-ergonomic).
+Handlers may declare `:rf.http/decode-schemas [<schema> ...]` in their `reg-event` metadata-map; pair tools and generators read it via `(rf/handler-meta :event id)`. Optional, never enforced — pure metadata for tooling. See [014 §Schema reflection](../../spec/014-HTTPRequests.md#schema-reflection-optional-ergonomic).
 
 ## Trace events emitted by `:rf.http/managed`
 

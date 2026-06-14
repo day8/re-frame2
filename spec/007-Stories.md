@@ -240,7 +240,7 @@ For variants that need args to map into `app-db` (e.g., a `:logged-in?` arg cont
 
 ```clojure
 ;; Register an event handler that receives the new arg value as its payload.
-(rf/reg-event-fx :story.auth/set-logged-in
+(rf/reg-event :story.auth/set-logged-in
   (fn [_ [_ v]]
     (if v
       {:fx [[:dispatch [:auth/restore-session {:user "alice"}]]]}
@@ -382,7 +382,7 @@ Loaders run asynchronously before stories render to fetch data. **Deterministic 
 
 ```clojure
 ;; The async work lives in a registered event handler; the variant references it by id.
-(rf/reg-event-fx :charts.heatmap/fetch-fixture
+(rf/reg-event :charts.heatmap/fetch-fixture
   (fn [_ _]
     {:fx [[:my-app/http {:url     "/fixtures/heatmap.json"
                          :on-success [:charts/load-fixture]}]]}))

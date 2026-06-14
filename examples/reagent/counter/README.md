@@ -7,8 +7,8 @@ top of this dataflow shape.
 
 ## What this demonstrates
 
-- **`reg-event-db`** — three handlers (`:counter/initialise`,
-  `:counter/inc`, `:counter/dec`). Pure `(db, event) → db`.
+- **`reg-event`** — three handlers (`:counter/initialise`,
+  `:counter/inc`, `:counter/dec`). Each returns `{:db …}`.
 - **`reg-sub`** — one subscription (`:counter/value`) deriving the
   count from the slice.
 - **`reg-view`** — the canonical Form-1 view-registration macro

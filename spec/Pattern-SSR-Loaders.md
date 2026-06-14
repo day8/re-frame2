@@ -118,7 +118,7 @@ A thin wrapper around `:rf.http/managed` — one state spawns the request; succe
 The per-request frame is created by the host adapter; `:on-create` reads the URL (the `:rf.server/request` cofx — see [§Composition with `:rf.server/request`](#composition-with-rfserverrequest-cofx) below — declared via `:rf.cofx/requires`) and spawns the loader:
 
 ```clojure
-(rf/reg-event-fx :rf/server-init
+(rf/reg-event :rf/server-init
   {:doc              "Per-request boot for SSR. Reads the request URL, spawns the page loader."
    :platforms        #{:server}
    :rf.cofx/requires [:rf.server/request]}
@@ -144,7 +144,7 @@ The fan-out's children typically need values from the active request — the URL
 Read the cofx **once**, at `:rf/server-init` — bind the values into the loader machine's `:data` via the spawn-spec, then thread them into each child's `:data` fn (mechanism 2 in [Pattern-AsyncEffect §Parameter passing across the boundary](Pattern-AsyncEffect.md#parameter-passing-across-the-boundary)). Children read from the parent's snapshot at spawn time; nothing in the child reaches for the request cofx again. This keeps the child machines pure of HTTP-request-context concerns and reusable on the client side (where there is no request cofx) without modification.
 
 ```clojure
-(rf/reg-event-fx :rf/server-init
+(rf/reg-event :rf/server-init
   {:platforms        #{:server}
    :rf.cofx/requires [:rf.server/request]}
   (fn [{:keys [rf.server/request]} _]

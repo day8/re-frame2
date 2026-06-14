@@ -101,7 +101,7 @@ These are the fixture primitives. The pattern is "snapshot the registrar before 
 ```clojure
 (deftest cart-add
   (with-fresh-registrar
-    (rf/reg-event-db ::add (fn [db [_ item]] (update db :cart conj item)))
+    (rf/reg-event ::add (fn [{:keys [db]} [_ item]] {:db (update db :cart conj item)}))
     (rf/dispatch-sync [::add {:id 1 :name "widget"}])
     (assert-path-equals [:cart] [{:id 1 :name "widget"}])))
 ```

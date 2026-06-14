@@ -27,23 +27,23 @@ Vs the generic [Pattern-AsyncEffect](Pattern-AsyncEffect.md):
 For trivial boots (one or two steps, no error states, no progress UI), a state machine is overkill. Chain via dispatched events:
 
 ```clojure
-(rf/reg-event-fx :app/init
+(rf/reg-event :app/init
   (fn [_ _]
     {:fx [[:dispatch [:config/load]]]}))
 
-(rf/reg-event-fx :config/load
+(rf/reg-event :config/load
   (fn [_ _]
     {:fx [[:http {:url        "/config"
                   :on-success [:config/loaded]
                   :on-error   [:app/init-failed]}]]}))
 
-(rf/reg-event-fx :config/loaded
+(rf/reg-event :config/loaded
   (fn [{:keys [db]} [_ config]]
     {:db (assoc db :config config)
      :fx [[:dispatch [:app/ready]]]}))
 
-(rf/reg-event-db :app/ready
-  (fn [db _] (assoc db :app/booted? true)))
+(rf/reg-event :app/ready
+  (fn [{:keys [db]} _] {:db (assoc db :app/booted? true)}))
 ```
 
 (`:http` here is a placeholder for a user-supplied fx; the framework ships `:rf.http/managed` — see [014-HTTPRequests](014-HTTPRequests.md).)
@@ -76,7 +76,7 @@ Each phase uses `:spawn` to spawn the async work; transitions on success or fail
 ### Worked example — six-state boot
 
 ```clojure
-(rf/reg-event-fx :app/boot
+(rf/reg-event :app/boot
   {:doc "Application boot: config → auth → profile → hydrate → route → ready."}
   (rf/make-machine-handler
     {:initial :configuring
@@ -225,7 +225,7 @@ This is **not** `spawn` and **not** `:system-id`. Those two surfaces (per [005 �
 A singleton is created **lazily** by default — the initial-entry cascade folds into its first real event (per [005 §When creation happens](005-StateMachines.md#when-creation-happens--eager-start-vs-lazy-first-event)). Boot wants the opposite: the machine must come alive **now**, at app start, so its `:configuring` entry fires and the boot sequence begins. That is the **eager kick** — dispatch the reserved `:rf.machine/start` marker from the frame's `:on-create`:
 
 ```clojure
-(rf/reg-event-fx :app/initialise
+(rf/reg-event :app/initialise
   {:doc "App entry point. Seeds the initial db, then eager-starts the boot machine."}
   (fn [_ _]
     {:db initial-db                                    ;; (see step 3 — ordering matters)
@@ -244,7 +244,7 @@ A singleton is created **lazily** by default — the initial-entry cascade folds
 Machine snapshots live in the framework-owned **runtime-db** partition at `[:rf.runtime/machines :snapshots <id>]` (per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)) — deliberately, so machine state reverts atomically with the frame-state container on `restore-epoch!` / `replace-frame-state!` / time-travel. The runtime-db is a **separate partition** from app-db: a handler's `:db` return replaces only the app-db partition and **cannot touch** runtime-db (per [002 §The two-partition frame contract](002-Frames.md#the-two-partition-frame-contract)). So the v1 `:initialize-db` idiom — a wholesale `{:db fresh-map}` replace — is safe by construction: it leaves every live machine snapshot, the route slice, and the rest of runtime-db untouched. There is no clobber to avoid, no ordering constraint on the seed relative to the eager kick, and nothing to preserve across the replace.
 
 ```clojure
-(rf/reg-event-fx :app/initialise
+(rf/reg-event :app/initialise
   (fn [_ _]
     {:db  {:config nil :user nil :ui {:theme :light}}   ;; wholesale app-db reset — runtime-db is untouched
      :fx  [[:dispatch [:app/boot [:rf.machine/start]]]]}))
@@ -278,7 +278,7 @@ The pattern, distilled to a worked sketch:
 ;; failure category + attempt count. No state, no other request, no body
 ;; matching — pure transport retry.
 
-(rf/reg-event-fx ::fetch-me
+(rf/reg-event ::fetch-me
   (fn [_ [_ {:keys [token]}]]
     {:fx [[:rf.http/managed
            {:request {:method  :get
@@ -306,7 +306,7 @@ The pattern, distilled to a worked sketch:
 ;; depends on another request succeeding *first*, which is exactly the case
 ;; that doesn't fit inside :rf.http/managed's :retry slot.
 
-(rf/reg-event-fx :auth/flow
+(rf/reg-event :auth/flow
   (rf/make-machine-handler
     {:initial :loading-me
      :data    {:token nil :user nil :error nil}
@@ -427,7 +427,7 @@ The two boots compose cleanly because the boot state machine's snapshot is a run
 
 ### Hot-reload — boot does not re-run
 
-In dev, hot-reload re-evaluates `reg-event-fx` forms; surgical `reg-frame` re-registration preserves the frame-state container — both the app-db and runtime-db partitions (per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update)). The boot machine's snapshot (in runtime-db) survives; its `:state` is `:ready` (or whichever terminal state it reached); the next dispatch routes via the new handler bodies but does not re-enter `:configuring`.
+In dev, hot-reload re-evaluates `reg-event` forms; surgical `reg-frame` re-registration preserves the frame-state container — both the app-db and runtime-db partitions (per [002 §Re-registration — surgical update](002-Frames.md#re-registration--surgical-update)). The boot machine's snapshot (in runtime-db) survives; its `:state` is `:ready` (or whichever terminal state it reached); the next dispatch routes via the new handler bodies but does not re-enter `:configuring`.
 
 This matches the locked rule: boot is **one-shot per app load**. Re-running is opt-in via `reset-frame!` (which does fire `:on-create` again) or an explicit `[:app/boot [:rf.machine/start]]` re-entry event.
 

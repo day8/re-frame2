@@ -32,7 +32,7 @@ a tool needs to distinguish:
 
 ## Cross-frame dispatch — the load-bearing pattern
 
-The Cross-bump handler is `reg-event-fx`; its `:fx` carries reserved
+The Cross-bump handler is a `reg-event`; its `:fx` carries reserved
 `:dispatch` entries with explicit `{:frame ...}` opt maps (per
 [spec/002 §Cascade propagation](../../spec/002-Frames.md)). The fx
 walker (`do-fx`) calls `dispatch!` with the requested frame, so each

@@ -287,7 +287,7 @@ The transitions the page-level event handler drives, for a `:counter/load`-shape
 A minimal co-located handler:
 
 ```clojure
-(rf/reg-event-fx :counter/load
+(rf/reg-event :counter/load
   (fn [_ [_ {:keys [page] :as msg}]]
     (if-let [reply (:rf/reply msg)]
       ;; Reply path — fold the reply into the machine.

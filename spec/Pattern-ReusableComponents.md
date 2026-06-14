@@ -74,11 +74,11 @@ Both instances render simultaneously. Each subscribes to its own slice; each `:o
 Every event the view emits carries the id as its first payload position:
 
 ```clojure
-(rf/reg-event-db :customer/edit
-  (fn [db [_ id]]
-    (assoc-in db [:ui :editing-customer] id)))
+(rf/reg-event :customer/edit
+  (fn [{:keys [db]} [_ id]]
+    {:db (assoc-in db [:ui :editing-customer] id)}))
 
-(rf/reg-event-fx :customer/update
+(rf/reg-event :customer/update
   (fn [{:keys [db]} [_ id new-data]]
     {:db (update-in db [:customers id] merge new-data)
      :fx [[:dispatch [:customer/save id]]]}))

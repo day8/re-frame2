@@ -139,12 +139,12 @@ The three setters answer three different questions: validation correctness (`val
   ```clojure
   validate-at-boundary-interceptor
   ```
-- **Description**: A **pre-built interceptor value**, not a fn (interceptor `:id` is `:rf.schema/at-boundary`). Add it to a `reg-event-*` metadata map's `:interceptors` vector for production-boundary validation. **Do not call it as a fn** — it has no fn arity; invoking `(rf/validate-at-boundary-interceptor ...)` raises `ArityException`.
+- **Description**: A **pre-built interceptor value**, not a fn (interceptor `:id` is `:rf.schema/at-boundary`). Add it to a `reg-event` metadata map's `:interceptors` vector for production-boundary validation. **Do not call it as a fn** — it has no fn arity; invoking `(rf/validate-at-boundary-interceptor ...)` raises `ArityException`.
 
 ```clojure
-(rf/reg-event-db ::receive-from-server
+(rf/reg-event ::receive-from-server
   {:interceptors [rf/validate-at-boundary-interceptor]}
-  (fn [db [_ payload]] (assoc db :data payload)))
+  (fn [{:keys [db]} [_ payload]] {:db (assoc db :data payload)}))
 ```
 
 The pattern: dev-time validation runs at every commit by default; production-time validation runs only at handlers wearing `validate-at-boundary-interceptor`. Use it on handlers that ingest data from outside the app's trust boundary (HTTP replies, websocket frames, postMessage handlers).

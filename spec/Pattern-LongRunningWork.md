@@ -40,7 +40,7 @@ A state machine that processes one batch per state transition, yields to the bro
 ### Worked example — process N items in chunks of 100
 
 ```clojure
-(rf/reg-event-fx :compute/batch-job
+(rf/reg-event :compute/batch-job
   {:doc "Long-running batch processing with progress reporting and cancel support."}
   (rf/make-machine-handler
     {:initial :idle
@@ -147,12 +147,12 @@ The view renders a progress bar from `:compute.job/progress` and shows different
 re-frame v1 had a `^:flush-dom` event-vector metadata that forced a DOM flush before the next dispatch. This was used for the "show modal, then do one big synchronous block" pattern. re-frame2 doesn't carry this metadata; the modern equivalent uses `:dispatch-later` with `{:ms 0}`:
 
 ```clojure
-(rf/reg-event-fx :process/start
+(rf/reg-event :process/start
   (fn [{:keys [db]} _]
     {:db (assoc db :processing? true)                          ;; modal renders next tick
      :fx [[:dispatch-later {:ms 0 :event [:process/run]}]]}));; yield, then run
 
-(rf/reg-event-fx :process/run
+(rf/reg-event :process/run
   (fn [{:keys [db]} _]
     {:db (assoc db :processing? false :result (heavy-block-fn db))}))
 ```

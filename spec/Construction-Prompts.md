@@ -31,7 +31,7 @@ Each entry below is one CP:
 
 ### CP-1. Add an event handler
 
-**When to use this prompt:** the user wants the app to react to something — a button click, a server response, a timer tick, a child machine sending a message. If the reaction modifies state only, prefer `reg-event-db`. If it also produces side-effects (HTTP call, navigation, dispatch chain, local-storage write), use `reg-event-fx`.
+**When to use this prompt:** the user wants the app to react to something — a button click, a server response, a timer tick, a child machine sending a message. There is one event-registration form, `reg-event`: its handler takes coeffects and the event vector and returns a closed effects map. If the reaction modifies state only, return `{:db ...}`. If it also produces side-effects (HTTP call, navigation, dispatch chain, local-storage write), add `:fx` alongside (or instead of) `:db`.
 
 **Pre-flight delta (in addition to the shared preamble above):**
 
@@ -39,23 +39,23 @@ Each entry below is one CP:
 - **Call-shape convention** (per [Principles §Name over place](Principles.md#name-over-place) and [002 §Routing](002-Frames.md#routing-the-dispatch-envelope)): `[<id>]` for trivial events, `[<id> <single-scalar>]` for single-argument events, `[<id> {<key> <val> ...}]` for multi-argument events. Multi-positional `[<id> a b c]` is accepted by the runtime; the linter nudges new code toward the map shape.
 - **Schema-bound paths.** If the event reads or writes a schema-bound `app-db` path, your handler must produce schema-compliant output (validation runs in dev).
 
-**Template — `reg-event-db` (state-only):**
+**Template — `reg-event` (state-only):**
 
 ```clojure
-(rf/reg-event-db :feature/verb-noun
+(rf/reg-event :feature/verb-noun
   {:doc    "One-sentence what-and-why."
    :schema EventSchema}                       ;; optional Malli schema for the event vector
-  (fn handler-feature-verb-noun [db [_ {:keys [field-1 field-2]}]]
-    ;; Pure: read db and event payload, return the new db.
+  (fn handler-feature-verb-noun [{:keys [db]} [_ {:keys [field-1 field-2]}]]
+    ;; Pure: read db (and any injected cofx) from coeffects, return an effect map.
     ;; Multi-arg events take a single map payload; destructure named keys.
-    ;; No side-effects. No dispatching from inside the handler — return effects from reg-event-fx if needed.
-    (assoc-in db [:feature :path] field-1)))
+    ;; No side-effects. State change is the explicit :db effect — no db-only return shape.
+    {:db (assoc-in db [:feature :path] field-1)}))
 ```
 
-**Template — `reg-event-fx` (with effects):**
+**Template — `reg-event` (with effects):**
 
 ```clojure
-(rf/reg-event-fx :feature/verb-noun
+(rf/reg-event :feature/verb-noun
   {:doc    "One-sentence what-and-why."
    :schema EventSchema
    ;; Add :interceptors [...] here when this handler needs an event chain.
@@ -64,7 +64,7 @@ Each entry below is one CP:
     ;; Pure: read db and any injected cofx, return an effect map.
     ;; payload is a single scalar (for single-arg events) or a map (for multi-arg events
     ;; — destructure named keys: [_ {:keys [field-1 field-2]}]).
-    ;; Effects are data; the runtime interprets them.
+    ;; Effects are data; the runtime interprets them. Add :fx for side-effects.
     {:db        (assoc-in db [:feature :loading?] true)
      :fx        [[:http {:method :get :url "/api/feature" :on-success [:feature/loaded]}]]}))
 ```
@@ -83,7 +83,7 @@ Each entry below is one CP:
 **AI-first checklist before declaring done:**
 
 - Id is namespaced and unused.
-- Handler is pure (no side-effects in the body of `reg-event-db`; effects are *returned* by `reg-event-fx`).
+- Handler is pure (no side-effects in the body; all effects — including the `:db` write — are *returned* in the effect map).
 - `:doc` is present and one sentence.
 - Shape is described by the host's idiom: `:schema` (Malli/Pydantic/Zod) in dynamic hosts, a type definition in static hosts. If neither: shape conformance is checked by tests/fixtures.
 - Handler has a meaningful name (not `fn`).
@@ -100,11 +100,11 @@ Each entry below is one CP:
 (def CartItemRemoveEvent
   [:tuple [:= :cart.item/remove] :uuid])      ;; [event-id item-id]
 
-(rf/reg-event-db :cart.item/remove
+(rf/reg-event :cart.item/remove
   {:doc    "Remove an item from the cart by id."
    :schema CartItemRemoveEvent}
-  (fn handler-cart-item-remove [db [_ item-id]]
-    (update-in db [:cart :items] (fn [items] (vec (remove #(= item-id (:id %)) items))))))
+  (fn handler-cart-item-remove [{:keys [db]} [_ item-id]]
+    {:db (update-in db [:cart :items] (fn [items] (vec (remove #(= item-id (:id %)) items))))}))
 ```
 
 ### CP-2. Add a subscription
@@ -348,7 +348,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 
 **When to use this prompt:** the user describes a multi-step interaction with discrete, named states — a login flow, a checkout wizard, a video player, a modal lifecycle, a websocket connection. If you can list the states and the events that move between them, you have a machine.
 
-**Key idea: the machine IS the event handler.** A machine is registered as one `reg-event-fx` whose body comes from `make-machine-handler`. Sub-events route in: `(rf/dispatch [:my/machine [:my-input arg ...]])`.
+**Key idea: the machine IS the event handler.** A machine is registered as one `reg-event` whose body comes from `make-machine-handler`. Sub-events route in: `(rf/dispatch [:my/machine [:my-input arg ...]])`.
 
 **Default form: named guards and actions in the machine's `:guards` / `:actions` maps.** The transition table references guards and actions by **keyword** (`:under-retry-limit`, `:clear-error`); the bodies live in the machine's own `:guards` / `:actions` maps inside `make-machine-handler`. This is the **default** because the named id is a **name** that is **reusable, addressable, and clearer for humans, tools, and AIs** — visualisers label arrows with the id, AIs and conformance fixtures resolve the id against the machine's `:guards` / `:actions` map, and tests stub by id. (The rationale is *not* source visibility: an inline fn's `:source-code` text is co-located on its enclosing node in dev, per [005 §Source-coord stamping](005-StateMachines.md#source-coord-stamping), so an inline body is inspectable — it just has no public name to address.) Inline fns are an **escape hatch for trivial logic** (one-liners with no branching), not the default form. See [005 §Inspectability bias](005-StateMachines.md#inspectability-bias). **Resolution is machine-local** — there is no global `:machine-guard` / `:machine-action` registry; cross-machine reuse is via Clojure vars referenced from each machine's map.
 
@@ -364,7 +364,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 
 **Reading the snapshot in views.** The framework ships `:rf/machine` as a standard parametric sub. `@(rf/sub-machine :auth.login/flow)` returns the snapshot (sugar over `@(rf/subscribe [:rf/machine :auth.login/flow])`) — no per-machine `reg-sub` needed. Destructure inline, or write a derived sub `:<- [:rf/machine <id>]` for projections. See [005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine).
 
-**Strict encapsulation.** Actions and guards see `{:state :data}` only — *no `:db`, no cofx*. Cross-cutting reads pass through the event payload; cross-cutting writes go via `:fx [[:dispatch <named-event>]]`. Action effect maps are `{:data {...} :fx [...]}` — symmetric with `reg-event-fx`'s `{:db :fx}`. The named-bounce-event pattern is a feature, not a tax: it makes the cross-cutting concern visible in the trace, the registry, and 10x's event log (per [005 §Strict encapsulation](005-StateMachines.md#strict-encapsulation--actions-only-see-their-own-data)).
+**Strict encapsulation.** Actions and guards see `{:state :data}` only — *no `:db`, no cofx*. Cross-cutting reads pass through the event payload; cross-cutting writes go via `:fx [[:dispatch <named-event>]]`. Action effect maps are `{:data {...} :fx [...]}` — symmetric with `reg-event`'s `{:db :fx}`. The named-bounce-event pattern is a feature, not a tax: it makes the cross-cutting concern visible in the trace, the registry, and 10x's event log (per [005 §Strict encapsulation](005-StateMachines.md#strict-encapsulation--actions-only-see-their-own-data)).
 
 **Worked example — auth login flow (named guards/actions in `:guards` / `:actions` maps):**
 
@@ -374,7 +374,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 ;; machine-local: the runtime calls (get-in spec [:guards :under-retry-limit])
 ;; etc. There is no global :machine-guard / :machine-action registry.
 
-(rf/reg-event-fx :auth.login/flow
+(rf/reg-event :auth.login/flow
   {:doc "Login flow: idle → submitting → authed / error-shown / locked-out."}
   (rf/make-machine-handler
     {:initial :idle
@@ -586,7 +586,7 @@ For projections, compose against `:rf/machine` via `:<-`:
 
 **AI-first checklist:**
 
-- Machine id is namespaced; registered via `reg-event-fx` + `make-machine-handler`.
+- Machine id is namespaced; registered via `reg-event` + `make-machine-handler`.
 - No `:path` key in the machine spec — the runtime stores snapshots at `[:rf.runtime/machines :snapshots <id>]` in runtime-db.
 - All states are listed in `:states`; no string-based or computed state names.
 - Every input the machine listens to is in some state's `:on` map.
@@ -642,7 +642,7 @@ A feature ships these artefacts as a coherent bundle:
 src/my_app/
   feature/
     schema.cljc        ;; Malli schema definitions
-    events.cljs        ;; reg-event-* calls
+    events.cljs        ;; reg-event calls
     subs.cljs          ;; reg-sub calls
     views.cljs         ;; reg-view calls
     machines.cljs      ;; (optional) state machines
@@ -677,16 +677,16 @@ test/my_app/
   (:require [re-frame.core :as rf]
             [my-app.cart.schema :as cs]))
 
-(rf/reg-event-db :cart/initialise
+(rf/reg-event :cart/initialise
   {:doc "Seed the cart slice."}
-  (fn [db _]
-    (assoc db :cart {:items [] :loading? false :checkout-state :idle})))
+  (fn [{:keys [db]} _]
+    {:db (assoc db :cart {:items [] :loading? false :checkout-state :idle})}))
 
-(rf/reg-event-db :cart.item/add
+(rf/reg-event :cart.item/add
   {:doc    "Add an item to the cart."
    :schema [:cat [:= :cart.item/add] cs/CartItem]}
-  (fn [db [_ item]]
-    (update-in db [:cart :items] conj item)))
+  (fn [{:keys [db]} [_ item]]
+    {:db (update-in db [:cart :items] conj item)}))
 
 ;; my-app/cart/subs.cljs
 (rf/reg-sub :cart/items
@@ -791,7 +791,7 @@ Routing is *state plus events*. The URL is a derivable view of `app-db`; navigat
 **Template — `:on-match` data-loading event:**
 
 ```clojure
-(rf/reg-event-fx :cart/load-items
+(rf/reg-event :cart/load-items
   {:doc "Load cart items for the active cart route."}
   (fn handler-cart-load-items [{:keys [db]} _]
     (let [user-id (get-in db [:auth :user :id])]
@@ -879,9 +879,9 @@ Routing has two co-equal URL-change events. Popstate and the initial sync (above
   [:tuple [:= :cart.item/remove] :uuid])      ;; [event-id item-id]
 
 ;; Registered to the event:
-(rf/reg-event-db :cart.item/remove
+(rf/reg-event :cart.item/remove
   {:schema CartItemRemoveEvent}
-  (fn [db [_ id]] ...))
+  (fn [{:keys [db]} [_ id]] {:db ...}))
 
 ;; Sub-return schema (attached via :schema on reg-sub)
 (def CartTotal :double)
@@ -914,7 +914,7 @@ Routing has two co-equal URL-change events. Popstate and the initial sync (above
    [:user_id    :int]
    [:timestamp  :int]])
 
-(rf/reg-event-fx :webhook/handle
+(rf/reg-event :webhook/handle
   {:schema [:cat [:= :webhook/handle] IncomingWebhookPayload]
    :interceptors [rf/validate-at-boundary-interceptor]}                   ;; rejects payload at boundary if invalid
   ...)
@@ -980,7 +980,7 @@ Routing has two co-equal URL-change events. Popstate and the initial sync (above
 **Server-side `:rf/server-init` handler:**
 
 ```clojure
-(rf/reg-event-fx :rf/server-init
+(rf/reg-event :rf/server-init
   {:doc       "Server-side per-request init. Runs setup events from the request context."
    :platforms #{:server}}
   (fn handler-rf-server-init [{:keys [db]} [_ request]]

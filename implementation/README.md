@@ -48,7 +48,7 @@ implementation/
       frame.cljc             Frame container, reg-frame, destroy-frame!.
       router.cljc            Per-frame FIFO router + drain + dispatch-sync-in-handler guard.
       fx.cljc                Effect interpreter + fx-overrides + :rf.fx/skipped-on-platform.
-      events.cljc            reg-event-db / -fx / -ctx.
+      events.cljc            reg-event (the one event form) + removed-name stubs.
       subs.cljc              Sub cache with ref-counting + hot-reload eviction.
       interceptor.cljc       Interceptor chain runtime.
       std_interceptors.cljc  path, unwrap, ->interceptor primitive.

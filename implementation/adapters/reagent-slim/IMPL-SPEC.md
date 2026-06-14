@@ -1143,10 +1143,10 @@ The dropped surfaces (§2.2 list) were audit-confirmed zero-usage across re-com 
 
 | Dropped surface | Migration |
 |---|---|
-| `r/with-let` | Re-frame2: register a `reg-event-fx`-shaped `:on-create` handler; clean up via `:on-destroy`. Reagent-classic: keep using `with-let`. |
+| `r/with-let` | Re-frame2: register a `reg-event`-shaped `:on-create` handler; clean up via `:on-destroy`. Reagent-classic: keep using `with-let`. |
 | `r/cursor` | Re-frame2: define a layer-2 sub. Reagent-classic: keep using `cursor`. |
 | `r/track`, `r/track!` | Re-frame2: define a `reg-sub`. Reagent-classic: keep using `track` / `track!`. |
-| `r/wrap` | Already deprecated in stock Reagent. Re-frame2: dispatch a `reg-event-db` from the on-change callback. Reagent-classic: keep using `wrap`. |
+| `r/wrap` | Already deprecated in stock Reagent. Re-frame2: dispatch a `reg-event` from the on-change callback. Reagent-classic: keep using `wrap`. |
 | `r/rswap!` | Manual loop with `swap!`. |
 | `r/partial` | If the equality semantics matter, use a CLJS data structure (vector of fn + args) and resolve at call site. |
 | `r/merge-props` | Userland helper — copy the impl into your app. |

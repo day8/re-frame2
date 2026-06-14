@@ -151,7 +151,7 @@ Invalidation is **scoped by default**. A cross-scope invalidation MUST opt in ex
 A common boundary — logout, account switch, tenant switch — wants to clear the scope the user was *in* after current db has already removed the user. The canonical idiom is **resolve the concrete scope from the handler's coeffect db** (pre-transition by definition — the cofx db is the causal input, the EP-0010-coherent answer) and pass it to `clear-scope` **concretely**:
 
 ```clojure
-(rf/reg-event-fx :auth/logout
+(rf/reg-event :auth/logout
   (fn [{:keys [db]} _]
     (let [old-scope (rf/resolve-resource-scope db :realworld/session)]   ;; resolver helper, resolved against cofx db
       {:db (dissoc db :auth)
@@ -437,7 +437,7 @@ Inside a full frame-state projection the resource path is `[:rf.db/runtime :rf.r
 
 `:rf.runtime/resources` and `:rf.runtime/work-ledger` are framework-owned runtime-db children, so resource writes MUST mint **framework-write authority**; ordinary app authority is not enough. Two paths carry resource writes (per [002 §Minting framework-write authority](002-Frames.md#minting-framework-write-authority)):
 
-- **Event-handler authority.** Every resource `reg-event-fx` registration site stamps the reserved registration-meta key `:rf/framework-authority? true` (per [Conventions §Reserved registration metadata](Conventions.md#reserved-registration-metadata-framework-owned)). The runtime reads the stamp when assembling the event context, so a returned `:rf.db/runtime` effect from a resource handler is in-bounds. The handlers that carry it: `:rf.resource/ensure`, `:rf.resource/refetch`, `:rf.resource/invalidate-tags`, `:rf.resource/release-owner`, `:rf.resource/clear-scope`, `:rf.resource/remove`, and the internal replies `:rf.resource.internal/succeeded` / `:rf.resource.internal/failed` / `:rf.resource.internal/aborted` / `:rf.resource.internal/stale-fired` / `:rf.resource.internal/gc-fired` / `:rf.resource.internal/stale-suppressed`. Without this stamp, resources would be the *second* framework subsystem after routing to trip the `:rf.warning/app-handler-runtime-effect` ownership diagnostic on every fetch in dev — exactly the gap the generalized authority mechanism (rf2-3939ig, landed) and the runtime-subsystem contract's clause 2 exist to close.
+- **Event-handler authority.** Every resource `reg-event` registration site stamps the reserved registration-meta key `:rf/framework-authority? true` (per [Conventions §Reserved registration metadata](Conventions.md#reserved-registration-metadata-framework-owned)). The runtime reads the stamp when assembling the event context, so a returned `:rf.db/runtime` effect from a resource handler is in-bounds. The handlers that carry it: `:rf.resource/ensure`, `:rf.resource/refetch`, `:rf.resource/invalidate-tags`, `:rf.resource/release-owner`, `:rf.resource/clear-scope`, `:rf.resource/remove`, and the internal replies `:rf.resource.internal/succeeded` / `:rf.resource.internal/failed` / `:rf.resource.internal/aborted` / `:rf.resource.internal/stale-fired` / `:rf.resource.internal/gc-fired` / `:rf.resource.internal/stale-suppressed`. Without this stamp, resources would be the *second* framework subsystem after routing to trip the `:rf.warning/app-handler-runtime-effect` ownership diagnostic on every fetch in dev — exactly the gap the generalized authority mechanism (rf2-3939ig, landed) and the runtime-subsystem contract's clause 2 exist to close.
 - **Privileged-helper authority.** Stale/GC and host-handle bookkeeping that the resource runtime performs **outside** the event-handler path (scheduling timers, clearing host handles) goes through the privileged frame-state mutators (`swap-runtime-db!` / `replace-frame-state!`), bypassing the event-handler diagnostic — exactly as elision and SSR's non-event writes do.
 
 `:rf/framework-authority?` is a **diagnostic-governing convention, not a capability gate** ([002](002-Frames.md) Mike ruling #4): the effect applies either way, and the flag governs only whether the ownership diagnostic fires. Resource handlers **never** write runtime-db through ordinary app authority.
@@ -453,7 +453,7 @@ This section is the **canonical home for the resource-trio grading rows** — `:
 | Clause | Grade |
 |---|---|
 | **1 Subtree** | ✅ `:rf.runtime/resources` with the closed slot set `:entries` / `:tag-index` / `:owner-index` ([Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)). Allocated lazily — absent until the first resource write — and per-frame isolated. |
-| **2 Write authority** | ✅ Event-handler path — every resource `reg-event-fx` stamps `:rf/framework-authority? true` (the rf2-3939ig mechanism); the internal reply handlers carry it too. Stale/GC side-table writes go through privileged frame-state helpers. See [§Write authority](#write-authority). |
+| **2 Write authority** | ✅ Event-handler path — every resource `reg-event` stamps `:rf/framework-authority? true` (the rf2-3939ig mechanism); the internal reply handlers carry it too. Stale/GC side-table writes go through privileged frame-state helpers. See [§Write authority](#write-authority). |
 | **3 Read API** | ✅ The `:rf.resource/*` sub family (`:rf.resource/state`, `:rf.resource/data`, `:rf.resource/status`, `:rf.resource/loading?`, `:rf.resource/fetching?`, `:rf.resource/stale?`, `:rf.resource/error`, `:rf.resource/refresh-error`, `:rf.resource/has-data?`, `:rf.resource/previous-data`) plus tool accessors (`resource-meta`, `resource-state`, `resources`, the `list-resource-instances` / `get-resource-state` family). App code never reads raw `[:rf.runtime/resources …]` paths. |
 | **4 Projection / elision** | ✅ Allowlist-shaped — only the durable resource projection rides the `:rf/hydration-payload` `:rf/runtime-db` slice via the explicit projection hook ([§SSR and hydration](#ssr-and-hydration)); `:tag-index` / `:owner-index` are recomputable-from-`:entries` and need not ride the wire. Params, scopes, and data carry `:sensitive?` / `:large?` classification owned by the resource definition and projected through the merged frame-owned `rf/project-egress` over the shared `rf/elide-wire-value` walker ([EP-0015 §6](../docs/EP/EP-0015-frame-owned-egress-policy.md), [015-Data-Classification §Resource and mutation durable classification](015-Data-Classification.md#resource-and-mutation-durable-classification)); Xray sees redacted summaries, not raw values. |
 | **5 Teardown** | ✅ Side tables are keyed by frame id and work id; frame destroy cancels all resource timers and clears host handles for that frame ([§Stale and GC scheduling](#stale-and-gc-scheduling), [§Restore and replay](#restore-and-replay)). **Durable kept:** `:entries` (cache facts ride restore/SSR). **Transient dropped:** AbortControllers, stale/GC timers, transport promises (never serialized); `:tag-index` / `:owner-index` are recomputed from `:entries` on install. |
@@ -1222,7 +1222,7 @@ The view is passive; the route caused the ensure; the runtime owns the state. Th
 ### Event-driven ensure
 
 ```clojure
-(rf/reg-event-fx
+(rf/reg-event
   :dashboard/opened
   (fn [_ [_ user-id]]
     {:fx [[:dispatch [:rf.resource/ensure

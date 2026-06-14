@@ -116,7 +116,7 @@ In practice: every business-logic test runs on the JVM. View *content* tests (do
 The most common shape. Each test creates a frame, runs assertions, tears down.
 
 ```clojure
-(rf/reg-event-db :auth/init-idle (fn [_ _] {:auth/state :idle}))
+(rf/reg-event :auth/init-idle (fn [_ _] {:db {:auth/state :idle}}))
 
 (deftest auth-flow
   (let [f (rf/make-frame {:on-create [:auth/init-idle]})]
@@ -193,7 +193,7 @@ The macro:
 
 1. Creates the named frame (or gensym's an anonymous `:rf.frame/*` id when the frame-id positional arg is omitted).
 2. Binds `*current-frame*` to that frame for the body's dynamic extent — `dispatch-sync` and `subscribe` inside the body resolve to it without any explicit `{:frame ...}` opt.
-3. Calls the `:install` fn (zero-arg) inside the frame's scope. Typical body: `reg-event-db` / `reg-sub` / `reg-view` calls that the test relies on. Registrations land in the global registrar; pair with `re-frame.test-support/make-reset-runtime-fixture` (or `with-fresh-registrar`) to roll them back between tests.
+3. Calls the `:install` fn (zero-arg) inside the frame's scope. Typical body: `reg-event` / `reg-sub` / `reg-view` calls that the test relies on. Registrations land in the global registrar; pair with `re-frame.test-support/make-reset-runtime-fixture` (or `with-fresh-registrar`) to roll them back between tests.
 4. Stashes the `:root-view` fn in `*current-root-view*` so `expect-text` / `wait-until`'s testid form can find it without an explicit tree argument. `:root-view-args` (default `[]`) rides into `*current-root-view-args*` for views that take a props map.
 5. Runs `body`.
 6. In a `finally`, destroys the frame regardless of whether `body` returned normally or threw — no leaked frames across tests.
@@ -296,7 +296,7 @@ After running a test sequence, `@recorded` contains the events that fired, in or
 The recommended pattern is to drive `db` state via dispatches against a fixture frame, then compute the sub against the resulting `app-db`. This tests the sub against state produced by the same code paths the application uses, and survives `app-db` schema changes — if `:items` becomes `:todos`, the events update, the sub updates, the test keeps working unmodified.
 
 ```clojure
-(rf/reg-event-db :todos/add  (fn [db [_ todo]] (update db :items (fnil conj []) todo)))
+(rf/reg-event :todos/add  (fn [{:keys [db]} [_ todo]] {:db (update db :items (fnil conj []) todo)}))
 (rf/reg-sub      :pending-todos
                  (fn [db _] (filter #(= :pending (:status %)) (:items db))))
 
@@ -508,7 +508,7 @@ The mechanics above (fixture patterns, JVM-runnable surfaces, view-assertion hel
 ### Fixture-granularity heuristic
 
 - **Default to L3 (`make-reset-runtime-fixture`)** for any suite that boots an adapter or exercises per-process state. The late-bind machinery no-ops when an artefact is absent, so the L3 fixture is cheap for thin test suites and complete for thick ones.
-- **Drop to L2 (`with-fresh-registrar`)** only when the test body is purely registrar-bound — registers some `reg-event-db` / `reg-sub`, never mounts an adapter, never dispatches against a long-lived frame.
+- **Drop to L2 (`with-fresh-registrar`)** only when the test body is purely registrar-bound — registers some `reg-event` / `reg-sub`, never mounts an adapter, never dispatches against a long-lived frame.
 - **Reach for L1 (`snapshot-registrar` / `restore-registrar!`)** only when the test body needs nested or shared snapshots that L2's bracket can't express.
 - **Reach for L4 (direct late-bind hooks)** only when authoring a fixture, not when authoring a test.
 
@@ -847,8 +847,8 @@ This is the full surface. Anything else a test needs is composed from `dispatch-
 #### `dispatch-sequence` example
 
 ```clojure
-(rf/reg-event-db :counter/inc (fn [db _] (update db :n inc)))
-(rf/reg-event-db :counter/dec (fn [db _] (update db :n dec)))
+(rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n inc)}))
+(rf/reg-event :counter/dec (fn [{:keys [db]} _] {:db (update db :n dec)}))
 
 (deftest counter-walk
   (rf/dispatch-sync [:counter/init])

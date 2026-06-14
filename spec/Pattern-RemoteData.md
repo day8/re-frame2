@@ -134,12 +134,12 @@ Worked example — articles list:
 (rf/reg-app-schema [:articles] RequestSlice)
 
 ;; :on-create init for the feature
-(rf/reg-event-db :articles/initialise
-  (fn [db _]
-    (assoc db :articles {:status :idle :data nil :error nil :loaded-at nil :attempt 0})))
+(rf/reg-event :articles/initialise
+  (fn [{:keys [db]} _]
+    {:db (assoc db :articles {:status :idle :data nil :error nil :loaded-at nil :attempt 0})}))
 
 ;; Trigger the load — picks :loading vs :fetching based on whether :data exists
-(rf/reg-event-fx :articles/load
+(rf/reg-event :articles/load
   {:doc "Fetch the articles list. Sets the slice to :loading (no prior data)
          or :fetching (revalidate over existing data); the fetch dispatches
          :articles/loaded or :articles/load-failed on completion."}
@@ -155,20 +155,20 @@ Worked example — articles list:
                     :on-error   [:articles/load-failed]}]]})))
 
 ;; Success
-(rf/reg-event-db :articles/loaded
-  (fn handler-articles-loaded [db [_ articles]]
-    (-> db
-        (assoc-in [:articles :status]    :loaded)
-        (assoc-in [:articles :data]      articles)
-        (assoc-in [:articles :error]     nil)
-        (assoc-in [:articles :loaded-at] (current-time-ms)))))
+(rf/reg-event :articles/loaded
+  (fn handler-articles-loaded [{:keys [db]} [_ articles]]
+    {:db (-> db
+             (assoc-in [:articles :status]    :loaded)
+             (assoc-in [:articles :data]      articles)
+             (assoc-in [:articles :error]     nil)
+             (assoc-in [:articles :loaded-at] (current-time-ms)))}))
 
 ;; Failure — keep prior :data; populate :error
-(rf/reg-event-db :articles/load-failed
-  (fn handler-articles-load-failed [db [_ err]]
-    (-> db
-        (assoc-in [:articles :status] :error)
-        (assoc-in [:articles :error]  err))))
+(rf/reg-event :articles/load-failed
+  (fn handler-articles-load-failed [{:keys [db]} [_ err]]
+    {:db (-> db
+             (assoc-in [:articles :status] :error)
+             (assoc-in [:articles :error]  err))}))
 ```
 
 Convenience subs per slice (the `:loading?` / `:fetching?` split is the load-bearing one):
@@ -205,7 +205,7 @@ Views read the convenience subs:
 For mutations where the user expects immediate feedback (toggle a like, update a profile), commit the change to `app-db` *before* the fetch resolves. If the fetch fails, roll back.
 
 ```clojure
-(rf/reg-event-fx :article/toggle-like
+(rf/reg-event :article/toggle-like
   (fn [{:keys [db]} [_ id]]
     (let [prior (get-in db [:articles :data])]
       {:db (update-in db [:articles :data]
@@ -214,9 +214,9 @@ For mutations where the user expects immediate feedback (toggle a like, update a
                     :url (str "/api/articles/" id "/toggle-like")
                     :on-error [:article/toggle-like-failed prior]}]]})))
 
-(rf/reg-event-db :article/toggle-like-failed
-  (fn [db [_ prior _err]]
-    (assoc-in db [:articles :data] prior)))
+(rf/reg-event :article/toggle-like-failed
+  (fn [{:keys [db]} [_ prior _err]]
+    {:db (assoc-in db [:articles :data] prior)}))
 ```
 
 The pattern: capture the prior value as part of the *event*, not in mutable state. The rollback handler is pure.
@@ -232,7 +232,7 @@ Hosts that *do* support a cancellation primitive (`AbortController` in browsers,
 Repeating fetches at a fixed interval. Use `:dispatch-later` to schedule the next load:
 
 ```clojure
-(rf/reg-event-fx :articles/poll
+(rf/reg-event :articles/poll
   (fn [_ _]
     {:fx [[:dispatch [:articles/load]]
           [:dispatch-later {:ms 30000 :event [:articles/poll]}]]}))

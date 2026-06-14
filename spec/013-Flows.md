@@ -363,8 +363,8 @@ A flow named `:my-app/derived-area` with `:path [:my-app/area]` is **observable 
 
 ```clojure
 ;; (a) plain app-db read inside another handler
-(rf/reg-event-db :event/use-area
-  (fn [db _]
+(rf/reg-event :event/use-area
+  (fn [{:keys [db]} _]
     (let [area (get-in db [:my-app/area])] ...)))
 
 ;; (b) user-registered sub over the flow's :path
@@ -408,14 +408,14 @@ Two reserved fx-ids let event handlers register and clear flows during normal ev
 | `:rf.fx/clear-flow` | A flow id | Clear the flow from the dispatching frame. `dissoc-in` on its `:path` in that frame's `app-db`. Next drain's topsort observes the removal. |
 
 ```clojure
-(rf/reg-event-fx :wizard/enter-step-2
+(rf/reg-event :wizard/enter-step-2
   (fn [_ _]
     {:fx [[:rf.fx/reg-flow {:id     :step-2/computed
                              :inputs [[:step-2 :foo] [:step-2 :bar]]
                              :output (fn [foo bar] (compute foo bar))
                              :path   [:step-2 :result]}]]}))
 
-(rf/reg-event-fx :wizard/leave-step-2
+(rf/reg-event :wizard/leave-step-2
   (fn [_ _]
     {:fx [[:rf.fx/clear-flow :step-2/computed]]}))
 ```
@@ -433,7 +433,7 @@ This lag is a **structural consequence of the [§Drain integration](#drain-integ
 **Working with the lag.** In the common case the lag is invisible: you register a flow in `:enter` and the user's *next* interaction (which dispatches an event) materialises the output. When you genuinely need the initial value *now*, dispatch a follow-up event from the same handler whose only job is to re-trigger the drain — the flow computes on that drain:
 
 ```clojure
-(rf/reg-event-fx :wizard/enter-step-2
+(rf/reg-event :wizard/enter-step-2
   (fn [_ _]
     {:fx [[:rf.fx/reg-flow {:id     :step-2/computed
                             :inputs [[:step-2 :foo] [:step-2 :bar]]
@@ -445,7 +445,7 @@ This lag is a **structural consequence of the [§Drain integration](#drain-integ
           ;; the user's next interaction.
           [:dispatch [:wizard/settle]]]}))
 
-(rf/reg-event-db :wizard/settle (fn [db _] db))   ;; no-op; exists only to drain
+(rf/reg-event :wizard/settle (fn [{:keys [db]} _] {:db db}))   ;; no-op; exists only to drain
 ```
 
 This is a deliberate, explicit step — not a hidden one. Most apps never need it.

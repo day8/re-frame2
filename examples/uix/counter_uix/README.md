@@ -9,7 +9,7 @@ different substrate.
 - **`rf/init!` with the UIx adapter** — `(rf/init! uix-adapter/adapter)`.
   No default-adapter registry; the adapter spec map is passed
   explicitly.
-- **`reg-event-db` / `reg-event-fx` / `reg-sub`** —
+- **`reg-event` / `reg-sub`** —
   *substrate-agnostic*. The exact same registrations as the Reagent
   counter; the artefact layer doesn't know which substrate is below.
 - **`use-subscribe` hook (UIx idiomatic)** — components call

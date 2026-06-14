@@ -39,7 +39,7 @@ turnstile.
 ### re-frame2 cells (` ```cljs-rf2 `, Phase 3)
 
 A `cljs-rf2` cell evaluates against **re-frame2's own public API** — the v2
-`re-frame.core` (`reg-event-db` / `reg-sub` / `dispatch` / `subscribe`), rendered
+`re-frame.core` (`reg-event` / `reg-sub` / `dispatch` / `subscribe`), rendered
 via **reagent2** (the reagent-slim rewrite re-frame2 actually renders through),
 NOT stock re-frame. The **last form** must be a reagent renderable (a hiccup
 vector `[:div ...]` or a component vector `[my-component]`); the cell
@@ -50,8 +50,8 @@ evaluated at the SCI **top level** (NOT wrapped in `(do ...)`) so a leading
 ```cljs-rf2
 (require '[reagent2.core :as r]
          '[re-frame.core :as rf])
-(rf/reg-event-db :init (fn [_ _] {:n 0}))
-(rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+(rf/reg-event :init (fn [_ _] {:db {:n 0}}))
+(rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
 (rf/reg-sub      :n    (fn [db _] (:n db)))
 (rf/dispatch-sync [:init])
 (defn counter []

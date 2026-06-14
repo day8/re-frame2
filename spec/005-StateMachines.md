@@ -10,7 +10,7 @@
 
 ## Abstract
 
-A state machine in re-frame2 is **an event handler whose body interprets a transition table**. Machines are registered as event handlers via `reg-event-fx + make-machine-handler`; the registered handler is the entire surface. The framework's machine-specific hooks live in 002 — drain semantics, the snapshot shape, the inspection trace surface, the `:raise` reserved fx-id (machine-internal) that the machine handler routes locally, and the `:rf.machine/spawn` / `:rf.machine/destroy` fx-ids (canonical actor-lifecycle).
+A state machine in re-frame2 is **an event handler whose body interprets a transition table**. Machines are registered as event handlers via `reg-event + make-machine-handler`; the registered handler is the entire surface. The framework's machine-specific hooks live in 002 — drain semantics, the snapshot shape, the inspection trace surface, the `:raise` reserved fx-id (machine-internal) that the machine handler routes locally, and the `:rf.machine/spawn` / `:rf.machine/destroy` fx-ids (canonical actor-lifecycle).
 
 For readers familiar with xstate, [§Lessons from xstate](#lessons-from-xstate-deliberate-divergences) at the end of this spec lists the divergences inline and forward-points to [CP-5-MachineGuide §Lessons from xstate](CP-5-MachineGuide.md#lessons-from-xstate-deliberate-divergences) for the full divergence table.
 
@@ -21,7 +21,7 @@ Machines serve two distinct use cases:
 1. **High-level workflow.** Multi-step user flows (signup → verify → onboard → home), modal dismissal logic, wizard navigation. Without machines these get smeared across many event handlers and an `:app/screen` keyword in `app-db`; the smearing is the pain.
 2. **Low-level protocols.** Async resource lifecycles (HTTP request: `idle → loading → success/error/retry`), websocket connection states, animation transitions. Without machines these live as ad-hoc keywords in some sub-tree of `app-db`, with handlers that have to remember "if state is `:loading`, ignore another `:fetch`."
 
-Both want the same primitive but the ergonomics matter differently — workflow machines are few and named (one per major subsystem); protocol machines may have many concurrent instances (one per active resource). The same `make-machine-handler` factory covers both: a singleton machine is registered at boot via `reg-event-fx`; a dynamic instance is registered at run time via the `[:rf.machine/spawn ...]` fx (per [§Spawning — dynamic actors](#spawning--dynamic-actors)).
+Both want the same primitive but the ergonomics matter differently — workflow machines are few and named (one per major subsystem); protocol machines may have many concurrent instances (one per active resource). The same `make-machine-handler` factory covers both: a singleton machine is registered at boot via `reg-event`; a dynamic instance is registered at run time via the `[:rf.machine/spawn ...]` fx (per [§Spawning — dynamic actors](#spawning--dynamic-actors)).
 
 ## Naming — `:state` and `:data`
 
@@ -127,7 +127,7 @@ The shim is keyed off the sentinel `:rf/transition-pure` parent-id stamp on the 
 
 Every machine snapshot lives at a fixed reserved path: **`[:rf.runtime/machines :snapshots <machine-id>]`** in the frame's **runtime-db** partition (per [002 §The two-partition frame contract](002-Frames.md#the-two-partition-frame-contract)). The runtime owns this path; users do not pick a path per machine and `make-machine-handler` does not accept a `:path` key.
 
-For the registration `(rf/reg-event-fx :drawer/editor (rf/make-machine-handler {...}))`:
+For the registration `(rf/reg-event :drawer/editor (rf/make-machine-handler {...}))`:
 
 ```clojure
 ;; in the frame's runtime-db, after initialisation:
@@ -190,7 +190,7 @@ A transition table is pure data. Top-level shape:
 
 The snapshot's location in `runtime-db` is `[:rf.runtime/machines :snapshots <id>]` — runtime-managed and not part of the transition-table grammar. See [§Where snapshots live](#where-snapshots-live).
 
-> **The transition-table spec map MUST NOT carry `:id`.** A machine's id is the surrounding registration's event-id (the first arg to `reg-event-fx` or, for dynamic instances, the gensym'd id allocated by the `[:rf.machine/spawn ...]` fx), not a field on the spec map. The runtime derives the id at handler-call time from the dispatched event vector's first element. Keeping `:id` out of the spec map keeps it a pure description of behaviour and lets the same spec value register against multiple ids if the application wants two independent machines with the same body.
+> **The transition-table spec map MUST NOT carry `:id`.** A machine's id is the surrounding registration's event-id (the first arg to `reg-event` or, for dynamic instances, the gensym'd id allocated by the `[:rf.machine/spawn ...]` fx), not a field on the spec map. The runtime derives the id at handler-call time from the dispatched event vector's first element. Keeping `:id` out of the spec map keeps it a pure description of behaviour and lets the same spec value register against multiple ids if the application wants two independent machines with the same body.
 
 #### Transition table top-level keys
 
@@ -634,7 +634,7 @@ Actions return:
  :fx   [[<fx-id> <args>] ...]}        ;; standard re-frame fx vector
 ```
 
-Two keys. **Symmetric with `reg-event-fx`'s `{:db :fx}`** — same shape, different scope. Both keys are optional. Returning `nil` means "no effects."
+Two keys. **Symmetric with `reg-event`'s `{:db :fx}`** — same shape, different scope. Both keys are optional. Returning `nil` means "no effects."
 
 `:data` semantics: **merge with the existing data map** (last write wins on key collision). Explicit `nil` clears a key:
 
@@ -743,10 +743,10 @@ The same principle holds for any data DSL the conformance corpus or a tooling la
 
 ## Registration — the machine IS the event handler
 
-A machine is registered as **one event handler** via `reg-event-fx` whose body comes from `make-machine-handler`.
+A machine is registered as **one event handler** via `reg-event` whose body comes from `make-machine-handler`.
 
 ```clojure
-(rf/reg-event-fx :drawer/editor
+(rf/reg-event :drawer/editor
   {:doc "Modal-edit flow."}
   [undoable]
   (rf/make-machine-handler
@@ -775,12 +775,12 @@ Reference resolution:
 (defn user-authenticated? [data _]
   (some? (:user-id data)))
 
-(rf/reg-event-fx :auth/login {}
+(rf/reg-event :auth/login {}
   (rf/make-machine-handler
     {:guards {:authenticated? user-authenticated?}
      ...}))
 
-(rf/reg-event-fx :settings/page {}
+(rf/reg-event :settings/page {}
   (rf/make-machine-handler
     {:guards {:authenticated? user-authenticated?}
      ...}))
@@ -788,7 +788,7 @@ Reference resolution:
 
 No framework support beyond ordinary Clojure var resolution. Each machine names the shared fn locally; the id is the meaning at the call site.
 
-**Hot-reload.** Re-evaluating `(reg-event-fx :machine-id (make-machine-handler {:guards {...} :actions {...} ...}))` re-registers the handler with new `:guards` / `:actions` impls. Mounted snapshots survive (only the handler changes); the next dispatch uses the new bodies. Standard hot-reload story.
+**Hot-reload.** Re-evaluating `(reg-event :machine-id (make-machine-handler {:guards {...} :actions {...} ...}))` re-registers the handler with new `:guards` / `:actions` impls. Mounted snapshots survive (only the handler changes); the next dispatch uses the new bodies. Standard hot-reload story.
 
 What this gives:
 
@@ -836,13 +836,13 @@ The fn `make-machine-handler` returns is the event handler. Crucially, the facto
 
 - **Registers nothing.** No `reg-*` side effects at construction time.
 - **Closes over no global state.** No `(get-machine-by-id ...)` lookups bound at construction.
-- **Does not know its own event id.** The handler's id is bound by the surrounding `reg-event-fx` (or by the `[:rf.machine/spawn ...]` fx for dynamic instances).
+- **Does not know its own event id.** The handler's id is bound by the surrounding `reg-event` (or by the `[:rf.machine/spawn ...]` fx for dynamic instances).
 
 This is a real constraint on the implementation, not just a testing affordance — it's what makes the singleton vs spawned symmetry clean (the registration happens *outside* the factory in both cases) and what makes Level-2 testing (per [§Testing](#testing)) possible without a test frame.
 
 ### `reg-machine` — public registration surface
 
-Alongside the underlying `reg-event-fx + make-machine-handler` form (per [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler)), the framework ships **`reg-machine`** as the standard public registration entry point for machines. Both forms register the same thing — an event handler whose body interprets the transition table — and they reach the same registry slot. `reg-machine` is the surface that tools, examples, and CP-5-generated scaffolds default to.
+Alongside the underlying `reg-event + make-machine-handler` form (per [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler)), the framework ships **`reg-machine`** as the standard public registration entry point for machines. Both forms register the same thing — an event handler whose body interprets the transition table — and they reach the same registry slot. `reg-machine` is the surface that tools, examples, and CP-5-generated scaffolds default to.
 
 ```clojure
 (rf/reg-machine :auth.login/flow
@@ -871,14 +871,14 @@ Alongside the underlying `reg-event-fx + make-machine-handler` form (per [§Regi
    :states      { ... }})
 ```
 
-Before rf2-wgmipl this shape could not be expressed through `reg-machine` (which took only `[machine-id machine]`) — apps hand-composed `(reg-event-fx id {:schema … :rf/machine? true :rf/machine spec} (make-machine-handler spec))`, which (rf2-genufr) silently skipped the `:data-schema`'s validation AND its redaction marks. The event-`:schema` arity replaces that composition.
+Before rf2-wgmipl this shape could not be expressed through `reg-machine` (which took only `[machine-id machine]`) — apps hand-composed `(reg-event id {:schema … :rf/machine? true :rf/machine spec} (make-machine-handler spec))`, which (rf2-genufr) silently skipped the `:data-schema`'s validation AND its redaction marks. The event-`:schema` arity replaces that composition.
 
 **The single registration home + auto-stamp + fail-loud guard (rf2-genufr).** Both `reg-machine` / `reg-machine*` (every arity) route through ONE registration home that runs BOTH `:data-schema` side-effects:
 
 1. the `:rf/machine?` / `:rf/machine` registration-metadata stamp — the `:where :machine-data` post-commit walker resolves a machine's `:data-schema` THROUGH `(machine-meta id)`, so without the stamp the schema validates nothing; and
 2. the **redaction-marks bridge** (`register-data-schema-marks!`, per [§Privacy — redacting machine `:data` at trace egress](#privacy--redacting-machine-data-at-trace-egress)) — a `:sensitive?` / `:large?` per-slot marker on the `:data-schema` must redact at snapshot egress, not leak raw to the trace bus / AI-MCP.
 
-The bare `(reg-event-fx id meta (make-machine-handler spec))` composition ran NEITHER automatically — so a `:data-schema` declared on a hand-stamped machine was both **inert** (validated nothing) and a **privacy leak** (a sensitive `:data` slot egressed raw). `make-machine-handler` therefore **fails loud** when handed a `:data-schema`-bearing spec outside the home: it raises `:rf.error/machine-schema-requires-reg-machine`, directing the author to `reg-machine` / `reg-machine*` (and, when the machine also validates its event vector, the event-`:schema` arity). A schema-LESS spec is unaffected — it has nothing inert to leak, so the bare `reg-event-fx` + `make-machine-handler` composition stays legal for it (the lazy spawned-actor materialisation seam relies on it).
+The bare `(reg-event id meta (make-machine-handler spec))` composition ran NEITHER automatically — so a `:data-schema` declared on a hand-stamped machine was both **inert** (validated nothing) and a **privacy leak** (a sensitive `:data` slot egressed raw). `make-machine-handler` therefore **fails loud** when handed a `:data-schema`-bearing spec outside the home: it raises `:rf.error/machine-schema-requires-reg-machine`, directing the author to `reg-machine` / `reg-machine*` (and, when the machine also validates its event vector, the event-`:schema` arity). A schema-LESS spec is unaffected — it has nothing inert to leak, so the bare `reg-event` + `make-machine-handler` composition stays legal for it (the lazy spawned-actor materialisation seam relies on it).
 
 Both forms live in `re-frame.machines` (the `day8/re-frame2-machines` artefact, per [Conventions.md](Conventions.md)) and are re-exported under `re-frame.core` for both JVM and CLJS callers. See [API.md §Machines](API.md#machines) for the canonical API table.
 
@@ -1069,7 +1069,7 @@ Cross-references: [Construction-Prompts.md](Construction-Prompts.md) covers scaf
 - **Three-way conceptual split:** definition (data), instance (snapshot at the runtime-managed `[:rf.runtime/machines :snapshots <id>]`), frame (actor-system boundary).
 - **Snapshot shape:** `{:state <fsm-keyword> :data <map>}`. `:state` is the discrete FSM keyword (`:idle`, `:editing`, ...); `:data` is the extended state — the machine's own private memory.
 - **Pure transition contract:** `(machine-transition definition snapshot event) → [next-snapshot effects]`.
-- **Pure factory:** `(make-machine-handler spec) → fn`. Returns a re-frame event-handler fn whose construction is a pure value transform of `spec` — its identity (the surrounding `reg-event-fx` id, or the `[:rf.machine/spawn ...]`-supplied id) is bound by the caller.
+- **Pure factory:** `(make-machine-handler spec) → fn`. Returns a re-frame event-handler fn whose construction is a pure value transform of `spec` — its identity (the surrounding `reg-event` id, or the `[:rf.machine/spawn ...]`-supplied id) is bound by the caller.
 - **Definition shape:** transition table is pure data; guards/actions referenced by id or supplied as fns; both forms are first-class.
 - **Inspection:** lifecycle/transition events emitted on the existing trace surface — discriminated by their `:rf.machine.*` `:operation` keyword (`:rf.machine.lifecycle/created`, `:rf.machine/transition`, `:rf.machine/snapshot-updated`, …). Machine-emitted dispatches carry `:source :machine-action` on the envelope (per rf2-c3990 — the actor-message path; `:dispatch` / `:dispatch-later` fx handlers stamp this when the parent envelope is `:rf.machine/internal? true`).
 - **Composition:** ordinary `dispatch` between machines, made deterministic by drain semantics.
@@ -2350,7 +2350,7 @@ Symmetry between singleton and spawned:
 
 | | id form | snapshot location | liveness |
 |---|---|---|---|
-| Singleton | `:drawer/editor` (explicit) | `[:rf.runtime/machines :snapshots :drawer/editor]` | a registrar entry registered at boot via `reg-event-fx`; outlives any one frame's value |
+| Singleton | `:drawer/editor` (explicit) | `[:rf.runtime/machines :snapshots :drawer/editor]` | a registrar entry registered at boot via `reg-event`; outlives any one frame's value |
 | Spawned actor | `:request/protocol#42` (gensym'd) | `[:rf.runtime/machines :snapshots :request/protocol#42]` | the SNAPSHOT's presence — no per-instance registrar entry; resolved on dispatch from the snapshot's `:rf/machine-type`; reverts with the frame value |
 
 Both are addressable by `dispatch` (`[<id> <event>]`). Both readable through the framework-registered `:rf/machine` sub (per [§Subscribing to machines via `sub-machine`](#subscribing-to-machines-via-sub-machine)) — the actor-id is just the argument: `@(rf/sub-machine actor-id)`. A singleton appears in `(registrations :event)`; a spawned actor does not (its liveness is its snapshot) — enumerate live actors via `[:rf.runtime/machines :snapshots]` instead, per [§Querying machines](#querying-machines).
@@ -2520,7 +2520,7 @@ The spawn fx (`:rf.machine/spawn`) dispatches the spawned actor's first event �
 The canonical surface is the `[:rf.machine/spawn ...]` fx — used inside an event handler's `:fx`. From outside a handler (e.g. boot-time), wrap the spawn in a one-shot bootstrap event:
 
 ```clojure
-(rf/reg-event-fx
+(rf/reg-event
   :app/spawn-request-protocol
   (fn [_ [_ url]]
     {:fx [[:rf.machine/spawn
@@ -2538,7 +2538,7 @@ The canonical surface is the `[:rf.machine/spawn ...]` fx — used inside an eve
 (rf/dispatch [actor-id [:cancel]])
 
 ;; destroy — emit the canonical destroy fx from a handler
-(rf/reg-event-fx
+(rf/reg-event
   :app/destroy-request-protocol
   (fn [_ [_ actor-id]]
     {:fx [[:rf.machine/destroy actor-id]]}))
@@ -2625,7 +2625,7 @@ The mapping lives at `[:rf.runtime/machines :system-ids <name>]` in the spawning
 
 - On spawn, the runtime writes `[:rf.runtime/machines :system-ids <name>] = <gensym'd-id>` and emits `:rf.machine/system-id-bound`.
 - On destroy (whether by `:spawn` exit cascade or hand-emitted `[:rf.machine/destroy actor-id]`), the runtime clears the slot AND emits `:rf.machine/system-id-released`.
-- A spawn under an already-bound name **rebinds** (last-write-wins) and emits `:rf.error/system-id-collision` so observers can see the displacement. The previously-bound machine's snapshot is NOT auto-destroyed by the rebind; it stays at its `[:rf.runtime/machines :snapshots <id>]` slot, just unnamed. (Symmetric with `reg-event-fx` re-registration: replacing a handler doesn't cancel any in-flight work that addressed the previous fn; it just means the next *named* dispatch routes to the new one.)
+- A spawn under an already-bound name **rebinds** (last-write-wins) and emits `:rf.error/system-id-collision` so observers can see the displacement. The previously-bound machine's snapshot is NOT auto-destroyed by the rebind; it stays at its `[:rf.runtime/machines :snapshots <id>]` slot, just unnamed. (Symmetric with `reg-event` re-registration: replacing a handler doesn't cancel any in-flight work that addressed the previous fn; it just means the next *named* dispatch routes to the new one.)
 
 **`:system-id` is orthogonal to `:fixed-actor-id`.**
 
@@ -3310,7 +3310,7 @@ If a request was issued without `:request-id` from inside a spawned actor, it is
 
 ### Open question — direct dispatches from event handlers
 
-Events dispatched directly from ordinary `reg-event-fx` handlers — i.e. the originating event vector is for an event-id that is NOT a spawned actor's address — issue `:rf.http/managed` requests that are NOT subject to the actor-destroy cancellation cascade. There is no actor-id to correlate against.
+Events dispatched directly from ordinary `reg-event` handlers — i.e. the originating event vector is for an event-id that is NOT a spawned actor's address — issue `:rf.http/managed` requests that are NOT subject to the actor-destroy cancellation cascade. There is no actor-id to correlate against.
 
 This is **deliberate.** Cancellation tied to actor lifetime is semantically the right scope: the child actor exists to run until the parent says "we no longer care"; the parent saying so kills the actor and the actor's outstanding work. An ordinary event handler has no analogous lifecycle peg — its work is launched as a side effect and outlives the handler that fired it; the only way to abort it is via an explicit `:rf.http/managed-abort` keyed on the user-supplied `:request-id`, exactly as before this contract.
 
@@ -3638,7 +3638,7 @@ Both are pure functions over the registry. Both are JVM-runnable (they touch onl
 Why a lens, not a registry kind:
 
 - **Architectural commitment preserved.** Machines remain *event handlers*. There is no `:machine` registry kind, no parallel substrate, no per-machine auto-registration. `(rf/machines)` is a `filter` call, not a separate index.
-- **`:rf/machine? true` metadata is the discriminator.** `make-machine-handler` carries this metadata onto the registration; `reg-event-fx` records it as part of the standard metadata map (per [001 §Metadata-map shape](001-Registration.md)). User-written event handlers do not set this key.
+- **`:rf/machine? true` metadata is the discriminator.** `make-machine-handler` carries this metadata onto the registration; `reg-event` records it as part of the standard metadata map (per [001 §Metadata-map shape](001-Registration.md)). User-written event handlers do not set this key.
 - **One-line implementation.** `(rf/machines)` is `(registrations :event #(:rf/machine? %))`-shaped; `(rf/machine-meta id)` is `(handler-meta :event id)`. Both reuse the public registrar query API ([API.md §Public registrar query API](API.md#public-registrar-query-api)).
 - **Discovery is a first-class operation.** Visualisers can iterate every live machine without knowing where else to look; conformance harnesses can enumerate the suite under test; AI agents can answer "show me the machines in this app."
 
@@ -3681,7 +3681,7 @@ Returns the whole snapshot `{:state <kw> :data <map>}` for the named machine, or
 
 The framework exposes two surfaces, both equivalent:
 
-- **`(rf/sub-machine :drawer/editor)`** — the canonical user-facing call site. Lives in `re-frame.core` alongside `subscribe`, `dispatch`, `reg-event-fx`. Single-arg; returns a Reagent reaction over the snapshot. The verb-noun name reads as "subscribe to a machine."
+- **`(rf/sub-machine :drawer/editor)`** — the canonical user-facing call site. Lives in `re-frame.core` alongside `subscribe`, `dispatch`, `reg-event`. Single-arg; returns a Reagent reaction over the snapshot. The verb-noun name reads as "subscribe to a machine."
 
   ```clojure
   (defn sub-machine [machine-id]
@@ -3756,7 +3756,7 @@ The framework provides the entry point; users write the derivations. Same patter
 
 ### Pure-factory invariant preserved
 
-`make-machine-handler` registers nothing — it returns a pure handler fn. Registration of the *machine's event handler* happens at the `reg-event-fx` call site; reading the snapshot happens through the framework-registered `:rf/machine` sub. There is no auto-registration tied to the machine's id, no self-id capture, no registration side effects in the factory.
+`make-machine-handler` registers nothing — it returns a pure handler fn. Registration of the *machine's event handler* happens at the `reg-event` call site; reading the snapshot happens through the framework-registered `:rf/machine` sub. There is no auto-registration tied to the machine's id, no self-id capture, no registration side effects in the factory.
 
 ## Testing
 
@@ -3792,7 +3792,7 @@ The handler resolves its id from the inbound event vector's first element (`:dra
 
 ```clojure
 (rf/with-new-frame [f (rf/make-frame {:on-create [:my/init]})]
-  (rf/reg-event-fx :my/editor {} (rf/make-machine-handler {...}))
+  (rf/reg-event :my/editor {} (rf/make-machine-handler {...}))
   (rf/dispatch-sync [:my/editor [:event]] {:frame f})
   (assert ...))
 ```
@@ -3848,14 +3848,14 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
 ;; DOMAIN EVENT — the actual mutation lives here, not in the machine
 ;; ----------------------------------------------------------------------------
 
-(rf/reg-event-db :drawer/apply-radius
+(rf/reg-event :drawer/apply-radius
   {:doc "Persist a circle's new radius. Called by the editor machine on commit."}
   [undoable]
-  (fn [db [_ circle-id new-radius]]
-    (update-in db [:drawer :circles]
-               (fn [cs]
-                 (mapv #(if (= circle-id (:id %)) (assoc % :radius new-radius) %)
-                       cs)))))
+  (fn [{:keys [db]} [_ circle-id new-radius]]
+    {:db (update-in db [:drawer :circles]
+                    (fn [cs]
+                      (mapv #(if (= circle-id (:id %)) (assoc % :radius new-radius) %)
+                            cs)))}))
 
 ;; ----------------------------------------------------------------------------
 ;; MACHINE — event handler IS the machine
@@ -3868,7 +3868,7 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
 ;; updates, so they stay inline (the escape hatch).
 ;; ----------------------------------------------------------------------------
 
-(rf/reg-event-fx :drawer/editor
+(rf/reg-event :drawer/editor
   {:doc "Modal-edit flow."}
   (rf/make-machine-handler
     {:initial :idle
@@ -3926,33 +3926,33 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
 ;; DOMAIN EVENTS (orthogonal to the machine)
 ;; ----------------------------------------------------------------------------
 
-(rf/reg-event-fx :drawer/initialise
+(rf/reg-event :drawer/initialise
   (fn [_ _]
     ;; Domain state under :drawer; the editor machine's snapshot lives at
     ;; [:rf.runtime/machines :snapshots :drawer/editor] — runtime-managed; not seeded here.
     {:db {:drawer {:circles [] :undo [] :redo []}}}))
 
-(rf/reg-event-db :drawer/add-circle
+(rf/reg-event :drawer/add-circle
   {:interceptors [undoable]}
-  (fn [db [_ x y]]
-    (update-in db [:drawer :circles] conj
-               {:id (random-uuid) :x x :y y :radius 30})))
+  (fn [{:keys [db]} [_ x y]]
+    {:db (update-in db [:drawer :circles] conj
+                    {:id (random-uuid) :x x :y y :radius 30})}))
 
-(rf/reg-event-db :drawer/undo
-  (fn [db _]
-    (let [{:keys [undo circles]} (:drawer db)]
-      (if (empty? undo) db
-          (-> db (assoc-in  [:drawer :circles] (peek undo))
-                 (update-in [:drawer :undo]    pop)
-                 (update-in [:drawer :redo]    (fnil conj []) circles))))))
+(rf/reg-event :drawer/undo
+  (fn [{:keys [db]} _]
+    {:db (let [{:keys [undo circles]} (:drawer db)]
+           (if (empty? undo) db
+               (-> db (assoc-in  [:drawer :circles] (peek undo))
+                      (update-in [:drawer :undo]    pop)
+                      (update-in [:drawer :redo]    (fnil conj []) circles))))}))
 
-(rf/reg-event-db :drawer/redo
-  (fn [db _]
-    (let [{:keys [redo circles]} (:drawer db)]
-      (if (empty? redo) db
-          (-> db (assoc-in  [:drawer :circles] (peek redo))
-                 (update-in [:drawer :redo]    pop)
-                 (update-in [:drawer :undo]    (fnil conj []) circles))))))
+(rf/reg-event :drawer/redo
+  (fn [{:keys [db]} _]
+    {:db (let [{:keys [redo circles]} (:drawer db)]
+           (if (empty? redo) db
+               (-> db (assoc-in  [:drawer :circles] (peek redo))
+                      (update-in [:drawer :redo]    pop)
+                      (update-in [:drawer :undo]    (fnil conj []) circles))))}))
 
 ;; ----------------------------------------------------------------------------
 ;; SUBS — preview state is *display* state, not domain state
@@ -4117,7 +4117,7 @@ Resolved: `:always` is a state-node key holding a vector of guarded transitions;
 
 ### Sub-event call-site shape (RESOLVED)
 
-Resolved: the dispatch shape for events targeting a machine is the sub-event form `[:machine-id [:inner-event-keyword & payload]]` — the machine handler resolves the second-position inner keyword as the FSM event. The flat form (`[:machine-id/inner-event payload]` with one `reg-event-fx` registration per event) is **not** how machines are addressed. Why: fewer registry entries (one per machine, not one per event); call-site labels show "this is going to the editor machine"; works uniformly for spawned actors whose ids are gensym'd. See the worked examples in [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler) and the Circle Drawer.
+Resolved: the dispatch shape for events targeting a machine is the sub-event form `[:machine-id [:inner-event-keyword & payload]]` — the machine handler resolves the second-position inner keyword as the FSM event. The flat form (`[:machine-id/inner-event payload]` with one `reg-event` registration per event) is **not** how machines are addressed. Why: fewer registry entries (one per machine, not one per event); call-site labels show "this is going to the editor machine"; works uniformly for spawned actors whose ids are gensym'd. See the worked examples in [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler) and the Circle Drawer.
 
 ### Multiple machine instances at one path
 
@@ -4219,7 +4219,7 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 
 ### v1 ships the machine-as-event-handler foundation
 
-- `(make-machine-handler spec)` — pure factory returning an `reg-event-fx`-compatible handler fn that reads/writes the snapshot at `[:rf.runtime/machines :snapshots <id>]`, calls `machine-transition`, lowers `:data` / `:fx` / `:raise` / `:rf.machine/spawn` into a standard effect map. Registers nothing, closes over no global state, does not know its own id. Spec keys: `:initial`, `:data`, `:guards`, `:actions`, `:states`, `:on`, `:meta` — no `:path` (the location is runtime-managed; see [§Where snapshots live](#where-snapshots-live)). The `:guards` and `:actions` maps declare the machine's named guard / action implementations; transition-table keyword references resolve **machine-locally**, validated at registration time.
+- `(make-machine-handler spec)` — pure factory returning an `reg-event`-compatible handler fn that reads/writes the snapshot at `[:rf.runtime/machines :snapshots <id>]`, calls `machine-transition`, lowers `:data` / `:fx` / `:raise` / `:rf.machine/spawn` into a standard effect map. Registers nothing, closes over no global state, does not know its own id. Spec keys: `:initial`, `:data`, `:guards`, `:actions`, `:states`, `:on`, `:meta` — no `:path` (the location is runtime-managed; see [§Where snapshots live](#where-snapshots-live)). The `:guards` and `:actions` maps declare the machine's named guard / action implementations; transition-table keyword references resolve **machine-locally**, validated at registration time.
 - `(machine-transition definition snapshot event)` → `[next-snapshot effects]` — pure function. JVM-runnable. No re-frame dependencies; guard/action references resolve against the definition's own `:guards` / `:actions` maps.
 - The `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` fx for dynamic actor lifecycle (canonical surface; the v1 public fns `spawn-machine` / `destroy-machine` are dropped per [MIGRATION.md §M-26](../migration/from-re-frame-v1/README.md#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces)).
 - The `:raise` reserved fx-id inside `:fx` (machine-internal); the `:rf.machine/spawn` and `:rf.machine/destroy` fx-ids registered globally for actor lifecycle.

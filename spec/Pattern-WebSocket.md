@@ -66,7 +66,7 @@ The connection machine composes the locked substrate:
 ## Worked example — connection machine
 
 ```clojure
-(rf/reg-event-fx :ws/connection
+(rf/reg-event :ws/connection
   {:doc "WebSocket connection lifecycle: disconnected → active{:connecting →
          :authenticating → :connected} → reconnecting (with backoff) → failed."}
   (rf/make-machine-handler
@@ -360,7 +360,7 @@ Use `:after` on `:connected` to schedule a periodic ping: `:after {30000 {:targe
 Server pushes (`:ws/received` events with no `:request-id`) are translated into named dispatched events the running-app handlers consume. The connection machine's role is mechanical — receive, validate the socket-id, translate, dispatch. The semantic interpretation lives in the per-feature event handlers:
 
 ```clojure
-(rf/reg-event-fx :ws/handle-message
+(rf/reg-event :ws/handle-message
   (fn [_ [_ {:keys [type] :as msg}]]
     (case type
       :note/created {:fx [[:dispatch [:notes/append msg]]]}

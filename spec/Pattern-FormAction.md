@@ -7,7 +7,7 @@
 
 ## Role
 
-A **convention**, not a Spec. The runtime gives you everything: per-request frames, the request cofx, the response accumulator, the six standard server-only fxs (`:rf.server/set-status` / `:rf.server/redirect` / `:rf.server/set-cookie` / …), `reg-event-fx`, schema validation per [010-Schemas.md](010-Schemas.md), the error projector. What this doc names is **the canonical shape for handling an HTML form POST in an SSR app** — Next.js Server Actions / Remix `action` exports translated to re-frame2 primitives.
+A **convention**, not a Spec. The runtime gives you everything: per-request frames, the request cofx, the response accumulator, the six standard server-only fxs (`:rf.server/set-status` / `:rf.server/redirect` / `:rf.server/set-cookie` / …), `reg-event`, schema validation per [010-Schemas.md](010-Schemas.md), the error projector. What this doc names is **the canonical shape for handling an HTML form POST in an SSR app** — Next.js Server Actions / Remix `action` exports translated to re-frame2 primitives.
 
 The pattern exists because SSR apps need progressive-enhancement-friendly form handling: a form must work without JavaScript (the server processes the POST and returns a fresh page), and the same submission code path should run client-side once JS hydrates (the client intercepts `:on-submit`, dispatches the same event, no full-page reload). Pattern-Forms covers the client-side lifecycle and the form-slice shape; this pattern covers the server-side POST seam and the cross-platform handler tree.
 
@@ -78,7 +78,7 @@ The `action` attribute is what makes the form work without JS: the browser will 
 ### `:rf/server-init` routes GET vs POST
 
 ```clojure
-(rf/reg-event-fx :rf/server-init
+(rf/reg-event :rf/server-init
   {:doc              "Per-request boot for SSR. Routes GET → page loader; POST → form action."
    :platforms        #{:server}
    :rf.cofx/requires [:rf.server/request]}
@@ -95,7 +95,7 @@ The `action` attribute is what makes the form work without JS: the browser will 
 ### The action handler
 
 ```clojure
-(rf/reg-event-fx :cart/add-item
+(rf/reg-event :cart/add-item
   {:doc              "Add an item to the user's cart. Runs on both platforms; the POST entry point lives on the server."
    :schema           [:cat [:= :cart/add-item] AddToCartForm]  ;; schema validates form-params per 010
    :rf.cofx/requires [:rf.server/request                       ;; server request context
@@ -129,7 +129,7 @@ When the schema fails (e.g. `quantity = 0`), the projector stamps 400 on the `:r
 
 ```clojure
 ;; The projector hook that turns schema-failure traces into per-form errors.
-(rf/reg-event-fx :rf/handle-form-schema-failure
+(rf/reg-event :rf/handle-form-schema-failure
   {:platforms #{:server}}
   (fn [{:keys [db]} [_ form-slice-path errors]]
     {:db (-> db
@@ -230,7 +230,7 @@ Apps without a form slice (e.g. a pure-API endpoint that happens to share the ac
 ## Anti-patterns
 
 - **Skipping the `action` attribute.** A form without `method` and `action` only works with JS — the progressive-enhancement guarantee breaks. Always emit the attributes; the `:on-submit` interceptor is purely additive.
-- **Validating only on the client.** Client validation is for UX; the server is the authority. Re-running the schema check in the action handler (via `:schema` on `reg-event-fx`) is mandatory — never trust the POST body.
+- **Validating only on the client.** Client validation is for UX; the server is the authority. Re-running the schema check in the action handler (via `:schema` on `reg-event`) is mandatory — never trust the POST body.
 - **Using a client-navigation event for the server redirect.** The client routing event `[:rf.route/navigate …]` is a no-op on the server ([011 §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx)); use `:rf.server/redirect` (the server-only fx) for the POST-redirect-GET pattern. (And do not reach for a navigate fx under `:rf.nav/*` — the framework ships none; `:rf.route/navigate` is the shipped programmatic-navigation event.)
 - **Reading the CSRF token from a hardcoded value or a query string.** Sessions rotate tokens; cofx-binding via the app-owned `:app.csrf/active-token` is the single source of truth. Apps that put the token in a URL leak it to referrer logs.
 - **Using `302 Found` for POST success.** Some clients re-POST on `302`; the canonical POST-redirect-GET status is `303 See Other`. The `:rf.server/redirect` fx defaults to 302 for GET-side redirects (per [011 §Standard fx](011-SSR.md#standard-fx)); apps MUST explicitly set `:status 303` for post-action redirects.
