@@ -1340,8 +1340,11 @@
     (let [boom-icpt (rf/->interceptor
                       :id :test/boom-icpt
                       :before (fn [_ctx] (throw (ex-info "icpt blew up" {:why :icpt}))))]
+      ;; EP-0022 reference-only flip: register the interceptor value then
+      ;; reference it by id from the chain (the value's `:id` must match).
+      (rf/reg-interceptor* :test/boom-icpt boom-icpt)
       (rf/reg-event :test/uses-boom-icpt
-        {:interceptors [boom-icpt]}
+        {:interceptors [:test/boom-icpt]}
         (fn [{:keys [db]} _] {:db db}))
       (story/reg-variant :story.icpt-boom/v
         {:events [[:test/uses-boom-icpt]]})

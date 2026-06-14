@@ -267,14 +267,16 @@
             leaked."
     (let [handler-calls (atom 0)
           before-calls  (atom 0)
-          after-calls   (atom 0)
-          probe         (rf/->interceptor
-                          :id     ::after-probe
-                          :before (fn [ctx] (swap! before-calls inc) ctx)
-                          :after  (fn [ctx] (swap! after-calls inc) ctx))]
+          after-calls   (atom 0)]
+      ;; EP-0022 reference-only flip (rf2-0adhqs.9): chains carry refs only, so
+      ;; the probe interceptor is registered and referenced by id rather than
+      ;; dropped inline. The closures still capture the per-test atoms.
+      (rf/reg-interceptor* ::after-probe
+        {:before (fn [ctx] (swap! before-calls inc) ctx)
+         :after  (fn [ctx] (swap! after-calls inc) ctx)})
       (rf/reg-event :user/probe
         {:schema [:cat [:= :user/probe] :int]
-         :interceptors [probe]}
+         :interceptors [::after-probe]}
         (fn [{:keys [db]} _] (swap! handler-calls inc) {:db db}))
       (let [traces (atom [])]
         (rf/register-listener! ::after-ev (fn [ev] (swap! traces conj ev)))
@@ -1568,7 +1570,7 @@
       (rf/reg-event :api/response
         {:schema [:cat [:= :api/response]
                      [:map [:status :int] [:body :string]]]
-         :interceptors [rf/validate-at-boundary-interceptor]}
+         :interceptors [:rf.schema/at-boundary]}
         (fn [_ [_ payload]]
           (swap! calls inc)
           {:db {:last-response payload}}))
@@ -1602,7 +1604,7 @@
       (rf/reg-event :api/response
         {:schema [:cat [:= :api/response]
                      [:map [:status :int] [:body :string]]]
-         :interceptors [rf/validate-at-boundary-interceptor]}
+         :interceptors [:rf.schema/at-boundary]}
         (fn [_ [_ payload]]
           (swap! calls inc)
           {:db {:last-response payload}}))
@@ -1626,7 +1628,7 @@
             assertion."
     (rf/reg-event :api/strict
       {:schema [:cat [:= :api/strict] :int]
-       :interceptors [rf/validate-at-boundary-interceptor]}
+       :interceptors [:rf.schema/at-boundary]}
       (fn [_ _] {}))
     (let [traces (atom [])]
       (rf/register-listener! ::tr (fn [ev] (swap! traces conj ev)))
@@ -1673,7 +1675,7 @@
             additional plumbing."
     (rf/reg-event :api/strict
       {:schema [:cat [:= :api/strict] :int]
-       :interceptors [rf/validate-at-boundary-interceptor]}
+       :interceptors [:rf.schema/at-boundary]}
       (fn [_ _] {}))
     ;; Direct invocation of the interceptor's :before fn — gives us a
     ;; deterministic surface for asserting the recovery contract
@@ -1707,7 +1709,7 @@
       (schemas/set-schema-validator! custom)
       (rf/reg-event :api/custom
         {:schema :rf/any                     ;; opaque to the custom validator
-         :interceptors [rf/validate-at-boundary-interceptor]}
+         :interceptors [:rf.schema/at-boundary]}
         (fn [_ _] (swap! handler-calls inc) {}))
       (with-redefs [spec/dev-mode? (constantly false)]
         ;; Direct :before invocation so we observe the boundary's
@@ -1732,7 +1734,7 @@
     (let [calls (atom 0)]
       (rf/reg-event :api/disabled
         {:schema [:cat [:= :api/disabled] :int]
-         :interceptors [rf/validate-at-boundary-interceptor]}
+         :interceptors [:rf.schema/at-boundary]}
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]
         (rf/register-listener! ::nil (fn [ev] (swap! traces conj ev)))
@@ -1754,7 +1756,7 @@
     (let [calls (atom 0)]
       (rf/reg-event :api/dev
         {:schema [:cat [:= :api/dev] :int]
-         :interceptors [rf/validate-at-boundary-interceptor]}
+         :interceptors [:rf.schema/at-boundary]}
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]
         (rf/register-listener! ::dev (fn [ev] (swap! traces conj ev)))
@@ -1785,10 +1787,10 @@
               clojure.lang.ExceptionInfo
               #":rf\.error/at-boundary-missing-schema"
               (rf/reg-event :api/no-schema-2
-                {:interceptors [rf/validate-at-boundary-interceptor]}
+                {:interceptors [:rf.schema/at-boundary]}
                 (fn [_ _] (swap! calls inc) {}))))
         (let [data (try (rf/reg-event :api/no-schema-2-data
-                          {:interceptors [rf/validate-at-boundary-interceptor]}
+                          {:interceptors [:rf.schema/at-boundary]}
                           (fn [_ _] {}))
                         (catch clojure.lang.ExceptionInfo e
                           (ex-data e)))]
@@ -1807,7 +1809,7 @@
             #":rf\.error/at-boundary-missing-schema"
             (rf/reg-event :api/no-schema-3
               {:doc "metadata-map but no :schema"
-               :interceptors [rf/validate-at-boundary-interceptor]}
+               :interceptors [:rf.schema/at-boundary]}
               (fn [_ _] {})))))
 
     (testing "rejection covers a db-shaped handler and a full-context interceptor as well"
@@ -1815,22 +1817,25 @@
             clojure.lang.ExceptionInfo
             #":rf\.error/at-boundary-missing-schema"
             (rf/reg-event :api/db-no-schema
-              {:interceptors [rf/validate-at-boundary-interceptor]}
+              {:interceptors [:rf.schema/at-boundary]}
               (fn [{:keys [db]} _] {:db db}))))
+      ;; EP-0022 reference-only flip (rf2-0adhqs.9): chains carry refs only,
+      ;; so the full-context probe is registered and referenced by id alongside
+      ;; the boundary ref. The missing-`:schema` rejection still fires (it runs
+      ;; after the reference-shape validation, which both refs pass).
+      (rf/reg-interceptor* :api/ctx-probe {:before (fn [ctx] ctx)})
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf\.error/at-boundary-missing-schema"
             (rf/reg-event :api/ctx-no-schema
-              {:interceptors [rf/validate-at-boundary-interceptor
-                              (rf/->interceptor
-                                :id :api/ctx-probe :before (fn [ctx] ctx))]}
+              {:interceptors [:rf.schema/at-boundary :api/ctx-probe]}
               (fn [_ _] {})))))
 
     (testing "registration with `:schema` + validate-at-boundary-interceptor completes silently"
       (is (= :api/with-schema
              (rf/reg-event :api/with-schema
                {:schema [:cat [:= :api/with-schema] :int]
-                :interceptors [rf/validate-at-boundary-interceptor]}
+                :interceptors [:rf.schema/at-boundary]}
                (fn [_ _] {})))
           "registration returns the event id when the metadata carries :schema"))
 
@@ -2066,7 +2071,7 @@
     ;; Canonical :schema path — validation reads :schema.
     (rf/reg-event :api/schema-key
       {:schema [:cat [:= :api/schema-key] :int]
-       :interceptors [rf/validate-at-boundary-interceptor]}
+       :interceptors [:rf.schema/at-boundary]}
       (fn [_ _] {}))
     (with-redefs [spec/dev-mode? (constantly false)]
       (let [before  (:before rf/validate-at-boundary-interceptor)

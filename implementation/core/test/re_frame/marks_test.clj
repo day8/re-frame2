@@ -170,10 +170,10 @@
   (is (= [[:totp]] (:sensitive (marks/marks-for :event :evt)))))
 
 (deftest reg-event-ctx-stashes-marks
+  (rf/reg-interceptor* :evt/ctx-probe {:before (fn [ctx] ctx)})
   (rf/reg-event :evt
     {:large [[:body :blob]]
-     :interceptors [(rf/->interceptor
-                     :id :evt/ctx-probe :before (fn [ctx] ctx))]}
+     :interceptors [:evt/ctx-probe]}
     (fn [_ _] {}))
   (is (= [[:body :blob]] (:large (marks/marks-for :event :evt)))))
 

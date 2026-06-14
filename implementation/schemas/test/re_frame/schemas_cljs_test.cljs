@@ -415,7 +415,7 @@
             in dev; the boundary interceptor's prod-mode body never runs."
     (rf/reg-event :api/strict
       {:schema [:cat [:= :api/strict] :int]
-       :interceptors [rf/validate-at-boundary-interceptor]}
+       :interceptors [:rf.schema/at-boundary]}
       (fn [_ _] {}))
     (let [traces (atom [])]
       (trace-tooling/register-listener! ::boundary-dev (fn [ev] (swap! traces conj ev)))
@@ -447,7 +447,7 @@
     (let [calls (atom 0)]
       (rf/reg-event :api/strict
         {:schema [:cat [:= :api/strict] :int]
-         :interceptors [rf/validate-at-boundary-interceptor]}
+         :interceptors [:rf.schema/at-boundary]}
         (fn [_ _] (swap! calls inc) {}))
       (let [traces (atom [])]
         (trace-tooling/register-listener! ::dev-dispatch (fn [ev] (swap! traces conj ev)))

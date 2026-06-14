@@ -607,8 +607,12 @@
     (rf/reg-event :counter/inc
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     ;; Use `redact-interceptor` so the trace surface sees the redacted payload.
+    ;; EP-0022 reference-only flip: chains carry references only, so register the
+    ;; interceptor value then reference it by id (the value's `:id`).
+    (rf/reg-interceptor* :rf/redact-interceptor
+      (privacy/redact-interceptor [[:password] [:totp]]))
     (rf/reg-event :auth/login
-      {:interceptors [(privacy/redact-interceptor [[:password] [:totp]])]}
+      {:interceptors [:rf/redact-interceptor]}
       (fn [{:keys [db]} _] {:db db}))
     (story/reg-variant :story.recorder/sens-end-to-end {})
     (async/deref-blocking (story/run-variant :story.recorder/sens-end-to-end) 5000)

@@ -69,10 +69,10 @@
     (rf/reg-event :ctx/seed (fn [{:keys [db]} [_ db]] {:db db}))
     (rf/dispatch-sync [:ctx/seed {:user/id 42}] {:frame :ctx/db-is-app-db})
     (let [captured (atom nil)]
+      (rf/reg-interceptor* :ctx/capture-probe
+        {:before (fn [ctx] (reset! captured (:coeffects ctx)) ctx)})
       (rf/reg-event :ctx/capture
-        {:interceptors [(rf/->interceptor
-                         :id :ctx/capture-probe
-                         :before (fn [ctx] (reset! captured (:coeffects ctx)) ctx))]}
+        {:interceptors [:ctx/capture-probe]}
         (fn [_ _] {}))
       (rf/dispatch-sync [:ctx/capture] {:frame :ctx/db-is-app-db})
       (let [cofx @captured]
@@ -89,10 +89,10 @@
   (testing ":rf.db/runtime and :rf.frame/id are threaded into the event context"
     (rf/reg-frame :ctx/partitions {:doc "ctx"})
     (let [captured (atom nil)]
+      (rf/reg-interceptor* :ctx/capture-probe
+        {:before (fn [ctx] (reset! captured (:coeffects ctx)) ctx)})
       (rf/reg-event :ctx/capture
-        {:interceptors [(rf/->interceptor
-                         :id :ctx/capture-probe
-                         :before (fn [ctx] (reset! captured (:coeffects ctx)) ctx))]}
+        {:interceptors [:ctx/capture-probe]}
         (fn [_ _] {}))
       (rf/dispatch-sync [:ctx/capture] {:frame :ctx/partitions})
       (let [cofx @captured]
@@ -292,10 +292,10 @@
 ;; not aborted — downstream queued events keep draining).
 
 (defn- after-icpt
-  "A user `:after` interceptor (id `::mutate`) applying `f` to the context."
-  [f]
+  "A user `:after` interceptor (id `id`) applying `f` to the context."
+  [id f]
   (interceptor/->interceptor*
-    :id     ::mutate
+    :id     id
     :after  (fn [ctx] (f ctx))))
 
 ;; ---- :after interceptor mutating the final effects ------------------------
@@ -306,10 +306,12 @@
     (let [recorded (record-traces! ::after-bad-fx)
           ;; The :after runs AFTER the handler-wrapper's :before checks, so
           ;; `commit-fx-effects`/`fx-value-ok?` never saw this value.
-          bad-fx   (after-icpt (fn [ctx]
+          bad-fx   (after-icpt ::bad-fx
+                               (fn [ctx]
                                  (interceptor/assoc-effect ctx :fx :oops)))]
+      (rf/reg-interceptor* ::bad-fx bad-fx)
       (rf/reg-event :ctx/writes-db
-        {:interceptors [bad-fx]}
+        {:interceptors [::bad-fx]}
         (fn [{:keys [db]} _] {:db (assoc db :committed? true)
                               :fx []}))
       ;; A downstream event proves the drain was not abandoned by a raw throw.
@@ -331,10 +333,12 @@
   (testing "an :after interceptor inserting a foreign top-level effect key is policed (dropped) — not silently ignored at the partition commit"
     (rf/reg-frame :ctx/after-foreign {:doc "ctx"})
     (let [recorded (record-traces! ::after-foreign)
-          foreign  (after-icpt (fn [ctx]
+          foreign  (after-icpt ::foreign
+                               (fn [ctx]
                                  (interceptor/assoc-effect ctx :http {:url "/api"})))]
+      (rf/reg-interceptor* ::foreign foreign)
       (rf/reg-event :ctx/writes-db2
-        {:interceptors [foreign]}
+        {:interceptors [::foreign]}
         (fn [{:keys [db]} _] {:db (assoc db :ok? true)}))
       (rf/dispatch-sync [:ctx/writes-db2] {:frame :ctx/after-foreign})
       (let [errs (error-events recorded :rf.error/effect-map-shape)]
@@ -351,12 +355,14 @@
     (let [recorded (record-traces! ::after-legacy)
           ;; Insert the retired :rf/runtime root into the FINAL :db effect,
           ;; AFTER the in-chain `reject-legacy-runtime-root!` :before guard ran.
-          legacy   (after-icpt (fn [ctx]
+          legacy   (after-icpt ::legacy
+                               (fn [ctx]
                                  (let [db (interceptor/get-effect ctx :db)]
                                    (interceptor/assoc-effect
                                      ctx :db (assoc db :rf/runtime {:rf.runtime/machines {}})))))]
+      (rf/reg-interceptor* ::legacy legacy)
       (rf/reg-event :ctx/clean-db
-        {:interceptors [legacy]}
+        {:interceptors [::legacy]}
         (fn [{:keys [db]} _] {:db (assoc db :user/id 7)}))
       (rf/reg-event :ctx/after-legacy-downstream (fn [{:keys [db]} _] {:db (assoc db :downstream? true)}))
       (rf/dispatch-sync [:ctx/clean-db] {:frame :ctx/after-legacy})
@@ -385,14 +391,14 @@
   (testing "a full-context interceptor whose context carries a non-sequential :fx is policed at the boundary"
     (rf/reg-frame :ctx/ctx-bad-fx {:doc "ctx"})
     (let [recorded (record-traces! ::ctx-bad-fx)]
+      (rf/reg-interceptor* :ctx/ctx-writes-probe
+        {:before
+         (fn [ctx]
+           (-> ctx
+               (interceptor/assoc-effect :db (assoc (interceptor/get-coeffect ctx :db) :committed? true))
+               (interceptor/assoc-effect :fx {:dispatch [:nope]})))})
       (rf/reg-event :ctx/ctx-writes
-        {:interceptors [(rf/->interceptor
-                         :id :ctx/ctx-writes-probe
-                         :before
-                         (fn [ctx]
-                           (-> ctx
-                               (interceptor/assoc-effect :db (assoc (interceptor/get-coeffect ctx :db) :committed? true))
-                               (interceptor/assoc-effect :fx {:dispatch [:nope]}))))]}
+        {:interceptors [:ctx/ctx-writes-probe]}
         (fn [_ _] {}))
       (rf/dispatch-sync [:ctx/ctx-writes] {:frame :ctx/ctx-bad-fx})
       (let [errs (error-events recorded :rf.error/effect-map-shape)]
@@ -406,14 +412,14 @@
   (testing "a full-context interceptor whose context carries a foreign top-level effect key is policed at the boundary"
     (rf/reg-frame :ctx/ctx-foreign {:doc "ctx"})
     (let [recorded (record-traces! ::ctx-foreign)]
+      (rf/reg-interceptor* :ctx/ctx-foreign-writes-probe
+        {:before
+         (fn [ctx]
+           (-> ctx
+               (interceptor/assoc-effect :db (assoc (interceptor/get-coeffect ctx :db) :ok? true))
+               (interceptor/assoc-effect :dispatch [:legacy/event])))})
       (rf/reg-event :ctx/ctx-foreign-writes
-        {:interceptors [(rf/->interceptor
-                         :id :ctx/ctx-foreign-writes-probe
-                         :before
-                         (fn [ctx]
-                           (-> ctx
-                               (interceptor/assoc-effect :db (assoc (interceptor/get-coeffect ctx :db) :ok? true))
-                               (interceptor/assoc-effect :dispatch [:legacy/event]))))]}
+        {:interceptors [:ctx/ctx-foreign-writes-probe]}
         (fn [_ _] {}))
       (rf/dispatch-sync [:ctx/ctx-foreign-writes] {:frame :ctx/ctx-foreign})
       (let [errs (error-events recorded :rf.error/effect-map-shape)]

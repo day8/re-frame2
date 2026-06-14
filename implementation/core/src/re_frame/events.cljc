@@ -776,7 +776,7 @@
                  reg-fn-name " id {:interceptors [the-interceptor]} handler)` "
                  "— not `(" reg-fn-name " id the-interceptor handler)`.")
             :got         offending
-            :expected    "metadata-map with :interceptors (e.g. {:interceptors [(path :a)]})"
+            :expected    "metadata-map with :interceptors (e.g. {:interceptors [:my/ic]})"
             :args        args})))
 
 (defn- normalise-args
@@ -804,10 +804,10 @@
                                     {:rf.error/id :rf.error/reg-event-bad-middle-slot
                                      :where       'rf/reg-event
                                      :recovery    :fix-registration
-                                     :reason      "the middle slot of a reg-event call must be a metadata-map (e.g. {:doc \"...\" :interceptors [(path :a)]}); the positional interceptor vector is retired"
+                                     :reason      "the middle slot of a reg-event call must be a metadata-map (e.g. {:doc \"...\" :interceptors [:my/ic]}); the positional interceptor vector is retired"
                                      :args        args
                                      :got         middle
-                                     :expected    "metadata-map (e.g. {:doc \"...\" :interceptors [(path :a)]})"}))))
+                                     :expected    "metadata-map (e.g. {:doc \"...\" :interceptors [:my/ic]})"}))))
     (throw (ex-info
              ":rf.error/reg-event-bad-arity"
              {:rf.error/id :rf.error/reg-event-bad-arity
@@ -973,7 +973,7 @@
       (reg-event :id {:doc \"...\"}                 (fn [cofx ev] {...}))
       (reg-event :id {:rf.cofx/requires [:rf/time-ms]}
                                                  (fn [cofx ev] {...}))
-      (reg-event :id {:doc \"...\" :interceptors [(path :a)]}
+      (reg-event :id {:doc \"...\" :interceptors [:my/ic]}
                                                  (fn [cofx ev] {...}))
 
   Coeffects are declared via `:rf.cofx/requires` on the metadata map (the

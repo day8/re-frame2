@@ -97,6 +97,21 @@
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
       (:rf.error/id (ex-data e)))))
 
+(defn- chain-ids
+  "Map a STORED (unresolved) `:interceptors` chain to a vector of authored ids.
+  Per EP-0022 reference-only (rf2-0adhqs.9) the stored chain holds REFS
+  unresolved: a bare-keyword ref IS its id; an `[id arg]` factory ref's head
+  is the id; the framework handler-wrapper (an inline value map) yields its
+  `:id`."
+  [chain]
+  (mapv (fn [entry]
+          (cond
+            (keyword? entry)                          entry
+            (and (vector? entry) (keyword? (first entry))) (first entry)
+            (map? entry)                              (:id entry)
+            :else                                     entry))
+        chain))
+
 ;; ===========================================================================
 ;; (1) `reg-event` — the ONE form, reg-event-fx semantics
 ;;     (coeffects in / closed effects map out; `{:db …}` is the db-write).
@@ -319,15 +334,16 @@
   (testing "EP-0018 §1: the metadata-map `:interceptors` superset slot threads
             the user chain BEFORE the framework wrapper; handler-meta surfaces
             both the reflection metadata and the effective chain"
-    (let [noop {:id :evt-conf/noop :before identity :after identity}]
-      (rf/reg-event :evt-conf/with-icpt
-        {:doc "documented" :interceptors [noop]}
-        (fn [{:keys [db]} _] {:db db}))
-      (let [meta (rf/handler-meta :event :evt-conf/with-icpt)]
-        (is (= "documented" (:doc meta))
-            "the reflection metadata is retained on the registry entry")
-        (is (= [:evt-conf/noop :rf/event-handler] (mapv :id (:interceptors meta)))
-            "the user chain sits before the single framework wrapper")))))
+    ;; EP-0022 reference-only: register the no-op interceptor, reference by id.
+    (rf/reg-interceptor* :evt-conf/noop {:before identity :after identity})
+    (rf/reg-event :evt-conf/with-icpt
+      {:doc "documented" :interceptors [:evt-conf/noop]}
+      (fn [{:keys [db]} _] {:db db}))
+    (let [meta (rf/handler-meta :event :evt-conf/with-icpt)]
+      (is (= "documented" (:doc meta))
+          "the reflection metadata is retained on the registry entry")
+      (is (= [:evt-conf/noop :rf/event-handler] (chain-ids (:interceptors meta)))
+          "the user chain (authored ref) sits before the single framework wrapper"))))
 
 (deftest reg-event-rf-cofx-requires-stored-on-registration
   (testing "EP-0018 §5: the raw + parsed `:rf.cofx/requires` declaration is
@@ -463,7 +479,7 @@
             it is `{:db slice}` now)"
     (rf/reg-sub :evt-conf/counter (fn [db _] (:counter db)))
     (rf/reg-event :evt-conf/inc-via-path
-      {:interceptors [(rf/path :counter)]}
+      {:interceptors [[:rf.interceptor/path [:counter]]]}
       ;; `db` here is the FOCUSED slice at [:counter], not the whole app-db;
       ;; the return is `{:db <new-slice>}`.
       (fn [{:keys [db]} _] {:db (update (or db {}) :value (fnil inc 0))}))
@@ -484,28 +500,28 @@
             interceptor installs effects directly, with NO public reg-event-ctx"
     (let [handler-ran? (atom false)]
       (rf/reg-sub :evt-conf/guard-marker (fn [db _] (:guard-marker db)))
-      ;; `->interceptor` takes KWARGS (:id / :before / :after), not a map.
-      (let [guard (rf/->interceptor
-                    :id :evt-conf/guard
-                    :before
-                    (fn [ctx]
-                      ;; Capture (read the full context) + short-circuit the
-                      ;; handler + install an effect directly — the trio that
-                      ;; reg-event-ctx used to do, now an interceptor concern.
-                      (-> ctx
-                          (assoc :rf/skip-handler? true)
-                          (assoc-in [:effects :fx]
-                                    [[:dispatch [:evt-conf/guard-fired]]]))))]
-        (rf/reg-event :evt-conf/guard-fired
-          (fn [{:keys [db]} _] {:db (assoc db :guard-marker :fired)}))
-        (rf/reg-event :evt-conf/guarded
-          {:interceptors [guard]}
-          (fn [_ _] (reset! handler-ran? true) {:db {:should :not-run}}))
-        (rf/dispatch-sync [:evt-conf/guarded])
-        (is (false? @handler-ran?)
-            "the interceptor short-circuited the handler via :rf/skip-handler?")
-        (is (= :fired @(rf/subscribe [:evt-conf/guard-marker]))
-            "the interceptor's directly-installed effect ran (no reg-event-ctx needed)")))))
+      ;; EP-0022 reference-only: register the guard interceptor, then reference
+      ;; it by id in the chain (an inline interceptor value is now rejected).
+      (rf/reg-interceptor* :evt-conf/guard
+        {:before
+         (fn [ctx]
+           ;; Capture (read the full context) + short-circuit the
+           ;; handler + install an effect directly — the trio that
+           ;; reg-event-ctx used to do, now an interceptor concern.
+           (-> ctx
+               (assoc :rf/skip-handler? true)
+               (assoc-in [:effects :fx]
+                         [[:dispatch [:evt-conf/guard-fired]]])))})
+      (rf/reg-event :evt-conf/guard-fired
+        (fn [{:keys [db]} _] {:db (assoc db :guard-marker :fired)}))
+      (rf/reg-event :evt-conf/guarded
+        {:interceptors [:evt-conf/guard]}
+        (fn [_ _] (reset! handler-ran? true) {:db {:should :not-run}}))
+      (rf/dispatch-sync [:evt-conf/guarded])
+      (is (false? @handler-ran?)
+          "the interceptor short-circuited the handler via :rf/skip-handler?")
+      (is (= :fired @(rf/subscribe [:evt-conf/guard-marker]))
+          "the interceptor's directly-installed effect ran (no reg-event-ctx needed)"))))
 
 ;; ===========================================================================
 ;; (8) Realm-routing preserved for reg-event (a15n62) — the public registrar

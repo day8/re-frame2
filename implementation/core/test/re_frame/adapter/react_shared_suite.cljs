@@ -916,8 +916,20 @@
 ;; React adapter's late-bind stack.
 ;; ===========================================================================
 
-(def ^:private noop-icpt
-  {:id :test/noop :before identity :after identity})
+;; EP-0022 reference-only flip (rf2-0adhqs.9): an INLINE interceptor value in a
+;; `:interceptors` chain now throws `:rf.error/inline-interceptor-removed` at
+;; registration — chain entries must be REFERENCES. The formerly-inline
+;; `:test/noop` (and the `:test/ctx-probe` `->interceptor` value) are registered
+;; up front via `reg-interceptor*` and referenced by their bare keyword ids in
+;; the chains below. The chain is stored UNRESOLVED in handler-meta, so a
+;; referenced entry reads back as its bare keyword (NOT a resolved map) — hence
+;; `chain-id`, which returns the keyword itself for a ref entry and `:id` for
+;; the framework wrapper map at the tail.
+(defn- chain-id
+  "Authored id of a stored chain entry: the keyword itself for a reference
+  entry, `:id` for the framework wrapper map at the tail."
+  [entry]
+  (if (keyword? entry) entry (:id entry)))
 
 (defn assert-reg-event-meta-interceptors-threads-the-chain
   "reg-event threads the metadata-map `:interceptors` superset chain into the
@@ -925,32 +937,35 @@
   (rf2-bpmszk, the rf2-iczn3 resolution; supersedes rf2-bbea / rf2-ta4b5).
   EP-0018 collapsed the db/fx/ctx triple to ONE form whose handler wraps under
   the single `:rf/event-handler` interceptor id, and full-context work is an
-  interceptor `:before`. Pins the registrar + trace tier compose with the
+  interceptor `:before`. EP-0022 (rf2-0adhqs.9) made chains reference-only, so
+  the chain entries are the authored bare-keyword refs (stored UNRESOLVED) ahead
+  of the framework wrapper. Pins the registrar + trace tier compose with the
   React adapter's late-bind hook stack."
   [{:keys [substrate-kw name]}]
+  (rf/reg-interceptor* :test/noop {:before identity :after identity})
+  (rf/reg-interceptor* :test/ctx-probe {:before identity})
   (let [db-id  (mint-kw substrate-kw "events-db-super")
         fx-id  (mint-kw substrate-kw "events-fx-super")
         ctx-id (mint-kw substrate-kw "events-ctx-super")]
     (testing (str name " — reg-event metadata-map :interceptors threads the chain (db-shaped handler)")
       (rf/reg-event db-id
-        {:doc "Superset form." :interceptors [noop-icpt]}
+        {:doc "Superset form." :interceptors [:test/noop]}
         (fn [{:keys [db]} _] {:db db}))
       (let [meta (rf/handler-meta :event db-id)]
         (is (= "Superset form." (:doc meta)))
-        (is (= [:test/noop :rf/event-handler] (mapv :id (:interceptors meta))))))
+        (is (= [:test/noop :rf/event-handler] (mapv chain-id (:interceptors meta))))))
     (testing (str name " — reg-event metadata-map :interceptors threads the chain (fx-shaped handler)")
       (rf/reg-event fx-id
-        {:interceptors [noop-icpt]}
+        {:interceptors [:test/noop]}
         (fn [_ _] {:db {}}))
       (is (= [:test/noop :rf/event-handler]
-             (mapv :id (:interceptors (rf/handler-meta :event fx-id))))))
+             (mapv chain-id (:interceptors (rf/handler-meta :event fx-id))))))
     (testing (str name " — reg-event metadata-map :interceptors threads the chain (full-context interceptor)")
       (rf/reg-event ctx-id
-        {:interceptors [noop-icpt
-                        (rf/->interceptor :id :test/ctx-probe :before identity)]}
+        {:interceptors [:test/noop :test/ctx-probe]}
         (fn [_ _] {}))
       (is (= [:test/noop :test/ctx-probe :rf/event-handler]
-             (mapv :id (:interceptors (rf/handler-meta :event ctx-id))))))))
+             (mapv chain-id (:interceptors (rf/handler-meta :event ctx-id))))))))
 
 (defn assert-reg-event-positional-vector-rejected
   "Supplying interceptors via the retired positional vector middle slot raises

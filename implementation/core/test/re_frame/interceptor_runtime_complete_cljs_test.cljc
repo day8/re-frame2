@@ -279,14 +279,29 @@
                  :before (fn [ctx] (assoc-in ctx [:coeffects :db ::lowered?] true)))]
       (is (= :lower/test (:id icpt)))
       (is (fn? (:before icpt)))
-      ;; And it RUNS as an inline value (the additive window) — internal lowering
-      ;; produces a chain-executable value.
+      ;; EP-0022 reference-only flip (rf2-0adhqs.9): the lowered value is NOT a
+      ;; legal chain entry — chains carry refs. Register the lowered value at
+      ;; the reg-interceptor boundary (the authoring input accepts a value),
+      ;; then reference it by id. The lowering constructor still produces a
+      ;; chain-executable value; it just reaches the chain via a ref now.
+      (rf/reg-interceptor* :lower/test icpt)
       (rf/reg-event :lower/run
-        {:interceptors [icpt]}
+        {:interceptors [:lower/test]}
         (fn [{:keys [db]} _] {:db db}))
       (rf/dispatch-sync [:lower/run])
       (is (::lowered? (rf/app-db-value :rf/default))
-          "the lowered interceptor ran in the chain"))))
+          "the lowered interceptor ran in the chain (via a registered ref)")))
+
+  (testing "the lowered value is rejected as an INLINE chain entry (reference-only flip)"
+    (let [icpt (interceptor/->interceptor*
+                 :id     :lower/inline
+                 :before identity)]
+      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+                            #":rf.error/inline-interceptor-removed"
+                            (rf/reg-event :lower/inline-run
+                              {:interceptors [icpt]}
+                              (fn [{:keys [db]} _] {:db db})))
+          "an inline lowered value in a chain is :rf.error/inline-interceptor-removed"))))
 
 (deftest standard-path-built-via-internal-constructor
   (testing "the standard path interceptor is itself built by the internal lowering constructor"

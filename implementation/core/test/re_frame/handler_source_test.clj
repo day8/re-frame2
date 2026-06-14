@@ -67,10 +67,9 @@
 
 (deftest reg-event-full-context-interceptor-captures-form-source
   (testing "rf2-xgfuy: reg-event with a full-context interceptor stamps :rf.handler/source on JVM"
+    (rf/reg-interceptor* :rf2-xgfuy/ctx-probe {:before (fn [ctx] ctx)})
     (rf/reg-event :rf2-xgfuy/event-ctx-sample
-                  {:interceptors [(rf/->interceptor
-                                   :id :rf2-xgfuy/ctx-probe
-                                   :before (fn [ctx] ctx))]}
+                  {:interceptors [:rf2-xgfuy/ctx-probe]}
                   (fn [_ _] {}))
     (assert-source :event :rf2-xgfuy/event-ctx-sample "reg-event")))
 
@@ -94,8 +93,12 @@
 
 (deftest captures-form-source-with-metadata-interceptors
   (testing "rf2-xgfuy: metadata :interceptors round-trips into :rf.handler/source"
+    ;; `unwrap-interceptor` is an interceptor VALUE carrying `:id :unwrap`;
+    ;; the migration boundary requires the registration id to match that
+    ;; value's `:id`, so register under `:unwrap` and reference it.
+    (rf/reg-interceptor* :unwrap rf/unwrap-interceptor)
     (rf/reg-event :rf2-xgfuy/event-with-icpts
-                     {:interceptors [rf/unwrap-interceptor]}
+                     {:interceptors [:unwrap]}
                      (fn [_cofx {:keys [v]}] {:db {:v v}}))
     (let [src (:rf.handler/source
                (rf/handler-meta :event :rf2-xgfuy/event-with-icpts))]

@@ -231,6 +231,10 @@
               (throw (ex-info "standard-epochs / interceptor :before (intentional — exercises the interceptor :before error surface)"
                               {:surface :interceptor-exception :phase :before})))))
 
+;; EP-0022 reference-only flip: chains carry references only, so register the
+;; interceptor value and reference it by id from the event chain (button #13).
+(rf/reg-interceptor* :standard-epochs/throwing-interceptor throwing-interceptor)
+
 ;; Throws in :after — the handler runs to completion first, THEN this
 ;; throws on the way back out of the chain (button #14). The foil to the
 ;; :before interceptor above: the failing step is the interceptor's :after,
@@ -243,6 +247,10 @@
     :after (fn interceptor-after-throws [_ctx]
              (throw (ex-info "standard-epochs / interceptor :after (intentional — exercises the interceptor :after error surface)"
                              {:surface :interceptor-exception :phase :after})))))
+
+;; EP-0022 reference-only flip: register the value and reference it by id from
+;; the event chain (button #14).
+(rf/reg-interceptor* :standard-epochs/throwing-interceptor-after throwing-interceptor-after)
 
 ;; ============================================================================
 ;; EFFECTS
@@ -413,7 +421,7 @@
   {:doc "Button 13 — an interceptor throws in :before. The chain aborts on
          the way IN; Issues shows the interceptor :before exception and the
          handler never runs."
-   :interceptors [throwing-interceptor]}
+   :interceptors [:standard-epochs/throwing-interceptor]}
   (fn handler-after-throwing-interceptor [{:keys [db]} _ev] {:db db}))
 
 ;; -- 14. exception in an interceptor :after → Issues: interceptor exc. -------
@@ -423,7 +431,7 @@
          interceptor throws on the way OUT. Issues shows the interceptor
          :after exception; per-step placement renders it under the
          interceptor's :after step, distinct from a handler exception."
-   :interceptors [throwing-interceptor-after]}
+   :interceptors [:standard-epochs/throwing-interceptor-after]}
   (fn handler-before-throwing-after-interceptor [{:keys [db]} _ev] {:db db}))
 
 ;; -- 15. exception in a coeffect supplier → Issues: cofx error ---------------

@@ -577,6 +577,9 @@
           boom-after (rf/->interceptor
                        :id :test/boom-after
                        :after (fn [_ctx] (throw (ex-info "after boom" {}))))]
+      ;; EP-0022 reference-only flip: register the interceptor VALUE under its
+      ;; own id and reference it from the chain.
+      (rf/reg-interceptor* :test/boom-after boom-after)
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:seeded 1}}))
       (rf/dispatch-sync [:seed])
       (is (= {:seeded 1} (rf/app-db-value :rf/default)) "seeded")
@@ -584,7 +587,7 @@
       ;; then throws — so a :db effect IS present when the throw fires,
       ;; yet nothing installs (the error path returns before the commit).
       (rf/reg-event :writes-then-after-throws
-                       {:interceptors [boom-after]}
+                       {:interceptors [:test/boom-after]}
                        (fn [{:keys [db]} _] {:db (assoc db :written 99)}))
       (rf/register-listener! ::rec (fn [ev] (swap! traces conj ev)))
       (try
