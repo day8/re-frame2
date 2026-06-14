@@ -329,17 +329,17 @@
   ;; re-frame.core — the user-facing façade.
   ;; =========================================================================
   ;; Registration (spec/API.md §Registration).
-  ;; EP-0018 (rf2-xhfxcs.2, Slice B-add): `reg-event` is the ONE public event
-  ;; form — semantically `reg-event-fx` (coeffects in, a closed effects map
-  ;; out), now under the bare name. Front-porch (the canonical event
-  ;; registrar). `:status "EP-0018"` marks the new surface. During the additive
-  ;; window the former `reg-event-db` / `reg-event-fx` / `reg-event-ctx` rows
-  ;; below remain on the façade unchanged; their removal is a later slice
-  ;; (Z = rf2-xhfxcs.14).
+  ;; EP-0018 (rf2-xhfxcs.14, Slice Z — final removal flip): `reg-event` is the
+  ;; ONE public event form (coeffects in, a closed effects map out). Front-porch
+  ;; (the canonical event registrar). The former `reg-event-db` / `reg-event-fx`
+  ;; are REMOVED and public `reg-event-ctx` is demoted to a framework-internal
+  ;; primitive (EP-0007 rule 2 — no alias); they survive ONLY as `^:no-doc`
+  ;; facade-exported throwing stubs (raising `:rf.error/reg-event-db-removed` /
+  ;; `-fx-removed` / `-ctx-removed`), so the manifest generator + the CLJS
+  ;; publics probe DROP them — they carry NO manifest row. (A classification
+  ;; entry for any of the three would be a STALE-sidecar drift error, since the
+  ;; `^:no-doc` var no longer resolves as a live PUBLIC var.)
   ["re-frame.core" "reg-event"]           {:tier :front-porch :owner "002" :status "EP-0018"}
-  ["re-frame.core" "reg-event-db"]        {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
-  ["re-frame.core" "reg-event-fx"]        {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
-  ["re-frame.core" "reg-event-ctx"]       {:tier :advanced    :owner "002" :status "v1 (preserved + extended)"}
   ["re-frame.core" "reg-sub"]             {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
   ["re-frame.core" "reg-fx"]              {:tier :front-porch :owner "002" :status "v1 (preserved + extended)"}
   ;; EP-0017 (rf2-m4l7l2): `reg-cofx`'s signature is a BREAKING change, not a
