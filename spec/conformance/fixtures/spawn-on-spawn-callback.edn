@@ -85,4 +85,4 @@
                                               :id-prefix     :http/post
                                               :rf/spawned-id :http/post#1
                                               :rf/parent-id  :rf/transition-pure
-                                              :rf/spawn-id   [:working]}]]}]}
+                                              :rf/invoke-id   [:working]}]]}]}

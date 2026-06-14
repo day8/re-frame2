@@ -2,7 +2,7 @@
 ;;
 ;; Per Spec 005 §Spawn-and-join via :spawn-all (rf2-6vmw). Verify that
 ;; exiting a :spawn-all-bearing state emits a single
-;;   [:rf.machine/destroy {:rf/parent-id ... :rf/spawn-id ... :rf/spawn-all true}]
+;;   [:rf.machine/destroy {:rf/parent-id ... :rf/invoke-id ... :rf/spawn-all true}]
 ;; fx that the destroy-fx handler resolves by reading the join-state map
 ;; at [:rf.runtime/machines :spawned <parent> <invoke-id>] and tearing down each child.
 ;;
@@ -60,5 +60,5 @@
    ;; down. The fx-arg shape disambiguates :spawn vs :spawn-all by the
    ;; presence of :rf/spawn-all true.
    [[:rf.machine/destroy {:rf/parent-id  :rf/transition-pure
-                          :rf/spawn-id  [:hydrating]
+                          :rf/invoke-id  [:hydrating]
                           :rf/spawn-all true}]]}]}

@@ -168,8 +168,8 @@
                                  :spawning
                                  {:entry (fn [_]
                                            {:fx [[:rf.machine/spawn
-                                                  {:spawn-id   :rf.machine-schema/spawned
-                                                   :definition child-spec}]]})}}}]
+                                                  {:fixed-actor-id :rf.machine-schema/spawned
+                                                   :definition     child-spec}]]})}}}]
       (rf/reg-machine :rf.machine-schema/spawn-parent parent-spec)
       (rf/dispatch-sync [:rf.machine-schema/spawn-parent [:noop]])
       (let [traces (collect-traces!

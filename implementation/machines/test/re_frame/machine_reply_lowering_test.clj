@@ -160,7 +160,7 @@
           (is (some? done) ":rf.machine/done trace fired")
           (let [tags (:tags done)]
             ;; public shape preserved
-            (is (= :rl/child#1 (:machine-id tags)))
+            (is (= :rl/child#1 (:actor-id tags)))
             (is (= :secret-token (:output tags)))
             (is (false? (:error? tags)))
             ;; reply-envelope vocabulary
@@ -298,7 +298,7 @@
           (is (some? done) ":rf.machine/done trace fired for the stale completion")
           (let [tags (:tags done)]
             ;; public shape preserved
-            (is (= :rl/schild#1 (:machine-id tags)))
+            (is (= :rl/schild#1 (:actor-id tags)))
             (is (false? (:error? tags)) "a plain final leaf is not an error leaf")
             ;; reply-envelope vocabulary (Managed-Effects §9) — records STALE/suppressed
             (is (= :stale (:rf.reply/status tags))

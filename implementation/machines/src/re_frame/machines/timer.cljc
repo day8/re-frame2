@@ -182,12 +182,12 @@
   exit, machine destroy, subscription re-resolution, in-place
   supersede, frame destroy — flows through this single emit so
   consumers can pair scheduled→fired→cancelled by
-  `(machine-id, state, epoch)` and branch on `:reason` from the
+  `(actor-id, state, epoch)` and branch on `:reason` from the
   closed set `:on-exit / :on-destroy / :on-resolution / :on-supersede
   / :on-frame-destroy`.
 
   Payload shape mirrors `:rf.machine.timer/scheduled` for arm-fire-
-  cancel pairing — same `:machine-id` / `:state` / `:delay` / `:epoch`
+  cancel pairing — same `:actor-id` / `:state` / `:delay` / `:epoch`
   / `:frame` slots — plus the `:reason` discriminator. `:sub-id` rides
   when the cancelled timer was a sub-vec delay (`:delay-source :sub`).
   `:delay` reads the entry's `:resolved-ms` so the cancelled trace
@@ -198,7 +198,9 @@
         delay-source (:delay-source entry)
         sub-id       (when (vector? delay-key) (first delay-key))]
     (trace/emit! :rf.machine :rf.machine.timer/cancelled
-                 (cond-> {:machine-id (:parent k)
+                 (cond-> {;; rf2-ws5thu — the timer's owning actor INSTANCE;
+                          ;; `:machine-id` is reserved for the registered TYPE.
+                          :actor-id   (:parent k)
                           :state      (:state entry)
                           :delay      (:resolved-ms entry)
                           :epoch      (:epoch entry)
@@ -329,7 +331,10 @@
           :else
           (let [_ (when emit-scheduled-trace?
                     (trace/emit! :rf.machine :rf.machine.timer/scheduled
-                                 (cond-> {:machine-id   parent-id
+                                 (cond-> {;; rf2-ws5thu — the timer's owning
+                                          ;; actor INSTANCE; `:machine-id` is
+                                          ;; reserved for the registered TYPE.
+                                          :actor-id     parent-id
                                           :state        state
                                           :delay        resolved-ms
                                           :delay-source delay-source
@@ -425,7 +430,7 @@
                      {:where 'rf.machine/after-schedule
                       :event-id (:rf/parent-id args)})
         parent-id  (:rf/parent-id args)
-        invoke-id  (:rf/spawn-id args)
+        invoke-id  (:rf/invoke-id args)
         state      (:state args)
         delay-key  (:delay-key args)
         epoch      (:epoch args)
@@ -475,7 +480,7 @@
                     {:where 'rf.machine/after-cancel
                      :event-id (:rf/parent-id args)})
         parent-id (:rf/parent-id args)
-        invoke-id (vec (:rf/spawn-id args))]
+        invoke-id (vec (:rf/invoke-id args))]
     (doseq [[k _entry] (get @after-timers frame-id)
             :when (and (= parent-id (:parent k))
                        (= invoke-id (:spawn k)))]

@@ -78,7 +78,7 @@
    ;; because each :machine-id has its own counter slot starting from 0.
    [[:rf.machine/spawn-all-init
      {:rf/parent-id :rf/transition-pure
-      :rf/spawn-id [:hydrating]
+      :rf/invoke-id [:hydrating]
       :join-state   {:children  {:cfg  :load-config#1
                                  :flag :load-feature-flags#1
                                  :user :load-user-profile#1}
@@ -93,7 +93,7 @@
                                  :on-child-error   :asset/failed
                                  :on-all-complete  [:hydrate/done]
                                  :on-any-failed    [:hydrate/failed]}
-                     :spawn-id [:hydrating]}}]
+                     :invoke-id [:hydrating]}}]
     ;; Per rf2-er0t: the runtime dissocs :id from each child spec before
     ;; emitting the :rf.machine/spawn fx; the user-supplied child id rides
     ;; on :rf/spawn-all-child-id instead.

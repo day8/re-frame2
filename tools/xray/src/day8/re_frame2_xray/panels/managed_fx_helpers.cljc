@@ -364,15 +364,17 @@
 
 (defn- args-correlation-id
   "Surface-specific correlation id reader. HTTP carries `:request-id`;
-  machine `:spawn` carries `:machine-id` or `:spawn-id`; SSR-fx
-  events carry `:request-id` at the server-side accumulator. The
-  caller's args map names it; we resolve defensively."
+  machine `:spawn` carries the registered TYPE under `:machine-id` and an
+  explicit actor-address input under `:fixed-actor-id` (rf2-0ggtr5 — the
+  former overloaded `:spawn-id`); SSR-fx events carry `:request-id` at the
+  server-side accumulator. The caller's args map names it; we resolve
+  defensively."
   [surface args]
   (when (map? args)
     (case surface
       :http           (:request-id args)
       :websocket      (or (:socket-id args) (:request-id args))
-      :machine-invoke (or (:spawn-id args) (:machine-id args) (:id args))
+      :machine-invoke (or (:fixed-actor-id args) (:machine-id args) (:id args))
       :ssr-fx         (:request-id args)
       :flow           (:flow-id args)
       nil)))
@@ -518,9 +520,13 @@
            :wire (non-http-wire-timing fx-ev surface-events))))
 
 (defn machine-invoke-adapter
-  "Machine `:spawn` adapter. The fx-args carry the spawned actor's
-  `:machine-id` / `:spawn-id` / initial `:data`; the surface events
-  carry the spawn/transition/destroy lifecycle."
+  "Machine `:spawn` adapter. The fx-args carry the registered TYPE under
+  `:machine-id`, the explicit actor-address input under `:fixed-actor-id`
+  (rf2-0ggtr5), and initial `:data`; the surface events carry the
+  spawn/transition/destroy lifecycle. The `:rf.machine.lifecycle/spawned`
+  trace carries the TYPE (`:machine-id`), the instance address
+  (`:spawned-id`), and the declarative invocation path (`:invoke-id`,
+  rf2-0ggtr5 — was `:spawn-id`)."
   [fx-ev cascade-other]
   (let [surface-events (surface-events-for cascade-other :machine-invoke)
         args           (fx-args-of fx-ev)
@@ -531,7 +537,7 @@
            :req args
            :wire (non-http-wire-timing fx-ev surface-events)
            :res (when spawned (select-keys (:tags spawned)
-                                            [:spawn-id :machine-id :state])))))
+                                            [:invoke-id :machine-id :spawned-id :state])))))
 
 (defn ssr-fx-adapter
   "SSR `:rf.server/*` adapter. The fx-args carry the response-shape

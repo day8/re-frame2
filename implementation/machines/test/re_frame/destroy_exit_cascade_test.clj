@@ -85,7 +85,7 @@
       (rf/dispatch-sync [:ne/invoke-parent [:stop]])      ;; parent exits :working → child destroyed
       (is (= 1 @exit-fired)
           "child's :exit fired exactly once during the parent's exit cascade")
-      ;; The spawn pipeline stamps :rf/parent-id / :rf/spawn-id /
+      ;; The spawn pipeline stamps :rf/parent-id / :rf/invoke-id /
       ;; :rf/self-id onto the spawned child's :data; the user-supplied
       ;; :counter slot is the bit we care about. Asserting on the
       ;; full :data would couple this test to the spawn-stamp shape.

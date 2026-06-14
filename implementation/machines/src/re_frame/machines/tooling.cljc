@@ -343,8 +343,8 @@
   Per-instance node:
 
   - `:id`          — the actor-id (the live fact identity — the registered id
-                     for a singleton, the `<type>#<n>` / explicit `:spawn-id`
-                     for a spawned actor).
+                     for a singleton, the `<type>#<n>` / explicit
+                     `:fixed-actor-id` for a spawned actor).
   - `:source-form` — `{:kind :reg-machine :id <type-id>}` — the TYPE the
                      instance resolves to (a keyword `:rf/machine-type` for a
                      registered-type spawn; the type-id keyed by the spec for

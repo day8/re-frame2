@@ -95,8 +95,8 @@
   monotonic per-type counter (`allocate-actor-id-in-runtime-db`), so the
   trailing `#<n>` integer is the durable creation sequence the spawn-order
   vector would otherwise carry. Returns the parsed `n` as a Long, or -1
-  for an id with no `#<n>` suffix (explicit `:spawn-id` literals, region-
-  prefixed ids) so those sort oldest — there is no reverse-creation
+  for an id with no `#<n>` suffix (explicit `:fixed-actor-id` literals,
+  region-prefixed ids) so those sort oldest — there is no reverse-creation
   contract to honour for ids the allocator never sequenced.
 
   Ordering the spawned-straggler walk by DESCENDING rank reconstructs the
@@ -132,7 +132,9 @@
   [frame-id actor-id snapshot]
   (trace/emit! :rf.machine.lifecycle/destroyed :rf.machine.lifecycle/destroyed
                {:frame      frame-id
-                :machine-id actor-id
+                ;; rf2-ws5thu — the reaped actor's live INSTANCE address;
+                ;; `:machine-id` is reserved for the registered TYPE.
+                :actor-id   actor-id
                 :last-state (:state snapshot)
                 :reason     :parent-frame-destroyed}))
 

@@ -517,8 +517,8 @@
             "exactly one :rf.error/machine-spawn-all-bad-child-id trace fired")
         (let [err  (first errs)
               tags (:tags err)]
-          (is (= :sup/forge-none (:machine-id tags)))
-          (is (= [:hydrating] (:spawn-id tags)))
+          (is (= :sup/forge-none (:actor-id tags)))
+          (is (= [:hydrating] (:invoke-id tags)))
           (is (= :totally-fake-id (:child-id tags)))
           (is (= #{:a :b} (:children tags))
               ":children carries the legitimate seed set")

@@ -27,7 +27,7 @@
   SAME tap and asserts:
 
     - every fire's argument map is a subset of the canonical union
-      `{:frame :actor-id :system-id :parent-id :spawn-id :child-id
+      `{:frame :actor-id :system-id :parent-id :invoke-id :child-id
         :reason}`,
     - `:reason` is always present (the discriminator),
     - `:frame` and `:actor-id` are always present (the common id pair),
@@ -48,7 +48,7 @@
 ;; `:tags` per Spec 009 §Cascade-id stamping; those keys are not part
 ;; of the per-site contract.
 (def ^:private canonical-site-keys
-  #{:frame :actor-id :system-id :parent-id :spawn-id :child-id :reason})
+  #{:frame :actor-id :system-id :parent-id :invoke-id :child-id :reason})
 
 (def ^:private framework-stamped-keys
   #{:rf.trace/dispatch-id})

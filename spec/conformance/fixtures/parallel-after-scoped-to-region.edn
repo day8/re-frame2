@@ -15,7 +15,7 @@
 {:fixture/id           :machine/parallel-after-scoped-to-region
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/parallel-regions :fsm/delayed-after}
- :fixture/doc          "Entry into an :after-bearing state inside a region schedules a region-scoped timer. The :rf.machine/after-schedule fx carries an :rf/spawn-id prefixed with the region name; the per-region :rf/after-epoch-by-region <region> slot increments."
+ :fixture/doc          "Entry into an :after-bearing state inside a region schedules a region-scoped timer. The :rf.machine/after-schedule fx carries an :rf/invoke-id prefixed with the region name; the per-region :rf/after-epoch-by-region <region> slot increments."
 
  :fixture/registry
  {}
@@ -43,7 +43,7 @@
    :expect-effects
    [[:rf.machine/after-schedule
      {:rf/parent-id :rf/transition-pure
-      :rf/spawn-id [:data :loading]
+      :rf/invoke-id [:data :loading]
       :state        :loading
       :delay-key    5000
       :epoch        1

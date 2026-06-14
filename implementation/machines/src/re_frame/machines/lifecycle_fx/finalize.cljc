@@ -10,8 +10,9 @@
     2. Read the child's `:data` slot designated by the final state's
        `:output-key` — call it `result`. Absent `:output-key` ⇒ nil.
     3. Look up the parent's spec at `[:rf.runtime/machines :snapshots <parent-id>]` and find
-       the `:spawn` map at `:rf/spawn-id` (the prefix-path the runtime
-       stamped on the child's `:data` at spawn time). Extract `:on-done`.
+       the `:spawn` map at `:rf/invoke-id` (the invocation prefix-path the
+       runtime stamped on the child's `:data` at spawn time). Extract
+       `:on-done`.
     4. Run `:on-done` against the parent's `:data` with `result`.
     5. Emit `:rf.machine/done` trace (D6).
     6. Tear down the child: dissoc snapshot, clear `[:rf.runtime/machines :spawned ...]`
@@ -212,7 +213,7 @@
         ;; callback. A plain `:final?` leaf keeps firing `:on-done`.
         error-leaf? (true? (:error? final-node))
         parent-id   (:rf/parent-id child-data)
-        invoke-id   (:rf/spawn-id child-data)
+        invoke-id   (:rf/invoke-id child-data)
         ;; Per EP-0011 §Machine Completion / Managed-Effects §The uniform
         ;; reply envelope: form the canonical machine reply map INTERNALLY
         ;; (work-id `[:rf.work/machine actor-id work-bearing-path
@@ -286,7 +287,7 @@
         ;; (and thus `on-done-fn`) is no longer resolvable AT ALL. Keying off
         ;; `on-done-fn` would miss the case entirely. The robust gate is: a
         ;; declaratively-spawned child (it carries both `:rf/parent-id` and
-        ;; `:rf/spawn-id`) whose parent is NO LONGER LIVE (no snapshot AND no
+        ;; `:rf/invoke-id`) whose parent is NO LONGER LIVE (no snapshot AND no
         ;; registered handler). `:on-error` routing (the error-leaf control-
         ;; flow case) is left to its own dispatch path — a stale error leaf
         ;; with a dead parent simply dispatches into the void, harmlessly.
@@ -338,7 +339,11 @@
                        (m-reply/stale-spawn-trace reply {:frame frame-id})
                        (m-reply/trace-reply reply {:frame frame-id}))
         _ (trace/emit! :rf.machine :rf.machine/done
-                       (cond-> {:machine-id machine-id
+                       ;; rf2-ws5thu — `:actor-id` is the finishing actor's
+                       ;; live INSTANCE address (singleton: its registration
+                       ;; id; spawned: the `<type>#<n>` / fixed instance id).
+                       ;; `:machine-id` is reserved for the registered TYPE.
+                       (cond-> {:actor-id   machine-id
                                 :output     result
                                 :parent-id  parent-id
                                 :error?     error-leaf?
@@ -408,7 +413,7 @@
                                                        {:machine-id machine-id
                                                         :action-id  :rf.spawn/on-done
                                                         :parent-id  parent-id
-                                                        :spawn-id  invoke-id
+                                                        :invoke-id  invoke-id
                                                         :frame      frame-id
                                                         :exception  e
                                                         :reason     ":on-done callback threw."
@@ -429,7 +434,7 @@
         (teardown/teardown-actor db-after-on-done
                                  {:actor-id  machine-id
                                   :parent-id parent-id
-                                  :spawn-id invoke-id})
+                                  :invoke-id invoke-id})
         ;; (5) Emit :rf.machine/destroyed with :reason :rf.machine/finished
         ;; (D6 enrichment) BEFORE the registrar unregister so any in-flight
         ;; trace consumers see the destroy signal while the handler still
@@ -438,7 +443,7 @@
                                    :actor-id  machine-id
                                    :system-id released-sid
                                    :parent-id parent-id
-                                   :spawn-id invoke-id
+                                   :invoke-id invoke-id
                                    :reason    :rf.machine/finished})]
     ;; (6) Synchronous side effects: abort in-flight HTTP, cancel
     ;; armed `:after` timers (rf2-82a0u — `:reason :on-destroy`), emit

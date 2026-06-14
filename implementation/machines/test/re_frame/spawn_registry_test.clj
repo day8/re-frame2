@@ -213,10 +213,10 @@
 ;; action reads its OWN `:data` to obtain the id of an actor it spawned and
 ;; emits `[:rf.machine/destroy <id>]` with NO external-atom side-channel and
 ;; no runtime-db reverse-index coupling. It is the REVERSE direction of the
-;; child-lineage stamps (`:rf/self-id` / `:rf/parent-id` / `:rf/spawn-id`)
+;; child-lineage stamps (`:rf/self-id` / `:rf/parent-id` / `:rf/invoke-id`)
 ;; the spawn-fx writes onto the spawned CHILD's own `:data` — here the PARENT
 ;; captures the CHILD's id, keyed by the SAME `<invoke-id>` the child records
-;; under `:rf/spawn-id` and the runtime tracks at
+;; under `:rf/invoke-id` and the runtime tracks at
 ;; `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`.
 
 (deftest spawned-id-bound-into-parent-data
@@ -239,11 +239,11 @@
         (is (= spawned-id
                (get-in (frame-db) [:rf.runtime/machines :spawned :sup/captures [:working]]))
             "parent's :data :rf/spawned mirrors the runtime registry slot exactly")
-        ;; SYMMETRY: the child's own :rf/spawn-id lineage stamp is the SAME
+        ;; SYMMETRY: the child's own :rf/invoke-id lineage stamp is the SAME
         ;; <invoke-id> the parent keys its :data map under — the two halves
         ;; of the lineage point at each other.
-        (is (= [:working] (get-in (snapshot spawned-id) [:data :rf/spawn-id]))
-            "child's :rf/spawn-id == the parent's :rf/spawned key (the reverse direction)")))))
+        (is (= [:working] (get-in (snapshot spawned-id) [:data :rf/invoke-id]))
+            "child's :rf/invoke-id == the parent's :rf/spawned key (the reverse direction)")))))
 
 (deftest action-reads-parent-data-id-and-destroys-no-atom
   (testing "an action reads the id from its own :data and emits [:rf.machine/destroy <id>] — full round-trip, NO external atom"

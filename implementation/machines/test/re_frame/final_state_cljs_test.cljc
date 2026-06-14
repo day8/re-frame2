@@ -12,7 +12,7 @@
    D4 — Auto-destroy is synchronous on entry to a `:final?` state.
    D5 — Dispatch to a destroyed actor reuses the existing destroyed-
         frame trace path (`:rf.error/no-such-handler`).
-   D6 — `:rf.machine/done` event fires with `:machine-id`, `:output`,
+   D6 — `:rf.machine/done` event fires with `:actor-id`, `:output`,
         `:parent-id`; `:rf.machine/destroyed` is enriched with `:reason`.
    D7 — Singleton symmetry — a non-spawned machine reaching `:final?`
         also auto-destroys.
@@ -115,8 +115,8 @@
 
 ;; ---- (c) :rf.machine/done trace emitted with the right payload -----------
 
-(deftest done-trace-fires-with-machine-id-output-parent-id
-  (testing ":rf.machine/done trace carries :machine-id, :output, :parent-id (D6)"
+(deftest done-trace-fires-with-actor-id-output-parent-id
+  (testing ":rf.machine/done trace carries :actor-id, :output, :parent-id (D6)"
     (let [traces (record-traces! ::done-trace)]
       (rf/reg-machine :rf2-gn80/child2
         {:initial :running
@@ -141,7 +141,7 @@
           (is (= 1 (count dones))
               "exactly one :rf.machine/done trace fired")
           (let [t (first dones)]
-            (is (= spawned-id            (-> t :tags :machine-id)))
+            (is (= spawned-id            (-> t :tags :actor-id)))
             (is (= 42                    (-> t :tags :output)))
             (is (= :rf2-gn80/parent2     (-> t :tags :parent-id)))))))))
 

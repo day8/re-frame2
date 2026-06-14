@@ -19,7 +19,7 @@
   `re-frame.machines.transition`) is invoked against each region's
   slice; results are merged. Spawn / destroy / after-schedule /
   after-cancel fxs emitted by a region are post-processed to prefix
-  the region name onto their `:rf/spawn-id` so per-region :spawn /
+  the region name onto their `:rf/invoke-id` so per-region :spawn /
   :after slots scope correctly — one region's timer doesn't fire
   transitions in sibling regions.
 
@@ -147,7 +147,7 @@
   without redeclaring them. Inherits `:rf/parent-id` / `:rf/platform` /
   `:rf/frame` so the post-action `:rf.machine/spawn` / `:after-schedule`
   fxs the region emits carry the parent's identity (the region name is
-  prepended onto the `:rf/spawn-id` separately).
+  prepended onto the `:rf/invoke-id` separately).
 
   Per round-2 P-r2-1 (rf2-s83iu): region-specs are registration-time
   data, not transition-time data. The result is memoised in metadata
@@ -255,18 +255,19 @@
     (cond-> tagged
       bootstrap-pending? (assoc :rf/bootstrap-pending? true))))
 
-(defn- prefix-region-spawn-id
+(defn- prefix-region-invoke-id
   "Per Spec 005 §Per-region `:spawn` / `:after` / `:always` scoping:
   spawn / destroy / after-schedule / after-cancel fxs emitted by a region
-  carry an `:rf/spawn-id` that's the in-region prefix-path. To keep the
+  carry an `:rf/invoke-id` (rf2-0ggtr5 — the declarative invocation path;
+  was `:rf/spawn-id`) that's the in-region prefix-path. To keep the
   runtime-owned `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot unique
   per-region (and per-region `:after` epoch tracking distinct from sibling
-  regions), prepend the region name onto the `:rf/spawn-id`."
+  regions), prepend the region name onto the `:rf/invoke-id`."
   [region-name fx]
   (let [[fx-id args] fx]
     (cond
-      (and (map? args) (contains? args :rf/spawn-id))
-      [fx-id (update args :rf/spawn-id #(vec (cons region-name %)))]
+      (and (map? args) (contains? args :rf/invoke-id))
+      [fx-id (update args :rf/invoke-id #(vec (cons region-name %)))]
 
       :else fx)))
 
@@ -322,7 +323,7 @@
 ;;   - run each region as a synthetic single-machine spec via
 ;;     `region-machine`,
 ;;   - prefix per-region fx with the region name via
-;;     `prefix-region-spawn-id` so per-region `[:rf.runtime/machines :spawned ...]` /
+;;     `prefix-region-invoke-id` so per-region `[:rf.runtime/machines :spawned ...]` /
 ;;     `:after`-epoch tracking slots stay distinct from siblings,
 ;;   - short-circuit to a `result/fail` if any region's step fails,
 ;;   - commit `:tags` via `commit-tags-parallel` AFTER every region has
@@ -576,7 +577,7 @@
                        (:rf/history reg-snap)
                        (assoc new-states rn (:state reg-snap))
                        (into acc-fx
-                             (map (partial prefix-region-spawn-id rn))
+                             (map (partial prefix-region-invoke-id rn))
                              reg-fx)
                        (or any-handled? region-handled?)
                        (long (+ micro-total region-micro))
@@ -634,8 +635,8 @@
   `[:raise <event-vec>]`), in broadcast order — region-declaration order
   within one broadcast, which is the order regions surfaced them. `real-fx`
   is every non-`:raise` fx entry, preserved in order, to flow on to `do-fx`.
-  `:raise` entries are never region-prefixed (`prefix-region-spawn-id` only
-  touches `:rf/spawn-id`), so they arrive here verbatim."
+  `:raise` entries are never region-prefixed (`prefix-region-invoke-id` only
+  touches `:rf/invoke-id`), so they arrive here verbatim."
   [fx]
   (reduce (fn [[raises real] [fx-id args :as entry]]
             (if (= :raise fx-id)
@@ -761,7 +762,7 @@
                 (assoc :rf/history (:rf/history reg-snap)))
               (assoc-in [:state-map region-name] (:state reg-snap))
               (update :fx into
-                      (map (partial prefix-region-spawn-id region-name))
+                      (map (partial prefix-region-invoke-id region-name))
                       reg-fx)))))))
 
 (defn- apply-root-parallel-transition
@@ -1098,7 +1099,7 @@
   For the synthetic `[:rf.machine.timer/after-elapsed ...]` event,
   delivery is region-scoped — the broadcast routes to the bearing region
   only, identified by the region-name prefix on the in-flight timer's
-  `:rf/spawn-id`."
+  `:rf/invoke-id`."
   [machine snapshot event]
   (let [first-r       (broadcast-once machine snapshot event)
         ;; rf2-tsq6g — root parallel `:on` ancestor fallback. When no region

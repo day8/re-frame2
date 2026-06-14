@@ -195,7 +195,7 @@
           (is (every? #(= :lt/auth (:frame (:tags %))) destroyed)
               "every trace carries the destroyed frame id")
           (is (= #{:lt/child#1 :lt/child#2 :lt/boot}
-                 (set (map #(:machine-id (:tags %)) destroyed)))
+                 (set (map #(:actor-id (:tags %)) destroyed)))
               "trace covers every active machine — spawned actors + the singleton boot machine"))))))
 
 ;; ---- HTTP abort preserved for every active actor -------------------------

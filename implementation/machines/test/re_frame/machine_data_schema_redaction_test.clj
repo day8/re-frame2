@@ -400,9 +400,9 @@
 ;; ---- (5) SPAWNED-INSTANCE egress redaction (rf2-fm1cpl) -------------------
 ;;
 ;; A spawned actor's `:rf.machine/transition` / `:rf.machine/snapshot-updated`
-;; trace carries `:machine-id` = the INSTANCE id (`<type>#<n>` or the explicit
-;; `:spawn-id`), NOT the type id. `project-machine-tags` resolves redaction
-;; marks via `(marks-for :event <machine-id>)`, so the TYPE's `:data-schema`
+;; trace carries `:actor-id` = the INSTANCE id (`<type>#<n>` or the explicit
+;; `:fixed-actor-id`), NOT the type id. `project-machine-tags` resolves redaction
+;; marks via `(marks-for :event <actor-id>)`, so the TYPE's `:data-schema`
 ;; marks (keyed under the type id at `reg-machine` time) do NOT cover an
 ;; instance-id trace. rf2-fm1cpl re-runs the schema bridge at SPAWN time keyed
 ;; under the spawned instance id so a spawned actor's `:sensitive?` `:data`
@@ -458,10 +458,10 @@
                              [:rf.runtime/machines :spawned
                               :rf.machine-redaction/sup [:working]])
           ;; Synthesise the instance's transition trace exactly as the
-          ;; handler emits it: :machine-id = the instance id, :data carrying
-          ;; a live secret token + large blob.
+          ;; handler emits it (rf2-ws5thu): :actor-id = the instance id, :data
+          ;; carrying a live secret token + large blob.
           ev   {:operation :rf.machine/transition
-                :tags      {:machine-id spawned-id
+                :tags      {:actor-id   spawned-id
                             :frame      :rf/default
                             :after      {:state :authed
                                          :data  {:retries 1
@@ -482,9 +482,9 @@
   (testing "an inline-:definition spawn (no registered type) also bridges its
             :data-schema marks under the instance id"
     ;; The supported inline-:definition spawn form is the fx-emitted
-    ;; `[:rf.machine/spawn {:spawn-id <id> :definition <spec>}]` from an
+    ;; `[:rf.machine/spawn {:fixed-actor-id <id> :definition <spec>}]` from an
     ;; :entry action (mirrors machine_schema_test). The instance id is the
-    ;; explicit :spawn-id; the resolved :definition carries the :data-schema.
+    ;; explicit :fixed-actor-id; the resolved :definition carries the :data-schema.
     (let [inst-id    :rf.machine-redaction/inline-instance
           child-spec {:initial     :anon
                       :data        {:retries 0 :token nil :blob nil}
@@ -495,8 +495,8 @@
          :states  {:starting {:on {:go :spawning}}
                    :spawning {:entry (fn [_]
                                        {:fx [[:rf.machine/spawn
-                                              {:spawn-id   inst-id
-                                               :definition child-spec}]]})}}})
+                                              {:fixed-actor-id inst-id
+                                               :definition     child-spec}]]})}}})
       (rf/dispatch-sync [:rf.machine-redaction/sup-inline [:noop]])
       (rf/dispatch-sync [:rf.machine-redaction/sup-inline [:go]])
       (let [inst-marks (marks/marks-for :event inst-id)]

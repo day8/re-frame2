@@ -358,7 +358,7 @@
 ;; read the `:spawned` registry — declarative spawns only) to imperatively-
 ;; spawned actors. Imperative spawns install a snapshot WITHOUT a `:spawned`
 ;; registry slot (the slot is gated on the declarative-desugar
-;; `:rf/parent-id` + `:rf/spawn-id`, per `lifecycle-fx.spawn/spawn-fx`'s
+;; `:rf/parent-id` + `:rf/invoke-id`, per `lifecycle-fx.spawn/spawn-fx`'s
 ;; `track?`), so the registry read structurally MISSED them and their
 ;; managed HTTP was never aborted on destroy. The destroy side already
 ;; fired `:http/abort-on-actor-destroy` for imperative destroys (via

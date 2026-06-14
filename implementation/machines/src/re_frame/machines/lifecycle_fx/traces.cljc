@@ -24,17 +24,19 @@
 
   Per the rf2-vgkdt destroyed-trace-shape contract (assertion test in
   `re-frame.destroyed-trace-shape-test`), the permitted site-provided
-  keys are `#{:frame :actor-id :system-id :parent-id :spawn-id
-  :child-id :reason}`. Callers pass only the slots their site populates
-  — `nil` values are stamped through, matching pre-consolidation
-  behaviour (e.g. `destroy-single!` always stamps `:system-id`, even
-  when nil; `destroy-spawn-all-children!` per-child fires omit
-  `:system-id` by NOT passing the key).
+  keys are `#{:frame :actor-id :system-id :parent-id :invoke-id
+  :child-id :reason}`. `:actor-id` is the destroyed actor's live INSTANCE
+  address (rf2-ws5thu — reserving `:machine-id` for the registered TYPE);
+  `:invoke-id` (rf2-0ggtr5 — was `:spawn-id`) is the declarative
+  invocation path. Callers pass only the slots their site populates —
+  `nil` values are stamped through, matching pre-consolidation behaviour
+  (e.g. `destroy-single!` always stamps `:system-id`, even when nil;
+  `destroy-spawn-all-children!` per-child fires omit `:system-id` by NOT
+  passing the key).
 
   `reason` is the discriminator — `:explicit` for direct-destroy
   cascades, `:rf.machine/finished` for final-state auto-destroy."
-  [{:keys [frame actor-id system-id parent-id child-id reason]
-    invoke-id :spawn-id
+  [{:keys [frame actor-id system-id parent-id invoke-id child-id reason]
     :or {reason :explicit}
     :as args}]
   (trace/emit! :rf.machine :rf.machine/destroyed
@@ -43,7 +45,7 @@
                         :reason   reason}
                  (contains? args :system-id) (assoc :system-id system-id)
                  (contains? args :parent-id) (assoc :parent-id parent-id)
-                 (contains? args :spawn-id) (assoc :spawn-id invoke-id)
+                 (contains? args :invoke-id) (assoc :invoke-id invoke-id)
                  (contains? args :child-id)  (assoc :child-id  child-id))))
 
 (defn emit-system-id-released!
@@ -55,7 +57,9 @@
     (trace/emit! :rf.machine :rf.machine/system-id-released
                  {:frame      frame-id
                   :system-id  sid
-                  :machine-id actor-id})))
+                  ;; rf2-ws5thu — the released actor's live INSTANCE address;
+                  ;; `:machine-id` is reserved for the registered TYPE.
+                  :actor-id   actor-id})))
 
 (defn emit-destroy-exit-failure!
   "Fire the destroy-time exit-cascade failure trace

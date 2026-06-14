@@ -576,7 +576,7 @@
 ;; ----     imperative `[:rf.machine/spawn …]` from an ordinary event handler -
 ;; ----     installs a snapshot WITHOUT a `[:rf.runtime/machines :spawned …]` -
 ;; ----     registry slot (that slot is gated on the declarative-desugar ------
-;; ----     `:rf/parent-id` + `:rf/spawn-id`), so the step-1 registry read ----
+;; ----     `:rf/parent-id` + `:rf/invoke-id`), so the step-1 registry read ----
 ;; ----     classified the actor's request as unowned and never aborted it. ---
 ;; ----     Step 2 switches ownership to the durable snapshot `:rf/machine- ---
 ;; ----     type` marker (the SAME discriminator the destroy side keys on), ---

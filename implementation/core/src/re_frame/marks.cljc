@@ -1328,10 +1328,16 @@
       same handler-scope `:sensitive?` stamp as `:before` / `:after` per Spec
       005 §Privacy).
 
-  All slots resolve marks via the SAME machine-id lookup, so a spawned
-  instance's id-keyed schema marks (rf2-fm1cpl) cover the instance's traces."
+  All slots resolve marks via the SAME actor/machine-id lookup, so a spawned
+  instance's id-keyed schema marks (rf2-fm1cpl) cover the instance's traces.
+  Per rf2-ws5thu the live-actor instance address now rides under `:actor-id`
+  on the `:rf.machine/transition` / `:rf.machine/snapshot-updated` rows
+  (reserving `:machine-id` for the registered TYPE); the lookup prefers
+  `:actor-id` and falls back to `:machine-id` for the rows that still carry
+  the addressed-id under that key (`:rf.machine/started` /
+  `:rf.machine/guard-evaluated` / `:rf.machine/action-ran`)."
   [tags]
-  (let [machine-id (:machine-id tags)
+  (let [machine-id (or (:actor-id tags) (:machine-id tags))
         marks      (machine-marks machine-id)]
     (if-not marks
       tags

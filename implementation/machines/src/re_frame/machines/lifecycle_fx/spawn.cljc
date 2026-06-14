@@ -38,21 +38,22 @@
 
 (defn- pre-allocated-actor-id
   "Resolve the pre-allocated actor id carried on the spawn args. Per Spec
-  005 §Declarative :spawn Spec-spec keys: `:spawn-id` is an explicit
-  literal (per-state singleton); `:rf/spawned-id` is stamped by the
-  transition reducer (rf2-gr8q — allocated from the parent snapshot's
+  005 §Declarative :spawn Spec-spec keys: `:fixed-actor-id` is an explicit
+  actor-address literal (per-state singleton; rf2-0ggtr5 — was the
+  overloaded `:spawn-id`); `:rf/spawned-id` is stamped by the transition
+  reducer (rf2-gr8q — allocated from the parent snapshot's
   `:rf/spawn-counter`). Returns nil for hand-emitted
   `[:rf.machine/spawn args]` fxs that bypass the transition reducer —
   the caller (`spawn-fx`) allocates such ids from the frame's app-db
   spawn-counter slot at `[:rf.runtime/machines :spawn-counter]` inside
   the spawn's db-swap so the allocation shares the same write."
   [args]
-  (or (:spawn-id args)
+  (or (:fixed-actor-id args)
       (:rf/spawned-id args)))
 
 (defn- allocate-actor-id-in-runtime-db
   "Hand-emitted-spawn fallback allocator (rf2-gr8q). When the spawn args
-  carry no pre-allocated id (no `:spawn-id`, no `:rf/spawned-id`), this
+  carry no pre-allocated id (no `:fixed-actor-id`, no `:rf/spawned-id`), this
   fn bumps the frame's runtime-db counter at
   `[:rf.runtime/machines :spawn-counter <machine-id>]` and returns
   `[new-runtime-db spawned-id]`. Per rf2-gr8q the global `spawn-counter`
@@ -107,7 +108,7 @@
     (let [base-data (or (:data spec) {})
           data'     (cond-> (assoc base-data :rf/self-id spawned-id)
                       parent-id (assoc :rf/parent-id parent-id)
-                      invoke-id (assoc :rf/spawn-id invoke-id))]
+                      invoke-id (assoc :rf/invoke-id invoke-id))]
       (assoc spec :data data'))))
 
 ;; The spawned actor's initial snapshot is built by
@@ -163,7 +164,7 @@
   re-read is value-equal to the snapshot the caller already had. Machine
   snapshots are durable runtime-db state (EP-0001 rf2-vzld77)."
   [frame-id rt-after-alloc spec spawned-id initial-snap
-   {:keys [system-id parent-id track? type-ref] invoke-id :spawn-id}]
+   {:keys [system-id parent-id invoke-id track? type-ref]}]
   (let [existing (when system-id (get-in rt-after-alloc (paths/system-id-path system-id)))
         ;; Per rf2-a2sn1 — stamp the revertible TYPE reference onto the
         ;; snapshot root so the lazy resolver can re-materialise the
@@ -193,7 +194,10 @@
       (trace/emit! :rf.machine :rf.machine/system-id-bound
                    {:frame      frame-id
                     :system-id  system-id
-                    :machine-id spawned-id}))
+                    ;; rf2-ws5thu — the live actor INSTANCE address (the
+                    ;; spawned id), not the registered TYPE; `:machine-id`
+                    ;; is reserved for the type.
+                    :actor-id   spawned-id}))
     :ok))
 
 ;; ---- :rf.machine/spawn -----------------------------------------------------
@@ -216,12 +220,12 @@
       (`lifecycle-fx.resolver`) can re-materialise the actor's handler
       from app-db alone. Per rf2-ijm7 the runtime stamps `:rf/self-id`
       (the spawned actor's own address) and, when applicable,
-      `:rf/parent-id` + `:rf/spawn-id` into the actor's initial `:data`.
+      `:rf/parent-id` + `:rf/invoke-id` into the actor's initial `:data`.
       Re-spawn under the same id replaces — last-write-wins.
    3. If `:system-id` present, bind it in the per-frame
       `[:rf.runtime/machines :system-ids]` reverse index. Collisions emit
       `:rf.error/system-id-collision` and rebind (last-write-wins).
-   4. If `:rf/parent-id` + `:rf/spawn-id` present (declarative `:spawn`
+   4. If `:rf/parent-id` + `:rf/invoke-id` present (declarative `:spawn`
       desugar — rf2-t07u Option A revised), bind the spawned id at
       `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`.
    5. If `:start` event-vector present, dispatch
@@ -265,7 +269,7 @@
         ;; declarative-:spawn spawn at [:rf.runtime/machines :spawned <parent-id>
         ;; <invoke-id>] — populated only when the spawn carries both.
         parent-id  (:rf/parent-id args)
-        invoke-id  (:rf/spawn-id args)
+        invoke-id  (:rf/invoke-id args)
         track?     (and parent-id invoke-id)
         ;; Resolve the final spawned id: pre-allocated when present;
         ;; else allocate from runtime-db inside the swap below. We pre-read
@@ -307,6 +311,10 @@
     (when-not rejected?
       (trace/emit! :rf.machine :rf.machine.spawn/spawned
                    {:frame      frame-id
+                    ;; `:machine-id` is the spec-time registered TYPE (xor
+                    ;; an inline `:definition`); `:spawned-id` is the live
+                    ;; instance address; `:invoke-id` (rf2-0ggtr5 — was
+                    ;; `:spawn-id`) is the declarative invocation path.
                     :machine-id (:machine-id args)
                     :spawned-id spawned-id
                     :id-prefix  (:id-prefix args)
@@ -314,7 +322,7 @@
                     :on-spawn   (:on-spawn args)
                     :system-id  system-id
                     :parent-id  parent-id
-                    :spawn-id  invoke-id})
+                    :invoke-id  invoke-id})
       ;; Per rf2-a2sn1 — NO per-instance handler registration. The actor's
       ;; liveness IS its snapshot's presence in the (revertible) frame
       ;; value; the snapshot's `:rf/machine-type` (stamped by
@@ -331,16 +339,16 @@
         (install-spawn! frame-id rt-after-alloc spec'' spawned-id initial-snap
                         {:system-id system-id
                          :parent-id parent-id
-                         :spawn-id invoke-id
+                         :invoke-id invoke-id
                          :track?    track?
                          :type-ref  type-ref})
         ;; Per rf2-fm1cpl — bridge the spawned actor's `:data-schema`
         ;; `:sensitive?` / `:large?` markers into snapshot-egress redaction
         ;; KEYED UNDER THE INSTANCE ID. A spawned actor's
         ;; `:rf.machine/transition` / `:rf.machine/snapshot-updated` trace
-        ;; carries `:machine-id` = the INSTANCE id (`<type>#<n>` or the
-        ;; explicit `:spawn-id`), and `re-frame.marks/project-machine-tags`
-        ;; resolves marks via `(marks-for :event <machine-id>)`. The TYPE's
+        ;; carries `:actor-id` = the INSTANCE id (`<type>#<n>` or the
+        ;; explicit `:fixed-actor-id`), and `re-frame.marks/project-machine-tags`
+        ;; resolves marks via `(marks-for :event <actor-id>)`. The TYPE's
         ;; `:data-schema` marks (bridged at `reg-machine*` time) key under the
         ;; TYPE id, so an instance-id trace's lookup would MISS and a
         ;; `:sensitive?` `:data` slot would egress RAW. Re-running the SAME
@@ -376,9 +384,12 @@
         ;; app-db (`managed_fx_helpers/machine-invoke-adapter`).
         (trace/emit! :rf.machine.lifecycle/spawned :rf.machine.lifecycle/spawned
                      {:frame      frame-id
+                      ;; `:machine-id` = spec-time registered TYPE;
+                      ;; `:spawned-id` = live instance address;
+                      ;; `:invoke-id` (rf2-0ggtr5) = declarative invocation path.
                       :machine-id (:machine-id args)
                       :spawned-id spawned-id
-                      :spawn-id   invoke-id
+                      :invoke-id  invoke-id
                       :system-id  system-id
                       :parent-id  parent-id
                       :state      (:state initial-snap)}))
@@ -435,15 +446,17 @@
                      {:where 'rf.machine/spawn-all-init
                       :event-id (:rf/parent-id args)})
         parent-id  (:rf/parent-id args)
-        invoke-id  (:rf/spawn-id args)
+        invoke-id  (:rf/invoke-id args)
         join-state (:join-state args)
         children   (:children join-state)]
     ;; Machine spawn-registry state is durable runtime-db state (rf2-vzld77).
     (frame/swap-runtime-db! frame-id assoc-in
                             (paths/spawned-path parent-id invoke-id) join-state)
     (trace/emit! :rf.machine :rf.machine.spawn-all/started
-                 {:machine-id parent-id
-                  :spawn-id  invoke-id
+                 {;; rf2-ws5thu — the parent's live actor INSTANCE address;
+                  ;; rf2-0ggtr5 — `:invoke-id` is the declarative invocation path.
+                  :actor-id   parent-id
+                  :invoke-id  invoke-id
                   :child-ids  (set (keys children))
                   :children   children
                   :frame      frame-id})

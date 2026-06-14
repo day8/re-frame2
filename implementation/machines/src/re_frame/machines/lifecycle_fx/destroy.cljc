@@ -15,7 +15,7 @@
       holds. This is first-class current API — re-frame2's spelling of
       XState v5 `stopChild(actorId)` (the gold-standard imperative
       teardown that sits alongside automatic exit-cascade teardown), OR
-    - a map `{:rf/parent-id ... :rf/spawn-id ...}` — the declarative-
+    - a map `{:rf/parent-id ... :rf/invoke-id ...}` — the declarative-
       `:spawn` exit-cascade form, where the runtime resolves the actor
       id from `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` in the frame's
       runtime-db.
@@ -182,14 +182,14 @@
         (traces/emit-destroyed! {:frame     frame-id
                                  :actor-id  spawned-id
                                  :parent-id parent-id
-                                 :spawn-id invoke-id
+                                 :invoke-id invoke-id
                                  :child-id  child-id})))
     ;; Clear the join-state slot via the unified projection (slot-only).
     (frame/swap-runtime-db! frame-id
                             (fn [runtime-db]
                               (first (teardown/teardown-actor
                                        runtime-db {:parent-id parent-id
-                                                   :spawn-id invoke-id}))))
+                                                   :invoke-id invoke-id}))))
     nil))
 
 (defn- destroy-single!
@@ -249,7 +249,7 @@
   [frame-id args]
   (let [tracked?  (map? args)
         parent-id (when tracked? (:rf/parent-id args))
-        invoke-id (when tracked? (:rf/spawn-id args))
+        invoke-id (when tracked? (:rf/invoke-id args))
         old-db    (frame/frame-runtime-db-value frame-id)
         slot-id   (when (and tracked? old-db)
                     (get-in old-db (paths/spawned-path parent-id invoke-id)))
@@ -289,7 +289,7 @@
                                   (first (teardown/teardown-actor
                                            runtime-db {:actor-id  actor-id
                                                        :parent-id parent-id
-                                                       :spawn-id invoke-id}))))
+                                                       :invoke-id invoke-id}))))
         ;; rf2-gn80 D6 — `:reason :explicit` discriminates "an action / fx
         ;; tore the actor down" from `:rf.machine/finished` (the auto-destroy
         ;; on `:final?`). Always stamp `:system-id` (nil when not bound) per
@@ -300,7 +300,7 @@
                                  :actor-id  actor-id
                                  :system-id released-sid
                                  :parent-id parent-id
-                                 :spawn-id invoke-id})
+                                 :invoke-id invoke-id})
         (traces/emit-system-id-released! frame-id released-sid actor-id)
         ;; Unregister the live handler. Last so any in-flight trace emit
         ;; against the actor still resolves before the slot disappears.
@@ -329,5 +329,5 @@
     (if spawn-all?
       (destroy-spawn-all-children! frame-id
                                    (:rf/parent-id args)
-                                   (:rf/spawn-id args))
+                                   (:rf/invoke-id args))
       (destroy-single! frame-id args))))
