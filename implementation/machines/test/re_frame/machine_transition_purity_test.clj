@@ -88,7 +88,7 @@
       ;;   - `:rf/spawned-id` is `:http/post#1` (allocator deterministic)
       ;;   - `:rf/parent-id` is `:rf/transition-pure` (sentinel for the
       ;;     pure-call surface)
-      ;;   - `:rf/spawn-id` is the state-path the spawn issued from
+      ;;   - `:rf/invoke-id` is the state-path the spawn issued from
       ;;     (`[:authenticating]`)
       (is (= 1 (count fx1))
           "exactly one effect emitted by the :submit transition")
@@ -99,7 +99,7 @@
             "the spawned-id is allocated deterministically as :http/post#1")
         (is (= :rf/transition-pure (:rf/parent-id args))
             "parent-id sentinel for the pure-call surface is :rf/transition-pure")
-        (is (= [:authenticating] (:rf/spawn-id args))
+        (is (= [:authenticating] (:rf/invoke-id args))
             "invoke-id is the state-path the spawn issued from"))
       ;; Snapshot: the load-bearing contract is that `:state` advanced and
       ;; the in-snapshot counter bumped to 1 for the `:http/post` slot.

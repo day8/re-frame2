@@ -31,7 +31,7 @@
       `:value`, `:work/id` `[:rf.work/machine actor-id work-bearing-path
       generation]`, `:work/kind :machine`, `:work/status`,
       `:rf.frame/id`, and `:correlation {:actor-id … :parent-id …
-      :spawn-id …}`. The PUBLIC `:on-done` `:data` callback is then driven
+      :invoke-id …}`. The PUBLIC `:on-done` `:data` callback is then driven
       with `(:value reply)` as its `:result`; `:on-error` with the
       reply's `:error`. A **late** child completion — the actor-id /
       spawn correlation no longer naming a live actor — is `:stale`
@@ -65,18 +65,18 @@
 ;; Work-id correlation (Managed-Effects §Work-id correlation).
 ;;
 ;; Machine head: `[:rf.work/machine actor-id work-bearing-path generation]`.
-;;  - `actor-id`         — the finishing actor's id (the `<type>#<n>`
-;;                         instance id, or an explicit `:spawn-id`);
+;;  - `actor-id`         — the finishing actor's INSTANCE id (the `<type>#<n>`
+;;                         instance id, or an explicit `:fixed-actor-id`);
 ;;  - `work-bearing-path` — the `:spawn`-bearing node's declaring path
-;;                         (`:rf/spawn-id` the runtime stamped on the
-;;                         child's `:data` at spawn time);
+;;                         (the invocation path `:rf/invoke-id` the runtime
+;;                         stamped on the child's `:data` at spawn time);
 ;;  - `generation`       — the monotonic spawn discriminator; for the
 ;;                         `<type>#<n>` instance-id form it is `n` (the
 ;;                         spawn-counter reading that minted this instance),
 ;;                         so a re-spawn under the same declaring path lands
 ;;                         on a fresh work id (one ATTEMPT, one `:work/id`,
-;;                         per EP-0007). An explicit `:spawn-id` actor with
-;;                         no `#n` suffix carries generation 1.
+;;                         per EP-0007). An explicit `:fixed-actor-id` actor
+;;                         with no `#n` suffix carries generation 1.
 ;; ---------------------------------------------------------------------------
 
 (defn actor-generation
@@ -84,7 +84,7 @@
   `<type>#<n>` (the instance id the spawn-counter mints — see
   `lifecycle-fx.spawn/allocate-actor-id-in-runtime-db`). Returns the
   integer `n`, or 1 when the id carries no `#n` suffix (an explicit
-  per-state-singleton `:spawn-id` actor — one attempt, generation 1).
+  per-state-singleton `:fixed-actor-id` actor — one attempt, generation 1).
   nil-safe: returns nil for a nil id (no live counterpart). Public so the
   finalize path can read the LIVE spawn-slot occupant's generation as the
   `:current` counterpart of the stale-spawn carried/current gate."
@@ -105,11 +105,11 @@
   "Build the machine work-id for one spawned-actor attempt:
   `[:rf.work/machine actor-id work-bearing-path generation]`
   (Managed-Effects §Work-id correlation; EP-0011 §Machine Completion).
-  `actor-id` is the finishing actor's id; `work-bearing-path` is the
-  `:spawn`-bearing node's declaring path (the child's stamped
-  `:rf/spawn-id`). `generation` is parsed off the `<type>#<n>` instance
-  id (or 1 for an explicit `:spawn-id`). `=`-comparable and
-  EDN-serializable."
+  `actor-id` is the finishing actor's INSTANCE id; `work-bearing-path` is
+  the `:spawn`-bearing node's declaring path (the child's stamped
+  invocation path `:rf/invoke-id`). `generation` is parsed off the
+  `<type>#<n>` instance id (or 1 for an explicit `:fixed-actor-id`).
+  `=`-comparable and EDN-serializable."
   [actor-id work-bearing-path]
   [:rf.work/machine actor-id (vec work-bearing-path) (actor-generation actor-id)])
 
@@ -124,8 +124,12 @@
   "The correlation/identity facts every spawned-actor reply carries,
   independent of status: `:work/id`, `:work/kind :machine`,
   `:rf.frame/id`, optional `:completed-at`, and
-  `:correlation {:actor-id … :parent-id … :spawn-id …}`. Optional facts
-  are omitted when absent rather than nil-filled (Managed-Effects §The
+  `:correlation {:actor-id … :parent-id … :invoke-id …}`. The
+  `:actor-id` is the finishing actor's live INSTANCE address; the
+  `:invoke-id` is the declarative spawn invocation-path (the absolute
+  prefix-path of the `:spawn`-bearing parent state) — the two are
+  distinct identity facts (rf2-0ggtr5 / rf2-ws5thu). Optional facts are
+  omitted when absent rather than nil-filled (Managed-Effects §The
   reply map)."
   [{:keys [actor-id parent-id work-bearing-path frame completed-at]}]
   (cond-> {:work/id   (spawn-work-id actor-id work-bearing-path)
@@ -135,7 +139,7 @@
     true                 (assoc :correlation
                                 (cond-> {:actor-id actor-id}
                                   (some? parent-id)         (assoc :parent-id parent-id)
-                                  (some? work-bearing-path) (assoc :spawn-id (vec work-bearing-path))))))
+                                  (some? work-bearing-path) (assoc :invoke-id (vec work-bearing-path))))))
 
 (defn success-reply
   "Build the canonical `:status :ok` reply map for a spawned child that
@@ -218,7 +222,7 @@
                                     :generation {:carried carried-generation
                                                  :current current-generation}}
                              (some? parent-id)         (assoc :parent-id parent-id)
-                             (some? work-bearing-path) (assoc :spawn-id (vec work-bearing-path)))}
+                             (some? work-bearing-path) (assoc :invoke-id (vec work-bearing-path)))}
       (some? frame)        (assoc :rf.frame/id frame)
       (some? completed-at) (assoc :completed-at completed-at))))
 
@@ -233,7 +237,7 @@
   `[:rf.work/timer logical-timer-id epoch]` (Managed-Effects §Work-id
   correlation — the Timer row; the machine `:after` is a specialized timer
   instance per EP-0011 §Timer Reply). The `logical-timer-id` is the timer's
-  declaring path (`[machine-id decl-path...]` when a `machine-id` is known,
+  declaring path (`[actor-id decl-path...]` when an `actor-id` is known,
   else the bare declaring path) — the stable identity of THIS `:after` within
   the chart; the `epoch` is the per-path `:rf/after-epoch` the timer was
   SCHEDULED in, which discriminates one timer attempt from a re-armed one on
@@ -246,12 +250,12 @@
   reply STATUS / work-status but NO `:work/id`, so they could not join into
   the uniform work/reply rows that every other managed async family
   correlates by (Managed-Effects §Tracing — \"one `:work/id`\")."
-  [machine-id decl-path epoch]
+  [actor-id decl-path epoch]
   (let [logical-id (cond
-                     (and (some? machine-id) (some? decl-path))
-                     (into [machine-id] (vec decl-path))
+                     (and (some? actor-id) (some? decl-path))
+                     (into [actor-id] (vec decl-path))
                      (some? decl-path) (vec decl-path)
-                     :else machine-id)]
+                     :else actor-id)]
     [:rf.work/timer logical-id epoch]))
 
 (defn after-suppression-gate
@@ -285,20 +289,21 @@
   identity — see `timer-work-id`), so a stale `:after` completion joins into
   the uniform work/reply rows by the same key HTTP / resources / routing use.
 
-  `ctx` keys: `:machine-id` (optional), `:state`, `:delay`,
-  `:decl-path`, `:scheduled-epoch`, `:current-epoch`, `:frame`."
-  [{:keys [machine-id state delay decl-path scheduled-epoch current-epoch frame]}]
+  `ctx` keys: `:actor-id` (optional — the timer's owning actor INSTANCE),
+  `:state`, `:delay`, `:decl-path`, `:scheduled-epoch`, `:current-epoch`,
+  `:frame`."
+  [{:keys [actor-id state delay decl-path scheduled-epoch current-epoch frame]}]
   (cond-> {:status       :stale
            :stale?       true
            :stale/reason :rf.machine.timer/after-epoch-mismatch
-           :work/id      (timer-work-id machine-id decl-path scheduled-epoch)
+           :work/id      (timer-work-id actor-id decl-path scheduled-epoch)
            :work/kind    :timer
            :work/status  :suppressed
            :correlation  (cond-> {:state   state
                                   :delay   delay
                                   :carried (after-suppression-gate decl-path scheduled-epoch)
                                   :current (after-suppression-gate decl-path current-epoch)}
-                           (some? machine-id) (assoc :machine-id machine-id))}
+                           (some? actor-id) (assoc :actor-id actor-id))}
     (some? frame) (assoc :rf.frame/id frame)))
 
 (defn after-fired-reply
@@ -322,9 +327,10 @@
   `:work/status` inside the closed `work-statuses` vocabulary. Pass
   `:guard-suppressed? true` for that case.
 
-  `ctx` keys: `:machine-id` (optional), `:state`, `:delay`, `:decl-path`,
-  `:epoch`, `:frame`, optional `:guard-suppressed?`."
-  [{:keys [machine-id state delay decl-path epoch frame guard-suppressed?]}]
+  `ctx` keys: `:actor-id` (optional — the timer's owning actor INSTANCE),
+  `:state`, `:delay`, `:decl-path`, `:epoch`, `:frame`, optional
+  `:guard-suppressed?`."
+  [{:keys [actor-id state delay decl-path epoch frame guard-suppressed?]}]
   (cond-> {:status      :ok
            ;; A timer carries no payload — its effect is the transition it
            ;; triggers, not a value. The reply-map contract requires a `:value`
@@ -333,13 +339,13 @@
            ;; no payload" shape); a nil value keeps the reply schema-valid
            ;; without inventing a synthetic payload.
            :value       nil
-           :work/id     (timer-work-id machine-id decl-path epoch)
+           :work/id     (timer-work-id actor-id decl-path epoch)
            :work/kind   :timer
            :work/status :completed
            :correlation (cond-> {:state state
                                  :delay delay
                                  :gate  (after-suppression-gate decl-path epoch)}
-                          (some? machine-id) (assoc :machine-id machine-id)
+                          (some? actor-id) (assoc :actor-id actor-id)
                           guard-suppressed?  (assoc :guard-suppressed? true))}
     (some? frame) (assoc :rf.frame/id frame)))
 

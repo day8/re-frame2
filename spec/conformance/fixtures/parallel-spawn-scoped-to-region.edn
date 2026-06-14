@@ -15,7 +15,7 @@
 {:fixture/id           :machine/parallel-spawn-scoped-to-region
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:fsm/parallel-regions :actor/invoke}
- :fixture/doc          "An :spawn-bearing state inside a region emits :rf.machine/spawn fx whose :rf/spawn-id is prefixed with the region name. The sibling region's transition does not affect the spawned actor."
+ :fixture/doc          "An :spawn-bearing state inside a region emits :rf.machine/spawn fx whose :rf/invoke-id is prefixed with the region name. The sibling region's transition does not affect the spawned actor."
 
  :fixture/registry
  {:machine
@@ -46,7 +46,7 @@
    ;; a REGION-scoped :spawn the key is the IN-REGION prefix-path `[:loading]`
    ;; (the region machine's own frame of reference — the action that reads it
    ;; back runs in that same region context), whereas the runtime-owned
-   ;; registry / the child's `:rf/spawn-id` carry the region-name-prefixed
+   ;; registry / the child's `:rf/invoke-id` carry the region-name-prefixed
    ;; `[:data :loading]` (the fx-level prefix that keeps the top-level
    ;; registry slot per-region-unique). Documented asymmetry: the :data key
    ;; is region-local, the registry key is region-qualified.
@@ -62,4 +62,4 @@
       ;; The invoke-id is prefixed with the region name :data so the
       ;; runtime-owned [:rf.runtime/machines :spawned <parent> <invoke-id>] slot is
       ;; uniquely keyed per region.
-      :rf/spawn-id  [:data :loading]}]]}]}
+      :rf/invoke-id  [:data :loading]}]]}]}

@@ -62,7 +62,7 @@
    :expect-effects
    [[:rf.machine/spawn-all-init
      {:rf/parent-id :rf/transition-pure
-      :rf/spawn-id [:working]
+      :rf/invoke-id [:working]
       :join-state   {:children  {:a :worker#1
                                  :b :worker#2
                                  :c :worker#3
@@ -80,7 +80,7 @@
                                  :on-child-done    :done
                                  :on-child-error   :failed
                                  :on-some-complete [:phase/three-done]}
-                     :spawn-id [:working]}}]
+                     :invoke-id [:working]}}]
     ;; Per rf2-er0t: the runtime dissocs :id from each child spec before
     ;; emitting the :rf.machine/spawn fx; the user-supplied child id rides
     ;; on :rf/spawn-all-child-id instead.
@@ -137,5 +137,5 @@
    :expect-next-snapshot {:state :ready :data {}}
    :expect-effects
    [[:rf.machine/destroy {:rf/parent-id  :rf/transition-pure
-                          :rf/spawn-id  [:working]
+                          :rf/invoke-id [:working]
                           :rf/spawn-all true}]]}]}

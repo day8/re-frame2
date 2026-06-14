@@ -136,7 +136,7 @@
   `:on-error` transition via `spawn-error/dispatch-spawn-error!` — additive to
   (not a replacement for) the trace above, which still fires for every action
   exception. `ctx` carries the failing actor's `:db` + `:snapshot` (whose
-  `:data` was stamped with `:rf/parent-id` / `:rf/spawn-id` at spawn time);
+  `:data` was stamped with `:rf/parent-id` / `:rf/invoke-id` at spawn time);
   the exception envelope rides as the parent transition's `:event` payload so
   a guard / action can branch on it. Singletons (no parent) and parents that
   declare no `:on-error` route nowhere — the trace IS the signal, unchanged."
@@ -168,7 +168,7 @@
     ;; guard / action can branch on it.
     (let [child-data (:data snapshot)
           parent-id  (:rf/parent-id child-data)
-          invoke-id  (:rf/spawn-id child-data)]
+          invoke-id  (:rf/invoke-id child-data)]
       (when (spawn-error/parent-declares-on-error? runtime-db parent-id invoke-id)
         (spawn-error/dispatch-spawn-error!
           frame-id parent-id invoke-id
@@ -618,7 +618,11 @@
       (when-not no-op?
         (trace/emit! :rf.machine :rf.machine/transition
                      {:frame      frame-id
-                      :machine-id machine-id
+                      ;; rf2-ws5thu — the LIVE actor instance address (the
+                      ;; event-handler key: a singleton's registration id, or
+                      ;; a spawned actor's `<type>#<n>` / fixed instance id).
+                      ;; Reserved `:machine-id` names the registered TYPE only.
+                      :actor-id   machine-id
                       :event      inner-event
                       :before     snapshot
                       :after      next-snapshot
@@ -626,7 +630,7 @@
                       :cascade    cascade}))
       (when (not= snapshot next-snapshot)
         (trace/emit! :rf.machine :rf.machine/snapshot-updated
-                     {:machine-id machine-id
+                     {:actor-id   machine-id
                       :path       path
                       :before     snapshot
                       :after      next-snapshot
@@ -880,10 +884,10 @@
   Per rf2-fm1cpl this is PUBLIC because the spawn path
   (`lifecycle-fx.spawn/spawn-fx`) re-runs the bridge keyed under the SPAWNED
   INSTANCE id. A spawned actor's `:rf.machine/transition` /
-  `:rf.machine/snapshot-updated` trace carries `:machine-id` = the instance id
-  (`<type>#<n>` or the explicit `:spawn-id`), NOT the type id — and
+  `:rf.machine/snapshot-updated` trace carries `:actor-id` = the instance id
+  (`<type>#<n>` or the explicit `:fixed-actor-id`), NOT the type id — and
   `re-frame.marks/project-machine-tags` resolves redaction marks via
-  `(marks-for :event <machine-id>)`. The type's `:data-schema` marks key under
+  `(marks-for :event <actor-id>)`. The type's `:data-schema` marks key under
   the TYPE id, so without a per-instance bridge a spawned actor's `:sensitive?`
   `:data` slot would egress RAW (the type-id lookup never fires for an
   instance-id trace). Re-running this fn under the instance id at spawn time

@@ -217,7 +217,7 @@
     {:fx             (classify-fx ev)
      :req            (select-keys tags [:request-id :url :method
                                         :timer-id :child-id :spawned-id
-                                        :spawn-id])
+                                        :invoke-id])
      :t              (:time ev)
      :cancel-cause   (cancel-cause ev)
      :request-id     (:request-id tags)
@@ -231,10 +231,10 @@
   "Build one child-teardown row from a destroy trace event."
   [ev]
   (let [tags (:tags ev)]
-    {:child-id       (or (:machine-id tags) (:spawned-id tags))
+    {:child-id       (or (:actor-id tags) (:machine-id tags) (:spawned-id tags))
      :spawned-id     (:spawned-id tags)
      :parent-id      (:parent-id tags)
-     :spawn-id      (:spawn-id tags)
+     :invoke-id      (:invoke-id tags)
      :t              (:time ev)
      :reason         (destroy-reason ev)
      :last-state     (:last-state tags)
@@ -274,7 +274,8 @@
       (->> evs
            (filter #(and (cancellation-anchor? %)
                          (let [tags (:tags %)]
-                           (or (= focus-id (:machine-id tags))
+                           (or (= focus-id (:actor-id tags))
+                               (= focus-id (:machine-id tags))
                                (= focus-id (:spawned-id tags))
                                (= focus-id (:parent-id tags))))))
            (sort-by :time)
@@ -308,7 +309,8 @@
   (let [evs           (or trace-buffer [])
         anchor-t      (:time anchor)
         anchor-disp   (get-in anchor [:tags :rf.trace/dispatch-id])
-        anchor-actor  (or (get-in anchor [:tags :machine-id])
+        anchor-actor  (or (get-in anchor [:tags :actor-id])
+                          (get-in anchor [:tags :machine-id])
                           (get-in anchor [:tags :spawned-id]))
         window        default-actor-destroy-window-ms
         by-dispatch   (when anchor-disp

@@ -114,7 +114,7 @@
       ;; transparent envelope around the fx surface.
       (let [self-id   (:rf/self-id data)
             fx-args   (-> data
-                          (dissoc :rf/self-id :rf/parent-id :rf/spawn-id)
+                          (dissoc :rf/self-id :rf/parent-id :rf/invoke-id)
                           (assoc :on-success [self-id [:rf.http/succeeded]]
                                  :on-failure [self-id [:rf.http/failed]]))]
         {:fx [[:rf.http/managed fx-args]]}))

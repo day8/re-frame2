@@ -60,10 +60,11 @@
                   snapshot or system-id-binding mutation, only
                   spawn-slot prune)
     :parent-id  — the spawning actor's id (declarative form only)
-    :spawn-id  — the absolute prefix-path the runtime stamped on the
-                  child at spawn time (declarative form only)
+    :invoke-id  — the absolute invocation prefix-path the runtime stamped
+                  on the child at spawn time (rf2-0ggtr5 — was `:spawn-id`;
+                  declarative form only)
 
-  When `:parent-id` and `:spawn-id` are both supplied, the
+  When `:parent-id` and `:invoke-id` are both supplied, the
   `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot is
   cleared and the parent map / `:spawned` root are pruned under the
   lazy-allocation invariant (matching how spawn ALLOCATES the maps
@@ -75,7 +76,7 @@
   PURE: no trace emission, no handler unregistration, no HTTP abort —
   those are caller side effects whose ordering relative to db mutation
   is contract."
-  [db {:keys [actor-id parent-id] invoke-id :spawn-id}]
+  [db {:keys [actor-id parent-id invoke-id]}]
   (let [released-sid (find-system-id-for-actor db actor-id)
         track?       (and parent-id invoke-id)
         ;; (1)+(2)+(3): the three primary slot mutations.

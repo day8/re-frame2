@@ -28,7 +28,7 @@
     (is (= [:rf.work/machine :app/child#12 [:p :working] 12]
            (m-reply/spawn-work-id :app/child#12 [:p :working]))
         "multi-digit generation + nested declaring path"))
-  (testing "explicit per-state-singleton :spawn-id (no #n suffix) → generation 1"
+  (testing "explicit per-state-singleton :fixed-actor-id (no #n suffix) → generation 1"
     (is (= [:rf.work/machine :explicit/actor [:s] 1]
            (m-reply/spawn-work-id :explicit/actor [:s]))
         "one attempt, generation 1 (EP-0007)"))
@@ -55,7 +55,7 @@
       (is (= [:rf.work/machine :auth/flow#1 [:authenticating] 1] (:work/id r)))
       (is (= :app/main (:rf.frame/id r)))
       (is (= 1781078400888 (:completed-at r)))
-      (is (= {:actor-id :auth/flow#1 :parent-id :auth/main :spawn-id [:authenticating]}
+      (is (= {:actor-id :auth/flow#1 :parent-id :auth/main :invoke-id [:authenticating]}
              (:correlation r)))
       (is (nil? (:error r)) ":ok carries no :error")
       (is (reply/valid-reply? r) "conforms to the shared reply-map contract")))
@@ -69,7 +69,7 @@
     (let [r (m-reply/success-reply {:actor-id :a/b#1 :work-bearing-path [:s]} :v)]
       (is (not (contains? r :rf.frame/id)))
       (is (not (contains? r :completed-at)))
-      (is (= {:actor-id :a/b#1 :spawn-id [:s]} (:correlation r))
+      (is (= {:actor-id :a/b#1 :invoke-id [:s]} (:correlation r))
           "parent-id omitted from correlation when absent"))))
 
 (deftest error-reply-is-canonical
@@ -144,7 +144,7 @@
 (deftest after-stale-reply-is-canonical
   (testing ":after stale reply carries the timer work-id + work-kind + suppression facts"
     (let [r (m-reply/after-stale-reply
-              {:machine-id      :a/multi
+              {:actor-id        :a/multi
                :state           :loading
                :delay           30000
                :decl-path       [:loading]
@@ -166,7 +166,7 @@
 (deftest after-fired-reply-is-canonical
   (testing "rf2-niarhz — a FIRED (live) :after timer is a closed :status :ok / :work/status :completed completion carrying the canonical :work/id"
     (let [r (m-reply/after-fired-reply
-              {:machine-id :a/multi
+              {:actor-id   :a/multi
                :state      :loading
                :delay      30000
                :decl-path  [:loading]
@@ -181,7 +181,7 @@
     (testing "a guard-suppressed fired timer stays :ok/:completed (NOT stale) — the
               guard decision rides under :correlation, work-status stays closed"
       (let [r (m-reply/after-fired-reply
-                {:machine-id :a/multi :state :loading :delay 30000
+                {:actor-id :a/multi :state :loading :delay 30000
                  :decl-path [:loading] :epoch 2 :frame :rf/default
                  :guard-suppressed? true})]
         (is (= :ok (:status r)))

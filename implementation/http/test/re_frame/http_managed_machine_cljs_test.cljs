@@ -64,7 +64,7 @@
 ;; ---- (2) parent :spawn spawns wrapper, registry/snapshot wiring -------
 
 (deftest invoke-spawns-wrapper-and-injects-framework-keys
-  (testing "parent :spawn {:machine-id :rf.http/managed ...} spawns the wrapper actor and stamps :rf/parent-id / :rf/self-id / :rf/spawn-id into the wrapper's :data (rf2-ijm7)"
+  (testing "parent :spawn {:machine-id :rf.http/managed ...} spawns the wrapper actor and stamps :rf/parent-id / :rf/self-id / :rf/invoke-id into the wrapper's :data (rf2-ijm7)"
     ;; Install a stub that NEVER replies — gives us a stable
     ;; :requesting snapshot to inspect without racing against Fetch.
     (http-test-support/install-managed-request-stubs! {})
@@ -99,8 +99,8 @@
               ":rf/self-id is stamped to the wrapper's own id")
           (is (= :cljs/auth2 (:rf/parent-id wrapper-data))
               ":rf/parent-id is stamped to the parent machine's id (rf2-ijm7)")
-          (is (= [:authenticating] (:rf/spawn-id wrapper-data))
-              ":rf/spawn-id is stamped to the parent's :spawn-bearing state path")
+          (is (= [:authenticating] (:rf/invoke-id wrapper-data))
+              ":rf/invoke-id is stamped to the parent's :spawn-bearing state path")
           (is (= {:url "/api/me" :method :get} (:request wrapper-data))
               "the user's :request is preserved verbatim under :data")))
       (finally

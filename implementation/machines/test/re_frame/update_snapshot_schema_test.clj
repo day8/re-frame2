@@ -171,8 +171,8 @@
                                  :spawning {:entry
                                             (fn [_]
                                               {:fx [[:rf.machine/spawn
-                                                     {:spawn-id   :rf.upd-schema/child
-                                                      :definition child-spec}]]})}}}]
+                                                     {:fixed-actor-id :rf.upd-schema/child
+                                                      :definition     child-spec}]]})}}}]
       (rf/reg-machine :rf.upd-schema/spawn-parent parent-spec)
       (rf/dispatch-sync [:rf.upd-schema/spawn-parent [:noop]])
       ;; Spawn the child (valid :data {:n 1} → installs). The spawn machinery

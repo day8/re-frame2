@@ -54,7 +54,7 @@
                           :data  {:rf/after-epoch {[:authenticated] 1}}}
    :expect-effects [[:rf.machine/after-schedule
                      {:rf/parent-id :rf/transition-pure
-                      :rf/spawn-id [:authenticated]
+                      :rf/invoke-id [:authenticated]
                       :state        :authenticated
                       :delay-key    30000
                       :epoch        1
@@ -121,7 +121,7 @@
    :expect-next-snapshot {:state :idle :data {:rf/after-epoch {[:authenticated] 2}}}
    :expect-effects [[:rf.machine/after-cancel
                      {:rf/parent-id :rf/transition-pure
-                      :rf/spawn-id [:authenticated]}]]
+                      :rf/invoke-id [:authenticated]}]]
    :expect-trace
    [{:operation :rf.machine/transition
      :tags      {:from [:authenticated :settings] :to :idle}}]}

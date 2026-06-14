@@ -406,9 +406,9 @@
   path with NO external-atom side-channel and no runtime-db reverse-index
   coupling. It is the REVERSE direction of the child-lineage stamps the
   spawn-fx writes onto a spawned CHILD's own `:data` (`:rf/self-id` /
-  `:rf/parent-id` / `:rf/spawn-id`, per Spec 005 §Runtime stamps): here the
+  `:rf/parent-id` / `:rf/invoke-id`, per Spec 005 §Runtime stamps): here the
   PARENT captures the CHILD's id, keyed by the SAME `<invoke-id>` the child
-  records under `:rf/spawn-id` and the runtime tracks at
+  records under `:rf/invoke-id` and the runtime tracks at
   `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`.
 
   Keyed by `invoke-id` (the absolute prefix-path of the `:spawn`-bearing
@@ -734,7 +734,7 @@
   in-flight timer; a carried epoch of 0 against an absent node is the
   bootstrap-then-stale shape). `decl-path` is the absolute state path the
   `:after` was declared at (for a region, the path WITHIN the region —
-  matching the `:rf/spawn-id` the timer carries)."
+  matching the `:rf/invoke-id` the timer carries)."
   [machine snapshot decl-path]
   (or (get-in snapshot (conj (after-epoch-path machine) (vec decl-path))) 0))
 
@@ -787,7 +787,7 @@
   (let [[_ delay-key carried-epoch raw-carried-decl-path] event
         region        (:rf/region machine)
         ;; Per Spec 005 §Per-region :after scoping: the runtime carries a
-        ;; region-name-prefixed decl-path (`prefix-region-spawn-id`) for
+        ;; region-name-prefixed decl-path (`prefix-region-invoke-id`) for
         ;; timers scheduled inside a parallel region. Within a region's
         ;; `pick-after-transition` the active path is in-region, so strip
         ;; the region-name head. A carried path naming a DIFFERENT region
@@ -1158,7 +1158,7 @@
         ;; rf2-w84jv — region-identity scoping, symmetric with
         ;; `pick-done-transition`'s `decline-region?` (rf2-12ekv). A `:spawn`
         ;; declared inside a parallel region carries a region-name-prefixed
-        ;; invoke-id (`prefix-region-spawn-id`), so `(first raw-invoke-id)` is
+        ;; invoke-id (`prefix-region-invoke-id`), so `(first raw-invoke-id)` is
         ;; the OWNING region's name. The spawn-error broadcast reaches every
         ;; region's resolver (`drain-parent-queue`), so a region whose name
         ;; does NOT match the invoke-id head must decline OUTRIGHT — for BOTH
@@ -1846,7 +1846,7 @@
   snapshot (any :action :data writes are visible). Returns
   `[::ok-data <materialised-data>]` on success, or a `result/fail` Result
   carrying `{:exception <e>}` if the fn threw — caller stamps
-  `:action-ref` / `:spawn-id` / `:child-id` onto the Result before
+  `:action-ref` / `:invoke-id` / `:child-id` onto the Result before
   propagating."
   [d snap event]
   (if (fn? d)
@@ -1894,7 +1894,8 @@
                           ms-tag       delay-key]
                       (if server?
                         (trace/emit! :rf.machine :rf.machine.timer/skipped-on-server
-                                     (cond-> {:machine-id   parent-id
+                                     (cond-> {;; rf2-ws5thu — owning actor INSTANCE
+                                              :actor-id     parent-id
                                               :state        leaf-state
                                               :delay        ms-tag
                                               :delay-source delay-source
@@ -1905,7 +1906,8 @@
                                        (= :sub delay-source)
                                        (assoc :sub-id (first delay-key))))
                         (trace/emit! :rf.machine :rf.machine.timer/scheduled
-                                     (cond-> {:machine-id   parent-id
+                                     (cond-> {;; rf2-ws5thu — owning actor INSTANCE
+                                              :actor-id     parent-id
                                               :state        leaf-state
                                               :delay        ms-tag
                                               :delay-source delay-source
@@ -1915,7 +1917,7 @@
                                        (assoc :sub-id (first delay-key))))))
                     [:rf.machine/after-schedule
                      {:rf/parent-id parent-id
-                      :rf/spawn-id (vec prefix)
+                      :rf/invoke-id (vec prefix)
                       :state        leaf-state
                       :delay-key    delay-key
                       :epoch        epoch
@@ -1936,12 +1938,12 @@
             :when (:after n)]
         [:rf.machine/after-cancel
          {:rf/parent-id parent-id
-          :rf/spawn-id (vec prefix)}]))))
+          :rf/invoke-id (vec prefix)}]))))
 
 (defn- build-destroy-fx
   "Per Spec 005 §Declarative `:spawn` and rf2-t07u
   (Option A revised): nodes being EXITED with `:spawn` emit
-  `:rf.machine/destroy` carrying `{:rf/parent-id ... :rf/spawn-id ...}`
+  `:rf.machine/destroy` carrying `{:rf/parent-id ... :rf/invoke-id ...}`
   so the destroy-machine fx handler resolves the live actor id from the
   runtime-owned `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` slot in runtime-db.
 
@@ -1957,10 +1959,10 @@
           (cond
             (:spawn n)
             [[:rf.machine/destroy {:rf/parent-id parent-id
-                                   :rf/spawn-id (vec prefix)}]]
+                                   :rf/invoke-id (vec prefix)}]]
             (:spawn-all n)
             [[:rf.machine/destroy {:rf/parent-id  parent-id
-                                   :rf/spawn-id  (vec prefix)
+                                   :rf/invoke-id (vec prefix)
                                    :rf/spawn-all true}]]
             :else nil))
         exited-pairs))))
@@ -1975,12 +1977,14 @@
 ;; wiring is the only delta — a small `args-builder` closure per mode.
 
 (defn- allocate-one
-  "Allocate one spawned-id from `spawn-spec`'s `:machine-id` against `snap`'s
-  in-snapshot counter (rf2-gr8q). When `spawn-spec` carries an explicit
-  `:spawn-id` literal (per-state singleton) the counter is NOT bumped.
-  Returns `[snap' spawned-id]`."
+  "Allocate one spawned-id from `spawn-spec`'s `:machine-id` (the registered
+  machine TYPE) against `snap`'s in-snapshot counter (rf2-gr8q). When
+  `spawn-spec` carries an explicit `:fixed-actor-id` literal (the explicit
+  actor-address input — per-state singleton; rf2-0ggtr5) the counter is NOT
+  bumped and that fixed address is used verbatim. Returns
+  `[snap' spawned-id]`."
   [snap spawn-spec]
-  (if-let [explicit (:spawn-id spawn-spec)]
+  (if-let [explicit (:fixed-actor-id spawn-spec)]
     [snap explicit]
     (allocate-spawned-id snap (:machine-id spawn-spec))))
 
@@ -2013,7 +2017,7 @@
   the call is wrapped in try/catch: on throw, return a `result/fail`
   Result stamped with the stable action id `:rf.spawn/on-spawn` plus
   enough context to locate the spawn (`:spawned-id`; the caller adds
-  `:spawn-id` / `:child-id`, and `apply-transition-once` stamps
+  `:invoke-id` / `:child-id`, and `apply-transition-once` stamps
   `:decl-path` / `:transition` / `:state-path`). The lifecycle boundary
   (`registration/trace-action-failure!`) then emits exactly one
   `:rf.error/machine-action-exception` and drops the accumulated effects —
@@ -2051,7 +2055,7 @@
   §Spec-spec keys / rf2-h131); on failure returns a `result/fail` Result
   stamped with `failure-extra`. On success builds the spawn-args via
   `args-builder` (mode-specific wiring of `:rf/parent-id` /
-  `:rf/spawn-id` / `:rf/spawn-all-id` keys) and returns a `result/ok`
+  `:rf/invoke-id` / `:rf/spawn-all-id` keys) and returns a `result/ok`
   Result carrying the single-element `[[:rf.machine/spawn args]]` fx vec.
 
   `:on-spawn` is intentionally NOT invoked here — the caller threads it
@@ -2080,8 +2084,8 @@
 
   Returns `[snap-after acc-fx']` for the reducer, or a `reduced` wrapper
   around a `result/fail` Result on failure. The failure is stamped
-  `:action-ref :rf.spawn/data-fn` + `:spawn-id` for a `:data`-fn throw,
-  or — per rf2-km4bn4 — `:action-ref :rf.spawn/on-spawn` + `:spawn-id`
+  `:action-ref :rf.spawn/data-fn` + `:invoke-id` for a `:data`-fn throw,
+  or — per rf2-km4bn4 — `:action-ref :rf.spawn/on-spawn` + `:invoke-id`
   (carried up from `apply-on-spawn`) for a throwing `:on-spawn` callback,
   so the lifecycle boundary routes BOTH through the machine action
   exception contract rather than letting an `:on-spawn` throw escape as a
@@ -2095,10 +2099,10 @@
                            (assoc :id-prefix     (:machine-id spec'))
                            (assoc :rf/spawned-id spawned-id)
                            (assoc :rf/parent-id  parent-id)
-                           (assoc :rf/spawn-id  invoke-id)))
+                           (assoc :rf/invoke-id  invoke-id)))
         spawn-r      (spawn-one spawn-spec s-alloc event id args-builder
                                 {:action-ref :rf.spawn/data-fn
-                                 :spawn-id  invoke-id})]
+                                 :invoke-id  invoke-id})]
     (if (result/fail? spawn-r)
       (reduced spawn-r)
       (let [spawn-fx (result/fx spawn-r)
@@ -2108,7 +2112,7 @@
             ;; and the accumulated fx is dropped at the lifecycle boundary.
             s'       (apply-on-spawn machine s-alloc spawn-spec id)]
         (if (result/fail? s')
-          (reduced (result/fail-with s' {:spawn-id invoke-id}))
+          (reduced (result/fail-with s' {:invoke-id invoke-id}))
           ;; Per rf2-rc8wci — bind the assigned actor id into the parent's
           ;; own `:data` under `[:rf/spawned <invoke-id>]` (XState-context
           ;; parity). Threaded onto the parent snapshot AFTER the advisory
@@ -2138,7 +2142,7 @@
 
   Returns `[snap-after acc-fx']` for the reducer, or a `reduced` wrapper
   around a `result/fail` Result (stamped with
-  `:action-ref :rf.spawn-all/data-fn`, `:spawn-id`, and the failing
+  `:action-ref :rf.spawn-all/data-fn`, `:invoke-id`, and the failing
   `:child-id`) on `:data` failure."
   [machine parent-id s acc-fx prefix n event]
   (let [spawn-all-spec (:spawn-all n)
@@ -2159,10 +2163,10 @@
                       :failed    #{}
                       :resolved? false
                       :spec      spawn-all-spec
-                      :spawn-id invoke-id}
+                      :invoke-id invoke-id}
         init-fx      [:rf.machine/spawn-all-init
                       {:rf/parent-id parent-id
-                       :rf/spawn-id invoke-id
+                       :rf/invoke-id invoke-id
                        :join-state   join-state}]
         ;; (3) Materialise + build spawn fxs per child via `spawn-one`.
         spawn-fxs-r
@@ -2181,7 +2185,7 @@
                                (:rf/spawned-id child)
                                args-builder
                                {:action-ref :rf.spawn-all/data-fn
-                                :spawn-id  invoke-id
+                                :invoke-id  invoke-id
                                 :child-id   (:id child)})]
               (if (result/fail? r)
                 (reduced r)
@@ -2193,7 +2197,7 @@
       ;; (4) Thread :on-spawn advisory callbacks across siblings. Per
       ;; rf2-km4bn4 a throwing child `:on-spawn` returns a `result/fail`
       ;; (not the threaded snapshot); short-circuit the sibling reduce on
-      ;; the FIRST throw — stamping the failing `:child-id` + `:spawn-id`
+      ;; the FIRST throw — stamping the failing `:child-id` + `:invoke-id`
       ;; onto the failure — so the reducer never terminates mid-spawn
       ;; without a machine-scoped trace, and no parent/child snapshot or
       ;; registry slot commits.
@@ -2201,7 +2205,7 @@
                  (fn [snap child]
                    (let [r (apply-on-spawn machine snap child (:rf/spawned-id child))]
                      (if (result/fail? r)
-                       (reduced (result/fail-with r {:spawn-id invoke-id
+                       (reduced (result/fail-with r {:invoke-id invoke-id
                                                      :child-id (:id child)}))
                        r)))
                  s-alloc
@@ -2373,7 +2377,7 @@
   region-identity discriminator: a sibling sharing the leading state-name would
   falsely match it. Stamp the region name as the path HEAD — the SAME
   region-name-prefixing discipline `:after` (carried `decl-path`) and `:spawn`
-  `:on-error` (`prefix-region-spawn-id` on the invoke-id) already use — so the
+  `:on-error` (`prefix-region-invoke-id` on the invoke-id) already use — so the
   done-raise becomes `[:rf.machine/done [<region-name> & <region-relative-path>]]`.
   `pick-done-transition` then strips the region head and declines a foreign
   region's done by region NAME (identity), not state-name shape. XState v5 /
@@ -3263,7 +3267,7 @@
       ;; resources / routing do (m-reply). The behaviour is unchanged: the
       ;; timer's transition still does not fire.
       (let [stale-reply (m-reply/after-stale-reply
-                          {:machine-id      (:machine-id match)
+                          {:actor-id        (:actor-id match)
                            :state           (:state match)
                            :delay           (:delay match)
                            :decl-path       (:decl-path match)
@@ -3299,7 +3303,7 @@
     ;; no reply vocabulary at all.
     (when (:guard-suppressed? match)
       (let [fired-reply (m-reply/after-fired-reply
-                          {:machine-id        (:machine-id match)
+                          {:actor-id          (:actor-id match)
                            :state             (:state match)
                            :delay             (:delay match)
                            :decl-path         (:decl-path match)
@@ -3324,7 +3328,7 @@
                (not (:guard-suppressed? match))
                (:delay match))
       (let [fired-reply (m-reply/after-fired-reply
-                          {:machine-id (:machine-id match)
+                          {:actor-id   (:actor-id match)
                            :state      (last (:decl-path match))
                            :delay      (:delay match)
                            :decl-path  (:decl-path match)

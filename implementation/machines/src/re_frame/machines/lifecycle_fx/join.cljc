@@ -51,21 +51,21 @@
       (when-let [ia (:spawn-all n)]
         (cond
           (= inner-event-id (:on-child-done ia))
-          {:spawn-id prefix :spec ia :kind :done}
+          {:invoke-id prefix :spec ia :kind :done}
           (= inner-event-id (:on-child-error ia))
-          {:spawn-id prefix :spec ia :kind :failed})))))
+          {:invoke-id prefix :spec ia :kind :failed})))))
 
 (defn- find-active-spawn-alls
   "Walk the snapshot's `:state` path leaf→root looking for EVERY active
   `:spawn-all`-bearing state whose `:on-child-done` or `:on-child-error`
   matches the given inner-event-id. Returns a vector of
-  `{:spawn-id <prefix-path> :spec <invoke-all-spec> :kind :done|:failed}`
+  `{:invoke-id <prefix-path> :spec <invoke-all-spec> :kind :done|:failed}`
   matches (empty when none).
 
   Per Spec 005 §Parallel regions (rf2-l67o): for parallel-region machines,
   iterates each region's active state-tree (prefixing the region name onto the
-  resolved `:spawn-id`, matching the per-region scoping
-  `prefix-region-spawn-id` applies on the entry-side). A flat machine has at
+  resolved `:invoke-id`, matching the per-region scoping
+  `prefix-region-invoke-id` applies on the entry-side). A flat machine has at
   most one active match.
 
   Per rf2-w84jv: returns ALL matches (not the first via `some`) so the
@@ -84,7 +84,7 @@
                         match       (find-active-spawn-all-in-tree
                                       region-body region-path inner-event-id)]
                     (when match
-                      (update match :spawn-id #(vec (cons region-name %)))))))
+                      (update match :invoke-id #(vec (cons region-name %)))))))
           (:state snapshot))
 
     :else
@@ -174,8 +174,8 @@
    {:keys [fail-fired? success-fired?]}]
   (when fail-fired?
     (trace/emit! :rf.machine :rf.machine.spawn-all/any-failed
-                 {:machine-id parent-id
-                  :spawn-id  invoke-id
+                 {:actor-id parent-id
+                  :invoke-id invoke-id
                   :failed-id  child-id
                   :reason     child-extra
                   :failed     (:failed join-state'')
@@ -184,13 +184,13 @@
   (when success-fired?
     (if (= :all (:join spec :all))
       (trace/emit! :rf.machine :rf.machine.spawn-all/all-completed
-                   {:machine-id parent-id
-                    :spawn-id  invoke-id
+                   {:actor-id parent-id
+                    :invoke-id invoke-id
                     :done       (:done join-state'')
                     :frame      frame-id})
       (trace/emit! :rf.machine :rf.machine.spawn-all/some-completed
-                   {:machine-id parent-id
-                    :spawn-id  invoke-id
+                   {:actor-id parent-id
+                    :invoke-id invoke-id
                     :done       (:done join-state'')
                     :join       (:join spec)
                     :frame      frame-id}))))
@@ -223,8 +223,8 @@
                                              (contains? completed-ids cid))))]
             (doseq [[cid spawned-id] survivors]
               (trace/emit! :rf.machine :rf.machine.spawn/cancelled-on-join-resolution
-                           {:machine-id parent-id
-                            :spawn-id  invoke-id
+                           {:actor-id parent-id
+                            :invoke-id invoke-id
                             :child-id   cid
                             :spawned-id spawned-id
                             :join-event join-event-kw
@@ -264,7 +264,7 @@
         ;; region. The owning match is preferred; if none owns the child
         ;; (genuinely forged), fall back to the first match so the
         ;; bad-child-id error trace still fires against a real join.
-        owns?    (fn [{invoke-id :spawn-id}]
+        owns?    (fn [{invoke-id :invoke-id}]
                    (let [js (get-in runtime-db (paths/spawned-path parent-id invoke-id))]
                      (and (map? js) (contains? (:children js) child-id))))
         match    (or (some #(when (owns? %) %) matches)
@@ -278,7 +278,7 @@
         ;; `:frame`.
         frame-id (:rf/frame machine)]
     (when match
-      (let [{:keys [spec kind] invoke-id :spawn-id} match
+      (let [{:keys [spec kind] invoke-id :invoke-id} match
             ;; Per Spec 005 §Spawn-and-join: child dispatches
             ;;   [<parent-id> [<event-kw> <child-id> & extra]]
             ;; where `& extra` is the child's forwarded payload (terminal
@@ -303,8 +303,8 @@
           ;; observability so tools can correlate.
           (:resolved? join-state)
           (do (trace/emit! :rf.machine :rf.machine.spawn-all/late-completion
-                           {:machine-id parent-id
-                            :spawn-id  invoke-id
+                           {:actor-id parent-id
+                            :invoke-id invoke-id
                             :child-id   child-id
                             :kind       kind
                             :frame      frame-id})
@@ -321,8 +321,8 @@
           ;; security-audit finding F1 (rf2-ns8ut / rf2-s9tf8).
           (not (contains? (:children join-state) child-id))
           (do (trace/emit-error! :rf.error/machine-spawn-all-bad-child-id
-                                 {:machine-id parent-id
-                                  :spawn-id  invoke-id
+                                 {:actor-id parent-id
+                                  :invoke-id invoke-id
                                   :child-id   child-id
                                   :children   (set (keys (:children join-state)))
                                   :kind       kind
