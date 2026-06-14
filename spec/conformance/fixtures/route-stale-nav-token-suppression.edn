@@ -71,7 +71,7 @@
  :fixture/expect
  {:final-app-db {:article "B-payload"}
 
-  :final-runtime-db {:rf.runtime/routing {:current {:id :route/article :params {:id "B"} :query {} :fragment nil
+  :final-runtime-db {:rf.runtime/routing {:current {:route-id :route/article :params {:id "B"} :query {} :fragment nil
               :transition :idle :error nil :nav-token "nav-2"}}}                             ;; A's payload was suppressed
 
   :trace-emissions

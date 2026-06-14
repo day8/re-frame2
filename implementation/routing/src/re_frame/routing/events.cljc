@@ -103,15 +103,16 @@
   [prev id params query fragment]
   (boolean
     (and prev
-         (= (:id prev)       id)
+         (= (:route-id prev) id)
          (= (:params prev)   params)
          (= (:query prev)    query)
          (= (:fragment prev) fragment))))
 
 ;; Per Spec 012 §The route slice and Spec-Schemas §`:rf/runtime-db` the
-;; published slice carries exactly `{:id :params :query :fragment
+;; published slice carries exactly `{:route-id :params :query :fragment
 ;; :transition :error :nav-token}` under `[:rf.runtime/routing
-;; :current]`. Both nav entry points (programmatic
+;; :current]`. (`:route-id` is the self-describing slice key; the
+;; consumer-facing sub-id stays `:rf.route/id`, rf2-3a5nk7.) Both nav entry points (programmatic
 ;; `:rf.route/navigate` and URL-driven `:rf.route/transitioned` /
 ;; `:rf.route/handle-url-change`) write the same merge shape after
 ;; allocating a nav-token. This helper encodes the slice-shape contract
@@ -131,13 +132,13 @@
   `:current` map at `[:rf.runtime/routing :current]`. Returns the
   updated db.
 
-  `slice` is a map of `{:id :params :query :fragment :transition
+  `slice` is a map of `{:route-id :params :query :fragment :transition
   :nav-token}`. `:error` is forced to `nil` (the successful-commit
   contract); callers needing an error-state slice go through the
   `:rf.route/on-match-error` trap which writes `:error` explicitly."
-  [db {:keys [id params query fragment transition nav-token]}]
+  [db {:keys [route-id params query fragment transition nav-token]}]
   (update-in db [:rf.runtime/routing :current] merge
-             {:id         id
+             {:route-id   route-id
               :params     params
               :query      query
               :fragment   fragment
@@ -172,8 +173,8 @@
 (defn commit-navigation
   "Pure navigation-commit assembler shared by the programmatic-nav and
   URL-driven paths. `rdb` is the pre-commit runtime-db value. `slice`
-  carries `{:id :params :query :fragment :transition}` (the published
-  fields minus `:nav-token`, which this fn allocates). `on-match-vec` is
+  carries `{:route-id :params :query :fragment :transition}` (the
+  published fields minus `:nav-token`, which this fn allocates). `on-match-vec` is
   the resolved `:on-match` event vector (possibly empty). `capture-fx` /
   `scroll-fx` are the pre-built fx entries (or nil) and `push-fx` is the
   optional history-mutation fx entry (nil on the URL-driven path).
@@ -197,10 +198,10 @@
   Without it those frame-known traces miss epoch capture (which buffers
   only frame-tagged events) and bypass the frame-level trace-disable gate.
   Returns the event-fx cofx map `{:rf.db/runtime :fx}`."
-  [rdb {:keys [id params query fragment transition]} on-match-vec
+  [rdb {:keys [route-id params query fragment transition]} on-match-vec
    {:keys [prev-id prev-nav-token capture-fx scroll-fx push-fx nav-counters app-db frame]}]
   (let [[counter token] (nav-counters/next-nav-token nav-counters)
-        committed (merge-route-slice rdb {:id         id
+        committed (merge-route-slice rdb {:route-id   route-id
                                           :params     params
                                           :query      query
                                           :fragment   fragment
@@ -219,10 +220,10 @@
         ;; (a fail-closed params/scope throw) is recorded on the slice's
         ;; `:error`, visible to the `:rf/route` sub + Xray. No-op when no
         ;; Resources artefact / no `:resources` route metadata.
-        route-meta (registrar/lookup :route id)
+        route-meta (registrar/lookup :route route-id)
         plan       (when-let [on-entry (late-bind/get-fn :routing/on-route-entry)]
                      (on-entry {:route-meta     route-meta
-                                :route-id       id
+                                :route-id       route-id
                                 :params         params
                                 :query          query
                                 :fragment       fragment
@@ -252,9 +253,9 @@
     ;; trace enters epoch capture + obeys the frame trace-disable gate
     ;; (the lifecycle pair below carries it via `emit-activation-traces!`).
     (trace/emit! :rf.event :rf.route.nav-token/allocated
-                 (cond-> {:route-id id :nav-token token}
+                 (cond-> {:route-id route-id :nav-token token}
                    frame (assoc :frame frame)))
-    (emit-activation-traces! frame prev-id id)
+    (emit-activation-traces! frame prev-id route-id)
     ;; EP-0001 (rf2-vzld77): the route slice is durable framework runtime-db
     ;; state, so `rdb` here is the RUNTIME-DB value and the commit returns
     ;; `:rf.db/runtime`, not `:db`.

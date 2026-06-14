@@ -712,10 +712,10 @@
     (rf/reg-route :route/head-b {:doc "B" :path "/" :head :head/variant-b})
     (rf/reg-event-fx :init/seed-head-a
       (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:id :route/head-a})}))
+        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/head-a})}))
     (rf/reg-event-fx :init/seed-head-b
       (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:id :route/head-b})}))
+        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/head-b})}))
     (rf/reg-view* :pages/shared-body (fn [] [:div.body "same body, different head"]))
 
     (let [mk      (fn [init]
@@ -747,10 +747,10 @@
     (rf/reg-route :route/attrs-b {:doc "B" :path "/" :head :head/attrs-b})
     (rf/reg-event-fx :init/seed-attrs-a
       (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:id :route/attrs-a})}))
+        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/attrs-a})}))
     (rf/reg-event-fx :init/seed-attrs-b
       (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:id :route/attrs-b})}))
+        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/attrs-b})}))
     (rf/reg-view* :pages/attrs-body (fn [] [:div.body "body"]))
 
     (let [mk      (fn [init]
@@ -934,7 +934,7 @@
              ;; durable: machine snapshot + active route slice
              (assoc-in [:rf.runtime/machines :snapshots :auth.session/abc]
                        {:state :authenticated :data {:user "u-1"}})
-             (assoc-in [:rf.runtime/routing :current] {:id :route/dashboard :params {}})
+             (assoc-in [:rf.runtime/routing :current] {:route-id :route/dashboard :params {}})
              ;; transient: client-local scroll cache — must NOT ride the wire
              (assoc-in [:rf.runtime/routing :scroll-positions "/"] {:x 0 :y 240}))}))
 
@@ -1385,7 +1385,7 @@
     ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
     (rf/reg-event-fx :init/seed-route
       (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:id :route/x})}))
+        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/x})}))
     (rf/reg-view* :pages/blank-for-title (fn [] [:div]))
 
     (let [handler  (ssr-ring/ssr-handler
@@ -1437,7 +1437,7 @@
                    :head :head/no-title})
     (rf/reg-event-fx :init/seed-no-title
       (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:id :route/no-title})}))
+        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/no-title})}))
     (rf/reg-view* :pages/blank-no-title (fn [] [:div]))
 
     (let [handler  (ssr-ring/ssr-handler
@@ -1470,7 +1470,7 @@
                  :path "/"
                  :head :head/with-attrs})
   (rf/reg-event-fx :init/seed-attrs-route
-    (fn [{rt :rf.db/runtime} _] {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:id :route/with-attrs})}))
+    (fn [{rt :rf.db/runtime} _] {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/with-attrs})}))
   (rf/reg-view* :pages/blank-attrs (fn [] [:div])))
 
 (deftest default-shell-stamps-html-attrs-and-body-attrs
@@ -2189,7 +2189,7 @@
     {:platforms #{:server}}
     (fn [{rt :rf.db/runtime} _]
       {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
-                                {:id :route/head-throws})}))
+                                {:route-id :route/head-throws})}))
   (rf/reg-view* :pages/head-throws-body
     (fn [] [:div.page [:h1 "Body rendered fine"]])))
 

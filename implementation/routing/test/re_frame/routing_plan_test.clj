@@ -56,7 +56,7 @@
 ;; ---- identical navigation (Spec 012 §Per-route data loading rule 3) ------
 
 (deftest identical-route-target-detects-complete-no-op
-  (let [slice {:id :route/cart :params {} :query {:q "a"} :fragment "f"}]
+  (let [slice {:route-id :route/cart :params {} :query {:q "a"} :fragment "f"}]
     (testing "id/params/query/fragment all equal → identical (complete no-op)"
       (is (true? (plan/identical-route-target? slice :route/cart {} {:q "a"} "f"))))
     (testing "a differing query is NOT identical"
@@ -69,7 +69,7 @@
 ;; ---- fragment-only navigation (Spec 012 §Fragments rules 3-4) ------------
 
 (deftest fragment-only-detects-same-page-anchor-change
-  (let [slice {:id :route/docs :params {:p 1} :query {:q "a"} :fragment "intro"}]
+  (let [slice {:route-id :route/docs :params {:p 1} :query {:q "a"} :fragment "intro"}]
     (testing "same id/params/query, differing fragment → fragment-only"
       (is (true? (plan/fragment-only? slice :route/docs {:p 1} {:q "a"} "details"))))
     (testing "identical fragment is NOT fragment-only (that's the complete no-op)"
@@ -173,7 +173,7 @@
     ;; No registrar route → capture-fx is nil (route-url can't reconstruct
     ;; the leaving URL), but the scroll-fx is built from the resolved
     ;; strategy + descriptors. We assert the scroll-fx shape directly.
-    (let [rdb  {:rf.runtime/routing {:current {:id :route/home}}}
+    (let [rdb  {:rf.runtime/routing {:current {:route-id :route/home}}}
           {:keys [scroll-fx]}
           (plan/scroll-plan {:rdb rdb :route-meta nil :opts nil
                              :default-strategy :top
@@ -188,7 +188,7 @@
 
 (deftest scroll-plan-suppresses-fx-on-scroll-false
   (testing ":scroll false in opts suppresses the scroll-fx (nil)"
-    (let [rdb {:rf.runtime/routing {:current {:id :route/home}}}
+    (let [rdb {:rf.runtime/routing {:current {:route-id :route/home}}}
           {:keys [scroll-fx]}
           (plan/scroll-plan {:rdb rdb :route-meta nil :opts {:scroll false}
                              :default-strategy :top
@@ -199,7 +199,7 @@
 (deftest scroll-plan-restore-strategy-reads-saved-position
   (testing ":restore strategy pulls the saved [x y] for the url from the
             explicit host-side scroll cache (rf2-1hncp2), NOT from runtime-db"
-    (let [rdb          {:rf.runtime/routing {:current {:id :route/home}}}
+    (let [rdb          {:rf.runtime/routing {:current {:route-id :route/home}}}
           scroll-cache {:positions {"/cart" [0 320]} :order ["/cart"]}
           {:keys [scroll-fx]}
           (plan/scroll-plan {:rdb rdb :scroll-cache scroll-cache
@@ -213,7 +213,7 @@
 
   (testing ":restore with NO host cache (nil :scroll-cache) yields a nil
             :saved-pos — the planner does not reach a runtime-db slot"
-    (let [rdb {:rf.runtime/routing {:current          {:id :route/home}
+    (let [rdb {:rf.runtime/routing {:current          {:route-id :route/home}
                                     ;; a stale runtime-db scroll slot must
                                     ;; NOT be consulted — storage moved out.
                                     :scroll-positions {"/cart" [9 9]}}}

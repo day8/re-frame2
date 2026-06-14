@@ -22,7 +22,7 @@ The complete routing API surface, for quick audit. Each entry links to its norma
 
 Routing state splits into two tiers — **durable** runtime-db state under `[:rf.runtime/routing]` (per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)) and **host-side transient** caches (module-private per-frame atoms, **not** `runtime-db`):
 
-- **Route slice** at `[:rf.runtime/routing :current]` — `{:id :params :query :fragment :transition :error :nav-token}`. Schema `:rf/route-slice`. Consumer-facing sub-id `:rf/route`. Durable runtime-db; rides the SSR hydration payload + restores coherently on epoch restore (the active `:nav-token` rides *with* the slice). See [§The `:rf/route` slice](#the-rfroute-slice).
+- **Route slice** at `[:rf.runtime/routing :current]` — `{:route-id :params :query :fragment :transition :error :nav-token}`. Schema `:rf/route-slice`. Consumer-facing sub-id `:rf/route`. Durable runtime-db; rides the SSR hydration payload + restores coherently on epoch restore (the active `:nav-token` rides *with* the slice). See [§The `:rf/route` slice](#the-rfroute-slice).
 - **Pending-nav slot** at `[:rf.runtime/routing :pending-navigation]` — populated when a `:can-leave` guard rejects. Schema `:rf/pending-navigation`. Sub-id `:rf/pending-navigation`. Runtime-db (subscribable + kept in local replay) but **SSR-stripped** (fail-closed allowlist ships only `:current`). See [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol).
 - **Scroll-position LRU** — a host-side **transient** cache (module-private per-frame atom, **not** `runtime-db`); see [§Scroll restoration](#scroll-restoration).
 - **Routing counters** (`:nav-token-counter` + `:pending-nav-counter`) — the internal monotonic allocators, held in a host-side **transient** cache (module-private per-frame atom, **not** `runtime-db`); not part of the consumer-facing sub surface. They are host-side specifically so an epoch restore — which replaces the `runtime-db` partition wholesale — cannot rewind them and recycle a token still carried by an in-flight async continuation; see [§Navigation tokens — stale-result suppression](#navigation-tokens--stale-result-suppression).
@@ -56,7 +56,7 @@ Audience column: **user** = an event apps dispatch or handle directly; **runtime
 
 | Sub | Returns |
 |---|---|
-| `:rf/route` | The current route slice (`:id` `:params` `:query` `:fragment` `:transition` `:error` `:nav-token`). |
+| `:rf/route` | The current route slice (`:route-id` `:params` `:query` `:fragment` `:transition` `:error` `:nav-token`). |
 | `:rf.route/id` | The active route id. |
 | `:rf.route/params` | Path params. |
 | `:rf.route/query` | Query params. |
@@ -267,7 +267,7 @@ The runtime maintains the route slice in the frame's **runtime-db** partition at
 ;; in the frame's runtime-db:
 {:rf.runtime/routing
   {:current
-    {:id           :route/article             ;; current route id
+    {:route-id     :route/article             ;; current route id (self-describing slice key; the sub-id stays `:rf.route/id`)
      :params       {:id #uuid "..."}          ;; path params (matches :params schema)
      :query        {:q "clojure" :page 2}     ;; query/search params (matches :query schema)
      :fragment     "section-2"                ;; URL #fragment, or nil; see "Fragments" below
@@ -302,7 +302,7 @@ A canonical schema for the slice is registered as `:rf/route-slice` (see [Spec-S
           nav-token  (rf/gen-nav-token)]
       {:db (-> db
                (assoc-in [:rf.runtime/routing :current]
-                         {:id         route-id
+                         {:route-id   route-id
                           :params     path-params
                           :query      query-params
                           :fragment   fragment
@@ -376,7 +376,7 @@ Neither delegates to the other — they are sibling handlers over one shared sli
           route-meta                                                  (rf/handler-meta :route route-id)
           prev-route                                                  (get-in rt [:rf.runtime/routing :current])
           fragment-only?                                              (and prev-route
-                                                                           (= route-id (:id prev-route))
+                                                                           (= route-id (:route-id prev-route))
                                                                            (= params   (:params prev-route))
                                                                            (= query    (:query prev-route))
                                                                            (not= fragment (:fragment prev-route)))
@@ -387,7 +387,7 @@ Neither delegates to the other — they are sibling handlers over one shared sli
         ;; No match → 404 route
         (nil? route-id)
         {:rf.db/runtime (assoc-in rt [:rf.runtime/routing :current]
-                       {:id :rf.route/not-found
+                       {:route-id :rf.route/not-found
                         :params {:url url}
                         :query {} :fragment fragment
                         :transition :idle :error nil
@@ -396,7 +396,7 @@ Neither delegates to the other — they are sibling handlers over one shared sli
         ;; Validation failure → 404 (or, optionally, a configured error route)
         validation-failed?
         {:rf.db/runtime (assoc-in rt [:rf.runtime/routing :current]
-                       {:id :rf.route/not-found
+                       {:route-id :rf.route/not-found
                         :params {:url url :reason :validation}
                         :query {} :fragment fragment
                         :transition :idle :error nil
@@ -413,7 +413,7 @@ Neither delegates to the other — they are sibling handlers over one shared sli
 
         :else
         {:rf.db/runtime (assoc-in rt [:rf.runtime/routing :current]
-                       {:id         route-id
+                       {:route-id   route-id
                         :params     params
                         :query      query
                         :fragment   fragment
@@ -448,15 +448,15 @@ These are **framework subscriptions** — their layer-1 reader runs against the 
 
 ```clojure
 (def route-slice-keys
-  [:id :params :query :transition :error :fragment :nav-token])
+  [:route-id :params :query :transition :error :fragment :nav-token])
 
 (rf/reg-sub :rf/route
-  {:doc "The current route slice: {:id :params :query :fragment :transition :error :nav-token}."}
+  {:doc "The current route slice: {:route-id :params :query :fragment :transition :error :nav-token}."}
   (fn sub-route [rt _] (select-keys (get-in rt [:rf.runtime/routing :current]) route-slice-keys)))   ;; rt = runtime-db projection
 
-(rf/reg-sub :rf.route/id
+(rf/reg-sub :rf.route/id   ;; sub-id stays :rf.route/id; reads the slice's :route-id key
   :<- [:rf.runtime/routing :current]
-  (fn [route _] (:id route)))
+  (fn [route _] (:route-id route)))
 
 (rf/reg-sub :rf.route/params
   :<- [:rf.runtime/routing :current]
@@ -549,7 +549,7 @@ The three validation paths surface failures through **three different error/no-e
 |---|---|---|---|---|
 | Programmatic — `(route-url ...)` | `:rf.error/route-url-validation` | none (synchronous throw) | thrown directly via `ex-info`; not on the trace bus | n/a (the call throws; no slice write) |
 | Programmatic — `[:rf.route/navigate ...]` | `:rf.error/schema-validation-failure` (with `:where :event`) | `:rf.error/schema-validation-failure` per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) | yes — rides the always-on error-emit substrate ([009 §Production builds](009-Instrumentation.md#production-builds-zero-overhead-zero-code)) | n/a (navigation rejected; slice unchanged) |
-| URL-driven — `(match-url ...)` → `:rf.route/handle-url-change` | no `:rf.error/*` — the failure becomes a not-found | none (`:rf.warning/malformed-url` may fire for a separate sibling case) | no | `:rf/route` slice writes `{:id :rf.route/not-found :params {:url url :reason :validation}}` |
+| URL-driven — `(match-url ...)` → `:rf.route/handle-url-change` | no `:rf.error/*` — the failure becomes a not-found | none (`:rf.warning/malformed-url` may fire for a separate sibling case) | no | `:rf/route` slice writes `{:route-id :rf.route/not-found :params {:url url :reason :validation}}` |
 
 The split is principled (per [§Param validation at the call site](#param-validation-at-the-call-site) above): caller-bug paths throw, event-boundary paths reject with a structured error, URL-driven paths route to the canonical not-found id. A consumer reading "the user tried to reach a route they can't parse" therefore branches differently per source: a caller-bug surfaces as an exception in dev (and as a substrate error in production); an event-boundary failure surfaces via the standard error substrate; a URL-driven failure surfaces via the not-found view's `:reason :validation` branch.
 
@@ -605,7 +605,7 @@ The mechanism is the existing late-bound seam; the design change is purely the r
 
 Semantics:
 
-1. **Trigger.** When `match-url` returns `nil` (no path-pattern matches), or when validation failure routes to "not found" (per [§Param validation at the call site](#param-validation-at-the-call-site)), the runtime sets `:rf/route` to `{:id :rf.route/not-found :params {:url <url>} ...}` and proceeds with that route's `:on-match` events.
+1. **Trigger.** When `match-url` returns `nil` (no path-pattern matches), or when validation failure routes to "not found" (per [§Param validation at the call site](#param-validation-at-the-call-site)), the runtime sets `:rf/route` to `{:route-id :rf.route/not-found :params {:url <url>} ...}` and proceeds with that route's `:on-match` events.
 2. **Same machinery.** `:rf.route/not-found` is an ordinary `reg-route`. It can declare `:on-match`, `:on-error`, `:scroll`, `:head`, `:tags` — all behave normally. The view tree's `case` over `:rf.route/id` renders the not-found view from the leaf.
 3. **Required by contract.** Apps **must** register a `:rf.route/not-found` route. If no `:rf.route/not-found` is registered when an unmatched URL arrives, the runtime emits a `:rf.warning/no-not-found-route` trace event and falls back to a built-in placeholder view (a minimal `<h1>Not Found</h1>` page) so the request still produces a response. Test fixtures and the conformance corpus assume the user-registered shape.
 4. **Validation failures.** A URL that matches a route's path but fails the route's `:params` / `:query` schema also routes to `:rf.route/not-found`, with `:reason :validation` in the `:params` slice (per [§URL changes are events](#url-changes-are-events)).
@@ -705,17 +705,17 @@ The two halves are shared infrastructure: the `:rf.route/nav-token` cofx supplie
 ;; All slice snapshots below are at [:rf.runtime/routing :current] in runtime-db.
 ;;
 ;; Step 1: User navigates to :route/article id="A". nav-token = "nav-1".
-{:id :route/article :params {:id "A"} :transition :loading :nav-token "nav-1"}
+{:route-id :route/article :params {:id "A"} :transition :loading :nav-token "nav-1"}
 
 ;; Step 2: While the load is in flight, user navigates to :route/article id="B".
 ;; A fresh nav-token is allocated.
-{:id :route/article :params {:id "B"} :transition :loading :nav-token "nav-2"}
+{:route-id :route/article :params {:id "B"} :transition :loading :nav-token "nav-2"}
 
 ;; Step 3: The "A" load completes; its dispatched [:article/loaded "A" payload] carries
 ;; nav-token "nav-1". Current is "nav-2". Mismatch → suppressed; trace fires; no commit.
 
 ;; Step 4: The "B" load completes; carries "nav-2". Match → commit.
-{:id :route/article :params {:id "B"} :transition :idle :nav-token "nav-2"}
+{:route-id :route/article :params {:id "B"} :transition :idle :nav-token "nav-2"}
 ```
 
 ### Cancellation as optimisation, not correctness
@@ -932,7 +932,7 @@ The route slice (`[:rf.runtime/routing :current]`) carries `:fragment` (string o
 
 ```clojure
 ;; at [:rf.runtime/routing :current]:
-{:id       :route/docs
+{:route-id :route/docs
  :params   {:page "routing"}
  :query    {}
  :fragment "scroll-restoration"
@@ -1095,7 +1095,7 @@ The sub returns `true` when the route is OK to leave; `false` to block. The conv
 4. **Guard returns `false`** → BLOCK:
    a. Generate a `pending-nav-id` (gensym).
    b. Write `:rf/pending-navigation` with `{:id <id> :requested-by-event <ev> :requested-url <url> :rejecting-route <id> :rejecting-guard <sub-id>}`.
-   c. **The URL does not change.** No `pushState`, no `:rf/route` slice update, no `:on-match`. For a **forward** nav (`:rf/url-requested` / `:rf.route/navigate` / `:rf.route/transitioned`) the browser URL has not moved yet, so declining to push is sufficient. A **popstate** block (the triggering event is `:rf.route/handle-url-change` — Back / Forward) is different: the browser has *already* moved the address bar to the rejected URL. To keep "the URL does not change" true, the runtime emits a `:rf.nav/replace-url` that **restores the address bar to the current route slice's URL** (rebuilt via `route-url` from the slice's `:id`/`:params`/`:query`/`:fragment`) — a history *replace*, not a push, so no entry is added. URL and slice agree again; `:rf.route/cancel` then leaves nothing else to do.
+   c. **The URL does not change.** No `pushState`, no `:rf/route` slice update, no `:on-match`. For a **forward** nav (`:rf/url-requested` / `:rf.route/navigate` / `:rf.route/transitioned`) the browser URL has not moved yet, so declining to push is sufficient. A **popstate** block (the triggering event is `:rf.route/handle-url-change` — Back / Forward) is different: the browser has *already* moved the address bar to the rejected URL. To keep "the URL does not change" true, the runtime emits a `:rf.nav/replace-url` that **restores the address bar to the current route slice's URL** (rebuilt via `route-url` from the slice's `:route-id`/`:params`/`:query`/`:fragment`) — a history *replace*, not a push, so no entry is added. URL and slice agree again; `:rf.route/cancel` then leaves nothing else to do.
    d. Dispatch `[:rf.route/navigation-blocked pending-nav]`. Apps may register their own handler (default is a no-op trace; the value is in the slot, which a sub reads).
    e. Emit `:rf.route/navigation-blocked` trace event with `:tags {:requested-url <url> :rejecting-route <id> :rejecting-guard <sub-id> :frame <navigating-frame>}` (the `:frame` per rf2-dbmj6x, so a multi-frame app can filter the block to the frame that caused it).
 5. UI renders the confirmation dialog by subscribing to `:rf/pending-navigation`.

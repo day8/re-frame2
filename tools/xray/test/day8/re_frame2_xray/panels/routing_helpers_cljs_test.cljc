@@ -382,7 +382,7 @@
       (is (= :route/cart to-id))))
 
   (testing "FROM is independent of the live current slice (rf2-m9rx6)"
-    ;; The historical bug: FROM came from the live slice's :id. A focused
+    ;; The historical bug: FROM came from the live slice's :route-id. A focused
     ;; A→B cascade must report FROM A / TO B regardless of where the app
     ;; has since navigated — the cascade carries deactivated-A /
     ;; allocated-B unconditionally, so the live route is irrelevant.
@@ -433,25 +433,25 @@
 
 (deftest project-data-silent-test
   (testing "silent state — no routes registered"
-    (let [data (h/project-data {} {:id :route/anything} nil)]
+    (let [data (h/project-data {} {:route-id :route/anything} nil)]
       (is (true? (:silent? data)))
       (is (= [] (:routes data)))
       (is (false? (:navigated? data))))))
 
 (deftest project-data-orientation-test
   (testing "no focused cascade but routes present — orientation HERE only"
-    (let [data (h/project-data cart-routes {:id :route/cart} nil)
+    (let [data (h/project-data cart-routes {:route-id :route/cart} nil)
           by-id (into {} (map (juxt :route-id :marker)) (:routes data))]
       (is (false? (:silent? data)))
       (is (false? (:navigated? data)))
       (is (= :here (get by-id :route/cart)))
-      (is (= :route/cart (get-in data [:current :id]))))))
+      (is (= :route/cart (get-in data [:current :route-id]))))))
 
 (deftest project-data-navigation-test
   (testing "focused cascade caused navigation with no deactivated emit — TO renders, no FROM"
     (let [c (nav-cascade 42 [:rf.route/navigate :route/confirm]
                          :route/confirm nil "nav-9")
-          data (h/project-data cart-routes {:id :route/confirm} c)
+          data (h/project-data cart-routes {:route-id :route/confirm} c)
           by-id (into {} (map (juxt :route-id :marker)) (:routes data))]
       (is (true? (:navigated? data)))
       (is (= :route/confirm (:to-id data)))
@@ -464,7 +464,7 @@
     ;; cascade carries deactivated :route/cart → activated :route/confirm.
     (let [c (nav-cascade 1 [:rf.route/navigate :route/confirm]
                          :route/confirm :route/cart "nav-3")
-          data (h/project-data cart-routes {:id :route/confirm} c)
+          data (h/project-data cart-routes {:route-id :route/confirm} c)
           by-id (into {} (map (juxt :route-id :marker)) (:routes data))]
       (is (true? (:navigated? data)))
       (is (= :route/cart (:from-id data)))
@@ -474,12 +474,12 @@
 
   (testing "FROM/TO are time-independent — drift in the live slice does not corrupt them (rf2-m9rx6)"
     ;; A focused A→B cascade. The app has since navigated to C, so the
-    ;; live slice's :id is :route/checkout (≠ both A and B). FROM must
+    ;; live slice's :route-id is :route/checkout (≠ both A and B). FROM must
     ;; STILL be A and TO STILL B; the only thing the live slice governs
     ;; is the HERE marker (suppressed here because navigated? is true).
     (let [c (nav-cascade 5 [:rf.route/navigate :route/confirm]
                          :route/confirm :route/cart "nav-5")
-          data (h/project-data cart-routes {:id :route/checkout} c)
+          data (h/project-data cart-routes {:route-id :route/checkout} c)
           by-id (into {} (map (juxt :route-id :marker)) (:routes data))]
       (is (= :route/cart (:from-id data))
           "FROM stays A even though the live slice moved on to C")
@@ -492,19 +492,19 @@
 
 (deftest project-data-query-and-sim-test
   (testing "query filter is applied to :routes"
-    (let [data (h/project-data cart-routes {:id :route/cart} nil "checkout" nil)
+    (let [data (h/project-data cart-routes {:route-id :route/cart} nil "checkout" nil)
           ids  (set (map :route-id (:routes data)))]
       (is (true? (:filtered? data)))
       (is (contains? ids :route/checkout))
       (is (not (contains? ids :route/cart)))))
 
   (testing "sim-url drives :sim-result"
-    (let [data (h/project-data cart-routes {:id :route/cart} nil nil "/cart")]
+    (let [data (h/project-data cart-routes {:route-id :route/cart} nil nil "/cart")]
       (is (= "/cart" (-> data :sim-result :path)))
       (is (= :route/cart (-> data :sim-result :winner)))))
 
   (testing "blank sim-url leaves :sim-result nil"
-    (let [data (h/project-data cart-routes {:id :route/cart} nil nil "")]
+    (let [data (h/project-data cart-routes {:route-id :route/cart} nil nil "")]
       (is (nil? (:sim-result data))))))
 
 ;; ---- project-static-data (rf2-o5f5f.3) ---------------------------------
@@ -798,18 +798,18 @@
 (deftest epoch-routing-activity-no-cascade-test
   (testing "nil cascade → nil activity"
     (is (nil? (h/epoch-routing-activity nil nil)))
-    (is (nil? (h/epoch-routing-activity nil {:id :route/cart})))))
+    (is (nil? (h/epoch-routing-activity nil {:route-id :route/cart})))))
 
 (deftest epoch-routing-activity-no-routing-trace-test
   (testing "cascade with no routing trace events → nil (no activity)"
     (let [c (cascade 1 [:counter/inc])]
-      (is (nil? (h/epoch-routing-activity c {:id :route/cart}))))))
+      (is (nil? (h/epoch-routing-activity c {:route-id :route/cart}))))))
 
 (deftest epoch-routing-activity-on-match-test
   (testing "nav-token-allocated emit → phase :on-match + match params"
     (let [c (cascade 7 [:rf.route/navigate :route/confirm]
               :other [(nav-allocated-trace :route/confirm "nav-1")])
-          activity (h/epoch-routing-activity c {:id :route/confirm
+          activity (h/epoch-routing-activity c {:route-id :route/confirm
                                                 :params {:order-id "x"}})]
       (is (some? activity))
       (is (= :on-match (:phase activity)))
@@ -823,7 +823,7 @@
           c (cascade 7 [:rf.route/navigate :route/cart]
               :other [(nav-allocated-trace :route/cart "nav-1")
                       downstream])
-          activity (h/epoch-routing-activity c {:id :route/cart})]
+          activity (h/epoch-routing-activity c {:route-id :route/cart})]
       (is (= [[:rf.route/navigate :route/cart]
               [:cart/route-entered]]
              (:events activity))))))
@@ -835,7 +835,7 @@
                       :tags {:route-id :route/admin}}
           c (cascade 1 [:rf.route/navigate :route/admin]
               :other [blocked-ev])
-          activity (h/epoch-routing-activity c {:id :route/cart})]
+          activity (h/epoch-routing-activity c {:route-id :route/cart})]
       (is (= :navigation-blocked (:phase activity)))
       (is (nil? (:match activity))
           "match is only surfaced when phase is :on-match"))))
@@ -846,14 +846,14 @@
                    :operation :rf.route/fragment-changed
                    :tags {:fragment "step-2"}}
           c (cascade 1 [:foo] :other [frag-ev])
-          activity (h/epoch-routing-activity c {:id :route/cart})]
+          activity (h/epoch-routing-activity c {:route-id :route/cart})]
       (is (= :fragment-changed (:phase activity))))))
 
 ;; ---- project-topology-data composite (rf2-3kjlo) ------------------------
 
 (deftest project-topology-data-silent-test
   (testing "no routes registered → silent? true, empty topology, nil activity"
-    (let [data (h/project-topology-data {} {:id :route/cart} nil)]
+    (let [data (h/project-topology-data {} {:route-id :route/cart} nil)]
       (is (true? (:silent? data)))
       (is (= [] (:topology data)))
       (is (nil? (:activity data)))
@@ -862,7 +862,7 @@
 (deftest project-topology-data-topology-shape-test
   (testing "topology vector mirrors project-topology + carries marker"
     (let [data (h/project-topology-data parented-routes
-                                        {:id :route/cart}
+                                        {:route-id :route/cart}
                                         nil)
           ids  (mapv #(-> % :row :route-id) (:topology data))]
       (is (false? (:silent? data)))
@@ -892,7 +892,7 @@
     (let [c (nav-cascade 42 [:rf.route/navigate :route/confirm]
                          :route/confirm nil "nav-9")
           data (h/project-topology-data parented-routes
-                                        {:id :route/confirm
+                                        {:route-id :route/confirm
                                          :params {:x 1}}
                                         c)
           marker-by-id (into {}
@@ -908,7 +908,7 @@
   (testing "cross-route cascade paints both :from (deactivated) and :to (allocated)"
     (let [c (nav-cascade 1 [:rf.route/navigate :route/confirm]
                          :route/confirm :route/cart "nav-3")
-          data (h/project-topology-data parented-routes {:id :route/confirm} c)
+          data (h/project-topology-data parented-routes {:route-id :route/confirm} c)
           marker-by-id (into {}
                              (map (juxt #(-> % :row :route-id) :marker))
                              (:topology data))]
@@ -921,7 +921,7 @@
     ;; cart→confirm. FROM cart / TO confirm must still paint.
     (let [c (nav-cascade 7 [:rf.route/navigate :route/confirm]
                          :route/confirm :route/cart "nav-7")
-          data (h/project-topology-data parented-routes {:id :route/admin} c)
+          data (h/project-topology-data parented-routes {:route-id :route/admin} c)
           marker-by-id (into {}
                              (map (juxt #(-> % :row :route-id) :marker))
                              (:topology data))]
@@ -935,7 +935,7 @@
   (testing "focused cascade has no routing trace events → activity nil; HERE still paints"
     (let [c (cascade 9 [:counter/inc])
           data (h/project-topology-data parented-routes
-                                        {:id :route/cart}
+                                        {:route-id :route/cart}
                                         c)
           marker-by-id (into {}
                              (map (juxt #(-> % :row :route-id) :marker))

@@ -122,25 +122,25 @@
       ;; (1) :rf.route/navigate — programmatic navigation.
       (rf/dispatch-sync [:rf.route/navigate :route/article {:id "intro"}])
       (is (= :route/article (get-in (rf/runtime-db-value :rf/default)
-                                    [:rf.runtime/routing :current :id]))
+                                    [:rf.runtime/routing :current :route-id]))
           ":rf.route/navigate wrote the route slice (:rf.db/runtime applied)")
 
       ;; (2) :rf.route/transitioned — URL-driven forward nav.
       (rf/dispatch-sync [:rf.route/transitioned "/search?q=widgets"])
       (is (= :route/search (get-in (rf/runtime-db-value :rf/default)
-                                   [:rf.runtime/routing :current :id]))
+                                   [:rf.runtime/routing :current :route-id]))
           ":rf.route/transitioned wrote the route slice")
 
       ;; (3) :rf.route/handle-url-change — popstate / initial / SSR feed.
       (rf/dispatch-sync [:rf.route/handle-url-change "/"])
       (is (= :route/home (get-in (rf/runtime-db-value :rf/default)
-                                 [:rf.runtime/routing :current :id]))
+                                 [:rf.runtime/routing :current :route-id]))
           ":rf.route/handle-url-change wrote the route slice")
 
       ;; (5) :rf.route.internal/settle-transition — per-route :on-match settle.
       (rf/dispatch-sync [:rf.route/transitioned "/loaded"])
       (is (= :route/loaded (get-in (rf/runtime-db-value :rf/default)
-                                   [:rf.runtime/routing :current :id]))
+                                   [:rf.runtime/routing :current :route-id]))
           "the :on-match route settled onto the slice")
 
       (is (empty? @diags)
@@ -177,7 +177,7 @@
       (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
       (rf/dispatch-sync [:rf.route/continue "pn-2"])
       (is (= :route/cart (get-in (rf/runtime-db-value :rf/default)
-                                 [:rf.runtime/routing :current :id]))
+                                 [:rf.runtime/routing :current :route-id]))
           ":rf.route/continue completed the navigation")
       (is (empty? @diags)
           (str "url-requested / cancel / continue are framework-authority "
@@ -302,7 +302,7 @@
     ;; framework-quiet assertion above is therefore meaningful, not
     ;; vacuously empty.
     (rf/reg-event-fx :app/sneaky-runtime-write
-                     (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:id :hijacked}}}}))
+                     (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :hijacked}}}}))
     (let [diags (record-ownership-diagnostics! ::app-sneaky)]
       (rf/dispatch-sync [:app/sneaky-runtime-write])
       (is (= [:rf.warning/app-handler-runtime-effect] (diagnostic-ids diags))

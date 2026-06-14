@@ -260,7 +260,7 @@ superseding navigation suppresses the stale result. Per Spec 012
          :event-id      (inner-fx-event-id do-entry)
          :frame-id      frame-id
          ;; rf2-azcmd3 — use the CAPTURED route id (carried with the
-         ;; nav-token), NOT `(:id slice)` (the route live at stale-arrival).
+         ;; nav-token), NOT `(:route-id slice)` (the route live at stale-arrival).
          ;; A cross-route stale completion would otherwise attribute the
          ;; stale loader to the CURRENT route id.
          :route-id      carried-route-id

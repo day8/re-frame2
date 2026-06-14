@@ -57,13 +57,13 @@ An `:inputs` path is read against the pending **frame-state**, which has two par
 
 ```clojure
 [:cart :items]                                    ;; bare path → app-db (the common case)
-[:rf.db/runtime :rf.runtime/routing :current :id] ;; :rf.db/runtime-rooted → runtime-db
+[:rf.db/runtime :rf.runtime/routing :current :route-id] ;; :rf.db/runtime-rooted → runtime-db
 ```
 
 - A **bare** path (any leading element other than `:rf.db/runtime`) reads the pending **app-db** partition.
 - A path whose **first element is `:rf.db/runtime`** reads the pending **runtime-db** partition (the partition key is stripped before the `get-in`). There is **no** `[:rf.db/app …]` explicit-app form — bare *is* app-db.
 
-**Any** flow (user or framework) may read runtime-db this way, so a flow can derive a materialised value from route or machine state (`[:rf.db/runtime :rf.runtime/routing :current :id]`, `[:rf.db/runtime :rf.runtime/machines :snapshots :app/boot :state]`). But the **write side is reserved**: a flow's `:path` and its `:output` always write **app-db only** — a flow never writes runtime-db. A runtime-only event (e.g. a pure route transition with no app-db change) still re-fires a flow that reads the changed runtime-db value, because the dirty-check keys on both partitions.
+**Any** flow (user or framework) may read runtime-db this way, so a flow can derive a materialised value from route or machine state (`[:rf.db/runtime :rf.runtime/routing :current :route-id]`, `[:rf.db/runtime :rf.runtime/machines :snapshots :app/boot :state]`). But the **write side is reserved**: a flow's `:path` and its `:output` always write **app-db only** — a flow never writes runtime-db. A runtime-only event (e.g. a pure route transition with no app-db change) still re-fires a flow that reads the changed runtime-db value, because the dirty-check keys on both partitions.
 
 Never read a retired `[:rf.runtime/…]` *app-db* path — runtime state never lived in app-db under that scheme; the shipped syntax is the `[:rf.db/runtime …]` partition-qualified input above.
 
@@ -105,11 +105,11 @@ A flow may read framework runtime-db state via a `[:rf.db/runtime …]` input an
 ```clojure
 ;; Mixed inputs: one bare app-db path + one runtime-db-qualified path.
 ;; The runtime-db input reads the active route id at
-;; [:rf.runtime/routing :current :id]; the output still writes app-db only.
+;; [:rf.runtime/routing :current :route-id]; the output still writes app-db only.
 (rf/reg-flow
   {:id     :cart/show-checkout-banner?
    :inputs [[:cart :items]
-            [:rf.db/runtime :rf.runtime/routing :current :id]]
+            [:rf.db/runtime :rf.runtime/routing :current :route-id]]
    :output (fn [items route-id]
              (and (seq items) (= route-id :route/cart)))
    :path   [:cart :show-checkout-banner?]})

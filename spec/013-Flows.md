@@ -78,13 +78,13 @@ An `:inputs` path is read against the pending **frame-state**, which has two par
 
 ```clojure
 [:cart :items]                                    ;; bare path → app-db (the common case)
-[:rf.db/runtime :rf.runtime/routing :current :id] ;; :rf.db/runtime-rooted → runtime-db
+[:rf.db/runtime :rf.runtime/routing :current :route-id] ;; :rf.db/runtime-rooted → runtime-db
 ```
 
 - A **bare** path (any leading element other than `:rf.db/runtime`) reads the pending **app-db** partition, verbatim.
 - A path whose **first element is `:rf.db/runtime`** reads the pending **runtime-db** partition — the partition key is stripped before the `get-in`. There is **no** `[:rf.db/app …]` explicit-app form: bare *is* app-db.
 
-**Any** flow — user or framework — may read runtime-db this way, so a flow can derive a materialised value from route or machine state (`[:rf.db/runtime :rf.runtime/routing :current :id]`, `[:rf.db/runtime :rf.runtime/machines :snapshots :app/boot :state]`). But the **write side is reserved**: a flow's `:path` and its `:output` always write **app-db only** — a flow never writes runtime-db. Because flow outputs are always app-db paths, a `[:rf.db/runtime …]` input can never prefix-match another flow's output `:path`, so a qualified runtime input never creates a spurious topological dependency edge ([§Topological sort and cycle detection](#topological-sort-and-cycle-detection)). The dirty-check keys on **both** partitions: a runtime-only event (e.g. a pure route transition with no app-db change) still re-fires a flow that reads the changed runtime-db value, because the resolved runtime value is part of the cached input vector ([§Dirty-check semantics](#dirty-check-semantics)).
+**Any** flow — user or framework — may read runtime-db this way, so a flow can derive a materialised value from route or machine state (`[:rf.db/runtime :rf.runtime/routing :current :route-id]`, `[:rf.db/runtime :rf.runtime/machines :snapshots :app/boot :state]`). But the **write side is reserved**: a flow's `:path` and its `:output` always write **app-db only** — a flow never writes runtime-db. Because flow outputs are always app-db paths, a `[:rf.db/runtime …]` input can never prefix-match another flow's output `:path`, so a qualified runtime input never creates a spurious topological dependency edge ([§Topological sort and cycle detection](#topological-sort-and-cycle-detection)). The dirty-check keys on **both** partitions: a runtime-only event (e.g. a pure route transition with no app-db change) still re-fires a flow that reads the changed runtime-db value, because the resolved runtime value is part of the cached input vector ([§Dirty-check semantics](#dirty-check-semantics)).
 
 **Never read a retired `[:rf.runtime/…]` *app-db* path.** Runtime state never lived in app-db under that scheme; the shipped syntax is the `[:rf.db/runtime …]` partition-qualified input above.
 

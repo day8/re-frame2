@@ -117,15 +117,15 @@
   fx — the slice + blocked-state are already correct; only the URL sync
   is skipped in the rare unbuildable case.
 
-  Built from the slice's `:id` / `:params` / `:query` / `:fragment` via
+  Built from the slice's `:route-id` / `:params` / `:query` / `:fragment` via
   the pure `route-url` builder — the exact inverse `match-url` used to
   populate the slice in the first place, so the restored URL matches the
   one the browser showed before the (rejected) Back/Forward."
   [current-route]
-  (let [{:keys [id params query fragment]} current-route]
-    (when (and id (keyword? id) (registrar/lookup :route id))
+  (let [{:keys [route-id params query fragment]} current-route]
+    (when (and route-id (keyword? route-id) (registrar/lookup :route route-id))
       (try
-        (registry/route-url id (or params {}) (or query {}) fragment)
+        (registry/route-url route-id (or params {}) (or query {}) fragment)
         (catch #?(:clj Throwable :cljs :default) _ nil)))))
 
 (defn maybe-block-navigation
@@ -161,9 +161,9 @@
   rides a `:rf.route/commit-nav-counter` fx in the returned `:fx` vector."
   [rdb frame-id event-vec requested-url bypass-leave-guard? nav-counters]
   (let [current-route (get-in rdb [:rf.runtime/routing :current])
-        current-meta  (registrar/lookup :route (:id current-route))
+        current-meta  (registrar/lookup :route (:route-id current-route))
         ok?           (or bypass-leave-guard?
-                          (can-leave? frame-id (:id current-route) current-meta))]
+                          (can-leave? frame-id (:route-id current-route) current-meta))]
     (when-not ok?
       (let [[pn-counter pn-id] (nav-counters/next-pending-nav-id nav-counters)
             guard-id    (can-leave-guard-id current-meta)
@@ -195,7 +195,7 @@
                                  :requested-by-event (vec event-vec)
                                  :requested-url      requested-url
                                  :reason             :can-leave
-                                 :rejecting-route    (:id current-route)}
+                                 :rejecting-route    (:route-id current-route)}
                           guard-id      (assoc :rejecting-guard guard-id)
                           url-restored? (assoc :url-restored? true))]
         ;; Per Spec 012 §Navigation blocking §Default flow step 4e: the
@@ -206,7 +206,7 @@
         ;; frame that caused it.
         (trace/emit! :rf.event :rf.route/navigation-blocked
                      (cond-> {:requested-url   requested-url
-                              :rejecting-route (:id current-route)
+                              :rejecting-route (:route-id current-route)
                               :rejecting-guard guard-id}
                        frame-id (assoc :frame frame-id)))
         ;; Per Spec 012 §Navigation blocking §Default flow step 4d and the

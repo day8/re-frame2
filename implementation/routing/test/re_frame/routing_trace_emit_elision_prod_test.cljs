@@ -95,7 +95,7 @@
     ;; Cross-check: the routing slice DID update (handler still runs;
     ;; only the trace surface elides).
     (is (= :prod-elision/landing
-           (:id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
+           (:route-id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
         "routing slice was populated — only the trace surface elided")))
 
 ;; ---- :rf.warning/malformed-url elides under prod -------------------------

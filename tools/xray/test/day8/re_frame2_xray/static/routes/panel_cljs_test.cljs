@@ -297,7 +297,7 @@
                         {:frame :rf/xray})
       ;; Set a baseline current slice so we can assert it doesn't change.
       (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test
-                         {:id :route/cart :params {} :query {}}]
+                         {:route-id :route/cart :params {} :query {}}]
                         {:frame :rf/xray})
       ;; Expand the row so the toggle is reachable, then flip the preview.
       (rf/dispatch-sync [:rf.xray.static.routes/toggle-row :route/confirm]
@@ -315,7 +315,7 @@
             "preview shows the slot shape that would land"))
       ;; The current slice MUST still be the baseline — no real navigation.
       (let [slice @(rf/subscribe [:rf.xray/current-route-slice])]
-        (is (= :route/cart (:id slice))
+        (is (= :route/cart (:route-id slice))
             "current slice unchanged — preview did NOT mutate the runtime-db route slice")))))
 
 ;; ---- (8) cross-link to Dynamic Routing ----------------------------------

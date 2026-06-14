@@ -219,8 +219,8 @@
           (let [slice    (get-in (rf/runtime-db-value frame-id) [:rf.runtime/routing :current])
                 expected (str "/p" idx "/" (dec stress-iters))]
             (is (= (keyword "ksbur.stress" (str "route-" idx))
-                   (:id slice))
-                (str "Frame " frame-id ": route-slice :id should match "
+                   (:route-id slice))
+                (str "Frame " frame-id ": route-slice :route-id should match "
                      "this thread's per-thread route"))
             ;; Slug is captured as a path param; the LAST iter's slug
             ;; (= dec stress-iters) wins.
@@ -323,8 +323,8 @@
         (doseq [{:keys [idx frame-id]} per-thread]
           (let [slice (get-in (rf/runtime-db-value frame-id) [:rf.runtime/routing :current])]
             (is (= (keyword "ksbur.pop" (str "route-" idx))
-                   (:id slice))
-                (str "Frame " frame-id ": slice :id should match"))
+                   (:route-id slice))
+                (str "Frame " frame-id ": slice :route-id should match"))
             (is (= (str (dec stress-iters))
                    (get-in slice [:params :slug]))
                 (str "Frame " frame-id ": slice should reflect the "
@@ -489,6 +489,6 @@
         (doseq [{:keys [idx frame-id]} per-thread]
           (let [slice (get-in (rf/runtime-db-value frame-id) [:rf.runtime/routing :current])]
             (is (= (keyword "ksbur.race" (str "stable-" idx))
-                   (:id slice))
-                (str "Frame " frame-id ": slice :id should match "
+                   (:route-id slice))
+                (str "Frame " frame-id ": slice :route-id should match "
                      "this thread's stable route despite churn"))))))))

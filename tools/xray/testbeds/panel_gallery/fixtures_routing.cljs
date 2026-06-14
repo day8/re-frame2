@@ -68,20 +68,20 @@
 ;; ---- route-slice fixtures ----------------------------------------------
 
 (def cart-slice
-  {:id     :route/cart
-   :params {}
-   :query  {}})
+  {:route-id :route/cart
+   :params   {}
+   :query    {}})
 
 (def confirm-slice
-  {:id       :route/confirm
+  {:route-id :route/confirm
    :params   {:order-id "ord-1234"}
    :query    {:source "cart"}
    :fragment "step-3"})
 
 (def docs-api-detail-slice
-  {:id     :route/docs.api.detail
-   :params {:event-id "user/login"}
-   :query  {:tab :timeline}})
+  {:route-id :route/docs.api.detail
+   :params   {:event-id "user/login"}
+   :query    {:tab :timeline}})
 
 ;; ---- trace-buffer fixtures (drive FROM/TO detection) -------------------
 

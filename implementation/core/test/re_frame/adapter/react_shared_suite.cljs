@@ -1216,7 +1216,7 @@
                      :on-match [[load-ev]]})
       (rf/reg-event-db load-ev (fn [db _] (assoc db :article-loaded? true)))
       ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
-      (subs/reg-runtime-sub id-sub     (fn [rt _] (get-in rt [:rf.runtime/routing :current :id])))
+      (subs/reg-runtime-sub id-sub     (fn [rt _] (get-in rt [:rf.runtime/routing :current :route-id])))
       (subs/reg-runtime-sub params-sub (fn [rt _] (get-in rt [:rf.runtime/routing :current :params])))
 
       (rf/dispatch-sync [:rf.route/transitioned (route-path substrate-kw "/articles/intro")] {:frame f})
@@ -1257,15 +1257,15 @@
 
         (let [left-route  (rf/subscribe-once left  [route-sub])
               right-route (rf/subscribe-once right [route-sub])]
-          (is (= articles (:id left-route)) "left frame's :rf/route is the collection route")
-          (is (= article  (:id right-route)) "right frame's :rf/route is the article route")
+          (is (= articles (:route-id left-route)) "left frame's :rf/route is the collection route")
+          (is (= article  (:route-id right-route)) "right frame's :rf/route is the article route")
           (is (= {} (:params left-route)) "left frame has no :params (collection route)")
           (is (= {:id "intro"} (:params right-route)) "right frame has the article id"))
 
         (rf/dispatch-sync [:rf.route/transitioned (route-path sk2 "/")] {:frame left})
-        (is (= home (:id (rf/subscribe-once left [route-sub])))
+        (is (= home (:route-id (rf/subscribe-once left [route-sub])))
             "left re-navigated to home")
-        (is (= article (:id (rf/subscribe-once right [route-sub])))
+        (is (= article (:route-id (rf/subscribe-once right [route-sub])))
             "right is unaffected by left's navigation")))))
 
 ;; ===========================================================================
@@ -1783,11 +1783,11 @@
       (rf/reg-frame fid {})
       ;; Seed the runtime-db partition (framework-authority write).
       (reg-fw-runtime-handler! seed-id
-        (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:id :home}}}}))
+        (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}))
       (rf/dispatch-sync [seed-id] {:frame fid})
       ;; A framework runtime-db sub reads the runtime-db projection directly.
       (subs/reg-runtime-sub rt-sub
-        (fn [runtime-db _] (swap! runs inc) (get-in runtime-db [:rf.runtime/routing :current :id])))
+        (fn [runtime-db _] (swap! runs inc) (get-in runtime-db [:rf.runtime/routing :current :route-id])))
       (let [r (rf/subscribe fid [rt-sub])]
         (is (= :home @r) "precondition: runtime-db sub primes to the seeded route id")
         (let [after-prime @runs]

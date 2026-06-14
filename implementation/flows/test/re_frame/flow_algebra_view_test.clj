@@ -128,14 +128,14 @@
     ;; EP-0001 §535-551 (rf2-4eisfr): any flow may READ runtime-db via an
     ;; explicit partition-qualified input; only the write side is reserved.
     (rf/reg-flow {:id     :route/derived
-                  :inputs [[:rf.db/runtime :rf.runtime/routing :current :id]
+                  :inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]
                            [:local :seed]]
                   :output (fn [route-id seed] [route-id seed])
                   :path   [:derived :slug]})
     (let [node (get-in (flows-tooling/flow-algebra-view)
                        [:rf/default :route/derived])]
       (is (has-fixed-classifications? node))
-      (is (= [[:runtime [:rf.runtime/routing :current :id]]
+      (is (= [[:runtime [:rf.runtime/routing :current :route-id]]
               [:db [:local :seed]]]
              (:inputs node))
           "the partition key is stripped for the runtime read; the bare path stays a [:db …] read"))))

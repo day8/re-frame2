@@ -143,9 +143,9 @@
     (rf/reg-event-db :pc/seed-app (fn [_ _] {:app :data}))
     (rf/dispatch-sync [:pc/seed-app] {:frame :pc/rtfx})
     (reg-fw-runtime-handler! :pc/write-rt
-      (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:id :home}}}}))
+      (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}))
     (rf/dispatch-sync [:pc/write-rt] {:frame :pc/rtfx})
-    (is (= {:rf.runtime/routing {:current {:id :home}}}
+    (is (= {:rf.runtime/routing {:current {:route-id :home}}}
            (rf/runtime-db-value :pc/rtfx))
         "the :rf.db/runtime effect installed the runtime-db partition")
     (is (= {:app :data} (rf/app-db-value :pc/rtfx))
@@ -160,9 +160,9 @@
     ;; operation-style update over the partition (read-modify-write)
     (rf/replace-runtime-db! :pc/rtop
                             (assoc (rf/runtime-db-value :pc/rtop)
-                                   :rf.runtime/routing {:current {:id :x}}))
+                                   :rf.runtime/routing {:current {:route-id :x}}))
     (is (= {:rf.runtime/machines {:a 1}
-            :rf.runtime/routing {:current {:id :x}}}
+            :rf.runtime/routing {:current {:route-id :x}}}
            (rf/runtime-db-value :pc/rtop))
         "an operation-style write merges into the existing runtime-db partition")))
 
@@ -176,17 +176,17 @@
     (reg-fw-runtime-handler! :pc/app-and-rt
       (fn [{:keys [db]} _]
         {:db (assoc db :page :account)
-         :rf.db/runtime {:rf.runtime/routing {:current {:id :account}}}}))
+         :rf.db/runtime {:rf.runtime/routing {:current {:route-id :account}}}}))
     (rf/dispatch-sync [:pc/app-and-rt] {:frame :pc/both})
     (is (= {:page :account} (rf/app-db-value :pc/both))
         "app-db partition committed")
-    (is (= {:rf.runtime/routing {:current {:id :account}}}
+    (is (= {:rf.runtime/routing {:current {:route-id :account}}}
            (rf/runtime-db-value :pc/both))
         "runtime-db partition committed")
     ;; The physical container holds the coherent both-partition value — there
     ;; is no window where one partition is committed and the other is not.
     (is (= {:rf.db/app {:page :account}
-            :rf.db/runtime {:rf.runtime/routing {:current {:id :account}}}}
+            :rf.db/runtime {:rf.runtime/routing {:current {:route-id :account}}}}
            (adapter/read-container (frame/frame-state-container :pc/both)))
         "both partitions are present in the single physical frame-state value")))
 
@@ -220,7 +220,7 @@
   (testing "an app-only commit leaves runtime-db `=` (the runtime-db projection does not change)"
     (rf/reg-frame :pc/inval-rt {:doc "inval-rt"})
     (reg-fw-runtime-handler! :pc/seed-rt2
-      (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:id :home}}}}))
+      (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}))
     (rf/dispatch-sync [:pc/seed-rt2] {:frame :pc/inval-rt})
     (let [rt-before (rf/runtime-db-value :pc/inval-rt)]
       ;; app-only commit
@@ -269,7 +269,7 @@
       (reg-fw-runtime-handler! :pc/both-tr
         (fn [{:keys [db]} _]
           {:db (assoc db :k 1)
-           :rf.db/runtime {:rf.runtime/routing {:current {:id :x}}}}))
+           :rf.db/runtime {:rf.runtime/routing {:current {:route-id :x}}}}))
       (rf/dispatch-sync [:pc/both-tr] {:frame :pc/tr-both})
       (let [dbc (events-of recorded :rf.event/db-changed)
             fsc (events-of recorded :rf.event/frame-state-changed)]

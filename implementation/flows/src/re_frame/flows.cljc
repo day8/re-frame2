@@ -88,7 +88,7 @@
 ;; `[:rf.db/app …]` explicit-app form):
 ;;
 ;;   bare path            → app-db    e.g. [:user :first]
-;;   [:rf.db/runtime …]   → runtime-db e.g. [:rf.db/runtime :rf.runtime/routing :current :id]
+;;   [:rf.db/runtime …]   → runtime-db e.g. [:rf.db/runtime :rf.runtime/routing :current :route-id]
 ;;
 ;; ANY flow may read runtime-db this way (mayor refinement (ii) — user flows
 ;; AND framework flows); only the WRITE side is reserved (flow outputs land

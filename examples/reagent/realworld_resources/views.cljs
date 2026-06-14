@@ -567,9 +567,9 @@
 (rf/reg-event-fx :profile/go-to-page
   (fn [{rt :rf.db/runtime} [_ page]]
     (let [{:keys [current]} (get rt :rf.runtime/routing)
-          {:keys [id params]} current
+          {:keys [route-id params]} current
           query (cond-> {} (> page 1) (assoc :page page))]
-      {:fx [[:dispatch [:rf.route/navigate id params {:query query}]]]})))
+      {:fx [[:dispatch [:rf.route/navigate route-id params {:query query}]]]})))
 
 (reg-view profile-page []
   (let [username       (:username @(subscribe [:rf.route/params]))

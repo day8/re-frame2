@@ -176,8 +176,8 @@
   [:rf.runtime/machines :snapshots])
 
 (def ^:private route-current-id-path
-  "Path to the active route's `:id` inside the runtime-db partition value."
-  [:rf.runtime/routing :current :id])
+  "Path to the active route's `:route-id` inside the runtime-db partition value."
+  [:rf.runtime/routing :current :route-id])
 
 (defn failing-runtime-paths
   "Return a vector of failing schema-paths for a candidate `runtime-db`
@@ -222,7 +222,7 @@
   in the registrar. Closed v1 surface — `[:rf.runtime/machines :snapshots]`
   (each machine-id must reference a registered machine via the public event
   registry, per Spec 005 §Registration — machines are event handlers tagged
-  with `:rf/machine?`) and `:route` (`[:rf.runtime/routing :current :id]` must
+  with `:rf/machine?`) and `:route` (`[:rf.runtime/routing :current :route-id]` must
   reference a registered :route).
 
   `runtime-db` is the `:rf.db/runtime` partition of the epoch-recorded

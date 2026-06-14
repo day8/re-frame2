@@ -110,7 +110,7 @@
       (is (= "nav-2" (get-in (rf/runtime-db-value :rf/default)
                              [:rf.runtime/routing :current :nav-token])))
       (is (= :route/profile (get-in (rf/runtime-db-value :rf/default)
-                                    [:rf.runtime/routing :current :id]))
+                                    [:rf.runtime/routing :current :route-id]))
           "the live route is now route B (:route/profile)")
 
       ;; 3. Route A's stale loader completes, carrying nav-1 AND route A's

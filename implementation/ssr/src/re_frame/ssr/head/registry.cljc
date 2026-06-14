@@ -200,13 +200,13 @@
   active route slice at `[:rf.runtime/routing :current]`. Returns nil when there's no active route,
   no route registration, or no `:head` declared on the route.
 
-  Contract — the slice's `(:id route)` IS the canonical registrar key
-  under the `:route` kind. If the runtime ever introduces an indirection
-  between the slice id and the registry key (route aliases, versioned
-  routes, ...), this fn breaks and must learn the new mapping (audit
-  rf2-asmj1 H6 / cluster rf2-sljs1)."
+  Contract — the slice's `(:route-id route)` IS the canonical registrar
+  key under the `:route` kind. If the runtime ever introduces an
+  indirection between the slice id and the registry key (route aliases,
+  versioned routes, ...), this fn breaks and must learn the new mapping
+  (audit rf2-asmj1 H6 / cluster rf2-sljs1)."
   [route]
-  (when-let [route-id (:id route)]
+  (when-let [route-id (:route-id route)]
     (when-let [route-meta (registrar/lookup :route route-id)]
       (:head route-meta))))
 

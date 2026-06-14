@@ -52,7 +52,7 @@
  :fixture/expect
  {:final-app-db {:load-count 1}
 
-  :final-runtime-db {:rf.runtime/routing {:current {:id :route/cart :params {} :query {} :fragment nil
+  :final-runtime-db {:rf.runtime/routing {:current {:route-id :route/cart :params {} :query {} :fragment nil
                 :transition :idle :error nil}}}                                           ;; fired ONCE, not twice
 
   :trace-emissions

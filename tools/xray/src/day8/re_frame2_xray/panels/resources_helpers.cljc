@@ -702,9 +702,9 @@
 
 (defn routing-current
   "Extract the live `:current` route slice from the routing-runtime subtree
-  (`{:rf.runtime/routing {:current {:id … :nav-token … :params … :path …}}}`
+  (`{:rf.runtime/routing {:current {:route-id … :nav-token … :params … :path …}}}`
   shape, read decoupled off the target frame's runtime-db). Returns the
-  `:current` map (carrying `:id` + `:nav-token`) or nil when no route is
+  `:current` map (carrying `:route-id` + `:nav-token`) or nil when no route is
   active (rf2-m5u3gt). Pure — accepts the already-extracted routing slice."
   [routing-slice]
   (when (map? routing-slice)
@@ -840,7 +840,7 @@
 
       {:instance-rows  <projected live instances>
        :work-rows      <projected work-ledger rows>
-       :current        {:id <route-id> :nav-token <token>}   ; routing slice
+       :current        {:route-id <route-id> :nav-token <token>}   ; routing slice
        :blocking-keys  [<scoped-key> …]}  ; the live unsettled-blocking set
                                           ;   SCOPED to the current route's
                                           ;   nav-token (rf2-cduftx F2) — the
@@ -862,7 +862,7 @@
   integration / §Xray and AI tooling."
   ([routes-map] (project-route-graph routes-map nil))
   ([routes-map {:keys [instance-rows work-rows current blocking-keys]}]
-   (let [current-route-id (:id current)
+   (let [current-route-id (:route-id current)
          nav-token        (:nav-token current)
          blocking-key-rid (into #{}
                                 (keep (fn [k]

@@ -476,7 +476,7 @@ own trace events — never the live route slice.** Detection:
 > moved on to C falsely reported C as FROM. The focused cascade carries
 > `deactivated A` / `activated B` for its epoch unconditionally, so
 > FROM A / TO B render correctly regardless of the live route. The live
-> slice's `:id` is used ONLY for the HERE / current-orientation marker.
+> slice's `:route-id` is used ONLY for the HERE / current-orientation marker.
 
 ### Simulate-URL contract
 

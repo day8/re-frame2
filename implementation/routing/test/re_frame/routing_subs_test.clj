@@ -113,6 +113,41 @@
     (is (nil? @(rf/subscribe [:rf/pending-navigation]))
         ":rf/pending-navigation returns nil after :rf.route/cancel")))
 
+;; ---- rf2-3a5nk7: route slice key is :route-id, sub-id :rf.route/id unchanged
+;;
+;; Adversarial pin for the slice-key rename (bare :id → :route-id). The
+;; durable slice must be SELF-DESCRIBING — the active route id lives under
+;; :route-id, NOT bare :id — while the consumer-facing subscription id
+;; stays :rf.route/id (the rename is a slice-internal change, invisible to
+;; sub callers). Both halves are asserted together so a regression that
+;; reverted EITHER (slice back to :id, or sub-id drift) fails loudly.
+
+(deftest route-slice-keyed-route-id-sub-id-unchanged
+  (testing "the durable route slice is keyed :route-id (not bare :id);
+            the :rf.route/id sub-id is unchanged and reads the new key"
+    (rf/reg-route :route/cart {:path "/cart"})
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+    (rf/dispatch-sync [:rf.route/navigate :route/cart])
+    ;; 1. The RAW durable slice carries the active route id under :route-id.
+    (let [slice (get-in (rf/runtime-db-value :rf/default)
+                        [:rf.runtime/routing :current])]
+      (is (= :route/cart (:route-id slice))
+          "the slice stores the active route id under :route-id")
+      (is (not (contains? slice :id))
+          "the slice carries NO bare :id key (self-describing rename, rf2-3a5nk7)"))
+    ;; 2. The subscription id is unchanged — :rf.route/id still resolves and
+    ;;    returns the route id, reading the renamed slice key.
+    (is (= :route/cart @(rf/subscribe [:rf.route/id]))
+        ":rf.route/id sub-id unchanged; returns the active route id")
+    ;; 3. The :rf/route slice sub exposes :route-id and NOT bare :id.
+    (let [pub-slice @(rf/subscribe [:rf/route])]
+      (is (= :route/cart (:route-id pub-slice))
+          ":rf/route sub returns the slice keyed :route-id")
+      (is (not (contains? pub-slice :id))
+          ":rf/route sub carries NO bare :id key"))))
+
 (deftest route-activated-deactivated-trace-on-navigation
   (testing ":rf.route/deactivated + :rf.route/activated fire on cross-route
             navigation (rf2-dn26r). Same-id navigation emits NEITHER."

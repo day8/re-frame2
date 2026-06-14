@@ -304,11 +304,11 @@
 ;; (read the runtime-db projection); the `:rf.route/*` derived subs chain off
 ;; `:rf/route` unchanged.
 (subs/reg-runtime-sub :rf/route
-  {:doc "Subscribe to the current route slice `{:id :params :query :transition :error :fragment :nav-token}`. Layer-1-shaped read of the route slice at `[:rf.runtime/routing :current]` in the runtime-db partition — the only sibling runtime-db key is `:pending-navigation` (its own `:rf/pending-navigation` sub), so the slice carries only the published shape and the sub returns it directly. The nav-token / pending-nav counters are NOT runtime-db siblings — like scroll positions they live in host-side transient caches (rf2-oosjmh / rf2-1hncp2). Per Spec 012."}
+  {:doc "Subscribe to the current route slice `{:route-id :params :query :transition :error :fragment :nav-token}`. Layer-1-shaped read of the route slice at `[:rf.runtime/routing :current]` in the runtime-db partition — the only sibling runtime-db key is `:pending-navigation` (its own `:rf/pending-navigation` sub), so the slice carries only the published shape and the sub returns it directly. The nav-token / pending-nav counters are NOT runtime-db siblings — like scroll positions they live in host-side transient caches (rf2-oosjmh / rf2-1hncp2). Per Spec 012."}
   route-sub-fn)
-(subs/reg-sub :rf.route/id
-  {:doc "Subscribe to the current route's `:id` keyword. Per Spec 012."}
-  :<- [:rf/route] (fn [route _] (:id route)))
+(subs/reg-sub :rf.route/id   ;; sub-id stays `:rf.route/id`; reads the slice's `:route-id` key (rf2-3a5nk7)
+  {:doc "Subscribe to the current route's id keyword (the slice's `:route-id` key). Per Spec 012."}
+  :<- [:rf/route] (fn [route _] (:route-id route)))
 (subs/reg-sub :rf.route/params
   {:doc "Subscribe to the current route's path params map. Per Spec 012."}
   :<- [:rf/route] (fn [route _] (:params route)))

@@ -37,7 +37,7 @@
           :rf.nav/scroll      {:platforms #{:client}}}}
 
  :fixture/handlers
- {:event {:rf/init [[:set-runtime [:rf.runtime/routing :current] {:id :route/home :params {}}]]}
+ {:event {:rf/init [[:set-runtime [:rf.runtime/routing :current] {:route-id :route/home :params {}}]]}
   :sub   {:rf/route [[:get [:rf.runtime/routing :current]]]}
   :fx    {:rf.nav/push-url    [[:noop]]
           :rf.nav/replace-url [[:noop]]
@@ -51,7 +51,7 @@
  [[:rf.route/navigate :route/article {:id "intro"} {:replace? true}]]
 
  :fixture/expect
- {:final-runtime-db {:rf.runtime/routing {:current {:id     :route/article
+ {:final-runtime-db {:rf.runtime/routing {:current {:route-id     :route/article
               :params {:id "intro"}}}}
 
   ;; Critical contract: :rf.nav/replace-url is routed; :rf.nav/push-url

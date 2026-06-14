@@ -28,7 +28,7 @@
  ;; return the full container (including the internal counters), so
  ;; we let the real sub stand.
  :fixture/handlers
- {:event {:rf/init [[:set-runtime [:rf.runtime/routing :current] {:id :route/home :params {}}]]}
+ {:event {:rf/init [[:set-runtime [:rf.runtime/routing :current] {:route-id :route/home :params {}}]]}
   :fx    {:rf.nav/push-url [[:noop]]}}
 
  ;; :rf.nav/push-url declares :platforms #{:client}; the frame runs on the
@@ -52,9 +52,9 @@
  ;; runtime-db state — they live in a host-side transient cache
  ;; (rf2-oosjmh) — so :final-runtime-db carries only :current and
  ;; :sub-values asserts the slice-only shape.
- {:final-runtime-db {:rf.runtime/routing {:current {:id :route/article-detail :params {:id "intro"}}}}
+ {:final-runtime-db {:rf.runtime/routing {:current {:route-id :route/article-detail :params {:id "intro"}}}}
 
-  :sub-values   {[:rf/route] {:id         :route/article-detail
+  :sub-values   {[:rf/route] {:route-id         :route/article-detail
                               :params     {:id "intro"}
                               :query      {}
                               :fragment   nil

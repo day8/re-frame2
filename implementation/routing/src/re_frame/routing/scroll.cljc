@@ -138,8 +138,8 @@
   :from / :to args from a route slice (or nil if no slice yet). The
   slice lives at [:rf.runtime/routing :current]."
   [route-slice]
-  (when (and route-slice (:id route-slice))
-    (route-descriptor* (:id route-slice)
+  (when (and route-slice (:route-id route-slice))
+    (route-descriptor* (:route-id route-slice)
                        (:params route-slice)
                        (:query route-slice))))
 
@@ -182,7 +182,7 @@
   to key scroll-position capture; route deletion or invalid historical
   slices skip capture rather than failing navigation."
   [route-slice]
-  (when-let [id (:id route-slice)]
+  (when-let [id (:route-id route-slice)]
     (try
       (registry/route-url id
                           (or (:params route-slice) {})

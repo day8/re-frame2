@@ -195,14 +195,14 @@
   (testing "reserved-summary projects populated runtime subsystem
             sub-paths out of the RUNTIME-DB partition value into
             [:area-id value] pairs, sorted by area-id (EP-0001 rf2-tj6w9l)"
-    (let [runtime-db {:rf.runtime/routing  {:current {:id :app/home}}
+    (let [runtime-db {:rf.runtime/routing  {:current {:route-id :app/home}}
                       :rf.runtime/machines {:snapshots {:auth-id {:state :idle}}}}
           summary (h/reserved-summary runtime-db)
           ks      (mapv first summary)]
       (is (= [:rf/machines :rf/route] ks)
           "sorted; only logical areas with a live value are surfaced")
       (is (= [[:rf/machines {:auth-id {:state :idle}}]
-              [:rf/route {:id :app/home}]]
+              [:rf/route {:route-id :app/home}]]
              summary)))))
 
 (deftest partition-reserved-splits-on-reserved-namespace
@@ -262,7 +262,7 @@
             the runtime-db partition does NOT contribute to TOP"
     (let [model (h/current-state-sections
                   {:counter 5 :user {:name "ada"}}
-                  {:rf.runtime/routing {:current {:id :app/home}}})]
+                  {:rf.runtime/routing {:current {:route-id :app/home}}})]
       (is (= {:counter 5 :user {:name "ada"}} (:top model))
           ":top is the user-domain app-db (runtime-db is the areas' source)"))))
 
@@ -275,7 +275,7 @@
           "an empty runtime-db produces zero reserved-area entries"))
     (let [model (h/current-state-sections
                   {:counter 1}
-                  {:rf.runtime/routing  {:current {:id :home}}
+                  {:rf.runtime/routing  {:current {:route-id :home}}
                    :rf.runtime/machines {:snapshots {:auth {:state :idle}}}})
           areas (set (map :area (:areas model)))]
       (is (= #{:rf/machines :rf/route} areas)
@@ -325,7 +325,7 @@
   (testing ":rf/route (logical area for [:rf.runtime/routing :current])
             is a SINGLE current-route slice → :singleton kind, one
             section carrying the slice value"
-    (let [route {:id :app/article :params {:id "A"}
+    (let [route {:route-id :app/article :params {:id "A"}
                  :query {} :fragment nil :transition :idle
                  :error nil :nav-token "nav-1"}
           area  (area-by (h/current-state-sections
@@ -372,7 +372,7 @@
     (let [runtime-db {:rf.runtime/machines {:snapshots  {:auth {:state :idle}}
                                             :spawned    {:parent {:invoke :child}}
                                             :system-ids #{:app}}
-                      :rf.runtime/routing  {:current             {:id :home}
+                      :rf.runtime/routing  {:current             {:route-id :home}
                                             :pending-navigation  {:to :next}}
                       :rf.runtime/elision  {:declarations {}}}
           model (h/current-state-sections {} runtime-db)]
@@ -391,7 +391,7 @@
             sentinel (renderer renders plain current-state, no annotation)"
     (let [model (h/current-state-sections
                   {:counter 1}
-                  {:rf.runtime/routing  {:current {:id :home}}
+                  {:rf.runtime/routing  {:current {:route-id :home}}
                    :rf.runtime/machines {:snapshots {:title/flow {:state :idle}}}})]
       (is (= h/no-diff (:before-top model)) "TOP carries the no-diff sentinel")
       (doseq [a (:areas model)]
@@ -437,15 +437,15 @@
   (testing "a singleton slice carries its prior runtime-db value as
             :before; an absent-before singleton gets the `added` sentinel
             (rf2-227cz)"
-    (let [rt-before {:rf.runtime/routing {:current {:id :home}}}
-          rt-after  {:rf.runtime/routing  {:current {:id :cart}}
+    (let [rt-before {:rf.runtime/routing {:current {:route-id :home}}}
+          rt-after  {:rf.runtime/routing  {:current {:route-id :cart}}
                      :rf.runtime/machines {:system-ids #{:app}}}
           model  (h/current-state-sections {} rt-after
                                            {:app {} :runtime rt-before})
           route  (area-by model :rf/route)
           sysids (area-by model :rf/system-ids)]
-      (is (= {:id :home} (:before route)) "route diffs old → new")
-      (is (= {:id :cart} (:value route)))
+      (is (= {:route-id :home} (:before route)) "route diffs old → new")
+      (is (= {:route-id :cart} (:value route)))
       (is (= h/added (:before sysids))
           "rf2-227cz — system-ids absent before-cascade → `added`
            (the slice appeared this epoch), not `no-diff`"))))
@@ -457,7 +457,7 @@
             route slot appeared this epoch)"
     (let [model (h/current-state-sections
                   {:counter 1}
-                  {:rf.runtime/routing {:current {:id :home}}}
+                  {:rf.runtime/routing {:current {:route-id :home}}}
                   {:app nil :runtime nil})]
       ;; A present (non-no-diff) before-image flips diff? on, so the
       ;; user-domain before is {} (not the sentinel).

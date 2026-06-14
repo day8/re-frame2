@@ -42,7 +42,7 @@
  :fixture/expect
  {:final-app-db {:load-count 2}
 
-  :final-runtime-db {:rf.runtime/routing {:current {:id         :route/instrumentation
+  :final-runtime-db {:rf.runtime/routing {:current {:route-id         :route/instrumentation
                 :params     {}
                 :query      {}
                 :fragment   "scroll-restoration"

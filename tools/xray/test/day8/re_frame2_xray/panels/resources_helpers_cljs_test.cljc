@@ -415,7 +415,7 @@
 (def ^:private m5-article-key [session-scope :article/by-slug {:slug "welcome"}])
 
 (def ^:private m5-routing-slice
-  {:current {:id :route/article :nav-token m5-nav-token
+  {:current {:route-id :route/article :nav-token m5-nav-token
              :params {:slug "welcome"} :path "/articles/welcome"}
    :resource-blocking {m5-nav-token #{m5-article-key}}})
 
@@ -461,7 +461,7 @@
 
 (deftest routing-slice-extractors-test
   (testing "routing-current pulls the :current slice; nil-safe"
-    (is (= {:id :route/article :nav-token m5-nav-token
+    (is (= {:route-id :route/article :nav-token m5-nav-token
             :params {:slug "welcome"} :path "/articles/welcome"}
            (h/routing-current m5-routing-slice)))
     (is (nil? (h/routing-current nil)))
@@ -498,7 +498,7 @@
   "A multi-token routing slice: the OLD token still has an unsettled blocking
   key for :article/by-slug; the CURRENT token's bucket is empty (the current
   route has settled). The current route must NOT be flagged blocked."
-  {:current {:id :route/article :nav-token cduftx-current-token
+  {:current {:route-id :route/article :nav-token cduftx-current-token
              :params {:slug "now-article"} :path "/articles/now-article"}
    :resource-blocking {cduftx-stale-token   #{cduftx-stale-key}
                        cduftx-current-token #{}}})

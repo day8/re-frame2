@@ -304,7 +304,7 @@
 
 (def sample-runtime-db
   {:rf.runtime/machines {:snapshots {:auth.session/abc {:state :authenticated}}}
-   :rf.runtime/routing  {:current            {:id :route/home}
+   :rf.runtime/routing  {:current            {:route-id :route/home}
                          ;; :pending-navigation is a local-subscribable
                          ;; runtime-db key but MUST NOT ride the SSR wire
                          ;; (fail-closed allowlist ships only :current).
@@ -326,7 +326,7 @@
       (is (= {:snapshots {:auth.session/abc {:state :authenticated}}}
              (:rf.runtime/machines slice))
           "machine snapshots ride the wire whole")
-      (is (= {:current {:id :route/home}} (:rf.runtime/routing slice))
+      (is (= {:current {:route-id :route/home}} (:rf.runtime/routing slice))
           "only the durable :current route slice rides; :pending-navigation + any counter are dropped")
       (is (= {:declarations {[:auth :token] {:sensitive? true}}}
              (:rf.runtime/elision slice))

@@ -520,12 +520,12 @@
     ;; (a) map runtime-db slice → installs the runtime-db partition.
     (let [client-frame (rf/make-frame {:doc "rt-ok client frame" :platform :client})
           payload {:rf/app-db     {:count 7 :title "seeded"}
-                   :rf/runtime-db {:rf.runtime/routing {:current {:id :home}}}}
+                   :rf/runtime-db {:rf.runtime/routing {:current {:route-id :home}}}}
           traces  (capture-traces!
                     (fn []
                       (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})))]
       (is (= 7 (rf/subscribe-once client-frame [:count])) "app-db slice installed")
-      (is (= {:id :home} (rf/subscribe-once client-frame [:route-current]))
+      (is (= {:route-id :home} (rf/subscribe-once client-frame [:route-current]))
           "the runtime-db route slice rode the payload and installed")
       (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
           "no malformed diagnostic on a well-formed two-partition payload"))

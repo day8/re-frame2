@@ -794,7 +794,7 @@
          nav          (from-to-from-cascade focused-cascade)
          decorated    (assign-markers rows
                                       (assoc nav
-                                        :current-id (:id current-slice)))
+                                        :current-id (:route-id current-slice)))
          filtered     (filter-rows decorated query)
          sim-result   (when (and sim-url (not (str/blank? sim-url)))
                         (simulate-url routes-map sim-url))]
@@ -840,7 +840,7 @@
   (let [topology       (project-topology routes-map)
         silent?        (empty? topology)
         nav            (from-to-from-cascade focused-cascade)
-        marker-input   (assoc nav :current-id (:id current-slice))
+        marker-input   (assoc nav :current-id (:route-id current-slice))
         decorated      (mapv (fn [{:keys [row] :as entry}]
                                (let [marked-row (first
                                                   (assign-markers
