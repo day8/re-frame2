@@ -58,6 +58,7 @@
     flip."
   (:require [re-frame.registrar :as registrar]
             [re-frame.interceptor :as interceptor]
+            [re-frame.identity :as identity]
             [re-frame.source-coords :as source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -186,6 +187,62 @@
            (= 2 (count x))
            (keyword? (first x)))))
 
+;; ---- exact-reference matching (Spec 002 §`:interceptor-overrides`) ---------
+;;
+;; The reserved slot a resolved chain entry carries so its AUTHORED reference
+;; survives resolution — `:interceptor-overrides` exact-reference matching
+;; (EP-0022 Slice C) keys on this. A bare-keyword ref stamps the keyword; an
+;; `[id arg]` ref stamps the full vector. Inline interceptor values (additive
+;; window) carry NO authored ref, so they match overrides by `:id` only.
+
+(def authored-ref-key
+  "The reserved key under which a resolved chain entry carries its AUTHORED
+  interceptor reference (the bare keyword or `[id arg]` vector that produced
+  it). Read by the override matcher for exact-reference matching."
+  :rf/interceptor-ref)
+
+(defn ref=
+  "True when interceptor references `a` and `b` denote the SAME reference under
+  CEDN-1 canonical identity (EP-0012). A fast structural `=` short-circuits the
+  common case (both refs are already canonical EDN data — a keyword or an
+  `[id arg]` vector of EDN); a canonical-bytes comparison is the fallback that
+  makes two arg spellings differing only in map-key order match. Neither ref
+  needs to be a keyword — this is plain reference identity, not id identity."
+  [a b]
+  (or (= a b)
+      (try
+        (identity/identical-identity? a b)
+        ;; A non-EDN arg can never appear in a serializable override key /
+        ;; authored ref, but fail-soft to "not equal" rather than letting a
+        ;; canonicalization throw escape the override walk.
+        (catch #?(:clj Throwable :cljs :default) _ false))))
+
+(defn override-key-matches?
+  "True when `override-key` (an `:interceptor-overrides` map key — a bare
+  keyword or `[id arg]` ref) matches the resolved chain `entry` per Spec 002
+  §`:interceptor-overrides` exact-reference matching:
+
+    - a bare KEYWORD key matches when it equals the entry's AUTHORED ref (a
+      bare-keyword ref) OR the entry's `:id` (covers inline values + the
+      `:id` the resolver stamps);
+    - an `[id arg]` VECTOR key matches ONLY the entry whose AUTHORED ref is
+      `ref=` to that exact `[id arg]` vector — so `{[:rf.interceptor/path
+      [:cart]] nil}` removes only that exact reference and leaves a sibling
+      `[:rf.interceptor/path [:cart :items]]` intact.
+
+  `entry` is a resolved executable interceptor value; its authored ref (when
+  it came from a reference) rides `authored-ref-key`."
+  [override-key entry]
+  (let [authored (get entry authored-ref-key)]
+    (cond
+      (keyword? override-key)
+      (or (and (keyword? authored) (= override-key authored))
+          (= override-key (:id entry)))
+      ;; An `[id arg]` key matches ONLY by exact authored-ref identity.
+      (and (vector? override-key) (= 2 (count override-key)))
+      (and (some? authored) (ref= override-key authored))
+      :else false)))
+
 (defn- descriptor->interceptor
   "Lower a registered static descriptor (`{:before}` / `{:after}` /
   `{:before :after}`, or an interceptor value carrying `:before` / `:after`)
@@ -251,11 +308,22 @@
   (let [built (try
                 ((:factory descriptor) arg)
                 (catch #?(:clj Throwable :cljs :default) e
-                  (throw-factory-arity!
-                    ref id
-                    (str "the `:factory` for interceptor `" id "` threw while building "
-                         "for arg `" (pr-str arg) "`: " #?(:clj (.getMessage ^Throwable e)
-                                                           :cljs (.-message e)) "."))))]
+                  ;; A factory MAY raise its own structured `:rf.error/*`
+                  ;; ex-info (e.g. the standard path factory's
+                  ;; `:rf.error/path-interceptor-bad-path` on a non-vector arg
+                  ;; — Spec 002 §Error model). Let such deliberate, classified
+                  ;; errors propagate VERBATIM rather than masking them under
+                  ;; `:rf.error/interceptor-factory-arity`; only genuinely
+                  ;; unexpected throws are wrapped as a factory-arity failure.
+                  (if (and (instance? #?(:clj clojure.lang.ExceptionInfo
+                                         :cljs cljs.core.ExceptionInfo) e)
+                           (:rf.error/id (ex-data e)))
+                    (throw e)
+                    (throw-factory-arity!
+                      ref id
+                      (str "the `:factory` for interceptor `" id "` threw while building "
+                           "for arg `" (pr-str arg) "`: " #?(:clj (.getMessage ^Throwable e)
+                                                             :cljs (.-message e)) ".")))))]
     (cond
       ;; Factory returned an executable interceptor value (a map with
       ;; :before / :after / :id) — STAMP the registry id over it so the
@@ -322,6 +390,12 @@
   `chain` is a sequential of refs/values; returns a vector of executable
   interceptor values suitable for `re-frame.interceptor/execute-chain`.
 
+  A resolved-from-reference entry is stamped with its AUTHORED reference under
+  `authored-ref-key` (`:rf/interceptor-ref`) so `:interceptor-overrides`
+  exact-reference matching (Spec 002 §`:interceptor-overrides`) can match the
+  full `[id arg]` it came from — not merely its `:id`. Inline interceptor
+  values carry no authored ref (they match overrides by `:id` only).
+
   Refs resolve through the active (realm-aware) registrar — see the ns docstring."
   [chain]
   (if-not (seq chain)
@@ -332,8 +406,10 @@
               ;; (Checked BEFORE ref-detection: an inline value is a map, never
               ;; a keyword or [id arg] vector, so there is no ambiguity.)
               (interceptor-value? entry) entry
-              ;; A reference — resolve it.
-              (interceptor-ref? entry)   (resolve-ref entry)
+              ;; A reference — resolve it and stamp the AUTHORED ref so exact-
+              ;; reference override matching can key on the full `[id arg]`.
+              (interceptor-ref? entry)   (assoc (resolve-ref entry)
+                                                authored-ref-key entry)
               :else                      (throw-invalid-ref! entry)))
           chain)))
 

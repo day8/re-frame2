@@ -1987,39 +1987,38 @@
   spec/API.md §Registration."}
   reg-interceptor* icpt-reg/reg-interceptor*)
 
-(def ^{:doc "Fn-form of `->interceptor` (HoF / programmatic / REPL
-  callers) — no definition-site source-coord capture. Build an
-  interceptor map from kwargs: `:id`, `:before`, `:after`, and an
-  optional `:source-coord` (the `->interceptor` macro supplies it from
-  `(meta &form)`). Per Conventions §`*`-suffix naming and
-  spec/API.md §Interceptors."}
+(def ^{:doc "INTERNAL lowering constructor (EP-0022) — NOT the public
+  application-authoring surface; author interceptors with `reg-interceptor`
+  and reference them by id from event/frame `:interceptors` chains. This
+  fn-form lowers a descriptor into an executable chain entry from kwargs:
+  `:id`, `:before`, `:after`, and an optional `:source-coord` (the
+  `->interceptor` macro supplies it from `(meta &form)`). Retained as the
+  framework-internal lowering seam (used by the registry resolver, the std
+  interceptors, and tests); it MUST NOT appear in a public event/frame
+  chain. Per spec/001 §`->interceptor` is not the application authoring
+  form, spec/002 §10, and spec/API.md §Standard interceptors."}
   ->interceptor*  interceptor/->interceptor*)
 
 #?(:clj
    (defmacro ->interceptor
-     "Build a custom interceptor map from kwargs — the ergonomic surface
-     for `:before` / `:after` work not covered by the std interceptors.
-     Captures the definition-site `:source-coord` from `(meta &form)`
-     (Spec 001 §Source-coordinate capture; rides the rf2-wvsxg
-     absolutise path) and bakes it into the interceptor map so the Xray
-     Epoch INTERCEPTOR row can jump to source when the interceptor throws
-     (parity with EVENT HANDLER / SUBSCRIPTIONS / VIEWS). For HoF /
-     programmatic / REPL use call `->interceptor*` (no coord capture).
+     "INTERNAL lowering constructor (EP-0022) — NOT the public application-
+     authoring surface. The public form is `reg-interceptor` (which names the
+     interceptor, captures source coords, and makes it addressable / queryable
+     / overridable by id). `->interceptor` survives only as the coord-capturing
+     internal lowering constructor (the macro counterpart of `->interceptor*`):
+     it builds an interceptor map from kwargs and bakes the definition-site
+     `:source-coord` from `(meta &form)` so the Xray Epoch INTERCEPTOR row can
+     jump to source when an interceptor throws. It MUST NOT appear in a public
+     event/frame chain — those carry interceptor REFERENCES (Spec 002).
 
      Kwargs: `:id` (keyword name; default `:unnamed`), `:before`
      (`(fn [ctx] ctx)` — runs before the handler), `:after`
      (`(fn [ctx] ctx)` — runs after, in reverse order).
 
-         (def log-event
-           (rf/->interceptor
-             :id     :log-event
-             :before (fn [ctx]
-                       (println \"event:\" (rf/get-coeffect ctx :event))
-                       ctx)))
-
      The captured coord DCEs under `:advanced` + `goog.DEBUG=false` (the
      macro's prod branch omits the `:source-coord` kwarg entirely). Per
-     spec/API.md §Interceptors and rf2-siheh."
+     spec/001 §`->interceptor` is not the application authoring form,
+     spec/002 §10, spec/API.md §Standard interceptors, and rf2-siheh."
      [& kwargs]
      (csm/build-interceptor-form (meta &form) (symbol (str (ns-name *ns*))) *file*
                                  kwargs)))

@@ -474,9 +474,21 @@
   ["re-frame.core" "frame-bound-fn*"]     {:tier :advanced    :owner "002" :status "v1"}
   ["re-frame.core" "view"]                {:tier :advanced    :owner "004" :status "v1"}
   ["re-frame.core" "current-frame-id"]    {:tier :advanced    :owner "002" :status "v1"}
-  ;; Interceptor authoring (spec/API.md §Interceptors).
-  ["re-frame.core" "->interceptor"]       {:tier :front-porch :owner "002" :status "v1 (preserved)"}
-  ["re-frame.core" "->interceptor*"]      {:tier :advanced :owner "002" :status "v1"}
+  ;; Interceptor authoring (spec/API.md §Interceptors). EP-0022 Slice C
+  ;; (rf2-0adhqs.3): `->interceptor` is NO LONGER the public application-
+  ;; authoring surface — `reg-interceptor` is (spec/001 §`->interceptor` is not
+  ;; the application authoring form; spec/002 §10). Both `->interceptor` (the
+  ;; coord-capturing macro) and `->interceptor*` (the plain-fn constructor)
+  ;; survive only as the framework-INTERNAL lowering constructor that turns a
+  ;; descriptor into an executable chain entry; they MUST NOT appear in a public
+  ;; event/frame chain. Demoted off `:front-porch` to `:internal-public` (a
+  ;; supported framework-internal embedding point — used by the registry
+  ;; resolver, the std interceptors, and tests as the lowering seam — not a
+  ;; public-authoring API). `->interceptor*` stays at the `:advanced` tier
+  ;; API.md §Standard interceptors documents it under (the "internal lowering
+  ;; constructor" row).
+  ["re-frame.core" "->interceptor"]       {:tier :internal-public :owner "002" :status "EP-0022 (internal lowering only)"}
+  ["re-frame.core" "->interceptor*"]      {:tier :advanced        :owner "002" :status "EP-0022 (internal lowering only)"}
   ;; EP-0017 + rf2-w9xyx1: `inject-cofx` / `inject-cofx*` — the v1 ctx→ctx
   ;; coeffect-injection interceptors — are REMOVED (EP-0017 slice A, no alias;
   ;; spec/API.md §Standard interceptors). rf2-w9xyx1 removed them from the

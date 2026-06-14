@@ -14,13 +14,24 @@
   those that are just (->interceptor :before f) or (->interceptor :after f)
   with no other logic. Custom before/after work uses ->interceptor directly.
 
-  EP-0022 (rf2-0adhqs.2, Slice B additive): this ns also registers the
-  framework-standard `:rf.interceptor/path` interceptor as a `:factory`
-  (a MINIMAL stub — it reuses the existing `path` fn, which already preserves
-  the frame-commit `identical?` no-op). The full standard path contract
-  (Spec 002 §Standard `:rf.interceptor/path`) and `:rf.error/path-interceptor-bad-path`
-  validation are a LATER slice; this registration only makes the
-  `[:rf.interceptor/path <path-vector>]` by-reference resolve."
+  EP-0022 (Slice C, rf2-0adhqs.3): this ns also registers the
+  framework-standard `:rf.interceptor/path` interceptor as a `:factory`,
+  referenced as `[:rf.interceptor/path <path-vector>]`. Its `:factory`
+  builds the FULL standard-path interceptor (`standard-path-interceptor`)
+  implementing the normative rules 1-5 of [Spec 002 §Standard
+  `:rf.interceptor/path`](../../../spec/002-Frames.md), notably **rule 4**:
+  when the handler emits a `:db` effect whose focused value is `identical?`
+  to the original focused slice, the interceptor widens back to the
+  ORIGINAL full app-db OBJECT (not an `assoc-in` allocation), preserving
+  the frame-commit `identical?` no-op (rf2-ekq28v). A non-vector / malformed
+  path argument is `:rf.error/path-interceptor-bad-path`.
+
+  This standard interceptor is DISTINCT from the legacy `path` fn / the
+  `rf/path` value constructor (the additive-window inline shape): the
+  standard interceptor is the canonical `:factory` consumer and is the
+  carrier of the rule-4 identity-fast-path; the legacy `path` fn stays for
+  the inline-value window (its `:after` only short-circuits the no-`:db`
+  case, not the unchanged-slice case)."
   (:require [re-frame.interceptor :as interceptor]
             [re-frame.interceptor-registry :as icpt-reg]
             [re-frame.trace :as trace]))
@@ -84,29 +95,120 @@
                           (assoc-in original-db path-vec
                                     (get-in ctx [:effects :db])))))))))))
 
-;; ---- standard :rf.interceptor/path registration (EP-0022, MINIMAL) --------
+;; ---- standard :rf.interceptor/path (EP-0022 Slice C — FULL contract) -------
 ;;
-;; Register the framework-standard `:rf.interceptor/path` as a `:factory`
-;; interceptor so `[:rf.interceptor/path <path-vector>]` references resolve
-;; (Spec 002 §Standard `:rf.interceptor/path`). MINIMAL stub for the additive
-;; slice: the factory builds an interceptor by delegating to the existing
-;; `path` fn (whose `:after` already preserves the frame-commit `identical?`
-;; no-op via the no-`:db` short-circuit). The full standard-path contract
-;; (rules 1-5, the `identical?`-rewrite-to-original-object) and the
-;; `:rf.error/path-interceptor-bad-path` validation are a LATER slice. A
-;; non-vector arg here is rejected as an `:rf.error/interceptor-factory-arity`
-;; build failure (the factory throws) until the dedicated path error lands.
+;; The framework-standard `:rf.interceptor/path` interceptor, referenced as
+;; `[:rf.interceptor/path <path-vector>]` and built by the registered
+;; `:factory` (`path-factory`). It implements the FULL normative contract of
+;; Spec 002 §Standard `:rf.interceptor/path` (rules 1-5), notably RULE 4: an
+;; unchanged focused slice widens back to the ORIGINAL full app-db OBJECT so
+;; the frame-commit `identical?` no-op (rf2-ekq28v) is preserved.
+;;
+;; This is DISTINCT from the legacy `path` fn above. The legacy fn (the
+;; additive-window `rf/path` inline value) only short-circuits the no-`:db`
+;; case; it still does `(assoc-in original-db path slice)` when a `:db` effect
+;; is present, allocating a fresh top-level map even for an unchanged slice —
+;; which defeats the commit no-op. The standard interceptor knows BOTH the
+;; original full app-db object AND the original focused slice, so it can detect
+;; the unchanged-slice case and re-emit the original object.
+
+(defn- throw-bad-path!
+  "Throw the canonical `:rf.error/path-interceptor-bad-path` error (Spec 002
+  §Standard `:rf.interceptor/path` / §Error model). Raised by the factory when
+  the `[:rf.interceptor/path <path-vector>]` ref carries a non-vector or
+  otherwise malformed path argument."
+  [path-vector reason]
+  (throw (ex-info ":rf.error/path-interceptor-bad-path"
+                  {:rf.error/id :rf.error/path-interceptor-bad-path
+                   :where       :rf.interceptor/path
+                   :recovery    :fix-path
+                   :reason      reason
+                   :got         path-vector
+                   :expected    "an EDN vector naming a concrete app-db path, e.g. [:cart :items]"})))
+
+(defn standard-path-interceptor
+  "Build the framework-standard `:rf.interceptor/path` interceptor focusing the
+  handler on the app-db sub-slice at `path-vector`. Implements the normative
+  rules of [Spec 002 §Standard `:rf.interceptor/path`]:
+
+    1. records the original full app-db object AND the original focused slice
+       (stacked, so nested path interceptors compose);
+    2. stages the focused slice as the handler's `:db` coeffect;
+    3. if the handler emits NO `:db` effect, emits no synthetic `:db` effect;
+    4. if the handler emits a `:db` effect whose focused value is `identical?`
+       to the original focused slice, rewrites the effect back to the ORIGINAL
+       full app-db OBJECT (NOT an `assoc-in` allocation) — preserving the
+       frame-commit `identical?` no-op (rf2-ekq28v);
+    5. otherwise widens (`assoc-in`) the focused value into the original app-db
+       at `path-vector`.
+
+  `path-vector` MUST be a vector (validated by the factory below, which throws
+  `:rf.error/path-interceptor-bad-path` otherwise). The root path `[]` focuses
+  the whole app-db (`get-in db [] = db`, `assoc-in db [] x = x` via the empty-
+  path special-case below)."
+  [path-vector]
+  (interceptor/->interceptor*
+    :id    :rf.interceptor/path
+    :path  path-vector
+    :before
+    (fn [ctx]
+      (let [original-db (:db (:coeffects ctx))
+            ;; The root path `[]` focuses the whole db (get-in returns db for []).
+            focused     (if (seq path-vector)
+                          (get-in original-db path-vector)
+                          original-db)]
+        (-> ctx
+            ;; Rule 1: stack the original full app-db AND the original focused
+            ;; slice (a pair) so nested path interceptors unwind correctly and
+            ;; rule 4 can compare against the slice this `:before` focused.
+            ;; Reserved-namespace slot (Conventions §Reserved namespaces).
+            (update :rf.interceptor.path/stack (fnil conj [])
+                    [original-db focused])
+            ;; Rule 2: stage the focused slice as the handler's :db coeffect.
+            (assoc-in [:coeffects :db] focused))))
+    :after
+    (fn [ctx]
+      ;; Guard: only unwind when our `:before` pushed (an EARLIER interceptor's
+      ;; `:before` throw short-circuits downstream `:before` yet still runs every
+      ;; `:after` in reverse — Spec 002 rule 2). No stack → no-op teardown.
+      (let [stack (:rf.interceptor.path/stack ctx)]
+        (if (empty? stack)
+          ctx
+          (let [[original-db original-slice] (peek stack)
+                new-stack (pop stack)
+                emitted?  (contains? (:effects ctx) :db)]
+            (cond-> (assoc ctx :rf.interceptor.path/stack new-stack)
+              ;; Rule 3 is the absence of this branch — no `:db` effect means
+              ;; no synthetic `:db` effect is written.
+              emitted?
+              (assoc-in [:effects :db]
+                        (let [emitted-slice (get-in ctx [:effects :db])]
+                          (if (identical? emitted-slice original-slice)
+                            ;; Rule 4: unchanged focused slice → re-emit the
+                            ;; ORIGINAL full app-db object (identity preserved,
+                            ;; commit no-op intact). No allocation.
+                            original-db
+                            ;; Rule 5: widen the changed slice back into the
+                            ;; original app-db at path-vector. The root path
+                            ;; `[]` replaces the whole db (assoc-in with [] is
+                            ;; ill-defined, so special-case it).
+                            (if (seq path-vector)
+                              (assoc-in original-db path-vector emitted-slice)
+                              emitted-slice)))))))))))
+
+;; ---- standard interceptor registration ------------------------------------
 
 (defn- path-factory
   "The `:rf.interceptor/path` factory: receives the one `path-vector` arg and
-  returns the focusing interceptor. MINIMAL — delegates to `path`. The
-  returned interceptor's `:id` is stamped `:rf.interceptor/path` by the
-  registry resolver."
+  returns the FULL standard-path interceptor. A non-vector / malformed path
+  argument fails closed with `:rf.error/path-interceptor-bad-path` (Spec 002
+  §Standard `:rf.interceptor/path`). The returned interceptor's `:id` is
+  `:rf.interceptor/path` (the registry resolver also re-stamps it)."
   [path-vector]
   (when-not (vector? path-vector)
-    (throw (ex-info "path-vector must be a vector"
-                    {:got path-vector :expected "a vector app-db path"})))
-  (apply path path-vector))
+    (throw-bad-path! path-vector
+                     "the path argument of [:rf.interceptor/path <path-vector>] must be a vector"))
+  (standard-path-interceptor path-vector))
 
 (defn register-standard-interceptors!
   "Register the framework-standard interceptors (currently only
