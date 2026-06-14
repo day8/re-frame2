@@ -36,6 +36,7 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.app-value :as av]
+            [re-frame.events :as events]
             [re-frame.realm :as realm]
             [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
@@ -706,18 +707,77 @@
       (is (contains? (registrar/lookup :event :xms/ev) :interceptors)
           ":event seated the kind-appropriate interceptor chain (real reg-* logic ran)"))))
 
-(deftest install-event-kind-tag-routes-through-reg-event-fx
-  (testing "a module event entry tagged {:event/kind :fx} lowers through
-            reg-event-fx (the install-descriptor! :event/kind read), so the
-            wired-kind seam honours the event sub-kind (rf2-xmslkr)"
+(deftest install-event-kind-tag-routes-through-reg-event
+  (testing "EP-0018 D (rf2-xhfxcs.4): a module event entry tagged {:event/kind
+            :fx} lowers through the ONE public `reg-event` runtime fn (the
+            install-descriptor! :event/kind read now routes the fx shape onto
+            `reg-event` rather than `reg-event-fx` directly). `reg-event` IS
+            reg-event-fx semantics, so this is behaviour-preserving — the entry
+            is still seated as a resolvable :event/kind :fx handler with the
+            interceptor chain (rf2-xmslkr × EP-0018 D)"
     (rf/install! (rf/app {:id :xms/evfx :modules
                           [(rf/module {:id :m
                                        :events {:xms/evfx {:event/kind :fx
                                                            :handler (fn [_cofx _ev] {})}}})]}))
     (is (some? (registrar/handler :event :xms/evfx))
         "the :event/kind :fx entry is seated as a resolvable event handler")
+    (is (= :fx (:event/kind (registrar/lookup :event :xms/evfx)))
+        "it registered under :event/kind :fx — byte-for-byte reg-event-fx semantics")
     (is (contains? (registrar/lookup :event :xms/evfx) :interceptors)
-        "it ran through reg-event-fx (interceptor chain seated), not the flat path")))
+        "it ran through reg-event (interceptor chain seated), not the flat path")))
+
+(deftest install-fx-descriptor-lowers-through-the-reg-event-runtime-fn
+  (testing "EP-0018 D (rf2-xhfxcs.4) ADVERSARIAL: an fx-shape event descriptor's
+            install lowering reaches the ONE public `reg-event` runtime fn — a
+            spy over `events/reg-event` records the call (delegating to the real
+            fn so the handler is genuinely seated), proving the install seam
+            routes through `reg-event`, not the flat fallback."
+    (let [calls          (atom 0)
+          real-reg-event events/reg-event]
+      (with-redefs [events/reg-event (fn [id & args]
+                                       (swap! calls inc)
+                                       (apply real-reg-event id args))]
+        (rf/install! (rf/app {:id :xhfxcs/d :modules
+                              [(rf/module {:id :m
+                                           :events {:xhfxcs/ev {:event/kind :fx
+                                                                :handler (fn [{:keys [db]} _] {:db db})}}})]})))
+      (is (= 1 @calls)
+          "the install seam lowered the fx descriptor through events/reg-event")
+      ;; The spy delegated to the real `reg-event`, so the handler is genuinely
+      ;; seated + dispatch-ready (behaviour-preserving end-to-end).
+      (is (some? (registrar/handler :event :xhfxcs/ev))
+          "the descriptor is a real, resolvable event registration after lowering"))))
+
+(deftest install-fx-descriptor-seats-reg-event-fx-semantics-not-db
+  (testing "EP-0018 D (rf2-xhfxcs.4) ADVERSARIAL (behavioural discriminator): an
+            fx-shape module event descriptor lowered through `reg-event` seats
+            byte-for-byte `reg-event-fx` semantics — `:event/kind :fx` and the
+            `:rf/fx-handler` framework wrapper — NOT the `:rf/db-handler` /
+            `:event/kind :db` shape `reg-event-db` would seat. This is the
+            runtime-independent counterpart of the spy test: a regression that
+            routes the fx descriptor back through `reg-event-db` would flip BOTH
+            the sub-kind tag and the wrapper id and fail here, and the handler is
+            proven dispatch-ready with the cofx-in / effects-out contract."
+    (rf/reg-frame :xhfxcs.d/app {:doc "fx-lowering app"})
+    (rf/install! (rf/app {:id :xhfxcs.d/app :modules
+                          [(rf/module {:id :m
+                                       :events {:xhfxcs.d/set
+                                                {:event/kind :fx
+                                                 :handler (fn [{:keys [db]} [_ v]]
+                                                            {:db (assoc db :n v)})}}})]}))
+    (let [meta (registrar/lookup :event :xhfxcs.d/set)]
+      (is (= :fx (:event/kind meta))
+          "seated under :event/kind :fx (reg-event = reg-event-fx semantics), not :db")
+      ;; The framework wrapper interceptor is the per-kind tell: reg-event/-fx
+      ;; seat :rf/fx-handler; reg-event-db seats :rf/db-handler.
+      (is (some #(= :rf/fx-handler (:id %)) (:interceptors meta))
+          "the :rf/fx-handler wrapper is seated — the install path used the fx shape, not :rf/db-handler"))
+    ;; End-to-end: the seated handler dispatches with fx-shape semantics
+    ;; (coeffects-in, effects-out — `{:db …}`), confirming the lowering produced
+    ;; a working reg-event registration, not just a tagged slot.
+    (rf/dispatch-sync [:xhfxcs.d/set 7] {:frame :xhfxcs.d/app})
+    (is (= {:n 7} (rf/app-db-value :xhfxcs.d/app))
+        "the fx-lowered handler committed its `{:db …}` effect on dispatch")))
 
 (deftest install-into-an-unknown-realm-id-throws-before-any-mutation
   (testing "FLIPPED (rf2-c6armm.1 #1 / .2 #2): installing into an EXPLICIT,

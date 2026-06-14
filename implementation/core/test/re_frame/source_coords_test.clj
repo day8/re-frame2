@@ -83,6 +83,16 @@
 
 ;; ---- one assertion per reg-* kind ----------------------------------------
 
+(deftest source-coords-on-reg-event
+  (testing "EP-0018 C (rf2-xhfxcs.3): the ONE public `reg-event` macro stamps
+  :ns / :line / :file — the same compile-time source-coord capture the legacy
+  reg-event-{db,fx,ctx} macros do (consolidated macro layer: `reg-event` rides
+  the identical defreg-event-macro coord-capture skeleton)"
+    (rf/reg-event :rf2-k84s/reg-event-sample
+                  (fn [{:keys [db]} _] {:db db}))
+    (assert-coords (rf/handler-meta :event :rf2-k84s/reg-event-sample)
+                   :event :rf2-k84s/reg-event-sample)))
+
 (deftest source-coords-on-reg-event-db
   (testing "reg-event-db stamps :ns / :line / :file"
     (rf/reg-event-db :rf2-k84s/reg-event-db-sample

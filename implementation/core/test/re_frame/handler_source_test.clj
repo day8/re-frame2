@@ -42,6 +42,23 @@
 
 ;; ---- per-kind captures ----------------------------------------------------
 
+(deftest reg-event-captures-form-source
+  (testing "EP-0018 C (rf2-xhfxcs.3): the ONE public `reg-event` macro stamps
+  :rf.handler/source on JVM — the same whole-form capture the legacy
+  reg-event-{db,fx,ctx} macros do (the macro layer consolidated onto
+  defreg-event-macro, so `reg-event` rides the identical form-source path)"
+    (rf/reg-event :rf2-xhfxcs/event-sample
+                  (fn [{:keys [db]} _ev] {:db db}))
+    (assert-source :event :rf2-xhfxcs/event-sample "reg-event")
+    (let [src (:rf.handler/source
+               (rf/handler-meta :event :rf2-xhfxcs/event-sample))]
+      ;; Whole-form capture: the handler-fn body (the fx-shape return) must
+      ;; appear, not just the surface.
+      (is (str/includes? src "(fn [{:keys [db]} _ev] {:db db})")
+          ":rf.handler/source should include the reg-event handler-fn body")
+      (is (str/includes? src ":db")
+          ":rf.handler/source should include the effect-map keyword"))))
+
 (deftest reg-event-db-captures-form-source
   (testing "rf2-xgfuy: reg-event-db stamps :rf.handler/source on JVM"
     (rf/reg-event-db :rf2-xgfuy/event-db-sample

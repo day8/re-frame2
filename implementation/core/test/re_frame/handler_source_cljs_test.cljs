@@ -19,6 +19,20 @@
 
 (use-fixtures :each (test-support/make-reset-runtime-fixture))
 
+(deftest reg-event-captures-form-source-cljs
+  (testing "EP-0018 C (rf2-xhfxcs.3): CLJS `reg-event` stamps :rf.handler/source
+  under DEBUG=true — the consolidated macro layer routes the ONE public
+  reg-event through the same defreg-event-macro form-source capture as the
+  legacy forms"
+    (rf/reg-event :rf2-xhfxcs.cljs/event
+                  (fn [{:keys [db]} _ev] {:db db}))
+    (let [m   (rf/handler-meta :event :rf2-xhfxcs.cljs/event)
+          src (:rf.handler/source m)]
+      (is (string? src) ":rf.handler/source should be a string under DEBUG=true")
+      (is (str/includes? src "reg-event"))
+      (is (str/includes? src ":rf2-xhfxcs.cljs/event"))
+      (is (str/includes? src "(fn [{:keys [db]} _ev] {:db db})")))))
+
 (deftest reg-event-db-captures-form-source-cljs
   (testing "rf2-xgfuy: CLJS reg-event-db stamps :rf.handler/source under DEBUG=true"
     (rf/reg-event-db :rf2-xgfuy.cljs/event-db

@@ -1682,7 +1682,10 @@
   appears in `frame-ids` — not the malformed flat slot the registrar-only path
   produced (rf2-chc8vs). The `:event/kind` is read from the descriptor metadata
   (defaulting to `:db`), so a module event entry tagged `{:event/kind :fx}`
-  lowers through `reg-event-fx`.
+  lowers through the one public `reg-event` runtime fn (EP-0018 D,
+  rf2-xhfxcs.4 — `reg-event` IS `reg-event-fx` semantics, so behaviour-
+  preserving); a `:ctx` entry through `reg-event-ctx`; an untagged entry
+  through `reg-event-db`.
 
   For the step-8-DEFERRED kinds (`install-deferred-kinds`) THROWS
   `:rf.error/unsupported-descriptor-kind` (the ex-data IS the diagnostic —
@@ -1720,7 +1723,23 @@
       :else
       (case kind
         :event (do (case (:event/kind meta)
-                     :fx  (events/reg-event-fx  id meta handler)
+                     ;; EP-0018 D (rf2-xhfxcs.4): the fx-shape event descriptor
+                     ;; lowers through the ONE public `reg-event` runtime fn
+                     ;; rather than `reg-event-fx` directly. `reg-event` IS
+                     ;; `reg-event-fx` semantics (coeffects in, a closed
+                     ;; effects map out — registers `:event/kind :fx` with the
+                     ;; `:rf/fx-handler` wrapper), so this is byte-for-byte
+                     ;; behaviour-preserving; it just routes the install seam
+                     ;; through the surface the EP collapses onto. The legacy
+                     ;; `:db` (the untagged module-descriptor default) and
+                     ;; `:ctx` shapes keep their own reg fns through the
+                     ;; additive window (their db-handler / ctx-handler
+                     ;; semantics differ from `reg-event`'s fx shape, so routing
+                     ;; them through `reg-event` would NOT be behaviour-
+                     ;; preserving); dropping `:event/kind` so EVERY module
+                     ;; event lowers through the one `reg-event` shape is the
+                     ;; later removal slice (Z = rf2-xhfxcs.14).
+                     :fx  (events/reg-event     id meta handler)
                      :ctx (events/reg-event-ctx id meta handler)
                      (events/reg-event-db id meta handler))
                    true)
