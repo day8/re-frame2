@@ -160,7 +160,7 @@
   [frame-id resource-key kind]
   (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
     (let [event-id (if (= kind stale-kind) stale-fired-event gc-fired-event)]
-      (dispatch! [event-id {:resource-key resource-key}]
+      (dispatch! [event-id {:resource/key resource-key}]
                  {:frame frame-id :source :after-timer}))))
 
 (defn schedule!
@@ -232,7 +232,7 @@
   binary `(fn [ctx args] …)` (Spec 002)."
   {:doc "Arm the host-side stale / GC timers for a settled resource entry,
 keyed by `[frame-id resource-key kind]`. Args:
-`{:frame-id … :resource-key … :stale-delay-ms … :gc-delay-ms … :server? …}`.
+`{:frame-id … :resource/key … :stale-delay-ms … :gc-delay-ms … :server? …}`.
 Emitted by the success reply handler once an entry settles `:loaded` (the
 delays are derived from the durable `:loaded-at` + the resource's
 `:stale-after-ms` / `:gc-after-ms`; `:server?` is read from the cascade
@@ -252,17 +252,17 @@ writing (the timer is advisory). Per Spec 016 §Stale and GC scheduling."})
   scheduled` trace (gc-class — the Xray lifecycle timeline pairs them with
   `:rf.resource/gc-fired` / `gc-skipped` / `stale-fired`) when a timer arms.
   Per Spec 016 §Stale and GC scheduling."
-  [_ctx {:keys [frame-id resource-key stale-delay-ms gc-delay-ms server?]}]
+  [_ctx {:keys [frame-id stale-delay-ms gc-delay-ms server?] resource-key :resource/key}]
   (when-not server?
     (let [stale-h (schedule! frame-id resource-key stale-kind stale-delay-ms)
           gc-h    (schedule! frame-id resource-key gc-kind gc-delay-ms)]
       (when gc-h
         (trace/emit! :rf.event :rf.resource/gc-scheduled
-                     {:rf.frame/id frame-id :resource-key resource-key
+                     {:rf.frame/id frame-id :resource/key resource-key
                       :delay-ms gc-delay-ms}))
       (when stale-h
         (trace/emit! :rf.event :rf.resource/stale-scheduled
-                     {:rf.frame/id frame-id :resource-key resource-key
+                     {:rf.frame/id frame-id :resource/key resource-key
                       :delay-ms stale-delay-ms}))))
   nil)
 
@@ -275,7 +275,7 @@ writing (the timer is advisory). Per Spec 016 §Stale and GC scheduling."})
   but the host handles must be released so they don't leak)."
   {:doc "Cancel the host-side stale / GC timers for removed resource entries,
 keyed by `[frame-id resource-key]`. Args:
-`{:frame-id … :resource-keys [<scoped-key> …]}`. Emitted when entries are
+`{:frame-id … :resource/keys [<scoped-key> …]}`. Emitted when entries are
 removed (`:rf.resource/remove` / `:rf.resource/clear-scope` / a fired GC) so
 their advisory timer handles are released promptly rather than waiting for
 frame destroy. Runs on every platform (a server render with no armed timers
@@ -284,9 +284,9 @@ no-ops harmlessly; cancellation must never be platform-gated). Per Spec 016
 
 (defn cancel-timers-handler
   "`:rf.resource/cancel-timers` fx handler. Cancels BOTH timers for every
-  supplied `[frame-id resource-key]`. Args: `{:frame-id … :resource-keys
+  supplied `[frame-id resource-key]`. Args: `{:frame-id … :resource/keys
   […]}`."
-  [_ctx {:keys [frame-id resource-keys]}]
+  [_ctx {:keys [frame-id] resource-keys :resource/keys}]
   (doseq [rkey resource-keys]
     (cancel-for-key! frame-id rkey))
   nil)

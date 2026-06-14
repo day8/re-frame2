@@ -8,7 +8,7 @@
   resource into the normalized PROCESS node every declared fact/process
   shares — a resource is the canonical `:process` member of the algebra (NOT
   a derivation): remote `:authority`, `:runtime-db` local storage, a
-  multi-trigger evaluation set, owned by its `:resource-key`, with
+  multi-trigger evaluation set, the `:scoped-resource-key` lifecycle, with
   `:selectors` (the `:rf.resource/*` read facts) and `:commands` (the
   transport descriptors). `…/resource-cache-algebra-view` reports one node
   per live cache entry keyed by its scoped resource key, with the realized
@@ -73,14 +73,14 @@
    :refinement    :resource-process
    :storage       :runtime-db
    :evaluation    #{:on-route :on-reply :scheduled :manual}
-   :lifecycle     :resource-key
+   :lifecycle     :scoped-resource-key
    :materialized? true})
 
 (defn- has-fixed-classifications? [node]
   (= fixed-classifications (select-keys node (keys fixed-classifications))))
 
 ;; The live node keeps the same spine EXCEPT :lifecycle, which is the map
-;; form `{:kind :resource-key :owners …}` (the static node uses the bare
+;; form `{:kind :scoped-resource-key :owners …}` (the static node uses the bare
 ;; keyword) — the owners are live state. So a live node is checked against
 ;; the spine minus the keyword-lifecycle axis.
 (def ^:private live-fixed-classifications
@@ -214,7 +214,7 @@
             work-id
             (work-ledger/work-record {:work-id      work-id
                                       :frame-id     frame-id
-                                      :resource-key scoped-key
+                                      :resource/key scoped-key
                                       :generation   1
                                       :transport    :rf.http/managed
                                       :owner        owner
@@ -239,7 +239,7 @@
       (testing "the concrete entry output address"
         (is (= [:runtime (state/entry-path scoped-key)] (:output node))))
       (testing "the live lifecycle map carries the active owners"
-        (is (= {:kind :resource-key :owners #{[:route :route/article 17]}}
+        (is (= {:kind :scoped-resource-key :owners #{[:route :route/article 17]}}
                (:lifecycle node))))
       (testing "the entry status is surfaced"
         (is (= :loaded (:status node))))

@@ -112,7 +112,7 @@
   [scoped-key data]
   (let [e (entry scoped-key)]
     (rf/dispatch-sync [:rf.resource.internal/succeeded
-                       {:resource-key scoped-key :work/id (:current-work e)
+                       {:resource/key scoped-key :work/id (:current-work e)
                         :generation (:generation e) :data data}])))
 
 ;; ===========================================================================
@@ -205,7 +205,7 @@
                   mandatory — a late reply carrying the PRE-focus generation is
                   suppressed (never overwrites the post-focus entry)"
           (rf/dispatch-sync [:rf.resource.internal/succeeded
-                             {:resource-key k
+                             {:resource/key k
                               :work/id (work-ledger/resource-work-id k gen-before)
                               :generation gen-before :data {:title "Zombie"}}])
           (is (not= {:title "Zombie"} (:data (entry k)))

@@ -38,7 +38,7 @@
 
   Per Spec 016 §Transport: the runtime owns reply addressing and request
   correlation; the internal reply payloads stamp the qualified
-  `:rf.frame/id`, `:work/id`, `:resource-key`, `:scope`, and
+  `:rf.frame/id`, `:work/id`, `:resource/key`, `:scope`, and
   `:generation`, and success/failure handlers MUST verify frame + work-id
   + generation before writing (cancellation is an optimization; stale
   suppression is the correctness boundary). The verification work identity

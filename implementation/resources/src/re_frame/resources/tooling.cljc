@@ -77,7 +77,7 @@
 ;;   :storage     :runtime-db           (the LOCAL cache entry lives in runtime-db)
 ;;   :authority   {:kind :remote …}     (the source of truth is external — the remote axis)
 ;;   :evaluation  #{:on-route :on-reply :scheduled :manual}  (a multi-trigger process)
-;;   :lifecycle   :resource-key         (a scoped resource key owns the cache entry)
+;;   :lifecycle   :scoped-resource-key  (a scoped resource key owns the cache entry)
 ;; The per-resource axes that vary are the declared INPUTS (params + scope),
 ;; the OUTPUT runtime-db address, the `:authority` transport, and (for a
 ;; `{:from-db <id>}` scope) the named-resolver enrichment.
@@ -111,8 +111,11 @@
 (def resource-lifecycle
   "The lifecycle class of a resource process node (Derivations §Lifecycle
   and owner): a scoped resource key owns the cache entry; owners, freshness
-  policy, and GC release it."
-  :resource-key)
+  policy, and GC release it. The unqualified lifecycle-CATEGORY kind
+  `:scoped-resource-key` (sibling to `:frame` / `:route` / `:machine-instance`)
+  — distinct from the `:resource/key` durable data field that carries the
+  concrete key value (one name per fact, EP-0007)."
+  :scoped-resource-key)
 
 (def resource-evaluation
   "The evaluation policy SET of a resource process node (Derivations
@@ -250,7 +253,8 @@
 
   The fixed-classification spine — a `:process` whose cache entry lands in
   runtime-db, external `:authority`, evaluated on the resource trigger set,
-  owned by its `:resource-key` — plus the per-resource declared `:inputs`
+  owned by its scoped resource key (the `:scoped-resource-key` lifecycle) —
+  plus the per-resource declared `:inputs`
   (params + scope), the runtime-db `:output` address, the `:selectors`
   read-fact ids, the `:commands` transport descriptors, the optional
   `:scope-resolver` named-resolver enrichment, and source coords / schema /
@@ -316,7 +320,7 @@
                      mirrors the registered transport.
   - `:evaluation`  — `#{:on-route :on-reply :scheduled :manual}` (a
                      multi-trigger process).
-  - `:lifecycle`   — `:resource-key`.
+  - `:lifecycle`   — `:scoped-resource-key`.
   - `:selectors`   — the `:rf.resource/*` read-fact ids that derive over the
                      entry (separate on-demand derivations; reading one does
                      not start work).
@@ -370,7 +374,7 @@
   fact identity. The static fixed classifications hold; the live axes are the
   realized `:inputs` (concrete `[:scope …]` + `[:param …]`), the concrete
   `:output` runtime-db entry address, the live `:lifecycle` map (the
-  `:resource-key` kind + the entry's `:active-owners`), the entry `:status`,
+  `:scoped-resource-key` kind + the entry's `:active-owners`), the entry `:status`,
   and — when an attempt is in flight — the work-ledger record summary +
   the host-transient in-flight handle address (Derivations §Output —
   `:host-transient` in-flight work)."
@@ -429,14 +433,14 @@
 
   Per-entry node (the static fixed classifications hold — `:kind :process`,
   `:storage :runtime-db`, external `:authority`, the resource trigger set,
-  `:lifecycle :resource-key`), plus the live axes:
+  `:lifecycle :scoped-resource-key`), plus the live axes:
 
   - `:id`          — the concrete scoped resource key (the live fact identity).
   - `:inputs`      — the realized `[[:scope <scope>] [:param <params>]]` edges
                      for THIS entry.
   - `:output`      — `[:runtime [:rf.runtime/resources :entries <scoped-key>]]`
                      (the concrete entry address).
-  - `:lifecycle`   — `{:kind :resource-key :owners <active-owners>}` (the live
+  - `:lifecycle`   — `{:kind :scoped-resource-key :owners <active-owners>}` (the live
                      owner set keeping the entry alive — Derivations §Lifecycle
                      and owner).
   - `:status`      — the entry's lifecycle FSM status (`:idle` / `:loading` /

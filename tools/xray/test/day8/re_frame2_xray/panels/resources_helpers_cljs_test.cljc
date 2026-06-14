@@ -368,7 +368,7 @@
         (is (:cancellable? r))
         (is (= 5100 (:deadline-at r)))
         ;; resource-key scope/params summarized
-        (is (= "vector" (get-in r [:resource-key :scope :type])))
+        (is (= "vector" (get-in r [:resource/key :scope :type])))
         ;; rf2-r1zjd0 / EP-0016 — SINGLE attempt identity: the row exposes
         ;; exactly :work-id (= the record's :work/id); the retired :stale-key
         ;; synonym MUST NOT be present (Spec 016 §Ledger row retention,
@@ -554,11 +554,11 @@
 (def ^:private trace-buffer
   [{:id 1 :operation :rf.event/dispatched :tags {}}
    {:id 2 :operation :rf.resource/fetch-started
-    :tags {:resource-key [session-scope :article/by-slug {:slug "welcome"}]
+    :tags {:resource/key [session-scope :article/by-slug {:slug "welcome"}]
            :generation 4 :status :loading
            :owner [:route :route/article "nav-1"]}}
    {:id 3 :operation :rf.resource/succeeded
-    :tags {:resource-key [session-scope :article/by-slug {:slug "welcome"}]
+    :tags {:resource/key [session-scope :article/by-slug {:slug "welcome"}]
            :generation 4 :status-after :loaded}}
    {:id 4 :operation :rf.resource/invalidated
     :tags {:scope session-scope :tags #{[:article "welcome"]}
@@ -578,7 +578,7 @@
       (let [fs (first rows)]
         (is (= :article/by-slug (:resource-id fs)))
         (is (= :lifecycle (:class fs)))
-        (is (= "vector" (get-in fs [:resource-key :scope :type])))))))
+        (is (= "vector" (get-in fs [:resource/key :scope :type])))))))
 
 (deftest invalidation-graph-test
   (let [rows (h/invalidation-graph trace-buffer)]

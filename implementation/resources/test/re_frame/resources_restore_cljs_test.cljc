@@ -223,7 +223,7 @@
 (defn- work-row
   [work-id status]
   (-> (work-ledger/work-record
-        {:work-id work-id :frame-id :app/main :resource-key gkey
+        {:work-id work-id :frame-id :app/main :resource/key gkey
          :generation (nth work-id 2) :transport :rf.http/managed
          :started-at 1000})
       (assoc :status status)))
@@ -442,7 +442,7 @@
                         (assoc-in (work-ledger/record-path work-id)
                                   (-> (work-ledger/work-record
                                         {:work-id work-id :frame-id fid
-                                         :resource-key [:rf.mutation instance-id]
+                                         :resource/key [:rf.mutation instance-id]
                                          :generation 3 :transport :rf.http/managed
                                          :started-at 1000})
                                       (assoc :work/kind :mutation))))

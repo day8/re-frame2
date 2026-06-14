@@ -121,7 +121,7 @@
                                           :owner owner}])
   (let [e (entry (tenant-key t page))]
     (rf/dispatch-sync [:rf.resource.internal/succeeded
-                       {:resource-key (tenant-key t page)
+                       {:resource/key (tenant-key t page)
                         :work/id      (:current-work e)
                         :generation   (:generation e)
                         :data         data}])))
@@ -233,7 +233,7 @@
   (let [ka (state/scoped-resource-key [:rf.scope/tenant {:tenant-id "acme"}] :t/notes {})
         e  (entry ka)]
     (rf/dispatch-sync [:rf.resource.internal/succeeded
-                       {:resource-key ka :work/id (:current-work e)
+                       {:resource/key ka :work/id (:current-work e)
                         :generation (:generation e) :data {:secret "acme-notes"}}]))
   (testing "a from-caller sub at a DIFFERENT (wrong) scope than the active
             ensure reads :idle (fail-closed) AND emits the dev-only

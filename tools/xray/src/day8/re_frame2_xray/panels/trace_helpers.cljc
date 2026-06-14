@@ -607,9 +607,9 @@
       ;; the scoped resource key is `[scope resource-id params]`; surface
       ;; the resource-id (its identity) + the generation when present.
       ;; `:resource-id` is carried bare by `:rf.resource/registered`;
-      ;; the lifecycle rows carry the `:resource-key` whose 2nd element
+      ;; the lifecycle rows carry the `:resource/key` whose 2nd element
       ;; is the resource-id.
-      (let [rk  (:resource-key tags)
+      (let [rk  (:resource/key tags)
             rid (or (:resource-id tags)
                     (when (and (vector? rk) (>= (count rk) 2)) (nth rk 1)))
             gen (:generation tags)]

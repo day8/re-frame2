@@ -137,7 +137,7 @@
               {:http-args    {:request {:url "/x"} reserved :sneaky}
                :request-id   [:rf.work/resource [:rf.scope/global :r {}] 1]
                :work-id      [:rf.work/resource [:rf.scope/global :r {}] 1]
-               :resource-key [:rf.scope/global :r {}]
+               :resource/key [:rf.scope/global :r {}]
                :scope        :rf.scope/global
                :frame-id     :rf/default
                :generation   1}))
@@ -191,7 +191,7 @@
         (testing "the reply payload carries the verification identity (Spec 016
                   §Transport — verify frame + work-id + generation)"
           (let [vp (nth (:on-success args) 1)]
-            (is (= scoped-key (:resource-key vp)))
+            (is (= scoped-key (:resource/key vp)))
             (is (= (:current-work (entry scoped-key)) (:work/id vp)))
             (is (= 1 (:generation vp)))
             (is (= :rf.scope/global (:scope vp)))

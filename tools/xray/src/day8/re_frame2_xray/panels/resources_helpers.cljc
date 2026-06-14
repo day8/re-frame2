@@ -648,7 +648,7 @@
 
       {:work-id      <id>
        :kind         :resource
-       :resource-key <scoped-key-summary>  ; PRIVACY: scope/params summarized
+       :resource/key <scoped-key-summary>  ; PRIVACY: scope/params summarized
        :resource-id  :article/by-slug
        :generation   4
        :status       :running
@@ -661,7 +661,7 @@
        :transport    :rf.http/managed
        :outcome      <summary>}"
   [[map-key record]]
-  (let [rkey (or (:resource/key record) (:resource-key record))
+  (let [rkey (:resource/key record)
         {:keys [scope resource-id params]} (scoped-key-summary rkey)
         ;; rf2-9e0tyq / rf2-hgy5kf: the `:rf.runtime/work-ledger` map is keyed
         ;; on the opaque CEDN-1 byte `work-id-id` STRING; the kind-preserving
@@ -672,7 +672,7 @@
         work-id (or (:work/id record) map-key)]
     {:work-id      work-id
      :kind         (or (:work/kind record) (:kind record))
-     :resource-key {:scope scope :resource-id resource-id :params params}
+     :resource/key {:scope scope :resource-id resource-id :params params}
      :resource-id  resource-id
      :generation   (:generation record)
      :status       (:status record)
@@ -916,7 +916,7 @@
        :label       \"fetch started\"
        :class       :lifecycle
        :resource-id :article/by-slug
-       :resource-key <scoped-key-summary>  ; PRIVACY-summarized
+       :resource/key <scoped-key-summary>  ; PRIVACY-summarized
        :generation  4
        :work-id     <id>
        :owner       <owner>
@@ -928,7 +928,7 @@
   resource-id happens in the composite. Per Spec 016.
 
   Optional `egress-fn` (rf2-e0mq7a): `(fn [value] -> egressed)` applied to
-  the VALUE-BEARING fields — the `:resource-key`'s scope/params (PII) and
+  the VALUE-BEARING fields — the `:resource/key`'s scope/params (PII) and
   the `:cause` (may carry mutation data) — BEFORE `summarize`. The off-box
   (AI/MCP / log) accessor (`get-resource-history`) threads
   `runtime/egress-value` here so per-slot `:sensitive?` / `:large?`
@@ -948,14 +948,14 @@
           (mapv (fn [ev]
                   (let [op   (trace-op ev)
                         tags (trace-tags ev)
-                        rkey (or (:resource-key tags) (:resource/key tags))]
+                        rkey (:resource/key tags)]
                     {:id           (:id ev)
                      :operation    op
                      :label        (op-label op)
                      :class        (op-class op)
                      :resource-id  (or (:resource-id tags)
                                        (when (vector? rkey) (second rkey)))
-                     :resource-key (when rkey (scoped-key-summary rkey eg))
+                     :resource/key (when rkey (scoped-key-summary rkey eg))
                      :generation   (:generation tags)
                      :work-id      (:work/id tags)
                      :owner        (:owner tags)

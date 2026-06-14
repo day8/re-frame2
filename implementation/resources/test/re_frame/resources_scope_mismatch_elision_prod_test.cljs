@@ -107,7 +107,7 @@
                                               :params {:slug "w"} :owner [:route :r 1]}])
       (let [wid (:current-work (entry ka))]
         (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource-key ka :work/id wid :generation 1
+                           {:resource/key ka :work/id wid :generation 1
                             :data {:title "W"}}])))
     ;; … then subscribe under scope B (the mismatch the dev warning targets)
     (let [seen (listener-fixture

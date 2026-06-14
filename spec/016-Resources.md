@@ -62,6 +62,8 @@ For example:
 
 This **scoped resource key** is the cache key, the request-correlation token's payload, and the unit Xray and SSR enumerate.
 
+**One name per fact** ([EP-0007](../docs/EP/EP-0007-one-name-per-fact.md)): the scoped resource key has exactly **one spelling on data shapes — `:resource/key`** — wherever it appears as a field or payload value (the durable cache-entry / work-record field, the internal-reply verification payload, the `:correlation` map, the error-tag payload, and resource trace rows). The schema is `:rf/scoped-resource-key` ([Spec-Schemas](Spec-Schemas.md#rfscoped-resource-key-rfresource-entry-rfresource-work-record-resources-spec-016)); the storage **tuple** `[scope resource-id canonical-params]` and the map-form authoring **input** are an input-vs-storage distinction (EP-0007 rule 3), not two spellings of one fact. `:resource/key` (the concrete scoped key) is **deliberately distinct** from `:resource/id` / `:resource-id` (the **registered resource id**, a bare keyword) — the two are different facts and MUST NOT be conflated. The derivation-algebra **lifecycle category** that means "a scoped resource key owns this entry" is the unqualified kind `:scoped-resource-key` (sibling to `:frame` / `:route` / `:machine-instance`, [Derivations §Lifecycle and owner](Derivations.md#lifecycle-and-owner)) — a category tag, not the key value, so it does not collide with the `:resource/key` data field.
+
 Identity rules (MUST):
 
 - **Cache scope is serializable EDN data** and is the first element of the key. A scope **map** is canonicalized under the **same canonicalization rule as params maps** — key order does not affect identity and nested maps recurse — so two spellings of the same scope hash to one cache key. `[:rf.scope/session {:tenant-id "acme" :user-id "u-42"}]` and `[:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]` are the **same scope**, never two leaking caches.
@@ -592,7 +594,7 @@ Three registrar kinds belong to this artefact: **`:resource`** (`reg-resource` /
   :params   {:slug "welcome"}}]
 ```
 
-The internal replies — `:rf.resource.internal/succeeded` / `:rf.resource.internal/failed` / `:rf.resource.internal/aborted` / `:rf.resource.internal/stale-fired` / `:rf.resource.internal/gc-fired` / `:rf.resource.internal/stale-suppressed` — are framework-internal and carry the verification payload (`:work/id`, `:resource-key`, `:scope`, `:generation`, `:rf.frame/id`); user code MUST NOT dispatch them directly. They **receive the canonical uniform reply map** ([Managed-Effects §The uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope)) — one closed `:status`, value-or-error, `:work/id`, `:work/kind :resource`, `:work/status`, `:rf.frame/id`, causal completion metadata, and `:correlation`. The verification work identity is the qualified `:work/id` (the single spelling the ledger row, the entry's `:current-work`, and the reply envelope all use — [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md): one attempt, one work id, one name; the unqualified `:work-id` is retired). See [§The uniform reply envelope and the canonical reply map](#the-uniform-reply-envelope-and-the-canonical-reply-map).
+The internal replies — `:rf.resource.internal/succeeded` / `:rf.resource.internal/failed` / `:rf.resource.internal/aborted` / `:rf.resource.internal/stale-fired` / `:rf.resource.internal/gc-fired` / `:rf.resource.internal/stale-suppressed` — are framework-internal and carry the verification payload (`:work/id`, `:resource/key`, `:scope`, `:generation`, `:rf.frame/id`); user code MUST NOT dispatch them directly. They **receive the canonical uniform reply map** ([Managed-Effects §The uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope)) — one closed `:status`, value-or-error, `:work/id`, `:work/kind :resource`, `:work/status`, `:rf.frame/id`, causal completion metadata, and `:correlation`. The verification work identity is the qualified `:work/id` (the single spelling the ledger row, the entry's `:current-work`, and the reply envelope all use — [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md): one attempt, one work id, one name; the unqualified `:work-id` is retired). See [§The uniform reply envelope and the canonical reply map](#the-uniform-reply-envelope-and-the-canonical-reply-map).
 
 ### Subscriptions (passive)
 
@@ -899,10 +901,10 @@ For HTTP, the resource runtime first creates or joins a work-ledger record, then
  (assoc http-args
         :request-id [:rf.req frame-id work-id]        ; frame-QUALIFIED transport correlation token
         :on-success [:rf.resource.internal/succeeded
-                     {:work/id work-id :resource-key resource-key
+                     {:work/id work-id :resource/key resource-key
                       :scope scope :rf.frame/id frame-id :generation generation}]
         :on-failure [:rf.resource.internal/failed
-                     {:work/id work-id :resource-key resource-key
+                     {:work/id work-id :resource/key resource-key
                       :scope scope :rf.frame/id frame-id :generation generation}])]
 ```
 
@@ -962,7 +964,7 @@ The canonical reply map a resource/mutation reply handler receives:
  :work/status  :completed | :failed | :cancelled | :suppressed
  :rf.frame/id  frame-id
  :completed-at <causal epoch-ms>
- :correlation  {:scope … :generation … :resource-key …}        ; resource
+ :correlation  {:scope … :generation … :resource/key …}        ; resource
                ; {:mutation/id … :instance/id … :scope … :generation …} ; mutation
  :stale?       <bool>            ; :stale only
  :stale/reason <keyword>}        ; :stale only

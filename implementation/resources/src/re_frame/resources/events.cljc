@@ -13,7 +13,7 @@
     [:rf.resource/remove          {:resource … :scope … :params …}]
 
   Plus the framework-INTERNAL replies (`:rf.resource.internal/*`) that
-  carry the verification payload (`:work/id` / `:resource-key` / `:scope`
+  carry the verification payload (`:work/id` / `:resource/key` / `:scope`
   / `:generation` / `:rf.frame/id`) — user code MUST NOT dispatch them.
   The internal replies RECEIVE the canonical uniform reply map (Managed-
   Effects §The uniform reply envelope) — `re-frame.resources.reply` builds
@@ -258,13 +258,13 @@
                      ;; No-op for a non-route-owned / non-blocking resource.
                      (route/drain-blocking scoped-key hit :success))]
         (trace/emit! :rf.event :rf.resource/cache-hit
-                     {:rf.frame/id frame-id :resource-key scoped-key
+                     {:rf.frame/id frame-id :resource/key scoped-key
                       :generation (:generation entry) :owner owner :cause cause})
         ;; the cache-hit attached a new owner lease — record that distinct
         ;; liveness change (symmetric with the dedupe / fresh-load paths).
         (when owner-newly-attached?
           (trace/emit! :rf.event :rf.resource/owner-attached
-                       {:rf.frame/id frame-id :resource-key scoped-key
+                       {:rf.frame/id frame-id :resource/key scoped-key
                         :generation (:generation entry) :owner owner :cause cause
                         :work/id nil :joined-in-flight? false}))
         {:rf.db/runtime rdb'})
@@ -289,14 +289,14 @@
                          owner (update-in (state/owner-index-path)
                                           update owner (fnil conj #{}) (state/key-id scoped-key))))]
         (trace/emit! :rf.event :rf.resource/deduped
-                     {:rf.frame/id frame-id :resource-key scoped-key
+                     {:rf.frame/id frame-id :resource/key scoped-key
                       :generation (:generation entry) :owner owner :cause cause
                       :work/id prior-work})
         ;; the ensure joined the in-flight work (no new generation) but ALSO
         ;; attached a new owner lease — record that distinct liveness change.
         (when owner-newly-attached?
           (trace/emit! :rf.event :rf.resource/owner-attached
-                       {:rf.frame/id frame-id :resource-key scoped-key
+                       {:rf.frame/id frame-id :resource/key scoped-key
                         :generation (:generation entry) :owner owner :cause cause
                         :work/id prior-work :joined-in-flight? true}))
         {:rf.db/runtime rdb'})
@@ -337,7 +337,7 @@
             record     (work-ledger/work-record
                          {:work-id      work-id
                           :frame-id     frame-id
-                          :resource-key scoped-key
+                          :resource/key scoped-key
                           :generation   generation
                           :transport    transport-id
                           :owner        owner
@@ -357,7 +357,7 @@
                                               update owner (fnil conj #{}) (state/key-id scoped-key))))
             ;; lower into the resource's transport (the existing seam). The
             ;; runtime owns reply addressing: the internal reply payloads
-            ;; stamp the qualified :rf.frame/id + :work/id + :resource-key +
+            ;; stamp the qualified :rf.frame/id + :work/id + :resource/key +
             ;; :scope + :generation so the reply handlers verify before
             ;; writing (stale suppression is the correctness boundary).
             http-args  (let [req-fn (:request spec)]
@@ -367,18 +367,18 @@
                          {:http-args    http-args
                           :request-id   request-id
                           :work-id      work-id
-                          :resource-key scoped-key
+                          :resource/key scoped-key
                           :scope        scope
                           :frame-id     frame-id
                           :generation   generation
                           :where        where})]
         (trace/emit! :rf.event :rf.resource/work-started
-                     {:rf.frame/id frame-id :resource-key scoped-key
+                     {:rf.frame/id frame-id :resource/key scoped-key
                       :generation generation :work/id work-id
                       :status :running :owner owner :cause cause
                       :superseded (when superseding? prior-work)})
         (trace/emit! :rf.event :rf.resource/fetch-started
-                     {:rf.frame/id frame-id :resource-key scoped-key
+                     {:rf.frame/id frame-id :resource/key scoped-key
                       :generation generation :work/id work-id
                       :status (:status entry') :owner owner :cause cause})
         ;; a fresh load that also attaches a NEW owner lease — record the
@@ -386,7 +386,7 @@
         ;; with `:rf.resource/owner-released`).
         (when owner-newly-attached?
           (trace/emit! :rf.event :rf.resource/owner-attached
-                       {:rf.frame/id frame-id :resource-key scoped-key
+                       {:rf.frame/id frame-id :resource/key scoped-key
                         :generation generation :owner owner :cause cause
                         :work/id work-id :joined-in-flight? false}))
         {:rf.db/runtime rdb'
@@ -496,7 +496,7 @@
 
 (defn- active-stale-scan
   "Pure scan: given the frame's `runtime-db` value and the live `clock-ms`,
-  return the vector of `{:resource-key :scope :resource :params}` for every
+  return the vector of `{:resource/key :scope :resource :params}` for every
   cache entry that is active (has at least one `:active-owner` — a live lease
   worth refetching), stale-by-policy (`state/entry-stale?` against the
   durable timestamps), AND not already mid-revalidation (no LIVE in-flight
@@ -527,7 +527,7 @@
                     ;; `:resource/key` (the map key is now the opaque byte id).
                     (let [scoped-key (:resource/key entry)
                           [scope resource-id params] scoped-key]
-                      {:resource-key scoped-key
+                      {:resource/key scoped-key
                        :scope        scope
                        :resource     resource-id
                        :params       params}))))
@@ -574,7 +574,7 @@
                  {:rf.frame/id frame-id :signal signal :cause cause
                   :scanned    (count (get-in runtime-db (state/entries-path)))
                   :refetched  (count eligible)
-                  :keys       (mapv :resource-key eligible)})
+                  :keys       (mapv :resource/key eligible)})
     {:fx refetches}))
 
 (defn window-focused-handler
@@ -785,7 +785,7 @@
         ;; path supplies scoped-key vectors; reduce both to `key-id`) so a
         ;; list- vs vector-params exempt key matches exactly. The matched MAP
         ;; is keyed on the byte `key-id` (so `assoc-in (entry-path …)` and the
-        ;; trace's `:resource-key` use the right form: byte for the db write,
+        ;; trace's `:resource/key` use the right form: byte for the db write,
         ;; vector for the trace/refetch).
         exempt     (into #{} (map state/key-id) exempt-keys)
         ;; the SHARED pure match (rf2-fi6tda.2): exactly the set the
@@ -805,10 +805,10 @@
         ;; per-entry decision: active-owner entries refetch (Spec 016
         ;; §Invalidation 3); ownerless entries are left stale / GC-eligible
         ;; (§Invalidation 4). Collected once for both the dispatches and the
-        ;; per-entry trace detail. `:resource-key` is the scoped-key VECTOR.
+        ;; per-entry trace detail. `:resource/key` is the scoped-key VECTOR.
         decisions  (mapv (fn [k-id]
                            (let [entry (get entries k-id)]
-                             {:resource-key (:resource/key entry)
+                             {:resource/key (:resource/key entry)
                               :active? (boolean (seq (:active-owners entry)))
                               :decision (if (seq (:active-owners entry))
                                           :refetch :left-stale)
@@ -817,7 +817,7 @@
         refetches  (into []
                          (comp
                            (filter :active?)
-                           (map (fn [{k :resource-key}]
+                           (map (fn [{k :resource/key}]
                                   (let [[s rid p] k]
                                     [:dispatch [:rf.resource/refetch
                                                 {:resource rid :scope s :params p
@@ -827,7 +827,7 @@
     (trace/emit! :rf.event :rf.resource/invalidated
                  {:rf.frame/id frame-id :scope cscope :tags tags :cause cause
                   :cross-scope? (boolean cross-scope?)
-                  :matched (mapv :resource-key decisions)
+                  :matched (mapv :resource/key decisions)
                   :refetched (count refetches)
                   :left-stale (count (remove :active? decisions))
                   ;; EP-0016 Rider 1: keys a same-mutation populate kept
@@ -839,9 +839,9 @@
     ;; ... PLUS one per-entry detail trace (the refetch-vs-leave-stale
     ;; decision per matched key — Spec 016 §Invalidation 5 / the Xray
     ;; invalidation graph)
-    (doseq [{:keys [resource-key active? decision tags] :as _d} decisions]
+    (doseq [{:keys [active? decision tags] resource-key :resource/key :as _d} decisions]
       (trace/emit! :rf.event :rf.resource/refetch-decision
-                   {:rf.frame/id frame-id :resource-key resource-key
+                   {:rf.frame/id frame-id :resource/key resource-key
                     :scope (first resource-key) :active? active?
                     :decision decision :tags tags :cause cause}))
     {:rf.db/runtime rdb'
@@ -973,7 +973,7 @@
                        in-flight)
            (seq in-scope)
            (conj [:rf.resource/cancel-timers
-                  {:frame-id frame-id :resource-keys (vec in-scope)}]))}))
+                  {:frame-id frame-id :resource/keys (vec in-scope)}]))}))
 
 (defn clear-scope-handler
   "`:rf.resource/clear-scope` — causal scope clear (Spec 016 §clear-scope
@@ -1074,7 +1074,7 @@
                                      :cancelled {:reason :remove}))
                        (update state/resources-key state/recompute-indexes))]
     (trace/emit! :rf.event :rf.resource/removed
-                 {:rf.frame/id frame-id :resource-key scoped-key :reason :remove
+                 {:rf.frame/id frame-id :resource/key scoped-key :reason :remove
                   :aborted (when wid [wid])})
     {:rf.db/runtime rdb'
      ;; best-effort abort of the removed instance's in-flight attempt
@@ -1084,7 +1084,7 @@
      ;; token); a bare work-id would miss the removed instance's in-flight request.
      :fx (conj (if-let [fx (and wid (work-ledger/abort-fx transport frame-id wid))] [fx] [])
                [:rf.resource/cancel-timers
-                {:frame-id frame-id :resource-keys [scoped-key]}])}))
+                {:frame-id frame-id :resource/keys [scoped-key]}])}))
 
 ;; ---- framework-internal reply handlers ------------------------------------
 ;;
@@ -1131,13 +1131,13 @@
                         :stale/reason :rf.resource/superseded
                         :correlation  (cond-> {:generation {:carried carried-gen
                                                              :current current-gen}}
-                                        (some? resource-key) (assoc :resource-key resource-key)
+                                        (some? resource-key) (assoc :resource/key resource-key)
                                         (some? scope)         (assoc :scope scope))}
                        extra)})))
 
 (defn- emit-resource-stale-suppressed!
   "Emit the `:rf.resource/stale-suppressed` trace for a suppressed late
-  resource reply, carrying its bespoke facts (`:resource-key` / `:work/id` /
+  resource reply, carrying its bespoke facts (`:resource/key` / `:work/id` /
   `:generation` / `:outcome`) PLUS the canonical reply-envelope vocabulary
   ADDITIVELY (joined to `:work/id` via the shared `:rf.reply/*` facts):
   `:rf.reply/status :stale`, `:rf.reply/work-status :suppressed`,
@@ -1150,7 +1150,7 @@
   [frame-id resource-key work-id generation outcome stale]
   (let [summary (rreply/trace-reply (:reply stale))]
     (trace/emit! :rf.event :rf.resource/stale-suppressed
-                 {:rf.frame/id frame-id :resource-key resource-key
+                 {:rf.frame/id frame-id :resource/key resource-key
                   :work/id work-id :generation generation :outcome outcome
                   ;; reply-envelope vocabulary (Managed-Effects §9) — the
                   ;; canonical :status :stale reply produced via the shared
@@ -1201,7 +1201,7 @@
   The verification work identity is `:work/id` (EP-0007 — the qualified
   spelling the ledger row, the entry's `:current-work`, and the uniform
   reply envelope share). One attempt, one work id, one name."
-  [runtime-db receiving-frame-id {work-id :work/id :keys [resource-key generation] :as payload}]
+  [runtime-db receiving-frame-id {work-id :work/id resource-key :resource/key :keys [generation] :as payload}]
   (let [reply-frame (:rf.frame/id payload)]
     (when (or (nil? reply-frame) (= reply-frame receiving-frame-id))
       (when-let [entry (get-in runtime-db (state/entry-path resource-key))]
@@ -1219,7 +1219,7 @@
 ;;   [:rf.resource.internal/succeeded <verification-payload> {:kind :success :value <decoded-data>}]
 ;;   [:rf.resource.internal/failed    <verification-payload> {:kind :failure :failure <:rf.http/* envelope>}]
 ;;
-;; `<verification-payload>` (arg 2) is the `{:work/id :resource-key :scope
+;; `<verification-payload>` (arg 2) is the `{:work/id :resource/key :scope
 ;; :generation :rf.frame/id}` map resource lowering supplied (the stale-
 ;; suppression identity, the boundary the runtime OWNS — EP-0007: the work
 ;; identity is `:work/id`). `<http-result>` (arg 3) is the transport's
@@ -1305,7 +1305,7 @@
   (Spec 014 §Reply addressing); the decoded data is read from there
   (`reply-success-data`) and re-lifted into the canonical `:value`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, cofx :rf.cofx}
-   [_event-id {work-id :work/id :keys [resource-key generation] :as payload} http-result]]
+   [_event-id {work-id :work/id resource-key :resource/key :keys [generation] :as payload} http-result]]
   (let [runtime-db (or rt {})
         value      (reply-success-data payload http-result)
         ;; EP-0010 §Managed Effects And Reply Tokens / §Resources, Mutations,
@@ -1395,10 +1395,10 @@
                           (route/drain-blocking resource-key entry' :success))]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.resource/work-completed
-                     {:rf.frame/id frame-id :resource-key resource-key
+                     {:rf.frame/id frame-id :resource/key resource-key
                       :work/id work-id :generation generation :status :completed})
         (trace/emit! :rf.event :rf.resource/succeeded
-                     {:rf.frame/id frame-id :resource-key resource-key
+                     {:rf.frame/id frame-id :resource/key resource-key
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after :loaded})
         ;; arm the advisory stale / GC timers (host-side side table) for this
@@ -1414,7 +1414,7 @@
           (or stale-delay-ms gc-delay-ms)
           (assoc :fx [[:rf.resource/schedule-timers
                        {:frame-id       frame-id
-                        :resource-key   resource-key
+                        :resource/key   resource-key
                         :stale-delay-ms stale-delay-ms
                         :gc-delay-ms    gc-delay-ms
                         :server?        (server-frame? frame-id)}]]))))))
@@ -1468,7 +1468,7 @@
   Managed-Effects §Status taxonomy / EP-0011 §Resource Reply And Work
   Ledger)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
-   [_event-id {work-id :work/id :keys [resource-key generation] :as payload} http-result]]
+   [_event-id {work-id :work/id resource-key :resource/key :keys [generation] :as payload} http-result]]
   (let [runtime-db (or rt {})
         error      (reply-failure-error payload http-result)
         ;; the ONE canonical reply map (Managed-Effects §The uniform reply
@@ -1523,7 +1523,7 @@
                        (route/drain-blocking resource-key entry' :success))]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.resource/work-abort-requested
-                     {:rf.frame/id frame-id :resource-key resource-key
+                     {:rf.frame/id frame-id :resource/key resource-key
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')})
         {:rf.db/runtime rdb'})
@@ -1549,10 +1549,10 @@
                        (route/drain-blocking resource-key entry' :failure))]
         (work-ledger/clear-handle! frame-id work-id)
         (trace/emit! :rf.event :rf.resource/work-completed
-                     {:rf.frame/id frame-id :resource-key resource-key
+                     {:rf.frame/id frame-id :resource/key resource-key
                       :work/id work-id :generation generation :status :failed})
         (trace/emit! :rf.event op
-                     {:rf.frame/id frame-id :resource-key resource-key
+                     {:rf.frame/id frame-id :resource/key resource-key
                       :work/id work-id :generation generation
                       :status-before (:status entry) :status-after (:status entry')})
         {:rf.db/runtime rdb'}))))
@@ -1566,11 +1566,11 @@
   and clears the host handle. Per Spec 016 §Cancellation is opportunistic;
   stale suppression is mandatory / §Ledger row retention and identity."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
-   [_event-id {work-id :work/id :keys [resource-key generation]}]]
+   [_event-id {work-id :work/id resource-key :resource/key :keys [generation]}]]
   (let [runtime-db (or rt {})]
     (work-ledger/clear-handle! frame-id work-id)
     (trace/emit! :rf.event :rf.resource/work-abort-requested
-                 {:rf.frame/id frame-id :resource-key resource-key
+                 {:rf.frame/id frame-id :resource/key resource-key
                   :work/id work-id :generation generation})
     {:rf.db/runtime (work-ledger/update-record
                       runtime-db work-id work-ledger/mark-terminal
@@ -1601,7 +1601,7 @@
       explicit event, or the focus/reconnect active-stale scan
       `revalidate-handler`, rf2-vtblcq)."
   [{rt :rf.db/runtime, frame-id :rf.frame/id, cofx :rf.cofx}
-   [_event-id {:keys [resource-key]}]]
+   [_event-id {resource-key :resource/key}]]
   (let [runtime-db (or rt {})
         entry      (get-in runtime-db (state/entry-path resource-key))
         ;; re-derive staleness from the DURABLE :stale-at (the timer is
@@ -1620,7 +1620,7 @@
         ;; same way the recorded `:time-ms` did.
         stale?     (state/entry-stale? entry (:rf/time-ms cofx))]
     (trace/emit! :rf.event :rf.resource/stale-fired
-                 {:rf.frame/id frame-id :resource-key resource-key
+                 {:rf.frame/id frame-id :resource/key resource-key
                   :decision (cond (nil? entry) :no-entry
                                   stale?       :now-stale
                                   :else        :still-fresh)})
@@ -1655,7 +1655,7 @@
   `:gc-after-ms` never armed a GC timer in the first place, so it never skips
   here — but the reschedule fx is gated on a positive delay for safety."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
-   [_event-id {:keys [resource-key]}]]
+   [_event-id {resource-key :resource/key}]]
   (let [runtime-db (or rt {})
         entry      (get-in runtime-db (state/entry-path resource-key))]
     (if (and entry (empty? (:active-owners entry)) (nil? (:current-work entry)))
@@ -1666,13 +1666,13 @@
                      (update-in (state/entries-path) dissoc (state/key-id resource-key))
                      (update state/resources-key state/recompute-indexes))]
         (trace/emit! :rf.event :rf.resource/gc-fired
-                     {:rf.frame/id frame-id :resource-key resource-key})
+                     {:rf.frame/id frame-id :resource/key resource-key})
         {:rf.db/runtime rdb'
          ;; the entry is gone — cancel its (now orphaned) stale / GC timer
          ;; handles so they don't leak (the GC timer that fired is already
          ;; one-shot, but the paired stale timer may still be armed).
          :fx [[:rf.resource/cancel-timers
-               {:frame-id frame-id :resource-keys [resource-key]}]]})
+               {:frame-id frame-id :resource/keys [resource-key]}]]})
       (let [reason   (cond (nil? entry)                  :no-entry
                            (seq (:active-owners entry))  :has-owner
                            :else                         :in-flight)
@@ -1685,14 +1685,14 @@
             gc-delay (when (not= :no-entry reason)
                        (positive-or-nil (:gc-after-ms (registry/resource-meta (:resource/id entry)))))]
         (trace/emit! :rf.event :rf.resource/gc-skipped
-                     {:rf.frame/id frame-id :resource-key resource-key
+                     {:rf.frame/id frame-id :resource/key resource-key
                       :reason reason
                       :rescheduled? (some? gc-delay)})
         (cond-> {:rf.db/runtime runtime-db}
           gc-delay
           (assoc :fx [[:rf.resource/schedule-timers
                        {:frame-id       frame-id
-                        :resource-key   resource-key
+                        :resource/key   resource-key
                         ;; reschedule the GC re-check ONLY (leave stale as-is —
                         ;; nil disarms that kind in schedule-timers-handler)
                         :stale-delay-ms nil
@@ -1707,7 +1707,7 @@
   the suppression in trace for tools. Per Spec 016 §Cancellation is
   opportunistic; stale suppression is mandatory."
   [{rt :rf.db/runtime, frame-id :rf.frame/id}
-   [_event-id {work-id :work/id :keys [resource-key generation] :as payload}]]
+   [_event-id {work-id :work/id resource-key :resource/key :keys [generation] :as payload}]]
   (let [runtime-db (or rt {})
         stale      (stale-suppress-reply runtime-db resource-key payload nil)]
     (emit-resource-stale-suppressed!

@@ -100,7 +100,7 @@
 (defn- settle-success! [scoped-key data]
   (let [e (entry scoped-key)]
     (rf/dispatch-sync [:rf.resource.internal/succeeded
-                       {:resource-key scoped-key
+                       {:resource/key scoped-key
                         :work/id      (:current-work e)
                         :generation   (:generation e)
                         :data         data}])))
@@ -108,7 +108,7 @@
 (defn- settle-failure! [scoped-key error]
   (let [e (entry scoped-key)]
     (rf/dispatch-sync [:rf.resource.internal/failed
-                       {:resource-key scoped-key
+                       {:resource/key scoped-key
                         :work/id      (:current-work e)
                         :generation   (:generation e)
                         :error        error}])))

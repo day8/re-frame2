@@ -301,7 +301,7 @@
                    :font-size   "12px"
                    :opacity     (if (:terminal? row) 0.6 1)}}
      [:span {:style {:color mode-accent :font-weight 600}}
-      (str (get-in row [:resource-key :resource-id]))]
+      (str (get-in row [:resource/key :resource-id]))]
      [:span {:data-testid (str testid "-status")
              :style {:color (if (:terminal? row)
                               (:text-tertiary tokens)

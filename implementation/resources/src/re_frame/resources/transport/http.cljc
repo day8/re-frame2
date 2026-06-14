@@ -11,10 +11,10 @@
        (assoc http-args
               :request-id  request-id
               :on-success  [:rf.resource.internal/succeeded
-                            {:work/id … :resource-key … :scope …
+                            {:work/id … :resource/key … :scope …
                              :rf.frame/id … :generation …}]
               :on-failure  [:rf.resource.internal/failed
-                            {:work/id … :resource-key … :scope …
+                            {:work/id … :resource/key … :scope …
                              :rf.frame/id … :generation …}])]
 
   The verification-payload work identity is `:work/id` — the qualified
@@ -30,7 +30,7 @@
   builds the args map (request-id + reply addressing).
 
   The lowering ships here: `lower` mints the request-id and stamps the
-  work-ledger correlation (`:work/id` / `:resource-key` / `:scope` /
+  work-ledger correlation (`:work/id` / `:resource/key` / `:scope` /
   `:rf.frame/id` / `:generation`) into the reply addressing."
   (:require [re-frame.late-bind :as late-bind]))
 
@@ -88,7 +88,7 @@
                                           "from the :request return. Per Spec 016 "
                                           "§Transport.")
                        :keys         (vec offending)
-                       :resource-key resource-key})))
+                       :resource/key resource-key})))
     http-args))
 
 (defn build-managed-args
@@ -99,7 +99,7 @@
 
   The reply payloads stamp the qualified `:rf.frame/id` (the canonical
   carried frame stamp, EP-0002 R3) — matching the `:work/frame` stamp on
-  the ledger record — plus `:work/id`, `:resource-key`, `:scope`, and
+  the ledger record — plus `:work/id`, `:resource/key`, `:scope`, and
   `:generation` so the reply handlers can verify frame + work-id +
   generation before writing (stale suppression is the correctness
   boundary). The verification work identity is `:work/id` (the qualified
@@ -121,8 +121,9 @@
   that supplies the runtime-owned `:request-id` / `:on-success` /
   `:on-failure` itself is REJECTED here (`reject-reserved-reply-keys!`) — it
   would bypass stale suppression."
-  [{:keys [http-args request-id work-id resource-key scope frame-id generation where
-           on-success-id on-failure-id reply-payload]}]
+  [{:keys [http-args request-id work-id scope frame-id generation where
+           on-success-id on-failure-id reply-payload]
+    resource-key :resource/key}]
   (reject-reserved-reply-keys! http-args resource-key
                                (or where 're-frame.resources.transport.http/build-managed-args))
   (let [payload (assoc (or reply-payload
@@ -131,7 +132,7 @@
                            ;; `:current-work` / reply-envelope spelling), one
                            ;; attempt one name.
                            {:work/id      work-id
-                            :resource-key resource-key
+                            :resource/key resource-key
                             :scope        scope
                             :generation   generation})
                        :rf.frame/id frame-id)]
@@ -153,7 +154,7 @@
 
   `ensure-ctx` is the live ensure-context the runtime slice assembles:
   `:http-args` (the app `:request` return — a Spec 014 managed-HTTP args
-  map), `:request-id`, `:work-id`, `:resource-key`, `:scope`, `:frame-id`,
+  map), `:request-id`, `:work-id`, `:resource/key`, `:scope`, `:frame-id`,
   `:generation`, and `:where` (the dispatch surface for diagnostics). The
   built args carry the runtime-owned reply addressing; the app `:request`'s
   reserved reply keys are rejected (`build-managed-args`)."

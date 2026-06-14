@@ -107,7 +107,7 @@
   [scoped-key data]
   (let [e (entry scoped-key)]
     (rf/dispatch-sync [:rf.resource.internal/succeeded
-                       {:resource-key scoped-key
+                       {:resource/key scoped-key
                         :work/id      (:current-work e)
                         :generation   (:generation e)
                         :data         data}])))

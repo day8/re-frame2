@@ -397,7 +397,7 @@
           ;; names entries by their `:resource/key` (the projected wk).
           installed proj
           plan (->> (ssr/hydrate-refetch-plan installed 5000)
-                    (into {} (map (juxt :resource-key identity))))]
+                    (into {} (map (juxt :resource/key identity))))]
       (is (= privacy/redacted-sentinel (:data we)) "redacted (metadata only) on the wire")
       (is (contains? plan wk) "the redacted entry IS in the refetch plan")
       (is (= :metadata-only (:reason (plan wk)))
