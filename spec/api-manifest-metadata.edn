@@ -287,6 +287,13 @@
  ;; old→new guidance, plus `<x>` template placeholders in a syntax table.
  :doc-guide-known-unmanifested
  #{"on-changes"   ; docs/guide/25-from-re-frame-v1.md — removed v1 reaction API, named as migration guidance
+   ;; EP-0017 + rf2-w9xyx1: `inject-cofx` removed from the public façade
+   ;; (no manifest row). docs/guide/25-from-re-frame-v1.md +
+   ;; concepts/effects-and-coeffects.md name the v1 `(rf/inject-cofx …)`
+   ;; interceptor entry as the left-hand side of old→new migration guidance
+   ;; (it becomes `:rf.cofx/requires` registration metadata). Named here as
+   ;; removed-v1-in-migration-prose, exactly the role `on-changes` plays above.
+   "inject-cofx"  ; docs/guide/25-from-re-frame-v1.md + concepts/effects-and-coeffects.md — removed v1 cofx interceptor, named as migration guidance
    "set-x!"       ; docs/guide/24-config-and-safety.md — `(rf/set-x!)` is an `<x>` placeholder in the config-shape table
    "install-x!"   ; docs/guide/24-config-and-safety.md — `(rf/install-x!)` is an `<x>` placeholder
    ;; EP-0015 §3 (rf2-mngp4o): `add-marks` / `set-marks` removed from the
