@@ -832,13 +832,16 @@
   ;; + :pending-nav-counter) moved off runtime-db to a module-level
   ;; per-frame atom (`re-frame.routing.nav-counters`) so an epoch restore
   ;; cannot rewind + recycle a token. These are the façade-published host
-  ;; wrappers: `counter-snapshot` reads a frame's high-water snapshot for the
-  ;; pure nav handlers (the :rf.route/nav-counters cofx read seam, analogous to
-  ;; `frame-scroll-cache`); `routing-state-classification` is the routing-owned
-  ;; durable/transient classification table (the single source of truth the SSR
-  ;; payload policy + Spec-Schemas consume); `reset-nav-counters!` is the
-  ;; test-fixture reset (sibling of `reset-scroll-cache!`). Internal-public
-  ;; test / tooling / contract seams — not a front-porch user surface.
+  ;; wrappers: `counter-snapshot` reads a frame's high-water snapshot
+  ;; (analogous to `frame-scroll-cache`) — rf2-vcop6y: it is the read seam the
+  ;; two RECORDABLE allocation cofx generators (`:rf.route/nav-allocation` /
+  ;; `:rf.route/pending-nav-allocation`) mint from (replacing the retired
+  ;; ambient `:rf.route/nav-counters` cofx); `routing-state-classification` is
+  ;; the routing-owned durable/transient classification table (the single
+  ;; source of truth the SSR payload policy + Spec-Schemas consume);
+  ;; `reset-nav-counters!` is the test-fixture reset (sibling of
+  ;; `reset-scroll-cache!`). Internal-public test / tooling / contract seams —
+  ;; not a front-porch user surface.
   ["re-frame.routing" "counter-snapshot"]       {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "routing-state-classification"] {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "reset-nav-counters!"]    {:tier :implementation :owner "012" :status "v1"}
