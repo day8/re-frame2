@@ -13,7 +13,7 @@ Do **not** load this leaf to learn what routing is — that is training knowledg
 
 ## Canonical signatures
 
-The routing artefact ships separately in `day8/re-frame2-routing`. `re-frame.core` does **not** require it; the consuming app must `:require [re-frame.routing :as routing]` at boot, or `reg-route` throws `:rf.error/routing-artefact-missing`. The `reg-route` **registration macro** stays on the `re-frame.core` façade (`rf/`); the **URL-codec query helpers** `route-url` / `match-url` (and `current-url` / `clear-route`) live on the owning `re-frame.routing` namespace — they are no longer re-exported from `re-frame.core` (front-porch shrink, rf2-wad2fl).
+The routing artefact ships separately in `day8/re-frame2-routing`. `re-frame.core` does **not** require it; the consuming app must `:require [re-frame.routing :as routing]` at boot, or `reg-route` throws `:rf.error/routing-artefact-missing`. The `reg-route` **registration macro** stays on the `re-frame.core` façade (`rf/`); the **URL-codec query helpers** `route-url` / `match-url` (and `current-url` / `clear-route`) live on the owning `re-frame.routing` namespace — they are no longer re-exported from `re-frame.core` (front-porch shrink).
 
 ```clojure
 (rf/reg-route id metadata)                                  ;; metadata keys below

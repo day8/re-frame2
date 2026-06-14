@@ -270,7 +270,7 @@ A machine's snapshot lives in the **runtime-db** partition at `(get-in runtime-d
 
 For compound machines, `:state` is a path vector (`[:auth :dashboard]`) and `:tags` is the union along the path. `machine-has-tag?` is null-tolerant: a missing or uninitialised machine returns `false` rather than throwing.
 
-The pure transition fn — `(re-frame.machines/machine-transition machine snapshot event)` — returns `[new-snapshot fx]` with no frame and no dispatch loop. Use it when the test wants to assert transition tables in isolation. (`machine-transition` lives on the owning `re-frame.machines` namespace — it is no longer re-exported from `re-frame.core`, per the front-porch shrink rf2-wad2fl.)
+The pure transition fn — `(re-frame.machines/machine-transition machine snapshot event)` — returns `[new-snapshot fx]` with no frame and no dispatch loop. Use it when the test wants to assert transition tables in isolation. (`machine-transition` lives on the owning `re-frame.machines` namespace — it is no longer re-exported from `re-frame.core`, per the front-porch shrink.)
 
 ## HTTP and other side-effecting fx
 

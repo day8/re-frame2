@@ -48,10 +48,11 @@
   framework subs + the `:rf.machine/spawn` / `:rf.machine/destroy` /
   `:rf.machine/spawn-all-init` / `:rf.machine/after-schedule` /
   `:rf.machine/after-cancel` / `:rf.machine/update-snapshot` fxs from
-  the namespace's top-level forms. `sci/copy-ns re-frame.core` already
-  exposes the machine aliases under their plain names; the SCI
-  `re-frame.core` namespace below adds a `reg-machine` entry bound to
-  the `reg-machine*` fn-alias (same pattern as the
+  the namespace's top-level forms. The front-porch shrink demoted the
+  machine query/build helpers off the `re-frame.core` façade to their
+  owning `re-frame.machines` namespace, so the SCI `re-frame.core`
+  namespace below adds a `reg-machine` entry bound to the
+  `re-frame.machines/reg-machine*` fn-alias (same pattern as the
   `dispatch`/`subscribe` macro→fn shims) so the guide's
   ch12 cells can write `(rf/reg-machine ...)` exactly as in real code
   rather than the macro-less `reg-machine*` variant."
@@ -111,9 +112,11 @@
 ;;
 ;; Machines (rf2-ldgpd): `reg-machine` is also a JVM-only macro on the
 ;; public surface (per-element source-coord stamping at expansion time);
-;; CLJS code reaches it via the plain-fn alias `reg-machine*`. For cells
-;; the source-coord story doesn't apply, so we bind `reg-machine` to
-;; `reg-machine*` exactly as we do for `dispatch`/`subscribe`.
+;; CLJS code reaches the plain-fn alias `reg-machine*` on the owning
+;; `re-frame.machines` namespace (front-porch shrink — no longer
+;; re-exported from `re-frame.core`). For cells the source-coord story
+;; doesn't apply, so we bind `reg-machine` to
+;; `re-frame.machines/reg-machine*` exactly as we do for `dispatch`/`subscribe`.
 ;; A cell calls `(rf/reg-machine :auth/flow login-flow)` and resolves to
 ;; the runtime fn — same shape as the chapter's prose.
 (def re-frame-core-namespace
@@ -122,7 +125,7 @@
    {'dispatch      (sci/copy-var playground-dispatch rf-ns)
     'dispatch-sync (sci/copy-var playground-dispatch-sync rf-ns)
     'subscribe     (sci/copy-var playground-subscribe rf-ns)
-    'reg-machine   (sci/copy-var rf/reg-machine* rf-ns)}))
+    'reg-machine   (sci/copy-var re-frame.machines/reg-machine* rf-ns)}))
 
 (def r-ns (sci/create-ns 'reagent2.core nil))
 (def reagent2-core-namespace (sci/copy-ns reagent2.core r-ns))
