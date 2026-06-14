@@ -93,7 +93,7 @@
                        {:interceptors [(rf/path :auth)]}
                        (fn [{:keys [db]} [_ payload]]
                          (reset! seen payload)
-                         {:db (assoc auth :last-login payload)}))
+                         {:db (assoc db :last-login payload)}))
       (let [evs (record-traces
                   #(rf/dispatch-sync
                      [:auth/login {:username "ada" :password "shh"}]))
@@ -127,7 +127,7 @@
   (rf/reg-event :profile/save
                    {:interceptors [(rf/path :profile)]}
                    (fn [{:keys [db]} [_ payload]]
-                     {:db (assoc profile :saved payload)}))
+                     {:db (assoc db :saved payload)}))
   (let [evs (record-traces
               #(rf/dispatch-sync
                  [:profile/save {:password "not-auth"}]))
