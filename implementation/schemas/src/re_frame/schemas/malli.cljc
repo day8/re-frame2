@@ -52,9 +52,9 @@
   cost under static CLJS compilation, since requiring the facade loads
   this ns's body) either:
 
-    - Calls `(rf/set-schema-validator! my-validator-fn)` at boot to
+    - Calls `(schemas/set-schema-validator! my-validator-fn)` at boot to
       install a custom validator, or
-    - Calls `(rf/set-schema-validator! nil)` for a hard no-op.
+    - Calls `(schemas/set-schema-validator! nil)` for a hard no-op.
 
   See the `re-frame.schemas` ns docstring (rf2-v96fh) for the full
   bundle-isolation tradeoff."

@@ -40,7 +40,7 @@
 
   Named `boot` (not `run!`) to avoid shadowing `cljs.core/run!`."
   []
-  (rf/set-schema-validator! nil)
+  (schemas/set-schema-validator! nil)
   (schemas/reg-app-schema [:probe] [:int])
   (schemas/app-schemas)
   (schemas/app-schemas-digest))

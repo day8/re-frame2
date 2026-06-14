@@ -78,7 +78,7 @@
                                  :output identity
                                  :path   [:out elt]}))
             (str "shared-domain segment " (pr-str elt) " is accepted on this host"))
-        (rf/clear-flow flow-id)))))
+        (flows/clear-flow flow-id)))))
 
 ;; ===========================================================================
 ;; 3. reg-flow REJECTS host / composite segments (CLJS host — the gap)

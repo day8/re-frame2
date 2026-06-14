@@ -6,7 +6,7 @@
   every validation site routes through the registered validator fn.
   This is the seam Malli plugs into by default; apps that want to drop
   the ~24 KB gzipped Malli surface (rf2-qnxf) call
-  `(rf/set-schema-validator! some-other-fn)` (or `nil` for no-op) at
+  `(schemas/set-schema-validator! some-other-fn)` (or `nil` for no-op) at
   boot before any reg-app-schema / :schema metadata lands.
 
   Three fns are registered separately so the validate hot path stays

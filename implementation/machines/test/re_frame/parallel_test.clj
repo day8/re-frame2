@@ -315,7 +315,7 @@
              :regions {:a {:initial :one :states {:one {}}}
                        :b {:initial :two :states {:two {}}}}}]
       (rf/reg-machine :par/cache m)
-      (let [cached  (rf/machine-meta :par/cache)
+      (let [cached  (machines/machine-meta :par/cache)
             first-a (re-frame.machines.parallel/region-machine cached :a)
             again-a (re-frame.machines.parallel/region-machine cached :a)
             first-b (re-frame.machines.parallel/region-machine cached :b)]

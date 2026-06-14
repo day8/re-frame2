@@ -328,7 +328,7 @@
             canonical wire form."
     (rf/reg-app-schema [:user]  [:map [:id :uuid]])
     (rf/reg-app-schema [:todos] [:vector :string])
-    (let [d (rf/app-schemas-digest)]
+    (let [d (schemas/app-schemas-digest)]
       (is (string? d)
           "digest returns a string")
       (is (re-matches #"sha256:[0-9a-f]{16}" d)
@@ -337,7 +337,7 @@
       ;; — produces the well-defined empty-set digest.
       (rf/reg-frame :test/empty-cljs {})
       (is (= "sha256:e3b0c44298fc1c14"
-             (rf/app-schemas-digest :test/empty-cljs))
+             (schemas/app-schemas-digest :test/empty-cljs))
           "empty-set digest is byte-identical with the JVM path"))))
 
 ;; ---- rf2-froe — set-schema-validator! seam under CLJS ---------------------
@@ -349,7 +349,7 @@
             Locks the cross-substrate seam contract."
     (let [calls (atom 0)
           custom (fn [_s v] (swap! calls inc) (= v 42))]
-      (rf/set-schema-validator! custom)
+      (schemas/set-schema-validator! custom)
       (try
         (rf/reg-app-schema [:n] :int)
         (rf/reg-event-db :n/init  (fn [_ _] {:n 42}))
@@ -374,7 +374,7 @@
   (testing "Per Spec 010 §Non-Malli validators (rf2-froe): nil validator
             disables every validation site under Reagent — including
             the live :db commit that would otherwise fire."
-    (rf/set-schema-validator! nil)
+    (schemas/set-schema-validator! nil)
     (try
       (rf/reg-app-schema [:n] :int)
       (rf/reg-event-db :n/break (fn [db _] (assoc db :n "definitely-not-an-int")))

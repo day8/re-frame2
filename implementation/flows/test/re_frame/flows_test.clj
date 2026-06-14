@@ -92,13 +92,13 @@
     (rf/dispatch-sync [:seed])
     (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
         "flow ran on the drain after :seed and materialised :rect/:area")
-    (rf/clear-flow :area)
+    (flows/clear-flow :area)
     (is (not (contains? (get (flows/flows-snapshot) :rf/default) :area))
         "the per-frame registry no longer carries :area")
     (is (not (contains? (get (rf/app-db-value :rf/default) :rect) :area))
         "clear-flow dissoc'd the leaf at the flow's :path"))
   (testing "calling clear-flow on an unknown id is a no-op (does not throw)"
-    (rf/clear-flow :no-such-flow)))
+    (flows/clear-flow :no-such-flow)))
 
 (deftest clear-flow-prunes-empty-frame-slot-from-registry
   ;; rf2-4bbaw: clearing the LAST flow on a frame must dissoc the frame-id
@@ -114,7 +114,7 @@
                   :path   [:rect :area]})
     (is (contains? (flows/flows-snapshot) :rf/default)
         "precondition: the frame slot exists while a flow is registered")
-    (rf/clear-flow :area)
+    (flows/clear-flow :area)
     (is (not (contains? (flows/flows-snapshot) :rf/default))
         "the frame-id key is GONE from @flows — no {frame-id {}} husk remains")))
 
@@ -138,7 +138,7 @@
     (rf/dispatch-sync [:touch-wizard])
     (is (= 42 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
         "flow materialised its output at the leaf")
-    (rf/clear-flow :wizard/result)
+    (flows/clear-flow :wizard/result)
     (let [db (rf/app-db-value :rf/default)]
       (is (not (contains? (get db :wizard) :result))
           "the leaf value is fully vacated")
@@ -161,7 +161,7 @@
                   :output (fn [_] "never-runs")
                   :path   [:step-2 :result]})
     (let [db-before (rf/app-db-value :rf/default)]
-      (rf/clear-flow :pending)
+      (flows/clear-flow :pending)
       (let [db-after (rf/app-db-value :rf/default)]
         (is (= db-before db-after)
             "app-db is unchanged when clearing a never-materialised nested-path flow")
@@ -194,7 +194,7 @@
                   :output (fn [_] "never-runs")
                   :path   [:step-2 :result]})
     (let [db-ref-before (rf/app-db-value :rf/default)]
-      (rf/clear-flow :pending)
+      (flows/clear-flow :pending)
       (let [db-ref-after (rf/app-db-value :rf/default)]
         (is (identical? db-ref-before db-ref-after)
             "the app-db container reference is UNCHANGED — clear-flow skipped replace-container! for the no-op dissoc (rf2-2vpac)"))))
@@ -209,7 +209,7 @@
                   :output (fn [_] "never-runs")
                   :path   [:never-written]}) ;; single-element path, never materialised
     (let [db-ref-before (rf/app-db-value :rf/default)]
-      (rf/clear-flow :absent-top)
+      (flows/clear-flow :absent-top)
       (is (identical? db-ref-before (rf/app-db-value :rf/default))
           "single-element absent key: container reference unchanged (no rewrite)")))
   (testing "POSITIVE control — clearing a MATERIALISED slot DOES rewrite the container (guard must not over-suppress real clears)"
@@ -226,7 +226,7 @@
     (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
         "precondition: the flow materialised [:rect :area]")
     (let [db-ref-before (rf/app-db-value :rf/default)]
-      (rf/clear-flow :area3)
+      (flows/clear-flow :area3)
       (let [db-ref-after (rf/app-db-value :rf/default)]
         (is (not (identical? db-ref-before db-ref-after))
             "the container WAS rewritten — a real dissoc installs a fresh reference")
@@ -259,7 +259,7 @@
                   :output (fn [_] "never-stored")
                   :path   [:step-2 :result]})
     ;; Clear must NOT throw, and must leave the scalar parent intact.
-    (is (nil? (rf/clear-flow :pending))
+    (is (nil? (flows/clear-flow :pending))
         "clear-flow returns nil (no throw) when the intermediate is a non-map")
     (is (= 1 (:step-2 (rf/app-db-value :rf/default)))
         ":step-2 is preserved as its scalar value — clear-flow did not corrupt it")
@@ -280,7 +280,7 @@
     (rf/dispatch-sync [:seed])
     (is (= 12 (get (rf/app-db-value :rf/default) :area))
         "flow ran on the drain after :seed and materialised :area")
-    (rf/clear-flow :area)
+    (flows/clear-flow :area)
     (let [db (rf/app-db-value :rf/default)]
       (is (not (contains? db :area))
           "single-element :path is dissoc'd cleanly")
@@ -554,7 +554,7 @@
                                  :output identity
                                  :path   [:out elt]}))
             (str "shared-domain path segment " (pr-str elt) " is accepted"))
-        (rf/clear-flow flow-id)))))
+        (flows/clear-flow flow-id)))))
 
 (deftest reg-flow-accepts-empty-inputs-vector
   (testing ":inputs [] is allowed (one-shot flow with no app-db dependencies)"
@@ -1066,7 +1066,7 @@
 
   (testing "clear-flow on one frame leaves the sibling frame's registry slot intact"
     ;; Branch 1: per-frame registry routing.
-    (rf/clear-flow :compute {:frame :left})
+    (flows/clear-flow :compute {:frame :left})
     (is (not (contains? (get (flows/flows-snapshot) :left)  :compute))
         ":left's slot was removed")
     (is (contains? (get (flows/flows-snapshot) :right) :compute)
@@ -1102,7 +1102,7 @@
         "the :flow registrar slot is still populated — :right still holds the id"))
 
   (testing "clearing from the second (last) frame finally unregisters the registrar slot"
-    (rf/clear-flow :compute {:frame :right})
+    (flows/clear-flow :compute {:frame :right})
     (is (not (contains? (get (flows/flows-snapshot) :right) :compute))
         ":right's slot is now gone")
     (is (nil? (registrar/lookup :flow :compute))
@@ -1262,7 +1262,7 @@
       (is (= :right (:frame (registrar/lookup :flow :shared)))
           "precondition: slot's metadata names :right (last-registration-wins)")
       ;; Clear :right — the slot's current owner. :left still holds :shared.
-      (rf/clear-flow :shared {:frame :right})
+      (flows/clear-flow :shared {:frame :right})
       (let [slot (registrar/lookup :flow :shared)]
         (is (some? slot)
             "slot survives — :left still registers :shared")
@@ -1297,7 +1297,7 @@
                  {:frame :right})
     (is (= :right (:frame (registrar/lookup :flow :shared))))
     ;; Clear :left — NOT the slot owner. The slot must keep naming :right.
-    (rf/clear-flow :shared {:frame :left})
+    (flows/clear-flow :shared {:frame :left})
     (is (= :right (:frame (registrar/lookup :flow :shared)))
         "slot still names the live owner :right — clearing a non-owner frame caused no re-point")))
 
@@ -1307,7 +1307,7 @@
             the prior last-owner-release behaviour)"
     (rf/reg-flow {:id :solo :inputs [[:n]] :output (fn [n] n) :path [:result]})
     (is (some? (registrar/lookup :flow :solo)))
-    (rf/clear-flow :solo)
+    (flows/clear-flow :solo)
     (is (nil? (registrar/lookup :flow :solo))
         "registrar slot unregistered — no surviving frame holds :solo")))
 

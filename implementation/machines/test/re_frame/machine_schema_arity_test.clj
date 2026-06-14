@@ -44,7 +44,7 @@
             [re-frame.core :as rf]
             ;; Loading the machines artefact publishes its late-bind hooks
             ;; (`:machines/reg-machine` etc.) so `rf/reg-machine` resolves.
-            [re-frame.machines]
+            [re-frame.machines :as machines]
             [re-frame.machines.test-support :as mtest]
             [re-frame.marks :as marks]
             ;; The schemas artefact ships the registered-validator hot path the
@@ -115,10 +115,10 @@
                 :data-schema AuthLoginData
                 :actions     {:break (fn [_] {:data {:attempts "nope" :token nil :error nil}})}
                 :states      {:idle {:on {:auth.login/break {:target :idle :action :break}}}}}]
-      (rf/reg-machine* flow-id spec {:schema AuthLoginEvent})
+      (machines/reg-machine* flow-id spec {:schema AuthLoginEvent})
       ;; The machine meta is stamped — machine-meta reads the spec + :data-schema
       ;; back (the inert-schema bug: machine-meta returned nil on the old path).
-      (let [meta (rf/machine-meta flow-id)]
+      (let [meta (machines/machine-meta flow-id)]
         (is (some? meta) "machine-meta is non-nil (meta WAS stamped)")
         (is (= AuthLoginData (:data-schema meta))
             ":data-schema round-trips through machine-meta — it is LIVE"))
@@ -137,7 +137,7 @@
   (testing "a :sensitive? :data slot on a machine registered via the
             event-:schema arity is bridged into the redaction-marks table
             (the privacy leak the bare direct path skipped)"
-    (rf/reg-machine* flow-id
+    (machines/reg-machine* flow-id
       {:initial     :idle
        :data        {:attempts 0 :token nil :error nil}
        :data-schema AuthLoginData
@@ -152,7 +152,7 @@
   (testing "the privacy regression: a :sensitive? :data slot on a machine
             registered via the event-:schema arity is REDACTED at trace egress
             and never egresses raw"
-    (rf/reg-machine* flow-id
+    (machines/reg-machine* flow-id
       {:initial     :idle
        :data        {:attempts 0 :token nil :error nil}
        :data-schema AuthLoginData
@@ -192,7 +192,7 @@
     ;; rather than flattened by `:cat`'s sequence-regex semantics.
     (let [StrictEvent [:tuple [:= flow-id]
                        [:tuple [:= :auth.login/submit] Credentials]]]
-      (rf/reg-machine* flow-id
+      (machines/reg-machine* flow-id
         {:initial     :idle
          :data        {:attempts 0 :token nil :error nil}
          :data-schema AuthLoginData
@@ -223,7 +223,7 @@
             a :data-schema-bearing spec RAISES :rf.error/machine-schema-requires-
             reg-machine rather than silently no-opping"
     (let [ex (try
-               (rf/make-machine-handler
+               (machines/make-machine-handler
                  {:initial     :idle
                   :data        {:attempts 0 :token nil :error nil}
                   :data-schema AuthLoginData
@@ -238,7 +238,7 @@
 (deftest bare-direct-path-without-data-schema-stays-legal
   (testing "a schema-LESS spec on the bare make-machine-handler path is
             unaffected — nothing inert to leak, so the guard does NOT fire"
-    (is (fn? (rf/make-machine-handler
+    (is (fn? (machines/make-machine-handler
                {:initial :idle
                 :data    {:n 0}
                 :states  {:idle {}}}))
@@ -250,7 +250,7 @@
   (testing "supplying the framework-owned :rf/machine? / :rf/machine keys in
             opts is rejected — the home stamps them"
     (let [ex (try
-               (rf/reg-machine* :rf.machine-arity/reserved
+               (machines/reg-machine* :rf.machine-arity/reserved
                  {:initial :idle :states {:idle {}}}
                  {:rf/machine? true})
                nil
@@ -262,12 +262,12 @@
 (deftest two-arity-reg-machine-still-works
   (testing "the existing 2-arity (reg-machine* id machine) is unchanged — it
             stamps the meta + bridges marks just like before"
-    (rf/reg-machine* :rf.machine-arity/plain
+    (machines/reg-machine* :rf.machine-arity/plain
       {:initial     :idle
        :data        {:attempts 0 :token nil :error nil}
        :data-schema AuthLoginData
        :states      {:idle {}}})
-    (is (some? (rf/machine-meta :rf.machine-arity/plain))
+    (is (some? (machines/machine-meta :rf.machine-arity/plain))
         "2-arity still stamps machine-meta")
     (is (= #{[:data :token]}
            (set (:sensitive (marks/marks-for :event :rf.machine-arity/plain))))

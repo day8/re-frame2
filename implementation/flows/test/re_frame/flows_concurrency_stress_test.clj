@@ -269,10 +269,10 @@
                           ;; never registered because the cycle
                           ;; throw rolled it back per
                           ;; rf2-7csri/rf2-cdh9h.)
-                          (rf/clear-flow cyc-a {:frame frame-id})
+                          (flows/clear-flow cyc-a {:frame frame-id})
                           ;; Clear the main flow so the leak
                           ;; invariant can pass.
-                          (rf/clear-flow flow-id {:frame frame-id})
+                          (flows/clear-flow flow-id {:frame frame-id})
                           ;; Surface the thread idx for diagnostics
                           ;; if a future hangs.
                           idx)))]

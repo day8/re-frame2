@@ -32,7 +32,7 @@
             [clojure.string :as string]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.machines]
+            [re-frame.machines :as machines]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.test-helpers :as th]
@@ -82,7 +82,7 @@
     (setup!)
     ;; The transition map carries the inline action's source on the enclosing
     ;; node (the machine-side contract this test consumes).
-    (is (string? (get-in (rf/machine-meta :inline/sample)
+    (is (string? (get-in (machines/machine-meta :inline/sample)
                          [:states :idle :on :go :source-code :action]))
         "the inline transition :action's :source-code is co-located on the
          enclosing transition map (rf2-se70xj machine-meta contract)")

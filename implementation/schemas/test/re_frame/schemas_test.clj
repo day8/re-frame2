@@ -950,13 +950,13 @@
             registers against (current-frame), which is :rf/default outside
             (with-frame ...)."
     (rf/reg-app-schema [:user] [:map [:id :uuid]])
-    (is (= [:map [:id :uuid]] (rf/app-schema-at [:user]))
+    (is (= [:map [:id :uuid]] (schemas/app-schema-at [:user]))
         "schema is visible from the active frame's lookup")
-    (is (= [:map [:id :uuid]] (rf/app-schema-at [:user] :rf/default))
+    (is (= [:map [:id :uuid]] (schemas/app-schema-at [:user] :rf/default))
         "schema is visible from explicit :rf/default lookup")
-    (is (= {[:user] [:map [:id :uuid]]} (rf/app-schemas))
+    (is (= {[:user] [:map [:id :uuid]]} (schemas/app-schemas))
         "app-schemas returns the active frame's schema set")
-    (is (= {[:user] [:map [:id :uuid]]} (rf/app-schemas :rf/default))
+    (is (= {[:user] [:map [:id :uuid]]} (schemas/app-schemas :rf/default))
         "app-schemas with explicit :rf/default returns the same map")))
 
 (deftest reg-app-schema-explicit-frame-opt-isolates-schemas
@@ -965,12 +965,12 @@
     (rf/reg-frame :test/story {})
     (rf/reg-app-schema [:user] [:map [:id :uuid]] {:frame :rf/default})
     (rf/reg-app-schema [:user] [:map [:nick :string]] {:frame :test/story})
-    (is (= [:map [:id :uuid]]   (rf/app-schema-at [:user] :rf/default))
+    (is (= [:map [:id :uuid]]   (schemas/app-schema-at [:user] :rf/default))
         "default frame keeps its own schema at [:user]")
-    (is (= [:map [:nick :string]] (rf/app-schema-at [:user] :test/story))
+    (is (= [:map [:nick :string]] (schemas/app-schema-at [:user] :test/story))
         "story frame has its own (different) schema at [:user]")
-    (is (= {[:user] [:map [:id :uuid]]}     (rf/app-schemas :rf/default)))
-    (is (= {[:user] [:map [:nick :string]]} (rf/app-schemas {:frame :test/story})))))
+    (is (= {[:user] [:map [:id :uuid]]}     (schemas/app-schemas :rf/default)))
+    (is (= {[:user] [:map [:nick :string]]} (schemas/app-schemas {:frame :test/story})))))
 
 (deftest sibling-frame-schemas-do-not-fire-on-each-others-dispatches
   (testing "Per Spec 010 §Per-frame schemas — validate-app-schema! only walks the
@@ -1012,8 +1012,8 @@
             (app-schemas {:frame frame-id}); both must return the same map."
     (rf/reg-frame :test/k {})
     (rf/reg-app-schema [:k] [:int] {:frame :test/k})
-    (is (= (rf/app-schemas :test/k)
-           (rf/app-schemas {:frame :test/k}))
+    (is (= (schemas/app-schemas :test/k)
+           (schemas/app-schemas {:frame :test/k}))
         "keyword form == opts-map form")))
 
 ;; ---- rf2-0z1z — app-schemas-digest --------------------------------------
@@ -1022,7 +1022,7 @@
   (testing "Per Spec 010 §Digest algorithm — the digest is the literal
             prefix \"sha256:\" followed by 16 lowercase hex characters."
     (rf/reg-app-schema [:user] [:map [:id :uuid]])
-    (let [d (rf/app-schemas-digest)]
+    (let [d (schemas/app-schemas-digest)]
       (is (string? d))
       (is (re-matches #"sha256:[0-9a-f]{16}" d)
           "digest is exactly \"sha256:\" + 16 lowercase hex chars"))))
@@ -1032,21 +1032,21 @@
             set produces the same digest (cross-runtime byte-stable)."
     (rf/reg-app-schema [:user]  [:map [:id :uuid]])
     (rf/reg-app-schema [:todos] [:vector :string])
-    (let [d1 (rf/app-schemas-digest)]
+    (let [d1 (schemas/app-schemas-digest)]
       ;; Re-register the SAME schemas — last-write-wins, but the map is
       ;; structurally identical, so the digest must not move.
       (rf/reg-app-schema [:todos] [:vector :string])
       (rf/reg-app-schema [:user]  [:map [:id :uuid]])
-      (is (= d1 (rf/app-schemas-digest))
+      (is (= d1 (schemas/app-schemas-digest))
           "byte-identical schema set → byte-identical digest"))))
 
 (deftest app-schemas-digest-changes-on-schema-change
   (testing "A schema-set change perturbs the digest. Two different schema
             sets must produce distinct digests."
     (rf/reg-app-schema [:user] [:map [:id :uuid]])
-    (let [before (rf/app-schemas-digest)]
+    (let [before (schemas/app-schemas-digest)]
       (rf/reg-app-schema [:user] [:map [:id :string]])
-      (is (not= before (rf/app-schemas-digest))
+      (is (not= before (schemas/app-schemas-digest))
           "tightening / changing a schema flips the digest"))))
 
 (deftest app-schemas-digest-frame-isolated
@@ -1058,13 +1058,13 @@
     (rf/reg-frame :test/b {})
     (rf/reg-app-schema [:user] [:map [:id :uuid]] {:frame :test/a})
     ;; :test/b has no schemas registered.
-    (let [da (rf/app-schemas-digest :test/a)
-          db (rf/app-schemas-digest :test/b)]
+    (let [da (schemas/app-schemas-digest :test/a)
+          db (schemas/app-schemas-digest :test/b)]
       (is (not= da db)
           "frames with different schema sets have different digests")
-      (is (= db (rf/app-schemas-digest :test/b))
+      (is (= db (schemas/app-schemas-digest :test/b))
           "the empty-schema digest is stable across calls")
-      (is (= db (rf/app-schemas-digest {:frame :test/b}))
+      (is (= db (schemas/app-schemas-digest {:frame :test/b}))
           "keyword-sugar arity equals opts-map arity"))))
 
 (deftest app-schemas-digest-keyword-and-opts-arities-agree
@@ -1073,8 +1073,8 @@
             same string."
     (rf/reg-frame :test/d {})
     (rf/reg-app-schema [:k] [:int] {:frame :test/d})
-    (is (= (rf/app-schemas-digest :test/d)
-           (rf/app-schemas-digest {:frame :test/d}))
+    (is (= (schemas/app-schemas-digest :test/d)
+           (schemas/app-schemas-digest {:frame :test/d}))
         "keyword form == opts-map form")))
 
 (deftest app-schemas-digest-empty-set-is-defined
@@ -1082,7 +1082,7 @@
             the empty string, prefixed). Hosts with no schemas registered
             still get a usable digest, not nil."
     (rf/reg-frame :test/empty {})
-    (let [d (rf/app-schemas-digest :test/empty)]
+    (let [d (schemas/app-schemas-digest :test/empty)]
       (is (string? d))
       (is (re-matches #"sha256:[0-9a-f]{16}" d))
       ;; rf2-rbbmt dedup D3 — the empty-set digest literal is single-
@@ -1102,8 +1102,8 @@
     (rf/reg-app-schema [:todos] [:vector :string]    {:frame :test/o1})
     (rf/reg-app-schema [:todos] [:vector :string]    {:frame :test/o2})
     (rf/reg-app-schema [:user]  [:map [:id :uuid]]   {:frame :test/o2})
-    (is (= (rf/app-schemas-digest :test/o1)
-           (rf/app-schemas-digest :test/o2))
+    (is (= (schemas/app-schemas-digest :test/o1)
+           (schemas/app-schemas-digest :test/o2))
         "same schema set, different registration order → same digest")))
 
 ;; ---- rf2-froe — set-schema-validator! seam -------------------------------
@@ -1142,7 +1142,7 @@
           custom (fn [schema value]
                    (swap! calls conj [schema value])
                    (not (and (string? value) (str/includes? value "bad"))))]
-      (rf/set-schema-validator! custom)
+      (schemas/set-schema-validator! custom)
       (rf/reg-app-schema [:label] :string)
       (let [traces (atom [])]
         (rf/register-listener! ::custom (fn [ev] (swap! traces conj ev)))
@@ -1164,7 +1164,7 @@
             walker return true without inspecting the schema, and no
             trace fires. Parameterised over the surfaces that previously
             duplicated the no-op assertion as separate deftests."
-    (rf/set-schema-validator! nil)
+    (schemas/set-schema-validator! nil)
     (let [traces (atom [])]
       (rf/register-listener! ::nilv (fn [ev] (swap! traces conj ev)))
       (rf/reg-app-schema [:n] [:int])
@@ -1192,7 +1192,7 @@
             also holds through a live dispatch: the handler runs even on
             a payload that would fail the registered :schema, and no
             pre-handler validation trace fires."
-    (rf/set-schema-validator! nil)
+    (schemas/set-schema-validator! nil)
     (let [calls (atom 0)]
       (rf/reg-event-db :user/strict
         {:schema [:cat [:= :user/strict] :int]}
@@ -1216,7 +1216,7 @@
           explain-calls  (atom 0)
           v-fn (fn [_s v] (swap! validate-calls inc) (= v :good))
           e-fn (fn [s v]  (swap! explain-calls inc) {:my-explanation [s v]})]
-      (rf/set-schema-fns! {:validate v-fn :explain e-fn})
+      (schemas/set-schema-fns! {:validate v-fn :explain e-fn})
       (rf/reg-app-schema [:k] :keyword)
       (let [traces (atom [])]
         (rf/register-listener! ::map (fn [ev] (swap! traces conj ev)))
@@ -1240,7 +1240,7 @@
     (let [v-fn (fn [_ _] true)
           e-fn (fn [_ _] {:explained true})
           p-fn (fn [_] "::BUNDLE-PRINTER::")]
-      (rf/set-schema-fns! {:validate v-fn :explain e-fn :print p-fn})
+      (schemas/set-schema-fns! {:validate v-fn :explain e-fn :print p-fn})
       (is (= v-fn @validator/validator-fn) "validator installed")
       (is (= e-fn @validator/explainer-fn) "explainer installed")
       (is (= p-fn @validator/printer-fn)   "printer installed")
@@ -1256,7 +1256,7 @@
     (let [default-explainer @validator/explainer-fn
           default-printer   @validator/printer-fn
           v-fn (fn [_ _] true)]
-      (rf/set-schema-validator! v-fn)
+      (schemas/set-schema-validator! v-fn)
       (is (= v-fn @validator/validator-fn) "validator installed")
       (is (= default-explainer @validator/explainer-fn)
           "explainer untouched — set-schema-validator! does not touch it")
@@ -1270,7 +1270,7 @@
           custom-e  (fn [_s v] (reset! explained v) {:custom-said v})]
       ;; Validator stays at its default (Malli); only the explainer is
       ;; substituted.
-      (rf/set-schema-explainer! custom-e)
+      (schemas/set-schema-explainer! custom-e)
       (rf/reg-app-schema [:n] [:int])
       (let [traces (atom [])]
         (rf/register-listener! ::eonly (fn [ev] (swap! traces conj ev)))
@@ -1296,8 +1296,8 @@
     ;; Custom validator that fails everything; explainer nilled. The
     ;; default Malli explainer is replaced by nil so the failure branch
     ;; threads `nil` through `:explain` rather than a Malli explanation.
-    (rf/set-schema-validator! (fn [_ _] false))
-    (rf/set-schema-explainer! nil)
+    (schemas/set-schema-validator! (fn [_ _] false))
+    (schemas/set-schema-explainer! nil)
     (rf/reg-app-schema [:n] [:int])
     (let [traces (atom [])]
       (rf/register-listener! ::nilexp (fn [ev] (swap! traces conj ev)))
@@ -1330,7 +1330,7 @@
             resumes."
     ;; Install a sabotage validator: passes everything (so a known-bad
     ;; value would slip past).
-    (rf/set-schema-validator! (fn [_ _] true))
+    (schemas/set-schema-validator! (fn [_ _] true))
     (rf/reg-app-schema [:n] [:int])
     ;; First confirm the sabotage is in effect.
     (let [traces (atom [])]
@@ -1356,7 +1356,7 @@
             does NOT consult interop/debug-enabled? (the boundary
             interceptor runs in production by design); it routes through
             the registered validator the same way the dev hot path does."
-    (rf/set-schema-validator! (fn [_ v] (= v :good)))
+    (schemas/set-schema-validator! (fn [_ v] (= v :good)))
     (with-redefs [interop/debug-enabled? false]
       (is (true?  (schemas/validate-with-registered-fn :keyword :good))
           "valid value passes — debug gate ignored")
@@ -1367,7 +1367,7 @@
   (testing "The public re-export rf/set-schema-validator! flows through to
             the schemas namespace's validator-fn atom."
     (let [my-fn (fn [_ _] :sentinel)]
-      (rf/set-schema-validator! my-fn)
+      (schemas/set-schema-validator! my-fn)
       (is (= my-fn @validator/validator-fn)
           "the atom carries the fn the user registered"))))
 
@@ -1393,7 +1393,7 @@
             printer-fn atom. Parallels the rf/set-schema-validator! /
             rf/set-schema-explainer! end-to-end pins above."
     (let [my-fn (fn [_schema-value] "::PUBLIC-SURFACE::")]
-      (rf/set-schema-printer! my-fn)
+      (schemas/set-schema-printer! my-fn)
       (is (= my-fn @validator/printer-fn)
           "the atom carries the printer the public-surface caller registered")
       (is (= "::PUBLIC-SURFACE::" (validator/run-printer :int))
@@ -1409,9 +1409,9 @@
             different schema languages produce different digests by
             construction'."
     (rf/reg-app-schema [:n] :int)
-    (let [default-digest (rf/app-schemas-digest)]
-      (rf/set-schema-printer! (fn [_] "::CUSTOM-PORT::"))
-      (let [custom-digest (rf/app-schemas-digest)]
+    (let [default-digest (schemas/app-schemas-digest)]
+      (schemas/set-schema-printer! (fn [_] "::CUSTOM-PORT::"))
+      (let [custom-digest (schemas/app-schemas-digest)]
         (is (re-matches #"^sha256:[0-9a-f]{16}$" custom-digest)
             "digest is still the wire-form '\"sha256:\" + 16-hex'")
         (is (not= default-digest custom-digest)
@@ -1426,9 +1426,9 @@
             port-specific printer has been registered and then
             withdrawn. Mirrors the artefact-side `set-schema-printer!-
             nil-falls-back-to-default` test on the public symbol."
-    (rf/set-schema-printer! (fn [_] "::TRANSIENT::"))
+    (schemas/set-schema-printer! (fn [_] "::TRANSIENT::"))
     (is (= "::TRANSIENT::" (validator/run-printer :int)))
-    (rf/set-schema-printer! nil)
+    (schemas/set-schema-printer! nil)
     (is (= ":int" (validator/run-printer :int))
         "nil through the public surface falls back to default-edn-print")))
 
@@ -1440,7 +1440,7 @@
     (let [v-fn (fn [_ _] true)
           e-fn (fn [_ _] {:explained true})
           p-fn (fn [_] "::FROM-PUBLIC-BUNDLE::")]
-      (rf/set-schema-fns! {:validate v-fn :explain e-fn :print p-fn})
+      (schemas/set-schema-fns! {:validate v-fn :explain e-fn :print p-fn})
       (is (= v-fn @validator/validator-fn))
       (is (= e-fn @validator/explainer-fn))
       (is (= p-fn @validator/printer-fn))
@@ -1464,7 +1464,7 @@
     (let [v-fn (fn [_ _] true)
           e-fn (fn [_ _] {:explained true})
           p-fn (fn [_] "::SNAPSHOT-ME::")]
-      (rf/set-schema-fns! {:validate v-fn :explain e-fn :print p-fn})
+      (schemas/set-schema-fns! {:validate v-fn :explain e-fn :print p-fn})
       (let [snap (schemas/snapshot-schema-fns)]
         (is (= #{:validate :explain :print} (set (keys snap)))
             "snapshot is the {:validate :explain :print} bundle shape")
@@ -1481,10 +1481,10 @@
           e1 (fn [_ _] {:reason :first})
           p1 (fn [_] "::FIRST::")]
       ;; Install bundle 1 and snapshot it.
-      (rf/set-schema-fns! {:validate v1 :explain e1 :print p1})
+      (schemas/set-schema-fns! {:validate v1 :explain e1 :print p1})
       (let [snap (schemas/snapshot-schema-fns)]
         ;; Mutate to a completely different bundle.
-        (rf/set-schema-fns! {:validate (fn [_ _] false)
+        (schemas/set-schema-fns! {:validate (fn [_ _] false)
                              :explain  (fn [_ _] {:reason :second})
                              :print    (fn [_] "::SECOND::")})
         (is (= "::SECOND::" (validator/run-printer :int))
@@ -1521,7 +1521,7 @@
     (let [v-fn (fn [_ _] true)
           p-fn (fn [_] "::COMPOSED::")]
       ;; Establish a known runtime: a custom bundle + a registered schema.
-      (rf/set-schema-fns! {:validate v-fn :print p-fn})
+      (schemas/set-schema-fns! {:validate v-fn :print p-fn})
       (rf/reg-app-schema [:n] [:int])
       ;; Capture BOTH the bundle and the registry.
       (let [bundle-snap   (schemas/snapshot-schema-fns)
@@ -1537,7 +1537,7 @@
         (is (= v-fn @validator/validator-fn) "bundle validator restored")
         (is (= "::COMPOSED::" (validator/run-printer :int))
             "bundle printer restored on the hot path")
-        (is (= [:int] (rf/app-schema-at [:n]))
+        (is (= [:int] (schemas/app-schema-at [:n]))
             "registry schema restored — the two pairs compose")))))
 
 ;; ---- rf2-r2uh — :rf.schema/at-boundary interceptor ---------------------
@@ -1704,7 +1704,7 @@
                    (swap! validator-calls inc)
                    (= value [:api/custom :good]))
           handler-calls (atom 0)]
-      (rf/set-schema-validator! custom)
+      (schemas/set-schema-validator! custom)
       (rf/reg-event-fx :api/custom
         {:schema :rf/any                     ;; opaque to the custom validator
          :interceptors [rf/validate-at-boundary-interceptor]}
@@ -1728,7 +1728,7 @@
   (testing "Per Spec 010 §Non-Malli validators — set-schema-validator! nil
             disables every validation surface, including the boundary
             interceptor. The handler runs even with a malformed payload."
-    (rf/set-schema-validator! nil)
+    (schemas/set-schema-validator! nil)
     (let [calls (atom 0)]
       (rf/reg-event-fx :api/disabled
         {:schema [:cat [:= :api/disabled] :int]
@@ -1940,10 +1940,10 @@
        [:auth :token]           [:string]
        [:cart]                  [:map [:items [:vector :string]]]
        [:cart :items]           [:vector :string]})
-    (is (= [:map [:user :string]]      (rf/app-schema-at [:auth])))
-    (is (= [:string]                   (rf/app-schema-at [:auth :token])))
-    (is (= [:map [:items [:vector :string]]] (rf/app-schema-at [:cart])))
-    (is (= [:vector :string]           (rf/app-schema-at [:cart :items])))))
+    (is (= [:map [:user :string]]      (schemas/app-schema-at [:auth])))
+    (is (= [:string]                   (schemas/app-schema-at [:auth :token])))
+    (is (= [:map [:items [:vector :string]]] (schemas/app-schema-at [:cart])))
+    (is (= [:vector :string]           (schemas/app-schema-at [:cart :items])))))
 
 (deftest reg-app-schemas-returns-paths-registered
   (testing "rf/reg-app-schemas returns the vector of paths"
@@ -1963,17 +1963,17 @@
        [:cart] [:map [:items :any]]}
       {:frame :tenant/a})
     (is (= [:map [:user :string]]
-           (rf/app-schema-at [:auth] {:frame :tenant/a})))
+           (schemas/app-schema-at [:auth] {:frame :tenant/a})))
     (is (= [:map [:items :any]]
-           (rf/app-schema-at [:cart] {:frame :tenant/a})))
-    (is (nil? (rf/app-schema-at [:auth]))
+           (schemas/app-schema-at [:cart] {:frame :tenant/a})))
+    (is (nil? (schemas/app-schema-at [:auth]))
         "the default frame did NOT receive any of the entries")))
 
 (deftest reg-app-schemas-empty-map-no-op
   (testing "rf/reg-app-schemas on an empty map is a no-op and returns an empty vector"
     (let [paths (rf/reg-app-schemas {})]
       (is (= [] paths))
-      (is (= {} (rf/app-schemas))
+      (is (= {} (schemas/app-schemas))
           "no schemas registered on the active frame"))))
 
 ;; ---- rf2-naihn1 #2 — bulk-input false-green --------------------------------
@@ -2046,7 +2046,7 @@
   ;; empty map is a map, so it passes the new shape gate and returns [].
   (testing "rf/reg-app-schemas {} remains the documented no-op returning []"
     (is (= [] (rf/reg-app-schemas {})))
-    (is (= {} (rf/app-schemas)))))
+    (is (= {} (schemas/app-schemas)))))
 
 ;; ---- rf2-ieu0i — :schema canonical ---------------------------------------
 ;;

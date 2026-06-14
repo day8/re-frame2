@@ -2136,10 +2136,10 @@
   [{:keys [name]}]
   (testing (str name " — #7 route-not-found under SSR")
     (rf/reg-route :user/show {:path "/users/:id"})
-    (is (nil? (:route-id (rf/match-url "/no-such-thing")))
+    (is (nil? (:route-id (routing/match-url "/no-such-thing")))
         "match-url surfaces no route-id for an unmatched URL")
     (let [traces (collect-traces ::xspec-7)]
-      (rf/match-url "/no-such-thing")
+      (routing/match-url "/no-such-thing")
       (stop-traces ::xspec-7)
       (is (empty? (filter #(= :error (:op-type %)) @traces))
           "match-url is pure: route-not-found does not emit error traces"))))

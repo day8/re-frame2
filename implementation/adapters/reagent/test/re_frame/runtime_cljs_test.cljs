@@ -18,7 +18,7 @@
             ;; rf2-k682: routing ships in day8/re-frame2-routing.
             ;; Required here so its load-time hook + reg-sub
             ;; registrations fire before this ns's reg-route call.
-            [re-frame.routing]
+            [re-frame.routing :as routing]
             ;; rf2-tfw3: flows ships in day8/re-frame2-flows.
             ;; Required here so its load-time hook registrations
             ;; fire before this ns's reg-flow call.
@@ -264,10 +264,10 @@
 (deftest match-and-unparse-routes
   (testing "match-url and route-url round-trip on CLJS"
     (rf/reg-route :user/show {:path "/users/:id"})
-    (let [m (rf/match-url "/users/42")]
+    (let [m (routing/match-url "/users/42")]
       (is (= :user/show (:route-id m)))
       (is (= "42"       (:id (:params m)))))
-    (is (= "/users/42" (rf/route-url :user/show {:id 42})))))
+    (is (= "/users/42" (routing/route-url :user/show {:id 42})))))
 
 ;; ---- machines (pure machine-transition) -----------------------------------
 

@@ -231,7 +231,7 @@
                   :output (fn [h] h)
                   :path   [:out :b]})
     (is (contains? (flows-tooling/flow-algebra-view :rf/default) :a))
-    (rf/clear-flow :a)
+    (flows/clear-flow :a)
     (let [per-frame (flows-tooling/flow-algebra-view :rf/default)]
       (is (not (contains? per-frame :a)))
       (is (contains? per-frame :b)))))

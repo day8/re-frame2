@@ -126,7 +126,7 @@
       (is (= {:loaded? true} (:config db)))))
   (testing "machine boot — :configuring → :loading → :ready"
     (rf/reg-event-fx :app/boot
-      (rf/make-machine-handler
+      (machines/make-machine-handler
         {:initial :configuring
          :data    {:config nil}
          :actions {:record-config (fn [{data :data [_ c] :event}]

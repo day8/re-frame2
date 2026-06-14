@@ -5,6 +5,8 @@
   TODO."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.routing :as routing]
+            [re-frame.machines :as machines]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -301,30 +303,30 @@
 
 (deftest app-schemas-returns-registered-schema-map
   (testing "app-schemas returns {path schema} for every reg-app-schema declaration"
-    (is (= {} (rf/app-schemas))
+    (is (= {} (schemas/app-schemas))
         "fresh registry: no schemas registered")
     (rf/reg-app-schema [:user]  [:map [:id :uuid]])
     (rf/reg-app-schema [:todos] [:vector :string])
-    (let [m (rf/app-schemas)]
+    (let [m (schemas/app-schemas)]
       (is (= 2 (count m)))
       (is (= [:map [:id :uuid]]   (get m [:user])))
       (is (= [:vector :string]    (get m [:todos]))))
-    (is (= [:map [:id :uuid]] (rf/app-schema-at [:user]))
+    (is (= [:map [:id :uuid]] (schemas/app-schema-at [:user]))
         "app-schema-at agrees with app-schemas for individual paths"))
   (testing "keyword-arity is sugar over the opts-map arity"
     ;; Per Spec 010 §Schemas as a tooling and agent surface: the
     ;; (app-schemas frame-id) form is sugar for (app-schemas {:frame ...}).
     ;; In v1 the registry is process-global so both arities return the
     ;; same map; the keyword/opts-map arities must not throw.
-    (let [bare    (rf/app-schemas :rf/default)
-          opts    (rf/app-schemas {:frame :rf/default})
-          no-args (rf/app-schemas)]
+    (let [bare    (schemas/app-schemas :rf/default)
+          opts    (schemas/app-schemas {:frame :rf/default})
+          no-args (schemas/app-schemas)]
       (is (map? bare))
       (is (= bare opts))
       (is (= bare no-args))))
   (testing "app-schemas rejects garbage input with a structured error"
     (is (thrown? clojure.lang.ExceptionInfo
-                 (rf/app-schemas "not-a-keyword-or-map")))))
+                 (schemas/app-schemas "not-a-keyword-or-map")))))
 
 ;; ---- subscription topology: glitch-freedom (JVM) -------------------------
 ;;
@@ -487,31 +489,31 @@
   (testing "route-url percent-encodes named params; match-url decodes them"
     (rf/reg-route :user/show {:path "/users/:id"})
     (is (= "/users/hello%20world"
-           (rf/route-url :user/show {:id "hello world"})))
-    (let [m (rf/match-url "/users/hello%20world")]
+           (routing/route-url :user/show {:id "hello world"})))
+    (let [m (routing/match-url "/users/hello%20world")]
       (is (= "hello world" (:id (:params m))))))
   (testing "splat value preserves '/' between segments but encodes within"
     (rf/reg-route :files/get {:path "/files/*rest"})
     (is (= "/files/a/b%20c/d"
-           (rf/route-url :files/get {:rest "a/b c/d"})))
-    (let [m (rf/match-url "/files/a/b%20c/d")]
+           (routing/route-url :files/get {:rest "a/b c/d"})))
+    (let [m (routing/match-url "/files/a/b%20c/d")]
       (is (= "a/b c/d" (:rest (:params m))))))
   (testing "query keys and values are encoded / decoded. rf2-5ifai:
             the bare route declares no :query vocabulary, so the key
             stays a string."
     (rf/reg-route :search {:path "/search"})
     (is (= "/search?q=hello%20world"
-           (rf/route-url :search {} {:q "hello world"})))
-    (let [m (rf/match-url "/search?q=hello%20world")]
+           (routing/route-url :search {} {:q "hello world"})))
+    (let [m (routing/match-url "/search?q=hello%20world")]
       (is (= "hello world" (get-in m [:query "q"]))))))
 
 (deftest match-and-route-url
   (testing "match-url and route-url round-trip"
     (rf/reg-route :user/show {:path "/users/:id"})
-    (let [m (rf/match-url "/users/42")]
+    (let [m (routing/match-url "/users/42")]
       (is (= :user/show (:route-id m)))
       (is (= "42" (:id (:params m)))))
-    (is (= "/users/42" (rf/route-url :user/show {:id 42})))))
+    (is (= "/users/42" (routing/route-url :user/show {:id 42})))))
 
 ;; ---- SSR emitter ----------------------------------------------------------
 
@@ -632,7 +634,7 @@
            ;; Per Spec 005 §Declarative :spawn (rf2-een2 / rf2-smba):
            ;; on-spawn callback signature is (fn [data spawned-id] new-data).
            :on-spawn-actions {:record (fn [{data :data}] data)}}
-          handler (rf/make-machine-handler machine)]
+          handler (machines/make-machine-handler machine)]
       (rf/reg-frame :left  {:doc "left"})
       (rf/reg-frame :right {:doc "right"})
       (rf/reg-event-fx :flow handler)
@@ -714,7 +716,7 @@
       ;; The login machine. Mirrors the structure of examples/login/core.cljs's
       ;; :auth.login/flow — five states, deepest-wins, multi-guard branch.
       (rf/reg-event-fx :auth.login/flow
-        (rf/make-machine-handler
+        (machines/make-machine-handler
           ;; Per Spec 005: spec map does NOT carry :id; the id comes
           ;; from the reg-event-fx call above.
           {:initial :idle
@@ -822,7 +824,7 @@
       ;; A regular event-handler must NOT show up in (rf/machines).
       (rf/reg-event-db :test/regular (fn [db _] db))
 
-      (let [ids (set (rf/machines))]
+      (let [ids (set (machines/machines))]
         (is (contains? ids :test/tiny)
             "(rf/machines) lists machines registered via reg-machine")
         (is (contains? ids :test/other)
@@ -831,17 +833,17 @@
             "(rf/machines) excludes plain event handlers"))
 
       (testing "(rf/machine-meta id) returns the spec map for registered machines"
-        (is (= tiny-spec (rf/machine-meta :test/tiny))
+        (is (= tiny-spec (machines/machine-meta :test/tiny))
             "machine-meta returns the spec map passed to reg-machine")
-        (is (= other-spec (rf/machine-meta :test/other)))
+        (is (= other-spec (machines/machine-meta :test/other)))
         (is (= "A tiny test machine."
-               (:doc (rf/machine-meta :test/tiny)))
+               (:doc (machines/machine-meta :test/tiny)))
             "the spec's :doc round-trips through machine-meta"))
 
       (testing "(rf/machine-meta id) returns nil for unregistered or non-machine ids"
-        (is (nil? (rf/machine-meta :test/regular))
+        (is (nil? (machines/machine-meta :test/regular))
             "non-machine event handlers return nil")
-        (is (nil? (rf/machine-meta :test/never-registered))
+        (is (nil? (machines/machine-meta :test/never-registered))
             "unregistered ids return nil")))))
 
 ;; ssr-with-fx-override and ssr-end-to-end moved to the ssr artefact's

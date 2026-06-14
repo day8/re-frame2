@@ -923,7 +923,7 @@
     ;; varies by validator (Spec 010 §Non-Malli validators), so the
     ;; conformance comparator dissocs it before equality. The
     ;; :validation-failed? flag is the normative bit.
-    (let [actual (some-> (rf/match-url (:url call)) (dissoc :validation-error))
+    (let [actual (some-> (routing/match-url (:url call)) (dissoc :validation-error))
           expect (:expect call)]
       {:passed? (= expect actual)
        :detail  (when (not= expect actual)
@@ -933,12 +933,12 @@
     :route-url
     (let [actual (cond
                    (contains? call :fragment)
-                   (rf/route-url (:route-id call) (:params call)
+                   (routing/route-url (:route-id call) (:params call)
                                  (or (:query call) {}) (:fragment call))
                    (:query call)
-                   (rf/route-url (:route-id call) (:params call) (:query call))
+                   (routing/route-url (:route-id call) (:params call) (:query call))
                    :else
-                   (rf/route-url (:route-id call) (:params call)))
+                   (routing/route-url (:route-id call) (:params call)))
           expect (:expect call)]
       {:passed? (= expect actual)
        :detail  (when (not= expect actual)
@@ -946,9 +946,9 @@
                        " expected " expect " got " actual))})
 
     :round-trip
-    (let [matched (rf/match-url (:url call))
+    (let [matched (routing/match-url (:url call))
           rebuilt (when matched
-                    (rf/route-url (:route-id matched)
+                    (routing/route-url (:route-id matched)
                                   (:params matched)
                                   (or (:query matched) {})
                                   (:fragment matched)))]

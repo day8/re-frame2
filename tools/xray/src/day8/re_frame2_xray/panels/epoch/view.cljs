@@ -67,6 +67,7 @@
   helper composed into the numbered cascade by `pipeline-view`."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.schemas :as schemas]
             [day8.re-frame2-xray.panels.epoch.badge :as badge]
             [day8.re-frame2-xray.panels.epoch.format :as fmt]
             [day8.re-frame2-xray.panels.epoch.icons :as icons]
@@ -5243,7 +5244,7 @@
         ;; via `handler-meta`. Both paths catch + return nil so missing
         ;; coords degrade the inline link to plain text.
         schema-coord    (or (when (and (= :app-db where) (sequential? path))
-                              (try (let [m (rf/app-schema-meta-at path)]
+                              (try (let [m (schemas/app-schema-meta-at path)]
                                      (when (and m (string? (:file m)))
                                        {:file (:file m) :line (:line m)}))
                                    (catch :default _ nil)))

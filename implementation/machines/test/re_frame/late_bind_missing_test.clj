@@ -19,11 +19,16 @@
   Per Spec 002 §The late-bind seam, rf2-xbtj (machines split), and the
   prose at the call sites in `re-frame.core`.
 
-  Note: only the active machine surfaces (`reg-machine`, `reg-machine*`,
-  `make-machine-handler`, `machine-transition`) raise the missing-
-  artefact error. The read-only query surfaces (`machines`,
-  `machine-meta`, `machine-by-system-id`) deliberately return safe
-  defaults — Spec 005 §Querying machines."
+  Note (rf2-wad2fl — front-porch shrink): the ONLY machine surface that
+  remains on the `re-frame.core` façade is the `reg-machine` /
+  `defmachine` registration MACRO (source-coord capture; no owned-ns
+  macro form), so the façade missing-artefact contract is tested here for
+  `reg-machine` only. The fn surfaces (`reg-machine*`, `make-machine-
+  handler`, `machine-transition`) and the read-only query surfaces
+  (`machines`, `machine-meta`, `machine-by-system-id`) were demoted off
+  the façade — they are reached through `re-frame.machines` (the owned
+  namespace; requiring it means the artefact is present, so the façade
+  artefact-missing contract no longer applies to them)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as late-bind]
@@ -44,28 +49,6 @@
       (finally
         (late-bind/set-fn! hook-key original)))))
 
-(deftest reg-machine-star-raises-when-machines-artefact-missing
-  (testing "rf/reg-machine* (plain fn) raises :rf.error/machines-artefact-missing when the :machines/reg-machine hook is nil"
-    (with-hook-as-nil :machines/reg-machine
-      (fn []
-        (let [thrown (try (rf/reg-machine* :probe/machine
-                                           {:initial :idle
-                                            :states  {:idle {}}})
-                          nil
-                          (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? thrown)
-              "reg-machine* throws when the machines artefact is absent")
-          (is (= ":rf.error/machines-artefact-missing" (.getMessage thrown))
-              "the documented error category appears in the message")
-          (let [data (ex-data thrown)]
-            (is (= 'rf/reg-machine* (:where data))
-                "ex-data carries :where = 'rf/reg-machine*")
-            (is (= :probe/machine (:machine-id data))
-                "ex-data carries :machine-id from the call site")
-            (is (= :no-recovery (:recovery data))
-                "ex-data carries :recovery = :no-recovery")
-            (is (string? (:reason data))
-                "ex-data carries :reason as a string")))))))
 
 (deftest reg-machine-macro-raises-when-machines-artefact-missing
   (testing "rf/reg-machine (macro) raises :rf.error/machines-artefact-missing when the :machines/reg-machine hook is nil"
@@ -92,60 +75,3 @@
                 "ex-data carries :machine-id from the call site")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")))))))
-
-(deftest make-machine-handler-raises-when-machines-artefact-missing
-  (testing "rf/make-machine-handler raises :rf.error/machines-artefact-missing when the :machines/make-machine-handler hook is nil"
-    (with-hook-as-nil :machines/make-machine-handler
-      (fn []
-        (let [thrown (try (rf/make-machine-handler {:initial :idle
-                                                      :states  {:idle {}}})
-                          nil
-                          (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? thrown)
-              "make-machine-handler throws when the machines artefact is absent")
-          (is (= ":rf.error/machines-artefact-missing" (.getMessage thrown))
-              "the documented error category appears in the message")
-          (let [data (ex-data thrown)]
-            (is (= 'rf/make-machine-handler (:where data))
-                "ex-data carries :where = 'rf/make-machine-handler")
-            (is (= :no-recovery (:recovery data))
-                "ex-data carries :recovery = :no-recovery")))))))
-
-(deftest machine-transition-raises-when-machines-artefact-missing
-  (testing "rf/machine-transition raises :rf.error/machines-artefact-missing when the :machines/machine-transition hook is nil"
-    (with-hook-as-nil :machines/machine-transition
-      (fn []
-        (let [thrown (try (rf/machine-transition {:initial :idle
-                                                  :states  {:idle {}}}
-                                                 {:state :idle :data {}}
-                                                 [:noop])
-                          nil
-                          (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? thrown)
-              "machine-transition throws when the machines artefact is absent")
-          (is (= ":rf.error/machines-artefact-missing" (.getMessage thrown))
-              "the documented error category appears in the message")
-          (let [data (ex-data thrown)]
-            (is (= 'rf/machine-transition (:where data))
-                "ex-data carries :where = 'rf/machine-transition")
-            (is (= :no-recovery (:recovery data))
-                "ex-data carries :recovery = :no-recovery")))))))
-
-(deftest read-only-machine-queries-return-safe-defaults
-  (testing "Per Spec 005 §Querying machines, the read-only machine
-  introspection surfaces return safe defaults when the machines
-  artefact is absent — `machines` returns []; `machine-meta` and
-  `machine-by-system-id` return nil. This branch must stay distinct
-  from the active surfaces' missing-artefact contract."
-    (with-hook-as-nil :machines/machines
-      (fn []
-        (is (= [] (rf/machines))
-            "machines returns [] when the machines artefact is absent")))
-    (with-hook-as-nil :machines/machine-meta
-      (fn []
-        (is (nil? (rf/machine-meta :anything))
-            "machine-meta returns nil when the machines artefact is absent")))
-    (with-hook-as-nil :machines/machine-by-system-id
-      (fn []
-        (is (nil? (rf/machine-by-system-id :anything))
-            "machine-by-system-id returns nil when the machines artefact is absent")))))

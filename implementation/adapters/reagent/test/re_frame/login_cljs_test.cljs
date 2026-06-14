@@ -22,6 +22,7 @@
        message) settles without any `:where :machine-data` trace."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
+            [re-frame.machines :as machines]
             [re-frame.registrar :as registrar]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
@@ -78,7 +79,7 @@
 
 (deftest data-schema-attached
   (testing "the login machine carries AuthLoginData on its :data-schema slot"
-    (let [meta (rf/machine-meta :auth.login/flow)]
+    (let [meta (machines/machine-meta :auth.login/flow)]
       (is (some? meta) "machine-meta resolves the registered login machine")
       (is (= login.core/AuthLoginData (:data-schema meta))
           "the :data-schema round-trips as login.core/AuthLoginData")))

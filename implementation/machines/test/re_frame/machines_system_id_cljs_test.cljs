@@ -15,6 +15,7 @@
   Split out of `machines_cljs_test.cljs` (rf2-3vps4)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.machines :as machines]
             ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -46,7 +47,7 @@
       (rf/reg-machine :sup/flow parent)
       (rf/dispatch-sync [:sup/flow [:start]])
       ;; (1) Lookup-by-system-id returns the spawned id.
-      (let [spawned (rf/machine-by-system-id :worker)]
+      (let [spawned (machines/machine-by-system-id :worker)]
         (is (= :worker/proc#1 spawned)
             ":system-id resolves to the spawned machine id")
         (is (= spawned (get-in (rf/runtime-db-value :rf/default)
@@ -62,7 +63,7 @@
             "dispatch routed via system-id reached the live actor"))
       ;; (3) Destroy clears system-id binding and snapshot.
       (rf/dispatch-sync [:sup/flow [:done]])
-      (is (nil? (rf/machine-by-system-id :worker))
+      (is (nil? (machines/machine-by-system-id :worker))
           "post-destroy lookup returns nil")
       (is (nil? (get-in (rf/runtime-db-value :rf/default)
                         [:rf.runtime/machines :system-ids :worker]))
@@ -88,7 +89,7 @@
       (rf/reg-machine :notifier/proc child)
       (rf/reg-machine :sup2/flow parent)
       (rf/dispatch-sync [:sup2/flow [:go]])
-      (let [spawned (rf/machine-by-system-id :notifier)]
+      (let [spawned (machines/machine-by-system-id :notifier)]
         (is (= :notifier/proc#1 spawned))
         ;; Verify the sugar dispatches via the system-id lookup. We use
         ;; dispatch-sync directly through the resolved id so the assert
@@ -96,7 +97,7 @@
         ;; dispatch-to-system itself wraps `dispatch` (queued); under a
         ;; non-Reagent test runner there's no render to trigger the
         ;; drain. The lookup-then-dispatch chain is what we're verifying.
-        (rf/dispatch-sync [(rf/machine-by-system-id :notifier) [:notify "hello"]])
+        (rf/dispatch-sync [(machines/machine-by-system-id :notifier) [:notify "hello"]])
         (is (= ["hello"] (get-in (rf/runtime-db-value :rf/default)
                                  [:rf.runtime/machines :snapshots spawned :data :msgs]))
             "dispatch via system-id lookup reached the live actor")
@@ -124,7 +125,7 @@
       (rf/dispatch-sync [::spawn2])
       (trace-tooling/unregister-listener! ::col)
       ;; Second spawn rebinds.
-      (is (= :w/proc#2 (rf/machine-by-system-id :primary))
+      (is (= :w/proc#2 (machines/machine-by-system-id :primary))
           "second spawn rebound :primary to the new actor")
       (is (some (fn [ev]
                   (and (= :rf.error/system-id-collision (:operation ev))
@@ -144,5 +145,5 @@
       (rf/dispatch-sync [::spawn-anon])
       (is (nil? (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :system-ids]))
           "[:rf.runtime/machines :system-ids] not allocated when no spawns carry :system-id")
-      (is (nil? (rf/machine-by-system-id :anything))
+      (is (nil? (machines/machine-by-system-id :anything))
           "lookup against an unbound system-id returns nil"))))

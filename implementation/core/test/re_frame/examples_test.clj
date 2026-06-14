@@ -22,6 +22,7 @@
             [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.machines :as machines]
             [re-frame.frame :as frame]
             [re-frame.machines.result :as result]
             [re-frame.registrar :as registrar]
@@ -620,14 +621,14 @@
       ;; frame, no app-db.
       (let [s0 {:state :idle :data {:attempts 0 :error nil}}
             {s1 ::result/snap fx1 ::result/fx}
-            (rf/machine-transition login-flow s0
+            (machines/machine-transition login-flow s0
                                    [:auth.login/submit
                                     {:email "a@b.com" :password "secret"}])]
         (is (= :submitting (:state s1)))
         ;; Entering :submitting fires the :issue-request action's :fx.
         (is (= 1 (count fx1)) "one :rf.http/managed fx")
         (is (= :rf.http/managed (ffirst fx1)))
-        (let [{s2 ::result/snap} (rf/machine-transition login-flow s1
+        (let [{s2 ::result/snap} (machines/machine-transition login-flow s1
                                                         [:auth.login/success {:value {:token "t"}}])]
           (is (= :authed (:state s2))))))
 
@@ -639,7 +640,7 @@
       ;; the first counter value at which the guard rejects.
       (let [snapshot {:state :submitting :data {:attempts 3 :error nil}}
             {s ::result/snap}
-            (rf/machine-transition login-flow snapshot
+            (machines/machine-transition login-flow snapshot
                                    [:auth.login/failure
                                     {:failure {:kind :rf.http/http-4xx
                                                :message "bad creds"}}])]

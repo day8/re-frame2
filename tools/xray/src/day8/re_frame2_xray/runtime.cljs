@@ -74,6 +74,7 @@
   needing to know."
   (:require [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.machines :as machines]
             ;; rf2-qwm0a: trace-buffer (and the rest of the listener +
             ;; ring-buffer surface) lives in re-frame.trace.tooling, not
             ;; re-frame.trace. CLJS deliberately omits `rf/<name>` aliases
@@ -774,11 +775,11 @@
        :hint "Pass :machine-id <keyword>."}
 
       :else
-      (let [spec (rf/machine-meta machine-id)]
+      (let [spec (machines/machine-meta machine-id)]
         (if (nil? spec)
           {:ok? false :reason :no-such-machine
            :frame fid :machine-id machine-id
-           :registered (vec (rf/machines))}
+           :registered (vec (machines/machines))}
           (let [snapshot-path (conj machine-snapshot-path-root machine-id)
                 ;; EP-0001 rf2-vzld77 — read the snapshot from the RUNTIME-DB
                 ;; partition, not app-db. The partition distinction is the
@@ -824,11 +825,11 @@
   map is keyed by machine-id."
   ([] (get-machine-list nil))
   ([{:keys [include-sensitive? include-large?] :as _opts}]
-   (let [ids (rf/machines)]
+   (let [ids (machines/machines)]
      {:ok?      true
       :machines (into {}
                       (map (fn [mid]
-                             [mid (egress-value (rf/machine-meta mid)
+                             [mid (egress-value (machines/machine-meta mid)
                                                 {:include-sensitive? include-sensitive?
                                                  :include-large?     include-large?})]))
                       ids)

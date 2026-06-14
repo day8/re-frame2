@@ -41,29 +41,12 @@
       (finally
         (late-bind/set-fn! hook-key original)))))
 
-(deftest clear-flow-raises-when-flows-artefact-missing
-  (testing "rf/clear-flow raises :rf.error/flows-artefact-missing when the :flows/clear-flow hook is nil"
-    (with-hook-as-nil :flows/clear-flow
-      (fn []
-        (let [thrown (try (rf/clear-flow :no-such-flow)
-                          nil
-                          (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? thrown)
-              "clear-flow throws when the flows artefact is absent")
-          (is (= ":rf.error/flows-artefact-missing" (.getMessage thrown))
-              "the documented error category appears in the message")
-          (let [data (ex-data thrown)]
-            ;; Per Spec 009 §The thrown-error shape: the canonical
-            ;; discriminator slot is `:rf.error/id` (require-fn! now
-            ;; stamps it; previously the kw lived only in the message).
-            (is (= :rf.error/flows-artefact-missing (:rf.error/id data))
-                "ex-data carries the canonical :rf.error/id discriminator")
-            (is (= 'rf/clear-flow (:where data))
-                "ex-data carries :where = 'rf/clear-flow")
-            (is (= :no-recovery (:recovery data))
-                "ex-data carries :recovery = :no-recovery")
-            (is (string? (:reason data))
-                "ex-data carries :reason as a string")))))))
+;; rf2-wad2fl (front-porch shrink): `clear-flow` was demoted off the
+;; `re-frame.core` façade — it is reached through `re-frame.flows/clear-flow`
+;; now, so the façade artefact-missing contract no longer applies to it. The
+;; `reg-flow` registration MACRO remains on the façade (source-coord capture);
+;; its missing-artefact contract is tested below, alongside the
+;; framework-internal hook no-op contracts.
 
 (deftest reg-flow-raises-when-flows-artefact-missing
   (testing "rf/reg-flow (macro) raises :rf.error/flows-artefact-missing when the :flows/reg-flow hook is nil"

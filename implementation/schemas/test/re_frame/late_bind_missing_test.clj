@@ -19,11 +19,14 @@
   Per Spec 002 §The late-bind seam, rf2-p7va (schemas split), and the
   prose at the call sites in `re-frame.core`.
 
-  Note: only `reg-app-schema` raises a missing-artefact error. The
-  introspection surfaces (`app-schema-at`, `app-schemas`,
-  `app-schemas-digest`) deliberately return safe defaults (nil / {} /
-  nil) when the schemas artefact is absent — Spec 010 §Schemas as a
-  tooling and agent surface. We test both branches here."
+  Note (rf2-wad2fl — front-porch shrink): only the `reg-app-schema` /
+  `reg-app-schemas` registration MACROS remain on the `re-frame.core`
+  façade (source-coord capture), so only their missing-artefact contract
+  is tested here. The introspection surfaces (`app-schema-at`,
+  `app-schemas`, `app-schemas-digest`) and the validator-install seams
+  (`set-schema-*`) were demoted off the façade — they are reached through
+  `re-frame.schemas` now (requiring it means the artefact is present, so
+  the façade artefact-missing/safe-default contract no longer applies)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as late-bind]
@@ -71,21 +74,10 @@
             (is (string? (:reason data))
                 "ex-data carries :reason as a string")))))))
 
-(deftest introspection-surfaces-return-safe-defaults-when-schemas-artefact-missing
-  (testing "Per Spec 010 §Schemas as a tooling and agent surface, the
-  read-only schema-introspection surfaces deliberately do NOT throw
-  when the schemas artefact is absent — they return safe defaults
-  (nil / {} / nil). This branch must stay distinct from the active
-  surfaces' missing-artefact contract."
-    (with-hook-as-nil :schemas/app-schema-at
-      (fn []
-        (is (nil? (rf/app-schema-at [:any]))
-            "app-schema-at returns nil when the schemas artefact is absent")))
-    (with-hook-as-nil :schemas/app-schemas
-      (fn []
-        (is (= {} (rf/app-schemas))
-            "app-schemas returns {} when the schemas artefact is absent")))
-    (with-hook-as-nil :schemas/app-schemas-digest
-      (fn []
-        (is (nil? (rf/app-schemas-digest))
-            "app-schemas-digest returns nil when the schemas artefact is absent")))))
+;; rf2-wad2fl: the read-only schema-introspection surfaces (`app-schema-at`
+;; / `app-schemas` / `app-schemas-digest`) are no longer façade exports —
+;; their previous facade-wrapper safe-default-when-absent behaviour was a
+;; property of the `re-frame.core-schemas` wrappers, which are removed. A
+;; consumer now reaches them via `re-frame.schemas` (artefact present by
+;; construction), so the introspection-when-absent assertion no longer
+;; describes an expressible façade call and is removed.

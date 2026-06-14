@@ -36,6 +36,7 @@
        :data."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
+            [re-frame.machines :as machines]
             [re-frame.registrar :as registrar]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
@@ -251,7 +252,7 @@
 
 (deftest boot-data-schema-attached
   (testing "the :app/boot machine carries BootData on its :data-schema slot"
-    (let [meta (rf/machine-meta :app/boot)]
+    (let [meta (machines/machine-meta :app/boot)]
       (is (some? meta) "machine-meta resolves the registered :app/boot machine")
       (is (= boot-schema/BootData (:data-schema meta))
           "the :data-schema round-trips as boot.schema/BootData")))

@@ -132,7 +132,7 @@
       (try
         (let [clearer
               (future
-                (rf/clear-flow :doubled {:frame :rf/default}))
+                (flows/clear-flow :doubled {:frame :rf/default}))
               ;; Thread B: once clear-flow has vacated (and is parked under
               ;; the drain-lock), fire an input-changing event. Pre-fix this
               ;; would slip into the window, recompute the still-registered
@@ -351,7 +351,7 @@
         ;; Thread B: clear :scaled. Pre-fix its pre-lock read captures the
         ;; OLD `[:out-a]` now (A hasn't swapped yet); in BOTH versions it
         ;; then blocks on the drain-lock A's drain holds.
-        (let [clearer (future (rf/clear-flow :scaled {:frame :rf/default}))]
+        (let [clearer (future (flows/clear-flow :scaled {:frame :rf/default}))]
           ;; B must NOT complete while A holds the lock — it's blocked on the
           ;; drain-lock (bounded wait; B's pre-lock read, if any, is a few
           ;; instructions before the blocking acquire).

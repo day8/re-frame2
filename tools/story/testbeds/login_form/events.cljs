@@ -30,7 +30,7 @@
   (:require [re-frame.core :as rf]
             ;; Loads the machine substrate's late-bind hooks so
             ;; rf/make-machine-handler resolves below.
-            [re-frame.machines]
+            [re-frame.machines :as machines]
             ;; Loads :rf.http/managed; without it, dispatching
             ;; the login flow's request fx would throw
             ;; :rf.error/no-such-fx.
@@ -54,7 +54,7 @@
 
 (rf/reg-event-fx :login/flow
   {:doc "Login flow machine — five-state authentication FSM."}
-  (rf/make-machine-handler
+  (machines/make-machine-handler
     {:initial :idle
      :data    {:email      ""
                :error      nil
