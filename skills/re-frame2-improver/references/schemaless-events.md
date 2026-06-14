@@ -1,6 +1,6 @@
 # Anti-pattern — Schemaless events at boundaries
 
-`reg-event-fx` (or `reg-event-db`) handlers that ingest untrusted data — HTTP responses, WebSocket frames, `postMessage` payloads, query-string params, `localStorage` rehydration — without an always-on production validator at the boundary. Dev-only `:schema` and `reg-app-schema` are necessary but not sufficient: both are elided in production builds, so the handler writes whatever the source returned straight into `app-db` in the deployed bundle.
+`reg-event` handlers that ingest untrusted data — HTTP responses, WebSocket frames, `postMessage` payloads, query-string params, `localStorage` rehydration — without an always-on production validator at the boundary. Dev-only `:schema` and `reg-app-schema` are necessary but not sufficient: both are elided in production builds, so the handler writes whatever the source returned straight into `app-db` in the deployed bundle.
 
 ## Detection rules
 
@@ -13,9 +13,9 @@
 
 Greppable signals — flag when **any** of these match AND no production gate is wired:
 
-- `reg-event-fx` whose `:effects` (return-map `:fx`) include `:rf.http/managed`, `:http-xhrio`, websocket-id keywords, or whose handler reads `(:rf/reply event)` / `(:body event)` / `(:data event)` from a network or `postMessage` source.
-- `reg-event-db` named `:*/loaded`, `:*/received`, `:*/decoded`, `:*/synced`, `:*/rehydrated`, `:*/restored` whose handler writes `(assoc db :foo/bar payload)` where `payload` originated outside the application's own dispatches.
-- Events that take an unstructured second arg — `(fn [db [_ data]] (assoc db :remote data))` — where `data` is the raw boundary payload.
+- A `reg-event` handler whose return-map `:fx` includes `:rf.http/managed`, `:http-xhrio`, websocket-id keywords, or whose handler reads `(:rf/reply event)` / `(:body event)` / `(:data event)` from a network or `postMessage` source.
+- A `reg-event` handler bound to `:*/loaded`, `:*/received`, `:*/decoded`, `:*/synced`, `:*/rehydrated`, `:*/restored` whose return `:db` writes `(assoc db :foo/bar payload)` where `payload` originated outside the application's own dispatches.
+- Events that take an unstructured second arg — `(fn [{:keys [db]} [_ data]] {:db (assoc db :remote data)})` — where `data` is the raw boundary payload.
 - Handlers that read `js/window.location.search`, `js/localStorage`, `js/sessionStorage`, `js/postMessage`, or `IndexedDB` results in their bodies (often via fx) and write the result to `app-db`.
 - New handlers introduced in a feature whose `app-db` writes use paths absent from `(re-frame.schemas/app-schemas)` (the `app-schemas` query lives on `re-frame.schemas` — no longer re-exported from `re-frame.core`, per rf2-wad2fl).
 
@@ -57,7 +57,7 @@ Spec source: [`spec/010-Schemas.md`](../../../spec/010-Schemas.md). The `:rf.err
 **Before** — schemaless boundary handler:
 
 ```clojure
-(rf/reg-event-fx :article/load
+(rf/reg-event :article/load
   (fn [{:keys [db]} [_ {:keys [slug] :as msg}]]
     (if-let [reply (:rf/reply msg)]
       {:db (assoc db :article (:value reply))}                  ;; trust everything that comes back
@@ -77,7 +77,7 @@ Spec source: [`spec/010-Schemas.md`](../../../spec/010-Schemas.md). The `:rf.err
 
 (rf/reg-app-schema [:article] Article)                          ;; dev-only — surfaces mismatches in dev
 
-(rf/reg-event-fx :article/load
+(rf/reg-event :article/load
   {:doc    "Load one article by slug."
    :schema [:cat [:= :article/load] [:map [:slug :string]]]
    :interceptors [rf/validate-at-boundary-interceptor]}         ;; ALWAYS-ON — runs in production
@@ -101,7 +101,7 @@ The handler below carries **both** `:schema` and `reg-app-schema`, and looks lik
 
 (rf/reg-app-schema [:article] Article)                          ;; dev-only — elided in production
 
-(rf/reg-event-fx :article/load
+(rf/reg-event :article/load
   {:doc    "Load one article by slug."
    :schema [:cat [:= :article/load] [:map [:slug :string]]]}    ;; dev-only — elided in production
   ;; NO rf/validate-at-boundary-interceptor in metadata :interceptors.
@@ -119,18 +119,18 @@ Other untrusted-boundary shapes that hit the same rule — but watch *which* gat
 
 ```clojure
 ;; query-string ingestion — EVENT-PAYLOAD (params ride in the event vector)
-(rf/reg-event-db :route/params-received                          ;; flag — no always-on gate
+(rf/reg-event :route/params-received                             ;; flag — no always-on gate
   {:schema [:cat keyword? :map]}
-  (fn [db [_ params]] (assoc db :route/params params)))
+  (fn [{:keys [db]} [_ params]] {:db (assoc db :route/params params)}))
 ;;   Gate: metadata :interceptors [rf/validate-at-boundary-interceptor] — validates the event vector in prod.
 
 ;; postMessage payload — EVENT-PAYLOAD (msg arrives as the event arg)
-(rf/reg-event-db :postmessage/received                           ;; flag — no always-on gate
-  (fn [db [_ msg]] (assoc db :embed/state (.-data msg))))
+(rf/reg-event :postmessage/received                              ;; flag — no always-on gate
+  (fn [{:keys [db]} [_ msg]] {:db (assoc db :embed/state (.-data msg))}))
 ;;   Gate: metadata :interceptors [rf/validate-at-boundary-interceptor] — validates the event vector in prod.
 
 ;; localStorage rehydration — BODY-READ (handler fetches the value itself)
-(rf/reg-event-fx :session/rehydrate                              ;; flag — no always-on gate
+(rf/reg-event :session/rehydrate                                 ;; flag — no always-on gate
   (fn [{:keys [db]} _]
     (let [raw (.getItem js/localStorage "session")]
       {:db (assoc db :session (js->clj (js/JSON.parse raw)))})))
@@ -151,7 +151,7 @@ This handler carries **both** a `:schema` for its event id **and** `rf/validate-
 
 (rf/reg-app-schema [:session] Session)                           ;; dev-only — elided in production
 
-(rf/reg-event-fx :session/rehydrate
+(rf/reg-event :session/rehydrate
   {:schema [:cat [:= :session/rehydrate]]                        ;; dev-only — pins the (trusted) dispatch shape
    :interceptors [rf/validate-at-boundary-interceptor]}           ;; validates the EVENT VECTOR — not the localStorage value
   (fn [{:keys [db]} _]
@@ -165,7 +165,7 @@ This handler carries **both** a `:schema` for its event id **and** `rf/validate-
 
 ```clojure
 ;; (a) Always-on Malli check over the raw value, before the write:
-(rf/reg-event-fx :session/rehydrate
+(rf/reg-event :session/rehydrate
   (fn [{:keys [db]} _]
     (let [raw    (.getItem js/globalThis.localStorage "session")
           parsed (some-> raw js/JSON.parse (js->clj :keywordize-keys true))]
@@ -181,7 +181,7 @@ This handler carries **both** a `:schema` for its event id **and** `rf/validate-
                          js/JSON.parse (js->clj :keywordize-keys true))]
       (when (m/validate Session parsed) parsed))))               ;; ALWAYS-ON validation; returns the value
 
-(rf/reg-event-fx :session/rehydrate
+(rf/reg-event :session/rehydrate
   {:rf.cofx/requires [:session/stored]}
   (fn [{:keys [db session/stored]} _]                            ;; the validated value arrives flat
     (cond-> {} stored (assoc :db (assoc db :session stored)))))

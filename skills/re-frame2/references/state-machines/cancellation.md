@@ -29,7 +29,7 @@ A trace event `:rf.http/aborted-on-actor-destroy` fires per cancelled request, c
 
 A request is in-flight inside actor `<spawned-id>` iff its originating event vector's first element was `<spawned-id>`. The http fx records the `(request-id, actor-id)` tuple in its in-flight registry alongside the abort handle (`spec/005-StateMachines.md:2047`).
 
-A request issued **directly from an ordinary `reg-event-fx` handler** — not via a spawned actor — is NOT tracked by actor-id and is NOT aborted by any state machine destroy. That's deliberate (Spec 005 §Open question — direct dispatches from event handlers): an ordinary handler has no analogous lifecycle peg. If you want HTTP requests bound to a state's lifetime, the answer is **to spawn a child machine that issues them** — the `:spawn` declaration is the explicit binding.
+A request issued **directly from an ordinary `reg-event` handler** — not via a spawned actor — is NOT tracked by actor-id and is NOT aborted by any state machine destroy. That's deliberate (Spec 005 §Open question — direct dispatches from event handlers): an ordinary handler has no analogous lifecycle peg. If you want HTTP requests bound to a state's lifetime, the answer is **to spawn a child machine that issues them** — the `:spawn` declaration is the explicit binding.
 
 ## Canonical worked example
 
@@ -86,11 +86,11 @@ If the parent needs to capture the child's last reported value before tearing it
           {:fx [[:analytics/record [:auth-attempt (:last-auth-report data)]]]})}}
 ```
 
-If the value lives only in the child's `:data` and the child never reported it up, the supported reads are an ordinary (non-machine) `reg-event-fx` with a cofx — which sees `app-db` through the proper frame API — or `(rf/app-db-value frame-id)` from outside any machine action. The auto-destroy runs after the user's `:exit` — wire-level concatenation, not nesting.
+If the value lives only in the child's `:data` and the child never reported it up, the supported reads are an ordinary (non-machine) `reg-event` handler with a cofx — which sees `app-db` through the proper frame API — or `(rf/app-db-value frame-id)` from outside any machine action. The auto-destroy runs after the user's `:exit` — wire-level concatenation, not nesting.
 
 ## Common gotchas
 
-- **Direct HTTP from `reg-event-fx` is not cancelled.** No actor → no actor-id → no abort. If lifecycle-bound abort matters, push the HTTP into a child machine via `:spawn`. The `:rf.http/managed` machine-shape wrapper exists for exactly this case (Spec 005 §Worked example — declarative login flow).
+- **Direct HTTP from a `reg-event` handler is not cancelled.** No actor → no actor-id → no abort. If lifecycle-bound abort matters, push the HTTP into a child machine via `:spawn`. The `:rf.http/managed` machine-shape wrapper exists for exactly this case (Spec 005 §Worked example — declarative login flow).
 - **Cleanup runs even when the child hasn't finished setup.** The auto-destroy hook fires on every exit cascade, including ones that fire before any HTTP succeeded. Your child's `:exit` action must tolerate the "we never made it past `:idle`" case.
 - **No `core.async` channels.** The framework does not use, depend on, or accept core.async in the cancellation path. If your child wraps a stream-shaped external API (a websocket, a Server-Sent Events feed), close the host handle directly from an `:exit` action — don't reach for `core.async/close!`.
 - **`:rf.http/aborted-on-actor-destroy` is a trace event, not an error category.** The reply path sees `:rf.http/aborted` with `:reason :actor-destroyed` — same `:on-failure` callback as any other abort. Don't write `:on-error` handlers that try to discriminate; check the failure map's `:reason` if you care.

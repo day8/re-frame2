@@ -6,9 +6,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 
 | Surface | Shape |
 |---|---|
-| `rf/reg-event-db` | `(id meta? (fn [db ev] new-db))` |
-| `rf/reg-event-fx` | `(id meta? (fn [cofx ev] fx-map))` |
-| `rf/reg-event-ctx` | `(id meta? (fn [ctx] ctx'))` |
+| `rf/reg-event` | `(id meta? (fn [cofx ev] effects-map-or-nil))` — the **one** event form (coeffects in, closed effects map out); `{:db ...}` is the db-write effect. Full-context work → an `->interceptor` |
 | `rf/reg-fx` | `(id [metadata?] (fn [ctx args] ...))` — `ctx` is `{:frame :event}`; `args` is the `:fx` entry's 2nd slot |
 | `rf/reg-cofx` | `(id [metadata?] (fn [] value) \| (fn [arg] value))` — **value-returning** supplier (EP-0017); returns the coeffect value directly. `arg` is the per-call arg from a `[id arg]` declaration. `meta` may carry `:recordable?` / `:provided?` / `:schema` / `:platforms`. Consumed via `:rf.cofx/requires` (not `inject-cofx`, removed) |
 | `rf/reg-sub` | `(id (fn [db query-v] value))` layer-1 · `(id :<- […] … (fn [inputs query-v] value))` static · `(id (fn [query-v] [[:q…]…]) (fn [inputs query-v] value))` parametric — input fn returns a **vector of query vectors** (EP-0004), NOT `subscribe` reactions |
@@ -22,7 +20,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/reg-error-projector` | `(id metadata? (fn [trace-event] public-error))` — needs `day8/re-frame2-ssr` |
 | `rf/reg-http-interceptor` | `(id interceptor-map)` — `interceptor-map` carries `:before` / `:after` / `:frame` / metadata; needs `day8/re-frame2-http` |
 
-The `reg-event-*` metadata-map is the one **superset** middle slot — reflection keys **and** a reserved `:interceptors` key: `(id {:doc ... :schema ... :interceptors [...]} handler)`. The historical positional interceptor vector is retired; `(reg-event-fx :id [i1 i2] handler)` and `(reg-event-fx :id {:doc ...} [i1 i2] handler)` are registration errors. A malformed metadata value is `:rf.error/reg-event-bad-interceptors`. Verified against `implementation/core/src/re_frame/events.cljc` `resolve-interceptors` and Spec 001 §Allowed forms of the middle slot. `reg-fx`/`reg-cofx`/`reg-error-projector` take a metadata-map only in that slot.
+The `reg-event` metadata-map is the one **superset** middle slot — reflection keys **and** a reserved `:interceptors` key: `(id {:doc ... :schema ... :interceptors [...]} handler)`. The historical positional interceptor vector is retired; `(reg-event :id [i1 i2] handler)` and `(reg-event :id {:doc ...} [i1 i2] handler)` are registration errors. A malformed metadata value is `:rf.error/reg-event-bad-interceptors`. There is one public event registrar: `reg-event-db` / `reg-event-fx` / `reg-event-ctx` are removed (EP-0018) — a db-only handler returns `{:db ...}`, and full-context work is an `->interceptor`. Verified against `implementation/core/src/re_frame/events.cljc` `resolve-interceptors` and Spec 001 §Allowed forms of the middle slot. `reg-fx`/`reg-cofx`/`reg-error-projector` take a metadata-map only in that slot.
 
 ## Dispatch, subscribe, frames
 
@@ -150,7 +148,7 @@ Owner classifies / framework projects / sinks consume. Classification keys are *
 |---|---|
 | frame `:sensitive` / `:large` | `(reg-frame id {:sensitive {:app-db [[…]] :http {:headers […] :query-params […]}} :large {:app-db [[…]]}})` — durable app-db + frame-local HTTP carrier classification |
 | frame `:observability` | `{:handled-events [{:sink <id> :rf.egress/profile :rf.egress/off-box-observability :opts {…}}] :errors [...]}` — production sink policy (fail-closed, frame-scoped) |
-| registration `:sensitive` / `:large` | `{:sensitive [[:password]] :large [[:blob]]}` on `reg-event-*`/`reg-sub`/`reg-fx`/`reg-flow` — transient-payload paths; `[[]]` = whole shape |
+| registration `:sensitive` / `:large` | `{:sensitive [[:password]] :large [[:blob]]}` on `reg-event`/`reg-sub`/`reg-fx`/`reg-flow` — transient-payload paths; `[[]]` = whole shape |
 | schema `:sensitive?` / `:large?` | `[:token {:sensitive? true} :string]` Malli prop — machine `:data-schema`, resource `:data-schema`/`:params-schema`, HTTP `:decode` (owner-local schema'd data only; NOT app-db) |
 | `:rf.egress/output-sensitivity` | `:rf.egress/inherit` (default) \| `:rf.egress/sensitive` \| `:rf.egress/public` — derived-output declassification on a `reg-sub`/`reg-flow`; `:public` is an audited claim (Xray enumerates) |
 | `rf/project-egress` | `(record-or-value opts)` — record-level boundary primitive; `opts` `{:rf.egress/profile <closed six-member enum> :frame … :path […]}`. Required before any off-box sink; fail-closed when no frame known |
@@ -181,7 +179,7 @@ Six `:rf.egress/profile` values (closed enum): `:rf.egress/off-box-observability
 |---|---|
 | `rf/->interceptor` | `({:id :before :after})` → interceptor |
 | `rf/get-coeffect` / `rf/assoc-coeffect` / `rf/get-effect` / `rf/assoc-effect` | inside an interceptor |
-| `:rf.cofx/requires` (metadata) | declare a handler's coeffect dependencies on `reg-event-fx` / `reg-event-ctx`: `{:rf.cofx/requires [:rf/time-ms [:ui/local-theme "k"]]}`. The declared values arrive **flat** in the coeffects map under their ids. Declared-only delivery; a db handler declaring it is a registration error (EP-0017) |
+| `:rf.cofx/requires` (metadata) | declare a handler's coeffect dependencies on `reg-event`: `{:rf.cofx/requires [:rf/time-ms [:ui/local-theme "k"]]}`. The declared values arrive **flat** in the coeffects map under their ids. Declared-only delivery; uniformly available to every event handler (EP-0017 / EP-0018) |
 | `:rf.cofx` (envelope field / dispatch opt) | flat `fact-name → value` map of recordable coeffects on every dispatch / reply envelope (EP-0017; renamed + flattened from EP-0010's `:rf.world/inputs`). `:rf/time-ms` is the framework's one built-in (recordable, provided, stamped at enqueue). Read durable time off it via `:rf.cofx/requires [:rf/time-ms]` → `(fn [{:keys [rf/time-ms]} ev] …)`. `inject-cofx` is **removed** (`:rf.error/inject-cofx-removed`) |
 | `rf/path` / `rf/unwrap-interceptor` | std interceptors |
 | `rf/init!` | `(adapter-map)` — install adapter/runtime capabilities; creates no frame. No registry. |

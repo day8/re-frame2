@@ -2,7 +2,7 @@
 
 ## When to load
 
-Authoring a custom effect handler with `reg-fx`, or working out what to put inside the `:fx` vector returned from `reg-event-fx`.
+Authoring a custom effect handler with `reg-fx`, or working out what to put inside the `:fx` vector returned from a `reg-event` handler.
 
 ## Canonical signature
 
@@ -23,7 +23,7 @@ Verified in `implementation/core/src/re_frame/fx.cljc` (the `reg-fx` fn). Metada
 
 ## The fx-map shape
 
-`reg-event-fx` handlers return a **closed-shape** map. The closed set of legal top-level keys is `#{:db :rf.db/runtime :fx}`:
+A `reg-event` handler returns a **closed-shape** map — the next state and what to do. The closed set of legal top-level keys is `#{:db :rf.db/runtime :fx}`:
 
 ```clojure
 {:db            <new-app-db>      ;; app-db partition — the everyday key
@@ -66,7 +66,7 @@ From `examples/reagent/todomvc/events.cljs`:
            (.setItem ls db/ls-key)))))
 
 ;; Called via the fx vector:
-(rf/reg-event-fx :todo/add
+(rf/reg-event :todo/add
   (fn [{:keys [db]} [_ title]]
     {:db (assoc-in db [:todos id] {...})
      :fx [[:todo.storage/save (:todos new-db)]]}))

@@ -109,7 +109,7 @@ Each reference / pattern / decision-tree leaf targets ~150 lines; in practice th
 
 ## 6. Discovery surface (frontmatter `description`)
 
-The `description` is "pushy" per Anthropic best practice — it lists every re-frame2 surface that should trigger discovery: `reg-event-db`, `reg-event-fx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`, `dispatch`, `subscribe`, `app-db`, `flows`, `frames`, `regions`, `tags`, `managed HTTP`, `RemoteData lifecycles`, plus the natural-language framing "writing tests for a re-frame2 app". The description also explicitly carves out the adjacent skills (`re-frame2-pair`, `re-frame2-setup`) so the AI routes correctly.
+The `description` is "pushy" per Anthropic best practice — it lists every re-frame2 surface that should trigger discovery: `reg-event` (the one event form — EP-0018), `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`, `dispatch`, `subscribe`, `app-db`, `flows`, `frames`, `regions`, `tags`, `managed HTTP`, `RemoteData lifecycles`, plus the natural-language framing "writing tests for a re-frame2 app". The description also explicitly carves out the adjacent skills (`re-frame2-pair`, `re-frame2-setup`) so the AI routes correctly.
 
 ## 7. Anti-patterns the skill explicitly resists
 

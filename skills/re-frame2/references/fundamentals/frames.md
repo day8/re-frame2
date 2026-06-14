@@ -29,7 +29,7 @@ A **frame** is an isolated runtime boundary holding **two durable partitions** p
 
 The two partitions:
 
-- **app-db** (`:db`) — the application's data, and nothing else. Every `reg-event-db` handler receives and returns app-db; an ordinary `:db` effect replaces app-db only.
+- **app-db** (`:db`) — the application's data, and nothing else. A `reg-event` handler reads app-db from its coeffects (`{:keys [db]}`) and returns the next state under `:db`; an ordinary `:db` effect replaces app-db only.
 - **runtime-db** (`:rf.db/runtime`) — the framework's partition: machine snapshots at `[:rf.runtime/machines :snapshots]`, the route slice at `[:rf.runtime/routing :current]`, elision declarations at `[:rf.runtime/elision]`, SSR metadata. Reserved **by convention** under `:rf.runtime/*` keys. App code reads it through framework subs (`sub-machine`, `[:rf.route/*]`), never through `:db`; it's a separate partition, so a fresh `:db` return can't clobber a machine or the route by accident.
 
 Together they compose a **frame-state** value: `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`. The composite is what serialises for SSR, reverts on time-travel, and hydrates as one unit. `reg-app-schema` validates the app-db partition only — keep teaching it as "the app-db schema"; it describes a *pure* application contract with no framework state mixed in.
@@ -174,7 +174,7 @@ Wraps a Reagent / Helix / UIx subtree so descendants resolve `current-frame-id` 
 
 ## Realms — the container a frame lives in (advanced public API)
 
-The mental model: **the program is a value; the runtime is a container you install it into.** By default your registrations (`reg-event-db`, `reg-sub`, `reg-fx`, …) update one process-wide table, and your frames all share it. EP-0013 names that table's owner a **realm** — the operational environment holding the registered behaviour, the installed adapter, runtime capabilities (HTTP, clock, schema validation), and the frame registry. A frame belongs to exactly one realm; the durable app-db / runtime-db partitions a frame owns are unchanged.
+The mental model: **the program is a value; the runtime is a container you install it into.** By default your registrations (`reg-event`, `reg-sub`, `reg-fx`, …) update one process-wide table, and your frames all share it. EP-0013 names that table's owner a **realm** — the operational environment holding the registered behaviour, the installed adapter, runtime capabilities (HTTP, clock, schema validation), and the frame registry. A frame belongs to exactly one realm; the durable app-db / runtime-db partitions a frame owns are unchanged.
 
 You almost certainly do not need to think about this. The two facts an author should hold:
 

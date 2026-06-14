@@ -21,7 +21,7 @@ Minimal re-frame2 counter app used by `tests/shim`, `tests/e2e`, and
 |---|---|
 | `shadow-cljs.edn` | Build config with `:devtools :preloads` set to `re-frame2-pair.runtime`. |
 | `deps.edn` | `:local/root` to `../../../../implementation` (the re-frame2 repo) plus Reagent. |
-| `src/counter/core.cljs` | Counter (`reg-event-db`, `reg-sub`, `reg-view`) — three events: `:counter/initialise`, `:counter/inc`, `:counter/dec`. |
+| `src/counter/core.cljs` | Counter (`reg-event`, `reg-sub`, `reg-view`) — three events: `:counter/initialise`, `:counter/inc`, `:counter/dec`. |
 | `public/index.html` | Page host; loads `out/main.js`. |
 | `README.md` | This file. |
 

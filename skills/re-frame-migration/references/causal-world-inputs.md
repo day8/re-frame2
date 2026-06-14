@@ -43,7 +43,7 @@ For each hit: if the value flows into a durable write → it migrates (below). I
 The dispatch envelope carries `:rf.cofx`, a flat plain-EDN map; the framework's one built-in fact is **`:rf/time-ms`** (wall-clock epoch millis), stamped once at enqueue when the caller omits it; tests, replay, and SSR supply it. A handler takes delivery by **declaring** it and reads it flat:
 
 ```clojure
-(rf/reg-event-fx
+(rf/reg-event
   :article/load-succeeded
   {:rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} [_ {:keys [id article]}]]

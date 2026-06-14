@@ -30,16 +30,16 @@ Spec source: [`spec/Pattern-NineStates.md`](../../../spec/Pattern-NineStates.md)
 **Before** — manual flag with `dissoc` discipline:
 
 ```clojure
-(rf/reg-event-db :items/load-start
-  (fn [db _] (assoc db :items/loading? true :items/error nil)))
+(rf/reg-event :items/load-start
+  (fn [{:keys [db]} _] {:db (assoc db :items/loading? true :items/error nil)}))
 
-(rf/reg-event-db :items/load-success
-  (fn [db [_ items]]
-    (-> db (dissoc :items/loading?) (assoc :items items))))
+(rf/reg-event :items/load-success
+  (fn [{:keys [db]} [_ items]]
+    {:db (-> db (dissoc :items/loading?) (assoc :items items))}))
 
-(rf/reg-event-db :items/load-failure
-  (fn [db [_ err]]
-    (-> db (dissoc :items/loading?) (assoc :items/error err))))   ;; if you forget the dissoc, spinner-forever
+(rf/reg-event :items/load-failure
+  (fn [{:keys [db]} [_ err]]
+    {:db (-> db (dissoc :items/loading?) (assoc :items/error err))}))  ;; if you forget the dissoc, spinner-forever
 ```
 
 **After** — machine with tag-based render selection:

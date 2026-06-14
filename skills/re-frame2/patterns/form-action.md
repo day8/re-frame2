@@ -42,7 +42,7 @@ The view runs on both platforms; the `action` attribute is what makes it work JS
 `:rf/server-init` routes GET vs POST; the action handler validates via `:schema` and emits per-platform effects:
 
 ```clojure
-(rf/reg-event-fx :rf/server-init
+(rf/reg-event :rf/server-init
   {:doc "Per-request boot. GET → page loader; POST → form action."
    :platforms #{:server}
    :rf.cofx/requires [:rf.server/request]}
@@ -53,7 +53,7 @@ The view runs on both platforms; the `action` attribute is what makes it work JS
         :get  {:fx [[:dispatch [:page/load route]]]}
         :post {:fx [[:dispatch [(route->action-event route) form-params]]]}))))
 
-(rf/reg-event-fx :cart/add-item
+(rf/reg-event :cart/add-item
   {:doc    "Add an item to the cart. Same handler tree both platforms."
    :schema [:cat [:= :cart/add-item] AddToCartForm]      ;; server-side schema check, never skipped
    :rf.cofx/requires [:rf.server/request
@@ -84,10 +84,10 @@ Every form POST MUST carry a CSRF token; the server MUST reject a mismatched tok
 **Marking the POST sensitive — classify at the owner, not via handler metadata.** A handler-meta `{:sensitive? true}` flag on the action is a **no-op** — the runtime removed it, so marking the action does nothing and the `:form-params` ship verbatim into trace/Story/MCP egress. Sensitivity is owner-classified now (the three-owner model — per [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md)):
 
 - If the upload metadata (or any field) lands at a durable **app-db slot** that can hold credentials/PII, declare that path on the **frame**: `(rf/reg-frame :app/main {:sensitive {:app-db [[:uploads :token]]}})`. The frame owns durable app-db classification.
-- If a secret rides only in the **event payload** (e.g. a one-time token in `:form-params`) and never lands at an app-db slot, name its path in the **registration's** `:sensitive` metadata — the action handler is just a `reg-event-*`, so it carries the same metadata map:
+- If a secret rides only in the **event payload** (e.g. a one-time token in `:form-params`) and never lands at an app-db slot, name its path in the **registration's** `:sensitive` metadata — the action handler is just a `reg-event`, so it carries the same metadata map:
 
 ```clojure
-(rf/reg-event-fx :upload/submit
+(rf/reg-event :upload/submit
   {:sensitive [[:form-params :token]]}    ;; empty path [[:form-params]] scrubs the whole map
   (fn [_ [_ {:keys [form-params]}]] ,,,)) ;; handler body still sees the real value
 ```

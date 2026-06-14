@@ -120,7 +120,7 @@ The `{:inputs … :resolve …}` form **declares** which app facts decide the id
 Login, logout, account switch, tenant switch, permission change, and impersonation enter/exit MUST clear or replace the affected scope causally. Clear the scope the user was **in** — and resolve that scope from the handler's **coeffect db** (pre-transition by definition) *before* removing the user, using the `resolve-resource-scope` helper:
 
 ```clojure
-(rf/reg-event-fx :auth/logout
+(rf/reg-event :auth/logout
   (fn [{:keys [db]} _]
     (let [old-scope (rf/resolve-resource-scope db :session)]   ;; concrete scope from cofx db
       {:db (dissoc db :auth)
@@ -182,7 +182,7 @@ Mantra: **`:reply-to` is for workflow; populate / patch / invalidate are for cac
 `[:rf.mutation/execute …]` takes an optional call-site **`:reply-to`** event target. When the runtime accepts the reply as current, it dispatches that target with one **reply map** appended as the final arg:
 
 ```clojure
-(rf/reg-event-fx :settings/save
+(rf/reg-event :settings/save
   (fn [_ [_ form]]
     {:fx [[:dispatch
            [:rf.mutation/execute
@@ -191,7 +191,7 @@ Mantra: **`:reply-to` is for workflow; populate / patch / invalidate are for cac
              :instance [:settings/save]
              :reply-to [:settings/save-replied]}]]]}))   ;; ← workflow target
 
-(rf/reg-event-fx :settings/save-replied
+(rf/reg-event :settings/save-replied
   (fn [{:keys [db]} [_ {:keys [status value error]}]]    ;; reply map is the last arg
     (case status
       :ok    {:db (assoc db :auth/user (:user value))    ;; app-db workflow lives here

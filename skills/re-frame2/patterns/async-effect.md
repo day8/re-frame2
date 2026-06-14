@@ -40,7 +40,7 @@ Six steps; each instance fills in the concrete external system. The shape is inv
 | `reg-fx` | Registers the outgoing effect handler. |
 | `:fx` vector in handler returns | The event handler declares the work as data. |
 | Frame capture in async closures | The fx reads `:frame` off its first-arg map and threads it into the reply `dispatch` so the result lands in the originating frame. Without the carried frame an after-commit reply `dispatch` raises `:rf.error/no-frame-context` (EP-0002 — no default to fall back to), which is why the frame must be captured and threaded. |
-| Plain `reg-event-db` / `reg-event-fx` | The reply handlers — nothing special; the reply is just an event. |
+| Plain `reg-event` | The reply handlers — nothing special; the reply is just an event. |
 
 ## Canonical declaration
 
@@ -60,7 +60,7 @@ The HTTP instance — the most common substrate. Replace `perform-http-request` 
                                (rf/dispatch (conj on-error err)
                                             {:frame frame-id}))))))))
 
-(rf/reg-event-fx :articles/load
+(rf/reg-event :articles/load
   (fn handler-articles-load [{:keys [db]} _]
     {:db (assoc-in db [:articles :status] :loading)
      :fx [[:http {:method     :get
@@ -68,17 +68,17 @@ The HTTP instance — the most common substrate. Replace `perform-http-request` 
                   :on-success [:articles/loaded]
                   :on-error   [:articles/load-failed]}]]}))
 
-(rf/reg-event-db :articles/loaded
-  (fn [db [_ articles]]
-    (-> db
-        (assoc-in [:articles :status] :loaded)
-        (assoc-in [:articles :data]   articles))))
+(rf/reg-event :articles/loaded
+  (fn [{:keys [db]} [_ articles]]
+    {:db (-> db
+             (assoc-in [:articles :status] :loaded)
+             (assoc-in [:articles :data]   articles))}))
 
-(rf/reg-event-db :articles/load-failed
-  (fn [db [_ err]]
-    (-> db
-        (assoc-in [:articles :status] :error)
-        (assoc-in [:articles :error]  err))))
+(rf/reg-event :articles/load-failed
+  (fn [{:keys [db]} [_ err]]
+    {:db (-> db
+             (assoc-in [:articles :status] :error)
+             (assoc-in [:articles :error]  err))}))
 ```
 
 The first argument to the fx-handler is the runtime context map; read `:frame` off it. Re-frame2 will not auto-route an async dispatch from an fx — capture explicitly.

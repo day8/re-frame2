@@ -45,8 +45,8 @@ Callers splice `[customer-card 42]` and `[customer-card 43]` into the render tre
 3. **Dispatches carry the id** in the first payload position, so the handler scopes the same way the sub does:
 
 ```clojure
-(rf/reg-event-db :customer/edit
-  (fn [db [_ id]] (assoc-in db [:ui :editing-customer] id)))
+(rf/reg-event :customer/edit
+  (fn [{:keys [db]} [_ id]] {:db (assoc-in db [:ui :editing-customer] id)}))
 ```
 
 Without the id-on-dispatch rule, two cards firing `:customer/edit` are indistinguishable at the handler.

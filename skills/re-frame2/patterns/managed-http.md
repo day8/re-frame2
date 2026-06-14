@@ -36,7 +36,7 @@ Out of scope: streaming responses (chunked / SSE), bidirectional WebSocket (see 
 ## Canonical declaration — fx form
 
 ```clojure
-(rf/reg-event-fx :article/load
+(rf/reg-event :article/load
   (fn [{:keys [db]} [_ {:keys [slug] :as msg}]]
     (if-let [reply (:rf/reply msg)]
       (case (:kind reply)

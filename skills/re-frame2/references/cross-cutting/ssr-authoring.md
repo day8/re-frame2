@@ -95,7 +95,7 @@ Same no-hook → `:rf.ssr/compatibility-check-skipped` posture.
 
 ## The canonical `:rf/hydrate` handler
 
-The runtime ships this handler by default in `re-frame.ssr` — **most apps inherit it and never write their own.** `:rf/hydrate` is a reserved `:rf/*` event (Cardinal rule 7; `spec/Conventions.md`), so an ordinary app-level `(rf/reg-event-fx :rf/hydrate …)` is **overriding a framework event** — do it only as a deliberate, documented **framework-extension** when you need a non-replace merge policy (the default is `:replace-frame-state`, server-authoritative, spec-locked).
+The runtime ships this handler by default in `re-frame.ssr` — **most apps inherit it and never write their own.** `:rf/hydrate` is a reserved `:rf/*` event (Cardinal rule 7; `spec/Conventions.md`), so an ordinary app-level `(rf/reg-event :rf/hydrate …)` is **overriding a framework event** — do it only as a deliberate, documented **framework-extension** when you need a non-replace merge policy (the default is `:replace-frame-state`, server-authoritative, spec-locked).
 
 If you do override, you take over the shipped handler's safety contract and **MUST preserve all of it** — the snippet below is the recipe shape, not a drop-in replacement (it omits guards for brevity). The shipped `re-frame.ssr` handler (`implementation/ssr/src/re_frame/ssr/hydrate.cljc`):
 
@@ -106,7 +106,7 @@ If you do override, you take over the shipped handler's safety contract and **MU
 Drop any of these and you reintroduce a fail-open hydration path. Hydration installs a whole **frame-state**, not just an app-db slice: the payload carries `:rf/app-db` (the app-db partition) and an optional `:rf/runtime-db` (the *serializable* runtime-db projection — machine snapshots, route slice, elision declarations, SSR metadata), and the handler installs both partitions in one atomic transition. The framework `:rf/hydrate` handler is framework-authority, so it may emit the reserved `:rf.db/runtime` effect. The two check fxs ride inside `:fx`:
 
 ```clojure
-(rf/reg-event-fx :rf/hydrate
+(rf/reg-event :rf/hydrate
   {:doc       "Install a coherent frame-state (app-db + serializable runtime-db) from the server payload."
    :platforms #{:client}}                                ;; hydration is client-side only
   (fn [_ [_ {:rf/keys [version frame-id app-db runtime-db render-hash schema-digest]}]]

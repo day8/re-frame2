@@ -13,7 +13,7 @@
     {"id": 7,  "name": "v1-surface-test",       "should_trigger": true,  "prompt": "Our tests use re-frame-test extensively. What replaces it in v2?"},
     {"id": 8,  "name": "v1-effect-map-keys",    "should_trigger": true,  "prompt": "Our handlers return {:db ... :dispatch [...] :dispatch-n [[...]]}. Does v2 still accept those top-level keys?"},
     {"id": 9,  "name": "neg-greenfield",        "should_trigger": false, "prompt": "Start a new re-frame2 project from scratch.", "rationale": "Greenfield bootstrap is re-frame2-setup."},
-    {"id": 10, "name": "neg-author-v2",         "should_trigger": false, "prompt": "Write a re-frame2 reg-event-fx that posts a login form to /api/login.", "rationale": "Authoring on an already-v2 project is re-frame2."},
+    {"id": 10, "name": "neg-author-v2",         "should_trigger": false, "prompt": "Write a re-frame2 reg-event that posts a login form to /api/login.", "rationale": "Authoring on an already-v2 project is re-frame2."},
     {"id": 11, "name": "neg-live-pair",         "should_trigger": false, "prompt": "Inspect app-db right now on my running shadow-cljs build.", "rationale": "Live-runtime is re-frame2-pair."},
     {"id": 12, "name": "neg-port-language",     "should_trigger": false, "prompt": "I want to port re-frame2 to F#.", "rationale": "Porting the framework is re-frame2-implementor."},
     {"id": 13, "name": "neg-spec-question",     "should_trigger": false, "prompt": "What's the EP rationale for treating effects as data in v2?", "rationale": "Spec discussion belongs to SKILL-REDIRECT.md."},

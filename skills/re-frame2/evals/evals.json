@@ -17,7 +17,7 @@
       "files": [],
       "expectations": [
         "Skill skills/re-frame2/ is invoked (skill load event observed; or SKILL.md / patterns/remote-data.md is read).",
-        "The output names the re-frame2 reg-* macros explicitly (reg-event-fx for load, reg-event-db for loaded, reg-sub for views).",
+        "The output names the re-frame2 reg-* macros explicitly (reg-event for the load and loaded handlers — the one event form, returning {:db ...}/{:db ... :fx ...} — and reg-sub for views).",
         "The output distinguishes :loading from :fetching as separate status values — uses both keywords and explains the empty-page-spinner vs background-revalidate distinction.",
         "The output produces a 5-key slice shape matching the canonical declaration: keys include :status, :data, :error, :loaded-at, :attempt (or a clearly equivalent superset).",
         "The output uses :rf.http/managed (or names the host's HTTP fx surface) — does NOT invent a parallel HTTP layer.",
@@ -34,7 +34,7 @@
       "expectations": [
         "Skill skills/re-frame2/ is invoked.",
         "The agent reads patterns/websocket.md (or the equivalent canonical pattern leaf), not just SKILL.md.",
-        "The output uses reg-machine (or make-machine-handler) — not a plain reg-event-db slice — to model the connection lifecycle.",
+        "The output uses reg-machine (or make-machine-handler) — not a plain reg-event slice — to model the connection lifecycle.",
         "The output declares an :active parent compound state with leaf states (:connecting, :authenticating or similar, :connected) so the socket actor's lifetime spans the parent.",
         "The output uses :spawn to anchor the socket actor on the parent state, not on a single leaf.",
         "The output models :reconnecting with backoff via :after (delay) and bumps a retry counter in :data.",
@@ -52,7 +52,7 @@
         "Skill skills/re-frame2/ is invoked and patterns/forms.md is read.",
         "The output's form slice has at least these keys: :draft, :status, :errors, :touched, :submit-attempted?, :submit-error — i.e. the canonical 7-key shape (presence test, not exhaustive equality).",
         "The output's :field-error sub (or equivalent) gates visibility on (or :submit-attempted? (:touched field)) — both touch and submit-attempt are checked.",
-        "The output uses reg-event-fx for :submit and reg-event-db for :edit-field, :blur-field, :submit-success, :submit-error (or equivalent).",
+        "The output uses reg-event for all of :submit, :edit-field, :blur-field, :submit-success, :submit-error (the one event form; each returns a {:db ...}/{:db ... :fx ...} effects map).",
         "The output distinguishes structured field errors (-> :errors) from non-field / transport failures (-> :submit-error or :_form). The agent acknowledges this two-channel rule explicitly.",
         "The output registers a reg-app-schema for the slice path AND a separate schema for the form's draft value (two schemas, per the leaf's guidance).",
         "The output uses :rf.http/managed for the submit fx, with :on-success / :on-failure dispatching the lifecycle events."
@@ -117,9 +117,9 @@
       "expectations": [
         "Skill skills/re-frame2/ is invoked and references/tooling/story-recorder.md is read (privacy-and-elision.md may also be read).",
         "The output states that the Story recorder keys its sensitivity filter off the emitted trace event's top-level :sensitive? field, stamped by the runtime from owner-declared classification, NOT off handler metadata.",
-        "The output EXPLICITLY REJECTS handler-meta {:sensitive? true} on the reg-event-* / action as the mechanism — it states that flag is a no-op / removed from the runtime and ships credentials verbatim.",
+        "The output EXPLICITLY REJECTS handler-meta {:sensitive? true} on the reg-event / action as the mechanism — it states that flag is a no-op / removed from the runtime and ships credentials verbatim.",
         "For the password (if it lands at a durable app-db slot), the output declares that path on the FRAME (reg-frame :sensitive {:app-db [[...]]}) so the runtime stamps the trace event sensitive and the recorder substitutes the whole-row [:rf/redacted] placeholder.",
-        "For a transient payload-only secret (the one-time 2FA code riding only the event vector), the output names its path in the submit handler's REGISTRATION :sensitive metadata (e.g. (rf/reg-event-fx :auth/verify {:sensitive [[:totp-code]]} handler)), NOT a positional interceptor.",
+        "For a transient payload-only secret (the one-time 2FA code riding only the event vector), the output names its path in the submit handler's REGISTRATION :sensitive metadata (e.g. (rf/reg-event :auth/verify {:sensitive [[:totp-code]]} handler)), NOT a positional interceptor.",
         "The output does NOT reach for the retired rf/redact-interceptor, rf/add-marks, or schema-attached app-db {:sensitive? true} as the mechanism, and does NOT claim that registering a handler :sensitive? true causes Story / MCP record-as-variant to redact the event."
       ]
     },

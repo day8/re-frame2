@@ -4,7 +4,7 @@ End-to-end worked example: a working re-frame2 counter in one file. This is the 
 
 Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, **greenfield setup is done** — switch the author to the main `re-frame2` skill for everything else.
 
-> **Reagent only.** This leaf uses Reagent's `reg-view` macro (with auto-injected `dispatch`/`subscribe`) and `reagent.dom.client`. **UIx and Helix have no auto-injection** — they read subs through the adapter's `use-subscribe` hook and dispatch through `(:dispatch (rf/frame-handle))`, and mount through their own root API. For a UIx/Helix greenfield, do **not** use this Reagent counter: take the complete generator route (SKILL.md cardinal rule 4) or copy the substrate-specific entry ns + `views.cljs` from [`entry-namespace.md` §UIx / Helix greenfield](entry-namespace.md). The events and subs below (`reg-event-db` / `reg-sub`) are identical across substrates — only the view + mount layer differs.
+> **Reagent only.** This leaf uses Reagent's `reg-view` macro (with auto-injected `dispatch`/`subscribe`) and `reagent.dom.client`. **UIx and Helix have no auto-injection** — they read subs through the adapter's `use-subscribe` hook and dispatch through `(:dispatch (rf/frame-handle))`, and mount through their own root API. For a UIx/Helix greenfield, do **not** use this Reagent counter: take the complete generator route (SKILL.md cardinal rule 4) or copy the substrate-specific entry ns + `views.cljs` from [`entry-namespace.md` §UIx / Helix greenfield](entry-namespace.md). The events and subs below (`reg-event` / `reg-sub`) are identical across substrates — only the view + mount layer differs.
 
 ## Contents
 
@@ -27,11 +27,11 @@ Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, 
 
 ;; -- Events ----------------------------------------------------------------
 
-(rf/reg-event-db :counter/initialise
-  (fn [_db _event] {:counter/value 0}))
+(rf/reg-event :counter/initialise
+  (fn [_cofx _event] {:db {:counter/value 0}}))
 
-(rf/reg-event-db :counter/increment
-  (fn [db _event] (update db :counter/value inc)))
+(rf/reg-event :counter/increment
+  (fn [{:keys [db]} _event] {:db (update db :counter/value inc)}))
 
 ;; -- Subscriptions ---------------------------------------------------------
 
@@ -65,15 +65,17 @@ Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, 
 
 That's the entire greenfield app. ~25 lines of substance, every re-frame2 primitive exercised once.
 
-This is the same `:counter/initialise` / `:counter/increment` events and `:counter/value` sub that the generator template registers (`tools/template/resources/day8/re_frame2_template/_shared/events.cljs` + `_shared/subs.cljs`) and that the UIx / Helix view snippets in [`entry-namespace.md` §UIx / Helix greenfield](entry-namespace.md) dispatch and subscribe — so the SKILL.md claim "the events and subs are identical across substrates; only the view layer differs" holds in **copied** code. The canonical worked example at `examples/reagent/counter/core.cljs` uses the same namespaced `:counter/value` app-db key (seeded to `5` there) and additionally keeps a `:counter/dec` / `-` button; this minimal greenfield counter stays on the single-increment shape the template ships, so the three sources share one vocabulary. If you want decrement, add a `:counter/decrement` event (`(update db :counter/value dec)`) and a matching `-` button in **all** substrate views you use.
+This is the same `:counter/initialise` / `:counter/increment` events and `:counter/value` sub that the generator template registers (`tools/template/resources/day8/re_frame2_template/_shared/events.cljs` + `_shared/subs.cljs`) and that the UIx / Helix view snippets in [`entry-namespace.md` §UIx / Helix greenfield](entry-namespace.md) dispatch and subscribe — so the SKILL.md claim "the events and subs are identical across substrates; only the view layer differs" holds in **copied** code. The canonical worked example at `examples/reagent/counter/core.cljs` uses the same namespaced `:counter/value` app-db key (seeded to `5` there) and additionally keeps a `:counter/dec` / `-` button; this minimal greenfield counter stays on the single-increment shape the template ships, so the three sources share one vocabulary. If you want decrement, add a `:counter/decrement` event (`(fn [{:keys [db]} _] {:db (update db :counter/value dec)})`) and a matching `-` button in **all** substrate views you use.
 
 ## What each block does
 
 ### Events
 
-Two events: an initialiser and one mutation. Each takes the current `db`, returns the next `db`. Pure functions, dispatched through re-frame2's drain so they run in order, one at a time.
+Two events: an initialiser and one mutation. There is **one** event-registration form — `reg-event`. A handler takes the coeffects map (destructure `:db` from it to read the current app-db) and the event vector, and returns a map describing the next state and what to do: `{:db <next-app-db>}` writes the new app-db. Pure functions, dispatched through re-frame2's drain so they run in order, one at a time.
 
-`reg-event-db` is the "DB-only" event handler — the handler's return value replaces `app-db` for the registered frame. For events that need to return both a new DB **and** other effects (HTTP requests, navigation, child dispatches), the macro is `reg-event-fx` and the handler returns a map `{:db ... :fx [...]}`. The counter doesn't need that yet.
+So `:counter/initialise` returns `{:db {:counter/value 0}}` — seed the app-db to a fresh counter — and `:counter/increment` returns `{:db (update db :counter/value inc)}` — the next app-db with the count bumped. `_cofx` in the initialiser is just the unused coeffects argument; `:counter/increment` destructures `{:keys [db]}` to read the current value.
+
+Adding a side effect later (an HTTP request, navigation, a child dispatch) doesn't change the form: the same handler returns the same `{:db ...}` **plus** an `:fx` key — `{:db ... :fx [...]}`. No new macro, no signature change. The counter doesn't need `:fx` yet.
 
 ### Subscriptions
 

@@ -108,11 +108,11 @@ Here's the kinds of conversations you can have with Claude.
 >
 > **Claude**: Proposed change:
 > ```clojure
-> (rf/reg-event-db :cart/apply-coupon
->   (fn [db [_ code]]
->     (if (contains? (:expired-coupons db) code)
->       (assoc db :cart/coupon-error (str code " is expired"))
->       (assoc-in db [:shopping-cart :coupon] code))))
+> (rf/reg-event :cart/apply-coupon
+>   (fn [{:keys [db]} [_ code]]
+>     {:db (if (contains? (:expired-coupons db) code)
+>            (assoc db :cart/coupon-error (str code " is expired"))
+>            (assoc-in db [:shopping-cart :coupon] code))}))
 > ```
 > Registered. The runtime emitted `:rf.registry/handler-replaced` so I know it took. Try clicking apply — I'll watch the next epoch.
 

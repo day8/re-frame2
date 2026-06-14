@@ -101,7 +101,12 @@ TEMPLATE_SUBS = TEMPLATE_ROOT / "subs.cljs"
 COUNTER_KW = re.compile(r":counter/[a-z][a-z0-9-]*")
 
 # Registration call sites — the events/subs the skill tells the author to INSTALL.
-REG_EVENT = re.compile(r"reg-event-(?:db|fx|ctx)\s+(:counter/[a-z0-9-]+)")
+# Post-EP-0018 the one public form is `reg-event`; the retired `reg-event-db` /
+# `-fx` / `-ctx` spellings are matched too so the guard stays correct while the
+# generator template (a separate EP-0018 slice) still carries the old spelling
+# during the additive window. The optional suffix is non-capturing so the
+# captured group is always the `:counter/<name>` id, whichever spelling is used.
+REG_EVENT = re.compile(r"reg-event(?:-(?:db|fx|ctx))?\s+(:counter/[a-z0-9-]+)")
 REG_SUB = re.compile(r"reg-sub\s+(:counter/[a-z0-9-]+)")
 
 # Consumption call sites — the events/subs the view snippets DISPATCH / SUBSCRIBE.
@@ -295,9 +300,13 @@ def run(*, verbose: bool, ci: bool) -> int:
 def _self_test() -> int:
     failures = 0
 
+    # first-counter.md now uses the one-form `reg-event` (EP-0018); the
+    # generator template still carries the retired `reg-event-db` spelling during
+    # the additive window. The guard must recognise BOTH spellings as a counter
+    # registration so the containment check holds across the mixed corpus.
     good_first_counter = (
-        "(rf/reg-event-db :counter/initialise (fn [_ _] {:counter/value 0}))\n"
-        "(rf/reg-event-db :counter/increment (fn [db _] (update db :counter/value inc)))\n"
+        "(rf/reg-event :counter/initialise (fn [_cofx _] {:db {:counter/value 0}}))\n"
+        "(rf/reg-event :counter/increment (fn [{:keys [db]} _] {:db (update db :counter/value inc)}))\n"
         "(rf/reg-sub :counter/value (fn [db _] (:counter/value db)))\n"
     )
     good_template_events = (

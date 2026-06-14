@@ -89,7 +89,7 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > *- **L10 — No bead-ids in user-facing skill content.** `SKILL.md` + `references/` + `patterns/` + `decision-trees/` carry no `rf2-XXXX` references.*
 > *- **L11 — Findings stay local.** Don't commit `ai/` or `findings/` content.*
 >
-> *Frontmatter — the `description` is "pushy" per Anthropic best practice. List every re-frame2 surface that should trigger discovery: `reg-event-db`, `reg-event-fx`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`, `dispatch`, `subscribe`, `app-db`, frames, regions, tags, managed HTTP, RemoteData lifecycles. Plus natural-language phrases: "writing tests for a re-frame2 app", "state-machine-for-HTTP shapes". Carve out the adjacent skills (`re-frame2-pair`, `re-frame2-setup`) explicitly so the AI routes correctly.*
+> *Frontmatter — the `description` is "pushy" per Anthropic best practice. List every re-frame2 surface that should trigger discovery: `reg-event` (the one event form — EP-0018), `reg-sub`, `reg-fx`, `reg-cofx`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`, `dispatch`, `subscribe`, `app-db`, frames, regions, tags, managed HTTP, RemoteData lifecycles. Plus natural-language phrases: "writing tests for a re-frame2 app", "state-machine-for-HTTP shapes". Carve out the adjacent skills (`re-frame2-pair`, `re-frame2-setup`) explicitly so the AI routes correctly.*
 >
 > *Voice: tight, declarative, recipe-shaped. Use tables for routing; use code blocks for canonical shapes. Cite `implementation/<file>:<line>` in leaves where a surface claim might surprise an AI working from training memory.*
 >
