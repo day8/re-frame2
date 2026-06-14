@@ -1,13 +1,11 @@
 # EP-0018: One Event Registration Surface
 
-Status: accepted
+Status: final
 Type: standards-track
 
-> **`accepted` means the decisions are settled; the build is pending (flip
-> recorded 2026-06-14, Mike, in-session).** The seven design decisions are ruled
-> (see [§Resolved Decisions](#resolved-decisions)) and the `proposal → accepted`
-> flip is now recorded; the action epic that lands the changes in the normative
-> spec is the next governance step.
+> **`final` means the decisions are settled.** The seven design decisions are
+> ruled (see [§Resolved Decisions](#resolved-decisions)) and the normative homes
+> named below govern (where this EP and the spec differ, the spec governs).
 
 > This EP collapses re-frame2's three public event-registration forms to one —
 > **`reg-event`**, semantically today's `reg-event-fx` (coeffects in, a closed
@@ -15,23 +13,27 @@ Type: standards-track
 > the public API to a framework-internal primitive, with full-context work owned
 > by interceptors. The result is a single event spelling with no second-class
 > form, realigned with re-frame's own canonical handler shape and with EP-0017's
-> coeffect-declaration model. Normative home after acceptance:
+> coeffect-declaration model. The normative homes are
 > `spec/002-Frames.md` (event handler contract), `spec/001-Registration.md`
 > (the `reg-event` row + `reg-event-ctx` internal demotion), with
 > `spec/Spec-Schemas.md`, `spec/009-Instrumentation.md`,
 > `spec/015-*` (event classification), the API manifest, guide, skills, and
 > examples swept.
 >
-> **Decisions recorded 2026-06-14 (Mike, in-session).** The seven design
-> decisions are ruled (see [§Resolved Decisions](#resolved-decisions)):
-> **D1** accept the verbosity/pedagogy trade; **D2** demote `reg-event-ctx` to
-> internal; **D3** the bare name `reg-event`; **D4** two-arg
-> `(fn [cofx event])` handler only; **D5** defer any static db-only metadata
-> signal; **D6** sequence behind EP-0017 slice A; **D7** the migration codemod
-> rewrites faithfully and *flags* nil-capable handlers. The design surface is
-> settled and the `proposal → accepted` flip is recorded (2026-06-14, Mike); the
-> action epic that lands the changes in the normative spec is the next governance
-> step.
+> **Graduated `accepted → final` 2026-06-15 (Mike, operator graduation; bead
+> `rf2-xhfxcs` closed).** The seven design decisions are ruled (see
+> [§Resolved Decisions](#resolved-decisions)): **D1** accept the
+> verbosity/pedagogy trade; **D2** demote `reg-event-ctx` to internal; **D3**
+> the bare name `reg-event`; **D4** two-arg `(fn [cofx event])` handler only;
+> **D5** defer any static db-only metadata signal; **D6** sequence behind
+> EP-0017 slice A; **D7** the migration codemod rewrites faithfully and *flags*
+> nil-capable handlers. The reg-event collapse has **shipped and is verified**:
+> one public `reg-event` (= today's `reg-event-fx`); the retired names
+> (`reg-event-db` / `reg-event-fx` / public `reg-event-ctx`) are throwing stubs
+> naming their replacement; removal is conformance-gated; and there are **zero
+> live call sites** of the retired forms across the corpus. `final` asserts the
+> **decisions are settled** and the normative homes govern (where this EP and the
+> spec differ, the spec governs).
 
 ## Abstract
 
@@ -498,6 +500,7 @@ Adopt the one-surface event model — `(rf/reg-event id ?metadata handler)` with
 `handler := (coeffects, event) -> effect-map-or-nil` — removing public
 `reg-event-db` / `reg-event-fx` and demoting `reg-event-ctx`, sequenced behind
 EP-0017 slice A, with the codemod and a mandatory corpus sweep. All seven design
-decisions are ruled (above) and the `proposal → accepted` flip is recorded
-(2026-06-14, Mike); the next governance step is the action epic that lands the
-changes in the normative spec.
+decisions are ruled (above) and the EP graduated `accepted → final`
+(2026-06-15, Mike); the collapse has shipped — one public `reg-event`, the
+retired names are throwing stubs naming their replacement, removal is
+conformance-gated, and zero live call sites remain across the corpus.
