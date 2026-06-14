@@ -370,8 +370,8 @@
               ":frame tag carries the offending frame-id")
           (is (string? (get-in warn [:tags :ex-msg]))
               ":ex-msg tag carries the exception message string")
-          (is (= (:epoch-id r) (get-in warn [:tags :epoch-id]))
-              ":epoch-id tag matches the projected record's epoch"))))))
+          (is (= (:epoch-id r) (get-in warn [:tags :rf.epoch/id]))
+              ":rf.epoch/id tag (canonical, rf2-ifdsar) matches the projected record's bare :epoch-id field"))))))
 
 (deftest invariant-4-throwing-redact-fn-stays-registered
   (testing "a throwing :redact-fn stays registered — each projection call

@@ -26,7 +26,8 @@
   React-commit / React-deref timing the synchronous JVM cascade can't
   reproduce. Consolidated there from this file (rf2-yp81r) so the whole
   attribution surface is one cohesive, invariant-keyed grep target."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             ;; Side-effect require: flows publishes the `:flows/reg-flow`
@@ -658,7 +659,7 @@
 (deftest listener-exception-emits-trace
   (testing "rf2-i5khp — a throwing listener emits a
             :rf.epoch.cb/listener-exception error trace per broken
-            invocation, carrying :cb-id, :frame, :epoch-id; isolation
+            invocation, carrying :cb-id, :frame, :rf.epoch/id; isolation
             still holds (other listeners continue to fire)"
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
@@ -684,8 +685,8 @@
             ":frame tag carries the originating frame")
         (is (every? (fn [ev] (= ::throwing (-> ev :tags :cb-id))) exc-events)
             ":cb-id tag identifies the broken listener registration key")
-        (is (every? (fn [ev] (some? (-> ev :tags :epoch-id))) exc-events)
-            ":epoch-id tag links the failure to the assembled record")
+        (is (every? (fn [ev] (some? (-> ev :tags :rf.epoch/id))) exc-events)
+            ":rf.epoch/id tag (canonical, rf2-ifdsar) links the failure to the assembled record")
         (is (every? (fn [ev] (string? (-> ev :tags :message))) exc-events)
             ":message tag carries the exception message")
         (is (every? (fn [ev] (= :no-recovery (:recovery ev))) exc-events)
@@ -3180,24 +3181,29 @@
             "restore-during-drain contract keys == Spec-Schemas RestoreDuringDrainTags
              (:recovery hoisted to envelope; :rf.trace/dispatch-id is cascade correlation)")
 
-        ;; --- ADVERSARIAL guard: NO restore-family trace tag may carry the
-        ;;     unqualified :epoch-id alias. Scan EVERY emitted :rf.epoch/*
-        ;;     event so a future restore failure mode cannot silently regress. ---
-        (let [restore-ops #{:rf.epoch/restored
-                            :rf.epoch/restore-unknown-epoch
-                            :rf.epoch/restore-schema-mismatch
-                            :rf.epoch/restore-missing-handler
-                            :rf.epoch/restore-version-mismatch
-                            :rf.epoch/restore-during-drain
-                            :rf.epoch/restore-non-ok-record}
-              leaked      (filter (fn [ev]
-                                    (and (restore-ops (:operation ev))
-                                         (contains? (:tags ev) :epoch-id)))
-                                  events)]
+        ;; --- ADVERSARIAL guard (rf2-ifdsar): NO trace event in the WHOLE
+        ;;     epoch trace family may carry the unqualified :epoch-id alias
+        ;;     as a tag. The canonical epoch-identity TAG is :rf.epoch/id
+        ;;     (the bare :epoch-id is the RECORD-field spelling only — the
+        ;;     deliberate record/projection vocabulary, never a trace tag).
+        ;;     Generalised from the prior restore-only scan so a future
+        ;;     epoch trace op (restore mode, :rf.epoch.cb/* listener
+        ;;     diagnostic, :rf.warning/epoch-* advisory) cannot silently
+        ;;     regress the canonical tag. The op-namespace test is
+        ;;     spelling-agnostic — any operation whose namespace starts
+        ;;     "rf.epoch" is in scope. ---
+        (let [epoch-family-op? (fn [op]
+                                 (and (keyword? op)
+                                      (some-> (namespace op)
+                                              (str/starts-with? "rf.epoch"))))
+              leaked           (filter (fn [ev]
+                                         (and (epoch-family-op? (:operation ev))
+                                              (contains? (:tags ev) :epoch-id)))
+                                       events)]
           (is (empty? leaked)
-              (str "no restore-family trace tag may carry the unqualified "
-                   ":epoch-id alias; leaked ops: "
-                   (mapv :operation leaked))))))))
+              (str "no epoch-family trace tag may carry the unqualified "
+                   ":epoch-id alias (canonical is :rf.epoch/id, rf2-ifdsar); "
+                   "leaked ops: " (mapv :operation leaked))))))))
 
 ;; ---- destroyed-frame contract (rf2-d656) -----------------------------------
 ;;

@@ -28,9 +28,9 @@
       :operation :rf.cascade/captured
       :op-type   :rf.cascade
       :tags
-        {:frame                 <frame-id>
-         :epoch-id              <epoch-id>
-         :event-id              <event-id>
+        {:frame                 <frame-id>          ;; bare carve-out routing tag
+         :rf.epoch/id           <epoch-id>          ;; canonical epoch-identity tag (rf2-ifdsar)
+         :rf.trace/event-id     <event-id>          ;; canonical trace event-id tag
          :subs-recomputed       [{:sub-id :query-v} ...]
          :subs-skipped          [{:sub-id :query-v
                                   :reason :input-paths-unchanged} ...]

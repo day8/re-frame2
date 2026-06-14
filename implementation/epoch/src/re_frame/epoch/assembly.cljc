@@ -119,7 +119,9 @@
   nil `redact` are pass-throughs (no invocation, no try/catch
   overhead). A throwing fn emits `:rf.warning/epoch-redact-fn-exception`
   carrying `:frame`, `:epoch-id`, and `:ex-msg`, then falls back to the
-  projected record so the egress itself is not broken.
+  projected record so the egress itself is not broken. The warning's
+  epoch-identity tag is the canonical qualified `:rf.epoch/id` (rf2-ifdsar);
+  `:frame` is the bare-carve-out routing tag.
 
   Per EP-0015 §15 (Epoch Redaction) + open-issue 6 disposition (RULED,
   hardened): `:redact-fn` is the PROJECTION-SIDE-ONLY advanced override.
@@ -142,7 +144,7 @@
   fidelity' warning flagged is gone by construction.
 
   Per Tool-Pair §Time-travel §Redaction hook (spec/Tool-Pair.md:101):
-  the warning MUST carry both `:frame` and `:epoch-id` so a tool can
+  the warning MUST carry both `:frame` and `:rf.epoch/id` so a tool can
   correlate the failure to the specific projected record that fell back.
 
   Caller MUST wrap invocations in `(when interop/debug-enabled? ...)`
@@ -161,11 +163,16 @@
           ;; (the projection helper is itself gated), so Closure DCE
           ;; elides the warning emit + literals under :advanced +
           ;; goog.DEBUG=false.
+          ;; Identity tag is the canonical qualified `:rf.epoch/id` (rf2-ifdsar):
+          ;; the trace-tag layer spells the epoch id `:rf.epoch/id` everywhere.
+          ;; The bare `:epoch-id` is the RECORD-field spelling we read FROM
+          ;; (`(:epoch-id record)`); it stays bare as part of the deliberate
+          ;; record/projection vocabulary — see Conventions §Trace/epoch identity.
           (trace/emit! :warning :rf.warning/epoch-redact-fn-exception
-                       {:frame    (:frame record)
-                        :epoch-id (:epoch-id record)
-                        :ex-msg   #?(:clj (.getMessage ^Throwable e)
-                                     :cljs (.-message e))})
+                       {:frame       (:frame record)
+                        :rf.epoch/id (:epoch-id record)
+                        :ex-msg      #?(:clj (.getMessage ^Throwable e)
+                                        :cljs (.-message e))})
           record))
       record)
     record))
