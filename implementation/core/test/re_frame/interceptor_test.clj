@@ -1,11 +1,13 @@
 (ns re-frame.interceptor-test
   "Dedicated coverage for the v2 retained interceptor surface (Spec 002).
 
-  v2 trims the v1 interceptor stdlib down to four primitives:
+  v2 trims the v1 interceptor stdlib down to a tiny retained set:
     - path
     - unwrap
-    - inject-cofx
     - ->interceptor (and the supporting context plumbing)
+
+  (`inject-cofx` is removed — EP-0017 / rf2-w9xyx1 — not on the facade;
+  coeffect delivery is the `:rf.cofx/requires` declaration.)
 
   These are exercised obliquely by smoke / conformance tests, but nothing
   pins their contract directly. This namespace does — one deftest per

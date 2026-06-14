@@ -417,20 +417,17 @@
   ;; Interceptor authoring (spec/API.md §Interceptors).
   ["re-frame.core" "->interceptor"]       {:tier :front-porch :owner "002" :status "v1 (preserved)"}
   ["re-frame.core" "->interceptor*"]      {:tier :advanced :owner "002" :status "v1"}
-  ;; EP-0017 (rf2-m4l7l2): `inject-cofx` / `inject-cofx*` — the v1 ctx→ctx
+  ;; EP-0017 + rf2-w9xyx1: `inject-cofx` / `inject-cofx*` — the v1 ctx→ctx
   ;; coeffect-injection interceptors — are REMOVED (EP-0017 slice A, no alias;
-  ;; spec/API.md §Standard interceptors). The vars are retained ONLY as throwing
-  ;; stubs (the hard error `:rf.error/inject-cofx-removed`, naming `:rf.cofx/requires`)
-  ;; so a stale call site fails LOUDLY rather than as an opaque "no such var" —
-  ;; so the manifest ROW is correct (the var is still a live facade export), but
-  ;; the classification was stale. `:front-porch`/`:advanced` (recommended entry
-  ;; surfaces) + "v1 (preserved)"/"v1" were exactly wrong for removed stubs. The
-  ;; apt closed-vocab tier (spec/API.md §Tier taxonomy) is `:deprecated` — "on
-  ;; the way out, migrate off"; coeffect delivery is now declared via the
-  ;; handler's `:rf.cofx/requires` registration metadata against a value-returning
-  ;; `reg-cofx` supplier. Status reads "v1 (removed, EP-0017)".
-  ["re-frame.core" "inject-cofx"]         {:tier :deprecated :owner "002" :status "v1 (removed, EP-0017)"}
-  ["re-frame.core" "inject-cofx*"]        {:tier :deprecated :owner "002" :status "v1 (removed, EP-0017)"}
+  ;; spec/API.md §Standard interceptors). rf2-w9xyx1 removed them from the
+  ;; CANONICAL PUBLIC API SURFACE: a removed surface no longer occupies the
+  ;; public facade, so there is NO `re-frame.core/inject-cofx` /
+  ;; `inject-cofx*` var and NO manifest row (a `:deprecated` row would still
+  ;; read as supported public API). The migration alarm is preserved by the
+  ;; private (non-facade, un-rowed) hard-error thrower `re-frame.cofx/inject-cofx`:
+  ;; a stale call to that namespace-internal var still raises the always-on
+  ;; catalogue error `:rf.error/inject-cofx-removed` naming `:rf.cofx/requires`.
+  ;; Migration docs live in docs/api/15-removed.md.
   ["re-frame.core" "get-coeffect"]        {:tier :advanced :owner "002" :status "v1 (preserved)"}
   ["re-frame.core" "assoc-coeffect"]      {:tier :advanced :owner "002" :status "v1 (preserved)"}
   ["re-frame.core" "get-effect"]          {:tier :advanced :owner "002" :status "v1 (preserved)"}

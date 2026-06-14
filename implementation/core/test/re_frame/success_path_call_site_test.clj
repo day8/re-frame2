@@ -5,8 +5,7 @@
   Mirror to `success_path_trigger_handler_test` (rf2-lf84g) for the
   call-site slot. Where trigger-handler names the registration site of
   the in-scope handler, call-site names the **invocation line** of the
-  surface macro (`rf/dispatch`, `rf/dispatch-sync`, `rf/subscribe`,
-  `rf/inject-cofx`).
+  surface macro (`rf/dispatch`, `rf/dispatch-sync`, `rf/subscribe`).
 
   Originally introduced (rf2-ts1a) for error events only; widened by
   rf2-twt7m so success-path traces — starting with `:rf.event/dispatched`

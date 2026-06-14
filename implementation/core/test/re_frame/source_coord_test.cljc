@@ -4,8 +4,8 @@
   Complement to rf2-3nn8 (`:rf.trace/trigger-handler`). Where trigger-
   handler names the registration site of the in-scope handler, call-site
   names the **invocation line** of the user-facing surface — the
-  `(rf/dispatch ...)`, `(rf/subscribe ...)`, `(rf/inject-cofx ...)`, or
-  `(rf/dispatch-sync ...)` call that produced (or routed to) the error.
+  `(rf/dispatch ...)`, `(rf/subscribe ...)`, or `(rf/dispatch-sync ...)`
+  call that produced (or routed to) the error.
 
   Q1=C — existing-name macro + `*` fn variant (`dispatch` is the macro;
          `dispatch*` is the fn). The macro stamps the call-site; the
@@ -131,21 +131,17 @@
       (is (not (contains? miss :rf.trace/call-site))
           ":rf.trace/call-site omitted on the fn-form path"))))
 
-;; ---- inject-cofx (removed in EP-0017 slice A.3) ---------------------------
+;; ---- inject-cofx (removed in EP-0017 slice A.3; off the facade rf2-w9xyx1) ---
 ;;
 ;; `inject-cofx` is removed (no alias) — it no longer builds an interceptor or
 ;; emits `:rf.error/no-such-cofx`, so the former call-site-stamping deftests
 ;; (`inject-cofx-macro-stamps-call-site`, the two `inject-cofx*` variants) are
-;; retired. `inject-cofx` survives only as a throwing stub macro/fn; its
-;; removal hard error (`:rf.error/inject-cofx-removed`) is pinned in
-;; `re-frame.cofx-test`. The dispatch / subscribe call-site stamping (above)
-;; is unaffected.
-
-(deftest inject-cofx-public-var-is-macro
-  #?(:clj
-     (testing "rf/inject-cofx in CLJ remains a (throwing-stub) macro var,
-               not clobbered by the runtime alias"
-       (is (true? (:macro (meta #'re-frame.core/inject-cofx)))))))
+;; retired. rf2-w9xyx1 then removed `inject-cofx` / `inject-cofx*` from the
+;; public `re-frame.core` facade entirely (no var, no manifest row), so there
+;; is no longer a public macro var to assert on either. The removal hard error
+;; (`:rf.error/inject-cofx-removed`) survives on the private thrower
+;; `re-frame.cofx/inject-cofx` and is pinned in `re-frame.cofx-test`. The
+;; dispatch / subscribe call-site stamping (above) is unaffected.
 
 ;; ---- dispatch-sync / dispatch-sync* --------------------------------------
 

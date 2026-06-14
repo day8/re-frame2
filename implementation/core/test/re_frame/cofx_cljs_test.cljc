@@ -663,12 +663,17 @@
 ;; 7. inject-cofx is REMOVED — hard error :rf.error/inject-cofx-removed
 ;; ===========================================================================
 
+;; rf2-w9xyx1: `inject-cofx` / `inject-cofx*` are no longer on the public
+;; `re-frame.core` facade. The migration alarm is the private (non-facade)
+;; hard-error thrower `re-frame.cofx/inject-cofx`; a stale call to it still
+;; raises `:rf.error/inject-cofx-removed` naming the replacement.
 (deftest inject-cofx-call-is-hard-error
-  (testing "calling `inject-cofx` (fn form) is the hard error
-            `:rf.error/inject-cofx-removed` naming the replacement (EP-0017 §8)"
-    (let [ex (try (rf/inject-cofx* :anything) nil
+  (testing "calling the retained private `re-frame.cofx/inject-cofx` thrower is
+            the hard error `:rf.error/inject-cofx-removed` naming the
+            replacement (EP-0017 §8; facade removal rf2-w9xyx1)"
+    (let [ex (try (cofx/inject-cofx :anything) nil
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
-      (is (some? ex) "inject-cofx* threw")
+      (is (some? ex) "cofx/inject-cofx threw")
       (is (= :rf.error/inject-cofx-removed (:rf.error/id (ex-data ex))))
       (is (= :anything (:rf.cofx/id (ex-data ex)))
           "the offending id rides the error payload")
