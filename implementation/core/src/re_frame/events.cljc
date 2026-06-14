@@ -197,26 +197,27 @@
 
 (defn- at-boundary-entry?
   "Truthy when a single RAW chain entry attaches the `:rf.schema/at-boundary`
-  interceptor by REFERENCE (the only legal chain form since the EP-0022
-  reference-only flip, rf2-0adhqs.9):
+  interceptor by REFERENCE — the bare keyword `:rf.schema/at-boundary` (the
+  only legal chain form since the EP-0022 reference-only flip, rf2-0adhqs.9;
+  the chain stores refs UNRESOLVED, so the bare keyword reaches here).
 
-    - a bare keyword `:rf.schema/at-boundary`; or
-    - an `[:rf.schema/at-boundary arg]` 2-vector
+  The `[:rf.schema/at-boundary arg]` 2-vector form is NOT detected here: it is
+  unreachable for this missing-schema check. `:rf.schema/at-boundary` is a
+  STATIC interceptor (no `:factory`), so an `[:rf.schema/at-boundary arg]`
+  chain ref is rejected at `validate-refs-registered!` with
+  `:rf.error/interceptor-factory-arity` BEFORE
+  `reject-at-boundary-without-schema!` (which calls this predicate) ever runs
+  (rf2-48ypb6.1, rf2-wjr8ow). The `[id arg]` shape is therefore simply an
+  unregistered-factory-shape misuse and fails loud on its own.
 
-  (the chain stores refs UNRESOLVED, so the bare keyword reaches here). The
-  former INLINE-VALUE migration form — the `validate-at-boundary-interceptor`
+  The former INLINE-VALUE migration form — the `validate-at-boundary-interceptor`
   Var dropped directly into the chain — is no longer accepted (chains are
   reference-only; `validate-meta-interceptors!` rejects it
   `:rf.error/inline-interceptor-removed` before this runs). Detects by id
   keyword so the check stays cycle-free against `re-frame.spec`."
   [icpt]
-  (or
-    ;; By-ref: bare keyword.
-    (= :rf.schema/at-boundary icpt)
-    ;; By-ref: `[id arg]` 2-vector.
-    (and (vector? icpt)
-         (= 2 (count icpt))
-         (= :rf.schema/at-boundary (first icpt)))))
+  ;; By-ref: bare keyword.
+  (= :rf.schema/at-boundary icpt))
 
 (defn- attaches-validate-at-boundary-interceptor?
   "Truthy when the effective user interceptor chain attaches the

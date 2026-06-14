@@ -786,50 +786,49 @@
       (is (nil? (registrar/lookup :event :test.i3uxo2/ref-no-side-effect))
           "no partial registry trace after the ref-form rejection"))))
 
-;; ---- rf2-48ypb6 — at-boundary-entry? detects BOTH ref forms (unit) ----------
+;; ---- rf2-48ypb6 / rf2-48ypb6.1 — at-boundary-entry? detects the bare keyword (unit) ----------
 ;;
 ;; `at-boundary-entry?` (events.cljc) detects the `:rf.schema/at-boundary`
-;; attachment in two ref forms: a bare keyword `:rf.schema/at-boundary` AND an
-;; `[:rf.schema/at-boundary arg]` 2-vector. The existing registration-path
-;; tests above only exercise the BARE-KEYWORD form. This pins the predicate's
-;; 2-vector arm directly.
+;; attachment by REFERENCE in its ONLY reachable form: the bare keyword
+;; `:rf.schema/at-boundary`. The existing registration-path tests above exercise
+;; that bare-keyword form end-to-end; this pins the predicate directly.
 ;;
-;; REACHABILITY (rf2-48ypb6 verdict): the 2-vector arm is effectively VESTIGIAL
-;; through the public `reg-event` registration path. The standard
-;; `:rf.schema/at-boundary` interceptor is registered as a STATIC interceptor
-;; (no `:factory`), so an `[:rf.schema/at-boundary arg]` chain ref is rejected
-;; at `validate-refs-registered!` with `:rf.error/interceptor-factory-arity`
-;; BEFORE `reject-at-boundary-without-schema!` (which calls this predicate) ever
-;; runs — verified empirically (with AND without `:schema`). The predicate's
-;; 2-vector branch is therefore unreachable for its intended missing-schema
-;; rejection purpose via the public surface. The branch is still pinned here at
-;; the unit level (the predicate IS reachable + exercised by
-;; `attaches-validate-at-boundary-interceptor?`), and a follow-up bead tracks
-;; confirming / pruning the unreachable-via-registration 2-vector arm.
+;; REMOVED ARM (rf2-48ypb6.1 verdict, resolves rf2-wjr8ow): the predicate
+;; previously also detected an `[:rf.schema/at-boundary arg]` 2-vector, but that
+;; arm was VESTIGIAL via the public `reg-event` registration path and has been
+;; removed. The standard `:rf.schema/at-boundary` interceptor is registered as a
+;; STATIC interceptor (no `:factory`), so an `[:rf.schema/at-boundary arg]` chain
+;; ref is rejected at `validate-refs-registered!` with
+;; `:rf.error/interceptor-factory-arity` BEFORE
+;; `reject-at-boundary-without-schema!` (which calls this predicate) ever runs —
+;; verified empirically (with AND without `:schema`). The 2-vector branch was
+;; therefore unreachable for its intended missing-schema rejection purpose; the
+;; `[id arg]` form is simply an unregistered-factory-shape misuse that fails
+;; loud on its own. This test now pins the bare-keyword form and asserts the
+;; 2-vector form is NOT detected.
 
-(deftest at-boundary-entry?-detects-both-ref-forms
-  (testing "Per rf2-48ypb6 — the private at-boundary-entry? predicate detects the
-            `:rf.schema/at-boundary` attachment in BOTH legal ref forms."
+(deftest at-boundary-entry?-detects-bare-keyword-ref
+  (testing "Per rf2-48ypb6 / rf2-48ypb6.1 — the private at-boundary-entry?
+            predicate detects the `:rf.schema/at-boundary` attachment in its
+            ONLY reachable ref form: the bare keyword. The `[id arg]` 2-vector
+            arm was removed (rf2-48ypb6.1, rf2-wjr8ow) as vestigial — a static
+            interceptor's `[id arg]` ref is rejected at validate-refs-registered!
+            with :rf.error/interceptor-factory-arity before this predicate runs."
     (let [at-boundary-entry? @#'events/at-boundary-entry?]
       (testing "bare-keyword ref"
         (is (true? (boolean (at-boundary-entry? :rf.schema/at-boundary)))
             "the bare keyword is detected"))
 
-      (testing "[id arg] 2-vector ref (the previously-untested arm)"
-        (is (true? (boolean (at-boundary-entry? [:rf.schema/at-boundary {:some :arg}])))
-            "the `[:rf.schema/at-boundary arg]` 2-vector is detected")
-        (is (true? (boolean (at-boundary-entry? [:rf.schema/at-boundary nil])))
-            "a nil arg in the 2-vector still detects (shape, not arg, drives it)"))
-
       (testing "non-matching entries are NOT detected"
         (is (false? (boolean (at-boundary-entry? :some/other-interceptor)))
             "an unrelated bare keyword is not detected")
+        (is (false? (boolean (at-boundary-entry? [:rf.schema/at-boundary {:some :arg}])))
+            "the `[id arg]` 2-vector is NOT detected — that arm was removed; the
+             static-interceptor factory-arity rejection pre-empts this check")
         (is (false? (boolean (at-boundary-entry? [:some/other-interceptor {:k 1}])))
             "an unrelated [id arg] 2-vector is not detected")
         (is (false? (boolean (at-boundary-entry? [:rf.schema/at-boundary])))
-            "a 1-vector (wrong arity) is not detected by the 2-vector arm")
-        (is (false? (boolean (at-boundary-entry? [:rf.schema/at-boundary :a :b])))
-            "a 3-vector (wrong arity) is not detected by the 2-vector arm")
+            "a 1-vector ref is not detected (only the bare keyword is)")
         (is (false? (boolean (at-boundary-entry? {:id :rf.schema/at-boundary})))
             "an inline map value is not a ref form and is not detected")))))
 
