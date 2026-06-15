@@ -714,8 +714,10 @@
       (is (some? ex) "registration threw")
       (is (= :rf.error/flow-bad-marks (:rf.error/id data))
           ":rf.error/id carries the bad-marks discriminator")
-      (is (= ":rf.error/flow-bad-marks" (ex-message ex))
-          "message string is the stringified discriminator kw")
+      ;; rf2-vvixub — message is the human :reason sentence + the trailing
+      ;; [:rf.error/<id>] token; assert the token substring, not equality.
+      (is (re-find #"\[:rf\.error/flow-bad-marks\]" (ex-message ex))
+          "message carries the [:rf.error/flow-bad-marks] token")
       (is (= 'rf/reg-flow (:where data))         ":where names the user-facing surface")
       (is (= :fix-registration (:recovery data))  ":recovery names the disposition")
       (is (= :sensitive (:bad-key data))          ":bad-key names the offending classification key")

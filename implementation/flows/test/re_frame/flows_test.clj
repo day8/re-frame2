@@ -324,8 +324,10 @@
       (is (some? ex) "registration threw")
       (is (= :rf.error/flow-missing-id (:rf.error/id data))
           ":rf.error/id carries the missing-id discriminator")
-      (is (= ":rf.error/flow-missing-id" (ex-message ex))
-          "message string is the stringified discriminator kw")
+      ;; rf2-vvixub — message is the human :reason sentence + the trailing
+      ;; [:rf.error/<id>] token; assert the token substring, not equality.
+      (is (re-find #"\[:rf\.error/flow-missing-id\]" (ex-message ex))
+          "message carries the [:rf.error/flow-missing-id] token")
       (is (= 'rf/reg-flow (:where data))     ":where names the user-facing surface")
       (is (= :fix-registration (:recovery data)) ":recovery names the disposition")
       (is (string? (:reason data))           ":reason is a human-readable sentence")))
@@ -336,8 +338,9 @@
       (is (some? ex) "registration threw")
       (is (= :rf.error/flow-bad-output (:rf.error/id data))
           ":rf.error/id carries the bad-output discriminator")
-      (is (= ":rf.error/flow-bad-output" (ex-message ex))
-          "message string is the stringified discriminator kw")
+      ;; rf2-vvixub — assert the [:rf.error/<id>] token substring, not equality.
+      (is (re-find #"\[:rf\.error/flow-bad-output\]" (ex-message ex))
+          "message carries the [:rf.error/flow-bad-output] token")
       (is (= 'rf/reg-flow (:where data))     ":where names the user-facing surface")
       (is (= :fix-registration (:recovery data)) ":recovery names the disposition"))))
 
@@ -362,8 +365,9 @@
       (is (some? ex) "registration threw")
       (is (= :rf.error/flow-bad-id (:rf.error/id data))
           ":rf.error/id carries the bad-id discriminator")
-      (is (= ":rf.error/flow-bad-id" (ex-message ex))
-          "message string is the stringified discriminator kw")
+      ;; rf2-vvixub — assert the [:rf.error/<id>] token substring, not equality.
+      (is (re-find #"\[:rf\.error/flow-bad-id\]" (ex-message ex))
+          "message carries the [:rf.error/flow-bad-id] token")
       (is (= 'rf/reg-flow (:where data))         ":where names the user-facing surface")
       (is (= :fix-registration (:recovery data))  ":recovery names the disposition")
       (is (string? (:reason data))               ":reason is a human-readable sentence")))
@@ -403,11 +407,13 @@
 ;; `:rf.error/flow-bad-path`) and ex-data that names the offending entries
 ;; so callers can fix their flow map without a stack-trace scavenger hunt.
 
+;; rf2-vvixub — branch on the canonical :rf.error/id discriminator, never
+;; on the (now human-sentence) message string.
 (defn- flow-bad-inputs? [^Throwable t]
-  (= ":rf.error/flow-bad-inputs" (ex-message t)))
+  (= :rf.error/flow-bad-inputs (:rf.error/id (ex-data t))))
 
 (defn- flow-bad-path? [^Throwable t]
-  (= ":rf.error/flow-bad-path" (ex-message t)))
+  (= :rf.error/flow-bad-path (:rf.error/id (ex-data t))))
 
 (deftest reg-flow-error-carries-canonical-rf-error-id-slot
   ;; Per Spec 009 §The thrown-error shape: every thrown runtime error
@@ -423,8 +429,9 @@
       (is (some? ex) "registration threw")
       (is (= :rf.error/flow-bad-inputs (:rf.error/id data))
           ":rf.error/id slot carries the discriminator keyword")
-      (is (= ":rf.error/flow-bad-inputs" (ex-message ex))
-          "message string is the stringified discriminator kw")
+      ;; rf2-vvixub — assert the [:rf.error/<id>] token substring, not equality.
+      (is (re-find #"\[:rf\.error/flow-bad-inputs\]" (ex-message ex))
+          "message carries the [:rf.error/flow-bad-inputs] token")
       (is (nil? (:error data))
           "the legacy :error slot is gone (rename, not back-compat shim)")
       (is (= 'rf/reg-flow (:where data)) ":where names the user-facing surface")

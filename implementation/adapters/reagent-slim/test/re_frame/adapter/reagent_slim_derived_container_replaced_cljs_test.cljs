@@ -124,8 +124,10 @@
                 "the :where slot names the user-facing surface fn")
             (is (= :no-recovery (:recovery (ex-data thrown)))
                 "the :recovery slot is :no-recovery")
-            (is (= ":rf.error/derived-container-replaced" (ex-message thrown))
-                "the ex-message stringifies the discriminator keyword")))))))
+            ;; rf2-vvixub — message is the human :reason sentence + the
+            ;; trailing [:rf.error/<id>] token; assert the token, not equality.
+            (is (re-find #"\[:rf\.error/derived-container-replaced\]" (ex-message thrown))
+                "the ex-message carries the [:rf.error/derived-container-replaced] token")))))))
 
 (deftest replace-on-reaction-emits-error-trace
   (testing "replace-container! on a Reaction emits the :rf.error/derived-container-replaced trace"

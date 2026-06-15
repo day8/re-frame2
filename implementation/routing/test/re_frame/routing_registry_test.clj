@@ -31,7 +31,9 @@
                nil
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex) "route-url with absent required param raises")
-      (is (= ":rf.error/missing-route-param" (ex-message ex))
+      ;; rf2-vvixub — anchor on the canonical :rf.error/id discriminator
+      ;; (the message is now a human sentence + trailing token).
+      (is (= :rf.error/missing-route-param (:rf.error/id (ex-data ex)))
           "the structured error id is :rf.error/missing-route-param")
       (let [data (ex-data ex)]
         (is (= :id (:param data))
@@ -47,7 +49,8 @@
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex)
           "nil :id behaves like an absent :id — same structured error")
-      (is (= ":rf.error/missing-route-param" (ex-message ex)))))
+      ;; rf2-vvixub — anchor on the canonical :rf.error/id discriminator.
+      (is (= :rf.error/missing-route-param (:rf.error/id (ex-data ex))))))
 
   (testing "providing the param works — sanity check the happy path"
     (rf/reg-route :route/article3 {:path "/articles/:id"})
@@ -62,7 +65,8 @@
                nil
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex) "absent splat raises")
-      (is (= ":rf.error/missing-route-param" (ex-message ex))
+      ;; rf2-vvixub — anchor on the canonical :rf.error/id discriminator.
+      (is (= :rf.error/missing-route-param (:rf.error/id (ex-data ex)))
           "splat absence uses the same structured error id"))))
 
 ;; ---- rf2-6iam6 + rf2-ede1h.2: falsy path params (false / 0) round-trip;
@@ -106,7 +110,8 @@
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex)
           "\"\" path param throws (it would emit \"/articles/\", which match-url normalises to \"/articles\" and fails to match)")
-      (is (= ":rf.error/missing-route-param" (ex-message ex))
+      ;; rf2-vvixub — anchor on the canonical :rf.error/id discriminator.
+      (is (= :rf.error/missing-route-param (:rf.error/id (ex-data ex)))
           "the empty-string rejection reuses the missing-required-param error id")
       (is (= "" (:value (ex-data ex)))
           "the ex-data carries the offending empty-string value"))))
@@ -119,7 +124,8 @@
                nil
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex))
-      (is (= ":rf.error/no-such-route" (ex-message ex))
+      ;; rf2-vvixub — anchor on the canonical :rf.error/id discriminator.
+      (is (= :rf.error/no-such-route (:rf.error/id (ex-data ex)))
           ":rf.error/no-such-route is the structured error for an unregistered id"))))
 
 ;; ---- rf2-94o54l.1/.3: route-url fails closed on host-stringified values --
@@ -168,8 +174,10 @@
         ;; stable discriminator) as the primary check; the message is secondary.
         (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
             (str "the structured :rf.error/id for a " (name label) " path value"))
-        (is (= ":rf.error/route-url-non-edn-value" (ex-message ex))
-            (str "the message string (secondary) for a " (name label) " path value"))
+        ;; rf2-vvixub — message is a human sentence + the trailing
+        ;; [:rf.error/<id>] token; assert the token, not exact equality.
+        (is (re-find #"\[:rf\.error/route-url-non-edn-value\]" (ex-message ex))
+            (str "the message token (secondary) for a " (name label) " path value"))
         (let [data (ex-data ex)]
           (is (= :route/item (:route-id data)) "ex-data names the route-id")
           (is (= :params (:slot data)) "ex-data names the offending slot")
@@ -190,8 +198,10 @@
             (str "a " (name label) " query value must fail closed"))
         (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
             (str "the structured :rf.error/id for a " (name label) " query value"))
-        (is (= ":rf.error/route-url-non-edn-value" (ex-message ex))
-            (str "the message string (secondary) for a " (name label) " query value"))
+        ;; rf2-vvixub — message is a human sentence + the trailing
+        ;; [:rf.error/<id>] token; assert the token, not exact equality.
+        (is (re-find #"\[:rf\.error/route-url-non-edn-value\]" (ex-message ex))
+            (str "the message token (secondary) for a " (name label) " query value"))
         (let [data (ex-data ex)]
           (is (= :route/search (:route-id data)) "ex-data names the route-id")
           (is (= :query (:slot data)) "ex-data names the :query slot")
@@ -205,7 +215,8 @@
       (is (some? ex) "a fn in an entered optional group fails closed")
       (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
           "structured :rf.error/id (primary)")
-      (is (= ":rf.error/route-url-non-edn-value" (ex-message ex)) "message (secondary)")
+      ;; rf2-vvixub — assert the [:rf.error/<id>] token, not exact equality.
+      (is (re-find #"\[:rf\.error/route-url-non-edn-value\]" (ex-message ex)) "message token (secondary)")
       (is (= :section (:param (ex-data ex)))))))
 
 (deftest route-url-admitted-scalars-still-emit-rf2-94o54l
@@ -238,7 +249,9 @@
     (let [ex (route-url-throws-non-edn? :route/order
                                         {:id (atom :x)}
                                         {:note "ok"})]
-      (is (= ":rf.error/route-url-non-edn-value" (ex-message ex))
+      ;; rf2-vvixub — anchor on the canonical :rf.error/id discriminator
+      ;; (a structured error, never a string return value).
+      (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
           "a structured error, never a string return value"))))
 
 ;; ---- rf2-u1na: match-url malformed-input edge cases ----------------------
@@ -761,8 +774,13 @@
                       (catch clojure.lang.ExceptionInfo e e))]
           (is (some? ex)
               "non-conformant path-params raise")
-          (is (= ":rf.error/route-url-validation" (ex-message ex))
+          ;; rf2-vvixub — message is a human sentence + the trailing
+          ;; [:rf.error/<id>] token; anchor on the canonical :rf.error/id
+          ;; and assert the token substring, not exact equality.
+          (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex)))
               "structured error id is :rf.error/route-url-validation")
+          (is (re-find #"\[:rf\.error/route-url-validation\]" (ex-message ex))
+              "the message carries the [:rf.error/route-url-validation] token")
           (let [data (ex-data ex)]
             (is (= :route/article (:route-id data)))
             (is (= :params (:slot data)))
@@ -789,7 +807,9 @@
                       (catch clojure.lang.ExceptionInfo e e))]
           (is (some? ex)
               "empty :q rejects against the query schema")
-          (is (= ":rf.error/route-url-validation" (ex-message ex)))
+          ;; rf2-vvixub — anchor on :rf.error/id; assert the token, not equality.
+          (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex))))
+          (is (re-find #"\[:rf\.error/route-url-validation\]" (ex-message ex)))
           (is (= :query (:slot (ex-data ex)))))
         (let [ex (try (routing/route-url :route/search {} {})
                       nil
@@ -830,7 +850,9 @@
                       (catch clojure.lang.ExceptionInfo e e))]
           (is (some? ex)
               "a non-nil invalid :sort (a number) STILL fails validation")
-          (is (= ":rf.error/route-url-validation" (ex-message ex)))
+          ;; rf2-vvixub — anchor on :rf.error/id; assert the token, not equality.
+          (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex))))
+          (is (re-find #"\[:rf\.error/route-url-validation\]" (ex-message ex)))
           (is (= :query (:slot (ex-data ex))))
           (is (= {:sort 123} (:value (ex-data ex)))
               ":value reports the elided map actually validated (nil-free)"))
@@ -1378,7 +1400,8 @@
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex)
           "\"\" optional-group param throws (it would emit \"/articles/\", which match-url normalises to \"/articles\" and re-parses with :id ABSENT)")
-      (is (= ":rf.error/missing-route-param" (ex-message ex))
+      ;; rf2-vvixub — anchor on the canonical :rf.error/id discriminator.
+      (is (= :rf.error/missing-route-param (:rf.error/id (ex-data ex)))
           "reuses the missing/empty-required-param error id")
       (is (= "" (:value (ex-data ex)))
           "ex-data carries the offending empty-string value")))
@@ -1400,7 +1423,8 @@
                (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex)
           "\"\" optional-group :slug throws — it would emit the un-round-trippable \"/articles/5/\"")
-      (is (= ":rf.error/missing-route-param" (ex-message ex)))
+      ;; rf2-vvixub — anchor on the canonical :rf.error/id discriminator.
+      (is (= :rf.error/missing-route-param (:rf.error/id (ex-data ex))))
       (is (= "" (:value (ex-data ex))))))
 
   (testing "rf2-8xvyo: false and 0 inside an optional group STILL round-trip —

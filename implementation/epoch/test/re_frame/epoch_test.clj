@@ -2660,8 +2660,13 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "replace-app-db! throws when the epoch artefact is absent")
-          (is (= ":rf.error/epoch-artefact-missing" (.getMessage thrown))
-              "the documented error category appears in the message")
+          ;; rf2-vvixub — message is the human :reason + trailing
+          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
+          ;; not exact keyword-equality.
+          (is (re-find #"\[:rf\.error/epoch-artefact-missing\]" (.getMessage thrown))
+              "the message carries the [:rf.error/epoch-artefact-missing] token")
+          (is (= :rf.error/epoch-artefact-missing (:rf.error/id (ex-data thrown)))
+              "ex-data carries the canonical :rf.error/id discriminator")
           (let [data (ex-data thrown)]
             (is (= 'rf/replace-app-db! (:where data))
                 "ex-data carries :where = 'rf/replace-app-db!")
@@ -2754,8 +2759,13 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "replace-runtime-db! throws when the epoch artefact is absent")
-          (is (= ":rf.error/epoch-artefact-missing" (.getMessage thrown))
-              "the documented error category appears in the message")
+          ;; rf2-vvixub — message is the human :reason + trailing
+          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
+          ;; not exact keyword-equality.
+          (is (re-find #"\[:rf\.error/epoch-artefact-missing\]" (.getMessage thrown))
+              "the message carries the [:rf.error/epoch-artefact-missing] token")
+          (is (= :rf.error/epoch-artefact-missing (:rf.error/id (ex-data thrown)))
+              "ex-data carries the canonical :rf.error/id discriminator")
           (let [data (ex-data thrown)]
             (is (= 'rf/replace-runtime-db! (:where data))
                 "ex-data carries :where = 'rf/replace-runtime-db!")
@@ -2896,7 +2906,10 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "replace-frame-state! throws when the epoch artefact is absent")
-          (is (= ":rf.error/epoch-artefact-missing" (.getMessage thrown)))
+          ;; rf2-vvixub — assert the [:rf.error/<id>] token + canonical
+          ;; :rf.error/id, not exact keyword-equality.
+          (is (re-find #"\[:rf\.error/epoch-artefact-missing\]" (.getMessage thrown)))
+          (is (= :rf.error/epoch-artefact-missing (:rf.error/id (ex-data thrown))))
           (let [data (ex-data thrown)]
             (is (= 'rf/replace-frame-state! (:where data))
                 "ex-data carries :where = 'rf/replace-frame-state!")

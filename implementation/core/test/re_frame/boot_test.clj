@@ -111,9 +111,13 @@
                    (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown)
           "a second install-adapter! call without an intervening dispose throws")
-      (is (= ":rf.error/adapter-already-installed"
-             (some-> thrown ex-message))
-          "the thrown exception carries the :rf.error/adapter-already-installed tag")
+      ;; rf2-vvixub — the message is now a human sentence carrying the
+      ;; trailing [:rf.error/<id>] greppability token (Spec 009 §The
+      ;; thrown-error shape); assert the token substring, NOT exact
+      ;; equality. The canonical discriminator is :rf.error/id below.
+      (is (re-find #"\[:rf\.error/adapter-already-installed\]"
+                   (str (some-> thrown ex-message)))
+          "the thrown message carries the [:rf.error/adapter-already-installed] token")
       (let [data (ex-data thrown)]
         (is (= :rf.error/adapter-already-installed (:rf.error/id data))
             "ex-data carries the canonical :rf.error/id discriminator (per Spec 009 §The thrown-error shape)")
@@ -407,9 +411,12 @@
         (let [thrown (catch-no-adapter thunk)]
           (is (some? thrown)
               (str where-sym " throws when called before (rf/init! ...)"))
-          (is (= ":rf.error/no-adapter-installed"
-                 (some-> thrown ex-message))
-              (str where-sym " ex-message carries the :rf.error/no-adapter-installed tag"))
+          ;; rf2-vvixub — message is a human sentence + the trailing
+          ;; [:rf.error/<id>] token; assert the token substring, not
+          ;; exact keyword-equality. Canonical discriminator is :rf.error/id.
+          (is (re-find #"\[:rf\.error/no-adapter-installed\]"
+                       (str (some-> thrown ex-message)))
+              (str where-sym " message carries the [:rf.error/no-adapter-installed] token"))
           (let [data (ex-data thrown)]
             ;; Per Spec 009 §The thrown-error shape: canonical
             ;; discriminator slot is `:rf.error/id` (require-adapter!
@@ -490,9 +497,12 @@
         (let [thrown (catch-no-adapter thunk)]
           (is (some? thrown)
               (str where-sym " throws when called after dispose-adapter!"))
-          (is (= ":rf.error/adapter-disposed"
-                 (some-> thrown ex-message))
-              (str where-sym " ex-message carries the :rf.error/adapter-disposed tag (not :no-adapter-installed)"))
+          ;; rf2-vvixub — message is a human sentence + the trailing
+          ;; [:rf.error/<id>] token; assert the token substring, not
+          ;; exact keyword-equality. Canonical discriminator is :rf.error/id.
+          (is (re-find #"\[:rf\.error/adapter-disposed\]"
+                       (str (some-> thrown ex-message)))
+              (str where-sym " message carries the [:rf.error/adapter-disposed] token (not :no-adapter-installed)"))
           (let [data (ex-data thrown)]
             (is (= :rf.error/adapter-disposed (:rf.error/id data))
                 (str where-sym " ex-data carries the canonical :rf.error/id discriminator"))

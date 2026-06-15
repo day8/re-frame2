@@ -131,7 +131,9 @@
                    nil
                    (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown) "route-link raises when :to is unregistered")
-      (is (= ":rf.error/no-such-route" (.getMessage thrown))
+      ;; rf2-vvixub — anchor on the canonical :rf.error/id discriminator
+      ;; (the message is now a human sentence + trailing token).
+      (is (= :rf.error/no-such-route (:rf.error/id (ex-data thrown)))
           "the missing-route error keyword matches route-url's contract")
       (is (= :route/nope (:route-id (ex-data thrown)))
           "ex-data carries the offending route-id"))))

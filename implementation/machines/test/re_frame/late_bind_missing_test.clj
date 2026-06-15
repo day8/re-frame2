@@ -61,8 +61,13 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "reg-machine throws when the machines artefact is absent")
-          (is (= ":rf.error/machines-artefact-missing" (.getMessage thrown))
-              "the documented error category appears in the message")
+          ;; rf2-vvixub — message is the human :reason + trailing
+          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
+          ;; not exact keyword-equality.
+          (is (re-find #"\[:rf\.error/machines-artefact-missing\]" (.getMessage thrown))
+              "the message carries the [:rf.error/machines-artefact-missing] token")
+          (is (= :rf.error/machines-artefact-missing (:rf.error/id (ex-data thrown)))
+              "ex-data carries the canonical :rf.error/id discriminator")
           (let [data (ex-data thrown)]
             ;; Per rf2-hoiu the throw lives in
             ;; `re-frame.core-machines/reg-machine` — the sibling-namespace

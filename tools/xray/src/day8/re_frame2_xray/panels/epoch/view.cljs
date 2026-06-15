@@ -1666,6 +1666,24 @@
   (assoc schema-violation-rollback-chip-style
          :text-transform "none"))
 
+(def ^:private error-block-category-badge-style
+  ;; rf2-vvixub — the `:rf.error/id` category badge. Under the
+  ;; thrown-error human-message contract the verbatim message LEADS with
+  ;; a human-actionable sentence (no longer the bare keyword), so the
+  ;; machine discriminator (`:rf.error/id`, projected as `:operation`)
+  ;; now rides as a quiet metadata badge in the title bar — the category
+  ;; pivot the operator reads at a glance, distinct from the prose
+  ;; message below. Mono face (it quotes a keyword) + a calm tertiary
+  ;; tone so it stays subordinate to the `✗ Exception Thrown` headline.
+  {:padding        "1px 6px"
+   :border-radius  "3px"
+   :background     bg-3-colour
+   :color          text-tertiary-colour
+   :font-family    mono-stack
+   :font-size      "10px"
+   :font-weight    600
+   :letter-spacing "0.2px"})
+
 ;; rf2-wnvid — collapsible exception details (`<details>`/`<summary>`).
 ;; The stack trace + ex-data are diagnostic depth the operator wants on
 ;; demand, not always-expanded clutter under every failed step. A native
@@ -5465,10 +5483,20 @@
            :data-testid testid-base
            :data-error-op (when (:operation row) (name (:operation row)))
            :style error-block-style}
-     ;; 1. Title bar — ✗ glyph + 'Exception Thrown' + recovery chip
+     ;; 1. Title bar — ✗ glyph + 'Exception Thrown' + `:rf.error/id`
+     ;; category badge (rf2-vvixub) + recovery chip. Under the
+     ;; thrown-error human-message contract the verbatim message (below)
+     ;; LEADS with a human sentence, so the machine discriminator
+     ;; (`:operation` = `:rf.error/id`) surfaces HERE as a quiet metadata
+     ;; badge — the category pivot at a glance, not buried in collapsed
+     ;; ex-data.
      [:div {:style error-block-title-style}
       [:span {:aria-hidden true :style error-block-glyph-style} "✗"]
       [:span {:data-testid (str testid-base "-title")} "Exception Thrown"]
+      (when (keyword? operation)
+        [:span {:data-testid (str testid-base "-category")
+                :style error-block-category-badge-style}
+         (fmt/ns-keyword operation)])
       [:span {:style schema-violation-title-spacer-style}]
       (when recovery-label
         [:span {:data-testid (str testid-base "-recovery")

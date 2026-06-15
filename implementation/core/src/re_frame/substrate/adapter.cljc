@@ -32,7 +32,8 @@
   explicitly via `(rf/init! reagent/adapter)`. Explicit > implicit
   at the call site, and an app requiring only the adapter it needs
   ships only that adapter's code."
-  (:require [re-frame.interop :as interop]
+  (:require [re-frame.error :as error]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.realm :as realm]
             [re-frame.trace :as trace]))
@@ -80,13 +81,12 @@
   `realm/install-realm-adapter!`."
   [adapter]
   (when-let [installed (realm/realm-adapter)]
-    (throw (ex-info ":rf.error/adapter-already-installed"
-                    {:rf.error/id :rf.error/adapter-already-installed
-                     :where       'rf/init!
-                     :recovery    :no-recovery
-                     :reason      "A second install-adapter! was called without an intervening (rf/destroy-adapter!); the existing adapter remains installed (per Spec 006 §Single adapter per process)."
-                     :installed   installed
-                     :attempted   adapter})))
+    (error/throw-error!
+      :rf.error/adapter-already-installed
+      'rf/init!
+      "A second install-adapter! was called without an intervening (rf/destroy-adapter!); the existing adapter remains installed (per Spec 006 §Single adapter per process)."
+      {:extra {:installed installed
+               :attempted adapter}}))
   (realm/install-realm-adapter! adapter)
   adapter)
 
@@ -207,22 +207,20 @@
   [where-sym]
   (or (realm/realm-adapter)
       (if (realm/realm-adapter-disposed?)
-        (throw (ex-info ":rf.error/adapter-disposed"
-                        {:rf.error/id :rf.error/adapter-disposed
-                         :where    where-sym
-                         :recovery :no-recovery
-                         :reason   (str where-sym " was called after"
-                                        " (rf/destroy-adapter!); the previously"
-                                        " installed adapter was torn down."
-                                        " Install a fresh adapter via"
-                                        " (rf/init! <adapter>) before calling.")}))
-        (throw (ex-info ":rf.error/no-adapter-installed"
-                        {:rf.error/id :rf.error/no-adapter-installed
-                         :where    where-sym
-                         :recovery :no-recovery
-                         :reason   (str where-sym " was called before (rf/init! ...);"
-                                        " require an adapter ns and pass its `adapter` Var,"
-                                        " e.g. (rf/init! reagent/adapter).")})))))
+        (error/throw-error!
+          :rf.error/adapter-disposed
+          where-sym
+          (str where-sym " was called after"
+               " (rf/destroy-adapter!); the previously"
+               " installed adapter was torn down."
+               " Install a fresh adapter via"
+               " (rf/init! <adapter>) before calling."))
+        (error/throw-error!
+          :rf.error/no-adapter-installed
+          where-sym
+          (str where-sym " was called before (rf/init! ...);"
+               " require an adapter ns and pass its `adapter` Var,"
+               " e.g. (rf/init! reagent/adapter).")))))
 
 (defn make-state-container
   "Build a fresh, writable substrate state container holding
@@ -379,11 +377,10 @@
                              {:category  :rf.error/derived-container-replaced
                               :recovery  :no-recovery
                               :reason    reason})
-          (throw (ex-info ":rf.error/derived-container-replaced"
-                          {:rf.error/id :rf.error/derived-container-replaced
-                           :where       'rf/replace-container!
-                           :recovery    :no-recovery
-                           :reason      reason})))
+          (error/throw-error!
+            :rf.error/derived-container-replaced
+            'rf/replace-container!
+            reason))
         ((:replace-container! a) container new-value)))))
 
 (defn make-derived-value

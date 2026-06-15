@@ -17,6 +17,7 @@
   facade's re-exports. Per the rf2-2yabr cohesion split: REGISTRY +
   MATCH/EMIT seam."
   (:require [clojure.string :as str]
+            [re-frame.error :as error]
             [re-frame.identity :as identity]
             [re-frame.registrar :as registrar]
             [re-frame.late-bind :as late-bind]
@@ -39,18 +40,15 @@
 ;; the :rf.error/id discriminator and is preserved verbatim.
 
 (defn route-error
-  "Build a routing ex-info with the canonical thrown-error shape (per
-  Spec 009). `error-kw` becomes the message AND the `:rf.error/id`
-  discriminator slot; `where-sym` names the public surface; `reason` is
-  the human-readable diagnostic; `extras` merges per-site slots."
+  "Build a routing ex-info via the central thrown-error builder
+  `re-frame.error/thrown-ex-info` (per Spec 009 §The thrown-error shape).
+  `error-kw` is the `:rf.error/id` discriminator slot; `where-sym` names
+  the public surface; `reason` is the human-readable diagnostic that
+  LEADS the message (the message also trails the `[:rf.error/<id>]`
+  greppability token); `extras` merges per-site slots."
   ([error-kw where-sym reason] (route-error error-kw where-sym reason nil))
   ([error-kw where-sym reason extras]
-   (ex-info (str error-kw)
-            (merge {:rf.error/id error-kw
-                    :where       where-sym
-                    :recovery    :no-recovery
-                    :reason      reason}
-                   extras))))
+   (error/thrown-ex-info error-kw where-sym reason {:extra extras})))
 
 ;; ---- registration counter + table cache ----------------------------------
 

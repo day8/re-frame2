@@ -1589,27 +1589,38 @@ All error trace events are open maps with these required keys:
 
 Most runtime failures emit a **trace event** (the shape above) and let the cascade recover. A minority are **thrown** — a registration is rejected, an optional artefact is absent, a delegation surface is reached before `(rf/init! …)`. These surface as `ex-info` rather than as trace events (the catalogue's "Surfaced as a thrown ex-info, not a trace" rows). Thrown errors carry their own canonical ex-data shape so a single consumer path — Xray's error widget, the pair-tool overlay, an error listener, a `try`/`catch` in user code — reads one discriminator slot uniformly regardless of which surface threw.
 
-The discriminator slot is **`:rf.error/id`** — a `:rf.error/<category>` keyword from the [§Error event catalogue](#error-event-catalogue). This is the **single normative discriminator for thrown errors**; the four-slot skeleton below is the canonical shape every `(throw (ex-info …))` site in the runtime conforms to:
+The discriminator slot is **`:rf.error/id`** — a `:rf.error/<category>` keyword from the [§Error event catalogue](#error-event-catalogue). This is the **single normative discriminator for thrown errors**; the four-slot skeleton below is the canonical shape every framework throw conforms to. Every `(throw (ex-info …))` site in the runtime is built through the central builder `re-frame.error/throw-error!` / `re-frame.error/thrown-ex-info` (the `re-frame.error.cljc` chokepoint), which DERIVES the message from `:reason` + the `:rf.error/id` token and sets the canonical ex-data shape — so the human message and the machine discriminator are derived from one source and cannot drift, and a keyword-only message is structurally impossible to emit:
 
 ```clojure
-(throw (ex-info ":rf.error/<id>"               ;; message = the stringified discriminator kw
-                {:rf.error/id <category-kw>     ;; CANONICAL DISCRIMINATOR — :rf.error/<category>
-                 :where       'rf/<surface>     ;; the user-facing fn symbol that threw
-                 :recovery    <disposition>     ;; :no-recovery / :fix-registration / :skipped / …
-                 :reason      "<one sentence>"  ;; what failed + why, human-readable
-                 ;; + surface-specific payload merges on top:
-                 ;; :flow / :route-id / :machine-id / :received / :cycle / …
-                 }))
+(error/throw-error!
+  <category-kw>                       ;; :rf.error/id — CANONICAL DISCRIMINATOR, :rf.error/<category>
+  'rf/<surface>                       ;; :where — the user-facing fn symbol that threw
+  "<one human-actionable sentence>"   ;; :reason — public concept + expected fix + key context
+  {:recovery <disposition>            ;; :no-recovery / :fix-registration / :skipped / … (default :no-recovery)
+   :extra    {…}})                    ;; surface-specific payload: :flow / :route-id / :machine-id / :received / :cycle / …
+
+;; The builder produces this canonical ex-info:
+(ex-info
+  "<reason> [:rf.error/<id>]"          ;; message LEADS with the human sentence, TRAILS the [:rf.error/<id>] token
+  {:rf.error/id <category-kw>          ;; CANONICAL DISCRIMINATOR — the SOLE machine pivot
+   :where       'rf/<surface>          ;; the user-facing fn symbol that threw
+   :recovery    <disposition>          ;; :no-recovery / :fix-registration / :skipped / …
+   :reason      "<one sentence>"       ;; the required human sentence (also leads the message)
+   …})                                 ;; + surface-specific payload merged on top
 ```
 
 Required slots on every thrown runtime error: `:rf.error/id`, `:where`, `:recovery`, `:reason`. Surface-specific payload (`:flow`, `:bad-entries`, `:cycle`, `:installed`, `:attempted`, `:received`, …) merges on top.
 
-Two consumer pivots, both stable:
+**The human-message policy (a refinement, not a reversal).** Earlier the message string *was* the stringified discriminator keyword — machine-branchable from the message alone, but not human-actionable. The contract now **separates the two channels** while keeping the property the old shape bought:
 
-- **Message string** — the `.getMessage` / `(ex-message e)` is the stringified discriminator kw (e.g. `":rf.error/flows-artefact-missing"`). A consumer with no ex-data access (a raw stack trace, a log line) still pivots to a stable category from the message alone.
-- **`:rf.error/id` slot** — `(:rf.error/id (ex-data e))` returns the discriminator as a keyword for structured branching. Tools `case` / `condp` on this slot rather than parsing the message string.
+- **`(ex-message e)` is a human-actionable one-line sentence** naming the public concept, the expected fix, and key context — e.g. `"rf/init! cannot continue because no adapter is installed; require an adapter ns and install it before boot. [:rf.error/no-adapter-installed]"`. It is **no longer** the bare stringified keyword. A reader of a raw REPL/browser/CI exception gets an actionable message without having to render `ex-data`.
+- **The message carries a trailing `[:rf.error/<id>]` token** so a log line or raw stack trace still grep-pivots to a stable category from the message alone — the *only* thing the old "category-from-message" property bought, retained without making the keyword the whole message. This is the refinement: the message now **leads** with the human sentence and **retains** the category as a bracketed trailing token.
+- **The message string is non-normative — stable in MEANING, not bytes.** Tools and tests MUST NOT branch on it or assert exact-equality against it. Greppability is via the bracketed token (substring / `thrown-with-msg?` regex), never via whole-string equality.
+- **`:rf.error/id` is the SOLE canonical machine discriminator.** `(:rf.error/id (ex-data e))` returns the keyword for structured branching. Tools `case` / `condp` on this slot, never on the message. Machine branching never depended on the message, so this separation is correctness-neutral.
 
-The `:where` slot names the **user-facing surface fn symbol** (`'rf/reg-flow`, `'rf/make-state-container`) so a grep-for-symbol lands on the call site in user code; `:recovery` reuses the [§Recovery contract](#recovery-contract) vocabulary plus `:fix-registration` (the caller fixes their registration map and retries); `:reason` is one human-readable sentence naming what failed and the fix.
+`:reason` is the required structured human sentence that both lands in the `:reason` slot and leads the derived message; there is **no separate `:rf.error/message` slot** — it would duplicate `:reason`. Renderers show the message (or `:reason`) as the title and `:rf.error/id` as the category badge.
+
+The `:where` slot names the **user-facing surface fn symbol** (`'rf/reg-flow`, `'rf/make-state-container`) so a grep-for-symbol lands on the call site in user code; `:recovery` reuses the [§Recovery contract](#recovery-contract) vocabulary plus `:fix-registration` (the caller fixes their registration map and retries); `:reason` is one human-readable sentence naming what failed and the fix. A conformance test (`re-frame.error/keyword-only-message?` + `message-has-id-token?`) rejects any framework throw whose message regresses to a bare keyword or drops the token.
 
 This shape is the throw-side companion of the trace-event shape above. A category that can both throw and emit (e.g. a registration rejection that is also catalogued) uses `:operation` on the trace event and `:rf.error/id` on the thrown ex-info — the **same `:rf.error/<category>` keyword** in both slots, so a consumer reads one vocabulary across both surfaces. The pairing with `re-frame.core-artefact/defwrapper` (per [Conventions §single-import contract](Conventions.md#feature-modularity-prefix-convention)) and the missing-artefact wrappers (`:rf.error/<feature>-artefact-missing`) is the canonical reference.
 
@@ -1625,9 +1636,9 @@ Pre-canonicalisation, thrown-error ex-data carried the discriminator under **fiv
 | `:reason` (overloaded) | the kw doubling as the human reason | machines-viz scxml, ai-generate |
 | *(none)* | kw only in the message string, no ex-data slot | most other sites (`require-fn!`, `require-adapter!`, …) |
 
-All five collapse to the single canonical `:rf.error/id` slot. The migration is a **rename, not a deprecation** (pre-alpha posture — no back-compat shim): the old slot is removed and `:rf.error/id` added in its place. Where the kw lived only in the message string (the *(none)* row), `:rf.error/id` is added as a new slot carrying the same keyword the message stringifies — the message string is unchanged, the structured slot is new. Where `:reason` was overloaded to carry the discriminator kw, `:reason` reverts to a human-readable sentence and `:rf.error/id` carries the keyword.
+All five collapse to the single canonical `:rf.error/id` slot. The migration is a **rename, not a deprecation** (pre-alpha posture — no back-compat shim): the old slot is removed and `:rf.error/id` added in its place. Where the kw lived only in the message string (the *(none)* row), `:rf.error/id` is the structured slot and the message becomes the human sentence + the `[:rf.error/<id>]` token (per the human-message policy above — the bare-keyword message is dropped, not preserved). Where `:reason` was overloaded to carry the discriminator kw, `:reason` reverts to a human-readable sentence and `:rf.error/id` carries the keyword.
 
-The three reference exemplars — `re-frame.flows.registry/flow-error` (was `:error`), `re-frame.late-bind/require-fn!` (was *none*), `re-frame.substrate.adapter/require-adapter!` (was *none*) — demonstrate the canonical shape on first read.
+The three reference exemplars — `re-frame.flows.registry/flow-error` (was `:error`), `re-frame.late-bind/require-fn!` (was *none*), `re-frame.substrate.adapter/require-adapter!` (was *none*) — all route through `re-frame.error/throw-error!` / `thrown-ex-info` and demonstrate the canonical shape on first read.
 
 #### `:rf.trace/trigger-handler` — naming the in-scope handler
 
