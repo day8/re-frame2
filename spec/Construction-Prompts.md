@@ -1034,6 +1034,164 @@ The drain settles before `with-frame` returns; the final state is captured.
 - Page template injects the payload as a `<script>` element with `id="__rf_payload"`.
 - All client-only effects (DOM mutation, localStorage) are tagged `:platforms #{:client}`.
 
+### CP-11. Register an interceptor
+
+**When to use this prompt:** the user wants a piece of **full-context program behaviour** that runs around event handlers — an auth gate, an audit log, trace-payload redaction, a coeffect injection, an effect rewrite, a focus on an `app-db` sub-slice. Since [EP-0018](../docs/EP/EP-0018-one-event-registration.md) collapsed event registration to one `reg-event` form and moved `context -> context` work to interceptors, an interceptor is **load-bearing program structure** — and per [EP-0022](../docs/EP/EP-0022-registered-interceptors.md) it is a first-class **registered** member, authored once with `reg-interceptor` and referenced from event/frame `:interceptors` chains by id. Reach for this whenever a behaviour must wrap *more than one* handler, or must be named, addressable, override-able, and visible in tooling. A one-off transform that belongs to a single handler stays inside that handler's body — interceptors are for cross-cutting, reusable behaviour.
+
+**Pre-flight delta (in addition to the shared preamble above):**
+
+- **Id-shape convention:** a single namespaced keyword. Examples: `:auth/required`, `:audit/record-event`, `:app/unwrap`. The relevant registry kind is `:interceptor` — verify the id is unused via `(rf/registrations :interceptor)`. Application ids are application-owned; the `:rf.interceptor/*` namespace is reserved for framework standard refs (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)).
+- **Decide static vs parameterized.** A **static** interceptor has fixed behaviour (`{:before}` / `{:after}` / `{:before :after}`). A **parameterized** interceptor (`{:factory}`) is a *family* — the factory receives one arg and builds a static interceptor for it; it is referenced as `[id arg]`. Reach for `:factory` only when the same behaviour needs per-reference configuration (the framework's standard `:rf.interceptor/path` is the canonical example).
+- **Reference, never inline.** Event and frame `:interceptors` chains carry interceptor **references** — a bare keyword or an `[id arg]` 2-vector — **never inline interceptor values** ([002 §Event and frame chain grammar](002-Frames.md#event-and-frame-chain-grammar)). An inline interceptor map / Var / `->interceptor` result in a public chain is a registration error (`:rf.error/inline-interceptor-removed`). `->interceptor` is **not** the public authoring form — `reg-interceptor` is.
+
+**The descriptor shapes:**
+
+`reg-interceptor` takes `(id ?metadata descriptor)`. The `descriptor` is exactly one of:
+
+```clojure
+{:before before-fn}            ;; static: runs before the handler
+{:after  after-fn}             ;; static: runs after the handler (reverse chain order)
+{:before before-fn :after after-fn}
+{:factory factory-fn}          ;; parameterized family; factory-fn takes ONE arg
+```
+
+A descriptor mixing `:factory` with `:before` / `:after` is ambiguous and rejected; any other malformed descriptor is `:rf.error/invalid-interceptor` at registration. Each `:before` / `:after` fn is `(context) -> context`: read inputs from the context's coeffects (`get-coeffect`), write outputs to its effects (`assoc-effect`), or rewrite coeffects with `assoc-coeffect` / `update-coeffect` (per [002 §Interceptor chain execution](002-Frames.md#interceptor-chain-execution--before-short-circuit-after-always-runs)).
+
+**Template — static `{:before}` (read/rewrite coeffects):**
+
+```clojure
+(rf/reg-interceptor :audit/record-event
+  {:doc "Append each handled event's id to the app-db audit trail."}
+  {:before
+   (fn before-audit-record-event [ctx]
+     ;; Read the dispatched event from coeffects; rewrite the :db coeffect.
+     (let [[event-id] (rf/get-coeffect ctx :event)]
+       (rf/update-coeffect ctx :db update :audit/events (fnil conj []) event-id)))})
+```
+
+**Template — static `{:after}` (inspect/rewrite effects):**
+
+```clojure
+(rf/reg-interceptor :metrics/count-writes
+  {:doc "Increment a write counter whenever a handler returned a :db effect."}
+  {:after
+   (fn after-metrics-count-writes [ctx]
+     (if (rf/get-effect ctx :db)
+       (rf/assoc-effect ctx :db (vary-meta (rf/get-effect ctx :db) update :write-count (fnil inc 0)))
+       ctx))})
+```
+
+**Template — parameterized `{:factory}` (an `[id arg]` family):**
+
+```clojure
+;; A factory that gates a handler on a role read from the event payload.
+;; Referenced as [:app/role {:role :admin :redirect [:login/show]}].
+(rf/reg-interceptor :app/role
+  {:doc "Require the dispatched event carry the named role; else dispatch :redirect."}
+  {:factory
+   (fn factory-app-role [{:keys [role redirect]}]      ;; ONE arg — a composite map
+     {:before
+      (fn before-app-role [ctx]
+        (let [[_ payload] (rf/get-coeffect ctx :event)]
+          (if (= role (:role payload))
+            ctx
+            (rf/assoc-effect ctx :fx [[:dispatch redirect]]))))})})
+```
+
+The factory takes **exactly one** argument. A behaviour needing several inputs takes them as a single composite arg (a vector or map), as above. A bare-keyword reference to a `:factory` id — or an `[id arg]` reference to a static id — is `:rf.error/interceptor-factory-arity`.
+
+**Referencing the interceptor in a chain:**
+
+```clojure
+;; Bare keyword references a static interceptor; [id arg] references a factory.
+(rf/reg-event :cart/add
+  {:interceptors [:auth/required
+                  :audit/record-event
+                  [:rf.interceptor/path [:cart]]]}        ;; standard path interceptor (a factory)
+  (fn handler-cart-add [{:keys [db]} [_ sku]]
+    {:db (update db :items conj sku)}))
+
+;; Frame-level chains prepend to every event handled in the frame:
+(rf/reg-frame :story/cart
+  {:interceptors [:story/record-events]})
+```
+
+The standard **`:rf.interceptor/path`** is the one framework-shipped interceptor (a `:factory`): `[:rf.interceptor/path [:cart :items]]` focuses a handler on an `app-db` sub-slice and re-widens the result — you do not register it ([002 §Standard `:rf.interceptor/path`](002-Frames.md#standard-rfinterceptorpath)). There is no standard `unwrap` / `trim-v`; ordinary handler destructuring covers those (and keeps the `:event` coeffect stable for tracing/replay).
+
+**Per-frame / per-call override (reference-based):**
+
+```clojure
+;; In a story/test, swap or remove an interceptor by its exact reference:
+(rf/dispatch [:cart/add "ABC-1"]
+  {:frame f
+   :interceptor-overrides {:auth/required :story/skip-auth   ;; replace with another ref
+                           :audit/record-event nil}})         ;; nil removes it
+```
+
+Override keys are interceptor **references**, matched by exact canonical reference (a bare keyword matches that keyword or an entry's id; an `[id arg]` vector matches only that exact reference). Values are another reference (replace) or `nil` (remove) — **no inline interceptor values** ([002 §`:interceptor-overrides`](002-Frames.md#interceptor-overrides--exact-reference-substitution)).
+
+**Pattern-level discipline (per [001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar) and [002 §Registered interceptors and the chain grammar](002-Frames.md#registered-interceptors-and-the-chain-grammar)):**
+
+- **Reference-only chains.** Authored behaviour lives in exactly two homes — event metadata and frame metadata — and both carry refs. Dispatch opts do **not** accept an additive `:interceptors` key; per-dispatch variation is `:interceptor-overrides`.
+- **`:before` short-circuits, `:after` always runs.** A `:before` may queue the rest of the chain off (skipping later `:before`s and the handler); every entered interceptor's `:after` still runs, in reverse order. The execution model is unchanged from v1.
+- **The reference resolves at dispatch time** — re-registering an interceptor id with a new descriptor takes effect on the next dispatch of any event whose chain references it; the event does not have to be re-registered (hot reload).
+- **Migration boundary only:** `reg-interceptor` also accepts an existing interceptor **value** carrying implementation-private slots (an `:id`, if present, must match the registration id). This is confined to the `reg-interceptor` call site; public chains still carry refs.
+
+**Smoke test (headless via a test frame):**
+
+```clojure
+(deftest audit-record-event-test
+  (rf/reg-interceptor :audit/record-event
+    {:doc "Append each handled event's id to the audit trail."}
+    {:before
+     (fn [ctx]
+       (let [[event-id] (rf/get-coeffect ctx :event)]
+         (rf/update-coeffect ctx :db update :audit/events (fnil conj []) event-id)))})
+  (rf/reg-event :feature/touch
+    {:interceptors [:audit/record-event]}
+    (fn [{:keys [db]} _] {:db db}))
+  (rf/with-new-frame [f (rf/make-frame {})]
+    (rf/dispatch-sync [:feature/touch] {:frame f})
+    (is (= [:feature/touch] (:audit/events (rf/app-db-value f))))))
+```
+
+**AI-first checklist:**
+
+- Interceptor id is a single namespaced keyword and unused (`(rf/registrations :interceptor)`).
+- The descriptor is exactly one of `{:before}` / `{:after}` / `{:before :after}` / `{:factory}` — no `:factory`+`:before`/`:after` mix.
+- A `:factory` factory takes exactly **one** argument (a composite vector/map when it needs several inputs).
+- `:before` / `:after` fns are `(context) -> context`, pure with respect to the context map; side-effects are expressed as effects (`assoc-effect` / `:fx`), never performed in the body.
+- `:doc` is present and one sentence.
+- The interceptor is **referenced** from chains by id — bare keyword (static) or `[id arg]` (factory) — never inlined as a value.
+- Overrides (in stories/tests) are reference-valued (another ref or `nil`), never inline values.
+- `:before` / `:after` fns have meaningful names (not `fn`); the name shows up in stack traces and tooling.
+- Smoke test asserts the interceptor's effect on a real dispatch through a test frame.
+
+**Example — auth gate referenced across several events:**
+
+```clojure
+(ns my-app.auth.interceptors
+  (:require [re-frame.core :as rf]))
+
+(rf/reg-interceptor :auth/required
+  {:doc "Redirect to login when no user is authenticated; let the handler run otherwise."}
+  {:before
+   (fn before-auth-required [ctx]
+     (if (get-in (rf/get-coeffect ctx :db) [:auth :user])
+       ctx
+       ;; Unauthenticated: stage a redirect. (Throwing from :before short-circuits
+       ;; the remaining :before stages and the handler — see 002 §Interceptor chain
+       ;; execution; a redirect-and-continue gate stages an :fx instead, as here.)
+       (rf/assoc-effect ctx :fx [[:dispatch [:rf.route/navigate :route/login]]])))})
+
+;; Any event that needs the gate references it by id:
+(rf/reg-event :account/update-profile
+  {:doc          "Update the signed-in user's profile."
+   :interceptors [:auth/required]}
+  (fn handler-account-update-profile [{:keys [db]} [_ patch]]
+    {:db (update db :profile merge patch)}))
+```
+
 ## Cross-references
 
 - [Principles.md §Construction prompts as a deliverable](Principles.md#construction-prompts-as-a-deliverable) — why this artefact exists.
@@ -1056,3 +1214,4 @@ The [7GUIs example series](../examples/reagent/seven_guis/README.md) and the [lo
 | CP-7 (route) | [Routing example](../examples/reagent/routing/core.cljs) — three-page app (home / articles / article-detail / 404), `:rf.route/navigate`, `:rf.route/handle-url-change`, `route-link`, server-and-client-shared handler |
 | CP-8 (schema) | All examples register `app-db` slice schemas; [Login](../examples/reagent/login/core.cljs) and [Flight Booker](../examples/reagent/seven_guis/flight_booker/core.cljs) also attach event schemas |
 | CP-9 (SSR setup) | [SSR example](../examples/reagent/ssr/core.cljc) — single `.cljc` file demonstrating both server (`handle-request` returning HTML+payload) and client (`:rf/hydrate` seeding) flows; JVM-runnable smoke test |
+| CP-11 (interceptor) | [Circle Drawer](../examples/reagent/seven_guis/circle_drawer/core.cljs) registers the `:undoable` static interceptor (`{:before :after}`) and references it by id from undoable events; [RealWorld](../examples/reagent/realworld/routing.cljs) registers a `:realworld.routing/auth-guard` and references it from the frame's `:interceptors` |
