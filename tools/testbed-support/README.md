@@ -1,13 +1,20 @@
 # tools/testbed-support/
 
 A small **dev-only** support library shared by the Xray and Story
-browser testbeds. Two namespaces:
+browser testbeds. Three namespaces:
 
 - `re-frame.testbed.config` — derives the on-disk project root those
   testbeds hand to their "open in editor" source-coord resolvers,
   cross-platform and with no hardcoded checkout path.
 - `re-frame.testbed.story-host` — the live-app ↔ Story-shell hash-toggle
-  host harness the Story showcase testbeds share (rf2-tq26t / rf2-uv7sn).
+  host harness the Story showcase testbeds share.
+- `re-frame.testbed.open-in-editor-server` — a JVM-only (`.clj`)
+  shadow-cljs `:dev-http` handler that answers the
+  `GET|POST /__rf-open-in-editor` endpoint, resolving a
+  classpath-relative source `:file` against the dev JVM's source-paths at
+  runtime and launching the editor via the `launch-editor` npm package
+  (the re-frame2 equivalent of Vite's `/__open-in-editor`). It runs on the
+  shadow-cljs SERVER JVM and is never part of any browser/CLJS build.
 
 ## What it is
 
@@ -93,19 +100,23 @@ forgetting the project-root config.
 ```
 tools/testbed-support/
 ├── README.md                                 ; this file
+├── deps.edn                                  ; JVM :test classpath for the open-in-editor server (test-only, not a published jar)
 ├── src/re_frame/testbed/
 │   ├── config.cljs                           ; resolve-project-root + the repo-root goog-define
-│   └── story_host.cljs                       ; mount-with-hash-routing! (live-app↔shell host)
+│   ├── story_host.cljs                       ; mount-with-hash-routing! (live-app↔shell host)
+│   └── open_in_editor_server.clj             ; JVM-only :dev-http open-in-editor endpoint handler
 └── test/re_frame/testbed/
     ├── config_cljs_test.cljs                 ; CLJS unit tests for the resolver
-    └── story_host_cljs_test.cljs             ; CLJS unit tests for the host harness
+    ├── story_host_cljs_test.cljs             ; CLJS unit tests for the host harness (node)
+    ├── story_host_dom_cljs_test.cljs         ; browser-level live↔shell root-handoff test
+    └── open_in_editor_server_test.clj        ; JVM unit tests for the endpoint's :file resolution
 ```
 
 ## How it's wired
 
-This library is **not a published jar** — there is no `deps.edn` or
-Clojars coord. It is consumed purely as an extra source path: the
-testbed builds add `../tools/testbed-support/src` to their source paths
+This library is **not a published jar** — it carries no Clojars coord.
+The CLJS halves are consumed purely as an extra source path: the testbed
+builds add `../tools/testbed-support/src` to their source paths
 in [`implementation/shadow-cljs.edn`](../../implementation/shadow-cljs.edn),
 and seed `re-frame.testbed.config/repo-root` via that file's
 `:closure-defines`. The sibling `../tools/testbed-support/test` path is
@@ -113,25 +124,39 @@ also listed so the always-on `:node-test` build discovers the unit
 suites (see below). Bundle-isolation holds: nothing under
 `implementation/` `:require`s it.
 
+There **is** a `deps.edn`, but it is a **test-only** harness, not a
+packaging surface: the open-in-editor endpoint is a JVM-only `.clj` that
+no CLJS build compiles, so its `:file`-resolution logic can only be
+exercised by a JVM `clojure -M:test` gate (see below). The `deps.edn`
+exists solely to give that `.clj` a JVM test classpath; it declares no
+Clojars coord and the testbeds keep consuming `src/` as a source path.
+
 ## How to test
 
-Three suites under `test/`:
+Four suites under `test/` — three CLJS, one JVM:
 
 - `config_cljs_test.cljs` — the resolver: param parsing, cross-platform
   path joining (Windows / POSIX, including the lone-`/` filesystem-root
-  edge — rf2-fzgcii), and the build-time-vs-`?project-root=` tier
-  precedence.
+  edge), and the build-time-vs-`?project-root=` tier precedence.
 - `story_host_cljs_test.cljs` — the host harness's `hashchange`-listener
   lifecycle / hot-reload idempotence and the project-root config contract,
   with the mount switch stubbed to count-only no-ops (listener-identity
   focus, runs under `:node-test`).
 - `story_host_dom_cljs_test.cljs` — a **browser-level** handoff test
-  (rf2-fzgcii) that drives the host through `#/` → `#/stories` → `#/`
+  that drives the host through `#/` → `#/stories` → `#/`
   (plus a hot-reload re-run) on a real `#app` node with **real React
   roots**, asserting the live ↔ shell root handoff leaks no root and emits
   no `createRoot`-reuse warning. ns ends in `-dom-cljs-test`, so the
   `:browser-test` build runs the real-DOM assertions; under `:node-test`
   its body gates on `(browser?)` and no-ops.
+- `open_in_editor_server_test.clj` — a **JVM** suite for the
+  open-in-editor endpoint's `:file` resolution: that `resolve-file` /
+  `file-url->path` decode a classpath `file:` URL with a literal `+` in
+  the path verbatim (the `URLDecoder`-maps-`+`-to-space corruption guard),
+  decode `%20` / `%2B` correctly, and strip the Windows drive-letter
+  leading slash. The endpoint is JVM-only `.clj` that no CLJS build
+  compiles, so it rides the `clojure -M:test` gate below rather than the
+  node suites.
 
 ### The always-on gate
 
@@ -141,13 +166,12 @@ slice's wired `../tools/testbed-support/test` source path; `npm run
 test:browser` runs the DOM suite's real-React assertions. The slice rides
 both on every PR.
 
-### The focused gate (rf2-fzgcii)
+### The focused CLJS gate
 
-There is no `deps.edn` here (the library is consumed purely as a source
-path), but workers no longer need the full ~3500-test consolidated build to
-verify this slice. `npm run test:testbed-support` from `implementation/`
-compiles a dedicated `:node-test-testbed-support` build whose
-`:ns-regexp "^re-frame\.testbed\..+-cljs-test$"` matches ONLY the
+Workers no longer need the full ~3500-test consolidated build to
+verify the CLJS halves of this slice. `npm run test:testbed-support` from
+`implementation/` compiles a dedicated `:node-test-testbed-support` build
+whose `:ns-regexp "^re-frame\.testbed\..+-cljs-test$"` matches ONLY the
 `re-frame.testbed.*` test namespaces, then runs it on Node — a cheap,
 named, slice-scoped gate. (It still needs the shared shadow-cljs binary
 `npm install` provides; it does not depend on the rest of the node suite
@@ -155,6 +179,17 @@ compiling.) The DOM suite's real-React-root assertions still require the
 `:browser-test` runner — the focused node build exercises only the
 node-runnable bodies. The suites live under a dedicated `test/` root — the
 same src/test split every other tool/artefact uses.
+
+### The JVM gate (open-in-editor endpoint)
+
+The open-in-editor endpoint is a JVM-only `.clj`, so its
+`:file`-resolution logic is gated by a JVM test rather than the node
+suites. Run `clojure -M:test` from `tools/testbed-support/` — it uses the
+same `test/` root and the silent-on-success quiet runner every other
+per-artefact `:test` alias uses, and exercises
+`open_in_editor_server_test.clj` against the real classpath-resolution
+path (including a throwaway classpath root whose directory name carries a
+literal `+`).
 
 ## See also
 

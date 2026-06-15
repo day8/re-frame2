@@ -52,7 +52,7 @@
   auto-detects the running editor (and honours `$LAUNCH_EDITOR`)."
   (:require [clojure.string :as str]
             [re-frame.source-coords.editor-uri :as editor-uri])
-  (:import [java.net URLDecoder]
+  (:import [java.net URI URL URLDecoder]
            [java.io File]))
 
 (set! *warn-on-reflection* true)
@@ -105,6 +105,25 @@
 (defn ^:private context-class-loader ^ClassLoader []
   (.getContextClassLoader (Thread/currentThread)))
 
+(defn ^:private file-url->path
+  "Decode a classpath `file:` resource `url` to its on-disk path.
+
+  Uses `URI`-based path decoding rather than `URLDecoder`: `URLDecoder`
+  is for `application/x-www-form-urlencoded` form bodies, where `+` means
+  a space — but a `file:` URL path is NOT form-encoded, so a literal `+`
+  in a checkout path (e.g. `C:/code/re-frame2+wip`) must survive verbatim.
+  `URI.getPath` decodes percent-escapes (`%20` → space, `%2B` → `+`) while
+  leaving a literal `+` untouched, which is the correct grammar for a
+  `file:` URL path. URL paths on Windows come out as `/C:/Users/...`, so
+  strip the leading slash before a drive-letter to the canonical shape."
+  [^URL url]
+  (let [decoded (.getPath (.toURI url))]
+    (if (and (> (.length decoded) 2)
+             (= \/ (.charAt decoded 0))
+             (= \: (.charAt decoded 2)))
+      (.substring decoded 1)
+      decoded)))
+
 (defn resolve-file
   "Resolve a (possibly classpath-relative) `path` to its absolute on-disk
   path. Returns the input unchanged when it is already absolute (per
@@ -127,14 +146,7 @@
       (try
         (when-let [url (.getResource (context-class-loader) path)]
           (when (= "file" (.getProtocol url))
-            (let [decoded (URLDecoder/decode (.getPath url) "UTF-8")]
-              ;; URL paths on Windows come out as "/C:/Users/..." — strip the
-              ;; leading slash before a drive-letter to the canonical shape.
-              (if (and (> (.length decoded) 2)
-                       (= \/ (.charAt decoded 0))
-                       (= \: (.charAt decoded 2)))
-                (.substring decoded 1)
-                decoded))))
+            (file-url->path url)))
         (catch Throwable _ nil))
       ;; 2. Relative to the dev process cwd (JAR / in-jar / off-classpath
       ;;    coords that getResource cannot reach — the gap Option B closes).
