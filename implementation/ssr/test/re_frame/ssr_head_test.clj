@@ -118,7 +118,9 @@
         (rf/render-head :head/nope {:frame f})
         (is false "expected exception")
         (catch clojure.lang.ExceptionInfo e
-          (is (= ":rf.error/no-such-head" (.getMessage e)))
+          ;; rf2-vvixub — branch on the canonical :rf.error/id; the message is
+          ;; the human :reason + the [:rf.error/<id>] token (non-normative bytes).
+          (is (= :rf.error/no-such-head (:rf.error/id (ex-data e))))
           (is (= :head/nope (:head-id (ex-data e)))))))))
 
 (deftest render-head-records-fragment-in-snapshot

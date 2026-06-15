@@ -1242,8 +1242,10 @@
                         (assoc base-opts :body-end {:script "evil"}))
                       (catch clojure.lang.ExceptionInfo e e))]
           (is (some? ex) "an exception was thrown")
-          (is (= ":rf.error/ssr-trusted-shell-opt-invalid"
-                 (ex-message ex)))
+          ;; rf2-vvixub — branch on the canonical :rf.error/id; the message is
+          ;; the human :reason + the [:rf.error/<id>] token (non-normative bytes).
+          (is (= :rf.error/ssr-trusted-shell-opt-invalid
+                 (:rf.error/id (ex-data ex))))
           (is (= :body-end (:opt-key (ex-data ex))))
           (is (= {:script "evil"} (:got (ex-data ex))))
           (is (= :supply-string-or-nil (:recovery (ex-data ex))))))

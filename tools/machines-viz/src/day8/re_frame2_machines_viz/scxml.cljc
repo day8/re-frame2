@@ -792,7 +792,7 @@
           (str "SCXML export: a parallel machine spec requires a non-empty "
                ":regions map; add :regions to the parallel spec.")
           {:recovery :supply-non-empty-regions
-           :extra    {:spec machine-spec}})))
+           :extra    {:spec machine-spec}}))
       (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
            (str/join "\n" (emit-parallel machine-spec 0))))
 

@@ -220,7 +220,7 @@
                  " unmount a root from inside a render body —"
                  " defer the unmount until rendering settles.")
             {:recovery :defer-the-unmount-until-render-settles
-             :extra    {:mount-id (:id mount)}})))
+             :extra    {:mount-id (:id mount)}}))
         ;; Children-first teardown (mirrors React). Each child's own thunk runs
         ;; the same guard + cascade, so a deep tree unwinds leaf-upward.
         (doseq [child @(:children mount)]

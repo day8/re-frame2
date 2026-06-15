@@ -901,7 +901,7 @@
                "the registered schema(s).")
           {:recovery :fix-the-db-seed-to-satisfy-the-schema
            :extra    {:variant/id variant-id
-                      :violations violations}})))))
+                      :violations violations}}))))
   ctx)
 
 (defn- run-phase-1!
