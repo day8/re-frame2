@@ -141,6 +141,15 @@ stubbing by re-registration.
 
 ## Relationships
 
+- **[EP-0022](EP-0022-registered-interceptors.md) (Registered Interceptors) —
+  forward errata.** This EP names `->interceptor` as the public form for the
+  full-context work it moves off `reg-event-ctx` (see §3, §7, and the Rationale).
+  **EP-0022 supersedes that guidance:** `->interceptor` is no longer a public
+  authoring form, and full-context interceptor behavior is now authored with
+  **`reg-interceptor`** and referenced by id in event/frame `:interceptors`
+  chains. Where the `->interceptor` examples below appear, read them as
+  `reg-interceptor` + an interceptor ref per EP-0022 §10. The decisions of this
+  EP (the `reg-event` collapse, the `reg-event-ctx` demotion) are unchanged.
 - **[EP-0017](EP-0017-recordable-coeffects.md) (Recordable Coeffects)** — the
   decisive driver: `reg-event-db` cannot declare `:rf.cofx/requires` (a
   registration-time error today), so the collapse closes a hole EP-0017
