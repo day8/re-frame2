@@ -530,14 +530,19 @@ function assertDescriptorShape(tools, { allowOpenWorld } = {}) {
 //                      openWorldHint; pinning `neither` catches a
 //                      side-effecting tool that wrongly gained
 //                      readOnlyHint, masking its effect)
-//   - `closed-world`  — tools whose descriptor MUST carry
-//                       `openWorldHint:false` (inline / no-runtime-reach
-//                       tools, e.g. get-re-frame2-pair-instructions). All
-//                       OTHER tools are not pinned on openWorldHint here
-//                       — the read-only/destructive axis is the trust-
-//                       classification a flipped-hint regression breaks;
-//                       the openWorld axis is the per-server `allowOpenWorld`
-//                       dimension `assertDescriptorShape` already handles.
+//   - `closed-world`  — the EXHAUSTIVE open-world partition (rf2-ppk6hy):
+//                       tools listed here MUST carry `openWorldHint:false`
+//                       (inline / no-runtime-reach tools, e.g.
+//                       get-re-frame2-pair-instructions); EVERY tool NOT
+//                       listed MUST carry `openWorldHint:true` (it reaches
+//                       the live browser / nREPL — an external process).
+//                       Both sides are pinned. Asserting only the `false`
+//                       side left a hole: a read-only/destructive tool that
+//                       reaches the runtime could drop `openWorldHint:true`
+//                       (or set it false) and still ship green, mislabelling
+//                       a live-reaching tool as contained and weakening the
+//                       MCP client trust/confirmation boundary. Pinning the
+//                       complement turns that regression RED.
 //
 // Also pins, per descriptor, that the `max-tokens` property carries a
 // NON-EMPTY `description` (the budget-hint prose — TOKEN-BUDGETS.md
@@ -624,15 +629,44 @@ function assertClassificationRatchet(tools, expected) {
       );
     }
 
-    // 2. openWorld posture for the closed-world (no-runtime-reach) tools.
-    // These ship static / inline content; openWorldHint MUST be false so
-    // a host doesn't treat them as reaching an external world.
-    if (closedWorld.has(t.name) && a.openWorldHint !== false) {
-      throw new Error(
-        'tool ' + t.name + ' is pinned closed-world (inline / no runtime ' +
-          'reach) but the live descriptor has openWorldHint=' +
-          JSON.stringify(a.openWorldHint) + ' (MUST be false). rf2-yi451.',
-      );
+    // 2. openWorld posture — BOTH sides of the partition (rf2-ppk6hy).
+    // The fixture's `closed-world` list IS the exhaustive partition: a
+    // tool is closed-world (no runtime reach) OR open-world (reaches the
+    // live browser/nREPL — an external process). Asserting only the
+    // `false` side left a hole — a read-only/destructive tool that
+    // reaches the runtime could DROP `openWorldHint:true` (or set it
+    // false) and still ship GREEN, mislabelling a live-reaching tool as
+    // contained and weakening the MCP client trust/confirmation boundary.
+    // Pin both sides so the complement can't regress.
+    if (closedWorld.has(t.name)) {
+      // 2a. Closed-world (inline / no runtime reach) — these ship static /
+      // inline / server-local content; openWorldHint MUST be false so a
+      // host doesn't treat them as reaching an external world.
+      if (a.openWorldHint !== false) {
+        throw new Error(
+          'tool ' + t.name + ' is pinned closed-world (inline / no runtime ' +
+            'reach) but the live descriptor has openWorldHint=' +
+            JSON.stringify(a.openWorldHint) + ' (MUST be false). rf2-yi451.',
+        );
+      }
+    } else {
+      // 2b. Open-world (every NON-closed tool reaches the live browser /
+      // nREPL — an external process) — openWorldHint MUST be true so a
+      // host applies the appropriate confirmation ceremony instead of
+      // treating the call as contained on-box. A missing or false hint on
+      // a live-reaching tool is the exact false-green this side closes
+      // (rf2-ppk6hy).
+      if (a.openWorldHint !== true) {
+        throw new Error(
+          'tool ' + t.name + ' is open-world (reaches the live browser / ' +
+            'nREPL — not in the fixture `closed-world` list) but the live ' +
+            'descriptor has openWorldHint=' + JSON.stringify(a.openWorldHint) +
+            ' (MUST be true). A live-reaching tool mislabelled as contained ' +
+            'weakens the MCP client trust/confirmation boundary — the ' +
+            'false-green this side exists to turn RED (rf2-ppk6hy). Got ' +
+            'annotations: ' + JSON.stringify(a),
+        );
+      }
     }
 
     // 3. Budget-hint PROSE — the `max-tokens` property must carry a

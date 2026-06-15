@@ -68,6 +68,10 @@ const TESTS = [
     argv: ['--test', 'test/call-coverage-ratchet.test.cjs'],
   },
   {
+    name: 'classification ratchet unit tests — read/destructive + open-world partition (rf2-yi451 / rf2-ppk6hy)',
+    argv: ['--test', 'test/classification-ratchet.test.cjs'],
+  },
+  {
     name: 're-frame2-pair-mcp end-to-end',
     argv: ['test/end-to-end-re-frame2-pair.cjs'],
   },
