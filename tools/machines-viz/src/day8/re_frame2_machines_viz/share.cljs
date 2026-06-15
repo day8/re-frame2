@@ -51,6 +51,7 @@
   [`DESIGN-RATIONALE.md`](../../spec/DESIGN-RATIONALE.md) Lock #3 +
   Lock #5."
   (:require [clojure.string :as str]
+            [re-frame.error :as error]
             [cognitect.transit :as transit]))
 
 ;; ---------------------------------------------------------------------------
@@ -401,13 +402,20 @@
 ;; Errors
 
 (defn- decode-error
-  "Throw the documented `:rf.machines-viz.share/decode-failed`
-  ex-info with a programmatic `:reason`."
+  "Throw the documented `:rf.machines-viz.share/decode-failed` ex-info.
+
+  The ex-MESSAGE is the human sentence `msg` + the trailing
+  `[:rf.machines-viz.share/decode-failed]` token (Spec 009 §The
+  thrown-error shape / rf2-vvixub) — no longer a bare keyword. The
+  fine-grained `:reason` keyword is the documented machines-viz
+  tool-classification slot (API.md §Share-URL decoding) — tools branch on
+  it; `:message` carries the same human sentence for the viewer's
+  `{:error {:reason … :message …}}` shape."
   [reason msg & [extra]]
-  (throw (ex-info (str ":rf.machines-viz.share/decode-failed — " (name reason))
+  (throw (ex-info (error/human-message :rf.machines-viz.share/decode-failed msg)
                   (merge {:rf.error/id :rf.machines-viz.share/decode-failed
                           :where       'machines-viz.share/decode-share-url
-                          :recovery    :no-recovery
+                          :recovery    :fix-the-share-url
                           :reason      reason
                           :message     msg}
                          extra))))
@@ -457,12 +465,20 @@
   ([chart-state {:keys [host] :or {host default-host}}]
    (let [allowlisted (allowlist-chart-state chart-state)]
      (when-not (valid-chart-state? allowlisted)
-       (throw (ex-info ":rf.machines-viz.share/encode-failed — invalid-chart-state"
-                       {:rf.error/id :rf.machines-viz.share/encode-failed
-                        :where       'machines-viz.share/encode-share-url
-                        :recovery    :no-recovery
-                        :reason      :invalid-chart-state
-                        :chart-state chart-state})))
+       ;; rf2-vvixub — the ex-message is the human sentence + the
+       ;; [:rf.machines-viz.share/encode-failed] token; the fine `:reason`
+       ;; keyword stays the documented tool-classification slot (API.md).
+       (let [msg (str "cannot encode a share-URL: the chart state does not "
+                      "validate against the share schema (a :machine-id, "
+                      ":frame-id, :definition, or :snapshot :state is missing "
+                      "or malformed). Pass a valid ChartState.")]
+         (throw (ex-info (error/human-message :rf.machines-viz.share/encode-failed msg)
+                         {:rf.error/id :rf.machines-viz.share/encode-failed
+                          :where       'machines-viz.share/encode-share-url
+                          :recovery    :supply-a-valid-chart-state
+                          :reason      :invalid-chart-state
+                          :message     msg
+                          :chart-state chart-state}))))
      (let [envelope    (canonicalise
                          {:rf.machines-viz.share/v       current-version
                           :rf.machines-viz.share/chart   allowlisted
@@ -502,8 +518,13 @@
   ;;     :rf.machines-viz.share/created 1736000000000}
   ```
 
-  Throws `:rf.machines-viz.share/decode-failed` (an ex-info) with a
-  programmatic `:reason`:
+  Throws `:rf.machines-viz.share/decode-failed` (an ex-info). Per the
+  thrown-error contract (Spec 009 §The thrown-error shape) the message is
+  the human sentence + the `[:rf.machines-viz.share/decode-failed]` token,
+  and `:rf.error/id` is the coarse machine discriminator. The fine-grained
+  `:reason` keyword below is the documented machines-viz tool-classification
+  slot (carried alongside the human `:message` in the safe-decode
+  `{:error {:reason … :message …}}` shape):
 
   | `:reason`              | Meaning |
   |---|---|

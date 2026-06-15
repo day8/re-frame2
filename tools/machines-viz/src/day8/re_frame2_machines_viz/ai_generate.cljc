@@ -55,6 +55,7 @@
 
   Per [`API.md`](../../spec/API.md) §AI-generate-a-machine."
   (:require [clojure.string :as str]
+            [re-frame.error :as error]
             #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])))
 
@@ -189,14 +190,13 @@
 ;; chat / re-frame2-pair-mcp) which already has an LLM seam.
 
 (defn- default-resolver [_prompt]
-  (throw (ex-info
-           ":ai-generate/no-resolver"
-           {:rf.error/id :ai-generate/no-resolver
-            :where    'machines-viz/generate-machine
-            :recovery :no-recovery
-            :reason   (str "ai-generate/generate-machine called without a :resolver opt. "
-                           "Inject a resolver fn (string -> string) that bridges to "
-                           "your LLM of choice; see the ns docstring for the contract.")})))
+  (error/throw-error!
+    :ai-generate/no-resolver
+    'machines-viz/generate-machine
+    (str "AI machine generation: generate-machine was called without a "
+         ":resolver opt. Inject a resolver fn (string -> string) that bridges "
+         "to your LLM of choice; see the ns docstring for the contract.")
+    {:recovery :inject-a-resolver-fn}))
 
 ;; ---------------------------------------------------------------------------
 ;; Public API
@@ -232,7 +232,10 @@
 
   ## Throws
 
-  `(ex-info ... {:reason :ai-generate/<kw>})` for:
+  The canonical thrown-error shape (Spec 009 §The thrown-error shape) —
+  `:rf.error/id :ai-generate/<kw>` is the discriminator, `:reason` is the
+  human sentence, the message leads with the sentence + the
+  `[:ai-generate/<kw>]` token — for:
 
   - `:ai-generate/no-resolver` — `:resolver` was not provided.
   - `:ai-generate/parse-failed` — the resolver's output could not
@@ -251,34 +254,39 @@
          full-prompt   (build-prompt user-prompt)
          response      (resolver-fn full-prompt)
          _             (when-not (string? response)
-                         (throw (ex-info
-                                  ":ai-generate/parse-failed"
-                                  {:rf.error/id :ai-generate/parse-failed
-                                   :where    'machines-viz/generate-machine
-                                   :recovery :no-recovery
-                                   :reason   "resolver must return a string"
-                                   :response response})))
+                         (error/throw-error!
+                           :ai-generate/parse-failed
+                           'machines-viz/generate-machine
+                           (str "AI machine generation: the resolver must return "
+                                "a string (the LLM's EDN response); it returned a "
+                                "non-string value.")
+                           {:recovery :return-a-string-from-the-resolver
+                            :extra    {:response response}}))
          stripped      (strip-fences response)
          [stage spec-or-reason] (parse-edn stripped)]
      (cond
        (= :err stage)
-       (throw (ex-info ":ai-generate/parse-failed"
-                       {:rf.error/id :ai-generate/parse-failed
-                        :where    'machines-viz/generate-machine
-                        :recovery :no-recovery
-                        :reason   (str "could not parse resolver output as EDN: " spec-or-reason)
-                        :response response
-                        :stripped stripped}))
+       (error/throw-error!
+         :ai-generate/parse-failed
+         'machines-viz/generate-machine
+         (str "AI machine generation: could not parse the resolver output as "
+              "EDN (" spec-or-reason "). The resolver must return a single EDN "
+              "machine-spec map, optionally inside a ```edn fenced block.")
+         {:recovery :return-valid-edn-from-the-resolver
+          :extra    {:response response
+                     :stripped stripped}})
 
        :else
        (let [[stage2 ok-or-reason] (validate-spec spec-or-reason)]
          (if (= :ok stage2)
            ok-or-reason
-           (throw (ex-info ":ai-generate/invalid-spec"
-                           {:rf.error/id :ai-generate/invalid-spec
-                            :where    'machines-viz/generate-machine
-                            :recovery :no-recovery
-                            :reason   (str "resolver output was not a valid machine spec: "
-                                           ok-or-reason)
-                            :response response
-                            :spec     spec-or-reason}))))))))
+           (error/throw-error!
+             :ai-generate/invalid-spec
+             'machines-viz/generate-machine
+             (str "AI machine generation: the resolver output parsed as EDN but "
+                  "is not a valid machine spec (" ok-or-reason "). Have the "
+                  "resolver return a spec with :initial + :states (or :type "
+                  ":parallel + :regions).")
+             {:recovery :return-a-valid-machine-spec
+              :extra    {:response response
+                         :spec     spec-or-reason}})))))))

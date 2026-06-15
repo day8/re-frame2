@@ -1788,7 +1788,13 @@ or inject markup into a copied / exported artifact.
 Both image exporters throw `:rf.machines-viz.export/no-svg` when the
 chart has not rendered a viewport yet (an empty / nil-definition
 placeholder renders no chart), and `:rf.machines-viz.export/no-chart-state`
-when `chart-element` resolves to no seam-bearing chart root.
+when `chart-element` is not a rendered `MachineChart` root (or descendant
+of one). Per the thrown-error contract ([Spec 009 §The thrown-error
+shape](../../spec/009-Instrumentation.md)) the `ex-message` is a human
+sentence naming the public concept (a rendered MachineChart element) plus
+the trailing `[:rf.error/<id>]` token; `:rf.error/id` is the canonical
+machine discriminator and `:reason` carries the same human sentence — the
+private chart-state internals are never named in the user-facing message.
 
 ### Share URL
 
@@ -2032,7 +2038,13 @@ documenting comment and does **not** survive the parse back.
 
 ### Error modes
 
-| `:reason` | Meaning |
+Per the thrown-error contract ([Spec 009 §The thrown-error
+shape](../../spec/009-Instrumentation.md)): `:rf.error/id` is the canonical
+machine discriminator (tools branch on it), `:reason` is the human
+sentence, and `ex-message` leads with the sentence and trails the
+`[:rf.error/<id>]` token.
+
+| `:rf.error/id` | Meaning |
 |---|---|
 | `:scxml/invalid-spec` | Input spec missing `:initial` / `:states` (or `:type :parallel` / `:regions`). |
 | `:scxml/parse-error`  | Input XML is malformed or missing the `<scxml>` root. |
@@ -2093,7 +2105,13 @@ clean up or accept as-is).
 
 ### Error modes
 
-| `:reason` | Meaning |
+Per the thrown-error contract ([Spec 009 §The thrown-error
+shape](../../spec/009-Instrumentation.md)): `:rf.error/id` is the canonical
+machine discriminator (tools branch on it), `:reason` is the human
+sentence, and `ex-message` leads with the sentence and trails the
+`[:rf.error/<id>]` token.
+
+| `:rf.error/id` | Meaning |
 |---|---|
 | `:ai-generate/no-resolver`  | `:resolver` opt was not provided. |
 | `:ai-generate/parse-failed` | Resolver output could not be parsed as EDN. |

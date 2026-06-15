@@ -120,11 +120,15 @@
   - Source-coord metadata — stripped at export time (same posture as
     share-URL encoding; see `Principles.md` §No session data in shares).
 
-  Round-trip failure modes throw `(ex-info ... {:reason :scxml/...})`
-  with a `:reason` keyword for programmatic dispatch.
+  Round-trip failure modes throw the canonical thrown-error shape (Spec
+  009 §The thrown-error shape): `:rf.error/id` is the `:scxml/...`
+  discriminator for programmatic dispatch, `:reason` is the human
+  sentence, and the message leads with the sentence + the
+  `[:scxml/<id>]` token.
 
   Per [`API.md`](../../spec/API.md) §SCXML import/export."
   (:require [clojure.string :as str]
+            [re-frame.error :as error]
             ;; rf2-bs3us — share the canonical parallel-root done-state id
             ;; with the chart projector so the two emitters agree on the
             ;; `done.state.<id>` label (single source of truth).
@@ -761,8 +765,8 @@
    :regions {:data { ... } :form { ... }}}
   ```
 
-  Throws `(ex-info ... {:reason :scxml/invalid-spec})` if the spec
-  is missing required keys.
+  Throws the canonical thrown-error shape with
+  `:rf.error/id :scxml/invalid-spec` if the spec is missing required keys.
 
   Round-trips through `scxml->spec`:
 
@@ -782,12 +786,13 @@
     (= :parallel (:type machine-spec))
     (let [{:keys [regions]} machine-spec]
       (when-not (and (map? regions) (seq regions))
-        (throw (ex-info ":scxml/invalid-spec"
-                        {:rf.error/id :scxml/invalid-spec
-                         :where    'machines-viz/spec->scxml
-                         :recovery :no-recovery
-                         :reason   "parallel spec requires non-empty :regions"
-                         :spec     machine-spec})))
+        (error/throw-error!
+          :scxml/invalid-spec
+          'machines-viz/spec->scxml
+          (str "SCXML export: a parallel machine spec requires a non-empty "
+               ":regions map; add :regions to the parallel spec.")
+          {:recovery :supply-non-empty-regions
+           :extra    {:spec machine-spec}})))
       (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
            (str/join "\n" (emit-parallel machine-spec 0))))
 
@@ -796,12 +801,14 @@
          (str/join "\n" (emit-flat-or-compound machine-spec 0)))
 
     :else
-    (throw (ex-info ":scxml/invalid-spec"
-                    {:rf.error/id :scxml/invalid-spec
-                     :where    'machines-viz/spec->scxml
-                     :recovery :no-recovery
-                     :reason   "spec must carry :initial + non-empty :states, or :type :parallel + :regions"
-                     :spec     machine-spec}))))
+    (error/throw-error!
+      :scxml/invalid-spec
+      'machines-viz/spec->scxml
+      (str "SCXML export: a machine spec must carry :initial + a non-empty "
+           ":states map, or :type :parallel + :regions. Provide one of "
+           "those shapes.")
+      {:recovery :supply-a-valid-machine-spec
+       :extra    {:spec machine-spec}})))
 
 ;; ---------------------------------------------------------------------------
 ;; XML parse — minimal regex-based reader for the SCXML subset we
@@ -1205,12 +1212,14 @@
                                           rs (rest remaining)]
                                      (cond
                                        (empty? rs)
-                                       (throw (ex-info ":scxml/parse-error"
-                                                       {:rf.error/id :scxml/parse-error
-                                                        :where    'machines-viz/scxml->spec
-                                                        :recovery :no-recovery
-                                                        :reason   (str "unclosed <" tag ">")
-                                                        :tag      tag}))
+                                       (error/throw-error!
+                                         :scxml/parse-error
+                                         'machines-viz/scxml->spec
+                                         (str "SCXML import: unclosed <" tag
+                                              "> element; add the matching </"
+                                              tag "> closing tag.")
+                                         {:recovery :close-the-open-element
+                                          :extra    {:tag tag}})
 
                                        (and (= :end (:kind (first rs)))
                                             (= tag (:tag (first rs)))
@@ -1395,27 +1404,29 @@
 
   for the supported subset documented in the ns docstring.
 
-  Throws `(ex-info ... {:reason :scxml/parse-error})` when the input
-  is not a valid SCXML document our parser recognises (missing root
-  `<scxml>`, unclosed tags, etc.). Throws `:scxml/invalid-spec` if
+  Throws the canonical thrown-error shape with
+  `:rf.error/id :scxml/parse-error` when the input is not a valid SCXML
+  document our parser recognises (missing root `<scxml>`, unclosed tags,
+  etc.). Throws `:scxml/invalid-spec` if
   the parsed structure is missing required keys (no `:initial`, no
   `:states`)."
   [scxml-string]
   (when-not (string? scxml-string)
-    (throw (ex-info ":scxml/parse-error"
-                    {:rf.error/id :scxml/parse-error
-                     :where    'machines-viz/scxml->spec
-                     :recovery :no-recovery
-                     :reason   "scxml->spec expects a string"
-                     :input    scxml-string})))
+    (error/throw-error!
+      :scxml/parse-error
+      'machines-viz/scxml->spec
+      "SCXML import: scxml->spec expects an SCXML string; pass the SCXML document as a string."
+      {:recovery :pass-an-scxml-string
+       :extra    {:input scxml-string}}))
   (let [tokens (-> scxml-string strip-prolog lift-action-comments strip-comments tokenize vec)
         root-start (first (filter #(= "scxml" (:tag %)) tokens))]
     (when-not root-start
-      (throw (ex-info ":scxml/parse-error"
-                      {:rf.error/id :scxml/parse-error
-                       :where    'machines-viz/scxml->spec
-                       :recovery :no-recovery
-                       :reason   "no <scxml> root element found"})))
+      (error/throw-error!
+        :scxml/parse-error
+        'machines-viz/scxml->spec
+        (str "SCXML import: no <scxml> root element found; wrap the document "
+             "in a top-level <scxml>…</scxml> element.")
+        {:recovery :wrap-in-an-scxml-root}))
     (let [token-vec (vec tokens)
           start-idx (some (fn [i] (when (identical? (nth token-vec i) root-start) i))
                           (range (count token-vec)))
@@ -1425,11 +1436,12 @@
                 end-idx (loop [i 0 depth 1]
                           (cond
                             (>= i (count tail))
-                            (throw (ex-info ":scxml/parse-error"
-                                            {:rf.error/id :scxml/parse-error
-                                             :where    'machines-viz/scxml->spec
-                                             :recovery :no-recovery
-                                             :reason   "unclosed <scxml>"}))
+                            (error/throw-error!
+                              :scxml/parse-error
+                              'machines-viz/scxml->spec
+                              (str "SCXML import: unclosed <scxml> root element; "
+                                   "add the matching </scxml> closing tag.")
+                              {:recovery :close-the-scxml-root})
 
                             (and (= :start (:kind (nth tail i)))
                                  (= "scxml" (:tag (nth tail i))))
@@ -1457,11 +1469,12 @@
               end-idx (loop [i 0 depth 1]
                         (cond
                           (>= i (count tail))
-                          (throw (ex-info ":scxml/parse-error"
-                                          {:rf.error/id :scxml/parse-error
-                                           :where    'machines-viz/scxml->spec
-                                           :recovery :no-recovery
-                                           :reason   "unclosed <parallel>"}))
+                          (error/throw-error!
+                            :scxml/parse-error
+                            'machines-viz/scxml->spec
+                            (str "SCXML import: unclosed <parallel> element; "
+                                 "add the matching </parallel> closing tag.")
+                            {:recovery :close-the-parallel-element})
 
                           (and (= :start (:kind (nth tail i)))
                                (= "parallel" (:tag (nth tail i))))
@@ -1509,11 +1522,12 @@
               states (into {}
                            (map parse-state-block top-state-blocks))]
           (when (empty? states)
-            (throw (ex-info ":scxml/invalid-spec"
-                            {:rf.error/id :scxml/invalid-spec
-                             :where    'machines-viz/scxml->spec
-                             :recovery :no-recovery
-                             :reason   "scxml document has no <state> or <final> elements"})))
+            (error/throw-error!
+              :scxml/invalid-spec
+              'machines-viz/scxml->spec
+              (str "SCXML import: the document has no <state> or <final> "
+                   "elements; add at least one <state> (or <final>) child.")
+              {:recovery :add-a-state-or-final-element}))
           (cond-> {:states states}
             ;; rf2-mnp93.7 — the root `initial` is a top-level state's
             ;; qualified id; the re-frame2 `:initial` is its local key.

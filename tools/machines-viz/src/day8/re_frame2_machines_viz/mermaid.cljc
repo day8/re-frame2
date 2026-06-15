@@ -84,7 +84,8 @@
   The returned string is suitable for paste into a GitHub README,
   a PR description, Notion, or any other Mermaid-aware markdown
   renderer."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [re-frame.error :as error]))
 
 (def ^:private header-comment
   ;; Inserted at the top of every emitted block so a reader who pastes
@@ -942,11 +943,17 @@
      (when-not (if parallel?
                  (valid-parallel-definition? definition)
                  (valid-state-tree? definition))
-       (throw (ex-info (if parallel?
-                         "parallel definition must carry non-empty :regions; each region must carry :initial + non-empty :states"
-                         "definition must carry :initial + non-empty :states")
-                       {:reason     :invalid-definition
-                        :definition definition}))))
+       (error/throw-error!
+         :mermaid/invalid-definition
+         'machines-viz.mermaid/emit
+         (if parallel?
+           (str "Mermaid export: a parallel definition must carry a non-empty "
+                ":regions map, and each region must carry :initial + a "
+                "non-empty :states map. Provide those.")
+           (str "Mermaid export: a definition must carry :initial + a "
+                "non-empty :states map. Provide those."))
+         {:recovery :supply-a-valid-definition
+          :extra    {:definition definition}})))
    (let [body (if (parallel-definition? definition)
                 (render-parallel-body definition header-comment?)
                 (render-flat-or-compound-body definition header-comment?))]
