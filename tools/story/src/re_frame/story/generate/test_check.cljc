@@ -47,7 +47,8 @@
   optional namespace at runtime. The `:test` alias (where test.check lives)
   runs on the JVM, so this adapter targets the JVM half of `clojure -M:test`.
   On CLJS the adapter throws a clear message — the dependency-free `gen-fn`
-  path is the cross-host default and needs no library.")
+  path is the cross-host default and needs no library."
+  (:require [re-frame.error :as error]))
 
 (def ^:private absent-msg
   (str "re-frame.story.generate.test-check requires org.clojure/test.check on "
@@ -65,7 +66,12 @@
      (or (try (requiring-resolve sym)
               (catch java.io.FileNotFoundException _ nil)
               (catch Throwable _ nil))
-         (throw (ex-info absent-msg {:missing-var sym})))))
+         (error/throw-error!
+           :rf.error/story-test-check-absent
+           'rf.story.generate/gen->gen-fn
+           absent-msg
+           {:recovery :add-test-check-or-use-a-gen-fn
+            :extra    {:missing-var sym}}))))
 
 (defn available?
   "True iff `org.clojure/test.check` is resolvable on the classpath right now.
@@ -103,7 +109,15 @@
         (fn [seed]
           (vec (generate g size seed))))
       :cljs
-      (throw (ex-info absent-msg {:host :cljs})))))
+      (error/throw-error!
+        :rf.error/story-test-check-unsupported-host
+        'rf.story.generate/gen->gen-fn
+        (str "re-frame.story.generate.test-check is JVM-only — CLJS cannot "
+             "dynamically resolve the optional test.check namespace. Use the "
+             "dependency-free (fn [seed] event-program) gen-fn over the "
+             "splitmix64 PRNG, which is the cross-host default.")
+        {:recovery :use-a-gen-fn-on-cljs
+         :extra    {:host :cljs}}))))
 
 (defn check-property-gen!
   "Sugar: run `re-frame.story.generate/check-property!` driven by a

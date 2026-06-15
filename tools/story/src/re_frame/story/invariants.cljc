@@ -66,6 +66,7 @@
   core."
   #?(:cljs (:require-macros [re-frame.story.invariants]))
   (:require [re-frame.core :as rf]
+            [re-frame.error :as error]
             #?(:clj  [clojure.test :as ctest]
                :cljs [cljs.test :as ctest :include-macros true])))
 
@@ -97,9 +98,14 @@
           (= 1 (count rst))
           [::no-expected (first rst)]
           :else
-          (throw (ex-info "re-frame2-story: :db invariant shorthand is [:db path pred] or [:db path = expected]"
-                          {:rf.error/id :rf.error/story-bad-invariant
-                           :shorthand   (into [:db path] rst)})))]
+          (error/throw-error!
+            :rf.error/story-bad-invariant
+            'rf.story/with-invariants
+            (str "re-frame2-story :db invariant shorthand must be "
+                 "[:db path pred] or [:db path = expected]; correct the "
+                 "shorthand to one of those forms.")
+            {:recovery :use-a-valid-db-invariant-shorthand
+             :extra    {:shorthand (into [:db path] rst)}}))]
     (fn db-path-invariant [epoch]
       (let [actual (get-in (:db-after epoch) path)]
         {:ok?      (boolean (pred actual))
@@ -132,15 +138,24 @@
     (map? invariant)
     (let [check (or (:check invariant) (:pred invariant))]
       (when-not (fn? check)
-        (throw (ex-info "re-frame2-story: invariant map needs a `:check` (or `:pred`) fn"
-                        {:rf.error/id :rf.error/story-bad-invariant
-                         :invariant   invariant})))
+        (error/throw-error!
+          :rf.error/story-bad-invariant
+          'rf.story/with-invariants
+          (str "re-frame2-story invariant map needs a `:check` (or `:pred`) "
+               "fn; add a `:check` fn (epoch → boolean / {:ok? …}) to the "
+               "invariant map.")
+          {:recovery :add-a-check-fn
+           :extra    {:invariant invariant}}))
       (merge {:id (keyword (str "invariant-" idx))} invariant {:check check}))
 
     :else
-    (throw (ex-info "re-frame2-story: invariant must be a fn, a `[:db path …]` vector, or a map"
-                    {:rf.error/id :rf.error/story-bad-invariant
-                     :invariant   invariant}))))
+    (error/throw-error!
+      :rf.error/story-bad-invariant
+      'rf.story/with-invariants
+      (str "re-frame2-story invariant must be a fn, a `[:db path …]` vector, "
+           "or a map; pass one of those shapes as an invariant spec.")
+      {:recovery :use-a-fn-vector-or-map-invariant
+       :extra    {:invariant invariant}})))
 
 (defn coerce-invariants
   "Normalize a vector of authored invariants. Pure."
@@ -433,6 +448,11 @@
      {:arglists '([[invariant-spec*] body+])}
      [invariants & body]
      (when-not (vector? invariants)
-       (throw (ex-info "with-invariants expects a vector of invariant specs"
-                       {:invariants invariants})))
+       (error/throw-error!
+         :rf.error/story-bad-invariants-vector
+         'rf.story/with-invariants
+         (str "with-invariants expects a vector of invariant specs as its "
+              "first form; pass `[invariant-spec …]` before the body.")
+         {:recovery :supply-a-vector-of-invariant-specs
+          :extra    {:invariants invariants}}))
      `(run-with-invariants* [~@invariants] (fn [] ~@body))))

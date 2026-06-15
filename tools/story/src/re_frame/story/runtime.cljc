@@ -38,6 +38,7 @@
   production code that accidentally calls `run-variant` does not throw
   — it returns empty."
   (:require [re-frame.core            :as rf]
+            [re-frame.error           :as error]
             [re-frame.late-bind       :as late-bind]
             [re-frame.story.args      :as args]
             [re-frame.story.assertions :as assertions]
@@ -233,18 +234,20 @@
         story-events (or (:events story-body) [])
         plan-setup   (get-in plan [:world :setup] [])]
     (when-let [offenders (seq (filter non-dispatch-setup-step? plan-setup))]
-      (throw (ex-info
-               (str "re-frame2-story: variant " variant-id
-                    " — :setup carries a non-dispatch step "
-                    (pr-str (vec offenders))
-                    " that the headless runner cannot execute. A "
-                    ":wait / :wait-until / :click / :type / :focus step is "
-                    "legal in :setup but requires a :dom / :cljs-reactive "
-                    "runner; run this variant under a richer runner, or move "
-                    "the step to :script.")
-               {:rf.error/id     :rf.error/story-setup-step-unrunnable
-                :variant/id      variant-id
-                :offending-steps (vec offenders)})))
+      (error/throw-error!
+        :rf.error/story-setup-step-unrunnable
+        'rf.story/run-variant
+        (str "re-frame2-story: variant " variant-id
+             " — :setup carries a non-dispatch step "
+             (pr-str (vec offenders))
+             " that the headless runner cannot execute. A "
+             ":wait / :wait-until / :click / :type / :focus step is "
+             "legal in :setup but requires a :dom / :cljs-reactive "
+             "runner; run this variant under a richer runner, or move "
+             "the step to :script.")
+        {:recovery :use-a-richer-runner-or-move-to-script
+         :extra    {:variant/id      variant-id
+                    :offending-steps (vec offenders)}}))
     (vec (concat story-events
                  (map setup-step->event plan-setup)))))
 
@@ -885,17 +888,20 @@
     (rf/dispatch-sync [::apply-db-seed seed] {:frame variant-id})
     (let [violations (db-seed-violations variant-id (rf/app-db-value variant-id))]
       (when (seq violations)
-        (throw (ex-info
-                 (str "re-frame2-story: variant " variant-id
-                      " — :db-seed does not satisfy the registered app-db "
-                      "schema(s) at path(s) "
-                      (pr-str (mapv :path violations))
-                      ". A direct app-db seed bypasses event/cofx validation "
-                      "but MUST validate the affected app-db schema "
-                      "(spec/017 §Setup).")
-                 {:rf.error/id :rf.error/story-db-seed-invalid
-                  :variant/id  variant-id
-                  :violations  violations})))))
+        (error/throw-error!
+          :rf.error/story-db-seed-invalid
+          'rf.story/run-variant
+          (str "re-frame2-story: variant " variant-id
+               " — :db-seed does not satisfy the registered app-db "
+               "schema(s) at path(s) "
+               (pr-str (mapv :path violations))
+               ". A direct app-db seed bypasses event/cofx validation "
+               "but MUST validate the affected app-db schema "
+               "(spec/017 §Setup). Fix the :db-seed value(s) to satisfy "
+               "the registered schema(s).")
+          {:recovery :fix-the-db-seed-to-satisfy-the-schema
+           :extra    {:variant/id variant-id
+                      :violations violations}})))))
   ctx)
 
 (defn- run-phase-1!

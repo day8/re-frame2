@@ -40,6 +40,7 @@
   for the same source of truth (no parallel re-export here)."
   (:require [cheshire.core :as json]
             [clojure.string :as str]
+            [re-frame.error :as error]
             [re-frame.mcp-base.args :as args]
             [re-frame.mcp-base.vocab :as vocab]))
 
@@ -145,13 +146,17 @@
   (try
     (json/parse-string s false)
     (catch Throwable e
-      (throw (ex-info ":rf.error/story-mcp-json-parse-failure"
-                      {:rf.error/id :rf.error/story-mcp-json-parse-failure
-                       :where    'story-mcp/parse-json
-                       :recovery :no-recovery
-                       :reason   "re-frame2-story-mcp: JSON parse failure"
-                       :raw      (when s (subs s 0 (min 200 (count s))))}
-                      e)))))
+      ;; rf2-vvixub — the message + canonical ex-data are derived from the
+      ;; builder helpers; the 3-arg ex-info form preserves the original
+      ;; parser throwable as the cause.
+      (let [reason "re-frame2-story-mcp could not parse the incoming JSON frame; send a well-formed JSON-RPC frame."]
+        (throw (ex-info (error/human-message :rf.error/story-mcp-json-parse-failure reason)
+                        {:rf.error/id :rf.error/story-mcp-json-parse-failure
+                         :where    'story-mcp/parse-json
+                         :recovery :send-a-well-formed-json-frame
+                         :reason   reason
+                         :raw      (when s (subs s 0 (min 200 (count s))))}
+                        e))))))
 
 ;; ---- no-intern frame normalisation (rf2-3luf3) ---------------------------
 
@@ -375,13 +380,14 @@
     (let [line (read-bounded-line reader max-frame-bytes)]
       (cond
         (nil? line)                   eof-sentinel
-        (= ::frame-too-large line)    (throw (ex-info
-                                               ":rf.error/story-mcp-frame-too-large"
-                                               {:rf.error/id :rf.error/story-mcp-frame-too-large
-                                                :where     'story-mcp/read-frame
-                                                :recovery  :no-recovery
-                                                :reason    "re-frame2-story-mcp: frame exceeds cap"
-                                                :max-bytes max-frame-bytes}))
+        (= ::frame-too-large line)    (error/throw-error!
+                                        :rf.error/story-mcp-frame-too-large
+                                        'story-mcp/read-frame
+                                        (str "re-frame2-story-mcp frame exceeds the "
+                                             max-frame-bytes "-byte cap; send a smaller "
+                                             "frame (the run-loop recovers and continues).")
+                                        {:recovery :send-a-smaller-frame
+                                         :extra    {:max-bytes max-frame-bytes}})
         (str/blank? line)             (recur)
         :else                         (normalize-frame (parse-json line))))))
 

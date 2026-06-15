@@ -34,7 +34,8 @@
   on core.async. Story's async surface uses native Promise (CLJS) and
   CompletableFuture (JVM) directly — the two surfaces the host runtime
   already exposes. No additional dependency."
-  (:refer-clojure :exclude [promise]))
+  (:refer-clojure :exclude [promise])
+  (:require [re-frame.error :as error]))
 
 ;; ---- construction ---------------------------------------------------------
 
@@ -74,8 +75,13 @@
                reject-fn  (fn [e] (.completeExceptionally cf
                                                           (if (instance? Throwable e)
                                                             e
-                                                            (ex-info "re-frame.story.async rejection"
-                                                                     {:rejection e}))))]
+                                                            (error/thrown-ex-info
+                                                              :rf.error/story-async-rejection
+                                                              'rf.story.async/promise
+                                                              (str "a Story async operation rejected with a "
+                                                                   "non-throwable value; the original rejection "
+                                                                   "is preserved under :rejection.")
+                                                              {:extra {:rejection e}}))))]
            (if (= 2 arity)
              (f resolve-fn reject-fn)
              (f resolve-fn)))
@@ -96,8 +102,13 @@
      :clj  (let [cf (java.util.concurrent.CompletableFuture.)]
              (.completeExceptionally cf (if (instance? Throwable e)
                                           e
-                                          (ex-info "re-frame.story.async rejection"
-                                                   {:rejection e})))
+                                          (error/thrown-ex-info
+                                            :rf.error/story-async-rejection
+                                            'rf.story.async/rejected
+                                            (str "a Story async operation rejected with a "
+                                                 "non-throwable value; the original rejection "
+                                                 "is preserved under :rejection.")
+                                            {:extra {:rejection e}})))
              cf)))
 
 ;; ---- composition ----------------------------------------------------------
