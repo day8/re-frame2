@@ -118,8 +118,8 @@
                         nil
                         (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown) "overlapping outputs raise")
-      (is (= ":rf.error/flow-path-overlap" (.getMessage ^Throwable thrown))
-          "ex-info message is the documented category")
+      (is (re-find #"\[:rf\.error/flow-path-overlap\]" (.getMessage ^Throwable thrown))
+          "the [:rf.error/<id>] greppability token appears in the message (Spec 009 §The thrown-error shape, rule 4)")
       (let [data (ex-data thrown)]
         (is (= :rf.error/flow-path-overlap (:rf.error/id data))
             "ex-data carries the canonical :rf.error/id discriminator (Spec 009 §The thrown-error shape)")

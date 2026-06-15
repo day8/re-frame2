@@ -26,6 +26,7 @@
             [re-frame.error :as error]
             [re-frame.late-bind :as late-bind]
             [re-frame.flows.registry :as flows-registry]
+            [re-frame.flows.topo :as flows-topo]
             [re-frame.routing.registry :as routing-registry]))
 
 ;; ============================================================================
@@ -180,3 +181,37 @@
         "route-error message is NOT a bare keyword (rule 1)")
     (is (error/message-has-id-token? (ex-message e))
         "route-error message carries the [:rf.error/<id>] token (rule 4)")))
+
+;; ============================================================================
+;; flows/topo throws (rf2-1jh98u) — the THREE topo categories that previously
+;; threw a bare-keyword `(ex-info ":rf.error/…" …)` directly, bypassing the
+;; flows.registry/flow-error helper. They now route through the central builder
+;; (`re-frame.error/throw-error!`), so the message LEADS with the human
+;; sentence + TRAILS with the token, and `:rf.error/id` is the discriminator.
+;; ============================================================================
+
+(deftest flow-path-overlap-emits-conformant-throw
+  ;; detect-output-path-overlap! — two flows whose output :paths collide.
+  (assert-conformant-throw!
+    "detect-output-path-overlap! (overlapping :paths)"
+    :rf.error/flow-path-overlap
+    #(flows-topo/detect-output-path-overlap!
+       {:a {:id :a :inputs [[:w]] :output identity :path [:x]}
+        :b {:id :b :inputs [[:h]] :output identity :path [:x]}})))
+
+(deftest flow-cycle-emits-conformant-throw
+  ;; topo-sort — two flows forming a dependency cycle.
+  (assert-conformant-throw!
+    "topo-sort (cyclic flow dependency)"
+    :rf.error/flow-cycle
+    #(flows-topo/topo-sort
+       {:a {:id :a :inputs [[:b]] :output identity :path [:a]}
+        :b {:id :b :inputs [[:a]] :output identity :path [:b]}})))
+
+(deftest flow-cycle-extract-invariant-emits-conformant-throw
+  ;; extract-cycle-path — the internal dead-end invariant (a stuck node with no
+  ;; stuck dependency to follow). Reach the private helper directly.
+  (assert-conformant-throw!
+    "extract-cycle-path (internal dead-end invariant)"
+    :rf.error/flow-cycle-extract-invariant
+    #(#'flows-topo/extract-cycle-path {:a #{}} #{:a})))
