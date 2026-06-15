@@ -2705,7 +2705,7 @@
   drops to plain text when absent (`reg-interceptor*` fn registration,
   framework interceptor, or a production-elided coord)."
   [idx {:keys [interceptor-id authored arg coord before? after? factory?
-               missing-ref? inline? doc]}]
+               missing-ref? inline? doc override]}]
   (let [label (fmt/ns-keyword interceptor-id)]
     [:div {:key (str "authored-interceptor-row-" idx)
            :data-testid (str "rf-xray-epoch-interceptors-row-" idx)}
@@ -2757,7 +2757,25 @@
                 :style       (assoc interceptor-ref-badge-style
                                     :color       warning-colour
                                     :border-color warning-colour)}
-         "missing"])]
+         "missing"])
+      ;; rf2-9vx0jk — a per-dispatch `:interceptor-overrides` substitution that
+      ;; ACTUALLY took effect on this dispatch, read off the run-start
+      ;; `:rf.interceptor/override-summary` trace fact (preferred over the
+      ;; registry reconstruction, which cannot show the per-dispatch delta).
+      ;; "replaced" — the override swapped in another ref; "removed" — the
+      ;; override dropped this ref from the effective chain.
+      (when override
+        [:span {:data-testid (str "rf-xray-epoch-interceptors-override-" idx)
+                :title       (case override
+                               :replaced (str "replaced this dispatch by a per-frame / "
+                                              "per-call :interceptor-overrides substitution")
+                               :removed  (str "removed from the effective chain this "
+                                              "dispatch by a :interceptor-overrides {ref nil}")
+                               nil)
+                :style       (assoc interceptor-ref-badge-style
+                                    :color        warning-colour
+                                    :border-color warning-colour)}
+         (name override)])]
      (when doc
        [:div {:data-testid (str "rf-xray-epoch-interceptors-doc-" idx)
               :style {:margin-left "0"

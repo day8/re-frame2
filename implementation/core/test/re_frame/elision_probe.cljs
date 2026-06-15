@@ -520,6 +520,55 @@
     {:doc "rf2-9wwkcm-doc-elision-sentinel: pure-documentation metadata"}
     (fn [{:keys [db]} _ev] {:db db})))
 
+;; ---- rf2-9vx0jk: dev-only :rf.interceptor/override-summary run-start tag ----
+;;
+;; Per Spec 009 §`:tags` interceptor family, the router stamps a
+;; `:rf.interceptor/override-summary` tag onto the `:rf.event/run-start` TRACE
+;; emit when this dispatch's merged `:interceptor-overrides` acted on the chain.
+;; The summary value (the `{:matched … :replaced … :removed … :count …}` map)
+;; is constructed by `re-frame.router/override-summary` and fed ONLY into the
+;; run-start `trace/emit!` call, whose body sits inside
+;; `(when interop/debug-enabled? ...)` — so the whole emit, and the summary
+;; construction that feeds it, DCE under :advanced + goog.DEBUG=false.
+;;
+;; This touch roots the override-bearing dispatch path so the gated summary
+;; construction is in the reachability graph: under DEBUG=true the run-start
+;; emit fires with the summary tag present (the distinctive override id appears
+;; in the control bundle's trace data); under DEBUG=false the emit body DCEs.
+;;
+;; NOTE (parallels rf2-rpgq8 `:rf.view/render-args`): NO keyword sentinel for
+;; `:rf.interceptor/override-summary` is added in check-elision.cjs, because the
+;; keyword literal LEGITIMATELY survives in production via the always-reachable
+;; marks chokepoint `re-frame.marks/project-trace-event` (the fail-closed
+;; `(contains? tags :rf.interceptor/override-summary)` branch). The privacy
+;; guarantee is that the VALUES (the id/count summary) are constructed only in
+;; the gated emit path and never reach the production bundle. The distinctive
+;; override-summary id strings the probe mints below ride that gated
+;; construction — they are the elision sentinel.
+
+(defn ^:export touch-interceptor-override-summary! []
+  ;; Register two interceptors and an event whose chain references them, then
+  ;; dispatch with a per-call :interceptor-overrides that removes one and
+  ;; replaces the other. The distinctive override-key id keywords
+  ;; (`:rf.probe/override-summary-removed-ic`,
+  ;; `:rf.probe/override-summary-replaced-ic`) flow into the gated run-start
+  ;; override-summary tag construction; under DEBUG=true they reach the trace
+  ;; data, under DEBUG=false the construction DCEs.
+  (rf/reg-interceptor* :rf.probe/override-summary-removed-ic
+    {:before (fn [ctx] ctx)})
+  (rf/reg-interceptor* :rf.probe/override-summary-replaced-ic
+    {:before (fn [ctx] ctx)})
+  (rf/reg-interceptor* :rf.probe/override-summary-stub-ic
+    {:before (fn [ctx] ctx)})
+  (rf/reg-event :rf.probe/override-summary-event
+    {:interceptors [:rf.probe/override-summary-removed-ic
+                    :rf.probe/override-summary-replaced-ic]}
+    (fn [{:keys [db]} _ev] {:db db}))
+  (rf/dispatch-sync [:rf.probe/override-summary-event]
+                    {:interceptor-overrides
+                     {:rf.probe/override-summary-removed-ic  nil
+                      :rf.probe/override-summary-replaced-ic :rf.probe/override-summary-stub-ic}}))
+
 ;; ---- entry point ----------------------------------------------------------
 
 (defn ^:export run []
@@ -534,6 +583,7 @@
   (touch-reg-view-injection!)
   (touch-teardown!)
   (touch-doc-metadata!)
+  (touch-interceptor-override-summary!)
   ;; Reference trace/emit! directly through the trace ns alias so its
   ;; body, not just the public re-frame.core re-export, is reachable.
   (trace/emit! :event :rf.probe/direct-touch {:source :probe}))

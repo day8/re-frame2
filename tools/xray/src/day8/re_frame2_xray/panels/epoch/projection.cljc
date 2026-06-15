@@ -3255,6 +3255,43 @@
 
     :else nil))
 
+(defn- authored-matches-summary-ref?
+  "True when an INTERCEPTORS row's `authored` ref (a bare keyword id or an
+  `[id arg]` 2-vector) is the `summary-ref` carried in the per-dispatch
+  `:rf.interceptor/override-summary` fact. The summary projection
+  (`re-frame.marks/project-override-summary-tags`) reduces an `[id arg]` ref to
+  its bare head id (the `arg` is dropped at the egress boundary as not
+  privacy-safe), so a summary entry is always a bare keyword. A row therefore
+  matches when its authored head id equals the summary ref — both an
+  `[id arg]`-authored row and a bare-`id`-authored row match the `id` the
+  summary reports."
+  [authored summary-ref]
+  (let [authored-id (cond
+                      (keyword? authored)                authored
+                      (and (vector? authored)
+                           (keyword? (first authored)))  (first authored)
+                      :else                              nil)]
+    (and (some? authored-id) (= authored-id summary-ref))))
+
+(defn- mark-row-override
+  "Stamp an INTERCEPTORS row with its per-dispatch override status from the
+  `:rf.interceptor/override-summary` fact, when the row's authored ref appears
+  in the summary. `:override :replaced` (the override substituted another ref)
+  or `:override :removed` (the override dropped the ref) — preferred over the
+  registry reconstruction because the summary reflects what ACTUALLY took
+  effect on THIS dispatch (per-frame ++ per-call merge), which the registry
+  read alone cannot show. A row whose ref the summary did not touch is
+  unchanged."
+  [{:keys [authored] :as row} {:keys [replaced removed] :as _summary}]
+  (cond
+    (some #(authored-matches-summary-ref? authored %) removed)
+    (assoc row :override :removed)
+
+    (some #(authored-matches-summary-ref? authored %) replaced)
+    (assoc row :override :replaced)
+
+    :else row))
+
 (defn authored-interceptors-step
   "Build the INTERCEPTORS step — the AUTHORED interceptor chain wrapping
   `event-id`'s handler (EP-0022 §11, rf2-se9a9t) — or nil when the event
@@ -3264,6 +3301,18 @@
   `authored-entries` is the raw `:interceptors` vector off
   `(handler-meta :event event-id)`; `resolve-meta-fn` resolves each ref to
   its registered `:interceptor` descriptor (see `interceptor-ref-row`).
+
+  `override-summary` (rf2-9vx0jk) is the per-dispatch
+  `:rf.interceptor/override-summary` trace fact off the cascade's
+  `:rf.event/run-start` event — `{:matched [..] :replaced [..] :removed [..]
+  :count N}`, id-only — or nil on the override-free hot path. When present it
+  is PREFERRED over the registry reconstruction to mark which rows the
+  dispatch's merged per-frame ++ per-call `:interceptor-overrides` actually
+  replaced / removed (the registry read alone cannot show the per-dispatch
+  override delta — Spec 002 §`:interceptor-overrides`, EP-0022 §11). Each
+  matched row gains an `:override :replaced` / `:override :removed` slot;
+  absent the fact the rows carry no `:override` (the common no-override path).
+
   Returns:
 
     {:step  :interceptors      ; PLURAL — distinct from the exception-only
@@ -3275,15 +3324,23 @@
   WRAPS the handler — frame refs then event refs run `:before` on the way
   in, in chain order). It is purely informational (no `:status`), so it
   never inflates the epoch outcome."
-  [event-id authored-entries resolve-meta-fn]
-  (let [rows (->> (or authored-entries [])
-                  (keep #(interceptor-ref-row % resolve-meta-fn))
-                  vec)]
-    (when (seq rows)
-      {:step     :interceptors
-       :badge    :INTERCEPTORS
-       :event-id event-id
-       :rows     rows})))
+  ([event-id authored-entries resolve-meta-fn]
+   (authored-interceptors-step event-id authored-entries resolve-meta-fn nil))
+  ([event-id authored-entries resolve-meta-fn override-summary]
+   (let [rows (->> (or authored-entries [])
+                   (keep #(interceptor-ref-row % resolve-meta-fn))
+                   vec)
+         ;; rf2-9vx0jk — PREFER the per-dispatch override-summary trace fact
+         ;; to mark replaced/removed rows; falls back to the registry-only
+         ;; reconstruction (no `:override` stamp) on the override-free path.
+         rows (if (map? override-summary)
+                (mapv #(mark-row-override % override-summary) rows)
+                rows)]
+     (when (seq rows)
+       {:step     :interceptors
+        :badge    :INTERCEPTORS
+        :event-id event-id
+        :rows     rows}))))
 
 ;; ---- SKIPPED-step marking (rf2-yz57h) -----------------------------------
 ;;
@@ -3831,9 +3888,19 @@
                           ;; no authored refs OR no resolver was supplied.
                           [(when resolve-icpts
                              (let [{:keys [entries resolve-meta-fn]}
-                                   (resolve-icpts event-id)]
+                                   (resolve-icpts event-id)
+                                   ;; rf2-9vx0jk — the per-dispatch override-
+                                   ;; summary rides the `:rf.event/run-start`
+                                   ;; trace event's `:tags`; PREFER it over the
+                                   ;; registry reconstruction to mark which
+                                   ;; rows this dispatch's merged
+                                   ;; `:interceptor-overrides` replaced/removed.
+                                   ;; nil on the override-free hot path.
+                                   override-summary
+                                   (some-> (find-op events :rf.event/run-start)
+                                           (common/tag-of :rf.interceptor/override-summary))]
                                (authored-interceptors-step
-                                 event-id entries resolve-meta-fn)))
+                                 event-id entries resolve-meta-fn override-summary)))
                            (interceptor-step events :before)
                            (handler-row events event-id db-before)
                            (interceptor-step events :after)]

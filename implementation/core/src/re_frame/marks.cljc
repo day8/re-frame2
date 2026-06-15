@@ -1431,6 +1431,65 @@
                (and (>= (count n) 11)
                     (= "rf.machine." (subs n 0 11)))))))
 
+(defn- interceptor-ref-id?
+  "True when `x` is a structurally-valid interceptor REFERENCE id — a bare
+  keyword, or an `[id arg]` 2-vector whose head is a keyword (Spec 002
+  §Interceptor references). Mirrors
+  `re-frame.interceptor-registry/interceptor-ref?` but inlined here so the
+  marks chokepoint carries no require on the registry ns (avoids a load
+  cycle). Used by `project-override-summary-tags` to FAIL CLOSED on any
+  non-id payload in the `:rf.interceptor/override-summary` shape."
+  [x]
+  (or (keyword? x)
+      (and (vector? x)
+           (= 2 (count x))
+           (keyword? (first x)))))
+
+(defn- project-override-summary-tags
+  "Fail-closed projection for the `:rf.interceptor/override-summary` trace tag
+  (Spec 009 §`:tags` interceptor family, rf2-9vx0jk). The router constructs the
+  summary id/count-only:
+
+    {:matched [<ref-id>…] :replaced [<ref-id>…] :removed [<ref-id>…] :count N}
+
+  where every `<ref-id>` is a bare keyword or an `[id arg]` 2-vector reference
+  — never an interceptor value, fn, executable map, or raw replacement/factory
+  arg. This projection is the documented BOUNDARY: it re-asserts that shape
+  fail-closed so that IF the summary ever grows to carry a non-id payload (a
+  refactor regression), the egress is the `:rf/redacted` sentinel rather than a
+  raw value crossing the bus / epoch-capture / AI-MCP egress boundary.
+
+  An `[id arg]` ref is EDN-serializable but its `arg` is NOT proven
+  privacy-safe — so the conservative rule keeps a BARE-KEYWORD id verbatim but
+  reduces an `[id arg]` ref to its head keyword `id` (dropping the `arg`). Any
+  entry that is neither shape collapses to `:rf/redacted`. The scalar `:count`
+  is kept when it is a number; anything else is dropped. Unknown keys in the
+  summary map are dropped (only the four known slots egress)."
+  [tags]
+  (let [summary (:rf.interceptor/override-summary tags)]
+    (if-not (map? summary)
+      ;; A non-map payload under the slot is malformed — drop it entirely.
+      (dissoc tags :rf.interceptor/override-summary)
+      (let [sanitize-id (fn [x]
+                          (cond
+                            (keyword? x)            x
+                            (interceptor-ref-id? x) (first x) ;; [id arg] → id
+                            :else                   privacy/redacted-sentinel))
+            sanitize-vec (fn [v]
+                           (when (sequential? v)
+                             (mapv sanitize-id v)))
+            cnt          (:count summary)
+            projected    (cond-> {}
+                           (contains? summary :matched)
+                           (assoc :matched (sanitize-vec (:matched summary)))
+                           (contains? summary :replaced)
+                           (assoc :replaced (sanitize-vec (:replaced summary)))
+                           (contains? summary :removed)
+                           (assoc :removed (sanitize-vec (:removed summary)))
+                           (number? cnt)
+                           (assoc :count cnt))]
+        (assoc tags :rf.interceptor/override-summary projected)))))
+
 (defn project-trace-event
   "The single chokepoint `re-frame.trace/build-event` consults after
   envelope assembly and before delivery. Walks `:tags` for marks
@@ -1507,6 +1566,17 @@
 
                       (and (map? tags) (machine-op? operation))
                       (project-machine-tags)
+
+                      ;; rf2-9vx0jk — the dev-only `:rf.interceptor/override-
+                      ;; summary` tag on `:rf.event/run-start` carries id/count-
+                      ;; only override facts. This projection is the documented
+                      ;; chokepoint boundary: it re-asserts the id-only shape
+                      ;; FAIL-CLOSED (an `[id arg]` ref → head id; any non-ref
+                      ;; payload → `:rf/redacted`) so a future shape-grow that
+                      ;; smuggled a value never egresses raw.
+                      (and (map? tags)
+                           (contains? tags :rf.interceptor/override-summary))
+                      (project-override-summary-tags)
 
                       ;; rf2-zsm03 — the `:rf.error/machine-action-exception`
                       ;; trace carries the thrown action's `ex-data` under a
