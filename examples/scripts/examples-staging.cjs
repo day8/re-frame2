@@ -61,6 +61,85 @@ function stageShared(outDir) {
 }
 
 // ---------------------------------------------------------------------------
+// Per-example static assets (rf2-cq6va5).
+//
+// `index.html` + `_shared` are the assets EVERY standalone example shares. A
+// handful of examples additionally reference per-example static assets via flat
+// (output-root-relative) hrefs / fetch URLs that the clean-stage boundary would
+// otherwise drop:
+//
+//   - TodoMVC's `index.html` links `base.css` + `index.css` flat — the OFFICIAL
+//     TodoMVC CSS packages, pinned in implementation/package.json and fetched
+//     into node_modules/ by `npm install` (NOT vendored in-repo). Without them
+//     the page renders unstyled.
+//   - managed-http-counter `fetch`es `api/inc.json` on its success path — the
+//     fixture lives colocated under the example source's `api/` folder. Without
+//     it the success path 404s and the example exercises only its failure
+//     branch.
+//   - The RealWorld variants fall a nil/blank avatar back to `default-avatar.svg`
+//     served from the app asset root (realworld_shared.avatar). The asset lives
+//     colocated in each RealWorld source folder. Without it every fallback
+//     avatar is a broken image.
+//
+// Each asset declares WHERE its source lives (`:src` = colocated under the
+// example's source folder, the default; `:node-modules` = under
+// implementation/node_modules) and the destination name under the output dir.
+// Keyed by shadow-cljs build id (the colon-stripped coord, as listStandalone-
+// Examples() returns). An example with no entry stages only index.html +
+// _shared (the common case).
+const PER_EXAMPLE_ASSETS = {
+  'examples/todomvc': [
+    { from: 'node-modules', src: 'todomvc-common/base.css', dest: 'base.css' },
+    { from: 'node-modules', src: 'todomvc-app-css/index.css', dest: 'index.css' },
+  ],
+  'examples/managed-http-counter': [
+    { from: 'src', src: path.join('api', 'inc.json'), dest: path.join('api', 'inc.json') },
+  ],
+  'examples/realworld': [
+    { from: 'src', src: 'default-avatar.svg', dest: 'default-avatar.svg' },
+  ],
+  'examples/realworld-resources': [
+    { from: 'src', src: 'default-avatar.svg', dest: 'default-avatar.svg' },
+  ],
+};
+
+const NODE_MODULES_ROOT = path.join(IMPL_ROOT, 'node_modules');
+
+// Resolve an asset spec's absolute SOURCE path. `:src` assets live under the
+// example's own source folder (`entry.srcDir`); `:node-modules` assets live
+// under implementation/node_modules.
+function assetSourcePath(entry, asset) {
+  const root = asset.from === 'node-modules' ? NODE_MODULES_ROOT : entry.srcDir;
+  return path.join(root, asset.src);
+}
+
+// Stage each declared per-example static asset into the output dir, FAIL-LOUD
+// on a missing source: the runner advertises these builds as runnable, so a
+// silently-absent asset (an unstyled TodoMVC, a 404ing success path, a broken
+// avatar) is a correctness bug, not a no-op. node_modules assets carry an
+// `npm install` hint because they are fetched, not vendored. No-op for an
+// example with no declared assets.
+function stagePerExampleAssets(entry) {
+  const assets = PER_EXAMPLE_ASSETS[entry.build];
+  if (!assets) return;
+  for (const asset of assets) {
+    const srcPath = assetSourcePath(entry, asset);
+    if (!fs.existsSync(srcPath)) {
+      const hint =
+        asset.from === 'node-modules'
+          ? ` Run \`npm install\` in ${IMPL_ROOT} to fetch it.`
+          : '';
+      throw new Error(
+        `stageExample: required asset for '${entry.build}' is missing: ${srcPath}.${hint}`,
+      );
+    }
+    const destPath = path.join(entry.outDir, asset.dest);
+    fs.mkdirSync(path.dirname(destPath), { recursive: true });
+    fs.copyFileSync(srcPath, destPath);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Clean-stage boundary (rf2-bf4vdy).
 //
 // The examples + Story browser harnesses all serve the SHARED
@@ -122,14 +201,15 @@ function cleanStageDirs(dirs, outRoot, { io = fs } = {}) {
   return cleaned;
 }
 
-// Stage one example's hand-written index.html + the _shared tree into its
-// output dir. Creates the output dir if the build hasn't emitted into it yet
-// (so the dev runner can stage before the first watch compile lands). Throws
-// with the offending path when the HTML source is missing.
+// Stage one example's hand-written index.html + the _shared tree + any declared
+// per-example static assets into its output dir. Creates the output dir if the
+// build hasn't emitted into it yet (so the dev runner can stage before the first
+// watch compile lands). Throws with the offending path when the HTML source —
+// or any declared per-example asset — is missing (fail-loud, rf2-cq6va5).
 //
-// `entry` shape: { build, outDir, htmlSrc } — as produced by
+// `entry` shape: { build, outDir, htmlSrc, srcDir } — as produced by
 // listStandaloneExamples() (and compatible with the orchestrator's EXAMPLES
-// entries, which also carry outDir + htmlSrc).
+// entries, which also carry outDir + htmlSrc + srcDir).
 function stageExample(entry) {
   if (!fs.existsSync(entry.htmlSrc)) {
     throw new Error(`HTML source missing: ${entry.htmlSrc}`);
@@ -137,6 +217,7 @@ function stageExample(entry) {
   fs.mkdirSync(entry.outDir, { recursive: true });
   fs.copyFileSync(entry.htmlSrc, path.join(entry.outDir, 'index.html'));
   stageShared(entry.outDir);
+  stagePerExampleAssets(entry);
 }
 
 // ---------------------------------------------------------------------------
@@ -282,8 +363,11 @@ module.exports = {
   IMPL_ROOT,
   EXAMPLES_ROOT,
   SHARED_SRC,
+  NODE_MODULES_ROOT,
+  PER_EXAMPLE_ASSETS,
   copyDirRecursive,
   stageShared,
+  stagePerExampleAssets,
   stageExample,
   isStrictlyUnder,
   cleanStageDirs,

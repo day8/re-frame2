@@ -47,8 +47,20 @@
 
 ;; Outer event-vector schema for the :auth.login/flow machine handler —
 ;; see examples/reagent/login for the full rationale. The :submit
-;; sub-event is validated against `Credentials`; framework-internal
-;; sub-events (:dismiss, :success, :failure) admit :any.
+;; sub-event is validated STRICTLY against `Credentials`; framework-internal
+;; sub-events (:dismiss, :success, :failure) admit a framework-controlled
+;; tail.
+;;
+;; The :submit branch is a `:tuple` (NOT `:cat`): the outer `:cat` consumes
+;; the nested sub-event vector as a SINGLE element, so the branch must match
+;; that one element AS a vector. A `:cat` branch would apply sequence-regex
+;; semantics and — paired with a permissive `[:vector :any]` fallback —
+;; silently re-admit a `:submit` whose `Credentials` failed (the original
+;; bug: malformed submit payloads passed the `:where :event` boundary). With
+;; the strict `:tuple` and no `[:vector :any]` escape hatch, a short-password
+;; or bad-email submit is rejected at the boundary BEFORE the machine
+;; transitions or issues the login HTTP effect (Spec 010 §Validation order
+;; step 1, recovery `:no-recovery`).
 ;;
 ;; The trailing `[:? :any]` admits the managed-HTTP reply payload (Spec
 ;; 014 §Reply addressing): the framework appends `{:kind ... :value ...}`
@@ -62,8 +74,9 @@
 (def AuthLoginEvent
   [:cat [:= :auth.login/flow]
    [:or
-    [:cat [:= :auth.login/submit] Credentials]
-    [:vector :any]]
+    [:tuple [:= :auth.login/submit] Credentials]
+    [:cat [:enum :auth.login/dismiss :auth.login/success :auth.login/failure]
+     [:* :any]]]
    [:? :any]])
 
 ;; The machine's `:data-schema` validates the machine's `:data` slot ONLY —

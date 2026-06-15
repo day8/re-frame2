@@ -90,11 +90,37 @@
 
 (def ^:private AuthLoginEvent
   "Outer event-vector schema: `:submit` carries Credentials; framework-internal
-  sub-events admit :any; the trailing `[:? :any]` admits a managed-HTTP reply."
+  sub-events admit :any; the trailing `[:? :any]` admits a managed-HTTP reply.
+
+  NOTE this fixture is intentionally PERMISSIVE: tests (1)+(2) below dispatch
+  ad-hoc inner sub-events (`[:noop]`, `[:auth.login/break]`) to exercise the
+  registration-arity + redaction machinery, so the fixture must admit them. The
+  login examples' SHIPPED schema is STRICTER (no `[:vector :any]` fallback) —
+  that corrected shape and its malformed-submit rejection are pinned separately
+  by `login-example-event-schema-rejects-malformed-submit` below (rf2-thhp91)."
   [:cat [:= :auth.login/flow]
    [:or
     [:cat [:= :auth.login/submit] Credentials]
     [:vector :any]]
+   [:? :any]])
+
+;; The login examples' SHIPPED outer-event schema (rf2-thhp91). This is the
+;; corrected shape now registered on the :auth.login/flow machine in all three
+;; login examples (examples/reagent/login, examples/uix/login_uix,
+;; examples/helix/login_helix). Kept here as the executable spec of that shape
+;; so its malformed-submit rejection is a real regression gate (the examples
+;; tree is test-free, so the schema contract is pinned in the framework suite).
+(def ^:private LoginExampleEvent
+  [:cat [:= :auth.login/flow]
+   [:or
+    ;; STRICT :submit branch — a :tuple (NOT :cat): the outer :cat consumes the
+    ;; nested sub-event vector as a SINGLE element, so the branch matches that
+    ;; one element AS a vector. No permissive [:vector :any] fallback.
+    [:tuple [:= :auth.login/submit] Credentials]
+    ;; Framework-internal sub-events: an enumerated head + a framework-controlled
+    ;; tail (the reply payload rides the OUTER trailing [:? :any]).
+    [:cat [:enum :auth.login/dismiss :auth.login/success :auth.login/failure]
+     [:* :any]]]
    [:? :any]])
 
 (def ^:private AuthLoginData
@@ -215,6 +241,68 @@
         [flow-id [:auth.login/submit {:email "a@b.com" :password "longenough"}]])
       (is (= :submitting (mtest/machine-state flow-id))
           "a well-formed event vector passes the :schema boundary and transitions"))))
+
+;; ---- (3b) the login examples' SHIPPED event schema rejects malformed submit -
+;;
+;; Regression gate for rf2-thhp91: the login examples (reagent / uix / helix)
+;; previously registered `AuthLoginEvent` with a permissive `[:vector :any]`
+;; fallback that re-admitted a `:submit` whose Credentials failed, so a
+;; malformed submit (short password / bad email) passed the `:where :event`
+;; boundary and drove the transition + login HTTP effect. This pins the
+;; corrected `LoginExampleEvent` shape end-to-end: malformed submit is rejected
+;; at the boundary and does NOT transition; valid submit + the framework reply
+;; sub-events still pass. The examples tree is test-free, so this is where the
+;; shipped schema's contract is enforced.
+
+(deftest login-example-event-schema-rejects-malformed-submit
+  (testing "the login examples' shipped LoginExampleEvent rejects a malformed
+            :submit at the :where :event boundary (no machine transition, no
+            login HTTP effect), while a valid submit + framework reply events
+            still pass"
+    (machines/reg-machine* flow-id
+      {:initial     :idle
+       :data        {:attempts 0 :token nil :error nil}
+       :data-schema AuthLoginData
+       :actions     {:clear (fn [_] {:data {:error nil}})}
+       :states      {:idle       {:on {:auth.login/submit {:target :submitting
+                                                           :action :clear}}}
+                     :submitting {:on {:auth.login/success {:target :authed}
+                                       :auth.login/failure {:target :error-shown}}}
+                     :authed       {}
+                     :error-shown  {}}}
+      {:schema LoginExampleEvent})
+    ;; (a) short password — rejected at the boundary; the machine stays :idle.
+    (let [traces (collect-event-traces!
+                   #(rf/dispatch-sync
+                      [flow-id [:auth.login/submit {:email "a@b.com" :password "short"}]]))]
+      (is (<= 1 (count traces))
+          "a :where :event boundary trace fired for the malformed short-password submit")
+      (is (not= :submitting (mtest/machine-state flow-id))
+          "the malformed submit did NOT transition the machine (no login effect issued)"))
+    ;; (b) bad email — also rejected; never reaches :submitting (the rejected
+    ;; submits never reached the handler, so the machine is still un-bootstrapped
+    ;; / never transitioned — the no-transition claim, not a specific state).
+    (let [traces (collect-event-traces!
+                   #(rf/dispatch-sync
+                      [flow-id [:auth.login/submit {:email "noat" :password "longenough"}]]))]
+      (is (<= 1 (count traces))
+          "a :where :event boundary trace fired for the bad-email submit")
+      (is (not= :submitting (mtest/machine-state flow-id))
+          "the bad-email submit did NOT transition the machine"))
+    ;; (c) valid submit passes the boundary and transitions to :submitting.
+    (rf/dispatch-sync
+      [flow-id [:auth.login/submit {:email "a@b.com" :password "longenough"}]])
+    (is (= :submitting (mtest/machine-state flow-id))
+        "a well-formed submit passes the boundary and transitions")
+    ;; (d) the framework reply event (success + trailing payload) still passes —
+    ;; the corrected schema must not reject the managed-HTTP reply addressing.
+    (let [traces (collect-event-traces!
+                   #(rf/dispatch-sync
+                      [flow-id [:auth.login/success] {:kind :ok :value {:token "t"}}]))]
+      (is (zero? (count traces))
+          "the framework success-reply event passes the boundary (no validation failure)")
+      (is (= :authed (mtest/machine-state flow-id))
+          "the reply event drove the transition to :authed"))))
 
 ;; ---- (4) fail-loud guard on the bare unstamped-with-schema direct path -----
 

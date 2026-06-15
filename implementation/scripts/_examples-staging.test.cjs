@@ -34,6 +34,9 @@ const {
   isStrictlyUnder,
   cleanStageDirs,
   stageExample,
+  stagePerExampleAssets,
+  PER_EXAMPLE_ASSETS,
+  EXAMPLES_ROOT,
 } = require('../../examples/scripts/examples-staging.cjs');
 
 let failed = 0;
@@ -281,6 +284,110 @@ it('serve-example.cjs calls cleanStageDirs on the selected outDir BEFORE stageEx
   const stageAt = src.indexOf('stageExample(entry)');
   assert.ok(cleanAt !== -1 && stageAt !== -1, 'both the clean call and the stage call must be present');
   assert.ok(cleanAt < stageAt, 'the clean must precede the stage so no stale file survives into the served dir');
+});
+
+// ---- per-example static assets (rf2-cq6va5) ------------------------------
+//
+// The clean-stage boundary recreates the selected output dir EMPTY, so any
+// per-example static asset an example references via a flat (output-root-
+// relative) href / fetch URL must be re-staged each run or it 404s after a
+// clean. `stageExample` now stages index.html + _shared + the declared
+// per-example assets; these tests prove the declared assets land after a clean
+// stage and that a missing source fails LOUD (not a silent skip that ships an
+// unstyled / 404ing / broken-image page).
+
+it('PER_EXAMPLE_ASSETS declares the documented per-example assets (rf2-cq6va5)', () => {
+  // TodoMVC's official CSS (from node_modules), managed-http-counter's success
+  // fixture, and both RealWorld variants' fallback avatar.
+  assert.deepStrictEqual(
+    PER_EXAMPLE_ASSETS['examples/todomvc'].map((a) => a.dest).sort(),
+    ['base.css', 'index.css'],
+    'TodoMVC must stage base.css + index.css',
+  );
+  assert.ok(
+    PER_EXAMPLE_ASSETS['examples/todomvc'].every((a) => a.from === 'node-modules'),
+    'TodoMVC CSS is fetched into node_modules, not vendored',
+  );
+  assert.ok(
+    PER_EXAMPLE_ASSETS['examples/managed-http-counter'].some((a) =>
+      /inc\.json$/.test(a.dest),
+    ),
+    'managed-http-counter must stage its api/inc.json success fixture',
+  );
+  for (const build of ['examples/realworld', 'examples/realworld-resources']) {
+    assert.ok(
+      PER_EXAMPLE_ASSETS[build].some((a) => a.dest === 'default-avatar.svg'),
+      `${build} must stage default-avatar.svg`,
+    );
+  }
+});
+
+it('stageExample stages a colocated per-example asset after a clean stage (rf2-cq6va5)', () => {
+  // managed-http-counter: its api/inc.json lives colocated in the source folder
+  // and must land under outDir/api/inc.json after a clean stage. Drive the real
+  // manifest against the real repo source through the real clean-then-stage
+  // sequence serve-example performs.
+  const srcDir = path.join(EXAMPLES_ROOT, 'reagent', 'managed_http_counter');
+  const htmlSrc = path.join(srcDir, 'index.html');
+  assert.ok(fs.existsSync(htmlSrc), `fixture precondition: ${htmlSrc} must exist in-repo`);
+
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-asset-'));
+  try {
+    const outRoot = path.join(tmpRoot, 'out', 'examples');
+    const sel = path.join(outRoot, 'managed-http-counter');
+    const entry = { build: 'examples/managed-http-counter', outDir: sel, htmlSrc, srcDir };
+
+    cleanStageDirs([entry.outDir], outRoot);
+    stageExample(entry);
+
+    const staged = path.join(sel, 'api', 'inc.json');
+    assert.ok(fs.existsSync(staged), `the success fixture must be staged at ${staged}`);
+    assert.strictEqual(
+      fs.readFileSync(staged, 'utf8'),
+      fs.readFileSync(path.join(srcDir, 'api', 'inc.json'), 'utf8'),
+      'the staged fixture must be a faithful copy of the source',
+    );
+    // The RealWorld avatar pattern is the same colocated-:src shape — exercise
+    // it too so both RealWorld variants are covered.
+    const rwSrc = path.join(EXAMPLES_ROOT, 'reagent', 'realworld');
+    const rwEntry = {
+      build: 'examples/realworld',
+      outDir: path.join(outRoot, 'realworld'),
+      htmlSrc: path.join(rwSrc, 'index.html'),
+      srcDir: rwSrc,
+    };
+    cleanStageDirs([rwEntry.outDir], outRoot);
+    stageExample(rwEntry);
+    assert.ok(
+      fs.existsSync(path.join(rwEntry.outDir, 'default-avatar.svg')),
+      'the RealWorld fallback avatar must be staged',
+    );
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
+});
+
+it('stagePerExampleAssets FAILS LOUD on a missing declared asset source (rf2-cq6va5)', () => {
+  // Point a manifest-declared build at a srcDir that lacks the asset — staging
+  // must throw with the offending path, never silently ship a broken page.
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-asset-miss-'));
+  try {
+    const emptySrc = path.join(tmpRoot, 'src');
+    fs.mkdirSync(emptySrc, { recursive: true });
+    const entry = {
+      build: 'examples/realworld', // declares default-avatar.svg as a :src asset
+      outDir: path.join(tmpRoot, 'out'),
+      srcDir: emptySrc,
+    };
+    fs.mkdirSync(entry.outDir, { recursive: true });
+    assert.throws(
+      () => stagePerExampleAssets(entry),
+      /required asset for 'examples\/realworld' is missing/,
+      'a missing per-example asset source must fail loud',
+    );
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
 });
 
 // A no-op io for the guard-refusal tests: they must throw BEFORE any fs call,
