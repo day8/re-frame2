@@ -5,8 +5,12 @@
   Ships ONE framework-standard interceptor plus the ->interceptor primitive:
     :rf.interceptor/path — focus a handler on an app-db sub-slice, referenced
                            as `[:rf.interceptor/path <path-vector>]` (this ns)
-    unwrap-interceptor   — the [id payload-map] event-shape assertion VALUE,
-                           registered + referenced by id (this ns)
+
+  (The legacy `unwrap-interceptor` VALUE is REMOVED — EP-0022 / rf2-3qeu38 —
+  the framework ships no standard unwrap; the canonical spelling is
+  handler-payload destructuring, or a project-registered `:app/unwrap`. A
+  stale `rf/unwrap-interceptor` reference hits the `^:no-doc` throwing stub
+  `unwrap-removed!` below, which names those replacements.)
 
   (Coeffects are no longer wired by a `inject-cofx` interceptor — they
   are declared via `:rf.cofx/requires` on the handler and delivered flat;
@@ -40,8 +44,7 @@
   consumer) is the one path surface and is the carrier of that no-op."
   (:require [re-frame.interceptor :as interceptor]
             [re-frame.interceptor-registry :as icpt-reg]
-            [re-frame.error :as error]
-            [re-frame.trace :as trace]))
+            [re-frame.error :as error]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -86,6 +89,47 @@
            "id in the handler's `:interceptors` chain: "
            "`{:interceptors [[:rf.interceptor/path " (pr-str path-vec) "]]}`.")
       {:extra {:got path-vec}})))
+
+;; ---- unwrap: the removed standard value (EP-0022, rf2-3qeu38) --------------
+;;
+;; EP-0022 (accepted) ships NO framework-standard unwrap value
+;; (docs/EP/EP-0022-registered-interceptors.md:53-55 "no standard unwrap";
+;; :555-578 §"No standard unwrap"; :881/:932 list the removal). The canonical
+;; spelling for the M-19 `[<id> <payload-map>]` shape is handler-payload
+;; destructuring in the handler arglist; a project that genuinely needs
+;; chain-wide event reshaping registers its OWN `:app/unwrap` interceptor with
+;; project `:before` / `:after`. The implementation had DRIFTED — it kept an
+;; `unwrap-interceptor` VALUE here and exported it from the facade — so
+;; rf2-3qeu38 removes the value (the stash/restore-`:event`-in-`:after`
+;; machinery and its `:rf.error/unwrap-bad-event-shape` emit site go with it)
+;; and replaces the facade var with the `^:no-doc` throwing stub below (the
+;; `rf/path` twin under rf2-dgtdna; the project's actionable-removed-API
+;; pattern, like the EP-0018 `reg-event-db` / EP-0017 `inject-cofx` stubs).
+;;
+;; Like `path-removed!`, the stub throws the canonical
+;; `re-frame.error/throw-error!` hard error naming the replacement, so a stale
+;; `(rf/unwrap-interceptor …)` reference fails LOUDLY and actionably. It does
+;; NOT fan out onto the always-on error-emit channel and rides no catalogued
+;; 009 category — just the actionable throw (API.md + EP-0022 already correct;
+;; this is an implementation-only drift fix).
+
+(defn ^:no-doc unwrap-removed!
+  "REMOVED in EP-0022 (no alias). The framework ships no standard `unwrap`
+  value; the canonical spelling for the M-19 `[<id> <payload-map>]` shape is
+  handler-payload destructuring in the handler arglist, or a project-registered
+  `:app/unwrap` interceptor for genuine chain-wide reshaping. Referencing
+  `rf/unwrap-interceptor` is the hard error `:rf.error/unwrap-removed`, naming
+  those replacements. See spec/API.md §Standard interceptors,
+  EP-0022 §Registered interceptors, and docs/api/15-removed.md."
+  [& _args]
+  (error/throw-error!
+    :rf.error/unwrap-removed
+    'rf/unwrap-interceptor
+    (str "`rf/unwrap-interceptor` is REMOVED in EP-0022 (no framework-standard "
+         "unwrap value). Destructure the `[<id> <payload-map>]` payload in the "
+         "handler arglist — `(fn [_ {:keys [a b]}] …)` — or register a project "
+         "`:app/unwrap` interceptor with your own `:before` / `:after` for "
+         "genuine chain-wide reshaping.")))
 
 ;; ---- standard :rf.interceptor/path (EP-0022 Slice C — FULL contract) -------
 ;;
@@ -224,46 +268,3 @@
 ;; standard refs; `init!` re-registers (idempotent) for the post-clear-all!
 ;; test path.
 (register-standard-interceptors!)
-
-;; ---- unwrap ---------------------------------------------------------------
-;;
-;; Asserts that the event is exactly [<id> <payload-map>] (per the M-19
-;; canonical map-payload form), and replaces :event with the payload map.
-;; The handler then destructures the map directly (one level less of
-;; destructuring): (fn [_ {:keys [...]}] ...) instead of (fn [_ [_ {:keys [...]}]] ...).
-
-(def unwrap-interceptor
-  "Interceptor VALUE (not a fn). Since EP-0022 (chains are reference-only) it
-  is the registration-boundary input — register it and reference it by id:
-  `(reg-interceptor :app/unwrap unwrap-interceptor)` then
-  `(reg-event :foo {:interceptors [:app/unwrap]} (fn [_ {:keys [a b]}] ...))`.
-  The :event coeffect inside the handler is the payload map.
-
-  The `-interceptor` suffix telegraphs value-shape (per rf2-k367k +
-  Conventions §Value-vs-fn naming): this Var is an interceptor map,
-  not a fn; calling it raises ArityException."
-  (interceptor/->interceptor*
-    :id    :unwrap
-    :before
-    (fn [ctx]
-      (let [event (interceptor/get-coeffect ctx :event)]
-        (if-not (and (vector? event)
-                     (= 2 (count event))
-                     (map? (second event)))
-          (do (trace/emit-error! :rf.error/unwrap-bad-event-shape
-                                 {:event event
-                                  :expected "[event-id payload-map]"
-                                  :recovery :no-recovery})
-              ctx)
-          ;; Stash the unwrapped event under :rf/unwrap-stash so :after
-          ;; can restore the original vector for downstream consumers.
-          (-> ctx
-              (assoc :rf/unwrap-stash event)
-              (interceptor/assoc-coeffect :event (second event))))))
-    :after
-    (fn [ctx]
-      (if-let [original (:rf/unwrap-stash ctx)]
-        (-> ctx
-            (dissoc :rf/unwrap-stash)
-            (interceptor/assoc-coeffect :event original))
-        ctx))))

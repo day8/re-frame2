@@ -106,7 +106,7 @@
 ;; ---- ->interceptor (definition-site coord capture, rf2-siheh) ------------
 ;;
 ;; `->interceptor` is the only interceptor constructor with a USER
-;; definition site to jump to (the std interceptors `path` / `unwrap` and
+;; definition site to jump to (the std interceptor `path` and
 ;; the cofx injector are framework-built; the reg-event handler-wrappers
 ;; carry the event's own coord). Before rf2-siheh it was a plain fn, so an
 ;; interceptor map carried NO source-coord and the Xray Epoch INTERCEPTOR

@@ -14,6 +14,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.interceptor :as interceptor]
             [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -93,12 +94,16 @@
 
 (deftest captures-form-source-with-metadata-interceptors
   (testing "rf2-xgfuy: metadata :interceptors round-trips into :rf.handler/source"
-    ;; `unwrap-interceptor` is an interceptor VALUE carrying `:id :unwrap`;
-    ;; the migration boundary requires the registration id to match that
-    ;; value's `:id`, so register under `:unwrap` and reference it.
-    (rf/reg-interceptor* :unwrap rf/unwrap-interceptor)
+    ;; The framework `unwrap-interceptor` value was removed (EP-0022 /
+    ;; rf2-3qeu38); register a tiny PROJECT-LOCAL `:app/unwrap` interceptor and
+    ;; reference it by id, so this round-trip test no longer depends on a
+    ;; framework-owned value. Only the metadata `:interceptors` chain needs to
+    ;; round-trip into the source string — the interceptor's :before is a no-op.
+    (rf/reg-interceptor* :app/unwrap
+                         (interceptor/->interceptor* :id :app/unwrap
+                                                     :before identity))
     (rf/reg-event :rf2-xgfuy/event-with-icpts
-                     {:interceptors [:unwrap]}
+                     {:interceptors [:app/unwrap]}
                      (fn [_cofx {:keys [v]}] {:db {:v v}}))
     (let [src (:rf.handler/source
                (rf/handler-meta :event :rf2-xgfuy/event-with-icpts))]
