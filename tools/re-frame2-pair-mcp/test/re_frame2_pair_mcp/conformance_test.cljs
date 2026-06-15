@@ -430,7 +430,7 @@
                   :type "object" :build :app}}}
 
    {:fixture/id    :eval-cljs/no-runtime-for-build
-    :fixture/doc   "eval-cljs against a build with no live runtime fails loud (:no-runtime-for-build), never :ok? true :value nil (rf2-ivlb3)."
+    :fixture/doc   "eval-cljs against a build with no live runtime fails loud (:no-runtime-for-build), never :ok? true :value nil (rf2-ivlb3). A preflight rejection routes through probe/err->result, so it surfaces as isError: true per the known-tool-failure contract (API §Result shape)."
     :fixture/tool  "eval-cljs"
     ;; Explicit :build so the path is deterministic against the
     ;; cljs-eval-only stub; sentinel probe returns false → fail loud.
@@ -439,7 +439,7 @@
     [["__re_frame2_pair_runtime"  false]
      [:default                    nil]]
     :fixture/expect
-    {:isError? false
+    {:isError? true
      :edn-submap {:ok? false :reason :no-runtime-for-build}}}
 
    {:fixture/id    :eval-cljs/missing-form
@@ -1180,21 +1180,23 @@
 
    ;; ---------- list-subscriptions (reactive sub-cache, rf2-qicji) --------
    {:fixture/id    :list-subscriptions/empty
-    :fixture/doc   "list-subscriptions on a frame with no live reactive subs returns an empty list envelope."
+    :fixture/doc   "list-subscriptions on a frame with no live reactive subs returns an empty list envelope. The runtime sentinel is present (only the sub-cache query is empty) — a missing sentinel would be a preflight failure (isError), not an empty success."
     :fixture/tool  "list-subscriptions"
     :fixture/args  {}
     :fixture/eval-script
-    [[:default nil]]
+    [["__re_frame2_pair_runtime"  true]
+     [:default                    nil]]
     :fixture/expect
     {:isError? false}}
 
    ;; ---------- list-streams (streaming-tap diagnostic, rf2-qicji) --------
    {:fixture/id    :list-streams/empty
-    :fixture/doc   "list-streams with no active streaming-tap subscriptions returns an empty list envelope."
+    :fixture/doc   "list-streams with no active streaming-tap subscriptions returns an empty list envelope. The runtime sentinel is present (only the subscription-info query is empty) — a missing sentinel would be a preflight failure (isError), not an empty success."
     :fixture/tool  "list-streams"
     :fixture/args  {}
     :fixture/eval-script
-    [[:default nil]]
+    [["__re_frame2_pair_runtime"  true]
+     [:default                    nil]]
     :fixture/expect
     {:isError? false}}
 

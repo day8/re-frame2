@@ -15,6 +15,7 @@
             [cljs.reader :as edn]
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.test-utils :as tu]
+            [re-frame2-pair-mcp.tools.probe :as probe]
             [re-frame2-pair-mcp.cache :as cache]))
 
 ;; ---------------------------------------------------------------------------
@@ -230,6 +231,42 @@
       (let [out (cache/apply-cache ok opts)]
         (is (identical? ok out)
             "successful follow-up is a fresh miss")))))
+
+(deftest preflight-rejection-is-error-shaped-and-bypasses-cache
+  ;; A runtime/preflight/transport rejection routes through
+  ;; probe/err->result, which now emits an :isError result (NOT a
+  ;; success-shaped ok-text). Two guarantees:
+  ;;   (a) the result carries :isError true (the known-tool-failure
+  ;;       contract: API §Result shape / 001 §JSON-RPC error codes), and
+  ;;   (b) because apply-cache bypasses :isError, such a failure can never
+  ;;       be cached and can never produce a later :rf.mcp/cache-hit on the
+  ;;       same (tool, args) key — masking a subsequent successful read.
+  (let [;; A structured ex-info exactly like resolve-and-preflight! rejects
+        ;; with on a runtime-absent build.
+        rej   (ex-info "no re-frame2-pair runtime for build"
+                       {:reason :no-runtime-for-build :build :app})
+        err   (probe/err->result :snapshot-failed rej)
+        args  (args-js {:frame ":rf/default"})
+        opts  {:tool "snapshot" :args args :enabled? true}]
+    ;; (a) error-shaped.
+    (is (true? (j/get err :isError))
+        "preflight rejection surfaces as :isError true")
+    (let [edn-out (some-> (extract-text err) edn/read-string)]
+      (is (false? (:ok? edn-out)))
+      (is (= :no-runtime-for-build (:reason edn-out))
+          "structured ex-info reason surfaces verbatim"))
+    ;; (b) not cached — passes through untouched, leaves no entry.
+    (let [out (cache/apply-cache err opts)]
+      (is (identical? err out)
+          "preflight-failure result passes through apply-cache untouched"))
+    (is (zero? (cache/size))
+        "a preflight failure must not poison the cache")
+    ;; And it cannot manufacture a later cache-hit: a second identical
+    ;; failure is again a pass-through, never a :rf.mcp/cache-hit marker.
+    (let [err2 (probe/err->result :snapshot-failed rej)
+          out2 (cache/apply-cache err2 opts)]
+      (is (not (cache-hit-result? out2))
+          "a repeated preflight failure never returns a :rf.mcp/cache-hit"))))
 
 (deftest different-tools-same-args-do-not-collide
   ;; (snapshot, args) and (get-path, args) are different keys.

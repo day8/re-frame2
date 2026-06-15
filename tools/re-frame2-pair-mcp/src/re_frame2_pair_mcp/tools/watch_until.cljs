@@ -112,8 +112,17 @@
                        (object? p) (try (js->clj p :keywordize-keys true)
                                         (catch :default _ nil))
                        :else nil))
-        timeout-ms (let [t (wire/arg raw-args :timeout-ms)]
-                     (if (and (number? t) (pos? t)) (long t) default-timeout-ms))
+        ;; Validate `:timeout-ms` as a positive-millisecond integer up
+        ;; front, the SAME contract the other timeout-aware tools use
+        ;; (`tail-build :wait-ms`, `eval-cljs` / `dispatch` `:timeout-ms`
+        ;; — all via `args/parse-timeout-arg`, rf2-wz66k7). A malformed,
+        ;; zero, negative, or fractional value used to silently become
+        ;; `default-timeout-ms`, hiding the caller's bad input behind a 30s
+        ;; wait; it now short-circuits to an honest `:invalid-numeric-arg`
+        ;; error (the `cond` below). An ABSENT arg ⇒ `[:ok nil]` ⇒ the
+        ;; documented default.
+        timeout-r  (args/parse-timeout-arg "timeout-ms" (wire/arg raw-args :timeout-ms))
+        timeout-ms (or (second timeout-r) default-timeout-ms)
         pred-src   (record/pred-source pred)
         ;; rf2-8fin7.2 — the `:sample` (on hold) and `:last-sample` (on
         ;; timeout) slots ship raw `:app-db` / `:sub` values back to the
@@ -129,6 +138,13 @@
                      false)
         elision-opts (elision/elision-opts-edn (not elision?) incl?)]
     (cond
+      ;; A bad `:timeout-ms` is a caller error worth telling the agent
+      ;; about, not a value to silently paper over with the default.
+      ;; Short-circuit BEFORE the runtime preflight, like eval-cljs's
+      ;; `:timeout-ms` validation (rf2-wz66k7).
+      (= :err (first timeout-r))
+      (js/Promise.resolve (wire/err-text (second timeout-r)))
+
       (or (nil? signals) (empty? signals))
       (js/Promise.resolve
         (wire/err-text

@@ -637,13 +637,23 @@
 ;; ---------------------------------------------------------------------------
 
 (defn err->result
-  "Translate a Promise rejection into an `ok-text` result. Structured
-  ex-info reasons (e.g. `:runtime-not-preloaded`) surface verbatim;
-  other errors fall through to a generic eval-error shape."
+  "Translate a Promise rejection (a runtime / preflight / transport
+  failure surfaced by the shared eval-path guards) into an MCP ERROR
+  result. Structured ex-info reasons (e.g. `:no-runtime-for-build`,
+  `:runtime-loaded-but-preload-missing`) surface verbatim; other errors
+  fall through to a generic `fallback-reason` shape.
+
+  A rejection here is a known-tool failure with `:ok? false`, which the
+  MCP error-handling contract requires be returned with `isError: true`
+  (API §Result shape; 001-Wire-Protocol §JSON-RPC error codes). Using
+  `wire/err-text` (not `wire/ok-text`) is what makes that true: the host
+  surfaces the failure to the LLM as an error rather than a success-shaped
+  value, AND the response cache (which bypasses `:isError` results) can no
+  longer cache a transient failure and mask a later successful read."
   [fallback-reason err]
   (if-let [data (ex-data err)]
-    (wire/ok-text (merge {:ok? false} data))
-    (wire/ok-text {:ok? false :reason fallback-reason :message (.-message err)})))
+    (wire/err-text (merge {:ok? false} data))
+    (wire/err-text {:ok? false :reason fallback-reason :message (.-message err)})))
 
 ;; ---------------------------------------------------------------------------
 ;; Shared eval-prelude (rf2-jkake.19).
