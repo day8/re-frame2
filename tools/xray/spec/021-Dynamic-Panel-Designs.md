@@ -3341,15 +3341,24 @@ is carried by the fill + edge + glyph, not a lift:
 - **Spacing + radius** — padding from the 4px `tokens/spacing` scale
   (`:gap-2` / `:gap-3`); radius matches the surrounding cards.
 - **Typographic hierarchy** — the `✗ Exception Thrown` headline (sans,
-  `:error` accent, `:body-tight`) → the verbatim mono message
-  (`:text-primary`, `:mono-body`) → the quiet collapsed-detail affordance
-  (`:text-tertiary`, `:caption`).
+  `:error` accent, `:body-tight`) + the quiet `:rf.error/id` category
+  badge (rf2-vvixub; mono, `:bg-3` chip, `:text-tertiary`) → the verbatim
+  mono message (`:text-primary`, `:mono-body`) → the quiet
+  collapsed-detail affordance (`:text-tertiary`, `:caption`).
 - **Glyph** — the `✗` is a sized + baseline-aligned badge in the `:error`
   accent (a fixed 14px box), not a bare floating character.
 
 The card carries, top to bottom:
 
-1. a `✗ Exception Thrown` title bar + a `Rolled back` recovery chip
+1. a `✗ Exception Thrown` title bar carrying (rf2-vvixub) the
+   `:rf.error/id` **category badge** — a quiet mono chip rendering the
+   row's `:operation` (the canonical machine discriminator). Under the
+   Spec 009 thrown-error human-message contract the verbatim message
+   (item 2) now **leads with a human-actionable sentence** rather than
+   the bare keyword, so the machine category surfaces here as
+   at-a-glance metadata (the `:rf.error/<id>` pivot), distinct from the
+   prose message below and no longer buried in collapsed `ex-data`. The
+   title bar also carries a `Rolled back` recovery chip
    that paints **ONLY** when the cascade **ACTUALLY rolled back**
    (`db-rolled-back?` — a `:where :app-db` schema-validation failure
    reverted the commit, stamped onto each exception row by `project`).
@@ -3363,12 +3372,16 @@ The card carries, top to bottom:
    actual rollback (rf2-s6oqd) paints the chip on a `:db` schema-fail
    rollback (correct) and omits it on a post-commit fx throw AND a
    pre-commit handler throw;
-2. the verbatim `ex-info` message (monospace) — the punchline. rf2-oqi0c
-   **DROPPED** the one-line category-reason boilerplate headline ("The
-   event handler threw." / "…interceptor threw." — formerly
-   `error-block-label`): it was redundant with the card's position (under
-   the failing step) + the "Exception Thrown" heading, which already
-   attribute the failure. The card now leads with the real `.getMessage`;
+2. the verbatim `ex-info` message (monospace) — the punchline. Under the
+   Spec 009 thrown-error contract (rf2-vvixub) this message **leads with
+   a human-actionable sentence** (public concept + expected fix + key
+   context) and trails the `[:rf.error/<id>]` greppability token — no
+   longer the bare stringified keyword. rf2-oqi0c **DROPPED** the
+   one-line category-reason boilerplate headline ("The event handler
+   threw." / "…interceptor threw." — formerly `error-block-label`): it
+   was redundant with the card's position (under the failing step) + the
+   "Exception Thrown" heading, which already attribute the failure. The
+   card leads with the real `.getMessage`;
 3. a **collapsible** `<details>` disclosure ("Details", collapsed by
    default) carrying the exception's `ex-data` (via `ei/edn-inspector`)
    + its stack trace (monospace `<pre>`), read off the raw `:exception`

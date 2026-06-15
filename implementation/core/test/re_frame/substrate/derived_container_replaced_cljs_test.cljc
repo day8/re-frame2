@@ -92,9 +92,12 @@
             "the :recovery slot is :no-recovery")
         (is (string? (:reason (ex-data thrown)))
             "the :reason slot is a human-readable sentence")
-        (is (= ":rf.error/derived-container-replaced"
-               (ex-message thrown))
-            "the ex-message stringifies the discriminator keyword")))))
+        ;; rf2-vvixub — the message is the human :reason sentence + the
+        ;; trailing [:rf.error/<id>] greppability token, NOT the bare
+        ;; stringified keyword. Assert the token substring, not equality.
+        (is (re-find #"\[:rf\.error/derived-container-replaced\]"
+                     (ex-message thrown))
+            "the ex-message carries the [:rf.error/derived-container-replaced] token")))))
 
 (deftest replace-on-derived-container-emits-error-trace
   (testing "replace-container! on a derived container emits the :rf.error/derived-container-replaced trace"

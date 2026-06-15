@@ -202,8 +202,13 @@
     (let [thrown (try (substrate-adapter/make-state-container {}) nil
                       (catch :default e e))]
       (is (some? thrown) "delegation call after dispose threw")
-      (is (= ":rf.error/adapter-disposed" (.-message thrown))
-          "the throw shape matches MUST (4)"))
+      ;; rf2-vvixub — message is a human sentence + the trailing
+      ;; [:rf.error/<id>] token; assert the token substring + the
+      ;; canonical :rf.error/id, not exact keyword-equality.
+      (is (= :rf.error/adapter-disposed (:rf.error/id (ex-data thrown)))
+          "the throw carries the canonical :rf.error/id discriminator (MUST 4)")
+      (is (re-find #"\[:rf\.error/adapter-disposed\]" (.-message thrown))
+          "the message carries the [:rf.error/adapter-disposed] token"))
     ;; Reinstall so the fixture's :after teardown lands on clean state.
     (substrate-adapter/install-adapter! adapter)))
 
@@ -2320,7 +2325,10 @@
                     (rf/install-adapter! adapter)
                     false
                     (catch :default e
-                      (= ":rf.error/adapter-already-installed" (ex-message e))))]
+                      ;; rf2-vvixub — branch on the canonical :rf.error/id
+                      ;; discriminator, never on the (now human-sentence) message.
+                      (= :rf.error/adapter-already-installed
+                         (:rf.error/id (ex-data e)))))]
       (is thrown? "second install-adapter! raises :rf.error/adapter-already-installed"))
     (rf/destroy-adapter!)
     (rf/install-adapter! adapter)

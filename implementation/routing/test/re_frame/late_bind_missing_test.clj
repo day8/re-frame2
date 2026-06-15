@@ -55,8 +55,13 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "reg-route throws when the routing artefact is absent")
-          (is (= ":rf.error/routing-artefact-missing" (.getMessage thrown))
-              "the documented error category appears in the message")
+          ;; rf2-vvixub — message is the human :reason + trailing
+          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
+          ;; not exact keyword-equality.
+          (is (re-find #"\[:rf\.error/routing-artefact-missing\]" (.getMessage thrown))
+              "the message carries the [:rf.error/routing-artefact-missing] token")
+          (is (= :rf.error/routing-artefact-missing (:rf.error/id (ex-data thrown)))
+              "ex-data carries the canonical :rf.error/id discriminator")
           (let [data (ex-data thrown)]
             ;; Per rf2-hoiu the throw lives in `re-frame.core-routing/reg-route`
             ;; — the sibling-namespace fn-form delegate the macro routes
@@ -84,8 +89,13 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "route-link throws when the routing artefact is absent")
-          (is (= ":rf.error/routing-artefact-missing" (.getMessage thrown))
-              "the documented error category appears in the message")
+          ;; rf2-vvixub — message is the human :reason + trailing
+          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
+          ;; not exact keyword-equality.
+          (is (re-find #"\[:rf\.error/routing-artefact-missing\]" (.getMessage thrown))
+              "the message carries the [:rf.error/routing-artefact-missing] token")
+          (is (= :rf.error/routing-artefact-missing (:rf.error/id (ex-data thrown)))
+              "ex-data carries the canonical :rf.error/id discriminator")
           (let [data (ex-data thrown)]
             (is (= 'rf/route-link (:where data))
                 "ex-data carries :where = 'rf/route-link")

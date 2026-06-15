@@ -47,8 +47,13 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "render-to-string throws when the ssr artefact is absent")
-          (is (= ":rf.error/ssr-artefact-missing" (.getMessage thrown))
-              "the documented error category appears in the message")
+          ;; rf2-vvixub — message is the human :reason + trailing
+          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
+          ;; not exact keyword-equality.
+          (is (re-find #"\[:rf\.error/ssr-artefact-missing\]" (.getMessage thrown))
+              "the message carries the [:rf.error/ssr-artefact-missing] token")
+          (is (= :rf.error/ssr-artefact-missing (:rf.error/id (ex-data thrown)))
+              "ex-data carries the canonical :rf.error/id discriminator")
           (let [data (ex-data thrown)]
             (is (= 'rf/render-to-string (:where data))
                 "ex-data carries :where = 'rf/render-to-string")
@@ -66,8 +71,13 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "render-tree-hash throws when the ssr artefact is absent")
-          (is (= ":rf.error/ssr-artefact-missing" (.getMessage thrown))
-              "the documented error category appears in the message")
+          ;; rf2-vvixub — message is the human :reason + trailing
+          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
+          ;; not exact keyword-equality.
+          (is (re-find #"\[:rf\.error/ssr-artefact-missing\]" (.getMessage thrown))
+              "the message carries the [:rf.error/ssr-artefact-missing] token")
+          (is (= :rf.error/ssr-artefact-missing (:rf.error/id (ex-data thrown)))
+              "ex-data carries the canonical :rf.error/id discriminator")
           (let [data (ex-data thrown)]
             (is (= 'rf/render-tree-hash (:where data))
                 "ex-data carries :where = 'rf/render-tree-hash")
@@ -87,8 +97,13 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "reg-error-projector throws when the ssr artefact is absent")
-          (is (= ":rf.error/ssr-artefact-missing" (.getMessage thrown))
-              "the documented error category appears in the message")
+          ;; rf2-vvixub — message is the human :reason + trailing
+          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
+          ;; not exact keyword-equality.
+          (is (re-find #"\[:rf\.error/ssr-artefact-missing\]" (.getMessage thrown))
+              "the message carries the [:rf.error/ssr-artefact-missing] token")
+          (is (= :rf.error/ssr-artefact-missing (:rf.error/id (ex-data thrown)))
+              "ex-data carries the canonical :rf.error/id discriminator")
           (let [data (ex-data thrown)]
             ;; Per rf2-j8icl the `:where` symbol is namespace-qualified
             ;; to the user-facing surface (`rf/reg-error-projector`) so
@@ -112,8 +127,13 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "project-error throws when the ssr artefact is absent")
-          (is (= ":rf.error/ssr-artefact-missing" (.getMessage thrown))
-              "the documented error category appears in the message")
+          ;; rf2-vvixub — message is the human :reason + trailing
+          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
+          ;; not exact keyword-equality.
+          (is (re-find #"\[:rf\.error/ssr-artefact-missing\]" (.getMessage thrown))
+              "the message carries the [:rf.error/ssr-artefact-missing] token")
+          (is (= :rf.error/ssr-artefact-missing (:rf.error/id (ex-data thrown)))
+              "ex-data carries the canonical :rf.error/id discriminator")
           (let [data (ex-data thrown)]
             (is (= 'rf/project-error (:where data))
                 "ex-data carries :where = 'rf/project-error")

@@ -81,8 +81,10 @@
         ;; stable discriminator), not just the message string.
         (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
             (str "structured :rf.error/id for a " (name label) " path value"))
-        (is (= ":rf.error/route-url-non-edn-value" (ex-message ex))
-            (str "message string (secondary) for a " (name label) " path value"))
+        ;; rf2-vvixub — message is a human sentence + the trailing
+        ;; [:rf.error/<id>] token; assert the token, not exact equality.
+        (is (re-find #"\[:rf\.error/route-url-non-edn-value\]" (ex-message ex))
+            (str "message token (secondary) for a " (name label) " path value"))
         (let [data (ex-data ex)]
           (is (= :route/item (:route-id data)))
           (is (= :params (:slot data)))
@@ -98,8 +100,10 @@
             (str "a " (name label) " query value must throw"))
         (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
             (str "structured :rf.error/id for a " (name label) " query value"))
-        (is (= ":rf.error/route-url-non-edn-value" (ex-message ex))
-            (str "message string (secondary) for a " (name label) " query value"))
+        ;; rf2-vvixub — message is a human sentence + the trailing
+        ;; [:rf.error/<id>] token; assert the token, not exact equality.
+        (is (re-find #"\[:rf\.error/route-url-non-edn-value\]" (ex-message ex))
+            (str "message token (secondary) for a " (name label) " query value"))
         (let [data (ex-data ex)]
           (is (= :route/search (:route-id data)))
           (is (= :query (:slot data)))

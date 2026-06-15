@@ -18,7 +18,8 @@
   drift test `implementation/core/test/re_frame/late_bind_drift_test.clj`
   asserts the directory matches the in-tree publications, walking both
   the per-key `set-fn!` form and the rf2-rtk2e map-form `set-fns!`
-  block.")
+  block."
+  (:require [re-frame.error :as error]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -231,11 +232,15 @@
   `:rf.error/<artefact>-artefact-missing` ex-info when the hook is
   unregistered.
 
-  Carries the canonical thrown-error shape (per Spec 009 §The
-  thrown-error shape):
+  Carries the canonical thrown-error shape via the central builder
+  `re-frame.error/throw-error!` (per Spec 009 §The thrown-error shape):
 
-    Message:  `<error-keyword>` printed as a string (e.g.
-              \":rf.error/flows-artefact-missing\").
+    Message:  the human `:reason` sentence + the trailing
+              `[:rf.error/<artefact>-artefact-missing]` greppability
+              token (e.g. \"rf/reg-flow requires
+              com.day8.re-frame/re-frame2-flows on the classpath; add it
+              to deps and require re-frame.flows at app boot.
+              [:rf.error/flows-artefact-missing]\").
     ex-data:  {:rf.error/id <error-keyword>  ;; canonical discriminator
                :where       <where-sym>
                :recovery    :no-recovery
@@ -244,23 +249,23 @@
                & extra-data}
 
   The `:rf.error/id` slot is the canonical discriminator consumers read
-  uniformly (Xray, pair-tool, `:on-error`); the message string is the
-  stringified kw so `.getMessage` pivots to the same category.
-  `where-sym` is the user-facing fn symbol stamped on the error.
-  `artefact-info` carries `{:error-keyword :maven :require-ns}`.
-  `extra-data` is the per-call ex-data merged in (e.g. `:flow-id`,
-  `:route-id`).
+  uniformly (Xray, pair-tool, `:on-error`); the message LEADS with the
+  human sentence and carries the category only inside the trailing token,
+  so `.getMessage` reads as actionable prose while a log grep still
+  pivots on the bracketed keyword. `where-sym` is the user-facing fn
+  symbol stamped on the error. `artefact-info` carries
+  `{:error-keyword :maven :require-ns}`. `extra-data` is the per-call
+  ex-data merged in (e.g. `:flow-id`, `:route-id`).
 
   Pairs with `re-frame.core-artefact/defwrapper`."
   ([hook-key where-sym artefact-info]
    (require-fn! hook-key where-sym artefact-info nil))
   ([hook-key where-sym {:keys [error-keyword maven require-ns]} extra-data]
    (or (get @hooks hook-key)
-       (throw (ex-info (str error-keyword)
-                       (merge {:rf.error/id error-keyword
-                               :where       where-sym
-                               :recovery    :no-recovery
-                               :reason      (str where-sym " requires " maven
-                                                 " on the classpath; add it to deps and require "
-                                                 require-ns " at app boot.")}
-                              extra-data))))))
+       (error/throw-error!
+         error-keyword
+         where-sym
+         (str where-sym " requires " maven
+              " on the classpath; add it to deps and require "
+              require-ns " at app boot.")
+         {:extra extra-data}))))

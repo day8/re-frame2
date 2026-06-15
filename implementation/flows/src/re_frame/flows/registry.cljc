@@ -35,6 +35,7 @@
   `{flow-id {frame-id inputs}}` observation shape so its public contract
   is unchanged across the storage restructure."
   (:require [re-frame.elision :as elision]
+            [re-frame.error :as error]
             [re-frame.flows.topo :as topo]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
@@ -313,20 +314,18 @@
 ;; / `:bad-elements`) merge on top.
 
 (defn- flow-error
-  "Build the validate-flow ex-info with the canonical thrown-error shape
-  (per Spec 009 §The thrown-error shape). `error-kw` becomes the message
-  AND the `:rf.error/id` discriminator slot; `reason` is the human-
-  readable diagnostic; `extras` merges per-clause slots (e.g.
-  `:bad-entries`)."
+  "Build the validate-flow ex-info via the central thrown-error builder
+  `re-frame.error/thrown-ex-info` (per Spec 009 §The thrown-error shape).
+  `error-kw` is the `:rf.error/id` discriminator slot; `reason` is the
+  human-readable diagnostic that LEADS the message (the message also
+  trails the `[:rf.error/<id>]` greppability token); `extras` merges
+  per-clause slots (e.g. `:bad-entries`)."
   ([error-kw reason flow] (flow-error error-kw reason flow nil))
   ([error-kw reason flow extras]
-   (ex-info (str error-kw)
-            (merge {:rf.error/id error-kw
-                    :where       'rf/reg-flow
-                    :recovery    :fix-registration
-                    :reason      reason
-                    :flow        flow}
-                   extras))))
+   (error/thrown-ex-info
+     error-kw 'rf/reg-flow reason
+     {:recovery :fix-registration
+      :extra    (merge {:flow flow} extras)})))
 
 ;; The validation rules, in evaluation order. Each rule has a predicate
 ;; over the flow map (returns truthy to accept), a stable `:error-kw`
@@ -929,18 +928,18 @@
      ;; destroyed frame id. `clear-flow` keeps its permissive absent-frame
      ;; no-op (teardown must be idempotent); only this MUTATING path rejects.
      (when (nil? (frame/frame frame-id))
-       (throw (ex-info (str :rf.error/flow-frame-not-live)
-                       {:rf.error/id :rf.error/flow-frame-not-live
-                        :where       'rf/reg-flow
-                        :recovery    :fix-registration
-                        :reason      (str "cannot register a flow against frame "
-                                          frame-id
-                                          " — the frame is not live (absent / never registered, "
-                                          "or torn down by destroy-frame!). Register the flow "
-                                          "against a live frame; a destroyed frame must not "
-                                          "acquire flow state (Spec 013 §destroy-frame!).")
-                        :frame       frame-id
-                        :flow        flow})))
+       (error/throw-error!
+         :rf.error/flow-frame-not-live
+         'rf/reg-flow
+         (str "cannot register a flow against frame "
+              frame-id
+              " — the frame is not live (absent / never registered, "
+              "or torn down by destroy-frame!). Register the flow "
+              "against a live frame; a destroyed frame must not "
+              "acquire flow state (Spec 013 §destroy-frame!).")
+         {:recovery :fix-registration
+          :extra    {:frame frame-id
+                     :flow  flow}}))
      ;; ATOMIC check-and-insert (rf2-qxwib). The cycle check and the
      ;; commit are ONE `swap!` update fn over `@flows`: it reads the
      ;; frame's CURRENTLY-COMMITTED flow-map, runs topo-sort on the

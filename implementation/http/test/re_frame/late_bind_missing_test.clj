@@ -58,8 +58,13 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "install-managed-request-stubs! throws when the http artefact is absent")
-          (is (= ":rf.error/http-artefact-missing" (.getMessage thrown))
-              "the documented error category appears in the message")
+          ;; rf2-vvixub — message is the human :reason + trailing
+          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
+          ;; not exact keyword-equality.
+          (is (re-find #"\[:rf\.error/http-artefact-missing\]" (.getMessage thrown))
+              "the message carries the [:rf.error/http-artefact-missing] token")
+          (is (= :rf.error/http-artefact-missing (:rf.error/id (ex-data thrown)))
+              "ex-data carries the canonical :rf.error/id discriminator")
           (let [data (ex-data thrown)]
             (is (= 'rf/install-managed-request-stubs! (:where data))
                 "ex-data carries :where = 'rf/install-managed-request-stubs!")
@@ -77,8 +82,13 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "uninstall-managed-request-stubs! throws when the http artefact is absent")
-          (is (= ":rf.error/http-artefact-missing" (.getMessage thrown))
-              "the documented error category appears in the message")
+          ;; rf2-vvixub — message is the human :reason + trailing
+          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
+          ;; not exact keyword-equality.
+          (is (re-find #"\[:rf\.error/http-artefact-missing\]" (.getMessage thrown))
+              "the message carries the [:rf.error/http-artefact-missing] token")
+          (is (= :rf.error/http-artefact-missing (:rf.error/id (ex-data thrown)))
+              "ex-data carries the canonical :rf.error/id discriminator")
           (let [data (ex-data thrown)]
             (is (= 'rf/uninstall-managed-request-stubs! (:where data))
                 "ex-data carries :where = 'rf/uninstall-managed-request-stubs!")
@@ -94,8 +104,13 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "with-managed-request-stubs* throws when the http artefact is absent")
-          (is (= ":rf.error/http-artefact-missing" (.getMessage thrown))
-              "the documented error category appears in the message")
+          ;; rf2-vvixub — message is the human :reason + trailing
+          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
+          ;; not exact keyword-equality.
+          (is (re-find #"\[:rf\.error/http-artefact-missing\]" (.getMessage thrown))
+              "the message carries the [:rf.error/http-artefact-missing] token")
+          (is (= :rf.error/http-artefact-missing (:rf.error/id (ex-data thrown)))
+              "ex-data carries the canonical :rf.error/id discriminator")
           (let [data (ex-data thrown)]
             (is (= 'rf/with-managed-request-stubs* (:where data))
                 "ex-data carries :where = 'rf/with-managed-request-stubs*")

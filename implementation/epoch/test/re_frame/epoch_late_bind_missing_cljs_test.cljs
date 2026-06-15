@@ -70,8 +70,13 @@
                           (catch :default e e))]
           (is (some? thrown)
               "replace-app-db! throws when the epoch artefact is absent")
-          (is (= ":rf.error/epoch-artefact-missing" (ex-message thrown))
-              "the documented error category appears in the message")
+          ;; rf2-vvixub — message is the human :reason + trailing
+          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
+          ;; not exact keyword-equality.
+          (is (re-find #"\[:rf\.error/epoch-artefact-missing\]" (ex-message thrown))
+              "the message carries the [:rf.error/epoch-artefact-missing] token")
+          (is (= :rf.error/epoch-artefact-missing (:rf.error/id (ex-data thrown)))
+              "ex-data carries the canonical :rf.error/id discriminator")
           (let [data (ex-data thrown)]
             (is (= 'rf/replace-app-db! (:where data))
                 "ex-data carries :where = 'rf/replace-app-db!")

@@ -63,9 +63,15 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "reg-flow throws when the flows artefact is absent")
-          (is (= ":rf.error/flows-artefact-missing" (.getMessage thrown))
-              "the documented error category appears in the message")
+          ;; rf2-vvixub — the message is the human :reason sentence + the
+          ;; trailing [:rf.error/<id>] greppability token (Spec 009 §The
+          ;; thrown-error shape). Assert the token substring + the canonical
+          ;; :rf.error/id discriminator, NOT exact keyword-equality.
+          (is (re-find #"\[:rf\.error/flows-artefact-missing\]" (.getMessage thrown))
+              "the message carries the [:rf.error/flows-artefact-missing] token")
           (let [data (ex-data thrown)]
+            (is (= :rf.error/flows-artefact-missing (:rf.error/id data))
+                "ex-data carries the canonical :rf.error/id discriminator")
             ;; Per rf2-hoiu the throw lives in `re-frame.core-flows/reg-flow`
             ;; — the sibling-namespace fn-form delegate the macro routes
             ;; through. Per rf2-j8icl the `:where` symbol is namespace-

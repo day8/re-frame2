@@ -1098,8 +1098,10 @@
                   (rf/install-adapter! reagent-adapter/adapter)
                   false
                   (catch :default e
-                    (= ":rf.error/adapter-already-installed"
-                       (ex-message e))))]
+                    ;; rf2-vvixub — branch on the canonical :rf.error/id
+                    ;; discriminator, never on the (now human-sentence) message.
+                    (= :rf.error/adapter-already-installed
+                       (:rf.error/id (ex-data e)))))]
     (is thrown?
         "second install-adapter! raises :rf.error/adapter-already-installed"))
   ;; Sanity-check the destroy-then-install path remains valid.

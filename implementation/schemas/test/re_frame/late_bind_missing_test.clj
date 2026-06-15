@@ -56,8 +56,13 @@
                           (catch clojure.lang.ExceptionInfo e e))]
           (is (some? thrown)
               "reg-app-schema throws when the schemas artefact is absent")
-          (is (= ":rf.error/schemas-artefact-missing" (.getMessage thrown))
-              "the documented error category appears in the message")
+          ;; rf2-vvixub — message is the human :reason + trailing
+          ;; [:rf.error/<id>] token; assert the token + canonical :rf.error/id,
+          ;; not exact keyword-equality.
+          (is (re-find #"\[:rf\.error/schemas-artefact-missing\]" (.getMessage thrown))
+              "the message carries the [:rf.error/schemas-artefact-missing] token")
+          (is (= :rf.error/schemas-artefact-missing (:rf.error/id (ex-data thrown)))
+              "ex-data carries the canonical :rf.error/id discriminator")
           (let [data (ex-data thrown)]
             ;; Per rf2-hoiu the throw lives in
             ;; `re-frame.core-schemas/reg-app-schema` — the sibling-
