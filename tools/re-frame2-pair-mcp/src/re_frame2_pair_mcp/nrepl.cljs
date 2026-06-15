@@ -537,8 +537,10 @@
   Promise resolving to a combined response `{:value :out :err :status :ex}`
   once a frame with `\"status\":[\"done\"]` arrives for this id.
 
-  Auto-(re)connects if the socket has dropped. Caller manages the
-  reinjection sentinel — see `tools.cljs`.
+  Auto-(re)connects if the socket has dropped. The runtime ships via the
+  shadow-cljs `:devtools :preloads` mechanism, so no per-op reinjection is
+  needed (the per-session inject fallback was cut for rf2-7dvg; tools probe
+  the preload marker via `tools.probe/ensure-runtime!`).
 
   ## Options (rf2-ambfv)
 

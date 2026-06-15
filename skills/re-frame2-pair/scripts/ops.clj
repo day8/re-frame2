@@ -280,14 +280,23 @@
       :else
       (let [outer (safe-edn (str (:value res)))]
         (cond
+          ;; rf2-n58jxo (mirrors the MCP-side rf2-mvdwv fix in nrepl.cljs) —
+          ;; a populated `:err` on shadow's outer response is an analyzer
+          ;; warning (unresolved symbol) or a compile error. It MUST surface
+          ;; even though shadow ALSO pushes a "nil" into `:results`: peeking
+          ;; `:results` FIRST (the pre-fix order) swallowed the compile
+          ;; failure as a silent nil — the CLI eval reported success-shaped
+          ;; while the form never produced a real value. The `:err` branch
+          ;; now takes precedence so a compile error/warning is DISTINCT from
+          ;; a runtime throw (`:eval-error`, the `:ex` path above).
+          (and (map? outer) (not (str/blank? (str (:err outer)))))
+          (throw (ex-info "cljs eval compile error/warning"
+                          {:reason :cljs-eval-error
+                           :err (str/trim (str (:err outer)))}))
+
           (and (map? outer) (vector? (:results outer)))
           (when-let [last-result (peek (:results outer))]
             (safe-edn last-result))
-
-          (and (map? outer) (:err outer))
-          (throw (ex-info "cljs eval error"
-                          {:reason :cljs-eval-error
-                           :err (:err outer)}))
 
           :else outer)))))
 

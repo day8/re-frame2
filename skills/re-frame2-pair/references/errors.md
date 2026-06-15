@@ -10,7 +10,7 @@ Every script returns structured edn like `{:ok? false :reason ...}` rather than 
 - `:debug-disabled` → re-frame2's `interop/debug-enabled?` is false (production build, or `goog.DEBUG` was set false). The trace stream and epoch history are elided in this build.
 - `:ns-not-loaded :missing :re-frame2` → re-frame2 isn't loaded; check the user's deps.
 - `:no-frames-registered` → no frame is up yet. Tell the user to call `(rf/init!)` (or wait for app boot).
-- `:ambiguous-frame` → multiple frames are registered and no session pin is set. Pin one with `set-operating-frame {frame: ":foo"}` (the escape from this refusal — SKILL.md §Multi-frame model), or pass a per-call `frame: ":foo"` arg.
+- `:ambiguous-frame` → multiple frames are registered and no session pin is set. The envelope is recovery-shaped: `:operation` (the refusing op), `:available-frames` (the app frames you may pick from), `:operating-realm`, `:selected-frame` (the current pin, nil = none), and `:event` / `:query` when the op knew it. Pin one of `:available-frames` with `set-operating-frame {frame: ":foo"}` (the escape from this refusal — SKILL.md §Multi-frame model), or pass a per-call `frame: ":foo"` arg.
 - `:handler-error` inside an epoch → the user's handler threw; surface the `:rf.error/handler-exception` trace event from `(re-frame.trace.tooling/trace-buffer {:op-type :error})`. (Use the `re-frame.trace.tooling` ns — `rf/trace-buffer` is JVM-only and returns nil in the browser runtime.)
 
 ## A structured read came back blank

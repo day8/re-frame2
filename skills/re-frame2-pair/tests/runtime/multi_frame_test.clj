@@ -153,6 +153,31 @@
            (first app-fids))))))
 
 ;; ---------------------------------------------------------------------------
+;; Mirror of `ambiguous-frame-error` (rf2-n58jxo) — the enriched refusal
+;; envelope: operation, op-specific context, available app frames, the
+;; operating realm, the current pin, and the concrete fix.
+;;
+;; KEEP IN SYNC WITH preload/re_frame2_pair/runtime.cljs `ambiguous-frame-error`.
+;; ---------------------------------------------------------------------------
+
+(defn ambiguous-frame-error
+  ([operation] (ambiguous-frame-error operation nil))
+  ([operation extra]
+   (let [frames (app-frame-ids)]
+     (merge
+       {:ok?              false
+        :reason           :ambiguous-frame
+        :operation        operation
+        :available-frames frames
+        :operating-realm  (operating-realm)
+        :selected-frame   @selected-frame
+        :hint             (str "multiple app frames are registered and no frame is "
+                               "selected, so " (name operation) " cannot pick a target. "
+                               "Pass `frame` (one of " (pr-str frames) ") or pin one with "
+                               "`select-frame!` / set-operating-frame, then retry.")}
+       extra))))
+
+;; ---------------------------------------------------------------------------
 ;; Mirror of `subs-sample` — threads the resolved frame through
 ;; `subscribe` and refuses on :ambiguous-frame.
 ;;
@@ -164,8 +189,7 @@
   ([query-v frame-id]
    (cond
      (nil? frame-id)
-     {:ok? false :reason :ambiguous-frame
-      :hint "Multi-frame session with no selected frame — pass `frame-id` or call `select-frame!` first."}
+     (ambiguous-frame-error :subs-sample {:query query-v})
 
      :else
      (try
@@ -187,7 +211,8 @@
   ([event-v opts]
    (let [frame-id (or (:frame opts) (current-frame))]
      (when-not frame-id
-       (throw (ex-info "ambiguous frame" {:reason :ambiguous-frame})))
+       (throw (ex-info "ambiguous frame"
+                       (ambiguous-frame-error :dispatch {:event event-v}))))
      ;; Real impl runs `dispatch-sync` and walks epoch-history; for the
      ;; test the guard is the contract — return a success shape so the
      ;; non-ambiguous case still asserts something meaningful.
@@ -401,7 +426,18 @@
       (pair-dispatch-sync! [:cart/apply-coupon "SPRING25"])
       (is false "expected ex-info :ambiguous-frame to be thrown")
       (catch clojure.lang.ExceptionInfo e
-        (is (= :ambiguous-frame (:reason (ex-data e))))))))
+        (let [data (ex-data e)]
+          (is (= :ambiguous-frame (:reason data)))
+          ;; rf2-n58jxo — the throw carries the enriched diagnostics: the
+          ;; operation, the event being dispatched, the available app
+          ;; frames, the current pin, and a fix-bearing hint.
+          (is (= :dispatch (:operation data)))
+          (is (= [:cart/apply-coupon "SPRING25"] (:event data)))
+          (is (= #{:rf/default :stories} (set (:available-frames data)))
+              "available-frames enumerates the app frames the caller can pin")
+          (is (nil? (:selected-frame data)) "no pin set in an ambiguous session")
+          (is (re-find #"select-frame!|frame" (:hint data))
+              "hint names the fix"))))))
 
 (deftest pair-dispatch-sync-succeeds-on-single-frame
   (testing "single-frame session: pair-dispatch-sync! succeeds against :rf/default"
@@ -437,7 +473,11 @@
     (register-frame! :stories {:counter 1})
     (let [result (subs-sample [:counter])]
       (is (false? (:ok? result)))
-      (is (= :ambiguous-frame (:reason result))))))
+      (is (= :ambiguous-frame (:reason result)))
+      ;; rf2-n58jxo — enriched: operation, the query, the available frames.
+      (is (= :subs-sample (:operation result)))
+      (is (= [:counter] (:query result)))
+      (is (= #{:rf/default :stories} (set (:available-frames result)))))))
 
 (deftest subs-sample-reads-selected-frame
   (testing "select-frame! steers subs-sample to the chosen frame"

@@ -357,6 +357,27 @@ the common path; the dialect cost would tax the common case.
 - `:rf.mcp/cursor-stale` ⇒ drop the cursor; restart pagination from
   the head (same as cross-MCP cursor-staleness on story-mcp).
 
+#### `:ambiguous-frame` carries enriched diagnostics
+
+A multi-frame session with no resolvable operating frame refuses every
+read/mutate op with `:reason :ambiguous-frame`. Beyond the bare reason
+the envelope carries the context an agent needs to recover in one step
+(no `frames-list` / `discover-app` round-trip):
+
+| Slot                | Meaning                                                                 |
+|---------------------|-------------------------------------------------------------------------|
+| `:operation`        | The op that refused (`:dispatch`, `:dispatch-dry-run`, `:read-sub`, `:subs-sample`, `:sub-cache-info`, `:record`). |
+| `:event` / `:query` | The event-vector (dispatch) or query-vector (sub reads) the op was about to act on, when known. |
+| `:available-frames` | The registered **app** frames in the operating realm — the exact set the caller may pin or pass. |
+| `:operating-realm`  | The realm tier-3 resolution scopes to, so a multi-realm session sees which realm the candidates live in. |
+| `:selected-frame`   | The current session pin (nil = none) — whether a prior `select-frame!` is in effect. |
+| `:hint`             | The human sentence + the concrete fix (pass `frame`, or pin via `select-frame!` / `set-operating-frame`). |
+
+`:reason :ambiguous-frame` remains the SOLE machine discriminator (a
+bare-dialect reason); the additional slots are additive context. An
+agent pins one of `:available-frames` and retries, or passes it as the
+`frame` arg.
+
 **Every `:ok? false` response is `isError: true`.** A known-tool failure —
 whatever the dialect of its `:reason` — is returned with the `tools/call`
 result's `isError: true` flag set (API §Result shape; 001-Wire-Protocol

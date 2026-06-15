@@ -104,10 +104,14 @@
     (is (some? form))
     (doseq [slot [:unknown-id :ambiguous-frame :sub-error :not-a-sub-vector]]
       ;; :unknown-id is produced by validate-registered (called via
-      ;; validate-sub-id); the others are literal in read-sub!.
+      ;; validate-sub-id); :ambiguous-frame is now produced via the shared
+      ;; enriched builder `ambiguous-frame-error` (rf2-n58jxo) rather than an
+      ;; inline keyword; the others are literal in read-sub!.
       (is (or (form-contains? #(= slot %) form)
               (and (= slot :unknown-id)
-                   (form-contains? #(= 'validate-sub-id %) form)))
+                   (form-contains? #(= 'validate-sub-id %) form))
+              (and (= slot :ambiguous-frame)
+                   (form-contains? #(= 'ambiguous-frame-error %) form)))
           (str "read-sub! MUST surface " slot
                " (no silent nil — no-silent-swallow parity with dispatch).")))))
 
@@ -169,6 +173,16 @@
       (throw (ex-info "boom" {}))
       v)))
 
+;; Mirror of `ambiguous-frame-error` (rf2-n58jxo). The full runtime helper
+;; carries realm context; this read-sub mirror uses the simpler frame model
+;; (no realms) so it surfaces the load-bearing slots: operation, the query,
+;; the available frames, the current pin. KEEP THE SLOT CONTRACT IN SYNC.
+(defn ambiguous-frame-error [operation extra]
+  (merge {:ok? false :reason :ambiguous-frame :operation operation
+          :available-frames (vec (frame-ids))
+          :selected-frame @selected-frame}
+         extra))
+
 ;; Mirror of `read-sub!`. KEEP IN SYNC.
 (defn read-sub!
   ([query-v] (read-sub! query-v (current-frame)))
@@ -183,7 +197,7 @@
          (not (:ok? v)) (assoc v :subscribed? false)
 
          (nil? frame-id)
-         {:ok? false :reason :ambiguous-frame :query-v query-v}
+         (ambiguous-frame-error :read-sub {:query query-v :query-v query-v})
 
          :else
          (try
@@ -238,7 +252,12 @@
   (register-sub! :cart/total)
   (let [r (read-sub! [:cart/total])]
     (is (false? (:ok? r)))
-    (is (= :ambiguous-frame (:reason r)))))
+    (is (= :ambiguous-frame (:reason r)))
+    ;; rf2-n58jxo — enriched diagnostics on the refusal.
+    (is (= :read-sub (:operation r)))
+    (is (= [:cart/total] (:query r)))
+    (is (= #{:rf/default :rf/other} (set (:available-frames r)))
+        "available-frames enumerates the candidate frames")))
 
 (deftest sub-error-is-structured-not-nil
   ;; A sub handler that throws while computing returns :sub-error with the
