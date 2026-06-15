@@ -372,7 +372,7 @@ There is no second, handler-scope source. Earlier drafts described a **registrat
 - Replace `:explain` with `:rf/redacted` — the Malli explainer output carries the failing value verbatim under `:value` / `:errors[].value` and re-leaks it. Tools that want a structural error description without the value reach for the path (`:tags :path`) and the schema's id (`:tags :schema-id`).
 - Replace `:fx-args` with `:rf/redacted` on `:where :fx-args` emissions only — this slot is a per-surface doubled-id name for the failing value (semantically equivalent to `:received` on the fx surface; see Spec-Schemas `:rf.fx/handled`). Without redaction the fx-args slot would re-leak the value the `:value` / `:received` redactions just scrubbed.
 - Replace `:query-v` with `:rf/redacted` on `:where :sub-return` emissions only — this slot is the caller-supplied subscription query vector. On `:sensitive?`-marked subs the lookup key (the `(rest query-v)` payload) typically carries the same secret material the registered schema is gating — user ids, auth tokens, document ids. Without redaction the failure trace re-leaks the lookup-key payload alongside the failing return value the other clauses just scrubbed.
-- Stamp `:sensitive? true` in the trace event's `:tags` map. Consumers route on `(get-in trace-event [:tags :sensitive?])` until top-level hoisting lands ( is in flight in core; once landed, the runtime promotes `:tags :sensitive?` to the top-level `:sensitive?` slot per [009 §Trace-event field: `:sensitive?` at the top level](009-Instrumentation.md#trace-event-field-sensitive-at-the-top-level) — the schemas-side emit-site does not need to be revisited).
+- Stamp `:sensitive? true` in the trace event's `:tags` map. Consumers route on `(get-in trace-event [:tags :sensitive?])` until top-level hoisting lands (in flight in core); once landed, the runtime promotes `:tags :sensitive?` to the top-level `:sensitive?` slot per [009 §Trace-event field: `:sensitive?` at the top level](009-Instrumentation.md#trace-event-field-sensitive-at-the-top-level) — the schemas-side emit-site does not need to be revisited).
 
 Path-of-failure (`:tags :path`), failing handler id (`:tags :failing-id`), schema id (`:tags :schema-id`), and the human-readable `:reason` string remain unredacted — these are structural / categorical signals that do not carry user data, and consumers need them to locate the broken slot. Only the value-bearing slots (`:value`, `:received`, `:explain`, plus `:fx-args` on the fx surface and `:query-v` on the sub-return surface) are redacted.
 
@@ -740,11 +740,11 @@ The schemas-with-Malli delta is bounded by `malli.core`'s reachable body (~24 KB
 
 ### Schema-driven generative tests (post-v1)
 
-Most schema libraries ship generators that produce values matching a schema (Malli on CLJS, Zod with faker integrations on TS, Hypothesis on Python, etc.). A natural pattern: "for every event with a `:schema`, generate inputs and run the handler against a fixture frame, asserting `app-db` schemas hold." Documented as a property-based-testing pattern in [008-Testing.md](008-Testing.md) post-v1, tracked at.
+Most schema libraries ship generators that produce values matching a schema (Malli on CLJS, Zod with faker integrations on TS, Hypothesis on Python, etc.). A natural pattern: "for every event with a `:schema`, generate inputs and run the handler against a fixture frame, asserting `app-db` schemas hold." Documented as a property-based-testing pattern in [008-Testing.md](008-Testing.md) post-v1.
 
 ### Schema versioning (post-v1)
 
-Apps evolve; `app-db` shapes evolve; schemas evolve. Whether re-frame2 ships a versioning convention (e.g., `(reg-app-schema [:user] UserSchema {:version 3})`) for schema-aware migration tooling is post-v1; tracked at.
+Apps evolve; `app-db` shapes evolve; schemas evolve. Whether re-frame2 ships a versioning convention (e.g., `(reg-app-schema [:user] UserSchema {:version 3})`) for schema-aware migration tooling is post-v1.
 
 #### Post-v1 Tracking
 
@@ -757,7 +757,7 @@ Apps evolve; `app-db` shapes evolve; schemas evolve. Whether re-frame2 ships a v
 
 ### Boundary-validation interceptor naming
 
-Decision: **`:rf.schema/at-boundary`** (interceptor `:id` keyword; Var `re-frame.spec/validate-at-boundary-interceptor`, re-exported as `re-frame.core/validate-at-boundary-interceptor`). Originally landed as `:spec/at-boundary` (decided 2026-05-17) but renamed to `:rf.schema/at-boundary` at (2026-05-20) as part of the framework-wide `:spec` → `schema` vocabulary unification (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — `:rf.schema/*`). Alternatives considered at : `:spec/validate-validate-at-boundary-interceptor` (verbose; verb redundant with the namespace's action surface), `:spec/strict` (ambiguous — "strict" doesn't say *where* the strictness applies), `:spec/always` (misleading — the interceptor is opt-in per handler, not an always-on global). The picked tail (`validate-at-boundary-interceptor`) reads tight against the surrounding registry idiom where verbs are implicit and the keyword's local name is the *action surface*.
+Decision: **`:rf.schema/at-boundary`** (interceptor `:id` keyword; Var `re-frame.spec/validate-at-boundary-interceptor`, re-exported as `re-frame.core/validate-at-boundary-interceptor`). Originally landed as `:spec/at-boundary` (decided 2026-05-17) but renamed to `:rf.schema/at-boundary` (2026-05-20) as part of the framework-wide `:spec` → `schema` vocabulary unification (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) — `:rf.schema/*`). Alternatives considered: `:spec/validate-validate-at-boundary-interceptor` (verbose; verb redundant with the namespace's action surface), `:spec/strict` (ambiguous — "strict" doesn't say *where* the strictness applies), `:spec/always` (misleading — the interceptor is opt-in per handler, not an always-on global). The picked tail (`validate-at-boundary-interceptor`) reads tight against the surrounding registry idiom where verbs are implicit and the keyword's local name is the *action surface*.
 
 ### Schema migration on hot-reload
 

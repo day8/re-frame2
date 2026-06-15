@@ -189,6 +189,8 @@ A malformed value (a non-vector, or an entry that is neither a keyword nor an `[
 
 The shape of one entry in a public event/frame `:interceptors` chain ([EP-0022](../docs/EP/EP-0022-registered-interceptors.md)). A chain is a `[:vector InterceptorRef]`. An entry is one of two shapes: a bare keyword id (a static registered interceptor) or a 2-vector `[id arg]` (a parameterized `:factory` interceptor). **Parameterized refs carry exactly ONE argument** (per [EP-0012](../docs/EP/EP-0012-path-optics-and-canonical-forms.md)); a factory needing multiple inputs takes a single composite vector/map arg. The `arg` MUST be an EDN/CEDN-1 value when the ref appears in any serialized program-description surface (app value, frame config, story, replay fixture, SSR artifact); **exact-reference override matching depends on canonical argument identity** (CEDN-1, [Conventions §Canonical byte encoding](Conventions.md#canonical-byte-encoding-cedn-1)).
 
+The schema-id value of this `:rf/interceptor-ref` entry is `InterceptorRef` (the single chain-entry shape). `InterceptorArg`, `InterceptorChain`, and `InterceptorOverrides` are co-defined here as named sibling shapes of the same interceptor-reference vocabulary — referenced inline above (`InterceptorChain` is `[:vector InterceptorRef]`, the `:interceptors` value; `InterceptorOverrides` is the `:interceptor-overrides` map) — rather than as separately `[:ref]`-able registered ids; `:interceptors` slots reference `InterceptorRef` directly and wrap it in a `[:vector …]` at the use site.
+
 ```clojure
 (def InterceptorRef
   ;; One entry in a public :interceptors chain (event metadata or frame metadata).
@@ -221,6 +223,44 @@ A chain entry that is neither a keyword nor an `[id arg]` 2-vector is `:rf.error
 
 > **Envelope schemas (`:rf/dispatch-envelope` / `:rf/dispatch-opts`) above carry `[:interceptor-overrides {:optional true} [:map-of :keyword :any]]`** as a deliberately wide upper bound. The narrowed public shape is `InterceptorOverrides` (refs as keys; ref-or-`nil` values); the dispatch-envelope's `[:interceptors {:optional true} [:vector :any]]` slot is the **frame-level** ref chain copied onto the envelope, NOT a per-call additive surface — additive dispatch-opts `:interceptors` is removed (EP-0022, [002 §Dispatch-option restrictions](002-Frames.md#dispatch-option-restrictions)).
 
+### `:rf/interceptor-descriptor` (the `reg-interceptor` descriptor body, EP-0022)
+
+> **Layer:** Public (input forms)
+> **Owner:** [001-Registration §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar)
+> **Status:** v1-required
+
+The interceptor **descriptor** — the third positional argument of `reg-interceptor` ([EP-0022](../docs/EP/EP-0022-registered-interceptors.md), [001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar)). It is one of four shapes: the three **static** forms (`{:before f}` / `{:after f}` / `{:before f :after f}`) and the **`:factory`** form (`{:factory f}`, a parameterized interceptor family whose factory receives exactly ONE arg, per [`:rf/interceptor-ref`](#rfinterceptor-ref-the-interceptor-reference-ep-0022)). A `:factory` MUST NOT also carry `:before` / `:after` (the two are mutually exclusive — a `:factory`+static mix is ambiguous and rejected). The descriptor is the registration's stored body — it lives **alongside** the metadata map (stamped at the runtime-reserved `:rf/interceptor-descriptor` slot on the registration entry), not as a key inside [`:rf/interceptor-meta`](#rfinterceptor-meta). `handler-meta :interceptor` retains it so tooling can introspect the descriptor shape.
+
+```clojure
+(def InterceptorDescriptor
+  ;; The reg-interceptor third-arg body — a static descriptor or a :factory.
+  ;; Stored at the runtime-reserved :rf/interceptor-descriptor slot, alongside
+  ;; (not inside) the :rf/interceptor-meta registration metadata map. EP-0022.
+  [:or
+   [:map [:before fn?]]                               ;; static — :before only
+   [:map [:after  fn?]]                               ;; static — :after only
+   [:map [:before fn?] [:after fn?]]                  ;; static — :before + :after
+   [:map [:factory fn?]]])                            ;; parameterized family; factory takes exactly ONE arg
+```
+
+A descriptor matching none of the four shapes (a non-map, an `:id`-only map, a `:factory`+`:before`/`:after` mix) is `:rf.error/invalid-interceptor` at registration. **Migration boundary only** ([001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar)): `descriptor` MAY also be an existing interceptor **value** carrying implementation-private slots (a map with `:before` / `:after`); if it carries an `:id` that id MUST equal the positional registration id (`:rf.error/invalid-interceptor` otherwise). This value-at-the-boundary tolerance is confined to the `reg-interceptor` call site — public event/frame chains carry refs ([`:rf/interceptor-ref`](#rfinterceptor-ref-the-interceptor-reference-ep-0022)), never inline values.
+
+### `:rf.interceptor/path` (the standard path interceptor's factory arg, EP-0022)
+
+> **Layer:** Public (input forms)
+> **Owner:** [002-Frames §Standard `:rf.interceptor/path`](002-Frames.md#standard-rfinterceptorpath)
+
+The argument carried by the one standard framework interceptor reference, `[:rf.interceptor/path <path-vector>]` (the canonical `:factory` consumer, [EP-0022](../docs/EP/EP-0022-registered-interceptors.md), [002 §Standard `:rf.interceptor/path`](002-Frames.md#standard-rfinterceptorpath)). The single factory arg is an [`:rf/path`](#rfpath-rfpath-template-the-path-algebra-ep-0012) (EP-0012) — the app-db sub-slice the handler is focused onto.
+
+```clojure
+(def PathInterceptorArg
+  ;; The arg in `[:rf.interceptor/path <path-vector>]`. A concrete :rf/path —
+  ;; a vector of portable-EDN segments naming an app-db sub-slice. EP-0022.
+  Path)                                               ;; Path = :rf/path (see :rf/path below)
+```
+
+A non-vector or otherwise malformed path arg is `:rf.error/path-interceptor-bad-path` — raised by the standard path `:factory` at chain assembly (and at registration-time ref validation), and propagated verbatim through `resolve-factory` rather than masked as `:rf.error/interceptor-factory-arity` (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)).
+
 ### `:rf/registration-metadata`
 
 > **Layer:** Public
@@ -233,7 +273,7 @@ Common shape for the metadata map every `reg-*` accepts in its middle slot.
 (def RegistrationMetadata
   [:map
    [:doc        {:optional true} :string]                                  ;; SHOULD per [001 §:doc is dev-warned when absent]; structurally optional so re-registrations and programmatic paths still validate
-   [:schema     {:optional true} :any]                                     ;; Malli schema (or implementation equivalent) — canonical key per 
+   [:schema     {:optional true} :any]                                     ;; Malli schema (or implementation equivalent) — `:schema` is the canonical key (the v1 `:spec` is renamed; see MIGRATION §M-54)
    [:ns         {:optional true} :symbol]                                  ;; auto-supplied by macros — flat per [§`:rf/source-coord-meta`](#rfsource-coord-meta)
    [:line       {:optional true} :int]
    [:column     {:optional true} :int]
@@ -257,6 +297,8 @@ Each per-kind schema below `:merge`s `:rf/registration-metadata` and adds the ke
 #### `:rf/event-handler-meta`
 
 > **Layer:** Public
+> **Owner:** [001-Registration §The one event form](001-Registration.md#the-one-event-form--coeffects-in-effects-out)
+> **Status:** v1-required
 
 The metadata map accepted by `reg-event` — the one public event-registration form (per [EP-0018](../docs/EP/EP-0018-one-event-registration.md); coeffects in, effects out). There is **no public `:event/kind` sub-discriminator** (EP-0018 D5 — no static effects signal; tools read traces and effect projections); machine-handler registrations stamp `:rf/machine?` and `:rf/machine` per [005 §Registration-metadata stamp](005-StateMachines.md#registration--the-machine-is-the-event-handler).
 
@@ -265,10 +307,10 @@ The metadata map accepted by `reg-event` — the one public event-registration f
   [:merge
    RegistrationMetadata
    [:map
-    [:interceptors     {:optional true} [:ref :rf/interceptor-ref]]          ;; the interceptor-REF chain (superset middle slot; refs not inline values — EP-0022; rf2-bpmszk / rf2-iczn3). The [:ref :rf/interceptor-ref] resolves to InterceptorChain ([:vector InterceptorRef])
+    [:interceptors     {:optional true} [:vector [:ref :rf/interceptor-ref]]] ;; the interceptor-REF CHAIN (superset middle slot; refs not inline values — EP-0022). A vector of references — the InterceptorChain shape ([:vector InterceptorRef]); the framework appends its `:rf/default?`-stamped handler-wrapper to the tail.
     [:rf.cofx/requires {:optional true} [:ref :rf.cofx/requires]]            ;; EP-0017 — declared consumed coeffects (uniform on reg-event; no db-handler exception per EP-0018)
     [:rf/machine?      {:optional true} :boolean]                            ;; true iff this :event entry is a machine handler (reg-machine path)
-    [:rf/machine       {:optional true} [:ref :rf/machine-spec]]             ;; the captured machine spec (when :rf/machine? true); see [005](005-StateMachines.md)
+    [:rf/machine       {:optional true} [:ref :rf/transition-table]]         ;; the captured machine spec (when :rf/machine? true) — a :rf/transition-table; see [005](005-StateMachines.md)
     ]])
 ```
 
@@ -277,6 +319,8 @@ The interceptor chain is the reserved `:interceptors` key — the superset middl
 #### `:rf/sub-meta`
 
 > **Layer:** Public
+> **Owner:** [006-ReactiveSubstrate §Layer-1, layer-2, layer-3 sub semantics](006-ReactiveSubstrate.md#layer-1-layer-2-layer-3-sub-semantics)
+> **Status:** v1-required
 
 The metadata map accepted by `reg-sub`. The `:<-` chain is **not** a metadata-map key — it is the alternating-keyword/query-vector positional arg between the metadata-map and the body fn (per [006 §Layer-1, layer-2, layer-3 sub semantics](006-ReactiveSubstrate.md#layer-1-layer-2-layer-3-sub-semantics)). Tools recover the input topology from the runtime-stamped `:rf/inputs` slot below.
 
@@ -299,6 +343,8 @@ The metadata map accepted by `reg-sub`. The `:<-` chain is **not** a metadata-ma
 #### `:rf/fx-meta`
 
 > **Layer:** Public
+> **Owner:** [001-Registration §Registration grammar](001-Registration.md#registration-grammar)
+> **Status:** v1-required
 
 The metadata map accepted by `reg-fx`. Carries `:platforms` per [011 §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx).
 
@@ -316,6 +362,8 @@ The metadata map accepted by `reg-fx`. Carries `:platforms` per [011 §`:platfor
 #### `:rf/cofx-meta`
 
 > **Layer:** Public
+> **Owner:** [001-Registration §Coeffects](001-Registration.md#coeffects--reg-cofx-value-returning-graded)
+> **Status:** v1-required
 
 The metadata map accepted by `reg-cofx`. Carries the EP-0017 **grade** keys (`:recordable?` / `:provided?`), `:schema` (validates supplied and replayed values — the validation step is slice-B-built), and `:platforms` mirroring `reg-fx` per [011 §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx). The supplier is **value-returning** (`(fn [] v)` / `(fn [arg] v)`); its arity (0 vs 1) is **fn-shape, not metadata** — the resolver detects arity and routes the optional `[id arg]` requirement-arg accordingly. Tools that need the arity discriminator inspect the fn's arity directly. Grades and the registrar contract are owned by [001 §Coeffects](001-Registration.md#coeffects--reg-cofx-value-returning-graded).
 
@@ -335,6 +383,8 @@ The metadata map accepted by `reg-cofx`. Carries the EP-0017 **grade** keys (`:r
 #### `:rf/interceptor-meta`
 
 > **Layer:** Public
+> **Owner:** [001-Registration §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar)
+> **Status:** v1-required
 
 The metadata map accepted by `reg-interceptor` ([EP-0022](../docs/EP/EP-0022-registered-interceptors.md), [001 §Interceptors](001-Registration.md#interceptors--reg-interceptor-the-interceptor-registrar)). The standard registration-metadata keys only — `reg-interceptor` adds no per-kind metadata keys beyond the base shape. The interceptor **descriptor** (`{:before}` / `{:after}` / `{:before :after}` / `{:factory}`) is the registration's stored body, not a metadata-map key; `handler-meta :interceptor` returns this metadata-map plus the source coordinate.
 
@@ -348,6 +398,8 @@ The metadata map accepted by `reg-interceptor` ([EP-0022](../docs/EP/EP-0022-reg
 #### `:rf/view-meta`
 
 > **Layer:** Public
+> **Owner:** [004-Views §Shape](004-Views.md#shape)
+> **Status:** v1-required
 
 The metadata map accepted by `reg-view` / `reg-view*`. The `^{:rf/id ...}` symbol-meta override on the `reg-view` symbol surfaces in the stamped registry slot as `:rf/id` per [004 §Shape](004-Views.md#shape).
 
@@ -370,6 +422,8 @@ The metadata map accepted by `reg-view` / `reg-view*`. The `^{:rf/id ...}` symbo
 #### `:rf/machine-meta`
 
 > **Layer:** Public
+> **Owner:** [005-StateMachines §Registration-metadata stamp](005-StateMachines.md#registration--the-machine-is-the-event-handler)
+> **Status:** v1-required
 
 The metadata stamped on the `:event` registry slot by `reg-machine` / `reg-machine*` (per [005 §Registration-metadata stamp](005-StateMachines.md#registration--the-machine-is-the-event-handler)). This is the **registry-slot metadata** — `:rf/machine?` discriminates a machine handler from an ordinary event handler in `(registrations :event)` queries; the captured machine spec rides at `:rf/machine` and conforms to [`:rf/transition-table`](#rftransition-table) extended with the root-only `:guards` / `:actions` / `:data` / `:doc` slots per [005 §Transition table grammar](005-StateMachines.md#transition-table-grammar).
 
@@ -395,6 +449,8 @@ Visualisers walking the transition table consume `(machine-meta id)`; tools need
 #### `:rf/flow-meta`
 
 > **Layer:** Public
+> **Owner:** [013-Flows §The registration shape](013-Flows.md#the-registration-shape)
+> **Status:** v1-required
 
 The registration-shape accepted by `reg-flow`. Unlike the other kinds, `reg-flow` takes the flow **as a single map** (no separate metadata-map / handler slot) — the map carries both the wiring (`:id`, `:inputs`, `:output`, `:path`) and the registration metadata (`:doc`, `:schema`, source coords) per [013 §The registration shape](013-Flows.md#the-registration-shape).
 
@@ -420,6 +476,8 @@ The registration-shape accepted by `reg-flow`. Unlike the other kinds, `reg-flow
 #### `:rf/app-schema-meta`
 
 > **Layer:** Public
+> **Owner:** [010-Schemas §The four normative claims](010-Schemas.md#the-four-normative-claims)
+> **Status:** v1-required
 
 The metadata stamped on the schemas artefact's per-frame side-table entry by `reg-app-schema` (per [010 §`reg-app-schema`](010-Schemas.md); per rf2-cq1ak app-db schemas are NOT a registrar kind — the schemas artefact's per-frame side-table is the single source of truth). The `:path` and `:schema` fields are runtime-stamped from the positional args — user code passes `(rf/reg-app-schema path schema)` rather than `(rf/reg-app-schema id {:path ... :schema ...})`.
 
@@ -453,6 +511,8 @@ The reserved set is **fixed-and-additive**: new per-slot keys ship by spec chang
 #### `:rf/head-meta`
 
 > **Layer:** Public
+> **Owner:** [011-SSR §Mechanism — registered head function + route metadata](011-SSR.md#mechanism--registered-head-function--route-metadata)
+> **Status:** v1 (optional capability)
 
 The metadata map accepted by `reg-head` (per [011 §Mechanism — registered head function + route metadata](011-SSR.md#mechanism--registered-head-function--route-metadata)). The head fn itself is `(fn [db route] head-model)` — pure, JVM-runnable, value-shaped.
 
@@ -470,6 +530,8 @@ The metadata map accepted by `reg-head` (per [011 §Mechanism — registered hea
 #### `:rf/error-projector-meta`
 
 > **Layer:** Public
+> **Owner:** [011-SSR §Server error projection](011-SSR.md#server-error-projection)
+> **Status:** v1 (optional capability)
 
 The metadata map accepted by `reg-error-projector` (per [011 §Server error projection](011-SSR.md#server-error-projection)). The projector fn itself is `(fn [trace-event] public-error-map)` — pure, value-shaped. The projector named in a frame's `:ssr {:public-error-id ...}` metadata is that frame's active projector.
 
@@ -486,6 +548,8 @@ The metadata map accepted by `reg-error-projector` (per [011 §Server error proj
 #### `:rf/http-interceptor-meta`
 
 > **Layer:** Public
+> **Owner:** [014-HTTPRequests §Middleware](014-HTTPRequests.md#middleware)
+> **Status:** v1 (optional capability)
 
 The metadata stored in the per-frame interceptor slot for a registration made via `reg-http-interceptor` (per [014 §Middleware](014-HTTPRequests.md#middleware)). Per rf2-uheqq (shape iii) the call surface is `(reg-http-interceptor id interceptor-map)` — a single interceptor-map carrying at least one of `:before` / `:after` plus optional `:frame` and any `:rf/registration-metadata` keys. Unlike the other per-kind shapes, HTTP interceptors are stored in a **per-frame side-table** (keyed by `:frame`) rather than in the global registrar — the registrar slot for `:http-interceptor` is intentionally absent. The schema describes the shape of each slot in that side-table.
 
