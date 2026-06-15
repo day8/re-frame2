@@ -1045,7 +1045,7 @@ The `dispatch` / `subscribe` macros are the canonical invocation surface in user
 
 Future macros that want fn partners follow the same convention.
 
-The convention applies **only where adding the `*` partner buys something** — call-site stamping the macro performs that the fn-form must skip, per-element source-coord walks (`reg-machine`), or defn-shape expansion the macro performs (`reg-view`). For the other `reg-*` registrations (`reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-frame`, `reg-flow`, `reg-route`, `reg-app-schema`, `reg-app-schemas`) the CLJS fn-alias lives under the macro's **own name** (per `re-frame.core` CLJS aliases): the macro stamps source-coords from `&form` on JVM; on CLJS, HoF / programmatic callers reach the same name as a plain fn (the call-site stamp is the only thing they lose). Adding a `reg-event*` synonym would be a pure alias and add no value; that's not done. (See [Cross-Spec-Interactions §Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier) for why the family is intentionally asymmetric.)
+The convention applies **only where adding the `*` partner buys something** — call-site stamping the macro performs that the fn-form must skip, per-element source-coord walks (`reg-machine`), or defn-shape expansion the macro performs (`reg-view`). For the other `reg-*` registrations (`reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-frame`, `reg-flow`, `reg-route`, `reg-app-schema`, `reg-app-schemas`) the CLJS fn-alias lives under the macro's **own name** (per `re-frame.core` CLJS aliases): the macro stamps source-coords from `&form` on JVM; on CLJS, HoF / programmatic callers reach the same name as a plain fn (the call-site stamp is the only thing they lose). Adding a `reg-event*` synonym would be a pure alias and add no value; that's not done. (See [Cross-Spec-Interactions §Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-and-reg-interceptor-have-a-macro-tier) for why the family is intentionally asymmetric.)
 
 **Coverage is asymmetric on purpose — and the asymmetry is invisible from a scan of the API.** A reader sees `dispatch*` / `subscribe*` / `reg-view*` / `reg-machine*` and may infer a uniform convention; reaching for `reg-event*` then fails to resolve. The asymmetry is principled (only the macros above have a reason for a `*` partner) but easy to misread — surface this footnote when documenting new `reg-*` rows in [`spec/API.md`](API.md) §Registration.
 
@@ -1061,7 +1061,7 @@ The discriminator is mechanical, not stylistic. Every public surface that *looks
 
 A Var bound to a pre-built interceptor map ([§Standard interceptors](API.md#standard-interceptors), [§`reg-event` interceptor chain](#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event)). Calling such a Var as a fn (`(rf/validate-at-boundary-interceptor ...)`) raises `ArityException`.
 
-Current Class-1 surfaces in [API.md](API.md): `validate-at-boundary-interceptor` (Spec 010 — production-boundary schema validation), `unwrap` (Spec 004 — `[id payload-map]` unwrapping sugar). The factory `(rf/redact-interceptor paths)` (Spec 009 — payload-key redaction on the trace surface) is a *fn that returns* a Class-1 value; the **returned interceptor value** is the Class-1 artefact, and it inherits the rule below.
+Current Class-1 surfaces in [API.md](API.md): `validate-at-boundary-interceptor` (Spec 010 — production-boundary schema validation). The factory `(rf/redact-interceptor paths)` (Spec 009 — payload-key redaction on the trace surface) is a *fn that returns* a Class-1 value; the **returned interceptor value** is the Class-1 artefact, and it inherits the rule below.
 
 **Rule.** Class-1 surfaces MUST carry the `-interceptor` suffix on the Var name. The suffix telegraphs *value-shape* at the call site — a reader scanning an `:interceptors` vector sees the suffix and knows the slot holds a pre-built interceptor map, not a fn that needs invoking. The factory variant (`redact-interceptor` style) returns a `-interceptor`-suffixed value; the factory itself does not carry the suffix because it IS a fn.
 
@@ -1069,8 +1069,7 @@ Current Class-1 surfaces in [API.md](API.md): `validate-at-boundary-interceptor`
 ;; correct — suffix telegraphs value-shape
 (rf/reg-event :cart.item/add
   {:interceptors [at-boundary-interceptor                  ;; Var · value
-                  (redact-interceptor [[:credit-card]])    ;; factory returns value
-                  unwrap-interceptor]}                     ;; Var · value
+                  (redact-interceptor [[:credit-card]])]}  ;; factory returns value
   (fn [{:keys [db]} payload] {:db ...}))
 
 ;; reading this without the convention — is `validate-at-boundary-interceptor` a fn? a Var? Did the
@@ -1193,7 +1192,7 @@ Render trees use Vars; runtime lookups use ids. `reg-view` bridges them — auto
 [(rf/view :feature/widget) "x"]      ;; render tree — splice the looked-up fn
 ```
 
-A bare `[:keyword args]` head in a render tree is an **HTML element** (Reagent's existing semantics) — the runtime does not intercept the keyword case to dispatch via the views registry. See [Spec 004 §Calling a registered view](004-Views.md#calling-a-registered-view) and [Cross-Spec-Interactions §21 Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier).
+A bare `[:keyword args]` head in a render tree is an **HTML element** (Reagent's existing semantics) — the runtime does not intercept the keyword case to dispatch via the views registry. See [Spec 004 §Calling a registered view](004-Views.md#calling-a-registered-view) and [Cross-Spec-Interactions §21 Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-and-reg-interceptor-have-a-macro-tier).
 
 ## React keys: stable per-row identity, never positional, when rows can mutate
 

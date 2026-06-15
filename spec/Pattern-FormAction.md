@@ -156,11 +156,11 @@ An app-owned `:app.csrf/active-token` cofx exposes the session token to action h
 ```clojure
 ;; App-owned — re-frame2 ships no CSRF cofx. Register under your app's prefix.
 (rf/reg-cofx :app.csrf/active-token
-  {:doc       "The active CSRF token from the session. Server only."
-   :platforms #{:server}}
-  (fn [coeffects _]
-    (assoc coeffects :app.csrf/active-token
-           (get-in coeffects [:rf.server/request :session :csrf-token]))))
+  {:doc         "The active CSRF token from the session. Server only."
+   :platforms   #{:server}
+   :recordable? true}
+  (fn []                                            ;; value-returning supplier (EP-0017)
+    (get-in *current-request* [:session :csrf-token])))
 ```
 
 Token rotation, double-submit-vs-sync-pattern, and cookie attributes (`SameSite=Lax`, `HttpOnly`, `Secure`) are host concerns — the pattern names *where* the check happens (in the action handler, before any state mutation), not *which* token scheme the app uses.
