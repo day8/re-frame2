@@ -347,6 +347,43 @@
   (when-let [deliver-tooling (late-bind/get-fn-cached :trace.tooling/deliver!)]
     (deliver-tooling event)))
 
+(defn- hoist-projected-sensitive
+  "Hoist a marks-projection-stamped `[:tags :sensitive?]` up to the
+  envelope's TOP LEVEL (and strip it from `:tags`), mirroring the
+  `build-event` posture.
+
+  Why this is load-bearing (rf2-md2wn0 — privacy correctness): some
+  projection clauses decide sensitivity DURING marks projection rather
+  than at emit time, and stamp `[:tags :sensitive?]` there — e.g.
+  `re-frame.marks/project-machine-error-tags` (a sensitive machine's
+  `:exception-data`) and `project-sub-tags` (a propagation-sensitive
+  sub output that fails closed on a nil frame). Marks projection runs
+  AFTER `build-event`, so `compute-sensitive?` never saw that signal
+  and the top-level `:sensitive?` flag is absent.
+
+  The MCP egress gate (`re-frame.mcp-base.sensitive/sensitive-event?`)
+  reads the TOP-LEVEL `:sensitive?` only (Spec 009 §Privacy — the
+  `:rf/trace-event` schema types `:sensitive?` at the root). Without
+  this hoist a projection-classified-sensitive event egresses as
+  non-sensitive: `strip-sensitive` does NOT drop it when the boot gate
+  is OFF (include? false), the fail-closed whole-event drop never
+  fires, and per-slot redaction is the only line of defence. This hoist
+  restores the defence-in-depth contract uniformly for EVERY projection
+  clause that stamps `[:tags :sensitive?]` — present and future.
+
+  Caller-supplied / scope-derived sensitivity already hoisted by
+  `build-event` is untouched: that path strips `:sensitive?` from
+  `:tags` BEFORE delivery, so a tag-level flag here can only be one a
+  projection clause added. We OR with any existing top-level flag so a
+  prior hoist is never demoted."
+  [event]
+  (if (and (map? event)
+           (true? (some-> event :tags :sensitive?)))
+    (-> event
+        (assoc :sensitive? true)
+        (update :tags dissoc :sensitive?))
+    event))
+
 (defn- maybe-project-marks
   "Apply the data-classification marks projection if the marks
   artefact is loaded. Per Spec 015 §Implementation notes
@@ -356,12 +393,17 @@
   when the marks artefact is absent the hook is unbound and this is
   a no-op pass-through. Inside the existing `interop/debug-enabled?`
   gate (in `emit!`) so production builds DCE the hook lookup along
-  with the rest of the trace emit."
+  with the rest of the trace emit.
+
+  After projection, `hoist-projected-sensitive` lifts any
+  projection-stamped `[:tags :sensitive?]` to the top level
+  (rf2-md2wn0) so the MCP egress gate — which reads the top-level flag
+  — fails closed on projection-classified-sensitive events."
   [event]
   ;; Sticky hook (rf2-f72pd) — `:marks/project-trace-event` is
   ;; published once at re-frame.marks load and never withdrawn.
   (if-let [project (late-bind/get-fn-cached :marks/project-trace-event)]
-    (project event)
+    (hoist-projected-sensitive (project event))
     event))
 
 (defn emit!
