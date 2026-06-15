@@ -11,6 +11,9 @@ See [`../README.md`](../README.md) for the wider adapter tier and the substrate 
 - `re-frame.adapter.helix/use-subscribe` — Helix hook returning the current value of a subscription; re-renders the calling component when the value changes. Resolves the frame from the surrounding `frame-provider` via React context. Override via the 2-arg form to pin to an explicit frame-id.
 - `re-frame.adapter.helix/frame-provider` — provider component that scopes a child tree to a named frame.
 - `re-frame.adapter.helix/flush-views!` — test helper; wraps React's `act()` to flush pending renders synchronously.
+- `re-frame.adapter.helix/use-current-frame` — Helix hook returning the current frame keyword from the surrounding React context (the narrow raw `useContext` read), or the no-provider sentinel when no `frame-provider` sits above. For the full resolution chain, prefer `(rf/current-frame-id)`.
+- `re-frame.adapter.helix/set-hiccup-emitter!` — installs a render-tree → HTML fn for `render-to-string`; idempotent. SSR consumers call this to wire the hiccup emitter explicitly.
+- `re-frame.adapter.helix/wrap-view` — wraps a Helix-shape user component to inject the `data-rf2-source-coord` attribute on the rendered root DOM element when debug is enabled; elided in production builds.
 
 ## Imperative escape hatch — when you need a DOM lifecycle
 
