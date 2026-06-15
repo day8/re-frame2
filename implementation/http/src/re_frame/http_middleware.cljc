@@ -69,7 +69,8 @@
   `re-frame.flows.registry`'s private `flows` atom + the
   `flows-snapshot` accessor). Frame-scoped: an interceptor registered
   against frame A does not fire for a request dispatched from frame B."
-  (:require [re-frame.frame        :as frame]
+  (:require [re-frame.error        :as error]
+            [re-frame.frame        :as frame]
             [re-frame.http-encoding :as encoding]
             [re-frame.http-privacy :as privacy]
             [re-frame.interop      :as interop]
@@ -164,11 +165,10 @@
   Returns the registered `id`."
   [id interceptor-map]
   (when-not (valid-args? id interceptor-map)
-    (throw (ex-info ":rf.error/http-bad-interceptor"
-                    {:where    'rf/reg-http-interceptor
-                     :recovery :no-recovery
-                     :received {:id id :interceptor-map interceptor-map}
-                     :reason   "expected (reg-http-interceptor id interceptor-map): id keyword; interceptor-map a map carrying at least one of :before / :after (each a fn), optional :frame keyword, optional :rf/registration-metadata"})))
+    (error/throw-error!
+      :rf.error/http-bad-interceptor 'rf/reg-http-interceptor
+      "expected (reg-http-interceptor id interceptor-map): id keyword; interceptor-map a map carrying at least one of :before / :after (each a fn), optional :frame keyword, optional :rf/registration-metadata"
+      {:extra {:received {:id id :interceptor-map interceptor-map}}}))
   (let [frame-id  (or (:frame interceptor-map)
                       ;; EP-0002 — HTTP interceptor registration is
                       ;; CONTEXT-REQUIRED FRAME-LOCAL: the explicit `:frame`
@@ -282,36 +282,39 @@
             (let [out (invoke slot acc)]
               (if (map? out)
                 out
-                ;; Canonical thrown-error shape (Spec 009): message is
-                ;; the stringified discriminator kw; the descriptive
-                ;; sentence (naming the offending interceptor id) rides
-                ;; on :reason. The outer wrapper carries :interceptor-id
-                ;; so a chain failure is locatable via ex-data; the :id
-                ;; key here is kept for programmatic consumers.
-                (throw (ex-info ":rf.error/http-interceptor-bad-return"
-                                {:rf.error/id :rf.error/http-interceptor-bad-return
-                                 :where       'rf/reg-http-interceptor
-                                 :recovery    :no-recovery
-                                 :reason      (str "interceptor " id " " slot-noun)
-                                 :id          id
-                                 :returned    out}))))
+                ;; Canonical thrown-error shape (Spec 009 / rf2-vvixub): the
+                ;; central builder derives the message from :reason + the
+                ;; [:rf.error/<id>] token, so the human sentence (naming the
+                ;; offending interceptor id) leads the message. The outer
+                ;; wrapper carries :interceptor-id so a chain failure is
+                ;; locatable via ex-data; the :id key here is kept for
+                ;; programmatic consumers.
+                (error/throw-error!
+                  :rf.error/http-interceptor-bad-return 'rf/reg-http-interceptor
+                  (str "HTTP interceptor `" id "` " slot-noun ". A `:before` / "
+                       ":after` HTTP interceptor (Spec 014 §Middleware) must "
+                       "return a map (the threaded request / response ctx); "
+                       "return the (possibly transformed) ctx, not " (pr-str out) ".")
+                  {:extra {:id id :returned out}})))
             (catch #?(:clj Throwable :cljs :default) t
-              (let [data (ex-info ":rf.error/http-interceptor-failed"
-                                  (cond-> {:where    where
-                                           :recovery :no-recovery
-                                           :frame    frame-id
-                                           :interceptor-id id
-                                           :url      (url-of acc)
-                                           ;; Prefer the inner throw's :reason
-                                           ;; (a human sentence naming the
-                                           ;; offending interceptor) over the
-                                           ;; raw message — canonical throws
-                                           ;; stringify the discriminator kw as
-                                           ;; their message.
-                                           :cause    (or (:reason (ex-data t))
-                                                         #?(:clj  (.getMessage ^Throwable t)
-                                                            :cljs (.-message t)))}
-                                    phase (assoc :phase phase)))]
+              (let [cause  (or (:reason (ex-data t))
+                               #?(:clj  (.getMessage ^Throwable t)
+                                  :cljs (.-message t)))
+                    ;; Prefer the inner throw's :reason (a human sentence
+                    ;; naming the offending interceptor) over the raw message.
+                    reason (str "HTTP interceptor `" id "` threw while processing "
+                                "the " (if phase (name phase) "request / response")
+                                " chain for `" frame-id "`. Fix the interceptor's "
+                                "handler so it does not throw (Spec 014 "
+                                "§Middleware)."
+                                (when cause (str " Cause: " cause)))
+                    data   (error/thrown-ex-info
+                             :rf.error/http-interceptor-failed where reason
+                             {:extra (cond-> {:frame          frame-id
+                                              :interceptor-id id
+                                              :url            (url-of acc)
+                                              :cause          cause}
+                                       phase (assoc :phase phase))})]
                 (when interop/debug-enabled?
                   ;; rf2-1jcpm — route through the privacy composer so a
                   ;; denylisted query param (`?api_key=…`) is scrubbed

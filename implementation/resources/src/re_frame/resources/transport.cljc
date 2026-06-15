@@ -14,7 +14,8 @@
   The transport dispatch lives here; the runtime's ensure/refetch →
   work-ledger-record → managed-HTTP lowering routes through `lower-ensure`
   into the sibling `re-frame.resources.transport.http`."
-  (:require [re-frame.resources.transport.http :as http]))
+  (:require [re-frame.error :as error]
+            [re-frame.resources.transport.http :as http]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -51,12 +52,11 @@
   (let [transport (or transport default-transport)]
     (if (= transport managed-http-transport)
       (http/lower ensure-ctx)
-      (throw (ex-info ":rf.error/resource-unknown-transport"
-                      {:rf.error/id :rf.error/resource-unknown-transport
-                       :where       're-frame.resources.transport/lower-ensure
-                       :recovery    :fix-registration
-                       :reason      (str "unknown resource transport " transport
-                                         " — the only initial-scope transport is "
-                                         managed-http-transport
-                                         " (Spec 016 §Transport).")
-                       :transport   transport})))))
+      (error/throw-error!
+        :rf.error/resource-unknown-transport 're-frame.resources.transport/lower-ensure
+        (str "unknown resource transport " transport
+             " — the only initial-scope transport is "
+             managed-http-transport
+             " (Spec 016 §Transport).")
+        {:recovery :fix-registration
+         :extra    {:transport transport}}))))

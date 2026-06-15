@@ -1229,9 +1229,8 @@
                            nil
                            (catch clojure.lang.ExceptionInfo e e))]
           (is (some? ex) "the url-erasing :before made the stub throw")
-          (is (= ":rf.error/http-bad-request" (.getMessage ex))
+          (is (= :rf.error/http-bad-request (:rf.error/id (ex-data ex)))
               "the throw is the canonical production bad-request, not a stubbed reply")
-          (is (= :rf.error/http-bad-request (:rf.error/id (ex-data ex))))
           (is (empty? @recorded)
               "NO synthetic reply was dispatched — the invalid request is rejected, not masked"))
         (finally
@@ -2217,7 +2216,7 @@
                         nil
                         (catch clojure.lang.ExceptionInfo e e))]
           (is (some? ex) "the throwing :before propagated out of the stub chain")
-          (is (= ":rf.error/http-interceptor-failed" (.getMessage ex))
+          (is (= :rf.error/http-interceptor-failed (:rf.error/id (ex-data ex)))
               "the throw is the canonical interceptor-failed classification")
           (is (empty? @recorded)
               "NO synthetic reply was dispatched — the failed chain rejects the request"))

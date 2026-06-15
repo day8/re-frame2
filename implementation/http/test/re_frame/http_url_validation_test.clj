@@ -65,7 +65,7 @@
 (defn- bad-request-throw?
   [ex offending-url]
   (and (some? ex)
-       (= ":rf.error/http-bad-request" (.getMessage ex))
+       (= :rf.error/http-bad-request (:rf.error/id (ex-data ex)))
        (let [data (ex-data ex)]
          (and (= :rf.error/http-bad-request (:rf.error/id data))
               (= :rf.http/managed          (:where data))
@@ -109,7 +109,7 @@
             :rf.error/http-bad-request.)"
     (let [ex (call-managed! {:method :get :url "http://localhost/x"})]
       (is (not (and (some? ex)
-                    (= ":rf.error/http-bad-request" (.getMessage ex))))
+                    (= :rf.error/http-bad-request (:rf.error/id (ex-data ex)))))
           "a valid url must NOT trigger the bad-request guard"))))
 
 (deftest before-interceptor-may-set-the-url
@@ -125,7 +125,7 @@
                  (assoc-in ctx [:request :url] "http://localhost/from-interceptor"))})
     (let [ex (call-managed! {:method :get})]
       (is (not (and (some? ex)
-                    (= ":rf.error/http-bad-request" (.getMessage ex))))
+                    (= :rf.error/http-bad-request (:rf.error/id (ex-data ex)))))
           "a :before-supplied url satisfies the required-:url contract"))))
 
 (deftest before-interceptor-that-blanks-the-url-is-rejected

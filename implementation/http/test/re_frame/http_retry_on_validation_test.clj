@@ -75,9 +75,9 @@
 (defn- bad-retry-on-throw?
   [ex bad-members]
   (and (some? ex)
-       (= ":rf.error/http-bad-retry-on" (.getMessage ex))
        (let [data (ex-data ex)]
-         (and (= :rf.http/managed         (:where data))
+         (and (= :rf.error/http-bad-retry-on (:rf.error/id data))
+              (= :rf.http/managed         (:where data))
               (= :no-recovery             (:recovery data))
               (= handlers/retryable-categories (:retryable-set data))
               (= bad-members               (:bad-members data))
@@ -90,7 +90,6 @@
   string `:reason`."
   [ex bad-shape]
   (and (some? ex)
-       (= ":rf.error/http-bad-retry-on" (.getMessage ex))
        (let [data (ex-data ex)]
          (and (= :rf.error/http-bad-retry-on (:rf.error/id data))
               (= :rf.http/managed            (:where data))
@@ -194,7 +193,7 @@
     (doseq [k handlers/retryable-categories]
       (let [ex (call-managed! {:on #{k} :max-attempts 1})]
         (is (not (and (some? ex)
-                      (= ":rf.error/http-bad-retry-on" (.getMessage ex))))
+                      (= :rf.error/http-bad-retry-on (:rf.error/id (ex-data ex)))))
             (str "single-member set #{" k "} must pass closed-set validation"))))))
 
 (deftest full-closed-set-passes-through
@@ -203,7 +202,7 @@
                {:on  handlers/retryable-categories
                 :max-attempts 1})]
       (is (not (and (some? ex)
-                    (= ":rf.error/http-bad-retry-on" (.getMessage ex))))))))
+                    (= :rf.error/http-bad-retry-on (:rf.error/id (ex-data ex)))))))))
 
 (deftest absent-retry-passes-through
   (testing "rf2-apwkm — no `:retry` key at all: the validator is a
@@ -213,7 +212,7 @@
                     nil
                     (catch clojure.lang.ExceptionInfo e e))]
       (is (not (and (some? ex)
-                    (= ":rf.error/http-bad-retry-on" (.getMessage ex))))))))
+                    (= :rf.error/http-bad-retry-on (:rf.error/id (ex-data ex)))))))))
 
 (deftest empty-on-set-passes-through
   (testing "rf2-apwkm — `:retry {:on #{} ...}`: the validator is a
@@ -222,7 +221,7 @@
     `:retry` entirely. No bad members to report."
     (let [ex (call-managed! {:on #{} :max-attempts 3})]
       (is (not (and (some? ex)
-                    (= ":rf.error/http-bad-retry-on" (.getMessage ex))))))))
+                    (= :rf.error/http-bad-retry-on (:rf.error/id (ex-data ex)))))))))
 
 (deftest retry-without-on-passes-through
   (testing "rf2-apwkm — `:retry {:max-attempts 3}` with no `:on` key:
@@ -230,7 +229,7 @@
     transport loop's `(or on #{})` defaulting."
     (let [ex (call-managed! {:max-attempts 3})]
       (is (not (and (some? ex)
-                    (= ":rf.error/http-bad-retry-on" (.getMessage ex))))))))
+                    (= :rf.error/http-bad-retry-on (:rf.error/id (ex-data ex)))))))))
 
 (deftest explicit-nil-on-passes-through
   (testing "rf2-4zldh — `:retry {:on nil :max-attempts 3}`: an explicit
@@ -239,4 +238,4 @@
     absent `:on`. Only present, non-nil, non-set values are rejected."
     (let [ex (call-managed! {:on nil :max-attempts 3})]
       (is (not (and (some? ex)
-                    (= ":rf.error/http-bad-retry-on" (.getMessage ex))))))))
+                    (= :rf.error/http-bad-retry-on (:rf.error/id (ex-data ex)))))))))

@@ -29,6 +29,7 @@
             [re-frame.interceptor :as interceptor]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
+            [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.fx :as fx]
             [re-frame.recordable :as recordable]
@@ -104,12 +105,8 @@
                      {:rf.cofx/id id
                       :reason     reason
                       :recovery   :no-recovery})
-  (throw (ex-info ":rf.error/cofx-name-collision"
-                  {:rf.error/id :rf.error/cofx-name-collision
-                   :rf.cofx/id  id
-                   :where       'rf/reg-cofx
-                   :reason      reason
-                   :recovery    :no-recovery})))
+  (error/throw-error! :rf.error/cofx-name-collision 'rf/reg-cofx reason
+                      {:extra {:rf.cofx/id id}}))
 
 (defn- emit-cofx-registration-invalid!
   "Emit `:rf.error/cofx-registration-invalid` (registration-time, diagnostic)
@@ -125,12 +122,8 @@
                      {:rf.cofx/id id
                       :reason     reason
                       :recovery   :no-recovery})
-  (throw (ex-info ":rf.error/cofx-registration-invalid"
-                  {:rf.error/id :rf.error/cofx-registration-invalid
-                   :rf.cofx/id  id
-                   :where       'rf/reg-cofx
-                   :reason      reason
-                   :recovery    :no-recovery})))
+  (error/throw-error! :rf.error/cofx-registration-invalid 'rf/reg-cofx reason
+                      {:extra {:rf.cofx/id id}}))
 
 (defn reg-cofx
   "Register a coeffect id with a **value-returning supplier** and standard
@@ -317,13 +310,9 @@
                       :received   received
                       :reason     reason
                       :recovery   :no-recovery})
-  (throw (ex-info ":rf.error/cofx-request-invalid"
-                  {:rf.error/id :rf.error/cofx-request-invalid
-                   :failing-id  failing-id
-                   :received    received
-                   :where       'rf/reg-event
-                   :reason      reason
-                   :recovery    :no-recovery})))
+  (error/throw-error! :rf.error/cofx-request-invalid 'rf/reg-event reason
+                      {:extra {:failing-id failing-id
+                               :received   received}}))
 
 (defn parse-requires
   "Parse a `:rf.cofx/requires` declaration into a vector of
@@ -408,19 +397,26 @@
   `reg-cofx` registration) and throw. Always-on (fires in production). Per
   Spec 001 §The declaration key + Spec 009."
   [cofx-id failing-id frame-id]
-  (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-    (dispatch-on-error! :rf.error/unregistered-cofx nil failing-id frame-id nil 0 (interop/now-ms)))
-  (trace/emit-error! :rf.error/unregistered-cofx
-                     (cond-> {:rf.cofx/id        cofx-id
-                              :failing-id        failing-id
-                              :rf.trace/event-id failing-id
-                              :recovery          :no-recovery}
-                       frame-id (assoc :frame frame-id)))
-  (throw (ex-info ":rf.error/unregistered-cofx"
-                  {:rf.error/id :rf.error/unregistered-cofx
-                   :rf.cofx/id  cofx-id
-                   :failing-id  failing-id
-                   :recovery    :no-recovery})))
+  (let [reason (str "Event `" failing-id "` declared `:rf.cofx/requires` coeffect `"
+                    cofx-id "`, but no `reg-cofx` registered that id — almost "
+                    "always a typo or a missing registration ns. Register the "
+                    "coeffect with `rf/reg-cofx` (or fix the id in "
+                    "`:rf.cofx/requires`) so a supplier exists before the event "
+                    "is dispatched."
+                    (when frame-id (str " (frame `" frame-id "`)")))]
+    (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
+      (dispatch-on-error! :rf.error/unregistered-cofx nil failing-id frame-id nil 0 (interop/now-ms)))
+    (trace/emit-error! :rf.error/unregistered-cofx
+                       (cond-> {:rf.cofx/id        cofx-id
+                                :failing-id        failing-id
+                                :rf.trace/event-id failing-id
+                                :reason            reason
+                                :recovery          :no-recovery}
+                         frame-id (assoc :frame frame-id)))
+    (error/throw-error! :rf.error/unregistered-cofx 'rf/reg-event reason
+                        {:extra (cond-> {:rf.cofx/id cofx-id
+                                         :failing-id failing-id}
+                                  frame-id (assoc :frame frame-id))})))
 
 (defn- emit-missing-required-cofx!
   "Emit `:rf.error/missing-required-cofx` (a declared recordable fact absent
@@ -428,19 +424,28 @@
   mode) and throw. Always-on (fires in production; the strict-replay loud
   failure). Per Spec 002 §Mint policies + Spec 009."
   [cofx-id failing-id frame-id]
-  (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-    (dispatch-on-error! :rf.error/missing-required-cofx nil failing-id frame-id nil 0 (interop/now-ms)))
-  (trace/emit-error! :rf.error/missing-required-cofx
-                     (cond-> {:rf.cofx/id        cofx-id
-                              :failing-id        failing-id
-                              :rf.trace/event-id failing-id
-                              :recovery          :no-recovery}
-                       frame-id (assoc :frame frame-id)))
-  (throw (ex-info ":rf.error/missing-required-cofx"
-                  {:rf.error/id :rf.error/missing-required-cofx
-                   :rf.cofx/id  cofx-id
-                   :failing-id  failing-id
-                   :recovery    :no-recovery})))
+  (let [reason (str "Event `" failing-id "` requires recordable coeffect `"
+                    cofx-id "`, but it is absent from the causal token and "
+                    "cannot be produced: a `:provided?` fact's value was not "
+                    "stamped by its owner, or a `:strict` mint policy (replay / "
+                    "the `:test` preset) forbids running a generator. Stamp the "
+                    "provided value onto the token at the dispatch boundary, or "
+                    "dispatch under `:live` so a generator-backed fact can mint "
+                    "it."
+                    (when frame-id (str " (frame `" frame-id "`)")))]
+    (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
+      (dispatch-on-error! :rf.error/missing-required-cofx nil failing-id frame-id nil 0 (interop/now-ms)))
+    (trace/emit-error! :rf.error/missing-required-cofx
+                       (cond-> {:rf.cofx/id        cofx-id
+                                :failing-id        failing-id
+                                :rf.trace/event-id failing-id
+                                :reason            reason
+                                :recovery          :no-recovery}
+                         frame-id (assoc :frame frame-id)))
+    (error/throw-error! :rf.error/missing-required-cofx 'rf/reg-event reason
+                        {:extra (cond-> {:rf.cofx/id cofx-id
+                                         :failing-id failing-id}
+                                  frame-id (assoc :frame frame-id))})))
 
 (defn- emit-coeffect-exception!
   "Emit `:rf.error/coeffect-exception` for a supplier that threw during
@@ -517,25 +522,31 @@
         redacted   (if (and redact-fn (some? schema))
                      (redact-fn schema leak-slots)
                      leak-slots)]
-    (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
-      (dispatch-on-error! :rf.error/cofx-value-invalid nil failing-id frame-id nil 0 (interop/now-ms)))
-    (trace/emit-error! :rf.error/cofx-value-invalid
-                       (cond-> {:rf.cofx/id        cofx-id
-                                :failing-id        failing-id
-                                :rf.trace/event-id failing-id
-                                :value             (:value redacted)
-                                :recovery          :no-recovery}
-                         (contains? redacted :explain) (assoc :explain (:explain redacted))
-                         (:sensitive? redacted)        (assoc :sensitive? true)
-                         frame-id                      (assoc :frame frame-id)))
-    (throw (ex-info ":rf.error/cofx-value-invalid"
-                    (cond-> {:rf.error/id :rf.error/cofx-value-invalid
-                             :rf.cofx/id  cofx-id
-                             :failing-id  failing-id
-                             :value       (:value redacted)
-                             :explain     (:explain redacted)
-                             :recovery    :no-recovery}
-                      (:sensitive? redacted) (assoc :sensitive? true))))))
+    (let [reason (str "Recordable coeffect `" cofx-id "` (supplied, replayed, or "
+                      "generated) failed its `reg-cofx` `:schema`. An "
+                      "out-of-contract recordable value is corrupt durable state "
+                      "— it folds into the epoch ledger and replays verbatim — so "
+                      "this is a hard error in dev AND production. Fix the value "
+                      "to satisfy the declared `:schema` (or correct the schema). "
+                      "See `:explain` for the validation detail.")]
+      (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
+        (dispatch-on-error! :rf.error/cofx-value-invalid nil failing-id frame-id nil 0 (interop/now-ms)))
+      (trace/emit-error! :rf.error/cofx-value-invalid
+                         (cond-> {:rf.cofx/id        cofx-id
+                                  :failing-id        failing-id
+                                  :rf.trace/event-id failing-id
+                                  :value             (:value redacted)
+                                  :reason            reason
+                                  :recovery          :no-recovery}
+                           (contains? redacted :explain) (assoc :explain (:explain redacted))
+                           (:sensitive? redacted)        (assoc :sensitive? true)
+                           frame-id                      (assoc :frame frame-id)))
+      (error/throw-error! :rf.error/cofx-value-invalid 'rf/reg-cofx reason
+                          {:extra (cond-> {:rf.cofx/id cofx-id
+                                           :failing-id failing-id
+                                           :value      (:value redacted)
+                                           :explain    (:explain redacted)}
+                                    (:sensitive? redacted) (assoc :sensitive? true))}))))
 
 (defn- validate-recordable-value!
   "Validate a recordable `value` for `cofx-id` against its registration's
@@ -626,30 +637,32 @@
                                 :recovery          :no-recovery}
                          (some? preview) (assoc :preview preview)
                          frame-id        (assoc :frame frame-id)))
-    (throw (ex-info ":rf.error/cofx-value-invalid"
-                    {:rf.error/id :rf.error/cofx-value-invalid
-                     :where       're-frame.cofx/run-generator
-                     :reason      :non-edn-recordable-value
-                     :rf.cofx/id  cofx-id
-                     :failing-id  failing-id
-                     :path        path
-                     :bad-type    bad-type
-                     :recovery    :no-recovery
-                     :explain     (str "Generated `:rf.cofx` fact `" cofx-id
-                                       "` is not recordable EDN data: the value "
-                                       "at path " (pr-str path) " is a `"
-                                       bad-type "` (a host object — DOM node, "
-                                       "Promise, function, atom, Date, or other "
-                                       "JS / Java handle). A generator-backed "
-                                       "recordable coeffect rides the durable "
-                                       "causal record (it is written back into "
-                                       "`:rf.cofx`, folded into the epoch ledger, "
-                                       "replayed, shipped in the SSR payload, read "
-                                       "by Xray) and MUST mint ordinary EDN data "
-                                       "that reads back unchanged (EP-0017:386). "
-                                       "Have the generator return the recordable "
-                                       "projection — the identifier / snapshot / "
-                                       "plain data you actually need on replay.")}))))
+    (error/throw-error!
+      :rf.error/cofx-value-invalid 're-frame.cofx/run-generator
+      (str "Generated `:rf.cofx` fact `" cofx-id
+           "` is not recordable EDN data: the value "
+           "at path " (pr-str path) " is a `"
+           bad-type "` (a host object — DOM node, "
+           "Promise, function, atom, Date, or other "
+           "JS / Java handle). A generator-backed "
+           "recordable coeffect rides the durable "
+           "causal record (it is written back into "
+           "`:rf.cofx`, folded into the epoch ledger, "
+           "replayed, shipped in the SSR payload, read "
+           "by Xray) and MUST mint ordinary EDN data "
+           "that reads back unchanged (EP-0017:386). "
+           "Have the generator return the recordable "
+           "projection — the identifier / snapshot / "
+           "plain data you actually need on replay.")
+      ;; The structured sub-kind that distinguishes a structural-EDN failure
+      ;; from a declared-`:schema` miss now rides its own `:rf.cofx/value-error`
+      ;; slot — `:reason` is reserved for the human sentence per the central
+      ;; thrown-error builder (Spec 009 §The thrown-error shape, rf2-vvixub).
+      {:extra {:rf.cofx/value-error :non-edn-recordable-value
+               :rf.cofx/id          cofx-id
+               :failing-id          failing-id
+               :path                path
+               :bad-type            bad-type}})))
 
 (defn- validate-generated-recordable-value!
   "DEV-MODE structural-EDN check of a GENERATED recordable `value` for
@@ -973,26 +986,22 @@
   replacement. See `re-frame.events/reg-event` and spec/001-Registration.md
   §`inject-cofx` is removed."
   [& args]
-  (let [cofx-id (first args)]
+  (let [cofx-id (first args)
+        reason  (str "`inject-cofx` is REMOVED in EP-0017 (no alias). "
+                     "Declare the coeffect on the handler's registration "
+                     "metadata instead: "
+                     "`{:rf.cofx/requires [" (if cofx-id (pr-str cofx-id) ":your/cofx") "]}`. "
+                     "The declared value arrives flat in the coeffects map "
+                     "under its id; the registration's grade decides replay "
+                     "semantics. See spec/001-Registration.md §`inject-cofx` "
+                     "is removed.")]
     (when-let [dispatch-on-error! (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
       (dispatch-on-error! :rf.error/inject-cofx-removed nil cofx-id nil nil 0 (interop/now-ms)))
     (trace/emit-error! :rf.error/inject-cofx-removed
-                       (cond-> {:recovery :no-recovery}
+                       (cond-> {:reason reason :recovery :no-recovery}
                          cofx-id (assoc :rf.cofx/id cofx-id)))
-    (throw (ex-info ":rf.error/inject-cofx-removed"
-                    {:rf.error/id :rf.error/inject-cofx-removed
-                     :rf.cofx/id  cofx-id
-                     :where       'rf/inject-cofx
-                     :recovery    :no-recovery
-                     :reason
-                     (str "`inject-cofx` is REMOVED in EP-0017 (no alias). "
-                          "Declare the coeffect on the handler's registration "
-                          "metadata instead: "
-                          "`{:rf.cofx/requires [" (if cofx-id (pr-str cofx-id) ":your/cofx") "]}`. "
-                          "The declared value arrives flat in the coeffects map "
-                          "under its id; the registration's grade decides replay "
-                          "semantics. See spec/001-Registration.md §`inject-cofx` "
-                          "is removed.")}))))
+    (error/throw-error! :rf.error/inject-cofx-removed 'rf/inject-cofx reason
+                        {:extra (when cofx-id {:rf.cofx/id cofx-id})})))
 
 ;; ---- standard registrations -----------------------------------------------
 ;;

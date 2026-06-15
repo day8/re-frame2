@@ -118,28 +118,28 @@
                       nil
                       (catch :default e e))]
       (is (some? thrown))
-      (is (= ":rf.error/http-bad-interceptor" (.-message thrown))))
+      (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))))
     (let [thrown (try (rf/reg-http-interceptor :x "not-a-map")
                       nil
                       (catch :default e e))]
       (is (some? thrown))
-      (is (= ":rf.error/http-bad-interceptor" (.-message thrown))))
+      (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))))
     (let [thrown (try (rf/reg-http-interceptor :x {:before "not-a-fn"})
                       nil
                       (catch :default e e))]
       (is (some? thrown))
-      (is (= ":rf.error/http-bad-interceptor" (.-message thrown))))
+      (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))))
     (let [thrown (try (rf/reg-http-interceptor :x {:after "not-a-fn"})
                       nil
                       (catch :default e e))]
       (is (some? thrown))
-      (is (= ":rf.error/http-bad-interceptor" (.-message thrown))))
+      (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))))
     ;; missing both :before and :after — a no-op interceptor is rejected
     (let [thrown (try (rf/reg-http-interceptor :x {:doc "no fns"})
                       nil
                       (catch :default e e))]
       (is (some? thrown))
-      (is (= ":rf.error/http-bad-interceptor" (.-message thrown))))))
+      (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))))))
 
 ;; ---- 7. rf2-uheqq — `:after` slot stored alongside `:before` --------------
 

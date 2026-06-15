@@ -19,7 +19,8 @@
   The cross-ns indirection from the router facade is amortised: callers
   (`process-event*`, `dispatch!`, `dispatch-sync!`) all sit on the
   facade and reach into this ns only on the rare warning / error paths."
-  (:require [re-frame.frame :as frame]
+  (:require [re-frame.error :as error]
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.recordable :as recordable]
@@ -176,46 +177,42 @@
   Always-on (a correctness contract; fires in production too)."
   [opts event]
   (when (contains? opts :rf.world/inputs)
-    (throw (ex-info ":rf.error/world-inputs-renamed"
-                    {:rf.error/id :rf.error/world-inputs-renamed
-                     :where       're-frame.router/build-envelope
-                     :event-id    (first event)
-                     :event       event
-                     :retired-key :rf.world/inputs
-                     :replacement :rf.cofx
-                     :recovery    :no-recovery
-                     :reason      (str "Dispatch opt `:rf.world/inputs` is "
-                                       "RENAMED to `:rf.cofx` in EP-0017 (no "
-                                       "alias, no coexistence window — EP-0007 "
-                                       "one-name-per-fact rule 2). The flat "
-                                       "recordable-coeffect map is supplied "
-                                       "under `:rf.cofx` (one fact per "
-                                       "owner-qualified key; the framework time "
-                                       "fact is `:rf/time-ms`). Rename the "
-                                       "dispatch opt to `:rf.cofx`; there is no "
-                                       "back-compat alias.")})))
+    (error/throw-error!
+      :rf.error/world-inputs-renamed 're-frame.router/build-envelope
+      (str "Dispatch opt `:rf.world/inputs` is "
+           "RENAMED to `:rf.cofx` in EP-0017 (no "
+           "alias, no coexistence window — EP-0007 "
+           "one-name-per-fact rule 2). The flat "
+           "recordable-coeffect map is supplied "
+           "under `:rf.cofx` (one fact per "
+           "owner-qualified key; the framework time "
+           "fact is `:rf/time-ms`). Rename the "
+           "dispatch opt to `:rf.cofx`; there is no "
+           "back-compat alias.")
+      {:extra {:event-id    (first event)
+               :event       event
+               :retired-key :rf.world/inputs
+               :replacement :rf.cofx}}))
   (when (contains? opts :dispatched-at)
-    (throw (ex-info ":rf.error/dispatched-at-retired"
-                    {:rf.error/id :rf.error/dispatched-at-retired
-                     :where       're-frame.router/build-envelope
-                     :event-id    (first event)
-                     :event       event
-                     :retired-key :dispatched-at
-                     :replacement '(:rf/time-ms (:rf.cofx envelope))
-                     :reason      (str "Dispatch opt `:dispatched-at` is RETIRED "
-                                       "(EP-0010 disposition 5 / EP-0007 "
-                                       "one-name-per-fact). There is no "
-                                       "caller-supplied dispatch-time field. "
-                                       "The durable causal-time fact is "
-                                       "`(:rf/time-ms (:rf.cofx envelope))` "
-                                       "— the framework stamps `:rf/time-ms` into "
-                                       "`:rf.cofx` at the dispatch causal "
-                                       "boundary; durable code reads it from there. "
-                                       "For a diagnostic dispatch-time, use the "
-                                       "trace event's own ambient `:time` stamp "
-                                       "(Spec 009). Remove `:dispatched-at`; there "
-                                       "is no back-compat alias.")
-                     :recovery    :no-recovery}))))
+    (error/throw-error!
+      :rf.error/dispatched-at-retired 're-frame.router/build-envelope
+      (str "Dispatch opt `:dispatched-at` is RETIRED "
+           "(EP-0010 disposition 5 / EP-0007 "
+           "one-name-per-fact). There is no "
+           "caller-supplied dispatch-time field. "
+           "The durable causal-time fact is "
+           "`(:rf/time-ms (:rf.cofx envelope))` "
+           "— the framework stamps `:rf/time-ms` into "
+           "`:rf.cofx` at the dispatch causal "
+           "boundary; durable code reads it from there. "
+           "For a diagnostic dispatch-time, use the "
+           "trace event's own ambient `:time` stamp "
+           "(Spec 009). Remove `:dispatched-at`; there "
+           "is no back-compat alias.")
+      {:extra {:event-id    (first event)
+               :event       event
+               :retired-key :dispatched-at
+               :replacement '(:rf/time-ms (:rf.cofx envelope))}})))
 
 (defn- emit-cofx-value-invalid!
   "Emit `:rf.error/cofx-value-invalid` for a SUPPLIED `:rf.cofx` value that is
@@ -246,28 +243,27 @@
                                 :bad-type          bad-type
                                 :recovery          :no-recovery}
                          (some? preview) (assoc :preview preview)))
-    (throw (ex-info ":rf.error/cofx-value-invalid"
-                    {:rf.error/id :rf.error/cofx-value-invalid
-                     :where       're-frame.router/build-envelope
-                     :reason      :non-edn-recordable-value
-                     :rf.cofx/id  cofx-id
-                     :failing-id  failing-id
-                     :path        path
-                     :bad-type    bad-type
-                     :recovery    :no-recovery
-                     :explain     (str "Supplied `:rf.cofx` fact `" cofx-id
-                                       "` is not recordable EDN data: the value "
-                                       "at path " (pr-str path) " is a `"
-                                       bad-type "` (a host object — DOM node, "
-                                       "Promise, function, atom, Date, or other "
-                                       "JS / Java handle). Recordable coeffect "
-                                       "values ride the durable causal record "
-                                       "(epoch ledger, replay, SSR payload, Xray) "
-                                       "and MUST be ordinary EDN data that reads "
-                                       "back unchanged (EP-0017:386). Replace the "
-                                       "host handle with its recordable "
-                                       "projection — the identifier / snapshot / "
-                                       "plain data you actually need on replay.")}))))
+    (error/throw-error!
+      :rf.error/cofx-value-invalid 're-frame.router/build-envelope
+      (str "Supplied `:rf.cofx` fact `" cofx-id
+           "` is not recordable EDN data: the value "
+           "at path " (pr-str path) " is a `"
+           bad-type "` (a host object — DOM node, "
+           "Promise, function, atom, Date, or other "
+           "JS / Java handle). Recordable coeffect "
+           "values ride the durable causal record "
+           "(epoch ledger, replay, SSR payload, Xray) "
+           "and MUST be ordinary EDN data that reads "
+           "back unchanged (EP-0017:386). Replace the "
+           "host handle with its recordable "
+           "projection — the identifier / snapshot / "
+           "plain data you actually need on replay.")
+      ;; Sub-kind on its own slot; `:reason` is the human sentence (rf2-vvixub).
+      {:extra {:rf.cofx/value-error :non-edn-recordable-value
+               :rf.cofx/id          cofx-id
+               :failing-id          failing-id
+               :path                path
+               :bad-type            bad-type}})))
 
 (defn- validate-supplied-cofx-values!
   "DEV-MODE structural-EDN check of a SUPPLIED `:rf.cofx` map's values
@@ -351,41 +347,37 @@
   (when (contains? opts :rf.cofx)
     (let [supplied (:rf.cofx opts)]
       (when-not (or (nil? supplied) (map? supplied))
-        (throw (ex-info ":rf.error/invalid-cofx"
-                        {:rf.error/id :rf.error/invalid-cofx
-                         :where       're-frame.router/build-envelope
-                         :event-id    (first event)
-                         :event       event
-                         :supplied    supplied
-                         :reason      (str ":rf.cofx must be nil or a MAP "
-                                           "of recordable coeffect facts (Spec 002 §The "
-                                           "World-Input Rule), got "
-                                           (pr-str supplied)
-                                           ". The map's `:rf/time-ms` (wall-clock "
-                                           "epoch ms) is the durable causal token "
-                                           "durable writes fold; a non-map value "
-                                           "cannot carry it.")
-                         :recovery    :no-recovery})))
+        (error/throw-error!
+          :rf.error/invalid-cofx 're-frame.router/build-envelope
+          (str ":rf.cofx must be nil or a MAP "
+               "of recordable coeffect facts (Spec 002 §The "
+               "World-Input Rule), got "
+               (pr-str supplied)
+               ". The map's `:rf/time-ms` (wall-clock "
+               "epoch ms) is the durable causal token "
+               "durable writes fold; a non-map value "
+               "cannot carry it.")
+          {:extra {:event-id (first event)
+                   :event    event
+                   :supplied supplied}}))
       (when (and (map? supplied)
                  (contains? supplied :rf/time-ms)
                  (not (int? (:rf/time-ms supplied))))
-        (throw (ex-info ":rf.error/invalid-cofx"
-                        {:rf.error/id :rf.error/invalid-cofx
-                         :where       're-frame.router/build-envelope
-                         :event-id    (first event)
-                         :event       event
-                         :rf/time-ms  (:rf/time-ms supplied)
-                         :reason      (str ":rf.cofx :rf/time-ms must be an "
-                                           "INTEGER (wall-clock epoch milliseconds "
-                                           "— Spec-Schemas.md §:rf.cofx), "
-                                           "got " (pr-str (:rf/time-ms supplied))
-                                           ". This value becomes the durable "
-                                           "causal time the frame fold reads "
-                                           "(epoch `:committed-at`, resource "
-                                           "`:settled-at`, …); a non-integer "
-                                           "corrupts the durable fold and breaks "
-                                           "replay determinism.")
-                         :recovery    :no-recovery})))
+        (error/throw-error!
+          :rf.error/invalid-cofx 're-frame.router/build-envelope
+          (str ":rf.cofx :rf/time-ms must be an "
+               "INTEGER (wall-clock epoch milliseconds "
+               "— Spec-Schemas.md §:rf.cofx), "
+               "got " (pr-str (:rf/time-ms supplied))
+               ". This value becomes the durable "
+               "causal time the frame fold reads "
+               "(epoch `:committed-at`, resource "
+               "`:settled-at`, …); a non-integer "
+               "corrupts the durable fold and breaks "
+               "replay determinism.")
+          {:extra {:event-id   (first event)
+                   :event      event
+                   :rf/time-ms (:rf/time-ms supplied)}}))
       ;; rf2-rmroo4 slice A — structural-EDN-always check of the SUPPLIED
       ;; values, AFTER the map-shape + `:rf/time-ms` shape checks above and
       ;; BEFORE the per-supplier `:schema` validation (cofx.cljc, satisfaction
