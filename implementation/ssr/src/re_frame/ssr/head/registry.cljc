@@ -42,27 +42,34 @@
   (atom {}))
 
 (defn- record-fragment!
-  "Stash the just-produced head-model under (frame-id, head-id) so
-  `head-snapshot` reflects the most recent render-head output."
+  "Stash the just-produced head-model under ((realm, frame) address, head-id)
+  so `head-snapshot` reflects the most recent render-head output. Keyed by the
+  frame ADDRESS (rf2-bzw8gd) so the same frame id in two realms records
+  independent head snapshots — `frame-address` collapses to the bare
+  `frame-id` for the default realm (byte-identical single-realm path)."
   [frame-id head-id head-model]
   (when frame-id
-    (swap! head-snapshots assoc-in [frame-id head-id] head-model))
+    (swap! head-snapshots assoc-in [(frame/frame-address frame-id) head-id]
+           head-model))
   head-model)
 
 (defn head-snapshot
   "Read the per-frame `{head-id → last-produced head-model}` snapshot.
   Useful for tests and introspection. Returns `{}` for a frame that has
   never seen a `render-head` call (or whose snapshot has been cleared
-  via the per-request frame teardown hook)."
+  via the per-request frame teardown hook). Keyed by the (realm, frame)
+  ADDRESS (rf2-bzw8gd)."
   [frame-id]
-  (get @head-snapshots frame-id {}))
+  (get @head-snapshots (frame/frame-address frame-id) {}))
 
 (defn on-frame-destroyed!
   "Clear the head-snapshot entry for `frame-id`. Wired into the
   `:ssr/on-frame-destroyed` late-bind hook chain so per-request frames
-  release their head bookkeeping on destroy. Idempotent."
+  release their head bookkeeping on destroy. Idempotent. Keyed by the
+  (realm, frame) ADDRESS (rf2-bzw8gd) so clearing one realm's frame leaves
+  another realm's same-id head snapshot intact."
   [frame-id]
-  (swap! head-snapshots dissoc frame-id)
+  (swap! head-snapshots dissoc (frame/frame-address frame-id))
   nil)
 
 ;; ---- reg-head -------------------------------------------------------------
@@ -149,7 +156,14 @@
         route    (if (contains? opts :route)
                    (:route opts)
                    (frame-route frame))
-        head-reg (registrar/lookup :head head-id)]
+        ;; Resolve the `:head` registration through the carried frame's OWN
+        ;; realm registrar (rf2-bzw8gd / EP-0013 §Realm Conformance) — a
+        ;; non-default-realm frame's head is registered in that realm's table,
+        ;; not the process-global default. `call-with-frame-realm-registrar`
+        ;; binds nothing for a default-realm frame (byte-identical path).
+        head-reg (frame/call-with-frame-realm-registrar
+                   (frame/frame frame)
+                   (fn [] (registrar/lookup :head head-id)))]
     (when-not head-reg
       (throw (ex-info ":rf.error/no-such-head"
                       {:rf.error/id :rf.error/no-such-head
@@ -204,10 +218,18 @@
   key under the `:route` kind. If the runtime ever introduces an
   indirection between the slice id and the registry key (route aliases,
   versioned routes, ...), this fn breaks and must learn the new mapping
-  (audit rf2-asmj1 H6 / cluster rf2-sljs1)."
-  [route]
+  (audit rf2-asmj1 H6 / cluster rf2-sljs1).
+
+  Resolves the `:route` registration through the carried `frame-id`'s OWN
+  realm registrar (rf2-bzw8gd / EP-0013 §Realm Conformance) — a
+  non-default-realm frame's route metadata is registered in that realm's
+  table. `call-with-frame-realm-registrar` binds nothing for a default-realm
+  frame (byte-identical path)."
+  [frame-id route]
   (when-let [route-id (:route-id route)]
-    (when-let [route-meta (registrar/lookup :route route-id)]
+    (when-let [route-meta (frame/call-with-frame-realm-registrar
+                            (frame/frame frame-id)
+                            (fn [] (registrar/lookup :route route-id)))]
       (:head route-meta))))
 
 (defn active-head
@@ -232,7 +254,7 @@
                    frame-id :rf.ssr/active-head
                    {:where 'rf/active-head})
         route    (frame-route frame-id)
-        head-id  (route-head-id route)]
+        head-id  (route-head-id frame-id route)]
     (if head-id
       ;; The route declares an id but it may not be registered — surface
       ;; that as :rf.error/no-such-head per Spec 011, but only when the

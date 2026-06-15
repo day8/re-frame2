@@ -518,6 +518,31 @@
   (when-let [f (frame id)]
     (or (:realm f) realm/default-realm-id)))
 
+(defn frame-address
+  "Resolve the (realm, frame) ADDRESS key for `frame-id` — the key a per-frame
+  SIDE-CHANNEL (SSR request / response / error-trace / head snapshot, …) keys
+  its entries by, so the SAME frame id in two realms addresses two distinct
+  entries (EP-0013, Spec 002 §Frames reference realms). The realm dimension is:
+
+    1. the CARRIED realm (`*current-realm*`) when bound — it covers a whole
+       dispatch drain AND a frame's destroy teardown (the router binds it via
+       `call-with-realm` around both), which is exactly when a side-channel is
+       written / cleared; OR
+    2. the frame's own `:realm` reference (`frame-realm`) as the read-time
+       fallback for a side-channel READ issued outside a drain (a host adapter
+       reading the resolved response after the drain settles) while the frame
+       record still exists.
+
+  Collapses to the bare `frame-id` keyword for the default realm (nil carried
+  realm AND a default-realm / unknown / already-marked-destroyed frame) via
+  `frame-key`, so every single-realm side-channel is byte-identical to the
+  pre-realm bare-id keying — the default-realm round-trip is preserved with no
+  realm key. DERIVED from the carried address, never ambient synthesis
+  (EP-0002 carried-invariant). INTERNAL — the addressing seam the SSR
+  side-channels share."
+  [frame-id]
+  (frame-key (or *current-realm* (frame-realm frame-id)) frame-id))
+
 ;; ---- realm-routed resolution — the (realm, frame) address binding ----------
 ;;
 ;; EP-0013 staging step 4 (rf2-a15n62): a frame REFERENCES its realm, and the

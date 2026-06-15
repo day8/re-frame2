@@ -69,7 +69,10 @@
 
   Returns `frame-id`."
   [frame-id request]
-  (swap! request-slots assoc frame-id request)
+  ;; Key by the (realm, frame) ADDRESS (EP-0013, rf2-bzw8gd) so the same frame
+  ;; id in two realms does not collide — `frame-address` collapses to the bare
+  ;; `frame-id` for the default realm (byte-identical single-realm path).
+  (swap! request-slots assoc (frame/frame-address frame-id) request)
   frame-id)
 
 (defn get-request
@@ -82,7 +85,7 @@
   Public read surface — host adapters and tools may inspect the active
   request via this fn."
   [frame-id]
-  (get @request-slots frame-id))
+  (get @request-slots (frame/frame-address frame-id)))
 
 (defn clear-request!
   "Clear the per-frame request slot. Host adapters call this after
@@ -91,7 +94,7 @@
 
   Returns `frame-id`."
   [frame-id]
-  (swap! request-slots dissoc frame-id)
+  (swap! request-slots dissoc (frame/frame-address frame-id))
   frame-id)
 
 ;; ---- per-request frame teardown (rf2-fcj33) -------------------------------

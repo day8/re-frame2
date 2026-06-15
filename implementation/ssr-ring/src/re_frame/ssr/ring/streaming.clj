@@ -47,6 +47,7 @@
   (`:replace-app-db`) when it lands."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.html-helpers :as html]
@@ -220,7 +221,14 @@
   ;; deferral is a separate axis — blocking ROUTE resources still settle before
   ;; the shell, exactly as in the non-streaming path.
   (ssr/drain-blocking-resources! frame-id opts)
-  (rf/with-frame frame-id
+  ;; rf2-bzw8gd / EP-0013 §Realm Conformance: route the shell render walk's
+  ;; registered-view + head/route lookups through the request frame's OWN realm
+  ;; registrar (streaming counterpart of the non-streaming `build-full-response*`
+  ;; binding). A default-realm frame binds nothing (byte-identical path).
+  (frame/call-with-frame-realm-registrar
+   (frame/frame frame-id)
+   (fn []
+   (rf/with-frame frame-id
     (let [hiccup     (lifecycle/resolve-root-view root-view)
           head-bag   (if (:head opts)
                        {:head-html (:head opts) :html-attrs nil :body-attrs nil}
@@ -240,7 +248,12 @@
        :body-attrs    body-attrs
        :doc-hash      doc-hash
        :shell-html    shell-html
-       :continuations continuations})))
+       :continuations continuations
+       ;; rf2-bzw8gd: capture the frame's realm-id on the REQUEST thread (where
+       ;; `*current-realm*` is bound) so the daemon writer thread — which has no
+       ;; carried realm — can re-establish it around the continuation render
+       ;; walk. nil ⇒ default realm (byte-identical path).
+       :realm-id      (frame/frame-realm frame-id)})))))
 
 ;; ---- chunk writer (daemon thread, AFTER the head commits) ---------------
 ;;
@@ -328,7 +341,7 @@
           ;; request thread by `render-streaming-shell!`. `:hiccup` stays in
           ;; the `rendered` map for diagnostics but is not destructured here.
           {:keys [head-html html-attrs body-attrs
-                  doc-hash shell-html continuations]} rendered
+                  doc-hash shell-html continuations realm-id]} rendered
           shell-opts (merge opts
                             {:html-attrs  html-attrs
                              :body-attrs  body-attrs
@@ -361,7 +374,21 @@
       (loop [queue (into clojure.lang.PersistentQueue/EMPTY continuations)]
         (when-let [entry (peek queue)]
           (let [{:keys [id html delta failed? continuations]}
-                (rf/with-frame frame-id (streaming/render-continuation frame-id entry))
+                ;; rf2-bzw8gd: re-establish the frame's realm on this DAEMON
+                ;; thread (the request thread's `*current-realm*` does not cross
+                ;; the thread boundary) so `render-continuation`'s frame lookups +
+                ;; registered-view resolution route through the owning realm.
+                ;; `call-with-realm` binds `*current-realm*` so `(frame frame-id)`
+                ;; resolves the non-default realm's frame record;
+                ;; `call-with-frame-realm-registrar` then binds that realm's
+                ;; registrar. Both no-op for the default realm (byte-identical).
+                (frame/call-with-realm realm-id
+                  (fn []
+                    (frame/call-with-frame-realm-registrar
+                      (frame/frame frame-id)
+                      (fn []
+                        (rf/with-frame frame-id
+                          (streaming/render-continuation frame-id entry))))))
                 tmpl-fn (if failed?
                           streaming/failed-template
                           streaming/resolved-template)]

@@ -58,6 +58,7 @@
 
   Per the rf2-gxgo7 split of re-frame.ssr."
   (:require [clojure.string]
+            [re-frame.frame :as frame]
             [re-frame.ssr.http-validation :as http-validation]
             [re-frame.trace :as trace])
   #?(:clj (:import [java.net URI URISyntaxException])))
@@ -341,25 +342,31 @@
 (defn swap-response!
   "Mutate the response accumulator slot for `frame-id` with `f`. Returns
   the post-swap response map. The substrate is a side-channel atom keyed
-  on frame-id (rf2-jbcmt) — O(small-map) swap, no app-db ping-pong."
+  on the (realm, frame) ADDRESS (rf2-jbcmt; addressed by realm per
+  rf2-bzw8gd) — O(small-map) swap, no app-db ping-pong. `frame-address`
+  collapses to the bare `frame-id` for the default realm, so two server
+  frames sharing an id in different realms accumulate independent responses."
   [frame-id f]
-  (let [next-resp (-> (swap! response-slots
-                             update frame-id #(f (ensure-response %)))
-                      (get frame-id))]
+  (let [addr      (frame/frame-address frame-id)
+        next-resp (-> (swap! response-slots
+                             update addr #(f (ensure-response %)))
+                      (get addr))]
     next-resp))
 
 (defn response-of
   "Read the current response accumulator (with defaults applied)."
   [frame-id]
-  (ensure-response (get @response-slots frame-id)))
+  (ensure-response (get @response-slots (frame/frame-address frame-id))))
 
 (defn clear-response!
   "Drop `frame-id`'s response slot. Called from
   `re-frame.ssr.request/on-frame-destroyed!` via the
   `:ssr/on-frame-destroyed` late-bind hook (rf2-fcj33). Idempotent —
-  tolerates a frame-id with no slot."
+  tolerates a frame-id with no slot. Keyed by the (realm, frame) ADDRESS
+  (rf2-bzw8gd) so clearing one realm's frame leaves another realm's
+  same-id response slot intact."
   [frame-id]
-  (swap! response-slots dissoc frame-id)
+  (swap! response-slots dissoc (frame/frame-address frame-id))
   frame-id)
 
 ;; ---- header helpers ------------------------------------------------------
