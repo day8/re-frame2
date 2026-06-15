@@ -58,6 +58,7 @@
 
   Per the rf2-gxgo7 split of re-frame.ssr."
   (:require [clojure.string]
+            [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.ssr.http-validation :as http-validation]
             [re-frame.trace :as trace])
@@ -103,16 +104,17 @@
   [header-name v]
   (let [s (str v)]
     (when (http-validation/contains-injection-char? s)
-      (throw (ex-info ":rf.error/header-invalid-value"
-                      {:rf.error/id :rf.error/header-invalid-value
-                       :where    'rf.ssr/response
-                       :reason   (str "header " (pr-str header-name)
-                                      " value contains CR/LF/NUL — forbidden"
-                                      " by RFC 7230 §3.2.4 (header-splitting"
-                                      " injection)")
-                       :header   header-name
-                       :value    v
-                       :recovery :no-recovery})))
+      (error/throw-error!
+        :rf.error/header-invalid-value
+        'rf.ssr/response
+        (str "header " (pr-str header-name)
+             " value contains CR/LF/NUL — forbidden"
+             " by RFC 7230 §3.2.4 (header-splitting"
+             " injection). Strip CR/LF/NUL from the header value before"
+             " setting it.")
+        {:recovery :remove-injection-chars-from-header-value
+         :extra    {:header header-name
+                    :value  v}}))
     s))
 
 (defn- structurally-valid-uri?
@@ -155,14 +157,15 @@
   [loc]
   (let [s (str loc)]
     (when (http-validation/contains-injection-char? s)
-      (throw (ex-info ":rf.error/redirect-invalid-location"
-                      {:rf.error/id :rf.error/redirect-invalid-location
-                       :where    'rf.ssr/response
-                       :reason   (str "redirect :location contains CR/LF/NUL"
-                                      " — forbidden by RFC 7230 §3.2.4"
-                                      " (header-splitting injection)")
-                       :location loc
-                       :recovery :no-recovery})))
+      (error/throw-error!
+        :rf.error/redirect-invalid-location
+        'rf.ssr/response
+        (str "redirect :location contains CR/LF/NUL"
+             " — forbidden by RFC 7230 §3.2.4"
+             " (header-splitting injection). Strip CR/LF/NUL from the"
+             " redirect :location before setting it.")
+        {:recovery :remove-injection-chars-from-location
+         :extra    {:location loc}}))
     s))
 
 (defn- validate-redirect-location-shape!
@@ -187,18 +190,19 @@
   [loc]
   (let [s (str loc)]
     (when-not (structurally-valid-uri? s)
-      (throw (ex-info ":rf.error/redirect-invalid-location"
-                      {:rf.error/id :rf.error/redirect-invalid-location
-                       :where    'rf.ssr/response
-                       :reason   (str "redirect :location is not a"
-                                      " structurally-valid URI reference"
-                                      " (RFC 3986) — a structurally-malformed"
-                                      " redirect target cannot be written as a"
-                                      " Location header. Per Spec 011 §CRLF"
-                                      " fail-fast (structural URL-shape check).")
-                       :location loc
-                       :reason-tag :structural-url-shape
-                       :recovery :no-recovery})))
+      (error/throw-error!
+        :rf.error/redirect-invalid-location
+        'rf.ssr/response
+        (str "redirect :location is not a"
+             " structurally-valid URI reference"
+             " (RFC 3986) — a structurally-malformed"
+             " redirect target cannot be written as a"
+             " Location header. Per Spec 011 §CRLF"
+             " fail-fast (structural URL-shape check)."
+             " Supply a well-formed URI reference as :location.")
+        {:recovery :supply-a-well-formed-uri
+         :extra    {:location   loc
+                    :reason-tag :structural-url-shape}}))
     s))
 
 ;; rf2-z7gor / security audit 2026-05-14 — header-name + cookie-field
@@ -227,15 +231,15 @@
   [n]
   (let [s (str n)]
     (when-not (http-validation/valid-token-name? s)
-      (throw (ex-info ":rf.error/header-invalid-name"
-                      {:rf.error/id :rf.error/header-invalid-name
-                       :where    'rf.ssr/response
-                       :reason   (str "header :name " (pr-str s)
-                                      " violates RFC 7230 §3.2.6 token grammar"
-                                      " (no CTLs, whitespace, or separators"
-                                      " ()<>@,;:\\\"/[]?={})")
-                       :header   n
-                       :recovery :no-recovery})))
+      (error/throw-error!
+        :rf.error/header-invalid-name
+        'rf.ssr/response
+        (str "header :name " (pr-str s)
+             " violates RFC 7230 §3.2.6 token grammar"
+             " (no CTLs, whitespace, or separators"
+             " ()<>@,;:\\\"/[]?={}). Use a token-grammar header name.")
+        {:recovery :use-a-token-grammar-header-name
+         :extra    {:header n}}))
     s))
 
 (defn- validate-cookie-name!
@@ -245,23 +249,23 @@
   host adapters get the same gate. Per rf2-z7gor."
   [n]
   (when (nil? n)
-    (throw (ex-info ":rf.error/cookie-invalid-name"
-                    {:rf.error/id :rf.error/cookie-invalid-name
-                     :where    'rf.ssr/response
-                     :reason   "cookie :name is required"
-                     :name     n
-                     :recovery :no-recovery})))
+    (error/throw-error!
+      :rf.error/cookie-invalid-name
+      'rf.ssr/response
+      "cookie :name is required; supply a non-nil :name on the cookie map."
+      {:recovery :supply-a-cookie-name
+       :extra    {:name n}}))
   (let [s (#?(:clj clojure.core/name :cljs cljs.core/name) n)]
     (when-not (http-validation/valid-token-name? s)
-      (throw (ex-info ":rf.error/cookie-invalid-name"
-                      {:rf.error/id :rf.error/cookie-invalid-name
-                       :where    'rf.ssr/response
-                       :reason   (str "cookie :name " (pr-str s)
-                                      " violates RFC 6265 §4.1.1 token grammar"
-                                      " (no CTLs, whitespace, or separators"
-                                      " ()<>@,;:\\\"/[]?={})")
-                       :name     n
-                       :recovery :no-recovery})))
+      (error/throw-error!
+        :rf.error/cookie-invalid-name
+        'rf.ssr/response
+        (str "cookie :name " (pr-str s)
+             " violates RFC 6265 §4.1.1 token grammar"
+             " (no CTLs, whitespace, or separators"
+             " ()<>@,;:\\\"/[]?={}). Use a token-grammar cookie name.")
+        {:recovery :use-a-token-grammar-cookie-name
+         :extra    {:name n}}))
     s))
 
 (defn- validate-cookie-attr!
@@ -280,16 +284,17 @@
   (let [s (str v)]
     (when (http-validation/contains-injection-char? s)
       (let [error-kw (keyword "rf.error" (str "cookie-invalid-" (name field-key)))]
-        (throw (ex-info (str error-kw)
-                        {:rf.error/id error-kw
-                         :where    'rf.ssr/response
-                         :reason   (str "cookie " field-key " " (pr-str s)
-                                        " contains CR/LF/NUL — forbidden by"
-                                        " RFC 7230 §3.2.4 (header-splitting"
-                                        " injection)")
-                         :field    field-key
-                         :value    v
-                         :recovery :no-recovery}))))
+        (error/throw-error!
+          error-kw
+          'rf.ssr/response
+          (str "cookie " field-key " " (pr-str s)
+               " contains CR/LF/NUL — forbidden by"
+               " RFC 7230 §3.2.4 (header-splitting"
+               " injection). Strip CR/LF/NUL from the cookie "
+               (name field-key) ".")
+          {:recovery :remove-injection-chars-from-cookie-attr
+           :extra    {:field field-key
+                      :value v}})))
     s))
 
 (defn- validate-cookie!
@@ -517,20 +522,19 @@
   [redirect-map]
   (let [retired (filterv #(contains? redirect-map %) retired-redirect-target-keys)]
     (when (seq retired)
-      (throw (ex-info ":rf.error/redirect-retired-target-key"
-                      {:rf.error/id :rf.error/redirect-retired-target-key
-                       :where     'rf.ssr/response
-                       :reason    (str "redirect target key(s) " (pr-str retired)
-                                        " are retired — the canonical redirect"
-                                        " target key is :location. The SSR redirect"
-                                        " fx writes an HTTP Location response header,"
-                                        " so it uses header vocabulary; rewrite "
-                                        (pr-str (first retired)) " as :location."
-                                        " (rf2-vngir / EP-0007 one-name-per-fact;"
-                                        " no back-compat alias.)")
-                       :retired-keys retired
-                       :canonical-key :location
-                       :recovery  :no-recovery})))))
+      (error/throw-error!
+        :rf.error/redirect-retired-target-key
+        'rf.ssr/response
+        (str "redirect target key(s) " (pr-str retired)
+             " are retired — the canonical redirect"
+             " target key is :location. The SSR redirect"
+             " fx writes an HTTP Location response header,"
+             " so it uses header vocabulary; rewrite "
+             (pr-str (first retired)) " as :location."
+             " (EP-0007 one-name-per-fact; no back-compat alias.)")
+        {:recovery :rewrite-the-target-key-as-location
+         :extra    {:retired-keys  retired
+                    :canonical-key :location}}))))
 
 (defn redirect-fx
   "Handler fn for `:rf.server/redirect`. Defaults :status to 302 if

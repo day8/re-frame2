@@ -91,7 +91,8 @@
 
     - Async Ring handler (3-arity) — synchronous-only in v1;
       extension is additive."
-  (:require [re-frame.frame :as frame]
+  (:require [re-frame.error :as error]
+            [re-frame.frame :as frame]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.ring.cookie :as cookie]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
@@ -136,7 +137,18 @@
   of param vectors — is treated as DATA, not evaluated as a form."
   [src-sym]
   (when-not (resolve src-sym)
-    (throw (ex-info (str "import-fn: cannot resolve " src-sym) {:sym src-sym})))
+    ;; Internal compile-time author error: a typo'd source symbol in an
+    ;; `import-fn` re-export above. Routed through the canonical builder so
+    ;; even this build-time exception carries `:rf.error/id` + `:reason`
+    ;; (rf2-vvixub). It never reaches a runtime/app channel.
+    (error/throw-error!
+      :rf.error/ssr-ring-import-fn-unresolved
+      'rf.ssr.ring/import-fn
+      (str "import-fn cannot resolve the source var " src-sym
+           "; check the fully-qualified symbol and that its namespace is "
+           "required at the top of re-frame.ssr.ring.")
+      {:recovery :correct-the-import-fn-source-symbol
+       :extra    {:sym src-sym}}))
   (let [nm (symbol (name src-sym))]
     `(do
        (def ~nm ~src-sym)

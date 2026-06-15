@@ -22,7 +22,8 @@
     - `snapshot-schemas-by-frame` / `restore-schemas-by-frame!` /
       `clear-schemas-by-frame!` — test-support hooks consumed by
       `re-frame.test-support`'s reset-runtime fixture."
-  (:require [re-frame.frame :as frame]
+  (:require [re-frame.error :as error]
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.path :as path]
@@ -67,9 +68,15 @@
     (keyword? opts-or-frame-id) {:frame opts-or-frame-id}
     (map?     opts-or-frame-id) opts-or-frame-id
     :else
-    (throw (ex-info ":rf.error/bad-app-schemas-arg"
-                    {:received opts-or-frame-id
-                     :expected "keyword frame-id or opts map"}))))
+    (error/throw-error!
+      :rf.error/bad-app-schemas-arg
+      'rf/app-schemas
+      (str "app-schemas expects a keyword frame-id or an opts map; got "
+           (pr-str opts-or-frame-id) ". Pass a frame-id keyword or a "
+           "{:frame <frame-id>} opts map.")
+      {:recovery :supply-a-frame-id-or-opts-map
+       :extra    {:received opts-or-frame-id
+                  :expected "keyword frame-id or opts map"}})))
 
 (defn- best-effort-frame
   "Resolve the registration frame for an error payload WITHOUT throwing —
@@ -228,33 +235,38 @@
   ([path] (assert-app-schema-path! path nil))
   ([path frame]
    (when-not (valid-app-schema-path? path)
-     (throw (ex-info ":rf.error/bad-app-schema-path"
-                     {:received path
-                      :expected (str "a sequential get-in path (vector/seq) "
-                                     "of CONCRETE :rf/path segments (keyword, "
-                                     "string, symbol, safe-range integer, "
-                                     "boolean, UUID, instant, or nil), or [] "
-                                     "for the app-db root — composite / "
-                                     "function / host / float / unsafe-integer "
-                                     "segments are rejected (EP-0012 §The "
-                                     ":rf/path algebra)")
-                      :rf.error/id :rf.error/bad-app-schema-path})))
+     (error/throw-error!
+       :rf.error/bad-app-schema-path
+       'rf/reg-app-schema
+       (str "reg-app-schema path " (pr-str path) " is invalid; pass "
+            "a sequential get-in path (vector/seq) "
+            "of CONCRETE :rf/path segments (keyword, "
+            "string, symbol, safe-range integer, "
+            "boolean, UUID, instant, or nil), or [] "
+            "for the app-db root — composite / "
+            "function / host / float / unsafe-integer "
+            "segments are rejected (EP-0012 §The "
+            ":rf/path algebra).")
+       {:recovery :supply-a-concrete-get-in-path
+        :extra    {:received path}}))
    (when (runtime-app-schema-path? path)
-     (throw (ex-info ":rf.error/app-schema-runtime-path"
-                     {:received    path
-                      :frame       frame
-                      :reason      (str "app schemas validate only app-db; a "
-                                        "path whose first segment is a "
-                                        ":rf.runtime/* keyword (or the legacy "
-                                        ":rf/runtime root) reaches into the "
-                                        "runtime-db partition. The runtime-db "
-                                        "partition is framework-owned and "
-                                        "validated by the framework (machine "
-                                        ":snapshots refined per-machine from "
-                                        "each machine's :data-schema); it is "
-                                        "NOT a user schema-registration "
-                                        "surface — drop the runtime path.")
-                      :rf.error/id :rf.error/app-schema-runtime-path})))))
+     (error/throw-error!
+       :rf.error/app-schema-runtime-path
+       'rf/reg-app-schema
+       (str "app schemas validate only app-db; a "
+            "path whose first segment is a "
+            ":rf.runtime/* keyword (or the legacy "
+            ":rf/runtime root) reaches into the "
+            "runtime-db partition. The runtime-db "
+            "partition is framework-owned and "
+            "validated by the framework (machine "
+            ":snapshots refined per-machine from "
+            "each machine's :data-schema); it is "
+            "NOT a user schema-registration "
+            "surface — drop the runtime path.")
+       {:recovery :drop-the-runtime-path
+        :extra    {:received path
+                   :frame    frame}}))))
 
 ;; ---- bulk first-argument shape validation (rf2-naihn1) --------------------
 ;;
@@ -288,10 +300,14 @@
   documented empty no-op)."
   [path->schema]
   (when-not (valid-bulk-schemas-arg? path->schema)
-    (throw (ex-info ":rf.error/bad-app-schemas-batch"
-                    {:received    path->schema
-                     :expected    "a {path -> schema} map (possibly empty)"
-                     :rf.error/id :rf.error/bad-app-schemas-batch}))))
+    (error/throw-error!
+      :rf.error/bad-app-schemas-batch
+      'rf/reg-app-schemas
+      (str "reg-app-schemas expects a {path -> schema} map (possibly empty); "
+           "got " (pr-str path->schema) ". Pass a map of path -> schema.")
+      {:recovery :supply-a-path-to-schema-map
+       :extra    {:received path->schema
+                  :expected "a {path -> schema} map (possibly empty)"}})))
 
 (defn coerce->frame-id
   "Resolve a frame-id from the `opts-or-frame-id` argument the read

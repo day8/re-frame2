@@ -27,7 +27,8 @@
                                     ` k1=\"v1\" k2=\"v2\"`. Boolean `true`
                                     → bare attribute name (`disabled`);
                                     `false` / `nil` → omitted entirely."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [re-frame.error :as error]))
 
 (defn escape-html
   "Full text-node HTML escape: `& < > \" '`. Stringifies non-strings."
@@ -163,19 +164,19 @@
               (if (or (= nxt \/) (= nxt \!))
                 ;; `</` or `<!` in token position is a real HTML breakout
                 ;; precursor with no readable in-token EDN escape.
-                (throw (ex-info ":rf.error/ssr-edn-script-breakout"
-                                {:rf.error/id :rf.error/ssr-edn-script-breakout
-                                 :where    'rf.ssr/html-helpers
-                                 :reason   (str "EDN script body carries a `<"
-                                                nxt "` HTML breakout precursor "
-                                                "in a non-string (keyword/symbol) "
-                                                "token, which has no readable EDN "
-                                                "escape; the offending token cannot "
-                                                "be safely emitted inside a "
-                                                "<script type=\"application/edn\"> "
-                                                "body. Restructure the offending "
-                                                "app-db key/value.")
-                                 :recovery :no-recovery}))
+                (error/throw-error!
+                  :rf.error/ssr-edn-script-breakout
+                  'rf.ssr/html-helpers
+                  (str "EDN script body carries a `<"
+                       nxt "` HTML breakout precursor "
+                       "in a non-string (keyword/symbol) "
+                       "token, which has no readable EDN "
+                       "escape; the offending token cannot "
+                       "be safely emitted inside a "
+                       "<script type=\"application/edn\"> "
+                       "body. Restructure the offending "
+                       "app-db key/value.")
+                  {:recovery :restructure-the-offending-app-db-value})
                 ;; Lone `<` in a token (`:<`, `:a<b`) — harmless in HTML
                 ;; script-data state; leave it so the token round-trips.
                 (recur (inc i) false false (conj! acc c))))
@@ -207,14 +208,15 @@
   (let [s (name k)]
     (if (re-matches attr-name-grammar s)
       s
-      (throw (ex-info ":rf.error/ssr-invalid-attribute-name"
-                      {:rf.error/id :rf.error/ssr-invalid-attribute-name
-                       :where     'rf.ssr/html-helpers
-                       :reason    (str "attribute name violates HTML5 grammar "
-                                       "[A-Za-z][A-Za-z0-9_:-]*; got "
-                                       (pr-str s))
-                       :attribute k
-                       :recovery  :no-recovery})))))
+      (error/throw-error!
+        :rf.error/ssr-invalid-attribute-name
+        'rf.ssr/html-helpers
+        (str "attribute name violates the HTML5 grammar "
+             "[A-Za-z][A-Za-z0-9_:-]*; got " (pr-str s)
+             ". Rename the attribute key to a letter-led name of "
+             "letters/digits/underscore/colon/hyphen.")
+        {:recovery :rename-the-attribute-key
+         :extra    {:attribute k}}))))
 
 ;; Prototype-pollution keys (rf2-dwds9 / security audit §XSS at output
 ;; boundaries). These three names, if they reach the underlying host's

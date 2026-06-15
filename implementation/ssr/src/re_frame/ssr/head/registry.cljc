@@ -20,7 +20,8 @@
     `on-frame-destroyed!` — clear the per-frame snapshot entry. Wired
                           into the `:ssr.head/on-frame-destroyed` hook
                           chained from `re-frame.ssr`'s teardown."
-  (:require [re-frame.frame :as frame]
+  (:require [re-frame.error :as error]
+            [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.source-coords :as source-coords]))
 
@@ -165,12 +166,14 @@
                    (frame/frame frame)
                    (fn [] (registrar/lookup :head head-id)))]
     (when-not head-reg
-      (throw (ex-info ":rf.error/no-such-head"
-                      {:rf.error/id :rf.error/no-such-head
-                       :where    'rf/active-head
-                       :head-id  head-id
-                       :reason   (str "No head registered under " head-id ".")
-                       :recovery :no-recovery})))
+      (error/throw-error!
+        :rf.error/no-such-head
+        'rf/active-head
+        (str "No head registered under " head-id
+             "; register it with reg-head before rendering, or pass a "
+             "head-id that has been registered.")
+        {:recovery :register-the-head-id
+         :extra    {:head-id head-id}}))
     (let [head-fn (:handler-fn head-reg)
           ;; `frame` is a required non-nil stamp here (require-frame-stamp!
           ;; above), so the app-db read is unconditional.

@@ -18,7 +18,8 @@
   the handler fns only.
 
   Per the rf2-gxgo7 split of re-frame.ssr."
-  (:require [re-frame.frame :as frame]
+  (:require [re-frame.error :as error]
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.ssr.hash :as hash]
@@ -464,5 +465,6 @@
            (when trace-fn
              (trace-fn :rf.ssr/hydration-mismatch payload))
            (when strict?
-             (throw (ex-info ":rf.ssr/hydration-mismatch"
+             (throw (ex-info (error/human-message :rf.ssr/hydration-mismatch
+                                                  (:reason payload))
                              (assoc payload :rf.error/id :rf.ssr/hydration-mismatch))))))))))

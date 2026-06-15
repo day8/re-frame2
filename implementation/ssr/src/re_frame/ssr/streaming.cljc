@@ -57,6 +57,7 @@
   Per the rf2-ojakd / rf2-olb64 cluster."
   (:require [clojure.data]
             [clojure.string]
+            [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -318,13 +319,15 @@
         children (vec (drop 2 el))
         n        (count children)]
     (when-not (suspense-attrs? attrs)
-      (throw (ex-info ":rf.error/suspense-boundary-invalid-attrs"
-                      {:rf.error/id :rf.error/suspense-boundary-invalid-attrs
-                       :where    'rf.ssr/streaming
-                       :reason   ":rf/suspense-boundary requires {:id … :fallback …} attrs map"
-                       :got      attrs
-                       :element  el
-                       :recovery :no-recovery})))
+      (error/throw-error!
+        :rf.error/suspense-boundary-invalid-attrs
+        'rf.ssr/streaming
+        (str ":rf/suspense-boundary requires an attrs map with both "
+             ":id and :fallback; give it {:id … :fallback …} as its "
+             "second element.")
+        {:recovery :supply-id-and-fallback-attrs
+         :extra    {:got     attrs
+                    :element el}}))
     (let [{:keys [id fallback]} attrs
           ;; The subtree is the rest of the hiccup vector after the
           ;; attrs map. Single-child or multi-child both work — we wrap

@@ -62,7 +62,8 @@
   `day8/re-frame2-ssr` artefact alongside the rest of the SSR surface; it
   is re-exported from the `re-frame.ssr` façade as `ssr/hydrate!` /
   `ssr/read-server-payload`."
-  (:require [re-frame.frame :as frame]
+  (:require [re-frame.error :as error]
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.router :as router]
@@ -185,22 +186,24 @@
   (let [payload-frame-id (:rf/frame-id payload)]
     (when (and (some? payload-frame-id)
                (not= payload-frame-id target))
-      (let [data {:rf.error/id      :rf.error/hydration-frame-id-mismatch
-                  :where            'rf.ssr/hydrate!
-                  :failing-id       :rf/hydrate
-                  :target-frame     target
-                  :payload-frame-id payload-frame-id
-                  :reason           (str "Hydration frame-id mismatch: the explicit "
-                                         ":frame target '" target "' conflicts with the "
-                                         "payload's :rf/frame-id '" payload-frame-id
-                                         "' (the frame the server rendered under). "
-                                         "Pass the same frame to hydrate! that the server "
-                                         "stamped, or correct the server's render frame — "
-                                         "the runtime will not silently choose a side.")
-                  :recovery         :supply-matching-frame}]
+      (let [ex   (error/thrown-ex-info
+                   :rf.error/hydration-frame-id-mismatch
+                   'rf.ssr/hydrate!
+                   (str "Hydration frame-id mismatch: the explicit "
+                        ":frame target '" target "' conflicts with the "
+                        "payload's :rf/frame-id '" payload-frame-id
+                        "' (the frame the server rendered under). "
+                        "Pass the same frame to hydrate! that the server "
+                        "stamped, or correct the server's render frame — "
+                        "the runtime will not silently choose a side.")
+                   {:recovery :supply-matching-frame
+                    :extra    {:failing-id       :rf/hydrate
+                               :target-frame     target
+                               :payload-frame-id payload-frame-id}})
+            data (ex-data ex)]
         (when interop/debug-enabled?
           (trace/emit-error! :rf.error/hydration-frame-id-mismatch data))
-        (throw (ex-info (str (:rf.error/id data)) data))))))
+        (throw ex)))))
 
 (defn hydrate!
   "Boot the client from the server's hydration payload — the symmetric

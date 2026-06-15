@@ -18,6 +18,7 @@
                               it EXPLICITLY like any other id.
     :rf.frame/<gensym>       — anonymous instances from make-frame"
   (:require [clojure.string]
+            [re-frame.error :as error]
             [re-frame.registrar :as registrar]
             [re-frame.realm :as realm]
             [re-frame.substrate.adapter :as adapter]
@@ -1105,9 +1106,15 @@
                  :drain-depth  16}
     :ssr-server {:platform :server}
     nil         {}
-    (throw (ex-info ":rf.error/unknown-preset"
-                    {:preset preset
-                     :valid  #{:default :test :story :ssr-server}}))))
+    (error/throw-error!
+      :rf.error/unknown-preset
+      'rf/reg-frame
+      (str "unknown frame :preset " (pr-str preset)
+           "; valid presets are :default, :test, :story, :ssr-server "
+           "(or omit :preset). Use one of those.")
+      {:recovery :use-a-valid-preset
+       :extra    {:preset preset
+                  :valid  #{:default :test :story :ssr-server}}})))
 
 (defn- expand-preset [metadata]
   (let [preset    (:preset metadata)

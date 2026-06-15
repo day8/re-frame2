@@ -50,7 +50,8 @@
   façade. Sibling to `re-frame.ssr.payload-policy` (the equivalent
   consolidation of the fail-closed hydration-payload policy contract
   per rf2-gtgf9)."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [re-frame.error :as error]))
 
 (set! *warn-on-reflection* true)
 
@@ -83,19 +84,19 @@
     (when (contains? opts k)
       (let [v (get opts k)]
         (when (and (some? v) (not (string? v)))
-          (throw (ex-info ":rf.error/ssr-trusted-shell-opt-invalid"
-                          {:rf.error/id :rf.error/ssr-trusted-shell-opt-invalid
-                           :where    'rf.ssr/trusted-shell
-                           :reason   (str "ssr-handler / stream-handler " (pr-str k)
-                                          " must be a string (or nil) — the four "
-                                          "trusted shell-hook opts ("
-                                          (str/join ", " (map pr-str trusted-shell-string-opts))
-                                          ") are injected RAW into the rendered HTML "
-                                          "envelope (trusted-string contract per "
-                                          "Spec 011 §Trusted shell hook contract). "
-                                          "Got: " (pr-str (type v)) ".")
-                           :opt-key  k
-                           :got      v
-                           :got-type (type v)
-                           :recovery :supply-string-or-nil}))))))
+          (error/throw-error!
+            :rf.error/ssr-trusted-shell-opt-invalid
+            'rf.ssr/trusted-shell
+            (str "ssr-handler / stream-handler " (pr-str k)
+                 " must be a string (or nil) — the four "
+                 "trusted shell-hook opts ("
+                 (str/join ", " (map pr-str trusted-shell-string-opts))
+                 ") are injected RAW into the rendered HTML "
+                 "envelope (trusted-string contract per "
+                 "Spec 011 §Trusted shell hook contract). "
+                 "Got: " (pr-str (type v)) ".")
+            {:recovery :supply-string-or-nil
+             :extra    {:opt-key  k
+                        :got      v
+                        :got-type (type v)}})))))
   opts)
