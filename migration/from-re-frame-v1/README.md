@@ -346,18 +346,18 @@ Why: per [Spec-Schemas §:rf/effect-map](../../spec/Spec-Schemas.md#rfeffect-map
 **What to do:** rewrite the effect map so every non-`:db` effect lives under `:fx`:
 
 ```clojure
-;; New form
-(rf/reg-event-fx :foo
+;; New form — reg-event is the one public event form (EP-0018)
+(rf/reg-event :foo
   (fn [_ _] {:db ...
              :fx [[:dispatch [:bar]]]}))
 
-(rf/reg-event-fx :baz
+(rf/reg-event :baz
   (fn [_ _] {:fx [[:dispatch-later {:ms 100 :event [:tick]}]]}))
 
-(rf/reg-event-fx :many
+(rf/reg-event :many
   (fn [_ _] {:fx [[:dispatch [:a]] [:dispatch [:b]] [:dispatch [:c]]]}))
 
-(rf/reg-event-fx :load
+(rf/reg-event :load
   (fn [_ _] {:fx [[:http {:method :get :url "/api"}]]}))
 ```
 
@@ -407,22 +407,22 @@ re-frame2 rejects `dispatch-sync` from inside a running event handler — the ru
 **What to do:** move the dispatched event into `:fx`:
 
 ```clojure
-(rf/reg-event-fx :auth/login
+(rf/reg-event :auth/login                        ;; the one public event form (EP-0018)
   (fn [{:keys [db event]}]
     {:db (assoc db :auth/state :authenticating)
      :fx [[:dispatch [:auth/log-attempt]]]}))   ;; drains as part of the cascade
 
-(rf/reg-event-fx :checkout/start
+(rf/reg-event :checkout/start
   (fn [{:keys [db event]}]
     {:db (assoc db :checkout/state :preparing)
-     :fx [[:dispatch [:cart/snapshot]]]}))       ;; promoted from -db to -fx
+     :fx [[:dispatch [:cart/snapshot]]]}))       ;; the db handler grows an :fx
 ```
 
 The rewrite is mechanical:
 
 1. Locate every `rf/dispatch-sync` call lexically inside a `reg-event-*` body. The static lexical position is the discriminator (Type A).
 2. Move the dispatched event into the handler's returned effect-map under `:fx`.
-3. If the handler was `reg-event-db` (returns `db`), promote it to `reg-event-fx` so it can express `:fx`.
+3. If the handler was a v1 `reg-event-db` (returns `db`), it migrates to the one public `reg-event` (= today's `reg-event-fx`; per [M-73](#m-73-one-event-registration-form-reg-event-db--reg-event-fx-removed-reg-event-ctx-demoted-ep-0018)) so it can express `:fx` — destructure `:db` from the coeffects map and return `{:db … :fx …}`.
 4. If the surrounding code reads a return value from `dispatch-sync`, it can be dropped — `dispatch-sync` returned `nil` for fire-and-forget cases anyway.
 
 **`dispatch-sync` outside any handler is unchanged.** Tests, REPL exploration, and app-startup bootstrapping still call `dispatch-sync` exactly as in v1. The rejection only applies when the call is lexically (or dynamically) inside a running handler's interceptor pipeline.
@@ -567,8 +567,8 @@ The one residual hazard is the **retired app-db root `:rf/runtime`**. The former
     {:db (assoc fresh-db :rf/runtime (:rf/runtime db))}))   ; throws :rf.error/legacy-runtime-root
 
 ;; AFTER — just return the fresh db; the runtime-db partition is left untouched
-(rf/reg-event-db :bootstrap
-  (fn [_ _] fresh-db))   ; fresh-db carries NO :rf/runtime — machines/routing/SSR survive in runtime-db
+(rf/reg-event :bootstrap                              ;; the one public event form (EP-0018)
+  (fn [_ _] {:db fresh-db}))   ; fresh-db carries NO :rf/runtime — machines/routing/SSR survive in runtime-db
 ```
 
 **If you genuinely need to seed runtime state**, emit the `:rf.db/runtime` effect (never an app-db key) — but a routine boot/reset does not need it; the runtime owns runtime-db.
@@ -635,7 +635,7 @@ re-frame2's run-to-completion drain (per [M-3](#m-3-dispatch-ordering--events-di
 
 ```clojure
 ;; re-frame2 (ii) — wrap in a one-shot trampoline
-(rf/reg-event-fx :rf/dispatch-later-once
+(rf/reg-event :rf/dispatch-later-once
   (fn [_ [_ ev]]
     {:fx [[:dispatch-later {:ms 0 :event ev}]]}))
 
@@ -737,9 +737,9 @@ re-frame2 does not ship `reg-sub-raw`. The substrate now has explicit answers fo
        (let [{:keys [dispatch]} (rf/frame-handle (:frame m))] ;; handle locked to (:frame m)
          (websocket/on-message #(dispatch [:ws/message-received %])))))
 
-   (rf/reg-event-db :ws/message-received
-     (fn [db [_ msg]]
-       (update db :ws/messages (fnil conj []) msg)))
+   (rf/reg-event :ws/message-received               ;; the one public event form (EP-0018)
+     (fn [{:keys [db]} [_ msg]]
+       {:db (update db :ws/messages (fnil conj []) msg)}))
 
    (rf/reg-sub :ws/messages
      (fn [db _] (:ws/messages db)))
@@ -1389,7 +1389,7 @@ As the third per-feature artefact split (Strategy B), Spec 012's routing surface
         day8/re-frame2-routing {:mvn/version "<latest>"}}}  ;; ← new in v2
 ```
 
-Every namespace that calls `rf/reg-route` (or dispatches the `:rf.route/*` events / subscribes to the `:rf/route` family) MUST `(:require [re-frame.routing])` so the namespace's load-time hook registrations and `:rf.route/*` reg-event-fx + reg-sub installations fire before the call site runs. Without the require, the late-bind hook table is empty at the moment `rf/reg-route` resolves and the wrapper raises `:rf.error/routing-artefact-missing` with a clear "add the routing artefact" message; without the framework events the dispatches resolve to `:rf.error/no-such-handler`.
+Every namespace that calls `rf/reg-route` (or dispatches the `:rf.route/*` events / subscribes to the `:rf/route` family) MUST `(:require [re-frame.routing])` so the namespace's load-time hook registrations and `:rf.route/*` reg-event + reg-sub installations fire before the call site runs. Without the require, the late-bind hook table is empty at the moment `rf/reg-route` resolves and the wrapper raises `:rf.error/routing-artefact-missing` with a clear "add the routing artefact" message; without the framework events the dispatches resolve to `:rf.error/no-such-handler`.
 
 **Public API** (in `re-frame.core`) is unchanged — `(rf/reg-route ...)`, `(rf/match-url ...)`, `(rf/route-url ...)` still work, the wrappers in core late-bind through the hook table to the routing artefact's implementations. The active surfaces throw `:rf.error/routing-artefact-missing` when the routing artefact is absent.
 
@@ -2120,7 +2120,7 @@ v1's `re-frame-test/run-test-sync` was carried into v2 as a "compatibility shim"
   (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (deftest legacy-flow
-  (rf/reg-event-db :counter/inc (fn [db _] (update db :n inc)))
+  (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n inc)}))
   (rf/dispatch-sync [:counter/inc])
   (is (= 1 (:n (rf/app-db-value :rf/default)))))
 ```
@@ -2134,7 +2134,7 @@ For ad-hoc bodies that want a one-off registrar bracket without converting the w
 (deftest one-off
   (ts/with-fresh-registrar
     (fn []
-      (rf/reg-event-db :tmp/inc (fn [db _] (update db :n inc)))
+      (rf/reg-event :tmp/inc (fn [{:keys [db]} _] {:db (update db :n inc)}))
       (rf/dispatch-sync [:tmp/inc])
       (is (= 1 (:n (rf/app-db-value :rf/default)))))))
 ```
@@ -2196,11 +2196,11 @@ The dual schemas vocabulary — v1's `:spec` metadata key, v2's `:rf.spec/*` res
 |---|---|---|
 | `:spec` (per-`reg-*` metadata key) | `:schema` | every `reg-event-*` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-flow` / `reg-view` registration's metadata map; `:rf/registration-metadata` shape per [Spec-Schemas §`:rf/registration-metadata`](../../spec/Spec-Schemas.md#rfregistration-metadata) |
 | `:rf.spec/violation` | `:rf.schema/violation` | hot-reload schema-mismatch trace category (warning); [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) |
-| `:spec/at-boundary` | `:rf.schema/at-boundary` | interceptor `:id` keyword on the production-side schema validator (Var rename to `validate-at-boundary-interceptor` documented separately in M-59); during this sweep the Var surface was `re-frame.core/at-boundary` and only the keyword `:id` was changing |
+| `:spec/at-boundary` | `:rf.schema/at-boundary` | interceptor `:id` keyword on the production-side schema validator — this keyword is also the **registered chain ref** apps cite (`{:schema S :interceptors [:rf.schema/at-boundary]}`, per EP-0022 / [M-59](#m-59-at-boundary--unwrap-interceptor-values--the-registered-chain-ref--handler-destructuring)); during this `:spec` → `:schema` sweep only the keyword `:id` was changing |
 | `:spec-id` | `:schema-id` | trace tag on `:rf.error/schema-validation-failure` (every `:where`); locator for the failing registration's id |
 | `:rf.spec/*` reserved namespace | `:rf.schema/*` | [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) — the `:rf.spec/*` + bare `:spec/*` rows collapsed into a single `:rf.schema/*` row |
 
-**The namespace `re-frame.spec` is NOT renamed.** The early-v2 namespace name remains for back-compat (the ns alias rides v1's `:spec` brand); new code should reach the interceptor through `re-frame.core/validate-at-boundary-interceptor` (per the M-59 Var-name rename — during this sweep the recommended surface was `re-frame.core/at-boundary`). The ns body itself was retitled: the interceptor's `:id` is now `:rf.schema/at-boundary`, the docstring and surrounding comments speak `:schema`.
+**The namespace `re-frame.spec` is NOT renamed.** The early-v2 namespace name remains for back-compat (the ns alias rides v1's `:spec` brand). New code does **not** reach the boundary validator through a chain Var at all — it cites the framework-registered ref `:rf.schema/at-boundary` by id in `:interceptors` (per EP-0022 / [M-59](#m-59-at-boundary--unwrap-interceptor-values--the-registered-chain-ref--handler-destructuring)); the `validate-at-boundary-interceptor` Var is only the registration-boundary input the framework itself registers, never an inline chain entry. The ns body was retitled: the interceptor's `:id` is now `:rf.schema/at-boundary`, the docstring and surrounding comments speak `:schema`.
 
 **What to look for.**
 
@@ -2225,7 +2225,7 @@ The dual schemas vocabulary — v1's `:spec` metadata key, v2's `:rf.spec/*` res
 ;; the framework no longer accepts :spec on reg-* metadata; the dual-key
 ;; read was removed. Migrations MUST rewrite every :spec slot.
 
-(rf/reg-event-fx :auth/login
+(rf/reg-event :auth/login                        ;; the one public event form (EP-0018)
   {:doc "..." :schema LoginSchema}
   (fn ...))
 
@@ -2240,13 +2240,13 @@ The dual schemas vocabulary — v1's `:spec` metadata key, v2's `:rf.spec/*` res
 2. `:rf.spec/violation` → `:rf.schema/violation` (single global token; safe to rewrite verbatim).
 3. `:spec/at-boundary` → `:rf.schema/at-boundary` (single global token; the namespace segment `:spec/` is reserved at the *keyword* level, so the only conformant tail is `at-boundary`).
 4. `:spec-id` → `:schema-id` **only inside trace-tag map literals or trace-handler destructures** (`(-> ev :tags :spec-id)`, `(let [{:keys [spec-id]} (:tags ev)] ...)`). Avoid renaming unrelated `:spec-id` keys outside the framework's trace surface.
-5. **Namespace `re-frame.spec`**: do NOT rename. The ns alias is preserved for back-compat per the decision; reach the interceptor through `re-frame.core/validate-at-boundary-interceptor` (recommended; per M-59) or `re-frame.spec/validate-at-boundary-interceptor` (the ns/Var path).
+5. **Namespace `re-frame.spec`**: do NOT rename — the ns alias is preserved for back-compat per the decision. Do **not** rewrite an `at-boundary` chain entry to a `*-interceptor` Var: under EP-0022 the boundary validator is cited as the registered ref `:rf.schema/at-boundary` by id in `:interceptors` (per [M-59](#m-59-at-boundary--unwrap-interceptor-values--the-registered-chain-ref--handler-destructuring)); the `validate-at-boundary-interceptor` Var is the framework's registration-boundary input, never a chain entry.
 
 **No deprecation alias (pre-alpha posture).**
 
 The dual-key read `(or (:schema meta) (:spec meta))` and the `:rf.warning/deprecated-schema-alias` once-per-`(kind, id)` warning shipped briefly during the initial rename but were stripped in a follow-up pass alongside the M-53 `dispose-adapter!` alias. The framework now reads `:schema` only; `:spec` on `reg-*` metadata is a stale key that registrations silently ignore (and that schema validators treat as "no schema declared" — every read at the boundary will pass with a soft-pass, hiding bugs). Migration agents MUST rewrite every `:spec` slot.
 
-**Cross-references.** [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) (the unified `:rf.schema/*` row), [010 §On every `reg-*`](../../spec/010-Schemas.md#on-every-reg-) (canonical metadata-key contract), [010 §Production builds](../../spec/010-Schemas.md#production-builds) (the renamed boundary interceptor), [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) (the renamed `:rf.schema/violation` row), [M-53](#m-53-tear-down-verb-rename--dispose-adapter--destroy-adapter) (the sibling Type-A vocabulary rename — same per-token pattern, different surface).
+**Cross-references.** [Conventions §Reserved namespaces](../../spec/Conventions.md#reserved-namespaces-framework-owned) (the unified `:rf.schema/*` row), [010 §On every `reg-*`](../../spec/010-Schemas.md#on-every-reg-) (canonical metadata-key contract), [010 §Production builds](../../spec/010-Schemas.md#production-builds) (the `:rf.schema/at-boundary` boundary-validation ref), [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) (the renamed `:rf.schema/violation` row), [M-53](#m-53-tear-down-verb-rename--dispose-adapter--destroy-adapter) (the sibling Type-A vocabulary rename — same per-token pattern, different surface).
 
 ---
 
@@ -2396,71 +2396,86 @@ Per audit-of-audits state-machines #12, the machine-handler builder is renamed f
 
 ---
 
-### M-58. Trace-redaction factory rename — `with-redacted` → `redact-interceptor`
+### M-58. Trace-redaction interceptor removed — privacy is owner-declared classification
 
-**Type A** (mechanical). Single-symbol global rename.
+**Type B** (semantic — the rewrite depends on which data was being scrubbed and where it lives).
 
-Per audit-of-audits naming: the `with-redacted` factory's `with-*` prefix misled — `with-*` macros conventionally take a body (`with-frame`, `with-fx-overrides`), but `with-redacted` returns an interceptor value to attach via metadata `:interceptors`. The new name `redact-interceptor` matches the value-shape it produces and aligns with the interceptor-value family (`at-boundary-interceptor`, `unwrap-interceptor`).
+A v1 / early-v2 codebase that scrubbed sensitive values out of the trace stream did so by attaching a **redaction interceptor value** (`with-redacted` / `redact-interceptor`) to specific event registrations. **That surface is gone.** There is **no** v2 redaction interceptor — the value is removed from the public facade and there is no replacement interceptor to rename it to. Privacy in v2 is **declared at the data's owner** as a classification, and projection happens **centrally at egress**, not by placing an interceptor on a handler.
 
-| Old | New | Surface |
-|---|---|---|
-| `re-frame.core/with-redacted` | `re-frame.core/redact-interceptor` | the factory fn (returns a Class-1 interceptor map) |
-| `:rf/with-redacted` (interceptor `:id`) | `:rf/redact-interceptor` | the interceptor's identity slot |
+The two declaration points, by data kind:
 
-**Detect.** v2-pre-rename codebases trip this. v1 had no trace surface or sensitive-data redaction interceptor; v1 codebases land directly on the new name.
+- **Transient event payloads** (the case the old interceptor covered): classify on the **registration** with `:sensitive` / `:large` metadata — `(reg-event :auth/login {:sensitive [[:password] [:token]]} …)`. The runtime projects the classified paths centrally at egress (per the egress profile); nothing is attached to the handler's `:interceptors`.
+- **Durable `app-db` slots**: classify on the **frame** — `reg-frame` `:sensitive` / `:large` `{:app-db [...]}` path maps (this is the M-15 / [M-26](#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces) durable-classification route).
+- **Owner-local schema'd data** (machine `:data`, resource data/params, HTTP `:decode` bodies): per-slot `:sensitive?` / `:large?` Malli props on the owner's schema.
+
+**Detect.** v2-pre-rename codebases attaching a `with-redacted` / `redact-interceptor` value in an event's interceptor chain. v1 had no trace surface or sensitive-data redaction interceptor; a v1 codebase has nothing to detect here.
 
 ```clojure
-;; before
+;; before — v1 / early-v2 redaction interceptor value attached per event
 (rf/reg-event-fx :auth/login
   [(rf/with-redacted [[:password] [:token]])]
   (fn [{:keys [db]} [_ {:keys [username password token]}]] ...))
+```
 
-;; after
-(rf/reg-event-fx :auth/login
-  [(rf/redact-interceptor [[:password] [:token]])]
+**What to do.** Declare the sensitive payload paths as registration classification on the one public `reg-event` — there is no interceptor in the chain:
+
+```clojure
+;; after — owner-declared classification; projection is central, not per-handler
+(rf/reg-event :auth/login
+  {:sensitive [[:password] [:token]]}
   (fn [{:keys [db]} [_ {:keys [username password token]}]] ...))
 ```
 
-**No alias.** Per pre-alpha posture (no back-compat shims), the old name is **removed** — stale call sites raise unresolved-symbol at compile time.
+**No replacement interceptor.** Per pre-alpha posture (no back-compat shims), the redaction interceptor value is **removed** from `re-frame.core` — a stale call site raises unresolved-symbol at compile time, and an attempt to place any interceptor value inline in a public `:interceptors` chain is the registration error `:rf.error/inline-interceptor-removed` regardless. Visibility on-box is governed by the per-(tool, frame) `:rf.egress/*` profile (`:rf.egress/local-redacted` default, fail-closed), not a process-global toggle.
 
-**Cross-references.** [Conventions §Value-vs-fn naming](../../spec/Conventions.md); [API.md §Privacy](../../spec/API.md); [Spec 009 §Privacy](../../spec/009-Instrumentation.md); [Security.md §Behavioural MUSTs across the privacy surface](../../spec/Security.md).
+**Cross-references.** [Spec 015 §Registration-owned transient classification](../../spec/015-Data-Classification.md#registration-owned-transient-classification) (the `:sensitive` / `:large` payload route that replaces the interceptor); [Spec 015 §Frame-owned durable classification](../../spec/015-Data-Classification.md#frame-owned-durable-classification) (the durable `app-db` route); [Spec 015 §Projection profiles — the `:rf.egress/*` enum](../../spec/015-Data-Classification.md#projection-profiles--the-rfegress-enum-provisional) (where on-box visibility is decided); [Security.md §Behavioural MUSTs across the privacy surface](../../spec/Security.md).
 
 ---
 
-### M-59. Interceptor-value family suffix — `at-boundary` / `unwrap` → `*-interceptor`
+### M-59. `at-boundary` / `unwrap` interceptor values → the registered chain ref + handler destructuring
 
-**Type A** (mechanical). Two-symbol rename across all source files.
+**Type A** for the `at-boundary` boundary-validation ref (closed shape); **Type B** for `unwrap` (the rewrite depends on whether the v1 chain reshaped `:event` for one handler or for many).
 
-Per audit-of-audits naming: the public Vars holding pre-built interceptor maps must carry an `-interceptor` suffix to telegraph value-shape at the call site (per [Conventions §Value-vs-fn naming](../../spec/Conventions.md)). Combined with the observation that the `at-boundary` Var carries a *time/build-mode* axis (not a *location* axis — the `validate-` prefix telegraphs the mode-gated semantic), the rename folds into a single sweep.
+Under EP-0022 a public `:interceptors` chain carries serializable **references** (a bare-keyword registered-interceptor id, or the parameterized standard path ref `[:rf.interceptor/path …]`) — **never** an inline interceptor value or Var. A v1 / early-v2 codebase that dropped `at-boundary` / `unwrap` **values** into a chain is now an outright registration error (`:rf.error/inline-interceptor-removed`). The two halves migrate to different destinations:
 
-| Old | New | Surface |
-|---|---|---|
-| `re-frame.core/at-boundary` | `re-frame.core/validate-at-boundary-interceptor` | the production-side schema-validation Var (no-op in dev, validates in prod) |
-| `re-frame.spec/at-boundary` | `re-frame.spec/validate-at-boundary-interceptor` | the Var-defining ns; legacy reach path |
-| `re-frame.core/unwrap` | `re-frame.core/unwrap-interceptor` | the `[<id> <payload-map>]` shape-assertion Var |
-| `re-frame.std-interceptors/unwrap` | `re-frame.std-interceptors/unwrap-interceptor` | the Var-defining ns |
-
-The interceptor `:id` keywords (`:rf.schema/at-boundary`, `:unwrap`) are **unchanged** — only the Var names move. `path` is a *factory fn* (returns an interceptor when called with path-segs); per Conventions §Value-vs-fn naming the factory itself does NOT carry the suffix. Likewise the `redact-interceptor` rename (M-58) keeps `redact-interceptor` as a factory-fn shape because the bundled-PR task explicitly named it that way.
-
-**Detect.** v2-pre-rename codebases trip this. v1 had `at-boundary` as part of M-54's `:spec` → `:schema` rename (the Var itself was preserved at that sweep's time); the new rename moves the Var name too. v1 codebases land directly on the new name via the bundled sweep.
+**`at-boundary` → the framework-registered chain ref `:rf.schema/at-boundary`.** Boundary schema-validation is a live framework affordance, but you reference it by id, not by value. A handler that wants its `:schema` enforced at the boundary even in production (where global validation is elided) lists the ref alongside the `:schema`:
 
 ```clojure
-;; before
+;; before — v1 / early-v2 inline at-boundary VALUE in the chain (now :rf.error/inline-interceptor-removed)
 (rf/reg-event-fx :api/payload
   {:schema PayloadSchema
-   :interceptors [rf/at-boundary rf/unwrap]}
+   :interceptors [rf/at-boundary]}
   (fn [_ {:keys [...]}] ...))
 
-;; after
-(rf/reg-event-fx :api/payload
+;; after — the framework-registered REF, by id (EP-0022 / Spec 010)
+(rf/reg-event :api/payload
   {:schema PayloadSchema
-   :interceptors [rf/validate-at-boundary-interceptor rf/unwrap-interceptor]}
-  (fn [_ {:keys [...]}] ...))
+   :interceptors [:rf.schema/at-boundary]}
+  (fn [{:keys [db]} [_ payload]] ...))
 ```
 
-**No alias.** Per pre-alpha posture, the old names are **removed** — stale call sites raise unresolved-symbol at compile time.
+Registering `:rf.schema/at-boundary` **without** a `:schema` on the handler is rejected at registration time (`:rf.error/at-boundary-missing-schema`) — the boundary interceptor is structurally meaningless with no schema to force a check against.
 
-**Cross-references.** [Conventions §Value-vs-fn naming](../../spec/Conventions.md) (the rule); [API.md §Standard interceptors](../../spec/API.md) (the family catalogue); [Spec 010 §Production builds](../../spec/010-Schemas.md) (`validate-at-boundary-interceptor`'s mode-gated semantic); [M-54](#m-54-schema-vocabulary-unification--spec--schema) (the prior `:spec` → `:schema` keyword unification, sibling pass).
+**`unwrap` → handler destructuring.** There is **no** standard `unwrap` interceptor in v2. A v1 chain that used `unwrap` to reshape the event vector into `[<id> <payload-map>]` migrates to **ordinary handler destructuring** (the M-19 canonical map-payload shape): read the payload map straight out of the event vector in the handler's argument list.
+
+```clojure
+;; before — v1 unwrap VALUE reshapes the event for the handler
+(rf/reg-event-fx :api/payload
+  {:interceptors [rf/unwrap]}
+  (fn [_ {:keys [order-id total]}] ...))
+
+;; after — destructure the payload map directly (M-19 canonical shape)
+(rf/reg-event :api/payload
+  (fn [{:keys [db]} [_ {:keys [order-id total]}]] ...))
+```
+
+Only when chain-wide `:event` reshaping is genuinely intended — the same reshape applied across many handlers — register a project interceptor with `reg-interceptor` (e.g. `:app/unwrap`) and reference it by id in those handlers' `:interceptors`. The common case is destructuring, not a registered interceptor.
+
+**Detect.** v2-pre-rename codebases listing an `at-boundary` / `unwrap` interceptor value (or a renamed `*-interceptor` Var) in an event's `:interceptors`. A v1 codebase that used the xstate-shaped boundary validator lands on the `:rf.schema/at-boundary` ref via the same rewrite; v1 `unwrap` usage lands on destructuring.
+
+**No inline values.** Per EP-0022 the only legal chain entries are bare-keyword refs (`:rf.schema/at-boundary`, a project `:app/unwrap`) and the parameterized `[:rf.interceptor/path …]`. An inline interceptor value or Var in a public chain is `:rf.error/inline-interceptor-removed` regardless of which interceptor it is.
+
+**Cross-references.** [Spec 010 §Production builds](../../spec/010-Schemas.md#production-builds) (the framework-registered `:rf.schema/at-boundary` ref and the `:rf.error/at-boundary-missing-schema` rejection); [M-19](#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in) (the canonical map-payload destructuring `unwrap` collapses into); [M-70](#m-70-event-interceptor-chains-use-registered-interceptor-refs-in-metadata-interceptors) (the registered-ref chain contract — any project interceptor is registered + referenced by id); [M-54](#m-54-schema-vocabulary-unification--spec--schema) (the prior `:spec` → `:schema` keyword unification, sibling pass).
 
 ---
 
@@ -2485,7 +2500,7 @@ Per audit-of-audits routing: two near-identical names (`:rf/url-changed` as an e
 (when (= :rf.route/url-changed (:operation trace-ev)) ...)
 
 ;; after
-(rf/reg-event-fx :rf.route/transitioned
+(rf/reg-event :rf.route/transitioned             ;; the one public event form (EP-0018)
   (fn [{:keys [db]} [_ url opts]] ...))
 
 (when (= :rf.route/fragment-changed (:operation trace-ev)) ...)
@@ -2880,16 +2895,16 @@ M-70 already moves every event interceptor chain into metadata `:interceptors`. 
 **Optional transformation:**
 
 ```clojure
-;; before
-(rf/reg-event-fx :load-todo
-  {:interceptors [interceptor-1 interceptor-2]}
+;; before — already on the canonical reg-event (EP-0018), chain in metadata
+(rf/reg-event :load-todo
+  {:interceptors [:app/interceptor-1 :app/interceptor-2]}
   (fn [ctx event] ...))
 
 ;; after
-(rf/reg-event-fx :load-todo
+(rf/reg-event :load-todo
   {:doc    "Loads a todo by id from the API."
    :schema [:cat [:= :load-todo] :int]                    ;; Malli, optional
-   :interceptors [interceptor-1 interceptor-2]}
+   :interceptors [:app/interceptor-1 :app/interceptor-2]}
   (fn load-todo-handler [ctx]
     ...))
 ```
