@@ -22,7 +22,9 @@
   emits `[:rf.machine/spawn-all-init args]` alongside per-child
   `:rf.machine/spawn` fxs on entry to a `:spawn-all`-bearing state to
   seed the join state at `[:rf.runtime/machines :spawned <parent> <invoke-id>]`."
-  (:require [re-frame.frame :as frame]
+  (:require [re-frame.error :as error]
+            [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.machines.data-validation :as data-validation]
             [re-frame.machines.lifecycle-fx.registration :as registration]
@@ -33,6 +35,11 @@
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
+
+;; `spawn-fx` (the fx handler / fail-closed gate) delegates the accepted-spawn
+;; body to `spawn-fx*`, defined below it — forward-declared so the gate can
+;; reference it (rf2-ywv74m).
+(declare spawn-fx*)
 
 ;; ---- id allocation --------------------------------------------------------
 
@@ -74,7 +81,12 @@
   registered machine — read its spec back from the registrar via the
   `:rf/machine` metadata. `:definition` carries an inline spec map.
   Returns the spec map or nil if neither resolves. Per Spec 005
-  §Spawn-spec keys."
+  §Spawn-spec keys.
+
+  Per rf2-ywv74m a nil return from a `:machine-id`-bearing spawn means the
+  named TYPE is UNREGISTERED — the fail-closed reject path (see
+  `unregistered-spawn-type?` / `reject-unregistered-spawn!`). An inline
+  `:definition` always resolves to itself."
   [args]
   (let [machine-id (:machine-id args)
         defn       (:definition args)]
@@ -84,6 +96,70 @@
                     (when (:rf/machine? m)
                       (:rf/machine m))))))
 
+(defn- unregistered-spawn-type?
+  "Per rf2-ywv74m (Mike ruling, 2026-06-15): a `:spawn` / `:spawn-all`
+  per-child whose `:machine-id` names an UNREGISTERED machine TYPE — and
+  which carries no inline `:definition` — is REJECTED fail-closed. True iff
+  the args name a `:machine-id`, carry no `:definition`, and no registered
+  machine spec resolves for that id (the implicit \"spec-less spawn\" path,
+  now REMOVED as a supported lifecycle). A `:definition` spawn never trips
+  this (the spec IS the args)."
+  [args]
+  (boolean
+    (and (:machine-id args)
+         (not (:definition args))
+         (nil? (resolve-spawn-machine args)))))
+
+(defn- reject-unregistered-spawn!
+  "Per rf2-ywv74m — emit the always-on `:rf.error/machine-spawn-unregistered-type`
+  and reject the spawn. The implicit \"spec-less spawn\" path (a `:machine-id`
+  that resolves to no registered spec) is REMOVED: a rejected spawn installs
+  NO snapshot, NO slot, NO system-id binding, allocates NO spawned-id, records
+  NO spawn-order entry, fires NO trace, and dispatches NO `:start`.
+
+  ALWAYS-ON (EP-0008 non-event union-record axis, surface #4): the reject is a
+  production-reachable fail-closed boundary fact — an off-box shipper on a
+  `goog.DEBUG=false` build must still see it — so it rides the always-on
+  `:error-emit/dispatch-error-record` late-bind hook (the non-event sibling of
+  `dispatch-on-error!`, shared with the frame-teardown report). A dev error
+  trace (`trace/emit-error!`, DCE'd in production) ALSO fires for the
+  in-process tooling surface — the same always-on-plus-dev-trace shape
+  `:rf.error/write-after-destroy` / `:rf.error/on-destroy-handler-exception`
+  carry.
+
+  Privacy (rf2-ywv74m correctness call-out): the record carries STRUCTURAL
+  context ONLY — `:machine-id`, `:frame`, `:reason`, `:recovery`. The full
+  spawn `args` are NEVER carried: `:start` payloads / `:data` may hold
+  application data (auth tokens, PII), and this record is production-surviving
+  and NOT privacy-gated. `:reason` names the id and the fix without echoing
+  any value-bearing slot."
+  [frame-id machine-id]
+  (let [reason (error/human-message
+                 :rf.error/machine-spawn-unregistered-type
+                 (str "Cannot spawn machine " machine-id
+                      ": no machine TYPE is registered under that :machine-id "
+                      "(and the spawn carries no inline :definition). Register the "
+                      "machine with rf/reg-machine before spawning it, or supply an "
+                      "inline :definition."))]
+    ;; Always-on (surface #4): the non-event union record. Structural-only —
+    ;; no spawn args. Late-bound: machines ships above core's require graph;
+    ;; the hook is bound once `re-frame.error-emit` loads.
+    (when-let [dispatch-record! (late-bind/get-fn :error-emit/dispatch-error-record)]
+      (dispatch-record! {:error      :rf.error/machine-spawn-unregistered-type
+                         :frame      frame-id
+                         :machine-id machine-id
+                         :recovery   :no-recovery
+                         :reason     reason
+                         :time       (interop/now-ms)}))
+    ;; Dev trace (DCE'd in production) for the in-process tooling surface.
+    (trace/emit-error! :rf.error/machine-spawn-unregistered-type
+                       {:machine-id machine-id
+                        :failing-id machine-id
+                        :frame      frame-id
+                        :recovery   :no-recovery
+                        :reason     reason})
+    nil))
+
 (defn- machine-type-ref
   "Per rf2-a2sn1 — the revertible TYPE reference stamped onto a spawned
   actor's snapshot root under `:rf/machine-type`, so the lazy resolver
@@ -92,8 +168,10 @@
   (the type outlives every instance — registered like a singleton). An
   inline `:definition` spawn stores the spec map verbatim (there is no
   registered type; the snapshot is the only source of truth, and it is
-  fully revertible). Returns nil when the spawn names neither — a
-  spec-less spawn installs no snapshot, so there is nothing to resolve."
+  fully revertible). Per rf2-ywv74m a spawn always names exactly one of the
+  two — an unregistered `:machine-id` is rejected fail-closed BEFORE this is
+  reached (see `reject-unregistered-spawn!`), so this never returns nil on
+  the accepted path."
   [args]
   (or (:machine-id args)
       (:definition args)))
@@ -131,8 +209,7 @@
   rejected actor leaves NO half-installed bookkeeping (no registered
   handler, no actor state, no phantom `(rf/machines)` entry).
 
-  Returns `false` for a no-schema / no-validator / conforming spawn (and
-  for a spec-less spawn — nothing to validate)."
+  Returns `false` for a no-schema / no-validator / conforming spawn."
   [spec spawned-id initial-snap]
   (and (some? spec)
        (not (data-validation/validate-spawn-data!
@@ -168,8 +245,10 @@
   (let [existing (when system-id (get-in rt-after-alloc (paths/system-id-path system-id)))
         ;; Per rf2-a2sn1 — stamp the revertible TYPE reference onto the
         ;; snapshot root so the lazy resolver can re-materialise the
-        ;; handler from app-db alone. Only when a spec landed (a
-        ;; spec-less spawn installs no snapshot).
+        ;; handler from app-db alone. Per rf2-ywv74m the spawn is known-
+        ;; accepted by the time `install-spawn!` runs (an unregistered
+        ;; `:machine-id` was rejected fail-closed upstream), so `spec` is
+        ;; always present; the `spec`/`type-ref` guards are belt-and-braces.
         initial-snap (cond-> initial-snap
                        (and spec type-ref) (assoc :rf/machine-type type-ref))]
     (when (and system-id existing (not= existing spawned-id))
@@ -210,6 +289,13 @@
   there is NO per-instance event-handler registration.
 
   Lifecycle wired here:
+   0. **Fail-closed gate (rf2-ywv74m).** If `:machine-id` names an
+      UNREGISTERED machine TYPE and the spawn carries no inline
+      `:definition`, REJECT the spawn: emit the always-on
+      `:rf.error/machine-spawn-unregistered-type` and return without
+      installing anything — no snapshot, no slot, no system-id, no
+      spawned-id allocation, no spawn-order record, no trace, no `:start`
+      dispatch. The implicit \"spec-less spawn\" path is REMOVED.
    1. Resolve the spawn's machine spec (`:machine-id` from the registrar
       OR an inline `:definition`).
    2. Initialise the actor's snapshot at `[:rf.runtime/machines
@@ -248,8 +334,25 @@
         ;; a synthesised `:rf/default`.
         frame-id   (frame/require-frame-stamp!
                      frame-id :rf.machine/spawn
-                     {:where 'rf.machine/spawn :event-id (:system-id args)})
-        ;; Per rf2-gr8q: prefer the pre-allocated id (declarative :spawn
+                     {:where 'rf.machine/spawn :event-id (:system-id args)})]
+    ;; Step 0 (rf2-ywv74m) — fail-closed gate. An unregistered `:machine-id`
+    ;; (no inline `:definition`) is REJECTED here, BEFORE any id allocation,
+    ;; spec resolution, snapshot/slot/system-id install, spawn-order record,
+    ;; trace, or `:start` dispatch. The reject emits the always-on
+    ;; `:rf.error/machine-spawn-unregistered-type` and returns nil — the
+    ;; strongest atomicity (the implicit spec-less spawn path is removed, so
+    ;; there is no half-installed bookkeeping the next op could trip over).
+    (if (unregistered-spawn-type? args)
+      (reject-unregistered-spawn! frame-id (:machine-id args))
+      (spawn-fx* frame-id args))))
+
+(defn- spawn-fx*
+  "The accepted-spawn body of `spawn-fx` — runs only after the
+  `unregistered-spawn-type?` fail-closed gate (rf2-ywv74m) has let the spawn
+  through. `frame-id` is the resolved (non-nil-stamped) frame; `args` the
+  spawn args. Returns the allocated `spawned-id`."
+  [frame-id args]
+  (let [;; Per rf2-gr8q: prefer the pre-allocated id (declarative :spawn
         ;; routes through the transition reducer which bumps the parent
         ;; snapshot's `:rf/spawn-counter`). Hand-emitted spawn fxs carry
         ;; no pre-allocated id; the frame's runtime-db spawn-counter slot
@@ -436,7 +539,20 @@
 
   Subsequent `:on-child-done` / `:on-child-error` events arrive at the
   parent's `make-machine-handler` boundary and are intercepted by
-  `intercept-spawn-all-event` (in `lifecycle-fx.join`)."
+  `intercept-spawn-all-event` (in `lifecycle-fx.join`).
+
+  Per rf2-ywv74m (the `:spawn-all` join-hang correctness fix): this fx
+  fires FIRST in the entry `:fx` vector — BEFORE the per-child
+  `:rf.machine/spawn` fxs. If ANY child in the set names an UNREGISTERED
+  machine TYPE (no inline `:definition`), the join is REJECTED here: NO
+  join-state is seeded. A never-running spec-less child would otherwise
+  never dispatch its `:on-child-done`, blocking an `:all` join FOREVER
+  (`join.cljc` `(= n-done n-total)` can never hold). With no seeded
+  join-state, a registered sibling's later `:on-child-done` finds no slot
+  and falls through to the documented no-op (`join.cljc` \"no runtime-db
+  join state seeded yet\"), so the join cannot deadlock. The per-child
+  `:rf.machine/spawn` fx for each unregistered child ALSO rejects
+  independently in `spawn-fx`."
   [{frame-id :frame} args]
   (let [;; EP-0002 carried invariant — the fx context carries the cascade
         ;; envelope frame; a nil stamp is an invariant failure
@@ -448,16 +564,30 @@
         parent-id  (:rf/parent-id args)
         invoke-id  (:rf/invoke-id args)
         join-state (:join-state args)
-        children   (:children join-state)]
-    ;; Machine spawn-registry state is durable runtime-db state (rf2-vzld77).
-    (frame/swap-runtime-db! frame-id assoc-in
-                            (paths/spawned-path parent-id invoke-id) join-state)
-    (trace/emit! :rf.machine :rf.machine.spawn-all/started
-                 {;; rf2-ws5thu — the parent's live actor INSTANCE address;
-                  ;; rf2-0ggtr5 — `:invoke-id` is the declarative invocation path.
-                  :actor-id   parent-id
-                  :invoke-id  invoke-id
-                  :child-ids  (set (keys children))
-                  :children   children
-                  :frame      frame-id})
-    nil))
+        children   (:children join-state)
+        ;; Per rf2-ywv74m — the original child invoke-specs (carry
+        ;; `:machine-id` / `:definition`) ride the seeded join-state's
+        ;; `:spec`. Detect any unregistered child TYPE up front.
+        unregistered (->> (get-in join-state [:spec :children])
+                          (filterv unregistered-spawn-type?))]
+    (if (seq unregistered)
+      ;; Fail-closed: reject the join — seed NO join-state — so the never-
+      ;; running spec-less child cannot hang the `:all` join forever. Emit
+      ;; one reject per offending child (structural-only tags, per the
+      ;; privacy contract). The per-child `:rf.machine/spawn` fx rejects too.
+      (do (doseq [child unregistered]
+            (reject-unregistered-spawn! frame-id (:machine-id child)))
+          nil)
+      (do
+        ;; Machine spawn-registry state is durable runtime-db state (rf2-vzld77).
+        (frame/swap-runtime-db! frame-id assoc-in
+                                (paths/spawned-path parent-id invoke-id) join-state)
+        (trace/emit! :rf.machine :rf.machine.spawn-all/started
+                     {;; rf2-ws5thu — the parent's live actor INSTANCE address;
+                      ;; rf2-0ggtr5 — `:invoke-id` is the declarative invocation path.
+                      :actor-id   parent-id
+                      :invoke-id  invoke-id
+                      :child-ids  (set (keys children))
+                      :children   children
+                      :frame      frame-id})
+        nil))))
