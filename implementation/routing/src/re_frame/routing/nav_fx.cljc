@@ -25,6 +25,80 @@
   (when (map? config)
     (:url-bound? config)))
 
+;; ---- URL-ownership claim order (rf2-3l7xxz) --------------------------------
+;;
+;; The browser URL has exactly ONE owner; the spec (Spec 012 §Multi-frame
+;; routing) says when a SECOND `:url-bound? true` frame registers, the
+;; **existing owner is unchanged** and the duplicate's history-mutation fxs
+;; no-op (the duplicate may still update its own route slice). So ownership
+;; must resolve to the frame that claimed `:url-bound? true` FIRST — the
+;; incumbent — never to whichever id happens to sort earlier.
+;;
+;; The registrar's `kind->id->metadata` is an UNORDERED map (`re-frame.
+;; registrar`), so registration order is not recoverable from it. The prior
+;; resolver sorted the `:url-bound? true` frames by `(str id)` and took the
+;; first — which let a LATER duplicate whose id sorts BEFORE the incumbent
+;; STEAL ownership (rf2-3l7xxz): outbound history pushes and inbound popstate
+;; would then target the wrong frame, the exact thrash the "existing owner is
+;; unchanged" rule forbids.
+;;
+;; The fix records claim ORDER in this process-global vector. The url-bound
+;; exclusivity registration hook (`re-frame.routing.url-bound`, which already
+;; runs on every `:frame` registration) calls `record-url-claim!` / `drop-
+;; url-claim!` so the vector tracks, in claim order, which frames currently
+;; carry `:url-bound? true`. Process-global like routing's other
+;; intentionally-cross-frame slots (the route `reg-counter`, the
+;; `route-table-cache` — Spec 012 §Process-global slots are intentionally not
+;; per-frame): the browser URL is one process resource, so its single owner is
+;; resolved across all frames, not per-frame.
+;;
+;; `url-owner-frame-id` returns the FIRST still-valid claimant — validated
+;; against the LIVE registry so the resolver self-heals if the incumbent later
+;; drops its binding (re-registers `:url-bound? false`) or is unregistered:
+;; ownership then falls to the next-claimed frame that still carries
+;; `:url-bound? true`, in claim order. Fail-closed: a frame never owns the URL
+;; unless it is the first-claimed live `:url-bound? true` frame.
+
+(defonce ^:private url-claim-order
+  ;; A vector of frame-ids in the order they first claimed `:url-bound? true`,
+  ;; with no duplicates. The HEAD that still carries a live `:url-bound? true`
+  ;; binding is the URL owner. Process-global (the browser URL is one process
+  ;; resource); reset between tests via `reset-url-claims!` (wired into the
+  ;; shared reset-hook table) so a prior test's claim cannot leak.
+  (atom []))
+
+(defn record-url-claim!
+  "Record `frame-id` as having claimed `:url-bound? true`, appended to
+  `url-claim-order` iff not already present (so a hot-reload re-registration of
+  an existing owner keeps its claim position — it does NOT jump to the back,
+  and a later duplicate never displaces it). Returns nil. Called by the
+  url-bound exclusivity registration hook (rf2-3l7xxz)."
+  [frame-id]
+  (swap! url-claim-order
+         (fn [order]
+           (if (some #(= frame-id %) order)
+             order
+             (conj order frame-id))))
+  nil)
+
+(defn drop-url-claim!
+  "Drop `frame-id` from `url-claim-order` — called when a frame re-registers
+  WITHOUT `:url-bound? true` (it relinquished the binding) or is torn down, so
+  a stale claim cannot keep a non-bound frame at the head of the order.
+  Idempotent. Returns nil (rf2-3l7xxz)."
+  [frame-id]
+  (swap! url-claim-order (fn [order] (filterv #(not= frame-id %) order)))
+  nil)
+
+(defn reset-url-claims!
+  "Test-time helper: drop the whole `url-claim-order` vector so a prior test's
+  URL-ownership claim does not leak into the next (test isolation, rf2-3l7xxz).
+  Wired into the shared `make-reset-runtime-fixture` reset-hook table via the
+  `:routing/reset-url-claims!` late-bind key. Returns nil."
+  []
+  (reset! url-claim-order [])
+  nil)
+
 (defn url-owner-frame-id
   "Return the single frame that has EXPLICITLY declared browser-history
   ownership via `(reg-frame :id {:url-bound? true})`, or `nil` when no
@@ -40,15 +114,42 @@
   skips). `:rf/default` may still BE the owner, but only when it carries an
   explicit `{:url-bound? true}` like any other frame.
 
+  rf2-3l7xxz — ownership resolves to the FIRST-CLAIMED still-live
+  `:url-bound? true` frame (the incumbent), NOT the alphabetically-first.
+  When a second `:url-bound? true` frame registers, Spec 012 §Multi-frame
+  routing says the existing owner is UNCHANGED and the duplicate's
+  history-mutation fxs no-op — so a later duplicate whose id sorts before the
+  incumbent must NOT steal the URL (the bug the prior `(sort-by (str id))`
+  resolver had). Claim order is tracked in `url-claim-order` (recorded by the
+  url-bound exclusivity hook); this resolver walks it in claim order and
+  returns the first id that STILL carries a live `:url-bound? true` binding in
+  the registry — so the incumbent always wins, and ownership self-heals to the
+  next claimant if the incumbent later drops its binding or is unregistered.
+
   Public (rather than `defn-`) so the ownership-resolution contract is
   directly assertable — the single declared-owner case the step-deck
   testbed relies on (rf2-6qgbs.3). A reimplemented gate cannot catch a
   regression in THIS resolution; the test must reach the real fn."
   []
-  (->> (registrar/registrations :frame)
-       (filter (fn [[_id meta]] (true? (url-bound?-from-config meta))))
-       (sort-by (fn [[id _]] (str id)))
-       ffirst))
+  (let [frames (registrar/registrations :frame)
+        bound? (fn [frame-id]
+                 (true? (url-bound?-from-config (get frames frame-id))))]
+    ;; Walk the claim order; the first frame whose binding is still live owns
+    ;; the URL. A claimed-but-since-relinquished/destroyed frame is skipped
+    ;; (self-healing). When no claim is recorded yet but a `:url-bound? true`
+    ;; frame exists in the registry (a frame registered before the hook was
+    ;; installed, or a programmatic path), fall back to claim-free resolution:
+    ;; if exactly one is bound, it owns; if several, claim order is unknown so
+    ;; fail closed to the alphabetically-first for a STABLE deterministic
+    ;; answer (no claim recorded ⇒ no incumbent to protect — this fallback
+    ;; cannot mis-attribute a *stolen* ownership because there is no claim to
+    ;; steal from).
+    (or (some (fn [frame-id] (when (bound? frame-id) frame-id))
+              @url-claim-order)
+        (->> frames
+             (filter (fn [[_id meta]] (true? (url-bound?-from-config meta))))
+             (sort-by (fn [[id _]] (str id)))
+             ffirst))))
 
 (defn url-bound-frame?
   "Return true when the frame named `frame-id` is the one active URL

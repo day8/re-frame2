@@ -236,6 +236,15 @@
                                        them; without this a prior test's
                                        counter leaks and the nav-N / pn-N
                                        id assertions drift.
+    :routing/reset-url-claims!       — reset the process-global URL-ownership
+                                       claim-order vector (rf2-3l7xxz,
+                                       re-frame.routing.nav-fx/url-claim-order).
+                                       Like the nav-counters it is process-
+                                       global state the `frames` reset does not
+                                       touch; without this a prior test's
+                                       :url-bound? claim leaks and the
+                                       first-claimed-incumbent ownership
+                                       resolution drifts across tests.
     :resources/reset-resources!      — reset the resources artefact's
                                        host-side transient state (Spec 016):
                                        clear the `:resource` + `:mutation`
@@ -283,6 +292,7 @@
    {:hook :machines/reset-spawn-order!     :phase :post-dispose}
    {:hook :routing/reset-counters!         :phase :post-dispose}
    {:hook :routing/reset-nav-counters!     :phase :post-dispose}
+   {:hook :routing/reset-url-claims!       :phase :post-dispose}
    {:hook :resources/reset-resources!      :phase :post-dispose}
    {:hook :http/clear-all-in-flight!       :phase :post-dispose}
    {:hook :epoch/clear-history!            :phase :post-dispose}

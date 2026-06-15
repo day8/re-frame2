@@ -382,13 +382,12 @@
 
 (deftest duplicate-url-bound-frame-does-not-push-cljs
   (testing "a second :url-bound? true frame is reported but not allowed to mutate browser history"
-    ;; EP-0002 (rf2-9o48ih): `register-routes!` now declares `:rf/default`
-    ;; `:url-bound? true` as the established URL owner. The deterministic
-    ;; owner among duplicate `:url-bound? true` frames is the alphabetically-
-    ;; first id (`url-owner-frame-id` sorts by `(str id)`), so the duplicate
-    ;; must sort AFTER `:rf/default` for `:rf/default` to remain the resolved
-    ;; owner — hence `:zz/duplicate-owner` (`:rf/default` < `:zz/…`). A push
-    ;; from the non-owner duplicate is suppressed.
+    ;; rf2-3l7xxz: `register-routes!` declares `:rf/default {:url-bound? true}`
+    ;; as the established (first-claimed) URL owner. The duplicate here sorts
+    ;; AFTER `:rf/default` (`:zz/duplicate-owner`); the companion test below
+    ;; covers the harder case — a duplicate that sorts BEFORE the incumbent,
+    ;; which the prior alphabetical resolver let STEAL the URL. A push from the
+    ;; non-owner duplicate is suppressed.
     (register-routes!)
     (rf/reg-frame :zz/duplicate-owner {:url-bound? true})
     (rf/dispatch-sync [:rf.route/navigate :hist/cart]
@@ -398,6 +397,30 @@
     (is (= :hist/cart
            (:route-id (get-in (rf/runtime-db-value :zz/duplicate-owner) [:rf.runtime/routing :current])))
         "the non-owner frame still updates its own route slice")))
+
+(deftest duplicate-sorting-before-incumbent-does-not-steal-url-cljs
+  (testing "rf2-3l7xxz: a duplicate :url-bound? true frame whose id sorts
+            BEFORE the incumbent (:aaa-early < :rf/default) does NOT steal the
+            browser URL — the incumbent still drives pushState, the duplicate's
+            push no-ops. This is the case the prior `(sort-by (str id))`
+            resolver got wrong (it would have made :aaa-early the owner)."
+    (register-routes!)               ;; :rf/default claims the URL first
+    (rf/reg-frame :aaa-early {:url-bound? true})   ;; sorts before :rf/default
+    ;; The earlier-sorting duplicate navigates — under the bug it owned the URL
+    ;; and would push. It must NOT touch browser history now.
+    (rf/dispatch-sync [:rf.route/navigate :hist/cart] {:frame :aaa-early})
+    (is (= ["/"] (:entries @*history-state*))
+        "the earlier-sorting duplicate did NOT steal the URL / push to history")
+    (is (= :hist/cart
+           (:route-id (get-in (rf/runtime-db-value :aaa-early) [:rf.runtime/routing :current])))
+        "the duplicate still updates its OWN route slice (binding reported, not rejected)")
+    ;; The incumbent :rf/default still drives the browser URL.
+    (rf/dispatch-sync [:rf.route/navigate :hist/checkout] {:frame :rf/default})
+    (is (= ["/" "/checkout"] (:entries @*history-state*))
+        "the incumbent :rf/default still owns + pushes the URL")
+    (is (= :hist/checkout
+           (:route-id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
+        "the incumbent's slice tracks the legitimate navigation")))
 
 ;; =========================================================================
 ;; 2. popstate (back-button) round-trip
@@ -524,6 +547,33 @@
     (is (nil? (:route-id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
         ":rf/default still untouched after Forward")
 
+    (rf/remove-history-listener!)))
+
+(deftest popstate-targets-incumbent-after-earlier-sorting-duplicate-cljs
+  (testing "rf2-3l7xxz: after a duplicate :url-bound? true frame that sorts
+            BEFORE the incumbent registers, popstate (Back/Forward) STILL
+            targets the incumbent owner — not the earlier-sorting duplicate.
+            The popstate listener resolves url-owner-frame-id at pop time, so a
+            stolen-ownership resolution would have driven the WRONG frame."
+    (register-routes!)               ;; :rf/default claims the URL first
+    (rf/reg-frame :aaa-early {:url-bound? true})   ;; sorts before :rf/default
+    (is (= :rf/default (routing/url-owner-frame-id))
+        "incumbent :rf/default is still the owner despite the earlier-sorting duplicate")
+    (rf/install-history-listener!)
+    ;; Incumbent forward-navigates (it owns push), building a history stack.
+    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
+    (is (= :hist/checkout
+           (:route-id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
+        "incumbent slice on /checkout before Back")
+    ;; Back-button → popstate. The listener must target the incumbent.
+    (.back (.-history js/globalThis.window))
+    (.dispatchEvent js/globalThis.window #js {:type "popstate"})
+    (is (= :hist/cart
+           (:route-id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
+        "Back restored the INCUMBENT :rf/default slice — popstate targeted the right frame")
+    (is (nil? (:route-id (get-in (rf/runtime-db-value :aaa-early) [:rf.runtime/routing :current])))
+        "the earlier-sorting duplicate :aaa-early was NOT driven by popstate")
     (rf/remove-history-listener!)))
 
 (deftest popstate-drives-default-owner-when-default-bound-cljs

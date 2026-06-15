@@ -219,11 +219,11 @@
   (testing "rf2-25i7r7 finding 2: when two frames carry :url-bound? true,
             only the single deterministic owner's :rf.nav/push-url fires;
             the losing binding's navigation no-ops the history mutation.
-            EP-0002 (rf2-nn0jqa): ownership is the deterministic resolution
-            over the stored :url-bound? true metadata (alphabetical-first id
-            via `url-owner-frame-id`), NOT a :rf/default privilege. The
-            fixture's :rf/default sorts before :second-owner, so :rf/default
-            is the deterministic owner here and the newcomer loses."
+            rf2-3l7xxz: ownership is the FIRST-CLAIMED incumbent (the
+            fixture's :rf/default claimed first), NOT a :rf/default privilege
+            and NOT the alphabetically-first id — the duplicate :second-owner
+            claims after :rf/default, so :rf/default stays owner and the
+            newcomer loses."
     (rf/reg-frame :second-owner {:url-bound? true})   ;; conflicts with :rf/default
     (rf/reg-route :route/home {:path "/home"})
     (let [pushed (atom [])]
@@ -241,3 +241,95 @@
       (rf/dispatch-sync [:rf.route/navigate :route/home] {:frame :second-owner})
       (is (= [{:frame :rf/default :url "/home"}] @pushed)
           "only the deterministic owner's navigate pushes the URL; the loser no-ops"))))
+
+;; ============================================================================
+;; rf2-3l7xxz — a duplicate URL-bound frame whose id SORTS BEFORE the incumbent
+;;              must NOT steal the browser URL (the existing owner is unchanged)
+;; ============================================================================
+;;
+;; The prior `url-owner-frame-id` resolved ownership by sorting all
+;; `:url-bound? true` frames by `(str id)` and taking the FIRST. The fixture's
+;; incumbent `:rf/default` and the earlier duplicate tests all used duplicates
+;; that sort AFTER `:rf/default` (`:second-owner`, `:my-frame`,
+;; `:zz/duplicate-owner`), so the alphabetical resolver coincidentally returned
+;; the incumbent. The bug bit when the duplicate sorted BEFORE the incumbent:
+;; it would WIN the alphabetical sort and STEAL the URL, violating Spec 012
+;; §Multi-frame routing ("the existing owner is unchanged; the losing binding's
+;; history-mutation fxs no-op"). These tests pin the corrected first-claimed-
+;; incumbent semantics by using a duplicate whose id sorts BEFORE `:rf/default`.
+
+(deftest duplicate-sorting-before-incumbent-does-not-steal-ownership
+  (testing "rf2-3l7xxz: registering a second :url-bound? true frame whose id
+            sorts BEFORE the incumbent (:aaa-early < :rf/default) does NOT
+            change the resolved owner — the incumbent :rf/default is unchanged"
+    ;; Precondition: the fixture's :rf/default is the established URL owner.
+    (is (= :rf/default (routing/url-owner-frame-id))
+        "precondition: :rf/default is the incumbent URL owner")
+    ;; The duplicate sorts alphabetically BEFORE :rf/default (\":aaa-early\" <
+    ;; \":rf/default\"). Under the buggy alphabetical resolver this stole the URL.
+    (rf/reg-frame :aaa-early {:url-bound? true})
+    (is (true? (:url-bound? (frame/frame-meta :aaa-early)))
+        "the duplicate's :url-bound? true is stored (binding is reported, not rejected)")
+    (is (= :rf/default (routing/url-owner-frame-id))
+        "the incumbent :rf/default STILL owns the URL — the earlier-sorting
+         duplicate did NOT steal it (rf2-3l7xxz)")))
+
+(deftest duplicate-sorting-before-incumbent-noops-its-push
+  (testing "rf2-3l7xxz: a duplicate :url-bound? true frame that sorts before
+            the incumbent does NOT drive the browser URL — its
+            :rf.nav/push-url no-ops while the incumbent's still fires.
+            Exercises the REAL push-url path through the production
+            url-owner-frame-id resolver (a reimplemented gate cannot catch a
+            resolution regression — cf rf2-lo28u)."
+    (rf/reg-frame :aaa-early {:url-bound? true})       ;; sorts before :rf/default
+    (rf/reg-route :route/home {:path "/home"})
+    (let [pushed (atom [])]
+      ;; Production-gated fx consulting the REAL resolver.
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}
+                  :doc       "test fx consulting the production url-owner resolver"}
+                 (fn [{:keys [frame]} url]
+                   (when (= frame (routing/url-owner-frame-id))
+                     (swap! pushed conj {:frame frame :url url}))))
+      ;; The earlier-sorting duplicate navigates FIRST — under the bug it owned
+      ;; the URL and this push would fire. It must no-op now.
+      (rf/dispatch-sync [:rf.route/navigate :route/home] {:frame :aaa-early})
+      (is (empty? @pushed)
+          "the earlier-sorting duplicate's push is suppressed — it is NOT the owner")
+      ;; The incumbent still drives the URL.
+      (rf/dispatch-sync [:rf.route/navigate :route/home] {:frame :rf/default})
+      (is (= [{:frame :rf/default :url "/home"}] @pushed)
+          "the incumbent :rf/default still pushes the URL"))))
+
+(deftest legitimate-single-owner-still-drives-url
+  (testing "rf2-3l7xxz: the legitimate single-owner path is unaffected — the
+            sole :url-bound? true frame owns and drives the URL"
+    ;; No duplicate registered; :rf/default is the lone owner.
+    (is (= :rf/default (routing/url-owner-frame-id))
+        "the sole :url-bound? true frame is the owner")
+    (rf/reg-route :route/home {:path "/home"})
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}
+                  :doc       "test fx consulting the production url-owner resolver"}
+                 (fn [{:keys [frame]} url]
+                   (when (= frame (routing/url-owner-frame-id))
+                     (swap! pushed conj {:frame frame :url url}))))
+      (rf/dispatch-sync [:rf.route/navigate :route/home] {:frame :rf/default})
+      (is (= [{:frame :rf/default :url "/home"}] @pushed)
+          "the legitimate single owner drives the URL"))))
+
+(deftest incumbent-relinquishes-ownership-falls-to-next-claimant
+  (testing "rf2-3l7xxz: when the incumbent re-registers WITHOUT :url-bound?
+            true (opts out), ownership re-resolves to the next-claimed live
+            binding — self-healing, NOT frozen on the now-unbound incumbent"
+    ;; :rf/default is the incumbent; add an earlier-sorting duplicate that
+    ;; claimed second.
+    (rf/reg-frame :aaa-early {:url-bound? true})
+    (is (= :rf/default (routing/url-owner-frame-id))
+        "incumbent :rf/default owns while it carries the binding")
+    ;; The incumbent opts out — ownership must NOT stay frozen on it.
+    (rf/reg-frame :rf/default {:url-bound? false})
+    (is (= :aaa-early (routing/url-owner-frame-id))
+        "ownership re-resolves to the next live claimant (:aaa-early) once the
+         incumbent relinquishes its binding")))
