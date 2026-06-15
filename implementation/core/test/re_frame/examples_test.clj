@@ -274,6 +274,90 @@
                    "leftover slots: " (pr-str (keys @ssr-request/request-slots)))))))))
 
 ;; ============================================================================
+;; ssr — per-request schema validation (rf2-i6p308, carved from rf2-9wc2ed).
+;;
+;; The fix held the app schema as a value (`ArticlesSchema`) and registered it
+;; explicitly against EACH frame family — the per-request server frame in
+;; `handle-request` (BEFORE `:on-create` fires `:rf/server-init`) and the
+;; fixed client hydration frame in `run`. The earlier bare ns-load
+;; registration either raised `:rf.error/no-frame-context` or (under a naive
+;; `with-frame :rf/default`) bound the schema to the client frame ONLY,
+;; leaving the per-request SERVER frame — where the server-side `:articles`
+;; commit actually validates — UNSCHEMA'd, so server-side validation silently
+;; never ran (the bug was masked precisely because no schema applied).
+;;
+;; The existing handle-request tests exercise this implicitly. This test
+;; locks it EXPLICITLY: the per-request server frame carries the `:articles`
+;; schema (NOT `:rf/default`), the server-init commit's articles PASS
+;; validation on THAT frame, and a malformed `:articles` value FAILS
+;; validation on THAT frame — proving validation is live + frame-scoped on
+;; the per-request frame, not routed around. Requiring `re-frame.schemas`
+;; (above) wires the default Malli validator (rf2-v96fh), so validation is
+;; genuinely live here.
+;; ============================================================================
+
+(deftest ssr-example-per-request-frame-carries-and-validates-articles-schema
+  (testing "examples/reagent/ssr — the per-request SERVER frame carries the
+            :articles schema (the rf2-9wc2ed per-request registration) and
+            validation runs ON THAT FRAME, not on :rf/default (rf2-i6p308)"
+    (require 'ssr.core :reload)
+    (rf/init! ssr/adapter)
+    (install-canned-articles-stub!)
+    (let [articles-schema @(resolve 'ssr.core/ArticlesSchema)
+          ;; Drive a per-request server frame exactly as handle-request does:
+          ;; register the schema against the gensym frame BEFORE :on-create
+          ;; fires :rf/server-init (which commits the canned articles).
+          fid             (keyword "rf.frame" (str (gensym "f")))
+          _               (ssr/set-request! fid {:uri "/articles"})
+          _               (rf/reg-app-schema [:articles] articles-schema {:frame fid})
+          f               (rf/with-fx-overrides
+                            {:rf.http/managed :ssr.http/canned-articles}
+                            (rf/reg-frame fid
+                              {:doc       "ssr-example per-request validation frame"
+                               :platform  :server
+                               :on-create [:rf/server-init]}))
+          final-db        (rf/app-db-value f)]
+      ;; 1. The schema is bound to the PER-REQUEST frame — explicitly.
+      (is (= articles-schema (schemas/app-schema-at [:articles] {:frame fid}))
+          "the :articles schema is registered against the per-request server frame")
+      ;; 2. …and NOT on :rf/default (the masking-default frame). The fixture
+      ;; pins :rf/default as ambient scope but the example never registered
+      ;; the SSR schema there — per-request scoping, not a default floor.
+      (is (nil? (schemas/app-schema-at [:articles] {:frame :rf/default}))
+          "the SSR :articles schema is NOT bound to :rf/default — it is
+           per-request frame-scoped (the rf2-9wc2ed contract)")
+      ;; 3. The server-init commit landed two valid articles…
+      (is (= 2 (count (:articles final-db)))
+          "precondition: the canned server-init commit loaded two articles")
+      ;; …and they PASS validation ON the per-request frame (the [:maybe]
+      ;; schema accepts both the pre-load nil and the loaded vector).
+      ;; `interop/debug-enabled?` is true by default on the JVM (the dev/prod
+      ;; gate), so `validate-app-schema!` actually runs — and requiring
+      ;; `re-frame.schemas` wired the default Malli validator (rf2-v96fh).
+      (is (true? (schemas/validate-app-schema! final-db :rf/server-init fid))
+          "the server-init :articles commit validates on the per-request frame")
+      ;; 4. A MALFORMED :articles value FAILS validation on the per-request
+      ;; frame — proving the validator is genuinely live + frame-scoped
+      ;; there (not a soft-pass no-op). A non-vector :articles violates
+      ;; ArticlesSchema ([:maybe [:vector …]]).
+      (let [bad-db (assoc final-db :articles "not-a-vector-of-articles")]
+        (is (false? (schemas/validate-app-schema! bad-db :rf/server-init fid))
+            "a malformed :articles commit FAILS validation on the per-request
+             frame — validation is live and frame-scoped (this is the gap
+             the per-request registration + [:maybe] schema closed)"))
+      ;; 5. The same malformed value validates TRUE against :rf/default —
+      ;; because no SSR schema is registered there — confirming the failure
+      ;; above is attributable to the PER-REQUEST frame's schema specifically.
+      (let [bad-db (assoc final-db :articles "not-a-vector-of-articles")]
+        (is (true? (schemas/validate-app-schema! bad-db :rf/server-init :rf/default))
+            ":rf/default carries no SSR schema, so the same bad value
+             soft-passes there — the per-request frame is where the
+             contract lives"))
+      ;; Teardown the per-request frame + its request slot (hygiene; mirrors
+      ;; the example's handle-request finally).
+      (rf/destroy-frame! f))))
+
+;; ============================================================================
 ;; ssr — client hydration path (rf2-kb7zis). The example now boots the
 ;; client via the framework `ssr/hydrate!` helper (it relies on the
 ;; framework-registered `:rf/hydrate`, no longer a stale local copy). These
