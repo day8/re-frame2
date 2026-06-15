@@ -41,7 +41,12 @@
             ;; file regression coverage.
             [re-frame.source-coords :as sc]
             [re-frame.source-coords.editor-uri :as eu]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as plain-atom]
+            ;; rf2-st3ax4 — build a throwaway `+`-bearing classpath root to
+            ;; assert absolutise-file preserves a literal `+` in the path.
+            [clojure.java.io :as io])
+  (:import [java.net URL URLClassLoader]
+           [java.io File]))
 
 (defn reset-runtime [test-fn]
   (registrar/clear-all!)
@@ -278,6 +283,91 @@
   call-sites already gate on non-nil, but defense-in-depth)"
     (is (nil? (#'sc/absolutise-file nil)))
     (is (= "" (#'sc/absolutise-file "")))))
+
+;; ---- rf2-st3ax4: a literal `+` in the classpath path survives -------------
+;;
+;; The macro-expansion-time twin of the open-in-editor server's resolve-file
+;; had the same URLDecoder-+-plus bug: URLDecoder is a form-body decoder that
+;; maps a literal `+` to a space, so a checkout/source path containing a
+;; literal `+` (e.g. `C:/code/re-frame2+wip/core.cljs`) got the `+` turned
+;; into a space, baking a nonexistent space-bearing absolute :file into the
+;; emitted coord literal. The fix decodes via `URI.getPath` (which leaves a
+;; literal `+` intact while still decoding `%20`/`%2B`), mirroring
+;; `file-url->path` in re-frame.testbed.open-in-editor-server.
+
+(deftest absolutise-file-preserves-literal-plus-in-classpath
+  (testing "rf2-st3ax4: absolutise-file resolves a classpath-relative :file
+  to its on-disk absolute path when the classpath root directory itself
+  contains a literal + — the + is returned verbatim, NOT form-decoded to a
+  space-bearing nonexistent path (the URLDecoder bug)"
+    ;; Build a throwaway classpath root dir whose name carries a `+`, drop a
+    ;; fake source file under it, push a class-loader rooted there onto the
+    ;; context, and confirm absolutise-file finds the real on-disk file.
+    (let [tmp      (File. (System/getProperty "java.io.tmpdir")
+                          (str "scoords+test-" (System/nanoTime)))
+          rel-path "fake_ns/core.cljs"
+          src-file (io/file tmp "fake_ns" "core.cljs")]
+      (try
+        (io/make-parents src-file)
+        (spit src-file ";; fixture\n")
+        (let [root-url (.toURL (.toURI tmp))
+              cl       (URLClassLoader. (into-array URL [root-url])
+                                        (.getContextClassLoader (Thread/currentThread)))
+              prev     (.getContextClassLoader (Thread/currentThread))]
+          (try
+            (.setContextClassLoader (Thread/currentThread) cl)
+            (let [resolved (#'sc/absolutise-file rel-path)]
+              (is (string? resolved) "the classpath resource resolved")
+              (is (not= rel-path resolved)
+                  "classpath-relative path resolved to a different (absolute) path")
+              (is (.contains ^String resolved "+")
+                  "the literal + in the classpath root survived resolution")
+              (is (not (.contains ^String resolved " "))
+                  "the literal + was NOT form-decoded into a space")
+              (is (= (.getCanonicalPath src-file)
+                     (.getCanonicalPath (File. ^String resolved)))
+                  "resolved to the REAL on-disk fixture file, not a
+                   space-corrupted sibling that does not exist"))
+            (finally
+              (.setContextClassLoader (Thread/currentThread) prev))))
+        (finally
+          ;; Best-effort cleanup of the throwaway tree.
+          (when (.exists src-file) (.delete src-file))
+          (.delete (io/file tmp "fake_ns"))
+          (.delete tmp))))))
+
+(deftest absolutise-file-decodes-percent-escapes
+  (testing "rf2-st3ax4: percent-escapes in the resource URL still decode
+  correctly — a classpath root whose name contains a real space (URL-encoded
+  as %20) round-trips to the space, and %2B (the encoded plus) decodes to a
+  literal +. This is the other half of the URI.getPath contract: it decodes
+  percent-escapes while leaving a literal + intact."
+    (let [tmp      (File. (System/getProperty "java.io.tmpdir")
+                          (str "scoords space-test-" (System/nanoTime)))
+          rel-path "fake_ns/core.cljs"
+          src-file (io/file tmp "fake_ns" "core.cljs")]
+      (try
+        (io/make-parents src-file)
+        (spit src-file ";; fixture\n")
+        (let [root-url (.toURL (.toURI tmp))
+              cl       (URLClassLoader. (into-array URL [root-url])
+                                        (.getContextClassLoader (Thread/currentThread)))
+              prev     (.getContextClassLoader (Thread/currentThread))]
+          (try
+            (.setContextClassLoader (Thread/currentThread) cl)
+            (let [resolved (#'sc/absolutise-file rel-path)]
+              (is (string? resolved) "the classpath resource resolved")
+              (is (.contains ^String resolved " ")
+                  "%20 in the resource URL decoded back to a real space")
+              (is (= (.getCanonicalPath src-file)
+                     (.getCanonicalPath (File. ^String resolved)))
+                  "resolved to the REAL on-disk fixture file"))
+            (finally
+              (.setContextClassLoader (Thread/currentThread) prev))))
+        (finally
+          (when (.exists src-file) (.delete src-file))
+          (.delete (io/file tmp "fake_ns"))
+          (.delete tmp))))))
 
 (deftest reg-event-emits-absolute-file
   (testing "rf2-wvsxg: a reg-* macro fired against a real classpath-
