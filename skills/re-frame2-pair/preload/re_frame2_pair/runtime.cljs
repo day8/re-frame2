@@ -1530,27 +1530,31 @@
   (nil? (get-in ev [:tags :rf.trace/dispatch-id])))
 
 (defn- cascade-bundle-events
-  "Group a vector of raw trace events by `:rf.trace/dispatch-id` and
-   project each group into a cascade-bundle map matching the framework's
-   `(rf/trace-buffer frame-id)` shape — the `group-cascades` projection
-   PLUS a `:trace-events` slot carrying the raw events for the cascade.
-   The returned vector is sorted by emission order (lowest `:id` first,
-   the order `rf/group-cascades` returns).
+  "Group a vector of raw trace events into cascade-bundle maps matching
+   the framework's `(rf/trace-buffer frame-id)` shape — the
+   `group-cascades` projection PLUS a `:trace-events` slot carrying the
+   raw events for the cascade. The returned vector is sorted by emission
+   order (lowest `:id` first, the order the projection returns).
+
+   Delegates the grouping entirely to `rf/group-cascades-with-events` —
+   the framework projection that keys cascades by `[frame dispatch-id]`.
+   This is load-bearing: dispatch ids are unique only WITHIN a frame
+   (the portable trace contract), so two cascades sharing a dispatch id
+   across frames are distinct bundles, each carrying only its own frame's
+   raw `:trace-events`. Re-deriving the grouping here keyed by
+   `:rf.trace/dispatch-id` alone (the prior `by-id` group-by) merged
+   foreign-frame events into both bundles — latent today (the runtime's
+   global dispatch counter never collides cross-frame) but live the
+   moment per-frame/per-realm id allocation lands. Reuse the framework
+   key; never re-derive a weaker one.
 
    Events whose `:rf.trace/dispatch-id` tag is missing are NOT included
    — the caller is expected to have filtered them upstream (cascade-
    bundle topics) or routed them to the frameless channel."
   [events]
-  (let [;; rf/group-cascades returns a vector of cascade records sorted
-        ;; by emission order, keyed by `:dispatch-id`. We then splice
-        ;; the raw events per cascade into the `:trace-events` slot.
-        cascades   (rf/group-cascades events)
-        by-id      (group-by #(get-in % [:tags :rf.trace/dispatch-id])
-                             events)]
-    (->> cascades
-         (remove #(= :ungrouped (:dispatch-id %)))
-         (mapv (fn [c]
-                 (assoc c :trace-events (vec (get by-id (:dispatch-id c) []))))))))
+  (->> (rf/group-cascades-with-events events)
+       (remove #(= :ungrouped (:dispatch-id %)))
+       vec))
 
 (defn- compose-trace-filter
   "Compose the topic's base trace-filter with the user-supplied filter.

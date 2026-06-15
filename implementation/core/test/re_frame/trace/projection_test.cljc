@@ -124,6 +124,68 @@
       (is (= [[:counter/a-inc] [:counter/b-inc]]
              (mapv :event cs))))))
 
+;; ---- group-cascades-with-events -------------------------------------------
+
+(deftest group-cascades-with-events-attaches-raw-events
+  (testing "each record carries its raw composing events under :trace-events
+            (the slim group-cascades record plus the raw events)"
+    (let [evs        (cascade-evs 100 [:user/login {:id 42}])
+          [c & more] (p/group-cascades-with-events evs)]
+      (is (empty? more) "single cascade yields one record")
+      ;; The slim record is identical to group-cascades' output…
+      (is (= (first (p/group-cascades evs))
+             (dissoc c :trace-events))
+          ":trace-events is purely ADDITIVE — the slim shape is unchanged")
+      ;; …plus the :trace-events slot holds exactly the composing events.
+      (is (= (vec evs) (:trace-events c))
+          ":trace-events is the vector of raw events that composed the cascade")
+      (is (= 100 (:dispatch-id c)))
+      (is (= :rf/default (:frame c))))))
+
+(deftest group-cascades-with-events-isolates-trace-events-by-frame
+  ;; rf2-1we9fa defect 1 — the drain-time projection. Two frames sharing a
+  ;; SINGLE dispatch-id (the portable trace contract guarantees dispatch-id
+  ;; uniqueness only WITHIN a frame; per-frame/per-realm id allocation
+  ;; under EP-0010 / EP-0013 makes such collisions live). Each frame's
+  ;; bundle MUST carry ONLY its own frame's raw :trace-events — NOT the
+  ;; union of both frames' events. The prior consumer keyed :trace-events
+  ;; by :rf.trace/dispatch-id ALONE, which merged both frames' events into
+  ;; each bundle. group-cascades-with-events keys by [frame dispatch-id],
+  ;; so the events stay isolated.
+  (testing "same dispatch-id across two frames ⇒ two bundles, each holding
+            only its own frame's :trace-events"
+    (let [a   (cascade-evs 10 [:counter/a-inc] :counter/a)
+          b   (mapv #(update % :id + 100)
+                    (cascade-evs 10 [:counter/b-inc] :counter/b))
+          ;; Interleave so a naive dispatch-id-only group-by could not rely
+          ;; on input ordering to separate the frames.
+          cs  (p/group-cascades-with-events (interleave a b))
+          by-frame (into {} (map (juxt :frame identity)) cs)
+          ca  (get by-frame :counter/a)
+          cb  (get by-frame :counter/b)]
+      (is (= 2 (count cs)) "two frames sharing dispatch-id 10 ⇒ two bundles")
+      (is (= #{:counter/a :counter/b} (set (keys by-frame))))
+      ;; The load-bearing assertion: NO foreign-frame events leak in.
+      (is (= (vec a) (:trace-events ca))
+          "frame :counter/a's bundle holds ONLY frame :counter/a events")
+      (is (= (vec b) (:trace-events cb))
+          "frame :counter/b's bundle holds ONLY frame :counter/b events")
+      (is (every? #(= :counter/a (get-in % [:tags :frame]))
+                  (:trace-events ca))
+          "no frame :counter/b event leaks into frame :counter/a's bundle")
+      (is (every? #(= :counter/b (get-in % [:tags :frame]))
+                  (:trace-events cb))
+          "no frame :counter/a event leaks into frame :counter/b's bundle"))))
+
+(deftest group-cascades-with-events-drops-nothing
+  (testing ":trace-events across all records accounts for every input event"
+    (let [evs (concat (cascade-evs 1 [:a] :frame/x)
+                      (cascade-evs 2 [:b] :frame/y))
+          cs  (p/group-cascades-with-events evs)]
+      (is (= (count evs)
+             (reduce + 0 (map (comp count :trace-events) cs)))
+          "every input event lands in exactly one bundle's :trace-events"))))
+
 (deftest group-cascades-events-without-dispatch-id-land-in-ungrouped
   (testing "events emitted outside any drain (registry-time, frame
             lifecycle) carry no :rf.trace/dispatch-id and group under :ungrouped"

@@ -238,6 +238,32 @@
       #?(:clj  Long/MAX_VALUE
          :cljs js/Number.MAX_SAFE_INTEGER))))
 
+(defn- grouped-cascades
+  "The single grouping pass shared by `group-cascades` and
+  `group-cascades-with-events`. Groups `events` by the stable
+  `[frame dispatch-id]` `cascade-key` (dispatch ids are unique only
+  within a frame — see `cascade-key`), reduces each group into a cascade
+  record, and returns a vector of `[[frame dispatch-id] evs record]`
+  triples sorted into emission order (lowest `:id` per cascade first).
+
+  Both public projections consume this so the grouping key never drifts
+  between them: `group-cascades` keeps the slim record; the
+  `-with-events` sibling additionally attaches `evs` as `:trace-events`."
+  [events]
+  (let [index  (frame-index events)
+        groups (group-by #(cascade-key index %) events)]
+    (->> groups
+         (map (fn [[[frame dispatch-id :as key] evs]]
+                [key
+                 evs
+                 (reduce absorb
+                         (assoc empty-cascade
+                                :dispatch-id dispatch-id
+                                :frame frame)
+                         evs)]))
+         (sort-by (fn [[_key _evs record]] (first-id record)))
+         vec)))
+
 (defn group-cascades
   "Project a sequence of raw trace events into one cascade record per
   `:rf.trace/dispatch-id`. Pure data — JVM and CLJS.
@@ -279,14 +305,32 @@
   want richer projections of `:other` can call `domino-bucket`
   directly on each event."
   [events]
-  (let [index  (frame-index events)
-        groups (group-by #(cascade-key index %) events)]
-    (->> groups
-         (map (fn [[[frame dispatch-id] evs]]
-                (reduce absorb
-                        (assoc empty-cascade
-                               :dispatch-id dispatch-id
-                               :frame frame)
-                        evs)))
-         (sort-by first-id)
-         vec)))
+  (->> (grouped-cascades events)
+       (mapv (fn [[_key _evs record]] record))))
+
+(defn group-cascades-with-events
+  "Like `group-cascades`, but each record additionally carries a
+  `:trace-events` slot holding the VECTOR of raw trace events that
+  composed that cascade. The same `[frame dispatch-id]` grouping that
+  `group-cascades` uses is reused verbatim — the `:trace-events` slot is
+  the exact set of events the record was reduced from, in input order.
+
+  This is the correct projection for consumers that need both the
+  six-domino record AND the raw events of a cascade per the portable
+  trace contract — notably re-frame2-pair's streaming cascade bundles,
+  whose wire shape mirrors `(re-frame.trace.tooling/trace-buffer frame)`.
+  Such consumers MUST NOT re-derive the grouping with a weaker key
+  (`:rf.trace/dispatch-id` alone): dispatch ids are unique only WITHIN a
+  frame (see `cascade-key`), so a dispatch-id-only group-by merges two
+  same-id cascades from different frames and attaches each the UNION of
+  both frames' raw events. Keying by `[frame dispatch-id]` here keeps
+  every record's `:trace-events` scoped to its own frame.
+
+  `group-cascades` is deliberately left slim — its seven-slot shape is
+  pinned and Xray-consumed; this sibling carries the extra `:trace-events`
+  slot for the consumers that need it. Returns a vector sorted by
+  emission order, identical to `group-cascades`."
+  [events]
+  (->> (grouped-cascades events)
+       (mapv (fn [[_key evs record]]
+               (assoc record :trace-events (vec evs))))))

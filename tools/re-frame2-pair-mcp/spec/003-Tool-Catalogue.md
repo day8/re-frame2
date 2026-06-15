@@ -2461,7 +2461,7 @@ summary `{:ok? true :sub-id :delivered N :dropped-events N
 
 | Topic       | What gets pushed                                                                                                |
 |-------------|-----------------------------------------------------------------------------------------------------------------|
-| `trace`     | Every raw trace event matching `filter` — grouped into cascade bundles by `:rf.trace/dispatch-id` (rf2-mscih).  |
+| `trace`     | Every raw trace event matching `filter` — grouped into cascade bundles keyed by `:frame` + `:dispatch-id`; consumers may merge by `:dispatch-id` (rf2-mscih).  |
 | `epoch`     | Every assembled `:rf/epoch-record` matching `filter`. Already cascade-shaped by construction.                   |
 | `fx`        | Sugar — `topic :trace` with base filter `{:op-type :rf.fx}`. Cascade-bundle delivery as for `:trace`.            |
 | `error`     | Sugar — `topic :trace` with base filter `{:op-type :error}`. Cascade-bundle delivery as for `:trace`.            |
@@ -2499,6 +2499,18 @@ One tick = one drain's worth of cascade bundles. A cascade is the
 "atomic" delivery unit — consumers can reason about cause→effect at
 the granularity of `:dispatch-id` without re-folding flat-event
 streams (the pre-rf2-mscih posture).
+
+Each bundle is grouped by `(frame, dispatch-id)` — `:dispatch-id` is
+unique only *within* a frame, so a bundle's `:trace-events` are scoped
+to its own frame (the framework projection `group-cascades-with-events`
+keys on `[frame dispatch-id]`; consumers MUST NOT re-derive the grouping
+with a weaker `:dispatch-id`-only key). Trace-event elision is likewise
+**per-bundle-frame**: each bundle is run through the egress walker against
+*its own* `:frame`'s declared sensitive/large registry (the operating
+frame is only a fallback for genuinely frameless values). Eliding a
+foreign-frame bundle against one shared operating frame would mis-redact
+across the per-frame EP-0015 classification — the under-redaction
+direction leaks declared-sensitive slots off-box.
 
 Events with no `:rf.trace/dispatch-id` tag (registration emits, REPL
 evals, lifecycle outside any cascade) NEVER ride the cascade-bundle
