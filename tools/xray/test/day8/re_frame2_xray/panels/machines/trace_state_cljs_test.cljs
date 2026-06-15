@@ -526,6 +526,41 @@
       (is (= #{close-id} blocked)
           "only the :door machine's blocked edge lights"))))
 
+(deftest guard-blocked-ids-match-actor-id-only-modern-trace
+  (testing "modern live shape: the guard trace carries ONLY :actor-id (the
+            running instance address) — NO :machine-id — and the blocked
+            edge id is still recovered (the bug: the reader filtered on
+            :machine-id alone, so actor-id-only guard traces were dropped
+            and the chart showed no rejected edge)"
+    (let [def      (door-definition)
+          close-id (canonical-guard-edge-id def [:open] :door/close :may-close?)
+          ;; transition.cljc `evaluate-guard` stamps `:actor-id` (the live
+          ;; instance address), never `:machine-id`.
+          events   [{:operation :rf.machine/guard-evaluated
+                     :tags {:actor-id   :door     ;; actor-id ONLY — no :machine-id
+                            :guard-id   :may-close?
+                            :outcome    :fail
+                            :state      [:open]
+                            :input      {:event :door/close}}}]
+          blocked  (trace-state/extract-guard-blocked-edge-ids def events :door)]
+      (is (string? close-id))
+      (is (= #{close-id} blocked)
+          "the actor-id-only guard-block lights the canonical :door/close edge"))))
+
+(deftest guard-blocked-ids-actor-id-scopes-out-other-machines
+  (testing "actor-id scoping mirrors machine-id scoping: a guard-block for a
+            DIFFERENT live actor must not light this machine's edge"
+    (let [def     (door-definition)
+          events  [{:operation :rf.machine/guard-evaluated
+                    :tags {:actor-id   :other-door  ;; different live actor
+                           :guard-id   :may-close?
+                           :outcome    :fail
+                           :state      [:open]
+                           :input      {:event :door/close}}}]
+          blocked (trace-state/extract-guard-blocked-edge-ids def events :door)]
+      (is (= #{} blocked)
+          "no edge lights — the trace addresses a different actor"))))
+
 (deftest guard-blocked-ids-read-legacy-flat-event-and-guard-slots
   (testing "legacy fixture shape: flat :tags :event + :tags :guard
             (mirrors machine_inspector_helpers/guard-record's fallbacks)"

@@ -566,12 +566,16 @@
 (defn- machine-guard-evaluated?
   "True when `ev` is a `:rf.machine/guard-evaluated` trace event for
   `machine-id` (or for ANY machine when `machine-id` is nil). The
-  machine-id rides under `:tags :machine-id` (machines ·
-  transition.cljc `evaluate-guard` `trace/emit!`)."
+  addressed live actor rides under `:tags :actor-id` (machines ·
+  transition.cljc `evaluate-guard` `trace/emit!` stamps the running
+  INSTANCE address there; `:machine-id` is reserved for the registered
+  TYPE), with a `:tags :machine-id` fallback for legacy fixtures —
+  matching `machine-transition?`."
   [ev machine-id]
   (and (= :rf.machine/guard-evaluated (:operation ev))
        (or (nil? machine-id)
-           (= machine-id (get-in ev [:tags :machine-id])))))
+           (= machine-id (or (get-in ev [:tags :actor-id])
+                             (get-in ev [:tags :machine-id]))))))
 
 (defn- guard-blocked?
   "True when a `:rf.machine/guard-evaluated` trace's `:outcome` signals
