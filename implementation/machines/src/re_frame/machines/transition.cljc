@@ -49,6 +49,7 @@
   fixtures (Spec 005 §Conformance fixtures)."
   (:require [clojure.set :as set]
             [clojure.string :as str]
+            [re-frame.error :as error]
             [re-frame.machines.grammar :as grammar]
             [re-frame.machines.path-walk :as path-walk]
             [re-frame.machines.reply :as m-reply]
@@ -138,6 +139,29 @@
                                       nil)
       :else                         nil)))
 
+;; ---- the canonical thrown-error shape for transition failures (rf2-yl39ub) --
+;;
+;; Runtime transition failures historically threw a bare-keyword `ex-info`
+;; with minimal data and no canonical `:rf.error/id` / `:where` / `:recovery` /
+;; `:reason`. `machine-error` routes every transition throw through the central
+;; builder (`re-frame.error/thrown-ex-info`, Spec 009 §The thrown-error shape):
+;; the human sentence rides `:reason` and leads the derived message (+ the
+;; `[:rf.error/<id>]` token), `:where` names the machine grammar surface, and
+;; the surface-specific context (machine id, offending slot + value, known
+;; refs) rides the `:extra` slots. Most of these are caller-fixable machine
+;; REGISTRATION shape errors, so the default recovery is `:fix-registration`.
+
+(defn- machine-error
+  "Build the canonical machine-transition thrown-error `ex-info` (rf2-yl39ub).
+  `category` is the `:rf.error/machine-*` discriminator (lands in
+  `:rf.error/id`); `reason` is the human sentence; `extras` merge on top.
+  `:recovery` defaults to `:fix-registration` (these are caller-fixable
+  registration-shape errors) unless overridden in `extras` via `:rf/recovery`."
+  [category reason extras]
+  (error/thrown-ex-info category 'rf/reg-machine reason
+                        {:recovery (or (:rf/recovery extras) :fix-registration)
+                         :extra    (dissoc extras :rf/recovery)}))
+
 (defn- resolve-guard
   "Look up a guard reference. If keyword, follow the chain in the machine's
   :guards map. If a fn, use directly."
@@ -145,22 +169,54 @@
   (cond
     (fn? guard)      guard
     (keyword? guard) (or (chase-ref (:guards machine) guard)
-                         (throw (ex-info ":rf.error/machine-unresolved-guard"
-                                         {:guard guard :machine-id (:id machine)})))
+                         (throw (machine-error
+                                  :rf.error/machine-unresolved-guard
+                                  (str "Machine `" (:id machine) "` references the guard `"
+                                       guard "` in a transition, but no such guard is "
+                                       "registered in its :guards map. Register the guard "
+                                       "(or fix the :guard ref) — known guards: "
+                                       (pr-str (vec (keys (:guards machine)))) ".")
+                                  {:guard guard
+                                   :machine-id (:id machine)
+                                   :slot :guard
+                                   :known-guards (vec (keys (:guards machine)))})))
     (nil? guard)     (constantly true)
-    :else            (throw (ex-info ":rf.error/machine-bad-guard-form"
-                                     {:guard guard}))))
+    :else            (throw (machine-error
+                              :rf.error/machine-bad-guard-form
+                              (str "Machine `" (:id machine) "` has a malformed :guard "
+                                   (pr-str guard) " — a guard must be a fn, a keyword ref "
+                                   "into the :guards map, or nil (always-true). Fix the "
+                                   "transition's :guard value.")
+                              {:guard guard
+                               :machine-id (:id machine)
+                               :slot :guard}))))
 
 (defn- resolve-action
   [machine action]
   (cond
     (fn? action)      action
     (keyword? action) (or (chase-ref (:actions machine) action)
-                          (throw (ex-info ":rf.error/machine-unresolved-action"
-                                          {:action action :machine-id (:id machine)})))
+                          (throw (machine-error
+                                   :rf.error/machine-unresolved-action
+                                   (str "Machine `" (:id machine) "` references the action `"
+                                        action "` in a transition, but no such action is "
+                                        "registered in its :actions map. Register the action "
+                                        "(or fix the :action ref) — known actions: "
+                                        (pr-str (vec (keys (:actions machine)))) ".")
+                                   {:action action
+                                    :machine-id (:id machine)
+                                    :slot :action
+                                    :known-actions (vec (keys (:actions machine)))})))
     (nil? action)     (constantly nil)
-    :else             (throw (ex-info ":rf.error/machine-bad-action-form"
-                                      {:action action}))))
+    :else             (throw (machine-error
+                               :rf.error/machine-bad-action-form
+                               (str "Machine `" (:id machine) "` has a malformed :action "
+                                    (pr-str action) " — an action must be a fn, a keyword "
+                                    "ref into the :actions map, or nil (no-op). Fix the "
+                                    "transition's :action value.")
+                               {:action action
+                                :machine-id (:id machine)
+                                :slot :action}))))
 
 ;; ---- guard/action contract --------------------------------------------------
 ;;
@@ -471,7 +527,15 @@
   (cond
     (vector? state) state
     (keyword? state) [state]
-    :else (throw (ex-info ":rf.error/machine-bad-state-form" {:state state}))))
+    :else (throw (machine-error
+                   :rf.error/machine-bad-state-form
+                   (str "A machine snapshot carried a malformed :state "
+                        (pr-str state) " — :state must be a state keyword (a leaf "
+                        "name) or a vector path of state keywords (a hierarchical "
+                        "path). The snapshot is corrupt; check what wrote it.")
+                   {:state state
+                    :slot :state
+                    :rf/recovery :no-recovery}))))
 
 (defn denormalise-state
   "Re-shape a vector path back to the same form as the input snapshot's
@@ -621,7 +685,17 @@
     :candidate-vector v
     :vec-target       [{:target v}]
     :map              [v]
-    :other            (throw (ex-info (str bad-value-id) {:value v}))))
+    :other            (throw (machine-error
+                               bad-value-id
+                               (str "A transition slot carried a malformed value "
+                                    (pr-str v) " — a transition value must be a target "
+                                    "state keyword, a target vector path, a candidate map "
+                                    "(`{:target … :guard … :action …}`), a vector of "
+                                    "candidate maps, or nil (a forbidden / internal no-op). "
+                                    "Fix the offending `:on` / `:after` / `:on-done` / "
+                                    ":on-error` clause on the machine registration.")
+                               {:value v
+                                :slot  bad-value-id}))))
 
 (defn- candidate-vector-form?
   "True iff `v` is the multi-candidate VECTOR form (`[{…} {…}]`) — the
