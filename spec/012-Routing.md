@@ -50,6 +50,7 @@ Audience column: **user** = an event apps dispatch or handle directly; **runtime
 | `:rf.nav/push-url` | `pushState` for the URL. | `:client` |
 | `:rf.nav/replace-url` | `replaceState` for the URL. | `:client` |
 | `:rf.nav/scroll` | Apply a scroll strategy. Args carry `{:strategy :from :to :saved-pos :fragment}`. | `:client` |
+| `:rf.nav/capture-scroll` | Capture the current scroll position into the host-side scroll-position cache before leaving a route (keyed by the leaving route's URL). See [§Scroll restoration](#scroll-restoration). | `:client` |
 | `:rf.route/with-nav-token` | Threads `:nav-token` into a downstream dispatch for stale-result suppression — the nav-token lowered to the [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope)'s `{:route/nav-token …}` `:suppress` gate (see [§Lowering onto the uniform reply envelope](#lowering-onto-the-uniform-reply-envelope)). | universal |
 
 ### Subscriptions
@@ -232,7 +233,7 @@ The twelve keys cluster into three axes by what each key controls:
 | **Lifecycle hooks** — events the runtime dispatches at navigation boundaries | `:on-match`, `:on-error`, `:can-leave` | Events the runtime fires on route activation (`:on-match`), on `:on-match` errors (`:on-error`), and a sub-id consulted before navigation away (`:can-leave`). These are the route's reactive surface — handlers run from app code, the runtime owns the dispatch points. |
 | **Layout** — how the route fits with neighbours | `:doc`, `:parent`, `:tags`, `:scroll` | How the route is described (`:doc`), composed with others (`:parent` chains layout shells; see [§Nested layouts](#nested-layouts)), grouped for interceptors (`:tags`), and visually transitioned (`:scroll`; see [§Scroll restoration](#scroll-restoration)). |
 
-The axes are documentation, not data structure — the keys remain flat on the metadata map. An earlier sketch (audit Finding 1) considered nesting lifecycle hooks under `:hooks {...}`; v1 keeps the flat shape because (a) the registration metadata is read by `(rf/handler-meta :route id)` and tools enumerate top-level keys; nesting would require every consumer to know the nesting; (b) the v1 surface is settled, a nested shape is a v2.x candidate at most. The cluster headings are the carry — a generator scaffolding a route picks the axis first, then the keys.
+The axes are documentation, not data structure — the keys remain flat on the metadata map. An earlier sketch considered nesting lifecycle hooks under `:hooks {...}`; v1 keeps the flat shape because (a) the registration metadata is read by `(rf/handler-meta :route id)` and tools enumerate top-level keys; nesting would require every consumer to know the nesting; (b) the v1 surface is settled, a nested shape is a v2.x candidate at most. The cluster headings are the carry — a generator scaffolding a route picks the axis first, then the keys.
 
 ##### Authoring-boundary key validation
 
@@ -289,18 +290,24 @@ A canonical schema for the slice is registered as `:rf/route-slice` (see [Spec-S
 ### Navigation is an event
 
 ```clojure
+;; The route slice is framework-owned RUNTIME-DB state, so this framework route
+;; handler reads it from the `:rf.db/runtime` coeffect and writes it back through
+;; the reserved `:rf.db/runtime` effect — NOT the app `:db` effect — exactly like
+;; the co-equal `:rf.route/handle-url-change` handler below. The route registrar
+;; mints a framework-authority handler, so emitting `:rf.db/runtime` is in-bounds
+;; (per [002 §Write authority is by convention]).
 (rf/reg-event :rf.route/navigate
   {:doc    "Navigate to a registered route."
    :schema [:cat [:= :rf.route/navigate] [:or :keyword [:map [:url :string]]]
                                     [:? :map]      ;; params
                                     [:? :map]]}    ;; opts
-  (fn handler-route-navigate [{:keys [db]} [_ target params opts]]
-    (let [{:keys [route-id path-params query-params fragment]} (resolve-target target params opts db)
+  (fn handler-route-navigate [{rt :rf.db/runtime} [_ target params opts]]
+    (let [{:keys [route-id path-params query-params fragment]} (resolve-target target params opts rt)
           route-meta (rf/handler-meta :route route-id)
           url        (rf/route-url route-id path-params query-params fragment)
           push-fx-id (if (:replace? opts) :rf.nav/replace-url :rf.nav/push-url)
           nav-token  (rf/gen-nav-token)]
-      {:db (-> db
+      {:rf.db/runtime (-> rt
                (assoc-in [:rf.runtime/routing :current]
                          {:route-id   route-id
                           :params     path-params
@@ -355,9 +362,9 @@ The route-id form is preferred everywhere it can be used because the route-id is
 
 ### URL changes are events
 
-When the URL changes, the runtime fires one of **two co-equal events** (the pattern's `onUrlChange` analogue per Elm's Browser.application; see "Standard runtime events" below). Both write the `:rf/route` slice from the URL and run identical match/validation/fragment/`:on-match` logic; they differ only in *who fires them* and the *default scroll strategy*:
+When the URL changes from the *link/browser* layer, the runtime fires one of **two co-equal events** (the pattern's `onUrlChange` analogue per Elm's Browser.application; see "Standard runtime events" below). Both write the `:rf/route` slice from the URL and run identical match/validation/fragment/`:on-match` logic; they differ only in *who fires them* and the *default scroll strategy*. (Programmatic `:rf.route/navigate` is the *third* commit path: it writes the slice **inline** in its own handler — see [§Navigation is an event](#navigation-is-an-event) — and does **not** dispatch either of these two events.)
 
-- **`:rf.route/transitioned`** — forward navigation (a link click or programmatic `:rf.route/navigate` that pushed a new URL). Default scroll strategy `:top`.
+- **`:rf.route/transitioned`** — forward navigation from a `route-link` click (dispatched by `:rf/url-requested` after the `:can-leave` gate passes and the URL is pushed). Default scroll strategy `:top`.
 - **`:rf.route/handle-url-change`** — popstate (Back/Forward), initial page load, and the server-side request URL during SSR. Default scroll strategy `:restore` (the saved position for the URL being returned to). On SSR the runtime threads the `:frame` id through so per-frame error projections can attribute a `:no-such-handler` trace.
 
 Neither delegates to the other — they are sibling handlers over one shared slice-rewrite. The handler below is `:rf.route/handle-url-change`; `:rf.route/transitioned`'s handler is identical except for the `:top` default scroll and the SSR `:frame` threading:
@@ -448,7 +455,7 @@ These are **framework subscriptions** — their layer-1 reader runs against the 
 
 ```clojure
 (def route-slice-keys
-  [:route-id :params :query :transition :error :fragment :nav-token])
+  [:route-id :params :query :fragment :transition :error :nav-token])
 
 (rf/reg-sub :rf/route
   {:doc "The current route slice: {:route-id :params :query :fragment :transition :error :nav-token}."}
@@ -543,7 +550,7 @@ The event-boundary validation for `:rf.route/navigate` is a re-use of the standa
 
 ##### Validation-error surfacing across the three paths
 
-The three validation paths surface failures through **three different error/no-error shapes**. The table below names what an observer sees on each path so tools and handlers branch on the right surface. Audit Finding 3.
+The three validation paths surface failures through **three different error/no-error shapes**. The table below names what an observer sees on each path so tools and handlers branch on the right surface.
 
 | Path | Error id | Trace `:operation` | Cascade-level error fired? | Slice discriminator |
 |---|---|---|---|---|
@@ -553,7 +560,7 @@ The three validation paths surface failures through **three different error/no-e
 
 The split is principled (per [§Param validation at the call site](#param-validation-at-the-call-site) above): caller-bug paths throw, event-boundary paths reject with a structured error, URL-driven paths route to the canonical not-found id. A consumer reading "the user tried to reach a route they can't parse" therefore branches differently per source: a caller-bug surfaces as an exception in dev (and as a substrate error in production); an event-boundary failure surfaces via the standard error substrate; a URL-driven failure surfaces via the not-found view's `:reason :validation` branch.
 
-**Asymmetry with flows.** Flows' validation surface is **flat by comparison** — five explicit error ids that all fire at registration time, all under `:rf.error/flow-*`: `:rf.error/flow-missing-id`, `:rf.error/flow-bad-id`, `:rf.error/flow-bad-inputs`, `:rf.error/flow-bad-output`, `:rf.error/flow-bad-path` (per [013 §Failure semantics](013-Flows.md#failure-semantics) and `implementation/flows/src/re_frame/flows/registry.cljc`). Flows have a single validation time (registration) and a single surface (registration-throw); routing has three validation times (caller-fn invocation / event-boundary interceptor / URL-driven match) and three surfaces (synchronous throw / structured error / not-found route). The asymmetry is **not a bug** — it is principled per the table above — but it does mean that an AI scanning routing for "validation error ids" does not see one closed family, and a tool building an aggregate "show me all validation failures" surface needs to subscribe to two distinct error ids plus a slice-write predicate. The split is the cost of routing's caller-bug-vs-user-input distinction; flows have no such distinction (registration is always caller code).
+**Asymmetry with flows.** Flows' validation surface is **flat by comparison** — `reg-flow` rejects a malformed flow map with one of **six** explicit error ids that all fire at registration time, all under `:rf.error/flow-*`: `:rf.error/flow-missing-id`, `:rf.error/flow-bad-id`, `:rf.error/flow-bad-inputs`, `:rf.error/flow-bad-output`, `:rf.error/flow-bad-path`, and `:rf.error/flow-bad-marks` (the registration-validation family, owned by [Spec-Schemas §FlowMeta](Spec-Schemas.md) and catalogued in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue); reference implementation `implementation/flows/src/re_frame/flows/registry.cljc`). These are distinct from flows' **runtime** error ids (`:rf.error/flow-cycle`, `:rf.error/flow-path-overlap`, `:rf.error/flow-eval-exception`, per [013 §Failure semantics](013-Flows.md#failure-semantics)). Flows have a single validation time for the registration family (registration) and a single surface (registration-throw); routing has three validation times (caller-fn invocation / event-boundary interceptor / URL-driven match) and three surfaces (synchronous throw / structured error / not-found route). The asymmetry is **not a bug** — it is principled per the table above — but it does mean that an AI scanning routing for "validation error ids" does not see one closed family, and a tool building an aggregate "show me all validation failures" surface needs to subscribe to two distinct error ids plus a slice-write predicate. The split is the cost of routing's caller-bug-vs-user-input distinction; flows have no such distinction (registration is always caller code).
 
 ## Per-route data loading
 
@@ -671,7 +678,7 @@ When a route is loading and the user navigates away before the load completes, t
 
 ### Mechanism
 
-1. **Allocation.** When a URL-change handler runs — `:rf.route/transitioned` (forward nav, also the event `:rf.route/navigate` pushes through) or `:rf.route/handle-url-change` (popstate / initial / SSR) — it allocates a fresh `:nav-token` (a gensym or monotonic counter) and writes it to the `:rf/route` slice alongside the new id/params/query/fragment.
+1. **Allocation.** When a navigation cascade commits the slice — the programmatic `:rf.route/navigate` handler (which writes the slice inline; see [§Navigation is an event](#navigation-is-an-event)), or a URL-change handler `:rf.route/transitioned` (forward nav driven by a `route-link` click via `:rf/url-requested`) or `:rf.route/handle-url-change` (popstate / initial / SSR) — it allocates a fresh `:nav-token` (a gensym or monotonic counter) and writes it to the `:rf/route` slice alongside the new id/params/query/fragment.
 
    > **The allocation counter is intentionally monotone and unbounded — by design, not oversight.** A nav-token need only be *unique within the lifetime of any in-flight async continuation*; equality against the current slice token is the only operation performed on it (step 4). A per-frame monotonic counter satisfies uniqueness without ever needing to wrap or reset. It deliberately does NOT carry the bounded-structure treatment applied to other *retained* collections (the host-side scroll-position LRU cache, the route-registry decoded-key cap): those bound collections that would otherwise accumulate entries, whereas the counter is a single scalar that retains nothing — it is GC'd whole when the frame is destroyed. Practical overflow is a non-concern: on CLJS the counter is an IEEE-754 double (exact integers to 2^53, far beyond any real navigation count); on the JVM it is a `long` that would overflow only after 2^63 navigations. No id collision is possible because each token is a fresh string. Implementations MUST NOT wrap or recycle the counter — doing so would risk colliding a freshly-allocated token with one still carried by a slow in-flight continuation, silently re-validating a stale result.
 
@@ -761,7 +768,7 @@ Three named events are part of the routing contract. Implementations register a 
 
 | Event | When it fires | Default behaviour |
 |---|---|---|
-| `:rf.route/transitioned` | Forward navigation: a `route-link` click or a programmatic `:rf.route/navigate` that pushed a new URL onto history. | Rewrites the `:rf/route` slice from the URL (match → validate → fragment-only short-circuit → full rewrite + `:on-match` drain). Default scroll strategy `:top`. |
+| `:rf.route/transitioned` | Forward navigation from a `route-link` click: dispatched by `:rf/url-requested` after the `:can-leave` gate passes and the in-app URL is pushed onto history. (Programmatic `:rf.route/navigate` does **not** route through this event — it commits the slice inline; see [§Navigation is an event](#navigation-is-an-event).) | Rewrites the `:rf/route` slice from the URL (match → validate → fragment-only short-circuit → full rewrite + `:on-match` drain). Default scroll strategy `:top`. |
 | `:rf.route/handle-url-change` | Popstate (Back/Forward), initial page load, and the server-side request URL during SSR. | The **same** slice-rewrite logic as `:rf.route/transitioned` — they are co-equal sibling handlers, not a delegate pair. Differs only in the default scroll strategy `:restore` (the saved position for the URL being returned to) and in threading the `:frame` id so SSR error projections can attribute a `:no-such-handler` trace per-frame. |
 | `:rf/url-requested` | The user clicked a link the framework owns (a `route-link` view, or any `<a>` whose `href` resolved to a registered route). The handler decides whether the request is in-app or external, runs the active route's `:can-leave` guard for an in-app request, and on a clear request pushes the URL and synthesises the transition. | Classifies in-app vs external by **origin comparison** — on the client the URL is resolved against the browser `Location` and its origin compared; on the JVM / SSR / no-`window` path it falls back to a fail-**closed** lexical check (only a provably same-origin rooted path / pure query / pure fragment is in-app — see [§Open-redirect fail-closed classification](#open-redirect-fail-closed-classification)). An **external** request emits a `:rf.route/external-url-requested` trace and does nothing else (no push — the browser follows the link). An **in-app** request runs the current route's `:can-leave` guard (blocking via the pending-nav protocol if rejected), then pushes the in-app URL and dispatches `:rf.route/transitioned`. Users can override to enforce per-frame policy (auth-guard, modifier-key handling, etc.). |
 
@@ -816,7 +823,7 @@ The `:scroll` value is one of:
 
 | Value | Behaviour |
 |---|---|
-| `:top` | Scroll to top of page (`window.scrollTo(0,0)`). |
+| `:top` | Scroll to top of page (`window.scrollTo(0,0)`) — **unless a `#fragment` is present**, in which case `:top` scrolls the fragment's element into view (falling back to top if the element is absent); see [§`:rf.nav/scroll` integration](#rfnavscroll-integration). |
 | `:restore` | Restore the saved scroll position for this URL (the runtime captures positions on every navigation; SSR-side: no-op). |
 | `:preserve` | Do nothing (current scroll position stays as is). |
 | `nil` / absent | Same as `:preserve`. |
@@ -1122,7 +1129,7 @@ A test fires `[:rf/url-requested {:url "/cart"}]` against a frame whose `:editor
 
 - **Nav-tokens.** Navigation blocking happens *before* the new nav-token would be allocated; tokens are for committed navigations. The `:rf.route/continue` re-issue allocates a fresh nav-token like any other navigation. The original (blocked) attempt never received one.
 - **Fragments.** `:can-leave` runs for any URL change, including fragment-only changes. The runtime DOES check `:can-leave` for fragment-only changes — apps that want fragment changes to bypass the guard return `true` from the sub when the only difference is the fragment (the sub reads the current `:rf.route/fragment` and the requested fragment from the pending event).
-- **Multiple guards.** A route has at most one `:can-leave` sub (it's a metadata key, single-valued). For frame-level cross-cutting policy (e.g., "always block when `:auth/logging-out?`"), use an interceptor on `:rf/url-requested`. Interceptors run *before* the leave-guard check — they can short-circuit by setting `:rf/pending-navigation` directly.
+- **Multiple guards.** A route has at most one `:can-leave` sub (it's a metadata key, single-valued). For frame-level cross-cutting policy (e.g., "always block when `:auth/logging-out?`"), register the policy with `reg-interceptor` and reference it from the frame's `:interceptors` chain (the [EP-0022](../docs/EP/EP-0022-registered-interceptors.md) "global within this frame" mechanism) so it runs on every navigation entry event (`:rf/url-requested`, `:rf.route/navigate`, `:rf.route/handle-url-change`). Such an interceptor runs *before* the leave-guard check — it can short-circuit by setting `:rf/pending-navigation` directly.
 
 ### Conformance
 
@@ -1136,28 +1143,38 @@ Fixture `route-navigation-blocked.edn` exercises:
 
 ## Redirects and guards
 
-A `:rf.route/navigate` event can be intercepted by an interceptor that decides whether the navigation proceeds, redirects elsewhere, or aborts:
+A `:rf.route/navigate` event can be intercepted by an interceptor that decides whether the navigation proceeds, redirects elsewhere, or aborts. Per [EP-0022](../docs/EP/EP-0022-registered-interceptors.md) an interceptor is a **registered program member**: author its behaviour once with `reg-interceptor` (an app-owned id), then attach it to the navigation event by **reference** in the event's `:interceptors` chain. Inline interceptor maps/Vars in a chain are rejected at registration with `:rf.error/inline-interceptor-removed`.
 
 ```clojure
-(def auth-guard
-  {:id     :rf.route/auth-guard
-   :before (fn before [ctx]
-             (let [event       (get-in ctx [:coeffects :event])
-                   target      (second event)
-                   route-meta  (rf/handler-meta :route target)
-                   needs-auth? (boolean (some #{:requires-auth} (:tags route-meta)))
-                   logged-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
-               (if (and needs-auth? (not logged-in?))
-                 ;; redirect to login
-                 (assoc-in ctx [:coeffects :event] [:rf.route/navigate :route/login {:return-to target}])
-                 ctx)))})
+;; 1. Register the guard behaviour under an app-owned id.
+(rf/reg-interceptor :app/auth-guard
+  {:doc "Redirect to /login when an in-flight navigation targets a :requires-auth route and no user is signed in."}
+  {:before
+   (fn before [ctx]
+     (let [event       (get-in ctx [:coeffects :event])
+           target      (second event)
+           route-meta  (rf/handler-meta :route target)
+           needs-auth? (boolean (some #{:requires-auth} (:tags route-meta)))
+           logged-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
+       (if (and needs-auth? (not logged-in?))
+         ;; redirect to login
+         (assoc-in ctx [:coeffects :event] [:rf.route/navigate :route/login {:return-to target}])
+         ctx)))})
+
+;; 2. Attach it to :rf.route/navigate by reference. Because the standard
+;; framework navigate handler is re-registered here only to add the chain,
+;; this is the app's own override of the standard event (per "Standard
+;; runtime events" — users override by re-registering).
+(rf/reg-event :rf.route/navigate
+  {:interceptors [:app/auth-guard]}
+  handler-route-navigate)            ;; the standard handler from "Navigation is an event"
 
 (rf/reg-route :route/account
   {:path "/account"
    :tags #{:requires-auth}})
 ```
 
-Guards are interceptors, not a special routing mechanism. They compose; multiple guards can layer.
+Guards are interceptors, not a special routing mechanism. They are registered once and referenced by id; they compose — list multiple refs in the `:interceptors` chain and they layer in order. Cross-cutting frame-wide policy (e.g. "always block when `:auth/logging-out?`") goes on the frame's `:interceptors` chain instead (per [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol)).
 
 ## Server-side rendering integration (per [011](011-SSR.md))
 
@@ -1239,23 +1256,23 @@ The story / devcard / SSR cases all benefit:
 
 ### Native nested layouts (post-v1)
 
-Per [§Nested layouts](#nested-layouts) the v1 surface is `:parent` + the `:rf.route/chain` sub — the rendering side reads the layout chain as data and composes shells top-down. A richer mechanism — true `<Outlet/>`-style render slots, parent-loader cascades, and partial revalidation on child-only navigations (parent doesn't re-run when only the leaf changes) — is a substrate-shaped addition rather than a data convention. Deferred to until apps surface a real cost the chain-sub pattern can't carry; the `:parent` convention does not preclude a richer slot mechanism later.
+Per [§Nested layouts](#nested-layouts) the v1 surface is `:parent` + the `:rf.route/chain` sub — the rendering side reads the layout chain as data and composes shells top-down. A richer mechanism — true `<Outlet/>`-style render slots, parent-loader cascades, and partial revalidation on child-only navigations (parent doesn't re-run when only the leaf changes) — is a substrate-shaped addition rather than a data convention. Deferred until apps surface a real cost the chain-sub pattern can't carry; the `:parent` convention does not preclude a richer slot mechanism later.
 
 ### Data-form path patterns (post-v1)
 
-Per [§The route table is data](#the-route-table-is-data) the v1 canonical wire form for `:path` is the string grammar (`"/account/:id/orders/*rest"`). A formally-specified vector-of-segments alternative (e.g. `[:account [:id :int] "orders" [:rest :catchall]]`) would carry per-segment schema inline and survive copy-paste better than embedded sigils. Deferred to — the string grammar is the v1 wire form and tools, conformance fixtures, and `match-url` all key off it; the data form would be an additive parser front-end.
+Per [§The route table is data](#the-route-table-is-data) the v1 canonical wire form for `:path` is the string grammar (`"/account/:id/orders/*rest"`). A formally-specified vector-of-segments alternative (e.g. `[:account [:id :int] "orders" [:rest :catchall]]`) would carry per-segment schema inline and survive copy-paste better than embedded sigils. Deferred — the string grammar is the v1 wire form and tools, conformance fixtures, and `match-url` all key off it; the data form would be an additive parser front-end.
 
 ### Custom scroll-strategy registry (post-v1)
 
-Per [§Scroll restoration](#scroll-restoration) the v1 contract is the closed three-enum set (`:top`, `:restore`, `:preserve`) plus the map-form opt-in for host-specific shapes. A first-class registry (apps `register-scroll-strategy!` named entries; routes / nav opts name them by keyword) is an additive composition surface that keeps strategy registration enumerable for tools. Deferred to — the three enums cover the documented cases and locking them keeps tools' enumeration of scroll behaviour decidable.
+Per [§Scroll restoration](#scroll-restoration) the v1 contract is the closed three-enum set (`:top`, `:restore`, `:preserve`) plus the map-form opt-in for host-specific shapes. A first-class registry (apps `register-scroll-strategy!` named entries; routes / nav opts name them by keyword) is an additive composition surface that keeps strategy registration enumerable for tools. Deferred — the three enums cover the documented cases and locking them keeps tools' enumeration of scroll behaviour decidable.
 
 ### URL-state-as-source-of-truth (post-v1)
 
-Per [§State-first, URL-second update order is locked](#state-first-url-second-update-order-is-locked) the v1 model is **state-canonical** (the runtime-db route slice), URL-derived: navigation mutates state first, then syncs the URL. The inverse — URL canonical, state derived (the browser URL is the single source of truth; subscriptions parse it on demand) — is a substantial design change with downstream impact on SSR, multi-frame, stale-suppression, and the navigation cascade ordering. Deferred to ; v1's direction is locked because the URL update can fail (browser denies, offline) and state must remain consistent.
+Per [§State-first, URL-second update order is locked](#state-first-url-second-update-order-is-locked) the v1 model is **state-canonical** (the runtime-db route slice), URL-derived: navigation mutates state first, then syncs the URL. The inverse — URL canonical, state derived (the browser URL is the single source of truth; subscriptions parse it on demand) — is a substantial design change with downstream impact on SSR, multi-frame, stale-suppression, and the navigation cascade ordering. Deferred; v1's direction is locked because the URL update can fail (browser denies, offline) and state must remain consistent.
 
 ### Declarative redirect rules in route metadata (post-v1)
 
-Per [§Redirects and guards](#redirects-and-guards) v1 redirects compose as interceptors — guards are ordinary middleware over `:rf.route/navigate`, with full access to `app-db` and the event vector. A declarative metadata key (e.g. `:redirect-to :route/login`, optionally a fn of the route map) would let the simple "always redirect this route" cases skip interceptor boilerplate. Deferred to — the interceptor form is the universal carry; the declarative key is sugar over it once the common shapes have settled in real apps.
+Per [§Redirects and guards](#redirects-and-guards) v1 redirects compose as interceptors — guards are ordinary middleware over `:rf.route/navigate`, with full access to `app-db` and the event vector. A declarative metadata key (e.g. `:redirect-to :route/login`, optionally a fn of the route map) would let the simple "always redirect this route" cases skip interceptor boilerplate. Deferred — the interceptor form is the universal carry; the declarative key is sugar over it once the common shapes have settled in real apps.
 
 ## Resolved decisions
 
