@@ -97,6 +97,18 @@
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
       (:rf.error/id (ex-data e)))))
 
+(defn- thrown-error-reason
+  "Call `f` and return the `:reason` text of the ExceptionInfo it raises, or
+  `:no-throw` if it did not throw. The retired-name stubs carry the actionable
+  replacement guidance in `:reason`; the `:no-throw` sentinel makes the
+  replacement-guidance assertions FAIL CLOSED if the form ever stops throwing."
+  [f]
+  (try
+    (f)
+    :no-throw
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+      (:reason (ex-data e)))))
+
 (defn- chain-ids
   "Map a STORED (unresolved) `:interceptors` chain to a vector of authored ids.
   Per EP-0022 reference-only (rf2-0adhqs.9) the stored chain holds REFS
@@ -378,6 +390,38 @@
     (is (= :rf.error/reg-event-ctx-removed
            (thrown-error-id #(rf/reg-event-ctx :evt-conf/via-ctx (fn [_ _] nil))))
         "reg-event-ctx raises :rf.error/reg-event-ctx-removed")))
+
+(deftest reg-event-ctx-removal-points-at-reg-interceptor-not-arrow-interceptor
+  (testing "EP-0022 cross-wave coherence (rf2-0p3ix9): the public
+            `reg-event-ctx` removal error guides users to the PUBLIC authoring
+            form `reg-interceptor` (registered interceptors) — NOT the now
+            framework-internal lowering constructor `->interceptor` /
+            `rf/->interceptor`. The umbrella tier asserts the replacement
+            GUIDANCE the user sees on the hard-error path, not just the error
+            id; a regression that reverted the guidance back to `->interceptor`
+            (or dropped the `:reason`) goes RED"
+    (let [reason (thrown-error-reason
+                   #(rf/reg-event-ctx :evt-conf/ctx-reason (fn [_ _] nil)))]
+      (is (string? reason)
+          "the removal stub raises an ex-info carrying a `:reason` string")
+      (is (re-find #"reg-interceptor" reason)
+          "the replacement guidance names `reg-interceptor` (the EP-0022 public form)")
+      (is (not (re-find #"->interceptor" reason))
+          "the guidance does NOT present `->interceptor` (internal-only post-EP-0022)"))))
+
+(deftest reg-event-db-and-fx-removals-still-point-at-reg-event
+  (testing "EP-0018 §2/§3: the reg-event-db / reg-event-fx removal errors keep
+            naming `reg-event` (the ONE public registration form) as their
+            replacement — guarding the db/fx guidance alongside the ctx one so a
+            cross-wave edit that broke either still goes RED"
+    (let [db-reason (thrown-error-reason
+                      #(rf/reg-event-db :evt-conf/db-reason (fn [_ _] nil)))
+          fx-reason (thrown-error-reason
+                      #(rf/reg-event-fx :evt-conf/fx-reason (fn [_ _] nil)))]
+      (is (re-find #"reg-event" db-reason)
+          "reg-event-db removal names reg-event as the replacement")
+      (is (re-find #"reg-event" fx-reason)
+          "reg-event-fx removal names reg-event as the replacement"))))
 
 (deftest retired-names-are-resolvable-facade-vars
   (testing "EP-0018 §2/§3: the retired names are RESOLVABLE facade vars (so the
