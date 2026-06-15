@@ -575,21 +575,24 @@
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e)))
 
 (deftest reply-throws-carry-canonical-rf-error-id
-  (testing "the standardized :rf.error/id discriminator is present AND equals
-            the preserved reply-specific :rf.error/kind on every reply throw"
-    (doseq [[label thunk category]
+  (testing "the standardized :rf.error/id discriminator (the :rf.error/reply-*
+            projection) is present AND its :rf.error/kind preserves the
+            reply-specific category on every reply throw"
+    (doseq [[label thunk category error-id]
             [["invalid short-form target"
-              #(reply/normalize-target {:event :x}) :rf.reply/invalid-target]
+              #(reply/normalize-target {:event :x})
+              :rf.reply/invalid-target :rf.error/reply-invalid-target]
              ["non-map reply"
-              #(reply/validate-reply 42)            :rf.reply/non-map-reply]
+              #(reply/validate-reply 42)
+              :rf.reply/non-map-reply :rf.error/reply-non-map-reply]
              ["unknown delivery mode"
               #(reply/complete {:event [:x] :delivery :weird} {:status :ok})
-              :rf.reply/unknown-delivery]]]
+              :rf.reply/unknown-delivery :rf.error/reply-unknown-delivery]]]
       (let [e    (catch-ex-info thunk)
             data (ex-data e)]
         (is (some? e) (str label " throws"))
-        (is (= category (:rf.error/id data))
-            (str label " exposes the canonical :rf.error/id"))
+        (is (= error-id (:rf.error/id data))
+            (str label " exposes the canonical :rf.error/* discriminator"))
         (is (= category (:rf.error/kind data))
             (str label " preserves the reply-specific :rf.error/kind"))
         (is (= :rf/reply-to (:where data))
