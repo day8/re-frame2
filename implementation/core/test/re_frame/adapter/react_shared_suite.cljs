@@ -3455,9 +3455,21 @@
             (try (.unmount root) (catch :default _ nil)))))))))
 
 (defn assert-use-subscribe-stable-deps-key
-  "rf2-mwft2: stable-literal query-v across N re-renders ⇒ exactly one
-  subs/subscribe call (the deps element is JS-ref-stable across renders),
-  and the useEffect cleanup (rf2-7g959) fires only on unmount.
+  "rf2-mwft2 (+ rf2-es09qq lifecycle): a stable-literal query-v across N
+  re-renders must not cause the sub-cache ref-count to CHURN — it stays
+  pinned at exactly 1 throughout and returns to 0 on unmount.
+
+  rf2-es09qq changed the acquisition lifecycle: the render-phase reaction
+  fetch is now a BALANCED `subs/subscribe` + `subs/unsubscribe` round-trip
+  (net 0), and the single DURABLE ref is taken/released only in the
+  commit-owned `useSyncExternalStore` subscribe callback. So the meaningful
+  invariant is no longer 'exactly one raw subscribe call' (the OLD design's
+  proxy) but: (a) every render's subscribe/unsubscribe calls are BALANCED, so
+  the committed steady state never crosses the 1 → 0 disposal edge, and
+  (b) the net cache ref-count is pinned at 1 across re-renders and drops to 0
+  on unmount. The stable deps key (rf2-mwft2) still matters: it keeps the
+  memo/callback identities stable so React doesn't re-run the commit-owned
+  subscribe per render (which WOULD churn the durable ref).
 
   cfg keys:
     :probe-stable-deps-element  thunk → the ProbeStableDepsParent element.
@@ -3516,32 +3528,40 @@
                          (swap! unsubscribe-calls inc)
                          (real-unsubscribe frame-id query-v)))]
           (try
-            ;; Mount — one subs/subscribe for the useMemo factory.
+            ;; Mount. The render-phase fetch is a balanced subscribe+unsubscribe
+            ;; round-trip; the commit-owned subscribe-fn takes the durable ref.
+            ;; What MUST hold: the net cache ref-count is exactly 1, and every
+            ;; subscribe is balanced by an unsubscribe except the single durable
+            ;; committed one (so subscribe-calls = unsubscribe-calls + 1).
             (act-fn (fn [] (.render root (probe-stable-deps-element))))
-            (let [mounted-subs @subscribe-calls]
-              (is (= 1 mounted-subs)
-                  "mount triggered exactly one subs/subscribe call")
-              (is (zero? @unsubscribe-calls)
-                  "no subs/unsubscribe fires during initial mount")
+            (is (= 1 (or (get-in @cache [cache-key-v :ref-count]) 0))
+                "after mount the sub-cache ref-count is exactly 1 (one durable committed ref)")
+            (is (= (inc @unsubscribe-calls) @subscribe-calls)
+                (str "after mount subscribe/unsubscribe are balanced bar the one "
+                     "durable committed ref (subscribe=" @subscribe-calls
+                     " unsubscribe=" @unsubscribe-calls ")"))
+            (let [subs-after-mount   @subscribe-calls
+                  unsubs-after-mount @unsubscribe-calls]
               ;; Force five re-renders by bumping the parent's tick state.
-              ;; Each parent render also re-renders the child probe with a
-              ;; freshly-allocated CLJS vector for the query-v — without
-              ;; the fix the deps mismatch would re-run useMemo (extra
-              ;; subscribe) and useEffect (extra unsubscribe) each render.
+              ;; Each parent render re-renders the child probe with a freshly-
+              ;; allocated CLJS vector for the query-v — the stable deps key
+              ;; (rf2-mwft2) keeps useMemo/useCallback identities stable so
+              ;; React does NOT re-run the commit-owned subscribe per render.
               (dotimes [_ 5]
                 (act-fn (fn [] (when-let [set-tick @stable-deps-set-tick]
                                  (set-tick inc)))))
-              (is (= 1 @subscribe-calls)
-                  "subs/subscribe still called only once after 5 re-renders (no per-render churn)")
-              (is (zero? @unsubscribe-calls)
-                  "subs/unsubscribe never fired across re-renders — useEffect cleanup is unmount-only")
+              ;; Steady state: the durable committed ref is untouched (the
+              ;; commit-owned subscribe-fn's identity is stable on [stable-key]),
+              ;; so any per-render render-phase round-trips are fully balanced.
+              (is (= (- @subscribe-calls subs-after-mount)
+                     (- @unsubscribe-calls unsubs-after-mount))
+                  "across 5 re-renders every render-phase subscribe is balanced by an unsubscribe (no durable churn)")
               (is (= 1 (or (get-in @cache [cache-key-v :ref-count]) 0))
-                  "sub-cache ref-count remains pinned at 1 across re-renders"))
-            ;; Unmount must fire exactly one unsubscribe — the rf2-7g959
-            ;; cleanup pairing must survive the rf2-mwft2 rewrite.
+                  "sub-cache ref-count remains pinned at 1 across re-renders (no churn across the disposal edge)"))
+            ;; Unmount releases the single durable committed ref.
             (act-fn (fn [] (.unmount root)))
-            (is (= 1 @unsubscribe-calls)
-                "unmount fired exactly one subs/unsubscribe (rf2-7g959 cleanup survives the rf2-mwft2 rewrite)")
+            (is (= @subscribe-calls @unsubscribe-calls)
+                "after unmount every subscribe is balanced by an unsubscribe (the durable ref was released)")
             (is (or (nil? (get @cache cache-key-v))
                     (zero? (or (get-in @cache [cache-key-v :ref-count]) 0)))
                 "post-unmount cache entry dropped or ref-count at zero")
@@ -3670,31 +3690,40 @@
             (finally
               (try (.unmount root) (catch :default _ nil))))))))))
 
-;; ---- render-phase ref-count-leak regressions (rf2-879fe + rf2-8u8tx.2) ----
+;; ---- render-phase ref-count-leak regressions (rf2-879fe + rf2-8u8tx.2 +
+;;      rf2-es09qq) ----
 ;;
-;; The shared spine's `use-subscribe` acquires the sub-cache ref by calling
-;; `subs/subscribe` inside the `useMemo` factory — a RENDER-phase acquisition.
-;; The release used to live ONLY in a deps-keyed `useEffect` cleanup, which
-;; left two ways for the cache ref-count to leak. These two assertions pin
-;; both triggers; both reuse the refcount-probe cfg surface.
+;; The shared spine's `use-subscribe` reads the cached reaction during render
+;; (a render-phase `subs/subscribe`) but — since rf2-es09qq — IMMEDIATELY
+;; balances it with `subs/unsubscribe`, so the render phase nets ZERO ref-count
+;; whether or not it commits. The DURABLE ref is taken/released only in the
+;; commit-owned `useSyncExternalStore` subscribe callback (run after commit;
+;; its cleanup on unmount / key change / teardown). These assertions pin the
+;; three documented ways the OLD design (render-phase +1 reclaimed by effects)
+;; leaked; all reuse the refcount-probe cfg surface.
 ;;
 ;;   • rf2-8u8tx.2 — `useMemo` is a perf hint, not a lifecycle: React may
-;;     DISCARD a cached memo and re-run the factory on UNCHANGED deps. Each
-;;     re-run was another `subscribe` (+1) with no matching cleanup (the
-;;     deps-keyed effect does not re-fire without a deps change) ⇒ the
-;;     ref-count climbs per discarded memo. We simulate the documented
-;;     discard by patching `React.useMemo` to always re-run its factory while
-;;     forcing several committed re-renders, then assert the ref-count stayed
-;;     pinned at exactly 1 (not N) and dropped to 0 on unmount.
+;;     DISCARD a cached memo and re-run the factory on UNCHANGED deps. Under
+;;     the old design each re-run was another unbalanced `subscribe` (+1) ⇒ the
+;;     ref-count climbed per discarded memo. Now each factory re-run is its own
+;;     balanced round-trip (net 0), so the count can never climb. We simulate
+;;     the documented discard by patching `React.useMemo` to always re-run its
+;;     factory while forcing several committed re-renders, then assert the
+;;     ref-count stayed pinned at exactly 1 (the committed durable ref, not N)
+;;     and dropped to 0 on unmount.
 ;;
-;;   • rf2-879fe — a concurrent render that runs `use-subscribe` (the memo
-;;     factory subscribes) and is then ABANDONED before commit (React
-;;     restarts the render) has no committed effect of its own, but the SAME
-;;     fiber's eventual committed render reconciles the accumulated render-
-;;     phase acquisitions back to one. We simulate the abandoned-then-
-;;     restarted render by making the memo factory run multiple times across
-;;     renders that do commit (the realistic concurrent-interrupt shape) and
-;;     assert no ref-count is pinned beyond the single live subscription.
+;;   • rf2-879fe — a render that runs `use-subscribe` multiple times across
+;;     interrupt/restart before its eventual commit. Each render-phase
+;;     acquisition is now self-balancing, and the single committed mount takes
+;;     exactly one durable ref. We simulate the multi-acquisition shape by
+;;     re-running the memo factory N times within a committing render and assert
+;;     no ref-count is pinned beyond the single live committed subscription.
+;;
+;;   • rf2-es09qq — the FIRST-MOUNT render aborted BEFORE commit (real Suspense
+;;     unwind). React discards the never-committed fiber, so the old ledger +
+;;     effects could not reclaim its render-phase +1. With the balanced
+;;     round-trip the abandoned render acquires nothing. Asserted by
+;;     `assert-use-subscribe-suspense-abort-before-commit-no-refcount-leak`.
 
 (defn assert-use-subscribe-memo-recompute-no-refcount-leak
   "rf2-8u8tx.2: a `useMemo` factory re-run on UNCHANGED deps (React's
@@ -3702,8 +3731,13 @@
   `React.useMemo` so its factory re-runs every render, drives several
   committed re-renders of the use-subscribe refcount probe, and asserts the
   (frame, query) cache ref-count stays pinned at exactly 1 throughout — then
-  drops to 0/absent on unmount. On the pre-fix spine the ref-count climbs by
-  one per discarded memo and never returns to 0.
+  drops to 0/absent on unmount.
+
+  Since rf2-es09qq the render-phase factory is a balanced subscribe+unsubscribe
+  round-trip (net 0), so any number of discarded+rebuilt memo re-runs nets zero
+  — the single durable ref is owned by the commit-owned `subscribe-fn`. On the
+  pre-fix spine the render-phase +1 was unbalanced, so the ref-count climbed by
+  one per discarded memo and never returned to 0.
 
   cfg keys: reuses the refcount-probe surface
     :probe-refcount-element / :refcount-target / :rc-frame / :rc-query"
@@ -3733,9 +3767,10 @@
           (is (= 1 (or (get-in @cache [cache-key-v :ref-count]) 0))
               "after mount the memo-recompute probe pins exactly one ref-count")
           ;; Force several committed re-renders. Each re-render re-runs the
-          ;; (patched, always-recompute) memo factory ⇒ a fresh subscribe;
-          ;; the commit-owned reconcile must release every duplicate so the
-          ;; ref-count never climbs above 1.
+          ;; (patched, always-recompute) memo factory ⇒ a balanced
+          ;; subscribe+unsubscribe round-trip (net 0), so the durable ref held
+          ;; by the commit-owned subscribe-fn keeps the ref-count pinned at 1
+          ;; and a discarded memo can never climb it.
           (dotimes [_ 6]
             (act-fn (fn [] (.render root (probe-refcount-element)))))
           (is (= 1 (or (get-in @cache [cache-key-v :ref-count]) 0))
@@ -3751,14 +3786,16 @@
             (try (.unmount root) (catch :default _ nil)))))))))
 
 (defn assert-use-subscribe-abandoned-render-no-refcount-leak
-  "rf2-879fe: a render that runs `use-subscribe` (memo factory subscribes,
-  +1 ref-count) and is then ABANDONED before commit must not pin the
-  sub-cache. We exercise the realistic concurrent-interrupt shape: a fiber
-  whose memo factory ran several render-phase acquisitions (interrupted +
-  restarted renders) and then committed. The committed render's reconcile
-  must drain those accumulated acquisitions back to exactly one live ref;
-  unmount returns it to zero. On the pre-fix spine each abandoned render's
-  +1 was pinned with no matching cleanup.
+  "rf2-879fe (multi-acquisition committing render): a fiber whose memo factory
+  ran several render-phase acquisitions (interrupted + restarted renders) and
+  then committed must end with exactly one live ref; unmount returns it to
+  zero. Since rf2-es09qq each render-phase acquisition is a balanced
+  subscribe+unsubscribe round-trip (net 0) and the single durable ref is owned
+  by the commit-owned subscribe-fn, so N factory re-runs collapse to one live
+  ref by construction. (The genuine first-mount-ABANDONED-before-commit path —
+  which the old ledger could not reach — is covered separately by
+  `assert-use-subscribe-suspense-abort-before-commit-no-refcount-leak`,
+  rf2-es09qq.) On the pre-fix spine each render-phase +1 was unbalanced.
 
   We simulate the multiple render-phase acquisitions by patching
   `React.useMemo` to re-run its factory N times within a single render
@@ -3782,17 +3819,19 @@
             root          (react-dom-client/createRoot mount-node)
             real-use-memo (.-useMemo React)]
         ;; Each render the memo factory is run 3 times — three render-phase
-        ;; `subscribe`s feeding the SAME fiber's ledger, modelling an
-        ;; abandoned-then-restarted concurrent render whose acquisitions
-        ;; accumulate before the eventual commit. React calls the factory
-        ;; itself once per useMemo; we re-run it the extra times here.
+        ;; round-trips for the SAME fiber, modelling an abandoned-then-restarted
+        ;; concurrent render whose acquisitions accumulate before the eventual
+        ;; commit. React calls the factory itself once per useMemo; we re-run it
+        ;; the extra times here.
         (set! (.-useMemo React)
               (fn patched-use-memo [factory _deps]
                 (factory) (factory) (factory)))
         (try
           (act-fn (fn [] (.render root (probe-refcount-element))))
-          ;; The mount committed once. Three render-phase acquisitions landed
-          ;; on the ledger; the commit-owned reconcile must drain them to one.
+          ;; The mount committed once. The three render-phase round-trips are
+          ;; each net-zero (subscribe + immediate unsubscribe); the single
+          ;; durable ref is taken by the commit-owned subscribe-fn, so exactly
+          ;; one ref is pinned.
           (is (= 1 (or (get-in @cache [cache-key-v :ref-count]) 0))
               (str "after a multi-acquisition (abandoned/restarted) render commits, "
                    "exactly one ref-count is pinned — NOT one-per-render-phase-"
@@ -3805,6 +3844,92 @@
           (finally
             (set! (.-useMemo React) real-use-memo)
             (try (.unmount root) (catch :default _ nil)))))))))
+
+(defn assert-use-subscribe-suspense-abort-before-commit-no-refcount-leak
+  "rf2-es09qq: a FIRST-MOUNT render that runs `use-subscribe` (its render-
+  phase factory) and is then ABANDONED before commit must leave NO sub-cache
+  ref-count behind — the leak the prior rf2-879fe `useRef` ledger could not
+  reach, because React discards the never-committed fiber (its ledger AND its
+  effects) so nothing ever reclaims a render-phase acquisition.
+
+  This drives the REAL abort-before-commit path with Suspense: a probe
+  component calls `use-subscribe` and then renders a child that SUSPENDS
+  (throws a never-resolving thenable). Under a concurrent `createRoot`, React
+  begins rendering the subtree (running the probe's `use-subscribe` render
+  phase), the child suspends, React unwinds and commits the `Suspense`
+  FALLBACK instead — the probe fiber never commits, so its store-subscribe /
+  effects never run. With the fix the render phase is net-zero on ref-count,
+  so the global sub-cache is left exactly as it was found: no pinned entry,
+  no live reaction without an owning component.
+
+  Then it mounts a NORMAL (non-suspending) committed probe on the SAME query
+  and unmounts it, proving the query returns cleanly to zero refs through the
+  ordinary committed lifecycle — i.e. the abandoned render did not corrupt the
+  ledger for a later legitimate subscriber.
+
+  On the PRE-fix spine the suspended probe's render-phase `subscribe` pins a
+  +1 in the cache with no owning fiber, so the entry survives the fallback
+  commit (ref-count >= 1) and the later committed mount/unmount leaves it
+  pinned above zero.
+
+  cfg keys:
+    :probe-suspense-abort-element  thunk → an ELEMENT that wraps a
+      use-subscribe-calling probe + a suspending child inside a Suspense
+      boundary with a fallback (substrate-built; reads :refcount-target for
+      the frame, queries :rc-query)
+    :probe-refcount-element / :refcount-target / :rc-frame / :rc-query — the
+      shared refcount-probe surface, reused for the committed control mount."
+  [{:keys [name probe-suspense-abort-element probe-refcount-element
+           refcount-target rc-frame rc-query]}]
+  (testing (str name " — use-subscribe abandoned BEFORE commit (Suspense) leaks no sub-cache ref-count (rf2-es09qq)")
+    (if (nil? probe-suspense-abort-element)
+      (is true (str name ": no Suspense-abort probe wired; substrate skips this case"))
+      (with-browser-act
+       (fn [act-fn]
+        (reset! refcount-target rc-frame)
+        (rf/reg-frame rc-frame {:doc "rf2-es09qq suspense-abort refcount probe frame"})
+        (rf/reg-event ::sa-seed (fn [{:keys [db]} _] {:db {:m 0}}))
+        (rf/dispatch-sync [::sa-seed] {:frame rc-frame})
+        (rf/reg-sub rc-query (fn [db _] (:m db)))
+        (let [cache-key-v [rc-query]
+              cache       (:sub-cache (frame/frame rc-frame))
+              mount-node  (make-mount-node!)
+              root        (react-dom-client/createRoot mount-node)]
+          (try
+            ;; Render the Suspense tree. The probe runs `use-subscribe` in its
+            ;; render phase; its suspending child throws, so React commits the
+            ;; FALLBACK and the probe fiber never commits.
+            (act-fn (fn [] (.render root (probe-suspense-abort-element))))
+            ;; The committed tree is the fallback — the use-subscribe-calling
+            ;; probe was abandoned before commit. No ref-count may be pinned.
+            (is (or (nil? (get @cache cache-key-v))
+                    (zero? (or (get-in @cache [cache-key-v :ref-count]) 0)))
+                (str "after a Suspense-aborted (never-committed) render, the "
+                     "sub-cache holds NO ref-count for the query — observed "
+                     (or (get-in @cache [cache-key-v :ref-count]) "<absent>")))
+            ;; Tear down the suspended tree.
+            (act-fn (fn [] (.unmount root)))
+            (is (or (nil? (get @cache cache-key-v))
+                    (zero? (or (get-in @cache [cache-key-v :ref-count]) 0)))
+                "post-unmount of the suspended tree: still no pinned ref-count")
+            (finally
+              (try (.unmount root) (catch :default _ nil))))
+          ;; ---- committed-mount control: a later legitimate subscriber on
+          ;; the SAME query subscribes to exactly one ref and releases it on
+          ;; unmount, proving the abandoned render left the ledger uncorrupted.
+          (let [root2 (react-dom-client/createRoot (make-mount-node!))]
+            (try
+              (act-fn (fn [] (.render root2 (probe-refcount-element))))
+              (is (= 1 (or (get-in @cache [cache-key-v :ref-count]) 0))
+                  (str "a later committed mount on the same query pins exactly "
+                       "one ref-count — observed "
+                       (or (get-in @cache [cache-key-v :ref-count]) 0)))
+              (act-fn (fn [] (.unmount root2)))
+              (is (or (nil? (get @cache cache-key-v))
+                      (zero? (or (get-in @cache [cache-key-v :ref-count]) 0)))
+                  "after the committed mount unmounts, the query returns to zero refs")
+              (finally
+                (try (.unmount root2) (catch :default _ nil)))))))))))
 
 ;; ---- unsubscribe arity contract (rf2-gizlj) -------------------------------
 ;;
