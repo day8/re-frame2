@@ -4,7 +4,7 @@
   Spec 009 §Trace correlation: every trace event emitted inside a
   handler's execution scope carries the in-scope handler's registration
   coord under the top-level `:rf.trace/trigger-handler` slot. Machines
-  register as event handlers via `reg-event-fx` (per
+  register as event handlers via `reg-event` (per
   `reg-machine*` in `lifecycle_fx/registration.cljc`), so when a machine transition
   trace fires inside the machine's event-handler scope it picks up the
   machine's own registration coord via `emit!`'s hoist of

@@ -13,7 +13,7 @@
   warning is noise.
 
   The fix introduces the general `:rf/framework-authority? true` registration-
-  meta key (stamped by the routing façade's `reg-event-fx` registrations);
+  meta key (stamped by the routing façade's `reg-event` registrations);
   the router reads the general key (folding in the `:rf/machine?` implication
   via `events/framework-authority?`).
 
