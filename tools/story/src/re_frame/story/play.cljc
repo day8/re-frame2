@@ -71,12 +71,10 @@
             ;; (`register-listener!` / `unregister-listener!`) lives in
             ;; `re-frame.trace.tooling` (production-DCE split).
             [re-frame.trace.tooling    :as trace-tooling]
-            [re-frame.interop          :as interop]
             [re-frame.story.assertions :as assertions]
             [re-frame.story.async      :as async]
             [re-frame.story.config     :as config]
             [re-frame.story.error      :as story-error]
-            [re-frame.story.frames     :as frames]
             [re-frame.story.late-bind  :as late-bind]
             [re-frame.story.play.runner :as runner]
             [re-frame.story.registrar  :as registrar]))

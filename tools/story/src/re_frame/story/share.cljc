@@ -35,7 +35,8 @@
                                   `WxH` custom (e.g. `800x600`)
   - `<id-or-#rrggbb>` for background — preset keyword (`dark`) or a
                                        hex colour string (`#abc123`)
-  - `<s>` — substrate id (omitted when `:reagent` default)
+  - `<s>` — substrate id, namespace-preserving like `<id>`
+            (`:my.lib/uix` → `my.lib/uix`); omitted when `:reagent` default
 
   Per rf2-o4u18 the URL is the sharability surface of the testbed: a
   teammate pasting a URL must land on the exact same view (workspace
@@ -450,7 +451,7 @@
     (conj (kv-pair :overrides (build-overrides-token cell-overrides)))
 
     (and substrate (not= substrate :reagent))
-    (conj (kv-pair :substrate (url-encode (name substrate))))))
+    (conj (kv-pair :substrate (url-encode (kw->str substrate))))))
 
 (defn parse-params
   "Pure inverse of `build-params` — given a `{param-name → string}`

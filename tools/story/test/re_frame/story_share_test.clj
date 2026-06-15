@@ -48,6 +48,19 @@
                                   :substrate  :uix})]
       (is (some #(str/starts-with? % "substrate=") ps)))))
 
+(deftest build-params-substrate-preserves-namespace
+  (testing "rf2-j5yv6y — a qualified substrate id (e.g. a host app's
+            :my.lib/uix) keeps its namespace on the wire instead of being
+            collapsed to its bare name. Mirrors the namespace-preserving
+            encoding used for :variant / :workspace."
+    (let [ps (share/build-params {:variant-id :story.foo/bar
+                                  :substrate  :my.lib/uix})
+          sp (some #(when (str/starts-with? % "substrate=") %) ps)]
+      (is (some? sp))
+      ;; The `/` is percent-encoded to %2F on the wire.
+      (is (str/includes? sp "my.lib%2Fuix")
+          "the namespace survives encoding (no bare `uix`)"))))
+
 ;; ---- variant-share-url ---------------------------------------------------
 
 (deftest variant-share-url-no-base
@@ -111,6 +124,24 @@
   would), and parse it back. Returns the reconstructed overrides map."
   [ov]
   (share/parse-overrides-param (url-decode (share/build-overrides-token ov))))
+
+;; ---- rf2-j5yv6y: substrate id round-trips namespace ----------------------
+
+(deftest substrate-round-trips-qualified
+  (testing "rf2-j5yv6y — a qualified substrate id round-trips through
+            build-params → URL decoding → parse-params without losing its
+            namespace. A registered custom substrate like :my.lib/uix must
+            hydrate back to the SAME id, not a different bare :uix."
+    (let [substrate :my.lib/uix
+          ps        (share/build-params {:variant-id :story.foo/bar
+                                         :substrate  substrate})
+          sp        (some #(when (str/starts-with? % "substrate=") %) ps)
+          ;; URLSearchParams.get returns the decoded value; emulate it.
+          decoded   (url-decode (subs sp (count "substrate=")))]
+      (is (= substrate (share/parse-substrate-param decoded))
+          "qualified substrate id survives the full encode → decode → parse")
+      (is (= substrate (:substrate (share/parse-params {"substrate" decoded})))
+          "and through the full parse-params inverse"))))
 
 (deftest overrides-codec-round-trips-simple
   (testing "rf2-j0hwf — simple overrides round-trip through build/parse"
