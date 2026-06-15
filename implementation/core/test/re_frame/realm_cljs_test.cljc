@@ -420,7 +420,7 @@
           ed (try (realm/set-installed-app! :ghost/realm {:rf.app/id :ghost})
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
-      (is (= :rf.error/unknown-realm (:error/id ed))
+      (is (= :rf.error/unknown-realm (:rf.error/id ed))
           "mutating an unknown realm id throws :rf.error/unknown-realm")
       (is (= :ghost/realm (:realm ed)) "the diagnostic names the unknown realm id")
       (is (contains? (:known-realms ed) :rf.realm/default)
@@ -449,7 +449,7 @@
       (let [ed (try (thunk)
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                       (ex-data e)))]
-        (is (= :rf.error/unknown-realm (:error/id ed))
+        (is (= :rf.error/unknown-realm (:rf.error/id ed))
             (str label " throws :rf.error/unknown-realm on an unknown id"))
         (is (= :ghost/realm (:realm ed))
             (str label " names the unknown realm id"))))

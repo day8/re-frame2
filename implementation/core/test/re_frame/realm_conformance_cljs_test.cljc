@@ -106,7 +106,7 @@
     (let [ed (try (rf/realm {})
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
-      (is (= :rf.error/invalid-realm (:error/id ed)))
+      (is (= :rf.error/invalid-realm (:rf.error/id ed)))
       (is (= :supply-a-realm-id (:recovery ed))))))
 
 (deftest realm-is-hermetic-and-registered
@@ -131,7 +131,7 @@
     (let [ed (try (rf/realm {:id :conf/dup})
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
-      (is (= :rf.error/realm-id-conflict (:error/id ed)))
+      (is (= :rf.error/realm-id-conflict (:rf.error/id ed)))
       (is (= :conf/dup (:realm ed)) "the conflicting id is named"))))
 
 (deftest dispose-realm-drops-it-default-is-never-disposed
@@ -411,7 +411,7 @@
           ed (try (rf/install! r a)
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
-      (is (= :rf.error/missing-capability (:error/id ed)))
+      (is (= :rf.error/missing-capability (:rf.error/id ed)))
       (is (= :conf/needs-caps (:realm ed)) "the constructed realm is named")
       (is (= :rf.capability/http (:capability ed)))
       ;; Nothing was seated into the realm's own registrar (pre-mutation fail).

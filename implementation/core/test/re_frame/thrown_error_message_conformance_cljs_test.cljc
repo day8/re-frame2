@@ -25,6 +25,8 @@
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.error :as error]
             [re-frame.late-bind :as late-bind]
+            [re-frame.app-value :as app-value]
+            [re-frame.realm :as realm]
             [re-frame.flows.registry :as flows-registry]
             [re-frame.flows.topo :as flows-topo]
             [re-frame.routing.registry :as routing-registry]))
@@ -215,3 +217,31 @@
     "extract-cycle-path (internal dead-end invariant)"
     :rf.error/flow-cycle-extract-invariant
     #(#'flows-topo/extract-cycle-path {:a #{}} #{:a})))
+
+;; ============================================================================
+;; app-value / realm throws (rf2-p7kwpt) — the app-as-value and realm surface
+;; exemplars. Both previously threw with the legacy `:error/id` discriminator;
+;; they now route through the central builder so the message is a human sentence
+;; naming the public concept (rf/app / rf/realm) carrying the [:rf.error/<id>]
+;; token, with the canonical discriminator in `:rf.error/id`.
+;; ============================================================================
+
+(deftest app-value-throw-emits-conformant-shape
+  ;; rf2-p7kwpt — the app-as-value surface exemplar. A bad rf/app input (a
+  ;; non-module :modules entry) routes through the central builder, so the
+  ;; message is a human sentence naming the public concept (rf/app) carrying
+  ;; the [:rf.error/<id>] token, with the canonical discriminator in
+  ;; :rf.error/id (NOT the legacy :error/id slot).
+  (assert-conformant-throw!
+    "rf/app (non-module :modules entry)"
+    :rf.error/invalid-app
+    #(app-value/app {:id :conf/app :modules [{:not :a-module}]})))
+
+(deftest realm-throw-emits-conformant-shape
+  ;; rf2-p7kwpt — the realm surface exemplar. A bad rf/realm input (a missing
+  ;; :id) routes through the central builder: the message names rf/realm and
+  ;; carries the token, with :rf.error/id as the SOLE discriminator.
+  (assert-conformant-throw!
+    "rf/realm (missing :id)"
+    :rf.error/invalid-realm
+    #(realm/construct-realm {})))

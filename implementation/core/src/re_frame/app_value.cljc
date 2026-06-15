@@ -94,6 +94,7 @@
   Closure DCE removes; an app that DOES call `rf/app` / `rf/install!` keeps
   exactly what it references."
   (:require [clojure.set        :as set]
+            [re-frame.error     :as error]
             [re-frame.realm     :as realm]
             [re-frame.frame     :as frame]
             [re-frame.registrar :as registrar]
@@ -402,10 +403,12 @@
   [descriptor-map]
   (let [id (:id descriptor-map)]
     (when (nil? id)
-      (throw (ex-info "rf/module requires an :id"
-                      {:error/id :rf.error/invalid-module
-                       :descriptor descriptor-map
-                       :recovery :supply-a-module-id})))
+      (error/throw-error!
+        :rf.error/invalid-module
+        'rf/module
+        "rf/module requires an :id — supply a module id (the provenance key every registration is owned by)."
+        {:recovery :supply-a-module-id
+         :extra    {:descriptor descriptor-map}}))
     (let [registrations
           (reduce-kv
             (fn [acc section entries]
@@ -419,11 +422,15 @@
                 ;; module — fail loudly rather than silently dropping it.
                 (if (contains? module-reserved-keys section)
                   acc
-                  (throw (ex-info (str "rf/module: unknown section key " section)
-                                  {:error/id :rf.error/invalid-module
-                                   :module id
-                                   :unknown-section section
-                                   :recovery :remove-or-correct-the-section-key})))))
+                  (error/throw-error!
+                    :rf.error/invalid-module
+                    'rf/module
+                    (str "rf/module: unknown section key " section
+                         " — remove or correct the section key (it is neither a"
+                         " registry-section name nor a reserved module key).")
+                    {:recovery :remove-or-correct-the-section-key
+                     :extra    {:module           id
+                                :unknown-section  section}}))))
             {}
             descriptor-map)]
       (cond-> {:rf.module/id       id
@@ -461,16 +468,19 @@
       (reduce-kv
         (fn [acc id desc]
           (if-let [existing (get-in acc [kind id])]
-            (throw (ex-info (str "app composition collision: two modules register "
-                                 kind " " id)
-                            {:error/id :rf.error/app-composition-collision
-                             :kind     kind
-                             :id       id
-                             :sources  [(cond-> {:module (:owner existing)}
-                                          (:source existing) (assoc :source (:source existing)))
-                                        (cond-> {:module (:owner desc)}
-                                          (:source desc) (assoc :source (:source desc)))]
-                             :recovery :rename-or-explicitly-replace}))
+            (error/throw-error!
+              :rf.error/app-composition-collision
+              'rf/app
+              (str "rf/app composition collision: two modules register "
+                   kind " " id " — composition is order-stable, never"
+                   " last-writer-wins; rename one or explicitly replace it.")
+              {:recovery :rename-or-explicitly-replace
+               :extra    {:kind    kind
+                          :id      id
+                          :sources [(cond-> {:module (:owner existing)}
+                                      (:source existing) (assoc :source (:source existing)))
+                                    (cond-> {:module (:owner desc)}
+                                      (:source desc) (assoc :source (:source desc)))]}})
             (assoc-in acc [kind id] desc)))
         acc
         id->desc))
@@ -516,17 +526,21 @@
   (let [id      (:id app-map)
         modules (vec (get app-map :modules []))]
     (when (nil? id)
-      (throw (ex-info "rf/app requires an :id"
-                      {:error/id :rf.error/invalid-app
-                       :app app-map
-                       :recovery :supply-an-app-id})))
+      (error/throw-error!
+        :rf.error/invalid-app
+        'rf/app
+        "rf/app requires an :id — supply an app id for the composed program."
+        {:recovery :supply-an-app-id
+         :extra    {:app app-map}}))
     (doseq [m modules]
       (when-not (and (map? m) (contains? m :rf.module/id))
-        (throw (ex-info "rf/app :modules entries must be module values (from rf/module)"
-                        {:error/id :rf.error/invalid-app
-                         :app id
-                         :bad-module m
-                         :recovery :wrap-the-descriptor-in-rf-module}))))
+        (error/throw-error!
+          :rf.error/invalid-app
+          'rf/app
+          "rf/app :modules entries must be module values (from rf/module) — wrap the descriptor in rf/module first."
+          {:recovery :wrap-the-descriptor-in-rf-module
+           :extra    {:app        id
+                      :bad-module m}})))
     ;; Module id is the PROVENANCE key — `:modules` is keyed by it, every
     ;; descriptor's `:owner` carries it, and `app-owns` resolves through it. A
     ;; duplicate `:rf.module/id` must not silently last-writer-win (rf2-c6armm.1
@@ -543,16 +557,18 @@
                             (if-let [prev (get acc mid)]
                               (if (= prev m)
                                 acc            ; exact-equal duplicate — idempotent
-                                (throw (ex-info
-                                         (str "rf/app: two distinct modules share the id "
-                                              mid " — module id is the provenance key, so a"
-                                              " divergent duplicate makes composition"
-                                              " order-dependent (not last-writer-wins).")
-                                         {:error/id :rf.error/app-composition-collision
-                                          :app      id
-                                          :kind     :module
-                                          :id       mid
-                                          :recovery :give-each-module-a-unique-id})))
+                                (error/throw-error!
+                                  :rf.error/app-composition-collision
+                                  'rf/app
+                                  (str "rf/app: two distinct modules share the id "
+                                       mid " — module id is the provenance key, so a"
+                                       " divergent duplicate makes composition"
+                                       " order-dependent (not last-writer-wins);"
+                                       " give each module a unique id.")
+                                  {:recovery :give-each-module-a-unique-id
+                                   :extra    {:app  id
+                                              :kind :module
+                                              :id   mid}}))
                               (assoc acc mid m))))
                         {}
                         modules)
@@ -696,15 +712,17 @@
     (map? realm-or-id)                          (realm/realm-id realm-or-id)
     (some? (realm/realm realm-or-id))           realm-or-id
     :else
-    (throw (ex-info (str "rf/install!: realm " realm-or-id
-                         " is not registered — an explicit realm must be"
-                         " constructed (rf/realm) before an app value can be"
-                         " installed into it. Absence defaults to the default"
-                         " realm; an unknown explicit id does not.")
-                    {:error/id    :rf.error/unknown-realm
-                     :realm       realm-or-id
-                     :known-realms (realm/realm-ids)
-                     :recovery    :construct-the-realm-first}))))
+    (error/throw-error!
+      :rf.error/unknown-realm
+      'rf/install!
+      (str "rf/install!: realm " realm-or-id
+           " is not registered — an explicit realm must be"
+           " constructed (rf/realm) before an app value can be"
+           " installed into it. Absence defaults to the default"
+           " realm; an unknown explicit id does not.")
+      {:recovery :construct-the-realm-first
+       :extra    {:realm        realm-or-id
+                  :known-realms (realm/realm-ids)}})))
 
 (defn- realm-capabilities
   "The realm's capability map (`:rf.capability/* → service`), or `{}` when the
@@ -723,14 +741,17 @@
   (let [have (set (keys (realm-capabilities rid)))]
     (doseq [cap (app-requires app)]
       (when-not (contains? have cap)
-        (throw (ex-info (str "rf/install!: realm " rid
-                             " does not satisfy required capability " cap)
-                        {:error/id   :rf.error/missing-capability
-                         :realm      rid
-                         :capability cap
-                         :required   (app-requires app)
-                         :available  have
-                         :recovery   :install-capability}))))))
+        (error/throw-error!
+          :rf.error/missing-capability
+          'rf/install!
+          (str "rf/install!: realm " rid
+               " does not satisfy required capability " cap
+               " — install the capability into the realm before installing the app.")
+          {:recovery :install-capability
+           :extra    {:realm      rid
+                      :capability cap
+                      :required   (app-requires app)
+                      :available  have}})))))
 
 (defn- registrations-seq
   "Flatten an app value's `:registrations` (`kind → id → descriptor`) into a
@@ -1059,19 +1080,21 @@
             live-in-realm   (get frames-by-realm rid #{})
             blocking        (set/intersection removed-frame-ids live-in-realm)]
         (when (seq blocking)
-          (throw (ex-info (str "rf/reinstall!: cannot remove the live frame(s) "
-                               (pr-str (sort blocking)) " from realm " rid
-                               " — a :frame descriptor still backs a live frame"
-                               " container. Removing it through the descriptor"
-                               " diff would orphan the container (its :on-destroy,"
-                               " machine teardown, and sub-cache disposal would be"
-                               " skipped). Destroy the frame explicitly"
-                               " (re-frame.frame/destroy-frame!) before reinstalling"
-                               " without it.")
-                          {:error/id       :rf.error/live-frame-removal-unsupported
-                           :realm          rid
-                           :live-frames    (vec (sort blocking))
-                           :recovery       :destroy-frame-then-reinstall})))))))
+          (error/throw-error!
+            :rf.error/live-frame-removal-unsupported
+            'rf/reinstall!
+            (str "rf/reinstall!: cannot remove the live frame(s) "
+                 (pr-str (sort blocking)) " from realm " rid
+                 " — a :frame descriptor still backs a live frame"
+                 " container. Removing it through the descriptor"
+                 " diff would orphan the container (its :on-destroy,"
+                 " machine teardown, and sub-cache disposal would be"
+                 " skipped). Destroy the frame explicitly"
+                 " (re-frame.frame/destroy-frame!) before reinstalling"
+                 " without it.")
+            {:recovery :destroy-frame-then-reinstall
+             :extra    {:realm       rid
+                        :live-frames (vec (sort blocking))}}))))))
 
 (defn reinstall!
   "Hot-reload a realm by replacing its installed app VALUE with `new-app` —
