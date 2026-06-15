@@ -231,11 +231,15 @@
                   (cond
                     ;; Drop reference-site source/debug fields entirely.
                     (contains? source-debug-keys k) nil
-                    ;; Drop the executable fn off a `:guards`/`:actions`/
-                    ;; `:on-spawn-actions` entry (or any co-located `:fn`):
-                    ;; the entry's KEY already carries the name the topology
-                    ;; references; the body is lossy by contract.
-                    (= :fn k)                        nil
+                    ;; rf2-07gg7h — drop the EXECUTABLE fn off a co-located
+                    ;; `{:fn <fn> …}` entry (the `:guards`/`:actions`/
+                    ;; `:on-spawn-actions` slot form): the entry's KEY already
+                    ;; carries the name the topology references; the body is
+                    ;; lossy by contract. Gate on `(fn? v)` so a topology key
+                    ;; that HAPPENS to be named `:fn` (a state id, event id,
+                    ;; or region id whose VALUE is a topology submap, never a
+                    ;; fn) is PRESERVED — only the executable slot is stripped.
+                    (and (= :fn k) (fn? v))          nil
                     :else [k (sanitise-definition v)]))
                 x))
 

@@ -257,6 +257,37 @@
       (is (str/includes? out "rf_2emachines_2dviz_2emermaid_2froot_2dfallback --> b : reset (root fallback)"))
       (is (str/includes? out "rf_2emachines_2dviz_2emermaid_2froot_2dfallback --> a : * (root fallback)")))))
 
+(deftest emit-targetless-machine-level-on-renders-note
+  (testing "rf2-5uhdaz — a TARGETLESS (action-only) machine-level :on
+            fallback runs its action + leaves the state unchanged (XState v5
+            targetless semantics). It has no arrow to draw, so it surfaces as
+            a note on the `root fallback` node rather than being silently
+            dropped (the chart self-anchors it on the MACHINE-ROOT chip)."
+    (let [m   {:initial :a
+               :states  {:a {} :b {}}
+               :on      {:ping {:action :log-ping}}}   ;; no :target
+          out (m/emit m {:fenced? false :header-comment? false})]
+      ;; The fallback alias is declared (its source node).
+      (is (str/includes? out "state \"root fallback\" as rf_2emachines_2dviz_2emermaid_2froot_2dfallback"))
+      ;; The action-only fallback surfaces as a note on the alias node.
+      (is (str/includes? out "note right of rf_2emachines_2dviz_2emermaid_2froot_2dfallback")
+          "the targetless machine-level :on surfaces as a note")
+      (is (str/includes? out "ping / log-ping")
+          "the inherited fallback action is visible in the note")
+      (is (not (str/includes? out "--> a : ping"))
+          "no phantom arrow for the action-only fallback"))))
+
+(deftest emit-targetless-machine-level-on-wildcard-renders-note
+  (testing "rf2-5uhdaz — a `:*` wildcard targetless machine-level :on
+            surfaces as a note too (action-only inherited fallback)"
+    (let [m   {:initial :a
+               :states  {:a {} :b {}}
+               :on      {:* {:action :audit}}}   ;; wildcard, no :target
+          out (m/emit m {:fenced? false :header-comment? false})]
+      (is (str/includes? out "note right of rf_2emachines_2dviz_2emermaid_2froot_2dfallback"))
+      (is (str/includes? out "* / audit")
+          "the wildcard action-only fallback is visible in the note"))))
+
 (deftest emit-renders-parallel-region-machines
   (testing ":type :parallel renders each region inside a synthetic parallel root"
     (let [out (m/emit parallel-region-machine)]

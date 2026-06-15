@@ -379,3 +379,35 @@
       ;; SCXML — both round-trip with their action names recovered.
       (let [back (-> m scxml/spec->scxml scxml/scxml->spec)]
         (is (= m back) "the action-only root :on + :after round-trip")))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-5uhdaz — the FLAT-machine counterpart to the parallel-root action-only
+;; `:on` agreement above. A TARGETLESS (action-only) MACHINE-LEVEL (top-level)
+;; `:on` fallback runs its action + leaves the state unchanged; pre-fix the
+;; chart AND mermaid dropped it (SCXML already surfaced it).
+
+(deftest targetless-machine-level-on-surfaced-by-all-three
+  (testing "rf2-5uhdaz — a targetless action-only machine-level :on fallback
+            surfaces in chart (self-anchored on the machine-root chip),
+            mermaid (note on the root-fallback node), AND SCXML (target-less
+            <transition>)"
+    (let [m {:initial :a
+             :on      {:ping {:action :log-ping}}   ;; no :target
+             :states  {:a {} :b {}}}]
+      ;; CHART — self-anchored on the MACHINE-ROOT chip.
+      (let [edges (->> (layout/project-definition m)
+                       :edges
+                       (filter #(and (:machine-level? %) (= :ping (:event %)))))
+            e     (first edges)]
+        (is (= 1 (count edges)) "chart surfaces the targetless fallback")
+        (is (true? (:internal? e)) "chart flags it :internal? (self-anchored)")
+        (is (= layout/machine-root-id (:source e) (:target e))
+            "chart self-anchors it on the machine-root chip"))
+      ;; MERMAID — a note on the root-fallback node.
+      (let [out (mermaid-body m)]
+        (is (str/includes? out "note right of rf_2emachines_2dviz_2emermaid_2froot_2dfallback")
+            "mermaid surfaces it as a note on the root-fallback node")
+        (is (str/includes? out "ping / log-ping") "mermaid note carries the action"))
+      ;; SCXML — a target-less <transition> (already faithful pre-fix).
+      (is (= 1 (scxml-internal-transition-count m))
+          "scxml emits the target-less machine-level <transition>"))))

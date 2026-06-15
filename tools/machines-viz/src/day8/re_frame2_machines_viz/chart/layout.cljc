@@ -711,28 +711,45 @@
   and carries `:from []` (the root context, NOT a concrete state) so its
   canonical `node-id` source is `machine-root-id`. The target resolves
   at the TOP level (`resolve-target-path` with a root-level `[]` source).
-  An internal (omit-`:target`) or `:same-state` machine-level fallback
-  has no concrete state to self-anchor against at the root, so it
-  resolves to the target verbatim when one is present and is otherwise
-  dropped (a root-level internal fallback has no single source leaf to
-  hang an action chip off — the per-state action attribution that needs
-  is a state-local `:on` concern, not a machine-wide fallback). The `:*`
-  wildcard fallback is supported (rendered as a non-fireable affordance
-  downstream)."
+
+  rf2-5uhdaz — a TARGETLESS / action-only machine-level fallback (a
+  candidate that OMITS `:target`) self-anchors on the synthetic
+  machine-root node (`:to []`, `:internal? true`), EXACTLY as the
+  state-local `:on` (`collect-state-edges`) and the parallel-root `:on`
+  (`collect-parallel-root-edges`) already do. The runtime walks the
+  root's own `:on` last (`re-frame.machines.transition/pick-transition`
+  steps 6-7) and fires such an action-only fallback while leaving the
+  state unchanged (XState v5 targetless-transition semantics — see
+  `machine_remediation_ee38b_test`), so an inherited fallback ACTION must
+  be visible as a hanging chip on the machine root rather than silently
+  dropped. A `:same-state` machine-level fallback is STILL dropped: there
+  is no concrete root state to self-transition against at the top level.
+  The `:*` wildcard fallback is supported (rendered as a non-fireable
+  affordance downstream)."
   [machine-on]
   (when (seq machine-on)
     (mapcat
       (fn [[event-id spec]]
         (keep (fn [candidate]
-                (let [target (:target candidate)
-                      tp     (resolve-target-path [] target)]
-                  (when tp
+                ;; rf2-5uhdaz — an internal (omit-`:target`) candidate is a
+                ;; documented Spec 005 shape; self-anchor it on the root
+                ;; node, mirroring `collect-state-edges` / `collect-parallel-
+                ;; root-edges`. `:same-state` (no `:target` key omitted, but a
+                ;; sentinel value) has no concrete root state and falls through
+                ;; to the `tp == nil` drop below.
+                (let [internal? (and (map? candidate)
+                                     (not (contains? candidate :target)))
+                      tp        (if internal?
+                                  []
+                                  (resolve-target-path [] (:target candidate)))]
+                  (when (or internal? tp)
                     (cond-> {:from           []
                              :to             tp
                              :event          event-id
                              :guard          (:guard candidate)
                              :action         (:action candidate)
                              :machine-level? true}
+                      internal?            (assoc :internal? true)
                       ;; rf2-9dj21r — carry the external-restart axis.
                       (reenter? candidate) (assoc :reenter? true)))))
               (transition-candidates spec)))
@@ -927,13 +944,25 @@
                      (fn [{:keys [seen out]} e]
                        (let [base (edge-id (:to e) e)
                              n    (get seen base 0)
-                             id   (if (zero? n) base (str base "__" n))]
+                             id   (if (zero? n) base (str base "__" n))
+                             ;; rf2-5uhdaz — a targetless machine-level `:on`
+                             ;; (`:internal? true`, `:to []`) self-anchors on
+                             ;; the synthetic MACHINE-ROOT node: `(node-id [])`
+                             ;; is the empty string, so resolve the target to
+                             ;; `machine-root-id` explicitly (mirrors the
+                             ;; parallel-root path's `(if (:internal? e)
+                             ;; machine-root-id …)`). A state-local internal
+                             ;; edge keeps its self-path `:to`, so this is
+                             ;; gated on `:machine-level?`.
+                             target (if (and (:machine-level? e) (:internal? e))
+                                      machine-root-id
+                                      (node-id (:to e)))]
                          {:seen (assoc seen base (inc n))
                           :out  (conj out
                                       (assoc e
                                         :id          id
                                         :source      (edge-source-id e)
-                                        :target      (node-id (:to e))
+                                        :target      target
                                         :from-path   (:from e)
                                         :to-path     (:to e)
                                         :event-label (edge-label e)))}))

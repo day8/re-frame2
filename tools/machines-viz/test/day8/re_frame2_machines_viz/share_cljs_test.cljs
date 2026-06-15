@@ -349,6 +349,80 @@
         (is (keyword? a)  "it became an opaque label keyword")))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-07gg7h — `:fn` as a TOPOLOGY key (state id / event id / region id) is
+;; valid and MUST survive sanitisation. The pre-fix sanitiser dropped EVERY
+;; map entry whose key was `:fn`, silently removing such a state / transition /
+;; region. Only the EXECUTABLE `:fn` slot (a co-located `{:fn <fn> …}` value
+;; that is a function) is stripped — gated on `(fn? v)`.
+
+(def fn-id-definition
+  "A valid topology that uses `:fn` as a STATE id, an EVENT id, and a
+  transition TARGET — none of which is an executable function slot."
+  {:initial :fn
+   :states  {:fn   {:on {:fn   :done        ;; :fn used as both state-id + event-id
+                         :next :other}}
+             :other {:on {:go :done}}
+             :done  {:final? true}}})
+
+(deftest fn-as-state-id-survives-sanitisation
+  (testing "rf2-07gg7h — a state whose id is `:fn` is topology and is
+            preserved through share encode/decode (not dropped as if it were
+            an executable function slot)"
+    (let [cs   (assoc chart-state :definition fn-id-definition)
+          url  (share/encode-share-url cs)
+          dfn  (:definition
+                 (:rf.machines-viz.share/chart (share/decode-share-url url)))]
+      (is (string? url) "encoding succeeds")
+      (is (= :fn (:initial dfn)) "the `:fn` initial state id is preserved")
+      (is (contains? (:states dfn) :fn)
+          "the `:fn` STATE id survives — the topology is not silently dropped")
+      ;; The `:fn` EVENT id (and its target) survive too.
+      (is (= :done (get-in dfn [:states :fn :on :fn]))
+          "the `:fn` EVENT id + its target are preserved")
+      (is (= :done (get-in dfn [:states :fn :on :next]))
+          "sibling transitions on the `:fn` state are intact")
+      (is (contains? (:states dfn) :other))
+      (is (true? (get-in dfn [:states :done :final?]))))))
+
+(deftest fn-region-id-survives-sanitisation
+  (testing "rf2-07gg7h — a parallel REGION whose id is `:fn` is topology and
+            is preserved (region-id `:fn` is not an executable slot)"
+    (let [defn {:type    :parallel
+                :regions {:fn {:initial :one :states {:one {:on {:go :two}} :two {}}}
+                          :b  {:initial :p   :states {:p {} :q {}}}}}
+          cs   (assoc chart-state :definition defn)
+          url  (share/encode-share-url cs)
+          dfn  (:definition
+                 (:rf.machines-viz.share/chart (share/decode-share-url url)))]
+      (is (string? url) "encoding succeeds")
+      (is (contains? (:regions dfn) :fn)
+          "the `:fn` REGION id survives sanitisation")
+      (is (= :one (get-in dfn [:regions :fn :initial]))
+          "the `:fn` region's topology is intact")
+      (is (contains? (:regions dfn) :b)))))
+
+(deftest executable-fn-slot-still-dropped-alongside-fn-topology
+  (testing "rf2-07gg7h — preserving topology keyed `:fn` does NOT regress the
+            privacy guarantee: a co-located EXECUTABLE `:fn` slot (a fn value)
+            is still stripped, even when a `:fn` STATE id is also present"
+    (let [defn {:initial :fn
+                :guards  {:ready? {:fn (fn [_] true)}}   ;; executable slot
+                :states  {:fn {:on {:go {:target :done :guard :ready?}}}
+                          :done {:final? true}}}
+          cs   (assoc chart-state :definition defn)
+          url  (share/encode-share-url cs)
+          dfn  (:definition
+                 (:rf.machines-viz.share/chart (share/decode-share-url url)))]
+      (is (string? url) "encoding succeeds (the live fn did not crash Transit)")
+      ;; Topology `:fn` (the state id) survives …
+      (is (contains? (:states dfn) :fn) "the `:fn` STATE id is preserved")
+      ;; … while the EXECUTABLE `:fn` slot is stripped.
+      (is (nil? (get-in dfn [:guards :ready? :fn]))
+          "the executable :fn slot is still dropped")
+      (is (contains? (:guards dfn) :ready?)
+          "the guard NAME (its key) survives, names-only"))))
+
+;; ---------------------------------------------------------------------------
 ;; Versioning + failure modes
 
 (deftest unknown-version-rejected

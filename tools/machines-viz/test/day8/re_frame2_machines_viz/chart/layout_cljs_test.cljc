@@ -772,6 +772,48 @@
       (is (= layout/machine-root-id (:source (first logout)))
           "sourced from the MACHINE-ROOT node, not a specific leaf"))))
 
+(deftest project-definition-machine-level-on-targetless-action-only
+  (testing "rf2-5uhdaz — a TARGETLESS (action-only) machine-level :on
+            fallback self-anchors on the synthetic MACHINE-ROOT chip as an
+            :internal? affordance (runtime fires the action + leaves the
+            state unchanged — XState v5 targetless semantics), mirroring
+            the parallel-root :on. Pre-fix it was silently DROPPED."
+    (let [m {:initial :a
+             :on      {:ping {:action :log-ping}}   ;; no :target
+             :states  {:a {} :b {}}}
+          {:keys [nodes edges]} (layout/project-definition m)
+          pings (filter #(= :ping (:event %)) edges)]
+      (is (= 1 (count pings)) "ONE machine-level affordance, not dropped")
+      (let [e (first pings)]
+        (is (true? (:machine-level? e)) "flagged as an inherited fallback")
+        (is (true? (:internal? e)) "targetless → internal self-anchored chip")
+        (is (= [] (:from e)) "sourced from the root context")
+        (is (= [] (:to-path e)) "no target — self-anchored")
+        (is (= layout/machine-root-id (:source e)))
+        (is (= layout/machine-root-id (:target e))
+            "self-anchored on the MACHINE-ROOT chip (state unchanged)")
+        (is (= :log-ping (:action e)) "the inherited action is preserved"))
+      (let [root (first (filter :machine-root? nodes))]
+        (is (some? root) "the MACHINE-ROOT chip anchors the affordance")
+        (is (= layout/machine-root-id (:id root)))))))
+
+(deftest project-definition-machine-level-on-wildcard-targetless
+  (testing "rf2-5uhdaz — a `:*` wildcard machine-level :on with no target is
+            an action-only inherited fallback too; it self-anchors on the
+            MACHINE-ROOT chip rather than being dropped"
+    (let [m {:initial :a
+             :on      {:* {:action :audit}}   ;; wildcard, no :target
+             :states  {:a {} :b {}}}
+          {:keys [edges]} (layout/project-definition m)
+          wild (filter #(= :* (:event %)) edges)]
+      (is (= 1 (count wild)) "ONE wildcard affordance, not dropped")
+      (let [e (first wild)]
+        (is (true? (:machine-level? e)))
+        (is (true? (:internal? e)) "targetless wildcard → internal chip")
+        (is (= layout/machine-root-id (:source e)))
+        (is (= layout/machine-root-id (:target e)))
+        (is (= :audit (:action e)))))))
+
 ;; ---- node-id injectivity (rf2-ee38b.21) --------------------------------
 
 (deftest node-id-is-injective-over-hyphen-ns-underscore
