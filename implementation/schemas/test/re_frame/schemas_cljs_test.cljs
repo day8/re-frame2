@@ -36,7 +36,7 @@
 ;; machines) — fine while these tests ran in isolation, but hostile to
 ;; cross-ns CLJS test runs because CLJS cannot reload them. Snapshot/
 ;; restore preserves them and still rolls back per-test app-schema /
-;; reg-event-db / reg-sub on the way out.
+;; reg-event / reg-sub on the way out.
 ;;
 ;; `:clear-app-schemas? true` gives the test a clean app-schema slate
 ;; per-test (per rf2-cq1ak app-db schemas live OUTSIDE the registrar in

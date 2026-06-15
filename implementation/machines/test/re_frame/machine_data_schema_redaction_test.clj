@@ -534,7 +534,7 @@
 ;; The bead's core failure: a `register-marks!` (not `union-marks!`) called
 ;; AFTER `reg-machine` previously REPLACED the `:event` entry and dropped the
 ;; schema-derived `[:data …]` marks. The separate schema-marks table + read-
-;; time union (plus skipping `reg-event-fx`'s bare-meta clear for machines)
+;; time union (plus skipping `reg-event`'s bare-meta clear for machines)
 ;; makes BOTH orders yield the identical union.
 
 (deftest manual-register-marks-before-reg-machine-unions
@@ -703,7 +703,7 @@
 ;; `reg-machine`): the validator walks only the grammar keys (`:states` /
 ;; `:initial` / `:guards` / `:actions` / `:on` / `:after` / `:always` /
 ;; `:spawn` / …), so a top-level `:sensitive` / `:large` key is NOT rejected —
-;; it is IGNORED. And `reg-event-fx`'s mark-stashing is SKIPPED for a machine
+;; it is IGNORED. And `reg-event`'s mark-stashing is SKIPPED for a machine
 ;; registration (`:rf/machine?` meta, rf2-qpibk0), so the top-level key feeds
 ;; NO marks entry. The disposition is therefore "provably a no-op": a token
 ;; written into `:data` under such a spec rides RAW at snapshot egress because
@@ -736,7 +736,7 @@
           "reg-machine does not throw on a top-level :sensitive / :large key
            — the key is ignored, never honoured as a classification route")
       ;; (b) NO marks entry is registered for the top-level key — it fed
-      ;; nothing into the marks table (reg-event-fx's mark-stash is skipped
+      ;; nothing into the marks table (reg-event's mark-stash is skipped
       ;; for machines; the top-level key is not a :data-schema prop).
       (is (nil? (marks/marks-for :event neg-id))
           "the top-level :sensitive / :large key registers NO marks — only

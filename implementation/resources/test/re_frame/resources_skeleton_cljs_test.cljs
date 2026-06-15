@@ -167,7 +167,7 @@
 
 (def ^:private resource-event-family
   "The CURRENT, complete `:rf.resource/*` + `:rf.resource.internal/*` event
-  family the façade registers (re-frame.resources `reg-event-fx` calls). Kept
+  family the façade registers (re-frame.resources `reg-event` calls). Kept
   in lock-step with the façade registrations — when a resource event is
   added/removed there, this list moves with it so the smoke is never stale
   (rf2-l1a0s7). The `:rf.mutation/*` causal-write family is a SEPARATE

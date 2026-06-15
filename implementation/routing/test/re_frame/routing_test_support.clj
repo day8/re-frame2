@@ -15,7 +15,7 @@
   Per the long-established consumer-test pattern: `reset-runtime` wipes the
   registrar (`clear-all!`), re-inits the plain-atom substrate, and
   `(require 're-frame.routing :reload)` re-runs the façade's
-  `reg-event-fx` / `reg-fx` / `reg-sub` / hook / listener wires on the
+  `reg-event` / `reg-fx` / `reg-sub` / hook / listener wires on the
   fresh registrar. The `:rf.test/simulate-http-resolution` fixture event
   (`re-frame.routing.test-support`) and `re-frame.ssr`'s ns-load
   registrations are re-seated the same way."

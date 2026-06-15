@@ -152,7 +152,7 @@
       ;; but the `:on-match` vector is the same across frames since
       ;; the framework dispatches each on-match event to the calling
       ;; frame (the `{:frame frame-id}` opt on the per-thread tick
-      ;; reg-event-db ensures the event lands on the right frame).
+      ;; reg-event ensures the event lands on the right frame).
       ;; Wait — :on-match dispatches honour the calling frame, so we
       ;; actually need ONE on-match event registered per frame. Use
       ;; per-frame routes so the `:on-match` payload is per-frame.
@@ -391,7 +391,7 @@
                            {:db (update db :n (fnil inc 0))})))
       ;; Stable route shared across all dispatcher threads. Each
       ;; thread's :on-match dispatch lands on its OWN frame (per
-      ;; reg-event-db {:frame frame-id} above) — but the route
+      ;; reg-event {:frame frame-id} above) — but the route
       ;; metadata's :on-match vector references each thread's tick
       ;; event in turn. Use one route per thread so the on-match
       ;; payload is per-thread.
