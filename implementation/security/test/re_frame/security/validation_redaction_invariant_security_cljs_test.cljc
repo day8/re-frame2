@@ -121,18 +121,24 @@
 ;; `:rf.error/schema-validation-failure` trace it emitted.
 ;; ---------------------------------------------------------------------------
 
-(defn- capture-failure
-  "Run `f` (which is expected to drive ONE validation failure emit) with a
-  trace listener attached; return the first `:rf.error/schema-validation-failure`
-  trace event (or nil if none fired)."
-  [f]
+(defn- capture-op
+  "Run `f` (which is expected to drive ONE error emit) with a trace listener
+  attached; return the first trace event whose `:operation` is `op` (or nil if
+  none fired)."
+  [op f]
   (let [traces (atom [])
         kw     (keyword "rf2-o69h5" (name (gensym "listen")))]
     (trace-tooling/register-listener! kw (fn [ev] (swap! traces conj ev)))
     (try (f) (finally (trace-tooling/unregister-listener! kw)))
     #?(:clj (schemas/clear-sensitive-paths-cache!))
-    (first (filter #(= :rf.error/schema-validation-failure (:operation %))
-                   @traces))))
+    (first (filter #(= op (:operation %)) @traces))))
+
+(defn- capture-failure
+  "Run `f` (which is expected to drive ONE validation failure emit) with a
+  trace listener attached; return the first `:rf.error/schema-validation-failure`
+  trace event (or nil if none fired)."
+  [f]
+  (capture-op :rf.error/schema-validation-failure f))
 
 (defn- assert-no-leak
   "Core invariant assertion for one captured failure trace: it fired, it is
@@ -446,6 +452,95 @@
               ":where :flow-output — drove the real flow-output emit site")
           (is (= :rf/redacted (-> trace :tags :value)) ":value redacted")
           (is (= :rf/redacted (-> trace :tags :explain)) ":explain redacted"))))))
+
+(deftest recordable-cofx-schema-failure-production-path-redacts-sensitive
+  (testing "rf2-hdi6wr — :rf.error/cofx-value-invalid PRODUCTION PATH: a
+            recordable reg-cofx whose declared `:schema` marks a slot
+            `{:sensitive? true}`, SUPPLIED/replayed a sentinel-bearing value
+            that FAILS that schema, drives the real dispatch-sync recordable-
+            value validation (re-frame.cofx/validate-recordable-value! ->
+            emit-cofx-value-invalid!). BOTH the emitted trace AND the thrown
+            ex-data are off-box egress; pre-fix both carried the raw secret in
+            `:value` and Malli `:explain`. Asserts the sentinel appears NOWHERE
+            in either, `:value`/`:explain` are `:rf/redacted`, and `:sensitive?`
+            is stamped. Reverting cofx.cljc's `(redact-fn schema …)` wiring on
+            this emit makes this RED."
+    (with-runtime*
+      (fn []
+        ;; A recordable cofx whose schema marks `:token` sensitive. The
+        ;; supplied value carries the sentinel at that slot but as a VECTOR
+        ;; where a :string is required, so it fails the schema.
+        (rf/reg-cofx :cofx/recordable-secret
+          {:recordable? true
+           :schema      [:map [:token {:sensitive? true} :string]]}
+          (fn [] {:token "ignored-supplied-wins"}))
+        (rf/reg-event :cofx/uses-recordable-secret
+          {:rf.cofx/requires [:cofx/recordable-secret]}
+          (fn [_ _] {}))
+        (let [thrown (atom nil)
+              ;; Supply the failing value on the token (the replay / supplied
+              ;; path); dispatch-sync throws the hard error. The cofx
+              ;; recordable-value path emits :rf.error/cofx-value-invalid
+              ;; (NOT :rf.error/schema-validation-failure), so capture that op.
+              trace  (capture-op
+                       :rf.error/cofx-value-invalid
+                       (fn []
+                         (try
+                           (rf/dispatch-sync
+                             [:cofx/uses-recordable-secret]
+                             {:rf.cofx {:cofx/recordable-secret
+                                        {:token [sentinel]}}})
+                           (catch #?(:clj clojure.lang.ExceptionInfo
+                                     :cljs cljs.core/ExceptionInfo) e
+                             (reset! thrown e)))))]
+          ;; (a) The off-box TRACE redacts.
+          (is (some? trace)
+              ":rf.error/cofx-value-invalid trace fired")
+          (when trace
+            (is (true? (:sensitive? trace)) "trace top-level :sensitive? stamp")
+            (is (= :rf/redacted (-> trace :tags :value)) "trace :value redacted")
+            (is (= :rf/redacted (-> trace :tags :explain)) "trace :explain redacted")
+            (is (not (contains-sentinel? trace))
+                (str "the sentinel leaked into the cofx-value-invalid trace: "
+                     (pr-str (:tags trace)))))
+          ;; (b) The thrown ex-data (public error data) redacts too.
+          (is (some? @thrown) "dispatch threw cofx-value-invalid")
+          (when-let [d (some-> @thrown ex-data)]
+            (is (= :rf.error/cofx-value-invalid (:rf.error/id d))
+                "the throw carries :rf.error/cofx-value-invalid")
+            (is (true? (:sensitive? d)) "ex-data :sensitive? stamp")
+            (is (= :rf/redacted (:value d)) "ex-data :value redacted")
+            (is (= :rf/redacted (:explain d)) "ex-data :explain redacted")
+            (is (not (contains-sentinel? d))
+                (str "the sentinel leaked into the cofx-value-invalid ex-data: "
+                     (pr-str d)))))))))
+
+(deftest valid-recordable-cofx-schema-path-unaffected
+  (testing "rf2-hdi6wr (c) — a recordable reg-cofx whose value CONFORMS to its
+            `:sensitive?`-bearing schema runs clean: no cofx-value-invalid
+            trace, no throw, the value is delivered to the handler verbatim.
+            The redaction wiring must not perturb the valid path."
+    (with-runtime*
+      (fn []
+        (let [seen (atom ::unset)]
+          (rf/reg-cofx :cofx/recordable-ok
+            {:recordable? true
+             :schema      [:map [:token {:sensitive? true} :string]]}
+            (fn [] {:token "generated-default"}))
+          (rf/reg-event :cofx/uses-recordable-ok
+            {:rf.cofx/requires [:cofx/recordable-ok]}
+            (fn [{:keys [cofx/recordable-ok]} _]
+              (reset! seen recordable-ok) {}))
+          (let [trace (capture-op
+                        :rf.error/cofx-value-invalid
+                        (fn []
+                          (rf/dispatch-sync
+                            [:cofx/uses-recordable-ok]
+                            {:rf.cofx {:cofx/recordable-ok {:token "ok-value"}}})))]
+            (is (nil? trace)
+                "a conforming recordable value emits NO cofx-value-invalid trace")
+            (is (= {:token "ok-value"} @seen)
+                "the conforming value is delivered to the handler verbatim")))))))
 
 #?(:cljs
    (deftest sub-override-production-path-redacts-sensitive
