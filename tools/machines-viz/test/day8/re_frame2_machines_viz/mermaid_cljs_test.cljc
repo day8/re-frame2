@@ -437,6 +437,76 @@
       (is (not (str/includes? out "note right of flow"))
           "a target-bearing :on-done does NOT also render a note"))))
 
+;; ---- parallel-ROOT :on / :after ancestor fallback (rf2-656ivk / rf2-m3otj2)
+;;
+;; A `:type :parallel` ROOT may declare its OWN `:on` (the ancestor fallback)
+;; and its OWN `:after` (the timer-driven analog). A TARGET-bearing root
+;; transition renders a `root fallback --> <region-substate>` edge; an
+;; ACTION-ONLY one renders a note on the parallel root. Pre-fix mermaid
+;; dropped the action-only root :on (the `when-let` target guard) and the
+;; root :after entirely (destructured only `regions on on-done`).
+
+(deftest emit-parallel-root-on-target-bearing-renders-fallback-edge
+  (testing "rf2-656ivk — a target-bearing root :on renders a `root fallback
+            --> <region-substate>` edge into the region it moves"
+    (let [m   {:type    :parallel
+               :on      {:one {:target [:a :two]}}
+               :regions {:a {:initial :one :states {:one {} :two {}}}
+                         :b {:initial :one :states {:one {}}}}}
+          out (m/emit m {:fenced? false :header-comment? false})]
+      (is (str/includes? out "state \"root fallback\" as ")
+          "the root-fallback alias state is declared")
+      (is (str/includes? out "--> a__two : one (root fallback)")
+          "the root :on hangs into region :a's :two node"))))
+
+(deftest emit-parallel-root-on-action-only-renders-note
+  (testing "rf2-656ivk — an ACTION-ONLY root :on (no target — moves no region)
+            renders as a note on the parallel root (pre-fix it was DROPPED)"
+    (let [m   {:type    :parallel
+               :on      {:ping {:action :log-ping}}
+               :regions {:a {:initial :one :states {:one {}}}
+                         :b {:initial :one :states {:one {}}}}}
+          out (m/emit m {:fenced? false :header-comment? false})]
+      (is (str/includes? out "note right of rf_2emachines_2dviz_2emermaid_2fparallel_2droot")
+          "the action-only root :on surfaces as a note on the parallel root")
+      (is (str/includes? out "ping / log-ping")
+          "the note carries the event + action"))))
+
+(deftest emit-parallel-root-after-target-bearing-renders-fallback-edge
+  (testing "rf2-m3otj2 — a target-bearing root :after renders a root-fallback
+            edge labelled `after(<delay>)`"
+    (let [m   {:type    :parallel
+               :after   {500 {:target [:a :two]}}
+               :regions {:a {:initial :one :states {:one {} :two {}}}
+                         :b {:initial :one :states {:one {}}}}}
+          out (m/emit m {:fenced? false :header-comment? false})]
+      (is (str/includes? out "--> a__two : after(500) (root fallback)")
+          "the root :after hangs into region :a's :two node, labelled after(500)"))))
+
+(deftest emit-parallel-root-after-multi-region-renders-both-edges
+  (testing "rf2-m3otj2 — a multi-region root :after renders one fallback edge
+            per region-qualified target"
+    (let [m   {:type    :parallel
+               :after   {1000 {:target [[:a :two] [:b :two]]}}
+               :regions {:a {:initial :one :states {:one {} :two {}}}
+                         :b {:initial :one :states {:one {} :two {}}}}}
+          out (m/emit m {:fenced? false :header-comment? false})]
+      (is (str/includes? out "--> a__two : after(1000) (root fallback)"))
+      (is (str/includes? out "--> b__two : after(1000) (root fallback)")))))
+
+(deftest emit-parallel-root-after-action-only-renders-note
+  (testing "rf2-m3otj2 — an ACTION-ONLY root :after renders as a note on the
+            parallel root (no arrow to draw)"
+    (let [m   {:type    :parallel
+               :after   {2000 {:action :timeout-log}}
+               :regions {:a {:initial :one :states {:one {}}}
+                         :b {:initial :one :states {:one {}}}}}
+          out (m/emit m {:fenced? false :header-comment? false})]
+      (is (str/includes? out "note right of rf_2emachines_2dviz_2emermaid_2fparallel_2droot")
+          "the action-only root :after surfaces as a note")
+      (is (str/includes? out "after(2000) / timeout-log")
+          "the note carries the delayed action"))))
+
 ;; ---- internal (action-only) :on / :after / :always notes (rf2-mnp93.4) --
 ;;
 ;; An INTERNAL transition candidate (a map omitting `:target` — Spec 005

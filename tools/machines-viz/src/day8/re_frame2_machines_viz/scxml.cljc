@@ -47,6 +47,7 @@
   | `:after {ms :target}`                 | `<transition event=\"after.ms\" target=\"target\"/>` |
   | `:always [...]`                       | `<transition target=\"...\"/>` (eventless) |
   | `{:type :parallel :regions ...}`      | `<parallel>` containing region `<state>`s |
+  | Parallel-ROOT `:on` / `:after` (the ancestor fallback — rf2-656ivk / rf2-m3otj2) | `<transition event=\"event\"\\|\"after.ms\" target=\"a___x b___y\"/>` as a DIRECT `<parallel>` child. A MULTI-region target is a SPACE-SEPARATED id list (W3C `target` grammar); a targetless / action-only root transition emits NO `target`. Round-trips back to the region-qualified grammar (`[:a :x]` / `[[:a :x] [:b :y]]`). |
   | `{:type :history :deep? <b> :default-target <t>}` (rf2-m285a) | W3C `<history type=\"shallow\\|deep\">` inside the owning compound; a `:default-target` rides a default `<transition target=\"…\"/>`. Round-trips back to `:type :history`. A history pseudo-state is NEVER occupiable — it is a transition TARGET that resolves to the recorded/default leaf — so it emits `<history>`, never `<state>`/`<final>`. |
   | Namespaced ids (`:auth/login`)        | `auth__login` (hex-escaped; `__` separates ns/name) |
   | Multi-dot-ns ids (`:my.app/login`)    | `my_2eapp__login` (dots in the ns are escaped to `_2e`) |
@@ -592,8 +593,121 @@
   label agree on the parallel-root done-state id."
   layout/parallel-root-done-state-id)
 
+(defn- root-transition-candidates
+  "rf2-656ivk / rf2-m3otj2 — normalise a parallel-ROOT `:on` / `:after` SPEC
+  VALUE into candidate maps, matching the RUNTIME grammar
+  (`re-frame.machines.grammar/transition-value-form`) — NOT the generic
+  `transition-candidates`. The crucial divergence: a vector-of-VECTORS
+  (`[[:a :x] [:b :y]]`) is a SINGLE multi-region TARGET (`:vec-target`), NOT a
+  candidate fork. The generic `transition-candidates` (which keys off
+  `(every? keyword? …)`) would mis-split it into two candidates; only a vector
+  of MAPS is a real candidate fork (`:candidate-vector`). Keeping the root
+  emitter on this root-aware normaliser preserves the multi-region-target
+  semantics (one atomic `<transition target=\"a___x b___y\"/>`) AND round-trips
+  exactly."
+  [spec]
+  (cond
+    (nil? spec)     [{}]                          ; forbidden / internal no-op
+    (keyword? spec) [{:target spec}]
+    (map? spec)     [spec]
+    (vector? spec)  (if (and (seq spec) (every? map? spec))
+                      spec                         ; :candidate-vector — a fork
+                      [{:target spec}])            ; :vec-target — ONE target
+    :else           []))
+
+(defn- root-region-qualified-targets
+  "rf2-656ivk / rf2-m3otj2 — normalise a parallel-ROOT `:on` / `:after`
+  transition's `:target` into a vector of region-qualified absolute targets
+  `[[<region> & <in-region-path>] …]`, mirroring the runtime resolver
+  (`re-frame.machines.parallel/normalise-root-targets`) and the chart
+  projector (`chart.layout/normalise-root-targets`). Per the grammar
+  (Spec 005 §Root parallel `:on` / §Root-level `:after`):
+
+    - nil / absent  → `[]` (TARGETLESS / action-only);
+    - a vector of KEYWORDS (`[:a :two]`) → ONE region-qualified target
+      (head = region, rest = in-region path); wrapped to `[[:a :two]]`;
+    - a vector of VECTORS (`[[:a :x] [:b :y]]`) → MULTIPLE, returned as-is."
+  [target]
+  (cond
+    (nil? target)                  []
+    (and (vector? target)
+         (every? vector? target))  (vec target)
+    (vector? target)               [target]
+    :else                          []))
+
+(defn- emit-root-parallel-transition
+  "rf2-656ivk / rf2-m3otj2 — emit ONE root-parallel `<transition>` (an `:on`
+  or `:after` candidate declared on the `:type :parallel` ROOT itself — the
+  ancestor fallback for its regions, Spec 005 §Root parallel `:on` /
+  §Root-level `:after`). It sits as a DIRECT child of `<parallel>`.
+
+  Each region-qualified target `[<region> & <in-region-path>]` is the ABSOLUTE
+  path of a region substate (regions are the `<parallel>`'s direct children),
+  so it resolves through `qualified-id` to the same unique xsd:ID the region
+  state emits. W3C SCXML's `target` attribute is a SPACE-SEPARATED id list, so
+  a MULTI-region target `[[:a :x] [:b :y]]` emits `target=\"a___x b___y\"` —
+  one space-joined attribute that round-trips back through
+  `decode-root-parallel-target` to the multi-region grammar. A TARGETLESS /
+  action-only candidate emits a `<transition>` with NO `target` (the action
+  survives as the `<!-- action -->` comment, like every action-only
+  transition). The guard rides `cond=` as usual.
+
+  No `type=\"internal|external\"` axis is emitted: a root transition moves
+  region substates (never the root itself), so the self/ancestor re-enter
+  axis does not apply."
+  [event-name {:keys [target guard action] :as candidate} depth]
+  (let [targets   (root-region-qualified-targets target)
+        target-id (when (seq targets)
+                    (str/join " " (map qualified-id targets)))
+        parts (cond-> [(str "event=\"" (escape-xml-attr event-name) "\"")]
+                target-id (conj (str "target=\"" (escape-xml-attr target-id) "\""))
+                guard     (conj (str "cond=\"" (escape-xml-attr (ref->label guard)) "\"")))
+        attrs (str/join " " parts)]
+    (str (indent-str depth)
+         (if (nil? action)
+           (str "<transition " attrs "/>")
+           (str "<transition " attrs ">"
+                "<!-- action: " (escape-xml-attr (ref->label action)) " -->"
+                "</transition>")))))
+
+(defn- emit-root-parallel-on
+  "rf2-656ivk — emit the parallel-ROOT's own `:on` transitions (the ancestor
+  fallback) as DIRECT `<parallel>` children, wrapped in a documenting comment.
+  Pre-fix `emit-parallel` dropped the root `:on` entirely; it now survives the
+  export AND round-trips (the import recovers these direct-child transitions)."
+  [on depth]
+  (when (seq on)
+    (concat
+      [(str (indent-str depth)
+            "<!-- parallel-root :on ancestor fallback"
+            " (Spec 005 §Root parallel :on) -->")]
+      (mapcat (fn [[event spec]]
+                (map #(emit-root-parallel-transition (keyword->id-string event) % depth)
+                     (root-transition-candidates spec)))
+              on))))
+
+(defn- emit-root-parallel-after
+  "rf2-m3otj2 — emit the parallel-ROOT's own `:after` (delayed) transitions —
+  the timer-driven analog of the root `:on` ancestor fallback (Spec 005
+  §Root-level `:after`) — as DIRECT `<parallel>` children, wrapped in a
+  documenting comment. The delay becomes `event=\"after.<delay>\"` exactly as
+  a state's `:after` does (`emit-transitions-for-after`)."
+  [after depth]
+  (when (seq after)
+    (concat
+      [(str (indent-str depth)
+            "<!-- parallel-root :after timer ancestor fallback"
+            " (Spec 005 §Root-level :after) -->")]
+      (mapcat (fn [[delay spec]]
+                (let [event (str "after." (if (keyword? delay)
+                                            (keyword->id-string delay)
+                                            delay))]
+                  (map #(emit-root-parallel-transition event % depth)
+                       (root-transition-candidates spec))))
+              after))))
+
 (defn- emit-parallel
-  [{:keys [regions on-done]} depth]
+  [{:keys [regions on after on-done]} depth]
   (concat
     [(str (indent-str depth)
           "<scxml xmlns=\"http://www.w3.org/2005/07/scxml\""
@@ -609,6 +723,11 @@
       ;; machine is root-only), so the source-path is unused; pass [].
       (emit-transitions-for-on-done (str "done.state." parallel-root-scxml-id)
                                     on-done [] (+ depth 2)))
+    ;; rf2-656ivk / rf2-m3otj2 — the parallel-root's OWN `:on` / `:after`
+    ;; ancestor-fallback transitions (region-qualified target grammar). Pre-fix
+    ;; both were silently dropped (only `:on-done` survived).
+    (emit-root-parallel-on on (+ depth 2))
+    (emit-root-parallel-after after (+ depth 2))
     (mapcat (fn [[region-id region-node]]
               ;; Each region is a state with its own initial + states.
               ;; rf2-mnp93.7 — a region's path is rooted at the region id
@@ -830,6 +949,27 @@
       (= abs-path src)                          :same-state
       (= (parent-path abs-path) (parent-path src)) (last abs-path)
       :else                                     abs-path)))
+
+(defn- decode-root-parallel-target
+  "rf2-656ivk / rf2-m3otj2 — inverse of `emit-root-parallel-transition`'s
+  target encoding. A parallel-ROOT `:on` / `:after` `target` is a
+  SPACE-SEPARATED list of region-qualified absolute ids
+  (`\"a___x b___y\"`). Each id decodes (`id-string->abs-path`) to its
+  region-qualified absolute path `[<region> & <in-region-path>]`. Returns the
+  re-frame2 root-target grammar:
+
+    - one id   → the SINGLE region-qualified target vector `[:a :x]`;
+    - multiple → the MULTI-region vector-of-vectors `[[:a :x] [:b :y]]`;
+    - nil / blank → nil (a targetless / action-only root transition).
+
+  This is the symmetric inverse of `root-region-qualified-targets`."
+  [target-str]
+  (when (and target-str (seq (str/trim target-str)))
+    (let [paths (->> (str/split (str/trim target-str) #"\s+")
+                     (mapv (comp vec id-string->abs-path)))]
+      (if (= 1 (count paths))
+        (first paths)
+        paths))))
 
 (defn- tokenize
   "Walk an XML string and return a flat seq of token maps:
@@ -1180,6 +1320,70 @@
                    [region-id (dissoc region-node :final?)])))
           region-blocks)))
 
+(defn- parse-root-parallel-transitions
+  "rf2-656ivk / rf2-m3otj2 — recover the parallel-ROOT's own `:on` / `:after`
+  ancestor-fallback transitions (the inverse of `emit-root-parallel-on` /
+  `emit-root-parallel-after`). These are DIRECT `<transition>` children of
+  `<parallel>` (alongside the `done.state.<id>` `:on-done`). Their `target` is
+  a SPACE-SEPARATED region-qualified id list decoded by
+  `decode-root-parallel-target` — NOT the source-relative grammar
+  `consume-transitions`/`decode-target` use — so we parse them directly here.
+
+  Returns `{:on {..} :after {..}}` (omitting empty slots). The
+  `done.state.*` completion transitions are left for the existing `:on-done`
+  recovery path. Each candidate is finalised to the canonical shorthand: a
+  SOLE target-only candidate collapses to the bare target vector; a guard /
+  action / multi candidate stays in the explicit map form."
+  [parallel-body]
+  (let [ts (direct-transitions parallel-body)
+        coll
+        (reduce
+          (fn [acc t]
+            (let [attrs    (:attrs t)
+                  event    (get attrs "event")
+                  target   (get attrs "target")
+                  guard-s  (get attrs "cond")
+                  action-s (get attrs action-attr)
+                  cand-map (cond-> {}
+                             target   (assoc :target (decode-root-parallel-target target))
+                             guard-s  (assoc :guard (id-string->keyword guard-s))
+                             action-s (assoc :action (id-string->keyword action-s)))]
+              (cond
+                ;; rf2-41goo — the whole-parallel completion stays on :on-done
+                ;; (recovered separately); skip it here.
+                (and event (str/starts-with? event "done.state."))
+                acc
+
+                (and event (str/starts-with? event "after."))
+                (let [d-str (subs event 6)
+                      d     (try
+                              #?(:clj  (Long/parseLong d-str)
+                                 :cljs (let [n (js/parseInt d-str 10)]
+                                         (if (js/isNaN n) nil n)))
+                              (catch #?(:clj Exception :cljs :default) _ nil))
+                      k     (or d (id-string->keyword d-str))]
+                  (update-in acc [:after k] (fnil conj []) cand-map))
+
+                (some? event)
+                (update-in acc [:on (id-string->keyword event)]
+                           (fnil conj []) cand-map)
+
+                :else acc)))
+          {}
+          ts)
+        ;; rf2-mnp93.8 — same shorthand finalisation `consume-transitions`
+        ;; uses: a sole target-only candidate collapses to its bare target.
+        target-only? (fn [m] (= [:target] (keys m)))
+        simplify     (fn [cands]
+                       (if (= 1 (count cands))
+                         (if (target-only? (first cands))
+                           (:target (first cands))
+                           (first cands))
+                         cands))]
+    (cond-> {}
+      (:on coll)    (assoc :on    (into {} (map (fn [[ev cs]] [ev (simplify cs)]) (:on coll))))
+      (:after coll) (assoc :after (into {} (map (fn [[k cs]] [k (simplify cs)]) (:after coll)))))))
+
 (defn scxml->spec
   "Parse an SCXML XML string into a re-frame2 machine spec.
 
@@ -1280,10 +1484,18 @@
               ;; `consume-transitions` before they are dropped.
               ;; The parallel-root :on-done is action-only (no target),
               ;; so the source-path is unused — pass [].
-              parallel-on-done (:on-done (consume-transitions parallel-body []))]
+              parallel-on-done (:on-done (consume-transitions parallel-body []))
+              ;; rf2-656ivk / rf2-m3otj2 — the parallel-root's OWN `:on` /
+              ;; `:after` ancestor-fallback transitions are ALSO direct
+              ;; `<parallel>` children, but carry region-qualified
+              ;; (space-separated) targets `consume-transitions` mis-decodes;
+              ;; parse them with the dedicated root resolver.
+              root-on-after (parse-root-parallel-transitions parallel-body)]
           (cond-> {:type    :parallel
                    :regions (parse-parallel-body parallel-body)}
-            (some? parallel-on-done) (assoc :on-done parallel-on-done)))
+            (some? parallel-on-done) (assoc :on-done parallel-on-done)
+            (:on root-on-after)      (assoc :on (:on root-on-after))
+            (:after root-on-after)   (assoc :after (:after root-on-after))))
 
         ;; Flat / compound definition
         (let [initial-str (get-in root-start [:attrs "initial"])

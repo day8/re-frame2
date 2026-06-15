@@ -435,6 +435,142 @@
       (is (not (str/includes? out "done.state"))))))
 
 ;; ---------------------------------------------------------------------------
+;; Parallel-ROOT :on / :after ancestor fallback (rf2-656ivk / rf2-m3otj2)
+;;
+;; A `:type :parallel` ROOT may declare its OWN `:on` (the ancestor fallback,
+;; Spec 005 §Root parallel :on) and its OWN `:after` (the timer-driven analog,
+;; §Root-level :after). These are DIRECT `<parallel>` children. Pre-fix the
+;; SCXML emitter dropped them entirely (only `:on-done` survived); the import
+;; recovered only `:on-done`. Both now emit + round-trip, including
+;; MULTI-region targets (space-separated W3C `target` id lists) and
+;; action-only (targetless) forms.
+
+;; The CANONICAL shorthand for a sole target-only root transition is the bare
+;; target vector (`[:a :two]` / `[[:a :x] [:b :y]]`) — the SAME canonicalisation
+;; `consume-transitions`/`simplify` apply to every target-only candidate (the
+;; `{:target …}` map form decodes back to the bare shorthand, asserted
+;; separately below). The round-trip fixtures use the shorthand so the equality
+;; is exact.
+
+(def parallel-root-on-single-machine
+  "A parallel root :on targeting ONE region — `[:a :two]` (shorthand)."
+  {:type    :parallel
+   :on      {:one [:a :two]}
+   :regions {:a {:initial :one :states {:one {} :two {}}}
+             :b {:initial :one :states {:one {} :two {}}}}})
+
+(def parallel-root-on-multi-machine
+  "A parallel root :on with MULTIPLE region-qualified targets (shorthand)."
+  {:type    :parallel
+   :on      {:advance [[:a :x] [:b :y]]}
+   :regions {:a {:initial :one :states {:one {} :x {}}}
+             :b {:initial :one :states {:one {} :y {}}}}})
+
+(def parallel-root-after-single-machine
+  "A parallel root :after targeting ONE region (shorthand)."
+  {:type    :parallel
+   :after   {500 [:a :two]}
+   :regions {:a {:initial :one :states {:one {} :two {}}}
+             :b {:initial :one :states {:one {} :two {}}}}})
+
+(def parallel-root-after-multi-machine
+  "A parallel root :after with MULTIPLE region-qualified targets (shorthand)."
+  {:type    :parallel
+   :after   {1000 [[:a :two] [:b :two]]}
+   :regions {:a {:initial :one :states {:one {} :two {}}}
+             :b {:initial :one :states {:one {} :two {}}}}})
+
+(deftest emit-parallel-root-on-single-region-target
+  (testing "rf2-656ivk — a parallel-root :on emits a direct <parallel>
+            <transition> with the region-qualified target id"
+    (let [out (scxml/spec->scxml parallel-root-on-single-machine)]
+      (is (str/includes? out "event=\"one\"") "the root :on event")
+      (is (str/includes? out "target=\"a___two\"")
+          "the region-qualified target id (region :a substate :two)"))))
+
+(deftest emit-parallel-root-on-multi-region-target-is-space-separated
+  (testing "rf2-656ivk — a MULTI-region root :on emits a SPACE-SEPARATED
+            target id list (W3C SCXML target grammar)"
+    (let [out (scxml/spec->scxml parallel-root-on-multi-machine)]
+      (is (str/includes? out "target=\"a___x b___y\"")
+          "both region-qualified targets in one space-joined attribute"))))
+
+(deftest emit-parallel-root-after-renders-after-event
+  (testing "rf2-m3otj2 — a parallel-root :after emits an after.<delay> direct
+            <parallel> transition with the region-qualified target"
+    (let [out (scxml/spec->scxml parallel-root-after-single-machine)]
+      (is (str/includes? out "event=\"after.500\"") "the delay rides after.<ms>")
+      (is (str/includes? out "target=\"a___two\"")))))
+
+(deftest round-trip-parallel-root-on-single
+  (testing "rf2-656ivk — a single-region root :on round-trips exactly"
+    (is (round-trips? parallel-root-on-single-machine))))
+
+(deftest round-trip-parallel-root-on-multi
+  (testing "rf2-656ivk — a multi-region root :on round-trips its
+            region-qualified target grammar exactly"
+    (is (round-trips? parallel-root-on-multi-machine))))
+
+(deftest round-trip-parallel-root-after-single
+  (testing "rf2-m3otj2 — a single-region root :after round-trips exactly"
+    (is (round-trips? parallel-root-after-single-machine))))
+
+(deftest round-trip-parallel-root-after-multi
+  (testing "rf2-m3otj2 — a multi-region root :after round-trips exactly"
+    (is (round-trips? parallel-root-after-multi-machine))))
+
+(deftest round-trip-parallel-root-on-with-guard
+  (testing "rf2-656ivk — a guarded root :on round-trips its guard via cond="
+    (is (round-trips? {:type    :parallel
+                       :on      {:fire {:target [[:a :two] [:b :two]] :guard :armed?}}
+                       :regions {:a {:initial :one :states {:one {} :two {}}}
+                                 :b {:initial :one :states {:one {} :two {}}}}}))))
+
+(deftest round-trip-parallel-root-on-action-only
+  (testing "rf2-656ivk — a TARGETLESS action-only root :on round-trips its
+            completion topology (the action is named-lossy — survives only as
+            a comment, so it returns the action-bearing internal form)"
+    (let [spec {:type    :parallel
+                :on      {:ping {:action :log-ping}}
+                :regions {:a {:initial :one :states {:one {}}}
+                          :b {:initial :one :states {:one {}}}}}
+          back (-> spec scxml/spec->scxml scxml/scxml->spec)]
+      (is (= spec back) "the action-only root :on round-trips (action name survives)")
+      (is (= :log-ping (get-in back [:on :ping :action]))
+          "the action name is recovered, NOT collapsed to a forbidden {} block"))))
+
+(deftest round-trip-parallel-root-after-action-only
+  (testing "rf2-m3otj2 — a TARGETLESS action-only root :after round-trips"
+    (let [spec {:type    :parallel
+                :after   {2000 {:action :timeout-log}}
+                :regions {:a {:initial :one :states {:one {}}}
+                          :b {:initial :one :states {:one {}}}}}
+          back (-> spec scxml/spec->scxml scxml/scxml->spec)]
+      (is (= spec back) "the action-only root :after round-trips")
+      (is (= :timeout-log (get-in back [:after 2000 :action]))))))
+
+(deftest round-trip-parallel-root-on-and-after-together
+  (testing "rf2-656ivk / rf2-m3otj2 — a root :on AND a root :after on the same
+            parallel machine both survive + round-trip independently"
+    (is (round-trips? {:type    :parallel
+                       :on      {:go [:a :two]}
+                       :after   {1000 [[:a :two] [:b :two]]}
+                       :regions {:a {:initial :one :states {:one {} :two {}}}
+                                 :b {:initial :one :states {:one {} :two {}}}}}))))
+
+(deftest parallel-root-on-map-form-canonicalises-to-shorthand
+  (testing "rf2-656ivk — the `{:target …}` map form of a target-only root :on
+            decodes back to the canonical bare-target shorthand (the SAME
+            canonicalisation every target-only candidate gets)"
+    (let [spec {:type    :parallel
+                :on      {:one {:target [:a :two]}}
+                :regions {:a {:initial :one :states {:one {} :two {}}}
+                          :b {:initial :one :states {:one {} :two {}}}}}
+          back (-> spec scxml/spec->scxml scxml/scxml->spec)]
+      (is (= [:a :two] (get-in back [:on :one]))
+          "the map form canonicalises to the bare target vector"))))
+
+;; ---------------------------------------------------------------------------
 ;; Injective, xsd:ID-conformant id codec (rf2-mnp93.1/.2/.3/.7/.8)
 ;;
 ;; The pre-mnp93.1 codec was NON-INJECTIVE: the `.`-as-ns/name separator

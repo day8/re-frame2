@@ -820,6 +820,50 @@
           (transition-candidates spec)))
       root-on)))
 
+(defn- collect-parallel-root-after-edges
+  "rf2-m3otj2 — emit edges for a `:type :parallel` machine's OWN top-level
+  `:after` (the ROOT parallel `:after` — the TIMER-DRIVEN analog of the root
+  `:on` ancestor fallback, Spec 005 §Root-level `:after`). Shipped runtime
+  semantics (rf2-wox0vd): scheduled at machine birth, alive for the whole
+  machine, root-owned; when it fires it runs its `:action` once and atomically
+  moves one or more REGION-QUALIFIED targets (untargeted regions stay put) —
+  identical apply grammar to the root `:on`. Pre-fix the chart projection
+  collected ONLY the root `:on` and DROPPED the root `:after`, so a valid
+  machine-lifetime timeout was invisible in topology.
+
+  Structurally identical to `collect-parallel-root-edges` — each candidate
+  projects ONCE PER region-qualified target from the synthetic MACHINE-ROOT
+  node into the region's in-region target — but each edge additionally carries
+  `:after <delay>` (so `event-segment` paints the `⌚ <delay>ms` glyph) and is
+  flagged `:parallel-root-after? true` (the timer-driven sibling of
+  `:parallel-root-on?`). A TARGETLESS / action-only root `:after` self-anchors
+  on the machine-root node as an `:internal?` chip (a hanging delayed-action
+  affordance, moves no region). Returns a seq of edge maps."
+  [root-after]
+  (when (seq root-after)
+    (mapcat
+      (fn [[delay spec]]
+        (mapcat
+          (fn [candidate]
+            (let [targets (normalise-root-targets (:target candidate))
+                  base    {:from                 []
+                           :event                (keyword (str "after-" delay))
+                           :after                delay
+                           :guard                (:guard candidate)
+                           :action               (:action candidate)
+                           :machine-level?       true
+                           :parallel-root-on?    true
+                           :parallel-root-after? true}]
+              (if (seq targets)
+                (map (fn [tgt]
+                       (cond-> (assoc base :to (vec tgt))
+                         (reenter? candidate) (assoc :reenter? true)))
+                     targets)
+                [(cond-> (assoc base :to [] :internal? true)
+                   (reenter? candidate) (assoc :reenter? true))])))
+          (transition-candidates spec)))
+      root-after)))
+
 ;; ---- public projection --------------------------------------------------
 
 (defn- project-flat
@@ -1053,7 +1097,16 @@
         ;; wide fallback hanging into the region it moves. A targetless action-
         ;; only root `:on` (`:to []`, `:internal? true`) self-anchors on the
         ;; machine-root chip (a hanging action affordance, moves no region).
-        root-on-raw (collect-parallel-root-edges (:on definition))
+        ;; rf2-m3otj2 — the parallel-ROOT's own `:after` (the TIMER-DRIVEN
+        ;; ancestor fallback, Spec 005 §Root-level `:after`) shares the exact
+        ;; same MACHINE-ROOT-sourced, region-scoped-target re-pointing as the
+        ;; root `:on` (it carries `:parallel-root-on? true` too, plus `:after
+        ;; <delay>` so `event-segment` paints the ⌚ glyph and
+        ;; `:parallel-root-after? true` to distinguish it). Collected together
+        ;; so a machine declaring ONLY a root `:after` still mints the
+        ;; machine-root chip.
+        root-on-raw (concat (collect-parallel-root-edges (:on definition))
+                            (collect-parallel-root-after-edges (:after definition)))
         root-on-edges
         (->> root-on-raw
              (reduce
