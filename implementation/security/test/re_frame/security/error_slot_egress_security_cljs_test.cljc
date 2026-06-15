@@ -78,6 +78,11 @@
             [re-frame.routing.navigate :as navigate]
             [re-frame.routing.registry :as registry]
             [re-frame.test-support :as test-support]
+            ;; SITE 1 drives the REAL production emit (`trace/emit-error!`),
+            ;; not direct `marks/project-trace-event` — so the test proves the
+            ;; full envelope production actually ships, including the top-level
+            ;; `:sensitive?` hoist the MCP egress gate reads (rf2-md2wn0).
+            [re-frame.trace :as trace]
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.security.gen :as gen]))
 
@@ -108,7 +113,24 @@
 
 ;; ===========================================================================
 ;; SITE 1 — :rf.error/machine-action-exception :exception-data
-;; Driven through the REAL egress chokepoint `marks/project-trace-event`.
+;;
+;; Driven through the REAL production emit `trace/emit-error!` — the exact
+;; call `re-frame.machines.lifecycle-fx.registration/trace-action-failure!`
+;; makes (registration.cljc) — NOT direct `marks/project-trace-event`
+;; (rf2-md2wn0). `emit-error!` runs the full production pipeline:
+;; `build-event` → marks projection (`project-machine-error-tags`, which
+;; stamps `[:tags :sensitive?]`) → the top-level `:sensitive?` hoist
+;; (`hoist-projected-sensitive`) → delivery. We capture the delivered
+;; envelope off a trace-tooling listener and assert what production ACTUALLY
+;; ships, including the TOP-LEVEL `:sensitive?` flag the MCP egress gate
+;; (`mcp-base.sensitive/sensitive-event?`) reads.
+;;
+;; Why the old shape was a false green: it projected an event directly and
+;; asserted `:sensitive?` only under `:tags`. Production hoists `:sensitive?`
+;; to the TOP LEVEL during `build-event` — but for machine exceptions the
+;; sensitivity is decided LATER (during marks projection), so the top-level
+;; flag was never set and MCP egress treated the event as non-sensitive. The
+;; direct-projection test proved a shape production did not emit.
 ;; ===========================================================================
 
 (def ^:private sensitive-machine-id :sec/sensitive-machine)
@@ -126,46 +148,74 @@
   ;; Plain machine — no marks at all.
   (marks/register-marks! :event plain-machine-id {}))
 
-(defn- machine-action-exception-event*
-  "Build a realistic `:rf.error/machine-action-exception` trace envelope
-  (the shape `trace/build-event` produces) carrying the sentinel-bearing
+(defn- machine-action-exception-tags
+  "The EXACT `:tags` shape `trace-action-failure!` hands to
+  `trace/emit-error!` (registration.cljc), carrying the sentinel-bearing
   `:exception-data`, with the addressed id keyed under `id-key`.
 
   `project-machine-error-tags` resolves the schema lookup via
   `(or (:actor-id tags) (:machine-id tags))` (rf2-yyvtk5): a LIVE actor's
   exception row addresses the throwing instance under `:actor-id` (the
   preferred branch every production emit site now hits —
-  registration.cljc:99), while `:machine-id` is the legacy fallback. We
+  registration.cljc), while `:machine-id` is the legacy fallback. We
   parameterise `id-key` so BOTH branches of that `or` are exercised
-  (rf2-sxmeqs — the `:actor-id` branch had zero coverage)."
-  [id-key machine-id]
-  {:operation :rf.error/machine-action-exception
-   :op-type   :error
-   :tags      {id-key             machine-id
-               :action-id         :do/thing
-               :state-path        [:running]
-               :event             [machine-id [:tick]]
-               :exception-message "boom"
-               :exception-data    {:user-token sentinel :doc-id [sentinel]}
-               :reason            "Machine action threw."
-               :recovery          :no-recovery}})
+  (rf2-sxmeqs — the `:actor-id` branch had zero coverage).
 
-(defn- machine-action-exception-event
-  "The legacy `:machine-id`-keyed envelope (the `:machine-id` FALLBACK
-  branch of the `(or (:actor-id …) (:machine-id …))` lookup)."
+  Note: the emit site does NOT stamp `:sensitive?` here — the production
+  bug rf2-md2wn0 hinges on that. The flag is decided downstream by marks
+  projection, and the top-level hoist must lift it from `:tags`."
+  [id-key machine-id]
+  {id-key             machine-id
+   :action-id         :do/thing
+   :state-path        [:running]
+   :event             [machine-id [:tick]]
+   :exception-message "boom"
+   :exception-data    {:user-token sentinel :doc-id [sentinel]}
+   :reason            "Machine action threw."
+   :recovery          :no-recovery})
+
+(defn- emit-machine-action-exception
+  "Drive the REAL production emit: register a trace-tooling listener, call
+  `trace/emit-error! :rf.error/machine-action-exception` with the given
+  tags (exactly as `trace-action-failure!` does), and return the delivered
+  envelope — post-`build-event`, post-marks-projection, post-top-level
+  `:sensitive?` hoist. This is the production path; nothing routes around
+  the reported gap."
+  [tags]
+  (let [traces (atom [])
+        kw     (keyword "rf2-md2wn0" (name (gensym "machine-ex")))]
+    (trace-tooling/register-listener! kw (fn [ev] (swap! traces conj ev)))
+    (try
+      (trace/emit-error! :rf.error/machine-action-exception tags)
+      (finally (trace-tooling/unregister-listener! kw)))
+    (first (filter #(= :rf.error/machine-action-exception (:operation %))
+                   @traces))))
+
+(defn- emit-machine-action-exception*
+  "Emit through the real path with the addressed id keyed under `id-key`."
+  [id-key machine-id]
+  (emit-machine-action-exception (machine-action-exception-tags id-key machine-id)))
+
+(defn- emit-machine-action-exception-for
+  "The legacy `:machine-id`-keyed emit (the `:machine-id` FALLBACK branch of
+  the `(or (:actor-id …) (:machine-id …))` lookup)."
   [machine-id]
-  (machine-action-exception-event* :machine-id machine-id))
+  (emit-machine-action-exception* :machine-id machine-id))
 
 (deftest machine-exception-data-redacted-for-sensitive-machine
-  (testing "rf2-zsm03 — a sensitive machine's :exception-data is elided to
-            :rf/redacted at the egress chokepoint, :sensitive? is stamped,
-            and the sentinel never survives"
+  (testing "rf2-zsm03 / rf2-md2wn0 — a sensitive machine's :exception-data
+            is elided to :rf/redacted on the REAL emit path, the TOP-LEVEL
+            :sensitive? flag is hoisted (what MCP egress reads), and the
+            sentinel never survives"
     (declare-machine-marks!)
-    (let [out  (marks/project-trace-event
-                 (machine-action-exception-event sensitive-machine-id))
+    (let [out  (emit-machine-action-exception-for sensitive-machine-id)
           tags (:tags out)]
+      (is (some? out) "the machine-action-exception trace was delivered")
       (is (= :rf/redacted (:exception-data tags)) ":exception-data redacted")
-      (is (true? (:sensitive? tags)) ":sensitive? stamped on the tags")
+      ;; rf2-md2wn0 — the production-critical assertion: TOP-LEVEL, not :tags.
+      (is (true? (:sensitive? out)) "top-level :sensitive? hoisted")
+      (is (not (contains? tags :sensitive?))
+          ":sensitive? stripped from :tags after the hoist (no double-stamp)")
       (is (not (contains-sentinel? out))
           (str "the sentinel leaked into the machine-action-exception trace: "
                (pr-str tags)))
@@ -174,27 +224,46 @@
       (is (= :do/thing (:action-id tags)) ":action-id kept")
       (is (= "boom" (:exception-message tags)) ":exception-message kept"))))
 
+(deftest machine-exception-sensitive-event-drops-at-mcp-egress
+  (testing "rf2-md2wn0 — the production fail-closed contract: a sensitive
+            machine's exception event is DROPPED by sens/strip-sensitive
+            when include-sensitive is OFF (the whole-event defence-in-depth
+            layer, not just per-slot redaction). This is the assertion the
+            old direct-projection test could never make — it only proved the
+            tag-level stamp, which MCP egress does not read."
+    (declare-machine-marks!)
+    (let [out          (emit-machine-action-exception-for sensitive-machine-id)
+          [kept dropped] (sens/strip-sensitive [out] false)]
+      (is (some? out) "the machine-action-exception trace was delivered")
+      ;; The event production actually emits IS classified sensitive by the
+      ;; egress gate, so the boot-gate-off path drops it.
+      (is (true? (sens/sensitive-event? out))
+          "MCP egress classifies the emitted event as sensitive (top-level flag)")
+      (is (= 1 dropped) "the sensitive machine exception event dropped")
+      (is (empty? kept) "nothing egressed with the gate off"))))
+
 (deftest machine-exception-data-verbatim-for-plain-machine
   (testing "rf2-zsm03 — a machine with NO :sensitive mark rides
             :exception-data verbatim (the seam is precise, not a blanket
-            scrub)"
+            scrub) and is NOT classified sensitive at egress"
     (declare-machine-marks!)
-    (let [out  (marks/project-trace-event
-                 (machine-action-exception-event plain-machine-id))
+    (let [out  (emit-machine-action-exception-for plain-machine-id)
           tags (:tags out)]
+      (is (some? out) "the machine-action-exception trace was delivered")
       (is (map? (:exception-data tags)) ":exception-data NOT redacted")
-      (is (not (contains? tags :sensitive?))
-          "no :sensitive? stamp when the machine declares nothing sensitive"))))
+      (is (not (:sensitive? out))
+          "no top-level :sensitive? when the machine declares nothing sensitive")
+      (is (false? (sens/sensitive-event? out)) "MCP egress treats it as non-sensitive"))))
 
 (deftest machine-exception-data-verbatim-for-unregistered-machine
   (testing "rf2-zsm03 — a machine with no marks entry at all (never
             registered marks) rides :exception-data verbatim"
     ;; No declare-machine-marks! call — kind->id->marks has no entry.
-    (let [out  (marks/project-trace-event
-                 (machine-action-exception-event :sec/unregistered))
+    (let [out  (emit-machine-action-exception-for :sec/unregistered)
           tags (:tags out)]
+      (is (some? out) "the machine-action-exception trace was delivered")
       (is (map? (:exception-data tags)) ":exception-data verbatim (no marks)")
-      (is (not (contains? tags :sensitive?)) "no :sensitive? stamp"))))
+      (is (not (:sensitive? out)) "no top-level :sensitive? stamp"))))
 
 ;; ---------------------------------------------------------------------------
 ;; SITE 1 — :actor-id PREFERRED branch (rf2-sxmeqs).
@@ -208,16 +277,16 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest machine-exception-data-redacted-for-sensitive-actor
-  (testing "rf2-sxmeqs — an :actor-id-keyed sensitive-machine exception (the
-            PREFERRED lookup branch, the one production emits) has its
-            :exception-data elided to :rf/redacted at the egress chokepoint,
-            :sensitive? stamped, and the sentinel never survives"
+  (testing "rf2-sxmeqs / rf2-md2wn0 — an :actor-id-keyed sensitive-machine
+            exception (the PREFERRED lookup branch, the one production emits)
+            redacts :exception-data, hoists the TOP-LEVEL :sensitive? flag,
+            and the sentinel never survives — on the real emit path"
     (declare-machine-marks!)
-    (let [out  (marks/project-trace-event
-                 (machine-action-exception-event* :actor-id sensitive-machine-id))
+    (let [out  (emit-machine-action-exception* :actor-id sensitive-machine-id)
           tags (:tags out)]
+      (is (some? out) "the machine-action-exception trace was delivered")
       (is (= :rf/redacted (:exception-data tags)) ":exception-data redacted")
-      (is (true? (:sensitive? tags)) ":sensitive? stamped on the tags")
+      (is (true? (:sensitive? out)) "top-level :sensitive? hoisted")
       (is (not (contains-sentinel? out))
           (str "the sentinel leaked into the :actor-id-keyed exception trace: "
                (pr-str tags)))
@@ -231,12 +300,12 @@
             rides :exception-data verbatim on the preferred branch (the seam
             is precise, not a blanket scrub)"
     (declare-machine-marks!)
-    (let [out  (marks/project-trace-event
-                 (machine-action-exception-event* :actor-id plain-machine-id))
+    (let [out  (emit-machine-action-exception* :actor-id plain-machine-id)
           tags (:tags out)]
+      (is (some? out) "the machine-action-exception trace was delivered")
       (is (map? (:exception-data tags)) ":exception-data NOT redacted")
-      (is (not (contains? tags :sensitive?))
-          "no :sensitive? stamp when the machine declares nothing sensitive"))))
+      (is (not (:sensitive? out))
+          "no top-level :sensitive? when the machine declares nothing sensitive"))))
 
 (deftest actor-id-takes-precedence-over-machine-id
   (testing "rf2-sxmeqs — when BOTH keys are present the schema lookup PREFERS
@@ -244,13 +313,14 @@
             even though :machine-id points at the PLAIN one (proves the
             `(or (:actor-id …) (:machine-id …))` precedence, not the fallback)"
     (declare-machine-marks!)
-    (let [ev   (-> (machine-action-exception-event* :actor-id sensitive-machine-id)
-                   (assoc-in [:tags :machine-id] plain-machine-id))
-          out  (marks/project-trace-event ev)
-          tags (:tags out)]
-      (is (= :rf/redacted (:exception-data tags))
+    (let [tags (-> (machine-action-exception-tags :actor-id sensitive-machine-id)
+                   (assoc :machine-id plain-machine-id))
+          out  (emit-machine-action-exception tags)
+          out-tags (:tags out)]
+      (is (some? out) "the machine-action-exception trace was delivered")
+      (is (= :rf/redacted (:exception-data out-tags))
           ":exception-data redacted via the PREFERRED :actor-id (sensitive)")
-      (is (true? (:sensitive? tags)) ":sensitive? stamped from the :actor-id machine")
+      (is (true? (:sensitive? out)) "top-level :sensitive? hoisted from the :actor-id machine")
       (is (not (contains-sentinel? out))
           "the sentinel never survives when :actor-id wins the lookup"))))
 
@@ -280,26 +350,32 @@
       ((gen-ex-data (inc depth)) rng1))))
 
 (deftest sensitive-machine-redacts-ex-data-at-arbitrary-nesting
-  (testing "rf2-zsm03 / rf2-sxmeqs — across arbitrary nestings of the sentinel
-            inside :exception-data, a sensitive machine elides the WHOLE slot
-            and stamps :sensitive?; the sentinel never survives. Run over BOTH
-            id-keys so the preferred :actor-id branch (production) AND the
-            :machine-id fallback both get property coverage."
+  (testing "rf2-zsm03 / rf2-sxmeqs / rf2-md2wn0 — across arbitrary nestings of
+            the sentinel inside :exception-data, a sensitive machine elides
+            the WHOLE slot and hoists the TOP-LEVEL :sensitive?; the sentinel
+            never survives AND sens/strip-sensitive drops the event with the
+            gate off. Run over BOTH id-keys so the preferred :actor-id branch
+            (production) AND the :machine-id fallback both get property
+            coverage — on the REAL emit path."
     (declare-machine-marks!)
     (doseq [id-key [:actor-id :machine-id]]
       (let [result (gen/for-all
                      gen-nested-ex-data 120 41
                      (fn [ex-data]
-                       (let [ev   (assoc-in (machine-action-exception-event*
-                                              id-key sensitive-machine-id)
-                                            [:tags :exception-data] ex-data)
-                             out  (marks/project-trace-event ev)]
-                         (and (= :rf/redacted (-> out :tags :exception-data))
-                              (true? (-> out :tags :sensitive?))
-                              (not (contains-sentinel? out))))))]
+                       (let [tags (assoc (machine-action-exception-tags
+                                           id-key sensitive-machine-id)
+                                         :exception-data ex-data)
+                             out  (emit-machine-action-exception tags)
+                             [kept dropped] (sens/strip-sensitive [out] false)]
+                         (and (some? out)
+                              (= :rf/redacted (-> out :tags :exception-data))
+                              (true? (:sensitive? out))
+                              (not (contains-sentinel? out))
+                              (= 1 dropped)
+                              (empty? kept)))))]
         (is (nil? result)
-            (str "a sensitive machine leaked :exception-data for a generated "
-                 "nesting under " id-key ": "
+            (str "a sensitive machine leaked :exception-data (or failed to drop "
+                 "at egress) for a generated nesting under " id-key ": "
                  (pr-str (when result (dissoc result :threw)))))))))
 
 ;; ===========================================================================
@@ -392,8 +468,7 @@
             boot gate fully ON (include? true), neither the machine
             :exception-data nor the navigate :error egresses the sentinel"
     (declare-machine-marks!)
-    (let [machine-ev (marks/project-trace-event
-                       (machine-action-exception-event sensitive-machine-id))
+    (let [machine-ev (emit-machine-action-exception-for sensitive-machine-id)
           nav-trace  (capture-navigate-failure sensitive-params-schema)
           events     (filterv some? [machine-ev nav-trace])
           [kept _]   (sens/strip-sensitive events true)]
