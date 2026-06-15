@@ -41,6 +41,7 @@
   forgot to destructure ended up with the request riding the unused-arg
   slot). Pre-alpha: one canonical surface, no fallback."
   (:require [re-frame.core :as rf]
+            [re-frame.error :as error]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.ssr.payload-policy :as payload-policy]
@@ -212,12 +213,13 @@
     (vector? root-view) root-view
     (fn?     root-view) (root-view)
     :else
-    (throw (ex-info ":rf.error/invalid-root-view"
-                    {:rf.error/id :rf.error/invalid-root-view
-                     :where    'rf.ssr/ssr-handler
-                     :reason   "root-view must be a hiccup vector or a 0-arity fn"
-                     :received root-view
-                     :recovery :no-recovery}))))
+    (error/throw-error!
+      :rf.error/invalid-root-view
+      'rf.ssr/ssr-handler
+      (str "root-view must be a hiccup vector or a 0-arity fn returning "
+           "hiccup; pass one of those as :root-view.")
+      {:recovery :supply-a-hiccup-vector-or-0-arity-fn
+       :extra    {:received root-view}})))
 
 (defn resolve-head
   "Resolve the active route's `:head` against `frame-id` (or the default
@@ -328,12 +330,12 @@
   [on-create]
   (if (vector? on-create)
     on-create
-    (throw (ex-info ":rf.error/invalid-on-create"
-                    {:rf.error/id :rf.error/invalid-on-create
-                     :where    'rf.ssr/ssr-handler
-                     :reason   ":on-create must be a vector (event)"
-                     :received on-create
-                     :recovery :no-recovery}))))
+    (error/throw-error!
+      :rf.error/invalid-on-create
+      'rf.ssr/ssr-handler
+      ":on-create must be a vector (an event vector); pass an event vector as :on-create."
+      {:recovery :supply-an-event-vector
+       :extra    {:received on-create}})))
 
 (defn validate-required-opts!
   "Throw a structured `:rf.error/ssr-ring-missing-*` ex-info when a
@@ -356,17 +358,18 @@
   `trust`/`payload-policy`."
   [{:keys [on-create root-view] :as opts}]
   (when-not on-create
-    (throw (ex-info ":rf.error/ssr-ring-missing-on-create"
-                    {:rf.error/id :rf.error/ssr-ring-missing-on-create
-                     :where    'rf.ssr/ssr-handler
-                     :reason   "ssr-handler requires :on-create (an event vector)"
-                     :recovery :no-recovery})))
+    (error/throw-error!
+      :rf.error/ssr-ring-missing-on-create
+      'rf.ssr/ssr-handler
+      "ssr-handler requires :on-create (an event vector); supply :on-create in the handler opts."
+      {:recovery :supply-the-on-create-opt}))
   (when-not root-view
-    (throw (ex-info ":rf.error/ssr-ring-missing-root-view"
-                    {:rf.error/id :rf.error/ssr-ring-missing-root-view
-                     :where    'rf.ssr/ssr-handler
-                     :reason   "ssr-handler requires :root-view (a hiccup vector or 0-arity fn)"
-                     :recovery :no-recovery})))
+    (error/throw-error!
+      :rf.error/ssr-ring-missing-root-view
+      'rf.ssr/ssr-handler
+      (str "ssr-handler requires :root-view (a hiccup vector or 0-arity fn); "
+           "supply :root-view in the handler opts.")
+      {:recovery :supply-the-root-view-opt}))
   opts)
 
 (defn validate-construction-opts!
@@ -440,22 +443,22 @@
   Returns `opts` unchanged on success."
   [opts]
   (when (some? (:html-shell opts))
-    (throw (ex-info ":rf.error/ssr-streaming-unsupported-opt"
-                    {:rf.error/id :rf.error/ssr-streaming-unsupported-opt
-                     :where    'rf.ssr/stream-handler
-                     :opt-key  :html-shell
-                     :got      (:html-shell opts)
-                     :reason   (str "stream-handler does not support :html-shell — the "
-                                    "streaming envelope is flushed as a SPLIT prefix/suffix "
-                                    "straddling the continuation chunks (Spec 011 §Streaming "
-                                    "SSR), so a one-piece (body-html payload-edn opts) → string "
-                                    ":html-shell fn cannot be applied after streaming starts. "
-                                    "Use the streaming envelope surface instead: the :head, "
-                                    ":body-end, :script-src, and :app-element-id trusted-shell "
-                                    "hooks (honoured by default-streaming-prefix / "
-                                    "default-streaming-suffix), or build a non-streaming "
-                                    "ssr-handler when a custom one-piece shell is required.")
-                     :recovery :drop-html-shell-or-use-non-streaming-handler})))
+    (error/throw-error!
+      :rf.error/ssr-streaming-unsupported-opt
+      'rf.ssr/stream-handler
+      (str "stream-handler does not support :html-shell — the "
+           "streaming envelope is flushed as a SPLIT prefix/suffix "
+           "straddling the continuation chunks (Spec 011 §Streaming "
+           "SSR), so a one-piece (body-html payload-edn opts) → string "
+           ":html-shell fn cannot be applied after streaming starts. "
+           "Use the streaming envelope surface instead: the :head, "
+           ":body-end, :script-src, and :app-element-id trusted-shell "
+           "hooks (honoured by default-streaming-prefix / "
+           "default-streaming-suffix), or build a non-streaming "
+           "ssr-handler when a custom one-piece shell is required.")
+      {:recovery :drop-html-shell-or-use-non-streaming-handler
+       :extra    {:opt-key :html-shell
+                  :got     (:html-shell opts)}})))
   opts)
 
 (defn resolve-on-error

@@ -133,9 +133,12 @@
           (is (instance? clojure.lang.ExceptionInfo thrown)
               (str "bad-arg " (pr-str bad-arg) " throws ex-info"))
           (when (instance? clojure.lang.ExceptionInfo thrown)
-            (is (= ":rf.error/bad-app-schemas-arg" (.getMessage ^Exception thrown))
-                "ex-info message names the error category")
+            ;; rf2-vvixub — the human message leads with the :reason sentence
+            ;; and trails the [:rf.error/<id>] token; branch on the canonical
+            ;; :rf.error/id, never on the (non-normative) message bytes.
             (let [data (ex-data thrown)]
+              (is (= :rf.error/bad-app-schemas-arg (:rf.error/id data))
+                  "ex-data carries the canonical :rf.error/id discriminator")
               (is (= bad-arg (:received data))
                   ":received slot carries the bad input verbatim"))))))))
 
@@ -175,8 +178,9 @@
         (is (instance? clojure.lang.ExceptionInfo thrown)
             (str "bad opts " (pr-str bad-arg) " throws ex-info"))
         (when (instance? clojure.lang.ExceptionInfo thrown)
-          (is (= ":rf.error/bad-app-schemas-arg" (.getMessage ^Exception thrown))
-              "ex-info names the same error category the read surface uses"))))))
+          ;; rf2-vvixub — branch on the canonical :rf.error/id, not the message.
+          (is (= :rf.error/bad-app-schemas-arg (:rf.error/id (ex-data thrown)))
+              "ex-data names the same error category the read surface uses"))))))
 
 (deftest reg-app-schema-valid-opts-map-registers-fine
   (testing "rf2-52dfy — a valid {:frame ...} opts map still registers
@@ -201,7 +205,8 @@
     (let [thrown (try (rf/reg-app-schemas {[:user] [:map]} "tenant-c")
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (instance? clojure.lang.ExceptionInfo thrown))
-      (is (= ":rf.error/bad-app-schemas-arg" (.getMessage ^Exception thrown))))))
+      ;; rf2-vvixub — branch on the canonical :rf.error/id, not the message.
+      (is (= :rf.error/bad-app-schemas-arg (:rf.error/id (ex-data thrown)))))))
 
 ;; ---- path-shape validation (rf2-sk0ql) -----------------------------------
 ;;
@@ -238,8 +243,9 @@
         (is (instance? clojure.lang.ExceptionInfo thrown)
             (str "bad path " (pr-str bad-path) " throws ex-info"))
         (when (instance? clojure.lang.ExceptionInfo thrown)
-          (is (= ":rf.error/bad-app-schema-path" (.getMessage ^Exception thrown))
-              "ex-info message names the path-shape error category")
+          ;; rf2-vvixub — branch on the canonical :rf.error/id, not the message.
+          (is (= :rf.error/bad-app-schema-path (:rf.error/id (ex-data thrown)))
+              "ex-data names the path-shape error category")
           (let [data (ex-data thrown)]
             (is (= bad-path (:received data))
                 ":received slot carries the bad path verbatim")
@@ -399,7 +405,8 @@
       (is (instance? clojure.lang.ExceptionInfo thrown)
           "a batch with a bad path key throws")
       (when (instance? clojure.lang.ExceptionInfo thrown)
-        (is (= ":rf.error/bad-app-schema-path" (.getMessage ^Exception thrown))
+        ;; rf2-vvixub — branch on the canonical :rf.error/id, not the message.
+        (is (= :rf.error/bad-app-schema-path (:rf.error/id (ex-data thrown)))
             "names the path-shape error category"))
       (is (= before (schemas/snapshot-schemas-by-frame))
           "NO entry from the batch landed — all-or-nothing")
@@ -464,11 +471,10 @@
         (is (instance? clojure.lang.ExceptionInfo thrown)
             (str "runtime path " (pr-str bad-path) " throws ex-info"))
         (when (instance? clojure.lang.ExceptionInfo thrown)
-          (is (= ":rf.error/app-schema-runtime-path"
-                 (.getMessage ^Exception thrown))
-              "names the DISTINCT runtime-path error category")
           (let [data   (ex-data thrown)
                 reason (:reason data)]
+            ;; rf2-vvixub — branch on the canonical :rf.error/id, not the
+            ;; (non-normative) message bytes.
             (is (= :rf.error/app-schema-runtime-path (:rf.error/id data))
                 ":rf.error/id is the distinct runtime-path id")
             (is (= bad-path (:received data))
@@ -530,11 +536,10 @@
       (is (instance? clojure.lang.ExceptionInfo thrown)
           "a batch with a runtime path key throws")
       (when (instance? clojure.lang.ExceptionInfo thrown)
-        (is (= ":rf.error/app-schema-runtime-path"
-               (.getMessage ^Exception thrown))
-            "names the distinct runtime-path error category")
+        ;; rf2-vvixub — branch on the canonical :rf.error/id, not the message.
         (is (= :rf.error/app-schema-runtime-path
-               (:rf.error/id (ex-data thrown)))))
+               (:rf.error/id (ex-data thrown)))
+            "names the distinct runtime-path error category"))
       (is (= before (schemas/snapshot-schemas-by-frame))
           "NO entry from the batch landed — all-or-nothing")
       (is (nil? (schemas/app-schema-at [:good] :tenant/rt))

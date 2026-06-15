@@ -19,6 +19,7 @@
   bookkeeping, and the late-bind hook registrations — live in the
   `re-frame.ssr.head` façade."
   (:require [clojure.string :as str]
+            [re-frame.error :as error]
             [re-frame.ssr.html-helpers :as html]))
 
 ;; Audit rf2-asmj1 P6 / cluster rf2-sljs1 — reflection-warning gate.
@@ -80,15 +81,16 @@
                        (ratio? v) (str (double v))
                        (and (or (instance? Double v) (instance? Float v))
                             (not (Double/isFinite (double v))))
-                       (throw (ex-info ":rf.error/invalid-json-ld-number"
-                                       {:rf.error/id :rf.error/invalid-json-ld-number
-                                        :where    'rf.ssr.head/emit
-                                        :reason   (str "JSON-LD number " (pr-str v)
-                                                       " is non-finite — JSON has no"
-                                                       " representation for ##Inf /"
-                                                       " ##-Inf / ##NaN")
-                                        :value    v
-                                        :recovery :no-recovery}))
+                       (error/throw-error!
+                         :rf.error/invalid-json-ld-number
+                         'rf.ssr.head/emit
+                         (str "JSON-LD number " (pr-str v)
+                              " is non-finite — JSON has no"
+                              " representation for ##Inf /"
+                              " ##-Inf / ##NaN. Emit a finite number in"
+                              " the JSON-LD head model.")
+                         {:recovery :supply-a-finite-number
+                          :extra    {:value v}})
                        :else (str v)))
                    (escape-json-control [^String s]
                      ;; rf2-hzttr finding 1 — JSON requires every control
@@ -148,14 +150,15 @@
                                                    (str ns "/" (name k))
                                                    (name k)))
                        (nil? k)
-                       (throw (ex-info ":rf.error/invalid-json-ld-key"
-                                       {:rf.error/id :rf.error/invalid-json-ld-key
-                                        :where    'rf.ssr.head/emit
-                                        :reason   (str "JSON-LD object key is nil"
-                                                       " — JSON object keys must be"
-                                                       " strings; nil has no key"
-                                                       " representation")
-                                        :recovery :no-recovery}))
+                       (error/throw-error!
+                         :rf.error/invalid-json-ld-key
+                         'rf.ssr.head/emit
+                         (str "JSON-LD object key is nil"
+                              " — JSON object keys must be"
+                              " strings; nil has no key"
+                              " representation. Use a string or keyword"
+                              " key in the JSON-LD head model.")
+                         {:recovery :supply-a-non-nil-key})
                        (number? k)  (emit-string (emit-number k))
                        :else        (emit-string (str k))))
                    (emit [v]

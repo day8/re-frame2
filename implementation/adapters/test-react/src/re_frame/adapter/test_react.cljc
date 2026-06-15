@@ -55,7 +55,8 @@
         (test-react/unmount! m)
         (mapv :phase (test-react/lifecycle-log m)))
       ;; => [:constructor :render :did-mount :render :did-update :will-unmount]"
-  (:require [re-frame.late-bind :as late-bind]
+  (:require [re-frame.error :as error]
+            [re-frame.late-bind :as late-bind]
             [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.atom-container :as atom-container]
             [re-frame.subs.cache :as subs-cache]
@@ -208,16 +209,18 @@
     (let [mount @self-ref]
       (when @(:mounted? mount)
         (when (rendering?)
-          (throw (ex-info ":rf.error/sync-unmount-during-render"
-                          {:where    'rf/test-react-unmount
-                           :recovery :no-recovery
-                           :reason   (str "Attempted to synchronously unmount a root"
-                                          " while React was already rendering. React"
-                                          " 18+ raises the equivalent runtime error;"
-                                          " the Test-React adapter raises here so the"
-                                          " bug is caught at unit-test speed. See"
-                                          " rf2-4l7t2 for the production manifestation.")
-                           :mount-id (:id mount)})))
+          (error/throw-error!
+            :rf.error/sync-unmount-during-render
+            'rf/test-react-unmount
+            (str "Attempted to synchronously unmount a root"
+                 " while React was already rendering. React"
+                 " 18+ raises the equivalent runtime error;"
+                 " the Test-React adapter raises here so the"
+                 " bug is caught at unit-test speed. Do not"
+                 " unmount a root from inside a render body —"
+                 " defer the unmount until rendering settles.")
+            {:recovery :defer-the-unmount-until-render-settles
+             :extra    {:mount-id (:id mount)}})))
         ;; Children-first teardown (mirrors React). Each child's own thunk runs
         ;; the same guard + cascade, so a deep tree unwinds leaf-upward.
         (doseq [child @(:children mount)]
@@ -274,13 +277,14 @@
   [render-tree]
   (let [parent *rendering-mount*]
     (when (nil? parent)
-      (throw (ex-info ":rf.error/mount-child-outside-render"
-                      {:where    'rf/test-react-mount-child!
-                       :recovery :no-recovery
-                       :reason   (str "mount-child! must be called from inside an"
-                                      " :rf/component render body (a child needs a"
-                                      " parent render in flight); *rendering-mount*"
-                                      " was nil.")})))
+      (error/throw-error!
+        :rf.error/mount-child-outside-render
+        'rf/test-react-mount-child!
+        (str "mount-child! must be called from inside an"
+             " :rf/component render body (a child needs a"
+             " parent render in flight); *rendering-mount*"
+             " was nil. Call mount-child! only within a render body.")
+        {:recovery :call-from-inside-a-render-body}))
     (let [child (mount-tree! render-tree)]
       (swap! (:children parent) conj child)
       child)))
@@ -303,9 +307,14 @@
 (defn- render-to-string [render-tree opts]
   (if-let [emit @hiccup-emitter]
     (emit render-tree opts)
-    (throw (ex-info ":rf.error/no-hiccup-emitter-bound"
-                    {:reason "Test-React adapter has no built-in hiccup emitter; call set-hiccup-emitter! if a test needs HTML output."
-                     :render-tree render-tree}))))
+    (error/throw-error!
+      :rf.error/no-hiccup-emitter-bound
+      'rf/render-to-string
+      (str "Test-React adapter has no built-in hiccup emitter; call "
+           "set-hiccup-emitter! (or require re-frame.ssr) before "
+           "render-to-string if a test needs HTML output.")
+      {:recovery :call-set-hiccup-emitter
+       :extra    {:render-tree render-tree}})))
 
 ;; ---- frame-provider --------------------------------------------------------
 
@@ -432,12 +441,14 @@
   accepted, matching the routed hooks' acceptance of the same copy."
   [render-tree]
   (when-not (substrate-adapter/same-adapter? adapter (substrate-adapter/current-adapter-spec))
-    (throw (ex-info ":rf.error/test-react-not-installed"
-                    {:where    'rf/test-react-mount!
-                     :recovery :no-recovery
-                     :reason   (str "test-react/mount! requires the Test-React adapter"
-                                    " to be the (rf/init!)-installed adapter; got "
-                                    (substrate-adapter/current-adapter) ".")})))
+    (error/throw-error!
+      :rf.error/test-react-not-installed
+      'rf/test-react-mount!
+      (str "test-react/mount! requires the Test-React adapter"
+           " to be the (rf/init!)-installed adapter; got "
+           (substrate-adapter/current-adapter)
+           ". Call (rf/init! test-react/adapter) before mount!.")
+      {:recovery :install-the-test-react-adapter}))
   (mount-tree! render-tree))
 
 (defn trigger-update!
@@ -446,11 +457,13 @@
   Throws if the mount has already been unmounted."
   [mount new-render-tree]
   (when-not @(:mounted? mount)
-    (throw (ex-info ":rf.error/update-after-unmount"
-                    {:where    'rf/test-react-trigger-update!
-                     :recovery :no-recovery
-                     :mount-id (:id mount)
-                     :reason   "trigger-update! called on a mount that has already been unmounted."})))
+    (error/throw-error!
+      :rf.error/update-after-unmount
+      'rf/test-react-trigger-update!
+      (str "trigger-update! called on a mount that has already been "
+           "unmounted; trigger updates only on a still-mounted root.")
+      {:recovery :trigger-only-on-a-mounted-root
+       :extra    {:mount-id (:id mount)}}))
   (run-render! mount new-render-tree)
   (log-phase! mount :did-update)
   mount)

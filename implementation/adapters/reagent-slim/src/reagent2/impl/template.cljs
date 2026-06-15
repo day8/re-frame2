@@ -800,9 +800,19 @@
   "Dispatch on a hiccup vector's head and emit the React element."
   [argv]
   (when (zero? (count argv))
-    (throw (ex-info ":rf.error/template-empty-vector"
-                    {:type :rf.error/template-empty-vector
-                     :reason "Hiccup vector cannot be empty."})))
+    ;; Canonical thrown-error shape per Spec 009 §The thrown-error shape
+    ;; (rf2-vvixub). The central `re-frame.error` builder is NOT used here:
+    ;; reagent-slim is bundle-isolated and MUST NOT `:require` re-frame.*
+    ;; (the slim bundle-isolation gate). The shape is replicated inline —
+    ;; human message + trailing [:rf.error/<id>] token, `:rf.error/id` the
+    ;; sole machine discriminator.
+    (throw (ex-info (str "Hiccup vector cannot be empty; give the vector a "
+                         "head tag (e.g. [:div …]). [:rf.error/template-empty-vector]")
+                    {:rf.error/id :rf.error/template-empty-vector
+                     :where       'reagent2.template/as-element
+                     :reason      (str "Hiccup vector cannot be empty; give the "
+                                       "vector a head tag (e.g. [:div …]).")
+                     :recovery    :supply-a-head-tag})))
   (let [tag (nth argv 0 nil)]
     (cond
       ;; Interop heads — checked first so they don't get treated as
@@ -829,12 +839,21 @@
       (react-component-element tag argv)
 
       :else
-      (throw (ex-info ":rf.error/template-bad-tag"
-                      {:type   :rf.error/template-bad-tag
-                       :tag    tag
-                       :argv   argv
-                       :reason "Hiccup head must be a keyword (DOM tag or :>/:<>/:r>/:f>),
-                                a Reagent component class, a React component class, or a fn."})))))
+      ;; Canonical shape replicated inline (bundle isolation — see the
+      ;; empty-vector throw above for the rationale).
+      (throw (ex-info (str "Hiccup head " (pr-str tag)
+                           " is not a valid element head; use a keyword "
+                           "(DOM tag or :>/:<>/:r>/:f>), a Reagent component "
+                           "class, a React component class, or a fn. "
+                           "[:rf.error/template-bad-tag]")
+                      {:rf.error/id :rf.error/template-bad-tag
+                       :where       'reagent2.template/as-element
+                       :reason      (str "Hiccup head must be a keyword (DOM tag "
+                                         "or :>/:<>/:r>/:f>), a Reagent component "
+                                         "class, a React component class, or a fn.")
+                       :recovery    :supply-a-valid-hiccup-head
+                       :tag         tag
+                       :argv        argv})))))
 
 (defn as-element
   "Top-level hiccup → React element conversion.

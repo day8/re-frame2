@@ -23,7 +23,8 @@
   parent-var name clash.
 
   Per the rf2-gxgo7 split of re-frame.ssr."
-  (:require [re-frame.ssr.emit :as emit]))
+  (:require [re-frame.error :as error]
+            [re-frame.ssr.emit :as emit]))
 
 (defn- ssr-make-state-container [initial-value]
   (atom initial-value))
@@ -52,11 +53,13 @@
   ;; SSR uses render-to-string exclusively. Calling render on the SSR
   ;; adapter is a programmer error worth surfacing loudly. Per Spec 006
   ;; §Plain-atom adapter and rf2-z1ke.
-  (throw (ex-info ":rf.error/render-on-headless-adapter"
-                  {:rf.error/id :rf.error/render-on-headless-adapter
-                   :where    'rf/render
-                   :reason   "render is not supported on the SSR adapter; use render-to-string"
-                   :recovery :no-recovery})))
+  (error/throw-error!
+    :rf.error/render-on-headless-adapter
+    'rf/render
+    (str "render is not supported on the SSR adapter (it is headless — no "
+         "React reactivity); render server-side HTML with rf/render-to-string "
+         "instead of rf/render.")
+    {:recovery :use-render-to-string}))
 
 (defn- ssr-register-context-provider [_frame-keyword]
   ;; No React context on the JVM; users thread frames as arguments per

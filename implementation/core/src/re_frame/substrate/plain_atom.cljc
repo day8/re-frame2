@@ -42,7 +42,8 @@
   shared with the test-react adapter via `re-frame.substrate.atom-container`
   — see that ns for the rationale on why only the container quartet (not
   `make-derived-value`) is shared."
-  (:require [re-frame.substrate.atom-container :as atom-container]
+  (:require [re-frame.error :as error]
+            [re-frame.substrate.atom-container :as atom-container]
             #?@(:clj  [[re-frame.interop :as interop]]
                 :cljs [[re-frame.disposable :as rf-disposable]
                        [re-frame.substrate.adapter :as substrate-adapter]])))
@@ -88,8 +89,13 @@
 (defn- render [_ _ _]
   ;; SSR uses render-to-string exclusively. Calling render on the JVM is
   ;; a programmer error worth surfacing loudly.
-  (throw (ex-info ":rf.error/render-on-headless-adapter"
-                  {:reason "render is not supported on the plain-atom adapter; use render-to-string"})))
+  (error/throw-error!
+    :rf.error/render-on-headless-adapter
+    'rf/render
+    (str "render is not supported on the plain-atom adapter (it is headless "
+         "— JVM/SSR, no React reactivity); render server-side HTML with "
+         "rf/render-to-string instead of rf/render.")
+    {:recovery :use-render-to-string}))
 
 ;; The hiccup emitter is set by re-frame.ssr at namespace-load time
 ;; via set-hiccup-emitter!. Stored in an atom so the lookup works on
@@ -106,9 +112,14 @@
 (defn- render-to-string [render-tree opts]
   (if-let [emit @hiccup-emitter]
     (emit render-tree opts)
-    (throw (ex-info ":rf.error/no-hiccup-emitter-bound"
-                    {:reason "the SSR namespace must call set-hiccup-emitter! before render-to-string"
-                     :render-tree render-tree}))))
+    (error/throw-error!
+      :rf.error/no-hiccup-emitter-bound
+      'rf/render-to-string
+      (str "no hiccup emitter is bound on the plain-atom adapter; require the "
+           "re-frame.ssr namespace (which calls set-hiccup-emitter! on load) "
+           "before calling render-to-string.")
+      {:recovery :require-re-frame-ssr
+       :extra    {:render-tree render-tree}})))
 
 (defn- register-context-provider [_frame-keyword]
   ;; No React context on the JVM; users thread frames as arguments per

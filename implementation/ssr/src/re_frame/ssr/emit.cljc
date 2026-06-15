@@ -22,6 +22,7 @@
 
   Per the rf2-gxgo7 split of re-frame.ssr."
   (:require [clojure.string]
+            [re-frame.error :as error]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
@@ -125,19 +126,19 @@
   [tag-name source-kw]
   (when-not (and (string? tag-name)
                  (re-matches tag-name-re tag-name))
-    (throw (ex-info ":rf.error/invalid-tag-name"
-                    {:rf.error/id :rf.error/invalid-tag-name
-                     :where    'rf.ssr/emit
-                     :reason   (str "tag-name " (pr-str tag-name)
-                                    " (from hiccup head " (pr-str source-kw) ")"
-                                    " does not match the HTML5/SVG/MathML"
-                                    " element-name grammar"
-                                    " ([A-Za-z][A-Za-z0-9-]*, optionally"
-                                    " namespaced prefix:local) — DOM tag-name"
-                                    " injection forbidden")
-                     :tag-name tag-name
-                     :source   source-kw
-                     :recovery :no-recovery})))
+    (error/throw-error!
+      :rf.error/invalid-tag-name
+      'rf.ssr/emit
+      (str "tag-name " (pr-str tag-name)
+           " (from hiccup head " (pr-str source-kw) ")"
+           " does not match the HTML5/SVG/MathML"
+           " element-name grammar"
+           " ([A-Za-z][A-Za-z0-9-]*, optionally"
+           " namespaced prefix:local) — DOM tag-name"
+           " injection forbidden. Use a grammar-valid element name.")
+      {:recovery :use-a-valid-element-name
+       :extra    {:tag-name tag-name
+                  :source   source-kw}}))
   tag-name)
 
 ;; Tag-name parsing for the :div#id.cls syntax (Reagent / Hiccup
@@ -320,20 +321,20 @@
   [tag-name children source-head]
   (when (and (contains? raw-text-tags (clojure.string/lower-case tag-name))
              (some string? children))
-    (throw (ex-info ":rf.error/ssr-raw-text-in-body"
-                    {:rf.error/id :rf.error/ssr-raw-text-in-body
-                     :where    'rf.ssr/emit
-                     :reason   (str "Raw string content under a body-position <"
-                                    tag-name "> (hiccup head " (pr-str source-head)
-                                    ") is unsupported — the body emitter has no"
-                                    " single safe escape for raw script/style"
-                                    " content. Put JSON-LD / structured head"
-                                    " content through reg-head, and trusted"
-                                    " inline JS/CSS through the host shell's"
-                                    " trusted :body-end / :head-extra opt.")
-                     :tag      tag-name
-                     :source   source-head
-                     :recovery :no-recovery}))))
+    (error/throw-error!
+      :rf.error/ssr-raw-text-in-body
+      'rf.ssr/emit
+      (str "Raw string content under a body-position <"
+           tag-name "> (hiccup head " (pr-str source-head)
+           ") is unsupported — the body emitter has no"
+           " single safe escape for raw script/style"
+           " content. Put JSON-LD / structured head"
+           " content through reg-head, and trusted"
+           " inline JS/CSS through the host shell's"
+           " trusted :body-end / :head-extra opt.")
+      {:recovery :move-content-to-reg-head-or-shell-opts
+       :extra    {:tag    tag-name
+                  :source source-head}})))
 
 (defn emit-element
   "Emit a hiccup node as an HTML string. The optional `root-attrs` map
@@ -379,18 +380,18 @@
          ;; must wrap the React component in a `reg-view` (which the SSR
          ;; emitter resolves) or render it client-only.
          (= :> head)
-         (throw (ex-info ":rf.error/ssr-reagent-native-head"
-                         {:rf.error/id :rf.error/ssr-reagent-native-head
-                          :where    'rf.ssr/emit
-                          :reason   (str "Reagent-native interop head `:>` "
-                                         "(element " (pr-str el) ") cannot be "
-                                         "rendered server-side — it targets a "
-                                         "React component and there is no React "
-                                         "on the JVM. Wrap the component in a "
-                                         "reg-view for SSR, or render it "
-                                         "client-only.")
-                          :element  el
-                          :recovery :no-recovery}))
+         (error/throw-error!
+           :rf.error/ssr-reagent-native-head
+           'rf.ssr/emit
+           (str "Reagent-native interop head `:>` "
+                "(element " (pr-str el) ") cannot be "
+                "rendered server-side — it targets a "
+                "React component and there is no React "
+                "on the JVM. Wrap the component in a "
+                "reg-view for SSR, or render it "
+                "client-only.")
+           {:recovery :wrap-in-reg-view-or-render-client-only
+            :extra    {:element el}})
 
          ;; Reserved streaming marker `:rf/suspense-boundary` — recognised
          ;; ONLY by the streaming shell walker (`re-frame.ssr.streaming`).
@@ -405,23 +406,23 @@
          ;; silently producing malformed markup. Per Conventions §`:rf/*`
          ;; reserved hiccup heads + Spec 011 §Streaming SSR.
          (= :rf/suspense-boundary head)
-         (throw (ex-info ":rf.error/ssr-suspense-boundary-outside-stream"
-                         {:rf.error/id :rf.error/ssr-suspense-boundary-outside-stream
-                          :where    'rf.ssr/emit
-                          :reason   (str ":rf/suspense-boundary (element "
-                                         (pr-str el) ") is a streaming-only "
-                                         "marker recognised by the streaming "
-                                         "shell walker (re-frame.ssr.ring/"
-                                         "stream-handler), not the standard "
-                                         "emitter. It reached render-to-string "
-                                         "outside a stream — that path cannot "
-                                         "resolve the boundary's continuation, "
-                                         "so it would emit a phantom "
-                                         "<suspense-boundary> DOM element. Use "
-                                         "stream-handler to render trees "
-                                         "containing :rf/suspense-boundary.")
-                          :element  el
-                          :recovery :no-recovery}))
+         (error/throw-error!
+           :rf.error/ssr-suspense-boundary-outside-stream
+           'rf.ssr/emit
+           (str ":rf/suspense-boundary (element "
+                (pr-str el) ") is a streaming-only "
+                "marker recognised by the streaming "
+                "shell walker (re-frame.ssr.ring/"
+                "stream-handler), not the standard "
+                "emitter. It reached render-to-string "
+                "outside a stream — that path cannot "
+                "resolve the boundary's continuation, "
+                "so it would emit a phantom "
+                "<suspense-boundary> DOM element. Use "
+                "stream-handler to render trees "
+                "containing :rf/suspense-boundary.")
+           {:recovery :render-via-stream-handler
+            :extra    {:element el}})
 
          (keyword? head)
          (let [;; Look up registered view first.

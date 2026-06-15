@@ -22,6 +22,7 @@
   CTLs, whitespace, or `( ) < > @ , ; : \\ \" / [ ] ? = { }`). Folds in
   the §P2.4 cookie-name grammar finding."
   (:require [clojure.string :as str]
+            [re-frame.error :as error]
             [re-frame.ssr.http-validation :as http-validation])
   (:import [java.net URLEncoder]
            [java.nio.charset StandardCharsets]
@@ -68,16 +69,16 @@
   [attr-key v]
   (let [s (str v)]
     (when (http-validation/contains-injection-char? s)
-      (throw (ex-info ":rf.error/cookie-invalid-attribute"
-                      {:rf.error/id :rf.error/cookie-invalid-attribute
-                       :where     'rf.ssr/cookie->set-cookie-header
-                       :reason    (str "cookie attribute " attr-key
-                                       " contains CR/LF/NUL — forbidden by"
-                                       " RFC 7230 §3.2.4 (header-splitting"
-                                       " injection)")
-                       :attribute attr-key
-                       :value     v
-                       :recovery  :no-recovery})))
+      (error/throw-error!
+        :rf.error/cookie-invalid-attribute
+        'rf.ssr/cookie->set-cookie-header
+        (str "cookie attribute " attr-key
+             " contains CR/LF/NUL — forbidden by"
+             " RFC 7230 §3.2.4 (header-splitting"
+             " injection). Strip CR/LF/NUL from the attribute value.")
+        {:recovery :remove-injection-chars-from-cookie-attr
+         :extra    {:attribute attr-key
+                    :value     v}}))
     s))
 
 ;; rf2-rpedl / §P2.4 — RFC 6265 §4.1.1 cookie-name = token. The token
@@ -94,15 +95,15 @@
   (let [s (clojure.core/name n)]
     (if (http-validation/valid-token-name? s)
       s
-      (throw (ex-info ":rf.error/cookie-invalid-name"
-                      {:rf.error/id :rf.error/cookie-invalid-name
-                       :where    'rf.ssr/cookie->set-cookie-header
-                       :reason   (str "cookie :name violates RFC 6265 §4.1.1"
-                                      " token grammar (no CTLs, whitespace,"
-                                      " or separators ()<>@,;:\\\"/[]?={}); got "
-                                      (pr-str s))
-                       :name     n
-                       :recovery :no-recovery})))))
+      (error/throw-error!
+        :rf.error/cookie-invalid-name
+        'rf.ssr/cookie->set-cookie-header
+        (str "cookie :name violates RFC 6265 §4.1.1"
+             " token grammar (no CTLs, whitespace,"
+             " or separators ()<>@,;:\\\"/[]?={}); got "
+             (pr-str s) ". Use a token-grammar cookie name.")
+        {:recovery :use-a-token-grammar-cookie-name
+         :extra    {:name n}}))))
 
 (defn- same-site-token [v]
   (case v
@@ -137,12 +138,12 @@
   [{:keys [name value max-age secure http-only same-site path domain expires]
     :as cookie}]
   (when (nil? name)
-    (throw (ex-info ":rf.error/cookie-missing-name"
-                    {:rf.error/id :rf.error/cookie-missing-name
-                     :where    'rf.ssr/cookie->set-cookie-header
-                     :reason   "cookie map must carry :name"
-                     :cookie   cookie
-                     :recovery :no-recovery})))
+    (error/throw-error!
+      :rf.error/cookie-missing-name
+      'rf.ssr/cookie->set-cookie-header
+      "cookie map must carry :name; add a :name key to the cookie map."
+      {:recovery :supply-a-cookie-name
+       :extra    {:cookie cookie}}))
   ;; rf2-rpedl §P2.4 — RFC 6265 §4.1.1 cookie-name token grammar.
   (validate-cookie-name! name)
   ;; `Instant/ofEpochMilli` takes a primitive long; passing anything
@@ -152,13 +153,15 @@
   ;; `:rf.error/cookie-invalid-expires` so the misuse surfaces with the
   ;; cookie's actual shape attached.
   (when (and (some? expires) (not (integer? expires)))
-    (throw (ex-info ":rf.error/cookie-invalid-expires"
-                    {:rf.error/id :rf.error/cookie-invalid-expires
-                     :where    'rf.ssr/cookie->set-cookie-header
-                     :reason   (str ":expires must be an epoch-millis long; got " (.getName (class expires)))
-                     :expires  expires
-                     :cookie   cookie
-                     :recovery :no-recovery})))
+    (error/throw-error!
+      :rf.error/cookie-invalid-expires
+      'rf.ssr/cookie->set-cookie-header
+      (str ":expires must be an epoch-millis long; got "
+           (.getName (class expires))
+           ". Pass :expires as a long count of milliseconds since the epoch.")
+      {:recovery :supply-epoch-millis-long
+       :extra    {:expires expires
+                  :cookie  cookie}}))
   ;; rf2-rpedl §P1.2 — gate every string-shaped attribute that gets
   ;; concatenated into the Set-Cookie wire form. `:value` is URL-encoded
   ;; (CR/LF/NUL come out as %0D/%0A/%00 — no injection path); `:expires`

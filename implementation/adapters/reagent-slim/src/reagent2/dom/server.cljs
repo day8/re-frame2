@@ -763,9 +763,20 @@
 (defn- emit-vector
   [^StringBuffer sb argv]
   (when (zero? (count argv))
-    (throw (ex-info ":rf.error/static-markup-empty-vector"
-                    {:type :rf.error/static-markup-empty-vector
-                     :reason "Hiccup vector cannot be empty."})))
+    ;; Canonical thrown-error shape per Spec 009 §The thrown-error shape
+    ;; (rf2-vvixub) replicated INLINE — reagent-slim is bundle-isolated and
+    ;; MUST NOT `:require` re-frame.* (the slim bundle-isolation gate), so
+    ;; the central `re-frame.error` builder is unavailable here. Human
+    ;; message + trailing [:rf.error/<id>] token; `:rf.error/id` the sole
+    ;; machine discriminator.
+    (throw (ex-info (str "Hiccup vector cannot be empty; give the vector a "
+                         "head tag (e.g. [:div …]). "
+                         "[:rf.error/static-markup-empty-vector]")
+                    {:rf.error/id :rf.error/static-markup-empty-vector
+                     :where       'reagent2.dom.server/render-to-static-markup
+                     :reason      (str "Hiccup vector cannot be empty; give the "
+                                       "vector a head tag (e.g. [:div …]).")
+                     :recovery    :supply-a-head-tag})))
   (let [head (nth argv 0 nil)]
     (cond
       (= :<> head)                (emit-fragment sb argv)
@@ -787,10 +798,20 @@
       ;; Plain user fn head — Form-1 or Form-2 (rf2-o3hqr).
       (fn? head)                  (emit-user-fn sb head argv)
       :else
-      (throw (ex-info ":rf.error/static-markup-bad-tag"
-                      {:type :rf.error/static-markup-bad-tag
-                       :tag  head
-                       :argv argv})))))
+      ;; Canonical shape replicated inline (bundle isolation — see above).
+      (throw (ex-info (str "Hiccup head " (pr-str head)
+                           " is not a valid element head; use a keyword "
+                           "(DOM tag or :>/:<>/:r>/:f>), a Reagent component "
+                           "class, a React component class, or a fn. "
+                           "[:rf.error/static-markup-bad-tag]")
+                      {:rf.error/id :rf.error/static-markup-bad-tag
+                       :where       'reagent2.dom.server/render-to-static-markup
+                       :reason      (str "Hiccup head must be a keyword (DOM tag "
+                                         "or :>/:<>/:r>/:f>), a Reagent component "
+                                         "class, a React component class, or a fn.")
+                       :recovery    :supply-a-valid-hiccup-head
+                       :tag         head
+                       :argv        argv})))))
 
 (defn- emit-element
   "Recursive walker. Per §8.1."
@@ -805,9 +826,18 @@
     (vector? x)     (emit-vector sb x)
     (sequential? x) (doseq [c x] (emit-element sb c))
     :else
-    (throw (ex-info ":rf.error/static-markup-bad-element"
-                    {:type :rf.error/static-markup-bad-element
-                     :got  x}))))
+    ;; Canonical shape replicated inline (bundle isolation — see above).
+    (throw (ex-info (str "Cannot render " (pr-str x)
+                         " as static markup; a hiccup child must be a string, "
+                         "number, keyword, symbol, hiccup vector, or a "
+                         "sequential of those. [:rf.error/static-markup-bad-element]")
+                    {:rf.error/id :rf.error/static-markup-bad-element
+                     :where       'reagent2.dom.server/render-to-static-markup
+                     :reason      (str "A hiccup child must be a string, number, "
+                                       "keyword, symbol, hiccup vector, or a "
+                                       "sequential of those.")
+                     :recovery    :supply-a-renderable-child
+                     :got         x}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Public entry

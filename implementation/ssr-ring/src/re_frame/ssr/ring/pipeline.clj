@@ -35,6 +35,7 @@
   no fixed `\"Internal error\"` fallback string ever reaches a client
   (rf2-kzvwq)."
   (:require [re-frame.core :as rf]
+            [re-frame.error :as error]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
@@ -268,12 +269,13 @@
                      (keyword? error-view) [error-view public-error]
                      (fn? error-view)      (error-view public-error)
                      :else
-                     (throw (ex-info ":rf.error/ssr-ring-invalid-error-view"
-                                     {:rf.error/id :rf.error/ssr-ring-invalid-error-view
-                                      :where    'rf.ssr/ssr-handler
-                                      :reason   ":error-view must be a registered-view keyword or a 1-arity fn"
-                                      :received error-view
-                                      :recovery :no-recovery})))]
+                     (error/throw-error!
+                       :rf.error/ssr-ring-invalid-error-view
+                       'rf.ssr/ssr-handler
+                       (str ":error-view must be a registered-view keyword "
+                            "or a 1-arity fn; pass one of those to ssr-handler.")
+                       {:recovery :supply-a-view-keyword-or-1-arity-fn
+                        :extra    {:received error-view}}))]
         (rf/with-frame frame-id
           (ssr/render-to-string hiccup {:doctype? false :emit-hash? false})))
       (catch Throwable t

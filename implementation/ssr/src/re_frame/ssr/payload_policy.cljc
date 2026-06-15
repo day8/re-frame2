@@ -99,7 +99,8 @@
     `re-frame.ssr.ring.payload/build-payload`     - non-streaming SSR
     `re-frame.ssr.streaming/build-final-payload`  - streaming SSR"
   (:refer-clojure :exclude [resolve])
-  (:require [re-frame.late-bind :as late-bind]
+  (:require [re-frame.error :as error]
+            [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -215,49 +216,49 @@
     ;; missing-policy bucket where a `select-keys` would otherwise ship a
     ;; wrong/empty slice (rf2-hzttr finding 2).
     (malformed-allowlist? payload)
-    (throw (ex-info ":rf.error/ssr-malformed-payload-allowlist"
-                    {:rf.error/id   :rf.error/ssr-malformed-payload-allowlist
-                     :where         'rf.ssr/payload-policy
-                     :reason        (str "ssr-handler :payload allowlist must be a "
-                                         "non-empty VECTOR of KEYWORD "
-                                         "top-level app-db keys; got "
-                                         (pr-str payload)
-                                         " — these entries are not keywords: "
-                                         (pr-str (vec (remove keyword? payload)))
-                                         " (a string key like \"public/articles\" "
-                                         "should be the keyword :public/articles).")
-                     :got           payload
-                     :bad-entries   (vec (remove keyword? payload))
-                     :recovery      :declare-payload-policy}))
+    (error/throw-error!
+      :rf.error/ssr-malformed-payload-allowlist
+      'rf.ssr/payload-policy
+      (str "ssr-handler :payload allowlist must be a "
+           "non-empty VECTOR of KEYWORD "
+           "top-level app-db keys; got "
+           (pr-str payload)
+           " — these entries are not keywords: "
+           (pr-str (vec (remove keyword? payload)))
+           " (a string key like \"public/articles\" "
+           "should be the keyword :public/articles).")
+      {:recovery :declare-payload-policy
+       :extra    {:got         payload
+                  :bad-entries (vec (remove keyword? payload))}})
 
     ;; Caller passed a keyword that isn't the recognised whole-app-db
     ;; opt-in — surface as a distinct error so a typo (e.g.
     ;; `:rf.ssr.payload/whole-db`) doesn't silently land in the
     ;; missing-policy bucket.
     (keyword? payload)
-    (throw (ex-info ":rf.error/ssr-unknown-payload-policy"
-                    {:rf.error/id    :rf.error/ssr-unknown-payload-policy
-                     :where          'rf.ssr/payload-policy
-                     :reason         (str "ssr-handler :payload keyword must be "
-                                          (pr-str whole-app-db-policy)
-                                          " (or pass a vector allowlist of "
-                                          "top-level app-db keys instead)")
-                     :got            payload
-                     :recognised     #{whole-app-db-policy}
-                     :recovery       :declare-payload-policy}))
+    (error/throw-error!
+      :rf.error/ssr-unknown-payload-policy
+      'rf.ssr/payload-policy
+      (str "ssr-handler :payload keyword must be "
+           (pr-str whole-app-db-policy)
+           " (or pass a vector allowlist of "
+           "top-level app-db keys instead)")
+      {:recovery :declare-payload-policy
+       :extra    {:got        payload
+                  :recognised #{whole-app-db-policy}}})
 
     :else
-    (throw (ex-info ":rf.error/ssr-missing-payload-policy"
-                    {:rf.error/id :rf.error/ssr-missing-payload-policy
-                     :where    'rf.ssr/payload-policy
-                     :reason   (str "ssr-handler requires an explicit hydration-"
-                                    "payload policy: pass :payload "
-                                    "[<top-level-app-db-keys>] (allowlist, "
-                                    "preferred) OR :payload "
-                                    (pr-str whole-app-db-policy)
-                                    " to opt-in to shipping the whole app-db.")
-                     :got      payload
-                     :recovery :declare-payload-policy}))))
+    (error/throw-error!
+      :rf.error/ssr-missing-payload-policy
+      'rf.ssr/payload-policy
+      (str "ssr-handler requires an explicit hydration-"
+           "payload policy: pass :payload "
+           "[<top-level-app-db-keys>] (allowlist, "
+           "preferred) OR :payload "
+           (pr-str whole-app-db-policy)
+           " to opt-in to shipping the whole app-db.")
+      {:recovery :declare-payload-policy
+       :extra    {:got payload}})))
 
 (defn apply-policy
   "Project `app-db` to the wire slice per the caller's declared `:payload`
