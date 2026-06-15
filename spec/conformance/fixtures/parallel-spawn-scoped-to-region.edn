@@ -14,7 +14,7 @@
 
 {:fixture/id           :machine/parallel-spawn-scoped-to-region
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/parallel-regions :actor/invoke}
+ :fixture/capabilities #{:fsm/parallel-regions :actor/declarative-spawn}
  :fixture/doc          "An :spawn-bearing state inside a region emits :rf.machine/spawn fx whose :rf/invoke-id is prefixed with the region name. The sibling region's transition does not affect the spawned actor."
 
  :fixture/registry

@@ -29,7 +29,7 @@
 
 {:fixture/id           :machine/spawn-on-spawn-callback
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/invoke}
+ :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/declarative-spawn}
  :fixture/doc          "The :on-spawn callback receives `{:data ... :id ...}` per rf2-grw4i / rf2-v0rrr. Return is advisory only — the parent's `:data` is NOT mutated by the callback. Verifies the callback fires with the just-allocated actor-id via the spawn-fx's `:rf/spawned-id` slot."
 
  :fixture/registry

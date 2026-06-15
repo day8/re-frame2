@@ -264,7 +264,7 @@ Inside a transition-table state node, the following keys are reserved by the run
 | `:states` | Nested compound states (when present, the state is a compound state) | `:fsm/hierarchical` | 005 |
 | `:always` | Eventless transition slot — fires when guard becomes true | `:fsm/eventless-always` | 005 |
 | `:after` | Delayed transition slot — fires after a time delay | `:fsm/delayed-after` | 005 |
-| `:spawn` | Declarative actor-spawn-on-entry / destroy-on-exit (sugar over imperative `:rf.machine/spawn` / `:rf.machine/destroy`); see [005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn) | `:actor/invoke` | 005 |
+| `:spawn` | Declarative actor-spawn-on-entry / destroy-on-exit (sugar over imperative `:rf.machine/spawn` / `:rf.machine/destroy`); see [005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn) | `:actor/declarative-spawn` | 005 |
 | `:spawn-all` | Declarative spawn-and-join — N parallel `:spawn`s plus a join condition (`:all` / `:any` / `{:n N}` / `{:fn ...}`); see [005 §Spawn-and-join via `:spawn-all`](005-StateMachines.md#spawn-and-join-via-spawn-all) | `:actor/spawn-and-join` | 005 |
 
 The reserved set is **fixed-and-additive**: existing reserved keys cannot be repurposed; new keys are added by Spec change. Keys outside the reserved set are tolerated as user metadata (open-map invariant) but ignored by the runtime.

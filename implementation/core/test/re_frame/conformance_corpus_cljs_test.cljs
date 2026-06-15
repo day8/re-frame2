@@ -174,7 +174,7 @@
     ;; cross-host byte-contract.
     :identity/cedn1
     :actor/spawn-destroy   ;; rf2-mtq4h — renamed from :actor/spawn to align with spec vocabulary
-    :actor/invoke
+    :actor/declarative-spawn
     :actor/spawn-and-join
     :actor/system-id
     ;; :actor/timeout retired per rf2-3y3y — :fsm/delayed-after subsumes
