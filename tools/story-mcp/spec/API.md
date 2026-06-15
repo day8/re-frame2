@@ -193,6 +193,17 @@ plus pagination metadata when active. Per-kind slots: `:has-wrap?`
 (hiccup, never the closure itself); `:init` + `:app-db-patch`
 (frame-setup); `:fx-id` + `:response` (fx-override).
 
+The `:kind` filter is an **enum** — a SUPPLIED value outside
+`{"hiccup" "frame-setup" "fx-override"}` returns an `isError: true`
+diagnostic (`:rf.error :rf.story-mcp/unknown-decorator-kind`), NOT a
+silent widen to the full catalogue (rf2-cdavyf). Resolving a typo
+(`"hicup"`) to `nil` and treating `nil` as no-filter used to return
+EVERY decorator, hiding the caller's mistake behind a successful-looking
+result. An ABSENT `:kind` (the slot was never sent) is the legitimate
+no-filter path; only a present-but-unrecognised value rejects. The
+unrecognised string never mints a fresh JVM keyword (it short-circuits
+through `safe-keyword`).
+
 When a `:kind` filter is applied, the cursor's fingerprint is over
 the filtered id-set — so a kind-filter change between pages reads
 as a stale cursor (different fingerprint).

@@ -4123,13 +4123,38 @@
       (is (nil? (find-kw nil name-str))
           "rf2-lqjbk: unknown tag id MUST NOT intern"))))
 
-(deftest list-decorators-unknown-kind-falls-through
-  (testing ":kind filter with an unrecognised value rejects WITHOUT interning"
-    (let [name-str (str "rf2-lqjbk-kind-" (System/nanoTime))
-          r        (invoke "list-decorators" {:kind name-str})]
-      (is (success? r) "the no-filter fallback still returns the registered decorators")
+(deftest list-decorators-unknown-kind-rejects
+  ;; rf2-cdavyf — a SUPPLIED `:kind` outside the bounded enum is an
+  ;; agent-recoverable error, NOT a silent widen to the full catalogue.
+  ;; (Pre-fix the typo resolved to nil and was treated as no filter,
+  ;; returning EVERY decorator — hiding the caller's mistake behind a
+  ;; successful-looking full result.) The no-intern invariant (rf2-lqjbk)
+  ;; still holds: the unrecognised kind string never mints a fresh keyword.
+  (testing ":kind filter with an unrecognised value REJECTS WITHOUT interning (rf2-cdavyf)"
+    (let [name-str (str "rf2-cdavyf-kind-" (System/nanoTime))
+          r        (invoke "list-decorators" {:kind name-str})
+          s        (:structuredContent r)]
+      (is (error? r) "an unrecognised :kind surfaces an isError diagnostic, not a full catalogue")
+      (is (= :rf.story-mcp/unknown-decorator-kind (:rf.error s))
+          "the structured error carries the unknown-decorator-kind id")
+      (is (= name-str (:kind s)) "echoes the bad kind value")
+      (is (= ["frame-setup" "fx-override" "hiccup"] (:allowed s))
+          "lists the bounded enum so the agent can correct")
+      (is (re-find #"(?i)unknown decorator kind" (-> r :content first :text)))
       (is (nil? (find-kw nil name-str))
-          "rf2-lqjbk: unknown kind name MUST NOT intern"))))
+          "rf2-cdavyf / rf2-lqjbk: unknown kind name MUST NOT intern"))))
+
+(deftest list-decorators-known-kind-and-absent-kind-still-work
+  ;; rf2-cdavyf — the reject path is PRESENT-but-unrecognised only. An
+  ;; absent `:kind` (no filter requested) and a valid `:kind` both still
+  ;; succeed.
+  (testing "absent :kind returns the full catalogue; a valid :kind filters (rf2-cdavyf)"
+    (let [no-filter (invoke "list-decorators" {})
+          valid     (invoke "list-decorators" {:kind "hiccup"})]
+      (is (success? no-filter) "absent :kind is the legitimate no-filter path")
+      (is (vector? (-> no-filter :structuredContent :decorators)))
+      (is (success? valid) "a recognised :kind filters rather than rejecting")
+      (is (vector? (-> valid :structuredContent :decorators))))))
 
 (deftest run-variant-unknown-substrate-does-not-intern
   (testing "run-variant :substrate with an unknown value is dropped WITHOUT interning"
@@ -4325,12 +4350,17 @@
 
 (deftest ingress-legitimate-wire-keys-still-dispatch
   (testing "known JSON wire arg keys still normalise + dispatch correctly (rf2-3luf3)"
-    ;; variant-id + max-tokens + include-sensitive are read by get-variant /
-    ;; the wire-pipeline; all must survive the no-intern normalisation.
+    ;; variant-id + max-tokens are read by get-variant / the wire-pipeline;
+    ;; both must survive the no-intern normalisation. (rf2-an95jj —
+    ;; `:include-sensitive` is deliberately NOT exercised here: get-variant
+    ;; surfaces no value-bearing slot, so it does not advertise that knob,
+    ;; and the per-tool schema check now rejects it for this tool. The
+    ;; `:include-sensitive` no-intern path is covered on the tools that DO
+    ;; advertise it — preview-variant / run-variant / read-failures etc.)
     (let [frame  (str "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\","
                       "\"params\":{\"name\":\"get-variant\","
                       "\"arguments\":{\"variant-id\":\"story.button/primary\","
-                      "\"max-tokens\":4000,\"include-sensitive\":false}}}\n")
+                      "\"max-tokens\":4000}}}\n")
           frames (run-frames! frame)
           result (-> frames first :result)]
       (is (= 5 (:id (first frames))))
@@ -4449,6 +4479,149 @@
           "no dropped keys ⇒ no unknown-arg metadata")
       (let [r (wire-pipeline/invoke-tool "run-variant" arg-map)]
         (is (success? r) "an all-recognised call dispatches the handler normally")))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-an95jj — per-tool argument-schema enforcement AFTER the global
+;; no-intern normalisation.
+;;
+;; `protocol/normalize-frame` only drops keys outside the UNION of every
+;; tool's argument keys (`protocol/arg-keys`). A key valid for ANOTHER
+;; tool — `:body` (register-variant), `:write-back` (record-as-variant),
+;; `:dedup` on a non-eligible tool — therefore SURVIVES normalisation as a
+;; keyword entry and used to be silently ignored by the selected handler.
+;; The per-tool check (`tool-invalid-arg-keys`) is the descriptor-level
+;; `additionalProperties false` backstop: it rejects globally-known keys
+;; the SELECTED tool doesn't advertise, with the same
+;; `:rf.story-mcp/unknown-arguments` shape as the global-unknown diagnostic.
+;; ---------------------------------------------------------------------------
+
+(deftest invoke-tool-rejects-tool-invalid-but-globally-known-arg
+  ;; rf2-an95jj acceptance — `get-variant` with `:body`. `:body` is a real
+  ;; key (register-variant advertises it) so it survives the global
+  ;; allowlist as a keyword entry; but get-variant does NOT advertise it.
+  (testing "a globally-known but tool-invalid arg (`:body` on get-variant) rejects (rf2-an95jj)"
+    (let [r (wire-pipeline/invoke-tool "get-variant"
+                                       {:variant-id "story.button/primary" :body "x"})
+          s (:structuredContent r)]
+      (is (error? r) "tool-invalid arg ⇒ isError result, not a silent ignore + success")
+      (is (= :rf.story-mcp/unknown-arguments (:rf.error s))
+          "uses the unknown-arguments diagnostic shape")
+      (is (= "get-variant" (:tool s)) "names the tool")
+      (is (= ["body"] (:unknown s)) "names the tool-invalid key")
+      (is (contains? (set (:allowed s)) "variant-id")
+          "lists the tool's advertised arg-key set")
+      (is (not (contains? (set (:allowed s)) "body"))
+          "the tool's allowed set does NOT include the rejected key"))))
+
+(deftest invoke-tool-rejects-write-back-on-run-variant
+  ;; rf2-an95jj acceptance — `run-variant` with `:write-back`. `:write-back`
+  ;; is advertised by record-as-variant; run-variant does not advertise it.
+  (testing "`:write-back` on run-variant rejects (globally-known, tool-invalid) (rf2-an95jj)"
+    (let [r (wire-pipeline/invoke-tool "run-variant"
+                                       {:variant-id "story.button/primary"
+                                        :write-back true})
+          s (:structuredContent r)]
+      (is (error? r))
+      (is (= :rf.story-mcp/unknown-arguments (:rf.error s)))
+      (is (= "run-variant" (:tool s)))
+      (is (= ["write-back"] (:unknown s))))))
+
+(deftest invoke-tool-tolerates-dedup-on-non-eligible-tool
+  ;; rf2-an95jj — `:dedup` is advertised only on the three dedup-eligible
+  ;; tools but is DOCUMENTED as silently ignored elsewhere (it is a
+  ;; wire-managed knob the dispatcher gates on `:dedup-eligible?`). So a
+  ;; `:dedup` on a non-eligible tool must NOT trip the per-tool diagnostic
+  ;; — otherwise the test-helper default (`{:dedup false}` on every call)
+  ;; would break every non-eligible-tool test.
+  (testing "`:dedup` on a non-eligible tool is tolerated, not rejected (rf2-an95jj)"
+    (let [r (wire-pipeline/invoke-tool "get-variant"
+                                       {:variant-id "story.button/primary" :dedup false})]
+      (is (success? r) "a wire-managed knob on a non-advertising tool dispatches normally"))))
+
+(deftest invoke-tool-tolerates-include-sensitive-on-advertising-tool
+  ;; rf2-an95jj — `:include-sensitive` on a tool that DOES advertise it
+  ;; (read-failures) is tool-valid and must dispatch (the slot lives in the
+  ;; descriptor's properties regardless of the operator gate).
+  (testing "`:include-sensitive` on a tool that advertises it dispatches (rf2-an95jj)"
+    (let [r (wire-pipeline/invoke-tool "read-failures"
+                                       {:variant-id "story.button/primary"
+                                        :include-sensitive false})]
+      (is (success? r) "an advertised value-knob is tool-valid and dispatches"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-p0eiq3 — pre-dispatch error envelopes ride the response cap.
+;;
+;; `spec/Principles.md §Tight token budget` bounds EVERY tool response,
+;; errors included. The pre-dispatch rejection branches (unknown-arg,
+;; invalid-`:max-tokens`, per-tool unknown-arg) used to return BEFORE the
+;; cap — so a caller packing many long unknown keys inside the 4 MB frame
+;; cap received an uncapped diagnostic echoing them all back. The cap now
+;; applies to those envelopes too.
+;; ---------------------------------------------------------------------------
+
+(deftest unknown-arg-error-rides-the-response-cap
+  ;; rf2-p0eiq3 — many large unknown keys produce an overflow marker under
+  ;; a small cap rather than an uncapped echo. The unknown keys ride as
+  ;; metadata (no-intern), so we build the frame through normalise-frame.
+  (testing "an unknown-argument diagnostic overflows under a small cap (rf2-p0eiq3)"
+    (let [big-keys (apply str
+                          (for [i (range 200)]
+                            (str "\"unknown-key-" i "-"
+                                 (apply str (repeat 80 \x))
+                                 "\":1,")))
+          frame    (str "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\","
+                        "\"params\":{\"name\":\"get-variant\","
+                        "\"arguments\":{" big-keys
+                        "\"variant-id\":\"story.button/primary\"}}}")
+          arg-map  (-> (proto/normalize-frame (proto/parse-json frame))
+                       :params :arguments)
+          ;; sanity: the unknown keys WERE recorded as metadata
+          _        (is (seq (get (meta arg-map) proto/unknown-arg-keys-meta))
+                       "the many unknown keys are recorded for the diagnostic")
+          capped   (wire-pipeline/invoke-tool "get-variant"
+                                              (with-meta (assoc arg-map :max-tokens 5)
+                                                (meta arg-map)))]
+      (is (overflow-marker? capped)
+          "the uncapped echo of many long unknown keys is replaced by the overflow marker")
+      (is (= "get-variant" (get-in capped [:structuredContent vocab/overflow-key :tool]))
+          "the overflow marker names the tool"))))
+
+(deftest invalid-max-tokens-error-is-bounded
+  ;; rf2-p0eiq3 — the invalid-`:max-tokens` rejection envelope is small and
+  ;; bespoke, but it must still ride the cap path (default cap, since the
+  ;; caller's cap was malformed). It is well under the default, so it
+  ;; passes through intact — proving the cap path is exercised without
+  ;; tripping, and the rejection shape is preserved (rf2-5rdit).
+  (testing "the invalid-max-tokens rejection is routed through the cap and preserved (rf2-p0eiq3)"
+    (let [r    (wire-pipeline/invoke-tool "list-tags" {:max-tokens -1})
+          body (get-in r [:structuredContent vocab/invalid-arg-key])]
+      (is (true? (:isError r)))
+      (is (not (overflow-marker? r)) "a tiny rejection is under the default cap")
+      (is (= :max-tokens (:arg body)) "the rejection shape survives the cap path")
+      (is (= -1 (:value body))))))
+
+(deftest tool-invalid-arg-error-rides-the-response-cap
+  ;; rf2-p0eiq3 + rf2-an95jj — the per-tool unknown-arg diagnostic is
+  ;; capped too. The diagnostic echoes the offending key names + the tool's
+  ;; allowed set; throwing every globally-known key get-variant does NOT
+  ;; advertise (~18 of them) makes that echo exceed a 1-token cap, so the
+  ;; per-tool diagnostic must overflow rather than return uncapped.
+  (testing "a per-tool unknown-arg diagnostic overflows under a tiny cap (rf2-p0eiq3)"
+    (let [tool-invalid {:story-id "x" :new-variant-id "x" :extends "x"
+                        :substrate "x" :active-modes ["x"] :cell-overrides {}
+                        :base-url "x" :body "x" :doc "x" :alias "x"
+                        :tags ["x"] :kind "x" :write-back true
+                        :duration-ms 1 :timeout-ms 1}
+          r (wire-pipeline/invoke-tool "get-variant"
+                                       (assoc tool-invalid
+                                              :variant-id "story.button/primary"
+                                              :max-tokens 1))]
+      ;; All those keys are globally-known (in `protocol/arg-keys`) but
+      ;; tool-invalid for get-variant, so they survive normalisation and
+      ;; the per-tool check diagnoses them.
+      (is (overflow-marker? r)
+          "the capped per-tool diagnostic replaces the uncapped echo — proving it rides the cap path")
+      (is (= "get-variant" (get-in r [:structuredContent vocab/overflow-key :tool]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Cap accounting includes :structuredContent size (rf2-mzndx)
