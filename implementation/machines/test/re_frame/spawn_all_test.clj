@@ -307,7 +307,97 @@
                            {:s {:spawn-all {:children       [{:id :x :machine-id :foo}]
                                              :join           {:n 3}
                                              :on-child-done  :done
-                                             :on-child-error :failed}}}})))))
+                                             :on-child-error :failed}}}}))))
+  ;; rf2-vyjq3m: a :spawn-all child must declare EXACTLY ONE of :machine-id /
+  ;; :definition (XOR). Previously a child carrying BOTH slipped through
+  ;; `(or :machine-id :definition)`; now both-set is rejected too.
+  (testing ":spawn-all child with BOTH :machine-id AND :definition — rejected (XOR)"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #"machine-spawn-all-bad-shape"
+          (rf/reg-machine :bad/child-both
+                          {:initial :s
+                           :states
+                           {:s {:spawn-all {:children        [{:id         :x
+                                                                :machine-id :foo
+                                                                :definition {:initial :i
+                                                                             :states  {:i {}}}}]
+                                             :on-child-done   :done
+                                             :on-child-error  :failed
+                                             :on-all-complete [:done]}}}}))))
+  (testing ":spawn-all child with EXACTLY ONE of :machine-id / :definition — accepted"
+    (is (some?
+          (rf/reg-machine :ok/child-def
+                          {:initial :s
+                           :states
+                           {:s {:spawn-all {:children        [{:id         :x
+                                                                :definition {:initial :i
+                                                                             :states  {:i {}}}}]
+                                             :on-child-done   :done
+                                             :on-child-error  :failed
+                                             :on-all-complete [:done]}}}}))
+        "an inline-definition :spawn-all child (no :machine-id) registers cleanly")))
+
+;; ---- single :spawn :machine-id xor :definition (rf2-vyjq3m) ---------------
+;;
+;; `validate-machine!` previously had NO single-:spawn XOR check — a :spawn
+;; declaring BOTH :machine-id and :definition (ambiguous: inline init while
+;; :rf/machine-type stamps the registered id → type mismatch on restore) or
+;; NEITHER (nothing to instantiate → late actor-id allocation failure) slipped
+;; through registration. Now both fail-closed with :rf.error/machine-spawn-
+;; bad-shape. XState-v5 alignment: `invoke` takes exactly one source (a
+;; referenced/registered actor logic OR an inline one), never both/neither.
+
+(deftest single-spawn-id-xor-definition-validated-at-registration
+  (testing "a single :spawn declaring NEITHER :machine-id nor :definition — rejected"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #"machine-spawn-bad-shape"
+          (rf/reg-machine :spawnxor/neither
+                          {:initial :working
+                           :states  {:working {:spawn {:on-spawn (fn [_] nil)}}
+                                     :done    {}}}))))
+  (testing "a single :spawn declaring BOTH :machine-id AND :definition — rejected (XOR)"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #"machine-spawn-bad-shape"
+          (rf/reg-machine :spawnxor/both
+                          {:initial :working
+                           :states  {:working {:spawn {:machine-id :some/child
+                                                       :definition {:initial :i
+                                                                    :states  {:i {}}}}}
+                                     :done    {}}}))))
+  (testing "a single :spawn declaring EXACTLY ONE — :machine-id alone — accepted"
+    (is (some?
+          (rf/reg-machine :spawnxor/id-only
+                          {:initial :working
+                           :states  {:working {:spawn {:machine-id :some/child}}
+                                     :done    {}}}))
+        "a registered-machine spawn registers cleanly"))
+  (testing "a single :spawn declaring EXACTLY ONE — :definition alone — accepted"
+    (is (some?
+          (rf/reg-machine :spawnxor/def-only
+                          {:initial :working
+                           :states  {:working {:spawn {:definition {:initial :i
+                                                                    :states  {:i {}}}}}
+                                     :done    {}}}))
+        "an inline-definition spawn registers cleanly"))
+  (testing "exactly-one :spawn with :fixed-actor-id / :id-prefix still accepted"
+    (is (some?
+          (rf/reg-machine :spawnxor/fixed
+                          {:initial :working
+                           :states  {:working {:spawn {:machine-id     :some/child
+                                                       :fixed-actor-id :the-one}}
+                                     :done    {}}}))
+        "an explicit :fixed-actor-id alongside exactly-one source is fine")
+    (is (some?
+          (rf/reg-machine :spawnxor/prefix
+                          {:initial :working
+                           :states  {:working {:spawn {:definition {:initial :i
+                                                                    :states  {:i {}}}
+                                                       :id-prefix  :worker}}
+                                     :done    {}}}))
+        "an explicit :id-prefix alongside exactly-one source is fine")))
 
 ;; ---- decisive-child payload forwarding (rf2-4aop8) -----------------------
 

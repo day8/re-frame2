@@ -12,6 +12,8 @@
       (rf2-mle6e.3): placement, closed key-set, one-per-compound,
       `:default-target` resolution.
     - `validate-parallel!` — `:type :parallel` shape (rf2-l67o).
+    - `validate-spawn!` — single `:spawn` `:machine-id` xor
+      `:definition` (rf2-vyjq3m).
     - `validate-spawn-all!` — `:spawn-all` shape (rf2-6vmw).
     - `validate-no-spawn-timeout-ms!` — rejects the dropped
       `:timeout-ms` / `:on-timeout` slots on `:spawn` / `:spawn-all`
@@ -115,6 +117,28 @@
                     :on-timeout ot
                     :migration  "migration/from-re-frame-v1/README.md §M-44"})))))))
 
+(defn- spawn-id-xor-definition-error
+  "The XOR check shared by single `:spawn` and each `:spawn-all` child
+  (rf2-vyjq3m): a spawn-spec must declare EXACTLY ONE of `:machine-id` /
+  `:definition`. Returns a `:reason` string when the spec violates the XOR
+  (neither key, or both keys), or nil when exactly one is present. Per Spec
+  005 §`:spawn` (the spec-table key cell \"exactly one of these\") +
+  Spec-Schemas §`:rf/state-node` — making \"exactly one of `:machine-id` or
+  `:definition`\" a registration-time constraint (previously only the
+  neither-`:spawn-all`-child case was rejected; single `:spawn` and the
+  both-set case both slipped through, so a both-set spec could initialise a
+  child from the inline `:definition` while stamping `:rf/machine-type` from
+  the registered `:machine-id` — a lazy-resolution / restore type mismatch)."
+  [spec]
+  (let [has-id?  (contains? spec :machine-id)
+        has-def? (contains? spec :definition)]
+    (cond
+      (and has-id? has-def?)
+      "declares BOTH :machine-id and :definition — exactly one is allowed (they are XOR)"
+      (and (not has-id?) (not has-def?))
+      "declares NEITHER :machine-id nor :definition — exactly one is required"
+      :else nil)))
+
 (defn- validate-spawn-all!
   "Per Spec 005 §Spawn-and-join via `:spawn-all` (rf2-6vmw): walk the
   state tree at registration time and reject malformed `:spawn-all`
@@ -155,10 +179,15 @@
                      "each child spawn-spec must declare an :id keyword"
                      {:state state-key
                       :child c})))
-          (when-not (or (:machine-id c) (:definition c))
+          ;; rf2-vyjq3m: a child spawn-spec must declare EXACTLY ONE of
+          ;; `:machine-id` / `:definition` (XOR) — previously only the
+          ;; NEITHER case was rejected; a child carrying BOTH keys slipped
+          ;; through `(or :machine-id :definition)` and could materialise a
+          ;; different machine type on restore than the one that spawned it.
+          (when-let [reason (spawn-id-xor-definition-error c)]
             (throw (validation-error
                      :rf.error/machine-spawn-all-bad-shape
-                     "each child spawn-spec must declare :machine-id or :definition"
+                     (str "each child spawn-spec " reason)
                      {:state state-key
                       :child c}))))
         (let [ids (map :id children)]
@@ -680,6 +709,27 @@
              {:state  state-key
               :error? (:error? state-node)}))))
 
+(defn- validate-spawn!
+  "Per Spec 005 §`:spawn` + Spec-Schemas §`:rf/state-node` (rf2-vyjq3m): a
+  single `:spawn`-bearing state node's spawn-spec must declare EXACTLY ONE of
+  `:machine-id` / `:definition`. Rejects both-set and neither-set at
+  registration with `:rf.error/machine-spawn-bad-shape` (fail-closed) — the
+  contract promised registration-time rejection but `validate-machine!`
+  previously had NO single-`:spawn` XOR check, so a malformed spec deferred to
+  a late actor-id allocation failure (neither) or a silent type mismatch on
+  restore (both). `:spawn-all` children are checked by `validate-spawn-all!`
+  (the `:spawn` / `:spawn-all` mutual exclusion means at most one runs here).
+  Absent `:spawn` is fine."
+  [state-key state-node]
+  (when-let [spawn (:spawn state-node)]
+    (when (map? spawn)
+      (when-let [reason (spawn-id-xor-definition-error spawn)]
+        (throw (validation-error
+                 :rf.error/machine-spawn-bad-shape
+                 (str ":spawn spec " reason ".")
+                 {:state state-key
+                  :spawn spawn}))))))
+
 (defn- validate-spawn-on-error!
   "Per Spec 005 §Final states §`:on-error` (rf2-5hlsh): a `:spawn`-bearing
   state's `:spawn :on-error` is an `:on`-shaped transition spec — a keyword
@@ -1042,6 +1092,12 @@
   `:spawn-all`-bearing state node — shape, no duplicate `:id`s, required
   join-event keys per `:join` form, mutually exclusive with `:spawn`.
 
+  Per Spec 005 §`:spawn` + Spec-Schemas §`:rf/state-node` (rf2-vyjq3m):
+  every single `:spawn`-bearing state node — and every `:spawn-all` child —
+  must declare EXACTLY ONE of `:machine-id` / `:definition` (XOR). Throws
+  `:rf.error/machine-spawn-bad-shape` (single `:spawn`) /
+  `:rf.error/machine-spawn-all-bad-shape` (child) on both-set or neither-set.
+
   Per rf2-3y3y: every `:spawn` / `:spawn-all` rejects the dropped
   `:timeout-ms` / `:on-timeout` slot (use parent `:after`).
 
@@ -1075,6 +1131,7 @@
   (validate-history! machine)
   (validate-parallel! machine)
   (doseq [[s n] (walk-state-nodes machine)]
+    (validate-spawn! s n)
     (validate-spawn-all! s n)
     (validate-no-spawn-timeout-ms! s n)
     (validate-final-state! s n)
