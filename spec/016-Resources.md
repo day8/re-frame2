@@ -160,7 +160,7 @@ A common boundary — logout, account switch, tenant switch — wants to clear t
                          :cause :logout}]]]})))
 ```
 
-A resolver helper — `resolve-resource-scope` (resolve a named resource scope against a **given db value**) — ships for ergonomics: a plain function over the resolver registry, no new effect-API surface and no resolution-timing ambiguity, **no app-state / dispatch side effects**. It is **not an effect**, and (rf2-ru73k6) it is a **pure** data helper: it emits **no** `:rf.resource/scope-resolved` trace, because a passive read advertised as pure must not mutate observability state. The `:rf.resource/scope-resolved` dev-trace evidence (the inputs / resolved scope / fail-closed `:resolved-nil?` row tooling reads) is emitted only at the **causal** resolution boundaries — a resource event's `{:from-db …}` scope, route entry, and mutation settle — where the resolve is part of a recorded causal step; passive subscription key resolution resolves trace-free for the same reason. There is **no `:snapshot-db` payload key**: a whole-db snapshot riding an event vector is an egress-bearing record on traces and epoch history — unacceptable under [EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md) (EP-0016 issue 7). A `{:from-db …}` reference *may* still appear on a `clear-scope` payload; the single use-time resolution rule applies, and a reference that resolves **nil** at a clear-scope site emits a **loud diagnostic** (`:rf.warning/resource-clear-scope-unresolved`), **never** a silent no-op.
+The `resolve-resource-scope` helper used here is a **pure** data helper over the resolver registry — not an effect, no app-state / dispatch side effects, and no `:rf.resource/scope-resolved` trace (the full rationale is in [§Registration](#registration)). There is **no `:snapshot-db` payload key**: a whole-db snapshot riding an event vector is an egress-bearing record on traces and epoch history — unacceptable under [EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md) (EP-0016 issue 7). A `{:from-db …}` reference *may* still appear on a `clear-scope` payload; the single use-time resolution rule applies, and a reference that resolves **nil** at a clear-scope site emits a **loud diagnostic** (`:rf.warning/resource-clear-scope-unresolved`), **never** a silent no-op.
 
 ## Named resource-scope resolvers (`reg-resource-scope`)
 
@@ -348,11 +348,17 @@ The transition function over the five states:
 :fetching
   success                        -> :loaded
   failure                        -> :loaded  (:refresh-error set; last-known-good :data preserved)
-  superseded reply               -> previous stable state
+  superseded reply               -> previous stable state  (suppressed; the entry's last
+                                                            stable status from before the
+                                                            superseded attempt — :loaded if
+                                                            it has :data, else :idle/:error —
+                                                            never written by the stale reply)
 
 :error
   refetch                        -> :loading
 ```
+
+**Totality.** The transition function is total over the **closed signal set** `:start-load` (the `ensure`/`refetch` start) / `:success` / `:failure`, with `has-data?` selecting the `:loading` vs `:fetching` start. A signal with no row for the current status is a **no-op** (the status is unchanged) — e.g. an `invalidate` of an `:idle` entry, or a fresh-skip `ensure` of a `:loaded` entry ([§Xray and AI tooling](#xray-and-ai-tooling) `:rf.resource/cache-hit`), leaves the status where it is rather than forcing an edge. Invalidation and freshness mutate the **timestamp facts** (`:invalidated-at` / `:stale-at`), which are orthogonal to load status ([§Status semantics](#status-semantics)), so they need no FSM edge of their own. There is deliberately **no `:fetching -> :error` edge**: a background-refresh failure returns to `:loaded` and records `:refresh-error` (the last-known-good `:data` is preserved); `:error` is reserved for a first load that never produced usable data.
 
 The resource FSM describes **cache-entry status**. The **work ledger** describes the **attempt lifecycle** that may currently be moving that cache entry: queued, running, abort-requested, completed, failed, timed out, suppressed, or cancelled (see [§Frame work ledger](#frame-work-ledger)). Resource `:status` MUST NOT be overloaded with host-handle state.
 
@@ -363,7 +369,9 @@ Transport retry belongs to the transport adapter — managed HTTP in the initial
 Resource state uses [Pattern-RemoteData](Pattern-RemoteData.md) semantics, but durable entries store **facts, not derived booleans**:
 
 ```clojure
-{:status         :idle | :loading | :fetching | :loaded | :error
+{:resource/id    <registered-resource-id>
+ :resource/key   <scoped-resource-key-or-nil>
+ :status         :idle | :loading | :fetching | :loaded | :error
  :data           <last-known-good-or-nil>
  :error          <first-load-error-or-nil>
  :refresh-error  <background-refresh-error-or-nil>
@@ -373,9 +381,12 @@ Resource state uses [Pattern-RemoteData](Pattern-RemoteData.md) semantics, but d
  :attempt        <int>
  :generation     <int>
  :request-id     <request-id-or-nil>
+ :current-work   <work-id-or-nil>
  :tags           <set>
  :active-owners  <set>}
 ```
+
+`:resource/id` is the registered resource id (a bare keyword); `:resource/key` is the entry's own scoped resource key (the `[scope resource-id params]` tuple, [§Resource identity](#resource-identity)); `:current-work` points at the in-flight attempt's `:work/id` (the join to the [work ledger](#frame-work-ledger), cleared when no attempt is live — [§Restore and replay](#restore-and-replay)). The `:keep-previous?` projection pointer `:previous-key` rides the entry too ([§Paginated and previous data](#paginated-and-previous-data)). The durable entry stores **facts**; `:loading?` / `:fetching?` / `:stale?` / `:has-data?` are derived, never stored.
 
 This deliberately **refines** Pattern-RemoteData's broad `:error` state. The load-bearing invariants (MUST):
 
@@ -720,7 +731,7 @@ A `:mutation` registrar kind is added (the causal-write counterpart of `:resourc
 
 Unlike a resource — whose single scope policy is uniformly fail-closed (§[Scope resolution](#scope-resolution)) — a mutation carries **two distinct scopes** with **opposite default policies**, because a causal write and a cached read have different safety boundaries.
 
-- **Execution scope is FAIL-OPEN.** The scope a mutation's invalidation / patch / populate *defaults to* resolves in precedence order **execute-payload `:scope` → mutation-spec `:scope` → `:rf.scope/global`**. A mutation is a causal write, not a cached read, so it has **no cached-read leak boundary of its own** — defaulting to `:rf.scope/global` leaks nothing, so `:scope` is OPTIONAL at `reg-mutation` and on the execute payload. (The resolved concrete scope is still routed through the shared scope-canonicalization path, so a misspelled `:rf.scope/*` keyword or an opaque host value is still rejected loudly — fail-open on *absence*, not on a *wrong* value.)
+- **Execution scope is FAIL-OPEN on *absence*, not on a *wrong* value.** The scope a mutation's invalidation / patch / populate *defaults to* resolves in precedence order **execute-payload `:scope` → mutation-spec `:scope` → `:rf.scope/global`**. A mutation is a causal write, not a cached read, so it has **no cached-read leak boundary of its own** — defaulting to `:rf.scope/global` when no scope is supplied leaks nothing, so `:scope` is OPTIONAL at `reg-mutation` and on the execute payload. Fail-open governs **only** the absent-scope case: a scope that **is** supplied is still routed through the shared scope-canonicalization path, so a misspelled `:rf.scope/*` keyword or an opaque host value is rejected loudly. The framework never silently accepts a *wrong* scope value — it only supplies global when *none* was named.
 - **Invalidation scope is FAIL-CLOSED.** The success-time invalidation a mutation triggers composes with `:rf.resource/invalidate-tags`, which **requires an explicit scope**: it throws `:rf.error/resource-invalidate-scope-required` when none is supplied, and `:cross-scope? true` is the **only** scope-agnostic opt-out (which MUST be visible and lintable in Xray, as for any broad invalidation). A blind invalidation across all scopes would stale or refetch data for other users, tenants, story frames, or SSR requests — exactly the leak boundary the read path protects.
 
 Because the mutation supplies its resolved execution scope as the invalidation scope, the two compose: the fail-open execution default *becomes* the concrete scope the fail-closed invalidation runs in.
@@ -1038,7 +1049,7 @@ Invalidation can be batched: a single event may carry many tags, but it emits on
    :resources
    [{:resource  :article/by-slug
      :params    (fn [route] {:slug (get-in route [:params :slug])})
-     :scope     (fn [_route ctx] (:current-session-scope ctx))
+     :scope     {:from-db :realworld/session}
      :blocking? true}
 
     {:resource  :comments/list
@@ -1047,6 +1058,8 @@ Invalidation can be batched: a single event may carry many tags, but it emits on
      :blocking? false
      :keep-previous? true}]})
 ```
+
+The route entry's `:scope` is a named-resolver reference `{:from-db :realworld/session}` — the **one** scope-resolution currency ([§Named resource-scope resolvers](#named-resource-scope-resolvers-reg-resource-scope)), resolved against the route-entry app-db coeffect at use time. It is **not** an anonymous `(fn [_route ctx] …)` that reads viewer identity out of the planning `ctx`: the route-planning `ctx` is the reserved trailing context (currently the empty map, [§The `ctx` argument is reserved across resource/mutation fn surfaces](#the-ctx-argument-is-reserved-across-resourcemutation-fn-surfaces)), so reading session scope from it would hide the dependency, defeat tooling naming, and resolve nil (fail-closed). The named resolver is the recommended form everywhere viewer identity decides resource identity; the `(fn [route ctx] …)` resolver tier exists for route facts available on the `route` argument (e.g. a path-segment param), not for db-derived viewer scope.
 
 [012-Routing](012-Routing.md) currently rejects unknown bare route-metadata keys at registration. The resources artefact MUST therefore extend the routing accepted-key set, via a late-bound framework extension, so `:resources` is treated like the existing cross-feature `:head` key. Without that integration, a route containing `:resources` is correctly rejected by the routing artefact.
 
@@ -1069,8 +1082,7 @@ Paginated tables, filtered lists, search results, and cursor feeds are ordinary 
  :data nil
  :previous? true
  :previous-key [scope :articles/list {:page 1 :filter "recent"}]
- :previous-data [{:id 1 :title "Old page"}]
- :placeholder? false}
+ :previous-data [{:id 1 :title "Old page"}]}
 ```
 
 `previous-data` is a projection from the prior key; it is **not** inserted into the new cache entry and MUST NOT provide tags for the new key. The new entry becomes ordinary `:loaded` data only after its own request succeeds. Cache growth for list params is controlled by the same owner and GC rules; `:keep-previous?` MUST NOT pin old pages beyond their owners.
@@ -1081,7 +1093,9 @@ SSR MUST use request-local frames — a process-global resource cache would leak
 
 **Server route handling:** resolve the route; compute route resources; enqueue blocking resource ensures; drain until blocking resources for the current nav-token settle; render with the settled resource state; serialize only the allowed resource runtime projection; record projection metadata (serialized, redacted, omitted, fresh, stale, refetch-on-client decisions).
 
-Blocking SSR resources need a **timeout policy**: a timeout settles the resource as a structured first-load failure for that SSR frame, records the route blocking failure, and lets the renderer choose error markup, a skeleton, or an application fallback. It MUST NOT hang the request indefinitely.
+**Every durable entry present at serialize time rides the projection, not just the blocking ones.** A non-blocking route resource that happened to settle before render serializes exactly like a blocking one (per-entry redacted/omitted by its classification); a non-blocking resource still in flight simply has no usable `:data` to serialize yet (its entry is `:loading` / `:idle`), and the client refetches it on hydration if the route still needs it. Blocking only governs the **server wait point** (drain-before-render), not whether an entry is eligible for serialization.
+
+Blocking SSR resources need a **timeout policy**: a timeout settles the resource as a structured first-load failure for that SSR frame, records the route blocking failure, and lets the renderer choose error markup, a skeleton, or an application fallback. It MUST NOT hang the request indefinitely. The settled failure's `:error` envelope uses the **closed `:rf.http/*` taxonomy** ([014-HTTPRequests](014-HTTPRequests.md)) — `{:kind :rf.http/timeout :reason :ssr-blocking-timeout}` — so the `:reason` lets a renderer distinguish an SSR-deadline failure from a genuine upstream timeout while the `:kind` stays inside the one error taxonomy resource `:error` / `:refresh-error` envelopes carry everywhere.
 
 **Client hydration:** install the allowed resource projection into the target frame-state's `:rf.runtime/resources` slice in runtime-db (`:rf.db/runtime`); preserve hydrated resource entries; avoid duplicate immediate fetches for fresh entries; background-refetch stale entries according to policy; maintain frame and nav-token isolation.
 
@@ -1163,6 +1177,26 @@ Two lints ride the cache-growth / audit surface:
 
 Tool APIs prefer summaries and metadata over raw values — an AI usually needs "this route owns `:article/by-slug`, it is stale, and the latest background refresh failed with a 503", not the full article body. Resource history MUST be bounded, and params/scopes get the same privacy and size elision as data (scopes can contain user ids, tenant ids, locale, or impersonation markers) through the shared `rf/elide-wire-value` walker. Candidate tool accessors — `list-resources`, `list-resource-instances`, `get-resource-state`, `get-resource-history`, `list-resource-invalidations` — filter by frame, scope, resource id, tag, owner, status, stale?, request id, and nav-token; raw data access continues to go through existing egress and elision rules.
 
+### Error and warning tag roster
+
+The artefact's `:rf.error/resource-*` error tags and `:rf.warning/resource-*` / `:rf.warning/mutation-*` dev warnings are named at their raising sites throughout this Spec; the roster below is the consolidated index. **Each tag's structured payload shape lands in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) and [Spec-Schemas](Spec-Schemas.md) with its implementation slice** (the same staging the EP applies to conformance fixtures — see [§EP graduation status](#ep-graduation-status--resolved)); this table is the loud-failure surface and where the contract is stated, not the payload contract.
+
+| Tag | Severity | Raised when | Section |
+|---|---|---|---|
+| `:rf.error/resource-missing-scope-policy` | error (registration) | a `reg-resource` declares no `:scope` policy | [§Every resource declares a scope policy](#every-resource-declares-a-scope-policy-required-fail-closed) |
+| `:rf.error/invalid-resource-spec` | error (registration) | a `reg-resource` is missing `:params-schema` or `:request` | [§Resource registration spec](#resource-registration-spec) |
+| `:rf.error/resource-scope-required-from-caller` | error (use-time) | a `:rf.scope/from-caller` resource event supplies no `:scope` and no resolver yields one | [§Resolution precedence](#resolution-precedence-for-events-no-global-fallthrough) |
+| `:rf.error/resource-sub-unresolved-scope` | error (use-time) | a subscription cannot resolve a scope (including a mid-session `{:from-db …}` re-key to nil) | [§Subscription-side scope resolution](#subscription-side-scope-resolution) |
+| `:rf.error/resource-invalidate-scope-required` | error (use-time) | a bare `:rf.resource/invalidate-tags` supplies no scope (the fail-closed floor) | [§The cross-scope lattice](#the-cross-scope-lattice--three-precise-rungs) |
+| `:rf.error/resource-cross-scope-cause-required` | error (use-time) | a `:cross-scope? true` invalidation carries no `:cause` evidence | [§The cross-scope lattice](#the-cross-scope-lattice--three-precise-rungs) |
+| `:rf.error/resource-route-plan` | error (route planning) | a route-resource entry's params/scope/`:when`/`:after` fails to resolve (fail-closed, surfaced on the route slice + Xray) | [§Route integration](#route-integration) |
+| `:rf.error/resource-ssr-blocking-timeout` | error (SSR) | a blocking SSR resource exceeds the render deadline | [§SSR and hydration](#ssr-and-hydration) |
+| `:rf.warning/resource-sub-scope-mismatch` | dev warning (DCE'd) | a `:rf.scope/from-caller` sub resolves a valid-but-wrong scope (read-side tripwire) | [§Dev-mode likely-mismatch warning](#dev-mode-likely-mismatch-warning-rfwarningresource-sub-scope-mismatch) |
+| `:rf.warning/mutation-scope-mismatch` | dev warning (DCE'd) | a mutation's `:invalidates` descriptor matches zero entries in its scope while another scope holds them (write-side tripwire) | [§Dev-mode write-side tripwire](#mutation-scope-is-two-distinct-scopes-hybrid) |
+| `:rf.warning/resource-clear-scope-unresolved` | dev warning (DCE'd) | a `{:from-db …}` reference resolves nil at a `clear-scope` site | [§`clear-scope` resolves the concrete scope from the coeffect db](#clear-scope-resolves-the-concrete-scope-from-the-coeffect-db-not-a-snapshot) |
+
+(`:rf.error/no-frame-context` and `:rf.error/legacy-runtime-root` are framework-wide tags this artefact composes with, owned by [002-Frames](002-Frames.md) / [Conventions](Conventions.md), not minted here.)
+
 The artefact adds a `:rf.resource/*` trace family with operations such as `:rf.resource/registered` (one row per FIRST-TIME `reg-resource`, frame-agnostic — the registration anchor of the family; symmetric with `:rf.route/registered` / `:rf.flow/registered`), `:rf.resource/ensure`, `:rf.resource/owner-attached` (a NEW owner lease landing on an entry — both on a fresh load and on a dedupe join; symmetric with `:rf.resource/owner-released`), `:rf.resource/cache-hit` (a *fresh-skip* ensure — an `ensure` of an already-`:loaded` entry still fresh-by-policy serves the cached value, neither fetching nor joining in-flight work; distinct from `:rf.resource/deduped`), `:rf.resource/deduped`, `:rf.resource/work-started` (a work-LEDGER row was created — the transport request started; carries `:status :running` + `:superseded`) and `:rf.resource/fetch-started` (the cache ENTRY's status transition — carries the entry's `:status`, `:fetching` on a first load or stale-revalidate), `:rf.resource/work-abort-requested`, `:rf.resource/work-completed`, `:rf.resource/succeeded`, `:rf.resource/failed`, `:rf.resource/refresh-failed`, `:rf.resource/invalidated`, `:rf.resource/refetch-decision`, `:rf.resource/owner-released`, `:rf.resource/stale-scheduled`, `:rf.resource/stale-fired`, `:rf.resource/gc-scheduled`, `:rf.resource/gc-fired`, `:rf.resource/gc-skipped`, `:rf.resource/removed`, `:rf.resource/stale-suppressed` (the entry + ledger stale/superseded-reply suppression — the single suppression op the runtime emits; an earlier draft named a separate `:rf.resource/work-suppressed`, now folded into this one — there is exactly one suppression op, not two), `:rf.resource/route-plan` (the route `:resources` plan summary on route entry — route id, nav-token, ensured count, blocking scoped keys; the route/resource graph signal), `:rf.resource/revalidate-scan` (the focus/reconnect active-stale scan summary — the revalidation signal, the `:focus` / `:reconnect` cause, the scanned-entry count, and the refetched scoped keys; the per-entry refetch decisions ride the ordinary refetch traces), `:rf.resource/hydrated`, and `:rf.resource/hydrate-refetch` (one per hydration refetch-plan entry — the per-entry decision that a hydrated entry was not sufficient on its own, `:reason` `:no-data` / `:stale` / `:metadata-only`, distinct from the ordinary refetch the route slice then dispatches). Each carries, where applicable, frame, work id, scope, resource key/id, params summary, generation, request id, owner, cause, status before/after, work status, resource/invalidated tags, freshness timestamps, and redaction/size markers.
 
 > **Fresh-skip op — `:rf.resource/cache-hit`.** The family emits `:rf.resource/cache-hit` for a *fresh-skip* ensure — an `ensure` of an already-`:loaded` entry that is still fresh-by-policy, so it neither dedupes (no in-flight work to join) nor starts a fetch (the cached value is sufficient). That is genuinely distinct from `:rf.resource/deduped` (joining an in-flight request). The fresh-skip *behaviour* is mandated by the FSM (a `:loaded` entry transitions to `:fetching` only on `stale/refetch`; a fresh `ensure` has no transition) and by [§Restore and replay](#restore-and-replay) ("refetches only on the next `ensure` from a live owner … gated by the entry's own stale/fresh policy"). The reference implementation short-circuits a fresh `:loaded` ensure: it attaches the supplied owner lease (a `:rf.resource/owner-attached` row covers a newly-attached owner), emits `:rf.resource/cache-hit`, drains any blocking route slot immediately (a fresh blocking resource settles the navigation at once — it treats the fresh entry as already-`:success`, so a route blocked on a fresh resource never hangs), and starts no new generation / fetch / work record. A `refetch` is never a fresh-skip (it always forces a new generation); a STALE `:loaded` entry still refetches on the next `ensure` (fresh-skip never swallows a stale refresh). The cache-hit needs no `:previous-key` projection (the entry has its own fresh data), arms no timers, and supersedes nothing.
@@ -1181,11 +1215,16 @@ The artefact adds a `:rf.resource/*` trace family with operations such as `:rf.r
 ### Route-driven page load
 
 ```clojure
+(rf/reg-resource-scope :realworld/session
+  {:inputs {:username [:db [:auth :user :username]]}
+   :resolve (fn [{:keys [username]} _ctx]
+              (when username [:rf.scope/session {:username username}]))})
+
 (rf/reg-resource
   :article/by-slug
   {:params-schema [:map [:slug :string]]
    :data-schema   :app/article
-   :scope         :rf.scope/global
+   :scope         {:from-db :realworld/session}   ;; named resolver — viewer-scoped
    :request (fn [{:keys [slug]} _]
               {:request {:method :get :url (str "/api/articles/" slug)}
                :decode :app/article})
@@ -1200,14 +1239,15 @@ The artefact adds a `:rf.resource/*` trace family with operations such as `:rf.r
    :resources
    [{:resource  :article/by-slug
      :params    (fn [route] {:slug (get-in route [:params :slug])})
-     :scope     (fn [_route ctx] (:current-session-scope ctx))
+     :scope     {:from-db :realworld/session}
      :blocking? true}]})
 
 (rf/reg-view article-page []
   (let [slug  (:slug @(rf/subscribe [:rf.route/params]))
-        scope @(rf/subscribe [:session/resource-scope])
         state @(rf/subscribe [:rf.resource/state
-                              {:resource :article/by-slug :scope scope :params {:slug slug}}])]
+                              {:resource :article/by-slug
+                               :scope    {:from-db :realworld/session}
+                               :params   {:slug slug}}])]
     (cond
       (:loading? state)                         [article-skeleton]
       (and (:error state) (not (:has-data? state))) [article-error (:error state)]
@@ -1217,7 +1257,7 @@ The artefact adds a `:rf.resource/*` trace family with operations such as `:rf.r
              (when (:refresh-error state)  [refresh-error (:refresh-error state)])])))
 ```
 
-The view is passive; the route caused the ensure; the runtime owns the state. The declared `:scope :rf.scope/global` on the registration is the resource's auditable claim; the route's `:scope` resolver supplies the concrete session scope for this entry.
+The view is passive; the route caused the ensure; the runtime owns the state. The registration `:scope`, the route entry `:scope`, and the subscription `:scope` all reference the **same** named resolver `{:from-db :realworld/session}` — the one scope-resolution currency. The subscription re-resolves its scoped key reactively when the resolver's `:db` inputs change ([§A `{:from-db …}` subscription re-keys](#from-db-subscription-re-keying)), so the view tracks the current principal without re-subscribing. The booleans the `cond` reads — `:loading?` / `:fetching?` / `:has-data?` — are derived values projected onto the aggregate `:rf.resource/state` map (and are also available as the scalar `:rf.resource/loading?` / `:rf.resource/fetching?` / … subs, [§Subscriptions (passive)](#subscriptions-passive)); the durable entry stores only the underlying facts ([§Status semantics](#status-semantics)).
 
 ### Event-driven ensure
 
@@ -1253,7 +1293,9 @@ The machine remains the semantic workflow; the resource runtime handles cached r
 
 The following are named here but their full contract lands with their slice (per [EP-0003 §Acceptance Criteria And Rollout](../docs/EP/EP-0003-resource-queries.md#acceptance-criteria-and-rollout)) and is **out of the read-resource MVP contract**:
 
-- **First public-beta gate (LANDED):** ~~`reg-mutation` / `clear-mutation` / `:rf.mutation/execute` (causal writes that invalidate/patch/refetch resources, keyed by mutation **instance** id)~~ — **mutations have LANDED** (rf2-dwme29): `reg-mutation` / `clear-mutation` register a causal write under the `:mutation` registrar kind; `:rf.mutation/execute` mints a per-submission instance row at `:rf.runtime/mutations` (keyed by instance id, so concurrent submissions don't clobber), creates a `:rf.runtime/work-ledger` record (work-kind `:mutation`), and lowers the write through the SAME managed-HTTP transport (runtime-owned reply addressing; generation + work-id stale suppression as for resources); on success it patches/populates resource entries then invalidates the `:invalidates` tags (explicit `:before-request` / `:after-success` / `:after-failure` / `:after-settle` timing); `:rf.mutation/clear` is the causal instance reset; the `:rf.mutation/*` passive subs project the instance view-model. Write retries are OPT-IN; optimistic rollback is DEFERRED (the success trace reserves its shape). See [§Mutations (first public-beta gate)](#mutations-first-public-beta-gate-rf2-dwme29). ~~focus/reconnect revalidation for active stale resources (`:rf.resource/window-focused`, `:rf.resource/network-reconnected`) expressed as resource events, not subscription-driven fetching~~ — **focus/reconnect revalidation has LANDED** (rf2-vtblcq): the `:rf.resource/window-focused` / `:rf.resource/network-reconnected` events scan the frame's active-owner stale entries and refetch them by policy (cause `:focus` / `:reconnect`, never an owner; generation + stale-suppression respected); the host `window` focus / online listeners are installed per-frame by `install-revalidation-listeners!` and cancelled on frame destroy via the `:resources/on-frame-destroyed!` hook (Spec 016 §Stale and GC scheduling). The first public-beta gate is now complete.
+- **First public-beta gate — LANDED, now complete.** Two slices graduated past the read-resource MVP and are fully specified above, not deferred:
+  - **Mutations** — `reg-mutation` / `clear-mutation` register a causal write under the `:mutation` registrar kind; `:rf.mutation/execute` mints a per-submission instance row at `:rf.runtime/mutations` (keyed by instance id, so concurrent submissions don't clobber), creates a `:rf.runtime/work-ledger` record (work-kind `:mutation`), and lowers the write through the same managed-HTTP transport (runtime-owned reply addressing; generation + work-id stale suppression as for resources); on success it patches/populates resource entries then invalidates the `:invalidates` tags (explicit `:before-request` / `:after-success` / `:after-failure` / `:after-settle` timing); `:rf.mutation/clear` is the causal instance reset; the `:rf.mutation/*` passive subs project the instance view-model. Write retries are opt-in; optimistic rollback is deferred (the success trace reserves its shape). See [§Mutations (first public-beta gate)](#mutations-first-public-beta-gate-rf2-dwme29).
+  - **Focus/reconnect active-stale revalidation** — the `:rf.resource/window-focused` / `:rf.resource/network-reconnected` events scan the frame's active-owner stale entries and refetch them by policy (cause `:focus` / `:reconnect`, never an owner; generation + stale-suppression respected); the host `window` focus / online listeners are installed per-frame by `install-revalidation-listeners!` and cancelled on frame destroy via the `:resources/on-frame-destroyed!` hook ([§Stale and GC scheduling](#stale-and-gc-scheduling)).
 - **Later slices:** GraphQL read/mutation transport (`:rf.graphql/query`, the first transport-extension proof — see [EP-0003 §Deferred: GraphQL](../docs/EP/EP-0003-resource-queries.md#deferred-graphql-later-phase)); optimistic rollback; generic transport extension protocol; polling/interval revalidation; infinite resources; normalized entity caches; automatic graph-derived invalidation; subscription-driven fetching; offline persistence; cross-tab broadcast.
 
 Mutations were the second slice (the first public-beta gate), not the MVP; with mutation invalidation and active-stale revalidation now **landed**, the first public-beta surface — the threshold for "complete-enough resource management" — is complete. What remains (optimistic rollback, polling, GraphQL, the generalized work ledger) is genuinely later-slice work, not a gap in the public-beta contract.
