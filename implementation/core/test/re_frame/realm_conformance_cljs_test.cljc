@@ -557,6 +557,97 @@
           (rf/dispose-realm! :live/a)
           (rf/dispose-realm! :live/b))))))
 
+;; ---------------------------------------------------------------------------
+;; (9b) dispose-realm! ends the LIFECYCLE of the frames the realm OWNS
+;;      (EP-0013 realm-lifecycle correctness, rf2-yueuvi)
+;; ---------------------------------------------------------------------------
+;;
+;; A realm OWNS the frame registry + their lifecycle/disposal state
+;; (Runtime-Subsystems §What a realm owns). Before rf2-yueuvi, `dispose-realm!`
+;; tore down the realm's adapter + host-transient state and dropped the realm
+;; entry, but left every owned frame RECORD alive in `frame/frames`: a
+;; post-dispose `(frame [realm-id frame-id])` (and `realm/realm-frames`) still
+;; resolved the stale frame, and recreating the same realm id + the same frame
+;; id hit `reg-frame`'s re-registration branch and PRESERVED the disposed
+;; realm's app-db / sub-cache / router runtime state. These pin the fix: an
+;; owned frame is unaddressable after disposal, a SIBLING realm's same-id frame
+;; is untouched, and a same-id realm+frame recreation starts fresh.
+
+(deftest dispose-realm-removes-owned-frames-from-addressability
+  (testing "rf2-yueuvi: dispose-realm! destroys the frames the realm OWNS, so
+            post-dispose neither (frame realm-id id) nor realm/realm-frames
+            exposes them — while a SIBLING realm's same-id frame is untouched"
+    (let [ra (rf/realm {:id :disp/a})
+          rb (rf/realm {:id :disp/b})
+          app-for (fn [tag]
+                    (rf/app {:id :disp/app :modules
+                             [(rf/module
+                                {:id :m
+                                 :frames {:disp/f {:doc "shared id"}}
+                                 :events {:disp/set {:handler (fn [{:keys [db]} _] {:db (assoc db :who tag)})}}})]}))]
+      (try
+        (rf/install! ra (app-for :a))
+        (rf/install! rb (app-for :b))
+        ;; Both realms own a live :disp/f frame, addressable by their address.
+        (is (some? (frame/frame :disp/a :disp/f)) "realm a's frame is live pre-dispose")
+        (is (some? (frame/frame :disp/b :disp/f)) "realm b's frame is live pre-dispose")
+        (is (contains? (realm/realm-frames :disp/a) :disp/f) "realm a owns :disp/f")
+        (is (contains? (realm/realm-frames :disp/b) :disp/f) "realm b owns :disp/f")
+        ;; Dispose realm a ONLY.
+        (rf/dispose-realm! :disp/a)
+        ;; realm a's frame is no longer addressable — fail-closed, not a stale
+        ;; resolve of a dead frame.
+        (is (nil? (frame/frame :disp/a :disp/f))
+            "after dispose-realm! :disp/a, (frame :disp/a :disp/f) is nil")
+        (is (not (contains? (realm/realm-frames :disp/a) :disp/f))
+            "realm a's owned frame is gone from realm/realm-frames")
+        (is (= #{} (realm/realm-frames :disp/a))
+            "realm a owns no frames after disposal")
+        ;; The SIBLING realm b's same-id frame is untouched — still live + owned.
+        (is (some? (frame/frame :disp/b :disp/f))
+            "sibling realm b's :disp/f frame survives realm a's disposal")
+        (is (contains? (realm/realm-frames :disp/b) :disp/f)
+            "realm b still owns :disp/f")
+        (finally
+          (rf/dispose-realm! :disp/a)
+          (rf/dispose-realm! :disp/b))))))
+
+(deftest recreating-disposed-realm-and-frame-starts-fresh
+  (testing "rf2-yueuvi: after dispose-realm!, recreating the same realm id and
+            installing the same frame id creates a FRESH frame with no preserved
+            app-db state from the disposed realm (not a re-registration that
+            keeps the dead realm's runtime state)"
+    (let [app-with (fn [seed]
+                     (rf/app {:id :recr/app :modules
+                              [(rf/module
+                                 {:id :m
+                                  :frames {:recr/f {:doc "x"}}
+                                  :events {:recr/seed {:handler (fn [{:keys [db]} _]
+                                                                  {:db (assoc db :seed seed)})}}})]}))]
+      (try
+        ;; First incarnation: install, then write state into the frame's app-db.
+        (let [r1 (rf/realm {:id :recr/r})]
+          (rf/install! r1 (app-with :first))
+          (rf/dispatch-sync [:recr/seed] {:realm :recr/r :frame :recr/f})
+          (is (= :first (frame/call-with-realm :recr/r
+                          (fn [] (:seed (frame/frame-app-db-value :recr/f)))))
+              "the first incarnation's handler wrote :seed :first"))
+        ;; Dispose the realm — this MUST end the frame's lifecycle.
+        (rf/dispose-realm! :recr/r)
+        (is (nil? (frame/frame :recr/r :recr/f))
+            "the disposed realm's frame is unaddressable")
+        ;; Recreate the SAME realm id + install the SAME frame id WITHOUT
+        ;; re-running the seed event: a fresh frame must start with EMPTY app-db,
+        ;; NOT the disposed realm's preserved {:seed :first}.
+        (let [r2 (rf/realm {:id :recr/r})]
+          (rf/install! r2 (app-with :second))
+          (is (nil? (frame/call-with-realm :recr/r
+                      (fn [] (:seed (frame/frame-app-db-value :recr/f)))))
+              "the recreated frame starts FRESH — no preserved :seed from the
+               disposed realm (a re-registration would have kept :first)"))
+        (finally
+          (rf/dispose-realm! :recr/r))))))
+
 (deftest child-dispatch-and-fx-preserve-the-realm
   (testing "EP-0013 step 4 (rf2-a15n62): a child dispatch emitted from a handler's
             :fx [[:dispatch …]] STAYS in the parent's realm — the child resolves

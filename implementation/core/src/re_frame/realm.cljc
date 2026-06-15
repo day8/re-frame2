@@ -777,34 +777,63 @@
 
   Per EP-0013 §Realm Conformance disposing a realm MUST release the operational
   resources the realm owns, not merely drop the registry entry (a bare `dissoc`
-  would ORPHAN the seated adapter + the host-transient subsystems). The teardown
+  would ORPHAN the seated adapter + the host-transient subsystems AND leave every
+  frame the realm OWNS still addressable — rf2-kq0yfb / rf2-yueuvi). The teardown
   walks the realm-owned seams, in order:
 
-    1. ADAPTER — run the seated adapter's own `:dispose-adapter!` fn (read
+    1. FRAMES — destroy every frame the realm OWNS (rf2-yueuvi). The realm owns
+       the frame registry + their lifecycle/disposal state (Runtime-Subsystems
+       §What a realm owns), so disposing the realm MUST end those frames'
+       lifecycle, not leave stale records addressable. Routed through the
+       `:frame/destroy-realm-frames!` late-bind hook (a static `realm` → `frame`
+       require would cycle), which runs the full per-frame `destroy-frame!`
+       recipe for each owned frame. Runs FIRST — before the realm's adapter +
+       host-transient state is torn down — so each frame's own teardown can still
+       walk the realm's LIVE host-transient inventory and reach the seated
+       adapter. No-op when the frame ns is not loaded or the realm owns no frames.
+    2. ADAPTER — run the seated adapter's own `:dispose-adapter!` fn (read
        directly off the realm's `:adapter` slot, so this leaf ns needs no
        `substrate.adapter` require), then clear the slot + set the disposed
        breadcrumb via `dispose-realm-adapter!`. Mirrors
        `substrate.adapter/dispose-adapter!` for the default realm.
-    2. HOST-TRANSIENT — walk the realm's host-transient inventory, running each
+    3. HOST-TRANSIENT — walk the realm's host-transient inventory, running each
        descriptor's `:teardown` token (the realm-dispose cleanup hook), then
        drop the inventory via `clear-host-transient!`.
-    3. REGISTRY — `dissoc` the realm so its program + own registrar are no
+    4. REGISTRY — `dissoc` the realm so its program + own registrar are no
        longer reachable.
 
-  The teardown runs only for a CONSTRUCTED realm; for the default realm (and
-  nil) the whole call is a no-op — the default realm's adapter/host-transient
-  lifecycle is owned by `substrate.adapter` + the per-subsystem reset hooks, and
-  the realm itself is never disposed."
+  The teardown runs only for a CONSTRUCTED realm that is STILL registered; for
+  the default realm (and nil) the whole call is a no-op — the default realm's
+  adapter/host-transient lifecycle is owned by `substrate.adapter` + the
+  per-subsystem reset hooks, and the realm itself is never disposed.
+
+  IDEMPOTENT (rf2-yueuvi): disposing an ALREADY-disposed (or never-constructed)
+  realm is a clean no-op rather than a throw — once the registry entry is gone
+  the realm owns no live frames / adapter / host-transient inventory to release,
+  and the realm-owned mutation seams (`clear-host-transient!` →
+  `update-realm!`) FAIL CLOSED on an unknown id. A defensive double-dispose
+  (e.g. a `finally` after a body that already disposed) must not raise."
   [realm-or-id]
   (let [rid (realm-id realm-or-id)]
-    (when-not (= rid default-realm-id)
-      ;; (1) adapter: run the seated adapter's own teardown, then clear the slot.
+    (when (and (not (= rid default-realm-id))
+               ;; Idempotency guard: only tear down a realm that is STILL
+               ;; registered. A second dispose (or a never-constructed id) finds
+               ;; nothing to release and no-ops cleanly, rather than driving the
+               ;; fail-closed realm-owned mutation seams (rf2-yueuvi).
+               (contains? @realms rid))
+      ;; (1) frames: end the lifecycle of every frame the realm OWNS so no stale
+      ;; frame record stays addressable after disposal (rf2-yueuvi). FIRST, so
+      ;; each frame's destroy can still reach the realm's live adapter +
+      ;; host-transient inventory (torn down in steps 2-3 below).
+      (when-let [destroy-realm-frames! (late-bind/get-fn :frame/destroy-realm-frames!)]
+        (destroy-realm-frames! rid))
+      ;; (2) adapter: run the seated adapter's own teardown, then clear the slot.
       (when-let [adapter (realm-adapter rid)]
         (when-let [f (:dispose-adapter! adapter)]
           (f))
         (dispose-realm-adapter! rid))
-      ;; (2) host-transient: walk the inventory's teardown tokens, then drop it.
+      ;; (3) host-transient: walk the inventory's teardown tokens, then drop it.
       (dispose-realm-host-transient! rid)
-      ;; (3) registry: drop the realm so its registrar + program are unreachable.
+      ;; (4) registry: drop the realm so its registrar + program are unreachable.
       (swap! realms dissoc rid)))
   nil)
