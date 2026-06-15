@@ -36,22 +36,25 @@ Type: standards-track
 > needed Spec 009 Error-event catalogue rows) was fixed in the corrective PR.
 > `final` asserts the **decisions are settled**, not that the whole D1/D2/D3
 > build is complete: what shipped and what remains build-not-decision is recorded
-> in the [§Implementation errata](#implementation-errata) ledger below — most
-> notably realm-aware **live-dispatch routing** (`rf2-a15n62`), a deferred
-> post-v1 slice. A v1 constructed realm is a **static-install + query-isolated**
-> container; live dispatch/subscribe still resolve through the default realm.
+> in the [§Implementation errata](#implementation-errata) ledger below. Realm-aware
+> **live-dispatch routing** (`rf2-a15n62`) has since **shipped** — a constructed
+> realm owns the registrar that event / sub / fx / cofx resolution routes against,
+> the runtime resolves a frame's handlers from the owning frame's realm registrar,
+> and `:rf.realm/id` is carried beside `:rf.frame/id` on the dispatch envelope.
 
 ## Implementation errata
 
 The EP decisions are final. The EP-0013 wave shipped **D1 (the realm container)**
-end-to-end and the **D2 (app-value)** projection/construction/install surface; it
-did **not** ship the full D2/D3 build, and `final` does not claim it did. This
-ledger records what shipped against the dispositions and what stays
-build-not-decision behind a follow-on slice — the EP-0010 precedent, where a
-settled decision's later slice (`:rf.world/uuid` recordable coeffects) is recorded
-as deferred, not as an open question. Verified 2026-06-12 against the merged
-implementation, the realm/app-value test suites, the spec graduation, and the
-final-review verdict (`rf2-g41gz6`).
+end-to-end and the **D2 (app-value)** projection/construction/install surface, and
+realm-aware **live-dispatch routing** has since shipped on top (`rf2-a15n62`); the
+remaining build-not-decision work is the **D3 module-manifest** public surface, and
+`final` does not claim it shipped. This ledger records what shipped against the
+dispositions and what stays build-not-decision — the EP-0010 precedent, where a
+settled decision's later slice is recorded as deferred, not as an open question.
+Verified 2026-06-12 against the merged implementation, the realm/app-value test
+suites, the spec graduation, and the final-review verdict (`rf2-g41gz6`); the
+live-dispatch-routing entry re-verified 2026-06-15 against the merged
+`rf2-a15n62` implementation and the `/spec` correction (#4272).
 
 ### Shipped
 
@@ -124,28 +127,33 @@ final-review verdict (`rf2-g41gz6`).
   EP text is retained for design rationale; read the bare keys in the snippets
   below as the qualified spelling above.
 
-### Deferred — realm-aware live-dispatch routing
+### Shipped — realm-aware live-dispatch routing
 
-- **Realm-routed LIVE dispatch / subscribe / fx / cofx — DEFERRED
-  (`rf2-a15n62`, staging step 4).** A v1 constructed realm is a **static-install +
-  query-isolated** container: an app value installs into it, and the map-shaped
-  `{:realm …}` registrar queries read its own registrar — but **live dispatch and
-  subscription resolution still resolve through the default realm's registrar**,
-  not the owning frame's realm. `re-frame.frame/reg-frame` is `[id metadata]`-only
-  and hardcodes `:realm :rf.realm/default` on every frame record, so the EP
-  conformance point "frames resolve handlers from their owning realm" is **unmet
-  in v1**. Because of this, `install!` / `reinstall!` deliberately **refuse**
-  `:frame` descriptors into a non-default realm
-  (`:rf.error/realm-frames-unsupported`) rather than silently mis-seat a
-  default-stamped, globally-keyed frame — fail-closed, the issue-12 stance. The
-  deferred slice lifts that refusal: a realm-aware frame-registration path that
-  keys live frames by `(realm, frame-id)` and routes live dispatch/subscribe
-  through the owning frame's realm registrar, plus the per-kind live-instance
-  blocker/continue/migrate rule for the step-8 kinds as they become installable.
-  This is a post-v1 slice exactly as EP-0010's `:rf.world/uuid` recordable
-  coeffect is — the decision is settled (the realm IS the operational container;
-  the wire shape of the realm stamp is `:rf.realm/id` carried beside
-  `:rf.frame/id`), and only the build remains.
+- **Realm-routed LIVE dispatch / subscribe / fx / cofx — SHIPPED
+  (`rf2-a15n62`, staging step 4).** A constructed realm now owns the registrar
+  that **event / subscription / fx / cofx resolution routes against**: the runtime
+  resolves a frame's handlers from the **owning frame's realm registrar**, with
+  `:rf.realm/id` carried beside `:rf.frame/id` on the dispatch envelope and
+  `install!` binding the realm registrar during seating. `reg-frame` (reached
+  through `install!` under the realm binding) **stamps** the frame with the target
+  realm and keys live frames by `(realm, frame-id)` (a bare id for the default
+  realm), so the EP conformance point "frames resolve handlers from their owning
+  realm" is **met**. The earlier fail-closed `:frame`-into-non-default-realm
+  refusal (`:rf.error/realm-frames-unsupported`) is **lifted** — `install!` /
+  `reinstall!` now seat `:frame` descriptors into the target realm. (The per-kind
+  live-instance blocker/continue/migrate rule for the step-8 kinds remains an
+  acceptance criterion of each kind's own installability bead, per the §Step-8
+  installability obligation above; lifting a step-8 kind's
+  `:rf.error/unsupported-descriptor-kind` throw is still future work.) This
+  graduated exactly as EP-0010's `:rf.world/uuid` recordable coeffect was a
+  settled-then-built slice: the decision was always settled (the realm IS the
+  operational container; the wire shape of the realm stamp is `:rf.realm/id`
+  carried beside `:rf.frame/id`), and the build has now landed. The `/spec`
+  copies were corrected by #4272
+  ([API §App values and composition](../../spec/API.md#app-values-and-composition-ep-0013),
+  [Spec-Schemas §`:rf/realm`](../../spec/Spec-Schemas.md#rfrealm-runtime-realm-ep-0013),
+  [Runtime-Subsystems §What a realm owns](../../spec/Runtime-Subsystems.md#what-a-realm-owns));
+  where this EP and the spec differ, the spec governs.
 
 ## Abstract
 
