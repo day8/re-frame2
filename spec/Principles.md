@@ -7,7 +7,7 @@
 
 Each principle below is a one-line statement followed by one paragraph of guidance. The longer arguments — *why* the discipline principles are worth their cost — live in §Rationale essays at the end. Goals (the *what we're optimising for*) are owned by [000 §Goals](000-Vision.md#goals); this doc names the *how*.
 
-The 10 discipline principles, 2 foundational essays, and 1 deliverable principle below break into three groups:
+The 11 discipline principles, 2 foundational essays, and 1 deliverable principle below break into three groups:
 
 - **Discipline principles** — properties an individual EP can be graded against. The [AI-First Audit](AI-Audit.md) does exactly that grading.
 - **Foundational essays** — the deeper arguments for *why* the discipline principles are worth the cost. Live in §Rationale essays below.
@@ -201,7 +201,7 @@ A schema-at-a-boundary doubles as a decoder. At a wire boundary (hydration paylo
 
 Three concrete conveniences inherited from re-frame v1 are audited here against the discipline principles. These are *applied verdicts*, not principles themselves — they record decisions on three specific conveniences for cross-reference from the Specs.
 
-### Anonymous `:on-click` closures — *retained, with a discipline*
+#### Anonymous `:on-click` closures — *retained, with a discipline*
 
 Anonymous closures inside `:on-click` (and similar event-handler attributes) are **retained**. They violate "named things over anonymous things" at the syntactic level but the body of the closure — the dispatched event — is a named, registered thing.
 
@@ -218,10 +218,10 @@ The discipline: **the body of an `:on-click`-style closure is a single dispatch 
 [:button {:on-click #(if (some-cond) (do-thing) (do-other-thing))} ...]
 ```
 
-### Reagent Form-2 outer-fn setup — *discouraged*
+#### Reagent Form-2 outer-fn setup — *discouraged*
 
 Discouraged because it violates "low hidden context": the outer-fn fires once per mount with no indication at the call site that mounting has a side-effect. Use Form-1 + an explicit setup event instead. See [004-Views.md §Form-1, Form-2, Form-3 components](004-Views.md#form-1-form-2-form-3-components).
 
-### Hiccup positional-args convention — *retained, formalised in 004*
+#### Hiccup positional-args convention — *retained, formalised in 004*
 
 The convention is positional: tag first, optional attrs map second, children after. Formalised at the pattern level by [004-Views.md §The render-tree shape](004-Views.md#the-render-tree-shape-pattern-level-contract). The shape is `[tag attrs? & children]` for any host's render-tree.

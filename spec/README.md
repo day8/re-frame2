@@ -93,7 +93,7 @@ Reference, scaffolding, and audit:
 
 | Title | Type | One-liner |
 |---|---|---|
-| [Principles](Principles.md) | Reference | The 9 AI-first discipline principles plus the two foundational essays (the layered constraint, data is code). The yardstick the [AI-Audit](AI-Audit.md) grades Specs against. |
+| [Principles](Principles.md) | Reference | The 11 AI-first discipline principles plus the two foundational essays (the layered constraint, data is code). The yardstick the [AI-Audit](AI-Audit.md) grades Specs against. |
 | [Conventions](Conventions.md) | Convention | Locked runtime conventions: reserved-namespace policy for framework-owned ids, ns-prefix conventions for features, reserved fx-ids and app-db keys. |
 | [Managed external effects](Managed-Effects.md) | Reference | The unifying conceptual frame: eight properties every framework-owned managed-effect surface (`:rf.http/managed`, `:spawn` / `:spawn-all`, `:rf.server/*`, `:rf.flow/*`) inherits. New surfaces (managed timers, managed background jobs) are graded against the same checklist — as is any app/library-built surface, e.g. the [WebSocket pattern](Pattern-WebSocket.md) (which re-frame2 does **not** ship). |
 | [Runtime subsystems](Runtime-Subsystems.md) | Reference | The durable-state analogue of Managed-Effects: five clauses (subtree, write authority, read API, projection/elision policy, teardown) every `:rf.runtime/*` child of the runtime-db partition satisfies. Grades the four shipped children (machines / routing / elision / ssr); a 3rd-party `:rf.runtime/<lib>` is a new graded instance. Names the shape; reserved keys are owned by [Conventions](Conventions.md), the per-clause mechanisms by [002-Frames](002-Frames.md). |
@@ -154,7 +154,7 @@ For implementors and AI agents reading the contract in its normative reading ord
 For readers wanting the *why* before (or beside) the *what*. Optional in the strict sense — every normative claim in Track 1 stands without these — but they make the corpus easier to absorb.
 
 1. **Optional upstream rationale (re-frame v1 doc set):** [on-dynamics](https://day8.github.io/re-frame/on-dynamics/), [data-oriented-design](https://day8.github.io/re-frame/data-oriented-design/), [a-loop](https://day8.github.io/re-frame/a-loop/), [application-state](https://day8.github.io/re-frame/application-state/). Why the v1 pattern has the shape it does. Skip if already familiar.
-2. [Principles.md](Principles.md) — the 9 AI-first discipline principles + the two foundational essays.
+2. [Principles.md](Principles.md) — the 11 AI-first discipline principles + the two foundational essays.
 3. [AI-Audit.md](AI-Audit.md) — how each Spec scores against the principles; surfaces gaps.
 4. [Conventions.md](Conventions.md) — locked runtime conventions (reserved namespaces, fx-ids, `app-db` keys).
 5. The `Resolved decisions` and `Open questions` appendices in each numbered Spec — design-history records embedded next to the contract.

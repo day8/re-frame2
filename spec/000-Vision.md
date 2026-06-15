@@ -15,7 +15,7 @@ The pattern aims to be:
 - **Speak to real SPA concerns** — routing, remote data, forms, persistence, defined error model.
 - **Feature-modular** — features (events + subs + views + schemas) are coherent shippable units.
 
-The rationale that justifies the pattern's shape lives across re-frame's existing doc set ([on-dynamics](https://day8.github.io/re-frame/on-dynamics/), [data-oriented-design](https://day8.github.io/re-frame/data-oriented-design/), and others — full list in [README §Rationale](README.md)). 000 does not re-litigate the philosophy; it operationalises it. The 9 AI-first discipline principles that follow from the rationale live in [Principles.md](Principles.md).
+The rationale that justifies the pattern's shape lives across re-frame's existing doc set ([on-dynamics](https://day8.github.io/re-frame/on-dynamics/), [data-oriented-design](https://day8.github.io/re-frame/data-oriented-design/), and others — full list in [README §Rationale](README.md)). 000 does not re-litigate the philosophy; it operationalises it. The 11 AI-first discipline principles that follow from the rationale live in [Principles.md](Principles.md).
 
 The headline shape:
 
