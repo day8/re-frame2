@@ -45,7 +45,7 @@
             [re-frame.adapter.reagent :as reagent-adapter]
             [clojure.set]
             [clojure.string :as str])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+  (:require-macros [re-frame.core :refer [reg-view with-frame]]))
 
 (def cols
   "Number of spreadsheet columns (A..Z)."
@@ -84,7 +84,12 @@
    [:selected-id [:maybe :string]]
    [:editing-id  [:maybe :string]]])
 
-(rf/reg-app-schema [:cells] CellsState)
+;; EP-0002 (rf2-5q7um6): reg-app-schema is context-required frame-local; a
+;; bare ns-load call raises :rf.error/no-frame-context. This example runs in
+;; :rf/default (see `run`/`reg-frame app-frame`), so name it explicitly so the
+;; schema binds to the app frame whose commits it validates.
+(with-frame :rf/default
+  (rf/reg-app-schema [:cells] CellsState))
 
 ;; ============================================================================
 ;; PARSER + EVALUATOR

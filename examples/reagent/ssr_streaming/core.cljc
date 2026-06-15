@@ -31,9 +31,25 @@
 ;; ============================================================================
 ;; SCHEMA
 ;; ============================================================================
-
-(rf/reg-app-schema [:cards]
-  [:map-of :keyword [:map [:title :string] [:value [:maybe :int]]]])
+;;
+;; EP-0002 (rf2-5q7um6): `reg-app-schema` is context-required frame-local and
+;; raises `:rf.error/no-frame-context` under no frame scope — so a bare ns-load
+;; registration is wrong, and (rf2-9wc2ed) a naive `with-frame :rf/default`
+;; would bind the schema to the client frame ONLY, leaving the per-request
+;; SERVER frame (where the SSR commits actually validate) unschema'd. Streaming
+;; SSR has TWO frame families: the per-request server frame (gensym, in
+;; `handle-request`) and the FIXED client hydration frame (`app-frame` →
+;; `:rf/default`, in `run`). The schema is the same contract for both, so we
+;; hold it as a value and register it explicitly against EACH frame at its
+;; entry point with the `{:frame …}` override. Holding it as a def also keeps
+;; ns-load side-effect-free — the entry namespace loads without any ambient
+;; frame fixture.
+;; `[:maybe …]` because the slice is ABSENT (nil) until `:rf/server-init`
+;; seeds it on the server / the client hydrates it — a bare `[:map-of …]` would
+;; reject the legitimate pre-seed `nil` and roll the commit back. (The bug was
+;; masked because validation never actually ran on these frames — rf2-9wc2ed.)
+(def CardsSchema
+  [:maybe [:map-of :keyword [:map [:title :string] [:value [:maybe :int]]]]])
 
 ;; ============================================================================
 ;; EVENTS
@@ -121,6 +137,13 @@
      streaming adapter would emit in order."
      [_request]
      (let [fid (keyword "rf.frame" (str (gensym "")))
+           ;; Register the app schema AGAINST THIS per-request server frame
+           ;; (rf2-9wc2ed) BEFORE `:on-create` fires `:rf/server-init` — the
+           ;; per-request frame is where the server-side `:cards` commit
+           ;; actually validates, so the schema must bind here. `reg-frame` runs
+           ;; the `:on-create` cascade synchronously before returning, so the
+           ;; schema must be in place first; register under `fid`, then create.
+           _   (rf/reg-app-schema [:cards] CardsSchema {:frame fid})
            _   (rf/reg-frame fid {:doc "ssr-streaming-example frame"
                                   :platform :server
                                   :on-create [:rf/server-init]})
@@ -248,6 +271,12 @@
      ;; makes the hydrate compatibility-check fxs fire.
      (rf/reg-frame app-frame {:doc      "ssr-streaming-example client app-frame"
                               :platform :client})
+     ;; Register the app schema AGAINST THE FIXED CLIENT FRAME (rf2-9wc2ed) so
+     ;; the progressively-merged + finally-hydrated `:cards` commits validate on
+     ;; the client too — the symmetric counterpart of the per-request
+     ;; registration in `handle-request`. `{:frame app-frame}` is the explicit
+     ;; override; re-registration is a no-op-safe on hot-reload.
+     (rf/reg-app-schema [:cards] CardsSchema {:frame app-frame})
      ;; Install the client-side streaming runtime BEFORE the first render
      ;; so it catches resolved-subtree chunks as they arrive (and sweeps
      ;; any already present). It swaps fallbacks + merges per-subtree
