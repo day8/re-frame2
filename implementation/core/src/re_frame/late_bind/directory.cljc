@@ -433,6 +433,10 @@
     :producer-ns 're-frame.routing
     :design-bead "rf2-oosjmh"
     :description "Reset the host-side nav-token / pending-nav counter high-water marks (re-frame.routing.nav-counters/nav-counters-cache). They are host-side transient state (not runtime-db), so a runtime/frames reset does not clear them; the shared CLJS make-reset-runtime-fixture reset-hooks table fires this per test so \"nav-1\" / \"pn-1\" assertions stay deterministic (test isolation)."}
+   {:key         :routing/reset-url-claims!
+    :producer-ns 're-frame.routing
+    :design-bead "rf2-3l7xxz"
+    :description "Reset the process-global URL-ownership claim-order vector (re-frame.routing.nav-fx/url-claim-order) that records, in claim order, which frames carry :url-bound? true. url-owner-frame-id resolves the FIRST-CLAIMED still-live binding (the incumbent) so a later duplicate cannot steal the browser URL. Like the nav-counters it is process-global state a runtime/frames reset does not clear; the shared CLJS make-reset-runtime-fixture reset-hooks table fires this per test so a prior test's claim cannot leak (test isolation)."}
    {:key         :routing/route-sub-fn
     :producer-ns 're-frame.routing
     :description "Subscription fn returning the currently-matched route."}

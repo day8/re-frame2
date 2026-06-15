@@ -128,6 +128,12 @@
 ;; URL-owner resolution
 (def url-owner-frame-id         nav-fx/url-owner-frame-id)
 
+;; rf2-3l7xxz: the URL-ownership claim-order state (a process-global vector
+;; recording, in claim order, which frames carry :url-bound? true). Reset
+;; between tests so a prior test's claim cannot leak; the incumbent-protecting
+;; resolution in `url-owner-frame-id` reads it.
+(def reset-url-claims!          nav-fx/reset-url-claims!)
+
 ;; Browser history (CLJS-only; `:require`-able from .cljc boot)
 (def current-url                history/current-url)
 #?(:cljs (def install-history-listener! history/install-history-listener!))
@@ -388,6 +394,13 @@
 ;; (they are host-side transient state now, not cleared by the `frames`
 ;; reset). No-op when re-frame.routing is absent (the artefact is optional).
 (late-bind/set-fn! :routing/reset-nav-counters! reset-nav-counters!)
+;; rf2-3l7xxz: drop the process-global URL-ownership claim-order vector
+;; (re-frame.routing.nav-fx/url-claim-order). Like the nav-counters it is
+;; process-global state not touched by a runtime/frames reset, so the shared
+;; CLJS make-reset-runtime-fixture reset-hooks table fires this per test so a
+;; prior test's URL-ownership claim cannot leak into the next (test isolation).
+;; No-op when re-frame.routing is absent (the artefact is optional).
+(late-bind/set-fn! :routing/reset-url-claims!  reset-url-claims!)
 (late-bind/set-fn! :routing/route-sub-fn       route-sub-fn)
 (late-bind/set-fn! :routing/current-url        current-url)
 
@@ -402,11 +415,14 @@
 ;; addition to this teardown.
 (defn- release-routing-host-caches!
   "Release ALL of the destroyed frame's host-side transient routing caches
-  (scroll positions + nav-counter high-water marks). The
+  (scroll positions + nav-counter high-water marks) AND drop any URL-ownership
+  claim it held (rf2-3l7xxz — a destroyed owner relinquishes the URL, so
+  ownership re-resolves to the next live claimant). The
   `:routing/on-frame-destroyed!` teardown body."
   [frame-id]
   (scroll/release-frame! frame-id)
   (nav-counters/release-frame! frame-id)
+  (nav-fx/drop-url-claim! frame-id)
   nil)
 
 (late-bind/set-fn! :routing/on-frame-destroyed! release-routing-host-caches!)

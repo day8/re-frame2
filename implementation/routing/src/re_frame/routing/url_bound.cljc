@@ -14,6 +14,12 @@
   non-owner `:rf.nav/push-url` / `:rf.nav/replace-url` calls no-op. The
   error surfaces the conflict; resolving it is the app's concern.
 
+  rf2-3l7xxz — the hook also maintains the URL-ownership CLAIM ORDER in
+  `re-frame.routing.nav-fx` (recording a `:url-bound? true` claim, dropping it
+  when a frame opts out), so `url-owner-frame-id` resolves the FIRST-CLAIMED
+  incumbent and a later duplicate cannot steal the browser URL even if its id
+  sorts before the incumbent.
+
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the `registrar/add-registration-hook!` call so a
   `:reload` re-wires it on a fresh registrar. Per the rf2-2yabr
@@ -51,13 +57,33 @@
   browser history. The app resolves the conflict by removing one of the
   bindings.
 
+  rf2-3l7xxz — this hook ALSO maintains the URL-ownership CLAIM ORDER
+  (`re-frame.routing.nav-fx/url-claim-order`): a `:url-bound? true`
+  registration records the frame's claim (appended iff not already present, so
+  a hot-reload re-registration of the incumbent keeps its position and a later
+  duplicate is appended AFTER it — never displacing it); a registration WITHOUT
+  `:url-bound? true` drops any prior claim for that frame (it relinquished the
+  binding). `url-owner-frame-id` then resolves the FIRST-CLAIMED still-live
+  binding — the incumbent — so a later duplicate whose id sorts before the
+  incumbent can no longer steal the browser URL (Spec 012 §Multi-frame routing:
+  the existing owner is unchanged, the duplicate's history-mutation fxs no-op).
+
   Public so the façade can wire it via `registrar/add-registration-hook!`."
   [{:keys [kind id now]}]
   (when (= :frame kind)
-    (when (true? (nav-fx/url-bound?-from-config now))
-      (when-let [other (frame-id-of-existing-url-binding id)]
-        (trace/emit-error! :rf.error/duplicate-url-binding
-                           {:existing-frame  other
-                            :offending-frame id
-                            :reason          "Two frames carry :url-bound? true; only one frame may own the URL at a time."
-                            :recovery        :no-recovery})))))
+    (if (true? (nav-fx/url-bound?-from-config now))
+      (do
+        ;; Record the claim FIRST so the incumbent keeps its claim position; a
+        ;; duplicate appends after it and never steals ownership (rf2-3l7xxz).
+        (nav-fx/record-url-claim! id)
+        (when-let [other (frame-id-of-existing-url-binding id)]
+          (trace/emit-error! :rf.error/duplicate-url-binding
+                             {:existing-frame  other
+                              :offending-frame id
+                              :reason          "Two frames carry :url-bound? true; only one frame may own the URL at a time."
+                              :recovery        :no-recovery})))
+      ;; A `:frame` registration that does NOT carry `:url-bound? true`
+      ;; relinquished any prior URL claim (e.g. `:rf/default {:url-bound?
+      ;; false}` opting out): drop it so a stale claim cannot keep a now-unbound
+      ;; frame at the head of the claim order (rf2-3l7xxz). Idempotent.
+      (nav-fx/drop-url-claim! id))))
