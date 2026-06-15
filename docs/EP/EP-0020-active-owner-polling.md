@@ -139,6 +139,11 @@ concept. A poll is "while a live cause keeps this entry alive, keep it fresh."
   cancel-then-arm reschedule, frame-destroy teardown via the single
   `:resources/on-frame-destroyed!` hook). The proposed §Polling section lives
   next to it.
+- **[EP-0016](EP-0016-resource-mutation-completion.md) (final).** EP-0016
+  amended Spec 016 with mutation completion, scoped invalidation descriptors,
+  and named scope resolvers. Polling composes with that surface: a poll tick is
+  an ordinary `:rf.resource/refetch` and a polled scoped resource resolves its
+  scope through the same `reg-resource-scope` resolvers.
 - **Focus/reconnect active-stale revalidation (landed, `rf2-vtblcq`).** Polling
   reuses the exact scan-and-refetch discipline of
   `re-frame.resources.events/revalidate-handler`: select active-owner entries,

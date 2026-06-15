@@ -393,6 +393,20 @@ and inspect.
   (final).** This EP is a post-final amendment to the resources contract. It
   does not reopen the read-resource foundation, work ledger, route ownership,
   SSR, cache-hit, lifecycle, or HTTP-only graduation decisions.
+- **[EP-0019](EP-0019-optimistic-mutation-rollback.md) (proposal) — successor.**
+  The optimistic rollback / tag-addressed patching this EP defers (see
+  [§Non-Goals](#non-goals), [§Synthesis from alternatives](#synthesis-from-alternatives),
+  and issue 9 in [§Open Issues](#open-issues)) is the subject of EP-0019. It
+  reuses this EP's scoped-invalidation descriptors, map-form exact targets, and
+  `:reply-to` continuation unchanged.
+- **[EP-0020](EP-0020-active-owner-polling.md) (proposal) — successor.**
+  Interval revalidation (polling) is the cache-freshness sibling of this EP's
+  mutation/invalidation surface; it reuses the same named scope resolvers and
+  refetch substrate.
+- **[EP-0021](EP-0021-infinite-resources.md) (proposal) — successor.** The
+  pagination / infinite-feed primitives this EP lists as a non-goal
+  ([§Non-Goals](#non-goals): "No pagination primitives") are designed in
+  EP-0021, which builds on the read-resource and invalidation surfaces here.
 - **[EP-0011](EP-0011-uniform-async-reply-envelope.md) (accepted).** Mutation
   `:reply-to` uses the same core idea: async completion is a causal reply map
   delivered to an event target. EP-0016 is the concrete resources/mutations

@@ -127,7 +127,7 @@ closing bead-ids / commits are cited per step.
   framework `reg-cofx` for them ships yet — by design, not as a gap. This item
   graduates with that EP.
 - **Successor — [EP-0017 Recordable Coeffects](EP-0017-recordable-coeffects.md)
-  (accepted 2026-06-13).** EP-0017 is that follow-on EP: it completes and
+  (final).** EP-0017 is that follow-on EP: it completes and
   continues this EP's authoring surface, renaming the envelope field
   `:rf.world/inputs` → `:rf.cofx` (flat), re-expressing the deferred recordable
   `:uuid` / `:random` slice as app-registered value-returning suppliers, and
