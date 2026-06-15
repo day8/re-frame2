@@ -55,6 +55,7 @@
             ;; loads the ns explicitly from its tools-side build.
             #?@(:clj [[re-frame.trace.cascade]])
             [re-frame.event-emit :as event-emit]
+            [re-frame.error :as error]
             [re-frame.error-emit :as error-emit]
             [re-frame.elision :as elision]
             [re-frame.projection :as projection]
@@ -1735,18 +1736,21 @@
                (some? owner) (assoc :owner owner))]
     (cond
       (contains? install-deferred-kinds kind)
-      (throw (ex-info (str "rf/install!: descriptor kind " kind
-                           " is not yet installable — its real registration"
-                           " logic is a later EP-0013 slice (step 8). install!"
-                           " wires " (pr-str install-wired-kinds) " so far;"
-                           " seating " kind " through the flat registrar would"
-                           " produce a slot the subsystem cannot consume.")
-                      {:error/id    :rf.error/unsupported-descriptor-kind
-                       :kind        kind
-                       :id          id
-                       :wired       install-wired-kinds
-                       :deferred    install-deferred-kinds
-                       :recovery    :register-through-reg-*-sugar}))
+      (error/throw-error!
+        :rf.error/unsupported-descriptor-kind
+        'rf/install!
+        (str "rf/install!: descriptor kind " kind
+             " is not yet installable — its real registration"
+             " logic is a later EP-0013 slice (step 8). install!"
+             " wires " (pr-str install-wired-kinds) " so far;"
+             " seating " kind " through the flat registrar would"
+             " produce a slot the subsystem cannot consume."
+             " Register it through its own reg-* sugar.")
+        {:recovery :register-through-reg-*-sugar
+         :extra    {:kind     kind
+                    :id       id
+                    :wired    install-wired-kinds
+                    :deferred install-deferred-kinds}})
 
       :else
       (case kind
@@ -1803,28 +1807,30 @@
         [first-kind
          first-id]    (first blocking)]
     (when (seq blocking)
-      (throw (ex-info (str "rf/install!: cannot seat the descriptor(s) "
-                           (pr-str blocking) " — their kinds are step-8-DEFERRED "
-                           "(" (pr-str install-deferred-kinds) "), whose real "
-                           "registration logic is a later EP-0013 slice. install! "
-                           "wires " (pr-str install-wired-kinds) " so far; seating "
-                           "a deferred kind through the flat registrar would produce "
-                           "a slot the subsystem cannot consume. Refused BEFORE any "
-                           "lowering so no partially-seated runtime state (e.g. a "
-                           "live :frame container) leaks from a failed install. "
-                           "Register the deferred kinds through their own reg-* "
-                           "sugar.")
-                      ;; `:kind`/`:id` name the FIRST blocking pair (the same shape
-                      ;; `install-descriptor!`'s in-loop throw carried, so the
-                      ;; single-deferred-kind diagnostic is unchanged); `:blocking`
-                      ;; enumerates every blocking pair (the whole-app preflight).
-                      {:error/id    :rf.error/unsupported-descriptor-kind
-                       :kind        first-kind
-                       :id          first-id
-                       :blocking    blocking
-                       :deferred    install-deferred-kinds
-                       :wired       install-wired-kinds
-                       :recovery    :register-through-reg-*-sugar})))))
+      (error/throw-error!
+        :rf.error/unsupported-descriptor-kind
+        'rf/install!
+        (str "rf/install!: cannot seat the descriptor(s) "
+             (pr-str blocking) " — their kinds are step-8-DEFERRED "
+             "(" (pr-str install-deferred-kinds) "), whose real "
+             "registration logic is a later EP-0013 slice. install! "
+             "wires " (pr-str install-wired-kinds) " so far; seating "
+             "a deferred kind through the flat registrar would produce "
+             "a slot the subsystem cannot consume. Refused BEFORE any "
+             "lowering so no partially-seated runtime state (e.g. a "
+             "live :frame container) leaks from a failed install. "
+             "Register the deferred kinds through their own reg-* "
+             "sugar.")
+        {:recovery :register-through-reg-*-sugar
+         ;; `:kind`/`:id` name the FIRST blocking pair (the same shape
+         ;; `install-descriptor!`'s in-loop throw carried, so the
+         ;; single-deferred-kind diagnostic is unchanged); `:blocking`
+         ;; enumerates every blocking pair (the whole-app preflight).
+         :extra    {:kind     first-kind
+                    :id       first-id
+                    :blocking blocking
+                    :deferred install-deferred-kinds
+                    :wired    install-wired-kinds}}))))
 
 (late-bind/set-fn! :app-value/refuse-unsupported-install! refuse-unsupported-install!)
 
@@ -1862,24 +1868,26 @@
                       (sort)
                       (vec))]
     (when (seq blocking)
-      (throw (ex-info (str "rf/reinstall!: cannot remove the descriptor(s) "
-                           (pr-str blocking) " — their kinds are step-8-DEFERRED "
-                           "(" (pr-str install-deferred-kinds) "), not yet "
-                           "installable through the descriptor diff, so they are "
-                           "not removable through it either. A step-8 kind "
-                           "registered via its own sugar (reg-mutation / "
-                           "reg-resource / reg-route / reg-flow / …) stays owned "
-                           "by that sugar's clear-* lifecycle — unregistering it "
-                           "through the app-value diff would skip the subsystem "
-                           "teardown (in-flight abort, routing :current, flow "
-                           "owner-rebind) and silently orphan its live instances. "
-                           "Clear it through its own clear-* surface before "
-                           "reinstalling without it.")
-                      {:error/id    :rf.error/unsupported-descriptor-kind
-                       :removed     blocking
-                       :deferred    install-deferred-kinds
-                       :wired       install-wired-kinds
-                       :recovery    :clear-through-reg-*-sugar})))))
+      (error/throw-error!
+        :rf.error/unsupported-descriptor-kind
+        'rf/reinstall!
+        (str "rf/reinstall!: cannot remove the descriptor(s) "
+             (pr-str blocking) " — their kinds are step-8-DEFERRED "
+             "(" (pr-str install-deferred-kinds) "), not yet "
+             "installable through the descriptor diff, so they are "
+             "not removable through it either. A step-8 kind "
+             "registered via its own sugar (reg-mutation / "
+             "reg-resource / reg-route / reg-flow / …) stays owned "
+             "by that sugar's clear-* lifecycle — unregistering it "
+             "through the app-value diff would skip the subsystem "
+             "teardown (in-flight abort, routing :current, flow "
+             "owner-rebind) and silently orphan its live instances. "
+             "Clear it through its own clear-* surface before "
+             "reinstalling without it.")
+        {:recovery :clear-through-reg-*-sugar
+         :extra    {:removed  blocking
+                    :deferred install-deferred-kinds
+                    :wired    install-wired-kinds}}))))
 
 (late-bind/set-fn! :app-value/refuse-unsupported-removal! refuse-unsupported-removal!)
 

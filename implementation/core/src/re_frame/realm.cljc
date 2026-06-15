@@ -67,7 +67,8 @@
   it survives `:advanced` + `goog.DEBUG=false` builds intact (it carries no
   feature sentinels and no per-feature `:require`, so the bundle-isolation
   gate is unaffected)."
-  (:require [re-frame.registrar :as registrar]
+  (:require [re-frame.error     :as error]
+            [re-frame.registrar :as registrar]
             [re-frame.late-bind :as late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -206,14 +207,16 @@
   [rid f & args]
   (let [snapshot @realms]
     (when-not (contains? snapshot rid)
-      (throw (ex-info (str "realm " rid " is not registered — a realm-owned"
-                           " mutation cannot target a realm that was never"
-                           " constructed. Absence defaults to the default realm;"
-                           " an unknown explicit id does not.")
-                      {:error/id     :rf.error/unknown-realm
-                       :realm        rid
-                       :known-realms (set (keys snapshot))
-                       :recovery     :construct-the-realm-first}))))
+      (error/throw-error!
+        :rf.error/unknown-realm
+        'rf/install!
+        (str "rf/realm " rid " is not registered — a realm-owned"
+             " mutation cannot target a realm that was never"
+             " constructed. Absence defaults to the default realm;"
+             " an unknown explicit id does not.")
+        {:recovery :construct-the-realm-first
+         :extra    {:realm        rid
+                    :known-realms (set (keys snapshot))}})))
   (rid (swap! realms
               (fn [m]
                 ;; Single-threaded host: the guard above already proved `rid`
@@ -361,25 +364,32 @@
   [opts]
   (let [id (:id opts)]
     (when (nil? id)
-      (throw (ex-info "rf/realm requires an :id"
-                      {:error/id   :rf.error/invalid-realm
-                       :opts       opts
-                       :recovery   :supply-a-realm-id})))
+      (error/throw-error!
+        :rf.error/invalid-realm
+        'rf/realm
+        "rf/realm requires an :id — supply a realm id (the process-unique key the realm is registered under)."
+        {:recovery :supply-a-realm-id
+         :extra    {:opts opts}}))
     ;; An `:app` here would create a FALSE installed-app state — the value is
     ;; recorded without its descriptors being seated (rf2-c6armm.2 #1). The
     ;; realm's `:app` slot is install-owned; reject it loudly at the constructor.
     (when (contains? opts :app)
-      (throw (ex-info (str "rf/realm: :app is install-owned state, not a constructor"
-                           " input — an app value is inert until rf/install! seats it."
-                           " Use (-> (rf/realm {:id " id "}) (rf/install! app)).")
-                      {:error/id :rf.error/invalid-realm
-                       :realm    id
-                       :recovery :install-the-app-with-rf-install})))
+      (error/throw-error!
+        :rf.error/invalid-realm
+        'rf/realm
+        (str "rf/realm: :app is install-owned state, not a constructor"
+             " input — an app value is inert until rf/install! seats it."
+             " Use (-> (rf/realm {:id " id "}) (rf/install! app)).")
+        {:recovery :install-the-app-with-rf-install
+         :extra    {:realm id}}))
     (when (contains? @realms id)
-      (throw (ex-info (str "rf/realm: a realm with id " id " is already registered")
-                      {:error/id   :rf.error/realm-id-conflict
-                       :realm      id
-                       :recovery   :use-a-unique-realm-id-or-dispose-the-existing-realm})))
+      (error/throw-error!
+        :rf.error/realm-id-conflict
+        'rf/realm
+        (str "rf/realm: a realm with id " id " is already registered"
+             " — use a unique realm id or dispose the existing realm first.")
+        {:recovery :use-a-unique-realm-id-or-dispose-the-existing-realm
+         :extra    {:realm id}}))
     (let [;; Hermetic by default: a fresh OWN registrar atom unless the caller
           ;; shares one explicitly. This is the isolation the public realm
           ;; constructor exists to provide.

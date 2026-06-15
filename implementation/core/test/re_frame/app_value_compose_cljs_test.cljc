@@ -108,7 +108,7 @@
     (let [ed (try (rf/module {:id :m :bogus {:x {:handler cart-add}}})
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
-      (is (= :rf.error/invalid-module (:error/id ed)))
+      (is (= :rf.error/invalid-module (:rf.error/id ed)))
       (is (= :bogus (:unknown-section ed))
           "the unknown section key is named in the diagnostic"))))
 
@@ -135,7 +135,7 @@
     (let [ed (try (rf/module {:id :m :owns {:app-db [[:cart]]}})
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
-      (is (= :rf.error/invalid-module (:error/id ed))
+      (is (= :rf.error/invalid-module (:rf.error/id ed))
           "a bare :owns throws :rf.error/invalid-module")
       (is (= :owns (:unknown-section ed))
           "the bare key is named as the offending unknown section")))
@@ -143,7 +143,7 @@
     (let [ed (try (rf/module {:id :m :requires #{:rf.capability/http}})
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
-      (is (= :rf.error/invalid-module (:error/id ed))
+      (is (= :rf.error/invalid-module (:rf.error/id ed))
           "a bare :requires throws :rf.error/invalid-module")
       (is (= :requires (:unknown-section ed))
           "the bare key is named as the offending unknown section")))
@@ -204,7 +204,7 @@
     (let [ed (try (rf/app {:id :a :modules [{:not :a-module}]})
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
-      (is (= :rf.error/invalid-app (:error/id ed))
+      (is (= :rf.error/invalid-app (:rf.error/id ed))
           "a non-module :modules entry throws :rf.error/invalid-app"))))
 
 ;; ---------------------------------------------------------------------------
@@ -222,7 +222,7 @@
           ed (try (rf/app {:id :bad/app :modules [ma mb]})
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
-      (is (= :rf.error/app-composition-collision (:error/id ed)))
+      (is (= :rf.error/app-composition-collision (:rf.error/id ed)))
       (is (= :event (:kind ed)))
       (is (= :shared/save (:id ed)))
       (is (= #{:a :b} (set (map :module (:sources ed))))
@@ -256,7 +256,7 @@
           ed (try (rf/app {:id :dup/app :modules [ma mb]})
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
-      (is (= :rf.error/app-composition-collision (:error/id ed)))
+      (is (= :rf.error/app-composition-collision (:rf.error/id ed)))
       (is (= :module (:kind ed)) "the collision names the :module provenance kind")
       (is (= :dup/m  (:id ed))   "the colliding module id is named"))))
 
@@ -269,10 +269,10 @@
           mb (rf/module {:id :dup/m :events {:dup/b {:handler auth-login}}})
           ed-ab (try (rf/app {:id :dup/app :modules [ma mb]}) :no-throw
                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
-                       (:error/id (ex-data e))))
+                       (:rf.error/id (ex-data e))))
           ed-ba (try (rf/app {:id :dup/app :modules [mb ma]}) :no-throw
                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
-                       (:error/id (ex-data e))))]
+                       (:rf.error/id (ex-data e))))]
       (is (= :rf.error/app-composition-collision ed-ab) "[ma mb] throws")
       (is (= :rf.error/app-composition-collision ed-ba) "[mb ma] throws too — order-independent"))))
 

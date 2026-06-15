@@ -133,7 +133,7 @@
           ed (try (rf/install! a)
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
-      (is (= :rf.error/missing-capability (:error/id ed))
+      (is (= :rf.error/missing-capability (:rf.error/id ed))
           "the missing-capability error is raised")
       (is (= :rf.capability/http (:capability ed))
           "the unmet capability is named")
@@ -392,7 +392,7 @@
                                                        :events {:fr0/ev {:handler (fn [_ _] {})}}})]}))
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
-      (is (= :rf.error/live-frame-removal-unsupported (:error/id ed))
+      (is (= :rf.error/live-frame-removal-unsupported (:rf.error/id ed))
           "removing a live :frame refuses loudly with the targeted error id")
       (is (= [:fr0/live] (:live-frames ed))
           "the diagnostic enumerates exactly the blocking live frame-id")
@@ -477,7 +477,7 @@
                                                            :events {ev-id {:handler (fn [_ _] {})}}})]}))
                       (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                         (ex-data e)))]
-          (is (= :rf.error/unsupported-descriptor-kind (:error/id ed))
+          (is (= :rf.error/unsupported-descriptor-kind (:rf.error/id ed))
               (str "removing a sugar-registered " kind " refuses loudly, not silently"))
           (is (some #{[kind slot-id]} (:removed ed))
               (str "the diagnostic enumerates the blocking removed [" kind " " slot-id "]"))
@@ -603,7 +603,7 @@
           ed (try (rf/reinstall! v2)
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
-      (is (= :rf.error/missing-capability (:error/id ed))
+      (is (= :rf.error/missing-capability (:rf.error/id ed))
           "a reinstall that raises an unmet requirement throws")
       ;; The pre-reinstall handler is untouched — the check ran before mutation.
       (is (identical? cart-add (registrar/handler :event :e))
@@ -786,7 +786,7 @@
           ed (try (rf/install! :xms/ghost a)
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
-      (is (= :rf.error/unknown-realm (:error/id ed))
+      (is (= :rf.error/unknown-realm (:rf.error/id ed))
           "an explicit unknown realm id throws :rf.error/unknown-realm")
       (is (= :xms/ghost (:realm ed)) "the diagnostic names the unknown realm id")
       (is (= :construct-the-realm-first (:recovery ed)))
@@ -942,7 +942,7 @@
           ed  (try (rf/realm {:id :false/r :app app})
                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                      (ex-data e)))]
-      (is (= :rf.error/invalid-realm (:error/id ed))
+      (is (= :rf.error/invalid-realm (:rf.error/id ed))
           "a public :app on rf/realm is rejected")
       (is (= :false/r (:realm ed)) "the diagnostic names the realm")
       (is (nil? (realm/realm :false/r))
@@ -956,7 +956,7 @@
             re-ed (try (rf/reinstall! :false/r v2)
                        (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                          (ex-data e)))]
-        (is (= :rf.error/unknown-realm (:error/id re-ed))
+        (is (= :rf.error/unknown-realm (:rf.error/id re-ed))
             "a reinstall! against the never-created realm throws unknown-realm — no
              phantom :app to diff against (the false installed-app state is closed)")))))
 
@@ -1054,7 +1054,7 @@
             ed (try (rf/install! a)
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                       (ex-data e)))]
-        (is (= :rf.error/unsupported-descriptor-kind (:error/id ed))
+        (is (= :rf.error/unsupported-descriptor-kind (:rf.error/id ed))
             (str "install! of a " kind " descriptor refuses loudly"))
         (is (= kind (:kind ed))
             (str "the refusal names the unsupported kind " kind))
@@ -1096,7 +1096,7 @@
           ed (try (rf/install! a)
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) e
                     (ex-data e)))]
-      (is (= :rf.error/unsupported-descriptor-kind (:error/id ed))
+      (is (= :rf.error/unsupported-descriptor-kind (:rf.error/id ed))
           "the deferred kind refuses the whole install loudly")
       (is (= :route (:kind ed)) "the refusal names the blocking deferred kind")
       (is (some #{[:route :leak/route]} (:blocking ed))
