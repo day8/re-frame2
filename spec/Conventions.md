@@ -1062,16 +1062,15 @@ The discriminator is mechanical, not stylistic. Every public surface that *looks
 
 A Var bound to a pre-built interceptor map ([§Standard interceptors](API.md#standard-interceptors), [§`reg-event` interceptor chain](#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event)). Calling such a Var as a fn (`(rf/validate-at-boundary-interceptor ...)`) raises `ArityException`.
 
-Current Class-1 surfaces in [API.md](API.md): `validate-at-boundary-interceptor` (Spec 010 — production-boundary schema validation). The factory `(rf/redact-interceptor paths)` (Spec 009 — payload-key redaction on the trace surface) is a *fn that returns* a Class-1 value; the **returned interceptor value** is the Class-1 artefact, and it inherits the rule below.
+Current Class-1 surfaces in [API.md](API.md): `validate-at-boundary-interceptor` (Spec 010 — production-boundary schema validation). The convention also governs the **factory variant** — a *fn that returns* a Class-1 value (a parameterized interceptor built at the registration boundary, then passed to `reg-interceptor`): the **returned interceptor value** is the Class-1 artefact, and it inherits the rule below, while the factory fn itself does not carry the suffix because it IS a fn. (No public factory surface currently ships — under EP-0022 a parameterized family is the `reg-interceptor` `:factory` mechanism keyed by id, not a public value-returning fn; the former `redact-interceptor` factory was removed from the façade per EP-0015 §7, its underlying fn now internal router plumbing only.)
 
-**Rule.** Class-1 surfaces MUST carry the `-interceptor` suffix on the Var name. The suffix telegraphs *value-shape* at the call site — a reader scanning an `:interceptors` vector sees the suffix and knows the slot holds a pre-built interceptor map, not a fn that needs invoking. The factory variant (`redact-interceptor` style) returns a `-interceptor`-suffixed value; the factory itself does not carry the suffix because it IS a fn.
+**Rule.** Class-1 surfaces MUST carry the `-interceptor` suffix on the Var name. The suffix telegraphs *value-shape* at the call site — a reader who sees the suffix knows the Var holds a pre-built interceptor map, not a fn that needs invoking. A factory variant (a fn that builds a Class-1 value at the registration boundary) returns a `-interceptor`-suffixed value; the factory fn itself does not carry the suffix because it IS a fn.
 
 ```clojure
-;; correct — suffix telegraphs value-shape
-(rf/reg-event :cart.item/add
-  {:interceptors [at-boundary-interceptor                  ;; Var · value
-                  (redact-interceptor [[:credit-card]])]}  ;; factory returns value
-  (fn [{:keys [db]} payload] {:db ...}))
+;; correct — suffix telegraphs value-shape at the reg-interceptor registration boundary,
+;; where pre-built interceptor VALUES are accepted (public event/frame chains carry refs
+;; only — see the EP-0022 note above)
+(rf/reg-interceptor :rf.schema/at-boundary validate-at-boundary-interceptor)  ;; Var · value
 
 ;; reading this without the convention — is `validate-at-boundary-interceptor` a fn? a Var? Did the
 ;; author mean `(validate-at-boundary-interceptor)`? The suffix removes the ambiguity.
