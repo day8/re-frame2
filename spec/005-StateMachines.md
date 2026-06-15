@@ -2808,7 +2808,7 @@ The desugaring is uniform — no special-casing for hierarchy. Whatever cascadin
 
 - If `:data` is a function and it throws, the error surfaces as `:rf.error/machine-action-exception` (the standard category for any user-supplied fn that throws during a machine action — see [Cross-Spec-Interactions §11](Cross-Spec-Interactions.md#11-machine-action-throws)). The transition halts; the snapshot does not commit.
 - If `:machine-id` references an unregistered machine, the spawn fx itself errors per existing spawn semantics — no `:spawn`-specific category.
-- If the user supplies neither `:machine-id` nor `:definition`, `make-machine-handler` rejects the spec at registration time as a malformed transition table — the schema makes "exactly one of `:machine-id` or `:definition`" a registration-time constraint per [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rftransition-table).
+- If the user supplies neither `:machine-id` nor `:definition` — **or both** — `make-machine-handler` rejects the spec at registration time with **`:rf.error/machine-spawn-bad-shape`**: the schema makes "exactly one of `:machine-id` or `:definition`" a registration-time **XOR** constraint per [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rftransition-table). The both-set case is not merely redundant — it is *ambiguous*: the child would initialise from the inline `:definition` while `:rf/machine-type` stamps the registered `:machine-id`, so a later lazy-resolution / restore could materialise a *different* machine type than the one that created the snapshot. (`:spawn-all` children carry the same XOR constraint, rejected with `:rf.error/machine-spawn-all-bad-shape` — see [§Spawn-and-join via `:spawn-all`](#spawn-and-join-via-spawn-all).)
 
 ### Deliberate omissions vs xstate
 

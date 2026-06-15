@@ -383,3 +383,129 @@
       ;; and the ensure step is bypassed — no throw.
       (is (some? (machines/machine-transition m {:state :idle :data {}} [:go]))
           "the pure engine runs without a token and without an ensure error"))))
+
+;; ===========================================================================
+;; PARALLEL ROOT :on / :after in the ensure-set (rf2-bu106a)
+;; ===========================================================================
+;;
+;; The parallel branch of `ensure-set-for` unioned each REGION's scope only —
+;; the parallel ROOT's own `:on` / `:after` (live ancestor-fallback transition
+;; surfaces the runtime evaluates separately via `transition/root-on-match` /
+;; `root-after-match`) were dropped. A coeffect declared by a root `:on` /
+;; root `:after` guard/action was therefore never ensured before selection, so
+;; the guard/action silently read nil (or skipped the missing-required throw).
+;; These tests prove the root surfaces now contribute to the ensure-set.
+;;
+;; XState-v5 alignment: a transition (`on`) or delayed transition (`after`)
+;; declared on a `<parallel>` node is a first-class ancestor fallback (Spec 005
+;; §Root parallel `:on` / §Root-level `:after`, verified vs xstate@5.32.0); its
+;; guard/action requirements must be satisfied like any other node's.
+
+(deftest ensure-set-for-includes-parallel-root-on
+  (testing "white-box: ensure-set-for for a parallel machine includes the
+            ROOT :on candidate's guard/action requires (the ancestor fallback
+            the runtime resolves separately) — not just the regions' scopes"
+    (rf/reg-cofx :test/root-roll {:recordable? true} (fn [] 6))
+    (let [m (cofx-attach/index-ensure-sets
+              {:type    :parallel
+               :data    {}
+               :guards  {:root-rolled-six?
+                         {:rf.cofx/requires [:test/root-roll]
+                          :fn (fn [{cofx :rf.cofx}] (= 6 (:test/root-roll cofx)))}}
+               ;; root :on — NO region declares :go-all (so the runtime falls
+               ;; through to the root). Its guard requires :test/root-roll.
+               :on      {:go-all {:target [[:a :two] [:b :two]]
+                                  :guard  :root-rolled-six?}}
+               :regions {:a {:initial :one :states {:one {} :two {}}}
+                         :b {:initial :one :states {:one {} :two {}}}}})
+          es (cofx-attach/ensure-set-for
+               m {:state {:a :one :b :one} :data {}} [:go-all])]
+      (is (contains? (set (map :id es)) :test/root-roll)
+          "the ensure-set includes the ROOT :on guard's requires — before
+           rf2-bu106a the parallel branch unioned regions only, so :root-on
+           returned [] and the fact was never ensured"))))
+
+(deftest ensure-set-for-includes-parallel-root-after
+  (testing "white-box: ensure-set-for for the synthetic root :after timer event
+            ([:rf.machine.timer/after-elapsed delay epoch []]) includes the
+            ROOT :after candidate's requires"
+    (rf/reg-cofx :test/root-jitter {:recordable? true} (fn [] 7))
+    (let [m (cofx-attach/index-ensure-sets
+              {:type    :parallel
+               :data    {}
+               :actions {:root-stamp
+                         {:rf.cofx/requires [:test/root-jitter]
+                          :fn (fn [_] nil)}}
+               ;; root :after — root-owned delayed transition, decl-path [].
+               :after   {1000 {:target [[:a :two] [:b :two]]
+                               :action :root-stamp}}
+               :regions {:a {:initial :one :states {:one {} :two {}}}
+                         :b {:initial :one :states {:one {} :two {}}}}})
+          ;; the root timer carries decl-path [] (root-owned, not region-prefixed)
+          es (cofx-attach/ensure-set-for
+               m {:state {:a :one :b :one}
+                  :data  {:rf/after-epoch {[] 1}}}
+               [:rf.machine.timer/after-elapsed 1000 1 []])]
+      (is (contains? (set (map :id es)) :test/root-jitter)
+          "the ensure-set for the root :after timer includes the root :after
+           action's requires (rf2-bu106a acceptance #2)"))))
+
+(deftest parallel-root-on-guard-reads-ensured-generated-fact
+  (testing "end-to-end: a parallel ROOT :on guard requiring a generator-backed
+            fact reads the GENERATED value (never nil) — the ensure step ran
+            for the root surface before the root-fallback selection, so the
+            guard fires the root transition on the ensured value"
+    (rf/reg-cofx :test/root-gen {:recordable? true} (fn [] 6))
+    (let [seen (atom ::unset)
+          m {:type    :parallel
+             :data    {}
+             :guards  {:root-six?
+                       {:rf.cofx/requires [:test/root-gen]
+                        :fn (fn [{cofx :rf.cofx}]
+                              (reset! seen (:test/root-gen cofx))
+                              (= 6 (:test/root-gen cofx)))}}
+             :on      {:go-all {:target [[:a :two] [:b :two]]
+                                :guard  :root-six?}}
+             :regions {:a {:initial :one :states {:one {} :two {}}}
+                       :b {:initial :one :states {:one {} :two {}}}}}]
+      (rf/reg-machine :attach/parallel-root-on m)
+      ;; No :test/root-gen on the token — the ensure step must generate it
+      ;; BEFORE the root-fallback selection evaluates the root guard.
+      (rf/dispatch-sync [:attach/parallel-root-on [:go-all]]
+                        {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
+      (is (= 6 @seen)
+          "the root :on guard read the GENERATED fact (not nil) — ensured
+           before the parallel root-fallback selection ran")
+      (is (= {:a :two :b :two}
+             (:state (snapshot :attach/parallel-root-on)))
+          "the root :on fired on the ensured value, moving both regions"))))
+
+(deftest parallel-root-on-missing-provided-fact-throws
+  (testing "a PROVIDED (non-generator-backed) fact required by a parallel ROOT
+            :on guard, absent from the in-flight record, raises missing-
+            required from the dispatch-time ensure step — the root surface IS
+            in the ensure-set now (before rf2-bu106a it was dropped, so the
+            guard would have silently read nil)"
+    (let [m (cofx-attach/index-ensure-sets
+              {:type    :parallel
+               :data    {}
+               :guards  {:needs-time?
+                         {:rf.cofx/requires [:rf/time-ms]
+                          :fn (fn [{cofx :rf.cofx}] (some? (:rf/time-ms cofx)))}}
+               :on      {:go-all {:target [[:a :two] [:b :two]]
+                                  :guard  :needs-time?}}
+               :regions {:a {:initial :one :states {:one {} :two {}}}
+                         :b {:initial :one :states {:one {} :two {}}}}})
+          ;; empty record deliberately omits :rf/time-ms.
+          e (is (thrown? ExceptionInfo
+                         (cofx-attach/ensure-cofx
+                           m {:state {:a :one :b :one} :data {}} [:go-all]
+                           {} nil :attach/parallel-root-missing)))]
+      (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data e)))
+          "the root :on-required provided fact, absent, throws missing-required
+           (it WAS in the ensure-set) — not a silent nil")
+      (is (contains? (set (map :id (cofx-attach/ensure-set-for
+                                     m {:state {:a :one :b :one} :data {}}
+                                     [:go-all])))
+                     :rf/time-ms)
+          "the parallel root :on guard's provided requires is in the ensure-set"))))

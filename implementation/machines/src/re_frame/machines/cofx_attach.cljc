@@ -435,6 +435,93 @@
     (add! (always-diet-for-state by-entry states path))
     @acc))
 
+;; The synthetic timer event id (`transition/after-elapsed-event-id`). Inlined
+;; as a literal so this leaf does not require `transition` — the docstring's
+;; require contract (`grammar` / `path-walk` / `cofx` / `trace` / `interop`)
+;; stays cycle-free. `root-after-match` in `transition` is the runtime peer.
+(def ^:private after-elapsed-event-id :rf.machine.timer/after-elapsed)
+
+(defn- root-target-always-diet
+  "The `:always`-closure diet reachable from a PARALLEL-ROOT transition's
+  region-qualified `:target`, added into `add!`. A root `:on` / `:after`
+  `:target` is region-qualified (`[<region> & <in-region-path>]`, or a vector
+  OF such targets `[[<region> …] [<region> …]]`), or targetless (action-only).
+  Each region-qualified head resolves into THAT region's own `:states` body,
+  so the moved region's settled `:always` cascade (Spec 005 §Root parallel
+  `:on` — \"a moved region then settles its own `:always`\") contributes its
+  guard/action requires to the ensure-set exactly as `ensure-set-in-scope`'s
+  (b) clause does for a flat target. A non-region-qualified / malformed target
+  (rejected at registration) contributes nothing here."
+  [by-entry machine target add!]
+  (let [add-region-target!
+        (fn [t]
+          (when (and (vector? t) (seq t) (keyword? (first t)))
+            (let [region (first t)
+                  rpath  (vec (rest t))
+                  scope  (get-in machine [:regions region :states])]
+              (when (and scope (seq rpath))
+                (add! (always-diet-for-state by-entry scope rpath))))))]
+    (cond
+      ;; multiple region-qualified targets — a vector of target-vectors.
+      (and (vector? target) (seq target) (vector? (first target)))
+      (doseq [t target] (add-region-target! t))
+      ;; a single region-qualified target.
+      (vector? target)
+      (add-region-target! target)
+      :else nil)))
+
+(defn- parallel-root-diet
+  "Compute the PARALLEL-ROOT's own `:on` / `:after` ensure-set contribution
+  for `event`, added into `add!`. The parallel branch of `ensure-set-for`
+  unions each region's scope; this adds the root's OWN transition surfaces,
+  which the runtime evaluates separately (`transition/root-on-match` /
+  `transition/root-after-match`) as the ancestor fallback (Spec 005 §Root
+  parallel `:on` / §Root-level `:after`). Without this a coeffect declared by
+  a root `:on` / root `:after` guard/action — live transition surfaces — is
+  never ensured before selection (rf2-bu106a).
+
+  Two surfaces, mirroring the two runtime root resolvers:
+
+    (a) root `:on` — for a user event, the root's own `:on` is the ancestor
+        fallback (consulted when no region handles the event). Like
+        `ensure-set-in-scope`'s (a) clause, the ensure-set is STATIC: every
+        candidate the selection COULD touch (across the exact / `:ns/*` / `:*`
+        descriptor tiers) has its guard + action diets ensured, plus the
+        `:always` closure reachable from each candidate's region-qualified
+        target.
+
+    (b) root `:after` — for the synthetic root timer event
+        (`[:rf.machine.timer/after-elapsed delay-key epoch []]`, carried
+        decl-path `[]`), the root's `:after` entry at `delay-key` contributes
+        its guard + action diets plus the `:always` closure from its target.
+
+  Mirrors the runtime root resolvers' candidate grammar via `candidate-maps`
+  (the shared shape-wise normalisation). `by-entry` is the registration
+  index's `:by-entry` map."
+  [by-entry machine event event-id add!]
+  (if (= after-elapsed-event-id event-id)
+    ;; (b) root `:after` — only a `[]`-carried root timer is the root's own
+    ;; (a region-prefixed decl-path routes to its region, not the root).
+    (let [[_ delay-key _epoch raw-decl-path] event]
+      (when (= [] (vec raw-decl-path))
+        (doseq [cand (candidate-maps (get-in machine [:after delay-key]))]
+          (add! (entry-diet by-entry :guards  (:guard cand)))
+          (add! (entry-diet by-entry :actions (:action cand)))
+          (root-target-always-diet by-entry machine (:target cand) add!))))
+    ;; (a) root `:on` — three descriptor tiers (exact + :ns/* + :*), every
+    ;; candidate, mirroring `match-on-clause`'s tier walk on the root node.
+    (let [on    (:on machine)
+          keys* (cond-> [event-id]
+                  (and (keyword? event-id) (namespace event-id))
+                  (conj (keyword (namespace event-id) "*"))
+                  :always (conj :*))]
+      (doseq [k     keys*
+              :when (contains? on k)
+              cand  (candidate-maps (get on k))]
+        (add! (entry-diet by-entry :guards  (:guard cand)))
+        (add! (entry-diet by-entry :actions (:action cand)))
+        (root-target-always-diet by-entry machine (:target cand) add!)))))
+
 (defn ensure-set-for
   "Compute the consumer-attachment ENSURE-SET for `machine` (carrying the
   registration index) given the active `snapshot` and the inner `event`.
@@ -448,7 +535,10 @@
   For a PARALLEL machine the snapshot's `:state` is a region-name → region-
   state map; the ensure-set unions each region's own scope (each region's
   path resolves within its own `:states` body), since the broadcast routes
-  the event to every region. The set is deduped by id across regions."
+  the event to every region, PLUS the parallel ROOT's own `:on` / `:after`
+  candidates (the ancestor fallback the runtime evaluates separately via
+  `transition/root-on-match` / `root-after-match` — rf2-bu106a). The set is
+  deduped by id across regions and the root."
   [machine snapshot event]
   (let [{:keys [by-entry]} (get machine ensure-index-key)
         event-id (when (vector? event) (first event))]
@@ -456,9 +546,17 @@
       []
       (let [state (:state snapshot)]
         (if (and (map? state) (map? (:regions machine)) (seq (:regions machine)))
-          ;; parallel — union each region's scope, deduped by id.
+          ;; parallel — union each region's scope PLUS the parallel ROOT's own
+          ;; `:on` / `:after` (the ancestor fallback the runtime evaluates
+          ;; separately — `root-on-match` / `root-after-match`), deduped by id
+          ;; (rf2-bu106a).
           (let [acc      (volatile! [])
-                seen-ids (volatile! #{})]
+                seen-ids (volatile! #{})
+                add!     (fn [diet]
+                           (doseq [{:keys [id] :as e} diet]
+                             (when-not (contains? @seen-ids id)
+                               (vswap! seen-ids conj id)
+                               (vswap! acc conj e))))]
             (doseq [[region region-state] state
                     :let [body  (get-in machine [:regions region])
                           scope (:states body)
@@ -466,10 +564,9 @@
                                       (keyword? region-state) [region-state]
                                       :else nil)]
                     :when (and scope rpath)]
-              (doseq [{:keys [id] :as e} (ensure-set-in-scope by-entry scope rpath event-id)]
-                (when-not (contains? @seen-ids id)
-                  (vswap! seen-ids conj id)
-                  (vswap! acc conj e))))
+              (add! (ensure-set-in-scope by-entry scope rpath event-id)))
+            ;; the parallel root's own live transition surfaces.
+            (parallel-root-diet by-entry machine event event-id add!)
             @acc)
           ;; flat / compound — single scope.
           (let [path (cond (vector? state) state
