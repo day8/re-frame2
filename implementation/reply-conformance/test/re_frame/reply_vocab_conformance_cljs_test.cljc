@@ -59,6 +59,12 @@
   Canonical contract: `spec/Managed-Effects.md` §The uniform reply
   envelope."
   (:require [clojure.test :refer [deftest is testing]]
+            ;; CLJS-only: the `:cljs` arm of `edn-roundtrip` reads EDN via
+            ;; `cljs.reader/read-string` (JVM uses core `read-string`). Without
+            ;; this require the node CLJS gate hits `Use of undeclared Var
+            ;; cljs.reader/read-string` then a runtime undefined-deref, even
+            ;; though `clojure -M:test` is green. See rf2-u99i9j.
+            #?(:cljs [cljs.reader])
             [re-frame.reply :as reply]
             [re-frame.http-reply :as http-reply]
             [re-frame.resources.reply :as rreply]
