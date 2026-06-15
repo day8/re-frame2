@@ -770,9 +770,15 @@ compound state and may carry a region-level `:on`, which machines-viz
 projects (dropping the synthetic machine-root) as a `:machine-level?`
 edge sourced from the **region container** (`chart.layout/region-node-id`)
 with an in-region `:to-path` and **no** `:parallel-root-on?` (rf2-85a9do);
-else (3) the parallel **ROOT `:on`** ancestor fallback — the MACHINE-ROOT-
-sourced `:parallel-root-on?` chip whose region-qualified `:to-path` names
-the region (rf2-3v3gv1). Separately, a region **HANDLED but UNCHANGED**
+else (3) the parallel **ROOT `:on` (or root `:after`)** ancestor fallback —
+the MACHINE-ROOT-sourced `:parallel-root-on?` chip whose region-qualified
+`:to-path` names the region (rf2-3v3gv1). The root **`:after`** ancestor
+fallback (rf2-m3otj2 — the timer-driven analog, applying via the same
+region-qualified grammar) is projected carrying `:parallel-root-on? true`
+TOO (plus `:parallel-root-after? true` + `:after <delay>`), so this same
+arm 3 resolves a fired root-`:after` move without a separate arm — a fired
+root `:after` lights its region-qualified edge exactly as a root `:on`
+does. Separately, a region **HANDLED but UNCHANGED**
 (`before == after` with a non-empty `:cascade` for the region) lights its
 self / internal edge, distinguished from a RESTING region by the
 `:cascade` `:region` stamps (rf2-l8ls6w). Without arm (2) a parallel

@@ -507,6 +507,95 @@
                     (transition-candidates spec)))
             on-map)))
 
+(defn- root-region-qualified-candidates
+  "rf2-656ivk / rf2-m3otj2 — explode a parallel-ROOT `:on` / `:after`
+  candidate carrying a MULTI-region target `{:target [[:a :x] [:b :y]] …}` into
+  ONE candidate per region-qualified target (`{:target [:a :x] …}` /
+  `{:target [:b :y] …}`), preserving the guard / action / reenter? on each.
+  The runtime's root grammar (`re-frame.machines.parallel/normalise-root-
+  targets`) treats a vector-of-vectors `:target` as MULTIPLE region targets;
+  `resolve-target-path` only resolves a flat keyword-vector path, so without
+  this explosion a map-form multi-region root target was SILENTLY DROPPED (the
+  pre-fix latent bug in the root `:on` path; rf2-m3otj2 needs it for `:after`
+  too). A single-region (`[:a :x]`) or targetless candidate passes through
+  unchanged."
+  [candidate]
+  (let [tgt (:target candidate)]
+    (if (and (vector? tgt) (seq tgt) (every? vector? tgt))
+      (map #(assoc candidate :target %) tgt)
+      [candidate])))
+
+(defn- collect-root-parallel-fallback-edges
+  "rf2-656ivk / rf2-m3otj2 — TARGET-BEARING parallel-ROOT `:on` / `:after`
+  edges (the ancestor fallback, Spec 005 §Root parallel `:on` / §Root-level
+  `:after`). Unlike the REGION-level `collect-root-fallback-edges`, the ROOT's
+  targets are REGION-QUALIFIED (`[:a :x]`) — a multi-region candidate
+  (`{:target [[:a :x] [:b :y]]}`) is first exploded per region
+  (`root-region-qualified-candidates`), then each region-qualified target
+  resolves (absolute, from `root-path []`) to the region substate node.
+  `base-label` is the event id (`:on`) or `after(<delay>)` (`:after`). An
+  ACTION-ONLY candidate (no target) has no arrow — it surfaces as a note
+  (`root-fallback-internal-notes`)."
+  [root-path source-path base-label spec]
+  (->> (transition-candidates spec)
+       (mapcat root-region-qualified-candidates)
+       (keep (fn [candidate]
+               (when-let [target-path (resolve-target-path root-path
+                                                           source-path
+                                                           (:target candidate))]
+                 {:from  source-path
+                  :to    target-path
+                  :label (edge-label base-label candidate " (root fallback)")})))))
+
+(defn- collect-root-fallback-on-edges
+  "rf2-656ivk — the parallel-ROOT's own `:on` ancestor-fallback edges,
+  region-qualified-target-aware (multi-region map-form targets included)."
+  [root-path on-map]
+  (let [source-path (conj (vec root-path) root-fallback-segment)]
+    (mapcat (fn [[event-id spec]]
+              (collect-root-parallel-fallback-edges root-path source-path event-id spec))
+            on-map)))
+
+(defn- collect-root-fallback-after-edges
+  "rf2-m3otj2 — the parallel-ROOT's own `:after` ancestor-fallback edges
+  (the timer-driven analog), labelled `after(<delay>) … (root fallback)`."
+  [root-path after-map]
+  (let [source-path (conj (vec root-path) root-fallback-segment)]
+    (mapcat (fn [[delay spec]]
+              (collect-root-parallel-fallback-edges
+                root-path source-path
+                (str "after(" (label-value delay) ")")
+                spec))
+            after-map)))
+
+(defn- root-fallback-internal-notes
+  "rf2-656ivk / rf2-m3otj2 — an ACTION-ONLY (target-less) parallel-ROOT `:on` /
+  `:after` candidate runs its action and moves NO region (Spec 005 §Root
+  parallel `:on` targetless form / §Root-level `:after` action-only form). It
+  has no arrow to draw, so — exactly as F2/F5 surface an action-only
+  `:on-done` / internal transition — render it as a `note right of <parallel
+  root>` so the affordance is not silently dropped (the chart self-anchors it
+  `:internal?`; SCXML emits a target-less `<transition>`). Returns a flat seq
+  of note lines (empty when there is nothing internal to surface)."
+  [on-map after-map]
+  (let [on-lines
+        (mapcat (fn [[event-id spec]]
+                  (->> (transition-candidates spec)
+                       (filter internal-candidate?)
+                       (map #(internal-note-line (label-value event-id) %))))
+                on-map)
+        after-lines
+        (mapcat (fn [[delay spec]]
+                  (->> (transition-candidates spec)
+                       (filter internal-candidate?)
+                       (map #(internal-note-line (str "after(" (label-value delay) ")") %))))
+                after-map)
+        lines (concat on-lines after-lines)]
+    (when (seq lines)
+      (concat [(str "  note right of " (sanitise-id parallel-root-path))]
+              lines
+              ["  end note"]))))
+
 (defn- collect-edges
   "Walk a state node and emit edge maps for
   every statically-resolvable transition declared on it.
@@ -629,11 +718,18 @@
           states))
 
 (defn- render-root-fallback-alias
-  [root-path on-map depth]
-  (when (seq on-map)
-    [(render-state-alias (conj (vec root-path) root-fallback-segment)
-                         "root fallback"
-                         depth)]))
+  "Declare the `root fallback` alias state — the source node every root /
+  region top-level fallback edge hangs off. rf2-m3otj2 — also declared when a
+  parallel-root `:after` (the timer-driven fallback) is present, so its
+  `after(<delay>)` edge sources from the SAME labelled node, not an
+  auto-created bare one. `after-map` is optional (region-level fallbacks pass
+  only an `:on`)."
+  ([root-path on-map depth] (render-root-fallback-alias root-path on-map nil depth))
+  ([root-path on-map after-map depth]
+   (when (or (seq on-map) (seq after-map))
+     [(render-state-alias (conj (vec root-path) root-fallback-segment)
+                          "root fallback"
+                          depth)])))
 
 (defn- render-flat-or-compound-body
   [{:keys [initial states on]} header-comment?]
@@ -707,7 +803,7 @@
      "  end note"]))
 
 (defn- render-parallel-body
-  [{:keys [regions on on-done]} header-comment?]
+  [{:keys [regions on after on-done]} header-comment?]
   (let [edges       (concat
                      (mapcat (fn [[region-id {:keys [states on]}]]
                                (let [region-path (vector region-id)]
@@ -715,7 +811,18 @@
                                   (collect-state-map-edges region-path states)
                                   (collect-root-fallback-edges region-path on))))
                              regions)
-                     (collect-root-fallback-edges [] on))
+                     ;; rf2-656ivk — the parallel-ROOT's own `:on` uses the
+                     ;; region-qualified-target-aware collector (a multi-region
+                     ;; map-form target `{:target [[:a :x] [:b :y]]}` was
+                     ;; SILENTLY DROPPED by the region-level collector's
+                     ;; flat-path-only `resolve-target-path`).
+                     (collect-root-fallback-on-edges [] on)
+                     ;; rf2-m3otj2 — the parallel-ROOT's own `:after` (the
+                     ;; timer-driven ancestor fallback) renders as a root-
+                     ;; fallback edge labelled `after(<delay>)`. Pre-fix the
+                     ;; root `:after` was DROPPED entirely (destructured only
+                     ;; `regions on on-done`).
+                     (collect-root-fallback-after-edges [] after))
         edge-lines  (map render-edge edges)
         final-lines (mapcat (fn [[region-id {:keys [states]}]]
                               (render-final-edges [region-id] states))
@@ -733,13 +840,20 @@
         region-internal-notes
         (mapcat (fn [[region-id {:keys [states]}]]
                   (collect-internal-transition-notes [region-id] states))
-                regions)]
+                regions)
+        ;; rf2-656ivk / rf2-m3otj2 — an ACTION-ONLY parallel-root `:on` /
+        ;; `:after` candidate (runs an action, moves no region) has no arrow
+        ;; to draw; surface it as a note on the parallel root so it is not
+        ;; silently dropped (pre-fix the action-only root `:on` was dropped by
+        ;; `collect-root-fallback-edges`' target `when-let`; the root `:after`
+        ;; was never collected at all).
+        root-internal-notes (root-fallback-internal-notes on after)]
     (str/join "\n"
               (concat
                (when header-comment? [header-comment])
                ["stateDiagram-v2"
                 (str "  [*] --> " (sanitise-id parallel-root-path))]
-               (render-root-fallback-alias [] on 1)
+               (render-root-fallback-alias [] on after 1)
                [(str "  state " (sanitise-id parallel-root-path) " {")]
                (render-parallel-region-blocks regions)
                ["  }"]
@@ -747,6 +861,7 @@
                final-lines
                region-on-done-notes
                region-internal-notes
+               root-internal-notes
                ;; rf2-41goo — the parallel-root completion note (action/fx-
                ;; only; no sibling target).
                (render-parallel-on-done-note on-done)))))

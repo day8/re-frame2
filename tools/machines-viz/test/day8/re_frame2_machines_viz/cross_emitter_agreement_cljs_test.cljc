@@ -314,3 +314,68 @@
       (is (not= r-back i-back)
           "the two round-tripped specs remain DISTINCT (import did not collapse
            the external machine into the internal default)"))))
+
+;; ---------------------------------------------------------------------------
+;; Parallel-ROOT :on / :after ancestor fallback (rf2-656ivk / rf2-m3otj2)
+;;
+;; The parallel-root `:on` / `:after` ancestor fallbacks (Spec 005 §Root
+;; parallel :on / §Root-level :after — the viz counterparts to the
+;; machines-core parallel-root fix) must surface across ALL THREE emitters.
+;; Pre-fix: chart projected only the root :on (dropped the root :after);
+;; SCXML dropped both (only :on-done survived); mermaid dropped the
+;; action-only :on (target `when-let`) and the :after entirely.
+
+(def root-on-after-machine
+  "A parallel root carrying BOTH a target-bearing :on AND a target-bearing
+  :after to region substates — the cross-emitter repro fixture (canonical
+  bare-target shorthand, so the SCXML round-trip is exact)."
+  {:type    :parallel
+   :on      {:go [:a :two]}
+   :after   {1000 [:b :two]}
+   :regions {:a {:initial :one :states {:one {} :two {}}}
+             :b {:initial :one :states {:one {} :two {}}}}})
+
+(deftest parallel-root-on-after-surfaced-by-all-three-emitters
+  (testing "rf2-656ivk / rf2-m3otj2 — a target-bearing root :on AND root
+            :after both surface in chart, mermaid, AND SCXML"
+    ;; CHART — both project as MACHINE-ROOT-sourced region-scoped edges.
+    (let [edges    (:edges (layout/project-definition root-on-after-machine))
+          root-eds (filter :parallel-root-on? edges)]
+      (is (= 2 (count root-eds)) "chart projects both root transitions")
+      (is (= 1 (count (filter :parallel-root-after? root-eds)))
+          "chart flags exactly one as the :after edge")
+      (is (= #{[:a :two] [:b :two]} (set (map :to-path root-eds)))))
+    ;; MERMAID — both render as root-fallback edges (one labelled after(...)).
+    (let [out (mermaid-body root-on-after-machine)]
+      (is (str/includes? out "--> a__two : go (root fallback)")
+          "mermaid renders the root :on fallback edge")
+      (is (str/includes? out "--> b__two : after(1000) (root fallback)")
+          "mermaid renders the root :after fallback edge"))
+    ;; SCXML — both emit direct <parallel> transitions AND round-trip.
+    (let [out  (scxml/spec->scxml root-on-after-machine)
+          back (scxml/scxml->spec out)]
+      (is (str/includes? out "event=\"go\"") "scxml emits the root :on")
+      (is (str/includes? out "event=\"after.1000\"") "scxml emits the root :after")
+      (is (= root-on-after-machine back)
+          "scxml round-trips both root transitions exactly"))))
+
+(deftest parallel-root-action-only-on-after-surfaced-by-all-three
+  (testing "rf2-656ivk / rf2-m3otj2 — an ACTION-ONLY root :on AND root :after
+            surface in all three (chart self-anchors, mermaid notes, SCXML
+            target-less transition)"
+    (let [m {:type    :parallel
+             :on      {:ping {:action :log-ping}}
+             :after   {2000 {:action :timeout-log}}
+             :regions {:a {:initial :one :states {:one {}}}
+                       :b {:initial :one :states {:one {}}}}}]
+      ;; CHART — both self-anchored on the machine-root chip.
+      (let [edges (->> (layout/project-definition m) :edges (filter :parallel-root-on?))]
+        (is (= 2 (count edges)))
+        (is (every? :internal? edges) "both action-only root transitions self-anchor"))
+      ;; MERMAID — both notes on the parallel root.
+      (let [out (mermaid-body m)]
+        (is (str/includes? out "ping / log-ping"))
+        (is (str/includes? out "after(2000) / timeout-log")))
+      ;; SCXML — both round-trip with their action names recovered.
+      (let [back (-> m scxml/spec->scxml scxml/scxml->spec)]
+        (is (= m back) "the action-only root :on + :after round-trip")))))

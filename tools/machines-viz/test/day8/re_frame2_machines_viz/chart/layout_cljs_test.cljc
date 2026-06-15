@@ -1114,3 +1114,116 @@
       (is (every? string? ids))
       (is (every? #(str/starts-with? % layout/machine-root-id) ids)
           "each id reads from the MACHINE-ROOT source segment"))))
+
+;; ---- root parallel `:after` projection (rf2-m3otj2) ---------------------
+;;
+;; A `:type :parallel` root MAY declare its own `:after` (rf2-wox0vd) — the
+;; TIMER-DRIVEN analog of the root `:on` ancestor fallback. It is root-owned
+;; (scheduled at machine birth), and when it fires it runs its `:action` once
+;; and atomically moves one or more REGION-QUALIFIED targets (untargeted
+;; regions stay put) — identical apply grammar to the root `:on`. Pre-rf2-m3otj2
+;; the chart collected ONLY the root `:on` and DROPPED the root `:after`, so a
+;; machine-lifetime timeout was invisible in topology. The projection now
+;; sources each root `:after` edge from the synthetic MACHINE-ROOT chip into
+;; the region-scoped target node, carrying `:after <delay>` +
+;; `:parallel-root-after? true`.
+
+(deftest project-definition-parallel-root-after-single-region-target
+  (testing "rf2-m3otj2 — a root :after targeting ONE region `[:a :two]`
+            projects ONE edge from the MACHINE-ROOT chip into region :a's
+            :two node, carrying :after <delay>"
+    (let [m {:type    :parallel
+             :after   {500 {:target [:a :two]}}
+             :regions {:a {:initial :one :states {:one {} :two {}}}
+                       :b {:initial :one :states {:one {} :two {}}}}}
+          {:keys [nodes edges]} (layout/project-definition m)
+          root-afters (filter :parallel-root-after? edges)]
+      (is (= 1 (count root-afters)) "exactly one root-:after edge")
+      (let [e (first root-afters)]
+        (is (true? (:machine-level? e)) "flagged as an inherited fallback")
+        (is (true? (:parallel-root-on? e))
+            "shares the root :on re-pointing path (machine-root → region-scoped)")
+        (is (= 500 (:after e)) "carries the delay so event-segment paints ⌚")
+        (is (= [] (:from-path e)) "sourced from the root context")
+        (is (= [:a :two] (:to-path e)) "region-qualified target path")
+        (is (= layout/machine-root-id (:source e))
+            "sourced from the synthetic MACHINE-ROOT chip")
+        (is (= (layout/region-scoped-id :a [:two]) (:target e))
+            "lands on region :a's :two node (region-scoped)")
+        (is (not (:internal? e)) "a region-targeting root :after is not internal"))
+      (is (some? (first (filter :machine-root? nodes)))
+          "the synthetic MACHINE-ROOT chip is surfaced (anchors the :after)"))))
+
+(deftest project-definition-parallel-root-after-multi-region-target
+  (testing "rf2-m3otj2 — a root :after with MULTIPLE region-qualified targets
+            `[[:a :two] [:b :two]]` projects ONE edge per region; the
+            untargeted region gets none"
+    (let [m {:type    :parallel
+             :after   {1000 {:target [[:a :two] [:b :two]] :action :bump}}
+             :regions {:a {:initial :one :states {:one {} :two {}}}
+                       :b {:initial :one :states {:one {} :two {}}}
+                       :c {:initial :one :states {:one {}}}}}
+          {:keys [edges]} (layout/project-definition m)
+          root-afters (filter :parallel-root-after? edges)]
+      (is (= 2 (count root-afters)) "one root-:after edge per region-qualified target")
+      (is (= #{[:a :two] [:b :two]} (set (map :to-path root-afters))))
+      (is (every? #(= 1000 (:after %)) root-afters) "each carries the delay")
+      (is (every? #(= :bump (:action %)) root-afters) "the root action is preserved")
+      (is (every? #(= layout/machine-root-id (:source %)) root-afters))
+      (is (not-any? #(= :c (first (:to-path %))) root-afters)
+          "the untargeted region :c gets no root :after edge"))))
+
+(deftest project-definition-parallel-root-after-action-only
+  (testing "rf2-m3otj2 — a TARGETLESS action-only root :after self-anchors on
+            the MACHINE-ROOT chip as an internal affordance (moves no region)"
+    (let [m {:type    :parallel
+             :after   {2000 {:action :timeout-log}}   ;; no :target
+             :regions {:a {:initial :one :states {:one {}}}
+                       :b {:initial :one :states {:one {}}}}}
+          {:keys [nodes edges]} (layout/project-definition m)
+          root-afters (filter :parallel-root-after? edges)]
+      (is (= 1 (count root-afters)) "one root-:after affordance")
+      (let [e (first root-afters)]
+        (is (true? (:internal? e)) "targetless → internal self-anchored chip")
+        (is (= 2000 (:after e)))
+        (is (= [] (:to-path e)) "no region-qualified target")
+        (is (= layout/machine-root-id (:source e)))
+        (is (= layout/machine-root-id (:target e))
+            "self-anchored on the MACHINE-ROOT chip (moves no region)")
+        (is (= :timeout-log (:action e)) "the action is preserved"))
+      (is (some? (first (filter :machine-root? nodes)))
+          "the MACHINE-ROOT chip anchors the affordance"))))
+
+(deftest project-definition-parallel-root-after-only-mints-machine-root
+  (testing "rf2-m3otj2 — a parallel machine with ONLY a root :after (no root
+            :on) STILL mints the MACHINE-ROOT chip + a root edge"
+    (let [m {:type    :parallel
+             :after   {750 {:target [:a :two]}}
+             :regions {:a {:initial :one :states {:one {} :two {}}}
+                       :b {:initial :one :states {:one {}}}}}
+          {:keys [nodes edges]} (layout/project-definition m)]
+      (is (some? (first (filter :machine-root? nodes)))
+          "the MACHINE-ROOT chip is minted for a root :after even without a root :on")
+      (is (= 1 (count (filter :parallel-root-after? edges))))
+      (is (empty? (filter #(and (:parallel-root-on? %) (not (:parallel-root-after? %)))
+                          edges))
+          "no plain root :on edge (there is no :on)"))))
+
+(deftest project-definition-parallel-root-on-and-after-coexist
+  (testing "rf2-m3otj2 / rf2-656ivk — a root :on AND a root :after to the SAME
+            region target coexist as DISTINCT edges (no id collision)"
+    (let [m {:type    :parallel
+             :on      {:go {:target [:a :two]}}
+             :after   {1000 {:target [:a :two]}}
+             :regions {:a {:initial :one :states {:one {} :two {}}}
+                       :b {:initial :one :states {:one {}}}}}
+          {:keys [edges]} (layout/project-definition m)
+          root-edges (filter :parallel-root-on? edges)
+          ids        (map :id root-edges)]
+      (is (= 2 (count root-edges)) "both the root :on and root :after edges project")
+      (is (= 1 (count (filter #(and (:parallel-root-after? %)) root-edges)))
+          "exactly one is the :after edge")
+      (is (= 1 (count (remove :parallel-root-after? root-edges)))
+          "exactly one is the plain :on edge")
+      (is (= 2 (count (set ids)))
+          "the :on and :after edges to the same target mint DISTINCT ids"))))
