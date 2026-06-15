@@ -24,6 +24,8 @@
   fn so we can directly assert how many round-trips the probe
   costs across N tool calls."
   (:require [cljs.test :refer-macros [deftest is testing async]]
+            [cljs.reader :as edn]
+            [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.probe :as probe]))
 
@@ -338,3 +340,47 @@
         (fn []
           (assert-ladder-rejects-with-reason
             (fresh-conn) :runtime-loaded-but-preload-missing #"preload" done nil))))))
+
+;; ---------------------------------------------------------------------------
+;; `err->result`. A runtime/preflight/transport REJECTION is a known-tool
+;; failure with `:ok? false`; per the MCP error-handling contract
+;; (API §Result shape; 001-Wire-Protocol §JSON-RPC error codes) it MUST
+;; surface as `isError: true`, NOT a success-shaped `ok-text` (which a host
+;; reads as a value and the response cache could store, masking later reads).
+;; ---------------------------------------------------------------------------
+
+(defn- result-edn
+  "Read the EDN payload back off an MCP result envelope."
+  [^js result]
+  (let [content (j/get result :content)
+        item    (when (array? content) (aget content 0))
+        text    (when item (j/get item :text))]
+    (some-> text edn/read-string)))
+
+(deftest err->result-structured-rejection-is-error
+  ;; A structured ex-info (the shape resolve-and-preflight! rejects with)
+  ;; surfaces its reason verbatim AND carries :isError true.
+  (let [rej (ex-info "no re-frame2-pair runtime for build"
+                     {:reason :no-runtime-for-build :build :app
+                      :running-builds [:other]})
+        out (probe/err->result :snapshot-failed rej)]
+    (is (true? (j/get out :isError))
+        "structured preflight rejection is :isError true")
+    (let [edn (result-edn out)]
+      (is (false? (:ok? edn)))
+      (is (= :no-runtime-for-build (:reason edn)) "ex-info reason rides verbatim")
+      (is (= :app (:build edn)))
+      (is (= [:other] (:running-builds edn))
+          "the running-build enumeration survives so the operator can re-aim"))))
+
+(deftest err->result-bare-rejection-is-error-with-fallback-reason
+  ;; A plain (non-ex-info) rejection falls through to the fallback-reason
+  ;; shape — still :isError true, carrying the error message.
+  (let [out (probe/err->result :watch-until-failed (js/Error. "socket boom"))]
+    (is (true? (j/get out :isError))
+        "bare rejection is also :isError true")
+    (let [edn (result-edn out)]
+      (is (false? (:ok? edn)))
+      (is (= :watch-until-failed (:reason edn))
+          "fallback-reason keys the generic shape")
+      (is (= "socket boom" (:message edn))))))

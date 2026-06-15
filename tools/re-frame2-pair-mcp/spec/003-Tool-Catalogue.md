@@ -357,6 +357,21 @@ the common path; the dialect cost would tax the common case.
 - `:rf.mcp/cursor-stale` ⇒ drop the cursor; restart pagination from
   the head (same as cross-MCP cursor-staleness on story-mcp).
 
+**Every `:ok? false` response is `isError: true`.** A known-tool failure —
+whatever the dialect of its `:reason` — is returned with the `tools/call`
+result's `isError: true` flag set (API §Result shape; 001-Wire-Protocol
+§JSON-RPC error codes). This includes the runtime / preflight / transport
+rejections that ride back through the shared `probe/err->result` path
+(`:no-runtime-for-build`, `:runtime-loaded-but-preload-missing`, the
+`:<verb>-failed` fallbacks): they are NOT success-shaped values. The one
+deliberate exception is a tool's normal terminal-but-empty outcome that an
+agent reads as data rather than a fault — e.g. `watch-until`'s
+`:watch-timeout` (the predicate simply did not hold in the window) — which
+is documented as non-`isError` at each such tool. Keeping failures
+`isError` is also what keeps them out of the response cache (cache
+eligibility bypasses `isError` results), so a transient failure can never
+be cached and mask a later successful read.
+
 #### `:unknown-tool` recovery hint (rf2-tkmik)
 
 The bare `:unknown-tool` reason — emitted when a `tools/call` names a
@@ -2395,9 +2410,17 @@ sample map `{<signal-index> <value>}`:
 **Read-only by construction** — the runtime sampler only reads.
 
 **Args**: `signals` (required, non-empty), `pred` (required — without one
-the watch can only time out), `timeout-ms` (integer, default 30000),
-`elision` (boolean, default true), `include-sensitive` (boolean, default
-false), `frame` (string), `build` (string).
+the watch can only time out), `timeout-ms` (positive-millisecond integer,
+default 30000), `elision` (boolean, default true), `include-sensitive`
+(boolean, default false), `frame` (string), `build` (string).
+
+`timeout-ms` is validated up front against the same positive-millisecond
+contract the other timeout-aware tools use (`tail-build :wait-ms`,
+`eval-cljs` / `dispatch` `:timeout-ms`). A malformed, zero, negative, or
+fractional value short-circuits to an `isError` envelope
+(`:reason :invalid-numeric-arg`, naming the offending arg) **before** the
+runtime preflight — it is never silently rewritten to the default. An
+omitted `timeout-ms` uses the documented 30000 default.
 
 **Privacy** (rf2-8fin7.2): the `:app-db` / `:sub` values returned in the
 `:sample` (on hold) and `:last-sample` (on timeout) slots are walked by
@@ -2411,8 +2434,16 @@ are honoured only under `--allow-sensitive-reads`; otherwise forced safe.
 :held? true :elapsed-ms <n> :sample {<i> <v>} :t <ms>}`. On timeout:
 `{:ok? false :reason :watch-timeout :timed-out? true :timeout-ms <n>
 :last-sample {...}}` — `:last-sample` is the final reading, to see how
-close the condition got. `:reason :no-signals` / `:reason :missing-pred`
-on the respective omission.
+close the condition got. The timeout is the watch's normal terminal
+outcome (the predicate did not hold in time), not a tool fault, so it
+rides as a non-`isError` success-shaped result.
+
+**Error envelopes** (all `isError: true`, short-circuit before the runtime
+preflight): `:reason :no-signals` / `:reason :missing-pred` on the
+respective omission; `:reason :invalid-numeric-arg` (naming the arg) on a
+malformed / zero / negative / fractional `timeout-ms`. A runtime /
+preflight rejection (no live runtime for the build) rides back via the
+shared `probe/err->result` path as an `isError` result too.
 
 ## subscribe
 
