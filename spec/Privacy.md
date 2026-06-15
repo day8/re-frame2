@@ -3,7 +3,9 @@
 > **Type:** Reference
 > **Normative status:** Supporting companion. Defers to [009-Instrumentation](009-Instrumentation.md), [010-Schemas](010-Schemas.md), [014-HTTPRequests](014-HTTPRequests.md), [015-Data-Classification](015-Data-Classification.md), [Tool-Pair](Tool-Pair.md), [Conventions](Conventions.md), and [Security](Security.md) for every contract surface named here. This doc is the **discoverability index** — one place to land for "where do privacy primitives live across re-frame2's artefacts, what is the composition order, and what do I declare to keep a value out of off-box egress?"
 
-re-frame2's privacy surface is the **leak-prevention overlay on observability**. Real data flows through events / cofx / handlers / fx / app-db / subs / views unchanged; sentinel substitution happens **only at the observation boundary**. The contract spans five artefacts (`re-frame.core`, `re-frame.http`, `re-frame.schemas`, `re-frame.epoch`, `tools/mcp-base`) and four declaration sources (Spec 015 path-marks, Spec 010 schema metadata, Spec 014 HTTP denylists, Spec 009 handler-meta — removed) — this doc gathers them into one inventory and pins the composition order.
+re-frame2's privacy surface is the **leak-prevention overlay on observability**. Real data flows through events / cofx / handlers / fx / app-db / subs / views unchanged; sentinel substitution happens **only at the observation/egress boundary**. The contract spans five artefacts (`re-frame.core`, `re-frame.http`, `re-frame.schemas`, `re-frame.epoch`, `tools/mcp-base`) and the **owner-classification** declaration sources the graduated [EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md) model fixes — frame config (durable frame-wide facts), per-slot schema props (owner-local schema'd data), and registration metadata (transient payloads) — this doc gathers them into one inventory and pins the composition order.
+
+> **Graduated to the EP-0015 model.** This doc was rewritten to the **[EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md)** (final) owner-classification + `project-egress` + `:rf.egress/*`-profile model that [Spec 015](015-Data-Classification.md) graduates, and reflects the **[EP-0017](../docs/EP/EP-0017-recordable-coeffects.md)** (final) recordable-coeffect secrets-exclusion rule (see [§Recordable coeffects must exclude secrets](#recordable-coeffects-must-exclude-secrets)). The pre-EP-0015 framing — the "seven first-class marking sites", the public `add-marks` / `set-marks` app-db path-mark API, schema-attached *app-db* classification, and the positional `redact-interceptor` — is **superseded**; those surfaces are removed from the public façade (their underlying fns remain internal / test-only plumbing), and where this index links to a sibling spec that still carries the old framing, the link is kept but its description reconciled here. The normative contract lives in [Spec 015](015-Data-Classification.md); this doc is the cross-artefact index.
 
 > **Posture (per Spec 015 §Posture).** Privacy here is observability hygiene, not authorisation. Apps still own auth, authorisation, encryption-at-rest, and transport security. The classification machinery exists so that the framework's own dev-time observability surfaces (and their downstream consumers — log sinks, AI agents, dashboards) cannot accidentally exfiltrate user secrets or stuff log lines with multi-megabyte blobs. See [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) for the pattern-level threat model.
 
@@ -11,10 +13,11 @@ re-frame2's privacy surface is the **leak-prevention overlay on observability**.
 
 ## Table of contents
 
-- [The five observation boundaries](#the-five-observation-boundaries)
+- [The six observation boundaries](#the-six-observation-boundaries)
 - [Inventory by artefact](#inventory-by-artefact) — every imperative + declarative entry point, grouped by owning namespace
-- [Inventory by declaration source](#inventory-by-declaration-source) — same surfaces, grouped by where the author declares the mark
+- [Inventory by declaration source](#inventory-by-declaration-source) — same surfaces, grouped by where the author declares the classification
 - [The composition order (data-flow)](#the-composition-order-data-flow) — what runs when, from handler exit to off-box wire
+- [Recordable coeffects must exclude secrets](#recordable-coeffects-must-exclude-secrets) — the EP-0017 secrets-exclusion rule
 - [Display sentinels](#display-sentinels) — what observation surfaces render
 - [Config knobs](#config-knobs) — the two verb families and the configure-keys
 - [Indicator slots](#indicator-slots) — what observers expose so callers know the payload was filtered
@@ -25,19 +28,20 @@ re-frame2's privacy surface is the **leak-prevention overlay on observability**.
 
 ---
 
-## The five observation boundaries
+## The six observation boundaries
 
-Privacy declarations exist to stop leaks at every observation surface the framework owns or participates in. Per [015 §Scope](015-Data-Classification.md#in-scope--the-five-observation-points-marks-must-guard) the complete set:
+Privacy declarations exist to stop leaks at every framework-mediated observation/egress boundary. Per [015 §Scope](015-Data-Classification.md#in-scope--the-boundaries-projection-must-guard) the complete set, each with the egress profile [Spec 015](015-Data-Classification.md#projection-profiles--the-rfegress-enum-provisional) projects it under:
 
-| # | Boundary | What sees it | Production-elided? |
+| # | Boundary | What sees it | Profile / production posture |
 |---|---|---|---|
-| 1 | **Trace-bus emit** — every `:rf/trace-event` built by `emit!` / `emit-error!` | Trace listeners, Xray panel, error monitors, log sinks | Yes — gated on `re-frame.interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`) for the dev-only stream; the always-on **error-emit substrate** ([009 §Error-emit substrate](009-Instrumentation.md)) survives production |
-| 2 | **Xray panels** — Event Detail, App-DB Diff, Subscriptions, Trace, Causality Graph, Machine Inspector, Flow Panel | The on-box dev tool; CLJS-only | Yes — Xray is dev-only |
-| 3 | **MCP wire transport** — `tools/re-frame2-pair-mcp`, `tools/story-mcp`, any future MCP server | Off-box LLM consumers | N/A (tooling, not shipped in the production bundle) |
-| 4 | **AI / LLM context lifted by tools** — any code path that lifts trace events / app-db / sub outputs / machine `:data` into an LLM prompt | The hosted LLM endpoint | N/A |
-| 5 | **Third-party log sinks** — Datadog, Sentry, LogRocket, Honeybadger, custom log fan-outs | Off-box ops/monitoring | The always-on error-emit substrate is **the live path** here — it survives `goog.DEBUG=false`, so sensitive-stamping MUST work in production builds. Per Spec 015 §Hot-path cost the trace bus is dev-only; the error substrate is not. |
+| 1 | **Trace-bus emit** — every `:rf/trace-event` built by `emit!` / `emit-error!` | Trace listeners, Xray panel, error monitors, log sinks | Dev stream gated on `re-frame.interop/debug-enabled?` (the CLJS mirror of `goog.DEBUG`); the always-on **error-emit substrate** ([009 §Error-emit substrate](009-Instrumentation.md)) survives production |
+| 2 | **Xray / Story panels** — Event Detail, App-DB Diff, Subscriptions, Trace, Causality Graph, Machine Inspector, Flow Panel, Story scenarios | The on-box dev tool; CLJS-only | `:rf.egress/local-redacted` by default; dev-only (production-elided) |
+| 3 | **MCP / tool wire transport** — `tools/re-frame2-pair-mcp`, `tools/story-mcp`, any future MCP server | Off-box LLM / tool consumers | `:rf.egress/off-box-tool`; N/A (tooling, not in the production bundle) |
+| 4 | **AI / LLM context lifted by tools** — any code path that lifts trace events / app-db / sub outputs / machine `:data` into an LLM prompt | The hosted LLM endpoint | `:rf.egress/off-box-tool`; N/A |
+| 5 | **Hosted log sinks** — Datadog, Sentry, LogRocket, Honeybadger, custom fan-outs; routed by frame `:observability` | Off-box ops/monitoring | `:rf.egress/off-box-observability`; the always-on error-emit substrate is **the live path** here — it survives `goog.DEBUG=false`, so sensitive-projection MUST work in production builds |
+| 6 | **Epoch export, SSR / hydration, public error responses, HTTP diagnostics, schema-validation failure records** | Off-box recorders, the browser, hosted dashboards | each its own profile — `:rf.egress/ssr-hydration` (after the §SSR allowlist), `:rf.egress/public-error`, `:rf.egress/off-box-observability` |
 
-The contract for boundaries 3 / 4 / 5 is **default-drop the stamped event**: when a trace event carries `:sensitive? true` at the top level, the forwarder MUST drop the whole event before egress. Apps explicitly opt back in by passing the off-box-wire opt — the MCP tool argument is the unqualified `:include-sensitive` (the Anthropic tool-input-schema regex rejects a trailing `?`; see [`tools/mcp-base/spec/sensitive.md` §Cross-server arg-vocabulary](../tools/mcp-base/spec/sensitive.md#cross-server-arg-vocabulary-convention)) — or, for an on-box panel, the `{:show-sensitive? true}` UI toggle. The off-box-wire *verb family* is named `include-sensitive?` (the `?` rides the config-knob verb, not the MCP wire key). See [Conventions §Privacy config-knob naming](Conventions.md#privacy-config-knob-naming-on-box-ui-vs-off-box-wire-egress).
+The contract for the off-box boundaries (3 / 4 / 5 / 6) is **project before egress**: the runtime projects every record under the owning frame's classification and the boundary's `:rf.egress/*` profile via [`project-egress`](015-Data-Classification.md#project-egress--the-record-level-boundary-primitive) before any sink, tool, or wire sees it; a sink **never** receives a raw record. On the always-on trace/error substrate, a record carrying `:sensitive? true` at the top level is dropped by the off-box forwarder. Apps opt back in by passing the off-box-wire opt — the MCP tool argument is the unqualified `:include-sensitive` (the Anthropic tool-input-schema regex rejects a trailing `?`; see [`tools/mcp-base/spec/sensitive.md` §Cross-server arg-vocabulary](../tools/mcp-base/spec/sensitive.md#cross-server-arg-vocabulary-convention)), which resolves to the `:rf.egress/local-raw` profile — or, for an on-box panel, the `{:show-sensitive? true}` UI toggle. The off-box-wire *verb family* is named `include-sensitive?` (the `?` rides the config-knob verb, not the MCP wire key). See [Conventions §Privacy config-knob naming](Conventions.md#privacy-config-knob-naming-on-box-ui-vs-off-box-wire-egress).
 
 ---
 
@@ -49,16 +53,16 @@ The complete imperative + declarative surface, grouped by owning namespace. Ever
 
 | Surface | Kind | Purpose | Owner |
 |---|---|---|---|
-| `:sensitive` | reg-meta key | Vector of paths into the registration's primary data shape (event arg-map, fx-input map, cofx-injection, machine snapshot, sub output, flow output) | [015 §Seven first-class marking sites](015-Data-Classification.md#the-seven-first-class-marking-sites) |
-| `:large` | reg-meta key | Symmetric to `:sensitive` — paths to slots elided with `:rf.size/large-elided` | [015 §3](015-Data-Classification.md#3-subscriptions--reg-sub) |
-| `:sensitive?` / `:large?` | reg-meta key (`reg-sub`, `reg-flow`) | Whole-output override (`true` = force-mark, `false` = opt out of propagation) | [015 §3](015-Data-Classification.md#3-subscriptions--reg-sub), [015 §7](015-Data-Classification.md#7-flows--reg-flow) |
-| `add-marks` / `set-marks` | registration kinds | Frame-scoped declarations of path-marks against `app-db`. `(rf/add-marks frame-id {path mark, ...})` merges additively; `(rf/set-marks frame-id {path mark, ...})` replaces wholesale. | [015 §2](015-Data-Classification.md#2-app-db-marks-per-frame--add-marks--set-marks) |
-| `redact-interceptor` | interceptor factory | `(rf/redact-interceptor paths)` → interceptor value attached via registration metadata `:interceptors`. Overwrites named event-payload keys with `:rf/redacted` on the **trace surface** before the handler runs; handler body itself sees the unredacted value via `:event` coeffect. | [API.md §Privacy](API.md#privacy-spec-009-privacy--sensitive-data-in-traces) |
+| `:sensitive` | reg-meta key | Vector of paths into the registration's primary data shape (event arg-map, fx-input map, cofx value, sub output, flow output, machine transition payload) | [015 §Registration-owned transient classification](015-Data-Classification.md#registration-owned-transient-classification) |
+| `:large` | reg-meta key | Symmetric to `:sensitive` — paths to slots elided with `:rf.size/large-elided` | [015 §Registration-owned transient classification](015-Data-Classification.md#registration-owned-transient-classification) |
+| `:rf.egress/output-sensitivity` | reg-meta key (`reg-sub`, `reg-flow`) | Derived-output declassification: closed value set `:rf.egress/inherit` (default — inherit from inputs) \| `:rf.egress/sensitive` (force-mark) \| `:rf.egress/public` (declassify). **Not** `:sensitive false` — `:sensitive` is a path collection at this layer (EP-0007 rule-3 distinction). | [015 §Declassifying a derived output](015-Data-Classification.md#declassifying-a-derived-output) |
+| frame `:sensitive` / `:large` / `:observability` | `reg-frame` meta | Durable app-db classification, frame-local HTTP carrier names, and observability sink policy. The durable-frame-state owner; **replaces** the removed `add-marks` / `set-marks` / `declare-sensitive-*!` surfaces. | [015 §Frame-owned durable classification](015-Data-Classification.md#frame-owned-durable-classification) |
+| `project-egress` | record-level boundary primitive | `(rf/project-egress record opts)` → projected record. The public record-level projection primitive (knows app-db-/event-/exception-/HTTP-/summary-shaped slots); the **required step before any off-box sink**. Delegates per tree-shaped slot to `elide-wire-value`. New façade export (subject to the facade-export classification rule). | [015 §`project-egress`](015-Data-Classification.md#project-egress--the-record-level-boundary-primitive) |
+| `register-observability-sink!` / `unregister-observability-sink!` | façade fns | Register the concrete sink fn against the id a frame's `:observability` policy names; the sink consumes the already-projected record. New façade exports (subject to the facade-export classification rule). | [015 §Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy) |
 | `sensitive?` | predicate | `(rf/sensitive? trace-event)` → bool. True iff the event carries `:sensitive? true` at the top level. The framework-published predicate every forwarder composes against. | [009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces) |
-| `elide-wire-value` | walker | `(rf/elide-wire-value v opts)` → walked `v`. The **single normative emission site** for `:rf/redacted` + `:rf.size/large-elided`. Consumed by every off-box egress. | [API.md §wire-elision walker](API.md#elide-wire-value-the-wire-boundary-walker), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
-| `elision-declarations` | reader | `(rf/elision-declarations frame-id)` → schema-derived `:large?` declarations for the frame. Pair-tool / introspection. | [API.md](API.md), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
-| `populate-elision-from-schemas!` | boot hydrator | Walks the frame's app-schemas and writes `{:large? true :source :schema}` declarations into the runtime-db `[:rf.runtime/elision :declarations]` registry. Idempotent. No-op when schemas artefact absent. | [API.md](API.md), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
-| `populate-sensitive-from-schemas!` | boot hydrator | Symmetric — writes `:sensitive?` slot meta into the runtime-db `[:rf.runtime/elision :sensitive-declarations]` registry. | [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces) |
+| `elide-wire-value` | walker | `(rf/elide-wire-value v opts)` → walked `v`. The **low-level value walker** for tree-shaped values; `project-egress` delegates to it per tree-shaped slot. Sinks and tools should rarely call it directly. | [API.md §wire-elision walker](API.md#elide-wire-value-the-wire-boundary-walker), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
+| `elision-declarations` | reader | `(rf/elision-declarations frame-id)` → the frame's `[:rf.runtime/elision :declarations]` map (paths nominated for elision). Frame-sourced — installed by `reg-frame` `:large {:app-db …}` (EP-0015). Pair-tool / introspection. | [API.md](API.md), [009 §Size elision](009-Instrumentation.md#size-elision-in-traces) |
+| `populate-elision-from-schemas!` / `populate-sensitive-from-schemas!` | internal migration importer | Walk app-schemas and lower `:large?` / `:sensitive?` slot props into the runtime-db `[:rf.runtime/elision …]` registries. Per EP-0015 §8 schema metadata is **not** the public route for durable *app-db* classification (the frame owns that); these hydrators survive only as an **internal compatibility bridge** for migration import, not as a co-equal public façade. Idempotent; no-op when the schemas artefact is absent. | [015 §Schemas describe shape](015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy) |
 | `(configure! :elision ...)` | runtime config | `{:rf.size/threshold-bytes N}` — wire-elision size cap. Default `16384`. | [API.md §Configure keys](API.md) |
 
 ### `re-frame.http`
@@ -76,22 +80,22 @@ Built-in denylists ship populated with the obvious cross-app names (`authorizati
 
 ### `re-frame.schemas` (declarative — no imperative surface)
 
-Schema-attached marks. Apps that already register rich app-schemas via `rf/reg-app-schema` get these for free — the boot hydrators read them.
+Schema-attached slot props. Per EP-0015 these are the **one and only** classification route for *owner-local schema'd data* — machine `:data-schema`, resource `:data-schema` / `:params-schema`, an HTTP request's `:decode` schema (one owner, one route) — and they drive **schema-validation error-trace** redaction. They are **not** a public route for durable *app-db* classification (the frame owns that per [015 §Schemas describe shape](015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy)); the boot hydrators above survive only as an internal migration importer for the app-db case.
 
 | Surface | Kind | Purpose | Owner |
 |---|---|---|---|
-| `:sensitive? true` | schema slot prop | Per-slot Malli property `{:sensitive? true}` on an app-schema slot. Boot-time `populate-sensitive-from-schemas!` walks every registered schema and writes the slot's path into the runtime-db `[:rf.runtime/elision :sensitive-declarations]` registry. Schema-validation error traces also consult the prop (`:value` / `:received` / `:explain` / `:rf.fx/args` / `:rf.sub/query-v` redaction). | [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces) |
+| `:sensitive? true` | schema slot prop | Per-slot Malli property `{:sensitive? true}` on a `:data-schema` / `:params-schema` / `:decode` schema slot (or, for migration import only, an app-schema slot). The canonical fine-grained surface for schema-owned data; schema-validation error traces consult the prop (`:value` / `:received` / `:explain` / `:rf.fx/args` / `:rf.sub/query-v` redaction). | [010 §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces), [015 §Machine-owned](015-Data-Classification.md#machine-owned-durable-classification-ep-0005-composition-not-replacement) |
 | `:large? true` | schema slot prop | Symmetric — boot-time `populate-elision-from-schemas!` writes the slot's path into the runtime-db `[:rf.runtime/elision :declarations]` registry. The wire-elision walker substitutes `:rf.size/large-elided` for matching slots at off-box egress. | [010 §`:large?`](010-Schemas.md#large--schema-driven-size-elision-nomination) |
 
 ### `re-frame.epoch`
 
-Per-frame epoch snapshots get one privacy hook — the `:redact-fn`. Runs once per assembled record between `build-record` and ring-append / listener fan-out; the ring + every listener see the same redacted shape. The on-box dev consumer sees raw records (`epoch-history`); off-box egress routes through `projected-record` / `projected-history`.
+Per EP-0015 issue 6 (graduated), epoch records are **causal replay material** (post-[EP-0010](../docs/EP/EP-0010-causal-world-inputs.md)) and **storage-side mutation is removed** — the raw record stays in the ring and every `register-epoch-listener!` listener receives it unmutated; **off-box egress MUST project** through `projected-record` / `projected-history` (which run `project-egress` under an off-box profile). The surviving `:redact-fn` hook is **projection-side only** (export/egress), not a storage-side record transform; it is an advanced escape for slots the frame's classification cannot prove.
 
 | Surface | Kind | Purpose | Owner |
 |---|---|---|---|
-| `(configure! :epoch-history {:redact-fn fn})` | runtime config | Install a record-in / record-out fn that mutates the assembled `:rf/epoch-record` before ring-append. Failures emit `:rf.warning/epoch-redact-fn-exception` and fall back to the raw record for that drain only — does not break the drain. Production-elided (the whole epoch surface rides `debug-enabled?`). | [Tool-Pair §Redaction hook](Tool-Pair.md), [API.md §Configure keys](API.md) |
-| `:rf.epoch/sensitive?` | record-level rollup | Top-level boolean on the assembled `:rf/epoch-record` — true iff any captured trace event in the record had `:sensitive? true`. Computed BEFORE `:redact-fn` runs (so the rollup is preserved even when redact-fn erases the leaves it keyed on). | [Tool-Pair §Time-travel](Tool-Pair.md) |
-| `projected-record` | projection fn | `(rf/projected-record record)` — off-box-safe projection of a `:rf/epoch-record`. Strips raw `:db-before` / `:db-after`, runs `elide-wire-value` on captured trace events, keeps the structured fields (`:trigger-event`, `:fx`, `:halt-reason`, `:schema-digest`, `:rf.epoch/sensitive?`, `:rf.epoch/redacted-modified-paths-count`). The **single emission site** for `:rf/redacted` + `:rf.size/large-elided` markers when shipping epoch data off-box. Idempotent. | [Tool-Pair §Direct-read privacy](Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path) |
+| `(configure! :epoch-history {:redact-fn fn})` | runtime config | **Projection-side advanced override.** Invoked **once per record at the off-box egress boundary** — inside the projected-record helper, **after** the frame/profile `project-egress` projection — and MUST NOT mutate the record at storage time. The in-process ring + every listener therefore deliver the **raw** record (mutating replay material at rest corrupts the EP-0010 replay contract). Failures emit `:rf.warning/epoch-redact-fn-exception` and fall back to the projected record for that egress only. Production-elided (the whole epoch surface rides `debug-enabled?`). | [015 §Epoch projection](015-Data-Classification.md#epoch-projection-no-storage-side-mutation), [Tool-Pair §Redaction hook](Tool-Pair.md), [API.md §Configure keys](API.md) |
+| `:rf.epoch/sensitive?` | record-level rollup | Top-level boolean on the assembled `:rf/epoch-record` — true iff any captured trace event / declared-sensitive leaf in the record was sensitive. Computed at build-time from the raw record's schema-declared sensitive leaves, so it stays an accurate off-box-branch signal on the raw ring record. | [Tool-Pair §Time-travel](Tool-Pair.md) |
+| `projected-record` | projection fn | `(rf/projected-record record)` — off-box-safe projection of a `:rf/epoch-record`. Routes each tree slot through `project-egress` (over `elide-wire-value`), strips raw `:db-before` / `:db-after`, keeps the structured fields (`:trigger-event`, `:fx`, `:halt-reason`, `:schema-digest`, `:rf.epoch/sensitive?`, `:rf.epoch/redacted-modified-paths-count`). The single projection site when shipping epoch data off-box; then applies the `:redact-fn` advanced override. Idempotent. | [Tool-Pair §Direct-read privacy](Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path) |
 | `projected-history` | projection fn | `(rf/projected-history frame-id)` — `(mapv projected-record (epoch-history frame-id))`. Off-box-safe equivalent of `epoch-history`. | [Tool-Pair §Time-travel](Tool-Pair.md) |
 
 ### `tools/mcp-base` (cross-MCP wire egress)
@@ -110,45 +114,44 @@ The framework-published privacy filter every MCP forwarder composes. Apps don't 
 
 ## Inventory by declaration source
 
-Same surfaces, regrouped by **where the author declares the mark**. This is the angle Finding #8 names — Eight imperative entry points + two declarative across three artefacts.
+Same surfaces, regrouped by **the owner that declares the classification**. The graduated EP-0015 model fixes **four owners** ([015 §The ownership split](015-Data-Classification.md#the-ownership-split)): frame config classifies frame-owned durable state and frame egress; machine / resource / mutation definitions classify owner-local schema'd data; registration metadata classifies transient payloads.
 
-### Schema-attached (boot-time hydration)
+### Frame config (durable frame-wide facts + frame egress)
 
-- `{:sensitive? true}` on an app-schema slot → `populate-sensitive-from-schemas!` → runtime-db `[:rf.runtime/elision :sensitive-declarations]` at boot
-- `{:large? true}` on an app-schema slot → `populate-elision-from-schemas!` → runtime-db `[:rf.runtime/elision :declarations]` at boot
+The frame owns durable app-db classification, frame-local HTTP carrier names, observability sink policy, and the SSR hydration allowlist:
 
-The two hydrators are idempotent and no-op when the schemas artefact is absent. Schema-derived entries carry `:source :schema` so they survive an `add-marks` / `set-marks` re-call (per [015 §Relationship with schema-attached marks](015-Data-Classification.md#relationship-with-schema-attached-marks)).
+- `(rf/reg-frame :app {:sensitive {:app-db [[:auth :token] …]}})` — durable app-db sensitive paths (`:rf/path` values)
+- `(rf/reg-frame :app {:large {:app-db [[:docs :csv-upload] …]}})` — durable app-db large paths
+- `(rf/reg-frame :app {:sensitive {:http {:headers […] :query-params […]}}})` — frame-local HTTP carrier names, union onto the immutable built-in defaults
+- `(rf/reg-frame :app {:observability {:handled-events […] :errors […]}})` — production sink policy ([§Frame-owned observability sink policy](015-Data-Classification.md#frame-owned-observability-sink-policy))
+- `(rf/reg-frame :app {:ssr {:hydrate {:include-app-db […]}}})` — allowlist-first SSR/hydration boundary
 
-### Per-registration declarative (Spec 015 path-marks)
+Frame classification installs atomically at frame creation (before `:on-create`); re-registering replaces it wholesale. This **replaces** the removed `add-marks` / `set-marks` app-db path-mark API and the process-global `declare-sensitive-header!` / `declare-sensitive-query-param!` mutators (their underlying fns survive as internal/test helpers only — see [§Removed surfaces](#removed-surfaces)). Per [015 §Frame-owned durable classification](015-Data-Classification.md#frame-owned-durable-classification).
 
-Every `reg-*` accepts `:sensitive` / `:large` (vectors of paths) plus, for subs and flows, `:sensitive?` / `:large?` (whole-output boolean override). Paths root at the kind's primary data shape:
+### Per-slot schema props (owner-local schema'd data)
+
+`{:sensitive? true}` / `{:large? true}` Malli props on the **owner's own schema** are the one-and-only route for owner-local schema'd data — machine `:data-schema`, resource `:data-schema` / `:params-schema`, an HTTP request's `:decode` schema (the shared EP-0005 mechanism; no sibling path-map vocabulary). Whole-shape claims are the degenerate root-prop case; an unschematized HTTP body is whole-sensitive (fail-closed). Per [015 §Machine-owned](015-Data-Classification.md#machine-owned-durable-classification-ep-0005-composition-not-replacement), [§Resource and mutation](015-Data-Classification.md#resource-and-mutation-durable-classification), [§HTTP response bodies](015-Data-Classification.md#http-response-bodies). (Schema props on an *app-db* schema are **not** a public route — the frame owns app-db; the boot hydrators survive only as an internal migration importer per [015 §Schemas describe shape](015-Data-Classification.md#schemas-describe-shape-not-durable-app-db-egress-policy).)
+
+### Registration metadata (transient payloads)
+
+`reg-event` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-flow` accept `:sensitive` / `:large` (vectors of paths) into the registration's primary data shape; subs and flows additionally accept `:rf.egress/output-sensitivity` (`:rf.egress/inherit` | `:rf.egress/sensitive` | `:rf.egress/public`) for derived-output declassification. Empty path `[[]]` marks the whole shape.
 
 | Reg kind | Path root | Owner |
 |---|---|---|
-| `reg-event` | the event arg-map (second element of `[:event-id {arg-map}]`) | [015 §1](015-Data-Classification.md#1-event-handlers--reg-event-dbfxctx) |
-| `reg-sub` | the sub's output value; `:sensitive?` is the whole-output override | [015 §3](015-Data-Classification.md#3-subscriptions--reg-sub) |
-| `reg-fx` | the fx-input map | [015 §4](015-Data-Classification.md#4-effects--reg-fx) |
-| `reg-cofx` | the injected value (`[[]]` = the whole injection) | [015 §5](015-Data-Classification.md#5-coeffects--reg-cofx) |
-| `reg-machine` | the machine snapshot (`[:data :jwt]`, `[:data :user :ssn]`, ...) | [015 §6](015-Data-Classification.md#6-state-machines--reg-machine) |
-| `reg-flow` | the flow's `:output` value; `:sensitive?` is the whole-output override | [015 §7](015-Data-Classification.md#7-flows--reg-flow) |
+| `reg-event` | the event arg-map (second element of `[:event-id {arg-map}]`) | [015 §Registration-owned transient classification](015-Data-Classification.md#registration-owned-transient-classification) |
+| `reg-sub` | the sub's output value; `:rf.egress/output-sensitivity` declassifies the whole output | [015 §Declassifying a derived output](015-Data-Classification.md#declassifying-a-derived-output) |
+| `reg-fx` | the fx-input map | [015 §Registration-owned transient classification](015-Data-Classification.md#registration-owned-transient-classification) |
+| `reg-cofx` | the coeffect value (`[[]]` = the whole value) — see also [§Recordable coeffects must exclude secrets](#recordable-coeffects-must-exclude-secrets) | [015 §Registration-owned transient classification](015-Data-Classification.md#registration-owned-transient-classification) |
+| `reg-flow` | the flow's `:output` value; `:rf.egress/output-sensitivity` declassifies | [015 §Declassifying a derived output](015-Data-Classification.md#declassifying-a-derived-output) |
 
-### App-db declarative (dedicated registration kind)
+Machine **transition payloads** are transient payloads classified by the transition/registration metadata that introduces them — not by the machine's durable `:data` policy. Durable runtime-subsystem state (resource/mutation) is owned by its definition (per-slot schema props), not classified as a transient payload merely because it is declared by `reg-resource` / `reg-mutation`.
 
-- `(rf/add-marks frame-id {path mark, ...})` — frame-scoped, additively merges into the frame's existing mark-set.
-- `(rf/set-marks frame-id {path mark, ...})` — frame-scoped, wholesale replaces the frame's mark-set.
-
-Both write through the runtime-db `[:rf.runtime/elision :sensitive-declarations]` + `[:rf.runtime/elision :declarations]` registry keyed by absolute path with `:source :marks` (so they survive schema re-hydration; schema-sourced entries survive an `add-marks` / `set-marks` re-call). Per [015 §2](015-Data-Classification.md#2-app-db-marks-per-frame--add-marks--set-marks).
-
-### Declarative — HTTP carriers (frame policy)
+### HTTP carriers (frame policy) — quick reference
 
 - `(rf/reg-frame :app {:sensitive {:http {:headers ["X-MyApp-Auth"]}}})` — frame-local header carrier; unions onto the immutable built-in header denylist (EP-0015 §3)
 - `(rf/reg-frame :app {:sensitive {:http {:query-params ["my_token"]}}})` — frame-local query-param carrier; unions onto the built-in query-param denylist
 - `{:rf.http/managed {:decode <malli-schema-with-:sensitive?-props>}}` — per-slot response-body classification (EP-0015 issue 5)
 - `{:rf.http/managed {:sensitive? true ...}}` — per-call opt-in (body redaction + ALL params scrubbed)
-
-### Imperative — interceptor-based scrub
-
-- `(rf/redact-interceptor paths)` — interceptor value, attached via metadata `:interceptors`, that scrubs named event-payload keys with `:rf/redacted` before the handler runs. The handler body sees the unredacted value via `:event` coeffect; the trace surface sees the scrubbed version via `:rf/redacted-event`. Composes additively with the router's internal schema-redaction interceptor (when both are present, the union of paths is scrubbed).
 
 ### Runtime config — epoch redact hook
 
@@ -170,12 +173,15 @@ The single most-asked question this doc answers: **what runs when, in what order
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  2. SCHEMA / INTERCEPTOR SCRUB during trace-event build                     │
-│     - The router's internal :rf/schema-redaction interceptor stashes a      │
-│       scrubbed copy at :rf/redacted-event for every handler whose path-     │
-│       scoped slice overlaps a schema-declared sensitive app-db path.        │
-│     - User-installed `redact-interceptor` interceptors extend (union, not        │
-│       replace) the stashed copy with their declared payload paths.          │
+│  2. EVENT-PAYLOAD SCRUB during trace-event build                            │
+│     - The router's internal redaction interceptor stashes a scrubbed copy   │
+│       at :rf/redacted-event for every handler whose registration-owned      │
+│       :sensitive paths (or a frame-sensitive app-db path the slice          │
+│       overlaps) match the event payload.                                    │
+│     - (The public positional `redact-interceptor` is REMOVED per EP-0015    │
+│       §7; the underlying re-frame.privacy/redact-interceptor survives as    │
+│       internal router plumbing only — registration-owned :sensitive is the  │
+│       public route.)                                                        │
 │     - Trace assembly reads :rf/redacted-event (not :event) when building    │
 │       :rf.event/* and :rf.event/db-changed tag shapes.                      │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -226,30 +232,34 @@ The single most-asked question this doc answers: **what runs when, in what order
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  6. EPOCH ASSEMBLY (re-frame.epoch/build-record)                            │
 │     - Per-frame, on drain-settle.                                           │
-│     - sensitive-rollup computes :rf.epoch/sensitive? from the raw trace     │
-│       events captured in this drain (BEFORE redact-fn runs).                │
-│     - Installed :redact-fn (from `(rf/configure! :epoch-history {...})`)     │
-│       runs once on the assembled record. Failures emit a warning and fall   │
-│       back to the raw record for that drain only.                           │
-│     - Ring-append + listener fan-out see the SAME redacted shape — no later │
-│       projection re-derives slots the fn erased.                            │
+│     - sensitive-rollup computes :rf.epoch/sensitive? from the raw record's  │
+│       schema-declared sensitive leaves at build-time.                       │
+│     - The RAW record is appended to the ring and delivered to every         │
+│       register-epoch-listener! listener UNMUTATED — storage-side mutation   │
+│       is REMOVED (EP-0015 issue 6): epoch records are EP-0010 causal replay │
+│       material, mutating them at rest corrupts the replay contract.         │
+│     - The :redact-fn runs at step 7 (off-box egress), not here.             │
 └─────────────────────────────────────────────────────────────────────────────┘
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  7. OFF-BOX PROJECTION (rf/projected-record + rf/elide-wire-value)          │
-│     - The single emission site for :rf/redacted + :rf.size/large-elided     │
-│       at the framework wire boundary.                                       │
-│     - `projected-record` strips raw :db-before / :db-after from epoch       │
-│       records (which the on-box `epoch-history` reader still surfaces).     │
+│  7. OFF-BOX PROJECTION (rf/project-egress → rf/projected-record →           │
+│     rf/elide-wire-value)                                                    │
+│     - `project-egress` is the record-level boundary primitive; it           │
+│       delegates per tree-shaped slot to `elide-wire-value` (the value       │
+│       walker, single emission site for :rf/redacted + :rf.size/large-       │
+│       elided) under the frame's classification + the boundary's             │
+│       :rf.egress/* profile.                                                 │
+│     - `projected-record` (epoch) strips raw :db-before / :db-after; THEN    │
+│       applies the projection-side :redact-fn advanced override (after the   │
+│       frame/profile projection, never at storage time).                     │
 │     - The structured :effects rows' :args (raw fx-handler payload, not      │
 │       app-db-rooted so the walker cannot prove it safe) FAIL CLOSED to      │
 │       :rf/redacted off-box, lifted only by :include-fx-args? true.          │
 │     - `elide-wire-value` walks tree-typed payloads; consults the per-frame  │
 │       [:rf.runtime/elision :declarations] +                                 │
-│       [:rf.runtime/elision :sensitive-declarations] (which carries BOTH     │
-│       schema-sourced and app-db-marks-sourced entries — union at lookup     │
-│       time).                                                                │
+│       [:rf.runtime/elision :sensitive-declarations] (frame-sourced, plus    │
+│       schema-sourced migration-import entries — union at lookup time).      │
 │     - Composition rule: sensitive drop WINS over large elision when both    │
 │       apply at the same path (the size marker would otherwise leak :path /  │
 │       :bytes / :digest).                                                    │
@@ -272,12 +282,29 @@ The single most-asked question this doc answers: **what runs when, in what order
 
 ### Rule summary
 
-- **Composition is additive at every site.** A path declared via `add-marks` / `set-marks` AND `:sensitive?` on the schema both redact at the same observation surface — they union.
+- **Composition is additive at every site.** Frame-owned `:sensitive {:app-db …}` and an owner-local schema `:sensitive?` prop that resolve to the same path both redact at the same observation surface — they union.
 - **Sensitive wins over large at the same path.** [015 §`:rf/redacted {:bytes N}`](015-Data-Classification.md#rfredacted-bytes-n--sensitive--large-composed) and [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). The sensitive drop suppresses the size marker because the marker carries `:path` / `:bytes` / `:digest` which would themselves leak.
 - **HTTP denylists are upstream of the trace stream.** They run inside `prepare-emit-tags` / `prepare-emit-failure` *before* `trace/emit!` fires — they shape the trace event itself, not its downstream consumers. Per [Spec 014 §Privacy](014-HTTPRequests.md).
-- **Real values are never redacted mid-handler.** The router stashes a scrubbed *copy* at `:rf/redacted-event`; the handler body continues to read the unredacted `:event` coeffect.
+- **Real values are never redacted mid-handler.** The router stashes a scrubbed *copy* at `:rf/redacted-event`; the handler body continues to read the unredacted `:event` coeffect. Projection happens at the observation/egress boundary *after* the handler returns, never before.
 - **Production has one live path: the always-on error-emit substrate.** Everything else (dev trace bus, epoch ring, schema-validation traces, Xray) elides via `goog.DEBUG`. The error substrate honours `:sensitive?` *in production* — that's the load-bearing case for substrate-level enforcement.
 - **runtime-db is redacted/omitted off-box by default (EP-0001, Mike ruling #14).** Off-box egress of frame-state — the epoch `projected-record` / `projected-history` pair, Xray-MCP, and pair recorders — redacts or omits the **runtime-db** side of frame-state by default; the off-box default fails closed. Only the app-db partition (subject to its own `:sensitive?` / `:large?` elision) and explicitly allowlisted serializable runtime-db facts cross the wire. The SSR hydration payload likewise ships only the serializable runtime-db facts the client needs to reconstitute (machine snapshots, route slice, elision declarations, SSR metadata — per [011 §The `:rf/hydrate` event](011-SSR.md#the-rfhydrate-event)), never transient runtime side-channel state. A **trusted-local** tool may request richer runtime-db diagnostics explicitly (the same opt-in shape as `:include-sensitive?` for app-db); **off-box / AI / log** egress fails closed. This is the runtime-db peer of the app-db `:sensitive?` default: app-db redacts at marked paths, runtime-db redacts/omits wholesale unless explicitly opted in. The normative statement (including the elision-declarations-live-in-runtime-db corollary) is [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces).
+
+---
+
+## Recordable coeffects must exclude secrets
+
+[EP-0017](../docs/EP/EP-0017-recordable-coeffects.md) (final) folds host facts into durable frame-state as **recordable coeffects** — values written into the `:rf.cofx` envelope map and re-presented verbatim by replay (the discipline: *durable state folds facts, never reads*; see [002 §The recordable-coeffect rule](002-Frames.md#the-recordable-coeffect-rule-the-durable-write-rule)). A recordable coeffect is durable by design — it lands in every epoch record, replay fixture, and exported trace. That durability **is the threat model for credentials**:
+
+> **Crypto-grade randomness, tokens, nonces, session ids, and key material MUST NOT be minted or carried as recordable coeffects.** Recording a secret does not make it safe; it makes it durable — copied into every recording, fixture, and exported trace. Secrets are generated at the edge and handled by guarded runtime mechanisms, **off the ledger** (EP-0010's exclusion, restated at this surface).
+
+The rule is a normative review discipline, not a structural guarantee: app-owned `reg-cofx` suppliers mint whatever value they return, so the framework cannot prove a value is not a secret. The enforcement surface is this guide's secrets material plus EP-0017's recommended lint (a handler that writes durable state declaring an *ambient*-grade id — "durable state folds facts, never reads", mechanically checkable). Per [EP-0017 §Security Considerations](../docs/EP/EP-0017-recordable-coeffects.md#security-considerations).
+
+**Projection composes the same way for cofx values as for event payloads.** Each `:rf.cofx` leaf follows the **same EP-0015 projection / redaction rules as event-arg values** — classify the cofx's value shape per-slot (`reg-cofx` `:sensitive` / `:large`, or the cofx's registered `:schema` props), and the off-box projection redacts it like any other transient payload. The framework's one built-in recordable fact, **`:rf/time-ms`**, is classified **always-safe** and never redacted. So the cofx surface has two complementary obligations:
+
+1. **Off-box egress redaction** (EP-0015) — a recordable coeffect that *is* legitimately sensitive (e.g. a non-secret-but-private fact a fold needs) is classified and projected like any transient payload; it is never shipped raw off-box.
+2. **The secrets exclusion** (EP-0017, above) — a *secret* must not be a recordable coeffect at all, because redaction does not undo durability: the raw value still lives in the on-box ring, the local epoch, and any trusted-local raw read. The two rules are not substitutes — exclusion is the load-bearing rule for credentials; projection is the safety net for the merely-private.
+
+The analogous obligation already holds for [resource scopes / params](#inventory-by-declaration-source) (classified, projected — but not a place to put a secret) and for [HTTP response bodies](#http-carriers-frame-policy--quick-reference) (fail-closed when unschematized). Recordable coeffects extend that posture to the input-fold side.
 
 ---
 
@@ -313,7 +340,7 @@ Per [API.md §Configure keys](API.md) and [015](015-Data-Classification.md):
 | `(rf/configure! <key> {...})` | Privacy-relevant opt | Default | Purpose |
 |---|---|---|---|
 | `:elision` | `:rf.size/threshold-bytes N` | `16384` | Wire-elision size cap. Non-negative integer; 0 disables runtime auto-detect (only declared / schema-marked entries elide). |
-| `:epoch-history` | `:redact-fn fn` | `nil` | Per-record redaction hook at the epoch boundary. See [Tool-Pair §Redaction hook](Tool-Pair.md). |
+| `:epoch-history` | `:redact-fn fn` | `nil` | **Projection-side** advanced override — runs at off-box egress (inside `projected-record`, after the frame/profile projection), never at storage (EP-0015 issue 6). See [Tool-Pair §Redaction hook](Tool-Pair.md). |
 | `:epoch-history` | `:depth N` / `:trace-events-keep N` | depth `50`, trace-events-keep `nil` | Bounds the ring (doesn't redact; bounds the surface). |
 
 ---
@@ -337,24 +364,17 @@ The walker also emits a top-level `:rf.epoch/redacted-modified-paths-count` on `
 Finding #8's canonical question: *"I have a `:password` field in `app-db` and a `:token` header on an HTTP request — what do I declare where to keep both out of off-box egress?"*
 
 ```clojure
-;; 1. Declare the app-db path-mark — either via add-marks / set-marks OR via schema.
-;;
-;;    Option A (path-mark, declarative, no schema required):
-(rf/set-marks :rf/default
-  {[:auth :password] :sensitive
-   [:auth :token]    :sensitive
-   [:user :ssn]      :sensitive})
-
-;;    Option B (schema-attached, when the app already runs schemas):
-(rf/reg-app-schema [:auth]
-  [:map
-   [:password {:sensitive? true} :string]
-   [:token    {:sensitive? true} :string]])
-
-;;    The two sources UNION at lookup time. Apps without schemas use A;
-;;    apps already running schemas can use B alone, or A + B together for
-;;    the cross-cutting paths that no schema covers (e.g. HTTP response
-;;    headers landing in :on-success event payloads).
+;; 1. Declare the durable app-db classification ON THE FRAME (EP-0015). The
+;;    frame owns durable app-db egress policy; this replaces the removed
+;;    add-marks / set-marks API. (App-specific HTTP carriers and the
+;;    observability sink policy live on the same frame map — see steps 3.)
+(rf/reg-frame :app/main
+  {:sensitive
+   {:app-db [[:auth :password]
+             [:auth :token]
+             [:auth :refresh-token]
+             [:user :ssn]]
+    :http   {:headers ["X-MyApp-Session"]}}})
 
 ;; 2. Declare the event-arg-side mark on the login handler — the password
 ;;    arrives in the event arg-map before it lands in app-db.
@@ -373,37 +393,43 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
             :on-success [:auth/log-in-success]
             :on-failure [:auth/log-in-failure]}]]}))
 
-;; 3. Declare the app-specific auth-token header carrier on the FRAME.
+;; 3. The app-specific auth-token header carrier `X-MyApp-Session` was
+;;    declared on the same frame map in step 1 (`:sensitive {:http {...}}`).
 ;;    The built-in defaults already cover `authorization` / `x-api-key` /
-;;    `cookie` / `set-cookie`; the frame carrier below adds an app-specific
-;;    name and unions onto those immutable defaults (EP-0015 §3).
-(rf/reg-frame :app/main
-  {:sensitive {:http {:headers ["X-MyApp-Session"]}}})
+;;    `cookie` / `set-cookie`; the frame carrier unions onto those immutable
+;;    defaults (EP-0015 §3).
 
 ;; 4. The on-success event receives the JWT in the response payload. Mark
 ;;    its event arg so the trace surface sees :rf/redacted there too.
 (rf/reg-event :auth/log-in-success
   {:sensitive [[:jwt] [:refresh-token]]}
   (fn [{:keys [db]} [_ {:keys [jwt refresh-token user]}]]
-    ;; Writing the JWT into app-db [:auth :token] — the set-marks
-    ;; declaration on step 1 means downstream Xray renders the path
-    ;; as :rf/redacted. The propagation rule in Spec 015 also marks
-    ;; the destination path even without the explicit set-marks call.
+    ;; Writing the JWT into app-db [:auth :token] — the frame `:sensitive
+    ;; {:app-db ...}` declaration in step 1 means downstream Xray renders
+    ;; the path as :rf/redacted. The derived-sensitivity propagation rule
+    ;; in Spec 015 also marks subscriptions/flows that read it.
     {:db (-> db
              (assoc-in [:auth :token] jwt)
              (assoc-in [:auth :refresh-token] refresh-token)
              (assoc-in [:user :id] (:id user)))}))
 
 ;; 5. (Optional) — a subscription reading from a sensitive path inherits
-;;    sensitivity by default. Override only if you've sanitised:
+;;    sensitivity by default (EP-0015 derived sensitivity). DECLASSIFY only
+;;    if you've sanitised — use :rf.egress/output-sensitivity, NOT
+;;    `:sensitive false` (`:sensitive` is a path collection at this layer):
 (rf/reg-sub :auth/token-prefix
-  {:sensitive? false}   ;; the author has asserted the derivation is safe
+  {:rf.egress/output-sensitivity :rf.egress/public}  ;; author asserts safe
   :<- [:db/auth]
   (fn [auth _] (str (subs (:token auth) 0 8) "...")))
+;;    Xray enumerates every :rf.egress/public claim as a standing audit
+;;    surface (the declassification analogue of the global-scope list).
 
-;; 6. (Optional) — install an epoch redact-fn for any defence-in-depth
-;;    redaction of slots no path-mark covered (raw exception messages,
-;;    custom slots in :trace-events captured during the drain).
+;; 6. (Optional) — install a PROJECTION-SIDE epoch redact-fn for
+;;    defence-in-depth redaction of slots no classification covered (raw
+;;    exception messages, custom :trace-events slots). EP-0015 issue 6: the
+;;    hook runs at off-box EGRESS (inside projected-record, after the
+;;    frame/profile projection), NEVER at storage — the in-process ring
+;;    stays raw (causal replay material).
 (rf/configure! :epoch-history
   {:redact-fn (fn [record]
                 ;; Scrub :exception-message on any captured trace event.
@@ -422,12 +448,12 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
 | Handler body (`:auth/log-in`) | Real password value in `:event` coeffect (via the regular handler arg) |
 | Trace bus `:rf.event/dispatched` | `[:auth/log-in {:email "..." :password :rf/redacted :totp-code :rf/redacted}]`, top-level `:sensitive? true` |
 | Trace bus `:rf.fx/handled` for `:rf.http/managed` | `:rf.fx/args` body and params scrubbed (per-call `:sensitive? true`); `:headers` `X-MyApp-Session` value `:rf/redacted` (denylist hit) |
-| Trace bus `:rf.event/db-changed` | `[:auth :token]` slot renders `:rf/redacted` (set-marks + schema path-mark, plus event-arg propagation from `:auth/log-in-success`) |
-| Xray App-DB Diff panel | Same as above (Xray consults the same registry) |
-| MCP `get-app-db` tool response | `:rf/redacted` at the marked slots; `:dropped-sensitive N` envelope counter set to the count of dropped leaves |
-| Off-box log shipper (Datadog/Sentry) | Drops the whole `:rf.event/dispatched` and `:rf.fx/handled` events (top-level `:sensitive? true`); ships the structural skeleton only |
-| Always-on error-emit substrate (production survives) | The error record carries `:sensitive? true` and the listener-side scrub honours it before egress to Sentry |
-| Epoch `projected-record` | All of the above redactions plus the `:redact-fn`'s extra scrub; the structured `:effects` rows' `:args` fail closed to `:rf/redacted` off-box (lifted only by `:include-fx-args? true`); ring-append + listener fan-out see the same shape |
+| Trace bus `:rf.event/db-changed` | `[:auth :token]` slot renders `:rf/redacted` (frame `:sensitive {:app-db ...}`, plus event-arg propagation from `:auth/log-in-success`) |
+| Xray App-DB Diff panel | Same as above (Xray projects via `project-egress` under `:rf.egress/local-redacted`, consulting the same frame classification) |
+| MCP `get-app-db` tool response | `:rf/redacted` at the marked slots (projected under `:rf.egress/off-box-tool`); `:dropped-sensitive N` envelope counter set to the count of dropped leaves |
+| Off-box log shipper (Datadog/Sentry) | Routed by frame `:observability` under `:rf.egress/off-box-observability`; drops the whole `:rf.event/dispatched` and `:rf.fx/handled` events (top-level `:sensitive? true`); ships the structural skeleton only |
+| Always-on error-emit substrate (production survives) | The error record carries `:sensitive? true` and the listener-side projection honours it before egress to Sentry |
+| Epoch `projected-record` | All of the above redactions plus the projection-side `:redact-fn`'s extra scrub (applied at egress, never at storage); the structured `:effects` rows' `:args` fail closed to `:rf/redacted` off-box (lifted only by `:include-fx-args? true`); the in-process ring + listener fan-out see the RAW record |
 
 **What's NOT covered by this declaration set:**
 
@@ -438,7 +464,7 @@ Finding #8's canonical question: *"I have a `:password` field in `app-db` and a 
 
 ## Author guidance — the exception-path residual
 
-The path-marked declarations redact at the **five observation boundaries** named above. They walk known data shapes; they do NOT walk exception messages or `ex-data` map keys. The residual surface — *the handler read a sensitive value AND threw with that value in `ex-message` or `ex-data`* — is author responsibility. Per [015 §Author guidance for the exception-path residual](015-Data-Classification.md#author-guidance-for-the-exception-path-residual) and [Security §Author guidance for exceptions under path-level `:sensitive?`](Security.md#author-guidance-for-exceptions-under-path-level-sensitive):
+Classification declarations are projected at the **six observation boundaries** named above. Projection walks known data shapes; it does NOT walk exception messages or `ex-data` map keys. The residual surface — *the handler read a sensitive value AND threw with that value in `ex-message` or `ex-data`* — is author responsibility. Per [015 §Author guidance for the exception-path residual](015-Data-Classification.md#author-guidance-for-the-exception-path-residual) and [Security §Author guidance for exceptions under path-level `:sensitive?`](Security.md#author-guidance-for-exceptions-under-path-level-sensitive):
 
 | Anti-pattern | Preferred |
 |---|---|
@@ -455,6 +481,11 @@ Surfaces that previously lived in this matrix and have been removed. Listed here
 
 | Surface | Removed by | Why |
 |---|---|---|
+| `add-marks` / `set-marks` (public app-db path-mark API) | EP-0015 §3 (rf2-mngp4o) | Durable app-db egress policy belongs to the **frame** (`reg-frame :sensitive {:app-db …}` / `:large {:app-db …}`), not a post-creation imperative mutation. The underlying fns survive as internal/test/generated-code helpers only; they are **not** part of the public façade. |
+| `declare-sensitive-header!` / `declare-sensitive-query-param!` (and `clear-*!`) | EP-0015 §3 (rf2-ppkh3v) | App-specific HTTP carrier names belong on the **frame** (`:sensitive {:http {:headers […] :query-params […]}}`), union onto the immutable built-in defaults — not process-global mutation. |
+| `redact-interceptor` (public positional interceptor) | EP-0015 §7 (rf2-mngp4o) | Made privacy depend on interceptor placement rather than payload ownership. Registration-owned `:sensitive` classifies event payload paths; centralized `project-egress` projects at egress. `re-frame.privacy/redact-interceptor` survives as internal router plumbing only (not façade-published). |
+| Schema-attached `:sensitive?` / `:large?` as the public **app-db** classification route | EP-0015 §8 | Schemas describe shape; the frame owns durable app-db egress policy. Per-slot props remain the *one* route for owner-local schema'd data (machine / resource / HTTP-body), not a second route for frame-owned app-db. The boot hydrators survive as an internal migration importer. |
+| `inject-cofx` (public cofx-injection interceptor) | EP-0017 (rf2-w9xyx1) | Coeffect dependencies are declared with `:rf.cofx/requires` registration metadata; `reg-cofx` is value-returning + graded. `inject-cofx` is removed (calling it is the hard error `:rf.error/inject-cofx-removed`). Named here because cofx values are a classification surface. |
 | Handler-meta `:sensitive?` registration flag | | Coarse (whole-handler scope) when the data was always path-shaped. Replaced by Spec 015 per-path declarations. Handlers that were the unit of sensitivity (the rare "this whole cascade is sensitive" case) re-express by declaring the path-marks that the handler reads / writes. |
 | `:rf.fx/sensitive-mode` configure key (audit name) | never landed | Replaced by per-call `{:sensitive? true}` on `:rf.http/managed` args; the audit-era name `set-trace-redaction-policy` was a working-document placeholder that never landed in `re-frame.core`. |
 | `rf/safe-throw` framework helper (proposed) | declined | Author-level concern; per-app helpers conform better to the local convention than a framework default. Worked-example shape lives in the docs/guide. |
@@ -465,12 +496,14 @@ Surfaces that previously lived in this matrix and have been removed. Listed here
 
 ### Primary contract owners
 
-- [015-Data-Classification](015-Data-Classification.md) — the design spec for path-marked `:sensitive` / `:large` declarations and `add-marks` / `set-marks`. The Spec; this doc is the cross-artefact index.
+- [015-Data-Classification](015-Data-Classification.md) — the normative spec for the EP-0015 owner-classification + `project-egress` + `:rf.egress/*` model. The Spec; this doc is the cross-artefact index.
+- [EP-0015 (Frame-Owned Egress Policy)](../docs/EP/EP-0015-frame-owned-egress-policy.md) — the final proposal Spec 015 graduates (the twelve dispositioned open issues are the rationale record).
+- [EP-0017 (Recordable Coeffects)](../docs/EP/EP-0017-recordable-coeffects.md) — the recordable-coeffect surface and its secrets-exclusion §Security Considerations (see [§Recordable coeffects must exclude secrets](#recordable-coeffects-must-exclude-secrets)).
 - [009-Instrumentation §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces) — the canonical trace-surface privacy posture: `:sensitive?` top-level stamp, consumer-side default-drop, the always-on error-emit substrate's posture.
 - [009-Instrumentation §Size elision in traces](009-Instrumentation.md#size-elision-in-traces) — the size-elision peer of sensitive marking.
-- [010-Schemas §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces) and [010-Schemas §`:large?`](010-Schemas.md#large--schema-driven-size-elision-nomination) — schema-attached marks that boot-hydrate into the elision registry.
-- [014-HTTPRequests §Privacy](014-HTTPRequests.md) — HTTP-specific denylists and the per-call `:sensitive?` request arg.
-- [Tool-Pair §Time-travel — Redaction hook](Tool-Pair.md) — the `:redact-fn` config key on `(rf/configure! :epoch-history ...)`; the `projected-record` / `projected-history` off-box egress pair.
+- [010-Schemas §`:sensitive?`](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces) and [010-Schemas §`:large?`](010-Schemas.md#large--schema-driven-size-elision-nomination) — per-slot schema props for owner-local schema'd data and schema-validation error-trace redaction.
+- [014-HTTPRequests §Privacy](014-HTTPRequests.md) — HTTP-specific denylists, frame-local carriers, and the per-call `:sensitive?` request arg.
+- [Tool-Pair §Time-travel — Redaction hook](Tool-Pair.md) — the projection-side `:redact-fn` config key on `(rf/configure! :epoch-history ...)`; the `projected-record` / `projected-history` off-box egress pair.
 - [Tool-Pair §Direct-read privacy posture](Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path) — the MCP wire-egress contract for direct-read tools.
 
 ### Cross-cutting conventions
