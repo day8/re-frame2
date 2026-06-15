@@ -2098,6 +2098,51 @@
           (destroy-frame! id)
           (reg-frame id config))))))
 
+;; ---- realm disposal — destroy the frames the realm owns -------------------
+;;
+;; EP-0013 realm-lifecycle correctness (rf2-yueuvi). Disposing a realm MUST end
+;; the LIFECYCLE of the frames it owns, not just drop the realm's registry entry
+;; — the realm owns the frame registry + their disposal state (Spec
+;; Runtime-Subsystems §What a realm owns). `re-frame.realm/dispose-realm!` tore
+;; down the realm's adapter + host-transient state and dissoc'd the realm, but
+;; left every owned frame RECORD alive in `frames`: a post-dispose
+;; `(frame [realm-id frame-id])` (and `realm/realm-frames`) still resolved the
+;; stale frame, and recreating the same realm id + the same frame id hit
+;; `reg-frame`'s re-registration branch and PRESERVED the disposed realm's
+;; app-db / sub-cache / router runtime state instead of creating a fresh frame.
+;;
+;; This helper runs the FULL `destroy-frame!` recipe (the same teardown a normal
+;; frame destroy runs — :on-destroy, machine cascade, sub-cache + projection
+;; disposal, the host-transient + cleanup hooks, the registry dissoc) for every
+;; frame the realm owns, so disposal releases the same resources a per-frame
+;; destroy does. It runs BEFORE the realm's own host-transient inventory is
+;; cleared so each frame's `tear-down-frame-host-transient!` step can still walk
+;; the realm's live inventory. `re-frame.realm` reaches this through the
+;; `:frame/destroy-realm-frames!` late-bind hook (a static `realm` → `frame`
+;; require would cycle — frame requires realm for the record's default realm-id).
+
+(defn destroy-realm-frames!
+  "Destroy every frame OWNED by realm `rid` — the realm-disposal counterpart of
+  `destroy-frame!` (rf2-yueuvi). Resolves the realm's owned frame ids from the
+  realm-membership view (`frames-by-realm`), then runs the full `destroy-frame!`
+  recipe for each under `*current-realm*` bound to `rid` (via `call-with-realm`)
+  so a non-default-realm frame is found under its `[realm-id frame-id]` address.
+  After this every owned frame's record is gone from `frames`, so post-dispose
+  `(frame rid id)` and `realm/realm-frames` no longer expose it, and recreating
+  the realm + frame id starts fresh (no preserved app-db/sub-cache/router state).
+  A realm owning no frames is a no-op. INTERNAL — the `:frame/destroy-realm-frames!`
+  hook `re-frame.realm/dispose-realm!` calls."
+  [rid]
+  ;; Snapshot the owned ids BEFORE destroying any (destroy-frame! mutates
+  ;; `frames`, and so the derived membership view, mid-walk).
+  (let [owned (get (frames-by-realm) rid #{})]
+    (call-with-realm rid
+      (fn []
+        (doseq [fid owned]
+          (destroy-frame! fid))))))
+
+(late-bind/set-fn! :frame/destroy-realm-frames! destroy-realm-frames!)
+
 ;; ---- :rf/default — TEST-ONLY fixture helper -------------------------------
 ;;
 ;; Per Spec 002 §`:rf/default` is an ordinary id (EP-0002): `:rf/default`
