@@ -479,6 +479,136 @@
                    "keyword argument is a compile-time error; use "
                    "`with-frame` to pin to an existing frame-id.")))))))
 
+;; --- scratch.cljs frame-context audit (rf2-f37lul) -------------------------
+;;
+;; EP-0002 removed the implicit `:rf/default` floor: a frame-scoped call
+;; (`dispatch` / `dispatch-sync` / `subscribe`) evaluated with no
+;; established scope raises `:rf.error/no-frame-context`
+;; (implementation/core/src/re_frame/core.cljc §current-frame-id). The
+;; emitted dev/scratch.cljs is executable generated code — its REPL
+;; on-ramp must NOT ship forms that throw on first eval.
+;;
+;; `assert-scratch-with-frame-shape!` above checks the first-arg shape of
+;; the `with-frame` / `with-new-frame` forms, but a bare `(rf/dispatch
+;; [:counter/increment])` sitting OUTSIDE any frame-scope form, with no
+;; `:frame` opt, still passes that audit while being frameless. This audit
+;; closes that gap: every frame-scoped call in scratch.cljs must EITHER
+;;   (a) sit lexically inside a `with-frame` / `with-new-frame` body (which
+;;       pins / creates a frame for the duration), OR
+;;   (b) carry an explicit frame target inline:
+;;         - `dispatch` / `dispatch-sync`: a `:frame` key in the opts map
+;;           (the trailing map arg), e.g.
+;;           `(rf/dispatch [:e] {:frame :rf/default})`.
+;;         - `subscribe`: the 2-arity `(rf/subscribe <frame-id> [query])`
+;;           form, whose first arg is a keyword/symbol frame-id rather
+;;           than the query vector.
+
+(def ^:private frame-scoped-call-names
+  "Bare names (alias-stripped) of the frame-scoped REPL ops scratch.cljs
+  may use. Each requires a resolvable frame at eval time (EP-0002)."
+  #{"dispatch" "dispatch-sync" "subscribe"})
+
+(defn- frame-scope-form?
+  "True when `form` opens a frame scope for its body —
+  `(with-frame …)` or `(with-new-frame …)` (alias-qualified or bare)."
+  [form]
+  (or (with-frame-call? form) (with-new-frame-call? form)))
+
+(defn- frame-scoped-call?
+  "True when `form` is `(<rf-or-alias>/dispatch …)` / `…/dispatch-sync` /
+  `…/subscribe` — a call whose target frame must resolve at eval time."
+  [form]
+  (and (seq? form)
+       (symbol? (first form))
+       (contains? frame-scoped-call-names (name (first form)))))
+
+(defn- dispatch-has-explicit-frame?
+  "True when a `dispatch` / `dispatch-sync` call carries `:frame` in its
+  trailing opts map — `(rf/dispatch [:e] {:frame :rf/default})`."
+  [form]
+  (let [opts (last form)]
+    (and (> (count form) 2)
+         (map? opts)
+         (contains? opts :frame))))
+
+(defn- subscribe-has-explicit-frame?
+  "True when a `subscribe` call uses the 2-arity `(rf/subscribe <frame-id>
+  [query])` form — its first arg is a keyword/symbol frame-id, not the
+  query vector."
+  [form]
+  (let [first-arg (second form)]
+    (and (= 3 (count form))
+         (or (keyword? first-arg) (symbol? first-arg)))))
+
+(defn- call-carries-explicit-frame?
+  "Does this frame-scoped call name its frame inline (so it does not need a
+  surrounding `with-frame` / `with-new-frame` scope)?"
+  [form]
+  (case (name (first form))
+    ("dispatch" "dispatch-sync") (dispatch-has-explicit-frame? form)
+    "subscribe"                  (subscribe-has-explicit-frame? form)
+    false))
+
+(defn- frameless-scoped-calls
+  "Walk `forms` top-down. Track whether we are lexically inside a
+  `with-frame` / `with-new-frame` body. Return every frame-scoped call
+  that is NEITHER inside a frame scope NOR carries an explicit inline
+  frame target — i.e. the calls that would throw `:rf.error/no-frame-
+  context` on first eval."
+  [forms]
+  (let [acc (volatile! [])]
+    (letfn [(walk-form [form scoped?]
+              (cond
+                (frame-scope-form? form)
+                ;; Inside a frame scope: walk the body with scoped? = true.
+                ;; (The scope head — frame-id / [sym expr] — is still walked
+                ;; so a nested call there is checked under the outer scope.)
+                (doseq [child (rest form)]
+                  (walk-form child true))
+
+                (frame-scoped-call? form)
+                (do
+                  (when (and (not scoped?)
+                             (not (call-carries-explicit-frame? form)))
+                    (vswap! acc conj form))
+                  ;; Still descend into args (a nested subscribe in opts, etc.).
+                  (doseq [child (rest form)]
+                    (walk-form child scoped?)))
+
+                (seq? form)
+                (doseq [child form] (walk-form child scoped?))
+
+                (vector? form)
+                (doseq [child form] (walk-form child scoped?))
+
+                (map? form)
+                (doseq [child (concat (keys form) (vals form))]
+                  (walk-form child scoped?))
+
+                :else nil))]
+      (doseq [form forms] (walk-form form false)))
+    @acc))
+
+(defn- assert-scratch-frame-context!
+  "Reject any frameless frame-scoped REPL call in the emitted scratch.cljs
+  (rf2-f37lul). Complements the first-arg shape audit above."
+  [substrate ^java.io.File root]
+  (let [scratch (io/file root "dev/scratch.cljs")]
+    (is (.isFile scratch)
+        (str "dev/scratch.cljs emitted for " substrate))
+    (let [forms     (read-cljs-forms scratch)
+          frameless (frameless-scoped-calls forms)]
+      (is (empty? frameless)
+          (str "scratch.cljs (" substrate ") has frame-scoped REPL "
+               "call(s) with no resolvable frame: "
+               (pr-str (mapv #(take 2 %) frameless)) ". EP-0002 removed "
+               "the :rf/default floor — such a call throws "
+               ":rf.error/no-frame-context on first eval. Put it inside a "
+               "(with-frame :rf/default …) / (with-new-frame [f …] …) body, "
+               "or give it an explicit frame: {:frame :rf/default} opts for "
+               "dispatch / dispatch-sync, or the 2-arity "
+               "(subscribe <frame-id> [query]) form for subscribe.")))))
+
 ;; --- Xray layout-host contract audit (rf2-29zmf) ---------------------------
 ;;
 ;; The scaffold ships an Xray layout host in the emitted
@@ -618,6 +748,7 @@
       (let [proj (run-template! tmp "acme/my-app" substrate)]
         (assert-events-test-shape! substrate proj)
         (assert-scratch-with-frame-shape! substrate proj)
+        (assert-scratch-frame-context! substrate proj)
         (assert-xray-host-contract! substrate proj)
         (assert-no-stale-xray-wording! substrate proj)
         (doseq [rel ["test/acme/my_app/events_test.cljs"
