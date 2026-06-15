@@ -731,6 +731,28 @@
                           "root fallback"
                           depth)])))
 
+(defn- flat-root-fallback-internal-notes
+  "rf2-5uhdaz — an ACTION-ONLY (target-less) machine-level (top-level) `:on`
+  fallback runs its action and leaves the state unchanged (Spec 005 — the
+  root `:on` is consulted last by `re-frame.machines.transition/pick-
+  transition`; XState v5 targetless-transition semantics). It has no arrow to
+  draw, so — exactly as the parallel-ROOT `root-fallback-internal-notes` and
+  the per-state `collect-internal-transition-notes` do — surface it as a
+  `note right of <root fallback>` so the inherited fallback ACTION is not
+  silently dropped (the chart self-anchors it `:internal?` on the machine-root
+  chip). Returns a flat seq of note lines (empty when nothing is internal)."
+  [on-map]
+  (let [lines (mapcat (fn [[event-id spec]]
+                        (->> (transition-candidates spec)
+                             (filter internal-candidate?)
+                             (map #(internal-note-line (label-value event-id) %))))
+                      on-map)]
+    (when (seq lines)
+      (concat [(str "  note right of "
+                    (sanitise-id [root-fallback-segment]))]
+              lines
+              ["  end note"]))))
+
 (defn- render-flat-or-compound-body
   [{:keys [initial states on]} header-comment?]
   (let [root-path      []
@@ -749,7 +771,11 @@
         ;; `:after` / `:always` candidate has no arrow to draw; render it
         ;; as a note so it is not silently dropped (the chart self-anchors
         ;; it `:internal? true`, SCXML emits a target-less <transition>).
-        internal-notes (collect-internal-transition-notes root-path states)]
+        internal-notes (collect-internal-transition-notes root-path states)
+        ;; rf2-5uhdaz — a targetless machine-level (top-level) `:on` fallback
+        ;; is likewise action-only; surface it as a note on the `root fallback`
+        ;; alias (the chart self-anchors it on the machine-root chip).
+        root-fallback-notes (flat-root-fallback-internal-notes on)]
     (str/join "\n"
               (concat
                (when header-comment? [header-comment])
@@ -760,7 +786,8 @@
                edge-lines
                final-lines
                on-done-notes
-               internal-notes))))
+               internal-notes
+               root-fallback-notes))))
 
 (defn- region-initial-line
   [region-path initial depth]

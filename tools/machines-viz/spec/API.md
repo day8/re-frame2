@@ -1551,11 +1551,14 @@ encoder:
    `:on-spawn-actions` — NOT as metadata — so `strip-meta` alone never
    reached them (a local-filesystem-path leak, and a live `:fn` would make
    Transit encoding fail). `sanitise-definition` recursively drops the
-   `:source-coords` / `:source-code` debug fields and executable `:fn`
-   values, and replaces any inline-fn slot with a names-only opaque label,
-   so the payload is a viewer-safe topology with no source/paths/fns. The
-   topology references (state ids, transition targets, guard/action NAMES)
-   survive.
+   `:source-coords` / `:source-code` debug fields and EXECUTABLE `:fn`
+   values (a `:fn` entry is stripped ONLY when its value is a function —
+   the co-located `{:fn <fn> …}` slot — so a TOPOLOGY key that happens to
+   be named `:fn`, i.e. a state id, event id, or region id whose value is
+   a topology submap, is PRESERVED, rf2-07gg7h), and replaces any inline-fn
+   slot with a names-only opaque label, so the payload is a viewer-safe
+   topology with no source/paths/fns. The topology references (state ids,
+   transition targets, guard/action NAMES) survive.
 3. Canonicalises map / set ordering (per
    [Principles §Reproducible from the registry alone](./Principles.md)).
 4. Wraps in the versioned envelope.
