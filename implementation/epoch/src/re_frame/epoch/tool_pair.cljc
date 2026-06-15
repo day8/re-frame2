@@ -1142,21 +1142,78 @@
                   ev))))
           trace-events)))
 
+(def ^:private event-arg-tag-slots
+  "The trace-event tag slots that carry the DISPATCHED EVENT VECTOR
+  `[<event-id> <arg> …]` (rf2-nm611o). The same registration-owned
+  transient event args the `:trigger-event` record slot carries ride here,
+  on EVERY `:rf.event/*` op of a cascade (`:rf.event/dispatched`,
+  `:rf.event/run-start`, `:rf.event/db-pending`, `:rf.event/db-changed`,
+  `:rf.event/run-end`, …) under `:rf.event/v`, and on the `:rf.error/*`
+  handler-exception traces under the bare `:event` slot
+  (`HandlerExceptionTags`, Spec-Schemas §`:rf/error-event`). The marks
+  chokepoint (`re-frame.marks/project-event-tags`) redacts these against
+  the event's REGISTRATION marks at emit time, but UNMARKED args (a bare
+  positional secret like `[:login \"topsecret\"]`, or a map arg with no
+  declaration) are passed through raw, and the on-box ring stores the raw
+  event for `restore-epoch!` fidelity — so off-box egress must fail closed
+  here, the same posture as the `:trigger-event` record slot."
+  [:rf.event/v :event])
+
+(defn- omit-off-box-event-args
+  "Per rf2-nm611o: enforce the EP-0015 §151 registration-owned-transient
+  fail-closed rule on the dispatched-event-vector tag slots
+  (`event-arg-tag-slots`) of every trace event. For each slot present whose
+  value is the event vector `[<id> <arg> …]`, retain the head event-id
+  keyword and redact every arg to `:rf/redacted` — the SAME shape the
+  `:trigger-event` record slot egresses (see `elide-trigger-event-slot`).
+  This closes the sibling leak whereby a secret carried in the dispatched
+  event vector survives off-box inside `:trace-events` (the marks
+  chokepoint cannot prove an UNMARKED arg safe, and the on-box ring keeps
+  the raw event).
+
+  The redaction is the off-box default; the trusted-local
+  `:include-event-args? true` opt-in lifts it (the same opt that lifts the
+  `:trigger-event` redaction — one event-args keyspace, one switch).
+  Orthogonal to the app-db `:include-sensitive?` / `:include-large?`
+  opt-ins. Idempotent (a `[<id> :rf/redacted …]` re-redacts to the same
+  sentinels) and nil/non-sequential-preserving."
+  [trace-events {:keys [include-event-args?]}]
+  (if (or include-event-args? (not (sequential? trace-events)))
+    trace-events
+    (mapv (fn [ev]
+            (if-not (map? ev)
+              ev
+              (reduce (fn [ev slot]
+                        (let [tag-path [:tags slot]
+                              v        (get-in ev tag-path)]
+                          (if (and (vector? v) (seq v))
+                            (assoc-in ev tag-path
+                                      (into [(first v)]
+                                            (repeat (dec (count v)) :rf/redacted)))
+                            ev)))
+                      ev
+                      event-arg-tag-slots)))
+          trace-events)))
+
 (defn- elide-trace-events-slot
   "The `:trace-events` projection chain (rf2-ta0y7): first re-root the
   per-event `:rf.event/db` slots on the t1 / t2 trace events so the
-  sensitive / large declarations match natively, then enforce the off-box
+  sensitive / large declarations match natively, then fail closed on the
+  dispatched-event-vector args (rf2-nm611o — `:rf.event/v` / `:event`
+  carry the same registration-owned transient args as `:trigger-event`,
+  which the app-db walker cannot prove safe), then enforce the off-box
   HTTP response-body fail-closed rule (rf2-t55hxg.6 — omit unschematized
   bodies), then run the bulk frame/profile `project-egress` walk over the
   whole vector to handle the other payload-bearing tag values
-  (`:rf.event/v`, `:rf.cofx/value`, etc.) with their own per-tag paths.
-  `opts` `:include-sensitive?` / `:include-large?` opt the per-call posture
-  back in (rf2-5w06uu). Idempotent (a second pass walks already-redacted
-  scalars). Nil-preserving."
+  (`:rf.cofx/value`, etc.) with their own per-tag paths. `opts`
+  `:include-sensitive?` / `:include-large?` / `:include-event-args?` opt
+  the per-call posture back in (rf2-5w06uu / rf2-nm611o). Idempotent (a
+  second pass walks already-redacted scalars). Nil-preserving."
   [v frame-id opts]
   (when (some? v)
     (-> v
         (reroot-trace-event-db-slots frame-id opts)
+        (omit-off-box-event-args opts)
         (omit-off-box-http-bodies opts)
         (projection/project-egress (egress-opts frame-id opts)))))
 
@@ -1269,15 +1326,80 @@
     effects
     (mapv #(elide-effect-row % opts) effects)))
 
+(defn- elide-trigger-event-slot
+  "Project the `:trigger-event` slot for off-box egress (rf2-nm611o).
+
+  `:trigger-event` is the FULL dispatched event vector — `[<event-id>
+  <arg> …]` (e.g. `[:login \"topsecret\"]`, `[:auth/login {:password p}]`).
+  Per EP-0015 / Spec 015 §Registration-owned transient classification
+  (`015-Data-Classification.md` §151) the event ARGS are
+  registration-owned transient payloads, NOT frame-app-db-owned data — the
+  exact same class as the `:effects` `:args` slot (`elide-effect-row`,
+  rf2-rlt3sv, whose docstring even names `[:login pw]` dispatch vectors as
+  payload-bearing user data). They are captured verbatim from the
+  `:rf.event/v` trace tag (`capture/find-trigger-event`); they are NOT
+  routed through the marks-projection chokepoint at emit time, NOR are they
+  rooted at the frame's app-db, so the schema-path-keyed `elide-wire-value`
+  walker cannot prove any of them safe. (The prior projection routed this
+  slot through the generic `project-payload-slot`, which roots the walk at
+  the frame's app-db classification — so a secret carried positionally in
+  the event vector, e.g. `[:login \"topsecret\"]`, egressed RAW because no
+  app-db sensitive declaration matches the trigger-event path.)
+
+  A safe per-event projection cannot be proven, so off-box egress FAILS
+  CLOSED (Spec 009 §Privacy / sensitive data in traces + Security.md
+  §Off-box egress): the ARGS are redacted by default while the head
+  `<event-id>` keyword — a non-identity, non-payload field (it is the SAME
+  value the record carries in its bare `:event-id` slot, per Spec-Schemas
+  §`:rf/epoch-record`) — is retained as the event-id SUMMARY. So
+  `[:login \"topsecret\"]` egresses as `[:login :rf/redacted]`: a consumer
+  still sees WHICH event ran, never its args. Fail-closed covers BOTH
+  unmarked positional args (`[:login \"topsecret\"]`) and unmarked map args
+  (`[:auth/login {:password p}]`) — neither can be matched by the app-db
+  classification walker. The whole-vector redaction (`:rf/redacted`) is
+  reserved for a degenerate non-vector or empty slot, which the open record
+  schema admits (Spec-Schemas §`:rf/epoch-record` — consumers MUST tolerate
+  `:rf/redacted` at `:trigger-event`).
+
+  `opts` `:include-event-args? true` is the trusted-local opt-in (the
+  rf2-5w06uu / `:include-fx-args?` family) — a developer's own Xray panel
+  inspecting their own running app keeps the raw args. It is ORTHOGONAL to
+  the app-db `:include-sensitive?` / `:include-large?` opt-ins (event args
+  are a different keyspace, not app-db values), so those do NOT lift it,
+  matching the `:effects` `:args` / runtime-db boundaries.
+
+  Idempotent: a second pass over an already-projected `[<id> :rf/redacted
+  …]` re-redacts the (already-`:rf/redacted`) tail to the same sentinels.
+  Nil-preserving (a halted record may carry no `:trigger-event`)."
+  [v {:keys [include-event-args?]}]
+  (cond
+    (or include-event-args? (nil? v)) v
+    ;; The canonical shape is a non-empty event vector `[<id> <arg> …]`.
+    ;; Retain the head event-id keyword (the non-payload summary); fail
+    ;; closed on every positional / map arg in the tail.
+    (and (vector? v) (seq v))
+    (into [(first v)] (repeat (dec (count v)) :rf/redacted))
+    ;; Degenerate non-vector / empty slot (or a `:redact-fn` that already
+    ;; substituted a scalar sentinel) — redact wholesale; nothing safe to
+    ;; expose, and the open schema admits `:rf/redacted` here.
+    :else :rf/redacted))
+
 (defn projected-record
   "Project an `:rf/epoch-record` for off-box egress. Routes the
-  full-value payload slots (`:frame-state-before`, `:frame-state-after`,
-  `:db-before`, `:db-after`, `:trigger-event`, `:trace-events`) through
+  app-db-rooted full-value payload slots (`:frame-state-before`,
+  `:frame-state-after`, `:db-before`, `:db-after`, `:trace-events`) through
   `re-frame.projection/project-egress` under the
   `:rf.egress/off-box-observability` profile (EP-0015 §15 / §10) against
   the record's frame, with the off-box defaults `:include-sensitive? false`
   / `:include-large? false`. Sensitive paths land as `:rf/redacted`; large
   paths land as `:rf.size/large-elided` markers per the §Composition rule.
+
+  The `:trigger-event` slot is NOT app-db-rooted — its event ARGS are
+  registration-owned transient payloads (Spec 015 §151), the same class as
+  the `:effects` `:args` — so it fails closed instead: the args are redacted
+  by default while the head event-id keyword (the non-payload summary) is
+  retained, and the trusted-local `:include-event-args?` opt keeps them raw
+  (rf2-nm611o — see `elide-trigger-event-slot`).
 
   ## Frame/profile projection then `:redact-fn` advanced override (EP-0015 §15)
 
@@ -1304,7 +1426,8 @@
       {:include-sensitive?  <bool>   ;; reveal app-db sensitive values
        :include-large?      <bool>   ;; reveal app-db large values
        :include-runtime-db? <bool>   ;; reveal the frame-state runtime-db partition
-       :include-fx-args?    <bool>}  ;; reveal the structured `:effects` `:args`
+       :include-fx-args?    <bool>   ;; reveal the structured `:effects` `:args`
+       :include-event-args? <bool>}  ;; reveal the `:trigger-event` args (rf2-nm611o)
 
   All default `false` — the 1-arity (`(projected-record record)`) is the
   safe, fully-redacted off-box path. `:include-sensitive?` /
@@ -1343,6 +1466,15 @@
   `:rf/redacted` off-box under the `:include-fx-args? false` default (see
   `elide-effects-slot`). The value-free row metadata (`:fx-id`, `:outcome`,
   `:error-trace`) and the whole `:renders` projection pass through unchanged.
+
+  The `:trigger-event` slot is payload-bearing too (rf2-nm611o): the
+  dispatched event vector's ARGS are registration-owned transient payloads
+  (Spec 015 §151), not app-db-rooted, so the app-db classification walker
+  cannot prove them safe. It fails closed under the `:include-event-args?
+  false` default — the args are redacted while the head event-id keyword
+  (the non-payload summary, == the record's `:event-id` slot) is retained,
+  so `[:login \"topsecret\"]` egresses as `[:login :rf/redacted]` (see
+  `elide-trigger-event-slot`).
 
   The record-level bookkeeping (`:epoch-id`, `:frame`, `:committed-at`,
   `:event-id`, `:outcome`, `:halt-reason`, `:schema-digest`,
@@ -1395,8 +1527,20 @@
                        (contains? record :db-after)
                        (update :db-after      project-payload-slot frame-id opts)
 
+                       ;; rf2-nm611o: `:trigger-event` carries the dispatched
+                       ;; event vector `[<id> <arg> …]`. Its ARGS are
+                       ;; registration-owned transient payloads (Spec 015 §151),
+                       ;; NOT frame-app-db-owned data — the generic
+                       ;; `project-payload-slot` (rooted at the frame's app-db
+                       ;; classification) cannot prove them safe, so a positional
+                       ;; secret like `[:login "topsecret"]` egressed RAW. Off-box
+                       ;; egress now FAILS CLOSED: the args are redacted while the
+                       ;; head event-id keyword (the non-payload summary, == the
+                       ;; record's `:event-id` slot) is retained. The
+                       ;; trusted-local `:include-event-args? true` opt keeps the
+                       ;; raw args (the `:include-fx-args?` family).
                        (contains? record :trigger-event)
-                       (update :trigger-event project-payload-slot frame-id opts)
+                       (update :trigger-event elide-trigger-event-slot opts)
 
                        (contains? record :trace-events)
                        (update :trace-events  elide-trace-events-slot frame-id opts)
@@ -1427,8 +1571,9 @@
   snapshot, a recorder dumping the full session) can call this once
   rather than walking the raw ring and re-wrapping each record. The
   2-arity threads the trusted-local egress `opts` (rf2-5w06uu —
-  `:include-sensitive?` / `:include-large?` / `:include-runtime-db?`) to
-  every record; the 1-arity is the safe, fully-redacted off-box path."
+  `:include-sensitive?` / `:include-large?` / `:include-runtime-db?` /
+  `:include-fx-args?` / `:include-event-args?`) to every record; the
+  1-arity is the safe, fully-redacted off-box path."
   ([frame-id] (projected-history frame-id nil))
   ([frame-id opts]
    (mapv #(projected-record % opts) (state/history-for frame-id))))

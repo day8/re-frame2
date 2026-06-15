@@ -894,12 +894,22 @@
 
 (defn projected-record
   "Project an `:rf/epoch-record` for off-box egress. Routes the
-  full-value payload slots (`:frame-state-before`, `:frame-state-after`,
-  `:db-before`, `:db-after`, `:trigger-event`, `:trace-events`) through
+  app-db-rooted full-value payload slots (`:frame-state-before`,
+  `:frame-state-after`, `:db-before`, `:db-after`, `:trace-events`) through
   `re-frame.elision/elide-wire-value` against the record's frame, with
   the off-box defaults `:include-sensitive? false` /
   `:include-large? false`. Sensitive paths land as `:rf/redacted`; large
   paths land as `:rf.size/large-elided` markers per the §Composition rule.
+
+  The `:trigger-event` slot is NOT app-db-rooted (rf2-nm611o): the
+  dispatched event vector's ARGS are registration-owned transient payloads
+  (Spec 015 §151), the same class as the `:effects` `:args` — so it fails
+  closed instead. The args are redacted while the head event-id keyword
+  (the non-payload summary, == the record's `:event-id` slot) is retained,
+  so `[:login \"topsecret\"]` egresses as `[:login :rf/redacted]`. The same
+  event-args also ride the `:rf.event/v` / `:event` tags of every
+  `:trace-events` entry; they fail closed there too. The trusted-local
+  `:include-event-args? true` opt keeps the raw args.
 
   EP-0001 (rf2-3aizt1, decision #2 + Mike ruling #14): the CANONICAL
   `:frame-state-before` / `:frame-state-after` slots egress with their
@@ -949,14 +959,17 @@
 
   The 2-arity accepts a trusted-local `opts` map —
   `{:include-sensitive? :include-large? :include-runtime-db?
-  :include-fx-args?}`, all defaulting `false`. `:include-sensitive?` /
-  `:include-large?` opt the APP-DB partition's privacy / size posture back
-  in across every payload slot; they do NOT lift the frame-state
-  `:rf.db/runtime` partition boundary, which stays `:rf/redacted` unless
-  `:include-runtime-db? true` is also passed, NOR the structured `:effects`
-  `:args` (a different keyspace), which stay `:rf/redacted` unless
-  `:include-fx-args? true` is passed (rf2-rlt3sv). The 1-arity is the safe,
-  fully-redacted off-box path."
+  :include-fx-args? :include-event-args?}`, all defaulting `false`.
+  `:include-sensitive?` / `:include-large?` opt the APP-DB partition's
+  privacy / size posture back in across every payload slot; they do NOT
+  lift the frame-state `:rf.db/runtime` partition boundary, which stays
+  `:rf/redacted` unless `:include-runtime-db? true` is also passed, NOR the
+  structured `:effects` `:args` (a different keyspace), which stay
+  `:rf/redacted` unless `:include-fx-args? true` is passed (rf2-rlt3sv),
+  NOR the `:trigger-event` / trace-event `:rf.event/v` args (another
+  keyspace), which stay redacted unless `:include-event-args? true` is
+  passed (rf2-nm611o). The 1-arity is the safe, fully-redacted off-box
+  path."
   ([record] (tool-pair/projected-record record))
   ([record opts] (tool-pair/projected-record record opts)))
 
