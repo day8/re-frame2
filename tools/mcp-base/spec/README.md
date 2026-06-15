@@ -37,13 +37,14 @@ that ride on those framework surfaces.
 
 ## Index
 
-Eleven namespaces under `re-frame.mcp-base.*`. Each ships its own
+Twelve namespaces under `re-frame.mcp-base.*`. Each ships its own
 per-namespace contract doc; the table below indexes them:
 
 | ns | Surface | Per-namespace spec |
 |---|---|---|
 | `vocab` | `:rf.mcp/*` + `:rf.size/*` marker keys + envelope slots + JSON-RPC error codes. | [`vocab.md`](vocab.md) |
 | `sensitive` | spec/009 §Privacy fail-closed default-suppress filter (`sensitive-event?`, `strip-sensitive`, per-frame `scrub-snapshot`) + malformed-stamp counter. | [`sensitive.md`](sensitive.md) |
+| `egress` | Cross-MCP `:rf.egress/*` profile vocabulary + pure-data `profile-size-opts` resolver — the framework-runtime-free mirror of the closed six-member egress enum and its `:rf.size/*` floor (EP-0015 §10). | [`egress.md`](egress.md) |
 | `elision` | Wire-boundary `:rf.size/large-elided` walker (`count-elided-markers`, rf2-9fz64). | [`elision.md`](elision.md) |
 | `args` | Argument coercion helpers (`parse-boolean`, `parse-positive-int`, `fresh-keyword`, `safe-keyword`, `parse-mode`, …). | [`args.md`](args.md) |
 | `diff-encode` | Path-keyed structural diff for epoch `:db-after` slots projected into path-headed cluster sections (rf2-1wdzp / rf2-qeous) + encoder/decoder Malli gate. | [`diff-encode.md`](diff-encode.md) |

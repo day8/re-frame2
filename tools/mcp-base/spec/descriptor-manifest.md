@@ -3,7 +3,7 @@
 > **Type:** Reference (`tools/mcp-base/spec/`)
 > The shared, platform-agnostic serialiser + drift-check that lets BOTH MCP servers (`re-frame2-pair-mcp`, `story-mcp`) GENERATE / VALIDATE a committed `tool-descriptors.edn` manifest from their tool registry — so adding / removing / renaming an MCP tool goes RED in CI until the manifest is regenerated. Models the project's API-governance keystone (`rf2-3nbl5.2`, `spec/api-manifest.edn`) on the MCP descriptor surface (`rf2-sofwv`).
 
-This doc is one of eleven per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`cursor.md`](cursor.md), [`envelope.md`](envelope.md).
+This doc is one of twelve per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`egress.md`](egress.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`cursor.md`](cursor.md), [`envelope.md`](envelope.md).
 
 ## The problem it solves
 
@@ -41,7 +41,7 @@ A generated, CI-guarded manifest prevents the drift the way the keystone's `spec
 
 `:required` and `:typicalTokens` (rf2-cwhod2) guard the live API-semantics facets the original narrow projection missed:
 
-- **`:required`** — the SORTED subset of `:input-keys` the descriptor's `:inputSchema :required` marks mandatory (empty when none). Surfaces an argument silently flipping required↔optional — a contract change a `:input-keys`-only gate (which sees only that the key *exists*) would miss.
+- **`:required`** — the SORTED subset of `:input-keys` the descriptor's `:inputSchema :required` marks mandatory (empty when none). Surfaces an argument silently flipping required↔optional — a contract change a `:input-keys`-only gate (which sees only that the key *exists*) would miss. **This subset relation is ENFORCED, not assumed.** `:input-keys` (from `:inputSchema :properties`) and `:required` (from `:inputSchema :required`) are read from independent descriptor sources, so the raw shape does not force the relation. `descriptor->row` rejects a descriptor whose required keys are not a subset of its property keys — it throws an `ex-info` (`:tool` / `:required` / `:input-keys` / `:missing`) rather than emitting a self-inconsistent row (`:input-keys ["known"]` with `:required ["missing"]`) that would bless a mandatory argument the advertised input surface never declares and break the default/gate-open surface derivation.
 - **`:typicalTokens`** — the integer response-payload token-budget hint AI clients read to pick size-conscious args (`max-tokens` / `cache` / `cursor`). `nil` when a tool declares no hint (forward-compatible; the slot still renders so every row shares one shape). Surfaces a token-budget hint drifting.
 
 `:gated-input-keys` (rf2-qo3wvp) models the **two-profile** `tools/list` surface explicitly:

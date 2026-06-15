@@ -61,6 +61,43 @@
                                                :required [:b "a"]}})]
     (is (= ["a" "b"] (:required row)) "sorted + stringified")))
 
+(deftest descriptor->row-rejects-required-not-subset-of-input-keys
+  ;; manifest-contract invariant: :required is a SORTED SUBSET of
+  ;; :input-keys. The two slots are read from independent descriptor
+  ;; sources (:inputSchema :properties vs :inputSchema :required), so a
+  ;; descriptor can name a required argument absent from its advertised
+  ;; properties. Emitting that inconsistent row (input-keys ["known"]
+  ;; with required ["missing"]) blesses a mandatory argument the input
+  ;; surface never declares. descriptor->row must REJECT it.
+  (testing "a required key missing from :properties throws an ex-info naming the tool + missing keys"
+    (let [bad  {:name "broken"
+                :description "Names a required arg it does not declare."
+                :inputSchema {:type "object"
+                              :properties {:known {:type "string"}}
+                              :required ["missing"]}}
+          data (ex-data (is (thrown? clojure.lang.ExceptionInfo (dm/descriptor->row bad))))]
+      (is (= "broken" (:tool data)) "the ex-data names the offending tool")
+      (is (= ["missing"] (:missing data)) "and the keys absent from :properties")
+      (is (= ["known"] (:input-keys data)) "and the actual advertised input keys")))
+  (testing "a partially-valid required set still rejects on the missing member"
+    (let [bad {:name "partial"
+               :description "One valid, one missing required arg."
+               :inputSchema {:type "object"
+                             :properties {:event {:type "string"}}
+                             :required ["event" "absent"]}}]
+      (is (thrown? clojure.lang.ExceptionInfo (dm/descriptor->row bad)))))
+  (testing "the same rejection holds via build-manifest (the consumer entry-point)"
+    (let [bad {:name "broken" :description "d"
+               :inputSchema {:type "object"
+                             :properties {:known {:type "string"}}
+                             :required ["missing"]}}]
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (dm/build-manifest :test [bad])))))
+  (testing "a valid subset (and the empty-required case) still projects cleanly"
+    ;; the happy path the original gate covered must keep passing.
+    (is (= ["event"] (:required (dm/descriptor->row (second sample-descriptors)))))
+    (is (= [] (:required (dm/descriptor->row (first sample-descriptors)))))))
+
 (deftest descriptor->row-handles-missing-optional-slots
   (let [row (dm/descriptor->row {:name "x" :description "d"
                                  :inputSchema {:type "object"}})]
