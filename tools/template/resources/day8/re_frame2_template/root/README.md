@@ -38,18 +38,25 @@ you a clean reload:
    a handler and the next reload drops the old registration.
 
 2. **`rf/init!` is safe to re-call but does NOT reset anything by
-   itself.** It is idempotent: it installs the substrate adapter **only
-   when none is already seated** and ensures the `:rf/default` frame
-   exists. A second call (which every hot reload makes) does **not**
-   re-install the adapter, does **not** snapshot the registrar, and
-   does **not** touch app-db. So `init!` running again is a no-op for
-   your state.
+   itself.** It is idempotent and installs the substrate adapter
+   **only when none is already seated**. Per EP-0002 (Spec 002 §Frame
+   target resolution) `init!` does **not** create the `:rf/default`
+   frame — the runtime never synthesises a frame from absence. The
+   scaffold's `core/init` registers the app frame explicitly with
+   `(rf/reg-frame :rf/default {})` right after `init!`, then runs its
+   frame-local boot (schema attach + seed dispatch) inside a
+   `(rf/with-frame :rf/default …)` scope. A second `init!` call (which
+   every hot reload makes) does **not** re-install the adapter, does
+   **not** snapshot the registrar, and does **not** touch app-db; a
+   second `reg-frame :rf/default` is an idempotent update of the
+   already-live frame. So the reload is a no-op for your state.
 
 The thing that re-seeds the demo state on reload is the entry fn's own
 explicit `rf/dispatch-sync [:counter/initialise]` call in `core.cljs`
-— not `init!`. That is the reset boundary: the `:counter/initialise`
-event handler writes the starter app-db, so editing it (or removing
-the `dispatch-sync` call) is what changes what a reload re-seeds.
+(inside the `with-frame :rf/default` scope) — not `init!`. That is the
+reset boundary: the `:counter/initialise` event handler writes the
+starter app-db, so editing it (or removing the `dispatch-sync` call) is
+what changes what a reload re-seeds.
 
 ## In-app devtools (Xray)
 
@@ -378,13 +385,32 @@ schemas; a non-conforming write rolls back the `:db` effect and emits
 the error sink above — wrong writes are caught at the boundary, not
 N renders downstream.
 
+App-db schemas are **frame-local** (EP-0002, Spec 002 §Frame target
+resolution): `reg-app-schema` targets a frame and the runtime never
+synthesises one from absence. Registering with no established scope and
+no explicit `:frame` raises `:rf.error/no-frame-context` — so a bare
+`reg-app-schema` call at namespace-load time would throw. The scaffold
+therefore puts the registration in a `register-schema!` fn that
+`core/init` calls **after** `reg-frame` makes the app's `:rf/default`
+frame live, inside a `(rf/with-frame :rf/default …)` scope:
+
 ```clojure
 (def CounterDb
   [:map {:closed true}
    [:counter/value :int]])
 
-(rf/reg-app-schema [] CounterDb)
+;; in schema.cljs — NOT a load-time side-effect
+(defn register-schema! []
+  (rf/reg-app-schema [] CounterDb))
+
+;; in core.cljs — called under a live frame scope at boot
+(rf/with-frame :rf/default
+  (schema/register-schema!))
 ```
+
+If you prefer not to wrap a scope, pass the frame explicitly — every
+registration entry point takes a `:frame` opt (bare keyword is
+`{:frame …}` sugar): `(rf/reg-app-schema [] CounterDb :rf/default)`.
 
 Closed maps catch typos (`:countr/value` → schema rejection); open
 maps admit new keys during development. The starter uses closed —
@@ -392,9 +418,11 @@ flip to `{:closed false}` if you want laxer registration while you
 sketch.
 
 For multi-feature apps, register **per-feature schemas at their
-prefix path** rather than one giant root schema:
+prefix path** rather than one giant root schema — same frame-scoped
+contract (run under a frame scope, or pass an explicit `:frame`):
 
 ```clojure
+;; under a (rf/with-frame :rf/default …) scope, or pass :rf/default last
 (rf/reg-app-schemas
   {[:cart]                  CartSlice
    [:cart :items]           [:vector CartItem]
