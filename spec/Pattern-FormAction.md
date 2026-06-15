@@ -220,7 +220,7 @@ Either is acceptable; the worked example above uses the direct-args form for the
 
 ## Composition with the error projector
 
-The default error projector ([011 §Server error projection](011-SSR.md#server-error-projection)) maps `:rf.error/handler-spec-failure` to a 400 response with the public-error shape. For form actions, the per-form `:rf/handle-form-schema-failure` event (or equivalent app-level handler) translates the same trace into a slice-level error write, so the re-rendered page shows inline errors. The two layers cooperate:
+The default error projector ([011 §Server error projection](011-SSR.md#server-error-projection)) maps `:rf.error/schema-validation-failure` to a 400 response with the public-error shape. For form actions, the per-form `:rf/handle-form-schema-failure` event (or equivalent app-level handler) translates the same trace into a slice-level error write, so the re-rendered page shows inline errors. The two layers cooperate:
 
 - The projector ensures **every** schema failure has a meaningful HTTP status, even for actions without a corresponding form slice (e.g. a JSON-RPC POST).
 - The slice-level handler ensures **form-bearing** actions get their errors rendered into the same form the user just submitted.
@@ -256,7 +256,7 @@ A form-action implementation conforms to this convention when:
 - [011-SSR.md §Server-only `reg-cofx` for request context](011-SSR.md#server-only-reg-cofx-for-request-context) — the `:rf.server/request` cofx the host adapter binds.
 - [011-SSR.md §HTTP response contract](011-SSR.md#http-response-contract) — the `[:rf/response]` accumulator and the six standard server-only fxs.
 - [011-SSR.md §Standard fx](011-SSR.md#standard-fx) — `:rf.server/redirect` and the multi-status policy.
-- [011-SSR.md §Server error projection](011-SSR.md#server-error-projection) — the default mapping from `:rf.error/handler-spec-failure` to a 400 public-error response.
+- [011-SSR.md §Server error projection](011-SSR.md#server-error-projection) — the default mapping from `:rf.error/schema-validation-failure` to a 400 public-error response.
 - [011-SSR.md §`:platforms` metadata on `reg-fx`](011-SSR.md#platforms-metadata-on-reg-fx) — the platform-gating that lets one handler emit both server and client effects.
 - [010-Schemas.md §Validation timing](010-Schemas.md#validation-timing) — the `:schema` boundary check that runs on every dispatched event.
 - [010-Schemas.md §`:sensitive?` — privacy in schema-validation error traces](010-Schemas.md#sensitive--privacy-in-schema-validation-error-traces) — how `:sensitive?` propagates through schema-validation error reporting.

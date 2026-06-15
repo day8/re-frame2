@@ -106,11 +106,11 @@ Per the findings §12 lock-in:
 | Views panel toggle wiring              | `tools/xray/src/day8/re_frame2_xray/panels/views_view.cljs`          |
 | React-version regression smoke         | `tools/xray/test/day8/re_frame2_xray/views/fiber_walker_cljs_test.cljs` |
 | Production DCE contract                | `implementation/scripts/check-bundle-isolation.cjs`                    |
-| Fallback (data-attribute tagging)      | Bead ``; documented in findings §12.1                         |
+| Fallback (data-attribute tagging)      | Documented in findings §12.1 (deprecated to fallback status)            |
 | Reactive-substrate adapter API         | [`006-ReactiveSubstrate.md`](006-ReactiveSubstrate.md) (Fiber is the *contract*, not an adapter-side surface) |
 | Xray Views panel                      | `tools/xray/spec/012-Views.md`                                        |
 
 ## Decisions log
 
-- **2026-05-19 ~14:55 AUSEST** — Mike LOCKS Fiber-reading for parent/child hierarchy capture. Per-component metadata reads STAY REJECTED. Comments 4–5 (data-attribute tagging as primary) deprecated to fallback status. (Findings doc §11 Comment 6, §12; bead ``.)
-- **2026-05-19** — Walker implementation lands behind `interop/debug-enabled?` gate; React-version smoke test seeded for React 16 + 17+. Production DCE verified via `npm run test:bundle-isolation`. (Bead ``.)
+- **2026-05-19 ~14:55 AUSEST** — Mike LOCKS Fiber-reading for parent/child hierarchy capture. Per-component metadata reads STAY REJECTED. Comments 4–5 (data-attribute tagging as primary) deprecated to fallback status. (Findings doc §11 Comment 6, §12.)
+- **2026-05-19** — Walker implementation lands behind `interop/debug-enabled?` gate; React-version smoke test seeded for React 16 + 17+. Production DCE verified via `npm run test:bundle-isolation`.
