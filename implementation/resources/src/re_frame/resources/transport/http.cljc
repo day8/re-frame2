@@ -32,7 +32,8 @@
   The lowering ships here: `lower` mints the request-id and stamps the
   work-ledger correlation (`:work/id` / `:resource/key` / `:scope` /
   `:rf.frame/id` / `:generation`) into the reply addressing."
-  (:require [re-frame.late-bind :as late-bind]))
+  (:require [re-frame.error :as error]
+            [re-frame.late-bind :as late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -72,23 +73,22 @@
   [http-args resource-key where]
   (let [offending (filter #(contains? http-args %) reserved-reply-keys)]
     (when (seq offending)
-      (throw (ex-info ":rf.error/resource-reserved-request-key"
-                      {:rf.error/id  :rf.error/resource-reserved-request-key
-                       :where        where
-                       :recovery     :fix-registration
-                       :reason       (str "a resource :request supplied the "
-                                          "runtime-owned reply-addressing key(s) "
-                                          (pr-str (vec offending))
-                                          " — :request-id / :on-success / "
-                                          ":on-failure are supplied by resource "
-                                          "lowering from the scoped resource key "
-                                          "and current generation. An app-supplied "
-                                          "reply target bypasses stale suppression "
-                                          "(the correctness boundary). Remove them "
-                                          "from the :request return. Per Spec 016 "
-                                          "§Transport.")
-                       :keys         (vec offending)
-                       :resource/key resource-key})))
+      (error/throw-error!
+        :rf.error/resource-reserved-request-key where
+        (str "a resource :request supplied the "
+             "runtime-owned reply-addressing key(s) "
+             (pr-str (vec offending))
+             " — :request-id / :on-success / "
+             ":on-failure are supplied by resource "
+             "lowering from the scoped resource key "
+             "and current generation. An app-supplied "
+             "reply target bypasses stale suppression "
+             "(the correctness boundary). Remove them "
+             "from the :request return. Per Spec 016 "
+             "§Transport.")
+        {:recovery :fix-registration
+         :extra    {:keys         (vec offending)
+                    :resource/key resource-key}}))
     http-args))
 
 (defn build-managed-args
@@ -164,12 +164,10 @@
   ;; fails closed with a clear artefact-missing error when an HTTP-backed
   ;; read is issued without the HTTP artefact on the classpath.
   (when-not (late-bind/get-fn :http/abort-on-actor-destroy)
-    (throw (ex-info ":rf.error/http-artefact-missing"
-                    {:rf.error/id :rf.error/http-artefact-missing
-                     :where       're-frame.resources.transport.http/lower
-                     :recovery    :no-recovery
-                     :reason      (str "an HTTP-backed resource read requires "
-                                       "day8/re-frame2-http on the classpath; "
-                                       "add it to deps and require "
-                                       "re-frame.http-managed at app boot.")})))
+    (error/throw-error!
+      :rf.error/http-artefact-missing 're-frame.resources.transport.http/lower
+      (str "an HTTP-backed resource read requires "
+           "day8/re-frame2-http on the classpath; "
+           "add it to deps and require "
+           "re-frame.http-managed at app boot.")))
   [managed-http-fx (build-managed-args ensure-ctx)])

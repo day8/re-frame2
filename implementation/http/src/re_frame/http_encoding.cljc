@@ -35,6 +35,7 @@
   Per Spec 014 §Body encoding, §`:accept`, §Failure categories,
   §Reply addressing, §Retry and backoff."
   (:require [clojure.string  :as str]
+            [re-frame.error :as error]
             [re-frame.late-bind :as late-bind]
             [re-frame.util-json :as util-json])
   #?(:clj (:import [java.net URLEncoder])))
@@ -306,11 +307,10 @@
       ;; the caller's explicit intent. Reject it at the dispatch site rather
       ;; than swallow the misuse.
       supplied?
-      (throw (ex-info ":rf.error/http-bad-reply-target"
-                      {:where    :rf.http/managed
-                       :recovery :no-recovery
-                       :value    value
-                       :reason   "`:on-success` / `:on-failure` must be an event vector or nil per Spec 014 §Reply addressing; a non-vector non-nil value cannot be dispatched as an event"}))
+      (error/throw-error!
+        :rf.error/http-bad-reply-target :rf.http/managed
+        "`:on-success` / `:on-failure` must be an event vector or nil per Spec 014 §Reply addressing; a non-vector non-nil value cannot be dispatched as an event"
+        {:extra {:value value}})
 
       ;; default — back to originator with :rf/reply merged into message
       :else

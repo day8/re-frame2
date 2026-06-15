@@ -983,8 +983,8 @@
         (is (some? ex) "the dispatch threw rather than folding the host handle")
         (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data ex)))
             "the throw carries :rf.error/cofx-value-invalid")
-        (is (= :non-edn-recordable-value (:reason (ex-data ex)))
-            "the reason is the structural-EDN-always reason, NOT a :schema miss")
+        (is (= :non-edn-recordable-value (:rf.cofx/value-error (ex-data ex)))
+            "the structural sub-kind rides :rf.cofx/value-error, NOT a :schema miss (:reason is the human sentence)")
         (is (= :gen-test/host-handle (:rf.cofx/id (ex-data ex)))
             ":rf.cofx/id names the offending generated fact")
         (is (= [:gen-test/host-handle] (:path (ex-data ex)))
@@ -1017,7 +1017,7 @@
                               :cljs cljs.core/ExceptionInfo) e e))]
         (is (false? @fired?) "the handler never ran")
         (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data ex))))
-        (is (= :non-edn-recordable-value (:reason (ex-data ex))))
+        (is (= :non-edn-recordable-value (:rf.cofx/value-error (ex-data ex))))
         (is (= [:gen-test/nested-bad :handle] (:path (ex-data ex)))
             "the path is rooted at the fact id and descends to the bad nested leaf")))))
 

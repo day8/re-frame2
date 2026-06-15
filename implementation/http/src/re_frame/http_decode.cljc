@@ -34,6 +34,7 @@
   (`http-transport/handle-response!`) classifies as
   `:rf.http/decode-failure :schema-validation-failure? true`."
   (:require [clojure.string  :as str]
+            [re-frame.error   :as error]
             [re-frame.http-privacy :as privacy]
             [re-frame.interop :as interop]
             [re-frame.trace   :as trace]
@@ -242,13 +243,11 @@
       (warn-malli-absent! schema))
     (when validate
       (when-not (validate schema decoded)
-        (throw (ex-info ":rf.error/http-schema-validation-failed"
-                        {:rf.error/id :rf.error/http-schema-validation-failed
-                         :where       'rf.http/decode-response-body
-                         :recovery    :no-recovery
-                         :reason      "the decoded response body failed Malli schema validation; the caller classifies this as :rf.http/decode-failure"
-                         :schema      schema
-                         :value       decoded}))))
+        (error/throw-error!
+          :rf.error/http-schema-validation-failed 'rf.http/decode-response-body
+          "the decoded response body failed Malli schema validation; the caller classifies this as :rf.http/decode-failure"
+          {:extra {:schema schema
+                   :value  decoded}})))
     decoded))
 
 (defn decode-response-body
@@ -361,17 +360,15 @@
       ;; the diagnostic names the actual problem. A nil/absent Content-
       ;; Type stays JSON-eligible (many JSON APIs omit the header).
       (if-not (json-content-type? content-type)
-        (throw (ex-info ":rf.error/http-schema-non-json-content-type"
-                        {:rf.error/id  :rf.error/http-schema-non-json-content-type
-                         :where        'rf.http/decode-response-body
-                         :recovery     :no-recovery
-                         :reason       (str "a Malli `:decode` schema was supplied but the response "
-                                            "declared a non-JSON Content-Type (" content-type "); the "
-                                            "schema decode path is JSON-only (it wires Malli's "
-                                            "json-transformer). The caller classifies this as "
-                                            ":rf.http/decode-failure.")
-                         :content-type content-type
-                         :schema       resolved}))
+        (error/throw-error!
+          :rf.error/http-schema-non-json-content-type 'rf.http/decode-response-body
+          (str "a Malli `:decode` schema was supplied but the response "
+               "declared a non-JSON Content-Type (" content-type "); the "
+               "schema decode path is JSON-only (it wires Malli's "
+               "json-transformer). The caller classifies this as "
+               ":rf.http/decode-failure.")
+          {:extra {:content-type content-type
+                   :schema       resolved}})
         ;; rf2-upexd.1 — an empty/whitespace-only 2xx body parses to nil on
         ;; BOTH hosts (the JVM Cheshire reader already yields nil for an
         ;; empty document; CLJS would throw inside `json-parse`). Short-

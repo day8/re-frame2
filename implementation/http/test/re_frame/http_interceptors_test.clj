@@ -495,37 +495,37 @@
                       nil
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown))
-      (is (= ":rf.error/http-bad-interceptor" (.getMessage thrown))))
+      (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))))
     ;; non-map interceptor-map
     (let [thrown (try (rf/reg-http-interceptor :x "not-a-map")
                       nil
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown))
-      (is (= ":rf.error/http-bad-interceptor" (.getMessage thrown))))
+      (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))))
     ;; non-fn :before
     (let [thrown (try (rf/reg-http-interceptor :x {:before "not-a-fn"})
                       nil
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown))
-      (is (= ":rf.error/http-bad-interceptor" (.getMessage thrown))))
+      (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))))
     ;; non-fn :after
     (let [thrown (try (rf/reg-http-interceptor :x {:after "not-a-fn"})
                       nil
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown))
-      (is (= ":rf.error/http-bad-interceptor" (.getMessage thrown))))
+      (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))))
     ;; missing both :before AND :after — a no-op interceptor is rejected
     (let [thrown (try (rf/reg-http-interceptor :x {:doc "no fns at all"})
                       nil
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown))
-      (is (= ":rf.error/http-bad-interceptor" (.getMessage thrown))))
+      (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))))
     ;; non-keyword :frame
     (let [thrown (try (rf/reg-http-interceptor :x {:frame "not-a-keyword" :before identity})
                       nil
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown))
-      (is (= ":rf.error/http-bad-interceptor" (.getMessage thrown))))))
+      (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))))))
 
 ;; ---- 8. clear-all-http-interceptors! bulk-clear (rf2-lfvi) -----------------
 ;;

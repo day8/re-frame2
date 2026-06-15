@@ -22,6 +22,7 @@
                               to the abort-fn → `finalise-failure!`
                               cascade per rf2-plngk."
   (:require [clojure.string]
+            [re-frame.error          :as error]
             [re-frame.frame          :as frame]
             [re-frame.http-encoding  :as encoding]
             [re-frame.http-middleware :as middleware]
@@ -92,24 +93,20 @@
         (when (some? on)
           ;; SHAPE: `:on` must be a set when present and non-nil.
           (when-not (set? on)
-            (throw (ex-info ":rf.error/http-bad-retry-on"
-                            {:rf.error/id   :rf.error/http-bad-retry-on
-                             :where         :rf.http/managed
-                             :recovery      :no-recovery
-                             :bad-shape     on
-                             :bad-type      (type on)
-                             :retryable-set retryable-categories
-                             :reason        "`:retry :on` must be a SET of retryable-category keywords per Spec 014 §Closed-set `:retry :on` validation; a non-set value (keyword, vector, list, string, …) is rejected because the transport membership gate `(contains? on-set kind)` tests index membership over a sequential collection and would silently disable retry. Use `#{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}`, `#{}` for no-retry, or omit `:on`"})))
+            (error/throw-error!
+              :rf.error/http-bad-retry-on :rf.http/managed
+              "`:retry :on` must be a SET of retryable-category keywords per Spec 014 §Closed-set `:retry :on` validation; a non-set value (keyword, vector, list, string, …) is rejected because the transport membership gate `(contains? on-set kind)` tests index membership over a sequential collection and would silently disable retry. Use `#{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}`, `#{}` for no-retry, or omit `:on`"
+              {:extra {:bad-shape     on
+                       :bad-type      (type on)
+                       :retryable-set retryable-categories}}))
           ;; MEMBERSHIP: every member must be a retryable category.
           (let [bad-members (into #{} (remove retryable-categories) on)]
             (when (seq bad-members)
-              (throw (ex-info ":rf.error/http-bad-retry-on"
-                              {:rf.error/id   :rf.error/http-bad-retry-on
-                               :where         :rf.http/managed
-                               :recovery      :no-recovery
-                               :bad-members   bad-members
-                               :retryable-set retryable-categories
-                               :reason        "`:retry :on` must be drawn exclusively from the closed retryable set #{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}; `:rf.http/aborted`, `:rf.http/decode-failure`, and `:rf.http/accept-failure` are non-retryable by construction"})))))))))
+              (error/throw-error!
+                :rf.error/http-bad-retry-on :rf.http/managed
+                "`:retry :on` must be drawn exclusively from the closed retryable set #{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}; `:rf.http/aborted`, `:rf.http/decode-failure`, and `:rf.http/accept-failure` are non-retryable by construction"
+                {:extra {:bad-members   bad-members
+                         :retryable-set retryable-categories}})))))))))
 
 (defn validate-url!
   "Per Spec 014 §Request envelope `:url` is the only REQUIRED key in the
@@ -139,12 +136,10 @@
   [request]
   (let [url (:url request)]
     (when-not (and (string? url) (not (clojure.string/blank? url)))
-      (throw (ex-info ":rf.error/http-bad-request"
-                      {:rf.error/id :rf.error/http-bad-request
-                       :where       :rf.http/managed
-                       :recovery    :no-recovery
-                       :url         url
-                       :reason      "`:request :url` is required and must be a non-blank string per Spec 014 §Request envelope; a missing / nil / blank url cannot be dispatched"})))))
+      (error/throw-error!
+        :rf.error/http-bad-request :rf.http/managed
+        "`:request :url` is required and must be a non-blank string per Spec 014 §Request envelope; a missing / nil / blank url cannot be dispatched"
+        {:extra {:url url}}))))
 
 (defn- validate-abort-config!
   "Per Spec 014 §`:abort-signal` (external): `:abort-signal` and
@@ -172,12 +167,10 @@
   [{:keys [request-id abort-signal] :as args-map}]
   (when (and (contains? args-map :request-id)   (some? request-id)
              (contains? args-map :abort-signal) (some? abort-signal))
-    (throw (ex-info ":rf.error/http-bad-abort-config"
-                    {:rf.error/id :rf.error/http-bad-abort-config
-                     :where       :rf.http/managed
-                     :recovery    :no-recovery
-                     :request-id  request-id
-                     :reason      "`:abort-signal` and `:request-id` are mutually exclusive per Spec 014 §`:abort-signal` (external) — pick one. Supplying both wires two independent abort mechanisms (the external Fetch signal forwarded into the internal controller AND the `:request-id` supersede/managed-abort path) against a single request; their simultaneous-abort behaviour is undefined-by-spec"}))))
+    (error/throw-error!
+      :rf.error/http-bad-abort-config :rf.http/managed
+      "`:abort-signal` and `:request-id` are mutually exclusive per Spec 014 §`:abort-signal` (external) — pick one. Supplying both wires two independent abort mechanisms (the external Fetch signal forwarded into the internal controller AND the `:request-id` supersede/managed-abort path) against a single request; their simultaneous-abort behaviour is undefined-by-spec"
+      {:extra {:request-id request-id}})))
 
 (defn- normalise-args
   "Validate + normalise the args map. Returns a context ready for the

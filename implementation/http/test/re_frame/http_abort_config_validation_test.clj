@@ -64,7 +64,6 @@
 (defn- bad-abort-config-throw?
   [ex request-id]
   (and (some? ex)
-       (= ":rf.error/http-bad-abort-config" (.getMessage ex))
        (let [data (ex-data ex)]
          (and (= :rf.error/http-bad-abort-config (:rf.error/id data))
               (= :rf.http/managed              (:where data))
@@ -105,7 +104,7 @@
     (let [ex (call-managed! {:request    base-request
                              :request-id :article/load})]
       (is (not (and (some? ex)
-                    (= ":rf.error/http-bad-abort-config" (.getMessage ex))))
+                    (= :rf.error/http-bad-abort-config (:rf.error/id (ex-data ex)))))
           ":request-id alone must not be rejected"))))
 
 (deftest only-abort-signal-passes
@@ -116,14 +115,14 @@
     (let [ex (call-managed! {:request      base-request
                              :abort-signal signal-stub})]
       (is (not (and (some? ex)
-                    (= ":rf.error/http-bad-abort-config" (.getMessage ex))))
+                    (= :rf.error/http-bad-abort-config (:rf.error/id (ex-data ex)))))
           ":abort-signal alone must not be rejected"))))
 
 (deftest neither-passes
   (testing "rf2-culoe — neither key present: no guard"
     (let [ex (call-managed! {:request base-request})]
       (is (not (and (some? ex)
-                    (= ":rf.error/http-bad-abort-config" (.getMessage ex))))
+                    (= :rf.error/http-bad-abort-config (:rf.error/id (ex-data ex)))))
           "a request with neither abort key must not be rejected"))))
 
 ;; ---- presence-not-truthiness boundary -------------------------------------
@@ -136,7 +135,7 @@
                              :request-id   nil
                              :abort-signal signal-stub})]
       (is (not (and (some? ex)
-                    (= ":rf.error/http-bad-abort-config" (.getMessage ex))))
+                    (= :rf.error/http-bad-abort-config (:rf.error/id (ex-data ex)))))
           "an explicit nil :request-id alongside :abort-signal must pass"))))
 
 (deftest explicit-nil-abort-signal-with-request-id-passes
@@ -146,5 +145,5 @@
                              :request-id   :article/load
                              :abort-signal nil})]
       (is (not (and (some? ex)
-                    (= ":rf.error/http-bad-abort-config" (.getMessage ex))))
+                    (= :rf.error/http-bad-abort-config (:rf.error/id (ex-data ex)))))
           "an explicit nil :abort-signal alongside :request-id must pass"))))
