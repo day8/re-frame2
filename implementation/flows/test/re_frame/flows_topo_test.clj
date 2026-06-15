@@ -47,9 +47,9 @@
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown)
           "extract-cycle-path throws when a stuck node has no stuck dep to follow")
-      (is (= ":rf.error/flow-cycle-extract-invariant"
-             (.getMessage ^Throwable thrown))
-          "the documented invariant id appears in the message")
+      (is (re-find #"\[:rf\.error/flow-cycle-extract-invariant\]"
+                   (.getMessage ^Throwable thrown))
+          "the [:rf.error/<id>] greppability token appears in the message (Spec 009 §The thrown-error shape, rule 4 — the message LEADS with the human sentence, not the bare keyword)")
       (let [data (ex-data thrown)]
         (is (= :rf.error/flow-cycle-extract-invariant (:rf.error/id data))
             "ex-data carries the canonical :rf.error/id discriminator (per Spec 009 §The thrown-error shape)")
@@ -87,8 +87,8 @@
                         nil
                         (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown) "cycle raises")
-      (is (= ":rf.error/flow-cycle" (.getMessage ^Throwable thrown))
-          "ex-info message is the documented category")
+      (is (re-find #"\[:rf\.error/flow-cycle\]" (.getMessage ^Throwable thrown))
+          "the [:rf.error/<id>] greppability token appears in the message (Spec 009 §The thrown-error shape, rule 4)")
       (let [data (ex-data thrown)]
         (is (= :rf.error/flow-cycle (:rf.error/id data))
             "ex-data carries the canonical :rf.error/id discriminator")

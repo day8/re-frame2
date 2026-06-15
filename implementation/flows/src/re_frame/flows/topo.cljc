@@ -39,7 +39,8 @@
   ;; test. `re-frame.path` lives in core, which this artefact already depends
   ;; on, so this drags no new dependency onto the classpath and the module
   ;; stays .cljc-portable for the JVM test sweep.
-  (:require [re-frame.path :as path]))
+  (:require [re-frame.error :as error]
+            [re-frame.path :as path]))
 
 (defn depends-on?
   "Per Spec 013 §Topological sort: B depends on A iff A's :path and any
@@ -137,12 +138,11 @@
   throw in `topo-sort`."
   [flow-map]
   (when-let [overlap (first-overlapping-pair flow-map)]
-    (throw (ex-info ":rf.error/flow-path-overlap"
-                    {:rf.error/id :rf.error/flow-path-overlap
-                     :where    'rf/reg-flow
-                     :recovery :fix-registration
-                     :reason   "Two flows in the same frame have overlapping output :paths (one is a prefix of the other, identical included). Their relative evaluation order is undefined — the topo-sort dependency rule compares :path against :inputs, never :path against :path, so no edge orders them and the shared slot would be written last-write-wins in map-iteration order (per Spec 013 §Disjoint output paths). Give each flow a disjoint :path."
-                     :overlap  overlap})))
+    (error/throw-error!
+      :rf.error/flow-path-overlap 'rf/reg-flow
+      "Two flows in the same frame have overlapping output :paths (one is a prefix of the other, identical included). Their relative evaluation order is undefined — the topo-sort dependency rule compares :path against :inputs, never :path against :path, so no edge orders them and the shared slot would be written last-write-wins in map-iteration order (per Spec 013 §Disjoint output paths). Give each flow a disjoint :path."
+      {:recovery :fix-registration
+       :extra    {:overlap overlap}}))
   flow-map)
 
 (defn- extract-cycle-path
@@ -182,15 +182,13 @@
           ;; returning a malformed cycle path — a closing-repeat
           ;; vector built from a dead end would lie to tools (Xray,
           ;; the flow panel) about the offending chain.
-          (throw (ex-info ":rf.error/flow-cycle-extract-invariant"
-                          {:rf.error/id :rf.error/flow-cycle-extract-invariant
-                           :where     'rf/reg-flow
-                           :recovery  :no-recovery
-                           :reason    "Cycle-path extraction reached a dead end: a stuck node found no stuck dependency to follow. Internal topo invariant violated — report with the :node / :stack / :seen / :remaining payload."
-                           :node      node
-                           :stack     stack
-                           :seen      seen
-                           :remaining remaining}))
+          (error/throw-error!
+            :rf.error/flow-cycle-extract-invariant 'rf/reg-flow
+            "Cycle-path extraction reached a dead end: a stuck node found no stuck dependency to follow. Internal topo invariant violated — report with the :node / :stack / :seen / :remaining payload."
+            {:extra {:node      node
+                     :stack     stack
+                     :seen      seen
+                     :remaining remaining}})
 
           (contains? seen next-dep)
           ;; Cycle found. Slice the stack from the revisited node
@@ -281,11 +279,10 @@
               ;; registration rejection. (The `extract-cycle-path`
               ;; dead-end throw below stays `:no-recovery`; that one is a
               ;; genuine internal-invariant violation, not caller-fixable.)
-              (throw (ex-info ":rf.error/flow-cycle"
-                              {:rf.error/id :rf.error/flow-cycle
-                               :where    'rf/reg-flow
-                               :recovery :fix-registration
-                               :reason   "Cyclic flow dependency — at least one pair of flows' :path / :inputs overlap mutually (per Spec 013 §Dependency rule). The closing-repeat :cycle vector names the offending chain."
-                               :cycle    (extract-cycle-path graph
-                                                             (set (keys remaining)))}))
+              (error/throw-error!
+                :rf.error/flow-cycle 'rf/reg-flow
+                "Cyclic flow dependency — at least one pair of flows' :path / :inputs overlap mutually (per Spec 013 §Dependency rule). The closing-repeat :cycle vector names the offending chain."
+                {:recovery :fix-registration
+                 :extra    {:cycle (extract-cycle-path graph
+                                                       (set (keys remaining)))}})
               order)))))))
