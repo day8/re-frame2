@@ -36,6 +36,8 @@ Three architectural properties make the shape work:
 
 The canonical concrete instance. Pattern-RemoteData specifies the lifecycle slice on top of this shape; here we show only the six-step bones.
 
+> The `:http` fx below is an **app-rolled, illustrative** fx (registered with `reg-fx :http` right in the example) — it exists to show the bare six-step shape with nothing hidden. It is **not** the framework's shipped HTTP surface. Production HTTP is the managed `:rf.http/managed` fx ([Spec 014](014-HTTPRequests.md)), which owns retry / abort / teardown / stale-suppression / a structured failure taxonomy for you and lowers onto the [uniform reply envelope](Managed-Effects.md#the-uniform-reply-envelope). Reach for `:rf.http/managed`, not a hand-rolled `:http`, for real requests; the hand-rolled fx here is purely a teaching device for the underlying pattern.
+
 ```clojure
 ;; 1. Register the fx (one-time, at app load or boot).
 (rf/reg-fx :http
