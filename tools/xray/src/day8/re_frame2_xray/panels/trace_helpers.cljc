@@ -706,12 +706,20 @@
   (EP-0013 disposition 2), WHERE PRESENT. Reads `[:tags :rf.realm/id]`
   then a top-level `:rf.realm/id` fallback (defensive against the
   emit-shape settling). Returns nil when the event carries no realm
-  stamp — today the framework's trace emit does not stamp it (the slot
-  is reserved per disposition 2; the actual emit is a later core slice),
-  so this is nil for every event in a single-realm process and the view
-  renders the trace rows unchanged (zero-ceremony). When a realm stamp
-  IS present, the view surfaces it WHERE PRESENT and omits it otherwise.
-  Pure data → keyword-or-nil; JVM-testable."
+  stamp.
+
+  SHIPPED (EP-0013 step 4, rf2-a15n62): the framework's dispatch trace
+  (`:rf.event/dispatched`) now stamps `[:tags :rf.realm/id]` for a
+  non-default realm, so this reads a live realm on dispatch events in a
+  multi-realm process. The stamp is written ONLY for a non-default realm
+  (absence = the default realm), so in a single-realm process every
+  event is nil here and the view renders the trace rows unchanged
+  (zero-ceremony). Caveat: only the dispatch family carries the realm
+  today — the sub / fx / cofx / db trace families do not stamp it yet
+  (the later core slice reserved per disposition 2), so those events
+  return nil even in a multi-realm arc. When a realm stamp IS present,
+  the view surfaces it WHERE PRESENT and omits it otherwise. Pure data →
+  keyword-or-nil; JVM-testable."
   [ev]
   (or (get-in ev [:tags :rf.realm/id])
       (:rf.realm/id ev)))
@@ -888,12 +896,19 @@
 ;; The realm stamp `:rf.realm/id` is surfaced in the Trace rows WHERE
 ;; PRESENT and omitted otherwise (zero-ceremony: single-realm rows are
 ;; unchanged). The view reads `multi-realm-feed?` over the projected rows
-;; to decide whether to render the realm surface at all — in a
-;; single-realm process every row's `:realm` is nil (the framework does
-;; not stamp it yet — the slot is reserved per disposition 2, the emit is
-;; a later core slice), so the predicate is false and the rows render
-;; byte-identically to the pre-bead panel. Only when the rows actually
-;; span more than one realm does the view surface the stamp.
+;; to decide whether to render the realm surface at all. SHIPPED
+;; (EP-0013 step 4, rf2-a15n62): the framework's dispatch trace now
+;; stamps `[:tags :rf.realm/id]` for a non-default realm, so this
+;; surface is LIVE — a multi-realm dispatch arc renders the realm chip.
+;; The stamp is written ONLY for a non-default realm (absence = the
+;; default realm), so in a single-realm process every row's `:realm` is
+;; nil, the predicate is false, and the rows render byte-identically to
+;; the pre-bead panel. Caveat: only the dispatch (`:rf.event/dispatched`)
+;; family carries the realm today; the sub / fx / cofx / db families do
+;; not stamp it yet (the later core slice reserved per disposition 2), so
+;; in a multi-realm arc the chip surfaces on dispatch rows and is absent
+;; from those unstamped families until that slice lands. Only when the
+;; rows actually span more than one realm does the view surface the stamp.
 
 (defn feed-realms
   "The set of distinct non-nil `:rf.realm/id` stamps across `rows` — the
