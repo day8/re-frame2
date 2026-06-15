@@ -198,23 +198,45 @@
   - `:kind` (string, optional) — narrow to one decorator kind. One
     of `\"hiccup\"`, `\"frame-setup\"`, `\"fx-override\"`. Resolved
     through `args/safe-keyword` against the bounded `decorator-kinds`
-    set (rf2-lqjbk); unrecognised values are treated as no filter.
+    set (rf2-lqjbk) — no-intern: an unrecognised string never mints a
+    fresh JVM keyword.
+
+  rf2-cdavyf: a SUPPLIED `:kind` outside the bounded enum is an
+  agent-recoverable error, NOT a silent widen to the full catalogue.
+  The enum is advertised as a filter; resolving a typo (`\"hicup\"`) to
+  `nil` and then treating `nil` as no-filter returned EVERY decorator —
+  hiding the caller's mistake behind a successful-looking full result.
+  An absent `:kind` (the slot was never sent) is still the legitimate
+  no-filter path; only a PRESENT-but-unrecognised value rejects.
 
   rf2-76sf6: pagination via `:limit` / `:cursor`. The filtered+sorted
   entry vec is paged; the cursor's fingerprint is over the FILTERED
   id-set so a kind-filter change between pages reads as a stale
   cursor (different sig)."
   [args]
-  (let [kind-filter (some-> (:kind args) (args/safe-keyword decorator-kinds))
-        decorators  (story/registrations :decorator)
-        filtered    (cond->> decorators
-                      kind-filter (into {} (filter (fn [[_ body]]
-                                                     (= kind-filter (:kind body))))))
-        sorted      (sort-by (comp str key) filtered)
-        all-ids     (keys filtered)
-        entries     (mapv (fn [[did body]] (decorator-summary did body)) sorted)]
-    (cursor/paged-result entries all-ids args "list-decorators"
-                         (fn [page] {:decorators page}))))
+  (let [raw-kind    (:kind args)
+        kind-filter (some-> raw-kind (args/safe-keyword decorator-kinds))]
+    ;; rf2-cdavyf — a present-but-unrecognised `:kind` is rejected rather
+    ;; than widened to all. `(some? raw-kind)` distinguishes "no filter
+    ;; requested" (absent slot ⇒ `raw-kind` nil) from "filter requested
+    ;; with a bad value" (`raw-kind` present but `safe-keyword` ⇒ nil).
+    (if (and (some? raw-kind) (nil? kind-filter))
+      (result/error-result
+       (str "Unknown decorator kind: " (pr-str raw-kind)
+            ". Allowed: " (pr-str (mapv name (sort decorator-kinds)))
+            ". (The :kind filter is an enum; fix the value or drop the key for the full catalogue.)")
+       {:rf.error :rf.story-mcp/unknown-decorator-kind
+        :kind     raw-kind
+        :allowed  (mapv name (sort decorator-kinds))})
+      (let [decorators (story/registrations :decorator)
+            filtered   (cond->> decorators
+                         kind-filter (into {} (filter (fn [[_ body]]
+                                                        (= kind-filter (:kind body))))))
+            sorted     (sort-by (comp str key) filtered)
+            all-ids    (keys filtered)
+            entries    (mapv (fn [[did body]] (decorator-summary did body)) sorted)]
+        (cursor/paged-result entries all-ids args "list-decorators"
+                             (fn [page] {:decorators page}))))))
 
 (def canonical-assertion-docs
   "Per spec/007 line 304 + IMPL-SPEC §3.5 the seven dispatched canonical

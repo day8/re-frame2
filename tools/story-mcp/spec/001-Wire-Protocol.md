@@ -70,6 +70,37 @@ before the bounded allowlists run.** Concretely:
   contract; it no longer depends on the client validating. The
   `:rf.error` id on the structured slot is
   `:rf.story-mcp/unknown-arguments`.
+
+  **Two-level enforcement (rf2-an95jj).** The global allowlist
+  (`protocol/arg-keys`) is the UNION of every tool's argument keys, so it
+  only rejects keys no tool reads. A key valid for ANOTHER tool — `:body`
+  (register-variant), `:write-back` (record-as-variant) — survives
+  normalisation as a keyword entry and would be silently ignored by the
+  selected handler. The dispatcher therefore runs a SECOND, per-tool
+  check (`wire-pipeline/tool-invalid-arg-keys`) AFTER global
+  normalisation: a globally-known key the SELECTED tool does not advertise
+  in its `inputSchema` properties is diagnosed with the same
+  `:rf.story-mcp/unknown-arguments` envelope. This is the descriptor-level
+  `additionalProperties false` backstop at PER-TOOL granularity. Two
+  cross-cutting knobs handled at the wire boundary rather than by a
+  handler are tolerated on every tool regardless of advertisement
+  (`wire-pipeline/wire-managed-arg-keys`): `:max-tokens` (injected on
+  every descriptor anyway) and `:dedup` (advertised only on dedup-eligible
+  tools but documented as silently ignored elsewhere — the dispatcher
+  gates dedup on `:dedup-eligible?`, not on the arg's presence). No-intern
+  holds: a per-tool-invalid key is already an interned keyword (it passed
+  the global allowlist), so reporting it mints nothing.
+
+  **Bounded error envelopes (rf2-p0eiq3).** Both the global and per-tool
+  unknown-argument diagnostics — and the invalid-`:max-tokens` rejection —
+  ride the SAME wire-boundary token cap (`mcp-base.cap/apply-cap`) that
+  bounds every normal tool response (see
+  [`Principles.md`](Principles.md) §Tight token budget). A caller can
+  otherwise pack many long unknown keys inside the 4 MB frame cap and
+  receive an UNCAPPED diagnostic echoing them all back, violating the
+  response-cap contract. The invalid-`:max-tokens` envelope falls back to
+  the convention default cap (the caller's own cap was malformed, so it
+  can't be honoured), but is still bounded.
 - Genuinely data-bearing nested maps keep string keys at ingress and are
   routed through each surface's own **bounded** keyword policy:
   - `:cell-overrides` KEYS are resolved through `safe-keyword` against
