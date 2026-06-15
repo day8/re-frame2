@@ -873,9 +873,10 @@
   (testing "top-level :rf.realm/id fallback (defensive against emit shape)"
     (is (= :app/realm-b
            (h/realm-of {:rf.realm/id :app/realm-b}))))
-  (testing "nil when no realm stamp is present (the single-realm case —
-            the framework does not stamp it yet, disposition 2 reserves
-            the slot; the emit is a later core slice)"
+  (testing "nil when no realm stamp is present (the single-realm /
+            default-realm case — the framework stamps :rf.realm/id ONLY
+            for a non-default realm, rf2-a15n62, so a default-realm
+            dispatch carries no stamp)"
     (is (nil? (h/realm-of {:tags {:frame :app/main}})))
     (is (nil? (h/realm-of {})))))
 
@@ -922,3 +923,57 @@
                                   :tags {:rf.realm/id :app/b}}]}
           feed   (h/project-feed-from-epoch record :focused)]
       (is (true? (:multi-realm? feed))))))
+
+(deftest shipped-dispatch-trace-realm-flows-end-to-end
+  ;; rf2-rlfiny — guard the SHIPPED reality (EP-0013 step 4, rf2-a15n62):
+  ;; `re-frame.router` stamps `[:tags :rf.realm/id]` on the
+  ;; `:rf.event/dispatched` trace for a non-default realm — BESIDE the
+  ;; `:frame`, not a realm-qualified frame tuple. These events are shaped
+  ;; exactly as the router's `emit!` produces them so the projection is
+  ;; exercised against the real emit shape, not a synthetic stub. The
+  ;; realm chip is LIVE: a multi-realm dispatch arc projects rows whose
+  ;; `:realm` drives the chip and flags the feed `:multi-realm?`.
+  (testing "router-shaped dispatch traces in distinct non-default realms
+            project a live multi-realm feed (realm on every row)"
+    (let [record {:epoch-id 7
+                  :trace-events
+                  [{:id 1 :op-type :rf.event
+                    :operation :rf.event/dispatched :time 1
+                    :tags {:frame :rf/default
+                           :rf.event/v [:checkout/submit]
+                           :rf.realm/id :app/realm-checkout}}
+                   {:id 2 :op-type :rf.event
+                    :operation :rf.event/dispatched :time 2
+                    :tags {:frame :rf/default
+                           :rf.event/v [:catalog/refresh]
+                           :rf.realm/id :app/realm-catalog}}]}
+          feed   (h/project-feed-from-epoch record :focused)
+          rows   (:rows feed)]
+      (is (true? (:multi-realm? feed))
+          "two distinct non-default realms on the dispatch arc — chip is live")
+      (is (= [:app/realm-checkout :app/realm-catalog]
+             (mapv :realm rows))
+          "each dispatch row carries its stamped realm (drives the per-row chip)")))
+  (testing "a single non-default realm across the arc is NOT multi-realm
+            (chip stays inert — the surface only spells the realm when it varies)"
+    (let [record {:epoch-id 8
+                  :trace-events
+                  [{:id 1 :op-type :rf.event
+                    :operation :rf.event/dispatched :time 1
+                    :tags {:frame :rf/default :rf.realm/id :app/realm-checkout}}
+                   {:id 2 :op-type :rf.event
+                    :operation :rf.event/dispatched :time 2
+                    :tags {:frame :rf/default :rf.realm/id :app/realm-checkout}}]}
+          feed   (h/project-feed-from-epoch record :focused)]
+      (is (false? (:multi-realm? feed)))))
+  (testing "the default-realm (single-realm) dispatch arc carries NO stamp —
+            byte-identical to the pre-EP panel (router omits :rf.realm/id
+            for the default realm, rf2-a15n62)"
+    (let [record {:epoch-id 9
+                  :trace-events
+                  [{:id 1 :op-type :rf.event
+                    :operation :rf.event/dispatched :time 1
+                    :tags {:frame :rf/default :rf.event/v [:counter/inc]}}]}
+          feed   (h/project-feed-from-epoch record :focused)]
+      (is (false? (:multi-realm? feed)))
+      (is (nil? (:realm (first (:rows feed))))))))
