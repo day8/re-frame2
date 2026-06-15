@@ -18,13 +18,13 @@
 
 ;; ---- variant → EDN serialisation ----------------------------------------
 ;;
-;; Per IMPL-SPEC §3.2 the variant body is round-trippable through the
+;; Per `002-Runtime.md` §Programmatic API the variant body is round-trippable through the
 ;; registrar side-table; `variant->edn` returns the registered body
 ;; verbatim (canonicalisation for snapshot-identity is handled inside
 ;; `re-frame.story.identity`).
 
 (defn variant->edn
-  "Per IMPL-SPEC §3.2 — return the registered body of the variant as
+  "Per `002-Runtime.md` §Programmatic API — return the registered body of the variant as
   serialisable EDN. The body is the side-table value verbatim;
   canonicalisation (sorted keys, deterministic vector order) for
   snapshot-identity lives in `re-frame.story.identity`.
@@ -34,7 +34,7 @@
   (registrar/handler-meta :variant variant-id))
 
 (defn workspace->edn
-  "Per IMPL-SPEC §3.2 — same for workspaces."
+  "Per `002-Runtime.md` §Programmatic API — same for workspaces."
   [workspace-id]
   (registrar/handler-meta :workspace workspace-id))
 
@@ -46,7 +46,7 @@
 ;; the result shape.
 
 (defn run-variant
-  "Per IMPL-SPEC §3.2. Allocate a frame for `variant-id`, run the four-
+  "Per `002-Runtime.md` §Programmatic API. Allocate a frame for `variant-id`, run the four-
   phase lifecycle (loaders → events → render → play), and return a
   promise/future of the result map.
 
@@ -74,7 +74,7 @@
   ([variant-id opts]  (runtime/run-variant variant-id opts)))
 
 (defn reset-variant
-  "Tear down + re-run `variant-id`. Per IMPL-SPEC §3.2."
+  "Tear down + re-run `variant-id`. Per `002-Runtime.md` §Programmatic API."
   ([variant-id]       (runtime/reset-variant variant-id nil))
   ([variant-id opts]  (runtime/reset-variant variant-id opts)))
 
@@ -90,14 +90,14 @@
 
 (defn watch-variant
   "Subscribe to lifecycle transitions for `variant-id`'s frame. Per
-  IMPL-SPEC §3.2. `callback` receives
+  `002-Runtime.md` §Programmatic API. `callback` receives
   `{:frame-id <id> :from <state> :to <state> :event <inner-event>}`
   on every transition. Returns a 0-arity unsubscribe fn."
   [variant-id callback]
   (runtime/watch-variant variant-id callback))
 
 (defn snapshot-identity
-  "Per IMPL-SPEC §3.2 + §5.6. Content-hash over the canonicalised
+  "Per `002-Runtime.md` §Snapshot-identity computation. Content-hash over the canonicalised
   `(variant × resolved-args × decorators × loaders × substrate × modes)`
   tuple. Stable across hosts.
 

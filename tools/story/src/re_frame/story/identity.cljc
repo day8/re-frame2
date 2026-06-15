@@ -1,5 +1,5 @@
 (ns re-frame.story.identity
-  "Snapshot-identity. Per IMPL-SPEC §5.6 + spec/007 §Variant snapshot
+  "Snapshot-identity. Per `002-Runtime.md` §Snapshot-identity computation + /spec/007-Stories.md §Variant snapshot
   identity.
 
   Every variant has a stable **snapshot identity** — a content hash
@@ -50,7 +50,7 @@
 
   ## What's in the hash
 
-  Per spec/007 §Variant snapshot identity (lines 424-429) the hash
+  Per /spec/007-Stories.md §Variant snapshot identity the hash
   includes:
 
   - Variant id
@@ -76,7 +76,7 @@
 
   ## Hash function
 
-  IMPL-SPEC §5.6 specifies `sha-256` of a transit-serialised canonical
+  `002-Runtime.md` §Snapshot-identity computation specifies `sha-256` of a transit-serialised canonical
   form. Stage 3 implements a **portable** hash function: a stable
   string serialisation (deterministic key order; sets/vectors written
   with stable order) hashed with `hash` (JVM `clojure.lang.Util/hasheq`,
@@ -106,7 +106,7 @@
   identity. Excludes runtime-environmental keys (`:source` coords) and
   Stage 4+ slots that don't yet exist (kept for forward compatibility).
 
-  Per spec/007 §Variant snapshot identity the variant-level `:decorators`
+  Per /spec/007-Stories.md §Variant snapshot identity the variant-level `:decorators`
   participate in the hash — watch-mode auto-rerun keys off this identity
   so a decorator-only edit MUST perturb it.
 
@@ -157,7 +157,7 @@
 
 (defn- story-body-slice
   "Story-level slice that the variant inherits for identity purposes.
-  Per IMPL-SPEC §5.6 the parent story's `:component` id and
+  Per `002-Runtime.md` §Snapshot-identity computation the parent story's `:component` id and
   `:decorators` are part of the variant's identity."
   [variant-id]
   (let [story-id (args/parent-story-id variant-id)
@@ -166,8 +166,8 @@
       (select-keys body [:component :decorators :tags]))))
 
 (defn- view-schema-digest
-  "Return the *registered* schema digest of the view per spec/007 §Variant
-  snapshot identity (lines 424-429) and spec/011 §`:rf/schema-digest`.
+  "Return the *registered* schema digest of the view per /spec/007-Stories.md §Variant
+  snapshot identity and spec/011 §`:rf/schema-digest`.
 
   Sourced via the `:schemas/app-schemas-digest` late-bind hook so this
   ns does not statically `:require` the schemas artefact — in builds
@@ -204,7 +204,7 @@
   as identity-determining. A change to ANY of these fields produces a
   fresh hash; otherwise the hash is stable across runs.
 
-  Per spec/007 §Variant snapshot identity the tuple includes the view's
+  Per /spec/007-Stories.md §Variant snapshot identity the tuple includes the view's
   registered schema-digest — sourced via the `:schemas/app-schemas-digest`
   late-bind hook — so a schema change on the view invalidates the
   visual-regression baseline."
@@ -240,7 +240,7 @@
       :substrate             substrate})))
 
 (defn snapshot-identity
-  "Public entry point per IMPL-SPEC §3.2 — return the snapshot-identity
+  "Public entry point per `002-Runtime.md` §Programmatic API — return the snapshot-identity
   record for `(variant × active-modes × cell-overrides × substrate)`.
 
   Returns:

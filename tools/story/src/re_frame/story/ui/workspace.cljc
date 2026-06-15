@@ -1,6 +1,6 @@
 (ns re-frame.story.ui.workspace
-  "Workspace rendering. Per Stage 4 (rf2-ekai) IMPL-SPEC §3.1 + spec/007
-  §Workspaces.
+  "Workspace rendering. Per Stage 4 (rf2-ekai) `001-Authoring.md` §Registration macros + /spec/007-Stories.md
+  §Workspace.
 
   Five layouts ship in v1:
 
@@ -68,7 +68,7 @@
     - `{:type :prose :body \"...\"}`
     Used by `:grid` / `:variants-grid` / `:prose` / `:tabs`.
 
-  Per IMPL-SPEC §2.8.4 the `:variants-grid` layout is the v1 devcards-
+  Per `005-SOTA-Features.md` §`:variants-grid` workspace layout the `:variants-grid` layout is the v1 devcards-
   style multi-variant pane."
   (:require [re-frame.story.registrar :as registrar]
             [re-frame.story.budgets :as budgets]
@@ -304,7 +304,7 @@
 #?(:cljs
    (defn- variant-component-id
      "Resolve the variant's `:component` view id — variant body first,
-     falling back to the parent story (per IMPL-SPEC §3.1, the parent
+     falling back to the parent story (per `001-Authoring.md` §Registration macros, the parent
      story usually carries the `:component`)."
      [variant-id]
      (let [vb       (registrar/handler-meta :variant variant-id)
@@ -336,7 +336,7 @@
      `canvas/canvas-inner` at a smaller scale — single substrate, no
      share affordance, errors render inline.
 
-     Per spec/007 §Relationship-with-frames + tools/story
+     Per /spec/007-Stories.md §Relationship with frames + tools/story
      feature-set §4.2: each variant cell wraps the rendered view in a
      `frame-provider` scoped to the variant id, so the view's
      subscribe / dispatch (resolved via React context at render time)

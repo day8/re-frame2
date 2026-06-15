@@ -1,10 +1,11 @@
 (ns re-frame.story.ui.multi-substrate
-  "Multi-substrate side-by-side rendering. Per IMPL-SPEC §2.2 + §2.8.4
+  "Multi-substrate side-by-side rendering. Per `002-Runtime.md` §Substrate hooks
+  + `005-SOTA-Features.md` §Multi-substrate side-by-side rendering
   + Stage 6 (rf2-zhwd). Phase-2 §5.1 #5.
 
   When a variant declares `:substrates #{:reagent :uix :helix}` the
   canvas renders the variant against each substrate side-by-side. Per
-  IMPL-SPEC §2.2 — substrate-portability gaps are the point — failures
+  `002-Runtime.md` §Substrate hooks — substrate-portability gaps are the point — failures
   surface **inline** as a red overlay on the offending cell with the
   error message, rather than auto-skipping.
 
@@ -189,7 +190,7 @@
   "Wrap `view-hiccup` with the `:hiccup`-kind `hiccup-decorators`, catching
   any exception a `:wrap` fn throws so a decorator failure renders an inline
   error block (with the bare view beneath it) rather than bubbling into a
-  render-tree crash that blanks the shell (IMPL-SPEC §2.2 / §5.5 — failures
+  render-tree crash that blanks the shell (`002-Runtime.md` §Substrate hooks / §Error projection — failures
   render inline rather than aborting). `effective-args` is the resolved args
   map every `:wrap` fn receives as `[body effective-args]`.
 
@@ -234,7 +235,7 @@
 
 (defn- safe-render-cell
   "Render `view-id` under `substrate` inside a try/catch boundary. Per
-  IMPL-SPEC §2.2 a substrate failure surfaces inline rather than
+  `002-Runtime.md` §Substrate hooks a substrate failure surfaces inline rather than
   aborting the whole grid.
 
   Returns a Reagent component."
@@ -285,7 +286,7 @@
 ;; ---- pure: substrate set resolution -------------------------------------
 
 (defn resolve-substrate-set
-  "Per IMPL-SPEC §3.1: the variant's effective substrate set is
+  "Per `001-Authoring.md` §Registration macros: the variant's effective substrate set is
   `(or (:substrates variant-body) (:substrates story-body) #{<host>})`.
   Pure data → data; JVM-testable.
 
@@ -303,9 +304,9 @@
   here when a variant's substrate set has more than one entry.
 
   Each cell renders inside a Reagent error boundary so a throw in one
-  substrate's render doesn't take down its neighbours (IMPL-SPEC §2.2).
+  substrate's render doesn't take down its neighbours (`002-Runtime.md` §Substrate hooks).
 
-  Note (rf2-77nuq): per-substrate decorator stacks (IMPL-SPEC §5.3)
+  Note (rf2-77nuq): per-substrate decorator stacks (`002-Runtime.md` §Decorator composition order)
   are not yet threaded through here — `safe-render-cell` renders the
   raw view-id under each substrate. When that work lands, resolve the
   decorator pack here and thread it into each cell's render."

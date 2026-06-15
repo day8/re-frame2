@@ -280,7 +280,7 @@
   Reuses `a11y/ensure-axe-loaded!` so the CDN load + consent gate is
   shared with the variant panel: one opt-in approves both.
 
-  Per IMPL-SPEC §11.1 surfaces violations into the global trace bus
+  Per `005-SOTA-Features.md` §a11y (axe-core) panel surfaces violations into the global trace bus
   via `a11y/emit-warning-for-violation` keyed on `chrome-frame-id`."
   ([] (run-axe! (find-chrome-root)))
   ([context]

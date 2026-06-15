@@ -15,7 +15,7 @@
 
   The events module is *plain re-frame2* — no Story-specific code
   lives here. The same handlers run when the live app boots and when
-  any Story variant frame allocates. Per IMPL-SPEC §1.1, variant
+  any Story variant frame allocates. Per `001-Authoring.md` §Registration macros, variant
   bodies are data; they reference these event-ids in their `:setup`
   slot. Story's per-variant frame isolation (Spec 002) means each variant
   gets its own fresh `[:rf.runtime/machines :snapshots :login/flow]` slot in

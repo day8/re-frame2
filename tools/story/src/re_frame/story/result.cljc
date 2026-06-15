@@ -52,7 +52,7 @@
   ONE rule: `:error` > `:fail` > `:cannot-run` > `:pass`, AND a run whose
   tape shows unconsumed failure evidence cannot read `:pass` (the agreement
   floor, `evidence/tape-shows-failure?`). A run with zero assertions whose
-  tape is clean is `:pass` (the spec/007 §Story-as-test duality — a variant
+  tape is clean is `:pass` (the /spec/007-Stories.md §Story-as-test duality — a variant
   with no assertions is vacuously green).
 
   ## Pure / JVM-testable
@@ -215,7 +215,7 @@
   - `:passed?` true       → `:pass`;
   - `:passed?` false      → `:fail`;
   - `:passed?` nil        → `:pass` (a non-assertion / vacuous record does
-                            not fail the run — the spec/007 duality)."
+                            not fail the run — the /spec/007-Stories.md §Story-as-test duality)."
   [{:keys [status passed? cannot-run? skipped? exception error] :as _record}]
   (cond
     (contains? statuses status) status

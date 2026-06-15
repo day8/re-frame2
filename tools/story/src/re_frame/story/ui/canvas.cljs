@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.canvas
-  "Variant render area. Per Stage 4 (rf2-ekai) IMPL-SPEC §4.
+  "Variant render area. Per Stage 4 (rf2-ekai) `003-Render-Shell.md` §Shell lifecycle.
 
   The canvas is the surface where one variant renders. It:
 
@@ -12,7 +12,7 @@
     plan's `[:world :decorators]` (rf2-5fibj / rf2-din8u), the SAME refs
     `render-variant`'s host applies, so canvas + render-variant paint the
     identical decorated tree.
-  - Surfaces variant-level errors inline (per IMPL-SPEC §2.2 +
+  - Surfaces variant-level errors inline (per `002-Runtime.md` §Substrate hooks +
     `:assertions`).
 
   Stage 4 reads the registered `:component` keyword and renders via
@@ -293,7 +293,7 @@
 (defn- variant-component
   "Resolve the variant's `:component` to a renderable thing. The
   variant's body may carry `:component` directly; otherwise we walk up
-  to the parent story and read its `:component` (per IMPL-SPEC §3.1 the
+  to the parent story and read its `:component` (per `001-Authoring.md` §Registration macros the
   parent story usually carries the component and variants vary only by
   args / events)."
   [variant-id]
@@ -374,7 +374,7 @@
 (def safe-decorated-view
   "Wrap `view-hiccup` with the variant's `:hiccup`-kind decorators, catching
   any exception a `:wrap` fn throws so the canvas never bubbles into a
-  render-tree crash that blanks the shell (IMPL-SPEC §2.2 + §5.5 — failures
+  render-tree crash that blanks the shell (`002-Runtime.md` §Substrate hooks + §Error projection — failures
   render inline; the rf2-zme7 'never blank the canvas' rule).
 
   rf2-hzhmv / rf2-ba86n.8 — the decorate-and-render primitive is the SHARED
@@ -479,7 +479,7 @@
             (run-with-shell-opts! variant-id)))))))
 
 (defn- variant-substrate-set
-  "Resolve the variant's effective substrate set. Per IMPL-SPEC §3.1
+  "Resolve the variant's effective substrate set. Per `001-Authoring.md` §Registration macros
   the variant body's `:substrates` wins, otherwise the parent story's
   `:substrates`, otherwise the shell's host substrate. The canvas uses
   this to decide single-substrate vs side-by-side rendering. Stage 6
@@ -499,7 +499,7 @@
   Per Stage 6 (rf2-zhwd) the inner render branches on
   `(count (variant-substrate-set variant-id))`:
   - 1 substrate → single-pane render (Stage 4 path)
-  - >1 substrate → multi-substrate side-by-side grid (IMPL-SPEC §2.2)."
+  - >1 substrate → multi-substrate side-by-side grid (`002-Runtime.md` §Substrate hooks)."
   [variant-id]
   (let [view-id        (variant-component variant-id)
         variant-body   (registrar/handler-meta :variant variant-id)
@@ -596,7 +596,7 @@
        [loading-skeleton]
 
        multi?
-       ;; Stage 6: multi-substrate side-by-side grid. Per IMPL-SPEC §2.2
+       ;; Stage 6: multi-substrate side-by-side grid. Per `002-Runtime.md` §Substrate hooks
        ;; failures render inline rather than aborting. The grid still
        ;; renders user views, so it needs the same frame context as the
        ;; single-substrate path; otherwise Reagent subscriptions fall

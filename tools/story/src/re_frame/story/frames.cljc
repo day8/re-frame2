@@ -1,6 +1,6 @@
 (ns re-frame.story.frames
-  "Per-variant frame allocation. Per IMPL-SPEC §5.1 + spec/007
-  §Relationship-with-frames.
+  "Per-variant frame allocation. Per `002-Runtime.md` §Per-variant frame allocation + /spec/007-Stories.md
+  §Relationship with frames.
 
   Each rendered variant is its own re-frame frame (spec/002), allocated
   fresh on `run-variant` and torn down by the caller via
@@ -202,7 +202,7 @@
 (defn- apply-frame-setup!
   "Walk the resolved `:frame-setup` decorators and execute their
   `:init` events + `:app-db-patch` against the freshly-allocated frame.
-  Per IMPL-SPEC §5.3 these fire before `:loaders` — so before phase 1
+  Per `002-Runtime.md` §Decorator composition order these fire before `:loaders` — so before phase 1
   in the lifecycle.
 
   Each decorator's `:init` events are dispatched synchronously; the
@@ -529,7 +529,7 @@
     :fx-overrides {...}
     plus arbitrary user-stamped keys.
 
-  Per IMPL-SPEC §5.1 we stamp `:rf/story?` and `:rf/variant` so tools
+  Per `002-Runtime.md` §Per-variant frame allocation we stamp `:rf/story?` and `:rf/variant` so tools
   can recognise variant frames from their `frame-meta`."
   [variant-id fx-overrides]
   (cond-> {:doc        (str "Variant frame for " variant-id ".")

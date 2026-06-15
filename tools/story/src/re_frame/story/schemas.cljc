@@ -3,18 +3,18 @@
 
   These schemas are the structural contract for what `reg-story`,
   `reg-variant`, `reg-workspace`, `reg-mode`, `reg-story-panel`,
-  `reg-decorator` and `reg-tag` will accept. Per IMPL-SPEC §13.2 #3
+  `reg-decorator` and `reg-tag` will accept. Per `001-Authoring.md` §Registration macros
   the `reg-decorator` per-kind body schemas are defined here.
 
   The schemas enforce:
 
-  - **EDN-first variant bodies** (IMPL-SPEC §2.6, Phase-2 §5.1 #10).
+  - **EDN-first variant bodies** (/spec/007-Stories.md §Variant artefact contract, Phase-2 §5.1 #10).
     Every variant key is data — vectors / maps / keywords / strings /
     numbers / sets. No fn-valued slots. The closure caveat (a decorator's
     `:wrap` is a fn) applies at the *decorator registration site*, not the
     variant body.
 
-  - **Canonical id grammar** (spec/007 §Canonical id grammar). Story ids
+  - **Canonical id grammar** (/spec/007-Stories.md §Canonical id grammar). Story ids
     live under the `:story.<path>` namespace; variant ids extend the story
     id with `/<name>`; workspace ids live under `:Workspace.<path>/<name>`;
     mode ids live under `:Mode.<path>/<name>`. Per Conventions.md the
@@ -26,7 +26,7 @@
     registrar cross-checks against `:rf.error/unknown-tag`.
 
   Schemas are plain Malli forms — see `metosin/malli`. They run on both
-  JVM and CLJS. The `:rf/variant` schema cross-references spec/007
+  JVM and CLJS. The `:rf/variant` schema cross-references /spec/007-Stories.md
   §Variant artefact contract.
 
   ## Where the schemas are used
@@ -49,8 +49,8 @@
 
 (defn story-id?
   "True iff `id` is a keyword `:story.<dotted-path>` — namespace nil,
-  name starts with `story.` (or is exactly `story`). Per spec/007
-  §Canonical id grammar.
+  name starts with `story.` (or is exactly `story`). Per
+  /spec/007-Stories.md §Canonical id grammar.
 
   Note Clojure keyword parsing: `:story.auth.login-form` has nil
   namespace and name `\"story.auth.login-form\"` — the dots are
@@ -74,7 +74,7 @@
   Single-sources the variant-id grammar at the STRING level so an MCP
   write path can validate a caller-supplied id string BEFORE interning a
   keyword (rf2-tag30h) — the keyword-level `variant-id?` delegates here.
-  Per spec/007 §Canonical id grammar."
+  Per /spec/007-Stories.md §Canonical id grammar."
   [[ns-part name-part]]
   (boolean
     (and (string? ns-part)
@@ -86,8 +86,8 @@
 
 (defn variant-id?
   "True iff `id` is a keyword whose namespace begins with `story.` and
-  whose name is the variant tail. Per spec/007 the canonical shape is
-  `:story.<path>/<variant>`.
+  whose name is the variant tail. Per /spec/007-Stories.md the canonical
+  shape is `:story.<path>/<variant>`.
 
   The framework registrar uses the slash that separates ns and name in
   Clojure keyword syntax — `:story.auth.login-form/empty` parses as
@@ -114,7 +114,7 @@
                        (= (subs ns 0 10) "Workspace.")))))))
 
 (defn mode-id?
-  "True iff `id` is a keyword `:Mode.<path>/<name>` (see spec/007 modes)."
+  "True iff `id` is a keyword `:Mode.<path>/<name>` (see /spec/007-Stories.md modes)."
   [id]
   (and (keyword? id)
        (let [ns (namespace id)
@@ -149,7 +149,7 @@
 ;; ---- canonical tag vocabulary ---------------------------------------------
 
 (def canonical-tags
-  "The seven canonical tags spec/007 §Inclusion tags registers at Story
+  "The seven canonical tags /spec/007-Stories.md §Inclusion tags registers at Story
   load. Projects MAY register additional tags via `reg-tag`; they MUST
   register them before use. An unregistered tag on a `:tags` set raises
   `:rf.error/unknown-tag` at registration."
@@ -279,7 +279,7 @@
   [:set [:enum :reagent :uix :helix]])
 
 (def PlatformSet
-  "Subset of `#{:server :client}` per spec/007 `:platforms`."
+  "Subset of `#{:server :client}` per /spec/007-Stories.md `:platforms`."
   [:set [:enum :server :client]])
 
 (def ModeRefSet
@@ -387,7 +387,7 @@
 (def Story
   "Schema for the body of `reg-story`.
 
-  Per IMPL-SPEC §3.1 the body is a metadata map carrying:
+  Per `001-Authoring.md` §Registration macros the body is a metadata map carrying:
 
   - `:doc` — string, one-sentence what/why.
   - `:component` — keyword id of a registered `:view`. (The framework's
@@ -697,7 +697,7 @@
 (def Variant
   "Schema for the body of `reg-variant`.
 
-  Per spec/007 §Variant artefact contract this is the load-bearing schema
+  Per /spec/007-Stories.md §Variant artefact contract this is the load-bearing schema
   — every key is plain data; no fn-valued slots. The body is 100% EDN-
   round-trippable.
 
@@ -1077,7 +1077,7 @@
     [:id :keyword]]])
 
 (def Workspace
-  "Schema for the body of `reg-workspace`. Per IMPL-SPEC §3.1.
+  "Schema for the body of `reg-workspace`. Per `001-Authoring.md` §Registration macros.
   Five layouts: `:grid`, `:prose`, `:variants-grid`, `:tabs`, `:custom`.
 
   The optional `:isolation` slot (rf2-gqid4) tunes how `:variants-grid`
@@ -1133,7 +1133,7 @@
    ;; Layout-specific requirements. :grid / :variants-grid / :tabs need
    ;; :variants; :prose needs :content; :custom needs :render.
    [:fn {:error/message
-         "workspace body's slots must match its :layout (per IMPL-SPEC §3.1)"}
+         "workspace body's slots must match its :layout (per `001-Authoring.md` §Registration macros)"}
     (fn [{:keys [layout variants content render]}]
       (case layout
         :grid          (vector? variants)
@@ -1159,7 +1159,7 @@
 
 (def Mode
   "Schema for the body of `reg-mode` — a saved-tuple of global args.
-  Per IMPL-SPEC §2.8.3 modes ship in v1.
+  Per `005-SOTA-Features.md` §`reg-mode` saved-tuple primitive modes ship in v1.
 
   Per spec/010 §Optional grouping — `:axis` (v1) the body MAY carry an
   optional `:axis` keyword that groups modes for the toolbar's chip
@@ -1181,8 +1181,8 @@
 ;; ---- :rf/story-panel ------------------------------------------------------
 
 (def StoryPanel
-  "Schema for the body of `reg-story-panel`. Per spec/007 §Story-tool
-  extension hook and IMPL-SPEC §3.1.
+  "Schema for the body of `reg-story-panel`. Per /spec/007-Stories.md §Story-tool
+  extension hook and `001-Authoring.md` §Registration macros.
 
   ## Closed shape (rf2-mantt)
 
@@ -1198,7 +1198,7 @@
    [:for       {:optional true} [:set :keyword]]])
 
 ;; ---- :rf/decorator (per-kind) ---------------------------------------------
-;; IMPL-SPEC §13.2 #3 flagged that the per-kind shape needed locking;
+;; `001-Authoring.md` §Registration macros flagged that the per-kind shape needed locking;
 ;; this is where that gets locked.
 
 (def DecoratorHiccup
@@ -1252,7 +1252,7 @@
 
 (def DecoratorFxOverride
   "`:fx-override`-kind decorator — stubs an fx for the lifetime of the
-  variant's frame. Per spec/007 §Effect mocking the decorator is a
+  variant's frame. Per /spec/007-Stories.md §Effect mocking the decorator is a
   declaration; the actual stub registration happens at frame creation.
 
   Two shapes:
@@ -1261,7 +1261,7 @@
     The fx-id + response are baked into the decorator registration; every
     reference reuses them.
   - **Ref-args body** — `{:kind :fx-override, :ref-args? true}`. Per
-    IMPL-SPEC §3.5 (Phase-2 §5.1 #6) the `:rf.story/force-fx-stub`
+    `004-Assertions.md` §Canonical assertion vocabulary (Phase-2 §5.1 #6) the `:rf.story/force-fx-stub`
     built-in uses this shape so authors can pass `(fx-id, response)` at
     the reference site: `[:rf.story/force-fx-stub :http {...}]`. The
     Stage 5 decorator-resolution layer expands the ref-args into a
@@ -1287,7 +1287,7 @@
 
 (def Decorator
   "Polymorphic decorator schema, dispatched on `:kind`. The three kinds
-  are the IMPL-SPEC §3.1 lock."
+  are the `001-Authoring.md` §Registration macros lock."
   [:multi {:dispatch :kind}
    [:hiccup       DecoratorHiccup]
    [:frame-setup  DecoratorFrameSetup]

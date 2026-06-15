@@ -7,7 +7,7 @@
   - The pure stylesheet builders return CSS strings scoped to a class.
   - The pure forced-state-classes helper returns deterministic output.
   - Decorator-resolution returns the registered decorators classified
-    as `:hiccup` per IMPL-SPEC §5.3.
+    as `:hiccup` per `002-Runtime.md` §Decorator composition order.
 
   The DOM-mutation behaviour (the wrap fns produce `[:div [:style] body]`)
   is exercised in JVM by calling the wrap fn directly — we can't

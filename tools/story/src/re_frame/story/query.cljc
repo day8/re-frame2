@@ -24,7 +24,7 @@
 
   Mirror of the spec/001 §Public registrar query API for Story's
   side-table. The Story registry is logically a peer of the framework
-  registrar — see IMPL-SPEC §1.1 + bd rf2-7ho2 for the design rationale."
+  registrar — see `001-Authoring.md` §Registration macros + bd rf2-7ho2 for the design rationale."
   [kind]
   (registrar/registrations kind))
 
@@ -67,20 +67,20 @@
   (registrar/variants-by-story))
 
 (defn variants-with-tags
-  "Per IMPL-SPEC §3.2 — return the set of variant ids whose `:tags`
+  "Per `002-Runtime.md` §Programmatic API — return the set of variant ids whose `:tags`
   intersects `query-tags`. The assertions/play surface leans on this;
   the render shell leans on this to compose the sidebar tree."
   [query-tags]
   (registrar/variants-with-tags query-tags))
 
 (defn list-tags
-  "Per IMPL-SPEC §7.4 — return the set of registered tag ids. Tools
+  "Per `002-Runtime.md` §Tag-vocabulary queries — return the set of registered tag ids. Tools
   enumerate this set before assigning tags to a variant."
   []
   (ids :tag))
 
 (defn list-modes
-  "Per IMPL-SPEC §7.4 — return the set of registered mode ids."
+  "Per `002-Runtime.md` §Tag-vocabulary queries — return the set of registered mode ids."
   []
   (ids :mode))
 
@@ -109,7 +109,7 @@
   (registrar/tags-default-excluded))
 
 (def canonical-tags
-  "Re-export of the seven canonical tag ids from spec/007 §Inclusion
+  "Re-export of the seven canonical tag ids from /spec/007-Stories.md §Inclusion
   tags. Stable across hosts."
   schemas/canonical-tags)
 

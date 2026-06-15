@@ -5,7 +5,7 @@
   `reg-check` composition cohort — spec/017 §Strict composition — is
   not exercised here.)
 
-  Per spec/007 §Variants the body of every variant is plain data —
+  Per /spec/007-Stories.md §Variants the body of every variant is plain data —
   no fn-slots. The view at the centre of each variant is referenced
   by id (`:counter-with-stories.views/counter-card`); the events
   the variant dispatches reference event-ids; decorators reference
@@ -56,8 +56,8 @@
   gate machinery. (A future split into a sibling fixtures file is
   tracked separately and deliberately out of scope here.)
 
-  Every variant declares `:substrates #{:reagent}` per IMPL-SPEC
-  §2.8.1 (Reagent is the v1 lock; UIx / Helix variants ship post-v1).
+  Every variant declares `:substrates #{:reagent}` per `001-Authoring.md`
+  §Substrates (Reagent is the v1 lock; UIx / Helix variants ship post-v1).
 
   The exemplary `:script` bodies exercise the documented authoring
   surface end-to-end: the `:assert-db` checkpoint sugar plus the
@@ -99,7 +99,7 @@
   ;; -------------------------------------------------------------------------
   ;; reg-tag — register the project's custom tag
   ;;
-  ;; Per spec/007 §Inclusion tags the seven canonical tags (:dev :docs
+  ;; Per /spec/007-Stories.md §Inclusion tags the seven canonical tags (:dev :docs
   ;; :test :screenshot :experimental :internal :agent) register at
   ;; Story load; project-specific tags must register before use or the
   ;; registrar throws `:rf.error/unknown-tag`.
@@ -126,7 +126,7 @@
   ;; -------------------------------------------------------------------------
   ;; reg-mode — the dark / light Chromatic-style saved tuples
   ;;
-  ;; Per IMPL-SPEC §2.8.3 modes are saved tuples of args. When a variant
+  ;; Per `005-SOTA-Features.md` §`reg-mode` saved-tuple primitive modes are saved tuples of args. When a variant
   ;; renders against `:Mode.app/dark` its `:args` deep-merge into the
   ;; variant's effective args (precedence: global < mode < story <
   ;; variant). Each `(variant × mode)` cell has its own snapshot-
@@ -160,7 +160,7 @@
   ;; -------------------------------------------------------------------------
   ;; reg-decorator — a project-custom hiccup decorator
   ;;
-  ;; Per IMPL-SPEC §3.1 + §13.2 #3 decorators are the ONLY Story
+  ;; Per `001-Authoring.md` §Registration macros + `002-Runtime.md` §Open items (Stage 3 picks) decorators are the ONLY Story
   ;; authoring surface where a closure legally lives — and only on
   ;; `:hiccup`-kind decorators' `:wrap` slot. The closure lives at
   ;; registration time, not in variant bodies. The variant body
@@ -173,7 +173,7 @@
            decorator alongside Story's canonical `:rf.story/layout-
            debug.*` set. The first ref-arg becomes the label.
 
-           Per IMPL-SPEC §5.3 (`apply-hiccup-decorators`): the `:wrap`
+           Per `002-Runtime.md` §Decorator composition order (`apply-hiccup-decorators`): the `:wrap`
            fn receives `[body args-map]`. Decorator ref-args from
            `[:dec-id arg1 arg2 ...]` references arrive under
            `(:decorator/args args-map)` — that's where the label lives."
@@ -200,7 +200,7 @@
   ;; -------------------------------------------------------------------------
   ;; reg-story-panel — a project-custom right-pane panel
   ;;
-  ;; Per spec/007 §Story-tool extension hook + IMPL-SPEC §3.1, panels
+  ;; Per /spec/007-Stories.md §Story-tool extension hook + `001-Authoring.md` §Registration macros, panels
   ;; are the project's escape hatch into the shell's chrome. Story
   ;; ships three v1 built-in panels (a11y / layout-debug / 10x-epoch
   ;; stub); projects add their own via reg-story-panel.

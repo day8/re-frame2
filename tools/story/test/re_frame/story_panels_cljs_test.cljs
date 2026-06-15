@@ -1,7 +1,7 @@
 (ns re-frame.story-panels-cljs-test
   "CLJS smoke tests for Stage 6 (rf2-zhwd) — the v1.0 story-panel set.
 
-  Covers the panel-registration contract documented in IMPL-SPEC §4.5:
+  Covers the panel-registration contract documented in `003-Render-Shell.md` §Panel registration contract:
   the v1 panels (a11y, layout-debug controls) register with `:placement`
   slots and the late-bind `:render` view resolves on the framework
   registry."

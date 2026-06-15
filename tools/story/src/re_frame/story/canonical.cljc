@@ -15,7 +15,7 @@
   The implementation weight — the late-bind shim wiring, the ordered
   installer vector, and the auto-install gate — lives here.
 
-  Per spec/007 §Inclusion tags + IMPL-SPEC §3.1 / §5.4 the canonical
+  Per /spec/007-Stories.md §Inclusion tags + `001-Authoring.md` §Registration macros / `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when` the canonical
   vocabulary is registered by the Story library at load time; project
   code does not have to register it. Project-specific tags must
   register via `reg-tag` *before* use; an unregistered tag on a

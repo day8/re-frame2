@@ -1,7 +1,7 @@
 (ns re-frame.story.async
   "Promise / CompletableFuture abstraction for Story's runtime.
 
-  Per IMPL-SPEC §3.2 + §13.2, `run-variant` returns a promise-like
+  Per `002-Runtime.md` §Programmatic API + §Open items (Stage 3 picks), `run-variant` returns a promise-like
   object that the host can await:
 
   - On CLJS the return value is a native `js/Promise`.

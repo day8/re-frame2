@@ -138,7 +138,7 @@
 ;;
 ;; story_assertions_test.clj only passes literal event vectors, so the
 ;; predicate-needle (`fn?`) and bare-keyword (`keyword?`) branches of
-;; `:rf.assert/dispatched?` (spec/007's `[event-or-pred]`) had no test.
+;; `:rf.assert/dispatched?` (/spec/007-Stories.md's `[event-or-pred]`) had no test.
 
 (def ^:private event-matches? @#'assertions/event-matches?)
 

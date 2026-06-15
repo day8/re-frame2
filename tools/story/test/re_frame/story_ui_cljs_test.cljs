@@ -221,7 +221,7 @@
     (is (= "doc" (controls/normalize-argtype-spec "doc")))
     (is (nil?    (controls/normalize-argtype-spec nil))))
   (testing "resolve-argtypes honours the spec-canonical :control key"
-    ;; Per spec/007-Stories.md §argtypes — author writes :control;
+    ;; Per /spec/007-Stories.md §argtypes — author writes :control;
     ;; renderer dispatches on :widget. Without the translation this
     ;; would fall through to the 'unsupported widget' span.
     (story/reg-variant :story.argtypes/ctrl

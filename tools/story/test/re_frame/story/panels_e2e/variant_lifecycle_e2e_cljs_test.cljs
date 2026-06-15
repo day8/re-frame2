@@ -2,7 +2,7 @@
   "Multi-frame e2e coverage for the variant 4-phase lifecycle
   (rf2-piucm, replaces `story_feature_load.cjs` § Lifecycle phases).
 
-  The four phases per IMPL-SPEC §5.4:
+  The four phases per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when`:
 
     pre-mount  →  mounting  →  loading  →  ready
                                    │

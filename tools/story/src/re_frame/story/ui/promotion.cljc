@@ -444,7 +444,7 @@
    (def ^:private curatable-tags
      "The tag chips the promotion dialog offers. `:test` makes the promoted
      regression a runnable test; the rest mirror the canonical Story tags
-     (spec/007 §Inclusion tags) an author commonly curates a regression
+     (/spec/007-Stories.md §Inclusion tags) an author commonly curates a regression
      with."
      [:test :agent :experimental :internal :dev :docs]))
 

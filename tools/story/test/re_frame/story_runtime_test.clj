@@ -9,13 +9,13 @@
     decorators before variant decorators), hiccup wrap composition,
     fx-override registration.
   - Snapshot-identity: stability across re-runs; sensitivity to
-    every input axis per IMPL-SPEC §5.6.
+    every input axis per `002-Runtime.md` §Snapshot-identity computation.
   - Lifecycle state machine: `:pre-mount → :mounting → :loading →
     :ready` via runtime fns + watcher firing.
   - `run-variant` end-to-end: registered variant → frame allocated →
     events drained → result map populated.
   - Frame teardown via `destroy-variant!`.
-  - Error projection per IMPL-SPEC §5.5.
+  - Error projection per `002-Runtime.md` §Error projection.
 
   All tests run on the JVM via `clojure -M:test`. Per the
   `jvm_interop_must_work` user-feedback rule the runtime must be JVM-
@@ -443,7 +443,7 @@
       (is (not= hr hu)))))
 
 (deftest snapshot-identity-changes-with-variant-decorators
-  (testing "Per spec/007 §Variant snapshot identity (lines 424-429) — a
+  (testing "Per /spec/007-Stories.md §Variant snapshot identity — a
             variant-level :decorators change MUST perturb the content-hash.
             Closes rf2-9g48l: watch-mode auto-rerun keys off this identity,
             so a decorator-only edit was silently dropped before this fix."
@@ -478,7 +478,7 @@
                 "appending a decorator must produce a fresh hash")))))))
 
 (deftest snapshot-identity-changes-with-play-script
-  (testing "Per spec/007 §Variant snapshot identity — a variant-level
+  (testing "Per /spec/007-Stories.md §Variant snapshot identity — a variant-level
             :play-script change MUST perturb the content-hash. Closes
             rf2-bgwnf: variant-body-slice selected the legacy :play key
             (removed by rf2-0wrud), so play-script edits were silently
@@ -507,7 +507,7 @@
                 "appending a play-script must produce a fresh hash")))))))
 
 (deftest snapshot-identity-changes-with-plays
-  (testing "Per spec/007 §Variant snapshot identity — the multi-play
+  (testing "Per /spec/007-Stories.md §Variant snapshot identity — the multi-play
             :plays surface (rf2-tl7zk) also participates in the hash.
             Companion to rf2-bgwnf: both play surfaces (:play-script and
             :plays) must perturb snapshot identity."
@@ -525,7 +525,7 @@
             "editing a play's script must produce a fresh hash")))))
 
 (deftest snapshot-identity-changes-with-view-schema-digest
-  (testing "Per spec/007 §Variant snapshot identity — the
+  (testing "Per /spec/007-Stories.md §Variant snapshot identity — the
             *registered* schema digest of the view (per spec/011
             §:rf/schema-digest) participates in the hash. A schema change
             on the view MUST invalidate the snapshot identity (and the
@@ -1226,7 +1226,7 @@
       {:events [[:test/boom]]})
     (let [r (async/deref-blocking (story/run-variant :story.err/v) 5000)]
       ;; Phase-2 errors don't roll back the lifecycle; :ready is the
-      ;; terminal state per IMPL-SPEC §5.5 — we record and continue.
+      ;; terminal state per `002-Runtime.md` §Error projection — we record and continue.
       (is (some #(= :rf.error/exception (:assertion %)) (:assertions r))
           "an exception assertion was recorded")
       (is (some #(= :phase-2-events (:phase %)) (:assertions r))))
@@ -1581,7 +1581,7 @@
 ;; ===========================================================================
 
 (deftest public-api-surface
-  (testing "every Stage 3 IMPL-SPEC §3.2 fn is present on the public ns"
+  (testing "every Stage 3 `002-Runtime.md` §Programmatic API fn is present on the public ns"
     (is (fn? @#'story/run-variant))
     (is (fn? @#'story/reset-variant))
     (is (fn? @#'story/watch-variant))

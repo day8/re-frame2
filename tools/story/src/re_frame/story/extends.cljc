@@ -1,7 +1,7 @@
 (ns re-frame.story.extends
   "`:extends` resolution for `reg-variant`.
 
-  Per spec/007 §Composed variants and IMPL-SPEC §4.6, a variant body
+  Per /spec/007-Stories.md §Composed variants and `002-Runtime.md` §Args resolution precedence, a variant body
   may carry `:extends <variant-id>` — the parent's body is merged into
   the child's (child wins key-by-key), producing a fully data-shaped
   variant artefact.
@@ -12,7 +12,7 @@
     a key present on the child replaces the same key on the parent.
   - **No vector concat / no map-deep-merge** at this layer. Stage 2's
     contract is straight `merge`; Stage 3's args-resolution layer is
-    the deep-merge surface (per spec/007 §Args at three levels — there
+    the deep-merge surface (per /spec/007-Stories.md §Args at three levels — there
     we deep-merge args). This separation keeps the variant-body merge
     semantically simple.
   - **`:extends` itself is dropped** from the resolved body — it's a
@@ -28,7 +28,7 @@
   - Throws `:rf.error/story-extends-unknown` if a parent id is not
     registered when `:extends` is resolved.
 
-  Stage 2 resolves at registration time (per IMPL-SPEC §2.6). Production
+  Stage 2 resolves at registration time (per `001-Authoring.md` §Registration macros). Production
   builds elide the entire registration surface so `:extends` resolution
   doesn't survive into a production bundle anyway."
   (:refer-clojure :exclude [resolve]))
@@ -134,7 +134,7 @@
   Story play surface `#{:play-script :plays}` is one such group). Layers
   closer to the child still shadow farther ones key-by-key as usual.
 
-  Per IMPL-SPEC §4.6: 'Resolution at registration time. Cycles raise
+  Per /spec/007-Stories.md §Composed variants: 'Resolution at registration time. Cycles raise
   `:rf.error/extends-cycle`.' (The implemented error id is namespaced
   `:rf.error/story-extends-cycle` — see `chain-of`.)"
   ([body lookup] (resolve-extends body lookup nil))

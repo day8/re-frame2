@@ -48,8 +48,7 @@
     responsibility — spec/Security.md §Author guidance).
 
   `exception-record` wraps that projection in the full
-  `:rf.error/exception` assertion record per IMPL-SPEC §5.5 +
-  `002-Runtime.md` §Error projection.
+  `:rf.error/exception` assertion record per `002-Runtime.md` §Error projection.
 
   ## Pipeline-exception projection (rf2-294yq5.2)
 
@@ -162,7 +161,7 @@
 
 (defn exception-record
   "Build the full `:rf.error/exception` assertion record projected when a
-  phase throws (IMPL-SPEC §5.5 + `002-Runtime.md` §Error projection). The
+  phase throws (`002-Runtime.md` §Error projection). The
   record lands in `:rf.story/assertions` so the variant's last result map
   surfaces the failure; `:passed? false` makes the run-level aggregation
   report a failure.

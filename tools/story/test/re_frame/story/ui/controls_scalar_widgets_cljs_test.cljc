@@ -2,7 +2,7 @@
   "Tests for the Story Controls panel's scalar widget vocabulary
   (rf2-viymg).
 
-  Per spec/007-Stories.md §argtypes the closed control vocabulary is
+  Per /spec/007-Stories.md §argtypes the closed control vocabulary is
   `:text` / `:textarea` / `:number` / `:boolean` / `:select` / `:radio`
   / `:date` / `:color`. These tests pin the rendered hiccup for the
   four widgets that landed late (`:textarea` / `:radio` / `:date` /

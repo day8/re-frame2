@@ -1,5 +1,5 @@
 (ns re-frame.story.runtime
-  "Story runtime orchestration. Per IMPL-SPEC §3.2 + §5.
+  "Story runtime orchestration. Per `002-Runtime.md` §Programmatic API + §Four-phase lifecycle with `:loaders-complete-when`.
 
   Stage 3 (rf2-von3) lands the runtime that consumes Stage 2's
   registered artefacts and resolves them into a runnable variant:
@@ -12,7 +12,7 @@
 
   ## The result map
 
-  Per IMPL-SPEC §3.2 the resolved value of `run-variant` is:
+  Per `002-Runtime.md` §Programmatic API the resolved value of `run-variant` is:
 
       {:frame           <variant-id>
        :app-db          {...}
@@ -34,7 +34,7 @@
   Every entry point checks `re-frame.story.config/enabled?`. When
   false (production CLJS builds), the fns return an empty result map
   immediately — the inner body, the registrar lookups, and the frame
-  allocation all elide. Per IMPL-SPEC §6.3 this is a *feature*:
+  allocation all elide. Per `001-Authoring.md` §Registration macros this is a *feature*:
   production code that accidentally calls `run-variant` does not throw
   — it returns empty."
   (:require [re-frame.core            :as rf]
@@ -67,7 +67,7 @@
 ;; ---- empty / disabled result ---------------------------------------------
 
 (defn- empty-result
-  "Per IMPL-SPEC §6.3: production callers see an empty result map
+  "Per `001-Authoring.md` §Registration macros: production callers see an empty result map
   rather than an exception. The shape matches a successful run with
   no registrations to act on."
   [variant-id]
@@ -85,7 +85,7 @@
    :lifecycle       :ready})
 
 ;; Forward declarations so phase fns (defined before record helpers) can
-;; project failures per IMPL-SPEC §5.5 without reordering the file.
+;; project failures per `002-Runtime.md` §Error projection without reordering the file.
 (declare record-error! record-loader-incomplete!)
 
 ;; ---- phase exception capture --------------------------------------------
@@ -93,7 +93,7 @@
 ;; re-frame's interceptor chain catches handler exceptions internally and
 ;; emits a `:rf.error/handler-exception` trace event rather than re-
 ;; throwing. Stage 3's phase runners need to convert those trace events
-;; into assertion records (per IMPL-SPEC §5.5).
+;; into assertion records (per `002-Runtime.md` §Error projection).
 ;;
 ;; The capture pattern: register a trace listener around each phase
 ;; that collects matching errors into an atom. After the phase, walk
@@ -250,7 +250,7 @@
 
 (defn- run-events!
   "Phase 2: dispatch every phase-2 event into the variant's frame,
-  draining between each. Per IMPL-SPEC §5.4 phase 2.
+  draining between each. Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when` phase 2.
 
   rf2-5x1wt.22 (§B8) — the variant-chain + composed-fragment setup now
   comes from the NORMALIZED PLAN's `[:world :setup]` (the tagged dispatch
@@ -280,8 +280,8 @@
 
 (defn- run-loaders!
   "Phase 1: dispatch every event in `:loaders` into the variant's
-  frame, evaluating `:loaders-complete-when` after each. Per IMPL-SPEC
-  §5.4 phase 1.
+  frame, evaluating `:loaders-complete-when` after each. Per `002-Runtime.md`
+  §Four-phase lifecycle with `:loaders-complete-when` phase 1.
 
   In Stage 3 the simple synchronous path is the load-bearing one:
   `dispatch-sync` drains run-to-completion before returning, so the
@@ -354,7 +354,7 @@
 
 (defn record-error!
   "Append an error record to the variant frame's `[:rf.story/assertions]`
-  accumulator. Per IMPL-SPEC §5.5 errors continue the play sequence
+  accumulator. Per `002-Runtime.md` §Error projection errors continue the play sequence
   rather than aborting — the full picture is captured.
 
   `opts` (optional) is threaded to `story-error/exception-record` —
@@ -433,7 +433,7 @@
 
 ;; ---- run-variant ---------------------------------------------------------
 ;;
-;; `run-variant` is the engine's hot path. Per IMPL-SPEC §5.4 it drives the
+;; `run-variant` is the engine's hot path. Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when` it drives the
 ;; four-phase lifecycle (phase-0 setup → phase-1 loaders → phase-2 events →
 ;; phase-4 play); phase-3 render is Stage 4's UI-shell concern. To keep the
 ;; orchestrator readable each phase lives in its own named fn — the audit
@@ -751,7 +751,7 @@
      ;; `[:arg key]` may resolve ONLY through a run-opts layer (an active
      ;; mode / cell override) — a recompile without `:run-args` would throw
      ;; `:rf.error/story-missing-arg` substituting that script placeholder.
-     ;; v1 modes carry no decorators (IMPL-SPEC §3.1: modes are :args only),
+     ;; v1 modes carry no decorators (`001-Authoring.md` §Registration macros: modes are :args only),
      ;; so `:active-modes` does not perturb the decorator refs.
      :decorator-stack  (decorators/resolve-decorator-refs
                          (get-in plan [:world :decorators] []))
@@ -1177,7 +1177,7 @@
                        :passed?    false}]))
 
 (defn run-variant
-  "Per IMPL-SPEC §3.2. Allocate a frame for `variant-id`, run the four-
+  "Per `002-Runtime.md` §Programmatic API. Allocate a frame for `variant-id`, run the four-
   phase lifecycle, and return a promise/future of the result map.
 
   `opts`:
@@ -1187,12 +1187,12 @@
     :render?         when truthy, Stage 4's UI shell renders into
                      `:rendered-hiccup`. Stage 3 leaves the slot nil.
 
-  Returns a Promise (CLJS) / CompletableFuture (JVM). Per IMPL-SPEC
-  §13.2 this is Stage 3's locked async-return shape.
+  Returns a Promise (CLJS) / CompletableFuture (JVM). Per `002-Runtime.md`
+  §Open items (Stage 3 picks) this is Stage 3's locked async-return shape.
 
   Production callers (CLJS `:advanced` with `enabled?` false) get an
-  immediately-resolved promise of the empty result map — per IMPL-SPEC
-  §6.3 the runtime doesn't throw when nothing is registered.
+  immediately-resolved promise of the empty result map — per `001-Authoring.md`
+  §Registration macros the runtime doesn't throw when nothing is registered.
 
   Pre-requisite: `re-frame.story/install-canonical-vocabulary!` must
   have been called at boot — it registers the `::append-assertion`
@@ -1394,7 +1394,7 @@
 
 (defn reset-variant
   "Tear down the variant frame and re-run `run-variant` with `opts`.
-  Per IMPL-SPEC §3.2. Used by Stage 4's UI shell on hot-reload + user-
+  Per `002-Runtime.md` §Programmatic API. Used by Stage 4's UI shell on hot-reload + user-
   triggered 'reset' button.
 
   Returns a promise/future of the new result map."
@@ -1407,7 +1407,7 @@
 ;; ---- watch-variant -------------------------------------------------------
 
 (defn watch-variant
-  "Per IMPL-SPEC §3.2 — subscribe to lifecycle transitions for
+  "Per `002-Runtime.md` §Programmatic API — subscribe to lifecycle transitions for
   `variant-id`'s frame. `callback` is invoked on every state change
   with `{:frame-id ... :from <state> :to <state> :event <event>}`.
 
@@ -1423,7 +1423,7 @@
 ;; ---- snapshot-identity re-export ----------------------------------------
 
 (defn snapshot-identity
-  "Per IMPL-SPEC §3.2. Compute the content-hash for
+  "Per `002-Runtime.md` §Snapshot-identity computation. Compute the content-hash for
   `(variant × active-modes × cell-overrides × substrate)`. See
   `re-frame.story.identity/snapshot-identity` for the canonical form."
   ([variant-id] (ident/snapshot-identity variant-id))

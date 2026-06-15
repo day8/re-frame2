@@ -1,6 +1,7 @@
 (ns re-frame.story
-  "Public API for re-frame2-story. Per IMPL-SPEC §2.8.2 the user-facing
-  namespace lives under `re-frame.story.*`; internal helpers (the
+  "Public API for re-frame2-story. Per `001-Authoring.md` §Registration
+  macros the user-facing namespace lives under `re-frame.story.*`;
+  internal helpers (the
   registrar side-table, schemas, extends resolution) live under
   `re-frame.story.<sub-ns>`.
 
@@ -75,7 +76,8 @@
   appropriate for Story's role and IS NOT a pattern to copy into normal
   interactive application code — UI event handlers should use
   `rf/dispatch` and subscribe via Reactions, not synchronous reads.
-  Per IMPL-SPEC §5 the boundary is: synchronous drain belongs to the
+  Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when`
+  the boundary is: synchronous drain belongs to the
   test driver; the queue belongs to the application."
   (:require [re-frame.core              :as rf]
             ;; EP-0015 (rf2-mngp4o): the `add-marks` / `set-marks` path-marks
@@ -192,7 +194,7 @@
 
 ;; ---- macros (the nine reg-* forms) ---------------------------------------
 ;;
-;; Per IMPL-SPEC §6.1 every macro expansion threads through
+;; Per `001-Authoring.md` §Registration macros every macro expansion threads through
 ;; `(when re-frame.story.config/enabled? ...)` so the closure compiler
 ;; elides the registration call under `:advanced` builds. The actual
 ;; expansion logic lives in `re-frame.story.macros`; the defmacro forms
@@ -206,7 +208,8 @@
 
 #?(:clj
    (defmacro reg-story
-     "Register a story (parent of variants). Per IMPL-SPEC §3.1.
+     "Register a story (parent of variants). Per `001-Authoring.md`
+     §Registration macros.
 
      Body keys (all optional):
 
@@ -224,7 +227,7 @@
      ```
 
      Form-B `:variants` desugars to N separate `reg-variant` calls so
-     hot-reload-by-variant works (per spec/007 §Combined `reg-story` form).
+     hot-reload-by-variant works (per /spec/007-Stories.md §Combined `story/reg-story` form).
 
      Expansion elides to `nil` under `:advanced` builds with
      `re-frame.story.config/enabled?` set to `false`."
@@ -235,7 +238,8 @@
 
 #?(:clj
    (defmacro reg-variant
-     "Register a variant (one scenario of a story). Per IMPL-SPEC §3.1.
+     "Register a variant (one scenario of a story). Per `001-Authoring.md`
+     §Registration macros.
 
      Variant body shape — every key is data, no fn-valued slots:
 
@@ -259,7 +263,7 @@
 
      The body must be 100% EDN-round-trippable. Decorator closures live at
      the decorator's *registration site* (see `reg-decorator`), not here.
-     Per IMPL-SPEC §2.6 and Phase-2 §5.1 #10.
+     Per `001-Authoring.md` §Registration macros and Phase-2 §5.1 #10.
 
      `:extends` is stored RAW (intact, parents UNmerged) and resolved by
      the plan compiler — the single merge authority — when the variant is
@@ -332,7 +336,8 @@
 
 #?(:clj
    (defmacro reg-workspace
-     "Register a workspace (layout artefact). Per IMPL-SPEC §3.1.
+     "Register a workspace (layout artefact). Per `001-Authoring.md`
+     §Registration macros.
 
      Five layouts: `:grid`, `:prose`, `:variants-grid`, `:tabs`, `:custom`.
      Each requires the matching slot:
@@ -356,7 +361,8 @@
                       for views that hardcode a frame-provider).
 
      Workspaces are 100% transit-shareable; the `:variants-grid` layout is
-     the v1 devcards-style multi-variant pane (IMPL-SPEC §2.8.4)."
+     the v1 devcards-style multi-variant pane
+     (`005-SOTA-Features.md` §`:variants-grid` workspace layout)."
      [id metadata]
      (macros/gen-reg-call (meta &form) *file*
                           (symbol (str (ns-name *ns*)))
@@ -365,7 +371,9 @@
 
 #?(:clj
    (defmacro reg-mode
-     "Register a Mode (saved-tuple of args). Per IMPL-SPEC §2.8.3 + §3.1.
+     "Register a Mode (saved-tuple of args). Per `005-SOTA-Features.md`
+     §`reg-mode` saved-tuple primitive + `001-Authoring.md`
+     §Registration macros.
 
      Body:
 
@@ -388,7 +396,7 @@
 #?(:clj
    (defmacro reg-story-panel
      "Register a story panel — the extension hook into the story tool's
-     chrome. Per spec/007 §Story-tool extension hook.
+     chrome. Per /spec/007-Stories.md §Story-tool extension hook.
 
      Body:
 
@@ -400,7 +408,8 @@
       :for       #{<context-id>}}   ;; optional
      ```
 
-     Per IMPL-SPEC §2.7 the re-frame-10x epoch panel ships as a registered
+     Per `005-SOTA-Features.md` §Xray epoch panel embed (stub + contract)
+     the re-frame-10x epoch panel ships as a registered
      story panel via this macro."
      [id metadata]
      (macros/gen-reg-call (meta &form) *file*
@@ -410,7 +419,8 @@
 
 #?(:clj
    (defmacro reg-decorator
-     "Register a decorator. Per IMPL-SPEC §3.1 + §13.2 #3.
+     "Register a decorator. Per `001-Authoring.md` §Registration macros +
+     `002-Runtime.md` §Open items (Stage 3 picks) #3.
 
      Decorators are the **only** Story authoring surface where a closure
      legally lives — and only on `:hiccup`-kind decorators' `:wrap` slot.
@@ -430,7 +440,8 @@
 
 #?(:clj
    (defmacro reg-tag
-     "Register a tag. Per spec/007 §Inclusion tags + IMPL-SPEC §3.1.
+     "Register a tag. Per /spec/007-Stories.md §Inclusion tags +
+     `001-Authoring.md` §Registration macros.
 
      Body (all slots optional):
 
@@ -480,7 +491,8 @@
 
   Mirror of the spec/001 §Public registrar query API for Story's
   side-table. The Story registry is logically a peer of the framework
-  registrar — see IMPL-SPEC §1.1 + bd rf2-7ho2 for the design rationale."
+  registrar — see `001-Authoring.md` §Registration macros + bd rf2-7ho2
+  for the design rationale."
   [kind]
   (query/registrations kind))
 
@@ -521,20 +533,20 @@
   (query/variants-by-story))
 
 (defn variants-with-tags
-  "Per IMPL-SPEC §3.2 — return the set of variant ids whose `:tags`
+  "Per `002-Runtime.md` §Programmatic API — return the set of variant ids whose `:tags`
   intersects `query-tags`. The assertions/play surface leans on this;
   the render shell leans on this to compose the sidebar tree."
   [query-tags]
   (query/variants-with-tags query-tags))
 
 (defn list-tags
-  "Per IMPL-SPEC §7.4 — return the set of registered tag ids. Tools
+  "Per `002-Runtime.md` §Tag-vocabulary queries — return the set of registered tag ids. Tools
   enumerate this set before assigning tags to a variant."
   []
   (query/list-tags))
 
 (defn list-modes
-  "Per IMPL-SPEC §7.4 — return the set of registered mode ids."
+  "Per `002-Runtime.md` §Tag-vocabulary queries — return the set of registered mode ids."
   []
   (query/list-modes))
 
@@ -563,8 +575,8 @@
   (query/tags-default-excluded))
 
 (def canonical-tags
-  "Re-export of the seven canonical tag ids from spec/007 §Inclusion
-  tags. Stable across hosts."
+  "Re-export of the seven canonical tag ids from /spec/007-Stories.md
+  §Inclusion tags. Stable across hosts."
   query/canonical-tags)
 
 (def canonical-axes
@@ -603,7 +615,7 @@
 
 ;; ---- programmatic registration surface -----------------------------------
 ;;
-;; Per IMPL-SPEC §4.9 the `*`-suffix runtime helpers are public for
+;; Per `002-Runtime.md` §Programmatic API the `*`-suffix runtime helpers are public for
 ;; tooling that synthesises registrations (e.g. the MCP write surface
 ;; in v1.1, the test fixture that registers from a fixture file).
 ;; Re-exported here so authors with a legit programmatic need can call
@@ -641,7 +653,9 @@
   Idempotent — whether the chain runs via auto-install or from this
   explicit entry, the side-table lands in the same shape.
 
-  Per spec/007 §Inclusion tags + IMPL-SPEC §3.1 / §5.4 the canonical
+  Per /spec/007-Stories.md §Inclusion tags + `001-Authoring.md`
+  §Registration macros / `002-Runtime.md` §Four-phase lifecycle with
+  `:loaders-complete-when` the canonical
   vocabulary is registered by the Story library — projects don't have
   to. Project-specific tags must register via `reg-tag` *before* use;
   an unregistered tag on a variant's `:tags` set raises
@@ -782,7 +796,8 @@
 ;; ---- configure! ---------------------------------------------------------
 
 (defn configure!
-  "Configure Story's global defaults. Per IMPL-SPEC §5.2 the global
+  "Configure Story's global defaults. Per `002-Runtime.md` §Args
+  resolution precedence the global
   args map is the first layer of the args-precedence chain (theme,
   locale, ...). The host application calls this once at boot.
 
@@ -974,7 +989,7 @@
 ;; probe. The facade re-exports each public symbol.
 
 (defn variant->edn
-  "Per IMPL-SPEC §3.2 — return the registered body of the variant as
+  "Per `002-Runtime.md` §Programmatic API — return the registered body of the variant as
   serialisable EDN. The body is the side-table value verbatim;
   canonicalisation (sorted keys, deterministic vector order) for
   snapshot-identity lives in `re-frame.story.identity`.
@@ -984,12 +999,13 @@
   (lifecycle/variant->edn variant-id))
 
 (defn workspace->edn
-  "Per IMPL-SPEC §3.2 — same for workspaces."
+  "Per `002-Runtime.md` §Programmatic API — same for workspaces."
   [workspace-id]
   (lifecycle/workspace->edn workspace-id))
 
 (defn run-variant
-  "Per IMPL-SPEC §3.2. Allocate a frame for `variant-id`, run the four-
+  "Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when`.
+  Allocate a frame for `variant-id`, run the four-
   phase lifecycle (loaders → events → render → play), and return a
   promise/future of the result map.
 
@@ -1017,20 +1033,21 @@
   ([variant-id opts]  (lifecycle/run-variant variant-id opts)))
 
 (defn reset-variant
-  "Tear down + re-run `variant-id`. Per IMPL-SPEC §3.2."
+  "Tear down + re-run `variant-id`. Per `002-Runtime.md` §Programmatic API."
   ([variant-id]       (lifecycle/reset-variant variant-id))
   ([variant-id opts]  (lifecycle/reset-variant variant-id opts)))
 
 (defn watch-variant
   "Subscribe to lifecycle transitions for `variant-id`'s frame. Per
-  IMPL-SPEC §3.2. `callback` receives
+  `002-Runtime.md` §Programmatic API. `callback` receives
   `{:frame-id <id> :from <state> :to <state> :event <inner-event>}`
   on every transition. Returns a 0-arity unsubscribe fn."
   [variant-id callback]
   (lifecycle/watch-variant variant-id callback))
 
 (defn snapshot-identity
-  "Per IMPL-SPEC §3.2 + §5.6. Content-hash over the canonicalised
+  "Per `002-Runtime.md` §Programmatic API + §Snapshot-identity computation.
+  Content-hash over the canonicalised
   `(variant × resolved-args × decorators × loaders × substrate × modes)`
   tuple. Stable across hosts.
 
@@ -1334,8 +1351,8 @@
   ([golden run opts] (golden/compare-golden golden run opts)))
 
 (defn destroy-variant!
-  "Tear down a variant frame allocated via `run-variant`. Per IMPL-
-  SPEC §5.1 — the caller (UI shell / test fixture) owns teardown."
+  "Tear down a variant frame allocated via `run-variant`. Per
+  `002-Runtime.md` §Per-variant frame allocation — the caller (UI shell / test fixture) owns teardown."
   [variant-id]
   (lifecycle/destroy-variant! variant-id))
 
@@ -1360,12 +1377,13 @@
 ;; ---- public assertion + play helpers ------------------------------------
 
 (defn assertions-passing?
-  "Per IMPL-SPEC §3.5 + spec/007 §Story-as-test duality — true iff
+  "Per `004-Assertions.md` §Test-runner integration + /spec/007-Stories.md
+  §Story-as-test duality — true iff
   every entry in the assertions list has `:passed? true`. Accepts
   either an assertions vector or a `run-variant` result map.
 
   This is the canonical predicate for the cljs.test / clojure.test
-  adapter pattern from spec/007 §Portable into tests:
+  adapter pattern from /spec/007-Stories.md §Portable into tests:
 
       (deftest counter-empty-state
         (let [result @(story/run-variant :story.counter/empty {})]
@@ -1374,7 +1392,7 @@
   (assertions/passing? assertions-or-result))
 
 (defn read-assertions
-  "Per IMPL-SPEC §3.5 — return the assertions vector accumulated against
+  "Per `004-Assertions.md` §Record-don't-throw semantics — return the assertions vector accumulated against
   `variant-id`'s frame. Identical to `(:assertions (story/run-variant ...))`
   but doesn't re-run the variant. Useful for live introspection from the
   UI shell or REPL."
@@ -1382,7 +1400,8 @@
   (assertions/read-assertions variant-id))
 
 (defn canonical-assertion-ids
-  "Per spec/007 line 304 + IMPL-SPEC §3.5 — return the set of seven
+  "Per /spec/007-Stories.md §Inclusion tags + `004-Assertions.md`
+  §Canonical assertion vocabulary — return the set of seven
   canonical `:rf.assert/*` event ids registered at boot."
   []
   assertions/canonical-assertion-ids)
@@ -1656,7 +1675,8 @@
   result)
 
 (defn execute-play!
-  "Per IMPL-SPEC §5.4 phase 4 — run the play sequence against a variant
+  "Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when`
+  phase 4 — run the play sequence against a variant
   frame and return a promise of the assertions vector. Use this when
   you've already allocated a variant frame (via a prior `run-variant`
   or `allocate!`) and want to re-run play without tearing the frame
@@ -1672,7 +1692,8 @@
    (play/execute-play! variant-id play-events opts)))
 
 (def force-fx-stub-id
-  "Per spec/007 §Effect mocking + IMPL-SPEC §3.5 — the registered
+  "Per /spec/007-Stories.md §Effect mocking + `004-Assertions.md`
+  §Canonical assertion vocabulary — the registered
   decorator id for the built-in `force-fx-stub` decorator. Use this
   on a variant's `:decorators` slot:
 
@@ -1685,7 +1706,7 @@
 ;; ---- public SOTA-feature surface ----------------------------------------
 
 (def layout-debug-measure-id
-  "Per IMPL-SPEC §2.8.6 — the registered decorator id for the
+  "Per `005-SOTA-Features.md` §Layout-debug overlay trio — the registered decorator id for the
   Storybook-style layout measure overlay. Use on a variant's
   `:decorators` slot:
 
@@ -1694,12 +1715,12 @@
   layout-debug/id-measure)
 
 (def layout-debug-outline-id
-  "Per IMPL-SPEC §2.8.6 — Pesticide-style coloured outlines on every
+  "Per `005-SOTA-Features.md` §Layout-debug overlay trio — Pesticide-style coloured outlines on every
   descendant element."
   layout-debug/id-outline)
 
 (def layout-debug-pseudo-id
-  "Per IMPL-SPEC §2.8.6 — pseudo-state forcing. Ref-args is a set
+  "Per `005-SOTA-Features.md` §Layout-debug overlay trio — pseudo-state forcing. Ref-args is a set
   from `#{:hover :focus :active :visited}`; default is `#{:hover}`:
 
       (story/reg-variant :story.link/hovered
@@ -1707,7 +1728,7 @@
   layout-debug/id-pseudo)
 
 (defn variant-share-url
-  "Per IMPL-SPEC §2.8.5 — build a sharable URL for a variant against
+  "Per `005-SOTA-Features.md` §Share URL (retired QR popover) — build a sharable URL for a variant against
   `base-url`. Encodes active modes + cell-overrides + substrate so a
   scan-and-share session reproduces the cell.
 
@@ -1722,7 +1743,8 @@
 
 #?(:cljs
    (defn register-substrate!
-     "Per IMPL-SPEC §2.2 + §2.8.4 — register a substrate render fn under
+     "Per `002-Runtime.md` §Substrate hooks + `005-SOTA-Features.md`
+     §Multi-substrate side-by-side rendering — register a substrate render fn under
      `substrate-id`. The host app calls this once at boot for each
      substrate it wants Story to render against (UIx, Helix, etc.). The
      Reagent substrate is registered automatically by
@@ -1735,7 +1757,7 @@
 
 #?(:cljs
    (defn registered-substrates
-     "Per IMPL-SPEC §2.2 — return the set of registered substrate ids.
+     "Per `002-Runtime.md` §Substrate hooks — return the set of registered substrate ids.
      Used by tooling that enumerates the available substrates for a
      variant's `:substrates` opt-in."
      []
@@ -1744,14 +1766,14 @@
 ;; ---- public helpers (decorator / args resolution surfacing) -------------
 
 (defn resolve-args
-  "Per IMPL-SPEC §5.2 — materialise the effective args map for a
+  "Per `002-Runtime.md` §Args resolution precedence — materialise the effective args map for a
   variant render given the active modes + cell overrides. See
   `re-frame.story.args/resolve-args`."
   ([variant-id]       (args/resolve-args variant-id))
   ([variant-id opts]  (args/resolve-args variant-id opts)))
 
 (defn resolve-decorators
-  "Per IMPL-SPEC §5.3 — return the variant's resolved decorator stack
+  "Per `002-Runtime.md` §Decorator composition order — return the variant's resolved decorator stack
   classified by kind (`{:hiccup [...] :frame-setup [...] :fx-override [...]
   :errors [...]}`). See `re-frame.story.decorators/resolve-decorators`."
   ([variant-id]       (decorators/resolve-decorators variant-id))
@@ -1775,7 +1797,7 @@
 
 ;; ---- UI shell mount / unmount surface -----------------------------------
 ;;
-;; Per IMPL-SPEC §4 + §8.4 the shell entry points are CLJS-only —
+;; Per `003-Render-Shell.md` §Shell lifecycle the shell entry points are CLJS-only —
 ;; mounting a Reagent shell at a DOM node has no JVM equivalent. The
 ;; functions are conditionalised on the reader so JVM consumers can
 ;; require `re-frame.story` without pulling Reagent / DOM symbols.
@@ -1795,13 +1817,13 @@
        ribbon + L2 event list + Trace tab + Event-tab cascade view
        cover what they did)
 
-     Per IMPL-SPEC §4 v1 supports one mounted shell at a time; calling
+     Per `003-Render-Shell.md` §Shell lifecycle v1 supports one mounted shell at a time; calling
      `mount-shell!` while a shell is already mounted tears down the
      previous one first.
 
      Production CLJS builds (`re-frame.story.config/enabled?` false)
-     short-circuit before any DOM call and return nil. See IMPL-SPEC
-     §6.3 for the elision contract."
+     short-circuit before any DOM call and return nil. See
+     `001-Authoring.md` §Registration macros for the elision contract."
      [dom-node]
      (ui-shell/mount-shell! dom-node)))
 

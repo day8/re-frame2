@@ -15,7 +15,8 @@
   - Canonical-id-grammar enforcement.
 
   JVM-runnable because the registration surface is pure data — no
-  Reagent / DOM / shadow-cljs required. Per IMPL-SPEC §1.1 + the
+  Reagent / DOM / shadow-cljs required. Per `001-Authoring.md`
+  §Registration macros + the
   `jvm_interop_must_work` user-feedback rule, every artefact that can
   run on the JVM should."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]

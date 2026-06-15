@@ -8,7 +8,7 @@
   public ns (matching the pattern `re-frame.core` uses for
   `reg-event-db`).
 
-  Per IMPL-SPEC §6.1 every emitted form threads through
+  Per `001-Authoring.md` §Registration macros every emitted form threads through
   `(when re-frame.story.config/enabled? ...)` so the closure compiler
   elides the registration call under `:advanced` builds with
   `enabled?` set to `false`. The dev/prod expand split is the
@@ -34,7 +34,7 @@
 
   `expand-reg-story` checks for a literal `:variants` map in the body
   and, if present, emits N independent `reg-variant*` calls as siblings
-  of the parent `reg-story*` call. Per IMPL-SPEC §4.9 this preserves
+  of the parent `reg-story*` call. Per `001-Authoring.md` §Registration macros this preserves
   hot-reload-by-variant: each variant is a separate top-level form so
   save-and-reload only invalidates the changed slot.")
 
@@ -88,7 +88,7 @@
   - story-id `:story.auth.login-form`, variant-name `:empty`
     → `:story.auth.login-form/empty`
 
-  Per spec/007 §Canonical id grammar."
+  Per /spec/007-Stories.md §Canonical id grammar."
   [story-id variant-name]
   (when-not (keyword? story-id)
     (throw (ex-info ":rf.error/story-bad-id"

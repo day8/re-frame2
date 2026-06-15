@@ -1,5 +1,5 @@
 (ns re-frame.story.decorators
-  "Decorator composition. Per IMPL-SPEC §5.3 + spec/007 §Decorators.
+  "Decorator composition. Per `002-Runtime.md` §Decorator composition order + /spec/007-Stories.md §Decorators.
 
   Decorators come in three kinds (each registered via `reg-decorator`):
 
@@ -12,7 +12,7 @@
 
   ## Composition order
 
-  Per IMPL-SPEC §5.3 + rf2-835ey the runtime walks
+  Per `002-Runtime.md` §Decorator composition order + rf2-835ey the runtime walks
   `(concat global-decorators story-decorators variant-decorators)` in
   declared order and groups by `:kind`. Global decorators are the
   Storybook-`preview.ts`-parity layer (Finding F-1 — every variant
@@ -35,7 +35,7 @@
 
   Unknown decorator-ids surface as an entry in the returned `:errors`
   vector; the runtime then projects those into the variant's
-  `:assertions` (per IMPL-SPEC §5.5)."
+  `:assertions` (per `002-Runtime.md` §Error projection)."
   (:require [re-frame.story.args      :as args]
             [re-frame.story.plan      :as plan]
             [re-frame.story.registrar :as registrar]))
@@ -65,7 +65,7 @@
   part of the variant body — the plan resolves them through
   `config/get-global-decorators` + the `:story` side-table; this fn just
   consumes the result. Active modes contribute no decorators at v1 — per
-  IMPL-SPEC §3.1 modes carry `:args` only.
+  `001-Authoring.md` §Registration macros modes carry `:args` only.
 
   `decorators → plan` is acyclic (plan does NOT require decorators). The
   per-variant cost is one plan compile per resolution, which the single-
@@ -159,7 +159,7 @@
 
 ;; ---- cycle / re-registration detection -----------------------------------
 ;;
-;; Per IMPL-SPEC §13.2 hot-reload, the runtime must be able to ask the
+;; Per `002-Runtime.md` §Open items (Stage 3 picks) hot-reload, the runtime must be able to ask the
 ;; registrar 'has decorator X been re-registered since I cached it?' and
 ;; refresh if so. Stage 3 provides the freshness check; Stage 4 (UI
 ;; shell) wires the trigger.
@@ -220,7 +220,7 @@
 (declare resolve-decorator-refs)
 
 (defn resolve-decorators
-  "Per IMPL-SPEC §5.3 — collect, classify, and order the decorator stack
+  "Per `002-Runtime.md` §Decorator composition order — collect, classify, and order the decorator stack
   for the variant. Returns:
 
       {:hiccup       [<resolved-decorator> ...]
@@ -232,9 +232,9 @@
   Each `<resolved-decorator>` carries `{:id ... :args [...] :body
   <registered-body>}`. Unknown decorators land in `:errors` instead of
   their kind-vector — the runtime projects them as `:rf.error/decorator-*`
-  assertions per IMPL-SPEC §5.5.
+  assertions per `002-Runtime.md` §Error projection.
 
-  Composition order (per IMPL-SPEC §5.3 + rf2-835ey global decorators):
+  Composition order (per `002-Runtime.md` §Decorator composition order + rf2-835ey global decorators):
   - `:hiccup` — outermost wraps innermost. Global decorators come first
     (outermost), story decorators second, variant decorators last
     (innermost).
@@ -244,7 +244,7 @@
 
   `opts` accepts `:active-modes` + `:cell-overrides` — the SAME per-run
   shape `args/resolve-args` takes. v1 modes carry no decorators (per
-  IMPL-SPEC §3.1 modes are `:args`-only, so the active modes never
+  `001-Authoring.md` §Registration macros modes are `:args`-only, so the active modes never
   perturb the decorator REFS), but the run layers must still be threaded
   into the plan compile (rf2-eyrpr): a `[:arg key]` resolvable ONLY
   through a mode / cell / global / story layer would otherwise throw
@@ -310,7 +310,7 @@
   entry in `hiccup-decorators` is the outermost wrap; the last entry
   is the innermost wrap (adjacent to `body`).
 
-  Per IMPL-SPEC §5.3 — 'outermost wraps innermost' means we walk the
+  Per `002-Runtime.md` §Decorator composition order — 'outermost wraps innermost' means we walk the
   vector in *reverse*, calling each `:wrap` on the accumulating tree:
   the last decorator wraps `body`, then the second-to-last wraps the
   result, and so on. The final result is the outermost decorator's
@@ -319,7 +319,7 @@
   `effective-args` is the resolved args map (per `args/resolve-args`);
   every `:wrap` fn receives `[body effective-args]`. Decorator-level
   ref-args (the `[& args]` tail of a `[:dec-id & args]` ref) are NOT
-  passed in the variant-body model — per spec/007 §Three kinds of
+  passed in the variant-body model — per /spec/007-Stories.md §Three kinds of
   decorator, decorator ref-args are static configuration of the
   decorator, not call-time args."
   [hiccup-decorators body effective-args]
@@ -330,7 +330,7 @@
             ;; the effective args as a `:decorator/args` slot so the
             ;; wrap fn can pick them out without losing access to the
             ;; user's args. Two-arg wrap-fns receive `(body args-map)`
-            ;; per spec/007's example; the ref-args are accessible via
+            ;; per /spec/007-Stories.md's example; the ref-args are accessible via
             ;; `(:decorator/args args-map)`.
             wrap-args (assoc effective-args :decorator/args (:args r))]
         (wrap-fn acc wrap-args)))

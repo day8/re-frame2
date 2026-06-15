@@ -1,5 +1,5 @@
 (ns re-frame.story.args
-  "Args-precedence resolution. Per IMPL-SPEC §5.2 + spec/007 §Args at
+  "Args-precedence resolution. Per `002-Runtime.md` §Args resolution precedence + /spec/007-Stories.md §Args at
   three levels.
 
   When the rendering layer asks 'what args is this variant rendered
@@ -17,13 +17,13 @@
      (`:story/set-arg`), passed in via the `cell-overrides` arg.
 
   Deep-merge semantics: maps recurse; non-map values (vectors, sets,
-  scalars) replace. Per IMPL-SPEC §5.2 and Storybook's documented
+  scalars) replace. Per `002-Runtime.md` §Args resolution precedence and Storybook's documented
   convention.
 
   ## Elision
 
   This namespace is pure — every fn is data → data. Production builds
-  retain the fns (per IMPL-SPEC §6.3 — `run-variant`'s body survives
+  retain the fns (per `001-Authoring.md` §Registration macros — `run-variant`'s body survives
   with no registrations to act on, returning empty). Story callers
   invoke `resolve-args` only inside the `(when enabled? ...)`-gated
   runtime entry points; the call site disappears in production along
@@ -38,7 +38,7 @@
   "Recursive merge: when both `a` and `b` are maps, merge them entry-by-
   entry with deep-merge on overlapping keys. Otherwise `b` replaces `a`.
 
-  Per IMPL-SPEC §5.2: 'Deep-merge (per Storybook's convention) for
+  Per `002-Runtime.md` §Args resolution precedence: 'Deep-merge (per Storybook's convention) for
   nested maps; override-by-replacement for vectors.'
 
   - `(deep-merge nil x)` → `x`.
@@ -74,7 +74,7 @@
 ;; a thin pass-through, not new behaviour.
 
 (def parent-story-id
-  "Derive the parent story id from a variant id. Per spec/007
+  "Derive the parent story id from a variant id. Per /spec/007-Stories.md
   §Canonical id grammar, a variant id `:story.foo.bar/empty` has
   namespace `\"story.foo.bar\"` and name `\"empty\"`; the parent story
   id is the keyword named `:story.foo.bar`.
@@ -104,7 +104,7 @@
 (defn resolve-args
   "Materialise the effective args map for a variant render.
 
-  Per IMPL-SPEC §5.2 the precedence chain is:
+  Per `002-Runtime.md` §Args resolution precedence the precedence chain is:
 
       global-args
         < story-args
@@ -138,7 +138,7 @@
      (deep-merge-all [global story-args mode-args variant-args overrides]))))
 
 (defn get-effective-args
-  "Alias for `resolve-args` matching the IMPL-SPEC §5.2 public-name
+  "Alias for `resolve-args` matching the `002-Runtime.md` §Args resolution precedence public-name
   call-out (`get-effective-args`). Same arguments, same return."
   ([variant-id] (resolve-args variant-id nil))
   ([variant-id opts] (resolve-args variant-id opts)))

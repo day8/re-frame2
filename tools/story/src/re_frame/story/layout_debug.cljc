@@ -1,5 +1,5 @@
 (ns re-frame.story.layout-debug
-  "Layout-debug overlay trio. Per IMPL-SPEC §2.8.6 + Stage 6 (rf2-zhwd).
+  "Layout-debug overlay trio. Per `005-SOTA-Features.md` §Layout-debug overlay trio + Stage 6 (rf2-zhwd).
 
   Three `:hiccup`-kind decorators for visual layout debugging during
   variant authoring. Each registers under `re-frame.story.registrar`
@@ -37,7 +37,7 @@
   ## Bundle isolation
 
   Layout-debug is part of the Story bundle but DCE under `:advanced`
-  with `:rf.story/enabled?` false (per IMPL-SPEC §6.2). The decorator
+  with `:rf.story/enabled?` false (per `005-SOTA-Features.md` §Production elision under `:advanced`). The decorator
   bodies are plain data + a closure over inline CSS — Closure's
   reachability analysis removes the entire ns when `enabled?` is
   flipped off because nothing reachable from a `:advanced` build root
@@ -207,10 +207,10 @@
 
   Each decorator is `:kind :hiccup` — the `:wrap` fn is the one
   fn-valued slot Story permits at the decorator's registration site
-  (per IMPL-SPEC §3.1).
+  (per `001-Authoring.md` §Registration macros).
 
   Production builds (`config/enabled?` false) skip registration — the
-  decorator bodies never enter the registrar. Per IMPL-SPEC §6.2 the
+  decorator bodies never enter the registrar. Per `005-SOTA-Features.md` §Production elision under `:advanced` the
   Story registrar itself is DCE'd under `:advanced` with `enabled?`
   off, so this gate is belt-and-braces."
   []

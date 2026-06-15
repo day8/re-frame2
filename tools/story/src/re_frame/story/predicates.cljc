@@ -20,7 +20,7 @@
 
 (defn parent-story-id
   "Derive a variant's parent story id by stripping the variant's name
-  per spec/007 §Canonical id grammar — a variant id `:story.foo/bar`
+  per /spec/007-Stories.md §Canonical id grammar — a variant id `:story.foo/bar`
   has namespace `\"story.foo\"`; its parent is `:story.foo`.
 
   Returns nil for non-keywords or keywords without a namespace."

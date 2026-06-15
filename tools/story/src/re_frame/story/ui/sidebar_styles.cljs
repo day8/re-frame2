@@ -241,7 +241,7 @@
                   :user-select   "none"
                   :flex-shrink   "0"}
    ;; Per-tag palette — keys on the canonical seven from
-   ;; spec/007 §Inclusion tags; unknown tags fall through to
+   ;; /spec/007-Stories.md §Inclusion tags; unknown tags fall through to
    ;; the neutral :tag-badge above.
    :tag-badge-dev          {:background (:tag-dev-bg colors/tokens) :color (:info colors/tokens)}
    :tag-badge-docs         {:background (:tag-docs-bg colors/tokens) :color (:tag-docs-fg colors/tokens)}
