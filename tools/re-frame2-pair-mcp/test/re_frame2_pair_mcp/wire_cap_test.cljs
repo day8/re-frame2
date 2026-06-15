@@ -319,6 +319,27 @@
     (is (contains? edn :rf.mcp/overflow)
         "non-marker payload over budget is still capped")))
 
+(deftest apply-cap-caps-over-budget-lookalike-marker-key
+  ;; rf2-3xd9i9 regression: the marker detector used to match on the
+  ;; marker-key PREFIX, so an over-budget payload whose LEADING key merely
+  ;; STARTS WITH a marker key — e.g. `:rf.mcp/overflowed` — was wrongly
+  ;; treated as an already-bounded marker and short-circuited PAST the cap
+  ;; walk, shipping the raw over-budget body. With the exact-key fix the
+  ;; lookalike is NOT a marker, so apply-cap still walks it and replaces
+  ;; the over-budget body with the real `:rf.mcp/overflow` marker.
+  (let [big   (apply str (repeat 8000 "x"))
+        ;; Single-key map ⇒ pr-str renders `:rf.mcp/overflowed` as the
+        ;; leading top-level key, the precise cap-bypass shape.
+        r     (ok-text-result {:rf.mcp/overflowed {:huge big}})
+        out   (cap/apply-cap r {:tool "snapshot" :cap 500})
+        edn   (read-edn out)]
+    (is (contains? edn :rf.mcp/overflow)
+        "over-budget lookalike-keyed payload MUST be capped, not short-circuited")
+    (is (not (contains? edn :rf.mcp/overflowed))
+        "the raw over-budget lookalike body must NOT ride the wire")
+    (is (<= (cap/sum-text-tokens out) 500)
+        "the overflow replacement itself stays under cap")))
+
 ;; ---------------------------------------------------------------------------
 ;; cap-message — per-notification wire-cap for a single serialised EDN
 ;; message string (rf2-wz66k7).

@@ -36,13 +36,15 @@ A zero / nil / absent count omits its slot entirely (the "omit when zero" MUST).
 
 ### `marker-prefixes` — vector of prefix strings
 
-Rendered-text prefixes of the wire-bounded `:rf.mcp/*` replacement envelopes (`:rf.mcp/cache-hit`, `:rf.mcp/overflow`). Includes BOTH the flat and the namespaced-map print forms (see §Print-form parity below) so the detector works regardless of host or `*print-namespace-maps*`.
+Rendered-text prefixes of the wire-bounded `:rf.mcp/*` replacement envelopes (`:rf.mcp/cache-hit`, `:rf.mcp/overflow`). Includes BOTH the flat and the namespaced-map print forms (see §Print-form parity below) so the detector works regardless of host or `*print-namespace-maps*`. The leading token must MATCH a marker key exactly — not merely begin with one (see `marker-text?` and §Exact-key match below).
 
 ### `marker-text? text` — predicate
 
 Is `text` (the rendered EDN text of a response's first content slot) a wire-bounded `:rf.mcp/*` marker envelope?
 
-Returns true for `:rf.mcp/cache-hit` / `:rf.mcp/overflow` markers — the two envelopes the cache + cap steps emit themselves. The consumer reads its own platform's content text (`:text` from a Clojure map, `j/get :text` from a JS object) and passes the string here; this fn owns only the prefix-match logic, shared across hosts.
+Returns true for `:rf.mcp/cache-hit` / `:rf.mcp/overflow` markers — the two envelopes the cache + cap steps emit themselves. The consumer reads its own platform's content text (`:text` from a Clojure map, `j/get :text` from a JS object) and passes the string here; this fn owns only the leading-token match logic, shared across hosts.
+
+Matches the EXACT marker key, not merely a prefix of it (see §Exact-key match below): a lookalike leading key such as `:rf.mcp/overflowed` or `:rf.mcp/cache-hit-extra` is NOT a marker.
 
 Nil-safe: a nil / non-string `text` is not a marker.
 
@@ -52,12 +54,18 @@ The `:rf.mcp/cache-hit` and `:rf.mcp/overflow` envelopes are replacement results
 
 ## Print-form parity
 
-Substring-match on the rendered text is the cheap detector — the marker map's namespaced key is the first key of the outer map, so a `starts-with?` on the trimmed text is fast and tight. The detector matches BOTH print forms the single-key namespaced marker map can take:
+Leading-token match on the rendered text is the cheap detector — the marker map's namespaced key is the first key of the outer map, so a tight match on the trimmed text's leading token is fast. The detector matches BOTH print forms the single-key namespaced marker map can take:
 
 - the flat form `{:rf.mcp/overflow …` (the form CLJS `pr-str` emits and the form JVM emits with `*print-namespace-maps*` false), and
 - the namespaced-map shorthand `#:rf.mcp{:overflow …` (the form JVM `pr-str` emits by default for a single-namespace map).
 
-Matching both keeps the detector host- and print-setting-agnostic. A false positive would require an agent-supplied payload that ALSO renders with `:rf.mcp/cache-hit` / `:rf.mcp/overflow` as its leading top-level key — not a realistic shape for any tool's result.
+Matching both keeps the detector host- and print-setting-agnostic.
+
+## Exact-key match (rf2-3xd9i9)
+
+The detector matches the marker key EXACTLY — not merely as a prefix. After the leading marker-key text matches, the very next character must be an EDN token TERMINATOR (whitespace, `,`, or a map/vector/list/string delimiter) — proving the marker key ended exactly there and was not merely a prefix of a longer key. EDN keyword/symbol constituents (alphanumerics plus `* + ! - _ ' ? < > = . / : # & %`) immediately after the prefix mean the leading key is a LOOKALIKE, not the marker.
+
+This closes a correctness hole a bare `starts-with?` left open: a lookalike leading key whose name begins with a marker key — e.g. `:rf.mcp/overflowed` or `:rf.mcp/cache-hit-extra` — was wrongly classified as an already-bounded marker, so an over-budget payload whose first key merely started with `:rf.mcp/overflow` would bypass cap enforcement. The two real markers always carry a non-empty map value, so the terminator (the space `pr-str` writes before the value) is always present — the exact-match check preserves their short-circuit while rejecting the lookalikes.
 
 ## Indicator-field parity
 
