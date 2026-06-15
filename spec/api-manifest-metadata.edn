@@ -884,11 +884,16 @@
   ;; the routing-owned durable/transient classification table (the single
   ;; source of truth the SSR payload policy + Spec-Schemas consume);
   ;; `reset-nav-counters!` is the test-fixture reset (sibling of
-  ;; `reset-scroll-cache!`). Internal-public test / tooling / contract seams —
-  ;; not a front-porch user surface.
+  ;; `reset-scroll-cache!`); `reset-url-claims!` (rf2-3l7xxz) is the matching
+  ;; test-fixture reset for the process-global URL-ownership claim-order vector
+  ;; (`re-frame.routing.nav-fx/url-claim-order`) — wired into the shared
+  ;; make-reset-runtime-fixture reset-hooks table so a prior test's URL claim
+  ;; cannot leak (sibling of `reset-nav-counters!`). Internal-public test /
+  ;; tooling / contract seams — not a front-porch user surface.
   ["re-frame.routing" "counter-snapshot"]       {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "routing-state-classification"] {:tier :implementation :owner "012" :status "v1"}
   ["re-frame.routing" "reset-nav-counters!"]    {:tier :implementation :owner "012" :status "v1"}
+  ["re-frame.routing" "reset-url-claims!"]      {:tier :implementation :owner "012" :status "v1"}
   ;; EP-0014 slice-5 (rf2-eiiifu): the derivation/process algebra view of
   ;; registered routes (`route-algebra-view`, static) and a frame's live
   ;; route slice (`route-slice-algebra-view`, live). JVM-only convenience
