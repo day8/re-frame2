@@ -245,6 +245,20 @@ Share semantics:
   reproducibility status and surfaces the drift banner instead of being
   installed as an orphan live arg `args/resolve-args` would merge into the
   recipient's effective state (a partial artifact masquerading as full);
+- mount URL hydration runs in TWO passes with a SINGLE authoritative owner
+  per slot (rf2-ovb1en — `re-frame.story.ui.shell/hydrate-url-state!`):
+  pass 1 (`url-state/hydrate-from-url!`) is the sole VALIDATING owner of
+  selection, substrate, and every chrome slot (an unregistered `substrate=`
+  degrades to `:reagent`; an unregistered variant degrades to no selection);
+  pass 2 (`share/hydrate-from-url!`) is the sole owner of the focused
+  variant's cell-overrides slice — it applies the `drop-stale-overrides`
+  drift filter pass 1 cannot run (pass 1 is pure, with no registrar access)
+  and writes the filtered slice authoritatively (installing it, or CLEARING
+  it when every parsed override is stale), plus the drift hint. Pass 2 READS
+  — never rewrites — pass 1's validated selection / substrate, so the second
+  pass can never undo the first pass's validation (the bug rf2-ovb1en fixed:
+  pass 2 had reparsed the raw `substrate=` unvalidated and resurrected a
+  stale value, and left an all-stale override slice live);
 - a shared link restores VIEW STATE (it lands the recipient on the cell);
   it does not replay a run — that is the recorder's `:play-script` export;
 - the reproducibility status is computed (purely) by
