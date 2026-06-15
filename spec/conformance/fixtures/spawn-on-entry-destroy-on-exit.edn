@@ -53,7 +53,7 @@
 
 {:fixture/id           :machine/spawn-on-entry-destroy-on-exit
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/invoke}
+ :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/declarative-spawn}
  :fixture/doc          "Declarative :spawn on a state node desugars to entry/exit :rf.machine/spawn / :rf.machine/destroy fx at registration time. Verifies that entering the state emits :rf.machine/spawn with the declared spec, the :on-spawn callback updates the parent's :data with the spawned id, and exiting the state emits :rf.machine/destroy with the recorded id."
 
  :fixture/registry

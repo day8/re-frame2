@@ -205,7 +205,7 @@ The set of capability tags this port claims:
 :actor/own-state  <yes / no>
 :actor/spawn-destroy <yes / no>
 :actor/cross-actor-fx <yes / no>
-:actor/invoke     <yes / no>
+:actor/declarative-spawn <yes / no>
 :actor/spawn-and-join <yes / no>
 :actor/system-id  <yes / no>
 :flow/*           <yes / no — yes if D3 Q8 = yes; the claim is the whole namespace, expanded to the current fixture sub-tags (grep ':flow/[a-z-]*' spec/conformance/fixtures/ at the pinned commit) — basic / trace / init / reg-v / poke / toggle / topo / dirty-check / frame-scoped / hot-reload / lifecycle-emits-traces / … ; sub-behaviours you don't implement go on known-skipped-capabilities>

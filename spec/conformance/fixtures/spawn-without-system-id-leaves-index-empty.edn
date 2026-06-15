@@ -10,7 +10,7 @@
 
 {:fixture/id           :machine/spawn-without-system-id-leaves-index-empty
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/invoke :actor/system-id}
+ :fixture/capabilities #{:fsm/flat :actor/spawn-destroy :actor/declarative-spawn :actor/system-id}
  :fixture/doc          "An :spawn that omits :system-id does not allocate [:rf.runtime/machines :system-ids] in the spawning frame's app-db."
 
  :fixture/registry

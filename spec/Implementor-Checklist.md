@@ -496,7 +496,7 @@ The harness (per [conformance/README §How an implementation runs the corpus](co
 
 - `:core/*` — pattern-required basics. Every conformant implementation runs these.
 - `:fsm/*` — FSM-richness axis (`:fsm/flat`, `:fsm/hierarchical`, `:fsm/eventless-always`, `:fsm/delayed-after`, `:fsm/tags`, `:fsm/parallel-regions`). Run if Q1 yes and the matching capability is claimed.
-- `:actor/*` — actor-model axis (`:actor/own-state`, `:actor/spawn-destroy`, `:actor/cross-actor-fx`, `:actor/invoke`, `:actor/spawn-and-join`, `:actor/system-id`). Run if Q1 yes and the matching capability is claimed.
+- `:actor/*` — actor-model axis (`:actor/own-state`, `:actor/spawn-destroy`, `:actor/cross-actor-fx`, `:actor/declarative-spawn`, `:actor/spawn-and-join`, `:actor/system-id`). Run if Q1 yes and the matching capability is claimed.
 - `:routing/*` — run if Q2 yes.
 - `:ssr/*` — run if Q3 yes.
 - `:schemas/*` — run if Q4 yes (regardless of mechanism).

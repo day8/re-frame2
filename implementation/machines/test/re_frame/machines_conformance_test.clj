@@ -31,7 +31,7 @@
     `machine-transition` primitive covers — :fsm/flat, :fsm/hierarchical,
     :fsm/parallel-regions, :fsm/eventless-always, :fsm/delayed-after,
     :fsm/tags, :fsm/final-states, plus :actor/spawn-destroy and
-    :actor/invoke (both surface as spawn/destroy fx in the result
+    :actor/declarative-spawn (both surface as spawn/destroy fx in the result
     vector, no live actor needed). Anything else (e.g. :core/error,
     :routing/*, :ssr/*) is core's surface and the fixture is skipped.
 
@@ -129,7 +129,7 @@
     ;; `validate-machine!` validator.
     :fsm/registration-validation
     :actor/spawn-destroy
-    :actor/invoke
+    :actor/declarative-spawn
     :actor/spawn-and-join
     :actor/system-id
     :actor/own-state

@@ -26,7 +26,7 @@
 
 {:fixture/id           :machine/final-state-child-fires-on-done
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/flat :fsm/final-states :actor/invoke}
+ :fixture/capabilities #{:fsm/flat :fsm/final-states :actor/declarative-spawn}
  :fixture/doc          "A child machine entering :final? produces a snapshot whose :state is the terminal leaf and whose :data contains the :output-key slot value the parent's :on-done callback reads. The pure surface verifies the snapshot shape; live runtimes additionally observe the parent's :on-done firing, the auto-destroy, and the `:rf.machine/done` + `:rf.machine/destroyed :reason :rf.machine/finished` traces."
 
  :fixture/registry
