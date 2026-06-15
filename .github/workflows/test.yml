@@ -1678,6 +1678,14 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.reagent_slim_bundle == 'true'
     runs-on: ubuntu-latest
+    # rf2-e6enf — job-level backstop to the step-level Playwright cap below.
+    # Without it the job inherits GitHub's 360-min default, so any wedged step
+    # (the observed `--with-deps` apt/dpkg-lock hang on #4309) leaves this job
+    # — and the required `all-required-passed` aggregator that `needs:` it —
+    # open-ended pending, blocking the merge. 20 min gives a cold-Maven-cache
+    # run generous headroom while making any genuine hang a fast, re-runnable
+    # FAILURE. Mirrors the mcp-conformance-re-frame2-pair job cap.
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: implementation
@@ -1749,7 +1757,34 @@ jobs:
       # itself, could ship green. This step actually executes the gate for
       # reagent_slim_bundle surface changes (which now also fire on edits to
       # the runner + its policy test — report-changed-surfaces.sh).
+
+      # rf2-f79t8 — cache the Playwright browser binary (see cljs-browser).
+      # Every other PR Playwright job carries this cache step ahead of the
+      # install; rf2-5v0dg7 armed the smoke without it, so this job
+      # re-downloaded Chromium (~120 MB) on every run. Keyed on the locked
+      # Playwright version (package-lock.json); a bump busts it.
+      - name: Cache Playwright browser binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      # rf2-e6enf — cap the `--with-deps` Playwright install. `--with-deps`
+      # runs `sudo apt-get install` for Chromium's system libraries; on a GHA
+      # runner that occasionally blocks indefinitely on the dpkg/apt lock held
+      # by the background `unattended-upgrades` job. rf2-5v0dg7 added this step
+      # with NO step timeout, so when the lock wedged the slim job sat
+      # in_progress forever — never reporting a conclusion — which left the
+      # required `all-required-passed` aggregator (it `needs:` this job)
+      # perpetually pending and blocked the merge (observed on #4309). A
+      # healthy install is ~20s; 5 min covers a slow apt + cold (cache-miss)
+      # download while turning the lock-wait into a re-runnable FAILURE
+      # instead of an open-ended block. Mirrors the identical step-level cap
+      # on the hermetic re-frame2-pair-mcp Playwright install.
       - name: Install Playwright (Chromium + system deps)
+        timeout-minutes: 5
         run: npx playwright install --with-deps chromium
 
       - name: Run Reagent Slim client-runtime browser smoke
