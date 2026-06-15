@@ -496,39 +496,54 @@
   (let [flow-map (get (registry/flows-snapshot) frame-id)]
     (if-not (seq flow-map)
       db
-      (let [_ (do
-                ;; rf2-ihfz9o: refresh each flow's output data-classification
-                ;; declarations BEFORE the flow walk so a propagated (input-
-                ;; inherited) sensitive mark is in the frame's elision registry
-                ;; when the t2 `:rf.event/db-pending-post-flow` trace and the
-                ;; `:rf.flow/computed` `:result` slot project (Spec 015:568).
-                ;; This is the MARK-MUTATION-aware refresh flows need — a flow
-                ;; does not recompute on a mark-only `add-marks` / `set-marks` /
-                ;; schema change, so without a drain-time refresh a sensitive
-                ;; mark added AFTER reg-flow would never reach the flow output.
-                ;; Topo-ordered inside the helper so a flow reading an upstream
-                ;; flow's `:path` inherits the upstream's refreshed mark.
-                ;;
-                ;; NOT gated on `interop/debug-enabled?`: the elision
-                ;; declaration registry feeds production-survivor OFF-BOX egress
-                ;; (the epoch projection `:epoch/projected-record` ships records
-                ;; off-box even under `:advanced`), so the privacy mark must
-                ;; exist regardless of dev/prod. The cost is bounded — a pure-
-                ;; data topo-fold plus two map reads, with NO runtime-db write
-                ;; on the steady state (the helper compares first and writes
-                ;; only when the resolved declarations actually changed). It
-                ;; touches ONLY the runtime-db elision registry, never app-db,
-                ;; so it cannot perturb the cascade value or app-db subs.
-                (registry/refresh-flow-output-declarations! frame-id))
-            ordered (topo/topo-sort flow-map)
+      (let [ordered (topo/topo-sort flow-map)
             ;; Snapshot ONLY the draining frame's dirty-check container so a
             ;; flow throw can roll back the frame's own advances — the event
             ;; aborts, so prior flows' `last-inputs` advances must NOT
             ;; survive (their outputs were never installed). Scoped to
             ;; `frame-id` (rf2-94ol5) so a concurrently-draining sibling
             ;; frame is structurally untouched. Restored in the catch below.
-            last-inputs-before (registry/frame-last-inputs-snapshot frame-id)]
+            last-inputs-before (registry/frame-last-inputs-snapshot frame-id)
+            ;; rf2-gdzv6o: snapshot the frame's flow output-declaration elision
+            ;; slots BEFORE the refresh below mutates them. The refresh writes
+            ;; runtime-db IMMEDIATELY (`swap-elision-slot!`), but a flow throw
+            ;; is a PRE-INSTALL throw that aborts the WHOLE event — so the
+            ;; refresh's runtime-db write must be rolled back too, or app-db
+            ;; rolls back while runtime-db elision declarations survive,
+            ;; violating the all-or-nothing two-partition contract (Spec
+            ;; 013:284,288 — a pre-install flow throw leaves BOTH partitions
+            ;; unchanged). Frame-scoped (rf2-94ol5); restored in the catch.
+            decls-before       (registry/flow-output-declarations-snapshot frame-id)]
+        ;; rf2-ihfz9o: refresh each flow's output data-classification
+        ;; declarations BEFORE the flow walk so a propagated (input-
+        ;; inherited) sensitive mark is in the frame's elision registry
+        ;; when the t2 `:rf.event/db-pending-post-flow` trace and the
+        ;; `:rf.flow/computed` `:result` slot project (Spec 015:568).
+        ;; This is the MARK-MUTATION-aware refresh flows need — a flow
+        ;; does not recompute on a mark-only `add-marks` / `set-marks` /
+        ;; schema change, so without a drain-time refresh a sensitive
+        ;; mark added AFTER reg-flow would never reach the flow output.
+        ;; Topo-ordered inside the helper so a flow reading an upstream
+        ;; flow's `:path` inherits the upstream's refreshed mark.
+        ;;
+        ;; NOT gated on `interop/debug-enabled?`: the elision
+        ;; declaration registry feeds production-survivor OFF-BOX egress
+        ;; (the epoch projection `:epoch/projected-record` ships records
+        ;; off-box even under `:advanced`), so the privacy mark must
+        ;; exist regardless of dev/prod. The cost is bounded — a pure-
+        ;; data topo-fold plus two map reads, with NO runtime-db write
+        ;; on the steady state (the helper compares first and writes
+        ;; only when the resolved declarations actually changed). It
+        ;; touches ONLY the runtime-db elision registry, never app-db,
+        ;; so it cannot perturb the cascade value or app-db subs.
+        ;;
+        ;; rf2-gdzv6o: this write is INSIDE the `try` so the catch arm can
+        ;; roll it back. It is staged-before-walk for the trace/projection
+        ;; reasons above, but a downstream flow throw must unwind it — the
+        ;; refresh is part of the event's two-partition transaction, not a
+        ;; commit-before-the-walk side effect.
         (try
+          (registry/refresh-flow-output-declarations! frame-id)
           ;; The drain threads ONLY the transformed APP-DB `db` — the loop is
           ;; a pure left-fold over the topo-ordered flows. `runtime-db` is the
           ;; pending runtime-db partition, read-only for the WHOLE pass: flow
@@ -554,9 +569,16 @@
             ;; router; here we restore THIS frame's pre-drain `last-inputs`
             ;; (its own container only — rf2-94ol5) so every flow on this
             ;; frame re-attempts next drain while sibling frames are
-            ;; untouched. The throw (carrying `:rf.flow/failed-id` from
-            ;; `evaluate-flow!`) propagates unchanged for router attribution.
+            ;; untouched. rf2-gdzv6o: ALSO restore the frame's flow output-
+            ;; declaration elision slots — the pre-walk
+            ;; `refresh-flow-output-declarations!` wrote runtime-db directly,
+            ;; and a pre-install flow throw must leave runtime-db (not just
+            ;; app-db) EXACTLY unchanged (Spec 013:284,288). Both restores are
+            ;; frame-scoped (rf2-94ol5): sibling frames untouched. The throw
+            ;; (carrying `:rf.flow/failed-id` from `evaluate-flow!`) propagates
+            ;; unchanged for router attribution.
             (registry/reset-frame-last-inputs-to! frame-id last-inputs-before)
+            (registry/restore-flow-output-declarations! frame-id decls-before)
             (throw e)))))))
 
 ;; ---- late-bind hook registration ----------------------------------------
