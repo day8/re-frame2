@@ -97,6 +97,24 @@
 ;;
 ;; Tiny S-expression flavor: '=(+ A1 (* B2 3))'. Pure functions, JVM-runnable.
 
+(def num-re
+  "Full-string numeric grammar: optional sign, integer and/or fractional
+   part, optional exponent. Anchored end-to-end so lax prefixes like
+   \"1abc\" or \"1.2.3\" are rejected — `js/parseFloat` would otherwise
+   silently accept their leading numeric run (\"1abc\" → 1), letting an
+   invalid token/literal evaluate as a number instead of surfacing a
+   parse error / staying text."
+  #"^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$")
+
+(defn parse-num
+  "Strict numeric parse: returns the number iff `s` (trimmed) is wholly
+   numeric, else nil."
+  [s]
+  (let [trimmed (str/trim s)]
+    (when (re-matches num-re trimmed)
+      (let [n (js/parseFloat trimmed)]
+        (when-not (js/isNaN n) n)))))
+
 (defn tokenise [s]
   ;; Splits a formula body into tokens. Whitespace-separated; '(' and ')'
   ;; split out as their own tokens.
@@ -121,9 +139,9 @@
                                        (recur (conj acc child) rest-toks))))
         ")" (throw (ex-info "Unexpected )" {}))
         ;; Atom: number, cell ref, or operator symbol.
-        (let [num (js/parseFloat t)]
+        (let [num (parse-num t)]
           (cond
-            (not (js/isNaN num))           [num                             more]
+            (some? num)                    [num                             more]
             (re-matches cell-re t)         [{:cell t}                       more]
             (#{"+" "-" "*" "/"} t)         [(symbol t)                      more]
             :else                          (throw (ex-info "Bad atom" {:token t}))))))))
@@ -183,8 +201,8 @@
       (cond
         (= ast :error/parse) :error/parse
         formula?             (evaluate-ast ast cells (conj visited id))
-        :else                (let [n (js/parseFloat raw)]
-                               (if (js/isNaN n) raw n)))
+        :else                (let [n (parse-num raw)]
+                               (if (some? n) n raw)))
       0)))                                       ;; empty cells are 0
 
 ;; ============================================================================
