@@ -2300,6 +2300,24 @@
   views over the raw event stream. Per Spec 009 §Trace projection."}
   group-cascades  trace-projection/group-cascades)
 
+;; Facade-export classification (diff-time rule): TOOL-FACING projection
+;; primitive, sibling to `group-cascades`. Same `[frame dispatch-id]`
+;; grouping, additionally attaching each cascade's raw `:trace-events`.
+;; Justified: Tool-Pair streaming consumers (re-frame2-pair cascade
+;; bundles) need both the six-domino record AND each cascade's raw events
+;; keyed by the SAME frame-scoped key the framework uses — re-deriving the
+;; grouping consumer-side with a weaker (dispatch-id-only) key mixes
+;; foreign-frame events (rf2 trace-contract drift). Pure data; JVM + CLJS.
+(def ^{:doc "Like `group-cascades`, but each cascade record additionally
+  carries a `:trace-events` slot with the vector of raw trace events that
+  composed it — keyed by the same frame-scoped `[frame dispatch-id]`
+  grouping. Pure data — JVM and CLJS. The correct projection for
+  consumers needing both the six-domino record and each cascade's raw
+  events (e.g. re-frame2-pair streaming cascade bundles), so they never
+  re-derive the grouping with a weaker dispatch-id-only key. Per Spec 009
+  §Trace projection."}
+  group-cascades-with-events  trace-projection/group-cascades-with-events)
+
 (def ^{:doc "Classify a trace event into one of the six domino buckets
   (`:event` / `:event-handler` / `:fx` / `:db` / `:sub` / `:view`).
   Pure fn used by trace projections and cascade views. Per Spec 009

@@ -346,19 +346,29 @@
   PROJECTED epoch records, because epoch projection tracks the sensitive
   axis, not the large-slot toggle.
 
-  EP-0002 (rf2-bd4div) — the elide-wire-value opts thread the resolved
-  operating frame in as the explicit `:frame` override. The drain form
-  runs on the nREPL eval thread, which carries NO ambient `with-frame`
-  scope, so a frameless `re-frame.core/elide-wire-value` would FAIL
-  CLOSED and redact every cascade slot to `:rf/redacted` (the
-  carried-frame invariant). We resolve the operating frame app-side via
-  `(re-frame2-pair.runtime/current-frame)` and merge it into the opts —
-  the same idiom `elision/elide-sub-value-src` uses for the sub-cache
-  walker and `runtime/pair-dispatch!` uses for the dispatch override — so
-  the walker resolves against the frame's `[:rf.runtime/elision]`
-  runtime-db registry instead of failing closed. `projected-record`
-  resolves the frame off each record's own `:frame` slot, so the
-  `:epoch` arm needs no `current-frame` thread.
+  rf2-1we9fa — the trace-walk arm resolves the elision `:frame` PER
+  ELEMENT inside the walk: a cascade record's own `:frame` slot (cascade
+  bundles are keyed by `[frame dispatch-id]`), else a frameless event's
+  `[:tags :frame]` / `:frame`. An all-frame stream — or a filter frame
+  that differs from the operating frame — carries cascades from several
+  frames in one tick, and per EP-0015 sensitive/large declarations are
+  per-frame; eliding a foreign-frame cascade against the operating
+  frame's registry mis-redacts (under-redaction leaks across the off-box
+  boundary). The operating frame is the genuinely-frameless FALLBACK
+  only.
+
+  EP-0002 (rf2-bd4div) — the drain form runs on the nREPL eval thread,
+  which carries NO ambient `with-frame` scope, so a frameless
+  `re-frame.core/elide-wire-value` would FAIL CLOSED and redact every
+  slot to `:rf/redacted` (the carried-frame invariant). We resolve the
+  operating frame app-side via `(re-frame2-pair.runtime/current-frame)`
+  and use it as the per-element fallback — the same idiom
+  `elision/elide-sub-value-src` uses for the sub-cache walker and
+  `runtime/pair-dispatch!` uses for the dispatch override — so a truly
+  frameless element resolves against the operating frame's
+  `[:rf.runtime/elision]` runtime-db registry instead of failing closed.
+  `projected-record` resolves the frame off each record's own `:frame`
+  slot, so the `:epoch` arm needs no `current-frame` thread.
 
   Public (not `defn-`) so unit tests can pin the form shape directly —
   the form-string is the contract surface between MCP server and the
@@ -434,19 +444,42 @@
       ;;
       ;; rf2-suoj2 — `elision-opts-edn` first arg is walker-aligned
       ;; `include-large?` (subscribe always elides, so emit markers ⇒ pass
-      ;; `false`). EP-0002 (rf2-bd4div): merge the resolved operating frame
-      ;; in as the explicit `:frame` override (the nREPL eval thread carries
-      ;; no ambient frame scope, so a frameless elide-wire-value would fail
-      ;; closed → redact every cascade to `:rf/redacted`).
+      ;; `false`).
+      ;;
+      ;; rf2-1we9fa — the elision `:frame` is resolved PER ELEMENT inside
+      ;; the walk, NOT once for the whole drain. Cascade bundles are keyed
+      ;; by `[frame dispatch-id]` (group-cascades-with-events), so an
+      ;; all-frame stream — or a filter frame that differs from the
+      ;; operating frame — carries cascades from several frames in one
+      ;; tick. Per EP-0015 sensitive/large declarations are PER FRAME, so
+      ;; eliding a frame-B cascade against frame-A's (the operating
+      ;; frame's) registry mis-redacts — the sharp edge is UNDER-redaction
+      ;; (frame-A values A marks sensitive but B does not would leak across
+      ;; the off-box MCP→LLM boundary). Each element supplies its own
+      ;; frame: a cascade record's `:frame` slot, else a frameless event's
+      ;; `[:tags :frame]` / `:frame`.
+      ;;
+      ;; EP-0002 (rf2-bd4div): `current-frame` survives as the genuinely
+      ;; frameless FALLBACK only. The nREPL eval thread carries no ambient
+      ;; frame scope, so a truly frameless element would otherwise fail
+      ;; closed and redact every slot to `:rf/redacted`; resolving the
+      ;; operating frame app-side preserves the deliberate frame-thread for
+      ;; that case without applying it to frame-qualified elements.
       :else
       (ef/emit
         (ef/rt-let
-          ['drain drain-call
-           'opts  (ef/rt-raw
-                    (str "(merge {:frame (re-frame2-pair.runtime/current-frame)} "
-                         (elision/elision-opts-edn false incl?) ")"))]
+          ['drain     drain-call
+           'cur-frame (ef/rt-raw "(re-frame2-pair.runtime/current-frame)")
+           'base-opts (ef/rt-raw (elision/elision-opts-edn false incl?))]
           (ef/rt-raw
-            (str "(let [walk (fn [xs] (mapv (fn [x] (re-frame.core/elide-wire-value x opts)) xs))]"
+            (str "(let [walk (fn [xs]"
+                 "             (mapv (fn [x]"
+                 "                     (let [frame (or (:frame x)"
+                 "                                     (get-in x [:tags :frame])"
+                 "                                     cur-frame)]"
+                 "                       (re-frame.core/elide-wire-value"
+                 "                         x (assoc base-opts :frame frame))))"
+                 "                   xs))]"
                  " (cond-> drain"
                  " (contains? drain :cascades)"
                  " (update :cascades walk)"

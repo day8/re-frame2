@@ -596,24 +596,40 @@
     (is (str/includes? form ":rf.size/include-sensitive? false")
         "sensitive slots redact when the caller did NOT opt in")))
 
-(deftest drain-form-threads-operating-frame
-  ;; EP-0002 (rf2-bd4div) — the drain runs on the nREPL eval thread, which
-  ;; carries NO ambient `with-frame` scope, so a frameless
-  ;; `re-frame.core/elide-wire-value` fails CLOSED and redacts every cascade
-  ;; slot to `:rf/redacted`. The walker opts MUST therefore thread the
-  ;; resolved operating frame in as the explicit `:frame` override
-  ;; (`(re-frame2-pair.runtime/current-frame)`), the same idiom the
-  ;; sub-cache walker + pair-dispatch override use. Without this the live
-  ;; subscribe streaming gate goes RED (the cascade event vector — and its
-  ;; causal nonce — never crosses the wire; it redacts away). Trace-event
-  ;; topic — the walker arm carries the frame thread.
+(deftest drain-form-resolves-elision-frame-per-element
+  ;; rf2-1we9fa — the trace-walk arm resolves the elision `:frame` PER
+  ;; ELEMENT inside the walk, NOT once for the whole drain. Cascade
+  ;; bundles are keyed by `[frame dispatch-id]`, so an all-frame stream —
+  ;; or a filter frame that differs from the operating frame — carries
+  ;; cascades from several frames in one tick. Per EP-0015 sensitive/large
+  ;; declarations are per-frame, so each element MUST be elided against its
+  ;; OWN frame: a cascade record's `:frame` slot, else a frameless event's
+  ;; `[:tags :frame]` / `:frame`. The operating frame
+  ;; (`(re-frame2-pair.runtime/current-frame)`) survives as the GENUINELY
+  ;; FRAMELESS FALLBACK only (EP-0002 rf2-bd4div: the nREPL eval thread
+  ;; carries no ambient `with-frame` scope, so a truly frameless element
+  ;; would otherwise fail closed and redact away).
+  ;;
+  ;; This test REPLACES the prior `drain-form-threads-operating-frame`,
+  ;; which PINNED the buggy "one operating frame for every cascade"
+  ;; behaviour. Trace-event topic — the walker arm carries the per-element
+  ;; frame resolution.
   (let [form (sub/drain-form "sub-frame" :trace true false)]
     (is (str/includes? form "(re-frame2-pair.runtime/current-frame)")
-        "the walker opts resolve the operating frame app-side")
-    (is (str/includes? form ":frame")
-        "the resolved frame is merged in as the explicit :frame override")
-    (is (str/includes? form "merge")
-        "the frame override is merged onto the elision opts map")))
+        "the operating frame is resolved app-side as the frameless fallback")
+    ;; The per-element resolution: cascade record `:frame`, then frameless
+    ;; `[:tags :frame]`, then the operating-frame fallback.
+    (is (str/includes? form "(:frame x)")
+        "each element's own :frame slot is the first elision-frame source")
+    (is (str/includes? form "(get-in x [:tags :frame])")
+        "a frameless event's [:tags :frame] is the second source")
+    (is (str/includes? form "(or (:frame x)")
+        "the per-element frame falls through (or ...) to the fallback")
+    (is (str/includes? form "(assoc base-opts :frame frame)")
+        "the per-element frame is assoc'd onto the base elision opts per element")
+    (is (not (str/includes?
+               form "(merge {:frame (re-frame2-pair.runtime/current-frame)}"))
+        "the buggy single-frame-for-every-cascade merge is GONE")))
 
 (deftest drain-form-gated-elision-honours-include-sensitive
   ;; Gate ON path — when the operator passed `--allow-sensitive-reads` AND the

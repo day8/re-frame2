@@ -335,6 +335,55 @@
   (is (contains? (rf/elision-declarations :rf/default) [:blob]))
   (is (not (contains? (rf/elision-declarations :elision-test/other) [:blob]))))
 
+(deftest streamed-cascades-elide-per-element-frame
+  ;; rf2-1we9fa defect 2 — the streaming subscribe drain walks several
+  ;; frames' cascade bundles in one tick (all-frame streams, or a filter
+  ;; frame != the operating frame). Per EP-0015 sensitive/large
+  ;; declarations are PER FRAME, so eliding each bundle MUST resolve the
+  ;; `:frame` opt from THAT bundle's own frame — NOT a single operating
+  ;; frame applied to every bundle. The sharp edge is UNDER-redaction: a
+  ;; frame-A value A declares sensitive but the operating frame B does not
+  ;; would leak across the off-box MCP→LLM boundary.
+  (frame/reg-frame :elision-test/frame-a {})
+  (frame/reg-frame :elision-test/frame-b {})
+  ;; Frame A declares :secret-a sensitive; frame B declares :secret-b
+  ;; sensitive. Neither marks the OTHER frame's slot.
+  (install-class! :elision-test/frame-a [[:secret-a]] [])
+  (install-class! :elision-test/frame-b [[:secret-b]] [])
+  ;; Two bundles streamed in one tick, each carrying both slots, each
+  ;; stamped with its own frame (as group-cascades-with-events emits).
+  (let [bundle-a {:frame :elision-test/frame-a
+                  :secret-a "A-private" :secret-b "A-public"}
+        bundle-b {:frame :elision-test/frame-b
+                  :secret-a "B-public" :secret-b "B-private"}
+        ;; Mirror the drain-form walk: resolve :frame PER ELEMENT off the
+        ;; bundle's own :frame slot, then elide. (current-frame fallback is
+        ;; exercised separately by the existing frameless tests.)
+        walk     (fn [bundles]
+                   (mapv (fn [x]
+                           (rf/elide-wire-value
+                             x {:frame (:frame x)}))
+                         bundles))
+        [out-a out-b] (walk [bundle-a bundle-b])]
+    (testing "each bundle redacts ONLY its own frame's declared-sensitive slot"
+      (is (= :rf/redacted (:secret-a out-a))
+          "frame A's bundle redacts :secret-a (A declared it sensitive)")
+      (is (= "A-public" (:secret-b out-a))
+          "frame A's bundle leaves :secret-b verbatim (A did not declare it)")
+      (is (= :rf/redacted (:secret-b out-b))
+          "frame B's bundle redacts :secret-b (B declared it sensitive)")
+      (is (= "B-public" (:secret-a out-b))
+          "frame B's bundle leaves :secret-a verbatim (B did not declare it)"))
+    (testing "the buggy single-operating-frame walk UNDER-redacts the other frame"
+      ;; Applying frame A (the would-be operating frame) to BOTH bundles
+      ;; leaks frame B's :secret-b — the exact off-box leak the per-element
+      ;; fix prevents.
+      (let [buggy (mapv #(rf/elide-wire-value
+                           % {:frame :elision-test/frame-a})
+                        [bundle-a bundle-b])]
+        (is (= "B-private" (:secret-b (second buggy)))
+            "operating-frame-for-every-bundle leaks frame B's secret — the defect")))))
+
 ;; ---------------------------------------------------------------------------
 ;; Sub-cache direct-read wire-egress posture (rf2-0hert / rf2-vflrg).
 ;;
