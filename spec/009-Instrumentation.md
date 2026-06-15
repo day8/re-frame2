@@ -156,9 +156,70 @@ The dispatch envelope's **`:rf.cofx`** map — the recordable-coeffect record: t
 
 ### `:op-type` vocabulary
 
-Core values (the `:rf.<family>` discriminators): `:rf.event`, `:rf.sub`, `:rf.fx`, `:rf.cofx`, `:rf.view`, `:rf.registry`, `:rf.frame`, `:rf.machine`, `:warning`, `:error`, `:info`. (`:warning` / `:error` / `:info` are **severity** discriminators — not domino families — and stay bare; see [§Error contract](#error-contract).) The effects-pass marker `do-fx` rides op-type `:rf.fx`, operation `:rf.fx/do-fx` — it folds into the fx family alongside `:rf.fx/handled` (it is **not** a standalone op-type). The cofx family (`:rf.cofx`) carries the per-supplier success op `:rf.cofx/run` (and, slice B, the reserved generation op `:rf.cofx/generated`); the cofx skip / error events ride the `:warning` / `:error` severity discriminators (`:rf.cofx/skipped-on-platform`; the EP-0017 cofx error family `:rf.error/unregistered-cofx` / `:rf.error/missing-required-cofx` / `:rf.error/cofx-value-invalid` / `:rf.error/cofx-name-collision` / `:rf.error/cofx-registration-invalid` / `:rf.error/cofx-request-invalid` / `:rf.error/inject-cofx-removed` / `:rf.error/world-inputs-renamed`).
+Every trace event carries an `:op-type` — the coarse discriminator a consumer filters on — and a finer `:operation`. The `:op-type` values are a small closed set; the `:operation` values are the open, per-concern vocabulary catalogued below. The **core `:op-type` values** are the `:rf.<family>` domino discriminators plus the three bare severity discriminators:
 
-Additional values for re-frame2 concerns:
+| `:op-type` | Kind | Covers |
+|---|---|---|
+| `:rf.event` | domino family | event-dispatch + per-event commit signals (the `:db`-pending pair, the partition-commit signals, the no-op signal, drain-interrupt). |
+| `:rf.sub` | domino family | subscription recompute / memo-skip / dispose. |
+| `:rf.fx` | domino family | effect dispatch — `:rf.fx/handled` and the effects-pass marker `do-fx` (operation `:rf.fx/do-fx`; it folds into the fx family, it is **not** a standalone op-type). |
+| `:rf.cofx` | domino family | coeffect supplier run (`:rf.cofx/run`) + the reserved slice-B generation op (`:rf.cofx/generated`). The cofx skip / error events ride the severity discriminators instead (`:rf.cofx/skipped-on-platform` → `:warning`; the EP-0017 cofx error family `:rf.error/unregistered-cofx` / `:rf.error/missing-required-cofx` / `:rf.error/cofx-value-invalid` / `:rf.error/cofx-name-collision` / `:rf.error/cofx-registration-invalid` / `:rf.error/cofx-request-invalid` / `:rf.error/inject-cofx-removed` / `:rf.error/world-inputs-renamed` → `:error`). |
+| `:rf.view` | domino family | view render / post-render / unmount. |
+| `:rf.registry` | family | registration changes (hot reload). |
+| `:rf.frame` | family | frame lifecycle + drain-interrupt. |
+| `:rf.machine` | family | state-machine activity (lifecycle, transition, timers, spawn, history, …) and the `:rf.machine.*` sub-families. |
+| `:rf.epoch` / `:rf.epoch.cb` | family | epoch-history operations + listener-silencing notification. |
+| `:rf.cascade` | family | the per-epoch cascade-DAG aggregator. |
+| `:rf.route` / `:rf.route.nav-token` | family | route lifecycle + navigation-token lifecycle. |
+| `:flow` | family | the whole flow trace stream (per-flow ops under `:rf.flow/*`). |
+| `:warning` | severity | advisory failures; stays bare (not a domino family — see [§Error contract](#error-contract)). |
+| `:error` | severity | error failures; stays bare. The category identity lives in `:operation` (e.g. `:rf.error/handler-exception`). |
+| `:info` | severity | informational advisories with no warning/error severity; stays bare. |
+
+The per-`:operation` quick reference below indexes every operation keyword to its `:op-type` and a one-line meaning; the detailed bullets that follow it carry the full normative contract (payload `:tags`, suppression rules, redaction sites, and consumer notes) for each. **Adding new values is non-breaking** — tools ignore operations they don't understand.
+
+#### Per-`:operation` quick reference
+
+| `:operation` (family) | `:op-type` | One-line meaning |
+|---|---|---|
+| `:rf.event/db-pending` / `:rf.event/db-pending-post-flow` | `:rf.event` | The (t1, t2) pending-`:db` snapshot pair — before / after flow transform. |
+| `:rf.event/db-changed` / `:rf.event/frame-state-changed` | `:rf.event` | The two partition-commit signals — app-db-only vs either-partition. |
+| `:rf.event/db-noop` | `:rf.event` | A `:db` effect was present but the app-db partition did not change. |
+| `:rf.frame/created` / `:rf.frame/re-registered` / `:rf.frame/destroyed` | `:rf.frame` | Frame lifecycle. |
+| `:rf.frame/drain-interrupted` | `:rf.frame` | The drain loop dropped queued events on a mid-cycle destroy. |
+| `:rf.machine.lifecycle/created` / `:rf.machine.lifecycle/spawned` / `:rf.machine.lifecycle/destroyed` | `:rf.machine` | Machine instance lifecycle — the registrar-substrate triple. |
+| `:rf.machine/started` | `:rf.machine` | The machine's birth signal (initial-entry cascade ran). |
+| `:rf.machine/event-received` / `:rf.machine/transition` / `:rf.machine/snapshot-updated` / `:rf.machine/done` | `:rf.machine` | Machine activity — `:transition` is the macrostep rollup with the structured `:cascade`. |
+| `:rf.machine.event/unhandled-no-op` | `:rf.machine` | Benign no-op for an unknown user event (xstate-v5 parity). |
+| `:rf.machine.microstep/transition` | `:rf.machine` | Per-microstep transition for `:always`-driven cascades. |
+| `:rf.machine.history/restored` / `:rf.machine.history/recorded` | `:rf.machine` | History pseudo-state restore / record. |
+| `:rf.machine.spawn/spawned` / `:rf.machine/destroyed` | `:rf.machine` | fx-substrate spawn / destroy (the spawn / destroy fx ran). |
+| `:rf.machine/done` | `:rf.machine` | Machine entered a `:final?` state, about to auto-destroy. |
+| `:rf.machine/system-id-bound` / `:rf.machine/system-id-released` | `:rf.machine` | `:system-id` reverse-index lifecycle. |
+| `:rf.machine.timer/scheduled` / `:rf.machine.timer/fired` / `:rf.machine.timer/stale-after` / `:rf.machine.timer/cancelled` / `:rf.machine.timer/skipped-on-server` | `:rf.machine` | State-machine `:after` timer lifecycle. |
+| `:rf.machine.spawn-all/started` / `:rf.machine.spawn-all/all-completed` / `:rf.machine.spawn-all/some-completed` / `:rf.machine.spawn-all/any-failed` | `:rf.machine` | `:spawn-all` spawn-and-join lifecycle. |
+| `:rf.machine.spawn/cancelled-on-join-resolution` | `:rf.machine` | A sibling cancelled when a `:spawn-all` join resolved. |
+| ~~`:rf.machine.spawn/timed-out`~~ | — | RETIRED — use `:rf.machine.timer/fired` on the `:spawn`-bearing state's `:after`. |
+| `:rf.route.nav-token/allocated` / `:rf.route.nav-token/stale-suppressed` | `:rf.route.nav-token` | Navigation-token lifecycle (stale-result suppression). |
+| `:rf.route/fragment-changed` / `:rf.route/navigation-blocked` | `:rf.route` / `:rf.event` | Fragment-only URL change emission / pending-nav blockage (`navigation-blocked` rides `:rf.event`). |
+| `:rf.route/registered` / `:rf.route/cleared` / `:rf.route/activated` / `:rf.route/deactivated` | `:rf.route` | Route lifecycle. |
+| `:rf.registry/handler-registered` / `:rf.registry/handler-cleared` / `:rf.registry/handler-replaced` | `:rf.registry` | Registration changes (hot reload). |
+| `:rf.flow/*` (`:flow` stream) | `:flow` | Flow lifecycle + evaluation (`:rf.flow/registered` / `-computed` / `-skip` / `-cleared` / `-failed`). |
+| `:rf.sub/run` | `:rf.sub` | A sub recompute (input not `=` last-seen) — carries value-change + cascade attribution. |
+| `:rf.sub/skip` | `:rf.sub` | A sub memo-hit (input `=` last-seen, body did not re-run). |
+| `:rf.sub/dispose` | `:rf.sub` | A sub cache slot was evicted (`:reason` enum). |
+| `:rf.cofx/run` | `:rf.cofx` | An ambient coeffect supplier delivered during context assembly. |
+| `:rf.cofx/generated` | `:rf.cofx` | A generator-backed recordable fact was generated at processing-start. |
+| `:rf.view/render` | `:rf.view` | Render START of a registered view. |
+| `:rf.view/rendered` | `:rf.view` | Post-render (capped at 100/cascade) — cause + per-view ACTION/REASON data. |
+| `:rf.view/unmounted` | `:rf.view` | A registered-view instance tore down. |
+| `:rf.cascade/captured` | `:rf.cascade` | The focused-epoch cascade-DAG aggregator (end-of-epoch). |
+| `:error` / `:warning` | `:error` / `:warning` | Universal severity discriminators — category identity lives in `:operation`. |
+| `:info` | `:info` | Informational advisories (e.g. `:rf.http/retry-attempt`). |
+| `:rf.epoch/snapshotted` / `:rf.epoch/outcome` / `:rf.epoch/restored` / `:rf.epoch/db-replaced` | `:rf.epoch` | Epoch-history operations (snapshot cause + summary, restore, db-replace). |
+| `:rf.epoch.cb/silenced-on-frame-destroy` | `:rf.epoch.cb` | Listener-silencing notification when an observed frame is destroyed. |
+
+Detailed contract for each operation (payload `:tags`, suppression rules, redaction sites, consumer notes):
 
 - `:rf.event/db-pending` / `:rf.event/db-pending-post-flow` — the (t1, t2) pending-`:db` snapshot pair. Both under op-type `:rf.event`. **t1 (`:rf.event/db-pending`)** fires inside the framework's outermost flows-after-interceptor BEFORE running flows, carrying the full pending `:db` the handler returned under `:tags :rf.event/db`. Fires whenever the handler returned a `:db` slot; suppressed otherwise (mirrors the `:rf.event/db-present?` gate on `:rf.fx/do-fx`). Fires regardless of whether the flows artefact is loaded. **t2 (`:rf.event/db-pending-post-flow`)** fires inside the same interceptor AFTER running flows, ONLY when the flow transform changed the value (`(not (identical? new-db pending-db))`); suppressed when t1 == t2 (no information). Both stamp the full pending `:db` value under `:tags :rf.event/db` — same payload-slot posture as `:rf.event/fx` on `:rf.fx/do-fx` per Mike's ruling: full reference, no diff, no DEBUG gate; PDS structural sharing makes the cost pointer-sized and the `day8/de-dupe` wire layer collapses repeated subtrees on egress. The `:rf.event/db` slot **is redacted at the marks chokepoint** (`re-frame.marks/project-db-tags`, which `re-frame.trace/build-event` runs for every t1 / t2 emit, per rf2-6773q): because the slot carries the FULL pending app-db (not a per-registration payload), it routes through the schema-first wire walker `re-frame.elision/elide-wire-value` against the FRAME's app-db elision registry — the SAME normative site the epoch off-box `projected-record` uses for `:db-before` / `:db-after` — so schema-`:sensitive?` slots egress as `:rf/redacted` and `:large?` slots get the `:rf.size/large-elided` marker before the snapshot reaches any trace listener or epoch-capture sink. The walk is gated on the frame having declarations, so a frame with no marks keeps the reference-identity (copy-free) the slot promises. Consumers (Xray's Handler panel, re-frame2-pair's `cascade-of`) read t1 to render the handler's returned `:db` value and read (t1, t2) together to render the t1→t2 reshape — the framework does NOT precompute a diff. On a flow-throw abort (Spec 013 §Failure semantics) t1 still fires (it ran before the throw) but t2 does NOT (the pending value was discarded). Both rides `interop/debug-enabled?` so production CLJS bundles DCE them.
 - `:rf.event/db-changed` / `:rf.event/frame-state-changed` — the two partition-commit signals (Mike ruling #6, EP-0001). Both under op-type `:rf.event`. **`:rf.event/db-changed` stays APP-DB-ONLY** — it fires only when the **app-db** partition changed (the inherited app-db-commit signal; consumers that watch app-db rely on it not firing for framework-only commits). **`:rf.event/frame-state-changed`** is the new frame-level signal: it fires when **either** partition changed, and carries `:tags :rf.event/partitions` — a set drawn from `#{:app-db :runtime-db}` naming which partition(s) this commit touched. So a **runtime-only commit** (a machine snapshot or route-slice write) emits `:rf.event/frame-state-changed` with `:rf.event/partitions #{:runtime-db}` and does **not** emit `:rf.event/db-changed`; an **app-only commit** emits both (`:rf.event/db-changed` plus `:rf.event/frame-state-changed` `#{:app-db}`); a commit touching both emits both with `#{:app-db :runtime-db}`. This keeps a runtime-only change visible to framework route/machine subs and to Xray / pair tooling even when app-db is unchanged, without forcing those tools to infer runtime changes from `:rf.event/db-changed` alone. Both ride `interop/debug-enabled?` so production CLJS bundles DCE them.
