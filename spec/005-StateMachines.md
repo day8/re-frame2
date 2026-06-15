@@ -40,7 +40,7 @@ The pair `{:state :data}` reads as the natural English idiom and matches a vocab
 {:state <fsm-keyword-or-path-or-region-map>   ;; :idle | [:checkout :payment :credit-card] | {:data :loading :form :neutral}
  :data  <map>                                  ;; the machine's private memory
  :tags  #{<keyword>, ...}                      ;; OPTIONAL — runtime-projected union of every active state's :tags; see §State tags
- :meta  {<optional> ...}}                      ;; reserved for :rf/snapshot-version etc.
+ :meta  {<optional> ...}}                      ;; user-defined; carries one reserved slot, :rf/snapshot-version (see §Reserved snapshot-internal keys)
 ```
 
 The runtime ALSO stamps a closed set of `:rf/*` slots inside the snapshot (some at the snapshot root, some inside `:data`) — the spawn-id counter, the `:after`-epoch counter, the bootstrap flag, the spawned-actor address keys, etc. These are framework-owned and catalogued in [Conventions §Reserved snapshot-internal keys](Conventions.md#reserved-snapshot-internal-keys-machine-runtime); user code MUST NOT write under them.
@@ -134,7 +134,7 @@ For the registration `(rf/reg-event :drawer/editor (rf/make-machine-handler {...
 {:rf.runtime/machines {:snapshots {:drawer/editor {:state :idle :data {:circle-id nil ...}}}}}
 ```
 
-> **Snapshot is lazily initialised.** Registration creates the *handler*, not the snapshot. The first time the machine handler runs (the first dispatched event addressed to this id), the runtime resolves the snapshot via `(or (get-in runtime-db [:rf.runtime/machines :snapshots <id>]) <initial-from-spec>)` — so before the first event, `(get-in (rf/runtime-db-value frame-id) [:rf.runtime/machines :snapshots :drawer/editor])` returns `nil` and `@(rf/sub-machine :drawer/editor)` returns `nil`. The lifecycle trace `:rf.machine.lifecycle/created` (per [009](009-Instrumentation.md)) is emitted at registration to mark the handler's appearance in the registry — it does NOT imply the snapshot exists in runtime-db yet. Views that need to render before any event reaches the machine should treat `nil` as "not yet initialised" and tolerate it (or seed a fixed initial state via `:on-create` if appearance-without-event is required).
+> **Snapshot is lazily initialised.** Registration creates the *handler*, not the snapshot. The first time the machine handler runs (the first dispatched event addressed to this id), the runtime resolves the snapshot via `(or (get-in runtime-db [:rf.runtime/machines :snapshots <id>]) <initial-from-spec>)` — so before the first event, `(get-in (rf/runtime-db-value frame-id) [:rf.runtime/machines :snapshots :drawer/editor])` returns `nil` and `@(rf/sub-machine :drawer/editor)` returns `nil`. The lifecycle trace `:rf.machine.lifecycle/created` (per [009](009-Instrumentation.md)) is emitted at registration to mark the handler's appearance in the registry — it does NOT imply the snapshot exists in runtime-db yet. Views that need to render before any event reaches the machine should treat `nil` as "not yet initialised" and tolerate it (or bring the snapshot alive ahead of any user event with the eager `[:machine-id [:rf.machine/start]]` kick, per [§When creation happens — eager start vs lazy first event](#when-creation-happens--eager-start-vs-lazy-first-event), if appearance-without-event is required).
 
 For a spawned actor whose gensym'd id is `:request/protocol#42`:
 
@@ -340,9 +340,9 @@ The external self-transition is the degenerate case (target = source) of the mor
 
 ### Guards
 
-A guard is **`(fn [{:keys [data event state meta]}] boolean)`** — a single context-map argument. **One inline fn or one keyword reference into the machine's `:guards` map** — never a compound data form.
+A guard is **`(fn [{:keys [data event state meta] cofx :rf.cofx}] boolean)`** — a single context-map argument. **One inline fn or one keyword reference into the machine's `:guards` map** — never a compound data form.
 
-`data` is the snapshot's `:data` slot (a plain map). `event` is the inbound event vector. `state` is the discrete FSM-keyword and `meta` is any user `:meta` declared on the snapshot — both available for introspection without an opt-in. The fn destructures whichever keys it needs; the runtime supplies the full map every time.
+`data` is the snapshot's `:data` slot (a plain map). `event` is the inbound event vector. `state` is the discrete FSM-keyword and `meta` is any user `:meta` declared on the snapshot — both available for introspection without an opt-in. `:rf.cofx` is the dispatch's recordable-coeffect record (EP-0017; see [§Causal host facts](#causal-host-facts--rfcofx-ep-0017)). The fn destructures whichever keys it needs; the runtime supplies the full map every time.
 
 ```clojure
 ;; destructure the keys you need — `data` is the snapshot's :data slot
@@ -433,7 +433,7 @@ Compound logic is expressed via function composition or as a named entry in the 
 
 ### Actions
 
-An action is **`(fn [{:keys [data event state meta]}] effects)`** returning the `{:data :fx}` shape (or `nil`). Single context-map argument, same shape as guards. **One inline fn or one keyword reference into the machine's `:actions` map** — never a vector.
+An action is **`(fn [{:keys [data event state meta] cofx :rf.cofx}] effects)`** returning the `{:data :fx}` shape (or `nil`). Single context-map argument, same shape as guards (`:rf.cofx` is the dispatch's recordable-coeffect record — EP-0017; see [§Causal host facts](#causal-host-facts--rfcofx-ep-0017)). **One inline fn or one keyword reference into the machine's `:actions` map** — never a vector.
 
 ```clojure
 ;; inline — destructure :data and the event from the context map
@@ -679,8 +679,8 @@ A machine *almost never* needs to write `app-db` directly; it acts on its own st
 
 > **Why this is locked.** Strict encapsulation is one of the named consequences of [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility). If actions could read or write `app-db` outside `[:rf.runtime/machines :snapshots <id>]`, machine logic would create state changes that don't show up in any machine snapshot and don't roll back when the surrounding machine snapshot does. The whole machine's state has to live inside the frame's persistent value to revert with it; encapsulation is what stops machines from leaking state into parts of the value that aren't theirs.
 
-- **Action signature:** `(fn [{:keys [data event state meta]}] effects)` — single context-map argument; user destructures the keys it needs.
-- **Guard signature:** `(fn [{:keys [data event state meta]}] boolean)` — single context-map argument, same shape as `:action`.
+- **Action signature:** `(fn [{:keys [data event state meta] cofx :rf.cofx}] effects)` — single context-map argument; user destructures the keys it needs.
+- **Guard signature:** `(fn [{:keys [data event state meta] cofx :rf.cofx}] boolean)` — single context-map argument, same shape as `:action`.
 - **What the fn sees:** the keys it destructures from the context map — `:data` (the snapshot's `:data` slot), `:event` (the inbound event vector), `:state` (the discrete FSM-keyword), `:meta` (any user `:meta` on the snapshot), and `:rf.cofx` (the dispatch's recordable-coeffect record — EP-0017; see [§Causal host facts](#causal-host-facts--rfcofx-ep-0017)). Never `app-db`. Facts a callback consumes are declared with `:rf.cofx/requires` on the named entry; `:rf.cofx` is the host-fact channel, threaded causally as recorded data.
 
 The impure plumbing (reading the snapshot from runtime-db at `[:rf.runtime/machines :snapshots <id>]`, writing `:data` back as a `:rf.db/runtime` write, lowering `:fx` / `:raise` / `:rf.machine/spawn` into standard re-frame effects) lives in the *handler boundary* — the fn returned by `make-machine-handler`. **Inside the boundary: pure. Outside: standard re-frame.**
@@ -747,8 +747,8 @@ A machine is registered as **one event handler** via `reg-event` whose body come
 
 ```clojure
 (rf/reg-event :drawer/editor
-  {:doc "Modal-edit flow."}
-  [undoable]
+  {:doc          "Modal-edit flow."
+   :interceptors [:drawer/undoable]}                       ;; EP-0022: chains carry refs, in the metadata map
   (rf/make-machine-handler
     {:initial :idle                                       ;; initial FSM-keyword
      :data    {:circle-id nil :initial-radius nil :preview-radius nil}
@@ -1908,8 +1908,8 @@ Guards in `:always` resolve against the **machine's `:guards` map** (per [§Regi
 ```clojure
 {:initial :asking
  :guards  {:enough-correct? (fn [{data :data}] (>= (:correct-count data) 10))}
- :actions {:count-correct   (fn [_] {:data {:correct-count inc}})
-           :count-wrong     (fn [_] {:data {:wrong-count inc}})}
+ :actions {:count-correct   (fn [{d :data}] {:data {:correct-count (inc (:correct-count d))}})
+           :count-wrong     (fn [{d :data}] {:data {:wrong-count (inc (:wrong-count d))}})}
  :states
  {:asking
   {:always [{:guard :enough-correct? :target :winner}]
@@ -2230,7 +2230,7 @@ The epoch is tracked **per scheduling node** (its declaring state path), not as 
 
 Per [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca), the epoch counter advances on **any** state exit, whether the exit is a leaf-only transition or a multi-level cascade. A leaf-to-sibling transition under the same parent does not exit the parent, so the parent's `:after` timers stay live; a transition that exits the parent advances the epoch and all of the parent's pending `:after` timers go stale on next firing.
 
-**Implementation note:** the epoch is per-machine, not per-level. A leaf-only sibling-transition advances the epoch even though the parent's state is unchanged — but that's fine: the parent's `:after` was scheduled *before* the leaf transition, and re-entry of the leaf doesn't re-schedule the parent's timers. To keep parent timers live across leaf transitions, implementations track which `:after` entries belong to which level on the path and only re-schedule the level(s) that the cascade newly enters. The contract is *external* — "parent `:after` outlives sibling-leaf transitions" — and `make-machine-handler` is responsible for upholding it.
+**Implementation note:** the epoch is tracked **per scheduling node**, not as a single per-machine scalar — `:rf/after-epoch` is a `{<decl-path-vector> <int>}` map keyed by each `:after`-bearing state's declaring path (per the [§Reserved snapshot-internal keys](#reserved-snapshot-internal-keys) table). `commit-snapshot` bumps **only** the entries for nodes the transition exits or enters; a leaf-only sibling-transition under a shared parent leaves the still-active parent's entry untouched, so the parent's pending `:after` timer stays live (its carried epoch still matches) while the just-exited leaf's entry is bumped (its timer goes stale on next firing). A single per-machine scalar could not satisfy this — any leaf transition would bump it and invalidate the parent's in-flight timer — which is exactly why the per-decl-path map is normative. The contract is *external* — "parent `:after` outlives sibling-leaf transitions; an exited node's timers go stale" — and `make-machine-handler` is responsible for upholding it via the per-node epoch map.
 
 **Normative rule (external contract).** A parent state's `:after` timer is suspended-but-not-stale while the snapshot is in any child of the parent: leaf-only sibling transitions inside the same parent MUST NOT cause that parent's pending `:after` timer to fire as stale on its next match. Conversely, a transition whose LCA is at-or-above the parent MUST advance the epoch such that any of the parent's pending `:after` timers (from the just-exited visit) all observe a mismatch and silently drop. Implementations that cannot satisfy both clauses with a single per-machine epoch (because a leaf transition advances it) MUST track which `:after` entries belong to which level on the active path and selectively re-schedule only the levels the cascade newly enters. The per-level re-scheduling sketch above is the recommended implementation; the contract is the observable behaviour, not the implementation strategy.
 
@@ -2264,6 +2264,8 @@ This is consistent with `:platforms` gating on `reg-fx` (per [011 §Effect handl
 
 ### Clock abstraction
 
+> **Timer scheduling is the one deliberate ambient-clock exception (EP-0017).** [§Causal host facts](#causal-host-facts--rfcofx-ep-0017) forbids a guard / action from folding the *ambient* wall-clock (`(js/Date.now)`) into a durable machine *decision* — a host time that feeds `:data` or transition selection must arrive as a declared recordable coeffect (`:rf/time-ms`) so the decision replays deterministically. The `:after` scheduler below is the sanctioned exception: it reads the host clock to **schedule** a fire-and-forget timer (`schedule-after!`), not to decide anything durable. The decision the timer drives is gated **facts-against-facts** by the per-scheduling-node epoch (per [§Epoch-based stale detection](#epoch-based-stale-detection) and the `:rf/after-epoch` slot in [§Reserved snapshot-internal keys](#reserved-snapshot-internal-keys)), never by comparing wall-clocks — so timer scheduling stays replay-sound without recording the schedule instant. The synthetic timer-elapsed event that *does* reach the fold is an ordinary dispatch envelope and stamps its own `:rf/time-ms` like any other.
+
 The clock primitives live in **`re-frame.interop`** — the existing clj/cljs-split interop layer that already houses platform-dependent atoms, `next-tick`, etc. Three primitives:
 
 - `re-frame.interop/now-ms` — host-clock current time in milliseconds (a long).
@@ -2272,7 +2274,7 @@ The clock primitives live in **`re-frame.interop`** — the existing clj/cljs-sp
 
 The CLJS realisation uses `js/Date.now` and `js/setTimeout` / `js/clearTimeout`. The JVM realisation uses `System/currentTimeMillis` and a `ScheduledExecutorService`. Tests swap the interop layer using existing fixture patterns — there is **no new framework-level clock-configuration API**; the substitution happens at the namespace level (`with-redefs` in tests, alternative interop ns alias in conformance harnesses). If `:after` is exercised on a host whose interop layer hasn't been wired with a clock, the runtime emits `:rf.warning/no-clock-configured` (an advisory; the host falls back to a host-native clock if available).
 
-> **Why `:rf.warning/*` rather than `:rf.error/*`.** The audit (Finding 14) noted that `:rf.warning/no-clock-configured` is the only `:rf.warning/*` machine-emit; every other machine-emit is `:rf.error/*`. The asymmetry is **deliberate** and confirmed: the recovery is `:warned-and-replaced` (fall back to the host-native clock — see [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)), which is materially different from the `:rf.error/*` machine emits whose recoveries are `:no-recovery`, `:replaced-with-default`, or `:logged-and-fallback` on a genuine failure path. "Host-native clock available; advisory only" is precisely what `:warning` severity is for — the request completes correctly, the trace records a configuration drift the operator should address. Promoting to `:rf.error/no-clock-configured` would conflate "configuration missing but graceful fallback exists" with "operation failed and was recovered" — two different operator intents. The asymmetry is the right shape; per audit Finding 14, the decision is to **keep the warning severity**.
+> **Why `:rf.warning/*` rather than `:rf.error/*`.** `:rf.warning/no-clock-configured` is the only `:rf.warning/*` emitted on a machine **runtime operation-recovery** path; the few other machine `:rf.warning/*` emits are dev-only **lints / advisories** (`:rf.warning/machine-cofx-consume-undeclared` and `:rf.warning/machine-cofx-ambient-durable` per [§Causal host facts](#causal-host-facts--rfcofx-ep-0017); `:rf.warning/on-spawn-return-ignored` per [§Recording the spawned id user-side](#recording-the-spawned-id-user-side)), not runtime operation outcomes — every *operation*-grade machine emit other than this one is `:rf.error/*`. The asymmetry is **deliberate** and confirmed: the recovery is `:warned-and-replaced` (fall back to the host-native clock — see [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)), which is materially different from the `:rf.error/*` machine emits whose recoveries are `:no-recovery`, `:replaced-with-default`, or `:logged-and-fallback` on a genuine failure path. "Host-native clock available; advisory only" is precisely what `:warning` severity is for — the request completes correctly, the trace records a configuration drift the operator should address. Promoting to `:rf.error/no-clock-configured` would conflate "configuration missing but graceful fallback exists" with "operation failed and was recovered" — two different operator intents. The asymmetry is the right shape; the decision is to **keep the warning severity**.
 
 ### `:source` classification — `:after-timer`
 
@@ -3667,7 +3669,7 @@ See also [API.md §Machines](API.md#machines).
 
 ## Subscribing to machines via `sub-machine`
 
-Machines are read like any other slice of frame-state — through a registered subscription (the snapshot lives in the runtime-db partition, per [§Where snapshots live](#where-snapshots-live)). The framework ships **`:rf/machine`** as standard infrastructure (alongside `:dispatch` fx, the `path` interceptor, and the rest of the framework-supplied registry entries):
+Machines are read like any other slice of frame-state — through a registered subscription (the snapshot lives in the runtime-db partition, per [§Where snapshots live](#where-snapshots-live)). The framework ships **`:rf/machine`** as standard infrastructure (alongside `:dispatch` fx, the standard `[:rf.interceptor/path <path-vector>]` interceptor, and the rest of the framework-supplied registry entries):
 
 ```clojure
 (rf/reg-sub :rf/machine
@@ -3830,9 +3832,12 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
         [:undo [:vector :any]] [:redo [:vector :any]]])
 (rf/reg-app-schema [:drawer] DrawerState)
 
-(def undoable
-  {:id     :undoable
-   :before (fn [ctx]
+;; EP-0022: interceptors are registered program members. Author with
+;; `reg-interceptor` (the one public form) and reference by id in chains —
+;; never an inline interceptor map/Var.
+(rf/reg-interceptor :drawer/undoable
+  {:doc "Push a circles snapshot onto :undo when the drawer mutates."}
+  {:before (fn [ctx]
              (assoc-in ctx [:coeffects :prior-circles]
                        (get-in ctx [:coeffects :db :drawer :circles])))
    :after  (fn [ctx]
@@ -3849,8 +3854,8 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
 ;; ----------------------------------------------------------------------------
 
 (rf/reg-event :drawer/apply-radius
-  {:doc "Persist a circle's new radius. Called by the editor machine on commit."}
-  [undoable]
+  {:doc          "Persist a circle's new radius. Called by the editor machine on commit."
+   :interceptors [:drawer/undoable]}
   (fn [{:keys [db]} [_ circle-id new-radius]]
     {:db (update-in db [:drawer :circles]
                     (fn [cs]
@@ -3933,7 +3938,7 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
     {:db {:drawer {:circles [] :undo [] :redo []}}}))
 
 (rf/reg-event :drawer/add-circle
-  {:interceptors [undoable]}
+  {:interceptors [:drawer/undoable]}
   (fn [{:keys [db]} [_ x y]]
     {:db (update-in db [:drawer :circles] conj
                     {:id (random-uuid) :x x :y y :radius 30})}))
@@ -4068,10 +4073,12 @@ A re-frame2 port declares its capability list in its conformance harness manifes
                  :actor/own-state
                  :actor/spawn-destroy
                  :actor/cross-actor-fx
-                 :actor/invoke
+                 :actor/invoke          ;; declarative spawn-on-entry / destroy-on-exit (the "Declarative :spawn" row) — see note below
                  :actor/spawn-and-join
                  :actor/system-id}}    ;; :actor/timeout retired per  — :fsm/delayed-after subsumes it
 ```
+
+> **`:actor/invoke` names the declarative-`:spawn` capability — the term is a stable conformance-vocabulary id, NOT the grammar key.** The user-facing grammar key was deliberately renamed from XState's `invoke` to **`:spawn`** (the "Declarative `:spawn`" row above; per [§Declarative `:spawn`](#declarative-spawn)). The *capability id* `:actor/invoke` keeps the XState term because it is shared serialized vocabulary across the conformance fixtures' `:fixture/capabilities` sets, the implementor decision-record, and [Conventions §Reserved snapshot-internal keys](Conventions.md), so renaming it would fracture that cross-artefact contract for no behavioural gain. Read `:actor/invoke` as "the declarative spawn/destroy capability"; author machines with `:spawn` / `:spawn-all`.
 
 The harness runs every fixture whose `:fixture/capabilities` is a subset of the port's claimed list; fixtures requiring un-claimed capabilities are skipped (and reported as "not exercised"). The aggregate score is "passes / claimed-applicable" rather than "passes / total." A port that only claims `:fsm/flat` + `:actor/own-state` + `:actor/spawn-destroy` is fully conformant for that subset — there is no penalty for not claiming hierarchical-states, just an honest accounting of what works.
 
