@@ -40,7 +40,7 @@ This doc is an **inventory**, not a redefinition. Every entry below cites an own
 - [`skills/re-frame2-pair-retro/`](../skills/re-frame2-pair-retro/) — session-shaped consumer; supplies its own catalogues at `references/analysis-lenses.md` and `references/known-frictions.md`.
 - [`skills/re-frame2-improver/`](../skills/re-frame2-improver/) — code-shaped consumer; supplies its own catalogue under `references/`.
 
-**The result.** Two skills (with more anticipated) share one workflow leaf. Adding a third retro-shaped skill is one new SKILL.md plus a domain catalogue — the diagnosis-first cadence, layer-routing rules, evidence discipline, and bead-opt-in conventions all come from the shared leaf for free. Extracted under rf2-dhe9v from the locked decisions originally embedded in `re-frame2-pair-retro/spec/design.md`.
+**The result.** Two skills (with more anticipated) share one workflow leaf. Adding a third retro-shaped skill is one new SKILL.md plus a domain catalogue — the diagnosis-first cadence, layer-routing rules, evidence discipline, and bead-opt-in conventions all come from the shared leaf for free. Extracted from the locked decisions originally embedded in `re-frame2-pair-retro/spec/design.md`.
 
 ## 3. Token budgets
 

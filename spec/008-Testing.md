@@ -67,7 +67,7 @@ The plain-atom adapter (JVM, SSR, headless) does NOT ship `flush-views!` — the
 
 ### `with-frame` and `with-new-frame`
 
-Two sibling macros — split per concern, the macro name telegraphs the intent (rf2-twoc5, Mike-approved 2026-05-28). Both are normative and both required of every host. The canonical definition lives in [002 §`with-frame` and `with-new-frame`](002-Frames.md#with-frame-and-with-new-frame); this section gathers the test-surface usage notes.
+Two sibling macros — split per concern, the macro name telegraphs the intent. Both are normative and both required of every host. The canonical definition lives in [002 §`with-frame` and `with-new-frame`](002-Frames.md#with-frame-and-with-new-frame); this section gathers the test-surface usage notes.
 
 #### `with-frame` — pin to an existing frame
 
@@ -748,7 +748,7 @@ A test fixture is a story-variant minus the rendering — the story library's `r
 
 ## Story plan execution surface and evidence tools
 
-> Forward-reference normative section (NewTestStory EPIC rf2-5x1wt). The
+> Forward-reference normative section (NewTestStory EPIC). The
 > Story-as-test work introduces a variant-plan execution model and a set
 > of low-level evidence tools. The tools below live **at the testing-
 > substrate level**, below Story, and run without the Story UI; Story

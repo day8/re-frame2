@@ -292,7 +292,7 @@ A decorator's *frame setup* mode generalises into "things that should be true of
 
 <a id="setup-script-and-assertions--the-canonical-vocabulary"></a>
 
-> **Canonical vocabulary (NewTestStory EPIC rf2-5x1wt).** The P1 public
+> **Canonical vocabulary (NewTestStory EPIC).** The P1 public
 > authoring vocabulary is `:setup` (preconditions) and `:script`
 > (post-render behaviour under test). These supersede the prior
 > spellings: the legacy `:events` slot is the `:setup` slot, the
@@ -300,7 +300,7 @@ A decorator's *frame setup* mode generalises into "things that should be true of
 > as named scripts in the normalized plan. Because the project is
 > pre-alpha this is a clean rename, not a long-lived compatibility layer.
 > The legacy bare `:play` event-vector slot was already removed
-> (rf2-0wrud) and is NOT reintroduced; this section is the framework-side
+> and is NOT reintroduced; this section is the framework-side
 > pointer, and the full normative contract — variant plans, the three
 > execution verbs, `:cannot-run`, composition, the schema floor, and the
 > epoch-tape evidence projection — lives in
@@ -583,4 +583,4 @@ Multiple `:story.*` namespaces can come from different libraries. The story tool
 - [`tools/story/spec/017-Testing-Story.md`](../tools/story/spec/017-Testing-Story.md) — the normative P1 Story-as-test contract: variant plans, the `:setup` / `:script` / `:world` / `:expect` / `:evidence` vocabulary, the three execution verbs, `:cannot-run`, composition, the schema floor, the runner-capability model, and the epoch-tape evidence projection.
 - [`tools/story-mcp/`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp) — the agent-facing MCP server (`day8/re-frame2-story-mcp`).
 - [Story tutorial](../docs/story/index.md) — the narrative walkthrough of this spec.
-- [`tools/story/testbeds/counter_with_stories/`](https://github.com/day8/re-frame2/tree/main/tools/story/testbeds/counter_with_stories) — the worked example pivoting on the counter from guide chapters 03–10 (rf2-p8f2s — relocated from `examples/reagent/` as the tool's testbed).
+- [`tools/story/testbeds/counter_with_stories/`](https://github.com/day8/re-frame2/tree/main/tools/story/testbeds/counter_with_stories) — the worked example pivoting on the counter from guide chapters 03–10 (relocated from `examples/reagent/` as the tool's testbed).

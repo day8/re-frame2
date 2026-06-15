@@ -3,7 +3,7 @@
 > **Type:** Reference
 > The unifying conceptual frame for every **declared fact and process over the frame fold** in re-frame2 — subscriptions, runtime subscriptions, flows, resources, route facts, and machine selectors. Names the one vocabulary those five plural source forms lower to: declared inputs, an output fact, a storage class, an evaluation policy, and a lifecycle/owner. This is the **derivation/process analogue of [Managed-Effects.md](Managed-Effects.md) (effect surfaces) and [Runtime-Subsystems.md](Runtime-Subsystems.md) (durable-state surfaces)** — Managed-Effects names the shape every framework-owned *effect* satisfies, Runtime-Subsystems names the shape every framework-owned *durable-state subtree* satisfies, and this doc names the shape every *declared derived value or stateful process* satisfies.
 >
-> Graduated from [EP-0014](../docs/EP/EP-0014-derivation-and-process-algebra.md) (accepted 2026-06-11, bead `rf2-gwezdt`). **Slice-1 scope: vocabulary, the spec model, and internal registration metadata — no new public authoring or accessor primitive.** The graph-inspection contract here is the *shape* an internal accessor produces; the public name is deferred (see [§Graph inspection — internal but structured](#graph-inspection--internal-but-structured)).
+> Graduated from [EP-0014](../docs/EP/EP-0014-derivation-and-process-algebra.md) (accepted 2026-06-11). **Slice-1 scope: vocabulary, the spec model, and internal registration metadata — no new public authoring or accessor primitive.** The graph-inspection contract here is the *shape* an internal accessor produces; the public name is deferred (see [§Graph inspection — internal but structured](#graph-inspection--internal-but-structured)).
 
 ## Why this doc exists
 
@@ -833,7 +833,7 @@ This exposure is *internal registration metadata*, consistent with the slice sco
 
 In slice-1 the algebra view is **registrar-derived** — assembled from registration metadata at the surface that registers each source form. The normalized node this doc defines is deliberately the per-fact/per-process row an app value would carry, so a future move to [EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md) app values/runtime realms is a *relocation, not a redesign*.
 
-The EP-0013 condition **fired** (EP-0013 accepted 2026-06-11). The relocation is governed by the **shape-agreement obligation** recorded on the EP-0013 action epic (`rf2-c6armm`): it verifies the EP-0014 node shape here and the EP-0013 descriptor shape agree **before** either EP's spec slice lands, and the relocation itself happens inside EP-0013's D2. The reserved optional `:realm/id` / `:app/id` / `:module/id` node fields (above) are the forward-compatibility hook so the move needs no breaking reshape.
+The EP-0013 condition **fired** (EP-0013 accepted 2026-06-11). The relocation is governed by the **shape-agreement obligation** recorded on the EP-0013 action epic: it verifies the EP-0014 node shape here and the EP-0013 descriptor shape agree **before** either EP's spec slice lands, and the relocation itself happens inside EP-0013's D2. The reserved optional `:realm/id` / `:app/id` / `:module/id` node fields (above) are the forward-compatibility hook so the move needs no breaking reshape.
 
 ## Conformance
 
@@ -867,7 +867,7 @@ The node/fact/edge/storage-class/evaluation-policy/lifecycle Malli shapes are in
 - [EP-0007](../docs/EP/EP-0007-one-name-per-fact.md) — one-name-per-fact, applied graph-wide to fact identity.
 - [EP-0011](../docs/EP/EP-0011-uniform-async-reply-envelope.md) — the reply envelope `:on-reply` processes consume.
 - [EP-0012](../docs/EP/EP-0012-path-optics-and-canonical-forms.md) — canonical path/node identity rules.
-- [EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md) — the relocation seam (registrar-derived → app value); the shape-agreement obligation on `rf2-c6armm`.
+- [EP-0013](../docs/EP/EP-0013-app-values-and-runtime-realms.md) — the relocation seam (registrar-derived → app value); the shape-agreement obligation on the EP-0013 action epic.
 - [EP-0015](../docs/EP/EP-0015-frame-owned-egress-policy.md) — the frame-owned egress posture the redaction metadata composes through.
 - [Spec-Schemas §`:rf/derivation-node`](Spec-Schemas.md#rfderivation-node-rffact-rfderivation-edge-rfstorage-class-rfevaluation-policy-rflifecycle-the-derivationprocess-algebra-ep-0014) — the projected Malli shapes.
 - [Conventions §The `:rf/path` algebra](Conventions.md#the-rfpath-algebra) — the path shape node/fact identity normalizes to.

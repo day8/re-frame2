@@ -176,7 +176,7 @@ Status invariants: `:loading` = first load, no usable data; `:fetching` = refres
 
 ## Mutations
 
-A **mutation** is the causal-WRITE counterpart of a resource: a named write to remote state that, on success, invalidates / patches / populates cached resource reads. The write lowers through the **same** `:rf.http/managed` transport as resources, and the runtime owns reply addressing + stale-suppression (work-id + generation) exactly as for reads. Runtime state is keyed by mutation **instance** id, so concurrent submissions of the same mutation never clobber each other. The tutorial is [Guide ch.27 §Mutations](../guide/concepts/server-state.md); the normative source is [016-Resources.md §Mutations](../../spec/016-Resources.md#mutations-first-public-beta-gate-rf2-dwme29).
+A **mutation** is the causal-WRITE counterpart of a resource: a named write to remote state that, on success, invalidates / patches / populates cached resource reads. The write lowers through the **same** `:rf.http/managed` transport as resources, and the runtime owns reply addressing + stale-suppression (work-id + generation) exactly as for reads. Runtime state is keyed by mutation **instance** id, so concurrent submissions of the same mutation never clobber each other. The tutorial is [Guide ch.27 §Mutations](../guide/concepts/server-state.md); the normative source is [016-Resources.md §Mutations](../../spec/016-Resources.md#mutations-first-public-beta-gate).
 
 ### `reg-mutation`
 
