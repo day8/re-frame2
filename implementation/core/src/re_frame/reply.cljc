@@ -39,7 +39,8 @@
   through `re-frame.spec`'s best-effort `(resolve 'malli.core/validate)`
   seam, which no-ops when the schemas artefact is absent (same posture as
   `re-frame.epoch` / `re-frame.http-managed`)."
-  (:require [re-frame.elision :as elision]))
+  (:require [re-frame.elision :as elision]
+            [re-frame.error :as error]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -132,6 +133,31 @@
        (seq event)
        (keyword? (first event))))
 
+;; ---- the canonical thrown-error shape for reply failures (rf2-tqlwzr) ------
+;;
+;; Reply throws historically carried a reply-specific `:rf.error/kind`
+;; discriminator and a human message but no canonical `:rf.error/id` — so a
+;; tool classifying thrown errors by Spec 009's `:rf.error/id` could not handle
+;; reply failures uniformly with every other framework throw. `reply-error`
+;; routes every reply throw through the central builder
+;; (`re-frame.error/thrown-ex-info`, Spec 009 §The thrown-error shape): the
+;; `:rf.error/id` IS the reply category keyword (the SOLE canonical machine
+;; discriminator), the human sentence rides `:reason` and leads the derived
+;; message (+ the `[:rf.error/<id>]` token), and the reply-specific
+;; `:rf.error/kind` is PRESERVED in ex-data for callers that already branch on
+;; it (the `:rf.reply/*` category equals the `:rf.error/id`, so the two stay in
+;; lockstep). `:where` names the user-facing surface (`:rf/reply-to`).
+
+(defn- reply-error
+  "Build the canonical reply thrown-error `ex-info` (rf2-tqlwzr). `category`
+  is the `:rf.reply/*` discriminator; it lands in BOTH `:rf.error/id` (the
+  canonical Spec 009 slot) and `:rf.error/kind` (the preserved reply-specific
+  slot). `reason` is the human sentence; `extras` merge on top."
+  ([category reason] (reply-error category reason nil))
+  ([category reason extras]
+   (error/thrown-ex-info category :rf/reply-to reason
+                         {:extra (merge {:rf.error/kind category} extras)})))
+
 (defn normalize-target
   "Normalize a reply target to the canonical descriptor map.
 
@@ -161,25 +187,28 @@
     (vector? target)
     (if (event-vector? target)
       {:event target :delivery :append}
-      (throw (ex-info "Invalid :rf/reply-to target — an event-vector prefix must be a non-empty vector whose head is a keyword event id."
-                      {:rf.error/kind :rf.reply/invalid-target
-                       :target        target})))
+      (throw (reply-error
+               :rf.reply/invalid-target
+               "Invalid :rf/reply-to target — an event-vector prefix must be a non-empty vector whose head is a keyword event id."
+               {:target target})))
 
     (descriptor? target)
     (let [{:keys [event delivery]} target]
       (when-not (event-vector? event)
-        (throw (ex-info "Invalid :rf/reply-to target — the descriptor's :event must be an event-vector prefix [:event-id arg ...] (a non-empty vector with a keyword head)."
-                        {:rf.error/kind :rf.reply/invalid-target
-                         :target        target
-                         :event         event})))
+        (throw (reply-error
+                 :rf.reply/invalid-target
+                 "Invalid :rf/reply-to target — the descriptor's :event must be an event-vector prefix [:event-id arg ...] (a non-empty vector with a keyword head)."
+                 {:target target
+                  :event  event})))
       (cond-> target
         (nil? delivery) (assoc :delivery :append)
         true            (assoc :event event)))
 
     :else
-    (throw (ex-info "Invalid :rf/reply-to target — expected an event-vector prefix or a descriptor map."
-                    {:rf.error/kind :rf.reply/invalid-target
-                     :target        target}))))
+    (throw (reply-error
+             :rf.reply/invalid-target
+             "Invalid :rf/reply-to target — expected an event-vector prefix or a descriptor map."
+             {:target target}))))
 
 (defn target->short-form
   "Project a normalized target back to its public short form when it has no
@@ -230,10 +259,14 @@
                  ;; A non-:append delivery is a compatibility-adapter mode
                  ;; that lowers internally; an unknown one is a contract
                  ;; error rather than a silent fall-through.
-                 (throw (ex-info "Unknown :rf/reply-to :delivery mode."
-                                 {:rf.error/kind :rf.reply/unknown-delivery
-                                  :delivery      delivery
-                                  :target        d})))
+                 (throw (reply-error
+                          :rf.reply/unknown-delivery
+                          (str "Unknown :rf/reply-to :delivery mode " (pr-str delivery)
+                               " — :delivery must be :append (the public reply mode) "
+                               "or an internal compatibility-adapter mode. Fix the "
+                               "descriptor's :delivery on the reply target.")
+                          {:delivery delivery
+                           :target   d})))
           post (get d post-key)]
       (if post (post base) base))))
 
@@ -404,10 +437,11 @@
   (when-let [d (normalize-target target)]
     (let [stripped (apply dissoc d ephemeral-target-keys)]
       (when-let [handle-path (walk-find-host-handle stripped)]
-        (throw (ex-info "Durable reply target must be data-only — it carries a host handle (fn / Promise / AbortController / …) in a public field."
-                        {:rf.error/kind :rf.reply/non-data-target
-                         :path          handle-path
-                         :target        stripped})))
+        (throw (reply-error
+                 :rf.reply/non-data-target
+                 "Durable reply target must be data-only — it carries a host handle (fn / Promise / AbortController / …) in a public field. See :path for the offending slot; replace the handle with its data projection."
+                 {:path   handle-path
+                  :target stripped})))
       stripped)))
 
 ;; ---------------------------------------------------------------------------
@@ -451,7 +485,13 @@
   Pure; throws only on a non-map argument."
   [reply]
   (when-not (map? reply)
-    (throw (ex-info "Reply must be a map." {:rf.error/kind :rf.reply/non-map-reply :reply reply})))
+    (throw (reply-error
+             :rf.reply/non-map-reply
+             (str "Reply must be a map — the uniform reply envelope carries "
+                  ":status (the closed taxonomy) plus :value / :error slots "
+                  "(Managed-Effects §The reply map), got " (pr-str reply) ". "
+                  "Build the reply as a map, not a scalar.")
+             {:reply reply})))
   (let [{:keys [status value error]} reply
         problem (fn [kind path detail] {:rf.reply/problem kind :path path :detail detail})
         ;; A family error MUST be a structured map carrying a :kind. A loose
@@ -647,9 +687,12 @@
          ;; substrate is pure (no caller identity), so the marker IS the
          ;; authority — its absence means "not framework/tool".
          _        (when (and wants? (not authorised?))
-                    (throw (ex-info "Stale delivery (:dispatch-stale? true) is restricted to framework test/tool targets — this target lacks the stale-delivery authority. App reply targets MUST NOT receive stale envelopes."
-                                    {:rf.error/kind :rf.reply/unauthorized-stale-delivery
-                                     :target        d})))
+                    (throw (reply-error
+                             :rf.reply/unauthorized-stale-delivery
+                             "Stale delivery (:dispatch-stale? true) is restricted to framework test/tool targets — this target lacks the stale-delivery authority. App reply targets MUST NOT receive stale envelopes. Drop :dispatch-stale? from the target, or use a framework/tool target that carries the stale-delivery capability."
+                             {:target         d
+                              :stale/reason   reason
+                              :stale/authorised? authorised?})))
          opt-in?  (and wants? authorised?)
          ;; rf2-waawic — `suppress` is THE correctness boundary, so "stale
          ;; wins over the natural completion status" (Managed-Effects
