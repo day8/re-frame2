@@ -35,6 +35,7 @@
   no fixed `\"Internal error\"` fallback string ever reaches a client
   (rf2-kzvwq)."
   (:require [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.ring.headers :as headers]
@@ -334,7 +335,21 @@
         ;; frame's route registry). One push/pop per request.
         explicit-head (:head opts)
         {:keys [hash-str body-html head-html html-attrs body-attrs]}
-        (rf/with-frame frame-id
+        ;; rf2-bzw8gd / EP-0013 §Realm Conformance: route the render walk's
+        ;; registered-view + head/route registry lookups through the request
+        ;; frame's OWN realm registrar, so a non-default-realm frame renders
+        ;; its realm's views/heads — not the process-global default's. The
+        ;; binding is established ONCE per request (covers resolve-root-view,
+        ;; render-to-string's `:view` lookups, and resolve-head's `:head` /
+        ;; `:route` lookups); a default-realm frame binds nothing (the
+        ;; byte-identical single-realm path). `with-frame` only binds
+        ;; `*current-frame*` (core_reg_view_macro.cljc), not the realm
+        ;; registrar — so the realm registrar is bound here, at the host
+        ;; adapter that holds the frame.
+        (frame/call-with-frame-realm-registrar
+         (frame/frame frame-id)
+         (fn []
+          (rf/with-frame frame-id
           (let [hiccup    (lifecycle/resolve-root-view root-view)
                 ;; rf2-4dra9 / rf2-h2ujj: resolve the active route's
                 ;; :head (or default-head fallback). The head fragment
@@ -374,7 +389,7 @@
                              :render-hash (when emit-hash? hash-str)})]
             (assoc head-bag
                    :hash-str  hash-str
-                   :body-html body-html)))
+                   :body-html body-html)))))
         ;; app-db-value / runtime-db-value read the named frame explicitly; no
         ;; with-frame needed. Kept outside the block so the explicit frame-id
         ;; read is visible — pulling the snapshot AFTER the render walk is

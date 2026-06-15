@@ -166,8 +166,12 @@
 (defonce pending-error-traces (atom {}))
 
 (defn- buffer-error-trace!
+  ;; Keyed by the (realm, frame) ADDRESS (rf2-bzw8gd) so two server frames
+  ;; sharing an id in different realms buffer independent error traces —
+  ;; `frame-address` collapses to the bare `frame-id` for the default realm.
   [frame-id trace-event]
-  (swap! pending-error-traces update frame-id (fnil conj []) trace-event))
+  (swap! pending-error-traces update (frame/frame-address frame-id)
+         (fnil conj []) trace-event))
 
 (defn- consume-pending-traces!
   "Atomically pull and clear the pending error traces for frame-id.
@@ -191,8 +195,9 @@
   next drain). No trace is dropped either way. `swap-vals!` is available
   on both the JVM (Clojure ≥1.9) and ClojureScript."
   [frame-id]
-  (let [[old _new] (swap-vals! pending-error-traces dissoc frame-id)]
-    (get old frame-id [])))
+  (let [addr       (frame/frame-address frame-id)
+        [old _new] (swap-vals! pending-error-traces dissoc addr)]
+    (get old addr [])))
 
 (defn apply-error-projection!
   "Project an error trace event via the active projector for frame-id
@@ -481,6 +486,8 @@
 
 (defn clear-pending-error-traces!
   "Drop frame-id's entry from the pending-error-traces buffer.
-  Called from `re-frame.ssr.request/on-frame-destroyed!`."
+  Called from `re-frame.ssr.request/on-frame-destroyed!`. Keyed by the
+  (realm, frame) ADDRESS (rf2-bzw8gd) so clearing one realm's frame leaves
+  another realm's same-id buffered traces intact."
   [frame-id]
-  (swap! pending-error-traces dissoc frame-id))
+  (swap! pending-error-traces dissoc (frame/frame-address frame-id)))
