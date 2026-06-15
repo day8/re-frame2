@@ -420,12 +420,20 @@
          (if-let [url (.getResource (context-class-loader) path)]
            (if (= "file" (.getProtocol url))
              ;; URL paths come out URL-encoded (e.g. `%20` for spaces)
-             ;; and use `/` on every platform. URLDecoder handles the
-             ;; encoding; the result on Windows is `/C:/Users/...` so
-             ;; strip a leading slash before a drive-letter to get the
-             ;; canonical `C:/Users/...` shape `compose-path` already
-             ;; handles.
-             (let [decoded (java.net.URLDecoder/decode (.getPath url) "UTF-8")]
+             ;; and use `/` on every platform. Decode via `URI.getPath`
+             ;; rather than `URLDecoder`: `URLDecoder` is a form-body
+             ;; (`application/x-www-form-urlencoded`) decoder that maps a
+             ;; literal `+` to a space — but a `file:` URL path is NOT
+             ;; form-encoded, so a literal `+` in a checkout path (e.g.
+             ;; `C:/code/re-frame2+wip`) must survive verbatim. `URI.getPath`
+             ;; decodes percent-escapes (`%20` → space, `%2B` → `+`) while
+             ;; leaving a literal `+` untouched — the correct grammar for a
+             ;; `file:` URL path (mirrors `file-url->path` in
+             ;; re-frame.testbed.open-in-editor-server, the runtime twin).
+             ;; The result on Windows is `/C:/Users/...` so strip a leading
+             ;; slash before a drive-letter to get the canonical
+             ;; `C:/Users/...` shape `compose-path` already handles.
+             (let [decoded (.getPath (.toURI url))]
                (if (and (> (.length ^String decoded) 2)
                         (= \/ (.charAt ^String decoded 0))
                         (= \: (.charAt ^String decoded 2)))
