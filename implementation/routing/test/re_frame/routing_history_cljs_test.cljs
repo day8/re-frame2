@@ -814,6 +814,12 @@
         (is (= "section-2"
                (:next-fragment (first @fragment-changed)))
             "trace carries :next-fragment")
+        ;; rf2-n0851k: the fragment-only trace carries the frame stamp
+        ;; under :tags :frame so epoch/Xray capture and the frame
+        ;; trace-disable gate cover fragment-only changes (Spec 012
+        ;; §Multi-frame routing / Spec 009).
+        (is (= :rf/default (:frame (first @fragment-changed)))
+            "rf2-n0851k: fragment-only trace is frame-attributed")
         (is (zero? (count @allocations))
             "fragment-only nav does NOT allocate a new nav-token")
 

@@ -34,13 +34,19 @@
   `:rf.route/transitioned`, which fires on every URL transition. The
   full URL transition path never emits this op and never coincides with
   a `:rf.route.nav-token/allocated` on the same drain. Consumers carry
-  `:prev-fragment` / `:next-fragment` in `:tags`. Scroll-capture (for the
-  position the user is leaving) still rides along."
-  [rdb prev next-fragment]
+  `:prev-fragment` / `:next-fragment` in `:tags`, plus the `:frame` stamp
+  (rf2-n0851k) so the fragment-only trace is frame-attributed exactly
+  like every other routing trace inside a known navigation cascade (Spec
+  012 §Multi-frame routing / Spec 009 — without `:frame`, epoch/Xray
+  capture and frame-level trace suppression can drop or bypass the op).
+  Scroll-capture (for the position the user is leaving) still rides
+  along."
+  [rdb prev next-fragment frame]
   (trace/emit! :rf.event :rf.route/fragment-changed
                {:route-id      (:route-id prev)
                 :prev-fragment (:fragment prev)
-                :next-fragment next-fragment})
+                :next-fragment next-fragment
+                :frame         frame})
   ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db
   ;; state — read/write the runtime-db partition.
   (let [capture-fx (scroll/capture-scroll-fx-entry rdb)]
@@ -185,9 +191,12 @@
       ;; Spec 012 §Fragments rules 3-4 (rf2-8oxj6): short-circuit BEFORE
       ;; the nav-token allocation / on-match drain below. Honoured on
       ;; both `:rf.route/transitioned` and `:rf.route/handle-url-change`
-      ;; (popstate) because the branch lives in the shared helper.
+      ;; (popstate) because the branch lives in the shared helper. The
+      ;; carried `frame` is threaded through so the emitted
+      ;; `:rf.route/fragment-changed` trace is frame-attributed (rf2-n0851k),
+      ;; consistent with the commit-path lifecycle traces below.
       fragment-only?
-      (fragment-only-fx rdb prev fragment)
+      (fragment-only-fx rdb prev fragment frame)
 
       :else
       (do

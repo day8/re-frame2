@@ -1,66 +1,81 @@
 ;; Conformance fixture: schemas/cofx-validates
-;; Per Spec 010 §Validation order step 2 — after a cofx injects its value
-;; into the merged context, the runtime validates that value against the
-;; cofx's :schema. Well-formed values flow through to the handler; malformed
-;; values emit :rf.error/schema-validation-failure with :where :cofx and
-;; the handler is NOT invoked (recovery: :no-recovery; downstream queue
-;; continues, mirroring the event-payload step).
+;; Per EP-0017 §5 + Spec 009 §`:rf.error/cofx-value-invalid` + Spec 010
+;; §Where schemas attach — a RECORDABLE coeffect declared on the handler's
+;; `:rf.cofx/requires` is delivered FLAT into the coeffects map, and its
+;; value is validated against the cofx registration's `:schema`. A
+;; well-formed recordable value flows through to the handler; a malformed
+;; value (supplied/replayed or generated) emits :rf.error/cofx-value-invalid
+;; and THROWS — the handler is NOT invoked (recovery: :no-recovery). This is
+;; the EP-0017 recordable-cofx schema path that REPLACES the retired
+;; ctx-mutating `inject-cofx` injection-time validation (the old
+;; :rf.error/schema-validation-failure :where :cofx shape is gone with
+;; `inject-cofx`).
 ;;
-;; This fixture pairs with reg-cofx's :schema metadata (Spec 010 §Where
-;; schemas attach §On every reg-*).
+;; This fixture pairs with reg-cofx's `{:recordable? true :schema …}`
+;; metadata (Spec 010 §Where schemas attach §On every reg-*). The recordable
+;; value is supplied on the dispatch token's `:rf.cofx` map (the
+;; supplied/replayed path) so the fixture is host-agnostic — no generator
+;; nondeterminism, just the declared `:schema` contract on a flat value.
 ;;
 ;; This capability — :schemas/cofx — is finer-grained than the baseline
-;; :schemas/runtime. Ports that have wired cofx-injection validation
-;; declare :schemas/cofx alongside :schemas/runtime; ports that haven't
-;; are skipped on this fixture.
+;; :schemas/runtime. Ports that have wired EP-0017 recordable-cofx :schema
+;; validation declare :schemas/cofx alongside :schemas/runtime; ports that
+;; haven't are skipped on this fixture.
 ;;
 ;; Dynamic-host only.
 
 {:fixture/id           :schemas/cofx-validates
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/error :schemas/runtime :schemas/cofx}
- :fixture/doc          "A reg-cofx handler with a :schema validates the value the cofx injects, after injection and before the event-fx handler runs. A well-formed coeffect map flows through to the handler; a malformed value emits :rf.error/schema-validation-failure with :where :cofx, and the handler is NOT invoked."
+ :fixture/doc          "A reg-cofx RECORDABLE registration with a :schema validates the value the handler takes delivery of via :rf.cofx/requires. A well-formed recordable value flows through to the handler; a malformed value emits :rf.error/cofx-value-invalid and the handler is NOT invoked (EP-0017 §5, the recordable-cofx :schema path that replaces the retired inject-cofx injection-time validation)."
  :fixture/dynamic-host-only? true
 
  :fixture/registry
- ;; Two cofx, both injecting :app-version under :coeffects. The well cofx
- ;; returns a string (passes the :string schema). The bad cofx returns a
- ;; number (fails the :string schema).
- {:cofx  {:app-version/well
-          {:doc  "Inject a well-typed app-version string."
-           :schema :string}
-          :app-version/bad
-          {:doc  "Inject a malformed app-version (number, schema rejects)."
-           :schema :string}}
+ ;; A single PROVIDED recordable cofx `:app-version/v` with a :string :schema.
+ ;; A provided recordable fact carries no supplier — its VALUE rides the
+ ;; dispatch token's :rf.cofx map (the supplied / replayed path). Delivery
+ ;; validates the supplied value against :schema, fails (a number is not a
+ ;; :string), and throws :rf.error/cofx-value-invalid before the event-fx
+ ;; handler runs (EP-0017 §5; deliver-declared-cofx supplied-value branch).
+ {:cofx  {:app-version/v
+          {:doc         "A provided recordable app-version coeffect; declared :string."
+           :recordable? true
+           :provided?   true
+           :schema      :string}}
   :event {:cap/seed
-          {:doc "Read :app-version from coeffects and stash it in app-db."}}}
+          {:doc "Read the recordable cofx; the runner auto-wires :rf.cofx/requires."}}}
 
  :fixture/handlers
- ;; Per rf2-g25p the runner now realises cofx bodies via `eval-value`,
- ;; so the `:set` step's value is the value injected at [:coeffects cofx-id].
- ;; The path slot is symbolic — convention is `[k]` where `k` is the
- ;; bare key shared by namespaced cofx-ids (matches `[:cofx-key k]`
- ;; reads in event bodies via the runner's auto-injection heuristic).
- {:cofx  {:app-version/well [[:set [:app-version] "1.4.5"]]
-          :app-version/bad  [[:set [:app-version] 42]]}
-  :event {:cap/seed [[:set [:app-version] [:cofx-key :app-version]]]}}
+ ;; The event reads the delivered recordable value flat under its id and
+ ;; stashes it. Reading `[:cofx-key :app-version/v]` declares the dependency
+ ;; (the runner auto-wires it onto the handler's :rf.cofx/requires, EP-0017
+ ;; model). The cofx has NO body — a provided recordable value is supplied on
+ ;; the token, not produced by a supplier.
+ {:event {:cap/seed [[:set [:app-version] [:cofx-key :app-version/v]]]}}
 
  :fixture/frame-config {}
 
  :fixture/dispatches
- [[:cap/seed]]
+ ;; Supply the malformed recordable value on the dispatch token's :rf.cofx
+ ;; map. Delivery validates it against the registration's :string :schema,
+ ;; fails, emits :rf.error/cofx-value-invalid, and THROWS during context
+ ;; assembly (a production hard error — an out-of-contract durable value is
+ ;; corrupt causal state). The throw escapes dispatch-sync, so the dispatch
+ ;; declares the expected `:rf.error/id` via `:expect-error` (the EP-0017
+ ;; boundary-throw assertion shape; the trace still fires BEFORE the throw and
+ ;; is asserted below).
+ [{:event        [:cap/seed]
+   :rf.cofx      {:app-version/v 42}
+   :expect-error :rf.error/cofx-value-invalid}]
 
  :fixture/expect
- ;; The malformed cofx triggered :where :cofx and the handler was skipped —
- ;; :app-version stays unset.
+ ;; The malformed recordable value failed :schema validation, the handler was
+ ;; skipped (the throw pre-empts it), and the error trace fired.
  {:final-app-db {}
 
   :trace-emissions
-  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :cap/seed}}
-   {:operation :rf.error/schema-validation-failure
+  [{:operation :rf.error/cofx-value-invalid
     :op-type   :error
-    :tags      {:category   :rf.error/schema-validation-failure
-                :failing-id :cap/seed
-                :where      :cofx
-                :rf.cofx/id    :app-version/bad}
+    :tags      {:rf.cofx/id :app-version/v
+                :failing-id :cap/seed}
     :recovery  :no-recovery}]}}
