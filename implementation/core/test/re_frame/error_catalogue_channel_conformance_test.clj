@@ -117,16 +117,64 @@
   back-ticked category as the first cell content."
   #"^\|\s*`(:rf\.[^`]+)`\s*\|\s*`?:[^|`]+`?\s*\|([^|]*)\|")
 
+(def ^:private catalogue-heading-re
+  "The canonical `### Error event catalogue` section heading — the one
+  five-column table (`:operation | :op-type | Channel | …`) that IS the
+  single source of truth. Anchored to the bare heading text so it does
+  NOT match the later `### Error event catalogue (single source of
+  truth)` prose subsection under §Resolved decisions (which carries no
+  table)."
+  #"^###\s+Error event catalogue\s*$")
+
+(def ^:private section-heading-re
+  "Any `#`/`##`/`###`-level heading — the boundary that ends the
+  catalogue section. The catalogue table is followed by the
+  `#### History-error tag layering` subsection (a `####`, which does NOT
+  terminate the section — its rows are part of the catalogue's tag
+  prose, carrying no table rows) and then the sibling `### Schemas`
+  heading, which DOES terminate it."
+  #"^#{1,3}\s+\S")
+
+(defn- catalogue-section-lines
+  "The lines of `spec/009-Instrumentation.md` that belong to the
+  canonical `### Error event catalogue` section — from the catalogue
+  heading (exclusive) to the next sibling-or-higher heading (exclusive).
+
+  Why scope to the section (rf2-i6p308): `catalogue-row-re` is anchored
+  at `^|` so it only matches genuine table rows, but the doc carries a
+  SECOND, differently-shaped table — the `#### Per-`:operation` quick
+  reference` (a 3-column `:operation | :op-type | One-line meaning`
+  table, NO Channel column). A single-category quick-ref row matches the
+  regex too, and its `One-line meaning` cell parses as the `Channel` —
+  an out-of-set value that fails every channel invariant. (Multi-
+  category slash-joined quick-ref rows escape the regex; single-category
+  ones don't — 17 of them, exactly the categories that surfaced.) Adding
+  that quick-ref table introduced the breakage independently of any test
+  change; the durable fix is to parse ONLY the canonical catalogue
+  section so a future second `:rf.*` table elsewhere in the doc can't
+  pollute the parse either. The blank/typo'd-channel invariant
+  (rf2-9fvp25) is unaffected: a malformed cell WITHIN the catalogue
+  section still parses as a row and fails."
+  [lines]
+  (->> lines
+       (drop-while #(not (re-find catalogue-heading-re %)))
+       (drop 1)                                     ;; the heading line itself
+       (take-while #(not (re-find section-heading-re %)))))
+
 (defn- parse-catalogue
   "Parse the Spec 009 error-event catalogue into a vector of
   `{:category <kw> :channel <string>}` maps, in table order. The
   `:channel` is the TRIMMED third-column cell — possibly the empty
   string when the cell is blank — so the blank/invalid-channel
   invariant is testable directly (rf2-9fvp25) rather than relying on a
-  row-count floor. Reads the markdown fresh each call (cheap; one file)."
+  row-count floor. Scoped to the canonical `### Error event catalogue`
+  section so the doc's other `:rf.*` tables (e.g. the quick-reference
+  table) don't pollute the parse (rf2-i6p308). Reads the markdown fresh
+  each call (cheap; one file)."
   []
   (->> (slurp spec-009-file)
        (str/split-lines)
+       (catalogue-section-lines)
        (keep (fn [line]
                (when-let [[_ cat-str chan] (re-find catalogue-row-re line)]
                  {:category (keyword (subs cat-str 1)) ;; drop leading ':'
