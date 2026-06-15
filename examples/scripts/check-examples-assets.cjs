@@ -60,6 +60,15 @@
  *      examples/_shared/README.md §Visual identity), so the contract is
  *      fail-closed — a re-introduced external @import turns the gate RED.
  *
+ *      REMOTE CSS url() FETCHES are NOT skipped either (rf2-o18ava). A
+ *      stylesheet can pull a third-party font / image without an @import — a
+ *      `@font-face { src: url(https://…) }`, a `background-image: url(//cdn…)`,
+ *      or a mask / cursor / border-image remote `url(...)` fires the same
+ *      load-time third-party request the @import policy guards. So the gate
+ *      ALSO REJECTS any unallowlisted network `url(...)` (http(s) / `//host`)
+ *      in scanned CSS, reusing EXTERNAL_IMPORT_ALLOWLIST. `data:` URIs (inlined,
+ *      no request) and same-document `url(#fragment)` paint refs stay exempt.
+ *
  *      Staging-aware resolution: a page references _shared assets at the
  *      relative path `_shared/...`, but in the SOURCE tree _shared lives
  *      ONCE at examples/_shared/ (not next to each page) — the orchestrator
@@ -164,17 +173,20 @@ const ALLOWLIST = {
 };
 
 // ---------------------------------------------------------------------------
-// External CSS @import allowlist (rf2-vou5mm) — the ONE encoded place that
-// names an external `@import url(https://…|http://…|//…)` the scanner is
-// permitted to see inside scanned CSS, each with a reason. Any external CSS
-// @import NOT listed here fails the gate.
+// External CSS network allowlist (rf2-vou5mm + rf2-o18ava) — the ONE encoded
+// place that names an external CSS network reference the scanner is permitted to
+// see inside scanned CSS, each with a reason. It covers BOTH an external
+// `@import url(https://…|http://…|//…)` AND a remote `url(...)` fetch in a
+// declaration (`@font-face src`, `background-image`, mask, cursor, …). Any
+// external CSS network ref NOT listed here fails the gate.
 //
-// Why this exists: an external CSS @import (e.g. Google Fonts) makes every
-// staged example fire a third-party network request at load time — the exact
-// regression rf2-byf7y removed. The shared design system deliberately loads
-// NO remote fonts/hosts (examples/_shared/README.md §Visual identity), so this
-// allowlist starts EMPTY and the contract is fail-closed: re-introducing an
-// external @import without an entry here turns the gate RED.
+// Why this exists: an external CSS @import (e.g. Google Fonts) OR a remote
+// `url()` font/image makes every staged example fire a third-party network
+// request at load time — the exact regression rf2-byf7y removed. The shared
+// design system deliberately loads NO remote fonts/hosts (examples/_shared/
+// README.md §Visual identity), so this allowlist starts EMPTY and the contract
+// is fail-closed: re-introducing an external @import / url() without an entry
+// here turns the gate RED.
 //
 // Shape mirrors ALLOWLIST: key = the external URL with any ?query/#hash
 // STRIPPED (the scanner normalises @import targets that way before the lookup);
@@ -445,6 +457,38 @@ function extractCssImports(css) {
   return out;
 }
 
+// Extract every `url(...)` target a CSS source can fetch at load time —
+// `@font-face { src: url(...) }`, `background`/`background-image`,
+// `mask`/`mask-image`, `cursor`, `border-image`, `list-style-image`, etc. The
+// `@import url(...)` form is intentionally SKIPPED (it is the @import policy's
+// job, enforced via extractCssImports above) so a remote @import is reported
+// once, not twice. Handles `url("x")` / `url('x')` / bare `url(x)` (with
+// surrounding whitespace). Returns the RAW (un-stripped) targets so the caller
+// can tell a `url(#fragment)` local paint-ref and a `data:` URI apart from a
+// network fetch — query/hash stripping happens at the network-classification
+// step, not here, or `url(#grain)` would normalise to the empty string.
+// Order-preserving, de-duplicated.
+function extractCssUrls(css) {
+  const out = [];
+  const seen = new Set();
+  // Blank out `@import url(...)` occurrences first so they are not re-collected
+  // here (extractCssImports already owns the @import contract).
+  const body = css.replace(
+    /@import\s+url\(\s*(?:"[^"]*"|'[^']*'|[^)'"]*)\s*\)/gi,
+    '',
+  );
+  for (const m of body.matchAll(
+    /\burl\(\s*("([^"]*)"|'([^']*)'|([^)'"]+))\s*\)/gi,
+  )) {
+    const raw = (m[2] != null ? m[2] : m[3] != null ? m[3] : m[4] || '').trim();
+    if (!raw) continue;
+    if (seen.has(raw)) continue;
+    seen.add(raw);
+    out.push(raw);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // The pure scan. Returns { errors: string[], pages: [...] }; the CLI and the
 // test both consume this. Filesystem reads are injected so the test can pin
@@ -614,15 +658,43 @@ function resolveRef(ref, pageDir, sharedParent = EXAMPLES_ROOT) {
   return path.resolve(pageDir, ref);
 }
 
+// Reject any unallowlisted network `url(...)` reference inside a CSS source
+// (rf2-o18ava). An `@font-face { src: url(https://…) }`, a
+// `background-image: url(//cdn…)`, a masked/cursor/border-image remote `url()`,
+// etc. fires a third-party network request at load time — the SAME
+// reproducibility / offline-dev / hidden-dependency regression the external CSS
+// `@import` policy (rf2-vou5mm / rf2-byf7y) already guards, just via a `url()`
+// declaration rather than an `@import`. Only http(s) and the protocol-relative
+// `//host/...` form are gated: `data:` URIs are inlined (no request) and a
+// `url(#fragment)` is a same-document paint reference (SVG filter/gradient), not
+// a fetch. Pushes one error per offending raw URL into `errors`.
+function checkCssNetworkUrls(css, displayRef, errors, externalAllowlist = EXTERNAL_IMPORT_ALLOWLIST) {
+  for (const raw of extractCssUrls(css)) {
+    if (!isNetworkRef(raw)) continue; // data:/#fragment/relative local — not a network fetch
+    const key = raw.split(/[?#]/)[0].trim(); // allowlist keys are query/hash-stripped
+    if (Object.prototype.hasOwnProperty.call(externalAllowlist, key)) continue;
+    errors.push(
+      `${displayRef}: CSS url('${raw}') pulls a third-party network ` +
+        `dependency (remote font / image / mask / cursor) into staged ` +
+        `examples at load time. Remote CSS url() fetches are forbidden unless ` +
+        `explicitly allowlisted with a reason in EXTERNAL_IMPORT_ALLOWLIST in ` +
+        `check-examples-assets.cjs (rf2-o18ava).`,
+    );
+  }
+}
+
 // Resolve + check a single local CSS file's @import targets, recursively.
 // Records an error for any local import that does not resolve to a real file,
-// and for any EXTERNAL @import (http/https/protocol-relative) not present in
-// the external-import allowlist (rf2-vou5mm).
+// for any EXTERNAL @import (http/https/protocol-relative) not present in the
+// external-import allowlist (rf2-vou5mm), and for any remote `url(...)` fetch
+// in the CSS body (rf2-o18ava).
 function checkCssImports(io, cssAbsPath, displayRef, errors, seen, externalAllowlist = EXTERNAL_IMPORT_ALLOWLIST) {
   if (seen.has(cssAbsPath)) return;
   seen.add(cssAbsPath);
   const css = readFileSafe(io, cssAbsPath);
   if (css == null) return; // a missing CSS file is reported by its referrer
+  // Remote url() fetches (font-face/background/mask/cursor/…) — rf2-o18ava.
+  checkCssNetworkUrls(css, displayRef, errors, externalAllowlist);
   for (const imp of extractCssImports(css)) {
     if (isExternalRef(imp)) {
       // An external CSS @import pulls a third-party network dependency into
@@ -878,6 +950,19 @@ function checkSharedTree(io, opts = {}) {
         );
       }
     }
+    // No remote `url(...)` fetch in the shared CSS (rf2-o18ava). A
+    // `@font-face { src: url(https://…) }` / `background-image: url(//cdn…)` /
+    // mask / cursor remote url() here makes every staged example fire a
+    // third-party request at load time — the SAME no-remote-styling contract
+    // (examples/_shared/README.md §Visual identity) the @import policy guards.
+    // Checked HERE, independent of the page reference graph, so the contract
+    // holds even if no scanned page happens to link the file.
+    checkCssNetworkUrls(
+      css,
+      `examples/_shared/css/${cssName}`,
+      errors,
+      externalImportAllowlist,
+    );
   }
 
   // structure.css reachable from style.css's @import.
@@ -1047,8 +1132,10 @@ module.exports = {
   extractAssetRefs,
   extractOgImageRefs,
   extractCssImports,
+  extractCssUrls,
   resolveRef,
   checkCssImports,
+  checkCssNetworkUrls,
   scanPage,
   checkSharedTree,
   scanAll,

@@ -43,6 +43,7 @@ const {
   extractAssetRefs,
   extractOgImageRefs,
   extractCssImports,
+  extractCssUrls,
   resolveRef,
   scanPage,
   checkSharedTree,
@@ -495,6 +496,143 @@ it('TEETH: a data: @import is NOT treated as a network dep (not rejected)', () =
     errors,
     [],
     `a data: @import must not be rejected as a network dep, got: ${errors.join(' | ')}`,
+  );
+});
+
+// ---- TEETH: remote CSS url() fetches are REJECTED (rf2-o18ava) -----------
+//
+// rf2-o18ava found the gate enforced external CSS @import but SKIPPED remote
+// `url(...)` fetches — a `@font-face { src: url(https://…) }` or a
+// `background-image: url(//cdn…)` could re-introduce a third-party font/image
+// request and stay green, despite the no-remote-styling contract. The contract
+// is now fail-closed for url() too: an unallowlisted network url() in any
+// scanned CSS fails the gate, while data: URIs and url(#fragment) stay exempt.
+
+it('extractCssUrls extracts url() targets but SKIPS @import url() (owned by @import)', () => {
+  const urls = extractCssUrls(
+    [
+      "@import url('structure.css');",
+      "@font-face { src: url('https://fonts.example.com/a.woff2'); }",
+      'body { background-image: url(//cdn.example.com/bg.png); }',
+      '.x { cursor: url("img/cursor.png"), auto; }',
+      '.y { mask-image: url(#grain); }',
+      '.z { background: url(data:image/png;base64,AAAA); }',
+    ].join('\n'),
+  );
+  // The @import target is NOT collected here.
+  assert.ok(!urls.includes('structure.css'), 'extractCssUrls must skip @import url()');
+  assert.ok(urls.includes('https://fonts.example.com/a.woff2'));
+  assert.ok(urls.includes('//cdn.example.com/bg.png'));
+  assert.ok(urls.includes('img/cursor.png'));
+  // Fragment + data refs are returned RAW (so the caller can classify them).
+  assert.ok(urls.includes('#grain'));
+  assert.ok(urls.includes('data:image/png;base64,AAAA'));
+});
+
+it('TEETH: a remote @font-face src: url(https://…) is REJECTED', () => {
+  // The exact rf2-o18ava repro: a remote web-font pulled in via url() rather
+  // than an @import. The gate must fail it (and never resolve it on disk).
+  const io = fullIo({
+    [STYLE]: [
+      "@import url('structure.css');",
+      "@font-face { font-family: 'Inter';",
+      "  src: url('https://fonts.example.com/inter.woff2') format('woff2'); }",
+    ].join('\n'),
+  });
+  const { errors } = scanPage(io, PAGE);
+  assert.ok(
+    errors.some(
+      (e) =>
+        e.includes("CSS url('https://fonts.example.com/inter.woff2')") &&
+        e.includes('rf2-o18ava'),
+    ),
+    `expected a rejected remote @font-face url(), got: ${errors.join(' | ')}`,
+  );
+  assert.ok(
+    !errors.some((e) => e.includes('does not resolve to a file')),
+    `a remote url() must never be checked on disk, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: a protocol-relative background-image: url(//cdn…) is REJECTED', () => {
+  const io = fullIo({
+    [STYLE]: [
+      "@import url('structure.css');",
+      'body { background-image: url(//cdn.example.com/bg.png); }',
+    ].join('\n'),
+  });
+  const { errors } = scanPage(io, PAGE);
+  assert.ok(
+    errors.some(
+      (e) => e.includes("CSS url('//cdn.example.com/bg.png')") && e.includes('rf2-o18ava'),
+    ),
+    `expected a rejected protocol-relative url(), got: ${errors.join(' | ')}`,
+  );
+});
+
+it('a data: url() and a url(#fragment) paint ref are NOT rejected (no network fetch)', () => {
+  const io = fullIo({
+    [STYLE]: [
+      "@import url('structure.css');",
+      '.icon { background: url(data:image/svg+xml,%3Csvg/%3E) no-repeat; }',
+      '.grain { fill: url(#grain); }',
+    ].join('\n'),
+  });
+  const { errors } = scanPage(io, PAGE);
+  assert.deepStrictEqual(
+    errors,
+    [],
+    `data: + url(#fragment) refs must not trip the network gate, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('a remote CSS url() whose exact URL is allowlisted (with reason) scans clean', () => {
+  // The scanner strips ?query/#hash before the allowlist lookup, so the key is
+  // the query-stripped URL — sharing EXTERNAL_IMPORT_ALLOWLIST with @import.
+  const written = 'https://fonts.example.com/inter.woff2?v=3';
+  const allowKey = 'https://fonts.example.com/inter.woff2';
+  const io = fullIo({
+    [STYLE]: [
+      "@import url('structure.css');",
+      `@font-face { src: url('${written}') format('woff2'); }`,
+    ].join('\n'),
+  });
+  const { errors } = scanPage(io, PAGE, {
+    externalImportAllowlist: {
+      [allowKey]: { reason: 'deliberate remote font for this test' },
+    },
+  });
+  assert.deepStrictEqual(
+    errors,
+    [],
+    `an allowlisted remote url() should scan clean, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: a remote url() in the _shared tree is rejected by checkSharedTree', () => {
+  // checkSharedTree enforces the no-remote-styling contract directly on the
+  // _shared source, independent of any page's reference graph.
+  const io = makeIo({
+    [path.join(SHARED_ROOT, 'css', 'style.css')]:
+      GOOD_SHARED_STYLE +
+      "\n@font-face { src: url('https://fonts.example.com/x.woff2'); }",
+    [path.join(SHARED_ROOT, 'css', 'structure.css')]:
+      '.send-form input[type="text"] { min-width: 240px; }\n' +
+      '.cells-grid input { width: 56px; }\n' +
+      RESPONSIVE_SHELL,
+    [path.join(SHARED_ROOT, 'img', 'favicon.svg')]: '<svg/>',
+    [path.join(SHARED_ROOT, 'img', 'og.png')]: VALID_OG_PNG,
+    [path.join(SHARED_ROOT, 'img', 'og.svg')]: '<svg/>',
+  });
+  const errors = checkSharedTree(io, { sharedRoot: SHARED_ROOT });
+  assert.ok(
+    errors.some(
+      (e) =>
+        e.includes('style.css') &&
+        e.includes('fonts.example.com') &&
+        e.includes('rf2-o18ava'),
+    ),
+    `expected checkSharedTree to reject the remote url(), got: ${errors.join(' | ')}`,
   );
 });
 

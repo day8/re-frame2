@@ -90,9 +90,9 @@ is `flex-shrink: 0` with a 320px `min-width`, the side-by-side layout needs
 ~624px before any app content shows, so on a phone it would overflow
 horizontally even though the pages declare a responsive viewport.
 
-`structure.css` therefore **stacks** the shell below the
-`--rf-testbed-shell-stack` breakpoint (900px): the columns become rows (app on
-top, Xray host below), the host drops its fixed width / min-width and goes
+`structure.css` therefore **stacks** the shell below a 900px breakpoint: the
+columns become rows (app on top, Xray host below), the host drops its fixed
+width / min-width and goes
 full-bleed, and its height is capped (`max-height: 60vh` + internal scroll) so
 the panel never crowds the app off-screen. The host/app DOM contract
 (`.rf2-testbed-shell > #app` + `[data-rf-xray-host]`) is **unchanged**, so Xray

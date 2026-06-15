@@ -209,8 +209,10 @@ hr {
  * (default 560px) on the right. With `flex-shrink:0` + a 320px host min-width
  * that desktop shell needs ~624px before any app content shows, so on a phone
  * it would overflow horizontally even though the pages declare a responsive
- * viewport. Below the --rf-testbed-shell-stack breakpoint (900px) we STACK:
- * the columns become rows (app on top, Xray host below), the host drops its
+ * viewport. Below a 900px breakpoint (the narrowest the side-by-side layout can
+ * be without overflow is ~624px; 900px keeps a comfortable app column before
+ * stacking) we STACK: the columns become rows (app on top, Xray host below),
+ * the host drops its
  * fixed width / min-width and goes full-bleed, and its height is capped so the
  * panel never crowds the app off-screen. The host/app DOM contract
  * (`.rf2-testbed-shell > #app` + `[data-rf-xray-host]`) is untouched, so Xray
@@ -220,10 +222,6 @@ hr {
 
 :root {
   --rf-xray-accent: #7C5CFF;
-  /* The viewport width at/under which the inline-Xray shell stacks instead of
-     sitting side-by-side. ~624px is the narrowest the side-by-side layout can
-     be without overflow; 900px keeps a comfortable app column before stacking. */
-  --rf-testbed-shell-stack: 900px;
 }
 
 .rf2-testbed-shell {
