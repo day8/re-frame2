@@ -60,6 +60,7 @@
 
 (defn- setup-xray-frame! []
   (registry/register-xray-handlers!)
+  (xray-test-support/install-test-overrides!)
   (frame/reg-frame :rf/xray {}))
 
 (defn- override-machines! [machines]
@@ -93,7 +94,6 @@
     (is (some? (registrar/handler :sub :rf.xray/registered-machines)))
     (is (some? (registrar/handler :sub :rf.xray/machine-snapshots)))
     (is (some? (registrar/handler :sub :rf.xray/machine-definitions)))
-    (is (some? (registrar/handler :sub :rf.xray/machine-definitions-override)))
     (is (some? (registrar/handler :sub :rf.xray/selected-machine-id)))
     (is (some? (registrar/handler :sub :rf.xray/machine-inspector-data)))
     (is (some? (registrar/handler
@@ -104,17 +104,31 @@
     (is (some? (registrar/handler :event :rf.xray/machine-state-clicked)))
     (is (some? (registrar/handler :event :rf.xray/machine-focus-prev)))
     (is (some? (registrar/handler :event :rf.xray/machine-focus-next)))
-    (is (some? (registrar/handler :event :rf.xray/set-scrubber-position)))
+    (is (some? (registrar/handler :event :rf.xray/set-scrubber-position))))
+  (testing "rf2-e8330v — production registration installs NO -for-test ids
+            and no *-override subs; the test seam installs them"
+    (registry/register-xray-handlers!)
+    (is (nil? (registrar/handler :sub :rf.xray/machine-definitions-override)))
+    (is (nil? (registrar/handler :sub :rf.xray/machine-snapshots-override)))
+    (is (nil? (registrar/handler
+                :event :rf.xray/set-registered-machines-override-for-test)))
+    (is (nil? (registrar/handler
+                :event :rf.xray/set-machine-snapshots-override-for-test)))
+    (is (nil? (registrar/handler
+                :event :rf.xray/set-machine-definitions-override-for-test)))
+    (is (nil? (registrar/handler :event :rf.xray/set-epoch-history-for-test)))
+    (is (nil? (registrar/handler :event :rf.xray/set-focus-epoch-id-for-test)))
+    (xray-test-support/install-test-overrides!)
+    (is (some? (registrar/handler :sub :rf.xray/machine-definitions-override)))
+    (is (some? (registrar/handler :sub :rf.xray/machine-snapshots-override)))
     (is (some? (registrar/handler
                  :event :rf.xray/set-registered-machines-override-for-test)))
     (is (some? (registrar/handler
                  :event :rf.xray/set-machine-snapshots-override-for-test)))
     (is (some? (registrar/handler
                  :event :rf.xray/set-machine-definitions-override-for-test)))
-    (is (some? (registrar/handler
-                 :event :rf.xray/set-epoch-history-for-test)))
-    (is (some? (registrar/handler
-                 :event :rf.xray/set-focus-epoch-id-for-test)))))
+    (is (some? (registrar/handler :event :rf.xray/set-epoch-history-for-test)))
+    (is (some? (registrar/handler :event :rf.xray/set-focus-epoch-id-for-test)))))
 
 (deftest composite-defaults-to-empty-when-no-override
   (testing "with an empty machines override the composite returns the

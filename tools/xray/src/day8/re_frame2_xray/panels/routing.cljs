@@ -458,6 +458,27 @@
                              :current    current})
         (route-table-section topology)])]))
 
+;; ---- production value sources --------------------------------------------
+;;
+;; The raw values the production data subs read. Shared with the
+;; test-override seam (`install-test-overrides!` below) so the override
+;; branch — `(or override (real …))` — lives in ONE place (the seam),
+;; not duplicated across production and test surfaces (rf2-e8330v).
+
+(defn- registered-routes-value
+  "The flat `{<route-id> <meta>}` map sourced from `(rf/registrations
+  :route)`."
+  []
+  (rf/registrations :route))
+
+(defn- current-route-slice-value
+  "The live route slice off the target frame's runtime-db
+  (`[:rf.runtime/routing :current]`; EP-0001 rf2-vzld77 — runtime-db
+  state, not app-db)."
+  [target-runtime-db]
+  (when (map? target-runtime-db)
+    (get-in target-runtime-db [:rf.runtime/routing :current])))
+
 ;; ---- registration entry --------------------------------------------------
 
 (defn install!
@@ -474,9 +495,12 @@
     - `:rf.xray/routing-tab-data` — view-facing topology-plus-overlay
       composite (focused-epoch scoped). Carries `:silent?`, `:topology`,
       `:activity`, `:from-id`, `:to-id`, `:navigated?`, `:current`.
-    - `:rf.xray/set-registered-routes-override-for-test`,
-      `:rf.xray/set-current-route-slice-override-for-test` —
-      test-only override hooks.
+
+  The test-only override seam (`:rf.xray/set-registered-routes-override-
+  for-test`, `:rf.xray/set-current-route-slice-override-for-test` + the
+  companion `*-override` subs) is NOT installed here — production
+  registration carries no `-for-test` ids. Tests opt into it via
+  `install-test-overrides!` (rf2-e8330v / xxo3zz F3).
 
   The browse / search / Simulate-URL slots (`:rf.xray.routing/
   query`, `:rf.xray.routing/sim-url`, `:rf.xray.routing/expanded`,
@@ -486,46 +510,17 @@
   `static/routes/panel/install!`)."
   []
 
-  ;; Test-only override slots --------------------------------------------
-
-  (rf/reg-event :rf.xray/set-registered-routes-override-for-test
-    (fn [{:keys [db]} [_ ov]]
-      {:db (if (nil? ov)
-        (dissoc db :registered-routes-override)
-        (assoc db :registered-routes-override ov))}))
-
-  (rf/reg-sub :rf.xray/registered-routes-override
-    (fn [db _query]
-      (get db :registered-routes-override)))
-
-  (rf/reg-event :rf.xray/set-current-route-slice-override-for-test
-    (fn [{:keys [db]} [_ ov]]
-      {:db (if (nil? ov)
-        (dissoc db :current-route-slice-override)
-        (assoc db :current-route-slice-override ov))}))
-
-  (rf/reg-sub :rf.xray/current-route-slice-override
-    (fn [db _query]
-      (get db :current-route-slice-override)))
-
   ;; Production data subs -------------------------------------------------
 
   (rf/reg-sub :rf.xray/registered-routes
     :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray/registered-routes-override]
-    (fn [[_buffer override] _query]
-      (or override (rf/registrations :route))))
+    (fn [_buffer _query]
+      (registered-routes-value)))
 
   (rf/reg-sub :rf.xray/current-route-slice
     :<- [:rf.xray/target-frame-runtime-db]
-    :<- [:rf.xray/current-route-slice-override]
-    (fn [[target-runtime-db override] _query]
-      (cond
-        (some? override)        override
-        ;; EP-0001 (rf2-vzld77): the route slice is durable runtime-db state
-        ;; at `[:rf.runtime/routing :current]`, no longer in app-db.
-        (map? target-runtime-db) (get-in target-runtime-db [:rf.runtime/routing :current])
-        :else                   nil)))
+    (fn [target-runtime-db _query]
+      (current-route-slice-value target-runtime-db)))
 
   ;; View-facing composite (topology-plus-overlay shape, rf2-3kjlo) -------
 
@@ -559,4 +554,49 @@
      :order 6
      :panel Panel})
 
+  nil)
+
+;; ---- test-only override seam (rf2-e8330v / xxo3zz F3) ---------------------
+
+(defn install-test-overrides!
+  "Install the Routing panel's test-only override seam. Registers the
+  `:rf.xray/set-*-override-for-test` events + companion `*-override`
+  subs, then RE-registers the production data subs to layer the override
+  read on top (`(or override (real …))`). Tests opt in by calling this
+  AFTER `register-xray-handlers!` (typically via
+  `test-support/install-test-overrides!`). **Test-only — never call
+  from production.**"
+  []
+  (rf/reg-event :rf.xray/set-registered-routes-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov)
+        (dissoc db :registered-routes-override)
+        (assoc db :registered-routes-override ov))}))
+  (rf/reg-sub :rf.xray/registered-routes-override
+    (fn [db _query]
+      (get db :registered-routes-override)))
+
+  (rf/reg-event :rf.xray/set-current-route-slice-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov)
+        (dissoc db :current-route-slice-override)
+        (assoc db :current-route-slice-override ov))}))
+  (rf/reg-sub :rf.xray/current-route-slice-override
+    (fn [db _query]
+      (get db :current-route-slice-override)))
+
+  ;; Override-aware re-registration of the production data subs.
+  (rf/reg-sub :rf.xray/registered-routes
+    :<- [:rf.xray/trace-buffer]
+    :<- [:rf.xray/registered-routes-override]
+    (fn [[_buffer override] _query]
+      (or override (registered-routes-value))))
+
+  (rf/reg-sub :rf.xray/current-route-slice
+    :<- [:rf.xray/target-frame-runtime-db]
+    :<- [:rf.xray/current-route-slice-override]
+    (fn [[target-runtime-db override] _query]
+      (if (some? override)
+        override
+        (current-route-slice-value target-runtime-db))))
   nil)

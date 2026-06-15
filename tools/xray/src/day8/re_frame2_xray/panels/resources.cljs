@@ -733,6 +733,31 @@
         (cache-growth-section cache-growth)
         (audit-section audit)])]))
 
+;; ---- production value sources --------------------------------------------
+;;
+;; The raw values the production data subs read. Shared with the
+;; test-override seam (`install-test-overrides!` below) so each override
+;; branch — `(or override (real …))` — lives in ONE place (the seam),
+;; not duplicated across production and test surfaces (rf2-e8330v).
+
+(defn- registered-resources-value []
+  (rf/registrations :resource))
+
+(defn- registered-scope-resolvers-value []
+  (rf/registrations :resource-scope))
+
+(defn- resource-entries-value [target-runtime-db]
+  (when (map? target-runtime-db)
+    (get-in target-runtime-db h/entries-rel-path)))
+
+(defn- resource-work-ledger-value [target-runtime-db]
+  (when (map? target-runtime-db)
+    (get target-runtime-db h/work-ledger-key)))
+
+(defn- resource-routing-slice-value [target-runtime-db]
+  (when (map? target-runtime-db)
+    (get target-runtime-db h/routing-key)))
+
 ;; ---- registration entry --------------------------------------------------
 
 (defn install!
@@ -765,107 +790,56 @@
       slice (per-resource freshness rollup, the active route flagged
       `:current?` with its live `:blocking-live` wait points).
 
+  The test-only override seam (six `:rf.xray/set-*-override-for-test`
+  events + companion `*-override` subs) is NOT installed here —
+  production registration carries no `-for-test` ids. Tests opt into it
+  via `install-test-overrides!` (rf2-e8330v / xxo3zz F3).
+
   Read-only: NO event registered here dispatches a `:rf.resource/*`
   event — inspection never becomes an owner (Spec 016)."
   []
-
-  ;; Test-only override slots ---------------------------------------------
-
-  (rf/reg-event :rf.xray/set-registered-resources-override-for-test
-    (fn [{:keys [db]} [_ ov]]
-      {:db (if (nil? ov) (dissoc db :registered-resources-override)
-          (assoc db :registered-resources-override ov))}))
-  (rf/reg-sub :rf.xray/registered-resources-override
-    (fn [db _] (get db :registered-resources-override)))
-
-  (rf/reg-event :rf.xray/set-registered-scope-resolvers-override-for-test
-    (fn [{:keys [db]} [_ ov]]
-      {:db (if (nil? ov) (dissoc db :registered-scope-resolvers-override)
-          (assoc db :registered-scope-resolvers-override ov))}))
-  (rf/reg-sub :rf.xray/registered-scope-resolvers-override
-    (fn [db _] (get db :registered-scope-resolvers-override)))
-
-  (rf/reg-event :rf.xray/set-resource-entries-override-for-test
-    (fn [{:keys [db]} [_ ov]]
-      {:db (if (nil? ov) (dissoc db :resource-entries-override)
-          (assoc db :resource-entries-override ov))}))
-  (rf/reg-sub :rf.xray/resource-entries-override
-    (fn [db _] (get db :resource-entries-override)))
-
-  (rf/reg-event :rf.xray/set-resource-work-ledger-override-for-test
-    (fn [{:keys [db]} [_ ov]]
-      {:db (if (nil? ov) (dissoc db :resource-work-ledger-override)
-          (assoc db :resource-work-ledger-override ov))}))
-  (rf/reg-sub :rf.xray/resource-work-ledger-override
-    (fn [db _] (get db :resource-work-ledger-override)))
-
-  (rf/reg-event :rf.xray/set-resource-sub-reads-override-for-test
-    (fn [{:keys [db]} [_ ov]]
-      {:db (if (nil? ov) (dissoc db :resource-sub-reads-override)
-          (assoc db :resource-sub-reads-override ov))}))
-  (rf/reg-sub :rf.xray/resource-sub-reads-override
-    (fn [db _] (get db :resource-sub-reads-override)))
-
-  (rf/reg-event :rf.xray/set-resource-routing-slice-override-for-test
-    (fn [{:keys [db]} [_ ov]]
-      {:db (if (nil? ov) (dissoc db :resource-routing-slice-override)
-          (assoc db :resource-routing-slice-override ov))}))
-  (rf/reg-sub :rf.xray/resource-routing-slice-override
-    (fn [db _] (get db :resource-routing-slice-override)))
 
   ;; Production data subs --------------------------------------------------
 
   (rf/reg-sub :rf.xray/registered-resources
     :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray/registered-resources-override]
-    (fn [[_buffer override] _]
-      (or override (rf/registrations :resource))))
+    (fn [_buffer _]
+      (registered-resources-value)))
 
   ;; Named resource-scope resolvers (rf2-hls77w, EP-0016 D3 / Spec 016
   ;; §Named resource-scope resolvers). The static `:resource-scope` registry
-  ;; read decoupled, exactly like `:registered-resources` above. Test
-  ;; override slot below.
+  ;; read decoupled, exactly like `:registered-resources` above.
   (rf/reg-sub :rf.xray/registered-scope-resolvers
     :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray/registered-scope-resolvers-override]
-    (fn [[_buffer override] _]
-      (or override (rf/registrations :resource-scope))))
+    (fn [_buffer _]
+      (registered-scope-resolvers-value)))
 
   (rf/reg-sub :rf.xray/resource-entries
     :<- [:rf.xray/target-frame-runtime-db]
-    :<- [:rf.xray/resource-entries-override]
-    (fn [[target-runtime-db override] _]
-      (cond
-        (some? override)         override
-        (map? target-runtime-db) (get-in target-runtime-db h/entries-rel-path)
-        :else                    nil)))
+    (fn [target-runtime-db _]
+      (resource-entries-value target-runtime-db)))
 
   (rf/reg-sub :rf.xray/resource-work-ledger
     :<- [:rf.xray/target-frame-runtime-db]
-    :<- [:rf.xray/resource-work-ledger-override]
-    (fn [[target-runtime-db override] _]
-      (cond
-        (some? override)         override
-        (map? target-runtime-db) (get target-runtime-db h/work-ledger-key)
-        :else                    nil)))
+    (fn [target-runtime-db _]
+      (resource-work-ledger-value target-runtime-db)))
 
   (rf/reg-sub :rf.xray/resource-sub-reads
-    :<- [:rf.xray/resource-sub-reads-override]
-    (fn [override _] (or override [])))
+    (fn [_db _]
+      ;; Empty by default; the host/runtime never populates app-db with
+      ;; observed sub-reads, so the production value is the empty vector.
+      ;; The test seam supplies fixtures via the override slot.
+      []))
 
   ;; The routing-runtime slice backing the LIVE route/resource graph
   ;; (rf2-m5u3gt). Reads `[:rf.runtime/routing]` off the target frame's
   ;; runtime-db (decoupled, like the Routing tab's current-route sub) and
   ;; surfaces the live `:current` route slice (carrying `:route-id` + `:nav-token`)
-  ;; + the per-nav-token unsettled-blocking set. Test override slot.
+  ;; + the per-nav-token unsettled-blocking set.
   (rf/reg-sub :rf.xray/resource-routing-slice
     :<- [:rf.xray/target-frame-runtime-db]
-    :<- [:rf.xray/resource-routing-slice-override]
-    (fn [[target-runtime-db override] _]
-      (cond
-        (some? override)         override
-        (map? target-runtime-db) (get target-runtime-db h/routing-key)
-        :else                    nil)))
+    (fn [target-runtime-db _]
+      (resource-routing-slice-value target-runtime-db)))
 
   ;; View-facing composite -------------------------------------------------
 
@@ -956,4 +930,93 @@
      :order 7
      :panel Panel})
 
+  nil)
+
+;; ---- test-only override seam (rf2-e8330v / xxo3zz F3) ---------------------
+
+(defn install-test-overrides!
+  "Install the Resources panel's test-only override seam — the six
+  `:rf.xray/set-*-override-for-test` events + companion `*-override`
+  subs, then RE-register the production data subs to layer each override
+  read on top (`(or override (real …))`). Tests opt in by calling this
+  AFTER `register-xray-handlers!` (typically via
+  `test-support/install-test-overrides!`). **Test-only — never call
+  from production.**"
+  []
+  (rf/reg-event :rf.xray/set-registered-resources-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov) (dissoc db :registered-resources-override)
+          (assoc db :registered-resources-override ov))}))
+  (rf/reg-sub :rf.xray/registered-resources-override
+    (fn [db _] (get db :registered-resources-override)))
+
+  (rf/reg-event :rf.xray/set-registered-scope-resolvers-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov) (dissoc db :registered-scope-resolvers-override)
+          (assoc db :registered-scope-resolvers-override ov))}))
+  (rf/reg-sub :rf.xray/registered-scope-resolvers-override
+    (fn [db _] (get db :registered-scope-resolvers-override)))
+
+  (rf/reg-event :rf.xray/set-resource-entries-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov) (dissoc db :resource-entries-override)
+          (assoc db :resource-entries-override ov))}))
+  (rf/reg-sub :rf.xray/resource-entries-override
+    (fn [db _] (get db :resource-entries-override)))
+
+  (rf/reg-event :rf.xray/set-resource-work-ledger-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov) (dissoc db :resource-work-ledger-override)
+          (assoc db :resource-work-ledger-override ov))}))
+  (rf/reg-sub :rf.xray/resource-work-ledger-override
+    (fn [db _] (get db :resource-work-ledger-override)))
+
+  (rf/reg-event :rf.xray/set-resource-sub-reads-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov) (dissoc db :resource-sub-reads-override)
+          (assoc db :resource-sub-reads-override ov))}))
+  (rf/reg-sub :rf.xray/resource-sub-reads-override
+    (fn [db _] (get db :resource-sub-reads-override)))
+
+  (rf/reg-event :rf.xray/set-resource-routing-slice-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov) (dissoc db :resource-routing-slice-override)
+          (assoc db :resource-routing-slice-override ov))}))
+  (rf/reg-sub :rf.xray/resource-routing-slice-override
+    (fn [db _] (get db :resource-routing-slice-override)))
+
+  ;; Override-aware re-registration of the production data subs.
+  (rf/reg-sub :rf.xray/registered-resources
+    :<- [:rf.xray/trace-buffer]
+    :<- [:rf.xray/registered-resources-override]
+    (fn [[_buffer override] _]
+      (or override (registered-resources-value))))
+
+  (rf/reg-sub :rf.xray/registered-scope-resolvers
+    :<- [:rf.xray/trace-buffer]
+    :<- [:rf.xray/registered-scope-resolvers-override]
+    (fn [[_buffer override] _]
+      (or override (registered-scope-resolvers-value))))
+
+  (rf/reg-sub :rf.xray/resource-entries
+    :<- [:rf.xray/target-frame-runtime-db]
+    :<- [:rf.xray/resource-entries-override]
+    (fn [[target-runtime-db override] _]
+      (if (some? override) override (resource-entries-value target-runtime-db))))
+
+  (rf/reg-sub :rf.xray/resource-work-ledger
+    :<- [:rf.xray/target-frame-runtime-db]
+    :<- [:rf.xray/resource-work-ledger-override]
+    (fn [[target-runtime-db override] _]
+      (if (some? override) override (resource-work-ledger-value target-runtime-db))))
+
+  (rf/reg-sub :rf.xray/resource-sub-reads
+    :<- [:rf.xray/resource-sub-reads-override]
+    (fn [override _] (or override [])))
+
+  (rf/reg-sub :rf.xray/resource-routing-slice
+    :<- [:rf.xray/target-frame-runtime-db]
+    :<- [:rf.xray/resource-routing-slice-override]
+    (fn [[target-runtime-db override] _]
+      (if (some? override) override (resource-routing-slice-value target-runtime-db))))
   nil)

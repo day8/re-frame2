@@ -37,7 +37,19 @@
   (:require [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.install :as install]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.trace-collector :as trace-collector]))
+            [day8.re-frame2-xray.trace-collector :as trace-collector]
+            ;; rf2-e8330v (xxo3zz F3) — per-panel test-override seams.
+            ;; Production registration installs NO `-for-test` ids; tests
+            ;; opt into the override surface via `install-test-overrides!`.
+            [day8.re-frame2-xray.panels.derivation-graph :as derivation-graph]
+            [day8.re-frame2-xray.panels.machine-after-rings :as after-rings]
+            [day8.re-frame2-xray.panels.machine-inspector :as machine-inspector]
+            [day8.re-frame2-xray.panels.resources :as resources]
+            [day8.re-frame2-xray.panels.routing :as routing]
+            [day8.re-frame2-xray.static.flows.panel :as static-flows-panel]
+            [day8.re-frame2-xray.static.interceptors.panel :as static-interceptors-panel]
+            [day8.re-frame2-xray.static.machines.panel :as static-machines-panel]
+            [day8.re-frame2-xray.static.schemas.panel :as static-schemas-panel]))
 
 (defn reset-sentinels!
   "Reset ONLY the install + registry idempotency sentinels, in
@@ -79,4 +91,37 @@
   []
   (reset-all!)
   (config/reset-settings!)
+  nil)
+
+;; ---- test-only override seam orchestrator (rf2-e8330v / xxo3zz F3) -------
+
+(defn install-test-overrides!
+  "Install EVERY panel's test-only override seam in one call.
+
+  Production `register-xray-handlers!` installs NO ids ending in
+  `-for-test` and no `(or override …)` branches in the data subs — the
+  override seam is split out per panel (xxo3zz F3 / rf2-e8330v). A test
+  that drives panel data via the `:rf.xray/set-*-override-for-test`
+  events (or the machine-inspector `set-epoch-history-for-test` /
+  `set-focus-epoch-id-for-test` seeding events) calls this AFTER
+  `register-xray-handlers!` to:
+
+    1. register the `:rf.xray/set-*-override-for-test` events + companion
+       `*-override` subs, and
+    2. RE-register the affected production data subs to layer the
+       override read on top (`(or override (real …))`).
+
+  Idempotent (re-frame's registrar replaces in place). Order-independent
+  — re-frame resolves `:<-` chains lazily. **Test-only — never call from
+  production code.** Returns nil."
+  []
+  (routing/install-test-overrides!)
+  (resources/install-test-overrides!)
+  (derivation-graph/install-test-overrides!)
+  (after-rings/install-test-overrides!)
+  (machine-inspector/install-test-overrides!)
+  (static-machines-panel/install-test-overrides!)
+  (static-flows-panel/install-test-overrides!)
+  (static-interceptors-panel/install-test-overrides!)
+  (static-schemas-panel/install-test-overrides!)
   nil)

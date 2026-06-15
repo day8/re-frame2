@@ -99,6 +99,7 @@
 
 (defn- setup-xray-frame! []
   (registry/register-xray-handlers!)
+  (xray-test-support/install-test-overrides!)
   (frame/reg-frame :rf/xray {}))
 
 ;; ---- fixture data -------------------------------------------------------

@@ -89,6 +89,40 @@ NOT call `reset-for-test!`. Per-panel `install!` helpers run inside
 the same gate so panel-owned registrations inherit idempotency
 without re-doing the dance.
 
+### Production registration carries no test seams (rf2-e8330v / xxo3zz F3)
+
+`register-xray-handlers!` (and the per-panel `install!` helpers it
+calls) registers **no id ending in `-for-test`** and **no `*-override`
+reader sub**. The production data subs read their live source directly —
+they carry no `(or override …)` branch. This keeps the test-only
+override surface off the public dispatch / subscribe contract.
+
+The override seam is split out per panel as
+`<panel-ns>/install-test-overrides!`, orchestrated by the test-only
+`day8.re-frame2-xray.test-support/install-test-overrides!`. Each per-
+panel `install-test-overrides!`:
+
+1. registers the panel's `:rf.xray*/set-*-override-for-test` events +
+   companion `*-override` subs (plus the Machine Inspector's
+   `:rf.xray/set-epoch-history-for-test` /
+   `:rf.xray/set-focus-epoch-id-for-test` SEEDING events, which write
+   the real `:epoch-history` / `:focus` slots), and
+2. RE-registers the affected production data subs to layer the override
+   read on top (`(or override (real …))`) — re-frame's registrar
+   replaces in place.
+
+A test (or a feature-gate dev testbed that injects synthetic state via
+those events) opts in by calling `install-test-overrides!` AFTER
+`register-xray-handlers!`. The production-vs-seam split is asserted by
+`registry_cljs_test.cljs`:
+`production-registration-installs-no-for-test-ids` (no `-for-test`
+events, no `*-override` subs after production registration) and
+`test-seam-installs-exactly-the-override-surface` (the seam installs
+exactly the `test-override-sub-names` / `test-override-event-names`
+snapshot). The shared value-source `defn`s the production sub and the
+seam's override sub both call (e.g. `routing/registered-routes-value`)
+keep the projection logic single-sourced.
+
 ## Shared infrastructure
 
 Subscriptions and events the entire panel set composes against. These

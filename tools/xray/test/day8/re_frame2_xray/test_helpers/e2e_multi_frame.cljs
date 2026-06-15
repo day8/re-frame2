@@ -108,6 +108,10 @@
   []
   (xray-test-support/reset-sentinels!)
   (registry/register-xray-handlers!)
+  ;; rf2-e8330v (xxo3zz F3) — production registration installs no
+  ;; `-for-test` ids; opt the e2e surface into the per-panel override +
+  ;; seeding seam the harness's tests drive.
+  (xray-test-support/install-test-overrides!)
   (frame/reg-frame :rf/xray {})
   ;; Seed app-db slots so subs that depend on `:epoch-history` /
   ;; `:target-frame` / `:trace-buffer` resolve to the canonical
