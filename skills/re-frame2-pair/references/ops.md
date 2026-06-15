@@ -227,7 +227,7 @@ mcp__re-frame2-pair__tail-build {wait-ms: 5000, probe: "(some/probe-form)"}
 `probe` is a CLJS form chosen to change when the edited code reloads. Good probes for re-frame2:
 
 - After editing a `reg-*` handler: `(re-frame2-pair.runtime/registrar-handler-ref :event <id>)` — compares a hash over `handler-meta`. The underlying `(rf/handler-meta :event :foo)` `:line` / `:column` / `:handler-fn` change after re-registration; capture the meta map's hash before the edit, compare after.
-- After editing a `reg-machine`: same shape against `:event` (machines register under `:event` per Spec 005); `(re-frame.machines/machine-meta :auth)` is the equivalent direct read (`machine-meta` lives on `re-frame.machines` — no longer re-exported from `re-frame.core`, per rf2-wad2fl).
+- After editing a `reg-machine`: same shape against `:event` (machines register under `:event` per Spec 005); `(re-frame.machines/machine-meta :auth)` is the equivalent direct read (`machine-meta` lives on `re-frame.machines` — no longer re-exported from `re-frame.core`).
 - After editing a view or helper: pick a CLJS form that derefs the view's namespace var (e.g. `(some-ns/my-view)` or `(meta #'some-ns/my-view)`).
 - If you don't know a good probe, omit `probe` and the tool falls back to a 300ms timer; the result includes `:soft? true` so you know it's timer-based.
 
