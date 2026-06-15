@@ -2656,6 +2656,122 @@
      (numbered-circle step-number :INTERCEPTOR)
      (map-indexed (fn [i row] (interceptor-row-view i row)) rows*)]))
 
+;; ---- INTERCEPTORS step — the authored / resolved chain (rf2-se9a9t) ------
+
+(def ^:private interceptor-hook-chip-style
+  {:display     "inline-flex"
+   :align-items "center"
+   :color       text-tertiary-colour
+   :font-family sans-stack
+   :font-size   "10px"})
+
+(def ^:private interceptor-ref-badge-style
+  {:color          text-tertiary-colour
+   :font-family    sans-stack
+   :font-size      "9px"
+   :padding        "1px 4px"
+   :border         border-subtle-1px
+   :border-radius  "2px"
+   :text-transform "uppercase"
+   :letter-spacing "0.5px"})
+
+(defn- authored-interceptor-row-view
+  "Render ONE row of the INTERCEPTORS step (rf2-se9a9t) — an AUTHORED
+  interceptor reference wrapping the handler. ONE inline line of
+  `<name ↗> [hook chip] [ref/factory/arg chips]` with a `MISSING` chip when
+  the ref resolves to no registration (EP-0022 / Spec 002 §Error model
+  `:rf.error/unregistered-interceptor`).
+
+  `:coord` (the registered descriptor's definition-site, captured by the
+  `reg-interceptor` macro) drives the `coord-link` go-to-source glyph; it
+  drops to plain text when absent (`reg-interceptor*` fn registration,
+  framework interceptor, or a production-elided coord)."
+  [idx {:keys [interceptor-id authored arg coord before? after? factory?
+               missing-ref? inline? doc]}]
+  (let [label (fmt/ns-keyword interceptor-id)]
+    [:div {:key (str "authored-interceptor-row-" idx)
+           :data-testid (str "rf-xray-epoch-interceptors-row-" idx)}
+     [:div {:style interceptor-row-style}
+      ;; the ref name hyperlinks via `coord-link` (`name ↗`, ONE glyph);
+      ;; drops to plain text when `coord` is nil.
+      (coord-link/coord-link coord label
+                             (str "rf-xray-epoch-interceptors-id-" idx)
+                             {:style       coeffect-verb-link-button-style
+                              :plain-style coeffect-verb-plain-style})
+      ;; the resolved descriptor's hook shape (the RESOLVED half — EP-0022
+      ;; §11 (b)). A factory builds hooks per-arg, so it is reported as a
+      ;; factory rather than guessing a hook shape.
+      [:span {:data-testid (str "rf-xray-epoch-interceptors-hook-" idx)
+              :style interceptor-hook-chip-style}
+       (cond
+         factory?             "factory"
+         (and before? after?) "before/after"
+         before?              "before"
+         after?               "after"
+         :else                "—")]
+      ;; a parameterized `[id arg]` ref shows its factory arg.
+      (when (some? arg)
+        [:span {:data-testid (str "rf-xray-epoch-interceptors-arg-" idx)
+                :title       "factory reference arg"
+                :style       {:color       text-tertiary-colour
+                              :font-family mono-stack
+                              :font-size   "10px"}}
+         (pr-str arg)])
+      ;; a by-reference chain entry carries a "ref" badge; a stale inline
+      ;; value carries "inline" so an author tells the two apart at a glance.
+      (when (some? authored)
+        [:span {:data-testid (str "rf-xray-epoch-interceptors-ref-" idx)
+                :title       (str "by-reference chain entry (resolved at "
+                                  "chain assembly from " (pr-str authored) ")")
+                :style       interceptor-ref-badge-style}
+         "ref"])
+      (when inline?
+        [:span {:data-testid (str "rf-xray-epoch-interceptors-inline-" idx)
+                :title       "inline interceptor value (EP-0022 retires these on public chains)"
+                :style       interceptor-ref-badge-style}
+         "inline"])
+      ;; an unregistered ref — surfaced, not dropped.
+      (when missing-ref?
+        [:span {:data-testid (str "rf-xray-epoch-interceptors-missing-" idx)
+                :title       (str "no :interceptor registration for "
+                                  (pr-str interceptor-id)
+                                  " (:rf.error/unregistered-interceptor)")
+                :style       (assoc interceptor-ref-badge-style
+                                    :color       warning-colour
+                                    :border-color warning-colour)}
+         "missing"])]
+     (when doc
+       [:div {:data-testid (str "rf-xray-epoch-interceptors-doc-" idx)
+              :style {:margin-left "0"
+                      :margin-top  "1px"
+                      :color       text-secondary-colour
+                      :font-family sans-stack
+                      :font-style  "italic"
+                      :font-size   "11px"}}
+        doc])]))
+
+(defn render-interceptors-step
+  "Render the INTERCEPTORS step (rf2-se9a9t / EP-0022 §11) — the AUTHORED
+  interceptor chain that wraps the dispatched event's handler. Present only
+  when the event carries authored (non-`:rf/default?`) refs (the projection
+  omits the step otherwise). Distinct from the exception-only INTERCEPTOR
+  step (rf2-yz57h) above: this surfaces the CLEAN chain (which interceptors
+  wrap this event + their resolved before/after/factory shape + a
+  jump-to-source), the gap the exception-only step left.
+
+  Numbered-circle + INTERCEPTORS badge header, then one row per authored
+  ref via `authored-interceptor-row-view`."
+  [{:keys [rows step-number]}]
+  [:div {:data-testid "rf-xray-epoch-step-interceptors"
+         :data-step-kw "interceptors"}
+   (numbered-circle step-number :INTERCEPTORS)
+   (step-header {:badge :INTERCEPTORS
+                 :verb  "authored chain (wraps the handler)"
+                 :testid "rf-xray-epoch-interceptors"}
+                nil)
+   (into [:div {:data-testid "rf-xray-epoch-interceptors-rows"}]
+         (map-indexed (fn [i row] (authored-interceptor-row-view i row)) rows))])
+
 ;; ---- HANDLER step --------------------------------------------------------
 
 ;; ---- Machine cascade view (rf2-u69j7) -----------------------------------
@@ -5542,6 +5658,7 @@
     :dispatch          (render-dispatch-step step (:dispatch-id->epoch-id ctx))
     :recordable-cofx   (render-recordable-cofx-step step)
     :coeffect          (render-coeffect-step step)
+    :interceptors      (render-interceptors-step step)
     :interceptor       (render-interceptor-step step)
     :handler           (render-handler-step step)
     :flow              (render-flow-step step)

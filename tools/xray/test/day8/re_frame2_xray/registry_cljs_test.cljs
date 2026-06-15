@@ -355,6 +355,10 @@
    ;; (rf2-e8330v).
    :rf.xray.static.interceptors/query
    :rf.xray.static.interceptors/registry
+   ;; rf2-dfaey7 (a15n62) — the realm-qualified `:event` pairs sub the
+   ;; tab-data composite reads to attribute each interceptor to its owning
+   ;; realm + flag cross-realm id conflicts.
+   :rf.xray.static.interceptors/realm-pairs
    :rf.xray.static.interceptors/tab-data
    ;; rf2-hga49 — tab-ribbon Reset rewind affordance: the transient
    ;; inline failure-flash slot the ribbon reads.

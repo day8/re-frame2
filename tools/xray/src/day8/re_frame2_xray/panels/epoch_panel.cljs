@@ -38,6 +38,34 @@
             [day8.re-frame2-xray.panels.epoch.view :as view]
             [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]))
 
+;; ---- authored-interceptor resolver (rf2-se9a9t / EP-0022 §11) -------------
+;;
+;; The pure projection cannot read the registry; it threads this resolver in
+;; so the INTERCEPTORS step surfaces an event's AUTHORED interceptor chain
+;; (the clean, non-throwing case the exception-only step never showed).
+;; Reads `(rf/handler-meta :event event-id)` for the authored `:interceptors`
+;; refs and supplies a `resolve-meta-fn` reading `(rf/handler-meta
+;; :interceptor id)` for each ref's registered descriptor. Fail-soft: any
+;; lookup that throws (unregistered event, runtime that can't answer)
+;; degrades to no step rather than crashing the panel render.
+
+(defn resolve-event-interceptors
+  "Return `{:entries <authored :interceptors vector> :resolve-meta-fn <fn>}`
+  for `event-id`, or nil when the event is not registered / has no chain.
+  The projection's `authored-interceptors-step` filters the framework
+  auto-wrapper (`:rf/default?`) out of `:entries`, so a handler with no
+  authored interceptors yields no step."
+  [event-id]
+  (when (some? event-id)
+    (let [meta    (try (rf/handler-meta :event event-id)
+                       (catch :default _ nil))
+          entries (:interceptors meta)]
+      (when (seq entries)
+        {:entries         entries
+         :resolve-meta-fn (fn [icpt-id]
+                            (try (rf/handler-meta :interceptor icpt-id)
+                                 (catch :default _ nil)))}))))
+
 ;; ---- public Panel surface ------------------------------------------------
 
 ;; Re-export the view-side `Panel` so the spine + panel-registry
@@ -84,7 +112,15 @@
                                                        epoch-history)
             record         (focus/find-epoch-record focus-epoch-id
                                                     epoch-history)
-            steps          (when record (proj/project-numbered record))]
+            ;; rf2-se9a9t — thread the registry-reading resolver so the
+            ;; INTERCEPTORS step surfaces the dispatched event's AUTHORED
+            ;; interceptor chain (EP-0022 §11). The projection stays pure;
+            ;; the runtime read lives here, in the sub.
+            steps          (when record
+                             (proj/project-numbered
+                               record
+                               {:resolve-event-interceptors
+                                resolve-event-interceptors}))]
         {:status         status
          :epoch-id       (or focus-epoch-id (:epoch-id record))
          :record         record

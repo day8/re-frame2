@@ -236,7 +236,7 @@ muted (`var(--text-secondary)`); the numbered circles + the rail carry the order
 
 The **mode-accent stripe** (the single GitHub-blue accent, both modes) sits at the panel's edge.
 
-Optional sections (COEFFECTS, FLOWS, AFTER INTERCEPTORS) are **shown only when present** —
+Optional sections (COEFFECTS, INTERCEPTORS, FLOWS) are **shown only when present** —
 absence is conveyed by omission, not an empty-state line. A throwing handler therefore simply
 has no APP-DB CHANGES / later sections; there is **no outcome badge** and **no "db committed"
 footer**.
@@ -247,7 +247,29 @@ Section order (numbered; optional sections shown only when present):
      click-to-source link).
   2. **COEFFECTS** *(optional)* — user-injected coeffects: each id (click-to-source) + the
      value it added to context (`+ [:now] #inst…`).
-  3. **EVENT HANDLER** — the verb (`reg-event`, the one public event-registration form after
+  3. **INTERCEPTORS** *(optional · rf2-se9a9t · EP-0022 §11)* — the **authored interceptor
+     chain** that wraps this event's handler, shown when the event carries authored
+     (non-`:rf/default?`) interceptor refs. The authored chain WRAPS the handler — frame-refs
+     then event-refs run `:before` on the way in — so it renders BEFORE EVENT HANDLER. Each
+     row is the AUTHORED ref (a bare keyword `:auth/required` or an `[id arg]` factory ref
+     `[:rf.interceptor/path [:cart]]`) as a click-to-source link, ENRICHED with the RESOLVED
+     descriptor's hook shape (`before` / `after` / `before/after` / `factory`) read via
+     `(handler-meta :interceptor id)`, a `ref` / `inline` badge, the factory `:arg`, and a
+     `missing` chip for an unregistered ref (`:rf.error/unregistered-interceptor`). This is
+     the **clean-chain** surfacing (EP-0022 §11 (a) authored refs + (b) resolved chain) — the
+     gap the exception-only INTERCEPTOR step (rf2-yz57h, below) left. The framework
+     auto-wrapper (`:rf/event-handler`, `:rf/default?`) is filtered out — it is not an
+     authored program member; **hidden entirely when the event carries no authored refs**
+     (the common case). The step is purely informational and does NOT inflate the epoch
+     outcome. The authored refs are not on the trace stream (a clean chain emits no
+     per-interceptor "ran" trace), so the panel reads them from the REGISTRY at render time;
+     the pure projection threads a resolver in (`projection/authored-interceptors-step` ←
+     `epoch-panel/resolve-event-interceptors`) and stays JVM-testable. *(Per-call /
+     per-frame `:interceptor-overrides` substitutions are not currently traced per dispatch,
+     so the post-hoc panel surfaces the AUTHORED + RESOLVED chain; override-substitution
+     surfacing (§11 (c)) is deferred until the substrate emits per-dispatch override trace —
+     it cannot project a substitution the core does not emit.)*
+  4. **EVENT HANDLER** — the verb (`reg-event`, the one public event-registration form after
      EP-0018; `reg-machine` for machine handlers) as a click-to-source
      link + the **syntax-highlighted handler source** in a code block + a **returned
      effects sub-block** (the t1 pre-commit observable: the pending `:db` VALUE + each
@@ -258,7 +280,7 @@ Section order (numbered; optional sections shown only when present):
      cost negligible). When the runtime is older than rf2-ta0y7 (no t1 on the stream)
      the block falls back gracefully to a presence-only placeholder pointing at APP-DB
      CHANGES for the committed diff.
-  4. **FLOWS** *(optional)* — flows that recomputed + the db path they wrote (the t1→t2
+  5. **FLOWS** *(optional)* — flows that recomputed + the db path they wrote (the t1→t2
      reshape · pre-commit). Flows fire at the outermost `:after` interceptor, right after
      the handler and any user `:after` interceptors — they reshape the pending `:db` BEFORE
      the single deferred install (the atomic commit), so they precede APP-DB CHANGES and run
@@ -270,8 +292,17 @@ Section order (numbered; optional sections shown only when present):
      above) → "what flows reshaped" (the per-flow rows) → "the post-flow result" (the
      trailing summary). The framework does NOT precompute a diff; the values are full at
      both endpoints, and any client-side diff is cheap.
-  5. **AFTER INTERCEPTORS** *(optional)* — non-standard after-interceptors: each id
-     (click-to-source) + the effect it contributed (`+ [:fx :local-storage] {…}`).
+
+     > **The INTERCEPTOR (exception-only) step (rf2-yz57h / rf2-vew2n).** Distinct from the
+     > authored-chain INTERCEPTORS step at (3) above, a SECOND, exception-only interceptor
+     > surface exists: when a USER interceptor THROWS, an `INTERCEPTOR` step renders the
+     > throwing interceptor (id + `:before`/`:after` phase chip + the shared exception card),
+     > phase-split — a `:before` throw renders BEFORE EVENT HANDLER, an `:after` throw AFTER
+     > it. It is conditional on a throw (the substrate emits no per-interceptor "ran" trace),
+     > so a clean chain leaves it empty; the clean chain is surfaced by the INTERCEPTORS step
+     > at (3) instead. *(The pre-rf2-se9a9t draft named a speculative "AFTER INTERCEPTORS"
+     > step at this position that the implementation never carried — rf2-se9a9t replaced it
+     > with the authored-chain INTERCEPTORS step at (3) + this exception-only note.)*
   6. **APP-DB CHANGES** — the **COMMITTED diff at t4** (the atomic install boundary). Carries
      a `committed diff (post-flow · atomic install boundary)` caption to keep users from
      reading the section as "what the handler returned" (the handler's pending effects map
@@ -291,13 +322,13 @@ The sketches below match the numbered section order above +
 `tools/xray/design-reference/xray_devtools_reference.cljs` (the `event-panel` component): a
 thin vertical rail down the left edge with a small **numbered step circle** (`①②…`) at each
 section, sections rendered top→bottom,
-optional sections (COEFFECTS / AFTER INTERCEPTORS / FLOWS) shown only when present. The `↗`
-glyphs mark click-to-source links (DISPATCH origin, each COEFFECT id, EVENT HANDLER, each AFTER
-INTERCEPTOR id, each FLOW id). There is **no outcome badge** and **no "db committed" footer** —
+optional sections (COEFFECTS / INTERCEPTORS / FLOWS) shown only when present. The `↗`
+glyphs mark click-to-source links (DISPATCH origin, each COEFFECT id, EVENT HANDLER, each
+authored INTERCEPTORS ref id, each FLOW id). There is **no outcome badge** and **no "db committed" footer** —
 absence of a step is conveyed by omission. Diff glyphs follow the cascade gutter (`~` modified ·
 `+` added · `-` removed).
 
-Dense case (default — focused epoch is a normal event with coeffects, after-interceptors,
+Dense case (default — focused epoch is a normal event with coeffects, authored interceptors,
 flows, and fx):
 
 ```
@@ -316,7 +347,12 @@ flows, and fx):
 │   │    :session ↗                                                         │
 │   │      + [:session]  {:user-id 42, :token "..."}                       │
 │   │                                                                       │
-│  ③  EVENT HANDLER ↗                                                       │
+│  ③  INTERCEPTORS                           (optional · shown when present) │
+│   │    authored chain (wraps the handler)                                 │
+│   │    :auth/required ↗            before    ref                          │
+│   │    :rf.interceptor/path ↗      factory   ref   [:counter]            │
+│   │                                                                       │
+│  ④  EVENT HANDLER ↗                                                       │
 │   │    (rf/reg-event :counter-inc             ← syntax-highlighted        │
 │   │      (fn [{:keys [db]} _]                                             │
 │   │        {:db (update db :counter inc)                                  │
@@ -326,15 +362,9 @@ flows, and fx):
 │   │       :fx   1 entry — see FX below for what ran                       │
 │   │             [:dispatch [:title/flow [:rf/init]]]                      │
 │   │                                                                       │
-│  ④  FLOWS                                  (optional · shown when present) │
+│  ⑤  FLOWS                                  (optional · shown when present) │
 │   │    :totals-flow ↗  →  [:totals] recomputed                           │
 │   │      + [:totals :sum]  42                                            │
-│   │                                                                       │
-│  ⑤  AFTER INTERCEPTORS                     (optional · shown when present) │
-│   │    :persist-db ↗                                                      │
-│   │      + [:fx :local-storage]  {:key "app-state" :value {...}}          │
-│   │    :analytics ↗                                                       │
-│   │      + [:fx :track]          {:event "counter-inc"}                   │
 │   │                                                                       │
 │  ⑥  APP-DB CHANGES                                                        │
 │   │    committed diff (post-flow · atomic install boundary)               │
@@ -348,7 +378,7 @@ flows, and fx):
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-Sparse case (focused epoch is a noisy timer — no coeffects, no after-interceptors, no flows;
+Sparse case (focused epoch is a noisy timer — no coeffects, no authored interceptors, no flows;
 the optional sections are simply omitted, so the visible steps renumber `①②③`):
 
 ```
@@ -380,7 +410,7 @@ the optional sections are simply omitted, so the visible steps renumber `①②�
 | From | Reads |
 |---|---|
 | Focused epoch record | `:rf.event/dispatched` (step 1), `:rf.cofx/*` (step 2 — coeffect injection), `:rf.event/run-start` / `:rf.event/run-end` (step 3 — handler), `:rf.event/db-pending` (step 3 — t1, the handler's pending `:db` VALUE feeds the returned-effects sub-block under EVENT HANDLER · rf2-ta0y7), `:rf.fx/do-fx` (step 3 — also feeds the returned-effects sub-block under the handler, via `:rf.event/fx` + `:rf.event/db-present?`), `:rf.flow/computed` (step 4 — flows reshape the pending `:db` at the outermost `:after`, before commit), `:rf.event/db-pending-post-flow` (step 4 — t2, the flow-augmented `:db` VALUE feeds the trailing post-flow summary under FLOWS when flows changed the value · rf2-ta0y7), `:rf.event/db-changed` (step 6 — the committed diff), `:rf.fx/handled` per fx-id (step 7 — effects applied) — all read from the focused epoch record's `:trace-events` (one epoch = one dequeued event, §1.1) |
-| Registries | Handler metadata (`reg-event-*` form file:line, optional source string when DEBUG-gated) |
+| Registries | Handler metadata (`reg-event-*` form file:line, optional source string when DEBUG-gated). **INTERCEPTORS step (rf2-se9a9t · EP-0022 §11):** the authored interceptor chain is read from the registry at render time — `(rf/handler-meta :event event-id)` `:interceptors` for the authored refs (the framework `:rf/default?` wrapper filtered out), each ref resolved via `(rf/handler-meta :interceptor id)` for its descriptor hooks + source-coord. A clean chain emits no per-interceptor "ran" trace, so this is a REGISTRY read, not a trace read; the pure projection threads the resolver in via `epoch-panel/resolve-event-interceptors`. |
 | App-db panel (bridge) | Inline diff renderer for the committed `:db` — the APP-DB CHANGES section (reuses the shared renderer §10) |
 
 ### §2.4 Cross-panel navigation
@@ -388,7 +418,8 @@ the optional sections are simply omitted, so the visible steps renumber `①②�
 | Click | Navigates to |
 |---|---|
 | DISPATCH `FROM: <source>` link | Open-in-editor (Xray's existing `:rf.xray/open-in-editor`) at the dispatch-origin call-site |
-| COEFFECTS / AFTER-INTERCEPTORS id ↗ | Open-in-editor at the coeffect / interceptor registration file:line |
+| COEFFECTS id ↗ | Open-in-editor at the coeffect registration file:line |
+| INTERCEPTORS ref id ↗ (rf2-se9a9t) | Open-in-editor at the authored interceptor's `reg-interceptor` registration file:line (resolved off `(rf/handler-meta :interceptor id)`; drops to plain text when no coord — the `reg-interceptor*` fn path / framework interceptor / production-elided coord) |
 | EVENT HANDLER ↗ | Open-in-editor at handler file:line |
 | SIDE EFFECTS `:db` row `→ app-db` marker (rf2-j630b) | Switch to the **App-db** panel for the focused epoch (`[:rf.xray/select-tab :app-db]`; the panel reads the same shared focus). The marker is a DESTINATION pointer — the committed db diff lives in the App-db panel, not duplicated in the ledger |
 | SIDE EFFECTS `:fx` row fx-id ↗ (rf2-g1mfc) | Open-in-editor at the `reg-fx` registration file:line (shared `coord-chip`, parity with the HANDLER verb + SUBSCRIPTIONS / VIEWS rows; sources the absolute coord off `(rf/handler-meta :fx <fx-id>)`) |
@@ -1416,7 +1447,8 @@ is rendered iff its driving trace events surfaced in this epoch:
 |------|---------------|-------------|
 | **DISPATCH** | `:rf.event/dispatched` | always (every epoch starts here) |
 | **COEFFECT** | `:rf.cofx/run` (or `:rf.event/run-end` `:rf.event/coeffects` fallback) | **one COEFFECT step per user-injected coeffect** (rf2-s1jw4 · Mike pair-debug 2026-05-26, commit `ee9def224`). SYSTEM defaults `:db / :event / :frame / :source / :trace-id` are filtered at projection time (rf2-cq0ch). A cascade with 3 user cofx injections renders 3 numbered COEFFECT entries, not 1 entry containing 3 rows. A coeffect that THREW on injection (`:rf.error/coeffect-exception`) but produced no `:rf.cofx/run` gets a synthesised placeholder COEFFECT step (rf2-yz57h) so the exception card has a home. |
-| **INTERCEPTOR** | `:rf.error/interceptor-exception` (rf2-mszrz) | **only when a user interceptor threw** (rf2-yz57h). The substrate emits no per-interceptor "ran" trace (the chain runs as one unit), so a clean chain leaves nothing to show — the step is exception-only. PHASE-SPLIT (rf2-vew2n): a `:before` throw renders its step BEFORE HANDLER, an `:after` throw AFTER HANDLER (execution order: COEFFECTS → :before → HANDLER → :after). One row per throwing interceptor: id + `:before`/`:after` phase chip + the shared exception card; the badge carries no "N threw" summary verb (rf2-oqi0c). |
+| **INTERCEPTORS** | registry read — `(handler-meta :event event-id)` `:interceptors` (rf2-se9a9t) | **only when the event carries authored (non-`:rf/default?`) interceptor refs.** The authored chain wraps the handler, so the step renders BEFORE HANDLER. One row per authored ref: id (click-to-source) + the resolved descriptor's hook shape (`before` / `after` / `before/after` / `factory`) + a `ref` / `inline` badge + the factory `:arg` + a `missing` chip for an unregistered ref. This is the clean-chain surfacing (EP-0022 §11 (a)+(b)); read from the REGISTRY, not the trace (a clean chain emits no per-interceptor trace). Purely informational — does NOT inflate the epoch outcome. |
+| **INTERCEPTOR** | `:rf.error/interceptor-exception` (rf2-mszrz) | **only when a user interceptor threw** (rf2-yz57h). The substrate emits no per-interceptor "ran" trace (the chain runs as one unit), so a clean chain leaves nothing to show — the step is exception-only (the clean chain is the INTERCEPTORS step above). PHASE-SPLIT (rf2-vew2n): a `:before` throw renders its step BEFORE HANDLER, an `:after` throw AFTER HANDLER (execution order: COEFFECTS → :before → HANDLER → :after). One row per throwing interceptor: id + `:before`/`:after` phase chip + the shared exception card; the badge carries no "N threw" summary verb (rf2-oqi0c). |
 | **HANDLER** | every epoch settles through a handler | always (but rendered as **SKIPPED** — rf2-yz57h — when an upstream `:before`-chain throw aborted the cascade before the handler ran) |
 | **FLOW** | `:rf.flow/recomputed` | only when flows fired |
 | **FX** | `:rf.fx/handled` / `:rf.fx/override-applied` / `:rf.fx/skipped-on-platform` | only when fx-handlers fired (rendered as **SKIPPED** when an upstream `:before`-chain throw aborted the cascade) |
@@ -1429,7 +1461,7 @@ empty-state line. This matches the §2.2 dynamic-numbering contract
 from the Event lens — both panels share the same "absence is
 silence" rhythm.
 
-### §9.1.4 Badge taxonomy (the 10-badge inventory)
+### §9.1.4 Badge taxonomy (the badge inventory)
 
 Each step renders a uppercase badge pill at its numbered circle:
 
@@ -1438,6 +1470,7 @@ Each step renders a uppercase badge pill at its numbered circle:
 | `:DISPATCH`           | `:text-tertiary` | muted grey |
 | `:RECORDABLE-COFX`    | `:text-secondary` | muted (a step lighter than DISPATCH — rf2-9fyn40; reads as orienting causal-context metadata, EP-0010 provenance / EP-0017 §9 recordable coeffects, not a pipeline action) |
 | `:COEFFECT`           | `:magenta`       | purple |
+| `:INTERCEPTORS`       | `:accent`        | blue (rf2-se9a9t — the authored chain WRAPS the handler; same identity family as INTERCEPTOR + HANDLER) |
 | `:INTERCEPTOR`        | `:accent`        | blue (rf2-yz57h — the chain WRAPS the handler; one identity family) |
 | `:HANDLER`            | `:accent`        | blue (single Xray accent) |
 | `:FLOW`               | `:accent`        | blue (paired with HANDLER) |
@@ -1454,8 +1487,9 @@ Each step renders a uppercase badge pill at its numbered circle:
 > in commit `ee9def224`) is redundant with the HANDLER step's `:db`
 > sub-section (§9.1.5.1, FULL+DIFF single rendering post-rf2-vv3m6),
 > which surfaces the same data in-context. The projection's `badge-
-> set` enforces the inventory (9 entries with rf2-yz57h's
-> conditional `:INTERCEPTOR`).
+> set` enforces the inventory (with rf2-yz57h's conditional
+> exception-only `:INTERCEPTOR` + rf2-se9a9t's conditional authored-chain
+> `:INTERCEPTORS`).
 
 The inventory is LOCKED — the projection's `badge-set` enforces
 that every emitted step's `:badge` is a member, and the view's
