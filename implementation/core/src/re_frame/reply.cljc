@@ -141,21 +141,33 @@
 ;; reply failures uniformly with every other framework throw. `reply-error`
 ;; routes every reply throw through the central builder
 ;; (`re-frame.error/thrown-ex-info`, Spec 009 §The thrown-error shape): the
-;; `:rf.error/id` IS the reply category keyword (the SOLE canonical machine
-;; discriminator), the human sentence rides `:reason` and leads the derived
-;; message (+ the `[:rf.error/<id>]` token), and the reply-specific
-;; `:rf.error/kind` is PRESERVED in ex-data for callers that already branch on
-;; it (the `:rf.reply/*` category equals the `:rf.error/id`, so the two stay in
-;; lockstep). `:where` names the user-facing surface (`:rf/reply-to`).
+;; canonical `:rf.error/id` is the `:rf.error/reply-*` keyword (the SOLE Spec
+;; 009 machine discriminator — `:rf.error/`-namespaced so the framework's grep
+;; token / conformance machinery handles it like every other throw), the human
+;; sentence rides `:reason` and leads the derived message (+ the
+;; `[:rf.error/<id>]` token), and the reply-specific `:rf.reply/*` category is
+;; PRESERVED in `:rf.error/kind` for callers that already branch on it. The
+;; `:rf.error/id` ↔ `:rf.error/kind` pair stays in lockstep by construction.
+;; `:where` names the user-facing surface (`:rf/reply-to`).
+
+(defn- reply-category->error-id
+  "Map a reply-specific `:rf.reply/<suffix>` category to its canonical
+  `:rf.error/reply-<suffix>` Spec 009 discriminator. Keeps the `:rf.error/id`
+  in the framework's `:rf.error/*` namespace (so the `[:rf.error/<id>]` grep
+  token + conformance predicates apply) while the original category survives
+  unchanged in `:rf.error/kind`."
+  [category]
+  (keyword "rf.error" (str "reply-" (name category))))
 
 (defn- reply-error
   "Build the canonical reply thrown-error `ex-info` (rf2-tqlwzr). `category`
-  is the `:rf.reply/*` discriminator; it lands in BOTH `:rf.error/id` (the
-  canonical Spec 009 slot) and `:rf.error/kind` (the preserved reply-specific
-  slot). `reason` is the human sentence; `extras` merge on top."
+  is the `:rf.reply/*` discriminator: it lands in `:rf.error/kind` (the
+  preserved reply-specific slot), and its `:rf.error/reply-*` projection lands
+  in `:rf.error/id` (the canonical Spec 009 slot). `reason` is the human
+  sentence; `extras` merge on top."
   ([category reason] (reply-error category reason nil))
   ([category reason extras]
-   (error/thrown-ex-info category :rf/reply-to reason
+   (error/thrown-ex-info (reply-category->error-id category) :rf/reply-to reason
                          {:extra (merge {:rf.error/kind category} extras)})))
 
 (defn normalize-target
