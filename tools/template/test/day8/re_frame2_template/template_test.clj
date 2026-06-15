@@ -232,13 +232,18 @@
           ;; contract (implementation/core/src/re_frame/core.cljc init!;
           ;; pinned by implementation/core/test/re_frame/boot_test.clj):
           ;; init! is idempotent — it installs the adapter ONLY when none
-          ;; is seated and ensures :rf/default; a second call does NOT
-          ;; re-install the adapter, snapshot the registrar, or reset
-          ;; app-db. The earlier README overstated this ("each call to
-          ;; init! snapshots the registrar, re-installs the adapter, and
-          ;; resets the frame's app-db"), teaching a false mental model.
-          ;; The reset boundary is the starter's explicit
-          ;; dispatch-sync [:counter/initialise] in core.cljs, not init!.
+          ;; is seated and does NOT create the :rf/default frame (EP-0002:
+          ;; the runtime never synthesises a frame from absence; core.cljc
+          ;; init! docstring). The scaffold's core/init registers the frame
+          ;; explicitly via (rf/reg-frame :rf/default {}) after init!. A
+          ;; second init! call does NOT re-install the adapter, snapshot the
+          ;; registrar, or reset app-db. The earlier README overstated this
+          ;; ("each call to init! snapshots the registrar, re-installs the
+          ;; adapter, and resets the frame's app-db") AND wrongly claimed
+          ;; init! "ensures the :rf/default frame exists" (rf2-frex1l) —
+          ;; both teach a false mental model. The reset boundary is the
+          ;; starter's explicit dispatch-sync [:counter/initialise] in
+          ;; core.cljs, not init!.
           (let [readme-text (slurp (io/file root "README.md"))
                 ;; Scope the false-claim greps to the Hot reload section
                 ;; (from its heading to the next ## heading) so an honest
@@ -268,7 +273,47 @@
             (is (not (.contains hot-reload-sec "resets the frame's app-db"))
                 "README Hot reload section must NOT claim rf/init! resets
                  app-db by itself — the explicit dispatch-sync
-                 [:counter/initialise] is the reset boundary (rf2-8n4s71 #2)"))
+                 [:counter/initialise] is the reset boundary (rf2-8n4s71 #2)")
+            ;; -- README init!/:rf/default contract (rf2-frex1l) --
+            ;; init! does NOT create :rf/default (EP-0002); the scaffold's
+            ;; core/init registers it explicitly via reg-frame. core.cljc
+            ;; init! docstring + the emitted core.cljs pin this.
+            (is (not (.contains hot-reload-sec "ensures the `:rf/default` frame"))
+                "README Hot reload section must NOT claim rf/init! 'ensures the
+                 :rf/default frame exists' — init! does NOT create the default
+                 frame (EP-0002; core.cljc init!; rf2-frex1l)")
+            (is (and (.contains hot-reload-sec "does **not** create the `:rf/default`")
+                     (.contains hot-reload-sec "reg-frame"))
+                "README Hot reload section must state init! does NOT create the
+                 :rf/default frame and that reg-frame registers it explicitly
+                 (EP-0002; rf2-frex1l)"))
+
+          ;; -- README schema registration is frame-scoped (rf2-frex1l) --
+          ;; reg-app-schema is frame-local (EP-0002); a frameless ns-load
+          ;; call raises :rf.error/no-frame-context (schemas/storage.cljc
+          ;; reg-app-schema). The emitted schema.cljs wraps it in
+          ;; register-schema! called under (with-frame :rf/default …). The
+          ;; README MUST NOT teach a frameless top-level reg-app-schema and
+          ;; MUST name the frame-scoped contract.
+          (let [readme-text (slurp (io/file root "README.md"))
+                schema-start (.indexOf readme-text "### Typed app-db boundaries")
+                schema-end   (let [i (.indexOf readme-text "\n### " (inc schema-start))]
+                               (if (neg? i) (count readme-text) i))
+                schema-sec   (subs readme-text schema-start schema-end)]
+            (is (not (neg? schema-start))
+                "README has a Typed app-db boundaries section")
+            (is (not (.contains schema-sec "\n(rf/reg-app-schema [] CounterDb)"))
+                "README schema section must NOT show a frameless top-level
+                 (rf/reg-app-schema [] CounterDb) — it would raise
+                 :rf.error/no-frame-context at ns-load (EP-0002; rf2-frex1l)")
+            (is (.contains schema-sec ":rf.error/no-frame-context")
+                "README schema section must name :rf.error/no-frame-context as
+                 the failure mode of a frameless registration (rf2-frex1l)")
+            (is (and (.contains schema-sec "register-schema!")
+                     (.contains schema-sec "with-frame :rf/default"))
+                "README schema section must teach the frame-scoped contract —
+                 a register-schema! fn called under (with-frame :rf/default …)
+                 (mirrors the emitted schema.cljs / core.cljs; rf2-frex1l)"))
 
           ;; -- README Xray host wording — right-side, not left (rf2-8n4s71 #3) --
           ;; The emitted index.html orders <main id="app"> BEFORE
