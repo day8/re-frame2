@@ -90,7 +90,7 @@ The registrar is a `(kind, id) → metadata` map. The `kind` keyword identifies 
 
 | `kind` | What it covers | Registration function(s) |
 |---|---|---|
-| `:event` | Every event handler | `reg-event` (the one public form — coeffects in, effects out) |
+| `:event` | Every event handler | `reg-event` (the one public form — coeffects in, effects out). Machines also feed `:event`: `reg-machine` / `reg-machine*` register a machine as an `:event` handler whose body interprets the transition table (`:rf/machine? true` discriminates them; per [005 §Registration — the machine IS the event handler](005-StateMachines.md#registration--the-machine-is-the-event-handler)). |
 | `:sub` | All subscriptions | `reg-sub` |
 | `:fx` | Registered effect handlers | `reg-fx` |
 | `:cofx` | Coeffect suppliers (value-returning, graded ambient / recordable — §Coeffects) | `reg-cofx` |
@@ -141,7 +141,23 @@ The v1 three-form family is retired from the public surface (EP-0018, EP-0007 ru
 |---|---|---|---|
 | `reg-event-db` | **Removed** — `reg-event` replaces it | `:rf.error/reg-event-db-removed` (shows the two-line conversion: destructure `:db` from the coeffects map; wrap the return in `{:db …}`) | `reg-event` |
 | `reg-event-fx` | **Removed** — `reg-event` is the same shape under the bare name | `:rf.error/reg-event-fx-removed` | `reg-event` |
-| `reg-event-ctx` | **Demoted to framework-internal** — the `context -> context` mechanism is retained (the lowering target for `reg-event`; used by subsystem dispatchers) but is no longer a public application-authoring form | `:rf.error/reg-event-ctx-removed` (names `reg-interceptor`) | `reg-interceptor` (the public `context -> context` authoring form; reference the registered interceptor by id from a `reg-event` chain) |
+| `reg-event-ctx` | **Demoted to framework-internal** — the `context -> context` mechanism is retained (the lowering target for `reg-event`; used by subsystem dispatchers) but is no longer a public application-authoring form | `:rf.error/reg-event-ctx-removed` (names `reg-interceptor` and shows the conversion: register a `context -> context` interceptor and reference it by id from a `reg-event` chain) | `reg-interceptor` (the public `context -> context` authoring form; reference the registered interceptor by id from a `reg-event` chain) |
+
+The `reg-event-ctx` conversion has a worked shape — the old full-context handler body becomes an interceptor's `:before` (and/or `:after`), registered once and referenced by id:
+
+```clojure
+;; v1 full-context handler (retired):
+;;   (reg-event-ctx :my/id (fn [context] (-> context …)))
+;; re-frame2 — register the context->context program as an interceptor …
+(rf/reg-interceptor :my/audit
+  {:doc "Full-context audit pass."}
+  {:before (fn [context] (-> context …))    ; pre-handler context shaping
+   :after  (fn [context] (-> context …))})  ; post-handler context shaping
+;; … then reference it by id from the event chain:
+(rf/reg-event :my/id
+  {:interceptors [:my/audit]}
+  (fn [{:keys [db]} _] {:db db}))
+```
 
 The hard errors are catalogued in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue). Full-context application work that previously reached for `reg-event-ctx` — capture, short-circuit (`:rf/skip-handler?`), direct effect installation — is expressed as an interceptor's `:before` / `:after` (the public `context -> context` primitive). If a public path is later found that genuinely needs app-level full-context handlers, it returns by a follow-on with that specific consumer and a sharper name; the corpus shows none today.
 
