@@ -175,7 +175,13 @@
      literal's closing `}`.  We keep buffering the remainder and decide at
      the line's newline — drop the line only if the remainder is a
      balanced set literal followed by nothing but whitespace
-     (`banner-line-remainder?`); otherwise the prefix was shared by a
+     (`banner-line-remainder?`) AND this line was preceded by the held
+     leading blank.  cognitect's banner is `(format \"\\nRunning tests in
+     %s\" dirs)`, so the genuine banner is ALWAYS opened by a blank line;
+     requiring that held blank means an exact-shape user/fixture line such
+     as a bare `(println \"Running tests in #{:fixture}\")` — same text,
+     but no leading blank — is forwarded rather than silently overdropped
+     (rf2-m8dbb9).  Otherwise the prefix was shared by a
      user/fixture diagnostic such as `Running tests in #{:fixture} MARKER`
      and the whole buffered line is forwarded (the rf2-14nojy.2 overdrop
      guard).
@@ -284,15 +290,29 @@
                                 ;; the line is complete (rf2-14nojy.2). The
                                 ;; remainder is everything buffered after the
                                 ;; prefix; if it is a balanced set literal +
-                                ;; only whitespace this IS the discovery
-                                ;; banner → drop the whole line (and the
-                                ;; pending blank that was its leading
+                                ;; only whitespace AND this line was preceded
+                                ;; by the held leading blank, this IS the
+                                ;; discovery banner → drop the whole line (and
+                                ;; the pending blank that was its leading
                                 ;; newline). Otherwise the prefix was shared
                                 ;; by a real diagnostic → flush the pending
                                 ;; blank and forward the whole buffered line.
+                                ;;
+                                ;; The leading-blank requirement (rf2-m8dbb9)
+                                ;; distinguishes cognitect's banner — printed
+                                ;; via `(format "\nRunning tests in %s" dirs)`,
+                                ;; so ALWAYS opened by a blank line — from a
+                                ;; user/fixture line that exact-matches the
+                                ;; banner shape (`Running tests in #{:fixture}`)
+                                ;; but is emitted by a bare `println` with no
+                                ;; preceding blank. Without this, such a line
+                                ;; was indistinguishable from the banner and
+                                ;; silently overdropped, contradicting the
+                                ;; pass-through stdout contract.
                                 :banner-candidate
                                 (let [remainder (subs (.toString buf) prefix-len)]
-                                  (if (banner-line-remainder? remainder)
+                                  (if (and @pending-blank?
+                                           (banner-line-remainder? remainder))
                                     (drop-pending-blank!)
                                     (do (flush-pending-blank!)
                                         (.write target (.toString buf))

@@ -125,40 +125,88 @@
        (remove str/blank?)
        (vec)))
 
+;; A formula's expected shape, in user terms — reused across every parse
+;; error message so the user always learns what a valid formula looks like.
+(def formula-shape-hint
+  "=(+ A1 B2) — start with '=', then numbers, cell refs (A1..Z100), and +-*/ inside ().")
+
 (defn parse-tokens [tokens]
-  ;; Returns [ast remaining-tokens] or throws on malformed input.
+  ;; Returns [ast remaining-tokens] or throws on malformed input. Each
+  ;; ex-info carries the offending token in its data so `parse-formula` can
+  ;; build an actionable, position-aware message (rf2-5tim8h).
   (if (empty? tokens)
     [nil tokens]
     (let [[t & more] tokens]
       (case t
         "(" (loop [acc [] toks more]
               (cond
-                (empty? toks)        (throw (ex-info "Unbalanced (" {}))
+                (empty? toks)        (throw (ex-info "a '(' is never closed — add a matching ')'"
+                                                     {:token "("}))
                 (= ")" (first toks)) [acc (rest toks)]
                 :else                (let [[child rest-toks] (parse-tokens toks)]
                                        (recur (conj acc child) rest-toks))))
-        ")" (throw (ex-info "Unexpected )" {}))
+        ")" (throw (ex-info "an extra ')' has no matching '(' — remove it or add a '('"
+                            {:token ")"}))
         ;; Atom: number, cell ref, or operator symbol.
         (let [num (parse-num t)]
           (cond
             (some? num)                    [num                             more]
             (re-matches cell-re t)         [{:cell t}                       more]
             (#{"+" "-" "*" "/"} t)         [(symbol t)                      more]
-            :else                          (throw (ex-info "Bad atom" {:token t}))))))))
+            :else                          (throw (ex-info (str "'" t "' is not a number, a cell ref "
+                                                                "(A1..Z100), or one of + - * /")
+                                                           {:token t}))))))))
 
-(defn parse-formula [raw]
-  ;; raw is "=..."; returns the parsed AST.
-  (let [body (subs raw 1)]
-    (try
-      (let [[ast leftover] (parse-tokens (tokenise body))]
-        (when (seq leftover)
-          (throw (ex-info "Trailing tokens" {:tokens leftover})))
-        ast)
-      (catch :default _e :error/parse))))
+(defn parse-error-message
+  "Build an actionable parse-error message for cell `id` (may be nil) whose
+   formula text is `raw`, given the caught exception `e`. Names the cell, shows
+   the formula, points at the offending token where known, and states the
+   expected shape in user terms (rf2-5tim8h)."
+  [id raw e]
+  (let [reason (or (ex-message e) "could not be parsed")
+        token  (:token (ex-data e))
+        ;; Token position in the formula body (1-based, after the '='), where
+        ;; the offending token can be located. Best-effort: nil when unknown.
+        pos    (when (and token (string? raw))
+                 (let [i (str/index-of raw token)]
+                   (when i (inc i))))]
+    (str "Cell " (or id "?") ": can't parse formula \"" raw "\""
+         (when pos (str " (near position " pos
+                        (when token (str ", token \"" token "\"")) ")"))
+         " — " reason ". Expected " formula-shape-hint)))
+
+(defn parse-formula
+  "Parse `raw` (a \"=...\" formula) for cell `id` (used only to make the error
+   message name the cell). Returns the AST on success, or a `[:error/parse msg]`
+   pair carrying an actionable message on failure (rf2-5tim8h)."
+  ([raw] (parse-formula nil raw))
+  ([id raw]
+   (let [body (subs raw 1)]
+     (try
+       (let [[ast leftover] (parse-tokens (tokenise body))]
+         (when (seq leftover)
+           (throw (ex-info (str "extra tokens after the formula: "
+                                (str/join " " leftover))
+                           {:token (first leftover)})))
+         ast)
+       (catch :default e
+         [:error/parse (parse-error-message id raw e)])))))
+
+(defn parse-error?
+  "True iff `ast` is the `[:error/parse msg]` failure pair."
+  [ast]
+  (and (vector? ast) (= :error/parse (first ast))))
+
+(defn parse-error-text
+  "The actionable message from a `[:error/parse msg]` pair (nil otherwise)."
+  [ast]
+  (when (parse-error? ast) (second ast)))
 
 (defn collect-deps [ast]
-  ;; Returns the set of cell ids referenced anywhere in the AST.
+  ;; Returns the set of cell ids referenced anywhere in the AST. A parse-error
+  ;; pair (`[:error/parse msg]`) is not an AST and carries no deps.
   (cond
+    (parse-error? ast)    #{}
     (vector? ast)         (apply clojure.set/union (map collect-deps ast))
     (and (map? ast)
          (:cell ast))     #{(:cell ast)}
@@ -188,18 +236,24 @@
           "*" (apply * vals)
           "/" (if (some zero? (rest vals)) :error/div-by-zero (apply / vals))
           :error/unknown-op)
-        (or (first (filter keyword? vals)) :error/type)))
+        ;; Surface the first upstream error marker that reached us — a
+        ;; referenced cell's parse-error pair or a keyword error marker — else
+        ;; :error/type for text-in-arithmetic.
+        (or (first (filter parse-error? vals))
+            (first (filter keyword? vals))
+            :error/type)))
 
     :else :error/eval))
 
 (defn evaluate-cell [id cells visited]
-  ;; Returns the cell's display value, or :error/cycle, or :error/parse.
+  ;; Returns the cell's display value, :error/cycle, or the parse-error pair
+  ;; `[:error/parse msg]` (the actionable message rides through to the view).
   (cond
     (visited id)  :error/cycle
     :else
     (if-let [{:keys [raw formula? ast]} (get cells id)]
       (cond
-        (= ast :error/parse) :error/parse
+        (parse-error? ast)   ast
         formula?             (evaluate-ast ast cells (conj visited id))
         :else                (let [n (parse-num raw)]
                                (if (some? n) n raw)))
@@ -231,7 +285,7 @@
    :schema [:cat [:= :cells/commit] :string :string]}
   (fn handler-cells-commit [{:keys [db]} [_ id raw]]
     {:db (let [formula? (and (string? raw) (str/starts-with? raw "="))
-          ast      (when formula? (parse-formula raw))
+          ast      (when formula? (parse-formula id raw))
           deps     (when formula? (collect-deps ast))
           entry    (cond
                      (str/blank? raw) nil           ;; empty → remove the cell
@@ -293,9 +347,12 @@
         editing?   (= editing-id id)
         raw        @(subscribe [:cells/raw   id])
         value      @(subscribe [:cells/value id])
+        ;; A parse error rides through as `[:error/parse msg]`; pull out the
+        ;; actionable message to surface on hover (rf2-5tim8h).
+        parse-err  (parse-error-text value)
         display    (cond
                      editing?                  raw
-                     (= value :error/parse)    "#PARSE"
+                     parse-err                 "#PARSE"
                      (= value :error/cycle)    "#CYCLE"
                      (= value :error/eval)     "#EVAL"
                      (= value :error/type)     "#TYPE"
@@ -303,10 +360,16 @@
                      :else                     (str value))]
     ;; `data-cell`/`data-cell-input` carry the grid coordinate as a domain
     ;; attribute; `data-testid` mirrors the cluster's test-hook scheme so the
-    ;; six examples share one selector convention.
-    [:td.cell {:data-cell   id
-               :data-testid (str "cells-cell-" id)
-               :on-click    #(dispatch [:cells/start-editing id])}
+    ;; six examples share one selector convention. On a parse error the
+    ;; actionable message rides in `title` (native hover tooltip) and is
+    ;; mirrored to `data-parse-error` so it is inspectable, with an
+    ;; `cell--parse-error` class for styling.
+    [:td.cell (cond-> {:data-cell   id
+                       :data-testid (str "cells-cell-" id)
+                       :on-click    #(dispatch [:cells/start-editing id])}
+                parse-err (assoc :title parse-err
+                                 :data-parse-error parse-err
+                                 :class "cell--parse-error"))
      (if editing?
        [:input {:type      "text"
                 :auto-focus true

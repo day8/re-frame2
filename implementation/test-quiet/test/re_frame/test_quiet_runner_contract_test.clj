@@ -614,6 +614,72 @@
               (str "no part of the banner may reach stdout; got:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
+;; Banner EXACT-SHAPE overdrop — rf2-m8dbb9.
+;;
+;; The rf2-14nojy.2 fix above forwards a banner-shaped line that carries
+;; TRAILING content after the set literal, but a user/fixture line whose
+;; WHOLE text exactly matches the banner — `Running tests in #{:fixture}`
+;; with no trailing marker — was still indistinguishable from cognitect's
+;; own banner and silently overdropped, contradicting the pass-through
+;; stdout contract.  cognitect prints its banner via
+;; `(format "\nRunning tests in %s" dirs)`, so the genuine banner is ALWAYS
+;; opened by a leading blank line; a bare `(println "Running tests in
+;; #{:fixture}")` is not.  The fix requires that held leading blank before
+;; dropping a banner-shaped line, so an exact-shape user line printed with
+;; no preceding blank survives while the real banner stays absent.
+
+(deftest banner-exact-shape-user-line-survives
+  (testing "an exact-shape `Running tests in #{...}` user line (no trailing marker, no leading blank) survives (rf2-m8dbb9)"
+    (with-fixture-dir
+      (fn [dir]
+        ;; A bare `println` of the EXACT banner shape — no trailing content,
+        ;; no preceding blank line. Pre-fix this was swallowed wholesale; it
+        ;; must now reach stdout because it lacks the banner's leading blank.
+        (write-fixture! dir "exact_shape_fixture_test" "exact-shape-fixture-test"
+                        (str "(deftest an-exact-shape-test"
+                             " (println \"Running tests in #{:fixture}\")"
+                             " (is (= 1 1)))"))
+        (let [{:keys [exit out err]} (run-runner dir)]
+          (is (zero? exit)
+              (str "the exact-shape suite is green; must exit 0; got " exit
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          ;; The CORE of rf2-m8dbb9: a fixture line whose WHOLE text matches
+          ;; the banner shape but is emitted with no leading blank is NOT the
+          ;; banner and must survive.
+          (is (str/includes? out "Running tests in #{:fixture}")
+              (str "an exact-shape user line `Running tests in #{:fixture}`"
+                   " printed via bare println (no leading blank) is NOT the"
+                   " cognitect banner and must survive (rf2-m8dbb9); got:\n"
+                   out))
+          (is (str/includes? out "0 failures, 0 errors.")
+              (str "the green summary must still print; got:\n" out)))))))
+
+(deftest real-banner-still-dropped-alongside-exact-shape-user-line
+  (testing "the real banner is STILL dropped even when a fixture also prints an exact-shape line (rf2-m8dbb9 negative control)"
+    (with-fixture-dir
+      (fn [dir]
+        ;; The fixture prints an exact-shape line of its own; cognitect's
+        ;; genuine banner (leading blank + `Running tests in #{...}`) is the
+        ;; ONLY banner-shaped line preceded by a blank. The user line must
+        ;; survive AND there must be exactly ONE `Running tests in #{` on
+        ;; stdout — the user's — proving the genuine banner was still dropped.
+        (write-fixture! dir "exact_shape_neg_test" "exact-shape-neg-test"
+                        (str "(deftest a-neg-test"
+                             " (println \"Running tests in #{:user-only}\")"
+                             " (is (= 1 1)))"))
+        (let [{:keys [exit out err]} (run-runner dir)
+              hits (count (re-seq #"Running tests in #\{" out))]
+          (is (zero? exit)
+              (str "green suite must exit 0; got " exit
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          (is (str/includes? out "Running tests in #{:user-only}")
+              (str "the user's exact-shape line must survive; got:\n" out))
+          (is (= 1 hits)
+              (str "exactly one `Running tests in #{` must reach stdout (the"
+                   " user's) — the genuine cognitect banner must STILL be"
+                   " dropped; got " hits " occurrences:\n" out)))))))
+
+;; ----------------------------------------------------------------------
 ;; Unterminated-partial survival across System/exit — rf2-pjlx6.2.
 ;;
 ;; cognitect exits straight from the computed fail/error counts, so the

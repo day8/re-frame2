@@ -863,6 +863,22 @@
                              :done    {:final? true}}})
   ;; Materialize the live singleton snapshot.
   (rf/dispatch-sync [:job/runner [:job/finish-noop]]) ;; no-op event: stays :running, installs snapshot
+  ;; PRE-TEARDOWN materialization is a FAILING PRECONDITION (rf2-mp1p28):
+  ;; the original test only asserted ABSENCE after the final-state
+  ;; auto-destroy, so "absent after destroy" was indistinguishable from
+  ;; "never present" — a regression where `:job/runner` never materializes a
+  ;; live snapshot, or where the live graph stops surfacing machine
+  ;; instances, would still pass vacuously. Prove a LIVE instance existed
+  ;; (spec/Derivations.md §`:machine-instance` lifecycle: released by machine
+  ;; destroy) BEFORE driving the machine to its final state.
+  (let [g-before    (graph/live-derivation-graph :rf/default all-contributors)
+        node-before (get (:nodes g-before) [:machine :job/runner])
+        rt-before   (frame/frame-runtime-db-value :rf/default)]
+    (testing "the machine instance materialized a live snapshot BEFORE destroy (failing precondition)"
+      (is (some? node-before)
+          "the no-op dispatch MUST materialize the [:machine :job/runner] live snapshot node — absence is a failure, not a skip")
+      (is (some? (get-in rt-before (machine-paths/snapshot-path :job/runner)))
+          "the machine-owned snapshot MUST be live in runtime-db before the final event — proving a live instance existed to release")))
   (rf/dispatch-sync [:job/runner [:job/finish]])      ;; → :done (:final?) → auto-destroy
   (let [g-after (graph/live-derivation-graph :rf/default all-contributors)
         node    (get (:nodes g-after) [:machine :job/runner])
