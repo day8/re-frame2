@@ -264,11 +264,15 @@ Section order (numbered; optional sections shown only when present):
      outcome. The authored refs are not on the trace stream (a clean chain emits no
      per-interceptor "ran" trace), so the panel reads them from the REGISTRY at render time;
      the pure projection threads a resolver in (`projection/authored-interceptors-step` ←
-     `epoch-panel/resolve-event-interceptors`) and stays JVM-testable. *(Per-call /
-     per-frame `:interceptor-overrides` substitutions are not currently traced per dispatch,
-     so the post-hoc panel surfaces the AUTHORED + RESOLVED chain; override-substitution
-     surfacing (§11 (c)) is deferred until the substrate emits per-dispatch override trace —
-     it cannot project a substitution the core does not emit.)*
+     `epoch-panel/resolve-event-interceptors`) and stays JVM-testable. **Override-substitution
+     surfacing (§11 (c) · rf2-9vx0jk):** the per-dispatch `:interceptor-overrides` substitutions
+     that ACTUALLY took effect (merged per-frame ++ per-call, per-call winning) now ride the
+     `:rf.event/run-start` trace event's `:rf.interceptor/override-summary` tag (id/count-only —
+     Spec 009 §`:tags` interceptor family). The panel PREFERS that per-dispatch trace fact when
+     present: a row whose authored ref the summary reports as `:replaced` or `:removed` gains an
+     `:override` slot rendered as a `replaced` / `removed` badge — showing the per-dispatch delta
+     the registry read alone cannot. On the override-free hot path the tag is absent and the rows
+     fall back to the registry-reconstructed AUTHORED + RESOLVED chain with no `:override` stamp.
   4. **EVENT HANDLER** — the verb (`reg-event`, the one public event-registration form after
      EP-0018; `reg-machine` for machine handlers) as a click-to-source
      link + the **syntax-highlighted handler source** in a code block + a **returned
@@ -1447,7 +1451,7 @@ is rendered iff its driving trace events surfaced in this epoch:
 |------|---------------|-------------|
 | **DISPATCH** | `:rf.event/dispatched` | always (every epoch starts here) |
 | **COEFFECT** | `:rf.cofx/run` (or `:rf.event/run-end` `:rf.event/coeffects` fallback) | **one COEFFECT step per user-injected coeffect** (rf2-s1jw4 · Mike pair-debug 2026-05-26, commit `ee9def224`). SYSTEM defaults `:db / :event / :frame / :source / :trace-id` are filtered at projection time (rf2-cq0ch). A cascade with 3 user cofx injections renders 3 numbered COEFFECT entries, not 1 entry containing 3 rows. A coeffect that THREW on injection (`:rf.error/coeffect-exception`) but produced no `:rf.cofx/run` gets a synthesised placeholder COEFFECT step (rf2-yz57h) so the exception card has a home. |
-| **INTERCEPTORS** | registry read — `(handler-meta :event event-id)` `:interceptors` (rf2-se9a9t) | **only when the event carries authored (non-`:rf/default?`) interceptor refs.** The authored chain wraps the handler, so the step renders BEFORE HANDLER. One row per authored ref: id (click-to-source) + the resolved descriptor's hook shape (`before` / `after` / `before/after` / `factory`) + a `ref` / `inline` badge + the factory `:arg` + a `missing` chip for an unregistered ref. This is the clean-chain surfacing (EP-0022 §11 (a)+(b)); read from the REGISTRY, not the trace (a clean chain emits no per-interceptor trace). Purely informational — does NOT inflate the epoch outcome. |
+| **INTERCEPTORS** | registry read — `(handler-meta :event event-id)` `:interceptors` (rf2-se9a9t) + per-dispatch `:rf.interceptor/override-summary` on `:rf.event/run-start` (rf2-9vx0jk) | **only when the event carries authored (non-`:rf/default?`) interceptor refs.** The authored chain wraps the handler, so the step renders BEFORE HANDLER. One row per authored ref: id (click-to-source) + the resolved descriptor's hook shape (`before` / `after` / `before/after` / `factory`) + a `ref` / `inline` badge + the factory `:arg` + a `missing` chip for an unregistered ref. This is the clean-chain surfacing (EP-0022 §11 (a)+(b)); the authored + resolved chain is read from the REGISTRY, not the trace (a clean chain emits no per-interceptor trace). **Override delta (§11 (c) · rf2-9vx0jk):** when the cascade's `:rf.event/run-start` trace carries `:rf.interceptor/override-summary` (id/count-only — present only when this dispatch's merged per-frame ++ per-call `:interceptor-overrides` acted), the panel PREFERS that fact to stamp a `replaced` / `removed` badge on each affected row — the per-dispatch substitution the registry read alone cannot show. Purely informational — does NOT inflate the epoch outcome. |
 | **INTERCEPTOR** | `:rf.error/interceptor-exception` (rf2-mszrz) | **only when a user interceptor threw** (rf2-yz57h). The substrate emits no per-interceptor "ran" trace (the chain runs as one unit), so a clean chain leaves nothing to show — the step is exception-only (the clean chain is the INTERCEPTORS step above). PHASE-SPLIT (rf2-vew2n): a `:before` throw renders its step BEFORE HANDLER, an `:after` throw AFTER HANDLER (execution order: COEFFECTS → :before → HANDLER → :after). One row per throwing interceptor: id + `:before`/`:after` phase chip + the shared exception card; the badge carries no "N threw" summary verb (rf2-oqi0c). |
 | **HANDLER** | every epoch settles through a handler | always (but rendered as **SKIPPED** — rf2-yz57h — when an upstream `:before`-chain throw aborted the cascade before the handler ran) |
 | **FLOW** | `:rf.flow/recomputed` | only when flows fired |

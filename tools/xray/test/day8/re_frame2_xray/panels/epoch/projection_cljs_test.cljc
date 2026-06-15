@@ -4348,7 +4348,52 @@
              (mapv :interceptor-id (:rows step)))
           "authored order preserved (frame-then-event chain order)")
       ;; the step carries no :status — it is informational, never an error
-      (is (nil? (:status step))))))
+      (is (nil? (:status step)))))
+
+  (testing "rf2-9vx0jk — no override-summary => rows carry NO :override stamp"
+    (let [resolve-fn (fn [_id] {:rf/interceptor-descriptor {:before identity}})
+          step (proj/authored-interceptors-step
+                 :cart/add [:auth/required :auth/audit] resolve-fn nil)]
+      (is (every? #(nil? (:override %)) (:rows step))
+          "the override-free path leaves rows unstamped"))))
+
+(deftest authored-interceptors-step-override-summary-test
+  (testing "rf2-9vx0jk — the per-dispatch override-summary marks replaced/removed rows"
+    (let [resolve-fn (fn [_id] {:rf/interceptor-descriptor {:before identity}})
+          summary    {:matched  [:auth/required :auth/audit]
+                      :replaced [:auth/audit]
+                      :removed  [:auth/required]
+                      :count    2}
+          step (proj/authored-interceptors-step
+                 :cart/add
+                 [:auth/required :auth/audit :auth/untouched]
+                 resolve-fn
+                 summary)
+          by-id (into {} (map (juxt :interceptor-id identity) (:rows step)))]
+      (is (= :removed  (get-in by-id [:auth/required :override]))
+          ":auth/required reported :removed")
+      (is (= :replaced (get-in by-id [:auth/audit :override]))
+          ":auth/audit reported :replaced")
+      (is (nil? (get-in by-id [:auth/untouched :override]))
+          "a ref the summary did not touch carries no :override")))
+
+  (testing "rf2-9vx0jk — an [id arg]-authored row matches the summary's bare head id"
+    (let [resolve-fn (fn [_id] {:rf/interceptor-descriptor {:before identity}})
+          ;; the summary projection reduces [id arg] refs to their head id, so
+          ;; the summary carries the bare keyword while the chain row authored
+          ;; an [id arg] ref — they must still match.
+          summary    {:matched [:rf.interceptor/path]
+                      :replaced []
+                      :removed  [:rf.interceptor/path]
+                      :count    1}
+          step (proj/authored-interceptors-step
+                 :cart/add
+                 [[:rf.interceptor/path [:cart]]]
+                 resolve-fn
+                 summary)
+          row  (first (:rows step))]
+      (is (= :removed (:override row))
+          "[id arg]-authored row matched the summary's bare head id"))))
 
 (deftest project-authored-interceptors-end-to-end-test
   (testing "rf2-se9a9t — the resolver opts inject the INTERCEPTORS step
@@ -4398,7 +4443,39 @@
                         :cart/add)
           steps (proj/project rec)]
       (is (not (some #(= :interceptors (:step %)) steps))
-          "no resolver → no INTERCEPTORS step (pure / back-compat)"))))
+          "no resolver → no INTERCEPTORS step (pure / back-compat)")))
+
+  (testing "rf2-9vx0jk — project reads :rf.interceptor/override-summary off the
+            run-start trace and stamps the affected INTERCEPTORS rows"
+    (let [run-start (teb/ev :rf.event :rf.event/run-start
+                            {:rf.event/v [:cart/add]
+                             :frame      :rf/default
+                             :rf.interceptor/override-summary
+                             {:matched  [:auth/required]
+                              :replaced []
+                              :removed  [:auth/required]
+                              :count    1}})
+          rec   (record [(dispatched-ev [:cart/add] :ui nil)
+                         run-start
+                         (db-changed-ev [[[:cart] 0 1 :modified]])
+                         (run-end-ev 1)]
+                        :cart/add)
+          opts  {:resolve-event-interceptors
+                 (fn [event-id]
+                   (when (= event-id :cart/add)
+                     {:entries [:auth/required :auth/audit
+                                {:id :rf/event-handler :rf/default? true}]
+                      :resolve-meta-fn
+                      (fn [_id]
+                        {:rf/interceptor-descriptor {:before identity}})}))}
+          steps (proj/project rec opts)
+          istep (some #(when (= :interceptors (:step %)) %) steps)
+          by-id (into {} (map (juxt :interceptor-id identity) (:rows istep)))]
+      (is (some? istep) "INTERCEPTORS step present")
+      (is (= :removed (get-in by-id [:auth/required :override]))
+          "the run-start override-summary stamped :auth/required :removed")
+      (is (nil? (get-in by-id [:auth/audit :override]))
+          "an untouched ref carries no :override"))))
 
 ;; -- SKIPPED-step marking -------------------------------------------------
 

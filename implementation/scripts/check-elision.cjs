@@ -109,6 +109,23 @@ const DEV_ONLY_SENTINELS = [
   // operation keyword should not survive.
   { source: 're-frame.router/emit-dispatched-trace! (event/dispatched)',
     sentinel: 'event/dispatched' },
+  // re-frame.router — :rf.event/run-start trace op (rf2-9vx0jk). The
+  // run-start TRACE emit (distinct from the always-on flat event-emit
+  // record — Spec 009 §Emit-gate summary) rides `trace/emit!`, whose body
+  // is gated on `interop/debug-enabled?`, so the whole emit DCEs under
+  // :advanced + goog.DEBUG=false. This is the emit the dev-only
+  // `:rf.interceptor/override-summary` tag rides on: with this sentinel
+  // ABSENT in prod, the run-start emit — and the override-summary VALUE
+  // construction that feeds its `:tags` (built only by
+  // `re-frame.router/override-summary`) — is proven elided. (The
+  // `:rf.interceptor/override-summary` KEYWORD itself legitimately survives
+  // via the marks chokepoint — see the rf2-9vx0jk NOTE below — but the run-
+  // start op keyword has no such always-reachable referent and elides
+  // cleanly, so it is the load-bearing grep for the whole-emit DCE.) The
+  // trailing `"` pins the op keyword exactly and avoids matching any
+  // longer superstring.
+  { source: 're-frame.router/run-handler-cascade! (rf.event/run-start)',
+    sentinel: 'rf.event/run-start"' },
   // re-frame.http-managed — :rf.http/retry-attempt trace op (Spec 014
   // §Retry and backoff). Emitted from `(when interop/debug-enabled? ...)`
   // branches in maybe-retry! / maybe-retry-jvm!. Both transports' emit
@@ -291,6 +308,33 @@ const DEV_ONLY_SENTINELS = [
   // is absent. (Also, `rf.view/render-args` superstring-matches the
   // `view/render` sentinel, so a keyword sentinel here would be a
   // self-defeating false positive.)
+  //
+  // NOTE (rf2-9vx0jk) — the dev-only `:rf.interceptor/override-summary` tag on
+  // `:rf.event/run-start` (Spec 009 §`:tags` interceptor family) follows the
+  // SAME precedent as `:rf.view/render-args` above: we deliberately do NOT add
+  // a keyword sentinel for it. The `:rf.interceptor/override-summary` keyword
+  // literal LEGITIMATELY survives in production via the always-reachable marks
+  // chokepoint `re-frame.marks/project-trace-event` (the fail-closed
+  // `(contains? tags :rf.interceptor/override-summary)` projection branch),
+  // exactly like `:rf.event/db` / `:rf.view/render-args` / `:rf.cofx/value`.
+  // A keyword sentinel here would be a false production-leak positive.
+  //
+  // The privacy guarantee is that the summary VALUE (the id/count map
+  // `{:matched … :replaced … :removed … :count …}`) is constructed ONLY inside
+  // `re-frame.router/override-summary`, which feeds ONLY the dev-only
+  // `:rf.event/run-start` `trace/emit!` call — whose whole body sits inside the
+  // `(when interop/debug-enabled? ...)` gate in `re-frame.trace/emit!` and DCEs
+  // under :advanced + goog.DEBUG=false. The `re-frame.elision-probe`
+  // `touch-interceptor-override-summary!` roots that gated construction in the
+  // reachability graph (it dispatches an event WITH per-call
+  // `:interceptor-overrides` that removes + replaces a chain entry) so the
+  // control build exercises the summary path. The summary carries id-keywords
+  // only (never an interceptor value/fn/raw arg), and those ids — being the
+  // user's own override-key keywords — would in any case already live in app
+  // source; there is no separate raw VALUE for a string sentinel to catch.
+  // Production absence of the summary DATA is therefore pinned by the same
+  // whole-emit elision that drops the run-start trace body, not by a
+  // standalone bundle-grep sentinel.
   // re-frame.views — :rf.view/unmounted teardown op (rf2-9hoos). Emitted
   // by `emit-view-unmounted!` (via the per-render-instance reaction
   // dispose installed by `install-unmount-hook!`) when a registered view

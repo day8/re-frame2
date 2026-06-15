@@ -575,6 +575,57 @@
                        entry))))
            (filterv some?)))))
 
+(defn- override-summary
+  "Build the dev-only `:rf.interceptor/override-summary` trace tag (Spec 009
+  §`:tags` interceptor family, rf2-9vx0jk). Summarises which authored
+  interceptor references an `:interceptor-overrides` map (merged per-frame +
+  per-call, per-call winning) actually acted on for THIS dispatch, by walking
+  the PRE-override `resolved-chain` (whose entries still carry their authored
+  ref under `icpt-reg/authored-ref-key`, before any matched entry was
+  removed/replaced) against the override keys.
+
+  Returns `nil` when `overrides` is empty (the hot no-override path — the tag
+  is then omitted entirely, keeping the override-free run-start byte-identical).
+  Otherwise returns:
+
+    {:matched  [<authored-ref-id> …]   ;; keys that matched a chain entry
+     :replaced [<authored-ref-id> …]   ;; matched keys with a non-nil (ref) replacement
+     :removed  [<authored-ref-id> …]   ;; matched keys with a `nil` replacement (removed)
+     :count    <int>}                  ;; total number of MATCHED overrides
+
+  STRICTLY ID-ONLY (Spec 015 §The promotion criterion + EP-0022 redaction
+  note): the carried values are the override-map KEY references — a bare
+  keyword or an `[id arg]` 2-vector head-keyword reference. NEVER an
+  interceptor value, executable map, fn, raw factory arg, or raw replacement
+  value. A parameterized `[id arg]` ref is EDN-serializable but its `arg` could
+  carry app data, so this surface egresses ids/counts only; the marks
+  chokepoint (`re-frame.marks/project-trace-event`) enforces the shape
+  fail-closed should it ever grow. Unmatched override keys (a key that matched
+  no chain entry — the `:rf.error/override-fallthrough` candidate) are NOT
+  counted in `:matched`/`:replaced`/`:removed`/`:count`; the tag reports what
+  took effect, not what was requested.
+
+  This helper is pure and feeds ONLY the dev-only `:rf.event/run-start` trace
+  emit, so it DCEs in `:advanced` production builds with the rest of that emit
+  (Spec 009 §Production builds)."
+  [resolved-chain overrides]
+  (when (seq overrides)
+    (let [matched (reduce
+                    (fn [acc entry]
+                      (if-not (map? entry)
+                        acc
+                        (if-let [k (some (fn [k]
+                                           (when (icpt-reg/override-key-matches? k entry) k))
+                                         (keys overrides))]
+                          (let [removed? (nil? (get overrides k))]
+                            (-> acc
+                                (update :matched conj k)
+                                (update (if removed? :removed :replaced) conj k)))
+                          acc)))
+                    {:matched [] :replaced [] :removed []}
+                    resolved-chain)]
+      (assoc matched :count (count (:matched matched))))))
+
 (defn- validate-event!
   "Per Spec 010 §Validation order step 1 (rf2-jwm4): validate the
   dispatched event vector against the handler's :schema BEFORE the
@@ -1720,6 +1771,17 @@
     {:full-chain   full-chain
      :initial-ctx  initial-ctx
      :fx-overrides fx-overrides
+     ;; rf2-9vx0jk — dev-only per-dispatch interceptor-override summary
+     ;; (id-only / counts) for the `:rf.event/run-start` trace tag
+     ;; `:rf.interceptor/override-summary`. `nil` on the hot no-override path
+     ;; (`icpt-overrides` is the shared empty sentinel) — the tag is then
+     ;; omitted entirely. Computed from the PRE-override `resolved-chain` (which
+     ;; still carries the authored refs the overrides matched against) + the
+     ;; merged per-frame + per-call `icpt-overrides` map — `base-chain` is the
+     ;; POST-override chain (matched entries already removed/replaced), so the
+     ;; matcher must walk `resolved-chain`. Pure + feeds only the dev-only
+     ;; run-start emit, so it DCEs in `:advanced` production.
+     :override-summary (override-summary resolved-chain icpt-overrides)
      :emit-event   (if (seq all-paths)
                      (privacy/redact-event (:event envelope) all-paths)
                      (:event envelope))
@@ -2024,7 +2086,7 @@
   event record."
   [envelope event-id event frame frame-record handler-meta]
   (let [{:keys [full-chain initial-ctx fx-overrides emit-event
-                schema-sensitive?]}
+                schema-sensitive? override-summary]}
         (prepare-handler-ctx envelope frame frame-record handler-meta)
         ;; Per rf2-j20a7 / Spec 005 §Level 4: tag the in-flight envelope
         ;; as machine-originated when THIS handler is a machine (its
@@ -2052,12 +2114,29 @@
       (trace/handler-scope-from-meta :event event-id scope-meta)
       (let [start-ms  (interop/now-ms)
             _         (trace/emit! :rf.event :rf.event/run-start
-                                   {:rf.trace/event-id event-id
-                                    :rf.event/v        emit-event
-                                    :frame             frame
-                                    :source            (:source envelope)
-                                    :rf.trace/trace-id (:trace-id envelope)
-                                    :rf.trace/phase    :run-start})
+                                   ;; rf2-9vx0jk — `:rf.interceptor/override-
+                                   ;; summary` rides the run-start TRACE tag
+                                   ;; bag (dev-only — the whole `trace/emit!`
+                                   ;; call elides under `:advanced`). The
+                                   ;; `cond->` step keys on the RUNTIME
+                                   ;; `override-summary` VALUE (nil on the hot
+                                   ;; no-override path ⇒ tag omitted), NOT a
+                                   ;; keyword-literal test (which Closure won't
+                                   ;; fold — rf2-7ynhyn); the keyword literal
+                                   ;; itself legitimately survives prod via the
+                                   ;; always-reachable marks chokepoint (Spec
+                                   ;; 009 §`:tags`; same as `:rf.event/db` /
+                                   ;; `:rf.view/render-args`), but the id/count
+                                   ;; VALUES are constructed only here and DCE.
+                                   (cond-> {:rf.trace/event-id event-id
+                                            :rf.event/v        emit-event
+                                            :frame             frame
+                                            :source            (:source envelope)
+                                            :rf.trace/trace-id (:trace-id envelope)
+                                            :rf.trace/phase    :run-start}
+                                     override-summary
+                                     (assoc :rf.interceptor/override-summary
+                                            override-summary)))
             event-ok? (validate-event! event-id event handler-meta frame)
             final-ctx (run-chain event-id full-chain initial-ctx event-ok?)
             ;; rf2-hhh92: the HANDLER-BODY-only elapsed — the interceptor
