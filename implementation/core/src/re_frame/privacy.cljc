@@ -204,8 +204,8 @@
           ;; trace surface sees them as :rf/redacted
           ...))
 
-  Per [Spec 009 §Privacy](009-Instrumentation.md) and
-  [Security.md §Behavioural MUSTs across the privacy surface](Security.md#behavioural-musts-across-the-privacy-surface)."
+  Per [Spec 009 §Privacy](../../../../../spec/009-Instrumentation.md) and
+  [Security.md §Behavioural MUSTs across the privacy surface](../../../../../spec/Security.md#behavioural-musts-across-the-privacy-surface)."
   [paths]
   (let [paths (vec paths)]
     (interceptor/->interceptor*
