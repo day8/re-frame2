@@ -114,13 +114,23 @@
          ">")))
 
 (defn default-streaming-suffix
-  "The shell suffix flushed after the final-payload chunk. Closes the
-  app-div, emits the bootstrap script tag (if any), the body-end raw
-  HTML, and the document close."
+  "The shell suffix flushed after the final-payload chunk. Emits the
+  bootstrap script tag (if any), the body-end raw HTML, and the document
+  close.
+
+  rf2-z9dduj — the app root (`</div>`) is NO LONGER closed here. It is
+  closed at the END of the shell chunk (immediately after the shell HTML,
+  see `run-streaming-writer!`), so the resolved templates, hydration-delta
+  scripts, and the final `__rf_payload` script all stream OUTSIDE `#app`
+  per Spec 011 §Chunk-ordering contract (chunk 1 is
+  `…<div id=\"app\"><shell-html/></div>`). The suffix is therefore purely
+  the bootstrap `<script>` + the raw `:body-end` + the document close —
+  all of which already belonged outside `#app`, mirroring the non-streaming
+  `default-html-shell` (which emits the payload script + bootstrap + body-end
+  after `</div>`)."
   [{:keys [body-end script-src]
     :or   {script-src "/main.js"}}]
-  (str "</div>"
-       (when script-src
+  (str (when script-src
          ;; rf2-7x0qk — `:script-src` is an attribute-value position;
          ;; escape through `html/escape-attr` (same split as the non-
          ;; streaming `default-html-shell`). `:body-end` stays raw
@@ -351,14 +361,32 @@
                              ;; marker when false (a true no-op was the
                              ;; bug). Same hash the final payload carries.
                              :render-hash (when emit-hash? doc-hash)})]
-      ;; Chunk 1 — shell prefix + shell HTML (with template fallbacks).
-      ;; rf2-l1qgjw — stamp the phase before each write so the catch arm
-      ;; names the in-flight chunk. `:shell-prefix` is already the initial
-      ;; volatile value, set explicitly here for symmetry/readability.
+      ;; Chunk 1 — shell prefix + shell HTML (with template fallbacks) +
+      ;; the app-root close. rf2-l1qgjw — stamp the phase before each write
+      ;; so the catch arm names the in-flight chunk. `:shell-prefix` is
+      ;; already the initial volatile value, set explicitly here for
+      ;; symmetry/readability.
       (vreset! phase [:shell-prefix nil])
       (write-chunk! out (default-streaming-prefix head-html shell-opts))
+      ;; rf2-z9dduj — CLOSE the app root (`</div>`) at the END of the shell
+      ;; chunk, immediately after the shell HTML and BEFORE any resolved
+      ;; template / hydration-delta / final `__rf_payload` chunk. Spec 011
+      ;; §Chunk-ordering contract pins chunk 1 as
+      ;; `…<div id="app"><shell-html/></div>` — the app root is CLOSED in the
+      ;; shell chunk, and the resolved chunks + final payload + bootstrap +
+      ;; body-end stream OUTSIDE it (chunks 2..N). The non-streaming
+      ;; `default-html-shell` already closes `</div>` right after the body and
+      ;; emits the payload script outside `#app`; the streaming path used to
+      ;; leave the close in `default-streaming-suffix` AFTER the protocol
+      ;; chunks, so resolved templates + the `__rf_payload` script landed
+      ;; INSIDE the application root — control/protocol nodes in the DOM a
+      ;; client renderer/hydrator owns, risking a hydration mismatch /
+      ;; replacement (Spec 011 §998-1001). The close is appended to the same
+      ;; `:shell-html` write (one flush) so a write throw is still attributed
+      ;; to the `:shell-html` phase, and the suffix is now purely the bootstrap
+      ;; script + body-end + `</body></html>`.
       (vreset! phase [:shell-html nil])
-      (write-chunk! out shell-html)
+      (write-chunk! out (str shell-html "</div>"))
       ;; Chunks 2..N+1 — one per continuation, FIFO over registration.
       ;;
       ;; rf2-sgvn6 / rf2-b1v8v — drain a GROWABLE FIFO worklist, not a
@@ -664,7 +692,25 @@
         (if short-circuit
           short-circuit
           (try
-            (let [resp (ssr/get-response frame-id)]
+            ;; rf2-nu5w48 / EP-0013 §Realm Conformance: bind the request
+            ;; frame's OWN realm around the request-thread body so every
+            ;; per-frame side channel it reads — the early `ssr/get-response`
+            ;; drain read, the post-shell `ssr/get-response` re-read, and the
+            ;; response materialisation on BOTH redirect short-circuits — is
+            ;; addressed by the `(realm, frame)` slot (`frame/frame-address`),
+            ;; not the default realm's bare-id slot. `render-streaming-shell!`
+            ;; re-establishes the realm registrar around its OWN render walk
+            ;; (rf2-bzw8gd) and captures `:realm-id` for the daemon writer to
+            ;; carry across the thread boundary; the shell-render error path
+            ;; binds it inside `project-render-throw->ring-response`
+            ;; (rf2-nu5w48). This request-thread binding closes the redirect +
+            ;; accumulator-read gaps the render-walk binding did not cover.
+            ;; No-op for a default-realm frame (byte-identical single-realm
+            ;; path); it does NOT cross into the spawned writer thread (which
+            ;; carries its realm via `:realm-id`).
+            (frame/call-with-realm (frame/frame-realm frame-id)
+             (fn []
+              (let [resp (ssr/get-response frame-id)]
               (if (some? (:redirect resp))
                 ;; Redirect short-circuits the stream — no chunked body,
                 ;; so the writer thread (whose `finally` normally tears
@@ -867,7 +913,7 @@
                               ^String (str "rf2-ssr-streaming-" (name frame-id)))
                             (.setDaemon true)
                             (.start))
-                          (assoc resp-map :body pipe-in))))))))
+                          (assoc resp-map :body pipe-in)))))))))) ;; close let/if + (fn []) + call-with-realm (rf2-nu5w48)
             (catch Throwable t
               ;; get-response throw, redirect-materialise throw, OR (per
               ;; rf2-z5azc) a head-materialisation throw raised BEFORE the

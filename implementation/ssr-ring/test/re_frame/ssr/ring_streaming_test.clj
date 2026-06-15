@@ -95,6 +95,101 @@
       (is (< idx-resolved idx-payload) "resolved chunks emitted before final payload")
       (is (< idx-payload idx-close) "final payload before body close"))))
 
+;; ===========================================================================
+;; rf2-z9dduj — the streaming shell closes the app root (`</div>`) at the END
+;; of the shell chunk, BEFORE the resolved templates, hydration-delta scripts,
+;; and the final `__rf_payload`. Pre-fix the close lived in
+;; `default-streaming-suffix`, AFTER every protocol chunk — so resolved
+;; templates + the `__rf_payload` script landed INSIDE the application root,
+;; leaking streaming control/protocol nodes into the DOM `#app` a client
+;; renderer/hydrator owns (hydration-mismatch / replacement risk). Spec 011
+;; §Chunk-ordering contract pins chunk 1 as `…<div id="app"><shell-html/></div>`
+;; and the non-streaming `default-html-shell` already closes `</div>` before the
+;; payload script.
+;; ===========================================================================
+
+(deftest stream-handler-closes-app-root-before-protocol-chunks
+  (testing "rf2-z9dduj: the app-root `</div>` is emitted at the END of the
+            shell chunk — BEFORE the first resolved template AND before the
+            final `__rf_payload` — so the resolved templates, delta scripts,
+            and payload all stream OUTSIDE `#app` (Spec 011 §998-1001). The
+            `:test/root` shell has NO inner `<div>`, so the only `</div>` in
+            the wire is the app-root close."
+    (let [handler  (ssr-ring/stream-handler
+                     {:on-create [:rf.test.server/init]
+                      :root-view [:test/root]
+                      :payload :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/" :request-method :get})
+          body     (drain-stream (:body response))
+          idx-app-open  (str/index-of body "<div id=\"app\"")
+          ;; The app-root close: `:test/root` emits no nested <div>, so the
+          ;; first (and only) `</div>` IS the app-root close.
+          idx-app-close (str/index-of body "</div>")
+          idx-resolved  (str/index-of body "data-rf2-suspense-resolved=\"1\"")
+          idx-payload   (str/index-of body "__rf_payload")
+          idx-comments  (str/index-of body "First!")]
+      (is (= 200 (:status response)))
+      (is (some? idx-app-open) "the #app root div opened")
+      (is (some? idx-app-close) "an app-root close exists")
+      (is (some? idx-resolved) "a resolved subtree chunk streamed")
+      (is (some? idx-payload) "the final payload chunk streamed")
+      ;; THE PINS — the app-root close precedes the protocol chunks.
+      (is (< idx-app-open idx-app-close)
+          "the `</div>` comes after the `<div id=\"app\"` open")
+      (is (< idx-app-close idx-resolved)
+          "rf2-z9dduj: the app root closes BEFORE the first resolved template
+           — resolved chunks stream OUTSIDE #app, not nested inside it")
+      (is (< idx-app-close idx-payload)
+          "rf2-z9dduj: the app root closes BEFORE the final __rf_payload —
+           the payload script streams OUTSIDE #app (matching the non-streaming
+           shell, which closes </div> before the payload script)")
+      ;; The resolved comment body is itself a child of the resolved
+      ;; <template>, which is OUTSIDE #app — so it too lands after the close.
+      (is (< idx-app-close idx-comments)
+          "the resolved subtree body streams after the app-root close")
+      ;; Defense-in-depth: NO `__rf_payload` appears between the #app open and
+      ;; its close (i.e. the payload is not nested in the app root).
+      (let [app-inner (subs body idx-app-open idx-app-close)]
+        (is (not (str/includes? app-inner "__rf_payload"))
+            "no __rf_payload script nested inside #app")
+        (is (not (str/includes? app-inner "data-rf2-suspense-resolved"))
+            "no resolved-template protocol node nested inside #app")))))
+
+(deftest stream-handler-suffix-no-longer-emits-app-close
+  (testing "rf2-z9dduj: `default-streaming-suffix` no longer carries the
+            app-root `</div>` (it moved to the shell chunk). The suffix is now
+            purely the bootstrap script + body-end + document close."
+    (let [suffix (ssr-ring/default-streaming-suffix {:script-src "/main.js"})]
+      (is (not (str/includes? suffix "</div>"))
+          "the suffix no longer closes the app root")
+      (is (str/includes? suffix "</body></html>")
+          "the suffix still closes the document")
+      (is (str/includes? suffix "<script src=\"/main.js\">")
+          "the suffix still emits the bootstrap script"))))
+
+(deftest stream-handler-no-boundary-closes-app-root-before-payload
+  (testing "rf2-z9dduj: the degenerate (no-suspense) path also closes #app
+            before the final __rf_payload — the wire shape collapses to
+            shell-prefix + shell-html + `</div>` + payload + suffix."
+    (rf/reg-view ^{:rf/id :test/static-only} static-only []
+      [:main [:h1 "Static"]])
+    (let [handler  (ssr-ring/stream-handler
+                     {:on-create [:rf.test.server/init]
+                      :root-view [:test/static-only]
+                      :payload :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/" :request-method :get})
+          body     (drain-stream (:body response))
+          idx-close   (str/index-of body "</div>")
+          idx-payload (str/index-of body "__rf_payload")]
+      (is (some? idx-close) "the app root closed")
+      (is (some? idx-payload) "the payload streamed")
+      (is (< idx-close idx-payload)
+          "rf2-z9dduj: even with zero continuations, #app closes before the
+           __rf_payload script")
+      (let [app-inner (subs body (str/index-of body "<div id=\"app\"") idx-close)]
+        (is (not (str/includes? app-inner "__rf_payload"))
+            "the payload is not nested inside #app on the degenerate path")))))
+
 (deftest stream-handler-multiple-boundaries-FIFO
   (testing "Multiple boundaries emit resolved chunks in document-order FIFO"
     (rf/reg-view ^{:rf/id :test/multi-root} multi-root-view []

@@ -470,17 +470,41 @@
 
   When projection returns nil (e.g. no server frame) the locked
   generic-500 public-error is substituted so the wire still carries a
-  well-formed fail-closed body."
+  well-formed fail-closed body.
+
+  rf2-nu5w48 / EP-0013 §Realm Conformance: the WHOLE error-projection +
+  error-body render path is bound to the request frame's OWN realm
+  (`call-with-realm` + `call-with-frame-realm-registrar`), mirroring the
+  happy-path `build-full-response*` realm binding (rf2-bzw8gd):
+
+    - `call-with-realm` binds `*current-realm*` so the per-frame side
+      channels this path touches (`project-render-exception!` stamps the
+      response accumulator, `peek-response` reads it) address the
+      `(realm, frame)` slot via `frame/frame-address` — a non-default-realm
+      frame's error status/headers/cookies are read from ITS slot, not the
+      default realm's bare-id slot;
+    - `call-with-frame-realm-registrar` binds the realm's registrar so a
+      caller `:error-view` REGISTERED IN THE REALM resolves through the
+      owning realm's registrar (`resolve-error-body`'s `[error-view
+      public-error]` view lookup), not the process-global default's.
+
+  Both no-op for a default-realm frame (byte-identical single-realm path).
+  The frame record is resolved ONCE for the registrar binding."
   [frame-id ^Throwable t opts]
-  (let [public-error  (ssr/project-render-exception! frame-id t)
-        resp*         (ssr/peek-response frame-id)
-        public-error* (or public-error
-                          {:status 500 :code :internal-error
-                           :message "Something went wrong"
-                           :retryable? false})
-        body-html     (resolve-error-body frame-id (:error-view opts) public-error*)
-        content-type  (:content-type opts)]
-    (ssr-response->ring-response resp* body-html content-type)))
+  (frame/call-with-realm (frame/frame-realm frame-id)
+    (fn []
+      (frame/call-with-frame-realm-registrar
+        (frame/frame frame-id)
+        (fn []
+          (let [public-error  (ssr/project-render-exception! frame-id t)
+                resp*         (ssr/peek-response frame-id)
+                public-error* (or public-error
+                                  {:status 500 :code :internal-error
+                                   :message "Something went wrong"
+                                   :retryable? false})
+                body-html     (resolve-error-body frame-id (:error-view opts) public-error*)
+                content-type  (:content-type opts)]
+            (ssr-response->ring-response resp* body-html content-type)))))))
 
 (defn build-full-response
   "Render the caller's `:root-view` against `frame-id`, build the
