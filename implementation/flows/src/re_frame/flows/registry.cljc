@@ -797,6 +797,53 @@
                       reg
                       ordered))))))))
 
+;; ---- flow output-declaration snapshot / rollback (rf2-gdzv6o) -------------
+;;
+;; `refresh-flow-output-declarations!` writes the frame's runtime-db elision
+;; registry IMMEDIATELY (via `swap-elision-slot!`), BEFORE the flow walk in
+;; `re-frame.flows/run-flows-on-db` runs. A flow throw is a PRE-INSTALL throw
+;; that aborts the WHOLE event (Spec 013 §Failure semantics), so the pending
+;; `:db` effect and the draining frame's `last-inputs` advances are discarded
+;; — but the refresh's runtime-db write would SURVIVE, leaving the elision
+;; declarations out of sync with the committed (rolled-back) frame state and
+;; violating the all-or-nothing two-partition contract (Spec 013:284,288 —
+;; a pre-install flow throw must leave BOTH app-db and runtime-db unchanged).
+;;
+;; These two helpers let the drain snapshot the frame's flow output-declaration
+;; slots BEFORE the refresh and restore them EXACTLY on a throw — the precise
+;; mirror of the `frame-last-inputs-snapshot` / `reset-frame-last-inputs-to!`
+;; pair this same walk already uses for the dirty-check rollback. Frame-scoped:
+;; both name `frame-id` and touch only that frame's runtime-db elision slot, so
+;; a concurrently-draining sibling frame is structurally untouched (rf2-94ol5).
+
+(defn ^:no-doc flow-output-declarations-snapshot
+  "Snapshot `frame-id`'s flow-touchable elision declaration sub-maps — the
+  two slots `refresh-flow-output-declarations!` (and `fold-flow-declarations`)
+  ever mutate: `:sensitive-declarations` and `:declarations`. Returned as a
+  plain map suitable for `restore-flow-output-declarations!`. The drain-start
+  snapshot for the rf2-gdzv6o throw-path rollback."
+  [frame-id]
+  {:sensitive-declarations (elision/sensitive-declarations frame-id)
+   :declarations           (elision/declarations frame-id)})
+
+(defn ^:no-doc restore-flow-output-declarations!
+  "Restore `frame-id`'s flow output-declaration slots to `prior` (a snapshot
+  from `flow-output-declarations-snapshot`), rolling back any mark-mutation
+  refresh that landed before an aborted flow walk. Writes the two declaration
+  sub-maps back EXACTLY through `swap-elision-slot!` (pruning an emptied slot
+  the same way `fold-flow-declarations` does), leaving any other elision-slot
+  keys the refresh never touches unchanged. Frame-scoped (rf2-94ol5)."
+  [frame-id prior]
+  (let [prior-s (:sensitive-declarations prior)
+        prior-l (:declarations prior)]
+    (elision/swap-elision-slot! frame-id
+      (fn [reg]
+        (cond-> (or reg {})
+          (seq prior-s)    (assoc :sensitive-declarations prior-s)
+          (empty? prior-s) (dissoc :sensitive-declarations)
+          (seq prior-l)    (assoc :declarations prior-l)
+          (empty? prior-l) (dissoc :declarations))))))
+
 (defn- clear-flow-output-marks!
   "Drop `flow-id`'s `:source :flow` declarations from `frame-id`'s elision
   registry. Called on `clear-flow` (`registry.cljc` §clear-flow) so a
