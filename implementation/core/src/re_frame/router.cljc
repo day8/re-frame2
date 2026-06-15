@@ -1703,8 +1703,8 @@
         ;; — it fires after the rest of the `:after` chain (handler body
         ;; + every user / framework `:after`) has fully reshaped the
         ;; pending `:db` effect into the complete app-db form. This is
-        ;; load-bearing: a `(rf/path :slice)` interceptor's `:after`
-        ;; splices the handler's slice back into the FULL db, so the flow
+        ;; load-bearing: a `[:rf.interceptor/path [:slice]]` interceptor's
+        ;; `:after` splices the handler's slice back into the FULL db, so the flow
         ;; transform (which reads full-db `:inputs` paths) MUST run after
         ;; that splice — i.e. outermost. The rest of the `:after` chain
         ;; therefore precedes flows and sees its INPUT; the flow output

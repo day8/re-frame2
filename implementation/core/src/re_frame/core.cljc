@@ -2044,16 +2044,28 @@
   to inject an effect into the cascade. Per spec/API.md §Interceptors."}
   assoc-effect    interceptor/assoc-effect)
 
-(def ^{:doc "Returns an interceptor value that focuses the handler on the
-  app-db sub-slice at the given path — the handler receives the slice
-  value as `:db` (not the full app-db); its returned `:db` is spliced
-  back. Since EP-0022 (chains are reference-only) the standard way to use
-  `path` in a chain is the framework-registered factory ref
-  `[:rf.interceptor/path <path-vector>]`, not this value-constructor:
-  `(reg-event :inc {:interceptors [[:rf.interceptor/path [:counter]]]} (fn [{:keys [db]} _] {:db (inc db)}))`.
-  This fn remains the underlying value builder the standard factory
-  consumes. Per spec/API.md §Interceptors."}
-  path            std-interceptors/path)
+;; EP-0022 (accepted) removed the public `rf/path` VALUE constructor
+;; (EP-0022:552 "There is no public rf/path value constructor."; :932 lists the
+;; removal). spec/API.md + spec/002-Frames.md already follow it — the one public
+;; path surface is the framework-registered factory ref
+;; `[:rf.interceptor/path <path-vector>]`. The implementation had DRIFTED (kept
+;; exporting `rf/path` aliased to a legacy std-interceptors `path` fn whose
+;; weaker `:after` defeated the rf2-ekq28v commit no-op). rf2-dgtdna reconciles:
+;; the legacy fn is gone and this facade name survives ONLY as a `^:no-doc`
+;; throwing stub (the project's actionable-removed-API pattern, like the
+;; EP-0018 `reg-event-db` / EP-0017 `inject-cofx` stubs) — a stale `(rf/path …)`
+;; resolves to a real var and fails LOUDLY with `:rf.error/path-removed`, naming
+;; the `[:rf.interceptor/path …]` ref as the replacement. `^:no-doc` drops it
+;; from the API manifest generator + the CLJS publics probe: it carries no
+;; manifest row and is not part of the documented public surface. See
+;; spec/API.md §Standard interceptors and docs/api/15-removed.md.
+(def ^{:no-doc true
+       :doc "REMOVED in EP-0022 (no alias). Calling `path` raises the hard
+  error `:rf.error/path-removed`, naming the framework-registered ref
+  `[:rf.interceptor/path <path-vector>]` (used in a handler's `:interceptors`
+  chain) as the replacement. See `re-frame.std-interceptors/path-removed!` and
+  spec/API.md §Standard interceptors."}
+  path            std-interceptors/path-removed!)
 
 (def ^{:doc "Interceptor VALUE (not a fn) that asserts the dispatched event
   has shape `[<id> <payload-map>]` and replaces the `:event` coeffect with
