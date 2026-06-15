@@ -1538,78 +1538,62 @@
                 ;; same-by-= subsequent renders.
                 stable-frame-kw (aget stable-key 0)
                 stable-query-v  (aget stable-key 1)
-                ;; ---- render-phase acquisition ledger (rf2-879fe + rf2-8u8tx.2) ----
+                ;; ---- commit-deferred ref-count acquisition (rf2-es09qq) -------
                 ;;
-                ;; The memo factory calls `subs/subscribe`, which bumps the
-                ;; sub-cache ref-count (+1) — a RENDER-phase acquisition. The
-                ;; ONLY release used to be a `useEffect` cleanup keyed on the
-                ;; deps array, which is unbalanced for two documented React
-                ;; behaviours:
+                ;; THE INVARIANT: a render that never commits MUST NOT retain a
+                ;; sub-cache ref-count. The earlier design (rf2-879fe ledger) put
+                ;; the durable `subs/subscribe` (+1) in the render-phase `useMemo`
+                ;; factory and reclaimed it from commit-owned effects. That is
+                ;; unsound for a FIRST-MOUNT render abandoned before commit
+                ;; (Suspense / concurrent interrupt): React discards the whole
+                ;; fiber — its `useRef` ledger AND its never-run effects — so the
+                ;; render-phase +1 is pinned in the GLOBAL sub-cache forever with
+                ;; no owning component. The ledger only ever healed a render whose
+                ;; fiber LATER committed; a discarded first-mount fiber never gets
+                ;; that reconcile pass.
                 ;;
-                ;;   (rf2-879fe) An ABANDONED / suspended render that calls the
-                ;;     factory but never commits has no effect — so the cleanup
-                ;;     never runs and the +1 is pinned forever.
+                ;; FIX — the durable acquire/release lives ONLY in commit-owned
+                ;; hooks (`useSyncExternalStore`'s subscribe callback, run after
+                ;; commit; its cleanup run on unmount / subscribe-identity change
+                ;; / teardown). React NEVER calls that callback for a render that
+                ;; doesn't commit, so an abandoned render acquires NOTHING — the
+                ;; leak is gone BY CONSTRUCTION, independent of fiber discard.
                 ;;
-                ;;   (rf2-8u8tx.2) `useMemo` is a performance hint, NOT a
-                ;;     lifecycle: React MAY discard a cached value and re-run the
-                ;;     factory on UNCHANGED deps. Each re-run is another `subscribe`
-                ;;     (+1), but a deps-keyed effect does NOT re-fire without a deps
-                ;;     change, so no matching `unsubscribe` ever balances it.
+                ;; The render phase still needs a reaction HANDLE to read a
+                ;; snapshot for `useSyncExternalStore`. It obtains one with a
+                ;; BALANCED, net-zero round-trip — `subs/subscribe` immediately
+                ;; followed by `subs/unsubscribe` — so the render contributes ZERO
+                ;; outstanding ref-count whether or not it commits.
                 ;;
-                ;; FIX — drive-to-target ledger. Every render-phase `subscribe`
-                ;; is recorded in a `useRef` LEDGER keyed by a stable string
-                ;; `frame|query` token (a VALUE key, stable across renders, so
-                ;; memo-recompute and abandoned-render acquisitions for the SAME
-                ;; logical subscription accumulate in one slot). Each slot tracks
-                ;; `:n` — the ACTUAL outstanding ref-count this hook currently
-                ;; contributes for that (frame, query). Two commit-owned effects
-                ;; DRIVE `:n` toward a target by subscribing/unsubscribing the
-                ;; difference:
+                ;; In the COMMITTED steady state this round-trip is free of
+                ;; dispose churn: the `subscribe-fn` below holds a durable +1, so
+                ;; the render-phase subscribe bumps to 2 and the immediate
+                ;; unsubscribe drops back to 1 — never crossing the 1 → 0 disposal
+                ;; edge. The handle is the live cached reaction. The ONLY render
+                ;; with no durable backing is the FIRST mount before commit (and
+                ;; any never-committed render): there the round-trip disposes +
+                ;; rebuilds, but per rf2-cmfln the rebuilt value `=` the disposed
+                ;; one so `useSyncExternalStore` observes no tear — and that
+                ;; render leaves the cache exactly as it found it.
                 ;;
-                ;;   • a NO-DEPS reconcile effect (runs after EVERY commit, so a
-                ;;     no-deps-change memo recompute (rf2-8u8tx.2) is still seen)
-                ;;     drives the CURRENT key's `:n` to exactly 1 — RELEASING
-                ;;     memo-recompute duplicates AND, crucially, RE-ACQUIRING if a
-                ;;     prior cleanup drove it to 0 (the StrictMode effect double-
-                ;;     invoke). It drives EVERY OTHER key to 0 (acquisitions from
-                ;;     an abandoned/superseded render this commit replaced —
-                ;;     rf2-879fe).
-                ;;
-                ;;   • a `[stable-key]`-keyed release effect whose CLEANUP drives
-                ;;     the current key's `:n` to 0 on key-change / unmount.
-                ;;
-                ;; Both effects mutate the SAME `:n`, so they never double-release.
-                ;; Driving to target (not blind dec/release) means the reconcile
-                ;; effect restores the one live ref after a StrictMode cleanup
-                ;; zeroed it — re-subscribing yields the same cached reaction
-                ;; (the slot was disposed on its 1→0 edge and rebuilt; its value
-                ;; `=` the prior, so useSyncExternalStore observes no tear). Per
-                ;; Spec 006 §Reference counting and disposal (rf2-cmfln).
-                ;; The ledger lives in a `useRef` as a CLJS persistent map
-                ;;   {ledger-key {:fk frame-kw :qv query-v :n outstanding}}
-                ;; keyed by a stable string token. CLJS map access (no JS
-                ;; property inference) keeps the effects type-clean.
-                ledger-ref (React/useRef nil)
-                _ (when (nil? (.-current ledger-ref))
-                    (set! (.-current ledger-ref) {}))
-                ledger-key (str stable-frame-kw "|" (hash stable-query-v) "|"
-                                (pr-str stable-query-v))
+                ;; This subsumes the two prior leak triggers without a ledger or
+                ;; any reconcile/release effects:
+                ;;   • rf2-879fe (abandoned-before-commit) — render is net-zero;
+                ;;     the commit-owned acquire never ran. No leak.
+                ;;   • rf2-8u8tx.2 (useMemo perf-discard recompute on unchanged
+                ;;     deps) — each factory re-run is its own balanced round-trip,
+                ;;     so a discarded+rebuilt memo nets zero regardless of how many
+                ;;     times React re-runs it. No climb.
+                ;; Per Spec 006 §Reference counting and disposal (rf2-cmfln).
                 reaction
                 (use-memo (fn []
-                            ;; Render-phase acquisition: +1 ref-count AND record
-                            ;; it in the ledger so a later commit (the reconcile
-                            ;; effect) — or this render's release-effect cleanup —
-                            ;; reclaims it even if THIS render is abandoned before
-                            ;; its effects run.
-                            (let [r      (subs/subscribe stable-frame-kw stable-query-v)
-                                  ledger (.-current ledger-ref)
-                                  slot   (or (get ledger ledger-key)
-                                             {:fk stable-frame-kw
-                                              :qv stable-query-v
-                                              :n  0})]
-                              (set! (.-current ledger-ref)
-                                    (assoc ledger ledger-key
-                                           (update slot :n inc)))
+                            ;; Net-zero render-phase fetch of the reaction handle:
+                            ;; subscribe to read the cached reaction, then release
+                            ;; immediately so the render retains no ref-count. An
+                            ;; abandoned render leaks nothing; a committed render's
+                            ;; durable ref is taken later in `subscribe-fn`.
+                            (let [r (subs/subscribe stable-frame-kw stable-query-v)]
+                              (subs/unsubscribe stable-frame-kw stable-query-v)
                               r))
                           #js [stable-key])
                 ;; The store-snapshot fn React calls on every render to
@@ -1617,96 +1601,63 @@
                 get-snap
                 (use-callback (fn [] (when reaction @reaction))
                               #js [reaction])
-                ;; The store-subscribe fn — React calls it once with a
-                ;; force-update callback; we wire that up to add-watch
-                ;; on the reaction's underlying container.
+                ;; The store-subscribe fn — React's COMMIT-OWNED acquire/release
+                ;; pair. React calls it (once) only AFTER a commit, passing a
+                ;; force-update callback; its returned cleanup runs on unmount,
+                ;; on a subscribe-identity change, and on teardown. This is where
+                ;; the DURABLE sub-cache ref-count is taken (`subs/subscribe`) and
+                ;; released (`subs/unsubscribe`) — never in render — so a render
+                ;; abandoned before commit acquires no ref. We re-subscribe by
+                ;; (frame, query) here rather than trust the render-phase handle's
+                ;; ref-count (which was balanced to zero).
+                ;;
+                ;; MEMOIZED ON `[stable-key]`, NOT `[reaction]` (rf2-es09qq). The
+                ;; render-phase handle object can differ from the committed one
+                ;; on first mount (the balanced round-trip may dispose + rebuild
+                ;; the reaction before `subscribe-fn` re-acquires it), so keying
+                ;; on `reaction` would change subscribe-fn identity right after
+                ;; the first commit — forcing React to release (dispose) and
+                ;; re-acquire the durable ref every time the handle churned.
+                ;; `stable-key` is identity-stable for a fixed (frame, query), so
+                ;; React calls subscribe-fn exactly ONCE per subscription target:
+                ;; one durable acquire, one release, no churn. The watch is added
+                ;; on the freshly-acquired `committed` reaction inside, so it
+                ;; always tracks the live cached reaction regardless of the
+                ;; render-phase handle's identity.
                 subscribe-fn
                 (use-callback
                   (fn [on-change]
-                    ;; UNIQUE watch key per `subscribe-fn` INVOCATION,
-                    ;; closed over by the returned cleanup. The key MUST
-                    ;; NOT derive from `(hash reaction)`: subscriptions are
-                    ;; cached/deduped by query, so sibling UIx/Helix
-                    ;; components reading the SAME query share the SAME
-                    ;; cached reaction. A hash-of-reaction key would be
-                    ;; IDENTICAL across those siblings, and `add-watch`
-                    ;; replaces an existing watcher with the same key — so
-                    ;; the last-mounted sibling's `on-change` would silently
-                    ;; overwrite every earlier sibling's `useSyncExternalStore`
-                    ;; callback, leaving the earlier ones rendering stale UI
-                    ;; until an unrelated parent render refreshed them.
-                    ;; `subscribe-fn` is `use-callback`-memoized on
-                    ;; `[reaction]`, so React calls it once per
-                    ;; reaction-identity change (NOT per render); a fresh
-                    ;; keyword per call is cheap and collision-free.
-                    (let [k (keyword use-sub-watch-ns (str (gensym "watch-")))]
-                      (when reaction
-                        (add-watch reaction k (fn [_ _ _ _] (on-change))))
-                      (fn unsubscribe []
-                        (when reaction (remove-watch reaction k)))))
-                  #js [reaction])]
-            ;; ---- commit-owned reconcile (rf2-879fe + rf2-8u8tx.2) ----
-            ;;
-            ;; Runs after EVERY commit (deliberately NO deps array — a memo
-            ;; recompute that does NOT change `stable-key` still re-runs this, so
-            ;; the extra render-phase `subscribe` it made (rf2-8u8tx.2) is
-            ;; reclaimed here). Drives the ledger to target by subscribe/
-            ;; unsubscribe of the difference:
-            ;;
-            ;;   1. CURRENT key  → target 1. If `:n` is above 1, release the
-            ;;      memo-recompute duplicates; if a prior cleanup drove it to 0
-            ;;      (StrictMode effect double-invoke), RE-ACQUIRE one — restoring
-            ;;      the live committed ref.
-            ;;   2. EVERY OTHER key → target 0. Those are render-phase acquisitions
-            ;;      from a render this commit SUPERSEDED (an abandoned/suspended
-            ;;      render that never committed — rf2-879fe — or a stale pre-key-
-            ;;      change slot). Fully released so nothing stays pinned.
-            ;;
-            ;; NO cleanup on this effect (a cleanup would churn the live ref every
-            ;; render); prompt key-change/unmount release is owned by the
-            ;; `[stable-key]`-keyed effect below, which shares the same `:n`.
-            (React/useEffect
-              (fn use-subscribe-reconcile []
-                (let [ledger (.-current ledger-ref)]
-                  ;; First: every OTHER key → target 0 (release abandoned /
-                  ;; superseded render-phase acquisitions, rf2-879fe).
-                  (doseq [[k slot] ledger
-                          :when (not= k ledger-key)]
-                    (dotimes [_ (:n slot)]
-                      (subs/unsubscribe (:fk slot) (:qv slot))))
-                  ;; Then: the CURRENT key → target 1. Recreate the slot if a
-                  ;; prior cleanup dropped it (the StrictMode effect double-
-                  ;; invoke drove it to 0; this re-invoke must restore the one
-                  ;; live committed ref). Re-acquiring yields the same cached
-                  ;; reaction value (`=` the disposed one) so no tear is seen.
-                  (let [slot (or (get ledger ledger-key)
-                                 {:fk stable-frame-kw :qv stable-query-v :n 0})
-                        n    (:n slot)]
-                    (cond
-                      (> n 1) (dotimes [_ (dec n)]
-                                (subs/unsubscribe (:fk slot) (:qv slot)))
-                      (< n 1) (subs/subscribe (:fk slot) (:qv slot)))
-                    ;; ledger now holds ONLY the current key, pinned at 1.
-                    (set! (.-current ledger-ref)
-                          {ledger-key (assoc slot :n 1)})))
-                js/undefined))
-            ;; ---- prompt release on key-change / unmount ----
-            ;;
-            ;; Keyed on `[stable-key]` so React fires this cleanup before the new
-            ;; key's effects (key change) and on unmount. Drives the current key's
-            ;; `:n` to 0 and drops its slot. Per rf2-cmfln the 1 → 0 edge disposes
-            ;; synchronously; on a key change the reconcile effect above then
-            ;; re-pins the new key to 1.
-            (React/useEffect
-              (fn use-subscribe-release []
-                (fn cleanup []
-                  (let [ledger (.-current ledger-ref)
-                        slot   (get ledger ledger-key)]
-                    (when slot
-                      (dotimes [_ (:n slot)]
-                        (subs/unsubscribe (:fk slot) (:qv slot)))
-                      (set! (.-current ledger-ref) (dissoc ledger ledger-key))))))
-              #js [stable-key])
+                    ;; Take the durable committed ref now (post-commit). This is
+                    ;; the ONLY place a lasting +1 is acquired. The returned
+                    ;; reaction is the live cached one and `=` (often identical)
+                    ;; to the render-phase handle `reaction`.
+                    (let [committed (subs/subscribe stable-frame-kw stable-query-v)]
+                      ;; UNIQUE watch key per `subscribe-fn` INVOCATION,
+                      ;; closed over by the returned cleanup. The key MUST
+                      ;; NOT derive from `(hash reaction)`: subscriptions are
+                      ;; cached/deduped by query, so sibling UIx/Helix
+                      ;; components reading the SAME query share the SAME
+                      ;; cached reaction. A hash-of-reaction key would be
+                      ;; IDENTICAL across those siblings, and `add-watch`
+                      ;; replaces an existing watcher with the same key — so
+                      ;; the last-mounted sibling's `on-change` would silently
+                      ;; overwrite every earlier sibling's `useSyncExternalStore`
+                      ;; callback, leaving the earlier ones rendering stale UI
+                      ;; until an unrelated parent render refreshed them.
+                      ;; `subscribe-fn` is `use-callback`-memoized on
+                      ;; `[stable-key]`, so React calls it once per subscription
+                      ;; target (NOT per render); a fresh keyword per call is
+                      ;; cheap and collision-free.
+                      (let [k (keyword use-sub-watch-ns (str (gensym "watch-")))]
+                        (when committed
+                          (add-watch committed k (fn [_ _ _ _] (on-change))))
+                        (fn unsubscribe []
+                          (when committed (remove-watch committed k))
+                          ;; Release the durable committed ref — symmetric with
+                          ;; the `subs/subscribe` above. Runs on unmount /
+                          ;; key change / teardown.
+                          (subs/unsubscribe stable-frame-kw stable-query-v)))))
+                  #js [stable-key])]
             (React/useSyncExternalStore subscribe-fn get-snap get-snap)))
         use-subscribe
         (fn use-subscribe

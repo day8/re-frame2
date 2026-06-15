@@ -66,6 +66,41 @@
         v (uix-adapter/use-subscribe target [:rf.uix-use-subscribe-test/m])]
     ($ :div (str "m=" v))))
 
+;; ---- Suspense abort-before-commit probes (rf2-es09qq) ---------------------
+;; ProbeSuspenseInner calls use-subscribe in its render phase, THEN renders a
+;; child that suspends (throws a never-resolving thenable). Under a concurrent
+;; root React begins rendering the subtree, runs the use-subscribe render
+;; phase, the child suspends, and React commits the Suspense FALLBACK instead
+;; — so the use-subscribe-calling fiber NEVER commits (its effects /
+;; store-subscribe never run). With the fix the render phase is net-zero on
+;; sub-cache ref-count, so the abandoned render leaks nothing.
+
+(defonce ^:private uix-never-resolving-thenable
+  ;; A thenable React will treat as a pending Suspense source. It never
+  ;; resolves, so the boundary stays on its fallback for the whole test —
+  ;; the inner probe's fiber is abandoned before commit and never retried
+  ;; to completion within the act() flush.
+  #js {:then (fn [_resolve _reject] nil)})
+
+(defui ProbeSuspender []
+  (throw uix-never-resolving-thenable))
+
+(defui ProbeSuspenseInner []
+  ;; Render-phase use-subscribe acquisition happens HERE, before the
+  ;; suspending child unwinds the subtree.
+  (let [target @refcount-target
+        _v (uix-adapter/use-subscribe target [:rf.uix-use-subscribe-test/m])]
+    ($ :div ($ ProbeSuspender))))
+
+(defn- uix-suspense-abort-element
+  "A React `Suspense` boundary (built with React/createElement so we don't
+  depend on a substrate suspense helper) wrapping a UIx probe that calls
+  use-subscribe then suspends. Returns a React element."
+  []
+  (React/createElement React/Suspense
+                       #js {:fallback ($ :div "fallback")}
+                       ($ ProbeSuspenseInner)))
+
 ;; ---- sibling-collision probes (rf2-e4pyb) ---------------------------------
 ;; Two INDEPENDENT siblings reading the SAME query under the SAME frame —
 ;; they share one cached reaction. Each renders its observed value into a
@@ -168,6 +203,10 @@
    :probe-refcount-element (fn [] (uix/$ ProbeRefcount))
    :rc-frame              :rf.uix-use-subscribe-test/refcount-frame
    :rc-query              :rf.uix-use-subscribe-test/m
+   ;; rf2-es09qq — Suspense abort-before-commit probe (reuses :rc-frame /
+   ;; :rc-query so the abandoned render and the committed control mount race
+   ;; on the SAME (frame, query)).
+   :probe-suspense-abort-element uix-suspense-abort-element
    ;; sibling-collision (rf2-e4pyb) — both siblings under one parent div so
    ;; the suite reads "a=N b=N" off textContent.
    :probe-siblings-element (fn [] (uix/$ :div (uix/$ ProbeSiblingA) (uix/$ ProbeSiblingB)))
@@ -232,6 +271,12 @@
 ;; commit must leave no pinned sub-cache ref-count.
 (deftest use-subscribe-abandoned-render-no-refcount-leak
   (suite/assert-use-subscribe-abandoned-render-no-refcount-leak cfg))
+
+;; rf2-es09qq — a first-mount render aborted BEFORE commit via Suspense must
+;; leak no sub-cache ref-count (the real abort-before-commit path the rf2-879fe
+;; ledger could not reach — React discards the never-committed fiber).
+(deftest use-subscribe-suspense-abort-before-commit-no-refcount-leak
+  (suite/assert-use-subscribe-suspense-abort-before-commit-no-refcount-leak cfg))
 
 (deftest use-subscribe-stable-deps-key
   (suite/assert-use-subscribe-stable-deps-key cfg))
