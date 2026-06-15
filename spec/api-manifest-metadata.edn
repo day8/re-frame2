@@ -504,7 +504,18 @@
   ["re-frame.core" "assoc-coeffect"]      {:tier :advanced :owner "002" :status "v1 (preserved)"}
   ["re-frame.core" "get-effect"]          {:tier :advanced :owner "002" :status "v1 (preserved)"}
   ["re-frame.core" "assoc-effect"]        {:tier :advanced :owner "002" :status "v1 (preserved)"}
-  ["re-frame.core" "path"]                {:tier :front-porch :owner "002" :status "v1 (preserved)"}
+  ;; EP-0022 + rf2-dgtdna: the public `re-frame.core/path` VALUE constructor is
+  ;; REMOVED (EP-0022:552 "There is no public rf/path value constructor."; :932
+  ;; lists the removal; spec/API.md + spec/002-Frames.md already follow it). The
+  ;; one public path surface is the framework-registered factory ref
+  ;; `[:rf.interceptor/path <path-vector>]`. rf2-dgtdna removed the legacy
+  ;; std-interceptors `path` fn and replaced the facade var with a `^:no-doc`
+  ;; throwing stub naming the ref (`:rf.error/path-removed`) — like the EP-0018
+  ;; `reg-event-db` / EP-0017 `inject-cofx` removed stubs, a removed-name `^:no-
+  ;; doc` stub carries NO manifest row (the generator drops `^:no-doc` vars; a
+  ;; `:deprecated`/preserved row would still read as supported public API). The
+  ;; migration alarm is the always-loud throw itself. Migration docs live in
+  ;; docs/api/15-removed.md.
   ["re-frame.core" "unwrap-interceptor"]  {:tier :advanced :owner "002" :status "v1"}
   ["re-frame.core" "with-fx-overrides"]   {:tier :testing :owner "002" :status "v1"}
   ;; EP-0015 §7 + bead item 2 (rf2-mngp4o): `redact-interceptor` is removed

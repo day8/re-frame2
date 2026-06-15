@@ -2,12 +2,15 @@
   "Dedicated coverage for the v2 retained interceptor surface (Spec 002).
 
   v2 trims the v1 interceptor stdlib down to a tiny retained set:
-    - path
-    - unwrap
+    - the framework-standard `[:rf.interceptor/path <path-vector>]` ref
+      (its consumer `standard-path-interceptor`)
+    - unwrap (the `unwrap-interceptor` value)
     - ->interceptor (and the supporting context plumbing)
 
   (`inject-cofx` is removed — EP-0017 / rf2-w9xyx1 — not on the facade;
-  coeffect delivery is the `:rf.cofx/requires` declaration.)
+  coeffect delivery is the `:rf.cofx/requires` declaration. The public
+  `rf/path` VALUE constructor is removed too — EP-0022 / rf2-dgtdna — a stale
+  `(rf/path …)` call is the hard error `:rf.error/path-removed` naming the ref.)
 
   These are exercised obliquely by smoke / conformance tests, but nothing
   pins their contract directly. This namespace does — one deftest per
@@ -22,6 +25,7 @@
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.interceptor :as interceptor]
+            [re-frame.std-interceptors :as std-interceptors]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
@@ -109,11 +113,11 @@
           "the rename did not break the path interceptor's splice-back behaviour"))))
 
 (deftest path-interceptor-nesting
-  (testing "nested (path ...) interceptors compose correctly — the LIFO
-            stack semantics of :rf/path-stack mean an inner path's :after
-            restores the outer slice and the outer :after splices back into
-            the full app-db. Pins the stack semantics independent of the
-            slot-key rename (rf2-mn0qc)."
+  (testing "nested [:rf.interceptor/path …] interceptors compose correctly —
+            the LIFO stack semantics of :rf.interceptor.path/stack mean an inner
+            path's :after restores the outer slice and the outer :after splices
+            back into the full app-db. Pins the stack semantics independent of
+            the slot-key rename (rf2-mn0qc)."
     (rf/reg-event :path-nest/init (fn [{:keys [db]} _] {:db {:a {:b {:c 7} :sib :keep}}}))
     (rf/reg-event :path-nest/inc
                      ;; The outer `path` focuses to {:b {:c 7} :sib :keep};
@@ -196,27 +200,31 @@
 
 ;; Per rf2-mas2y: when an EARLIER interceptor's `:before` throws,
 ;; `execute-chain` short-circuits all downstream `:before` stages
-;; (including `path`'s) yet still runs every `:after` in reverse
-;; (teardown contract). `path`'s `:before` therefore never pushed onto
-;; `:rf/path-stack`, so its `:after` must NOT call `(pop [])` — that
-;; would throw a SPURIOUS second error masking the original cause. The
-;; sibling `unwrap` interceptor is already guarded for this case (it
-;; no-ops when `:rf/unwrap-stash` is absent); `path` mirrors that guard.
+;; (including the path interceptor's) yet still runs every `:after` in reverse
+;; (teardown contract). The path interceptor's `:before` therefore never pushed
+;; onto `:rf.interceptor.path/stack`, so its `:after` must NOT call `(pop [])` —
+;; that would throw a SPURIOUS second error masking the original cause. The
+;; sibling `unwrap` interceptor is already guarded for this case (it no-ops when
+;; `:rf/unwrap-stash` is absent); the path interceptor mirrors that guard.
 ;;
-;; Source: std_interceptors.cljc — `path`'s `:after` no-ops when
-;; `:rf/path-stack` is empty.
+;; rf2-dgtdna: the legacy `rf/path` value constructor is removed (EP-0022); the
+;; surviving path surface is `standard-path-interceptor` (the
+;; `[:rf.interceptor/path …]` factory's consumer), so this raw-chain test builds
+;; that interceptor value directly. Source: std_interceptors.cljc —
+;; `standard-path-interceptor`'s `:after` no-ops when
+;; `:rf.interceptor.path/stack` is empty.
 
 (deftest path-interceptor-after-no-ops-when-before-short-circuited
-  (testing "(path ...) :after does not throw and preserves the original
-            error when an upstream interceptor's :before throws first"
+  (testing "the path interceptor's :after does not throw and preserves the
+            original error when an upstream interceptor's :before throws first"
     (let [boom    (interceptor/->interceptor*
                     :id     :path-short/boom
                     :before (fn [_ctx]
                               (throw (ex-info "before blew up"
                                               {:src :path-short/boom}))))
-          ;; Order: boom (throws in :before) → path (its :before is
+          ;; Order: boom (throws in :before) → path interceptor (its :before is
           ;; short-circuited, but its :after still runs in reverse).
-          chain   [boom (rf/path :foo :bar)]
+          chain   [boom (std-interceptors/standard-path-interceptor [:foo :bar])]
           final   (interceptor/execute-chain
                     chain
                     {:coeffects {:db {:foo {:bar 10}}} :effects {}})
@@ -226,13 +234,14 @@
       (is (= :before (get-in final [:rf/interceptor-error :phase]))
           "the FIRST error is the upstream :before throw")
       (is (= 1 (count errs))
-          "exactly one error — path's :after did NOT synthesise a spurious
-           second error from (pop [])")
+          "exactly one error — the path interceptor's :after did NOT synthesise
+           a spurious second error from (pop [])")
       (is (= [:path-short/boom] (mapv :id errs))
-          "no error attributed to :path — its :after no-opped cleanly")
+          "no error attributed to the path interceptor — its :after no-opped
+           cleanly")
       (is (not (contains? (:effects final) :db))
-          "path's no-op :after produced no :db effect when its :before
-           never ran"))))
+          "the path interceptor's no-op :after produced no :db effect when its
+           :before never ran"))))
 
 ;; ---- unwrap ---------------------------------------------------------------
 

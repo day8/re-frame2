@@ -1578,7 +1578,7 @@
 
 (deftest flow-reads-full-db-under-path-scoped-handler
   (testing "rf2-u0zz5: a flow reading a full-db path sees the FULL reshaped db
-            even when the triggering handler is `(rf/path ...)`-scoped"
+            even when the triggering handler is `[:rf.interceptor/path …]`-scoped"
     ;; The handler writes the :counter slice (path-scoped). The flow reads
     ;; the FULL-DB path [:counter :n] and writes [:counter :doubled]. The
     ;; flow transform must run against the FULL db (after the path

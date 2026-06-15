@@ -517,10 +517,11 @@
 ;; ===========================================================================
 
 (deftest reg-event-path-interceptor-works-with-db-slice-return
-  (testing "EP-0018 §6: `(rf/path …)` focuses the handler on a sub-slice — the
-            handler sees the SLICE as `:db` and returns `{:db slice}`, which the
-            interceptor splices back at the path (the bare-slice return is gone;
-            it is `{:db slice}` now)"
+  (testing "EP-0018 §6: the `[:rf.interceptor/path …]` ref focuses the handler
+            on a sub-slice — the handler sees the SLICE as `:db` and returns
+            `{:db slice}`, which the interceptor splices back at the path (the
+            bare-slice return is gone; it is `{:db slice}` now). EP-0022: there
+            is no public `rf/path` value constructor — the chain carries the ref"
     (rf/reg-sub :evt-conf/counter (fn [db _] (:counter db)))
     (rf/reg-event :evt-conf/inc-via-path
       {:interceptors [[:rf.interceptor/path [:counter]]]}

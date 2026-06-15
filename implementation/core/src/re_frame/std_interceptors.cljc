@@ -2,9 +2,11 @@
   "Standard interceptors. Per Spec 002 / API.md §Standard interceptors and
   Spec 001 §Hot-reload semantics M-21.
 
-  Ships TWO specific helpers plus the ->interceptor primitive:
-    path        — focus a handler on an app-db sub-slice (this ns)
-    unwrap      — assert [id payload-map] event shape (this ns)
+  Ships ONE framework-standard interceptor plus the ->interceptor primitive:
+    :rf.interceptor/path — focus a handler on an app-db sub-slice, referenced
+                           as `[:rf.interceptor/path <path-vector>]` (this ns)
+    unwrap-interceptor   — the [id payload-map] event-shape assertion VALUE,
+                           registered + referenced by id (this ns)
 
   (Coeffects are no longer wired by a `inject-cofx` interceptor — they
   are declared via `:rf.cofx/requires` on the handler and delivered flat;
@@ -14,11 +16,11 @@
   those that are just (->interceptor :before f) or (->interceptor :after f)
   with no other logic. Custom before/after work uses ->interceptor directly.
 
-  EP-0022 (Slice C, rf2-0adhqs.3): this ns also registers the
-  framework-standard `:rf.interceptor/path` interceptor as a `:factory`,
-  referenced as `[:rf.interceptor/path <path-vector>]`. Its `:factory`
-  builds the FULL standard-path interceptor (`standard-path-interceptor`)
-  implementing the normative rules 1-5 of [Spec 002 §Standard
+  EP-0022 (Slice C, rf2-0adhqs.3): this ns registers the framework-standard
+  `:rf.interceptor/path` interceptor as a `:factory`, referenced as
+  `[:rf.interceptor/path <path-vector>]`. Its `:factory` builds the FULL
+  standard-path interceptor (`standard-path-interceptor`) implementing the
+  normative rules 1-5 of [Spec 002 §Standard
   `:rf.interceptor/path`](../../../spec/002-Frames.md), notably **rule 4**:
   when the handler emits a `:db` effect whose focused value is `identical?`
   to the original focused slice, the interceptor widens back to the
@@ -26,78 +28,64 @@
   the frame-commit `identical?` no-op (rf2-ekq28v). A non-vector / malformed
   path argument is `:rf.error/path-interceptor-bad-path`.
 
-  This standard interceptor is DISTINCT from the legacy `path` fn / the
-  `rf/path` value constructor: the standard interceptor is the canonical
-  `:factory` consumer and is the carrier of the rule-4 identity-fast-path.
-  Since the EP-0022 reference-only flip (rf2-0adhqs.9) chains carry refs
-  only, the `path` fn's value is no longer a legal inline chain entry —
-  it is the underlying value builder the `:rf.interceptor/path` factory
-  consumes, and may still be registered at the `reg-interceptor` boundary
-  and referenced by id. (The legacy `path` value's own `:after` only
-  short-circuits the no-`:db` case, not the unchanged-slice case — which is
-  why the standard interceptor, not the legacy value, carries rule 4.)"
+  EP-0022 removed the public `rf/path` VALUE constructor (EP-0022:552/932):
+  there is no public path value-builder, only the `[:rf.interceptor/path
+  <path-vector>]` ref. The legacy `path` fn that the removed facade var aliased
+  is gone (rf2-dgtdna); a stale `(rf/path …)` call hits the `^:no-doc` throwing
+  stub `path-removed!` below, which names the ref form as the replacement. The
+  legacy value also had WEAKER semantics — its `:after` always re-spliced via
+  `assoc-in` when a `:db` effect was present, allocating a fresh top-level map
+  even for an UNCHANGED slice and defeating the rule-4 commit no-op
+  (rf2-ekq28v). The surviving `standard-path-interceptor` (the factory's
+  consumer) is the one path surface and is the carrier of that no-op."
   (:require [re-frame.interceptor :as interceptor]
             [re-frame.interceptor-registry :as icpt-reg]
+            [re-frame.error :as error]
             [re-frame.trace :as trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; ---- path -----------------------------------------------------------------
+;; ---- path: the removed value constructor (EP-0022, rf2-dgtdna) -------------
 ;;
-;; Focus a handler on an app-db sub-slice. The handler sees and returns
-;; only the slice; the interceptor splices the result back into the
-;; parent app-db. Per Spec 002 / API.md.
+;; EP-0022 (accepted) removed the public `rf/path` VALUE constructor: there is
+;; NO public path value-builder, only the framework-registered factory ref
+;; `[:rf.interceptor/path <path-vector>]` (EP-0022:552 "There is no public
+;; rf/path value constructor."; :932 lists the removal). The implementation had
+;; DRIFTED — it kept exporting `rf/path` aliased to a legacy `path` fn here —
+;; and that fn was a footgun: its `:after` always re-spliced via `assoc-in`
+;; when a `:db` effect was present, allocating a fresh top-level map even for an
+;; UNCHANGED slice, defeating the rf2-ekq28v frame-commit `identical?` no-op
+;; the canonical `standard-path-interceptor` (below) preserves. rf2-dgtdna
+;; removes the legacy fn and replaces the facade var with a `^:no-doc` throwing
+;; stub (the project's actionable-removed-API pattern, like
+;; `:rf.error/inject-cofx-removed` / `reg-event-db-removed`).
+;;
+;; The stub throws the canonical `re-frame.error/throw-error!` hard error
+;; naming the replacement ref, so a stale `(rf/path …)` call fails LOUDLY and
+;; actionably rather than as an opaque "no such var" or a working footgun. It
+;; does NOT fan out onto the always-on error-emit channel: unlike the
+;; reg-event / inject-cofx removed stubs (whose Spec 009 §Error event catalogue
+;; rows + always-on conformance pins were authored alongside them), this is an
+;; implementation-only drift fix (API.md + EP-0022 already correct) and rides
+;; no catalogued category — just the actionable throw.
 
-(defn path
-  "(path :a :b :c) returns an interceptor that focuses the handler on the
-  sub-slice at [:a :b :c]. The handler receives the slice value as :db
-  (not the full app-db); its returned :db is spliced back into the
-  full app-db at the same path."
+(defn ^:no-doc path-removed!
+  "REMOVED in EP-0022 (no alias). The public `rf/path` VALUE constructor is
+  gone; the one path surface is the framework-registered factory ref
+  `[:rf.interceptor/path <path-vector>]` in a handler's `:interceptors` chain.
+  Calling `rf/path` is the hard error `:rf.error/path-removed`, naming that ref
+  as the replacement. See spec/API.md §Standard interceptors,
+  EP-0022 §Registered interceptors, and docs/api/15-removed.md."
   [& path-segs]
   (let [path-vec (vec path-segs)]
-    (interceptor/->interceptor*
-      :id    :path
-      :path  path-vec
-      :before
-      (fn [ctx]
-        (-> ctx
-            ;; Stash the original db on a stack (supports nested path
-            ;; interceptors). Reserved-namespace slot per Spec
-            ;; Conventions §Reserved namespaces — framework keys on the
-            ;; interceptor context belong under :rf/...
-            (update :rf/path-stack (fnil conj []) (:db (:coeffects ctx)))
-            (assoc-in [:coeffects :db]
-                      (get-in (:db (:coeffects ctx)) path-vec))))
-      :after
-      (fn [ctx]
-        ;; Guard: only unwind when our `:before` actually pushed. When an
-        ;; EARLIER interceptor's `:before` throws, `execute-chain`
-        ;; short-circuits all downstream `:before` stages (including
-        ;; ours) yet still runs every `:after` in reverse (Spec 002
-        ;; §rule 2). With no push, `:rf/path-stack` is absent — `(pop [])`
-        ;; would throw a SPURIOUS second error masking the original. The
-        ;; sibling `unwrap` interceptor mirrors this guard via its
-        ;; `:rf/unwrap-stash` presence check. No stack → no-op teardown.
-        (let [stack (:rf/path-stack ctx)]
-          (if (empty? stack)
-            ctx
-            ;; The splice-back only fires when the handler actually
-            ;; emitted a `:db` effect. If the handler returned no `:db`,
-            ;; the slice didn't change and we MUST NOT synthesise a `:db`
-            ;; effect — downstream tools rely on "no `:db` effect = no DB
-            ;; write" (the docstring contract). Synthesising would be
-            ;; idempotent at the value level (same `original-db`
-            ;; re-spliced with the same pre-handler slice) but allocated a
-            ;; fresh map per path-walk-step and produced a spurious `:db`
-            ;; effect from a no-`:db` handler.
-            (let [original-db (peek stack)
-                  new-stack   (pop stack)
-                  handler-emitted-db? (contains? (:effects ctx) :db)]
-              (cond-> (assoc ctx :rf/path-stack new-stack)
-                handler-emitted-db?
-                (assoc-in [:effects :db]
-                          (assoc-in original-db path-vec
-                                    (get-in ctx [:effects :db])))))))))))
+    (error/throw-error!
+      :rf.error/path-removed
+      'rf/path
+      (str "`rf/path` is REMOVED in EP-0022 (no public path value "
+           "constructor). Reference the framework-standard path interceptor by "
+           "id in the handler's `:interceptors` chain: "
+           "`{:interceptors [[:rf.interceptor/path " (pr-str path-vec) "]]}`.")
+      {:extra {:got path-vec}})))
 
 ;; ---- standard :rf.interceptor/path (EP-0022 Slice C — FULL contract) -------
 ;;
@@ -108,13 +96,14 @@
 ;; unchanged focused slice widens back to the ORIGINAL full app-db OBJECT so
 ;; the frame-commit `identical?` no-op (rf2-ekq28v) is preserved.
 ;;
-;; This is DISTINCT from the legacy `path` fn above. The legacy fn (the
-;; `rf/path` value builder) only short-circuits the no-`:db`
-;; case; it still does `(assoc-in original-db path slice)` when a `:db` effect
-;; is present, allocating a fresh top-level map even for an unchanged slice —
-;; which defeats the commit no-op. The standard interceptor knows BOTH the
-;; original full app-db object AND the original focused slice, so it can detect
-;; the unchanged-slice case and re-emit the original object.
+;; This is the ONE path surface (the removed legacy `path` fn / `rf/path` value
+;; builder only short-circuited the no-`:db` case; it still did
+;; `(assoc-in original-db path slice)` when a `:db` effect was present,
+;; allocating a fresh top-level map even for an unchanged slice — which defeated
+;; the commit no-op, and is why EP-0022 removed it; rf2-dgtdna). The standard
+;; interceptor knows BOTH the original full app-db object AND the original
+;; focused slice, so it can detect the unchanged-slice case and re-emit the
+;; original object.
 
 (defn- throw-bad-path!
   "Throw the canonical `:rf.error/path-interceptor-bad-path` error (Spec 002
