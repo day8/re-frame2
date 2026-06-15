@@ -7,7 +7,7 @@
   - Every story / variant / workspace / mode / tag / decorator / panel
     registers cleanly against the side-table.
   - `run-variant` resolves to a result map and the four play
-    sequences pass (record-don't-throw shape from IMPL-SPEC §2.3).
+    sequences pass (record-don't-throw shape from `004-Assertions.md` §Record-don't-throw semantics).
   - `mount-shell!` / `unmount-shell!` round-trip without throwing on
     a DOM stub.
 

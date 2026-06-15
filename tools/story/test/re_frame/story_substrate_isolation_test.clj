@@ -1,7 +1,7 @@
 (ns re-frame.story-substrate-isolation-test
   "JVM test pinning Story's substrate-isolation contract (rf2-k7zdq).
 
-  Story's UI-shell substrate is Reagent (IMPL-SPEC §8); per-variant
+  Story's UI-shell substrate is Reagent (`003-Render-Shell.md` §UI shell substrate); per-variant
   multi-substrate rendering (UIx / Helix) is OPT-IN via
   `register-substrate!` from the consuming app at boot — Story core
   does NOT `:require` any UIx or Helix namespace. That contract means
@@ -47,7 +47,7 @@
   "Namespace prefixes that, if `:require`-d from Story source, would
   drag the corresponding adapter onto Story's classpath. Reagent is
   intentionally NOT in this list — Story's UI shell IS Reagent per
-  IMPL-SPEC §8."
+  `003-Render-Shell.md` §UI shell substrate."
   [#"\[\s*uix\.core"
    #"\[\s*uix\.dom"
    #"\[\s*helix\.core"
@@ -82,7 +82,7 @@
                                           "  (pattern " pattern
                                           " matched " (pr-str match) ")"))
                                    offences))
-               "\n\nPer IMPL-SPEC §2.2 + §8 Story's UI shell is Reagent; UIx and "
+               "\n\nPer `002-Runtime.md` §Substrate hooks + `003-Render-Shell.md` §UI shell substrate Story's UI shell is Reagent; UIx and "
                "Helix substrates plug in at boot via "
                "`re-frame.story.ui.multi-substrate/register-substrate!`. "
                "Story core MUST NOT drag those adapters onto its classpath."))))

@@ -6,7 +6,7 @@
   Story-specific lives here; the same handlers run in the live
   counter app and in the Story playground.
 
-  Per IMPL-SPEC §1.1 + spec/007 §Variants: the variant body is data;
+  Per `001-Authoring.md` §Registration macros + /spec/007-Stories.md §Variants: the variant body is data;
   it references these event ids in its `:setup` slot. The handlers
   are owned by the app, not the story.
 

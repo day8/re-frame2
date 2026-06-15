@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.sidebar
-  "Story-tree sidebar. Per Stage 4 (rf2-ekai) IMPL-SPEC §4.
+  "Story-tree sidebar. Per Stage 4 (rf2-ekai) `003-Render-Shell.md` §Shell lifecycle.
 
   Lays out the registered stories and their variants as a tree, with
   inline tag filtering. Each variant is a clickable row that updates
@@ -117,7 +117,7 @@
 (def tag->badge-style-key
   "Pure data → data: map a tag keyword to the per-tag styles map key
   that supplies its colour-coded palette. Keys on the seven canonical
-  tags from spec/007 §Inclusion tags; unknown tags map to `nil` and
+  tags from /spec/007-Stories.md §Inclusion tags; unknown tags map to `nil` and
   fall through to the neutral `:tag-badge` style.
 
   Public so the JVM + CLJS test corpus can exercise the projection
@@ -706,7 +706,7 @@
 
   Variant runs are scheduled in parallel via `run-variant` (each
   resolves a fresh promise / future). Per Spec 002 §Programmatic API
-  + IMPL-SPEC §3.2 each variant runs in its own frame, so concurrent
+  + `002-Runtime.md` §Per-variant frame allocation each variant runs in its own frame, so concurrent
   runs do not cross-contaminate app-db."
   [variant-ids]
   (doseq [vid variant-ids]

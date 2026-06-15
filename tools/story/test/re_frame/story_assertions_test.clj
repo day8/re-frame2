@@ -3,7 +3,7 @@
   vocabulary.
 
   Covers each of the seven canonical assertion semantics from
-  spec/007 §Assertion vocabulary:
+  /spec/007-Stories.md §Assertion vocabulary:
 
     1. :rf.assert/path-equals    — value at path matches
     2. :rf.assert/path-matches   — value at path validates against malli
@@ -14,7 +14,7 @@
     7. :rf.assert/effect-emitted — fx-id emitted from a cascade
 
   Plus:
-  - Record-don't-throw contract (IMPL-SPEC §2.3).
+  - Record-don't-throw contract (`004-Assertions.md` §Record-don't-throw semantics).
   - `assertions-passing?` predicate.
   - The canonical seven register at boot."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -292,7 +292,7 @@
     (story/destroy-variant! :story.fx/none)))
 
 ;; ===========================================================================
-;; Record-don't-throw contract — IMPL-SPEC §2.3
+;; Record-don't-throw contract — `004-Assertions.md` §Record-don't-throw semantics
 ;; ===========================================================================
 
 (deftest record-not-throw-on-failure
@@ -318,7 +318,7 @@
 ;; ===========================================================================
 
 (deftest assertions-passing-vacuously-true-on-empty
-  (testing "an empty assertions list passes vacuously (spec/007 §Story-as-test)"
+  (testing "an empty assertions list passes vacuously (/spec/007-Stories.md §Story-as-test duality)"
     (story/reg-variant :story.empty/v {:events [] :play-script []})
     (let [r (async/deref-blocking (story/run-variant :story.empty/v) 5000)]
       (is (true? (story/assertions-passing? r))

@@ -1,5 +1,5 @@
 (ns re-frame.story.loaders
-  "Four-phase loader lifecycle. Per IMPL-SPEC §5.4 + spec/007 §Loaders.
+  "Four-phase loader lifecycle. Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when` + /spec/007-Stories.md §Loaders (advanced — async setup).
 
   The lifecycle moves through five discrete states:
 
@@ -18,13 +18,13 @@
      `:loaders-complete-when` predicate evaluates after each loader's
      drain settles. Default: 'complete when no further loader-tagged
      events are in flight'. The variant overrides this for long-lived
-     fx (e.g. `:websocket`) per IMPL-SPEC §2.4.
+     fx (e.g. `:websocket`) per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when`.
   4. **`:ready`** — `:events` have run; render allowed.
-  5. **`:error`** — terminal error projection per IMPL-SPEC §5.5.
+  5. **`:error`** — terminal error projection per `002-Runtime.md` §Error projection.
 
   ## Substrate
 
-  Per the user-feedback rule + IMPL-SPEC §5.4, the lifecycle is
+  Per the user-feedback rule + `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when`, the lifecycle is
   expressed as a `re-frame.machines` machine — NOT ad-hoc state
   tracking. The machine is registered at Story-boot under the id
   `:rf.story.lifecycle/machine`. Each variant frame holds its own
@@ -44,14 +44,14 @@
 
   ## Watchers
 
-  Per IMPL-SPEC §3.2 `watch-variant` subscribes to lifecycle
+  Per `002-Runtime.md` §Programmatic API `watch-variant` subscribes to lifecycle
   transitions. Stage 3 implements the watcher table here; the trace
   bus fires `:rf.story.lifecycle/transition` on every state change.
 
   ## Elision
 
   The machine registration sits behind the
-  `re-frame.story.config/enabled?` gate (per IMPL-SPEC §6). Production
+  `re-frame.story.config/enabled?` gate (per `001-Authoring.md` §Registration macros). Production
   CLJS builds with the flag false never register the machine; the
   Story runtime entry points read `(rf/handler-meta :event
   :rf.story.lifecycle/machine)` and find nothing, returning early."
@@ -350,20 +350,20 @@
 ;; ---- loaders-complete-when evaluation -----------------------------------
 
 (defn loaders-default-complete?
-  "Default predicate for `:loaders-complete-when`. Per IMPL-SPEC §2.4 +
-  §5.4: 'loaders are complete when no further loader-tagged events are
+  "Default predicate for `:loaders-complete-when`. Per `002-Runtime.md`
+  §Four-phase lifecycle with `:loaders-complete-when`: 'loaders are complete when no further loader-tagged events are
   in flight'. For the simple synchronous case (the 99% path),
   re-frame's run-to-completion drain settles before `dispatch-sync`
   returns; the loaders queue is empty when the predicate is called.
 
   Returns true unconditionally — Stage 3 relies on `dispatch-sync`
   having drained the queue. Variants that fire long-lived fx
-  (websocket / interval) override the predicate per IMPL-SPEC §2.4."
+  (websocket / interval) override the predicate per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when`."
   [_frame-id _variant-body]
   true)
 
 (defn- predicate-event?
-  "Per IMPL-SPEC §2.4 — a registered predicate-event handler is a plain
+  "Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when` — a registered predicate-event handler is a plain
   re-frame event whose `:db` effect returns a value-form map containing
   `[:rf.story/loaders-complete? <bool>]`. Stage 5 (rf2-h8et) accepts
   this shape by dispatching the event then reading the slot from the
@@ -393,7 +393,7 @@
     (catch #?(:clj Throwable :cljs :default) _ #{})))
 
 (defn- vector-of-events-satisfied?
-  "Per IMPL-SPEC §2.4 — a vector of event vectors form is interpreted
+  "Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when` — a vector of event vectors form is interpreted
   as 'loaders complete when ALL listed events have fired against the
   variant's frame'. We consult the epoch-tape dispatched-events projection
   (`dispatched-events-set`, the SSOT since rf2-q651r)."
@@ -444,6 +444,6 @@
       (vector-of-events-satisfied? frame-id pred)
 
       :else
-      ;; Unknown shape — be permissive (per IMPL-SPEC §2.3 record-not-throw
+      ;; Unknown shape — be permissive (per `004-Assertions.md` §Record-don't-throw semantics record-not-throw
       ;; spirit) and let the variant proceed.
       true)))

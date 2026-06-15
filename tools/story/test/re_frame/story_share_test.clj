@@ -3,7 +3,7 @@
 
   The URL-building logic lives in `re-frame.story.share` (.cljc) so
   the same encoding works on JVM and CLJS. JVM tests round-trip the
-  expected shape per IMPL-SPEC §2.8.5."
+  expected shape per `005-SOTA-Features.md` §Share URL (retired QR popover)."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [re-frame.story        :as story]

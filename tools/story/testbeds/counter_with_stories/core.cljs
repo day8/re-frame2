@@ -6,7 +6,7 @@
                   `re-frame.story/mount-shell!`. The four counter
                   variants + two workspaces show up in the sidebar.
 
-  Per IMPL-SPEC §6.5 + Stage 8: when this example is compiled under
+  Per `001-Authoring.md` §Registration macros + Stage 8: when this example is compiled under
   `:advanced` with `:closure-defines {re-frame.story.config/enabled?
   false}`, every `reg-*` form in `counter-with-stories.stories`
   elides to `nil`, `mount-shell!` short-circuits, and the bundle
@@ -107,7 +107,7 @@
   ;; per rf2-p1ydc + spec/001 §Boot. The explicit call is legacy
   ;; (rf2-y8gag — audit D-2) and removed from every canonical testbed.
   ;; Configure the global args layer (Layer 1 of the args-precedence
-  ;; chain; see IMPL-SPEC §5.2). The stories layer their own args on
+  ;; chain; see `002-Runtime.md` §Args resolution precedence). The stories layer their own args on
   ;; top via reg-story / reg-variant.
   ;;
   ;; rf2-r1uod — `:project-root` seeds Story's own 'Open' chips AND

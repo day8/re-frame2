@@ -1,7 +1,7 @@
 (ns re-frame.story.registrar
   "Story's registration side-table.
 
-  Per IMPL-SPEC §1.1 + the no-new-registries discipline (AGENTS.md
+  Per `001-Authoring.md` §Registration macros + the no-new-registries discipline (AGENTS.md
   `downstream-EPs-consume-foundation`), Story does not add new kinds to
   `re-frame.registrar`'s closed kind-set (which is locked at the
   spec/001 v1 closed list). Instead, Story owns a **side-table** keyed
@@ -10,12 +10,12 @@
 
   ## Stage 2 design tension noted in bd rf2-7ho2
 
-  spec/007 line 447 says 'the framework registrar already supports new
+  /spec/007-Stories.md §Story-tool extension hook says 'the framework registrar already supports new
   kinds via the existing reg- machinery' — but the implementation's
   registrar (`re-frame.registrar/kinds`) is a **closed** set. The
   side-table here is the chosen reconciliation: Story-only registrations
   live in Story's own atom; the framework registrar stays closed. A
-  bridge (`story/registrations`) preserves the spec/007 §Public-query-surfaces
+  bridge (`story/registrations`) preserves the /spec/007-Stories.md §Public-query-surfaces
   contract without crossing the framework boundary.
 
   ## Kinds Story registers
@@ -342,7 +342,7 @@
 
 (defn- assert-id!
   "Throw `:rf.error/<kind>-id-shape` if `id` does not match the canonical
-  grammar for `kind`. Per spec/007 §Canonical id grammar."
+  grammar for `kind`. Per /spec/007-Stories.md §Canonical id grammar."
   [kind id]
   (let [ok? (case kind
               :story       schemas/story-id?
@@ -445,7 +445,7 @@
     (store! :story id body)))
 
 (defn reg-variant*
-  "Runtime helper for `reg-variant` macro. Per IMPL-SPEC §10 + spec/017
+  "Runtime helper for `reg-variant` macro. Per `001-Authoring.md` §Registration macros + spec/017
   §8.4 (rf2-f6z88 — Mike RULED (a): the plan compiler is the SINGLE
   `:extends` merge authority):
 
@@ -517,19 +517,19 @@
   (reg-simple! :workspace id body))
 
 (defn reg-mode*
-  "Runtime helper for `reg-mode` macro. Per IMPL-SPEC §2.8.3 modes ship
+  "Runtime helper for `reg-mode` macro. Per `005-SOTA-Features.md` §`reg-mode` saved-tuple primitive modes ship
   in v1."
   [id body]
   (reg-simple! :mode id body))
 
 (defn reg-story-panel*
-  "Runtime helper for `reg-story-panel` macro. Per spec/007 §Story-tool
+  "Runtime helper for `reg-story-panel` macro. Per /spec/007-Stories.md §Story-tool
   extension hook."
   [id body]
   (reg-simple! :story-panel id body))
 
 (defn reg-decorator*
-  "Runtime helper for `reg-decorator` macro. Per IMPL-SPEC §3.1 the
+  "Runtime helper for `reg-decorator` macro. Per `001-Authoring.md` §Registration macros the
   decorator's `:wrap` slot is the one fn-valued slot allowed in the
   Story surface — it lives at the decorator's registration site, NOT in
   a variant body. The schema enforces this."
@@ -544,7 +544,7 @@
 ;; ---- canonical tag bootstrap ---------------------------------------------
 
 (defn install-canonical-tags!
-  "Register the seven canonical inclusion tags from spec/007 §Inclusion
+  "Register the seven canonical inclusion tags from /spec/007-Stories.md §Inclusion
   tags AND the canonical `:state/*` magnitude axis (rf2-k1k87) — five
   faceted tags (`:state/empty`, `:state/small`, `:state/medium`,
   `:state/large`, `:state/special`) on the `:state` axis. The `:state`
@@ -557,7 +557,7 @@
   []
   (doseq [t schemas/canonical-tags]
     (reg-tag* t {:doc (str "Canonical Story inclusion tag — " (name t)
-                           ". See spec/007 §Inclusion tags.")}))
+                           ". See /spec/007-Stories.md §Inclusion tags.")}))
   (doseq [t schemas/canonical-state-tags]
     (reg-tag* t {:axis :state
                  :doc  (str "Canonical Story state-magnitude tag — "
@@ -574,7 +574,7 @@
   over the variant side-table — fine for dev-time use; if perf becomes
   a concern Stage 3 indexes.
 
-  Per spec/007 §Canonical id grammar a story `:story.foo` has nil
+  Per /spec/007-Stories.md §Canonical id grammar a story `:story.foo` has nil
   namespace and name `\"story.foo\"`; its variants `:story.foo/empty`
   carry namespace `\"story.foo\"`. So variant membership is just
   `(= (namespace vid) (name story-id))` — no string surgery."
@@ -639,7 +639,7 @@
 
 (defn variants-with-tags
   "Return the variant ids whose `:tags` set intersects `query-tags`. Per
-  IMPL-SPEC §3.2 — the public `variants-with-tags` wraps this.
+  `002-Runtime.md` §Programmatic API — the public `variants-with-tags` wraps this.
 
   Memoised on the registrar mutation-tick (rf2-c5nwl): repeated calls
   with the same query between two registrar writes return the same

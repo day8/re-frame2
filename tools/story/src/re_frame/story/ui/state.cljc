@@ -36,7 +36,7 @@
   The reactive surface is gated behind `re-frame.story.config/enabled?`
   — production builds with the flag false see an empty state map and
   the shell entry point short-circuits before any subscription / mount
-  call. Per IMPL-SPEC §6.3."
+  call. Per `005-SOTA-Features.md` §Production elision under `:advanced`."
   (:require [re-frame.story.config                :as config]
             [re-frame.story.ui.state.filters      :as state.filters]
             [re-frame.story.ui.state.snapshot     :as state.snapshot]

@@ -1,10 +1,12 @@
 (ns re-frame.story.assertions
-  "The `:rf.assert/*` assertion vocabulary. Per spec/007 §Assertion
-  vocabulary + IMPL-SPEC §3.5 + §5.1 + §2.3.
+  "The `:rf.assert/*` assertion vocabulary. Per /spec/007-Stories.md §Assertion
+  vocabulary + `004-Assertions.md` §Canonical assertion vocabulary +
+  `002-Runtime.md` §Per-variant frame allocation + `004-Assertions.md`
+  §Record-don't-throw semantics.
 
   ## The seven canonical assertions
 
-  Per spec/007 line 304 the canonical seven are:
+  Per /spec/007-Stories.md §Inclusion tags the canonical seven are:
 
   | Event id                       | Payload                        | Semantics |
   |--------------------------------|--------------------------------|-----------|
@@ -20,7 +22,7 @@
   — is *recognised* but is NOT one of the seven REGISTERED handlers: it is
   tape-evaluated in `result.cljc`, never dispatched (see `canonical-assertion-ids`).
 
-  ## Record, don't throw (per IMPL-SPEC §2.3)
+  ## Record, don't throw (per `004-Assertions.md` §Record-don't-throw semantics)
 
   Each `:rf.assert/*` event is dispatched through the standard re-frame
   cascade. The handler is a plain `reg-event-fx` that:
@@ -266,9 +268,10 @@
   (or (:rf.story/assertions (rf/app-db-value frame-id)) []))
 
 (defn passing?
-  "Per IMPL-SPEC §3.5 + Phase-2 §5.1 #9: true iff every entry in
+  "Per `004-Assertions.md` §Canonical assertion vocabulary + Phase-2 §5.1 #9:
+  true iff every entry in
   `assertions` has `:passed? true`. An assertions vector with zero
-  entries is vacuously passing — this is the spec/007 §Story-as-test
+  entries is vacuously passing — this is the /spec/007-Stories.md §Story-as-test
   duality contract: a variant with no `:play-script` (and therefore no
   assertions) still 'passes', and shows up as green in test reports.
 
@@ -296,7 +299,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- source-coord-for-variant
-  "Per IMPL-SPEC §9.3 the registered variant body carries a `:source`
+  "Per `001-Authoring.md` §Source-coord stamping the registered variant body carries a `:source`
   slot stamped by the registrar's macro path. We thread that into the
   assertion record so click-to-source works in the UI shell + agent
   surfaces. Returns nil when the frame is not a registered variant
@@ -305,10 +308,10 @@
   (:source (registrar/handler-meta :variant frame-id)))
 
 (defn- assertion-record
-  "Construct the assertion record per IMPL-SPEC §3.5. `extras` is the
+  "Construct the assertion record per `004-Assertions.md` §Canonical assertion vocabulary. `extras` is the
   assertion-specific data (`:expected` / `:actual` / `:reason` / ...).
 
-  Includes the variant's source coord (per IMPL-SPEC §9.3) so click-to-
+  Includes the variant's source coord (per `001-Authoring.md` §Source-coord stamping) so click-to-
   source in the trace panel jumps to the variant registration site."
   [assertion-id payload passed? extras dispatch-id elapsed-ms frame-id]
   (cond-> {:assertion assertion-id
@@ -611,7 +614,7 @@
 
 (def canonical-assertion-ids
   "The canonical assertion event ids the P1 vocabulary recognises. The
-  SHIPPING seven (spec/007 line 304) the `.18` fold preserves, PLUS the
+  SHIPPING seven (/spec/007-Stories.md §Inclusion tags) the `.18` fold preserves, PLUS the
   NET-NEW `:rf.assert/schema-error` (rf2-5x1wt.21, spec/017 §Schema rule —
   the EXPECTED-schema-violation declaration). `:rf.assert/schema-error` is
   recognised (so plan construction accepts it) but is NOT installed as a
@@ -1017,7 +1020,7 @@
   The handler reads `:db` directly from cofx — which the router has
   populated with the variant frame's app-db (spec/002 §Routing initial
   context) — and returns `{:db (update db :rf.story/assertions conj record)}`.
-  This is the record-don't-throw contract per IMPL-SPEC §2.3: the
+  This is the record-don't-throw contract per `004-Assertions.md` §Record-don't-throw semantics: the
   assertion's failure mode is a `:db` write, not an exception.
 
   The three trace-bus-driven assertions (`:dispatched?` / `:no-warnings`
@@ -1060,7 +1063,7 @@
       {:db (update db :rf.story/assertions (fnil conj []) record)})))
 
 (defn install-canonical-assertions!
-  "Per IMPL-SPEC §3.5 + spec/007 line 304 — register the seven canonical
+  "Per `004-Assertions.md` §Canonical assertion vocabulary + /spec/007-Stories.md §Inclusion tags — register the seven canonical
   `:rf.assert/*` event handlers. Idempotent.
 
   Each handler:
@@ -1079,7 +1082,7 @@
   post-drain exception walker).
 
   No throw on failure — the play sequence runs to completion per
-  IMPL-SPEC §2.3."
+  `004-Assertions.md` §Record-don't-throw semantics."
   []
   (when config/enabled?
     ;; Internal event-db handler used by `record!`. Appends a record to

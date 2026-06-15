@@ -1,6 +1,6 @@
 (ns re-frame.story.fx-stubs
-  "Built-in `force-fx-stub` decorator. Per spec/007 §Effect mocking +
-  IMPL-SPEC §3.5 (Phase-2 §5.1 #6) + §13.2 (the 'MSW-shaped effect
+  "Built-in `force-fx-stub` decorator. Per /spec/007-Stories.md §Effect mocking +
+  `004-Assertions.md` §Canonical assertion vocabulary (Phase-2 §5.1 #6) + `005-SOTA-Features.md` (the 'MSW-shaped effect
   mocking' surface).
 
   ## Authoring shape
@@ -40,7 +40,7 @@
 
   ## Why a registered decorator and not a magic builtin
 
-  Per spec/007 §Effect mocking the framework hooks are
+  Per /spec/007-Stories.md §Effect mocking the framework hooks are
   `:fx-overrides` (registered against `reg-frame`); `force-fx-stub`
   is a *library* convenience over the framework hook. The same shape
   authors can use for their own decorators: register a `:fx-override`
@@ -92,7 +92,7 @@
   ref-args drive the fx-id + response; the body is a marker that
   Stage 5's `resolve-ref-args` adapter expands.
 
-  Per spec/007 §Effect mocking the user-visible shape is
+  Per /spec/007-Stories.md §Effect mocking the user-visible shape is
   `[force-fx-stub :http {:status :pending}]`; the decorator registry
   treats `force-fx-stub` as the id."
   {:doc       "Built-in: stub an fx for the lifetime of the variant's frame."
@@ -102,7 +102,7 @@
 
 (defn install-canonical-fx-stubs!
   "Register `:rf.story/force-fx-stub` against Story's decorator
-  registrar. Idempotent. Per spec/007 §Effect mocking this is the
+  registrar. Idempotent. Per /spec/007-Stories.md §Effect mocking this is the
   v1 MSW-shaped surface.
 
   Stage 5 (rf2-h8et). Called from `re-frame.story/install-canonical-

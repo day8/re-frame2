@@ -526,7 +526,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:const id-save-current-as-variant
-  "The canonical event id for the save-as-variant trigger. Per spec/007
+  "The canonical event id for the save-as-variant trigger. Per /spec/007-Stories.md
   §Reserved namespaces the `:rf.story/*` prefix is reserved for the
   Story runtime's own helper events."
   :rf.story/save-current-as-variant)

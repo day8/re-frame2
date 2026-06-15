@@ -85,7 +85,7 @@
     counted as `:pass`, a false-green);
   - `:passed?` true → `:pass`; `:passed?` false → `:fail`;
   - otherwise `:pass` (a non-assertion / vacuous record does not fail
-    the run — the spec/007 duality).
+    the run — the /spec/007-Stories.md §Story-as-test duality).
 
   A parity test (`record-status-mirrors-canonical`) runs a table of
   record shapes through BOTH this mirror and the canonical, asserting

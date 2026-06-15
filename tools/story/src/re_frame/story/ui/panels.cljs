@@ -4,7 +4,8 @@
 
   ## Panel registration contract
 
-  Per IMPL-SPEC §3.1 + §4.5 (Stage 6 addition) — a story panel is
+  Per `001-Authoring.md` §Registration macros + `003-Render-Shell.md`
+  §Panel registration contract (Stage 6 addition) — a story panel is
   registered via:
 
       (story/reg-story-panel <panel-id>
@@ -144,7 +145,7 @@
                                         (toggle-layout-debug! variant-id id)))}]
           [:span {:style (:decor-id styles)} (str id)]])
        [:div {:style (:hint styles)}
-        "toggle adds the decorator at variant render time (per IMPL-SPEC §2.8.6)"]])))
+        "toggle adds the decorator at variant render time (per `005-SOTA-Features.md` §Layout-debug overlay trio)"]])))
 
 ;; ---- registration -------------------------------------------------------
 

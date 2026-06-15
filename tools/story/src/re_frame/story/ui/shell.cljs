@@ -1,5 +1,5 @@
 (ns re-frame.story.ui.shell
-  "Top-level story shell. Per Stage 4 (rf2-ekai) IMPL-SPEC §4 + §8.
+  "Top-level story shell. Per Stage 4 (rf2-ekai) `003-Render-Shell.md` §Shell lifecycle.
 
   Three-pane layout:
 
@@ -33,7 +33,7 @@
 
   ## Hot-reload trigger
 
-  Per IMPL-SPEC §13.2 + Stage 4 spec the shell watches the variant /
+  Per `003-Render-Shell.md` §Shell lifecycle + Stage 4 spec the shell watches the variant /
   decorator fingerprints from `re-frame.story.decorators/
   resolution-fingerprints` and bumps `:hot-reload-tick` when they drift.
   The canvas / workspace components watch the tick and re-mount the
@@ -207,7 +207,7 @@
   `:tags` slots plus the parent story's slice, the view's registered
   schema-digest, AND the variant's resolved effective args (which fold
   in the user's live `:cell-overrides`). See `re-frame.story.identity`
-  §What's in the hash + spec/007 §Variant snapshot identity.
+  §What's in the hash + /spec/007-Stories.md §Variant snapshot identity.
 
   HOT PATH (rf2-zrswb): registrar-driven cache short-circuits when
   neither the side-table nor the relevant shell-state slots
@@ -1076,7 +1076,7 @@
 ;; ---- mount / unmount surface ---------------------------------------------
 
 (defonce ^:private shell-singleton
-  ;; Per IMPL-SPEC §4 single shell at v1; multiple shells deferred to v2.
+  ;; Per `003-Render-Shell.md` §Shell lifecycle single shell at v1; multiple shells deferred to v2.
   (atom nil))
 
 (defn mount-shell!
@@ -1086,7 +1086,7 @@
   v1: one shell at a time. Calling `mount-shell!` while a shell is
   already mounted unmounts the previous one first.
 
-  Per IMPL-SPEC §6.3 production builds with `enabled?` false short-
+  Per `005-SOTA-Features.md` §Production elision under `:advanced` production builds with `enabled?` false short-
   circuit here and return nil — no DOM call, no Reagent render."
   [dom-node]
   (when (and config/enabled? dom-node)

@@ -87,7 +87,7 @@
 ;; ===========================================================================
 ;; rf2-g5p99 — error-boundary: decorator wrap throws
 ;;
-;; The contract per IMPL-SPEC §2.2 + §5.5 + rf2-zme7: a throwing
+;; The contract per `002-Runtime.md` §Substrate hooks + §Error projection + rf2-zme7: a throwing
 ;; decorator must NOT take down the shell. `safe-decorated-view`
 ;; catches the throw and returns an inline error projection alongside
 ;; the uncoated view. The user sees both: 'decorator stack <ids>
@@ -95,7 +95,7 @@
 ;; ===========================================================================
 
 (deftest decorator-wrap-throw-recovered-as-inline-error
-  (testing "spec/003 §Shell lifecycle + IMPL-SPEC §5.5: a :wrap fn that
+  (testing "spec/003 §Shell lifecycle + `002-Runtime.md` §Error projection: a :wrap fn that
             throws does NOT unmount the shell. safe-decorated-view
             catches and returns a hiccup error block. The block names
             the offending decorator id AND embeds the uncoated view

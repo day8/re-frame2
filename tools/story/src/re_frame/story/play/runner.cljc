@@ -73,7 +73,7 @@
 
   Steps run sequentially. A failed `:assert-*` step is RECORDED — the
   run continues so the user sees all failures, not just the first
-  (per IMPL-SPEC §2.3 'record, don't throw').
+  (per `004-Assertions.md` §Record-don't-throw semantics 'record, don't throw').
 
   ## Pure / impure split
 
@@ -490,7 +490,7 @@
   "Append a step-result record to `:results`, bump `:step-idx`, and
   bump `:failures` when the record is an assertion that GENUINELY failed.
   Pure data → data. The caller decides whether the run continues after a
-  failed assertion — by IMPL-SPEC §2.3 we record, never throw, so the
+  failed assertion — by `004-Assertions.md` §Record-don't-throw semantics we record, never throw, so the
   default path runs every step.
 
   `:failures` counts only genuine failures — a `false?` `:passed?` result

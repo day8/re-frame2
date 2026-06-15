@@ -29,8 +29,8 @@
   The `:rf.assert/*` events ride the same dispatch path — re-frame's
   interceptor chain runs the registered assertion handler (see
   `re-frame.story.assertions`), which appends a record into
-  `[:rf.story/assertions]` on the variant frame's app-db. Per IMPL-SPEC
-  §2.3 the assertion never throws; the play sequence runs to completion
+  `[:rf.story/assertions]` on the variant frame's app-db. Per `004-Assertions.md`
+  §Record-don't-throw semantics the assertion never throws; the play sequence runs to completion
   regardless of which assertions fail.
 
   ## Privacy egress seam (the per-frame trace listener)
@@ -225,8 +225,8 @@
 (defn- dispatch-one!
   "Dispatch a single event in the play sequence. Wraps `dispatch-sync`
   with the exception-record path so phase-4 errors land in the
-  assertion list rather than aborting the sequence (IMPL-SPEC §2.3 +
-  §5.5).
+  assertion list rather than aborting the sequence (`004-Assertions.md` §Record-don't-throw semantics +
+  `002-Runtime.md` §Error projection).
 
   The re-frame router catches handler exceptions and emits a
   `:rf.error/handler-exception` trace event rather than re-throwing;
@@ -283,7 +283,7 @@
   trace-listener, dispatches each event in order, and returns a
   resolved promise of the assertions vector.
 
-  Per IMPL-SPEC §5.4 phase 4 + §2.3 the sequence runs to completion
+  Per `002-Runtime.md` §Four-phase lifecycle with `:loaders-complete-when` phase 4 + `004-Assertions.md` §Record-don't-throw semantics the sequence runs to completion
   regardless of which assertions fail. `:rf.error/exception` records
   cover phase-4 throws.
 

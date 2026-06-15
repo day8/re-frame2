@@ -1,6 +1,6 @@
 (ns re-frame.story.share
   "Per-variant share URL — pure URL builder + parser. Per
-  IMPL-SPEC §2.8.5 + Stage 6 (rf2-zhwd). Phase-2 §5.2 #6.
+  `005-SOTA-Features.md` §Share URL (retired QR popover) + Stage 6 (rf2-zhwd). Phase-2 §5.2 #6.
 
   Each variant has a sharable URL that encodes the active modes and
   any cell-overrides so a teammate pasting the URL lands on the exact
@@ -13,7 +13,7 @@
 
   ## URL scheme
 
-  Per IMPL-SPEC §2.8.5 + rf2-o4u18 the scheme is:
+  Per `005-SOTA-Features.md` §Share URL (retired QR popover) + rf2-o4u18 the scheme is:
 
       <base>?variant=<id>
             &workspace=<id>
@@ -49,7 +49,7 @@
   ## Bundle isolation
 
   Share is part of the Story bundle but DCE'd under `:advanced` with
-  `:rf.story/enabled?` false (per IMPL-SPEC §6.2)."
+  `:rf.story/enabled?` false (per `005-SOTA-Features.md` §Production elision under `:advanced`)."
   (:require [clojure.string :as str]
             #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])))

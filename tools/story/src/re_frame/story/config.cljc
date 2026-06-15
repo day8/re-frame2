@@ -2,7 +2,7 @@
   "Compile-time configuration for re-frame2-story.
 
   The headline export is `enabled?` — the sentinel that gates every
-  Story registration form per IMPL-SPEC §6.1.
+  Story registration form per `001-Authoring.md` §Registration macros.
 
   In a CLJS build, `enabled?` is a `goog-define`'d boolean that defaults
   to `true`. Production builds set
@@ -24,7 +24,7 @@
 
   ## The elision contract this enables
 
-  IMPL-SPEC §6 + Spec 009 §Production builds: PRESENT-in-control,
+  `001-Authoring.md` §Registration macros + Spec 009 §Production builds: PRESENT-in-control,
   ABSENT-in-release. The macros expand to one form when `enabled?` is
   true (the registration call); to `nil` when false. Production code
   that accidentally requires a stories ns sees the namespace load but
@@ -111,7 +111,7 @@
 
 ;; ---- *global-args* (Stage 3, rf2-von3) ----------------------------------
 ;;
-;; Per IMPL-SPEC §5.2 the args-precedence chain starts with `global-args`:
+;; Per `002-Runtime.md` §Args resolution precedence the args-precedence chain starts with `global-args`:
 ;; defaults the story-tool's host application sets at boot (theme, locale).
 ;; Stage 3's args-resolution layer reads this atom; `configure!` writes it.
 ;;
@@ -120,7 +120,7 @@
 ;; (`configure!`) lives behind the `enabled?` gate at its call site.
 
 (defonce
-  ^{:doc "Atom holding the global args map. Per IMPL-SPEC §5.2 — Layer
+  ^{:doc "Atom holding the global args map. Per `002-Runtime.md` §Args resolution precedence — Layer
          1 of the args-precedence chain. Defaults to `{}`; the host
          calls `re-frame.story/configure!` at boot to seed via the
          `:rf.story/global-args` key."}

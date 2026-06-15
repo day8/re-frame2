@@ -124,7 +124,7 @@
 
 (defn save-variant-button
   "Render the 'Save current canvas state as new variant' button. Lives
-  on the controls panel (per IMPL-SPEC §4 — the controls panel is the
+  on the controls panel (per `003-Render-Shell.md` §Shell lifecycle — the controls panel is the
   natural home for args-snapshot affordances; spec/005-SOTA-Features
   §Save-current-canvas-state-as-variant).
 

@@ -1,5 +1,6 @@
 (ns re-frame.story.ui.a11y
-  "Accessibility (axe-core) panel. Per IMPL-SPEC §11.1 (v1.0 item 2)
+  "Accessibility (axe-core) panel. Per `005-SOTA-Features.md` §a11y
+  (axe-core) panel (v1.0 item 2)
   + Stage 6 (rf2-zhwd). Phase-2 §5.1 #2.
 
   Runs axe-core against the variant's rendered DOM and surfaces
@@ -261,7 +262,7 @@
 ;; ---- running axe --------------------------------------------------------
 
 (defn emit-warning-for-violation
-  "Per IMPL-SPEC §11.1: axe-core violations integrate with
+  "Per `005-SOTA-Features.md` §a11y (axe-core) panel: axe-core violations integrate with
   `:rf.assert/no-warnings`. We emit a `:warning` trace event into the
   variant's frame so the play-runner's per-frame trace listener
   captures it and `:rf.assert/no-warnings` records a failure.
@@ -358,7 +359,7 @@
   tests). Pass an Element, a CSS-selector string, or an axe-core
   context object.
 
-  Per IMPL-SPEC §11.1 surfaces violations into `:rf.assert/no-warnings`
+  Per `005-SOTA-Features.md` §a11y (axe-core) panel surfaces violations into `:rf.assert/no-warnings`
   via the trace-warning hook."
   ([frame-id]
    (run-axe! frame-id (find-variant-root frame-id)))

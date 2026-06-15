@@ -30,7 +30,7 @@
     re-allocation must leave the lifecycle in `:ready` without
     requiring an explicit `reset-watchers!`.
 
-  Per IMPL-SPEC §5.1 the caller (UI shell / test fixture) owns
+  Per `002-Runtime.md` §Per-variant frame allocation the caller (UI shell / test fixture) owns
   teardown — these tests pin the contract the caller relies on."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core            :as rf]

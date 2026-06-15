@@ -1,13 +1,15 @@
 (ns re-frame.story.ui.controls
   "Controls panel — args editor, decorator toggles. Per Stage 4
-  (rf2-ekai) IMPL-SPEC §4 + §9.4. Per rf2-xi9zk the per-variant mode
+  (rf2-ekai) `003-Render-Shell.md` §Shell lifecycle + `001-Authoring.md`
+  §Controls — schema-derived, zero-`:argtypes`. Per rf2-xi9zk the per-variant mode
   picker moved to the chrome-level toolbar
   (`re-frame.story.ui.toolbar`); the controls panel keeps args /
   decorator sections only.
 
   ## Args derivation
 
-  Per IMPL-SPEC §9.4 the args editor auto-derives widget shapes from the
+  Per `001-Authoring.md` §Controls — schema-derived, zero-`:argtypes`
+  the args editor auto-derives widget shapes from the
   variant's `:argtypes` (an explicit per-arg widget spec) or from the
   Malli schema attached to `:component` (Spec 010 schemas).
 
@@ -169,8 +171,8 @@
         → `{:widget :tuple :kind :tuple :positions [<recur> ...]}`
 
   Unknown shapes default to `{:widget :text}` — the user can refine
-  via the variant's `:argtypes` slot. Per IMPL-SPEC §9.4 + spec/001
-  §Schema-derivation pipeline."
+  via the variant's `:argtypes` slot. Per `001-Authoring.md`
+  §Controls — schema-derived, zero-`:argtypes` + §Schema-derivation pipeline."
   [schema-fragment]
   (cond
     (= :string schema-fragment)  {:widget :text}
@@ -215,7 +217,7 @@
 
 (defn normalize-argtype-spec
   "Translate a single author-supplied argtype-spec to the canonical
-  internal shape. Per spec/007-Stories.md §argtypes the author uses
+  internal shape. Per /spec/007-Stories.md §argtypes the author uses
   `:control` as the slot name (a 'control' is what the user sees in
   the UI). Internal dispatch (`scalar-widget`, `arg-widget`) is on
   `:widget`. This fn bridges the two — `:control` wins, then `:widget`
@@ -249,7 +251,7 @@
   shapes.
 
   Author-supplied `:argtypes` carry the canonical spec-level `:control`
-  slot per spec/007-Stories.md §argtypes; `normalize-argtypes` translates
+  slot per /spec/007-Stories.md §argtypes; `normalize-argtypes` translates
   them to the internal `:widget` shape before merge.
 
   Per rf2-agshe the inference recurses into nested `:map` / `:vector` /
@@ -476,7 +478,7 @@
            :on-change  (on-string-change variant-id path)}])
 
 (def ^:private scalar-renderers
-  "Closed scalar-widget vocabulary per spec/007-Stories.md §argtypes.
+  "Closed scalar-widget vocabulary per /spec/007-Stories.md §argtypes.
   Each renderer takes `[variant-id path value spec]` and returns hiccup.
   An unknown `:widget` tag falls through to the visible fallback span."
   {:text     render-text
@@ -492,7 +494,7 @@
   "Render a scalar widget for `widget-spec` whose value lives at `path`
   inside `variant-id`'s args. Path is `[arg-key & sub-path]`.
 
-  Closed control vocabulary per spec/007-Stories.md §argtypes:
+  Closed control vocabulary per /spec/007-Stories.md §argtypes:
   `:text` / `:textarea` / `:number` / `:boolean` / `:select` / `:radio`
   / `:date` / `:color`. Unknown widget tags degrade to a visible
   fallback span (the author can refine via `:argtypes`).
