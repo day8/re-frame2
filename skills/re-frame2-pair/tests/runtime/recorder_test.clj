@@ -178,8 +178,12 @@
         "start-recording! must default a wall-clock stop when none given")
     (is (form-contains? #(= % :no-signals) start)
         "start-recording! must refuse an empty signal-set")
-    (is (form-contains? #(= % :ambiguous-frame) start)
-        "start-recording! must refuse an unresolvable frame for app-db/sub signals")))
+    ;; rf2-n58jxo — the bare `:ambiguous-frame` literal was replaced by a
+    ;; call to the shared enriched builder `ambiguous-frame-error`; the
+    ;; contract (refuse an unresolvable frame for app-db/sub signals) is now
+    ;; carried by that call rather than an inline keyword.
+    (is (mentions-sym? start 'ambiguous-frame-error)
+        "start-recording! must refuse an unresolvable frame via ambiguous-frame-error")))
 
 ;; ---------------------------------------------------------------------------
 ;; READ-ONLY invariant — the recorder must never mutate the app.

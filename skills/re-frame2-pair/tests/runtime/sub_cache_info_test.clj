@@ -104,14 +104,20 @@
 ;; preload/re_frame2_pair/runtime.cljs §Subscriptions.
 ;; ---------------------------------------------------------------------------
 
+;; Mirror of `ambiguous-frame-error` (rf2-n58jxo) — the load-bearing slots
+;; (operation, available frames, current pin). KEEP THE SLOT CONTRACT IN SYNC.
+(defn ambiguous-frame-error [operation]
+  {:ok? false :reason :ambiguous-frame :operation operation
+   :available-frames (vec (frame-ids))
+   :selected-frame @selected-frame})
+
 (defn sub-cache-info
   ([] (sub-cache-info {}))
   ([opts]
    (let [{:keys [frame include-values?]} opts
          frame-id (current-frame frame)]
      (if (nil? frame-id)
-       {:ok? false :reason :ambiguous-frame
-        :hint "Multi-frame session with no selected frame — pass `frame` or call `select-frame!` first."}
+       (ambiguous-frame-error :sub-cache-info)
        (let [cache (or (sub-cache-snapshot frame-id) {})
              qvs   (sort-by pr-str (keys cache))]
          {:ok?   true
@@ -233,7 +239,10 @@
   (let [r (sub-cache-info)]
     (is (false? (:ok? r)))
     (is (= :ambiguous-frame (:reason r))
-        "two frames + no selection ⇒ refuse rather than silently read :rf/default")))
+        "two frames + no selection ⇒ refuse rather than silently read :rf/default")
+    ;; rf2-n58jxo — enriched: operation + the available frames the caller can pin.
+    (is (= :sub-cache-info (:operation r)))
+    (is (= #{:rf/default :rf/xray} (set (:available-frames r))))))
 
 (deftest explicit-frame-and-pin-both-steer-the-read
   (register-frame! :rf/default)

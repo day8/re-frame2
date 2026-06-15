@@ -455,6 +455,58 @@
       {:ok? false :reason :no-such-frame :frame-id id}))
 
 ;; ---------------------------------------------------------------------------
+;; Ambiguous-frame diagnostics (rf2-n58jxo)
+;;
+;; A read/mutate op that can't resolve a single operating frame in a
+;; multi-frame session used to refuse with a bare `{:ok? false :reason
+;; :ambiguous-frame :hint "..."}` — no operation name, no available-frame
+;; list, no current-frame context. An agent then had to round-trip
+;; `frames-list` (or `discover-app`) just to learn WHICH frames it could
+;; pick from and HOW to pin one. `ambiguous-frame-error` builds the
+;; enriched envelope once so every refusal site carries:
+;;
+;;   :operation       the op that refused (`:dispatch`, `:read-sub`, …) —
+;;                    the machine handle for the failing call.
+;;   :event / :query  the event-vector / query-vector when the op knows it
+;;                    (omitted for context-free ops like `sub-cache-info`).
+;;   :available-frames the registered APP frames in the operating realm —
+;;                    the set the caller may pin / pass (`app-frame-ids`).
+;;   :operating-realm  the realm tier-3 resolution scopes to, so a
+;;                    multi-realm session sees which realm the candidate
+;;                    frames live in.
+;;   :selected-frame   the current session pin (nil = none), so the caller
+;;                    knows whether a prior `select-frame!` is in effect.
+;;   :hint             the human sentence + the concrete fix (pass `frame`
+;;                    or pin via `select-frame!` / `set-operating-frame`).
+;;
+;; `:reason :ambiguous-frame` stays the SOLE machine discriminator (the
+;; documented bare-dialect reason, Tool-Catalogue §307) — the new slots
+;; are additive context, never a discriminator change.
+;; ---------------------------------------------------------------------------
+
+(defn ambiguous-frame-error
+  "Build the enriched `:ambiguous-frame` refusal envelope (rf2-n58jxo).
+   `operation` is the refusing op keyword; `extra` (optional) carries the
+   op-specific context the caller knows — `:event`, `:query`, `:query-v`.
+   The envelope always carries the available app frames, the operating
+   realm, the current session pin, and the concrete fix in `:hint`."
+  ([operation] (ambiguous-frame-error operation nil))
+  ([operation extra]
+   (let [frames (app-frame-ids)]
+     (merge
+       {:ok?              false
+        :reason           :ambiguous-frame
+        :operation        operation
+        :available-frames frames
+        :operating-realm  (operating-realm)
+        :selected-frame   @selected-frame
+        :hint             (str "multiple app frames are registered and no frame is "
+                               "selected, so " (name operation) " cannot pick a target. "
+                               "Pass `frame` (one of " (pr-str frames) ") or pin one with "
+                               "`select-frame!` / set-operating-frame, then retry.")}
+       extra))))
+
+;; ---------------------------------------------------------------------------
 ;; app-db read/write
 ;; ---------------------------------------------------------------------------
 ;;
@@ -899,9 +951,7 @@
    (let [{:keys [frame include-values?]} opts
          frame-id (current-frame frame)]
      (if (nil? frame-id)
-       {:ok?    false
-        :reason :ambiguous-frame
-        :hint   "Multi-frame session with no selected frame — pass `frame` or call `select-frame!` first."}
+       (ambiguous-frame-error :sub-cache-info)
        (let [cache (or (subs-tooling/sub-cache-snapshot frame-id) {})
              qvs   (sort-by pr-str (keys cache))]
          {:ok?   true
@@ -935,8 +985,7 @@
   ([query-v frame-id]
    (cond
      (nil? frame-id)
-     {:ok? false :reason :ambiguous-frame
-      :hint "Multi-frame session with no selected frame — pass `frame-id` or call `select-frame!` first."}
+     (ambiguous-frame-error :subs-sample {:query query-v})
 
      :else
      (try
@@ -994,10 +1043,7 @@
          (assoc v :subscribed? false)
 
          (nil? frame-id)
-         {:ok?    false
-          :reason :ambiguous-frame
-          :query-v query-v
-          :hint   "Multi-frame session with no selected frame — pass `frame-id` or call `select-frame!` first."}
+         (ambiguous-frame-error :read-sub {:query query-v :query-v query-v})
 
          :else
          (try
@@ -2327,7 +2373,12 @@
   ([event-v opts]
    (let [frame-id  (or (:frame opts) (current-frame))
          _         (when-not frame-id
-                     (throw (ex-info "ambiguous frame" {:reason :ambiguous-frame})))
+                     ;; rf2-n58jxo — carry the enriched ambiguous-frame
+                     ;; context (operation, event, available frames, current
+                     ;; pin, fix) as ex-data so the MCP `.catch` →
+                     ;; `err->result` surfaces it verbatim, not a bare reason.
+                     (throw (ex-info "ambiguous frame"
+                                     (ambiguous-frame-error :dispatch {:event event-v}))))
          ;; EP-0002 (rf2-9o48ih): thread the resolved operating frame in as
          ;; the explicit `:frame` override — the nREPL eval thread carries no
          ;; ambient `with-frame` scope, so `rf/dispatch-sync` would otherwise
@@ -2621,7 +2672,10 @@
   ([event-v opts]
    (let [frame-id  (or (:frame opts) (current-frame))
          _         (when-not frame-id
-                     (throw (ex-info "ambiguous frame" {:reason :ambiguous-frame})))
+                     ;; rf2-n58jxo — enriched ambiguous-frame context (see
+                     ;; pair-dispatch-sync!); dry-run knows the event vector.
+                     (throw (ex-info "ambiguous frame"
+                                     (ambiguous-frame-error :dispatch-dry-run {:event event-v}))))
          before-id (some-> (rf/epoch-history frame-id) peek :epoch-id)
          overrides (build-dry-run-overrides)
          _         (reset! dry-run-recordings [])
@@ -3763,8 +3817,7 @@
        :hint "pass a non-empty :signals vector, e.g. [{:focus true} {:dom \"#count\"} {:app-db [:cart :items]}]"}
 
       (and needs-frame? (nil? frame-id))
-      {:ok? false :reason :ambiguous-frame
-       :hint "an :app-db / :sub signal needs a frame — pass :frame or call select-frame! first."}
+      (ambiguous-frame-error :record)
 
       :else
       (let [rid (str "rec-" (random-uuid))

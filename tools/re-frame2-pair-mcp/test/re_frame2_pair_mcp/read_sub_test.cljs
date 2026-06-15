@@ -202,14 +202,26 @@
 
 (deftest ambiguous-frame-surfaces-as-error
   (async done
-    (let [runtime-result {:ok? false :reason :ambiguous-frame
-                          :query-v [:cart/total]
-                          :hint "Multi-frame session with no selected frame — pass `frame-id`..."}]
+    ;; rf2-n58jxo — the runtime now refuses with the enriched ambiguous-frame
+    ;; envelope (operation, query, available frames, current pin, fix-hint).
+    ;; The tool wrap must carry every slot back to the agent verbatim.
+    (let [runtime-result {:ok?              false
+                          :reason           :ambiguous-frame
+                          :operation        :read-sub
+                          :query            [:cart/total]
+                          :query-v          [:cart/total]
+                          :available-frames [:rf/default :stories]
+                          :selected-frame   nil
+                          :hint             "pass `frame` (one of [:rf/default :stories]) or pin one"}]
       (stub-eval! nil runtime-result)
       (-> (read-sub/read-sub-tool (fresh-conn) #js {:sub "[:cart/total]"})
           (.then (fn [r]
                    (is (err? r))
-                   (is (= :ambiguous-frame (:reason (read-result-text r))))
+                   (let [edn (read-result-text r)]
+                     (is (= :ambiguous-frame (:reason edn)))
+                     (is (= :read-sub (:operation edn)))
+                     (is (= [:rf/default :stories] (:available-frames edn))
+                         "the candidate frames ride back so the agent can pin one"))
                    (done)))))))
 
 (deftest sub-error-surfaces-as-error-not-nil
