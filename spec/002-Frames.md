@@ -349,7 +349,7 @@ frame-state  (one signal: {:rf.db/app <app-db> :rf.db/runtime <runtime-db>})
    └── runtime-db = (reaction (:rf.db/runtime @frame-state)) ; layer-1 input for framework subs
 ```
 
-This is **pattern contract**, not just one acceptable representation (it resolves EP-0001 Open Issues 3 + 7 — Mike ruling #3). Ports MAY differ only if they preserve the projection-equality semantics below; the reference impl commits to the single container. The full substrate realisation lives in [006 §Frame-state container and partition projections](006-ReactiveSubstrate.md#frame-state-container-and-partition-projections).
+This is **pattern contract**, not just one acceptable representation (it resolves EP-0001 Open Issues 3 + 7 — Mike ruling #3). Ports MAY differ only if they preserve the projection-equality semantics below; the reference impl commits to the single container. The full substrate realisation **and the normative projection-equality pattern-contract** are owned by [006 §Frame-state container and partition projections](006-ReactiveSubstrate.md#frame-state-container-and-partition-projections); the prose here states the split at the frame contract.
 
 The model buys partition-aware sub-cache invalidation **for free** from existing reaction-deref equality (Mike ruling #7 — no explicit dirty flags unless an adapter needs them):
 
@@ -414,6 +414,25 @@ then `(rf/reg-event :session/reset (fn [_ _] {:db {:session/status :anonymous}})
 ```
 
 No preservation code is needed; the handler cannot touch runtime-db through `:db`.
+
+#### The `:db` commit / no-op return family
+
+The closed effects map is the only return; there is no db-only return shape. The app-db commit semantics of every return follow one table — stated here for the effect-map contract, enforced at the commit step (§Run-to-completion below):
+
+| Handler return | App-db effect |
+|---|---|
+| `nil` | no-op (nothing committed) |
+| `{}` | no-op |
+| `{:db <new>}` (new ≠ current) | commit `<new>` as app-db |
+| `{:db db}` (the unchanged db) | **no-op** — `identical?` short-circuit, no container write |
+| `{:db nil}` | **coerced to `{:db {}}`** — app-db is always a map, never nil (+ a dev-mode `:rf.warning/db-nil-coerced` diagnostic; `{:db {}}` is the clean deliberate clear) |
+
+Two rows are correctness contracts apps may rely on:
+
+- **The `identical?` commit no-op.** When a `:db` effect carries the *same object* the frame already holds (`identical?`, not merely `=`), the commit step skips the physical container write entirely — no `:rf.event/db-changed` signal, and the projection reactions do not propagate. This is what keeps the common `{:db (if cond (assoc db …) db)}` shape cheap: the `else` arm returns the same object and costs nothing. Deeper change-detection stays value equality (`=`) — a different-object-but-equal-value commit still writes, and downstream `=`-memoisation collapses it; the cheap fast-path is reference identity. This same no-op is the optimization the standard `path` interceptor's Rule 4 preserves (§The standard path interceptor) and the partition-projection equality model (§One physical container, two projection reactions) buys for free.
+- **The `{:db nil}` → `{:db {}}` coercion.** App-db is always a map, never nil. A `:db nil` effect is coerced to `{}` at the `:db` effect → app-db commit boundary so the partition layer never sees a nil app-db. The coercion is usually masking a bug (a handler accidentally computed `nil`), so it emits the dev-mode diagnostic above; a deliberate clear should be the explicit `{:db {}}`.
+
+These commit semantics apply to **every** event — they are independent of the registration-surface collapse (per [EP-0018 §Commit / no-op family](../docs/EP/EP-0018-one-event-registration.md)).
 
 #### Write authority is by convention
 
@@ -778,7 +797,7 @@ The hybrid `[<id> <map>]` shape for non-trivial events is canonical. Subscribe t
  :frame        :todo                   ;; resolved frame keyword
  :fx-overrides {:my-app/http stub-fn}  ;; per-dispatch fx replacements (master's dispatch-with)
  :trace-id     "..."                   ;; tooling/agent fields
- :source       :ui                     ;; trigger kind — the canonical enum is `:rf/dispatch-envelope`'s `:source` in [Spec-Schemas](Spec-Schemas.md#rfdispatch-envelope) (`:ui :frame-init :machine-spawn :machine-action :always :after-timer :fx-dispatch :fx-dispatch-later :http :repl :ssr-hydration :test :unknown :other`); defaults to `:unknown` per [rf2-hxj0d](https://github.com/day8/re-frame2/issues/rf2-hxj0d) (previously `:ui`); substrate-internal dispatch sites stamp the matching value (`:after-timer`, `:machine-spawn`, `:machine-action`, `:fx-dispatch`, `:fx-dispatch-later`) per [rf2-ejtpd](https://github.com/day8/re-frame2/issues/rf2-ejtpd) + [rf2-c3990](https://github.com/day8/re-frame2/issues/rf2-c3990)
+ :source       :ui                     ;; trigger kind — the canonical closed enum lives on `:rf/dispatch-envelope`'s `:source` row in [Spec-Schemas](Spec-Schemas.md#rfdispatch-envelope) (the single source of the value set); defaults to `:unknown` (previously `:ui`); substrate-internal dispatch sites stamp the matching value (`:after-timer`, `:machine-spawn`, `:machine-action`, `:fx-dispatch`, `:fx-dispatch-later`). See [§Dispatch origin tagging](#dispatch-origin-tagging) below for the `:source` vs `:origin` distinction and the full inventory.
  :origin       :pair                   ;; actor identity — open vocabulary, defaults to `:app`; e.g. `:pair`, `:claude`, `:story`, `:test`
  :rf.cofx      {:rf/time-ms 1781078400123} ;; recordable coeffects (flat, fact-name→value) — see §Recordable coeffects
  ;; :rf.realm/id :rf.realm/default     ;; the owning realm — STAMPED only for a NON-default realm (absent = default)
@@ -1508,7 +1527,7 @@ Under run-to-completion, a dispatched event runs synchronously *before* the orig
 
 ### `:fx` ordering and atomicity guarantees
 
-When an `event-fx` handler returns `{:db <new-db> :fx [[a 1] [b 2] [c 3]]}`, the runtime processes the effect map under four locked rules. Apps may rely on them; conformant implementations must produce them.
+When an event handler returns `{:db <new-db> :fx [[a 1] [b 2] [c 3]]}`, the runtime processes the effect map under four locked rules. Apps may rely on them; conformant implementations must produce them.
 
 1. **`:db` is the first side effect (when present).** The snapshot transitions atomically in one step before any `:fx` entry is processed. No external observer ever sees a half-written `app-db`.
 2. **`:fx` entries are processed in source order.** `[a 1]` runs before `[b 2]` runs before `[c 3]`. The order in which the handler wrote the entries is the order in which they reach `do-fx`.
@@ -1692,6 +1711,15 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
       ;;    changed-partition tag(s). `contains?` is the WHOLE guard: a
       ;;    pre-install throw leaves no partition effect, so this is a no-op
       ;;    and the event aborts with both partitions unchanged.
+      ;;    `commit-frame-transition!` applies the §The `:db` commit / no-op
+      ;;    return family rules at this boundary: a `:db` effect carrying the
+      ;;    CURRENT object unchanged (`identical?`, not merely `=`) skips the
+      ;;    physical container write (the commit no-op short-circuit) — no
+      ;;    `:rf.event/db-changed`, no projection propagation; a `{:db nil}`
+      ;;    effect is coerced to `{:db {}}` (app-db is always a map) with a
+      ;;    dev-mode `:rf.warning/db-nil-coerced` diagnostic. Deeper
+      ;;    change-detection is value equality (`=`); the cheap fast-path is
+      ;;    reference identity.
       (when (or (contains? effects :db) (contains? effects :rf.db/runtime))
         (substrate/commit-frame-transition!                ;; one atomic frame-state install
           (:frame-state frame)
@@ -2225,7 +2253,7 @@ re-frame2 commits to a queryable public registrar for every kind of registered e
 
 | Query | Returns | JVM-runnable? |
 |---|---|---|
-| `(rf/registrations kind)` | Map of id → metadata for every handler of the given kind. The kind keyword set is canonicalised in [001 §The query API](001-Registration.md#the-query-api): `:event` (every `reg-event` handler), `:sub`, `:fx`, `:cofx`, `:view`, `:frame`, `:route`. Machines themselves register under `:event` (per [005](005-StateMachines.md)) — filter by `:rf/machine?` metadata to enumerate them. Machine guards and actions are **machine-scoped** (declared in each machine's `:guards` / `:actions` map) — there is no `:machine-guard` / `:machine-action` registry kind. App-db schemas are **not** a registrar kind either (rf2-cq1ak) — introspect via `schemas/app-schemas` / `schemas/app-schema-meta-at`. | Yes |
+| `(rf/registrations kind)` | Map of id → metadata for every handler of the given kind. The kind keyword set is canonicalised in [001 §The query API](001-Registration.md#the-query-api): `:event` (every `reg-event` handler), `:sub`, `:fx`, `:cofx`, `:interceptor` (every `reg-interceptor` handler — per [EP-0022](../docs/EP/EP-0022-registered-interceptors.md)), `:view`, `:frame`, `:route`. Machines themselves register under `:event` (per [005](005-StateMachines.md)) — filter by `:rf/machine?` metadata to enumerate them. Machine guards and actions are **machine-scoped** (declared in each machine's `:guards` / `:actions` map) — there is no `:machine-guard` / `:machine-action` registry kind. App-db schemas are **not** a registrar kind either (rf2-cq1ak) — introspect via `schemas/app-schemas` / `schemas/app-schema-meta-at`. | Yes |
 | `(rf/registrations kind pred-fn)` | Same, filtered by `pred-fn` applied to each metadata map. | Yes |
 | `(rf/handler-meta kind id)` | Metadata for a single handler (config, source coords, doc, spec, etc.). | Yes |
 | `(rf/frame-ids)` | Seq of all registered frame keywords. | Yes |
@@ -2246,7 +2274,7 @@ The metadata maps returned by `handler-meta` and `frame-meta` follow a documente
 
 - **Per-frame app-db inspection** — covered by `app-db-value` above.
 - **Trace per frame.** Each frame owns its own cascade-keyed trace ring. Trace events emitted inside an in-flight cascade route to the frame whose router / reactive substrate / view wrapper is running — they never cross into sibling frames. Each frame's ring is sized independently via `:rf.trace/cascades-retained` (default 50; per-frame override on `reg-frame`); `(rf/trace-buffer frame-id)` reads cascade bundles from that frame's ring; cross-frame consumers (pair tools, multi-frame story sessions) merge by `:dispatch-id` across rings. Frameless emits stream live to listeners only and bypass every ring. See [Spec 009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only) for the full contract.
-- **Hot-reload notifications.** `reg-frame`/`reg-event-*`/etc. re-registration fires notifications on a re-frame-internal pub/sub that tools can listen to and refresh their state. Per the B4 ruling, hot-reload re-emits are deduplicated by shape — unchanged re-registrations do not fire a trace event; only shape changes (handler-fn identity or metadata content) emit. The dedup table is process-scoped and dev-only.
+- **Hot-reload notifications.** `reg-frame`/`reg-event`/etc. re-registration fires notifications on a re-frame-internal pub/sub that tools can listen to and refresh their state. Per the B4 ruling, hot-reload re-emits are deduplicated by shape — unchanged re-registrations do not fire a trace event; only shape changes (handler-fn identity or metadata content) emit. The dedup table is process-scoped and dev-only.
 
 ## Story-tool foundation hooks — see Spec 007
 

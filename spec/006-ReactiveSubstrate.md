@@ -84,7 +84,7 @@ frame-state  (the physical reactive container — make-state-container holds
    └── runtime-db = (make-derived-value [frame-state] #(:rf.db/runtime %))  ; layer-1 input for framework subs
 ```
 
-This is **pattern contract**, not merely one acceptable representation (Mike ruling #3 — it commits EP-0001 Open Issues 3 + 7). A conformant adapter MAY use a different internal arrangement **only if** it preserves the projection-equality semantics below; the reference adapter commits to the single container + two `make-derived-value` projections.
+This is **pattern contract**, not merely one acceptable representation (Mike ruling #3 — it commits EP-0001 Open Issues 3 + 7). A conformant adapter MAY use a different internal arrangement **only if** it preserves the projection-equality semantics below; the reference adapter commits to the single container + two `make-derived-value` projections. **This section owns the projection-equality pattern-contract** (the substrate realisation and the per-partition propagation rules); [002 §One physical container, two projection reactions](002-Frames.md#one-physical-container-two-projection-reactions) states the two-partition split at the frame contract and defers the substrate mechanism here.
 
 **Partition-aware invalidation falls out of `make-derived-value`'s memoised equality — no new machinery** (Mike ruling #7, no explicit dirty flags unless an adapter needs them). `make-derived-value` recomputes its `compute-fn` when its source changes but propagates only when the *result* changes (per [§`(make-derived-value …)`](#make-derived-value-source-containers-compute-fn--container) — the memoised-container contract):
 
@@ -186,7 +186,7 @@ Returns a derived container whose value is computed from one or more source cont
 
 The returned container supports `read-container`; `replace-container!` is **not** supported on derived containers. A derived value is computed from its sources — there is no slot to write into — so writing to one is a programmer error. The core's `replace-container!` choke point (the single point every frame app-db write flows through, sibling to the nil-container guard in [§`read-container` and `replace-container!`](#read-container-container--value-and-replace-container-container-new-value--nil)) detects the derived container, emits a `:rf.error/derived-container-replaced` trace (so error-listeners observe it), and throws the canonical thrown-error `ex-info` carrying `:rf.error/id :rf.error/derived-container-replaced` (per [009 §The thrown-error shape](009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract)); the underlying adapter `replace-container!` is not invoked. `subscribe-container` works as on a base container.
 
-Detecting a derived container is the **adapter's** responsibility, because no single host protocol separates the two shapes across every substrate: a Reagent `Reaction` reifies the host atom marker protocol (`clojure.lang.IAtom`) exactly as a base `r/atom` does, even though it is read-only. An adapter MAY therefore publish an optional `:adapter/derived-container?` late-bind hook (a 1-arg predicate); the choke point consults it first. The hook lives in the late-bind table rather than the adapter spec map so the 9-fn adapter contract shape is unchanged. The reference Reagent and reagent-slim adapters publish one keyed on the substrate's own disposal protocol (a `Reaction` is disposable; a base `r/atom` / `RAtom` is not). When no adapter publishes the hook, the choke point falls back to an atom-marker heuristic — a base container satisfies the host atom marker protocol (`clojure.lang.IAtom` on the JVM, `cljs.core/IAtom` on CLJS) while the adapter's derived value (an `IDeref`-only reify, or an `IDeref`+`IWatchable`+disposal reify) does not. Note the marker is `IAtom`, not `ISwap`/`IReset`: a ClojureScript `cljs.core/Atom` implements `IAtom` but not `ISwap`/`IReset` (`swap!` / `reset!` fast-path on the concrete `Atom` type), so only `IAtom` reliably marks a base atom on both hosts. That fall-back is sound for the plain-atom, test-react, UIx, and Helix reference adapters, whose derived values are not atom-shaped; it is the Reagent family alone that publishes the hook.
+Detecting a derived container is the **adapter's** responsibility, because no single host protocol separates the two shapes across every substrate: a Reagent `Reaction` reifies the host atom marker protocol (`clojure.lang.IAtom`) exactly as a base `r/atom` does, even though it is read-only. An adapter MAY therefore publish an optional `:adapter/derived-container?` late-bind hook (a 1-arg predicate); the choke point consults it first. The hook lives in the late-bind table rather than the adapter spec map so the ten-fn adapter contract shape (six required + three optional + one lifecycle, per §Normative contract) is unchanged. The reference Reagent and reagent-slim adapters publish one keyed on the substrate's own disposal protocol (a `Reaction` is disposable; a base `r/atom` / `RAtom` is not). When no adapter publishes the hook, the choke point falls back to an atom-marker heuristic — a base container satisfies the host atom marker protocol (`clojure.lang.IAtom` on the JVM, `cljs.core/IAtom` on CLJS) while the adapter's derived value (an `IDeref`-only reify, or an `IDeref`+`IWatchable`+disposal reify) does not. Note the marker is `IAtom`, not `ISwap`/`IReset`: a ClojureScript `cljs.core/Atom` implements `IAtom` but not `ISwap`/`IReset` (`swap!` / `reset!` fast-path on the concrete `Atom` type), so only `IAtom` reliably marks a base atom on both hosts. That fall-back is sound for the plain-atom, test-react, UIx, and Helix reference adapters, whose derived values are not atom-shaped; it is the Reagent family alone that publishes the hook.
 
 The derived container's caching responsibility is **adapter discretion**: an adapter MAY memoise the derived value (and is encouraged to where the host primitive makes it cheap — Reagent's `Reaction` does this for free), or MAY recompute on every `read-container` and rely on the **per-frame sub-cache** ([§Subscription cache — contract and operational semantics](#subscription-cache--contract-and-operational-semantics)) to enforce the `=`-equality invariant across recomputes. Either shape is conformant. What is NOT conformant: a derived container whose recompute fires for an input that did not change by `=` and whose downstream propagation does not collapse on `=`-equal new values — that would break the cascade rule in [§Invalidation algorithm](#invalidation-algorithm).
 
@@ -812,7 +812,7 @@ A related case is `subscribe` itself naming an unregistered sub-id — most ofte
 
 ## CLJS reference: Reagent as default adapter
 
-The CLJS reference ships **two** adapters across **two Maven artefacts**: the plain-atom (JVM/headless) adapter ships in the core artefact (`day8/re-frame2`); the Reagent adapter ships in its own sibling artefact (`day8/re-frame2-reagent`). Both implement the closed nine-fn contract above; the runtime picks per platform. UIx and Helix adapters ship as further sibling artefacts as they land. Per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention) and rf2-0hxm.
+The CLJS reference ships **two** adapters across **two Maven artefacts**: the plain-atom (JVM/headless) adapter ships in the core artefact (`day8/re-frame2`); the Reagent adapter ships in its own sibling artefact (`day8/re-frame2-reagent`). Both implement the closed ten-fn contract above; the runtime picks per platform. UIx and Helix adapters ship as further sibling artefacts as they land. Per [Conventions §Adapter shipping convention](Conventions.md#adapter-shipping-convention) and rf2-0hxm.
 
 This section is the **bridging pseudocode** for both. For each contract function, the pseudocode shows which Reagent (or, on the JVM, plain-Clojure) primitive realises it. An AI implementing the CLJS reference can lift this directly; non-CLJS implementors read it as one worked example of the contract.
 
@@ -1077,7 +1077,7 @@ Both impls share the dynamic-var tier (`re-frame.frame/*current-frame*`, set by 
 
 ### Plain-atom adapter (JVM, SSR, headless)
 
-The **plain-atom adapter** is the same nine-fn contract realised against `clojure.core/atom` instead of Reagent. It is what runs on the JVM (per [000 §C2. Cross-platform: JVM interop preserved](000-Vision.md#c2-cross-platform-jvm-interop-preserved)) and what SSR and headless tests use ([§SSR-specific behaviour](#ssr-specific-behaviour), [008-Testing](008-Testing.md)).
+The **plain-atom adapter** is the same ten-fn contract realised against `clojure.core/atom` instead of Reagent. It is what runs on the JVM (per [000 §C2. Cross-platform: JVM interop preserved](000-Vision.md#c2-cross-platform-jvm-interop-preserved)) and what SSR and headless tests use ([§SSR-specific behaviour](#ssr-specific-behaviour), [008-Testing](008-Testing.md)).
 
 How it differs from the Reagent adapter:
 
@@ -1175,11 +1175,11 @@ A mixed-substrate app — say a build that imports both `re-frame.adapter.reagen
 
 `install-adapter!` is called once per process by `init!`'s implementation. Subsequent calls without an intervening `dispose-adapter!` raise `:rf.error/adapter-already-installed` ([§Single adapter per process](#single-adapter-per-process)).
 
-The CLJS adapter namespaces (Reagent, UIx, Helix) and the SSR namespace each export their `adapter` Var; the contract surface is the same nine-fn map (see [§The adapter API contract](#the-adapter-api-contract) above). The plain-atom adapter in `re-frame.substrate.plain-atom` is reachable on both JVM and CLJS — useful for headless tests on either platform.
+The CLJS adapter namespaces (Reagent, UIx, Helix) and the SSR namespace each export their `adapter` Var; the contract surface is the same ten-fn map (see [§The adapter API contract](#the-adapter-api-contract) above). The plain-atom adapter in `re-frame.substrate.plain-atom` is reachable on both JVM and CLJS — useful for headless tests on either platform.
 
 ## CLJS reference: UIx as alternative substrate
 
-The UIx adapter ships in `day8/re-frame2-uix` and implements the same nine-fn contract as the Reagent adapter — same observable behaviour for events, subs, effects; different rendering substrate for views.
+The UIx adapter ships in `day8/re-frame2-uix` and implements the same ten-fn contract as the Reagent adapter — same observable behaviour for events, subs, effects; different rendering substrate for views.
 
 Per the locked decisions (2026-05-09) are:
 
@@ -1203,7 +1203,7 @@ Every other adapter primitive (read, replace, subscribe-container, dispose) is s
 
 ## CLJS reference: Helix as alternative substrate
 
-The Helix adapter ships in `day8/re-frame2-helix` and implements the same nine-fn contract as the Reagent and UIx adapters — same observable behaviour for events, subs, effects; different rendering substrate for views. Helix occupies the *minimal-React-wrapper* niche: it is structurally similar to UIx (React + hooks; no reactive-atom primitive) but ships a smaller surface and does not auto-instrument hooks.
+The Helix adapter ships in `day8/re-frame2-helix` and implements the same ten-fn contract as the Reagent and UIx adapters — same observable behaviour for events, subs, effects; different rendering substrate for views. Helix occupies the *minimal-React-wrapper* niche: it is structurally similar to UIx (React + hooks; no reactive-atom primitive) but ships a smaller surface and does not auto-instrument hooks.
 
 Per the locked decisions (2026-05-10) transfer one-for-one from — the React + hooks substrate model is the same:
 
@@ -1228,7 +1228,7 @@ Every other adapter primitive (read, replace, subscribe-container, dispose) is s
 
 ## Cross-substrate affordance summary
 
-The nine-fn substrate contract is identical across adapters, but the three **view-author-facing** surfaces — *read a subscription*, *scope a frame to a subtree*, *flush pending renders in a test* — differ per substrate because each rides its host's idiom (Reagent's reactive deref vs the React-hooks model). A dev moving between substrates needs the one-glance map; this table is it. It documents the surfaces **after** the rf2-z7hfp restructure, in which each React-shaped adapter's `frame-provider` is a **native substrate component** (UIx `defui`, Helix `defnc`) rather than a re-exported plain fn handed to `$`.
+The ten-fn substrate contract is identical across adapters, but the three **view-author-facing** surfaces — *read a subscription*, *scope a frame to a subtree*, *flush pending renders in a test* — differ per substrate because each rides its host's idiom (Reagent's reactive deref vs the React-hooks model). A dev moving between substrates needs the one-glance map; this table is it. It documents the surfaces **after** the rf2-z7hfp restructure, in which each React-shaped adapter's `frame-provider` is a **native substrate component** (UIx `defui`, Helix `defnc`) rather than a re-exported plain fn handed to `$`.
 
 | Affordance | Reagent (`day8/re-frame2-reagent`) | UIx (`day8/re-frame2-uix`) | Helix (`day8/re-frame2-helix`) |
 |---|---|---|---|
