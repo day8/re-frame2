@@ -49,6 +49,7 @@
   dispatch loop, no app-db, no wall-clock — so they are deterministic by
   construction (the determinism canon)."
   (:require [clojure.test :refer [deftest is testing]]
+            [re-frame.error :as error]
             [re-frame.machines :as machines]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.result :as result]
@@ -218,8 +219,8 @@
       (is (some? e) "a string :state throws")
       (is (= "not-a-state" (:state (ex-data e)))
           "ex-data carries the offending :state value")
-      (is (= ":rf.error/machine-bad-state-form" (ex-message e))
-          "message names the bad-state-form contract"))))
+      (is (= :rf.error/machine-bad-state-form (:rf.error/id (ex-data e)))
+          "ex-data carries the canonical bad-state-form discriminator"))))
 
 (deftest bad-state-form-propagates-through-machine-transition
   (testing "a malformed snapshot :state surfaces the bad-state-form error
@@ -229,7 +230,7 @@
                  nil
                  (catch clojure.lang.ExceptionInfo ex ex))]
       (is (some? e) "an integer :state throws out of machine-transition")
-      (is (= ":rf.error/machine-bad-state-form" (ex-message e))))))
+      (is (= :rf.error/machine-bad-state-form (:rf.error/id (ex-data e)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; :rf.error/machine-bad-guard-form / :rf.error/machine-bad-action-form —
@@ -252,7 +253,7 @@
                     nil
                     (catch clojure.lang.ExceptionInfo ex ex))]
       (is (some? e) "a string :guard form throws")
-      (is (= ":rf.error/machine-bad-guard-form" (ex-message e)))
+      (is (= :rf.error/machine-bad-guard-form (:rf.error/id (ex-data e))))
       (is (= "not-a-guard" (:guard (ex-data e)))
           "ex-data carries the offending guard form"))))
 
@@ -269,7 +270,7 @@
                     nil
                     (catch clojure.lang.ExceptionInfo ex ex))]
       (is (some? e) "a numeric :action form throws")
-      (is (= ":rf.error/machine-bad-action-form" (ex-message e)))
+      (is (= :rf.error/machine-bad-action-form (:rf.error/id (ex-data e))))
       (is (= 99 (:action (ex-data e)))
           "ex-data carries the offending action form"))))
 
@@ -294,11 +295,82 @@
                     nil
                     (catch clojure.lang.ExceptionInfo ex ex))]
       (is (some? e) "a dangling guard keyword throws at transition time")
-      (is (= ":rf.error/machine-unresolved-guard" (ex-message e)))
+      (is (= :rf.error/machine-unresolved-guard (:rf.error/id (ex-data e))))
       (is (= :nope (:guard (ex-data e)))
           "ex-data carries the unresolved guard keyword")
       (is (= :probe/dangling-guard (:machine-id (ex-data e)))
           "ex-data carries the machine-id"))))
+
+(deftest unresolved-action-keyword-throws-at-transition-time
+  (testing "a dangling :action KEYWORD ref (no entry in :actions) throws
+   :rf.error/machine-unresolved-action when the engine resolves it on the
+   pure-call surface — registration validation never ran"
+    (let [spec {:id      :probe/dangling-action
+                :initial :a
+                :data    {}
+                :actions {}                          ;; :nope is not registered
+                :states  {:a {:on {:go {:target :b :action :nope}}}
+                          :b {}}}
+          e    (try (machines/machine-transition spec {:state :a :data {}} [:go])
+                    nil
+                    (catch clojure.lang.ExceptionInfo ex ex))]
+      (is (some? e) "a dangling action keyword throws at transition time")
+      (is (= :rf.error/machine-unresolved-action (:rf.error/id (ex-data e))))
+      (is (= :nope (:action (ex-data e)))
+          "ex-data carries the unresolved action keyword")
+      (is (= :probe/dangling-action (:machine-id (ex-data e)))
+          "ex-data carries the machine-id"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-yl39ub — runtime transition throws carry the canonical Spec 009
+;; thrown-error shape: a human :reason sentence, a :where, a :recovery, and a
+;; message that LEADS with the sentence + TRAILS with the [:rf.error/<id>]
+;; token (never a bare keyword). Covers a malformed transition VALUE form (the
+;; `:other` arm of normalise-candidates) and the canonical-shape invariants.
+;; ---------------------------------------------------------------------------
+
+(deftest malformed-transition-value-throws-bad-on-clause
+  (testing "an :on clause whose value is an unrecognised form (a string) throws
+   :rf.error/machine-bad-on-clause out of the macrostep"
+    (let [spec {:id      :probe/bad-on
+                :initial :a
+                :data    {}
+                :states  {:a {:on {:go "not-a-transition-value"}}
+                          :b {}}}
+          e    (try (machines/machine-transition spec {:state :a :data {}} [:go])
+                    nil
+                    (catch clojure.lang.ExceptionInfo ex ex))]
+      (is (some? e) "a malformed :on value throws")
+      (is (= :rf.error/machine-bad-on-clause (:rf.error/id (ex-data e))))
+      (is (= "not-a-transition-value" (:value (ex-data e)))
+          "ex-data carries the offending transition value"))))
+
+(deftest transition-throws-carry-canonical-spec009-shape
+  (testing "every transition runtime throw exposes a human message (not a bare
+   keyword) carrying the [:rf.error/<id>] token, plus :reason / :where /
+   :recovery in ex-data"
+    (doseq [[label spec]
+            [["bad guard form"
+              {:id :probe/s1 :initial :a :data {}
+               :states {:a {:on {:go {:target :b :guard "x"}}} :b {}}}]
+             ["unresolved action"
+              {:id :probe/s2 :initial :a :data {} :actions {}
+               :states {:a {:on {:go {:target :b :action :nope}}} :b {}}}]
+             ["malformed :on value"
+              {:id :probe/s3 :initial :a :data {}
+               :states {:a {:on {:go 99}} :b {}}}]]]
+      (let [e   (try (machines/machine-transition spec {:state :a :data {}} [:go])
+                     nil
+                     (catch clojure.lang.ExceptionInfo ex ex))
+            msg (ex-message e)]
+        (is (some? e) (str label " throws"))
+        (is (not (error/keyword-only-message? msg))
+            (str label " message is a human sentence, never a bare keyword"))
+        (is (error/message-has-id-token? msg)
+            (str label " message carries the [:rf.error/<id>] token"))
+        (is (string? (:reason (ex-data e))) (str label " carries a :reason sentence"))
+        (is (= 'rf/reg-machine (:where (ex-data e))) (str label " carries :where"))
+        (is (keyword? (:recovery (ex-data e))) (str label " carries :recovery"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; chase-ref one-level indirection — a {:short-name :registered-id} binding
