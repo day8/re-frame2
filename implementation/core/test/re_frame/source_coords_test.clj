@@ -17,8 +17,11 @@
   capture rides a future re-frame.core-macros companion ns; the
   underlying merge mechanism in source-coords/merge-coords is shared).
 
-  Coverage matches Spec 001 §Per-kind index and the bead's deliverable:
-    reg-event-db   reg-event-fx   reg-event-ctx
+  Coverage matches Spec 001 §Per-kind index and the bead's deliverable
+  (`reg-event` is the ONE event-registration form per EP-0018; the
+  three event rows below exercise its {:db ...} return, its effect-map
+  return, and its interceptor-carrying shape):
+    reg-event ({:db}) reg-event (fx) reg-event (interceptor)
     reg-sub        reg-fx         reg-cofx
     reg-frame      reg-view       reg-machine
     reg-flow       reg-route      reg-app-schema
@@ -93,21 +96,21 @@
     (assert-coords (rf/handler-meta :event :rf2-k84s/reg-event-sample)
                    :event :rf2-k84s/reg-event-sample)))
 
-(deftest source-coords-on-reg-event-db
-  (testing "reg-event-db stamps :ns / :line / :file"
+(deftest source-coords-on-reg-event-db-return
+  (testing "reg-event with a {:db ...} return stamps :ns / :line / :file"
     (rf/reg-event :rf2-k84s/reg-event-db-sample
                      (fn [{:keys [db]} _] {:db db}))
     (assert-coords (rf/handler-meta :event :rf2-k84s/reg-event-db-sample)
                    :event :rf2-k84s/reg-event-db-sample)))
 
-(deftest source-coords-on-reg-event-fx
-  (testing "reg-event-fx stamps :ns / :line / :file"
+(deftest source-coords-on-reg-event-fx-return
+  (testing "reg-event with an effect-map return stamps :ns / :line / :file"
     (rf/reg-event :rf2-k84s/reg-event-fx-sample
                      (fn [_ _] {}))
     (assert-coords (rf/handler-meta :event :rf2-k84s/reg-event-fx-sample)
                    :event :rf2-k84s/reg-event-fx-sample)))
 
-(deftest source-coords-on-reg-event-ctx
+(deftest source-coords-on-reg-event-with-interceptor
   (testing "reg-event with a full-context interceptor stamps :ns / :line / :file"
     (rf/reg-interceptor* :rf2-k84s/ctx-probe {:before (fn [ctx] ctx)})
     (rf/reg-event :rf2-k84s/reg-event-ctx-sample
@@ -276,7 +279,7 @@
     (is (nil? (#'sc/absolutise-file nil)))
     (is (= "" (#'sc/absolutise-file "")))))
 
-(deftest reg-event-db-emits-absolute-file
+(deftest reg-event-emits-absolute-file
   (testing "rf2-wvsxg: a reg-* macro fired against a real classpath-
   resident file (this test ns) emits an ABSOLUTE :file, not a
   classpath-relative tail. This is the core regression: source-coord
@@ -315,12 +318,12 @@
 ;; so the relative reader `:file` clobbered the rf2-wvsxg-absolutised value.
 ;; The fix strips the reader's position keys from the slot-meta so
 ;; `*pending-coords*` is the single source of source-coords for the view's
-;; public meta, symmetric with `reg-event-*`.
+;; public meta, symmetric with `reg-event`.
 
 (deftest reg-view-emits-absolute-file-symmetric-with-reg-event
   (testing "rf2-quir9: reg-view fired against a real classpath-resident file
   (this test ns) ships an ABSOLUTE :file in its PUBLIC handler-meta, matching
-  the always-on error-coord registry — symmetric with reg-event-db (so Xray /
+  the always-on error-coord registry — symmetric with reg-event (so Xray /
   IDE open-in-editor resolves the path the same way for views)."
     (rf/reg-view ^{:rf/id :rf2-quir9/absolute-view-sample} quir9-view []
       [:div "hi"])
@@ -334,7 +337,7 @@
       (is (= f (:file errc))
           "public handler-meta :file == error-coord :file (single source of truth)")
       ;; And it must look absolute to the URI builder (no project-root
-      ;; prepend), exactly like the reg-event-db case above.
+      ;; prepend), exactly like the reg-event case above.
       (let [uri (eu/editor-uri :vscode pub {:project-root "/wrong/project/root"})]
         (is (.contains ^String uri f)
             "view :file should appear absolute in the URI")

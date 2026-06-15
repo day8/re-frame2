@@ -152,7 +152,7 @@
       (rf/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
       (try
         (rf/reg-frame :test/outside {})
-        ;; reg-event-db / reg-fx emit :rf.registry/handler-registered traces
+        ;; reg-event / reg-fx emit :rf.registry/handler-registered traces
         ;; via the registrar; these fire OUTSIDE any drain.
         (rf/reg-event :foo (fn [{:keys [db]} _] {:db db}))
         (let [out-of-band (filter #(or (= :rf.frame/created (:operation %))

@@ -714,7 +714,7 @@
       ;; on event-id / event-vec tags, since the trace stream might
       ;; carry framework-level emits unrelated to our dispatch
       ;; (e.g. registrar registration traces fired by the
-      ;; reg-event-db above).
+      ;; reg-event above).
       (let [our-events
             (filter
               (fn [ev]

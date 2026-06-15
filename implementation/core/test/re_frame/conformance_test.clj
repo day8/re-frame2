@@ -526,7 +526,7 @@
     ;; its value flat under the cofx-id. `:rf.cofx/requires` is fx-only — a body
     ;; that reads any cofx routes through `realise-event-handler` to an `:fx`
     ;; handler (`needs-fx-handler?` flags `:cofx-key`), so the requires
-    ;; declaration only ever lands on a `reg-event-fx`.
+    ;; declaration only ever lands on an `:fx`-shaped reg-event handler.
     (doseq [[id steps] (get handlers-map :event)]
       (let [[kind handler] (conformance/realise-event-handler steps)
             ;; Per rf2-g25p: scan the body for [:cofx-key K] references;
@@ -647,7 +647,7 @@
     ;; bodies declared under :fixture/handlers :machine-action /
     ;; :machine-guard. We realise those bodies once here and merge them
     ;; into the spec before calling re-frame.machines/reg-machine, which
-    ;; in turn calls reg-event-fx with make-machine-handler. From this
+    ;; in turn calls reg-event with make-machine-handler. From this
     ;; point dispatching [machine-id <inner-event>] runs through the full
     ;; runtime path, so :rf.error/machine-action-exception (Cross-Spec
     ;; §11/§17) and the post-commit :fx walk (Cross-Spec §12) become

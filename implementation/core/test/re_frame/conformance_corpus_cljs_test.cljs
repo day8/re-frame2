@@ -495,7 +495,7 @@
     ;; its value flat under the cofx-id. `:rf.cofx/requires` is fx-only — a
     ;; body that reads any cofx routes through `realise-event-handler` to an
     ;; `:fx` handler (`needs-fx-handler?` flags `:cofx-key`), so the requires
-    ;; declaration only ever lands on a `reg-event-fx`.
+    ;; declaration only ever lands on an `:fx`-shaped reg-event handler.
     (doseq [[id steps] (get handlers-map :event)]
       (let [[kind handler] (conformance/realise-event-handler steps)
             ks             (collect-cofx-keys steps)

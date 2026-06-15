@@ -20,7 +20,7 @@
 ;; Fixture — fresh registrar + plain-atom adapter per test.
 ;;
 ;; with-app-fixture creates / destroys frames; the snapshot/restore
-;; pattern rolls back any reg-event-db calls the test's :install hook
+;; pattern rolls back any reg-event calls the test's :install hook
 ;; makes.
 ;;
 ;; Per cljs.test: async tests in this ns (the wait-until CLJS Promise

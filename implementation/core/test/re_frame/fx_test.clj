@@ -1396,7 +1396,7 @@
 ;; consumers can align cascade rows with handler returns.
 
 (deftest event-do-fx-stamps-fx-and-db-present
-  (testing "reg-event-fx returning {:db ... :fx [...]} fires :rf.fx/do-fx
+  (testing "a reg-event handler returning {:db ... :fx [...]} fires :rf.fx/do-fx
    with :fx (the vector) and :db-present? true under :tags (same slot
    placement as :frame — payload-shaped tags ride under :tags)"
     (rf/reg-fx :fx-test/do-fx-shape (fn [_ _] :ok))
@@ -1418,7 +1418,7 @@
           (rf/unregister-listener! ::do-fx-shape))))))
 
 (deftest event-do-fx-stamps-when-only-fx-returned
-  (testing "reg-event-fx returning {:fx [...]} only (no :db slot) stamps
+  (testing "a reg-event handler returning {:fx [...]} only (no :db slot) stamps
    :db-present? false and :fx with the vector"
     (rf/reg-fx :fx-test/no-db-fx (fn [_ _] :ok))
     (rf/reg-event :fx-test/fx-only
@@ -1469,8 +1469,8 @@
 ;; placement silently dropped the stamp whenever a handler returned only
 ;; :db (no :fx), because the do-fx walk was short-circuited and the
 ;; marker never emitted. The Xray Event lens's COEFFECTS section was
-;; therefore empty for textbook reg-event-fx like `:counter/inc` that
-;; injected a cofx but returned only a :db slot. Pinning the stamp to
+;; therefore empty for a textbook fx-returning event like `:counter/inc`
+;; that injected a cofx but returned only a :db slot. Pinning the stamp to
 ;; the always-fires run-end emit makes the COEFFECTS section render
 ;; uniformly across event flavours. The substrate-side filter
 ;; (`fx/user-injected-coeffects`) keeps the framework defaults
@@ -1508,7 +1508,7 @@
           (rf/unregister-listener! ::user-cofx))))))
 
 (deftest event-run-end-stamps-user-injected-coeffects-without-fx
-  (testing "rf2-9dk9y bug A — a reg-event-fx that injects user cofx and
+  (testing "rf2-9dk9y bug A — a reg-event handler that injects user cofx and
    returns only {:db ...} (no :fx) STILL surfaces its coeffects on
    :rf.event/run-end. Was silently dropped under the prior do-fx-marker
    stamping (do-fx was short-circuited when the handler returned no :fx,

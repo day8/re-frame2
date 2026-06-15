@@ -39,7 +39,7 @@
 ;; above — one macro, one form-source path. The fx-shape body is exercised
 ;; here via the bare-name `reg-event` capture below.
 
-(deftest reg-event-fx-shape-body-captures-form-source-cljs
+(deftest reg-event-with-fx-shape-body-captures-form-source-cljs
   (testing "rf2-xgfuy: CLJS reg-event captures an fx-shape body's source under DEBUG=true"
     (rf/reg-event :rf2-xgfuy.cljs/event-fx
                      (fn [_cofx _ev] {:db {:n 0}}))
@@ -49,7 +49,7 @@
       (is (str/includes? src "reg-event"))
       (is (str/includes? src ":db {:n 0}")))))
 
-(deftest reg-event-ctx-captures-form-source-cljs
+(deftest reg-event-with-interceptor-captures-form-source-cljs
   (testing "rf2-xgfuy: CLJS reg-event with a full-context interceptor stamps :rf.handler/source under DEBUG=true"
     (rf/reg-interceptor* :rf2-xgfuy.cljs/ctx-probe {:before (fn [ctx] ctx)})
     (rf/reg-event :rf2-xgfuy.cljs/event-ctx

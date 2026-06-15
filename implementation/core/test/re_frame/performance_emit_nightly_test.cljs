@@ -147,7 +147,7 @@
             of the reserved-fx dispatch table, so reserved + user fx
             both produce entries).
 
-            Drive a `reg-event-fx` handler whose `:fx` vector carries
+            Drive a `reg-event` handler whose `:fx` vector carries
             one user-registered fx-id; the walk produces an
             `rf:fx:perf.emit-test/log` entry."
     (when performance/enabled?

@@ -169,7 +169,7 @@
 (deftest registration-emits-are-frameless
   (testing "registering a handler at top level is a frameless emit"
     (rf/clear-trace-buffer! :rf/default)
-    ;; reg-event-db is a frameless emit — no in-flight cascade.
+    ;; reg-event is a frameless emit — no in-flight cascade.
     (rf/reg-event :synthetic/probe (fn [{:keys [db]} _] {:db db}))
     (is (empty? (rf/trace-buffer :rf/default))
         "registration didn't grow any ring")))

@@ -623,7 +623,7 @@
   (testing "actor-id allocation is scoped per-parent-snapshot — independent frames don't share an actor-id sequence"
     (let [machine
           ;; Per Spec 005 §Where snapshots live: spec map does NOT carry
-          ;; :id; the id comes from the surrounding reg-event-fx id.
+          ;; :id; the id comes from the surrounding reg-event id.
           {:initial :idle
            :data    {}
            :states  {:idle    {:on    {:start :working}}
@@ -719,7 +719,7 @@
       (rf/reg-event :auth.login/flow
         (machines/make-machine-handler
           ;; Per Spec 005: spec map does NOT carry :id; the id comes
-          ;; from the reg-event-fx call above.
+          ;; from the enclosing reg-event call.
           {:initial :idle
            :data    {:attempts 0 :error nil}
            :guards

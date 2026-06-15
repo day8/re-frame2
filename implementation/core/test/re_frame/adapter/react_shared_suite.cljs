@@ -1744,7 +1744,7 @@
 ;; ===========================================================================
 
 (defn- reg-fw-runtime-handler!
-  "Framework-authority `reg-event-fx` that may emit `:rf.db/runtime`
+  "Framework-authority `reg-event` handler that may emit `:rf.db/runtime`
   without tripping the dev runtime-write diagnostic (it keys on the same
   `:rf/machine? true` marker the machine registrar mints)."
   [id f]
