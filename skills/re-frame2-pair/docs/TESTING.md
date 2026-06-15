@@ -137,7 +137,7 @@ The 5 canonical prompts wired so far:
    gate.
 4. "Iterate on the cart handler until expired coupons are rejected" →
    recipe still names `dispatch-and-collect`, `restore-epoch`, and
-   `reg-event-*`.
+   `reg-event` (the one public event registrar).
 5. "Where in the code does this button come from?" → recipe still
    names `dom/source-at` and `data-rf2-source-coord`.
 

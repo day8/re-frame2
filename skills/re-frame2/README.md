@@ -54,7 +54,7 @@ The installer is idempotent, refuses to clobber a non-link copy without `--force
 
 ## How it activates
 
-The skill's `description` triggers on natural-language references to re-frame2 surfaces — `reg-event-*`, `reg-sub`, `reg-fx`, `reg-machine`, `dispatch`, `subscribe`, `app-db`, frames, regions, tags, and the canonical pattern names. You do not need to name the skill explicitly. If you want to force it:
+The skill's `description` triggers on natural-language references to re-frame2 surfaces — `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `reg-interceptor`, `dispatch`, `subscribe`, `app-db`, frames, regions, tags, and the canonical pattern names. You do not need to name the skill explicitly. If you want to force it:
 
 ```
 /re-frame2

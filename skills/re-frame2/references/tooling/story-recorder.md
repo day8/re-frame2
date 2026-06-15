@@ -43,15 +43,15 @@ The trace-bus callback short-circuits unless a recording is in flight, so it's f
 
 ## Sensitive events — record-but-redact
 
-> **CRITICAL — what makes an event sensitive.** The recorder suppresses a row **iff the runtime stamped `:sensitive? true` on the emitted trace event** (it checks `(rf/sensitive? trace-event)`, i.e. the event's top-level `:sensitive?` field). That stamp is **path-based**, never handler-based. Marking a `reg-event-*` handler `{:sensitive? true}` does **nothing** — the runtime removed that annotation and no longer consults it, so a handler-meta-only "sensitive" login event ships its credentials verbatim into the `:script` body. Authors who rely on the old handler-meta flag will leak secrets.
+> **CRITICAL — what makes an event sensitive.** The recorder suppresses a row **iff the runtime stamped `:sensitive? true` on the emitted trace event** (it checks `(rf/sensitive? trace-event)`, i.e. the event's top-level `:sensitive?` field). That stamp is **path-based**, never handler-based. Marking a `reg-event` handler `{:sensitive? true}` does **nothing** — the runtime removed that annotation and no longer consults it, so a handler-meta-only "sensitive" login event ships its credentials verbatim into the `:script` body. Authors who rely on the old handler-meta flag will leak secrets.
 
 The current privacy contract classifies at the **owner of the data** (the three-owner model — see [`../cross-cutting/privacy-and-elision.md`](../cross-cutting/privacy-and-elision.md)). Two of the three owner surfaces stamp the trace event the recorder gates on:
 
 | Mechanism (owner) | Where you declare it | Stamps top-level trace `:sensitive?`? | Recorder behaviour |
 |---|---|---|---|
 | **Frame `:sensitive {:app-db [[:path]]}`** — durable app-db state the handler focuses (via metadata `:interceptors [[:rf.interceptor/path …]]`) | `(rf/reg-frame …)` | **Yes** — the sensitive handler scope is stamped | Row redacted → `[:rf/redacted]` |
-| **Registration `:sensitive [[:path]]`** — transient payload paths in the event arg-map | the `reg-event-*` metadata map | **Yes** — the event-emit record is stamped for the named payload paths | Row redacted → `[:rf/redacted]` |
-| Handler-meta `{:sensitive? true}` | `reg-event-*` registration map | **No** — removed; ignored | Row kept, payload verbatim — **do not rely on this** |
+| **Registration `:sensitive [[:path]]`** — transient payload paths in the event arg-map | the `reg-event` metadata map | **Yes** — the event-emit record is stamped for the named payload paths | Row redacted → `[:rf/redacted]` |
+| Handler-meta `{:sensitive? true}` | `reg-event` registration map | **No** — removed; ignored | Row kept, payload verbatim — **do not rely on this** |
 
 So to get a recorded login / 2FA / API-key flow suppressed, classify the sensitive value at its owner: a durable app-db secret on the **frame** (`{:sensitive {:app-db [[:auth :token]]}}`), or a payload-only secret (a `:password` riding the event vector) in the submit handler's **registration** `:sensitive` metadata. Either route stamps the trace event and triggers whole-row redaction.
 
