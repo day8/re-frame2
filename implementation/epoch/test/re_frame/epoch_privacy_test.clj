@@ -99,6 +99,18 @@
 (defn- big-string [n]
   (apply str (repeat n "X")))
 
+(defn- contains-leaf?
+  "Walk an arbitrary EDN value looking for `secret` as a leaf string (exact
+  equality or substring). Used by the rf2-nm611o trigger-event redaction
+  tests as the 'no raw secret bytes anywhere in the projected slot' check."
+  [x secret]
+  (cond
+    (string? x) (.contains ^String x ^String secret)
+    (map? x)    (or (some #(contains-leaf? % secret) (keys x))
+                    (some #(contains-leaf? % secret) (vals x)))
+    (coll? x)   (boolean (some #(contains-leaf? % secret) x))
+    :else       false))
+
 ;; ---- 1. sensitive rollup ---------------------------------------------------
 
 (deftest rollup-false-on-non-sensitive-cascade
@@ -561,29 +573,133 @@
       (is (= :rf/redacted (:args (effect-row twice :fxp/login)))
           "double-projection is idempotent at the :args slot"))))
 
-(deftest projected-record-trigger-event-projected
-  (testing ":trigger-event is walked through the projection so a
-            sensitive value carried in the dispatched event vector
-            (e.g. a password as a positional arg) does not leak via
-            the off-box surface"
+(deftest projected-record-trigger-event-positional-arg-redacted
+  (testing "rf2-nm611o: a sensitive value carried POSITIONALLY in the
+            dispatched event vector (e.g. a password as a bare positional
+            arg, [:login \"topsecret\"]) does NOT leak via the off-box
+            projection. The event ARGS are registration-owned transient
+            payloads (Spec 015 §151), not app-db-rooted, so the app-db
+            classification walker cannot match them — the projection FAILS
+            CLOSED: the head event-id keyword is retained as the summary,
+            every positional arg is redacted to :rf/redacted."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
-    ;; The login event payload itself is the sensitive value, but the
-    ;; frame-declared sensitive path is :auth/password, not the
-    ;; trigger-event slot. The projection still walks :trigger-event;
-    ;; whether the leaf there gets redacted depends on whether the
-    ;; walker can find a sensitive declaration matching that path.
-    ;; This test pins that the projection RAN against :trigger-event
-    ;; (the slot exists in the projected record) — what it changes
-    ;; depends on the registered declarations.
+    ;; The secret rides POSITIONALLY in the event vector — there is no
+    ;; app-db sensitive declaration that could match the trigger-event
+    ;; path (the frame-declared path is [:auth :password], rooted at
+    ;; app-db, not at the event vector). The prior projection routed this
+    ;; slot through the generic app-db-rooted walker, so the secret leaked
+    ;; raw. Fail-closed redaction is the fix.
     (rf/reg-event :login
                      (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
     (let [raw       (last-record :test/main)
           projected (epoch/projected-record raw)]
+      (is (= [:login "topsecret"] (:trigger-event raw))
+          "the raw ring keeps the exact dispatched event vector")
       (is (contains? projected :trigger-event)
-          ":trigger-event slot preserved through the projection"))))
+          ":trigger-event slot preserved through the projection")
+      (is (= [:login :rf/redacted] (:trigger-event projected))
+          "off-box projection retains the head event-id keyword and
+           redacts the positional arg")
+      (is (not= "topsecret" (second (:trigger-event projected)))
+          "the secret positional arg is absent from the projected slot")
+      (is (= :login (:event-id projected))
+          "the event-id summary slot is unaffected (head keyword preserved)"))))
+
+(deftest projected-record-trigger-event-map-arg-redacted
+  (testing "rf2-nm611o: a sensitive value nested in a MAP arg of the
+            dispatched event vector ([:auth/login {:password p}]) also
+            fails closed off-box. Map args are registration-owned
+            transient payloads too — an unmarked map arg cannot be proven
+            safe by the app-db walker, so the whole arg redacts to
+            :rf/redacted (no per-key descent that could leak the value)."
+    (rf/reg-frame :test/main {})
+    (install-sensitive-schema! :test/main)
+    (rf/reg-event :auth/login
+                     (fn [{:keys [db]} [_ {:keys [password]}]]
+                       {:db (assoc-in db [:auth :password] password)}))
+    (rf/dispatch-sync [:auth/login {:password "topsecret" :email "a@b.c"}]
+                      {:frame :test/main})
+
+    (let [raw       (last-record :test/main)
+          projected (epoch/projected-record raw)]
+      (is (= [:auth/login {:password "topsecret" :email "a@b.c"}]
+             (:trigger-event raw))
+          "the raw ring keeps the exact dispatched map arg")
+      (is (= [:auth/login :rf/redacted] (:trigger-event projected))
+          "off-box projection redacts the whole map arg, head id retained")
+      (is (not (contains-leaf? (:trigger-event projected) "topsecret"))
+          "the secret is absent anywhere in the projected trigger-event"))))
+
+(deftest projected-record-trigger-event-marked-event-arg-redacted
+  (testing "rf2-nm611o: even an event whose registration DECLARES a
+            sensitive arg path ({:sensitive [[:password]]}) fails closed
+            at the trigger-event slot off-box. The marks-projection
+            chokepoint does not run over the verbatim :rf.event/v trace
+            tag (the trigger-event source), and the projector roots its
+            walk at app-db, not the event arg-map — so the conservative,
+            consistent answer is to redact the whole arg regardless of
+            registration marks. The declaration still governs OTHER
+            surfaces (schema-validation error traces, fx args derived from
+            the event); it is the trigger-event slot specifically that
+            fails closed."
+    (rf/reg-frame :test/main {})
+    (install-sensitive-schema! :test/main)
+    (rf/reg-event :auth/login
+                     {:sensitive [[:password]]}
+                     (fn [{:keys [db]} [_ {:keys [password]}]]
+                       {:db (assoc-in db [:auth :password] password)}))
+    (rf/dispatch-sync [:auth/login {:password "topsecret"}] {:frame :test/main})
+
+    (let [projected (epoch/projected-record (last-record :test/main))]
+      (is (= [:auth/login :rf/redacted] (:trigger-event projected))
+          "a marked event arg still fails closed at the trigger-event slot")
+      (is (not (contains-leaf? (:trigger-event projected) "topsecret"))
+          "the marked secret is absent from the projected trigger-event"))))
+
+(deftest projected-record-trigger-event-trusted-local-opt-in
+  (testing "rf2-nm611o: the trusted-local :include-event-args? true opt-in
+            keeps the RAW event args off-box (a developer's own Xray panel
+            inspecting their own running app). It is ORTHOGONAL to the
+            app-db :include-sensitive? / :include-large? opt-ins — those do
+            NOT lift it; only :include-event-args? does."
+    (rf/reg-frame :test/main {})
+    (install-sensitive-schema! :test/main)
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
+    (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
+
+    (let [raw (last-record :test/main)]
+      (is (= [:login "topsecret"]
+             (:trigger-event (epoch/projected-record raw {:include-event-args? true})))
+          ":include-event-args? true keeps the raw event args off-box")
+      ;; Orthogonality: the app-db sensitive/large opt-ins do NOT lift the
+      ;; event-args redaction (event args are a different keyspace).
+      (is (= [:login :rf/redacted]
+             (:trigger-event (epoch/projected-record raw {:include-sensitive? true})))
+          ":include-sensitive? does NOT lift the trigger-event-args redaction")
+      (is (= [:login :rf/redacted]
+             (:trigger-event (epoch/projected-record raw {:include-large? true})))
+          ":include-large? does NOT lift the trigger-event-args redaction"))))
+
+(deftest projected-record-trigger-event-redaction-idempotent
+  (testing "rf2-nm611o: re-projecting an already-projected record leaves
+            the trigger-event args as the :rf/redacted sentinel (no drift,
+            no re-leak under double-projection — a forwarder pipeline may
+            project the same record twice)."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event :login
+                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
+    (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
+
+    (let [raw   (last-record :test/main)
+          once  (epoch/projected-record raw)
+          twice (epoch/projected-record once)]
+      (is (= [:login :rf/redacted] (:trigger-event once)))
+      (is (= [:login :rf/redacted] (:trigger-event twice))
+          "double-projection is idempotent at the :trigger-event slot"))))
 
 (deftest projected-record-sensitive-wins-over-large
   (testing "the wire-elision walker's composition rule (sensitive

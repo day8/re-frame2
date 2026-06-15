@@ -110,10 +110,14 @@
   "Drive a deterministic, mixed cascade matrix against `frame-id`:
     - :seed — non-sensitive bookkeeping
     - :login — writes the sensitive path (secret value closed-over in the
-              handler so it never appears in the trigger-event vector;
-              the frame-declared sensitive path is the only sensitive
-              leaf the projection's wire-elision walker can match
-              against, not arbitrary positional event args)
+              handler so this fixture exercises the APP-DB classification
+              axis specifically; the frame-declared sensitive path is the
+              leaf the projection's wire-elision walker matches against.
+              The trigger-event event-args axis is exercised separately by
+              the rf2-nm611o `forwarder-trigger-event-*` tests, which drive
+              the secret IN the event vector and assert it fails closed —
+              before rf2-nm611o the walker could not match arbitrary args,
+              so this fixture kept them out; that constraint is now lifted)
     - :upload — writes the large path (large payload closed-over in the
                 handler for the same reason)
     - :inc — non-sensitive again
@@ -653,3 +657,77 @@
             "the bulk-shape large slot is an elision marker (`:rf.size/large-elided`)")
         (is (elision/marker? per-slot)
             "the per-record-shape large slot is an elision marker")))))
+
+;; ============================================================================
+;;  rf2-nm611o — :trigger-event event-args fail-closed off-box egress.
+;;
+;;  The dispatched event vector's args are registration-owned transient
+;;  payloads (Spec 015 §151), not app-db-rooted, so the app-db classification
+;;  walker cannot prove them safe. A secret carried IN the event vector (e.g.
+;;  [:login "topsecret"]) previously egressed RAW through the generic
+;;  app-db-rooted payload-slot projection. The fix fails closed: args
+;;  redacted, head event-id retained; trusted-local :include-event-args?
+;;  opts back in. (drive-mixed-ring! keeps secrets OUT of the trigger-event
+;;  on purpose — see its :login comment — so these tests drive the secret IN.)
+;; ============================================================================
+
+(deftest forwarder-trigger-event-positional-secret-fails-closed
+  (testing "rf2-nm611o — an MCP forwarder shipping a record whose dispatched
+            event vector carried a secret POSITIONALLY ([:login secret])
+            MUST NOT egress the secret. projected-record fails closed: the
+            head event-id is retained, the positional arg is :rf/redacted."
+    (rf/reg-frame :test/mcp {})
+    (install-mcp-style-schemas! :test/mcp)
+    (rf/reg-event :login (fn [{:keys [db]} [_ pw]]
+                           {:db (assoc-in db [:auth :password] pw)}))
+    (let [shipped (atom [])]
+      (rf/register-epoch-listener! ::forwarder
+                                   (fn [r] (swap! shipped conj (epoch/projected-record r))))
+      (rf/dispatch-sync [:login secret-password] {:frame :test/mcp})
+      (is (pos? (count @shipped)) "the forwarder saw the cascade")
+      (is (not-any? contains-secret? @shipped)
+          "no projected record leaks the positional secret anywhere")
+      (let [proj (last @shipped)]
+        (is (= [:login :rf/redacted] (:trigger-event proj))
+            "trigger-event egresses with the head id retained, arg redacted")
+        (is (= :login (:event-id proj))
+            "the event-id summary slot is intact")))))
+
+(deftest forwarder-trigger-event-map-secret-fails-closed
+  (testing "rf2-nm611o — a secret nested in a MAP arg of the dispatched
+            event vector ([:auth/login {:password secret}]) also fails
+            closed off-box: the whole arg redacts to :rf/redacted."
+    (rf/reg-frame :test/mcp {})
+    (install-mcp-style-schemas! :test/mcp)
+    (rf/reg-event :auth/login (fn [{:keys [db]} [_ {:keys [password]}]]
+                                {:db (assoc-in db [:auth :password] password)}))
+    (rf/dispatch-sync [:auth/login {:password secret-password}] {:frame :test/mcp})
+    (let [proj (epoch/projected-record (last (rf/epoch-history :test/mcp)))]
+      (is (= [:auth/login :rf/redacted] (:trigger-event proj)))
+      (is (not (contains-secret? (:trigger-event proj)))
+          "the map-arg secret is absent from the projected trigger-event"))))
+
+(deftest include-event-args-reveals-trigger-event-but-keeps-app-db-axes
+  (testing "rf2-nm611o — `{:include-event-args? true}` reveals the raw
+            trigger-event args YET is ORTHOGONAL to the app-db
+            sensitive/large axes (and vice-versa). Asking for event args
+            must not lift the app-db sensitive leaf, and asking for app-db
+            sensitive values must not lift the event args."
+    (rf/reg-frame :test/mcp {})
+    (install-mcp-style-schemas! :test/mcp)
+    (rf/reg-event :login (fn [{:keys [db]} [_ pw]]
+                           {:db (assoc-in db [:auth :password] pw)}))
+    (rf/dispatch-sync [:login secret-password] {:frame :test/mcp})
+    (let [raw (last (rf/epoch-history :test/mcp))]
+      ;; include-event-args reveals the args but keeps app-db sensitive redacted.
+      (let [proj (epoch/projected-record raw {:include-event-args? true})]
+        (is (= [:login secret-password] (:trigger-event proj))
+            "`:include-event-args? true` reveals the raw trigger-event args")
+        (is (= :rf/redacted (get-in proj [:db-after :auth :password]))
+            "the app-db sensitive leaf STAYS redacted — orthogonal axis"))
+      ;; include-sensitive reveals the app-db leaf but keeps event args redacted.
+      (let [proj (epoch/projected-record raw {:include-sensitive? true})]
+        (is (= secret-password (get-in proj [:db-after :auth :password]))
+            "`:include-sensitive? true` reveals the app-db sensitive leaf")
+        (is (= [:login :rf/redacted] (:trigger-event proj))
+            "the trigger-event args STAY redacted — event-args axis is orthogonal")))))
