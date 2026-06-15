@@ -56,6 +56,21 @@ the emitted test file up out of the box, and `dev/scratch.cljs` +
 `(user/refresh)` entry) are reachable from `clojure -M:shadow` and
 shadow's nREPL without further classpath plumbing.
 
+**`dev/scratch.cljs` runs under a frame (EP-0002).** The runtime has no
+implicit `:rf/default` floor — a bare `rf/dispatch` / `rf/subscribe`
+evaluated at the REPL with no established scope raises
+`:rf.error/no-frame-context` (Spec 002 §Frame target resolution). Every
+frame-scoped REPL example the scaffold emits must therefore name a frame:
+the live-app forms pin `:rf/default` (the id `core.cljs` registers and
+renders under) with `rf/with-frame`, or carry an explicit frame inline
+(`{:frame :rf/default}` opts for `dispatch` / `dispatch-sync`, the
+2-arity `(rf/subscribe :rf/default [query])` for `subscribe`); the
+throw-away experiment creates its own frame with `rf/with-new-frame`
+(eval-bind-run-destroy) so the live frame is untouched. The emission test
+(`template_emission_test.clj` §scratch.cljs frame-context audit) rejects
+any frame-scoped scratch call that is neither inside a frame-scope form
+nor carries an explicit frame target.
+
 The UIx and Helix variants follow the same shape; only `core.cljs`,
 `views.cljs`, `deps.edn`, and the substrate-adapter coord change.
 See [001-Substrate-Variants.md](001-Substrate-Variants.md) §What
