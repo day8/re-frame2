@@ -3323,6 +3323,73 @@
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-interceptor-row-coord-0"))
           "no coord → no go-to-source glyph"))))
 
+(deftest interceptors-step-renders-authored-chain-test
+  (testing "rf2-se9a9t / EP-0022 §11 — the INTERCEPTORS step (plural) renders
+            the AUTHORED chain: each ref's id + hook shape + coord link"
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (let [tree (rf/with-frame :rf/xray
+                 (view/render-interceptors-step
+                   {:step :interceptors :badge :INTERCEPTORS :step-number 3
+                    :event-id :cart/add
+                    :rows [{:interceptor-id :auth/required
+                            :authored :auth/required
+                            :before? true :after? false
+                            :coord {:ns 'app.auth :file "/abs/auth.cljs" :line 12}
+                            :doc "Require auth before the handler."}
+                           {:interceptor-id :rf.interceptor/path
+                            :authored [:rf.interceptor/path [:cart]]
+                            :arg [:cart] :factory? true}]}))]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-interceptors"))
+          "the INTERCEPTORS step renders")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-badge-interceptors"))
+          "the INTERCEPTORS badge pill renders")
+      (is (= "INTERCEPTORS" (badge/label :INTERCEPTORS)))
+      ;; row 0 — a coord-bearing keyword ref renders as a coord-link button
+      (let [id0 (th/find-by-testid tree "rf-xray-epoch-interceptors-id-0")]
+        (is (= :button (first id0))
+            "a coord-bearing ref renders the id as a clickable coord-link"))
+      (is (string/includes?
+            (text-of tree "rf-xray-epoch-interceptors-hook-0") "before")
+          "the resolved :before hook shape renders")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-interceptors-ref-0"))
+          "a by-reference entry carries a ref badge")
+      (is (string/includes?
+            (text-of tree "rf-xray-epoch-interceptors-doc-0") "Require auth")
+          "the resolved descriptor doc renders")
+      ;; row 1 — an [id arg] factory ref shows its arg + factory hook
+      (is (string/includes?
+            (text-of tree "rf-xray-epoch-interceptors-arg-1") "[:cart]")
+          "the factory arg renders")
+      (is (string/includes?
+            (text-of tree "rf-xray-epoch-interceptors-hook-1") "factory")
+          "the :factory descriptor reports as a factory")))
+
+  (testing "rf2-se9a9t — an UNREGISTERED ref renders a MISSING badge"
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (let [tree (rf/with-frame :rf/xray
+                 (view/render-interceptors-step
+                   {:step :interceptors :badge :INTERCEPTORS :step-number 3
+                    :event-id :cart/add
+                    :rows [{:interceptor-id :nope/unregistered
+                            :authored :nope/unregistered
+                            :missing-ref? true}]}))]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-interceptors-missing-0"))
+          "the missing-ref badge renders for an unregistered ref")))
+
+  (testing "rf2-se9a9t — :interceptors is wired into render-step (the dispatcher)"
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (let [tree (rf/with-frame :rf/xray
+                 (view/pipeline-view
+                   [{:step :interceptors :badge :INTERCEPTORS :step-number 1
+                     :event-id :cart/add
+                     :rows [{:interceptor-id :auth/required
+                             :authored :auth/required :before? true}]}]))]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-step-interceptors"))
+          "render-step dispatches :interceptors to render-interceptors-step"))))
+
 (deftest handler-skipped-renders-as-skipped-not-no-db-test
   (testing "rf2-yz57h — a HANDLER marked :skipped (upstream :before-chain
             threw) renders the SKIPPED body, NOT the misleading

@@ -574,6 +574,16 @@ was removed). The mode pill mounts at ribbon-left, `Cmd-Shift-M` /
 selected mode + sub-tab persist to localStorage. Per rf2-o5f5f.1 +
 rf2-o5f5f.2 + rf2-o5f5f.3 + rf2-ybjkx + rf2-8l3uk.
 
+**Realm-awareness (rf2-dfaey7 · a15n62).** The static browse panels qualify
+their registrations by realm via the shared `static/shared/realm.cljs`
+helper (`realm-qualified-registrations` / `realm-of` / `cross-realm-ids` /
+`realm-badge`) — see [`007-UX-IA.md`](./007-UX-IA.md) §EP-0013
+realm-awareness. The named first consumer is the Static Interceptors sub-tab,
+which adds the `:rf.xray.static.interceptors/realm-pairs` sub (the
+realm-qualified `:event` pairs feeding `tab-data`). Single-realm hosts read
+the default-realm path and render byte-identically; the realm dimension
+materialises only when >1 realm is installed.
+
 ### Subscriptions
 
 | Sub | Returns | Notes |

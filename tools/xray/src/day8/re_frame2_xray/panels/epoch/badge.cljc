@@ -103,6 +103,11 @@
    ;; FLOW accent, etc.).
    :RECORDABLE-COFX   :text-secondary
    :COEFFECT          :magenta
+   ;; rf2-se9a9t / EP-0022 §11 — INTERCEPTORS (plural, the AUTHORED chain)
+   ;; shares `:accent` with INTERCEPTOR (the exception-only step) + HANDLER:
+   ;; the authored chain WRAPS the handler, so both interceptor surfaces read
+   ;; as one identity family in the cascade (the chain around the body).
+   :INTERCEPTORS      :accent
    :INTERCEPTOR       :accent
    :HANDLER           :accent
    :FLOW              :accent
@@ -117,6 +122,7 @@
   {:DISPATCH          "DISPATCH"
    :RECORDABLE-COFX   "RECORDABLE COEFFECTS"
    :COEFFECT          "COEFFECT"
+   :INTERCEPTORS      "INTERCEPTORS"
    :INTERCEPTOR       "INTERCEPTOR"
    :HANDLER           "EVENT HANDLER"
    :FLOW              "FLOW"

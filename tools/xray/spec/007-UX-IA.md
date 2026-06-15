@@ -435,6 +435,31 @@ realm dimension is spelled only when more than one realm is present.**
   is reserved per disposition 2; the emit is a later core slice), so in a
   single-realm process every row's `:realm` is nil and the surface is
   inert — exactly the zero-ceremony posture.
+- **Static-registry browse + handler-resolution — qualify by realm**
+  (disposition-1/2, rf2-dfaey7). The static browse panels read
+  registrations via `(rf/registrations :kind)` — the DEFAULT realm only —
+  so a multi-realm host could not see which realm owns a registration nor
+  flag a cross-realm id conflict (the same id registered in two realms).
+  The shared `static/shared/realm.cljs` helper composes the EP-0013 stage-8
+  map-shaped query form `(rf/registrations {:realm r :kind k})` + the
+  installed-realm enumeration `rf/realm-ids` into the browse: it returns
+  realm-qualified `[realm-id reg-map]` pairs (`realm-qualified-registrations`),
+  attributes each row to its owning `:rf.realm/id` (`realm-of` blanks the
+  default realm — absence is the default), flags ids spanning >1 realm
+  (`cross-realm-ids`), and renders a per-row realm chip (`realm-badge`,
+  warning-toned on a cross-realm conflict) ONLY in a multi-realm browse.
+  **Handler-resolution is realm-scoped**: a chain entry resolves its
+  `:interceptor` descriptor against the SAME realm the event lives in
+  (`resolve-ref-fn-for` per realm). The named first consumer is the **Static
+  Interceptors** sub-tab (`static/interceptors/panel.cljs`,
+  `collect-interceptors-by-realm` + the `:rf.xray.static.interceptors/realm-pairs`
+  sub feeding `tab-data`); the same helper extends to the schemas / flows /
+  routes / machines browse panels when multi-realm demand lands. Single-realm
+  hosts (the common case: `(rf/realm-ids)` ⇒ `#{:rf.realm/default}`) read the
+  default-realm path — `realm-badge` renders nothing, no realm column appears,
+  the browse is byte-identical to the pre-rf2-dfaey7 surface. Fail-soft: a
+  core too old for the map-shaped query form / `rf/realm-ids` degrades to the
+  default-realm read.
 - **Module-view — the disposition-6 demand-trigger tab** (rf2-wtg9z4).
   A new Dynamic L4 tab (`panels/module_view.cljs`, label **Modules**,
   order 9, registered via `reg-l4-tab!` — an L4-only tab, no `mount-*!`

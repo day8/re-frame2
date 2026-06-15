@@ -3168,6 +3168,123 @@
                        :coord          (interceptor-row-coord raw)})
                     exc)})))
 
+;; ---- INTERCEPTORS step — the authored / resolved chain (rf2-se9a9t) ------
+;;
+;; EP-0022 §11 + Spec 002 §Tooling and metadata: "Trace / Xray surfaces
+;; SHOULD distinguish: authored refs; the resolved executable chain;
+;; per-frame override substitutions; per-call override substitutions;
+;; removed refs; and missing-ref failures." The exception-only INTERCEPTOR
+;; step above (rf2-yz57h / rf2-vew2n) only ever surfaced a THROWING
+;; interceptor — a CLEAN chain left nothing on screen, so an operator could
+;; not see WHICH interceptors wrap an event until one failed. That deferral
+;; was tracked as rf2-rvxem change-4 (now closed → untracked); rf2-se9a9t
+;; completes it.
+;;
+;; The authored chain is NOT recoverable from the trace stream — the
+;; substrate emits no per-interceptor "ran" trace for a clean chain (the
+;; chain runs as one unit). It IS recoverable from the REGISTRY:
+;; `(rf/handler-meta :event event-id)` returns `:interceptors` carrying the
+;; authored refs (a bare keyword `:auth/required` or an `[id arg]` 2-vector
+;; like `[:rf.interceptor/path [:cart]]`) PLUS the framework auto-wrapper
+;; interceptor map (`:rf/event-handler`, `:rf/default? true`) at its tail
+;; (re-frame.events §register-event! stores the EFFECTIVE chain). A registry
+;; read is a runtime concern, so `project` cannot do it and stay pure / JVM-
+;; testable; instead the composite sub threads a `resolve-event-interceptors`
+;; fn (event-id → authored-ref-row vector) through `project`, and these pure
+;; builders shape its output into a step. Absent the resolver (the default
+;; arity, every existing test) NO step is emitted — byte-identical.
+
+(defn interceptor-ref-row
+  "Normalise ONE authored `:interceptors` chain entry (off
+  `handler-meta :event`) into a row for the INTERCEPTORS step, or nil for
+  the framework auto-wrapper (`:rf/default?` — the `:rf/event-handler`
+  interceptor the runtime appends; it is not an AUTHORED program member, so
+  it does not belong in the authored-chain surfacing). Mirrors the Static
+  Interceptors panel's `classify-entry` ref handling so the two surfaces
+  read an authored ref identically.
+
+  An entry is one of (EP-0022, Spec 002 §Interceptor references):
+    - a bare keyword id (`:my/logging`) — `{:interceptor-id :my/logging
+      :authored :my/logging :arg nil}`;
+    - an `[id arg]` 2-vector (`[:rf.interceptor/path [:cart]]`) — the head
+      keyword is the id, `:arg` carries the factory arg, `:authored` keeps
+      the full vector;
+    - the framework auto-wrapper map (`:rf/default? true`) — returns nil.
+
+  `resolve-meta-fn` (interceptor-id → registered `:interceptor` metadata, or
+  nil) enriches the row with the resolved descriptor's `:before?`/`:after?`/
+  `:factory?`/`:doc` + the definition-site `:coord` — the RESOLVED half of
+  the chain (EP-0022 §11 (b)). nil ⇒ a `:missing-ref?` row (a chain entry
+  whose id is not in the `:interceptor` registrar — surfaced, not dropped,
+  per Spec 002 §Error model `:rf.error/unregistered-interceptor`)."
+  [entry resolve-meta-fn]
+  (cond
+    ;; framework auto-wrapper — not an authored program member.
+    (and (map? entry) (:rf/default? entry))
+    nil
+
+    ;; a bare-keyword OR `[id arg]` authored reference.
+    (or (keyword? entry)
+        (and (vector? entry) (= 2 (count entry)) (keyword? (first entry))))
+    (let [vector-ref? (vector? entry)
+          icpt-id     (if vector-ref? (first entry) entry)
+          arg         (when vector-ref? (second entry))
+          meta        (when resolve-meta-fn (resolve-meta-fn icpt-id))
+          descriptor  (:rf/interceptor-descriptor meta)
+          coord       (let [c (or (when (map? meta) (select-keys meta [:file :line :ns]))
+                                  nil)]
+                        (when (and (map? c) (:file c) (seq (str (:file c)))) c))]
+      (cond-> {:interceptor-id icpt-id
+               :authored       entry
+               :arg            arg}
+        (some? coord)            (assoc :coord coord)
+        (some? meta)             (assoc :doc (:doc meta))
+        (nil? meta)              (assoc :missing-ref? true)
+        (map? descriptor)        (assoc :before?  (boolean (:before descriptor))
+                                        :after?   (boolean (:after descriptor))
+                                        :factory? (boolean (:factory descriptor)))))
+
+    ;; a stale inline value or structurally-malformed entry — surface it so
+    ;; the browse never silently swallows a shape it doesn't recognise.
+    (map? entry)
+    (cond-> {:interceptor-id (or (:id entry) ::inline)
+             :authored       nil
+             :inline?        true}
+      (boolean (:before entry)) (assoc :before? true)
+      (boolean (:after entry))  (assoc :after? true))
+
+    :else nil))
+
+(defn authored-interceptors-step
+  "Build the INTERCEPTORS step — the AUTHORED interceptor chain wrapping
+  `event-id`'s handler (EP-0022 §11, rf2-se9a9t) — or nil when the event
+  carries NO authored (non-`:rf/default?`) interceptors (the common case;
+  the step is then OMITTED so the numbered cascade reads HANDLER directly).
+
+  `authored-entries` is the raw `:interceptors` vector off
+  `(handler-meta :event event-id)`; `resolve-meta-fn` resolves each ref to
+  its registered `:interceptor` descriptor (see `interceptor-ref-row`).
+  Returns:
+
+    {:step  :interceptors      ; PLURAL — distinct from the exception-only
+     :badge :INTERCEPTORS      ;   :interceptor / :INTERCEPTOR step above
+     :event-id <id>
+     :rows  [<interceptor-ref-row> …]}
+
+  The step is placed BEFORE the EVENT HANDLER step (the authored chain
+  WRAPS the handler — frame refs then event refs run `:before` on the way
+  in, in chain order). It is purely informational (no `:status`), so it
+  never inflates the epoch outcome."
+  [event-id authored-entries resolve-meta-fn]
+  (let [rows (->> (or authored-entries [])
+                  (keep #(interceptor-ref-row % resolve-meta-fn))
+                  vec)]
+    (when (seq rows)
+      {:step     :interceptors
+       :badge    :INTERCEPTORS
+       :event-id event-id
+       :rows     rows})))
+
 ;; ---- SKIPPED-step marking (rf2-yz57h) -----------------------------------
 ;;
 ;; When an EARLIER pipeline step throws on the way IN — a coeffect injector
@@ -3506,6 +3623,12 @@
                          EP-0017 §9); sits right after DISPATCH SITE
       :coeffect…       — one row per declared AMBIENT coeffect (folded
                          into a single step group by the view layer)
+      :interceptors    — only when the dispatched event carries authored
+                         (non-`:rf/default?`) interceptor refs AND the
+                         caller supplied a `:resolve-event-interceptors`
+                         resolver (EP-0022 §11, rf2-se9a9t); sits right
+                         before HANDLER (the authored chain wraps the
+                         handler). OMITTED entirely otherwise.
       :handler        — always present; adapts to handler flavour
       :flow           — only when flows fired
       :side-effects   — when ANY side effect occurred (a :db commit —
@@ -3518,6 +3641,16 @@
   Returns a vector of step maps. The view layer numbers steps via
   `number-steps` so absent optional steps consume no number.
 
+  ## opts (rf2-se9a9t)
+
+  The 2-arg form takes an opts map. `:resolve-event-interceptors` is a fn
+  `event-id → {:entries <authored :interceptors vector> :resolve-meta-fn
+  <interceptor-id → meta>}` (or nil). When supplied AND it returns authored
+  (non-`:rf/default?`) refs, the INTERCEPTORS step is emitted before HANDLER.
+  The default (1-arg) form supplies no resolver — the registry-read concern
+  belongs to the composite sub (`epoch_panel`), so `project` stays pure /
+  JVM-testable and byte-identical for callers that don't pass opts.
+
   ## Coeffect folding
 
   COEFFECT renders as ONE step group containing N rows (one per
@@ -3528,9 +3661,13 @@
   ## Pure-data
 
   Reads only `:trace-events`, `:event-id`, `:dispatch-id` off the
-  record; no DOM, no substrate runtime, JVM-testable."
-  [epoch-record]
-  (let [events    (or (:trace-events epoch-record) [])
+  record; no DOM, no substrate runtime, JVM-testable. The optional opts
+  map's `:resolve-event-interceptors` (rf2-se9a9t) is the ONLY runtime-fed
+  input — a fn, not data — and is itself injectable for pure tests."
+  ([epoch-record] (project epoch-record nil))
+  ([epoch-record opts]
+  (let [resolve-icpts (:resolve-event-interceptors opts)
+        events    (or (:trace-events epoch-record) [])
         db-before (:db-before epoch-record)
         event-id  (or (:event-id epoch-record)
                       (when-let [ev (find-op events :rf.event/dispatched)]
@@ -3684,7 +3821,20 @@
                           ;; so it renders AFTER HANDLER. Both conditional —
                           ;; nil (filtered out below) when no interceptor
                           ;; threw in that phase this cascade.
-                          [(interceptor-step events :before)
+                          ;;
+                          ;; rf2-se9a9t / EP-0022 §11 — the AUTHORED chain
+                          ;; (the clean, non-throwing case) renders as the
+                          ;; INTERCEPTORS step (plural) right before HANDLER:
+                          ;; the chain WRAPS the handler, and frame-then-event
+                          ;; refs run `:before` on the way in. Conditional —
+                          ;; nil (filtered out below) when the event carries
+                          ;; no authored refs OR no resolver was supplied.
+                          [(when resolve-icpts
+                             (let [{:keys [entries resolve-meta-fn]}
+                                   (resolve-icpts event-id)]
+                               (authored-interceptors-step
+                                 event-id entries resolve-meta-fn)))
+                           (interceptor-step events :before)
                            (handler-row events event-id db-before)
                            (interceptor-step events :after)]
                           ;; APP-DB DIFF removed pair-debug 2026-05-26 —
@@ -3719,7 +3869,7 @@
             ;; as SKIPPED rather than 'ran, returned no :db'.
             skipped    (mark-skipped-handler with-errs events)
             steps      (mark-rolled-back-downstream skipped violations)]
-        steps))))
+        steps)))))
 
 (defn number-steps
   "Stamp each step with a sequential `:step-number` (1..N). The view
@@ -3729,9 +3879,11 @@
     (map-indexed (fn [i s] (assoc s :step-number (inc i))) steps)))
 
 (defn project-numbered
-  "Convenience: `(number-steps (project record))`."
-  [epoch-record]
-  (number-steps (project epoch-record)))
+  "Convenience: `(number-steps (project record opts))`. The 2-arg form
+  threads the projection opts (rf2-se9a9t — `:resolve-event-interceptors`)
+  through to `project`; the 1-arg form keeps the pure default."
+  ([epoch-record] (number-steps (project epoch-record nil)))
+  ([epoch-record opts] (number-steps (project epoch-record opts))))
 
 ;; ---- timing aggregation (rf2-nqt3d) -------------------------------------
 ;;

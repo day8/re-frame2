@@ -4273,6 +4273,133 @@
         (is (= :app/before (:failing-id (first (:errors before-step)))))
         (is (= :app/after  (:failing-id (first (:errors after-step)))))))))
 
+;; -- INTERCEPTORS step (authored / resolved chain, rf2-se9a9t) ------------
+
+(deftest interceptor-ref-row-test
+  (testing "rf2-se9a9t — the framework auto-wrapper (:rf/default?) is dropped"
+    (is (nil? (proj/interceptor-ref-row
+                {:id :rf/event-handler :rf/default? true :before identity}
+                (constantly nil)))))
+
+  (testing "rf2-se9a9t — a bare-keyword authored ref resolves its descriptor"
+    (let [resolve-fn (fn [id]
+                       (when (= id :auth/required)
+                         {:doc "auth gate" :file "auth.cljs" :line 12
+                          :rf/interceptor-descriptor {:before identity}}))
+          row        (proj/interceptor-ref-row :auth/required resolve-fn)]
+      (is (= :auth/required (:interceptor-id row)))
+      (is (= :auth/required (:authored row)) "authored keeps the keyword ref")
+      (is (nil? (:arg row)))
+      (is (true? (:before? row)))
+      (is (false? (:after? row)))
+      (is (= "auth gate" (:doc row)))
+      (is (= {:file "auth.cljs" :line 12} (:coord row)) "resolved coord present")
+      (is (not (:missing-ref? row)))))
+
+  (testing "rf2-se9a9t — an [id arg] factory ref keeps the vector + arg"
+    (let [resolve-fn (fn [id]
+                       (when (= id :rf.interceptor/path)
+                         {:rf/interceptor-descriptor {:factory identity}}))
+          row        (proj/interceptor-ref-row [:rf.interceptor/path [:cart]] resolve-fn)]
+      (is (= :rf.interceptor/path (:interceptor-id row)))
+      (is (= [:rf.interceptor/path [:cart]] (:authored row)))
+      (is (= [:cart] (:arg row)))
+      (is (true? (:factory? row)) "a :factory descriptor reports as a factory")))
+
+  (testing "rf2-se9a9t — an UNREGISTERED ref is flagged :missing-ref?, not dropped"
+    (let [row (proj/interceptor-ref-row :nope/unregistered (constantly nil))]
+      (is (= :nope/unregistered (:interceptor-id row)))
+      (is (true? (:missing-ref? row)))
+      (is (nil? (:coord row)))))
+
+  (testing "rf2-se9a9t — a stale inline value surfaces under :inline?"
+    (let [row (proj/interceptor-ref-row {:id :legacy/inline :before identity}
+                                        (constantly nil))]
+      (is (= :legacy/inline (:interceptor-id row)))
+      (is (true? (:inline? row)))
+      (is (true? (:before? row)))
+      (is (nil? (:authored row))))))
+
+(deftest authored-interceptors-step-test
+  (testing "rf2-se9a9t — nil when only the framework wrapper is present"
+    (is (nil? (proj/authored-interceptors-step
+                :evt
+                [{:id :rf/event-handler :rf/default? true}]
+                (constantly nil)))))
+
+  (testing "rf2-se9a9t — nil for an empty / absent chain"
+    (is (nil? (proj/authored-interceptors-step :evt [] (constantly nil))))
+    (is (nil? (proj/authored-interceptors-step :evt nil (constantly nil)))))
+
+  (testing "rf2-se9a9t — builds an INTERCEPTORS step over the authored refs,
+            wrapper filtered out, order preserved"
+    (let [resolve-fn (fn [id] {:rf/interceptor-descriptor {:before identity}})
+          step (proj/authored-interceptors-step
+                 :cart/add
+                 [:auth/required
+                  [:rf.interceptor/path [:cart]]
+                  {:id :rf/event-handler :rf/default? true}]
+                 resolve-fn)]
+      (is (= :interceptors (:step step)) "PLURAL — distinct from the :interceptor step")
+      (is (= :INTERCEPTORS (:badge step)))
+      (is (= :cart/add (:event-id step)))
+      (is (= 2 (count (:rows step))) "wrapper filtered out")
+      (is (= [:auth/required :rf.interceptor/path]
+             (mapv :interceptor-id (:rows step)))
+          "authored order preserved (frame-then-event chain order)")
+      ;; the step carries no :status — it is informational, never an error
+      (is (nil? (:status step))))))
+
+(deftest project-authored-interceptors-end-to-end-test
+  (testing "rf2-se9a9t — the resolver opts inject the INTERCEPTORS step
+            BEFORE the HANDLER step in a clean cascade"
+    (let [rec   (record [(dispatched-ev [:cart/add] :ui nil)
+                         (db-changed-ev [[[:cart] 0 1 :modified]])
+                         (run-end-ev 1)]
+                        :cart/add)
+          opts  {:resolve-event-interceptors
+                 (fn [event-id]
+                   (when (= event-id :cart/add)
+                     {:entries [:auth/required
+                                {:id :rf/event-handler :rf/default? true}]
+                      :resolve-meta-fn
+                      (fn [_id]
+                        {:rf/interceptor-descriptor {:before identity}})}))}
+          steps (proj/project rec opts)
+          step-kws (mapv :step steps)
+          i-idx (.indexOf step-kws :interceptors)
+          h-idx (.indexOf step-kws :handler)
+          istep (some #(when (= :interceptors (:step %)) %) steps)]
+      (is (some? istep) "INTERCEPTORS step present")
+      (is (= [:auth/required] (mapv :interceptor-id (:rows istep))))
+      (is (< i-idx h-idx) "INTERCEPTORS renders BEFORE HANDLER")
+      ;; the clean authored chain does NOT inflate the outcome
+      (is (= :ok (proj/epoch-outcome steps)))))
+
+  (testing "rf2-se9a9t — NO INTERCEPTORS step when the event carries only the
+            framework wrapper (the common case)"
+    (let [rec   (record [(dispatched-ev [:plain/evt] :ui nil)
+                         (db-changed-ev [[[:n] 0 1 :modified]])
+                         (run-end-ev 1)]
+                        :plain/evt)
+          opts  {:resolve-event-interceptors
+                 (fn [_event-id]
+                   {:entries [{:id :rf/event-handler :rf/default? true}]
+                    :resolve-meta-fn (constantly nil)})}
+          steps (proj/project rec opts)]
+      (is (not (some #(= :interceptors (:step %)) steps))
+          "no INTERCEPTORS step — only the wrapper")))
+
+  (testing "rf2-se9a9t — the default (no-opts) project is byte-identical:
+            NO INTERCEPTORS step is ever emitted without a resolver"
+    (let [rec   (record [(dispatched-ev [:cart/add] :ui nil)
+                         (db-changed-ev [[[:cart] 0 1 :modified]])
+                         (run-end-ev 1)]
+                        :cart/add)
+          steps (proj/project rec)]
+      (is (not (some #(= :interceptors (:step %)) steps))
+          "no resolver → no INTERCEPTORS step (pure / back-compat)"))))
+
 ;; -- SKIPPED-step marking -------------------------------------------------
 
 (deftest mark-skipped-handler-test
