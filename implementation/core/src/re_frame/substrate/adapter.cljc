@@ -2,7 +2,7 @@
   "The reactive substrate adapter contract. Per Spec 006.
 
   The runtime is substrate-agnostic; every host-specific reactivity concern
-  goes through these 9 functions. The CLJS reference ships four adapter
+  goes through these ten functions. The CLJS reference ships four adapter
   artefacts: Reagent (browser), UIx (browser), Helix (browser), and
   plain-atom (JVM / SSR / headless).
 
@@ -299,7 +299,7 @@
   the hook is false (chain fallback) and the atom-marker arm decides.
 
   The hook lives in the late-bind table (not the adapter spec map) so the
-  9-fn adapter contract shape is preserved."
+  ten-fn adapter contract shape is preserved."
   [container]
   (let [hook (late-bind/get-fn :adapter/derived-container?)]
     (or (boolean (and hook (hook container)))

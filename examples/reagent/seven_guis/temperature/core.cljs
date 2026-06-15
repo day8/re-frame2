@@ -61,9 +61,16 @@
   (fn handler-temp-initialise [{:keys [db]} _]
     {:db (assoc db :temp {:celsius 0.0 :input-source :celsius :typing "0"})}))
 
+(def num-re
+  "Full-string numeric grammar: optional sign, integer and/or fractional
+   part, optional exponent. Anchored end-to-end so lax prefixes like
+   \"1abc\" or \"1.2.3\" are rejected — `js/parseFloat` would otherwise
+   silently accept their leading numeric run (\"1abc\" → 1)."
+  #"^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$")
+
 (defn parse-num [s]
   (let [trimmed (str/trim s)]
-    (when-not (str/blank? trimmed)
+    (when (re-matches num-re trimmed)
       (let [n (js/parseFloat trimmed)]
         (when-not (js/isNaN n) n)))))
 
