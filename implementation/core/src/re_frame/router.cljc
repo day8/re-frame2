@@ -849,7 +849,7 @@
         ;; `:rf.error/interceptor-exception` trace so the Xray Epoch
         ;; INTERCEPTOR row renders a jump-to-source chip (parity with
         ;; EVENT HANDLER / SUBSCRIPTIONS / VIEWS). Absent for the fn-path
-        ;; / framework interceptors (`path` / `unwrap` / cofx injector) —
+        ;; / framework interceptors (`path` / cofx injector) —
         ;; nothing to jump to.
         icpt-coord (:source-coord error)
         tags       (cond-> {:event-id          event-id

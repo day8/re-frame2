@@ -4,13 +4,17 @@
   v2 trims the v1 interceptor stdlib down to a tiny retained set:
     - the framework-standard `[:rf.interceptor/path <path-vector>]` ref
       (its consumer `standard-path-interceptor`)
-    - unwrap (the `unwrap-interceptor` value)
     - ->interceptor (and the supporting context plumbing)
 
   (`inject-cofx` is removed — EP-0017 / rf2-w9xyx1 — not on the facade;
   coeffect delivery is the `:rf.cofx/requires` declaration. The public
   `rf/path` VALUE constructor is removed too — EP-0022 / rf2-dgtdna — a stale
-  `(rf/path …)` call is the hard error `:rf.error/path-removed` naming the ref.)
+  `(rf/path …)` call is the hard error `:rf.error/path-removed` naming the ref.
+  The standard `unwrap-interceptor` VALUE is removed too — EP-0022 / rf2-3qeu38
+  — the framework ships no standard unwrap; the canonical spelling is
+  handler-payload destructuring, or a PROJECT-registered `:app/unwrap`
+  interceptor. The unwrap deftests below exercise such a project-local
+  interceptor — they no longer depend on a framework-owned value.)
 
   These are exercised obliquely by smoke / conformance tests, but nothing
   pins their contract directly. This namespace does — one deftest per
@@ -26,6 +30,7 @@
             [re-frame.flows :as flows]
             [re-frame.interceptor :as interceptor]
             [re-frame.std-interceptors :as std-interceptors]
+            [re-frame.trace :as trace]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
@@ -243,15 +248,58 @@
           "the path interceptor's no-op :after produced no :db effect when its
            :before never ran"))))
 
-;; ---- unwrap ---------------------------------------------------------------
+;; ---- unwrap (PROJECT-LOCAL, EP-0022 / rf2-3qeu38) -------------------------
+;;
+;; EP-0022 removed the framework `unwrap-interceptor` VALUE: the framework
+;; ships no standard unwrap; the canonical spelling is handler-payload
+;; destructuring, or — for genuine chain-wide reshaping — a PROJECT-registered
+;; `:app/unwrap` interceptor with the project's own `:before` / `:after`.
+;; These deftests register exactly such a project-local interceptor and
+;; reference it by id, so they pin the chain mechanics (event-coeffect rewrite
+;; + restore, bad-shape diagnostic) WITHOUT depending on a framework-owned
+;; value. The diagnostic category is project-owned
+;; (`:test.app/unwrap-bad-event-shape`) — the framework
+;; `:rf.error/unwrap-bad-event-shape` category was removed with the value
+;; (Spec 009 §Error event catalogue).
 
-(deftest unwrap-interceptor
-  (testing "[unwrap] replaces the :event coeffect with the payload map from
-            the canonical [event-id payload-map] envelope shape."
+(def ^:private project-unwrap-interceptor
+  "A PROJECT-LOCAL unwrap interceptor (NOT a framework value). Asserts the
+  event is the canonical `[<id> <payload-map>]` shape (M-19), replaces the
+  `:event` coeffect with the payload map, and stashes the original so `:after`
+  can restore it for downstream consumers. On a bad shape it emits the
+  project-owned `:test.app/unwrap-bad-event-shape` diagnostic and returns ctx
+  unchanged. This is the shape an application registers as `:app/unwrap`."
+  (interceptor/->interceptor*
+    :id    :app/unwrap
+    :before
+    (fn [ctx]
+      (let [event (interceptor/get-coeffect ctx :event)]
+        (if-not (and (vector? event)
+                     (= 2 (count event))
+                     (map? (second event)))
+          (do (trace/emit-error! :test.app/unwrap-bad-event-shape
+                                 {:event event
+                                  :expected "[event-id payload-map]"
+                                  :recovery :no-recovery})
+              ctx)
+          (-> ctx
+              (assoc :rf/unwrap-stash event)
+              (interceptor/assoc-coeffect :event (second event))))))
+    :after
+    (fn [ctx]
+      (if-let [original (:rf/unwrap-stash ctx)]
+        (-> ctx
+            (dissoc :rf/unwrap-stash)
+            (interceptor/assoc-coeffect :event original))
+        ctx))))
+
+(deftest project-unwrap-rewrites-event-coeffect
+  (testing "a project-registered :app/unwrap replaces the :event coeffect with
+            the payload map from the canonical [event-id payload-map] shape."
     (let [seen-event (atom ::not-set)]
-      (rf/reg-interceptor* :unwrap rf/unwrap-interceptor)
+      (rf/reg-interceptor* :app/unwrap project-unwrap-interceptor)
       (rf/reg-event :unwrap-test/consume
-                       {:interceptors [:unwrap]}
+                       {:interceptors [:app/unwrap]}
                        ;; With unwrap, the second arg is the payload map
                        ;; itself — not the [id payload] vector.
                        (fn [_cofx event-arg]
@@ -263,25 +311,22 @@
       (is (map? @seen-event)
           "the unwrapped event arg is a map, not a vector"))))
 
-;; Per rf2-rav3 / Spec 009 §Error contract — the negative path:
-;; when the event does NOT match the canonical [event-id payload-map]
-;; shape, `unwrap` emits `:rf.error/unwrap-bad-event-shape` and returns
-;; ctx unchanged (no recovery — the handler still runs, but it sees the
-;; original event vector). The trace's diagnostic tags carry
-;; `:expected` / `:recovery` so tooling can surface the misuse.
-;;
-;; Source: implementation/core/src/re_frame/std_interceptors.cljc lines 75-79.
+;; The negative path: when the event does NOT match the canonical
+;; [event-id payload-map] shape, the project interceptor emits its
+;; bad-shape diagnostic and returns ctx unchanged (no recovery — the handler
+;; still runs, but it sees the original event vector). The trace's diagnostic
+;; tags carry `:expected` / `:recovery` so tooling can surface the misuse.
 
-(deftest unwrap-bad-event-shape-traces-and-keeps-event-unchanged
-  (testing "[unwrap] with a non-[id payload-map] event emits
-            :rf.error/unwrap-bad-event-shape and leaves the :event
+(deftest project-unwrap-bad-event-shape-traces-and-keeps-event-unchanged
+  (testing "a project :app/unwrap with a non-[id payload-map] event emits
+            :test.app/unwrap-bad-event-shape and leaves the :event
             coeffect unchanged"
     (let [traces     (atom [])
           seen-event (atom ::not-set)]
       (rf/register-listener! ::unwrap-bad (fn [ev] (swap! traces conj ev)))
-      (rf/reg-interceptor* :unwrap rf/unwrap-interceptor)
+      (rf/reg-interceptor* :app/unwrap project-unwrap-interceptor)
       (rf/reg-event :unwrap-bad-test/consume
-                       {:interceptors [:unwrap]}
+                       {:interceptors [:app/unwrap]}
                        (fn [_cofx event-arg]
                          (reset! seen-event event-arg)
                          {}))
@@ -289,17 +334,17 @@
       (rf/dispatch-sync [:unwrap-bad-test/consume :not-a-map])
       (rf/unregister-listener! ::unwrap-bad)
 
-      ;; The handler still ran — unwrap's bad path is a trace-and-continue,
+      ;; The handler still ran — the bad path is a trace-and-continue,
       ;; not a throw — but it saw the ORIGINAL event vector (ctx unchanged),
       ;; not the payload.
       (is (= [:unwrap-bad-test/consume :not-a-map] @seen-event)
-          "handler runs with the original event vector when unwrap's shape check fails")
+          "handler runs with the original event vector when the shape check fails")
 
       ;; The structured trace fired.
-      (let [bad-shape (filterv #(= :rf.error/unwrap-bad-event-shape (:operation %))
+      (let [bad-shape (filterv #(= :test.app/unwrap-bad-event-shape (:operation %))
                                @traces)]
         (is (= 1 (count bad-shape))
-            "exactly one :rf.error/unwrap-bad-event-shape trace was emitted")
+            "exactly one :test.app/unwrap-bad-event-shape trace was emitted")
         (let [ev (first bad-shape)]
           (is (= :error (:op-type ev)))
           (is (= [:unwrap-bad-test/consume :not-a-map]
@@ -309,38 +354,38 @@
                  (get-in ev [:tags :expected]))
               ":expected describes the canonical envelope shape")
           (is (= :no-recovery (:recovery ev))
-              ":recovery is :no-recovery — unwrap's bad path is documented as not-recoverable")))))
+              ":recovery is :no-recovery — the bad path is documented as not-recoverable")))))
 
-  (testing "[unwrap] with a 3-element vector (correct id, wrong arity) traces"
+  (testing "a project :app/unwrap with a 3-element vector (correct id, wrong arity) traces"
     (let [traces     (atom [])
           seen-event (atom ::not-set)]
       (rf/register-listener! ::unwrap-arity (fn [ev] (swap! traces conj ev)))
-      (rf/reg-interceptor* :unwrap rf/unwrap-interceptor)
+      (rf/reg-interceptor* :app/unwrap project-unwrap-interceptor)
       (rf/reg-event :unwrap-bad-test/arity
-                       {:interceptors [:unwrap]}
+                       {:interceptors [:app/unwrap]}
                        (fn [_cofx event-arg]
                          (reset! seen-event event-arg)
                          {}))
       ;; Wrong arity — three elements instead of two.
       (rf/dispatch-sync [:unwrap-bad-test/arity {:ok :map} :extra])
       (rf/unregister-listener! ::unwrap-arity)
-      (is (some #(= :rf.error/unwrap-bad-event-shape (:operation %)) @traces)
-          ":rf.error/unwrap-bad-event-shape fires for arity mismatch too")
+      (is (some #(= :test.app/unwrap-bad-event-shape (:operation %)) @traces)
+          ":test.app/unwrap-bad-event-shape fires for arity mismatch too")
       (is (= [:unwrap-bad-test/arity {:ok :map} :extra] @seen-event)
           "handler sees the original (still-wrongly-shaped) event")))
 
-  (testing "[unwrap] on the happy [id payload-map] path does NOT emit the bad-shape trace"
+  (testing "a project :app/unwrap on the happy [id payload-map] path does NOT emit the bad-shape trace"
     ;; Sanity: confirm the trace is silent on a well-shaped event so the
     ;; coverage above is genuinely catching the negative branch.
     (let [traces (atom [])]
       (rf/register-listener! ::unwrap-ok (fn [ev] (swap! traces conj ev)))
-      (rf/reg-interceptor* :unwrap rf/unwrap-interceptor)
+      (rf/reg-interceptor* :app/unwrap project-unwrap-interceptor)
       (rf/reg-event :unwrap-bad-test/ok
-                       {:interceptors [:unwrap]}
+                       {:interceptors [:app/unwrap]}
                        (fn [_ _] {}))
       (rf/dispatch-sync [:unwrap-bad-test/ok {:k 1}])
       (rf/unregister-listener! ::unwrap-ok)
-      (is (empty? (filter #(= :rf.error/unwrap-bad-event-shape (:operation %))
+      (is (empty? (filter #(= :test.app/unwrap-bad-event-shape (:operation %))
                           @traces))
           "no bad-shape trace on the canonical [id payload-map] event"))))
 

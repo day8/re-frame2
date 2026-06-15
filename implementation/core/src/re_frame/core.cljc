@@ -2075,15 +2075,33 @@
   spec/API.md §Standard interceptors."}
   path            std-interceptors/path-removed!)
 
-(def ^{:doc "Interceptor VALUE (not a fn) that asserts the dispatched event
-  has shape `[<id> <payload-map>]` and replaces the `:event` coeffect with
-  the payload map itself. Since EP-0022 (chains are reference-only) it is
-  the registration-boundary input — register it and reference it by id,
-  e.g. `(reg-interceptor :app/unwrap unwrap-interceptor)` then
-  `{:interceptors [:app/unwrap]}` — never an inline chain entry. Per
-  Conventions §Canonical event-vector shape (M-19) and §Value-vs-fn
-  naming."}
-  unwrap-interceptor std-interceptors/unwrap-interceptor)
+;; EP-0022 (accepted) removed the public `unwrap-interceptor` VALUE
+;; (docs/EP/EP-0022-registered-interceptors.md:53-55 "no standard unwrap";
+;; :555-578 §"No standard unwrap"; :881/:932 list the removal). spec/API.md +
+;; spec/002-Frames.md already follow it — the framework ships NO standard
+;; unwrap value; the canonical spelling is handler-payload destructuring (the
+;; M-19 `[<id> <payload-map>]` shape destructured in the handler arglist), or
+;; a PROJECT-registered `:app/unwrap` interceptor when chain-wide reshaping is
+;; genuinely intended. The implementation had DRIFTED (kept exporting
+;; `unwrap-interceptor` aliased to a legacy std-interceptors value). rf2-3qeu38
+;; reconciles (the `rf/path` twin under rf2-dgtdna): the legacy value is gone
+;; and this facade name survives ONLY as a `^:no-doc` throwing stub (the
+;; project's actionable-removed-API pattern, like the EP-0018 `reg-event-db` /
+;; EP-0017 `inject-cofx` stubs) — a stale `(rf/unwrap-interceptor …)` resolves
+;; to a real var and fails LOUDLY with `:rf.error/unwrap-removed`, naming the
+;; replacement. `^:no-doc` drops it from the API manifest generator + the CLJS
+;; publics probe: it carries no manifest row and is not part of the documented
+;; public surface. See spec/API.md §Standard interceptors and
+;; docs/api/15-removed.md.
+(def ^{:no-doc true
+       :doc "REMOVED in EP-0022 (no alias). Referencing `unwrap-interceptor`
+  raises the hard error `:rf.error/unwrap-removed`, naming the replacement:
+  handler-payload destructuring (the M-19 `[<id> <payload-map>]` shape
+  destructured in the handler arglist), or a project-registered `:app/unwrap`
+  interceptor for genuine chain-wide reshaping. See
+  `re-frame.std-interceptors/unwrap-removed!` and spec/API.md §Standard
+  interceptors."}
+  unwrap-interceptor std-interceptors/unwrap-removed!)
 
 ;; EP-0015 §7 (accepted 2026-06-11): `redact-interceptor` is REMOVED from
 ;; the public API. A positional "redact for the trace but not the handler"
