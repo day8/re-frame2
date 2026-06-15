@@ -158,9 +158,12 @@
     :schemas/runtime
     :schemas/event-payload
     :schemas/sub-return
-    ;; :schemas/cofx — UNCLAIMED in EP-0017 slice A.3 (rf2-oa2dun): cofx
-    ;; `:schema` validation is slice-B-deferred (the old inject-cofx-time
-    ;; validation is retired with `inject-cofx`). Skipped, not claimed.
+    ;; :schemas/cofx — CLAIMED (rf2-hqwki4): the landed EP-0017 recordable-cofx
+    ;; `:schema` path. A declared recordable value that fails its
+    ;; registration's `:schema` emits `:rf.error/cofx-value-invalid` and throws
+    ;; during context assembly; the `schema-cofx-validates.edn` fixture
+    ;; exercises it (the old inject-cofx-time validation is retired).
+    :schemas/cofx
     :routing/ranking
     :routing/fragment
     :routing/blocking
@@ -250,11 +253,7 @@
   ;; failing the suite.
   #{:ssr/suspense-boundary
     :ssr/hydration-payload
-    :ssr/chunked-response
-    ;; EP-0017 slice A.3 (rf2-oa2dun): cofx `:schema` validation is
-    ;; slice-B-deferred; `schema-cofx-validates.edn` is an intentional
-    ;; out-of-claim skip until slice B.
-    :schemas/cofx})
+    :ssr/chunked-response})
 
 ;; ---- fixture loading (compile-time inlined) -------------------------------
 

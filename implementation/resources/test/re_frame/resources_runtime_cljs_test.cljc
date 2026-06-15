@@ -1023,6 +1023,63 @@
                     :params {:slug "w"} :frame :rf/default}))))))
 
 ;; ===========================================================================
+;; 17b. `resources` introspection rekeys to the public scoped-key vector
+;;      (rf2-jtlq7l) — the internal byte `key-id` must not leak
+;; ===========================================================================
+
+(deftest resources-introspection-rekeys-to-scoped-key-vector
+  (testing "rf2-jtlq7l — `(resources {:frame f})` returns `:entries` keyed by
+            each entry's `:resource/key` VECTOR `[scope resource-id params]`,
+            not the internal CEDN byte `key-id` storage key"
+    (rf/reg-resource :intro/article (article-spec))
+    (let [k1 (state/scoped-resource-key :rf.scope/global :intro/article {:slug "one"})
+          k2 (state/scoped-resource-key :rf.scope/global :intro/article {:slug "two"})]
+      ;; Install two entries with DISTINCT scoped keys (distinct byte key-ids).
+      (rf/dispatch-sync [:rf.resource/ensure {:resource :intro/article :scope :rf.scope/global
+                                              :params {:slug "one"} :owner [:lease :intro 1]}])
+      (rf/dispatch-sync [:rf.resource/ensure {:resource :intro/article :scope :rf.scope/global
+                                              :params {:slug "two"} :owner [:lease :intro 2]}])
+      (let [{:keys [resource-ids entries]} (re-frame.resources/resources {:frame :rf/default})]
+        (testing "the static registry still lists the registered id"
+          (is (contains? (set resource-ids) :intro/article)))
+        (testing "entry keys are scoped-key VECTORS, not byte key-id strings"
+          (is (= #{k1 k2} (set (keys entries)))
+              "the public accessor keys by :resource/key vector")
+          (is (every? vector? (keys entries))
+              "every entry key is a [scope resource-id params] vector")
+          (is (not-any? string? (keys entries))
+              "no internal byte key-id (a string) leaks through the accessor")
+          (is (not (contains? entries (state/key-id k1)))
+              "the byte key-id is NOT a public entry key"))
+        (testing "callers can destructure the public key shape + filter by it"
+          (let [[scope rid params] k1]
+            (is (= :rf.scope/global scope))
+            (is (= :intro/article rid))
+            (is (= {:slug "one"} params)))
+          ;; Filtering by [scope resource-id] over the vector keys is the
+          ;; documented use the byte key-id blocked.
+          (is (= #{k1 k2}
+                 (set (for [[[scope rid params] _e] entries
+                            :when (and (= :rf.scope/global scope)
+                                       (= :intro/article rid))]
+                        [scope rid params])))
+              "every entry filters cleanly by scope + resource-id"))
+        (testing "the entry value is carried through unchanged (still byte-keyed
+                  in internal storage)"
+          (is (= :intro/article (-> entries (get k1) :resource/key second)))
+          (let [raw (get-in (rf/runtime-db-value :rf/default) (state/entries-path))]
+            (is (every? string? (keys raw))
+                "internal runtime storage remains byte-keyed (string key-ids)")))))))
+
+(deftest resources-introspection-without-frame-returns-empty-entries
+  (testing "rf2-jtlq7l — `(resources)` (no frame) still returns
+            `{:resource-ids [...] :entries {}}` (no ambient fallback)"
+    (rf/reg-resource :introf/article (article-spec))
+    (let [{:keys [resource-ids entries]} (re-frame.resources/resources)]
+      (is (contains? (set resource-ids) :introf/article))
+      (is (= {} entries) "frameless call yields an empty entries map"))))
+
+;; ===========================================================================
 ;; 18. param canonicalization is total over mixed EDN key types (rf2-ptz7z8)
 ;; ===========================================================================
 

@@ -153,14 +153,16 @@
     :schemas/runtime
     :schemas/event-payload                            ;; rf2-jwm4
     :schemas/sub-return                               ;; rf2-wcam
-    ;; :schemas/cofx — UNCLAIMED in EP-0017 slice A.3 (rf2-oa2dun). The
-    ;; cofx `:schema` validation step is SLICE-B-built (per Spec 009
-    ;; §`:rf.error/cofx-value-invalid` — "the `:schema` validation step is
-    ;; slice-B-built; the structural EDN check is slice A"). The old
-    ;; `inject-cofx`-time validation path is retired with `inject-cofx`. The
-    ;; `schema-cofx-validates.edn` fixture is reported as an intentional
-    ;; out-of-claim skip until slice B wires recordable-value `:schema`
-    ;; validation. See `known-skipped-capabilities`.
+    ;; :schemas/cofx — CLAIMED (rf2-hqwki4). The EP-0017 recordable-cofx
+    ;; `:schema` path has landed (`re-frame.cofx/validate-recordable-value!`,
+    ;; reached from `deliver-declared-cofx` for supplied/replayed + generated
+    ;; values): a declared recordable value that fails its registration's
+    ;; `:schema` emits `:rf.error/cofx-value-invalid` and throws during context
+    ;; assembly. The `schema-cofx-validates.edn` fixture exercises that path
+    ;; (the old `inject-cofx`-time validation it pinned —
+    ;; `:rf.error/schema-validation-failure :where :cofx` — is retired with
+    ;; `inject-cofx`).
+    :schemas/cofx
     :routing/ranking
     :routing/fragment
     :routing/blocking
@@ -270,14 +272,7 @@
   ;; failure.
   #{:ssr/suspense-boundary
     :ssr/hydration-payload
-    :ssr/chunked-response
-    ;; EP-0017 slice A.3 (rf2-oa2dun): cofx `:schema` validation is
-    ;; slice-B-deferred (the structural EDN check is slice A; the `:schema`
-    ;; step is slice B per Spec 009 §`:rf.error/cofx-value-invalid`). The
-    ;; `schema-cofx-validates.edn` fixture is an intentional out-of-claim skip
-    ;; until slice B; the old `inject-cofx`-time validation it pinned is
-    ;; retired with `inject-cofx`.
-    :schemas/cofx})
+    :ssr/chunked-response})
 
 ;; ---- fixture loader -------------------------------------------------------
 
@@ -502,10 +497,10 @@
     ;; cofx registrations — value-returning suppliers + metadata (EP-0017
     ;; model). The supplier returns the coeffect VALUE; the runtime delivers
     ;; it flat under the cofx-id when a handler declares it via
-    ;; `:rf.cofx/requires`. The `:schema` metadata still rides along (its
-    ;; validation step is slice-B-built; the only fixture exercising it,
-    ;; `schema-cofx-validates.edn`, is an intentional out-of-claim skip via
-    ;; `known-skipped-capabilities`).
+    ;; `:rf.cofx/requires`. The `:schema` metadata rides along and the landed
+    ;; EP-0017 recordable-cofx `:schema` path validates it (rf2-hqwki4); the
+    ;; `schema-cofx-validates.edn` fixture exercises that path (now CLAIMED via
+    ;; `:schemas/cofx`).
     (let [all-cofx-ids (into #{} (concat (keys cofx-bodies) (keys cofx-registry)))]
       (doseq [cofx-id all-cofx-ids]
         (let [body (get cofx-bodies cofx-id [[:noop]])

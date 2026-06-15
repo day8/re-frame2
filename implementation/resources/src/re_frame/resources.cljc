@@ -156,13 +156,31 @@
   static registry (every registered resource id) plus, when `:frame` is
   supplied, the live per-frame resource-instance entries map
   (`{<scoped-resource-key> <entry>}`). Without `:frame` only the static
-  registry is returned (no ambient frame fallback, EP-0002)."
+  registry is returned (no ambient frame fallback, EP-0002).
+
+  The `:entries` map is REKEYED to the public scoped-resource-key VECTOR
+  `[canonical-scope resource-id canonical-params]` (rf2-jtlq7l). The
+  internal runtime storage is keyed on the opaque CEDN-1 byte `key-id`
+  (`state/entries-path`, `state/key-id`); leaking that byte key through
+  the public accessor breaks the documented contract — callers can't
+  destructure `[scope resource-id params]`, filter by scope/resource, or
+  compare against scoped keys. The kind-preserving scoped-key lives on
+  each entry under `:resource/key` (the same fact identity the live
+  tooling view reads — `tooling/live-resource-nodes`), so rekey from
+  there, not from the map key. Internal storage stays byte-keyed."
   ([] {:resource-ids (resource-ids) :entries {}})
   ([{:keys [frame]}]
    {:resource-ids (resource-ids)
     :entries      (if frame
-                    (or (get-in (frame/frame-runtime-db-value frame)
-                                (state/entries-path)) {})
+                    (let [entries (get-in (frame/frame-runtime-db-value frame)
+                                          (state/entries-path))]
+                      (reduce-kv
+                        ;; rf2-jtlq7l — rekey the internal byte `key-id` map to
+                        ;; the public scoped-key vector carried on each entry.
+                        (fn [acc _k-id entry]
+                          (assoc acc (:resource/key entry) entry))
+                        {}
+                        (or entries {})))
                     {})}))
 
 (defn resource-state

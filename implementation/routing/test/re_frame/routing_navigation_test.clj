@@ -799,7 +799,17 @@
           (is (= "scroll-restoration" (-> second-ev :tags :prev-fragment))
               "second transition: prev-fragment is the previous value")
           (is (= "fragments" (-> second-ev :tags :next-fragment))
-              "second transition: next-fragment is the new value"))))))
+              "second transition: next-fragment is the new value")
+          ;; rf2-n0851k: the fragment-only trace must carry the frame
+          ;; stamp under :tags :frame (Spec 012 §Multi-frame routing /
+          ;; Spec 009). Without it the trace is dropped from epoch/Xray
+          ;; capture (which buffers only frame-tagged events) and bypasses
+          ;; the frame-level trace-disable gate. The forward-nav
+          ;; (:rf.route/transitioned) path runs on the :rf/default frame.
+          (is (= :rf/default (-> first-ev :tags :frame))
+              "rf2-n0851k: forward-nav fragment-only trace is frame-attributed")
+          (is (= :rf/default (-> second-ev :tags :frame))
+              "rf2-n0851k: second fragment-only trace is frame-attributed too"))))))
 
 ;; ---- rf2-8oxj6: popstate honours the fragment-only rule ----------------
 ;;
@@ -854,7 +864,16 @@
         (is (some #(= :rf.route/fragment-changed (:operation %)) @traces)
             "fragment-only popstate emits :rf.route/fragment-changed")
         (is (not-any? #(= :rf.route.nav-token/allocated (:operation %)) @traces)
-            "fragment-only popstate emits NO :rf.route.nav-token/allocated")))))
+            "fragment-only popstate emits NO :rf.route.nav-token/allocated")
+        ;; rf2-n0851k: the popstate (handle-url-change) fragment-only trace
+        ;; carries the frame stamp too — same contract as the forward-nav
+        ;; path, so epoch/Xray capture and the frame trace-disable gate
+        ;; cover popstate fragment-only changes.
+        (is (= :rf/default
+               (some->> @traces
+                        (filter #(= :rf.route/fragment-changed (:operation %)))
+                        first :tags :frame))
+            "rf2-n0851k: popstate fragment-only trace is frame-attributed")))))
 
 ;; ============================================================================
 ;; rf2-ee38b.8 — Spec 012 §Per-route data loading rule 3:

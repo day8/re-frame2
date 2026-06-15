@@ -63,9 +63,12 @@
 
   The claim covers `:schemas/runtime` (app-db slice validation,
   baseline since rf2-p7va), `:schemas/event-payload` (rf2-jwm4),
-  `:schemas/cofx` (rf2-7leq), `:schemas/sub-return` (rf2-wcam), plus
-  the bare `:core/*` capabilities every schema fixture cross-cuts
-  (event / sub / error / trace).
+  `:schemas/cofx` (rf2-hqwki4 — the landed EP-0017 recordable-cofx
+  `:schema` path; a declared recordable value that fails its
+  registration's `:schema` emits `:rf.error/cofx-value-invalid` and skips
+  the handler), `:schemas/sub-return` (rf2-wcam), plus the bare `:core/*`
+  capabilities every schema fixture cross-cuts (event / sub / error /
+  trace).
 
   ## Coverage scope
 
@@ -81,7 +84,6 @@
             [clojure.string :as str]
             [re-frame.conformance :as conformance]
             [re-frame.core :as rf]
-            [re-frame.cofx :as cofx]
             [re-frame.frame :as frame]
             [re-frame.schemas :as schemas]
             ;; Per rf2-v96fh (schema implies validation) requiring
@@ -151,11 +153,15 @@
   "The schemas-surface capabilities plus the `:core/*` cross-cuts that
   every schema fixture declares. The four `:schemas/*` tags map 1:1 to
   the four validation points in Spec 010 §Validation order."
-  ;; :schemas/cofx — UNCLAIMED in EP-0017 slice A.3 (rf2-oa2dun): cofx
-  ;; `:schema` validation is slice-B-built (the old inject-cofx-time
-  ;; validation path is retired with `inject-cofx`). The
-  ;; `schema-cofx-validates.edn` fixture is non-runnable (out of claim) until
-  ;; slice B wires recordable-value `:schema` validation.
+  ;; :schemas/cofx — CLAIMED (rf2-hqwki4): the EP-0017 recordable-cofx
+  ;; `:schema` path has landed (`re-frame.cofx/validate-recordable-value!`,
+  ;; reached from `deliver-declared-cofx` for both supplied/replayed and
+  ;; generated values). A declared recordable value that fails its
+  ;; registration's `:schema` emits `:rf.error/cofx-value-invalid` and skips
+  ;; the handler. The `schema-cofx-validates.edn` fixture now exercises THAT
+  ;; landed path (the old inject-cofx injection-time validation it pinned —
+  ;; `:rf.error/schema-validation-failure :where :cofx` — was retired with
+  ;; `inject-cofx`).
   #{:core/event-handler
     :core/sub
     :core/fx
@@ -163,6 +169,7 @@
     :core/trace
     :schemas/runtime
     :schemas/event-payload
+    :schemas/cofx
     :schemas/sub-return})
 
 (def claimed-spec-versions
@@ -224,30 +231,26 @@
      steps)
     @out))
 
-(defn- realise-cofx-handler
-  "DSL → a cofx handler fn (ctx) → ctx. Mirrors core's runner: a
-  `:set` step's value is the value injected at `[:coeffects cofx-id]`.
-  The path slot is symbolic — convention is `[k]` where `k` is the
-  bare key the handler reads via `[:cofx-key k]`.
+(defn- realise-cofx-supplier
+  "DSL → a value-returning cofx supplier `(fn [] value)` (EP-0017 model,
+  rf2-hqwki4). Mirrors core's runner: a `:set` step's value IS the value the
+  supplier returns; the runtime delivers it FLAT under the cofx-id when a
+  handler declares it via `:rf.cofx/requires`. The ctx→ctx `inject-cofx` form
+  that placed the value at `[:coeffects cofx-id]` is RETIRED with
+  `inject-cofx`.
 
-  Per rf2-g25p, the body is realised against the inject-cofx ctx —
-  values pass through `eval-value` so reflection forms resolve against
-  the inbound coeffects/event the same way they do in event-handler
-  bodies."
-  [cofx-id steps]
-  (fn [ctx]
-    (let [eval-value (requiring-resolve 're-frame.conformance/eval-value*)
-          dsl-ctx    {:db    (get-in ctx [:coeffects :db])
-                      :event (get-in ctx [:coeffects :event])
-                      :cofx  (:coeffects ctx)}]
-      (reduce (fn [c step]
+  Per rf2-g25p the `:set` value passes through `eval-value*`; multiple `:set`
+  steps run in order and the final step wins (single-delivery convention)."
+  [steps]
+  (fn []
+    (let [eval-value (requiring-resolve 're-frame.conformance/eval-value*)]
+      (reduce (fn [v step]
                 (case (first step)
-                  :set  (let [[_ _path value] step
-                              v (eval-value value dsl-ctx)]
-                          (assoc-in c [:coeffects cofx-id] v))
-                  :noop c
-                  c))
-              ctx
+                  :set  (let [[_ _path value] step]
+                          (eval-value value {}))
+                  :noop v
+                  v))
+              nil
               steps))))
 
 (defn- realise-handlers
@@ -261,10 +264,9 @@
         cofx-registry (get-in fixture [:fixture/registry :cofx] {})
         cofx-bodies   (get hmap :cofx)
         helpers       (adapter-helpers)
-        ;; cofx that auto-wire as generated interceptors on event handlers
-        ;; (per rf2-g25p — the runner's first-pass auto-injection
-        ;; convention). Stable lex order on cofx-id so the last-write-wins
-        ;; outcome is deterministic.
+        ;; cofx that auto-wire onto a consuming event's `:rf.cofx/requires`
+        ;; declaration (EP-0017 model — rf2-hqwki4). Stable lex order on
+        ;; cofx-id so the last-write-wins outcome is deterministic.
         cofx-by-key
         (->> cofx-registry
              (sort-by key)
@@ -273,20 +275,32 @@
                           (assoc acc k (mapv first pairs)))
                         {}))]
     ;; ---- cofx ----------------------------------------------------------
-    ;; Per Spec 010 §step 2 (rf2-7leq): cofx registrations carry :schema
-    ;; metadata; the runtime calls `:schemas/validate-cofx!` after
-    ;; injection. We register both bodies AND any registry-only entries.
+    ;; EP-0017 model (rf2-hqwki4): cofx registrations carry value-returning
+    ;; suppliers (NOT ctx→ctx injection handlers) plus their metadata
+    ;; (`:recordable?` / `:provided?` / `:schema`). The runtime delivers the
+    ;; recordable value flat under the cofx-id when a handler declares it via
+    ;; `:rf.cofx/requires`, and validates it against `:schema`
+    ;; (`re-frame.cofx/validate-recordable-value!`, a production hard error on
+    ;; mismatch → `:rf.error/cofx-value-invalid`). A `:provided?` recordable
+    ;; fact carries NO supplier — its value rides the dispatch token's
+    ;; `:rf.cofx` map; `reg-cofx` rejects `:provided?` + a supplier, so register
+    ;; it bare. The old `inject-cofx`-time `:schema` validation path is retired
+    ;; with `inject-cofx`.
     (let [all-cofx-ids (into #{} (concat (keys cofx-bodies) (keys cofx-registry)))]
       (doseq [cofx-id all-cofx-ids]
-        (let [body    (get cofx-bodies cofx-id [[:noop]])
-              meta    (get cofx-registry cofx-id {})
-              handler (realise-cofx-handler cofx-id body)]
-          (rf/reg-cofx cofx-id (assoc meta :handler-fn handler) handler))))
+        (let [body (get cofx-bodies cofx-id [[:noop]])
+              meta (get cofx-registry cofx-id {})]
+          (if (:provided? meta)
+            (rf/reg-cofx cofx-id meta)
+            (rf/reg-cofx cofx-id meta (realise-cofx-supplier body))))))
     ;; ---- events --------------------------------------------------------
     ;; Per Spec 010 §step 1 (rf2-jwm4): event meta carries :schema; the
     ;; runtime calls `:schemas/validate-event!` before the handler runs.
-    ;; Per rf2-g25p: scan the body for [:cofx-key K]; for each K, auto-wire a
-    ;; generated cofx interceptor for every C whose namespace matches K.
+    ;; EP-0017 model (rf2-hqwki4): a body that reads `[:cofx-key K]` declares
+    ;; the consumed coeffect ids via the `:rf.cofx/requires` registration-
+    ;; metadata key (the ctx→ctx `inject-cofx` interceptor wiring is retired).
+    ;; The runtime delivers each declared recordable value flat under its
+    ;; cofx-id and validates it against `:schema`.
     (doseq [[id steps] (:event hmap)]
       (let [[kind handler] (conformance/realise-event-handler steps)
             meta           (get event-meta id {})
@@ -295,10 +309,9 @@
                                           (or (get cofx-by-key k)
                                               (when (contains? cofx-registry k) [k])))
                                         ks))
-            interceptors   (mapv cofx/inject-cofx cofx-ids)
             meta'          (cond-> meta
-                             (seq interceptors)
-                             (update :interceptors (fnil into []) interceptors))]
+                             (seq cofx-ids)
+                             (assoc :rf.cofx/requires cofx-ids))]
         (case kind
           ;; EP-0018 Slice Z: one public `reg-event` (cofx-in, effects-map-out).
           ;; A :db-kind fixture handler is `(fn [db event] new-db)`; adapt it to
@@ -432,8 +445,39 @@
 
 ;; ---- :fixture/dispatches runner ------------------------------------------
 
-(defn- run-dispatch [ev]
+(defn- run-dispatch
+  "Drive one `:fixture/dispatches` entry. `dispatch-error-failures` is an atom
+  collecting `:expect-error` mismatch strings.
+
+  A map entry with `:expect-error` (EP-0017 boundary-throw shape, rf2-hqwki4)
+  asserts the dispatch RAISES that `:rf.error/id`. Context-assembly throws (the
+  cofx delivery errors — `:rf.error/cofx-value-invalid` / missing-required /
+  unregistered) escape `dispatch-sync` rather than being captured into the
+  interceptor chain, so the runner catches the throw here and compares the
+  ex-data `:rf.error/id`. The remaining opts (e.g. `:rf.cofx`) pass through to
+  `dispatch-sync`. Mirrors core's `re-frame.conformance-test` runner."
+  [ev dispatch-error-failures]
   (cond
+    (and (map? ev) (contains? ev :expect-error))
+    (let [{event :event want :expect-error} ev
+          opts (dissoc ev :event :expect-error)
+          got  (try (rf/dispatch-sync event opts) ::no-throw
+                    (catch clojure.lang.ExceptionInfo e
+                      (:rf.error/id (ex-data e)))
+                    (catch Throwable e e))]
+      (cond
+        (= got ::no-throw)
+        (swap! dispatch-error-failures conj
+               (str "dispatch " (pr-str event) " expected to throw "
+                    want " but did not throw"))
+        (not= got want)
+        (swap! dispatch-error-failures conj
+               (str "dispatch " (pr-str event) " expected error " want
+                    " but got " (if (instance? Throwable got)
+                                  (str "a non-ExceptionInfo throw: "
+                                       (some-> ^Throwable got .getMessage))
+                                  got)))))
+
     (map? ev)
     (let [{event :event :as opts} ev]
       (rf/dispatch-sync event (dissoc opts :event)))
@@ -486,9 +530,12 @@
           ;; handler), which would land the seed AFTER the first dispatch.
           _            (binding [frame/*current-frame* nil]
                          (rf/reg-frame :rf/default frame-config))
-          dispatches   (or (:fixture/dispatches fixture) [])]
+          dispatches   (or (:fixture/dispatches fixture) [])
+          ;; EP-0017 `:expect-error` mismatches (rf2-hqwki4) — a context-assembly
+          ;; throw the dispatch declared but did not raise (or raised wrong).
+          dispatch-error-failures (atom [])]
       (doseq [ev dispatches]
-        (run-dispatch ev))
+        (run-dispatch ev dispatch-error-failures))
       (let [expect        (or (:fixture/expect fixture) {})
             expected-db   (:final-app-db expect)
             final-db      (rf/app-db-value :rf/default)
@@ -505,7 +552,9 @@
         {:fixture-id     fid
          :passed?        (and (or (nil? expected-db) (submap? expected-db final-db))
                               (every? #(= (:expected %) (:actual %)) sub-checks)
-                              (empty? trace-failures))
+                              (empty? trace-failures)
+                              (empty? @dispatch-error-failures))
+         :dispatch-error-failures @dispatch-error-failures
          :final-db       final-db
          :expected-db    expected-db
          :sub-checks     sub-checks
@@ -580,7 +629,9 @@
                        "expected:" (:expected sc)
                        "actual:" (:actual sc))))
           (doseq [tf (:trace-failures f)]
-            (println "    trace:" tf))))
+            (println "    trace:" tf))
+          (doseq [df (:dispatch-error-failures f)]
+            (println "    dispatch-error:" df))))
       (is (zero? (count failed))
           (str "All claim-runnable schemas conformance fixtures must pass; "
                (count failed) " failed.")))))
