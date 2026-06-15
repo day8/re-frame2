@@ -32,11 +32,14 @@
   - `hydrate-from-url!` — fold the share-URL `?overrides=` slot into
     the shell state on mount, including any drift the URL carries
     against the live registry (variant args renamed / removed). The
-    rest of the share-URL surface (workspace, mode-tab, viewport,
-    background, tag-filter, substrate) is hydrated by
-    `re-frame.story.ui.url-state` — that ns owns chrome-state slots;
-    this one owns the per-variant cell-overrides slot and the
-    accompanying drift hint.
+    rest of the share-URL surface (selection, workspace, mode-tab,
+    viewport, background, tag-filter, substrate) is hydrated AND
+    VALIDATED by `re-frame.story.ui.url-state` — that ns is the single
+    authoritative owner of those slots; this pass reads (never rewrites)
+    the selection it set and owns only the focused-variant cell-overrides
+    slice + the accompanying drift hint (rf2-ovb1en — a prior version
+    reparsed `substrate=` here without validation and resurrected a stale
+    value `url-state` had already normalised to `:reagent`).
 
   - `share-import-hint` / `dismiss-share-import-hint!` — non-blocking
     banner the canvas splices over a variant when a hydrated URL
@@ -79,7 +82,13 @@
 
 ;; ---- helpers -------------------------------------------------------------
 
-(defn- current-url-params
+(defn current-url-params
+  "Parse `window.location.search` into a `URLSearchParams` for the
+  share-overrides hydration seam. Returns nil when window is unavailable
+  or no search params are present. Public (like
+  `url-state/parse-current-url`) so the shell-level hydration regression
+  test (rf2-ovb1en) can drive the real `hydrate-from-url!` under the node
+  runner, where `window.location` is read-only."
   []
   (when (exists? js/window)
     (let [search (some-> js/window .-location .-search)]
@@ -119,59 +128,85 @@
       (into (into arg-keys argtype-ks) schema-ks))))
 
 (defn hydrate-from-url!
-  "Hydrate the share-URL-owned shell state from `window.location.search`.
+  "Second-pass URL hydration: own the focused-variant cell-overrides
+  contract + the share-import drift hint. Runs AFTER
+  `re-frame.story.ui.url-state/hydrate-from-url!` at shell mount.
 
-  Toolbar modes hydrate in `re-frame.story.ui.toolbar`; this function
-  owns the rest of the share URL contract: focused variant, per-variant
-  cell overrides, and substrate. Invalid/stale variant ids are ignored
-  so old URLs degrade to the shell empty state instead of crashing.
+  rf2-ovb1en — this pass is deliberately NARROW. `url-state` is the
+  single authoritative owner of every URL-owned slot it writes —
+  selection (`variant` / `workspace`), substrate, viewport, background,
+  tag-filter, modes — and it VALIDATES each against the live registry
+  (an unregistered `substrate=ghost` degrades to `:reagent`; an
+  unregistered variant degrades to no selection). This pass must NOT
+  reparse and rewrite any of those slots from the raw URL: doing so
+  reverted `url-state`'s validation (a stale `substrate=ghost` was
+  normalised to `:reagent` by the first pass, then resurrected to
+  `:ghost` by an unvalidated reparse here). So substrate + selection are
+  read ONLY — this pass reads the variant `url-state` already focused and
+  speaks solely for that variant's cell-overrides slice and its hint.
+
+  What this pass uniquely adds over `url-state` (which installs the raw
+  parsed overrides under `[:cell-overrides variant-id]`) is the
+  declared-key DRIFT filter `url-state` cannot run (it is pure, with no
+  registrar access): `drop-stale-overrides` drops every parsed override
+  whose arg-key the focused variant no longer DECLARES (args refactored /
+  renamed / removed) so they are REPORTED, not merged as orphan live
+  args. This pass is therefore the AUTHORITATIVE owner of the
+  focused-variant cell-overrides slice on mount: it writes the
+  declared-filtered slice when non-empty and CLEARS the slot otherwise —
+  so an all-stale `overrides=` set (which `drop-stale-overrides` collapses
+  to nil) does NOT leave the unfiltered slice `url-state` installed.
 
   Surfaces the count of dropped overrides (rf2-9jthx) under
-  `[:rf.story/share-import-hint variant-id]` so the shell can render
-  a non-blocking hint when a recorded URL has drifted (variant args
-  refactored, removed, renamed). Returns nothing — side-effect only.
-  Pure helper exposed via `share/parse-overrides-param*` so tests can
-  assert per-axis without touching the ratom.
+  `[:rf.story/share-import-hint variant-id]` so the shell can render a
+  non-blocking hint when a recorded URL has drifted. Returns nothing —
+  side-effect only.
 
   rf2-76l69l — drift is detected at TWO stages: `parse-overrides-param*`
   drops UNPARSEABLE entries, then `share/drop-stale-overrides` drops every
-  parsed override whose arg-key the selected variant no longer DECLARES
-  (renamed / removed args — `declared-arg-keys`). Both classes land in
-  `:dropped` and feed the share-import hint, so a stale override is
-  reported (reproducibility downgraded) instead of silently installed as
-  an orphan live arg."
+  parsed override whose arg-key the focused variant no longer DECLARES.
+  Both classes land in `:dropped` and feed the share-import hint, so a
+  stale override is reported (reproducibility downgraded) instead of
+  silently installed as an orphan live arg."
   []
   (when-let [params (current-url-params)]
-    (let [variant-id (share/parse-keyword-token (.get params "variant"))
+    ;; rf2-ovb1en: read the variant `url-state` already focused (its swap
+    ;; ran first) rather than re-deriving it from the raw URL — guarantees
+    ;; this pass operates on `url-state`'s authoritative, validated
+    ;; selection and can never diverge from it.
+    (let [variant-id (:selected-variant @state/shell-state-atom)
           valid?     (and variant-id (registrar/registered? :variant variant-id))
           parsed0    (share/parse-overrides-param* (.get params "overrides"))
-          ;; Second stage: drop overrides for args the selected variant no
+          ;; Second stage: drop overrides for args the focused variant no
           ;; longer declares (renamed / removed) so they are REPORTED, not
           ;; merged as orphan live args. Only meaningful for a valid variant
-          ;; (its declared-key contract); an invalid variant installs nothing
-          ;; anyway. `declared-arg-keys` returns nil → keep-all degrade.
+          ;; (its declared-key contract). `declared-arg-keys` returns nil →
+          ;; keep-all degrade.
           parsed     (if valid?
                        (share/drop-stale-overrides parsed0
                                                    (declared-arg-keys variant-id))
                        parsed0)
           overrides  (:overrides parsed)
-          dropped    (:dropped parsed)
-          substrate  (share/parse-substrate-param (.get params "substrate"))]
-      (state/swap-state!
-        (fn [s]
-          (let [s' (if valid?
-                     (cond-> (-> s
-                                 (state/select-variant variant-id)
-                                 (state/select-workspace nil))
-                       (seq overrides)
-                       (assoc-in [:cell-overrides variant-id] overrides)
-                       (seq dropped)
-                       (assoc-in [:rf.story/share-import-hint variant-id]
-                                 {:dropped-count (count dropped)
-                                  :dropped       (vec dropped)}))
-                     s)]
-            (cond-> s'
-              substrate (assoc :substrate substrate))))))))
+          dropped    (:dropped parsed)]
+      (when valid?
+        (state/swap-state!
+          (fn [s]
+            (cond-> s
+              ;; AUTHORITATIVE owner of the focused variant's overrides slice:
+              ;; install the declared-filtered slice when non-empty, else CLEAR
+              ;; it — so an all-stale `overrides=` (collapsed to nil by
+              ;; `drop-stale-overrides`) drops the unfiltered slice `url-state`
+              ;; installed rather than leaving stale args live (rf2-ovb1en).
+              (seq overrides)
+              (assoc-in [:cell-overrides variant-id] overrides)
+
+              (not (seq overrides))
+              (update :cell-overrides dissoc variant-id)
+
+              (seq dropped)
+              (assoc-in [:rf.story/share-import-hint variant-id]
+                        {:dropped-count (count dropped)
+                         :dropped       (vec dropped)}))))))))
 
 (defn dismiss-share-import-hint!
   "Clear the share-import hint for `variant-id` (rf2-9jthx). Called

@@ -525,17 +525,28 @@
       (url-state/apply-parsed-to-state state parsed validators))))
 
 (defn- hydrate-url-state!
-  "One-shot URL → shell-state hydration on mount. Also folds the
-  `share/parse-overrides-param*` dropped-entries hint for the focused
-  variant (rf2-9jthx parity) and selects the variant through the
-  existing `share/hydrate-from-url!` cell-overrides path so the
-  selection-watcher's preallocate-frame branch fires.
+  "One-shot URL → shell-state hydration on mount, in two passes with a
+  CLEAR single-owner split (rf2-ovb1en):
 
-  Order:
-    1. `url-state/hydrate-from-url!` writes selection / mode-tab /
-       modes / viewport / background / tag-filter / substrate.
-    2. `share/hydrate-from-url!` adds cell-overrides + the
-       share-import hint (idempotent; selection is already set)."
+    1. `url-state/hydrate-from-url!` is the AUTHORITATIVE owner of every
+       URL-owned slot it writes — selection (variant / workspace),
+       mode-tab, modes, viewport, background, tag-filter, substrate — and
+       VALIDATES each against the live registry (a stale `substrate=ghost`
+       degrades to `:reagent`; an unregistered variant degrades to no
+       selection). It also installs the raw parsed cell-overrides under
+       `[:cell-overrides variant-id]`.
+    2. `share/hydrate-from-url!` is the AUTHORITATIVE owner of the
+       focused-variant cell-overrides slice on mount: it applies the
+       declared-key DRIFT filter `url-state` cannot run (renamed / removed
+       args), writing the filtered slice (or CLEARING it when all overrides
+       are stale) and recording the share-import drift hint (rf2-9jthx).
+       It reads — never rewrites — `url-state`'s validated selection and
+       substrate, so the second pass can never undo the first pass's
+       validation (the bug rf2-ovb1en fixed).
+
+  The selection-watcher's preallocate-frame branch fires on pass 1's swap
+  (it sets `:selected-variant`), so deep-linked variants still preallocate
+  without pass 2 re-selecting."
   []
   (url-state/hydrate-from-url! state/shell-state-atom (url-state-apply-fn))
   (share/hydrate-from-url!))
@@ -864,13 +875,16 @@
          (backgrounds-switcher/hydrate!)
          (start-hot-reload-poll!)
          (selection-watcher)
-         ;; rf2-o4u18: hydrate the URL-state slots (workspace + mode-tab +
-         ;; viewport + background + tag-filter + variant / modes /
-         ;; substrate) BEFORE the per-variant overrides — the URL-state
-         ;; engine sets the focused selection, then share/hydrate-from-url!
-         ;; folds in cell-overrides + the share-import hint (rf2-9jthx).
-         ;; Selection runs through the same shell-state-atom swap path
-         ;; the user's click would take, so the selection-watcher's
+         ;; rf2-o4u18 / rf2-ovb1en: hydrate the URL-state slots (workspace +
+         ;; mode-tab + viewport + background + tag-filter + variant / modes /
+         ;; substrate) — `url-state/hydrate-from-url!` is the authoritative,
+         ;; VALIDATING owner of all of them and sets the focused selection.
+         ;; `share/hydrate-from-url!` then owns ONLY the focused-variant
+         ;; cell-overrides slice (declared-key drift filter + share-import
+         ;; hint, rf2-9jthx); it reads — never rewrites — the validated
+         ;; selection / substrate, so the second pass can't undo the first
+         ;; pass's validation. Selection runs through the same shell-state-atom
+         ;; swap path the user's click would take, so the selection-watcher's
          ;; preallocate-frame branch fires for deep-linked variants.
          (hydrate-url-state!)
          ;; rf2-o4u18: subscribe to popstate so the back-button restores
