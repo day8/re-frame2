@@ -73,7 +73,15 @@
                      :auth/failed    :idle}}
 
             :authenticated {}}}
+          ;; rf2-ywv74m — the spawned child TYPE must be REGISTERED before it
+          ;; is spawned (the implicit "spec-less spawn" path is removed; an
+          ;; unregistered `:machine-id` now rejects fail-closed with
+          ;; `:rf.error/machine-spawn-unregistered-type`). Register a minimal
+          ;; `:http/post` child so the spawn is accepted — matching the JVM
+          ;; `spawn_registry_test`'s `(reg-machine :http/post …)`.
+          child  {:initial :running :data {} :states {:running {}}}
           traces (atom [])]
+      (rf/reg-machine :http/post  child)
       (rf/reg-machine :auth3/flow machine)
       ;; Initial state :idle with the credentials fixture data is
       ;; synthesised on first dispatch; no seed required.

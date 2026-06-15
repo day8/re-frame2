@@ -60,8 +60,11 @@
       (covers the mid-drain handler-replaced window + hand-crafted call
       sites).
     - **Spawn-order entry present** for `actor-id` in the per-frame
-      spawn-order channel (the dedicated signal for spec-less spawns
-      whose handler+snapshot were both skipped at spawn time).
+      spawn-order channel. `spawn-order/record!` runs unconditionally on
+      spawn and `spawn-order/forget!` unconditionally on destroy, so the
+      entry's presence/absence is the most reliable \"alive-or-gone\" bit —
+      notably it covers the back-to-back spawn-then-destroy in the same
+      `:fx` vector, where the snapshot swap may not yet have landed.
 
   A truly-already-destroyed actor has all three gone — the unified
   teardown projection + `registrar/unregister!` + `spawn-order/forget!`
@@ -209,13 +212,12 @@
   The liveness probe must distinguish *already-destroyed* (the actor
   was alive, the teardown projection ran, the registrar slot was
   cleared) from *not-yet-materialised-snapshot* (the actor IS alive
-  in this drain — spec-less spawn, or spawn + destroy back-to-back
-  before the snapshot was even read — but its snapshot was never
-  installed at `[:rf.runtime/machines :snapshots actor-id]`). Snapshot-presence alone is
-  not the right signal: a spec-less spawn (`:machine-id` resolved to
-  no registered spec — SSR / platform-gated) never installs a
-  snapshot, yet its destroy still owns legitimate cleanup work
-  (spawn-order/forget + the observability trace).
+  in this drain — a spawn + destroy back-to-back in the same `:fx`
+  vector, before the snapshot swap landed — but its snapshot is not
+  yet installed at `[:rf.runtime/machines :snapshots actor-id]`).
+  Snapshot-presence alone is not the right signal: the spawn-order
+  entry (recorded unconditionally on every spawn) is the reliable
+  \"alive\" bit when the snapshot swap is still in flight.
 
   `live?` is true iff ANY of the following hold:
 
@@ -228,17 +230,15 @@
       mid-drain but the snapshot still lives, plus belt-and-braces
       for hand-crafted call sites.
     - **Spawn-order entry present** for `actor-id` in the per-frame
-      spawn-order channel. The dedicated liveness signal for spec-
-      less spawns whose handler+snapshot were both skipped at spawn
-      time. `spawn-order/record!` runs unconditionally on spawn;
-      `spawn-order/forget!` runs unconditionally on destroy — so the
-      entry's presence/absence is the most reliable
-      \"alive-or-gone\" bit for this category.
+      spawn-order channel. `spawn-order/record!` runs unconditionally
+      on spawn; `spawn-order/forget!` runs unconditionally on destroy —
+      so the entry's presence/absence is the most reliable
+      \"alive-or-gone\" bit, covering the back-to-back spawn-then-destroy
+      window before the snapshot swap lands.
     - **Tracked-form slot present** at `[:rf.runtime/machines :spawned parent-id
       invoke-id]`. Belt-and-braces for the declarative-`:spawn`
-      tracked-map form — covers the spec-less spawn case under the
-      tracked codepath even when the actor-id resolution above
-      went via the slot lookup.
+      tracked-map form — covers the tracked codepath even when the
+      actor-id resolution above went via the slot lookup.
 
   A truly-already-destroyed actor has ALL FOUR gone — the unified
   teardown projection + `registrar/unregister!` + `spawn-order/forget!`
@@ -260,8 +260,8 @@
         ;; signals shared with `destroy-single-actor!` via `actor-live?`
         ;; (rf2-ndfjo extracted them so both destroy paths apply the
         ;; identical probe). The tracked-slot signal is local to this site —
-        ;; belt-and-braces for the declarative-`:spawn` tracked-map form's
-        ;; spec-less spawn case. See docstring for what each signal covers.
+        ;; belt-and-braces for the declarative-`:spawn` tracked-map form.
+        ;; See docstring for what each signal covers.
         live?     (or (actor-live? frame-id actor-id old-db)
                       (and tracked? (some? slot-id)))]
     (when live?
