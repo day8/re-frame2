@@ -72,6 +72,7 @@
 
 (defn- setup-xray-frame! []
   (registry/register-xray-handlers!)
+  (xray-test-support/install-test-overrides!)
   (frame/reg-frame :rf/xray {}))
 
 ;; ---- fixtures: registry + entries + ledger ------------------------------
@@ -114,29 +115,50 @@
 ;; ---- (1) registry wiring ------------------------------------------------
 
 (deftest registry-installs-resources-subs
-  (testing "register-xray-handlers! installs the resources tab subs + overrides"
+  (testing "register-xray-handlers! installs the resources tab production subs"
     (registry/register-xray-handlers!)
     (doseq [s [:rf.xray/registered-resources
-               :rf.xray/registered-resources-override
                :rf.xray/registered-scope-resolvers
-               :rf.xray/registered-scope-resolvers-override
                :rf.xray/resource-entries
-               :rf.xray/resource-entries-override
                :rf.xray/resource-work-ledger
-               :rf.xray/resource-work-ledger-override
                :rf.xray/resource-sub-reads
-               :rf.xray/resource-sub-reads-override
                :rf.xray/resource-routing-slice
-               :rf.xray/resource-routing-slice-override
                :rf.xray/resources-tab-data]]
-      (is (some? (registrar/handler :sub s)) (str s " sub registered")))
+      (is (some? (registrar/handler :sub s)) (str s " sub registered"))))
+  (testing "rf2-e8330v — production registration installs NO -for-test ids
+            nor *-override subs; install-test-overrides! installs them"
+    (registry/register-xray-handlers!)
+    (doseq [s [:rf.xray/registered-resources-override
+               :rf.xray/registered-scope-resolvers-override
+               :rf.xray/resource-entries-override
+               :rf.xray/resource-work-ledger-override
+               :rf.xray/resource-sub-reads-override
+               :rf.xray/resource-routing-slice-override]]
+      (is (nil? (registrar/handler :sub s))
+          (str s " override sub NOT installed by production registration")))
     (doseq [e [:rf.xray/set-registered-resources-override-for-test
                :rf.xray/set-registered-scope-resolvers-override-for-test
                :rf.xray/set-resource-entries-override-for-test
                :rf.xray/set-resource-work-ledger-override-for-test
                :rf.xray/set-resource-sub-reads-override-for-test
                :rf.xray/set-resource-routing-slice-override-for-test]]
-      (is (some? (registrar/handler :event e)) (str e " event registered")))))
+      (is (nil? (registrar/handler :event e))
+          (str e " NOT installed by production registration")))
+    (xray-test-support/install-test-overrides!)
+    (doseq [s [:rf.xray/registered-resources-override
+               :rf.xray/registered-scope-resolvers-override
+               :rf.xray/resource-entries-override
+               :rf.xray/resource-work-ledger-override
+               :rf.xray/resource-sub-reads-override
+               :rf.xray/resource-routing-slice-override]]
+      (is (some? (registrar/handler :sub s)) (str s " override sub registered by seam")))
+    (doseq [e [:rf.xray/set-registered-resources-override-for-test
+               :rf.xray/set-registered-scope-resolvers-override-for-test
+               :rf.xray/set-resource-entries-override-for-test
+               :rf.xray/set-resource-work-ledger-override-for-test
+               :rf.xray/set-resource-sub-reads-override-for-test
+               :rf.xray/set-resource-routing-slice-override-for-test]]
+      (is (some? (registrar/handler :event e)) (str e " event registered by seam")))))
 
 (deftest read-only-no-resource-events
   (testing "Spec 016 — the Xray registry surface carries NO :rf.resource/*
@@ -146,6 +168,7 @@
             the read-only contract is checked against the Xray-owned
             registry surface (every event Xray registers is :rf.xray*/)."
     (registry/register-xray-handlers!)
+    (xray-test-support/install-test-overrides!)
     ;; The panel's install! must register every event under the :rf.xray*/
     ;; isolation prefix and NONE under :rf.resource/* — the structural
     ;; guarantee that inspection never dispatches a resource event.

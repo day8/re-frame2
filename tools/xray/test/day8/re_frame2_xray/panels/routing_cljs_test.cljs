@@ -107,6 +107,7 @@
 
 (defn- setup-xray-frame! []
   (registry/register-xray-handlers!)
+  (xray-test-support/install-test-overrides!)
   (frame/reg-frame :rf/xray {}))
 
 ;; ---- fixture builders ---------------------------------------------------
@@ -142,18 +143,26 @@
     (registry/register-xray-handlers!)
     (is (some? (registrar/handler :sub :rf.xray/registered-routes))
         ":rf.xray/registered-routes sub registered (shared with Static)")
-    (is (some? (registrar/handler :sub :rf.xray/registered-routes-override))
-        "test-only override sub registered")
     (is (some? (registrar/handler :sub :rf.xray/current-route-slice))
         ":rf.xray/current-route-slice sub registered")
-    (is (some? (registrar/handler :sub :rf.xray/current-route-slice-override))
-        "test-only override sub registered")
     (is (some? (registrar/handler :sub :rf.xray/routing-tab-data))
-        "view-facing topology-plus-overlay composite sub registered")
+        "view-facing topology-plus-overlay composite sub registered"))
+  (testing "rf2-e8330v — production registration installs NO -for-test ids
+            nor *-override subs; install-test-overrides! installs them"
+    (registry/register-xray-handlers!)
+    (is (nil? (registrar/handler :sub :rf.xray/registered-routes-override)))
+    (is (nil? (registrar/handler :sub :rf.xray/current-route-slice-override)))
+    (is (nil? (registrar/handler :event :rf.xray/set-registered-routes-override-for-test)))
+    (is (nil? (registrar/handler :event :rf.xray/set-current-route-slice-override-for-test)))
+    (xray-test-support/install-test-overrides!)
+    (is (some? (registrar/handler :sub :rf.xray/registered-routes-override))
+        "test-only override sub registered by seam")
+    (is (some? (registrar/handler :sub :rf.xray/current-route-slice-override))
+        "test-only override sub registered by seam")
     (is (some? (registrar/handler :event :rf.xray/set-registered-routes-override-for-test))
-        "test-only override event registered")
+        "test-only override event registered by seam")
     (is (some? (registrar/handler :event :rf.xray/set-current-route-slice-override-for-test))
-        "test-only override event registered"))
+        "test-only override event registered by seam"))
   (testing "rf2-o5f5f.3 — browse + search + Simulate-URL slots NO LONGER live
             under :rf.xray.routing/* (promoted to :rf.xray.static.routes/*)"
     (registry/register-xray-handlers!)

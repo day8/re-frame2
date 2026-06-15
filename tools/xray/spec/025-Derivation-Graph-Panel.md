@@ -236,10 +236,16 @@ read-only (assembling the graph dispatches nothing and pins nothing):
 |---|---|---|
 | `:rf.xray/derivation-graph-mode` | sub | `:static` \| `:live` toggle (default `:static`) |
 | `:rf.xray/set-derivation-graph-mode` | event | set the mode toggle |
-| `:rf.xray/derivation-graph-override` | sub | test-only graph override |
-| `:rf.xray/set-derivation-graph-override-for-test` | event | set the override |
-| `:rf.xray/derivation-graph` | sub | the assembled `DerivationGraph` (static / live, over `xray-contributors`) |
+| `:rf.xray/derivation-graph` | sub | the assembled `DerivationGraph` (static / live, over `xray-contributors`) — production registration reads the live source directly, no override branch |
 | `:rf.xray/derivation-graph-tab-data` | sub | the view-facing composite (on-box summaries + family grouping + summary header) |
+
+The test-only graph override (`:rf.xray/derivation-graph-override` sub +
+`:rf.xray/set-derivation-graph-override-for-test` event) is **NOT**
+installed by `register-xray-handlers!` (rf2-e8330v / xxo3zz F3). It lives
+behind `derivation-graph/install-test-overrides!` (orchestrated by
+`test-support/install-test-overrides!`), which a test opts into AFTER
+production registration; the seam also re-registers `:rf.xray/derivation-
+graph` with the override input layered on top.
 
 ## Read-only
 
@@ -272,13 +278,15 @@ the enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`.
   idempotent under double-projection.
 - **`derivation_graph_consumer_cljs_test.cljs`** (node) — the **behavioral
   consumer** test (rf2-4wtllq): registers the panel handlers via
-  `derivation-graph/install!` + `registry/register-xray-handlers!`, then
+  `registry/register-xray-handlers!` + `test-support/install-test-overrides!`
+  (the override seam, rf2-e8330v), then
   asserts the `:rf.xray/derivation-graph` subscription actually calls the
   shared composer path — static mode returns a graph the composer produced
   (`:mode :static`, real node/edge counts, by-family grouping, edge roles
   through `:rf.xray/derivation-graph-tab-data`); switching to `:live` +
   setting `:rf.xray/target-frame` makes it call `live-derivation-graph` with
-  the observed `:frame`; the test override still bypasses the composer; and a
+  the observed `:frame`; the test override (installed by the seam) still
+  bypasses the composer; and a
   node carrying the reserved EP-0013 relocation coordinates (`:realm/id`,
   `:app/id`, `:module/id`) survives tab-data summarization unchanged. This
   closes the seam the helper/registry/redaction tests leave: that Xray's

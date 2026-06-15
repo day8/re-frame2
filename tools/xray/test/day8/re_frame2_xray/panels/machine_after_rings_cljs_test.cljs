@@ -47,6 +47,7 @@
 
 (defn- setup-xray-frame! []
   (registry/register-xray-handlers!)
+  (xray-test-support/install-test-overrides!)
   (frame/reg-frame :rf/xray {}))
 
 (defn- override-machines! [machines]
@@ -98,8 +99,15 @@
     (is (some? (registrar/handler :sub :rf.xray/now-ms)))
     (is (some? (registrar/handler :sub :rf.xray/timer-hover)))
     (is (some? (registrar/handler :event :rf.xray/timer-tick)))
-    (is (some? (registrar/handler :event :rf.xray/timer-hover)))
-    (is (some? (registrar/handler :event :rf.xray/set-now-ms-override-for-test)))))
+    (is (some? (registrar/handler :event :rf.xray/timer-hover))))
+  (testing "rf2-e8330v — the test-only now-ms override is NOT installed by
+            production registration; the test seam installs it"
+    (registry/register-xray-handlers!)
+    (is (nil? (registrar/handler :event :rf.xray/set-now-ms-override-for-test))
+        "production registration installs no -for-test ids")
+    (xray-test-support/install-test-overrides!)
+    (is (some? (registrar/handler :event :rf.xray/set-now-ms-override-for-test))
+        "install-test-overrides! installs the now-ms override event")))
 
 ;; ---- (2) active-timers composite ---------------------------------------
 

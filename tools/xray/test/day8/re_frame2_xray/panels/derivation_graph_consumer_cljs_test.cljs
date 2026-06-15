@@ -69,6 +69,7 @@
 
 (defn- setup-xray! []
   (registry/register-xray-handlers!)
+  (xray-test-support/install-test-overrides!)
   (frame/reg-frame :rf/xray {}))
 
 ;; A one-shot read of an `:rf.xray/*` sub, in the :rf/xray frame (where the

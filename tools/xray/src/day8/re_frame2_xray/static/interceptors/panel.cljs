@@ -363,6 +363,19 @@
                   ^{:key (pr-str (:id row))}
                   [interceptor-row row])))])]))
 
+;; ---- production value source ---------------------------------------------
+;;
+;; The raw value the production data sub reads. Shared with the
+;; test-override seam (`install-test-overrides!` below) so the override
+;; branch lives in ONE place (the seam), not duplicated (rf2-e8330v).
+
+(defn- registry-value
+  "The event-chain registry off the public `(rf/registrations :event)`
+  surface — each entry carries its interceptor chain."
+  []
+  (try (rf/registrations :event)
+       (catch :default _ {})))
+
 ;; ---- registrations -------------------------------------------------------
 
 (defn install!
@@ -391,27 +404,17 @@
     (fn [db _]
       (get db :rf.xray.static.interceptors/query)))
 
-  ;; ---- test-only override ----------------------------------------------
-
-  (rf/reg-event :rf.xray.static.interceptors/set-registry-override-for-test
-    (fn [{:keys [db]} [_ ov]]
-      {:db (if (nil? ov)
-        (dissoc db :rf.xray.static.interceptors/registry-override)
-        (assoc db :rf.xray.static.interceptors/registry-override ov))}))
-
-  (rf/reg-sub :rf.xray.static.interceptors/registry-override
-    (fn [db _]
-      (get db :rf.xray.static.interceptors/registry-override)))
+  ;; The test-only override seam (`:rf.xray.static.interceptors/set-
+  ;; registry-override-for-test` + the `*-override` sub) is NOT installed
+  ;; here — production registration carries no `-for-test` ids. Tests opt
+  ;; into it via `install-test-overrides!` (rf2-e8330v / xxo3zz F3).
 
   ;; ---- production data sub ---------------------------------------------
 
   (rf/reg-sub :rf.xray.static.interceptors/registry
     :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray.static.interceptors/registry-override]
-    (fn [[_buffer override] _query]
-      (or override
-          (try (rf/registrations :event)
-               (catch :default _ {})))))
+    (fn [_buffer _query]
+      (registry-value)))
 
   ;; ---- view-facing composite -------------------------------------------
 
@@ -431,4 +434,30 @@
      :order 4
      :panel Panel})
 
+  nil)
+
+;; ---- test-only override seam (rf2-e8330v / xxo3zz F3) ---------------------
+
+(defn install-test-overrides!
+  "Install the Static Interceptors panel's test-only override seam — the
+  `:rf.xray.static.interceptors/set-registry-override-for-test` event +
+  the `*-override` sub, then RE-register the production
+  `:rf.xray.static.interceptors/registry` sub to layer the override read
+  on top. Tests opt in via `test-support/install-test-overrides!` AFTER
+  `register-xray-handlers!`. **Test-only — never call from production.**"
+  []
+  (rf/reg-event :rf.xray.static.interceptors/set-registry-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov)
+        (dissoc db :rf.xray.static.interceptors/registry-override)
+        (assoc db :rf.xray.static.interceptors/registry-override ov))}))
+  (rf/reg-sub :rf.xray.static.interceptors/registry-override
+    (fn [db _]
+      (get db :rf.xray.static.interceptors/registry-override)))
+
+  (rf/reg-sub :rf.xray.static.interceptors/registry
+    :<- [:rf.xray/trace-buffer]
+    :<- [:rf.xray.static.interceptors/registry-override]
+    (fn [[_buffer override] _query]
+      (or override (registry-value))))
   nil)

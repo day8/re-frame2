@@ -346,6 +346,27 @@
     {}
     (rf/frame-ids)))
 
+;; ---- production value source ---------------------------------------------
+;;
+;; The raw value the production data sub reads. Shared with the
+;; test-override seam (`install-test-overrides!` below) so the override
+;; branch lives in ONE place (the seam), not duplicated (rf2-e8330v).
+
+(defn- registry-value
+  "The three input registries assembled from public surfaces: app-db
+  schemas via the `re-frame.schemas` façade, event / sub specs via
+  `(rf/registrations <kind>)`."
+  []
+  {:schemas-by-frame
+   (try (read-app-schemas-by-frame)
+        (catch :default _ {}))
+   :events
+   (try (rf/registrations :event)
+        (catch :default _ {}))
+   :subs
+   (try (rf/registrations :sub)
+        (catch :default _ {}))})
+
 ;; ---- registrations -------------------------------------------------------
 
 (defn install!
@@ -379,17 +400,10 @@
     (fn [db _]
       (get db :rf.xray.static.schemas/query)))
 
-  ;; ---- test-only override ----------------------------------------------
-
-  (rf/reg-event :rf.xray.static.schemas/set-registry-override-for-test
-    (fn [{:keys [db]} [_ ov]]
-      {:db (if (nil? ov)
-        (dissoc db :rf.xray.static.schemas/registry-override)
-        (assoc db :rf.xray.static.schemas/registry-override ov))}))
-
-  (rf/reg-sub :rf.xray.static.schemas/registry-override
-    (fn [db _]
-      (get db :rf.xray.static.schemas/registry-override)))
+  ;; The test-only override seam (`:rf.xray.static.schemas/set-registry-
+  ;; override-for-test` + the `*-override` sub) is NOT installed here —
+  ;; production registration carries no `-for-test` ids. Tests opt into
+  ;; it via `install-test-overrides!` (rf2-e8330v / xxo3zz F3).
 
   ;; ---- production data sub ---------------------------------------------
 
@@ -402,18 +416,8 @@
   ;; subs ride.
   (rf/reg-sub :rf.xray.static.schemas/registry
     :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray.static.schemas/registry-override]
-    (fn [[_buffer override] _query]
-      (or override
-          {:schemas-by-frame
-           (try (read-app-schemas-by-frame)
-                (catch :default _ {}))
-           :events
-           (try (rf/registrations :event)
-                (catch :default _ {}))
-           :subs
-           (try (rf/registrations :sub)
-                (catch :default _ {}))})))
+    (fn [_buffer _query]
+      (registry-value)))
 
   ;; ---- view-facing composite -------------------------------------------
 
@@ -440,4 +444,30 @@
      :order 2
      :panel Panel})
 
+  nil)
+
+;; ---- test-only override seam (rf2-e8330v / xxo3zz F3) ---------------------
+
+(defn install-test-overrides!
+  "Install the Static Schemas panel's test-only override seam — the
+  `:rf.xray.static.schemas/set-registry-override-for-test` event + the
+  `*-override` sub, then RE-register the production
+  `:rf.xray.static.schemas/registry` sub to layer the override read on
+  top. Tests opt in via `test-support/install-test-overrides!` AFTER
+  `register-xray-handlers!`. **Test-only — never call from production.**"
+  []
+  (rf/reg-event :rf.xray.static.schemas/set-registry-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov)
+        (dissoc db :rf.xray.static.schemas/registry-override)
+        (assoc db :rf.xray.static.schemas/registry-override ov))}))
+  (rf/reg-sub :rf.xray.static.schemas/registry-override
+    (fn [db _]
+      (get db :rf.xray.static.schemas/registry-override)))
+
+  (rf/reg-sub :rf.xray.static.schemas/registry
+    :<- [:rf.xray/trace-buffer]
+    :<- [:rf.xray.static.schemas/registry-override]
+    (fn [[_buffer override] _query]
+      (or override (registry-value))))
   nil)

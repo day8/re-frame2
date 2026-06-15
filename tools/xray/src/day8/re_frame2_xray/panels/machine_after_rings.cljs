@@ -109,12 +109,13 @@
   ;; `:rings/now-ms` slot; every consumer (ring-fraction / tooltip)
   ;; re-fires on the standard reactive path.
   ;;
-  ;; Tests pin a deterministic `now-ms` via the override slot so
-  ;; ring-fraction calcs don't drift between assertion + capture.
+  ;; Tests pin a deterministic `now-ms` via the override slot — the
+  ;; override read lives behind `install-test-overrides!` (rf2-e8330v),
+  ;; so production registration carries no `-for-test` ids and the
+  ;; production sub reads the live tick slot directly.
   (rf/reg-sub :rf.xray/now-ms
     (fn [db _query]
-      (or (get db :rings/now-ms-override)
-          (get db :rings/now-ms))))
+      (get db :rings/now-ms)))
 
   ;; ---- active-timers-for-focused-machine ------------------------------
   ;;
@@ -162,16 +163,30 @@
     (fn [{:keys [db]} [_ payload]]
       {:db (if (nil? payload)
         (dissoc db :rings/hover)
-        (assoc db :rings/hover payload))}))
+        (assoc db :rings/hover payload))})))
 
-  ;; Test-only override for `now-ms` — the JVM helpers tests don't
-  ;; need it (pure fn) but the CLJS test surface uses it to pin a
-  ;; deterministic timestamp into the projection.
+;; ---- test-only override seam (rf2-e8330v / xxo3zz F3) -------------------
+
+(defn install-test-overrides!
+  "Install the after-rings test-only override seam — the
+  `:rf.xray/set-now-ms-override-for-test` event, then RE-register
+  `:rf.xray/now-ms` to read the override slot ahead of the live tick.
+  Tests opt in by calling this AFTER `register-xray-handlers!`
+  (typically via `test-support/install-test-overrides!`). The JVM
+  helpers tests don't need it (pure fn); the CLJS test surface uses it
+  to pin a deterministic timestamp into the projection. **Test-only —
+  never call from production.**"
+  []
   (rf/reg-event :rf.xray/set-now-ms-override-for-test
     (fn [{:keys [db]} [_ ov]]
       {:db (if (nil? ov)
         (dissoc db :rings/now-ms-override)
-        (assoc db :rings/now-ms-override ov))})))
+        (assoc db :rings/now-ms-override ov))}))
+  (rf/reg-sub :rf.xray/now-ms
+    (fn [db _query]
+      (or (get db :rings/now-ms-override)
+          (get db :rings/now-ms))))
+  nil)
 
 ;; ---- rAF tick driver ----------------------------------------------------
 ;;

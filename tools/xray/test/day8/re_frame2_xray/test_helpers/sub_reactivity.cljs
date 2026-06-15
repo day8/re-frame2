@@ -124,6 +124,11 @@
   `reseed-epoch-history-for-frame` same-target no-op contract)."
   []
   (registry/register-xray-handlers!)
+  ;; rf2-e8330v (xxo3zz F3) — production registration installs no
+  ;; `-for-test` ids; opt the test surface into the per-panel override +
+  ;; seeding seam (`set-epoch-history-for-test`, the `*-override` events,
+  ;; etc.) the reactivity helpers drive.
+  (xray-test-support/install-test-overrides!)
   (frame/reg-frame :rf/xray {})
   (frame/reg-frame :rf/default {})
   (rf/with-frame :rf/xray

@@ -36,7 +36,14 @@
             [re-frame.core :as rf]
             [re-frame.machines]
             [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter])
+            [re-frame.adapter.reagent :as reagent-adapter]
+            ;; rf2-e8330v (xxo3zz F3) — this feature-gate testbed drives the
+            ;; Xray Machine Inspector chart-render path via the test-only
+            ;; epoch-history / focus-epoch-id seeding events. Production
+            ;; `register-xray-handlers!` no longer installs those `-for-test`
+            ;; ids, so this dev testbed opts into the per-panel test-override
+            ;; seam at boot (see `run`). Dev-only; testbeds are never bundled.
+            [day8.re-frame2-xray.test-support :as xray-test-support])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ----------------------------------------------------------------------------
@@ -383,6 +390,13 @@
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)
+  ;; rf2-e8330v — install the Xray test-only override seam so the
+  ;; feature-gate scenario's synthetic-epoch injection (via
+  ;; `:rf.xray/set-epoch-history-for-test` + `:rf.xray/set-focus-epoch-
+  ;; id-for-test`) lands. The xray preload has already run
+  ;; `register-xray-handlers!`; this layers the test seam on top.
+  ;; Dev-testbed only — never ships.
+  (xray-test-support/install-test-overrides!)
   ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
   ;; absence — `:rf/default` is this testbed's app frame, registered
   ;; explicitly here (init! installs only the adapter). The boot dispatch

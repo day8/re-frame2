@@ -367,6 +367,21 @@
                h/families)
               [^{:key "edges"} (edges-section edges)])))]))
 
+;; ---- production value source ---------------------------------------------
+;;
+;; The raw assembled graph the production data sub reads. Shared with the
+;; test-override seam (`install-test-overrides!` below) so the override
+;; branch lives in ONE place (the seam), not duplicated (rf2-e8330v).
+
+(defn- derivation-graph-value
+  "The assembled `DerivationGraph` for `mode` over `target-frame`:
+  `live-derivation-graph` in `:live` mode, else the static
+  `derivation-graph` over `xray-contributors`."
+  [mode target-frame]
+  (if (= :live mode)
+    (dgraph/live-derivation-graph target-frame xray-contributors)
+    (dgraph/derivation-graph xray-contributors)))
+
 ;; ---- registration entry --------------------------------------------------
 
 (defn install!
@@ -401,25 +416,18 @@
   (rf/reg-sub :rf.xray/derivation-graph-mode
     (fn [db _] (get db :derivation-graph-mode :static)))
 
-  ;; ---- test override ----------------------------------------------------
-  (rf/reg-event :rf.xray/set-derivation-graph-override-for-test
-    (fn [{:keys [db]} [_ ov]]
-      {:db (if (nil? ov) (dissoc db :derivation-graph-override)
-          (assoc db :derivation-graph-override ov))}))
-  (rf/reg-sub :rf.xray/derivation-graph-override
-    (fn [db _] (get db :derivation-graph-override)))
+  ;; The test-only override seam (`:rf.xray/set-derivation-graph-
+  ;; override-for-test` + the `*-override` sub) is NOT installed here —
+  ;; production registration carries no `-for-test` ids. Tests opt into
+  ;; it via `install-test-overrides!` (rf2-e8330v / xxo3zz F3).
 
   ;; ---- assembled graph --------------------------------------------------
   (rf/reg-sub :rf.xray/derivation-graph
     :<- [:rf.xray/trace-buffer]
     :<- [:rf.xray/derivation-graph-mode]
     :<- [:rf.xray/target-frame]
-    :<- [:rf.xray/derivation-graph-override]
-    (fn [[_buffer mode target-frame override] _]
-      (cond
-        (some? override) override
-        (= :live mode)   (dgraph/live-derivation-graph target-frame xray-contributors)
-        :else            (dgraph/derivation-graph xray-contributors))))
+    (fn [[_buffer mode target-frame] _]
+      (derivation-graph-value mode target-frame)))
 
   ;; ---- view-facing composite -------------------------------------------
   (rf/reg-sub :rf.xray/derivation-graph-tab-data
@@ -443,4 +451,32 @@
      :order 8
      :panel Panel})
 
+  nil)
+
+;; ---- test-only override seam (rf2-e8330v / xxo3zz F3) ---------------------
+
+(defn install-test-overrides!
+  "Install the Derivation-Graph panel's test-only override seam — the
+  `:rf.xray/set-derivation-graph-override-for-test` event + the
+  `*-override` sub, then RE-register the production `:rf.xray/derivation-
+  graph` sub to layer the override read on top. Tests opt in by calling
+  this AFTER `register-xray-handlers!` (typically via `test-support/
+  install-test-overrides!`). **Test-only — never call from production.**"
+  []
+  (rf/reg-event :rf.xray/set-derivation-graph-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov) (dissoc db :derivation-graph-override)
+          (assoc db :derivation-graph-override ov))}))
+  (rf/reg-sub :rf.xray/derivation-graph-override
+    (fn [db _] (get db :derivation-graph-override)))
+
+  (rf/reg-sub :rf.xray/derivation-graph
+    :<- [:rf.xray/trace-buffer]
+    :<- [:rf.xray/derivation-graph-mode]
+    :<- [:rf.xray/target-frame]
+    :<- [:rf.xray/derivation-graph-override]
+    (fn [[_buffer mode target-frame override] _]
+      (if (some? override)
+        override
+        (derivation-graph-value mode target-frame))))
   nil)

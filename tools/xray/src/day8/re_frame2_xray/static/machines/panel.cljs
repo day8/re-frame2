@@ -141,30 +141,25 @@
   ;; existing :rf.xray/registered-machines + machine-definitions +
   ;; machine-snapshots subs registered by panels.machine-inspector
   ;; (install order is purely cosmetic — re-frame resolves :<- lazily).
-  ;; The `:rf.xray/machine-snapshots-override` test-seam composes on
-  ;; top of the live snapshots — same shape the Dynamic Machine
-  ;; Inspector's composite uses, so the override flips both surfaces.
+  ;; The `:rf.xray/machine-snapshots-override` test-seam composes on top
+  ;; of the live snapshots in `install-test-overrides!` (rf2-e8330v) —
+  ;; production registration carries no override branch.
   (rf/reg-sub :rf.xray.static.machines/rows
     :<- [:rf.xray/registered-machines]
     :<- [:rf.xray/machine-definitions]
     :<- [:rf.xray/machine-snapshots]
-    :<- [:rf.xray/machine-snapshots-override]
-    (fn [[machines definitions live-snapshots snapshots-override] _query]
-      (h/project-rows machines definitions
-                      (or snapshots-override live-snapshots {}))))
+    (fn [[machines definitions live-snapshots] _query]
+      (h/project-rows machines definitions (or live-snapshots {}))))
 
   (rf/reg-sub :rf.xray.static.machines/data
     :<- [:rf.xray/registered-machines]
     :<- [:rf.xray/machine-definitions]
     :<- [:rf.xray/machine-snapshots]
-    :<- [:rf.xray/machine-snapshots-override]
     :<- [:rf.xray.static.machines/search]
     :<- [:rf.xray.static.machines/sort-key]
     :<- [:rf.xray.static.machines/selected-id]
-    (fn [[machines definitions live-snapshots snapshots-override
-          query sort-key selected-id] _query]
-      (h/project-browse-list machines definitions
-                             (or snapshots-override live-snapshots {})
+    (fn [[machines definitions live-snapshots query sort-key selected-id] _query]
+      (h/project-browse-list machines definitions (or live-snapshots {})
                              query sort-key selected-id)))
   nil)
 
@@ -258,4 +253,40 @@
      :modes #{:static}
      :order 0
      :panel panel})
+  nil)
+
+;; ---- test-only override seam (rf2-e8330v / xxo3zz F3) ---------------------
+
+(defn install-test-overrides!
+  "Re-register the Static Machines browse-list subs to layer the
+  `:rf.xray/machine-snapshots-override` test-seam on top of the live
+  snapshots — same shape the Dynamic Machine Inspector's composite uses,
+  so the override flips both surfaces. The override event + `*-override`
+  sub themselves are owned by `panels.machine-inspector/install-test-
+  overrides!`; this only re-points the two static-machines composites.
+  Tests opt in via `test-support/install-test-overrides!` AFTER
+  `register-xray-handlers!`. **Test-only — never call from production.**"
+  []
+  (rf/reg-sub :rf.xray.static.machines/rows
+    :<- [:rf.xray/registered-machines]
+    :<- [:rf.xray/machine-definitions]
+    :<- [:rf.xray/machine-snapshots]
+    :<- [:rf.xray/machine-snapshots-override]
+    (fn [[machines definitions live-snapshots snapshots-override] _query]
+      (h/project-rows machines definitions
+                      (or snapshots-override live-snapshots {}))))
+
+  (rf/reg-sub :rf.xray.static.machines/data
+    :<- [:rf.xray/registered-machines]
+    :<- [:rf.xray/machine-definitions]
+    :<- [:rf.xray/machine-snapshots]
+    :<- [:rf.xray/machine-snapshots-override]
+    :<- [:rf.xray.static.machines/search]
+    :<- [:rf.xray.static.machines/sort-key]
+    :<- [:rf.xray.static.machines/selected-id]
+    (fn [[machines definitions live-snapshots snapshots-override
+          query sort-key selected-id] _query]
+      (h/project-browse-list machines definitions
+                             (or snapshots-override live-snapshots {})
+                             query sort-key selected-id)))
   nil)

@@ -288,6 +288,19 @@
                   ^{:key (str (:frame row) "/" (:flow-id row))}
                   [flow-row row])))])]))
 
+;; ---- production value source ---------------------------------------------
+;;
+;; The raw value the production data sub reads. Shared with the
+;; test-override seam (`install-test-overrides!` below) so the override
+;; branch lives in ONE place (the seam), not duplicated (rf2-e8330v).
+
+(defn- registered-flows-value
+  "The registered flows regrouped into the per-frame
+  `{frame-id {flow-id flow-map}}` shape from `(rf/registrations :flow)`."
+  []
+  (try (registrations->by-frame (rf/registrations :flow))
+       (catch :default _ {})))
+
 ;; ---- registrations -------------------------------------------------------
 
 (defn install!
@@ -321,17 +334,10 @@
     (fn [db _]
       (get db :rf.xray.static.flows/query)))
 
-  ;; ---- test-only override ----------------------------------------------
-
-  (rf/reg-event :rf.xray.static.flows/set-registered-flows-override-for-test
-    (fn [{:keys [db]} [_ ov]]
-      {:db (if (nil? ov)
-        (dissoc db :rf.xray.static.flows/registered-flows-override)
-        (assoc db :rf.xray.static.flows/registered-flows-override ov))}))
-
-  (rf/reg-sub :rf.xray.static.flows/registered-flows-override
-    (fn [db _]
-      (get db :rf.xray.static.flows/registered-flows-override)))
+  ;; The test-only override seam (`:rf.xray.static.flows/set-registered-
+  ;; flows-override-for-test` + the `*-override` sub) is NOT installed
+  ;; here — production registration carries no `-for-test` ids. Tests opt
+  ;; into it via `install-test-overrides!` (rf2-e8330v / xxo3zz F3).
 
   ;; ---- production data sub ---------------------------------------------
 
@@ -346,11 +352,8 @@
   ;; subscribe re-render.
   (rf/reg-sub :rf.xray.static.flows/registered-flows
     :<- [:rf.xray/trace-buffer]
-    :<- [:rf.xray.static.flows/registered-flows-override]
-    (fn [[_buffer override] _query]
-      (or override
-          (try (registrations->by-frame (rf/registrations :flow))
-               (catch :default _ {})))))
+    (fn [_buffer _query]
+      (registered-flows-value)))
 
   ;; ---- view-facing composite -------------------------------------------
 
@@ -384,4 +387,30 @@
      :order 3
      :panel Panel})
 
+  nil)
+
+;; ---- test-only override seam (rf2-e8330v / xxo3zz F3) ---------------------
+
+(defn install-test-overrides!
+  "Install the Static Flows panel's test-only override seam — the
+  `:rf.xray.static.flows/set-registered-flows-override-for-test` event +
+  the `*-override` sub, then RE-register the production
+  `:rf.xray.static.flows/registered-flows` sub to layer the override read
+  on top. Tests opt in via `test-support/install-test-overrides!` AFTER
+  `register-xray-handlers!`. **Test-only — never call from production.**"
+  []
+  (rf/reg-event :rf.xray.static.flows/set-registered-flows-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov)
+        (dissoc db :rf.xray.static.flows/registered-flows-override)
+        (assoc db :rf.xray.static.flows/registered-flows-override ov))}))
+  (rf/reg-sub :rf.xray.static.flows/registered-flows-override
+    (fn [db _]
+      (get db :rf.xray.static.flows/registered-flows-override)))
+
+  (rf/reg-sub :rf.xray.static.flows/registered-flows
+    :<- [:rf.xray/trace-buffer]
+    :<- [:rf.xray.static.flows/registered-flows-override]
+    (fn [[_buffer override] _query]
+      (or override (registered-flows-value))))
   nil)

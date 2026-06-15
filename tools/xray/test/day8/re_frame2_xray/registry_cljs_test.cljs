@@ -64,6 +64,7 @@
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.self-noise :as self-noise]
+            [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- fixtures -----------------------------------------------------------
@@ -86,10 +87,12 @@
 ;; ---- helpers ------------------------------------------------------------
 
 (defn- setup-xray-frame!
-  "The canonical per-test boot: register handlers, allocate the
-  :rf/xray frame, return."
+  "The canonical per-test boot: register handlers, install the test-only
+  override seam (rf2-e8330v — production registration installs no
+  `-for-test` ids), allocate the :rf/xray frame, return."
   []
   (registry/register-xray-handlers!)
+  (xray-test-support/install-test-overrides!)
   (frame/reg-frame :rf/xray {}))
 
 ;; ---- focus ↔ registry single-source-of-truth cross-check ----------------
@@ -246,7 +249,6 @@
    ;; (pure rows, no filtering — spec/021 §8.2).
    :rf.xray/issues-ribbon
    :rf.xray/machine-definitions
-   :rf.xray/machine-definitions-override
    :rf.xray/machine-inspector-data
    ;; rf2-3d987 issue #4 — chart-collapsed slot per machine, persisted
    ;; to localStorage. Lets the operator hide the chart so the snapshot
@@ -269,7 +271,6 @@
    ;; (sibling bead rf2-r4nao re-hosts it under Static).
    :rf.xray/machine-scrubber-position
    :rf.xray/machine-snapshots
-   :rf.xray/machine-snapshots-override
    ;; rf2-uyp86 — managed-fx wire-boundary diff composite.
    :rf.xray/managed-fx-for-focused-event
    ;; rf2-7hwwe — `:after` ring tick driver wall-clock surface + hover slot.
@@ -291,38 +292,32 @@
    :rf.xray/palette-recents
    :rf.xray/palette-results
    :rf.xray/registered-machines
-   ;; rf2-nrbs9 — Routes tab (7th L3 tab) sub family.
+   ;; rf2-nrbs9 — Routes tab (7th L3 tab) sub family. (The `*-override`
+   ;; subs split out behind `install-test-overrides!` — rf2-e8330v.)
    :rf.xray/registered-routes
-   :rf.xray/registered-routes-override
    :rf.xray/current-route-slice
-   :rf.xray/current-route-slice-override
    :rf.xray/routing-tab-data
    ;; Spec 016 §Xray and AI tooling — Resources tab (8th L3 tab) sub
    ;; family. The static registry + the live runtime-db cache/ledger
    ;; slices + the view-facing composite + the scope-mismatch-lint
-   ;; sub-reads slot, each with a test-only override.
+   ;; sub-reads slot. (The per-kind `*-override` subs split out behind
+   ;; `install-test-overrides!` — rf2-e8330v.)
    :rf.xray/registered-resources
-   :rf.xray/registered-resources-override
-   ;; rf2-hls77w (EP-0016 D3) — named resource-scope resolver registry +
-   ;; its test-only override (the third resources kind).
+   ;; rf2-hls77w (EP-0016 D3) — named resource-scope resolver registry
+   ;; (the third resources kind).
    :rf.xray/registered-scope-resolvers
-   :rf.xray/registered-scope-resolvers-override
    :rf.xray/resource-entries
-   :rf.xray/resource-entries-override
    :rf.xray/resource-work-ledger
-   :rf.xray/resource-work-ledger-override
    :rf.xray/resource-sub-reads
-   :rf.xray/resource-sub-reads-override
    ;; rf2-m5u3gt — the live route/resource graph reads the routing slice.
    :rf.xray/resource-routing-slice
-   :rf.xray/resource-routing-slice-override
    :rf.xray/resources-tab-data
    ;; rf2-9ett2d (EP-0014 prop-3) — Derivation-Graph tab subs: the
    ;; assembled `re-frame.derivation.graph` view (static/live), the mode
-   ;; toggle slot, the test override, and the view-facing composite.
+   ;; toggle slot, and the view-facing composite. (The `*-override` sub
+   ;; split out behind `install-test-overrides!` — rf2-e8330v.)
    :rf.xray/derivation-graph
    :rf.xray/derivation-graph-mode
-   :rf.xray/derivation-graph-override
    :rf.xray/derivation-graph-tab-data
    ;; rf2-wtg9z4 — Module-view tab (EP-0013 disposition 6): the projected
    ;; (realm, frame) address space (`rf/realm-ids` × `rf/frame-realm`).
@@ -342,23 +337,24 @@
    :rf.xray.static.routes/tab-data
    ;; rf2-o5f5f.4 — Static Schemas sub-tab subs (browse-all over the
    ;; app-db schemas storage + the registrar's `:event` / `:sub`
-   ;; `:spec` slots + view-facing composite + test seam).
+   ;; `:spec` slots + view-facing composite). The `*-override` sub split
+   ;; out behind `install-test-overrides!` (rf2-e8330v).
    :rf.xray.static.schemas/query
    :rf.xray.static.schemas/registry
-   :rf.xray.static.schemas/registry-override
    :rf.xray.static.schemas/tab-data
    ;; rf2-uhsqb — Static Flows sub-tab subs (browse-all over the live
-   ;; `re-frame.flows.registry/flows` atom + view-facing composite +
-   ;; test seam).
+   ;; `re-frame.flows.registry/flows` atom + view-facing composite). The
+   ;; `*-override` sub split out behind `install-test-overrides!`
+   ;; (rf2-e8330v).
    :rf.xray.static.flows/query
    :rf.xray.static.flows/registered-flows
-   :rf.xray.static.flows/registered-flows-override
    :rf.xray.static.flows/tab-data
    ;; rf2-o5f5f.6 — Static Interceptors sub-tab subs (pure-browse over
-   ;; the interceptors surfaced through registered events).
+   ;; the interceptors surfaced through registered events). The
+   ;; `*-override` sub split out behind `install-test-overrides!`
+   ;; (rf2-e8330v).
    :rf.xray.static.interceptors/query
    :rf.xray.static.interceptors/registry
-   :rf.xray.static.interceptors/registry-override
    :rf.xray.static.interceptors/tab-data
    ;; rf2-hga49 — tab-ribbon Reset rewind affordance: the transient
    ;; inline failure-flash slot the ribbon reads.
@@ -692,28 +688,10 @@
    :rf.xray.static.machines/set-sub-mode
    :rf.xray.static.machines/state-clicked
    :rf.xray/set-frame
-   :rf.xray/set-machine-definitions-override-for-test
-   :rf.xray/set-machine-snapshots-override-for-test
-   ;; rf2-nrbs9 — Routes tab test-only override events.
-   :rf.xray/set-current-route-slice-override-for-test
-   :rf.xray/set-registered-routes-override-for-test
-   ;; Spec 016 §Xray and AI tooling — Resources tab test-only override
-   ;; events (registry / entries / work-ledger / sub-reads). The panel
-   ;; registers NO :rf.resource/* event — it is read-only (observing
-   ;; pins no resource).
-   :rf.xray/set-registered-resources-override-for-test
-   ;; rf2-hls77w (EP-0016 D3) — named resource-scope resolver registry
-   ;; override (the third resources kind).
-   :rf.xray/set-registered-scope-resolvers-override-for-test
-   :rf.xray/set-resource-entries-override-for-test
-   :rf.xray/set-resource-work-ledger-override-for-test
-   :rf.xray/set-resource-sub-reads-override-for-test
-   ;; rf2-m5u3gt — live route/resource graph routing-slice override.
-   :rf.xray/set-resource-routing-slice-override-for-test
-   ;; rf2-9ett2d (EP-0014 prop-3) — Derivation-Graph tab events: the
-   ;; static/live mode toggle + the test-only graph override.
+   ;; rf2-9ett2d (EP-0014 prop-3) — Derivation-Graph tab mode toggle.
+   ;; (The `set-*-override-for-test` events across every panel split out
+   ;; behind `install-test-overrides!` — rf2-e8330v.)
    :rf.xray/set-derivation-graph-mode
-   :rf.xray/set-derivation-graph-override-for-test
    ;; rf2-o5f5f.3 — Static Routes UI-state events (search input,
    ;; Simulate-URL input, expand-row toggle, hermetic Simulate-nav
    ;; toggle, cross-link to Dynamic Routing). Promoted from the
@@ -726,14 +704,10 @@
    :rf.xray.static.routes/jump-to-dynamic
    ;; rf2-o5f5f.4 — Static Schemas sub-tab events.
    :rf.xray.static.schemas/set-query
-   :rf.xray.static.schemas/set-registry-override-for-test
    ;; rf2-uhsqb — Static Flows sub-tab events.
    :rf.xray.static.flows/set-query
-   :rf.xray.static.flows/set-registered-flows-override-for-test
-   ;; rf2-o5f5f.6 — Static Interceptors sub-tab events (search slot,
-   ;; test seam).
+   ;; rf2-o5f5f.6 — Static Interceptors sub-tab events (search slot).
    :rf.xray.static.interceptors/set-query
-   :rf.xray.static.interceptors/set-registry-override-for-test
    ;; rf2-om6fa — Story-aware modal positioning opt.
    :rf.xray/set-modal-positioning
    ;; rf2-6ni62 — L2 event-list column-divider live update event.
@@ -742,12 +716,6 @@
    :rf.xray/set-panel-width-px
    ;; rf2-t2dsh — L2/L3 seam-handle live update event.
    :rf.xray/set-events-list-height-px
-   ;; rf2-7hwwe — `:after` countdown rings now-ms override (test-only).
-   :rf.xray/set-now-ms-override-for-test
-   :rf.xray/set-registered-machines-override-for-test
-   ;; rf2-a9cke — focused-event lens test overrides (Machine Inspector).
-   :rf.xray/set-epoch-history-for-test
-   :rf.xray/set-focus-epoch-id-for-test
    ;; rf2-y9xmf — scrubber-position slot reducer (UI is gone; the
    ;; `:after`-rings overlay reads the slot this event writes. The
    ;; share-URL surface that also round-tripped it was removed in
@@ -885,6 +853,56 @@
    ;; Xray-specific.
    :rf.editor/open))
 
+;; ---- test-only override seam snapshot (rf2-e8330v / xxo3zz F3) ----------
+;;
+;; Production `register-xray-handlers!` installs NONE of these — the
+;; override seam is split out per panel and installed via
+;; `xray-test-support/install-test-overrides!`. The snapshot tests above
+;; (`registry-snapshot-matches-expected-set`) assert production carries
+;; no `-for-test` ids; the seam-snapshot test below asserts the seam
+;; installs exactly this set.
+
+(def ^:private test-override-sub-names
+  "Every `*-override` sub the per-panel test seam re-registers."
+  (sorted-set
+   :rf.xray/registered-routes-override
+   :rf.xray/current-route-slice-override
+   :rf.xray/registered-resources-override
+   :rf.xray/registered-scope-resolvers-override
+   :rf.xray/resource-entries-override
+   :rf.xray/resource-work-ledger-override
+   :rf.xray/resource-sub-reads-override
+   :rf.xray/resource-routing-slice-override
+   :rf.xray/derivation-graph-override
+   :rf.xray/machine-snapshots-override
+   :rf.xray/machine-definitions-override
+   :rf.xray.static.schemas/registry-override
+   :rf.xray.static.flows/registered-flows-override
+   :rf.xray.static.interceptors/registry-override))
+
+(def ^:private test-override-event-names
+  "Every `set-*-override-for-test` / `*-for-test` seeding event the
+  per-panel test seam installs."
+  (sorted-set
+   :rf.xray/set-registered-routes-override-for-test
+   :rf.xray/set-current-route-slice-override-for-test
+   :rf.xray/set-registered-resources-override-for-test
+   :rf.xray/set-registered-scope-resolvers-override-for-test
+   :rf.xray/set-resource-entries-override-for-test
+   :rf.xray/set-resource-work-ledger-override-for-test
+   :rf.xray/set-resource-sub-reads-override-for-test
+   :rf.xray/set-resource-routing-slice-override-for-test
+   :rf.xray/set-derivation-graph-override-for-test
+   :rf.xray/set-now-ms-override-for-test
+   :rf.xray/set-registered-machines-override-for-test
+   :rf.xray/set-machine-snapshots-override-for-test
+   :rf.xray/set-machine-definitions-override-for-test
+   :rf.xray/set-epoch-history-for-test
+   :rf.xray/set-focus-epoch-id-for-test
+   :rf.xray.static.schemas/set-registry-override-for-test
+   :rf.xray.static.flows/set-registered-flows-override-for-test
+   :rf.xray.static.interceptors/set-registry-override-for-test))
+
 ;; ---- (1) smoke: every registered name resolves -------------------------
 
 (deftest registry-installs-every-sub
@@ -969,6 +987,33 @@
           "Event registry drift — diff names the added/removed :rf.xray/* event-ids")
       (is (= all-fx-names actual-fxs)
           "Fx registry drift — diff names the added/removed :rf.xray/* fx-ids"))))
+
+(deftest production-registration-installs-no-for-test-ids
+  (testing "rf2-e8330v (xxo3zz F3) — register-xray-handlers! installs NO id
+            ending in -for-test, and none of the `*-override` reader subs"
+    (registry/register-xray-handlers!)
+    (let [actual-events (->> (registrar/registrations :event) keys (filter xray-id?))
+          actual-subs   (->> (registrar/registrations :sub) keys (filter xray-id?))
+          for-test      (filter #(re-find #"-for-test$" (name %)) actual-events)
+          override-subs (filter #(re-find #"-override$" (name %)) actual-subs)]
+      (is (empty? for-test)
+          (str "production registration leaked -for-test events: " for-test))
+      (is (empty? override-subs)
+          (str "production registration leaked *-override subs: " override-subs)))))
+
+(deftest test-seam-installs-exactly-the-override-surface
+  (testing "rf2-e8330v — install-test-overrides! installs exactly the
+            test-override sub + event snapshot on top of production"
+    (registry/register-xray-handlers!)
+    (xray-test-support/install-test-overrides!)
+    (let [actual-events     (->> (registrar/registrations :event) keys (filter xray-id?) set)
+          actual-subs       (->> (registrar/registrations :sub) keys (filter xray-id?) set)
+          seam-events       (set (filter #(re-find #"-for-test$" (name %)) actual-events))
+          seam-override-subs (set (filter #(re-find #"-override$" (name %)) actual-subs))]
+      (is (= test-override-event-names seam-events)
+          "test-override event drift — diff names the added/removed -for-test ids")
+      (is (= test-override-sub-names seam-override-subs)
+          "test-override sub drift — diff names the added/removed *-override subs"))))
 
 (deftest registry-is-idempotent
   (testing "calling register-xray-handlers! twice is a no-op (same handler instance)"

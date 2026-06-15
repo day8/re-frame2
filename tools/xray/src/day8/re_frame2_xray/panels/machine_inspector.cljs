@@ -652,6 +652,38 @@
        :else
        (blank-state))]))
 
+;; ---- production value sources --------------------------------------------
+;;
+;; The raw values the production data subs read. Shared with the
+;; test-override seam (`install-test-overrides!` below) so each override
+;; branch lives in ONE place (the seam), not duplicated across the
+;; production and test surfaces (rf2-e8330v).
+
+(defn- registered-machines-value
+  "Registered-machine vector (reads `(rf/machines)`)."
+  []
+  (try (vec (machines/machines))
+       (catch :default _ [])))
+
+(defn- machine-snapshots-value
+  "The egress-redacted live snapshots map off the target frame's
+  runtime-db (`[:rf.runtime/machines :snapshots]`)."
+  [target-runtime-db]
+  (when (map? target-runtime-db)
+    (let [snapshots (get-in target-runtime-db
+                            [:rf.runtime/machines :snapshots] {})]
+      (redact-live-snapshots snapshots))))
+
+(defn- machine-definitions-value
+  "The `{machine-id meta}` definition map for `machines`."
+  [machines]
+  (into {}
+        (keep (fn [id]
+                (let [m (try (machines/machine-meta id)
+                             (catch :default _ nil))]
+                  (when m [id m]))))
+        (or machines [])))
+
 ;; ---- registration entry --------------------------------------------------
 
 (defn install!
@@ -681,19 +713,13 @@
   ;; rendering — `snapshot-drill-in` hard-wires that posture and this
   ;; install no longer registers the sub/event/slot trio.
 
-  ;; Registered-machine vector (reads `(rf/machines)`).
+  ;; Registered-machine vector (reads `(rf/machines)`). The test-only
+  ;; override seam (`:rf.xray/set-registered-machines-override-for-test`
+  ;; + the `*-override` read) lives behind `install-test-overrides!`
+  ;; (rf2-e8330v) — production registration carries no `-for-test` ids.
   (rf/reg-sub :rf.xray/registered-machines
-    (fn [db _query]
-      (let [ov (get db :registered-machines-override)]
-        (or ov
-            (try (vec (machines/machines))
-                 (catch :default _ []))))))
-
-  (rf/reg-event :rf.xray/set-registered-machines-override-for-test
-    (fn [{:keys [db]} [_ ov]]
-      {:db (if (nil? ov)
-        (dissoc db :registered-machines-override)
-        (assoc db :registered-machines-override ov))}))
+    (fn [_db _query]
+      (registered-machines-value)))
 
   ;; The live snapshots map for every registered machine.
   ;;
@@ -717,43 +743,16 @@
   (rf/reg-sub :rf.xray/machine-snapshots
     :<- [:rf.xray/target-frame-runtime-db]
     (fn [target-runtime-db _query]
-      (when (map? target-runtime-db)
-        (let [snapshots (get-in target-runtime-db
-                                [:rf.runtime/machines :snapshots] {})]
-          (redact-live-snapshots snapshots)))))
+      (machine-snapshots-value target-runtime-db)))
 
-  (rf/reg-sub :rf.xray/machine-snapshots-override
-    (fn [db _query]
-      (get db :machine-snapshots-override)))
-
-  (rf/reg-event :rf.xray/set-machine-snapshots-override-for-test
-    (fn [{:keys [db]} [_ ov]]
-      {:db (if (nil? ov)
-        (dissoc db :machine-snapshots-override)
-        (assoc db :machine-snapshots-override ov))}))
-
-  ;; The registered-machine-definition map for every machine.
-  (rf/reg-sub :rf.xray/machine-definitions-override
-    (fn [db _query]
-      (get db :machine-definitions-override)))
-
+  ;; The registered-machine-definition map for every machine. The
+  ;; machine-snapshots / machine-definitions test-only override seams
+  ;; live behind `install-test-overrides!` (rf2-e8330v) — production
+  ;; registration carries no `-for-test` ids and no override branches.
   (rf/reg-sub :rf.xray/machine-definitions
     :<- [:rf.xray/registered-machines]
-    :<- [:rf.xray/machine-definitions-override]
-    (fn [[machines override] _query]
-      (or override
-          (into {}
-                (keep (fn [id]
-                        (let [m (try (machines/machine-meta id)
-                                     (catch :default _ nil))]
-                          (when m [id m]))))
-                (or machines [])))))
-
-  (rf/reg-event :rf.xray/set-machine-definitions-override-for-test
-    (fn [{:keys [db]} [_ ov]]
-      {:db (if (nil? ov)
-        (dissoc db :machine-definitions-override)
-        (assoc db :machine-definitions-override ov))}))
+    (fn [machines _query]
+      (machine-definitions-value machines)))
 
   ;; The user's per-panel machine selection (kept as a slot for the
   ;; Sim engine + the Instances-jump focus landing; the share-URL
@@ -772,16 +771,14 @@
   (rf/reg-sub :rf.xray/machine-inspector-data
     :<- [:rf.xray/registered-machines]
     :<- [:rf.xray/machine-snapshots]
-    :<- [:rf.xray/machine-snapshots-override]
     :<- [:rf.xray/machine-definitions]
     :<- [:rf.xray/trace-buffer]
     :<- [:rf.xray/selected-machine-id]
     :<- [:rf.xray/target-frame]
-    (fn [[machines live-snapshots snapshots-override definitions buffer selected-id target-frame]
+    (fn [[machines live-snapshots definitions buffer selected-id target-frame]
          _query]
-      (let [snapshots (or snapshots-override live-snapshots {})]
-        (h/project-data
-          machines snapshots definitions buffer selected-id target-frame))))
+      (h/project-data
+        machines (or live-snapshots {}) definitions buffer selected-id target-frame)))
 
   ;; ---- focused-event lens composite (rf2-a9cke) ------------------
 
@@ -844,18 +841,10 @@
          :cascade  (epoch-proj/machine-cascade-rows (or events []))
          :event-id event-id})))
 
-  ;; Test-only overrides for the focused-event composite.
-  (rf/reg-event :rf.xray/set-epoch-history-for-test
-    (fn [{:keys [db]} [_ history]]
-      {:db (if (nil? history)
-        (dissoc db :epoch-history)
-        (assoc db :epoch-history (vec history)))}))
-
-  (rf/reg-event :rf.xray/set-focus-epoch-id-for-test
-    (fn [{:keys [db]} [_ epoch-id]]
-      {:db (if (nil? epoch-id)
-        (update db :focus dissoc :epoch-id)
-        (update db :focus (fnil assoc {}) :epoch-id epoch-id))}))
+  ;; Test-only seeding events for the focused-event composite
+  ;; (`:rf.xray/set-epoch-history-for-test`, `:rf.xray/set-focus-epoch-
+  ;; id-for-test`) live behind `install-test-overrides!` (rf2-e8330v) —
+  ;; production registration carries no `-for-test` ids.
 
   ;; ---- Machine Inspector panel events -----------------------------
 
@@ -1033,3 +1022,88 @@
      :modes #{:dynamic}
      :order 4
      :panel Panel}))
+
+;; ---- test-only override seam (rf2-e8330v / xxo3zz F3) ---------------------
+
+(defn install-test-overrides!
+  "Install the Machine Inspector panel's test-only override seam:
+
+    - `:rf.xray/set-registered-machines-override-for-test`,
+      `:rf.xray/set-machine-snapshots-override-for-test`,
+      `:rf.xray/set-machine-definitions-override-for-test` — override
+      events + companion `*-override` subs, with the production
+      `:rf.xray/registered-machines` / `:rf.xray/machine-snapshots` /
+      `:rf.xray/machine-definitions` / `:rf.xray/machine-inspector-data`
+      subs RE-registered to layer the override read on top.
+    - `:rf.xray/set-epoch-history-for-test`,
+      `:rf.xray/set-focus-epoch-id-for-test` — pure SEEDING events that
+      write the real `:epoch-history` / `:focus` slots (no override sub).
+
+  Tests opt in by calling this AFTER `register-xray-handlers!`
+  (typically via `test-support/install-test-overrides!`). **Test-only —
+  never call from production.**"
+  []
+  ;; Registered machines.
+  (rf/reg-event :rf.xray/set-registered-machines-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov)
+        (dissoc db :registered-machines-override)
+        (assoc db :registered-machines-override ov))}))
+  (rf/reg-sub :rf.xray/registered-machines
+    (fn [db _query]
+      (or (get db :registered-machines-override)
+          (registered-machines-value))))
+
+  ;; Live snapshots.
+  (rf/reg-sub :rf.xray/machine-snapshots-override
+    (fn [db _query]
+      (get db :machine-snapshots-override)))
+  (rf/reg-event :rf.xray/set-machine-snapshots-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov)
+        (dissoc db :machine-snapshots-override)
+        (assoc db :machine-snapshots-override ov))}))
+
+  ;; Definitions.
+  (rf/reg-sub :rf.xray/machine-definitions-override
+    (fn [db _query]
+      (get db :machine-definitions-override)))
+  (rf/reg-sub :rf.xray/machine-definitions
+    :<- [:rf.xray/registered-machines]
+    :<- [:rf.xray/machine-definitions-override]
+    (fn [[machines override] _query]
+      (or override (machine-definitions-value machines))))
+  (rf/reg-event :rf.xray/set-machine-definitions-override-for-test
+    (fn [{:keys [db]} [_ ov]]
+      {:db (if (nil? ov)
+        (dissoc db :machine-definitions-override)
+        (assoc db :machine-definitions-override ov))}))
+
+  ;; The per-panel composite — re-register so the snapshots-override
+  ;; flips the projection (same shape the Static Machines surface uses).
+  (rf/reg-sub :rf.xray/machine-inspector-data
+    :<- [:rf.xray/registered-machines]
+    :<- [:rf.xray/machine-snapshots]
+    :<- [:rf.xray/machine-snapshots-override]
+    :<- [:rf.xray/machine-definitions]
+    :<- [:rf.xray/trace-buffer]
+    :<- [:rf.xray/selected-machine-id]
+    :<- [:rf.xray/target-frame]
+    (fn [[machines live-snapshots snapshots-override definitions buffer selected-id target-frame]
+         _query]
+      (let [snapshots (or snapshots-override live-snapshots {})]
+        (h/project-data
+          machines snapshots definitions buffer selected-id target-frame))))
+
+  ;; Focused-event composite seeding events (write the real slots).
+  (rf/reg-event :rf.xray/set-epoch-history-for-test
+    (fn [{:keys [db]} [_ history]]
+      {:db (if (nil? history)
+        (dissoc db :epoch-history)
+        (assoc db :epoch-history (vec history)))}))
+  (rf/reg-event :rf.xray/set-focus-epoch-id-for-test
+    (fn [{:keys [db]} [_ epoch-id]]
+      {:db (if (nil? epoch-id)
+        (update db :focus dissoc :epoch-id)
+        (update db :focus (fnil assoc {}) :epoch-id epoch-id))}))
+  nil)
