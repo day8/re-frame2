@@ -20,7 +20,15 @@
             [re-frame.http-managed :as http-managed]
             [re-frame.http-registry :as registry]
             [re-frame.http-transport-cljs :as transport-cljs]
-            [re-frame.test-support :as test-support]))
+            ;; rf2-f5pguu — assert the redacted `:rf.warning/http-header-invalid`
+            ;; trace fires (instead of an escaping `:rf.error/fx-handler-
+            ;; exception`) when an invalid request header hits the managed
+            ;; CLJS path. `re-frame.trace.tooling` owns the listener surface
+            ;; (rf2-qwm0a); `re-frame.http-privacy` carries the redaction
+            ;; sentinel for the denylist-scrub assertion.
+            [re-frame.http-privacy :as privacy]
+            [re-frame.test-support :as test-support]
+            [re-frame.trace.tooling :as trace-tooling]))
 
 ;; rf2-hp772l — the CLJS Fetch transport + classifier now live in the
 ;; per-platform adapter ns `re-frame.http-transport-cljs` and are public
@@ -459,6 +467,195 @@
                            "a scalar header value is a single appended value"))
                      (done)))
             (.catch (fn [e] (is false (str "unexpected reject: " e)) (done))))))))
+
+;; ---- rf2-f5pguu — invalid request headers stay on the managed path -------
+;;
+;; The Fetch `Headers.append` throws a `TypeError` on an invalid header
+;; name (empty / control chars) or a value carrying `\r`/`\n` (the
+;; response-splitting guard). Pre-fix, that throw fired SYNCHRONOUSLY
+;; inside `cljs-fetch` — after the in-flight handle was registered but
+;; before any Promise existed — and propagated up through `run-attempt!`'s
+;; CLJS branch (no try/catch there) as a generic `:rf.error/fx-handler-
+;; exception`, bypassing `:on-failure`, retry, abort precedence, trace
+;; privacy, and registry cleanup. The fix mirrors the JVM
+;; `jvm-build-request`: catch PER `.append`, emit a redacted
+;; `:rf.warning/http-header-invalid` trace, omit the bad pair, and
+;; continue with the valid headers. These tests pin the managed-path
+;; behaviour so a regression re-opening the unmanaged escape is caught.
+
+(defn- with-trace-capture
+  "Install a recording trace listener, run `f` (which returns a Promise),
+  and invoke `(on-events events-atom)` once `f`'s Promise settles. The
+  listener is unregistered in `.finally`. The events-atom collects every
+  trace event so callers filter for `:rf.warning/http-header-invalid`."
+  [f on-events]
+  (let [seen   (atom [])
+        cb-key (keyword (str "http-cljs-invalid-header-" (gensym)))]
+    (trace-tooling/register-listener! cb-key (fn [ev] (swap! seen conj ev)))
+    (-> (f)
+        (.then (fn [result] (on-events seen result)))
+        (.finally (fn [] (trace-tooling/unregister-listener! cb-key))))))
+
+(deftest cljs-fetch-invalid-header-name-surfaces-managed-warning-not-escape
+  (testing "rf2-f5pguu — an EMPTY header name (which `Headers.append`
+  rejects with a TypeError) is caught inside the managed CLJS path: a
+  redacted `:rf.warning/http-header-invalid` trace fires naming the bad
+  header, the bad pair is OMITTED, the valid header still rides, and the
+  `cljs-fetch` Promise RESOLVES normally rather than rejecting / throwing
+  synchronously (which pre-fix escaped as `:rf.error/fx-handler-exception`)."
+    (async done
+      (let [captured-init (atom nil)
+            resp (fake-response {:status 200 :content-type "application/json"
+                                 :text-val "{}"})]
+        (-> (with-trace-capture
+              #(with-init-capturing-fetch resp captured-init
+                 (fn []
+                   (cljs-fetch {:method  :get
+                                :url     "https://example.invalid/v1"
+                                ;; "" is an invalid header name → TypeError.
+                                :headers {""       "anything"
+                                          "X-Good" "kept"}
+                                :decode  :json
+                                :internal-controller (js/AbortController.)})))
+              (fn [seen _result]
+                (let [warns (filter #(= :rf.warning/http-header-invalid
+                                        (:operation %))
+                                    @seen)]
+                  (is (seq warns)
+                      (str "expected a managed :rf.warning/http-header-invalid "
+                           "trace, not an escaping fx-handler-exception; saw ops: "
+                           (pr-str (mapv :operation @seen))))
+                  (let [w    (first warns)
+                        tags (:tags w)]
+                    (is (= :warning (:op-type w)))
+                    (is (= "" (:header tags))
+                        "trace names the offending header (the empty name)")
+                    (is (some? (:cause tags))
+                        "trace carries the TypeError message at :cause")
+                    (is (not (contains? tags :value))
+                        "trace MUST NOT carry the rejected value — values can be secrets"))
+                  ;; The bad pair is omitted; the valid header survives.
+                  (let [h (aget @captured-init "headers")]
+                    (is (instance? js/Headers h)
+                        "a Fetch Headers object is still built and passed to fetch")
+                    (is (= "kept" (.get h "X-Good"))
+                        "the valid header rides; only the bad pair was dropped")))))
+            (.then (fn [_] (done)))
+            ;; A rejection / synchronous throw here is the PRE-FIX bug — the
+            ;; invalid header escaped the managed path.
+            (.catch (fn [e]
+                      (is false
+                          (str "rf2-f5pguu regression — invalid header ESCAPED "
+                               "the managed CLJS path (threw/rejected) instead "
+                               "of surfacing a managed warning: " e))
+                      (done))))))))
+
+(deftest cljs-fetch-crlf-header-value-surfaces-managed-warning-not-escape
+  (testing "rf2-f5pguu — a header VALUE carrying a CR (`\\r`) is the
+  classic response-splitting vector; `Headers.append` rejects it with a
+  TypeError. It is caught inside the managed path (warning emitted, pair
+  omitted, valid headers preserved, Promise resolves) — not escaped."
+    (async done
+      (let [captured-init (atom nil)
+            resp (fake-response {:status 200 :content-type "application/json"
+                                 :text-val "{}"})]
+        (-> (with-trace-capture
+              #(with-init-capturing-fetch resp captured-init
+                 (fn []
+                   (cljs-fetch {:method  :get
+                                :url     "https://example.invalid/v1"
+                                :headers {"X-Bad"  "value-with-\rCR"
+                                          "X-Good" "kept"}
+                                :decode  :json
+                                :internal-controller (js/AbortController.)})))
+              (fn [seen _result]
+                (let [warns (filter #(= :rf.warning/http-header-invalid
+                                        (:operation %))
+                                    @seen)]
+                  (is (seq warns)
+                      "expected a managed :rf.warning/http-header-invalid trace for the CR/LF value")
+                  (let [tags (:tags (first warns))]
+                    (is (= "X-Bad" (:header tags))
+                        "trace names the offending header")
+                    (is (not (contains? tags :value))
+                        "the CR/LF value MUST NOT ride the trace surface"))
+                  (let [h (aget @captured-init "headers")]
+                    (is (= "kept" (.get h "X-Good"))
+                        "the valid header survives the dropped CR/LF pair")
+                    (is (nil? (.get h "X-Bad"))
+                        "the response-splitting header was omitted, not sent")))))
+            (.then (fn [_] (done)))
+            (.catch (fn [e]
+                      (is false
+                          (str "rf2-f5pguu regression — CR/LF header value escaped "
+                               "the managed path: " e))
+                      (done))))))))
+
+(deftest cljs-fetch-invalid-header-warning-redacts-denylisted-query-param
+  (testing "rf2-f5pguu — the managed CLJS header-validation warning routes
+  its `:url` through `privacy/prepare-emit-tags` (same as the JVM path,
+  rf2-1jcpm): a denylisted query param (`?api_key=…`) is scrubbed and
+  `:sensitive?` is stamped at the top level of the trace event."
+    (async done
+      (let [captured-init (atom nil)
+            resp (fake-response {:status 200 :content-type "application/json"
+                                 :text-val "{}"})]
+        (-> (with-trace-capture
+              #(with-init-capturing-fetch resp captured-init
+                 (fn []
+                   (cljs-fetch {:method  :get
+                                :url     "https://example.invalid/v1?api_key=SECRET&page=2"
+                                :headers {"" "anything"}
+                                :decode  :json
+                                :internal-controller (js/AbortController.)})))
+              (fn [seen _result]
+                (let [w (first (filter #(= :rf.warning/http-header-invalid
+                                           (:operation %))
+                                       @seen))]
+                  (is (some? w) "warning event should have been captured")
+                  (let [tags (:tags w)]
+                    (is (= "https://example.invalid/v1?api_key=:rf/redacted&page=2"
+                           (:url tags))
+                        "denylisted query-param value MUST be scrubbed in the trace URL")
+                    (is (true? (:sensitive? w))
+                        ":sensitive? stamped at top level — a denylisted param name is a signal")
+                    (is (= privacy/redacted-sentinel :rf/redacted)
+                        "sanity: the redaction sentinel is the reserved keyword")))))
+            (.then (fn [_] (done)))
+            (.catch (fn [e]
+                      (is false (str "unexpected reject: " e))
+                      (done))))))))
+
+(deftest cljs-fetch-valid-headers-emit-no-invalid-warning
+  (testing "rf2-f5pguu — a request with only VALID headers emits NO
+  `:rf.warning/http-header-invalid` trace (the catch arm never fires) and
+  resolves normally — the multi-valued behaviour (rf2-rznrz) is preserved."
+    (async done
+      (let [captured-init (atom nil)
+            resp (fake-response {:status 200 :content-type "application/json"
+                                 :text-val "{}"})]
+        (-> (with-trace-capture
+              #(with-init-capturing-fetch resp captured-init
+                 (fn []
+                   (cljs-fetch {:method  :get
+                                :url     "https://example.invalid/v1"
+                                :headers {"Authorization" "Bearer xyz"
+                                          "X-Multi"       ["alpha" "beta"]}
+                                :decode  :json
+                                :internal-controller (js/AbortController.)})))
+              (fn [seen _result]
+                (let [warns (filter #(= :rf.warning/http-header-invalid
+                                        (:operation %))
+                                    @seen)]
+                  (is (empty? warns)
+                      "no header-invalid warning for valid headers"))
+                (let [h (aget @captured-init "headers")]
+                  (is (= "alpha, beta" (.get h "X-Multi"))
+                      "valid multi-valued header still accumulates per-element"))))
+            (.then (fn [_] (done)))
+            (.catch (fn [e]
+                      (is false (str "unexpected reject: " e))
+                      (done))))))))
 
 (deftest zero-timeout-ms-does-not-arm-near-instant-abort
   (testing "rf2-ee38b.7 — `:timeout-ms 0` is an explicit opt-out (no

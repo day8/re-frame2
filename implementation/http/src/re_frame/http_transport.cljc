@@ -1261,7 +1261,16 @@
                             ;; body-reader (`.text()` vs `.blob()` /
                             ;; `.arrayBuffer()` / `.formData()`) from the
                             ;; resolved decode mode; pass it through.
-                            :decode              (:decode ctx)})
+                            :decode              (:decode ctx)
+                            ;; rf2-f5pguu — thread `:sensitive?` + `:frame` so a
+                            ;; Fetch `Headers.append` validation throw surfaces
+                            ;; as a redacted `:rf.warning/http-header-invalid`
+                            ;; trace (URL privacy-composed, frame-local carriers
+                            ;; honoured) instead of escaping as a generic
+                            ;; `:rf.error/fx-handler-exception`. Same shape the
+                            ;; JVM branch threads into `jvm-fetch` below.
+                            :sensitive?          (true? (:sensitive? ctx))
+                            :frame               (:frame ctx)})
                (.then (fn [result] (handle-response! ctx' result)))
                ;; rf2-r40km — pass `url` so `classify-cljs-error` can
                ;; distinguish `:rf.http/cors` from `:rf.http/transport`

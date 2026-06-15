@@ -20,7 +20,10 @@
   the rf2-hp772l contract: the shared loop carries no CLJS interop."
   (:require [clojure.string         :as str]
             [re-frame.http-decode   :as decode]
-            [re-frame.http-encoding :as encoding]))
+            [re-frame.http-encoding :as encoding]
+            [re-frame.http-privacy  :as privacy]
+            [re-frame.interop       :as interop]
+            [re-frame.trace         :as trace]))
 
 ;; ---- platform transport: CLJS Fetch ---------------------------------------
 
@@ -49,9 +52,18 @@
        security audit finding 2).
 
      The single `signal` Fetch accepts is always our internal one; any
-     caller signal funnels through `addEventListener` for cancellation."
+     caller signal funnels through `addEventListener` for cancellation.
+
+     Per rf2-f5pguu — `:sensitive?` + `:frame` are carried only so an
+     invalid request header (a `Headers.append` `TypeError` on a bad name
+     or a CR/LF value) can be surfaced as a redacted `:rf.warning/http-
+     header-invalid` trace (omit the bad pair, continue) rather than
+     ESCAPING the managed path as `:rf.error/fx-handler-exception` — the
+     same managed-error contract `jvm-build-request` already honours on
+     the JVM (rf2-9lun0 / rf2-1jcpm)."
      [{:keys [method url headers body credentials mode redirect cache referrer
-              integrity timeout-ms abort-signal internal-controller decode]}]
+              integrity timeout-ms abort-signal internal-controller decode
+              sensitive? frame]}]
      (let [init     #js {}
            _        (do (aset init "method" (str/upper-case (name method)))
                         (when (seq headers)
@@ -66,9 +78,50 @@
                           ;; object via `aset`, so a documented multi-valued
                           ;; request header serialised as a single malformed
                           ;; `[\"a\" \"b\"]` wire value.
+                          ;;
+                          ;; rf2-f5pguu — surface a Fetch `Headers.append`
+                          ;; validation throw via a `:rf.warning/http-header-
+                          ;; invalid` trace rather than letting it ESCAPE the
+                          ;; managed HTTP path. The Fetch `Headers` `.append`
+                          ;; rejects an invalid header name (empty, control
+                          ;; chars, separators) or a value carrying `\r`/`\n`
+                          ;; (the response-splitting guard) by throwing a
+                          ;; `TypeError`. Pre-fix that throw fired SYNCHRONOUSLY
+                          ;; inside `cljs-fetch` — AFTER the in-flight handle was
+                          ;; registered (rf2-065xo records it before transport
+                          ;; setup) but BEFORE any Promise existed to `.catch`,
+                          ;; so it propagated up through `run-attempt!`'s CLJS
+                          ;; branch (which — unlike the JVM branch — has no
+                          ;; try/catch around the transport call) and surfaced
+                          ;; as a generic `:rf.error/fx-handler-exception`,
+                          ;; bypassing `:on-failure`, retry, abort precedence,
+                          ;; trace privacy, and in-flight registry cleanup. This
+                          ;; now mirrors the JVM `jvm-build-request` (rf2-9lun0 /
+                          ;; rf2-1jcpm): catch PER `.append`, emit the redacted
+                          ;; warning naming the offending header (value omitted —
+                          ;; values may carry secrets; URL routed through
+                          ;; `privacy/prepare-emit-tags` so a denylisted query
+                          ;; param is scrubbed and `:sensitive?` is stamped),
+                          ;; omit the bad pair, and continue with the valid
+                          ;; headers. A stray bad header no longer sinks an
+                          ;; otherwise-valid request; the trace is the alarm.
+                          ;; Spec 014 §Body encoding + §Request envelope require
+                          ;; request-prep failures to stay on the managed path,
+                          ;; not escape as fx errors.
                           (let [h (js/Headers.)]
                             (doseq [[k v] (encoding/normalize-header-pairs headers)]
-                              (.append h k v))
+                              (try
+                                (.append h k v)
+                                (catch :default e
+                                  (when interop/debug-enabled?
+                                    (trace/emit! :warning :rf.warning/http-header-invalid
+                                                 (privacy/prepare-emit-tags
+                                                   {:url    url
+                                                    :header k
+                                                    :cause  (or (some-> ^js e .-message)
+                                                                (str e))}
+                                                   (true? sensitive?)
+                                                   {:frame frame}))))))
                             (aset init "headers" h)))
                         (when (some? body) (aset init "body" body))
                         (when credentials  (aset init "credentials" (name credentials)))
