@@ -234,7 +234,7 @@
   (testing "an installed descriptor and a reg-*-registered one resolve through
             the SAME registrar lookup — install! is the explicit seating path,
             the ordinary sugar path is unchanged"
-    ;; Sugar path: ordinary reg-event-db writes the default realm's registrar.
+    ;; Sugar path: ordinary reg-event writes the default realm's registrar.
     (rf/reg-event :sugar/inc {:doc "sugar"} cart-add)
     ;; Explicit path: install! seats a descriptor into the SAME registrar.
     (rf/install! (rf/app {:id :a :modules
@@ -694,7 +694,7 @@
                                          :fx     {:xms/fx   {:handler fx-h}}
                                          :cofx   {:xms/cofx {:handler cofx-h}}})]}))
       (is (identical? ev-h (registrar/handler :event :xms/ev))
-          ":event lowered through reg-event-db (resolvable handler)")
+          ":event lowered through reg-event (resolvable handler)")
       (is (identical? sub-h (registrar/handler :sub :xms/sub))
           ":sub lowered through reg-sub")
       (is (identical? fx-h (registrar/handler :fx :xms/fx))
@@ -702,7 +702,7 @@
       (is (identical? cofx-h (registrar/handler :cofx :xms/cofx))
           ":cofx lowered through reg-cofx")
       ;; The :event lowered through the REAL path carries the wrapped slots a
-      ;; reg-event-db produces (the interceptor chain), not just a flat handler —
+      ;; reg-event produces (the interceptor chain), not just a flat handler —
       ;; the distinction the wired path exists to provide.
       (is (contains? (registrar/lookup :event :xms/ev) :interceptors)
           ":event seated the kind-appropriate interceptor chain (real reg-* logic ran)"))))

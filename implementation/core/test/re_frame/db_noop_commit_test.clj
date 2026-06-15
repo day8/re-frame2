@@ -61,7 +61,7 @@
 ;; ---- 1 + 2: identical?-noop SKIPS the write AND emits :rf.event/db-noop ----
 
 (deftest identical-noop-skips-write-and-emits-db-noop
-  (testing "a reg-event-db whose else-arm returns the SAME db object
+  (testing "a reg-event whose else-arm returns the SAME db object
    (identical?) SKIPS the container write — the stored frame-state object
    is identical? before and after the dispatch — and emits :rf.event/db-noop
    (NOT :rf.event/db-changed)"
@@ -159,7 +159,7 @@
   (testing "{:db nil} is coerced to {} (app-db is ALWAYS a map, never nil)
    and emits the :rf.warning/db-nil-coerced dev diagnostic"
     (rf/reg-event :nil/seed (fn [{:keys [db]} _] {:db {:counter 7}}))
-    ;; A reg-event-db returning nil → {:db nil} effect.
+    ;; A reg-event handler returning a {:db nil} effect.
     (rf/reg-event :nil/return-nil (fn [{:keys [db]} _] {:db nil}))
     (rf/dispatch-sync [:nil/seed])
     (let [acc (collect-traces! ::nil-coerce)]

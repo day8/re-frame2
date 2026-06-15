@@ -380,7 +380,7 @@
 ;; The fix emits `:rf.error/effect-handler-bad-return` (Spec 009 §Error
 ;; contract, :recovery :no-recovery) so the misuse surfaces in dev / 10x.
 
-(deftest reg-event-fx-non-map-return-traces-bad-return-error
+(deftest reg-event-non-map-return-traces-bad-return-error
   (testing "handler returning a string emits :rf.error/effect-handler-bad-return; app-db unchanged"
     (let [recorded (record-traces! ::bad-string)]
       (rf/reg-event :test.k3bj/string-return
@@ -419,7 +419,7 @@
         (is (= 1 (count errs)))
         (is (= [[:dispatch [:other]]] (:returned (:tags (first errs)))))))))
 
-(deftest reg-event-fx-nil-return-stays-silent
+(deftest reg-event-nil-return-stays-silent
   (testing "handler returning nil is a documented legal no-op; no :rf.error/effect-handler-bad-return"
     (let [recorded (record-traces! ::nil-quiet)]
       (rf/reg-event :test.k3bj/nil-return
@@ -431,7 +431,7 @@
         (is (= db-before (rf/app-db-value :rf/default))
             "app-db is unchanged after a nil-return no-op")))))
 
-(deftest reg-event-fx-map-return-still-works
+(deftest reg-event-map-return-still-works
   (testing "handler returning a well-shaped {:db ...} effect-map still applies"
     (let [recorded (record-traces! ::map-good)]
       (rf/reg-event :test.k3bj/map-return
@@ -444,7 +444,7 @@
 
 ;; ---- normalise-args: documented user-facing shapes (rf2-fuudi) -----------
 ;;
-;; Per the `reg-event-db` docstring (events.cljc), the variadic tail accepts
+;; Per the `reg-event` docstring (events.cljc), the variadic tail accepts
 ;; two shapes:
 ;;
 ;;   (reg-event :id                       handler)             ;; tail = 1

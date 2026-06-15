@@ -18,7 +18,7 @@
   `re-frame.source-coords-test` covers the JVM path; this test exercises
   the CLJS path end-to-end.
 
-  Failure mode on `main` (pre-fix): every reg-event-db (and every other
+  Failure mode on `main` (pre-fix): every reg-event (and every other
   reg-* macro) below would carry `:file \"NO_SOURCE_PATH\"` in its
   registered metadata. After the fix, `:file` either resolves to the
   real source path (the common shadow-cljs path) or is omitted entirely
@@ -65,8 +65,8 @@
         (is (file-is-real? f)
             ":file when present must be a real source path")))))
 
-(deftest reg-event-db-file-is-not-no-source-path
-  (testing "rf2-mdjp: reg-event-db emits a real :file under CLJS, not NO_SOURCE_PATH"
+(deftest reg-event-db-return-file-is-not-no-source-path
+  (testing "rf2-mdjp: reg-event with a {:db ...} return emits a real :file under CLJS, not NO_SOURCE_PATH"
     (rf/reg-event :rf2-mdjp/reg-event-db-sample
                      (fn [{:keys [db]} _] {:db db}))
     (let [m (rf/handler-meta :event :rf2-mdjp/reg-event-db-sample)
@@ -78,14 +78,14 @@
         (is (file-is-real? f)
             ":file when present must be a real source path")))))
 
-(deftest reg-event-fx-file-is-not-no-source-path
-  (testing "rf2-mdjp: reg-event-fx emits a real :file under CLJS"
+(deftest reg-event-fx-return-file-is-not-no-source-path
+  (testing "rf2-mdjp: reg-event with an effect-map return emits a real :file under CLJS"
     (rf/reg-event :rf2-mdjp/reg-event-fx-sample
                      (fn [_ _] {}))
     (let [f (:file (rf/handler-meta :event :rf2-mdjp/reg-event-fx-sample))]
       (is (not= "NO_SOURCE_PATH" f)))))
 
-(deftest reg-event-ctx-file-is-not-no-source-path
+(deftest reg-event-with-interceptor-file-is-not-no-source-path
   (testing "rf2-mdjp: reg-event with a full-context interceptor emits a real :file under CLJS"
     (rf/reg-interceptor* :rf2-mdjp/ctx-probe {:before (fn [ctx] ctx)})
     (rf/reg-event :rf2-mdjp/reg-event-ctx-sample

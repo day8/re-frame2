@@ -227,7 +227,7 @@
           "nil (no :db effect) is a no-op"))))
 
 (deftest db-handler-returning-legacy-runtime-root-surfaces-hard-error
-  (testing "a reg-event-db handler returning a :rf/runtime root surfaces :rf.error/legacy-runtime-root"
+  (testing "a reg-event handler whose {:db ...} return carries a :rf/runtime root surfaces :rf.error/legacy-runtime-root"
     (rf/reg-frame :ctx/legacy-db {:doc "ctx"})
     (let [recorded (record-traces! ::legacy-db)]
       (rf/reg-event :ctx/writes-legacy-root
@@ -245,7 +245,7 @@
             "the legacy :rf/runtime root never lands in app-db (hard-error rejects the write)")))))
 
 (deftest fx-handler-returning-legacy-runtime-root-surfaces-hard-error
-  (testing "a reg-event-fx handler whose :db effect carries :rf/runtime surfaces the hard error"
+  (testing "a reg-event handler whose {:db :fx} return carries :rf/runtime in its :db effect surfaces the hard error"
     (rf/reg-frame :ctx/legacy-fx {:doc "ctx"})
     (let [recorded (record-traces! ::legacy-fx)]
       (rf/reg-event :ctx/fx-writes-legacy-root
@@ -275,12 +275,12 @@
 ;; rf2-u1kdvg — FINAL-effects boundary shape policing
 ;; ===========================================================================
 ;;
-;; `commit-fx-effects` polices a `reg-event-fx` HANDLER RETURN during the
+;; `commit-fx-effects` polices a `reg-event` HANDLER RETURN during the
 ;; chain's `:before` pass — BEFORE the `:after` interceptors run. The router
 ;; consumes the FINAL `(:effects final-ctx)` AFTER the whole chain ran, so an
 ;; effect can arrive malformed by a route the per-handler-return checks never
-;; saw: a `reg-event-ctx` return (no effect-map validation) or an `:after`-
-;; interceptor mutation. `events/police-final-effects!` + the router's final
+;; saw: an `:after`-interceptor mutation of the effect-map after the handler
+;; return was already validated. `events/police-final-effects!` + the router's final
 ;; legacy-root check close that gap:
 ;;   - a foreign top-level effect key is DROPPED (not silently ignored at the
 ;;     partition commit) with `:rf.error/effect-map-shape`;
@@ -432,7 +432,7 @@
 ;; ---- the well-shaped hot path stays clean ---------------------------------
 
 (deftest well-shaped-final-effects-emit-no-shape-error
-  (testing "a clean reg-event-fx return ({:db .. :fx [..]}) emits NO :rf.error/effect-map-shape from the final boundary (no double-policing)"
+  (testing "a clean reg-event {:db :fx} return ({:db .. :fx [..]}) emits NO :rf.error/effect-map-shape from the final boundary (no double-policing)"
     (rf/reg-frame :ctx/clean-final {:doc "ctx"})
     (let [recorded (record-traces! ::clean-final)]
       (rf/reg-fx :ctx/noop-fx (fn [_ _]))

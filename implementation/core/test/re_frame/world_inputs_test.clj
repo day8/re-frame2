@@ -657,8 +657,8 @@
     (rf/reg-frame :wi/todos {:doc "ctx"})
     ;; The durable handler: reads the causal token's scripted id + colour from
     ;; the world-input coeffect (NOT an ambient `random-uuid` / `rand-nth`) and
-    ;; folds them into a durable app-db entity. `reg-event-fx` so we can read
-    ;; the `:rf.cofx` framework coeffect off the cofx map.
+    ;; folds them into a durable app-db entity. A `reg-event` handler so we can
+    ;; read the `:rf.cofx` framework coeffect off the cofx map.
     (rf/reg-event :todo/create
       (fn [{:keys [db] cofx :rf.cofx} [_ text]]
         (let [id    (:todo/id cofx)

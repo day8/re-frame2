@@ -95,9 +95,9 @@
       (rf/reg-event :path-ns/inc
                        {:interceptors [[:rf.interceptor/path [:foo :bar]]
                                        :path-ns/spy]}
-                       ;; reg-event-db handlers receive (slice, event-vec);
-                       ;; `inc` is arity-1 so wrap it explicitly to honour
-                       ;; the (fn [db event] new-db) contract.
+                       ;; a path-focused reg-event handler receives the focused
+                       ;; slice in its coeffects `:db`; `inc` is arity-1 so wrap
+                       ;; it explicitly to return a `{:db new-slice}` effect.
                        (fn [{slice :db} _] {:db (inc slice)}))
       (rf/dispatch-sync [:path-ns/init])
       (rf/dispatch-sync [:path-ns/inc])
@@ -132,7 +132,7 @@
 ;; Per rf2-rwlj2 / Round-2 audit finding CQ-R2.5: the `:after` arm of
 ;; `path` only writes `:effects :db` when the handler actually produced
 ;; one. When the handler emits no `:db` effect (an `:fx`-only handler
-;; under `reg-event-fx`, or any handler that returns `{}`), the path
+;; return, or any handler that returns `{}`), the path
 ;; interceptor passes through cleanly — no spurious `:db` effect, no
 ;; allocation. Pins the "no `:db` effect = no DB write" contract.
 ;;
@@ -146,7 +146,7 @@
     (let [final-ctx (atom nil)]
       (rf/reg-event :path-noop/init
                        (fn [{:keys [db]} _] {:db {:foo {:bar 10} :other :preserved}}))
-      ;; A `reg-event-fx` handler that emits ONLY `:fx`, no `:db`.
+      ;; A reg-event handler that emits ONLY `:fx`, no `:db`.
       ;; Pre-fix the path interceptor would have spliced the unchanged
       ;; slice back into `:effects :db` regardless — producing a
       ;; spurious DB write the handler never asked for.

@@ -771,10 +771,11 @@
 ;;
 ;; The canonical Ring-adapter ↔ cofx boundary. Per Spec 011 §Request
 ;; storage substrate, the host adapter populates the per-frame request
-;; slot before drain; the `:rf.server/request` cofx reads from the slot
-;; via `(inject-cofx :rf.server/request)`. This test pins the wiring
-;; end-to-end — if the adapter forgets to call `set-request!`, the
-;; cofx surfaces `nil` and this assertion fails.
+;; slot before drain; a handler declares `:rf.cofx/requires
+;; [:rf.server/request]` and the `:rf.server/request` cofx reads from the
+;; slot at context assembly (EP-0017 — `inject-cofx` is removed). This test
+;; pins the wiring end-to-end — if the adapter forgets to call
+;; `set-request!`, the cofx surfaces `nil` and this assertion fails.
 ;; ===========================================================================
 
 (deftest handler-surfaces-request-via-cofx

@@ -155,7 +155,7 @@
 
 ;; ---- per-registration mark extraction -----------------------------------
 
-(deftest reg-event-db-stashes-marks
+(deftest reg-event-db-return-stashes-marks
   (rf/reg-event :evt
     {:sensitive [[:password]] :large [[:upload]]}
     (fn [{:keys [db]} _] {:db db}))
@@ -163,13 +163,13 @@
     (is (= [[:password]] (:sensitive m)))
     (is (= [[:upload]] (:large m)))))
 
-(deftest reg-event-fx-stashes-marks
+(deftest reg-event-fx-return-stashes-marks
   (rf/reg-event :evt
     {:sensitive [[:totp]]}
     (fn [_ _] {}))
   (is (= [[:totp]] (:sensitive (marks/marks-for :event :evt)))))
 
-(deftest reg-event-ctx-stashes-marks
+(deftest reg-event-with-interceptor-stashes-marks
   (rf/reg-interceptor* :evt/ctx-probe {:before (fn [ctx] ctx)})
   (rf/reg-event :evt
     {:large [[:body :blob]]
@@ -296,16 +296,16 @@
       (is (= [:bad] (:bad-entries data))
           "the two well-formed vector entries are not listed"))))
 
-(deftest reg-event-db-rejects-malformed-marks-no-stash
+(deftest reg-event-rejects-malformed-marks-no-stash
   ;; The rejection fires through the PUBLIC reg-* boundary too (register-marks!
-  ;; is called from reg-event-* / reg-sub / reg-fx / reg-cofx).
-  (testing "reg-event-db with a malformed :sensitive throws and stashes nothing"
+  ;; is called from reg-event / reg-sub / reg-fx / reg-cofx).
+  (testing "reg-event with a malformed :sensitive throws and stashes nothing"
     (let [ex (try (rf/reg-event :malformed/evt
                     {:sensitive [:password]} ; should be [[:password]]
                     (fn [{:keys [db]} _] {:db db}))
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex) "reg-event-db threw")
+      (is (some? ex) "reg-event threw")
       (is (= :rf.error/bad-marks (:rf.error/id (ex-data ex))))
       (is (nil? (marks/marks-for :event :malformed/evt))
           "no marks entry stashed for the rejected registration"))))
