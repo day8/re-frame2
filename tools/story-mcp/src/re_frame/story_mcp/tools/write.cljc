@@ -14,6 +14,7 @@
   `tools.registry/tool-registry` concatenates after `write/descriptors`
   so IMPL-SPEC §7.3 order survives the file split."
   (:require [clojure.edn :as edn]
+            [re-frame.error :as error]
             [re-frame.mcp-base.args :as args]
             [re-frame.story :as story]
             [re-frame.story.schemas :as story-schemas]
@@ -160,12 +161,14 @@
         (let [parsed (edn/read-string
                        {:readers {}
                         :default (fn [tag _]
-                                   (throw (ex-info ":rf.error/story-mcp-tagged-literal-rejected"
-                                                   {:rf.error/id :rf.error/story-mcp-tagged-literal-rejected
-                                                    :where    'story-mcp/parse-edn-body
-                                                    :recovery :no-recovery
-                                                    :reason   "tagged literals are not permitted in EDN write bodies"
-                                                    :tag      tag})))}
+                                   (error/throw-error!
+                                     :rf.error/story-mcp-tagged-literal-rejected
+                                     'story-mcp/parse-edn-body
+                                     (str "tagged literals are not permitted in EDN "
+                                          "write bodies; remove the #" tag " tagged "
+                                          "literal and send plain EDN.")
+                                     {:recovery :remove-the-tagged-literal
+                                      :extra    {:tag tag}}))}
                        body)]
           (if (> (value-depth parsed) max-edn-depth)
             ::edn-error
