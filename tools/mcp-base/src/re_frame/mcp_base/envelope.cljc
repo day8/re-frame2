@@ -66,7 +66,7 @@
     (pos? (or elided  0)) (assoc vocab/elided-large-key      elided)))
 
 ;; ---------------------------------------------------------------------------
-;; Wire-bounded marker detection (rf2-gktyn, rf2-3z0zi).
+;; Wire-bounded marker detection (rf2-gktyn, rf2-3z0zi, rf2-3xd9i9).
 ;;
 ;; The `:rf.mcp/cache-hit` and `:rf.mcp/overflow` envelopes are
 ;; replacement results the cache + cap boundary steps emit themselves.
@@ -74,18 +74,28 @@
 ;; work and a cache check on a hit-marker would hash the marker, not
 ;; the original payload.
 ;;
-;; Substring-match on the rendered text is the cheap detector — the
+;; Leading-token match on the rendered text is the cheap detector — the
 ;; marker map's namespaced key is the first key of the outer map, so a
-;; `starts-with?` on the trimmed text is fast and tight. We match BOTH
-;; print forms the single-key namespaced marker map can take: the flat
-;; form `{:rf.mcp/overflow ...` (the form CLJS `pr-str` emits and the
-;; form JVM emits with `*print-namespace-maps*` false) and the
+;; tight match on the trimmed text's leading token is fast. We match
+;; BOTH print forms the single-key namespaced marker map can take: the
+;; flat form `{:rf.mcp/overflow ...` (the form CLJS `pr-str` emits and
+;; the form JVM emits with `*print-namespace-maps*` false) and the
 ;; namespaced-map shorthand `#:rf.mcp{:overflow ...` (the form JVM
 ;; `pr-str` emits by default for a single-namespace map). Matching both
-;; keeps the detector host- and print-setting-agnostic. A false
-;; positive would require an agent-supplied payload that ALSO renders
-;; with `:rf.mcp/cache-hit` / `:rf.mcp/overflow` as its leading top-
-;; level key — not a realistic shape for any tool's result.
+;; keeps the detector host- and print-setting-agnostic.
+;;
+;; EXACT key, not a prefix (rf2-3xd9i9). A bare `starts-with?` on the
+;; marker key would wrongly classify a LOOKALIKE first key whose name
+;; merely begins with a marker key — e.g. `:rf.mcp/overflowed` or
+;; `:rf.mcp/cache-hit-extra`. That is a correctness hole: an over-budget
+;; payload whose leading key starts with `:rf.mcp/overflow` would be
+;; treated as an already-bounded marker and bypass cap enforcement. So
+;; after the prefix matches we require the very next character to be an
+;; EDN token TERMINATOR (whitespace or a delimiter), proving the marker
+;; key ended exactly there and was not merely a prefix of a longer key.
+;; The two real markers always carry a non-empty map value, so the
+;; terminator (the space `pr-str` writes before the value) is always
+;; present — the exact-match check preserves their short-circuit.
 ;; ---------------------------------------------------------------------------
 
 (defn- marker-key-prefixes
@@ -108,10 +118,39 @@
   envelopes (`:rf.mcp/cache-hit`, `:rf.mcp/overflow`). Includes BOTH
   the flat and the namespaced-map print forms (see the comment block
   above) so the detector works regardless of host or
-  `*print-namespace-maps*`. A response whose text starts with one of
-  these is a boundary-step marker that later boundary steps must NOT
-  re-walk."
+  `*print-namespace-maps*`. A response whose leading token IS one of
+  these keys (not merely starts-with — see `marker-text?`) is a
+  boundary-step marker that later boundary steps must NOT re-walk."
   (into [] (mapcat marker-key-prefixes) [vocab/cache-hit-key vocab/overflow-key]))
+
+;; An EDN keyword/symbol constituent: alphanumerics plus the punctuation
+;; a keyword name/namespace may legally contain (`* + ! - _ ' ? < > = .
+;; / : # & %`). A 1-char string that matches this regex CONTINUES the
+;; marker key (⇒ lookalike); anything else (whitespace, `,`, or a
+;; map/vector/list/string delimiter) TERMINATES it. Single regex keeps
+;; the check identical across CLJ and CLJS (no host char-arithmetic).
+(def ^:private key-constituent-re #"[A-Za-z0-9*+!_'?<>=./:#&%-]")
+
+(defn- key-terminator?
+  "Is the 1-char string `ch` a character that cannot continue an EDN
+  keyword/symbol token — i.e. a valid terminator immediately following a
+  marker key in rendered text (rf2-3xd9i9)? `nil` (end-of-string) does
+  NOT count: a complete marker map always has a value after the key, so
+  a key flush against EOS is a truncated / lookalike form, not a real
+  marker."
+  [ch]
+  (boolean (and ch (not (re-matches key-constituent-re ch)))))
+
+(defn- exact-marker-prefix?
+  "Does `text` begin with marker `prefix` AND end the marker key exactly
+  there — i.e. the character at index `(count prefix)` is a token
+  terminator (rf2-3xd9i9)? This rejects lookalike first keys like
+  `:rf.mcp/overflowed` whose name merely starts with a marker key."
+  [text prefix]
+  (let [plen (count prefix)]
+    (and (str/starts-with? text prefix)
+         (key-terminator? (when (> (count text) plen)
+                            (subs text plen (inc plen)))))))
 
 (defn marker-text?
   "Is `text` (the rendered EDN text of a response's first content slot)
@@ -121,10 +160,18 @@
   the two envelopes the cache + cap steps emit themselves. The
   consumer reads its own platform's content text (`:text` from a
   Clojure map, `j/get :text` from a JS object) and passes the string
-  here; this fn owns only the prefix-match logic, shared across hosts.
+  here; this fn owns only the leading-token match logic, shared across
+  hosts.
+
+  Matches the EXACT marker key, not merely a prefix of it (rf2-3xd9i9):
+  a lookalike leading key such as `:rf.mcp/overflowed` or
+  `:rf.mcp/cache-hit-extra` is NOT a marker. The match requires the
+  marker key to be terminated by an EDN token terminator (the space
+  `pr-str` writes before the marker's value), so an over-budget payload
+  whose first key merely starts with a marker key still gets capped.
 
   Nil-safe: a nil / non-string `text` is not a marker."
   [text]
   (boolean
     (and (string? text)
-         (some #(str/starts-with? text %) marker-prefixes))))
+         (some #(exact-marker-prefix? text %) marker-prefixes))))

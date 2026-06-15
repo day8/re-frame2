@@ -105,3 +105,37 @@
   (testing "flat form (CLJS / *print-namespace-maps* false)"
     (is (true? (envelope/marker-text? "{:rf.mcp/overflow {:limit :reached}}")))
     (is (true? (envelope/marker-text? "{:rf.mcp/cache-hit {:tool \"x\"}}")))))
+
+(deftest marker-text?-requires-exact-marker-key-not-prefix
+  ;; rf2-3xd9i9 regression: the detector matched on `starts-with?` of the
+  ;; marker-key PREFIX, so a LOOKALIKE leading key whose name merely
+  ;; begins with a real marker key (`:rf.mcp/overflowed`,
+  ;; `:rf.mcp/cache-hit-extra`) was wrongly classified as an already-
+  ;; bounded marker — letting an over-budget payload bypass cap
+  ;; enforcement. The fix requires the marker key to END exactly at the
+  ;; prefix (terminated by an EDN token terminator), so a strict
+  ;; prefix-superset key is NOT a marker.
+  (testing "strict prefix-superset of a marker key ⇒ NOT a marker (flat form)"
+    (is (false? (envelope/marker-text? "{:rf.mcp/overflowed {:x 1}}"))
+        "':rf.mcp/overflowed' merely starts with ':rf.mcp/overflow'")
+    (is (false? (envelope/marker-text? "{:rf.mcp/cache-hit-extra {:x 1}}"))
+        "':rf.mcp/cache-hit-extra' merely starts with ':rf.mcp/cache-hit'")
+    ;; A real payload over budget whose first key is a lookalike: the
+    ;; exact realistic cap-bypass shape the bead calls out.
+    (is (false? (envelope/marker-text?
+                  (pr-str (array-map :rf.mcp/overflowed {:limit :reached :token-count 9000}))))))
+  (testing "strict prefix-superset of a marker key ⇒ NOT a marker (namespaced-map form)"
+    (is (false? (envelope/marker-text? "#:rf.mcp{:overflowed {:x 1}}")))
+    (is (false? (envelope/marker-text? "#:rf.mcp{:cache-hit-extra {:x 1}}"))))
+  (testing "the EXACT marker key still matches (both print forms)"
+    (is (true? (envelope/marker-text? "{:rf.mcp/overflow {:x 1}}")))
+    (is (true? (envelope/marker-text? "{:rf.mcp/cache-hit {:x 1}}")))
+    (is (true? (envelope/marker-text? "#:rf.mcp{:overflow {:x 1}}")))
+    (is (true? (envelope/marker-text? "#:rf.mcp{:cache-hit {:x 1}}")))
+    ;; Round-trip through pr-str under both *print-namespace-maps* settings.
+    (is (true? (envelope/marker-text?
+                 (binding [*print-namespace-maps* false]
+                   (pr-str {vocab/overflow-key {:limit :reached}})))))
+    (is (true? (envelope/marker-text?
+                 (binding [*print-namespace-maps* true]
+                   (pr-str {vocab/cache-hit-key {:tool "x"}})))))))
