@@ -458,7 +458,7 @@
            "ssr-handler when a custom one-piece shell is required.")
       {:recovery :drop-html-shell-or-use-non-streaming-handler
        :extra    {:opt-key :html-shell
-                  :got     (:html-shell opts)}})))
+                  :got     (:html-shell opts)}}))
   opts)
 
 (defn resolve-on-error

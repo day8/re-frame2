@@ -1194,8 +1194,14 @@
         (render-fn [:div] nil nil)
         (is false "render-fn must throw — did not")
         (catch clojure.lang.ExceptionInfo e
-          (is (= ":rf.error/render-on-headless-adapter" (ex-message e))
-              "ex-message names the contract violation")
+          ;; rf2-vvixub — branch on the canonical :rf.error/id; the message is
+          ;; the human :reason sentence + the [:rf.error/<id>] token, NOT a bare
+          ;; keyword (tests must not exact-equal the non-normative message).
+          (is (= :rf.error/render-on-headless-adapter
+                 (:rf.error/id (ex-data e)))
+              "ex-data carries the canonical discriminator")
+          (is (re-find #"\[:rf\.error/render-on-headless-adapter\]" (ex-message e))
+              "ex-message carries the [:rf.error/<id>] greppability token")
           (is (string? (-> e ex-data :reason))
               "ex-data carries a human :reason"))))))
 

@@ -138,7 +138,7 @@
              "passed is not a MachineChart root (or descendant of one). "
              "Pass the DOM node of a rendered MachineChart.")
         {:recovery :pass-a-rendered-machinechart-element
-         :extra    {:element chart-element}})))
+         :extra    {:element chart-element}}))
     seam))
 
 (defn- state-label

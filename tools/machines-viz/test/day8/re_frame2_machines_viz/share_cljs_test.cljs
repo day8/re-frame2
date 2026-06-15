@@ -568,10 +568,14 @@
 
 (deftest malformed-fragment-rejected
   (testing "a URL with no #machine= fragment throws :malformed-fragment"
-    (is (thrown-with-msg? :default #"malformed-fragment"
+    ;; rf2-vvixub — the message is now the human sentence + the
+    ;; [:rf.machines-viz.share/decode-failed] token; the fine-grained
+    ;; classification rides the documented :reason slot (branch on that).
+    (is (thrown? :default
           (share/decode-share-url "https://example.com/app")))
     (let [d (try (share/decode-share-url "https://example.com/app")
                  (catch :default e (ex-data e)))]
+      (is (= :rf.machines-viz.share/decode-failed (:rf.error/id d)))
       (is (= :malformed-fragment (:reason d))))))
 
 (deftest malformed-base64-rejected
