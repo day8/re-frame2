@@ -50,6 +50,7 @@
 
   Per [`API.md`](../../spec/API.md) §Exporters."
   (:require [clojure.string :as str]
+            [re-frame.error :as error]
             [day8.re-frame2-machines-viz.mermaid :as mermaid]
             [day8.re-frame2-machines-viz.share :as share]))
 
@@ -130,12 +131,14 @@
   (let [^js root (chart-root chart-element)
         seam (some-> root .-_rfMvChartState)]
     (when-not (map? seam)
-      (throw (ex-info ":rf.machines-viz.export/no-chart-state"
-                      {:rf.error/id :rf.machines-viz.export/no-chart-state
-                       :where       'machines-viz.export
-                       :recovery    :no-recovery
-                       :reason      "chart-element carries no MachineChart state seam"
-                       :element     chart-element})))
+      (error/throw-error!
+        :rf.machines-viz.export/no-chart-state
+        'machines-viz.export
+        (str "export expects a rendered MachineChart element; the element "
+             "passed is not a MachineChart root (or descendant of one). "
+             "Pass the DOM node of a rendered MachineChart.")
+        {:recovery :pass-a-rendered-machinechart-element
+         :extra    {:element chart-element}})))
     seam))
 
 (defn- state-label
@@ -405,11 +408,13 @@
         cs       (chart-state-of chart-element)
         viewport (find-viewport root)]
     (when-not (and viewport (find-edge-svg root))
-      (throw (ex-info ":rf.machines-viz.export/no-svg"
-                      {:rf.error/id :rf.machines-viz.export/no-svg
-                       :where       'machines-viz.export/chart-as-svg
-                       :recovery    :no-recovery
-                       :reason      "chart has no rendered viewport to serialise"})))
+      (error/throw-error!
+        :rf.machines-viz.export/no-svg
+        'machines-viz.export/chart-as-svg
+        (str "the MachineChart has no rendered viewport to serialise to SVG "
+             "(an empty-state placeholder renders no chart); export after the "
+             "chart has rendered a non-empty topology.")
+        {:recovery :export-after-the-chart-renders}))
     (let [{:keys [width height] :as bounds} (viewport-content-bounds viewport)
           inner      (clone-viewport-html viewport bounds)
           ;; rf2-85a9do — <title>/<desc> are built by hand (not via
@@ -445,8 +450,13 @@
             item (js/ClipboardItem. #js {"image/svg+xml" blob})]
         (.write (.-clipboard js/navigator) #js [item]))
       (js/Promise.reject
-        (ex-info "clipboard API unavailable"
-                 {:rf.error/id :rf.machines-viz.export/no-clipboard})))))
+        (error/thrown-ex-info
+          :rf.machines-viz.export/no-clipboard
+          'machines-viz.export/copy-svg-to-clipboard!
+          (str "the browser clipboard API is unavailable; copy requires a "
+               "secure (https) context with navigator.clipboard + "
+               "ClipboardItem support.")
+          {:recovery :use-a-secure-context-with-clipboard-support})))))
 
 ;; ---------------------------------------------------------------------------
 ;; PNG
@@ -493,13 +503,24 @@
                                  (fn [blob]
                                    (if blob
                                      (resolve blob)
-                                     (reject (ex-info "canvas.toBlob returned nil"
-                                                      {:rf.error/id :rf.machines-viz.export/png-failed}))))
+                                     (reject (error/thrown-ex-info
+                                               :rf.machines-viz.export/png-failed
+                                               'machines-viz.export/chart-as-png!
+                                               (str "PNG export failed: canvas.toBlob "
+                                                    "returned nil; the browser could not "
+                                                    "rasterise the chart canvas. Retry, or "
+                                                    "export SVG/Mermaid instead.")
+                                               {:recovery :retry-or-export-svg-or-mermaid}))))
                                  "image/png")))
                     (catch :default e (reject e)))))
           (set! (.-onerror img)
-                (fn [_] (reject (ex-info "SVG image failed to load"
-                                         {:rf.error/id :rf.machines-viz.export/png-failed}))))
+                (fn [_] (reject (error/thrown-ex-info
+                                  :rf.machines-viz.export/png-failed
+                                  'machines-viz.export/chart-as-png!
+                                  (str "PNG export failed: the serialised SVG image "
+                                       "could not be loaded for rasterisation. Retry, "
+                                       "or export SVG/Mermaid instead.")
+                                  {:recovery :retry-or-export-svg-or-mermaid}))))
           (set! (.-src img) data-url))))))
 
 (defn copy-png-to-clipboard!
@@ -518,8 +539,13 @@
                                                  "text/plain" alt-blob})]
                 (.write (.-clipboard js/navigator) #js [item]))
               (js/Promise.reject
-                (ex-info "clipboard API unavailable"
-                         {:rf.error/id :rf.machines-viz.export/no-clipboard}))))))))
+                (error/thrown-ex-info
+                  :rf.machines-viz.export/no-clipboard
+                  'machines-viz.export/copy-png-to-clipboard!
+                  (str "the browser clipboard API is unavailable; copy requires a "
+                       "secure (https) context with navigator.clipboard + "
+                       "ClipboardItem support.")
+                  {:recovery :use-a-secure-context-with-clipboard-support}))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Mermaid
@@ -545,8 +571,12 @@
     (if (and js/navigator (.-clipboard js/navigator))
       (.writeText (.-clipboard js/navigator) md)
       (js/Promise.reject
-        (ex-info "clipboard API unavailable"
-                 {:rf.error/id :rf.machines-viz.export/no-clipboard})))))
+        (error/thrown-ex-info
+          :rf.machines-viz.export/no-clipboard
+          'machines-viz.export/copy-mermaid-to-clipboard!
+          (str "the browser clipboard API is unavailable; copy requires a "
+               "secure (https) context with navigator.clipboard support.")
+          {:recovery :use-a-secure-context-with-clipboard-support})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Share URL
@@ -595,5 +625,9 @@
      (if (and js/navigator (.-clipboard js/navigator))
        (.writeText (.-clipboard js/navigator) url)
        (js/Promise.reject
-         (ex-info "clipboard API unavailable"
-                  {:rf.error/id :rf.machines-viz.export/no-clipboard}))))))
+         (error/thrown-ex-info
+           :rf.machines-viz.export/no-clipboard
+           'machines-viz.export/copy-share-url-to-clipboard!
+           (str "the browser clipboard API is unavailable; copy requires a "
+                "secure (https) context with navigator.clipboard support.")
+           {:recovery :use-a-secure-context-with-clipboard-support}))))))

@@ -110,10 +110,17 @@
       (is (not (str/starts-with? (str/trim md) "```"))))))
 
 (deftest no-seam-throws
-  (testing "an element with no _rfMvChartState seam throws :no-chart-state"
+  (testing "an element that is not a rendered MachineChart throws :no-chart-state"
     (let [d (try (export/share-url #js {})
                  (catch :default e (ex-data e)))]
-      (is (= "chart-element carries no MachineChart state seam" (:reason d))))))
+      ;; rf2-vvixub / rf2-s6rzia — branch on the canonical :rf.error/id, and
+      ;; the :reason names the PUBLIC concept (a rendered MachineChart
+      ;; element) without leaking the private "state seam" implementation term.
+      (is (= :rf.machines-viz.export/no-chart-state (:rf.error/id d)))
+      (is (string? (:reason d)))
+      (is (re-find #"(?i)machinechart" (:reason d)))
+      (is (not (re-find #"(?i)seam" (:reason d)))
+          ":reason no longer leaks the private 'state seam' implementation term"))))
 
 ;; ---- rf2-85a9do — SVG <title>/<desc> XML escaping -----------------------
 ;;

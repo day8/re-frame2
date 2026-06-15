@@ -10,7 +10,8 @@
     structure.
   - Round-trip property: `(= spec (-> spec spec->scxml scxml->spec))`
     holds for every supported fixture.
-  - Error cases throw `ex-info` with a `:reason :scxml/*` key."
+  - Error cases throw `ex-info` carrying `:rf.error/id :scxml/*` (the
+    canonical discriminator; the message is the human sentence + token)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]

@@ -10,7 +10,8 @@
     tests inject a deterministic stub).
   - `generate-machine` handles fenced (```clojure / ```edn / bare)
     and unfenced responses.
-  - Error modes throw `ex-info` with `:reason :ai-generate/<kw>`.
+  - Error modes throw `ex-info` carrying `:rf.error/id :ai-generate/<kw>`
+    (the canonical discriminator; the message is the human sentence + token).
   - Generated specs are usable by sibling exporters (`scxml->spec`
     round-trip + `mermaid/emit`), so the AI-generate path connects
     end-to-end with the rest of the substrate."
