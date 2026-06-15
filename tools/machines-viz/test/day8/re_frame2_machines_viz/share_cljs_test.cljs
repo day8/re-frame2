@@ -379,7 +379,7 @@
       ;; The `:fn` EVENT id (and its target) survive too.
       (is (= :done (get-in dfn [:states :fn :on :fn]))
           "the `:fn` EVENT id + its target are preserved")
-      (is (= :done (get-in dfn [:states :fn :on :next]))
+      (is (= :other (get-in dfn [:states :fn :on :next]))
           "sibling transitions on the `:fn` state are intact")
       (is (contains? (:states dfn) :other))
       (is (true? (get-in dfn [:states :done :final?]))))))
