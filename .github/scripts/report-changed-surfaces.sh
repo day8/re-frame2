@@ -329,6 +329,29 @@ else
         cljs_browser=true
         cljs_prod=true
         ;;
+      implementation/scripts/serve-and-run-reagent-slim-smoke.cjs|implementation/scripts/_reagent-slim-smoke-policy.test.cjs)
+        # rf2-5v0dg7 — false-green fix, mirroring the xray-feature-gate
+        # launcher case below. serve-and-run-reagent-slim-smoke.cjs IS the
+        # executable orchestration for `npm run test:reagent-slim:smoke`,
+        # the command the cljs-reagent-slim-bundle-isolation PR job now runs
+        # (.github/workflows/test.yml). A break in this launcher (compile,
+        # staging, port resolution, ownership-token readiness, the browser
+        # drive) can break the slim client-runtime smoke gate — yet the
+        # generic implementation/scripts/* case below routes only to the
+        # always-on JS/CLJS surfaces and NEVER to reagent_slim_bundle, so a
+        # PR editing this launcher (or its policy test) could break the very
+        # gate it drives while avoiding it (a false-green hole). Fire
+        # reagent_slim_bundle so editing the launcher runs the gate it
+        # orchestrates. The remaining static-script surfaces this file shares
+        # with the generic case (cljs_node_test / cljs_browser / cljs_prod /
+        # bundle_isolation) stay armed too — this case widens coverage, it
+        # does not narrow it.
+        cljs_node_test=true
+        cljs_browser=true
+        cljs_prod=true
+        bundle_isolation=true
+        reagent_slim_bundle=true
+        ;;
       implementation/scripts/serve-and-run-xray-feature-gate.cjs)
         # rf2-rcepku — false-green fix, mirroring rf2-y9o5e3 for the
         # examples/scripts launchers. This launcher IS the executable

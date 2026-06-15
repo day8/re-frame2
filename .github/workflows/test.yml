@@ -1674,7 +1674,7 @@ jobs:
           retention-days: 14
 
   cljs-reagent-slim-bundle-isolation:
-    name: CLJS Reagent Slim bundle isolation (adapter-owned, rf2-2ppcv)
+    name: CLJS Reagent Slim bundle isolation + client-runtime smoke (adapter-owned, rf2-2ppcv + rf2-5v0dg7)
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.reagent_slim_bundle == 'true'
     runs-on: ubuntu-latest
@@ -1738,6 +1738,22 @@ jobs:
       # the fixture (rf2-vyl0vt).
       - name: Verify Reagent Slim bundle isolates stock Reagent + react-dom/server
         run: npm run test:reagent-slim:bundle-isolation
+
+      # rf2-5v0dg7 — ARM the reagent-slim CLIENT-RUNTIME browser smoke in PR
+      # CI. The dedicated, adapter-owned slim smoke runner
+      # (serve-and-run-reagent-slim-smoke.cjs) compiles the slim testbed,
+      # serves it, and drives the mount/inject/click path in headless
+      # Chromium. Previously only `test:script-policy` proved the npm script
+      # EXISTS and this job ran ONLY bundle-isolation — so a regression in
+      # the adapter-owned mount/injection/click path, or in the smoke runner
+      # itself, could ship green. This step actually executes the gate for
+      # reagent_slim_bundle surface changes (which now also fire on edits to
+      # the runner + its policy test — report-changed-surfaces.sh).
+      - name: Install Playwright (Chromium + system deps)
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Reagent Slim client-runtime browser smoke
+        run: npm run test:reagent-slim:smoke
 
   # ---------------------------------------------------------------------------
   # Per-tool CI jobs (rf2-qq70f).

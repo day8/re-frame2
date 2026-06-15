@@ -38,6 +38,7 @@
 'use strict';
 
 const path = require('path');
+const fs = require('fs');
 
 const IMPL_ROOT = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(IMPL_ROOT, '..');
@@ -72,27 +73,80 @@ function isInside(candidate, root) {
   return true;
 }
 
+// Resolve symlinks/junctions on an absolute path WITHOUT requiring the
+// full path to exist (rf2-l9upzf). A lexical `path.resolve` alone lets a
+// symlink/junction under an allowed root point outside the approved
+// boundary while still passing the lexical prefix check — the writing
+// scripts then follow the link and escape. To close this, walk up to the
+// deepest existing ancestor, `fs.realpathSync` THAT (collapsing every
+// symlink/junction in the existing prefix, including parent-directory
+// links), then re-append the still-nonexistent tail lexically. The tail
+// cannot itself be a symlink (it does not exist), so no escape hides
+// there; any link in the path that DOES exist is canonicalised.
+//
+// Cross-platform: `fs.realpathSync` resolves POSIX symlinks AND Windows
+// junctions/symlinks; we never assume a separator or drive shape — paths
+// are split with `path.dirname` / `path.basename` and rejoined with
+// `path.join`, so the same code runs on win32, darwin, and linux.
+function realpathExistingPrefix(abs) {
+  let existing = abs;
+  const tail = [];
+  // Walk up until we hit a path that exists (or the filesystem root).
+  // `path.dirname` of a root returns the root itself, so the loop is
+  // bounded.
+  while (!fs.existsSync(existing)) {
+    const parent = path.dirname(existing);
+    if (parent === existing) {
+      // Reached the root and nothing exists — nothing to canonicalise.
+      return abs;
+    }
+    tail.unshift(path.basename(existing));
+    existing = parent;
+  }
+  let realExisting;
+  try {
+    realExisting = fs.realpathSync(existing);
+  } catch (_) {
+    // realpath can fail on a broken link / permission edge — fall back to
+    // the lexical absolute path (fail-closed: the lexical check still
+    // applies, we just couldn't canonicalise further).
+    return abs;
+  }
+  return tail.length === 0 ? realExisting : path.join(realExisting, ...tail);
+}
+
 function enforcePolicy(label, candidate, opts) {
   if (candidate == null || candidate === '') {
     throw new Error(`${label}: empty path`);
   }
-  const abs = path.resolve(candidate);
+  // The path the caller intends to read/write — returned on approval so
+  // callers see the path they passed (lexically normalised), not a
+  // surprise canonical rewrite.
+  const lexicalAbs = path.resolve(candidate);
+  // CONTAINMENT CHECK runs on REALPATHS (rf2-l9upzf): collapse any
+  // existing symlink/junction in BOTH the candidate and the allowed
+  // roots before comparing, so a link that resolves outside an approved
+  // root is rejected even though its lexical path looked inside. Roots
+  // are canonicalised too so a legitimate in-root path under a symlinked
+  // checkout (e.g. macOS /tmp -> /private/tmp) still matches.
+  const realCandidate = realpathExistingPrefix(lexicalAbs);
   const allowed = (opts && opts.allowedRoots) || [DEFAULT_OUT_ROOT];
-  for (const root of allowed) {
-    if (isInside(abs, root)) {
-      return abs;
+  const realAllowed = allowed.map((r) => realpathExistingPrefix(path.resolve(r)));
+  for (const root of realAllowed) {
+    if (isInside(realCandidate, root)) {
+      return lexicalAbs;
     }
   }
   if (isOptInEnabled()) {
     console.warn(
-      `${label}: '${abs}' is outside the approved roots, but ` +
+      `${label}: '${lexicalAbs}' is outside the approved roots, but ` +
         `${OPT_IN_VAR}=1 — proceeding. ` +
         `Approved roots: ${allowed.map((r) => `'${r}'`).join(', ')}.`,
     );
-    return abs;
+    return lexicalAbs;
   }
   throw new Error(
-    `${label}: refusing to use '${abs}' — path is outside the approved ` +
+    `${label}: refusing to use '${lexicalAbs}' — path is outside the approved ` +
       `roots (${allowed.map((r) => `'${r}'`).join(', ')}). ` +
       `To allow out-of-tree paths (downstream-consumer use), set ` +
       `${OPT_IN_VAR}=1 in the environment. Per rf2-o38lb security audit.`,

@@ -413,6 +413,43 @@ test('an UNRELATED implementation/scripts/* file does NOT fire story_xray_browse
   );
 });
 
+// rf2-5v0dg7 — reagent-slim CLIENT-RUNTIME smoke routing. The
+// serve-and-run-reagent-slim-smoke.cjs launcher IS the executable
+// orchestration for `npm run test:reagent-slim:smoke`, the command the
+// cljs-reagent-slim-bundle-isolation PR job now runs. Editing it (or its
+// policy test) must fire the reagent_slim_bundle gate it drives — else a PR
+// can break the launcher while avoiding the very smoke gate it orchestrates
+// (the generic implementation/scripts/* case never fires reagent_slim_bundle).
+
+test('implementation/scripts/serve-and-run-reagent-slim-smoke.cjs fires reagent_slim_bundle (rf2-5v0dg7)', () => {
+  const result = classify('implementation/scripts/serve-and-run-reagent-slim-smoke.cjs');
+  assert.equal(
+    result.reagent_slim_bundle,
+    'true',
+    'editing the slim smoke launcher must run the reagent-slim gate it drives',
+  );
+});
+
+test('implementation/scripts/_reagent-slim-smoke-policy.test.cjs fires reagent_slim_bundle (rf2-5v0dg7)', () => {
+  const result = classify('implementation/scripts/_reagent-slim-smoke-policy.test.cjs');
+  assert.equal(result.reagent_slim_bundle, 'true');
+});
+
+test('implementation/scripts/serve-and-run-reagent-slim-smoke.cjs still arms the generic static-script gates (regression) (rf2-5v0dg7)', () => {
+  const result = classify('implementation/scripts/serve-and-run-reagent-slim-smoke.cjs');
+  assert.equal(result.cljs_node_test, 'true');
+  assert.equal(result.cljs_browser, 'true');
+  assert.equal(result.cljs_prod, 'true');
+  assert.equal(result.bundle_isolation, 'true');
+});
+
+test('the reagent-slim adapter/testbed surface fires reagent_slim_bundle (canonical trigger) (rf2-5v0dg7)', () => {
+  // The smoke testbed lives under implementation/adapters/reagent-slim/; a
+  // change there must arm the slim gate (now incl. the smoke) directly.
+  const result = classify('implementation/adapters/reagent-slim/testbed/smoke.cjs');
+  assert.equal(result.reagent_slim_bundle, 'true');
+});
+
 test('implementation/package.json still arms cljs_node_test (regression — it defines node deps) (rf2-6yuzo4)', () => {
   const result = classify('implementation/package.json');
   assert.equal(result.cljs_node_test, 'true');

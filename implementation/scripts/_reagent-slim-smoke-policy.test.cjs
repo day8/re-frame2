@@ -52,6 +52,13 @@ const RUNNER = path.join(IMPL_ROOT, 'scripts', 'serve-and-run-reagent-slim-smoke
 const SHADOW_EDN = path.join(IMPL_ROOT, 'shadow-cljs.edn');
 const PKG_JSON = path.join(IMPL_ROOT, 'package.json');
 const EXAMPLES_FILTER = path.join(REPO_ROOT, 'examples', 'scripts', 'examples-filter.cjs');
+const WORKFLOW = path.join(REPO_ROOT, '.github', 'workflows', 'test.yml');
+const CHANGED_SURFACES = path.join(
+  REPO_ROOT,
+  '.github',
+  'scripts',
+  'report-changed-surfaces.sh',
+);
 
 let failed = 0;
 function it(label, fn) {
@@ -198,6 +205,65 @@ it('`test:script-policy` runs THIS policy test', () => {
     /_reagent-slim-smoke-policy\.test\.cjs/.test(s),
     'test:script-policy does not run _reagent-slim-smoke-policy.test.cjs — ' +
       'the slim smoke wiring is unguarded',
+  );
+});
+
+// ---- 5b) PR CI ACTUALLY RUNS the smoke gate (rf2-5v0dg7) ------------------
+// Teeth beyond "the npm script exists": the workflow must EXECUTE it, and a
+// reagent-slim surface change must ARM the job that runs it. Without these,
+// the smoke can silently stop running in PR CI (the exact rf2-5v0dg7 bug).
+
+const WORKFLOW_SRC = fs.existsSync(WORKFLOW) ? read(WORKFLOW) : '';
+const CHANGED_SURFACES_SRC = fs.existsSync(CHANGED_SURFACES) ? read(CHANGED_SURFACES) : '';
+
+it('PR CI workflow EXECUTES `npm run test:reagent-slim:smoke`', () => {
+  assert.ok(WORKFLOW_SRC, `missing workflow: ${WORKFLOW}`);
+  assert.ok(
+    /npm run test:reagent-slim:smoke/.test(WORKFLOW_SRC),
+    '.github/workflows/test.yml never runs `npm run test:reagent-slim:smoke` — ' +
+      'the slim client-runtime smoke is UNARMED in PR CI (it exists as an npm ' +
+      'script but no job executes it).',
+  );
+});
+
+it('the slim smoke runs in a reagent_slim_bundle-gated job', () => {
+  // The job that runs the smoke must be guarded by the reagent_slim_bundle
+  // surface so it fires for reagent-slim adapter/testbed/runner changes
+  // (and is skipped, not absent, on unrelated PRs). The smoke step lives in
+  // the cljs-reagent-slim-bundle-isolation job, whose `if:` is gated on
+  // detect_changed_surfaces.outputs.reagent_slim_bundle.
+  assert.ok(
+    /reagent_slim_bundle == 'true'/.test(WORKFLOW_SRC),
+    'no job in test.yml is gated on reagent_slim_bundle — the smoke gate ' +
+      'cannot be armed by reagent-slim surface detection',
+  );
+});
+
+it('changed-surface detection ARMS reagent_slim_bundle for the smoke RUNNER', () => {
+  // The smoke runner under implementation/scripts/ must route to
+  // reagent_slim_bundle; otherwise editing the runner (or its policy test)
+  // falls into the generic implementation/scripts/* case that never fires
+  // the gate — a false-green hole (mirrors the xray-feature-gate launcher
+  // case). Assert a dedicated case names the runner AND sets the surface.
+  assert.ok(CHANGED_SURFACES_SRC, `missing changed-surfaces script: ${CHANGED_SURFACES}`);
+  assert.ok(
+    /serve-and-run-reagent-slim-smoke\.cjs/.test(CHANGED_SURFACES_SRC),
+    'report-changed-surfaces.sh has no case naming ' +
+      'serve-and-run-reagent-slim-smoke.cjs — editing the smoke runner would ' +
+      'not arm the slim smoke gate (false-green hole)',
+  );
+  // The runner case must set reagent_slim_bundle=true. Extract the case
+  // block (from the case-pattern line naming the runner to its closing
+  // `;;`) and confirm the surface is armed within THAT block — robust to
+  // however long the explanatory comment grows.
+  const idx = CHANGED_SURFACES_SRC.indexOf('serve-and-run-reagent-slim-smoke.cjs');
+  const end = CHANGED_SURFACES_SRC.indexOf(';;', idx);
+  assert.ok(end > idx, 'could not find the end (`;;`) of the slim smoke runner case');
+  const caseBlock = CHANGED_SURFACES_SRC.slice(idx, end);
+  assert.ok(
+    /reagent_slim_bundle=true/.test(caseBlock),
+    'the serve-and-run-reagent-slim-smoke.cjs case does not set ' +
+      'reagent_slim_bundle=true',
   );
 });
 

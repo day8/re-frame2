@@ -10,6 +10,8 @@
 'use strict';
 
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 const assert = require('assert');
 const {
   enforcePolicy,
@@ -90,6 +92,140 @@ it('rejects path-traversal attempts', () => {
       }),
     /outside the approved roots/,
   );
+});
+
+// ---- symlink / junction escape (rf2-l9upzf) ------------------------------
+//
+// A symlink/junction UNDER an allowed root whose target resolves OUTSIDE
+// the approved boundary must be REJECTED — the lexical prefix check alone
+// (path.relative) would wrongly accept it, letting the writing scripts
+// follow the link and escape. A legitimate in-root symlink (target stays
+// inside the allowed root) must still PASS.
+//
+// Cross-platform: dir symlinks need Developer Mode / admin on Windows;
+// when creation isn't permitted we SKIP (not fail) the symlink cases so
+// the suite stays green on a locked-down Windows runner while still
+// asserting on POSIX (and Windows with the privilege). The escape-
+// rejection logic itself is OS-agnostic (it relies on fs.realpathSync,
+// which resolves both POSIX symlinks and Windows junctions/symlinks).
+
+// Create a fresh scratch sandbox: an "allowed root" dir, an "outside"
+// dir well clear of it, and a per-run temp parent so concurrent test
+// runs never collide.
+function makeSandbox() {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-pathpolicy-'));
+  const allowedRoot = path.join(base, 'allowed-root');
+  const outside = path.join(base, 'outside-the-boundary');
+  fs.mkdirSync(allowedRoot, { recursive: true });
+  fs.mkdirSync(outside, { recursive: true });
+  // realpath the allowed root so the policy's canonicalisation of the
+  // root (which also realpaths, e.g. macOS /var -> /private/var) lines up
+  // with what the test passes in.
+  return { base, allowedRoot: fs.realpathSync(allowedRoot), outside: fs.realpathSync(outside) };
+}
+
+// Try to create a directory symlink; on Windows fall back to a junction.
+// Returns true on success, false if the platform refused (no privilege).
+function trySymlinkDir(target, linkPath) {
+  try {
+    fs.symlinkSync(target, linkPath, 'dir');
+    return true;
+  } catch (_) {
+    if (process.platform === 'win32') {
+      try {
+        fs.symlinkSync(target, linkPath, 'junction');
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+    return false;
+  }
+}
+
+it('REJECTS a symlink/junction under an allowed root that targets outside it', () => {
+  const { base, allowedRoot, outside } = makeSandbox();
+  try {
+    // allowed-root/escape-link  ->  ../outside-the-boundary (out of root)
+    const link = path.join(allowedRoot, 'escape-link');
+    if (!trySymlinkDir(outside, link)) {
+      console.log('        (skipped: symlink/junction creation not permitted on this host)');
+      return;
+    }
+    // Lexically `link` is INSIDE allowedRoot, but it resolves OUTSIDE.
+    // The policy must reject it (and reject a child path written through
+    // it, the actual escape vector the writing scripts hit).
+    assert.throws(
+      () => enforcePolicy('BROWSER_TEST_ROOT', link, { allowedRoots: [allowedRoot] }),
+      /outside the approved roots/,
+      'a symlink under the allowed root pointing outside was wrongly accepted',
+    );
+    assert.throws(
+      () =>
+        enforcePolicy('STORY_BUILD_INDEX_HTML', path.join(link, 'index.html'), {
+          allowedRoots: [allowedRoot],
+        }),
+      /outside the approved roots/,
+      'a path written THROUGH an escaping symlink was wrongly accepted',
+    );
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+it('ACCEPTS a symlink under an allowed root whose target stays inside it', () => {
+  const { base, allowedRoot } = makeSandbox();
+  try {
+    const realInner = path.join(allowedRoot, 'real-inner');
+    fs.mkdirSync(realInner, { recursive: true });
+    const link = path.join(allowedRoot, 'inner-link'); // -> allowed-root/real-inner
+    if (!trySymlinkDir(realInner, link)) {
+      console.log('        (skipped: symlink/junction creation not permitted on this host)');
+      return;
+    }
+    // The link resolves to a path still INSIDE the allowed root, so a
+    // legitimate in-root override must still pass.
+    const result = enforcePolicy('STORY_BUILD_OUTPUT_DIR', link, {
+      allowedRoots: [allowedRoot],
+    });
+    assert.strictEqual(result, path.resolve(link));
+    // And a not-yet-created child written under the in-root link passes
+    // too (nonexistent-final-path handling: existing parent realpaths
+    // inside the root).
+    const child = path.join(link, 'index.html');
+    const childResult = enforcePolicy('STORY_BUILD_INDEX_HTML', child, {
+      allowedRoots: [allowedRoot],
+    });
+    assert.strictEqual(childResult, path.resolve(child));
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+it('REJECTS via a PARENT-directory symlink that escapes the allowed root', () => {
+  const { base, allowedRoot, outside } = makeSandbox();
+  try {
+    // allowed-root/escape-dir -> outside ; then probe a DEEPER child whose
+    // intermediate (escape-dir) is the escaping link. Exercises that the
+    // policy canonicalises parent-directory links, not just the final
+    // component.
+    const parentLink = path.join(allowedRoot, 'escape-dir');
+    if (!trySymlinkDir(outside, parentLink)) {
+      console.log('        (skipped: symlink/junction creation not permitted on this host)');
+      return;
+    }
+    const deepChild = path.join(parentLink, 'nested', 'manifest.json');
+    assert.throws(
+      () =>
+        enforcePolicy('STORY_BUILD_OUTPUT_DIR', deepChild, {
+          allowedRoots: [allowedRoot],
+        }),
+      /outside the approved roots/,
+      'a path under a parent-directory symlink that escapes was wrongly accepted',
+    );
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
 });
 
 it('rejects empty path', () => {
