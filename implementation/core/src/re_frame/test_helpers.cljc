@@ -774,8 +774,9 @@
 
   Per-platform shape (matching `poll-until`):
     JVM:  synchronous — returns the truthy value, throws `ex-info`
-                        with `:rf.test-helpers/wait-timeout` `true` on
-                        timeout.
+                        carrying `:rf.error/id`
+                        `:rf.error/wait-until-timeout` (the canonical
+                        discriminator, per Spec 009) on timeout.
     CLJS: async       — returns a `js/Promise`. Resolves with the
                         truthy value, rejects with an `ex-info`-style
                         error on timeout. Compose with `cljs.test/async`.

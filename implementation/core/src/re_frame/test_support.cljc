@@ -759,8 +759,9 @@
 #?(:clj
    (defn poll-until
      "Bounded-deadline poll for `(pred)` to return truthy. Returns the
-     truthy value on success; throws `ex-info` on timeout with
-     `:rf.test/poll-timeout` `true`, the elapsed ms, and the supplied
+     truthy value on success; throws `ex-info` on timeout carrying
+     `:rf.error/id` `:rf.error/poll-until-timeout` (the canonical
+     discriminator, per Spec 009), plus `:elapsed-ms` and the supplied
      `:label` (when given) to identify the assertion site.
 
      `opts` (all optional):
@@ -791,9 +792,9 @@
    (defn poll-until
      "Bounded-deadline poll for `(pred)` to return truthy. Returns a
      `js/Promise` that resolves with the truthy value on success or
-     rejects with an `ex-info`-style error carrying
-     `:rf.test/poll-timeout` `true`, `:elapsed-ms`, and `:label` on
-     timeout.
+     rejects with an `ex-info`-style error carrying `:rf.error/id`
+     `:rf.error/poll-until-timeout` (the canonical discriminator, per
+     Spec 009), plus `:elapsed-ms` and `:label` on timeout.
 
      `opts` (all optional):
        :timeout-ms   default 2000 — overall deadline.

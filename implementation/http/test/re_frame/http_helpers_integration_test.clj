@@ -56,7 +56,8 @@
 (defn- await-reply!
   "Wait up to `timeout-ms` for `(pred db)` to be truthy against
   `(rf/app-db-value :rf/default)`. Returns the final db on success;
-  throws `:rf.test/poll-timeout` on timeout. Thin alias over
+  throws `ex-info` carrying `:rf.error/id`
+  `:rf.error/poll-until-timeout` on timeout. Thin alias over
   `test-support/poll-until` (rf2-fun38) — preserves the per-file
   `db`-closing-arity shape that read sites here expect."
   ([pred] (await-reply! pred 5000))
