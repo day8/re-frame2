@@ -1,5 +1,5 @@
 > **Type:** Design (post-v1 / v1.1 design pass)
-> Status: deferred from v1; design-only pass tracked by.
+> Status: deferred from v1; design-only pass.
 
 # Design — Transducer-shaped event router (substrate-agnostic)
 
