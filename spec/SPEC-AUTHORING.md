@@ -5,7 +5,7 @@
 
 ## Scope
 
-The per-Spec documents (000–014, the Pattern docs, MIGRATION, Spec-Schemas, etc.) bind **implementors**: a TS port, a Python port, the CLJS reference. They use RFC 2119 keywords (MUST, SHOULD, MAY) to mark obligations the implementation has to satisfy.
+The per-Spec documents (000–016, the Pattern docs, MIGRATION, Spec-Schemas, etc.) bind **implementors**: a TS port, a Python port, the CLJS reference. They use RFC 2119 keywords (MUST, SHOULD, MAY) to mark obligations the implementation has to satisfy.
 
 This document binds two different audiences:
 

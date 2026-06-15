@@ -95,4 +95,3 @@ When a new cross-cutting concern appears — a sixth recurring shape across arte
 - [Ownership.md](Ownership.md) — contract-surface → owning-Spec table (every contract surface).
 - [Conventions.md](Conventions.md) — locked runtime conventions (reserved namespaces, fx-ids, app-db keys).
 - [Cross-Spec-Interactions.md](Cross-Spec-Interactions.md) — edge cases at boundaries between Specs.
-- Source bead: (META filing); upstream session-13 investigations.

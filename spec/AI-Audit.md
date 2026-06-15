@@ -1,13 +1,13 @@
 # AI-First Audit
 
 > **Type:** Audit
-> Applies the nine AI-first properties as a checklist against the re-frame2 corpus — the numbered Specs (000–014) plus the companion documents that participate in the AI-implementable goal (Spec-Schemas, Construction-Prompts, conformance/README). Surfaces gaps for the next round of design work.
+> Applies the nine AI-first properties as a checklist against the re-frame2 corpus — the numbered Specs (000–016) plus the companion documents that participate in the AI-implementable goal (Spec-Schemas, Construction-Prompts, conformance/README). Surfaces gaps for the next round of design work. Per §Coverage policy the audit lags the live numbered set by design: Specs without a stand-alone Per-Spec table (incl. 013–016) are graded indirectly through the cross-cutting sections until a later pass adds them.
 
 ## Scope
 
 This audit grades every artefact in `spec/` that contributes to the **pattern's contract** or to its **AI-implementability**. Specifically:
 
-- **Numbered Specs** (000, 002, 004, 005, 008, 009, 010, 011, 012) — the per-area normative specifications with stand-alone Per-Spec scoring tables below. Specs 001 (Registration), 006 (ReactiveSubstrate), 007 (Stories), 013 (Flows), and 014 (HTTP Requests) are graded indirectly through the cross-cutting goal sections below; they do not yet have stand-alone Per-Spec scoring tables.
+- **Numbered Specs** (000, 002, 004, 005, 008, 009, 010, 011, 012) — the per-area normative specifications with stand-alone Per-Spec scoring tables below. Specs 001 (Registration), 006 (ReactiveSubstrate), 007 (Stories), 013 (Flows), 014 (HTTP Requests), 015 (Data Classification), and 016 (Resources) are graded indirectly through the cross-cutting goal sections below; they do not yet have stand-alone Per-Spec scoring tables.
 - **Spec-Schemas** — the spec's own runtime-shape catalogue.
 - **Construction-Prompts** — the AI-scaffolding catalogue.
 - **conformance/README** — the fixture format and capability-tagging convention.
@@ -25,6 +25,8 @@ The audit produces three artefacts:
 Forward-references to `G-A`/`G-B`/etc. in Per-Spec tables resolve to §Cross-cutting gaps below.
 
 ## The nine properties
+
+The grading rubric below is **nine** scorable properties (P1–P9), drawn from the discipline principles in [Principles.md](Principles.md) (the SSOT, which catalogues **11** discipline principles). The rubric is a deliberate scoring subset: two discipline principles — *Uniform context-map callbacks* and *No silent swallow* — are family-level disciplines graded indirectly through the per-Spec notes and the cross-cutting sections rather than as stand-alone score rows, and the two foundational essays (*a simple dynamic model* / *data is code*) are scored as the cross-cutting axis below. The rubric count (9) and the principle count (11) are therefore both correct for their own purpose; they are not in conflict.
 
 | # | Property | Short-form question |
 |---|---|---|
@@ -237,7 +239,7 @@ Worked-example check: `examples/reagent/realworld/auth.cljs` (test fixture frame
 
 ## Cross-cutting goal: Frame state revertibility
 
-[000-Vision §Frame state revertibility](000-Vision.md#frame-state-revertibility) (Goal 2) is a top-level goal that several Specs are responsible for satisfying together. Audit summary:
+[000-Vision §Frame state revertibility](000-Vision.md#frame-state-revertibility) (Goal 3) is a top-level goal that several Specs are responsible for satisfying together. Audit summary:
 
 | Spec | Score | Notes |
 |---|---|---|
@@ -299,3 +301,11 @@ The Specs score uniformly well on P1–P3 (regularity, naming, data-orientation)
 **SA-3 violation rule.** A spec example or wire payload that does NOT map to either a schema entry or an explicit host-type exemption is an SA-3 violation. The fix is to add the missing entry to Spec-Schemas.md (not to add an exemption). Per-cycle the audit names any newly-surfaced violations under this section.
 
 **Scope clarification.** This report covers shapes that flow *between* implementation surfaces (wire payloads, returned shapes, registration metadata). It does NOT cover host-primitive shapes (a CLJS map, a TypeScript object type) — those are local to the host's type system and need no cross-host schema. Per [§Scope](#scope), per-Spec scoring is selective; the SA-3 report is corpus-wide and is the SA-3 enforcement surface.
+
+## SA-4 open-questions report
+
+[SPEC-AUTHORING.md §SA-8](SPEC-AUTHORING.md) commits the AI-Audit pass to "produce a corpus-wide report enumerating every `## Open questions` heading across the per-Spec docs, with each item's SA-4 classification (one of `:resolved` / `:host-choice` / `:post-v1 tracked` / `:still-blocking`) and its required cross-link." SA-8 names this report's home as the AI-Audit doc; this section is that home.
+
+**Current state.** Sixteen numbered/companion docs carry a `## Open questions` heading (000, 001, 002, 004, 005, 006, 007, 008, 009, 010, 011, 012, 013, 014, 016, and Design-TransducerRouter). The per-item SA-4 classification enumeration — the table of every open-question item with its `:resolved` / `:host-choice` / `:post-v1 tracked` / `:still-blocking` verdict and cross-link — has **not yet been generated**; it is the next AI-Audit sweep's deliverable and is the open SA-8 obligation. Until that sweep lands, SA-4 compliance is verified per-Spec by narrative review (the prior pass moved the three overdue `(RESOLVED)`-labelled specs — 002, 005, 013 — out of `## Open questions`), not mechanically through this table.
+
+**Audit cadence.** This report is regenerated per AI-Audit run. A `:resolved` item still sitting under `## Open questions`, or a `:post-v1 tracked` item lacking a tracker reference, is an SA-4 violation surfaced here once the per-item enumeration is in place.
