@@ -27,7 +27,7 @@ The **CLJS reference implementation ships `:rf.http/managed`**, backed by Fetch 
 
 If an implementation ships ONLY a subset (e.g., no JVM transport), it claims the relevant capability rows and the conformance corpus exercises only those.
 
-**Artefact (CLJS reference).** Per [rf2-5kpd](#) (the fifth per-feature artefact split per [rf2-5vjj](#) Strategy B), the CLJS reference's managed-HTTP surface ships in the separate Maven artefact `day8/re-frame2-http` — `re-frame.http-managed` namespace, the production `:rf.http/managed` / `:rf.http/managed-abort` / `:rf.fx/reg-http-interceptor` / `:rf.fx/clear-http-interceptor` fxs registered at ns-load time, the in-flight request registry, the Fetch / HttpClient transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the eight-category `:rf.http/*` failure taxonomy, AND a sibling `re-frame.http-test-support` namespace (test-only) which carries the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-managed-request-stubs` family of macros / fns (per [rf2-lwmgw](#) — single discoverable home for HTTP test surfaces). The core artefact (`day8/re-frame2`) no longer carries any of this; apps that don't issue managed-HTTP requests build an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string. See [MIGRATION §M-31](../migration/from-re-frame-v1/README.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http) for the deps swap.
+**Artefact (CLJS reference).** As a per-feature artefact split, the CLJS reference's managed-HTTP surface ships in the separate Maven artefact `day8/re-frame2-http` — `re-frame.http-managed` namespace, the production `:rf.http/managed` / `:rf.http/managed-abort` / `:rf.fx/reg-http-interceptor` / `:rf.fx/clear-http-interceptor` fxs registered at ns-load time, the in-flight request registry, the Fetch / HttpClient transport adapters, the encode / decode pipeline, the retry-with-backoff machinery, the eight-category `:rf.http/*` failure taxonomy, AND a sibling `re-frame.http-test-support` namespace (test-only) which carries the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-managed-request-stubs` family of macros / fns (the single discoverable home for HTTP test surfaces). The core artefact (`day8/re-frame2`) no longer carries any of this; apps that don't issue managed-HTTP requests build an `:advanced` bundle clean of every `:rf.http/*` symbol and trace string. See [MIGRATION §M-31](../migration/from-re-frame-v1/README.md#m-31-managed-http-spec-014-ships-in-a-separate-artefact--day8re-frame2-http) for the deps swap.
 
 ## Role
 
@@ -124,7 +124,7 @@ When the request and its reply genuinely belong together, omit `:on-success` / `
 
 When the request resolves, the runtime dispatches `[:article/load (assoc msg :rf/reply {:kind :success :value article})]` (or `:failure` shape) back to the same event id. The handler's `(if-let [reply ...] ...)` branch handles the result. The co-located form keeps one mental model per feature; the two-handler form keeps each handler single-purpose. Prefer two handlers unless the reply logic is trivial and tightly coupled to the request.
 
-> Future consideration (out of scope here): a `defmanaged-event-fx`-style macro could collapse the three-handler boilerplate into a single declaration. Weighing it is deferred to post-v1 (rf2-2pymp) — it is not part of this spec.
+> Future consideration (out of scope here): a `defmanaged-event-fx`-style macro could collapse the three-handler boilerplate into a single declaration. Weighing it is deferred to post-v1 — it is not part of this spec.
 
 ## The args map
 
@@ -347,7 +347,7 @@ After decoding, the user's `:accept` fn classifies the decoded value:
 :accept (fn [decoded]
           (if-let [article (:article decoded)]
             {:ok article}
-            {:failure {:kind :payload :message "Response missing :article"}}))
+            {:failure {:reason :missing-article :message "Response missing :article"}}))
 ```
 
 Returns either:
@@ -395,6 +395,16 @@ This is deliberate. Retry decisions that depend on more than category + attempt 
 ```clojure
 #{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}
 ```
+
+A category is in the retryable subset when re-issuing the *same* request can plausibly yield a different outcome — the only thing transport retry can change is whether the transport itself succeeds. The first three are the obvious transient cases; 4xx and CORS are admitted because a meaningful slice of them is transient too, even though most instances are permanent:
+
+| Category | Why it is admitted as retryable |
+|---|---|
+| `:rf.http/transport` | Network / DNS / connection-reset errors are the canonical transient failure — a retry over a recovered link succeeds. |
+| `:rf.http/timeout` | A slow upstream that blew the per-attempt budget may answer within budget on a later attempt. |
+| `:rf.http/http-5xx` | 5xx is a server-side fault (overload, a crashed-and-restarted node, a transient dependency outage) — the canonical "back off and try again" case. |
+| `:rf.http/http-4xx` | Admitted because the transient 4xx slice is real — `408 Request Timeout`, `425 Too Early`, and especially `429 Too Many Requests` resolve on a backed-off retry. Most 4xx are permanent client errors and should NOT be blanket-retried; this category is opt-in (`:on` is caller-chosen), and a caller that adds it SHOULD pair it with a narrow `:max-attempts`. (Body-conditional 4xx retry — "retry only when the body says rate-limited" — is **semantic** retry and belongs to a state machine, per [§Boundary — transport vs semantic retry](#boundary--transport-vs-semantic-retry).) |
+| `:rf.http/cors` | Admitted because a CORS rejection can be transient: a preflight that failed against a momentarily-misconfigured or just-deploying edge may succeed on a later attempt. Like 4xx it is frequently a permanent configuration error, so it is opt-in and should carry a narrow `:max-attempts`; the heuristic emission caveat in [§CORS classification](#cors-classification--heuristic-emission) applies. |
 
 The other `:rf.http/*` categories from [§Failure categories](#failure-categories-closed-set) are **non-retryable by construction** and rejected when they appear in `:retry :on`:
 
@@ -633,7 +643,7 @@ Pass an `AbortController.signal` directly:
 
 The fx threads the signal through to the underlying transport. User owns the controller's lifecycle. CLJS-only (Fetch supports it; XHR fallback ignores).
 
-The two are mutually exclusive — pick one. Supplying BOTH `:abort-signal` AND `:request-id` against one request wires two independent abort mechanisms (the external Fetch signal forwarded into the internal controller AND the `:request-id` supersede/managed-abort path), whose simultaneous-abort behaviour is undefined-by-spec. Per the pre-alpha reject-misuse posture the `:rf.http/managed` fx body rejects the combination at the dispatch site (before `run-attempt!`) with a thrown `:rf.error/http-bad-abort-config` ex-info — see [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) — rather than tolerating it.
+The two are mutually exclusive — pick one. Supplying BOTH `:abort-signal` AND `:request-id` against one request would wire two independent abort mechanisms (the external Fetch signal forwarded into the internal controller AND the `:request-id` supersede/managed-abort path) whose simultaneous-abort interaction would be ambiguous. Rather than tolerate the ambiguity, the spec resolves it by rejecting the combination outright: per the pre-alpha reject-misuse posture the `:rf.http/managed` fx body rejects it at the dispatch site (before `run-attempt!`) with a thrown `:rf.error/http-bad-abort-config` ex-info — see [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue).
 
 ### Abort on actor destroy
 
@@ -803,7 +813,7 @@ Hot-reload tools that re-evaluate registration call sites get the right behaviou
 
 | API | Kind | Signature |
 |---|---|---|
-| `reg-http-interceptor` | Fn | `(rf/reg-http-interceptor id interceptor-map)` — per rf2-uheqq (shape iii). `interceptor-map` carries at least one of `:before` / `:after`, optional `:frame`, optional `:rf/registration-metadata`. |
+| `reg-http-interceptor` | Fn | `(rf/reg-http-interceptor id interceptor-map)` — positional `id`, single `interceptor-map`. `interceptor-map` carries at least one of `:before` / `:after`, optional `:frame`, optional `:rf/registration-metadata`. |
 | `clear-http-interceptor` | Fn | `(rf/clear-http-interceptor id)` / `(rf/clear-http-interceptor frame id)` |
 
 Both are re-exported from `re-frame.core`. Both ship in `day8/re-frame2-http`; an app that omits the artefact gets `:rf.error/http-artefact-missing` from the core re-exports per the standard pattern.
@@ -882,7 +892,7 @@ The helpers are NOT re-exported from `re-frame.core` — users explicitly `(:req
 (rf/reg-event :ping
   (fn [{:keys [db]} [_ msg]]
     (if-let [reply (:rf/reply msg)]
-      {:db (assoc db :pinged-at (:elapsed-at reply))}
+      {:db (assoc db :pong (:value reply))}      ;; co-located reply payload: {:kind :success :value …}
       {:fx [[:rf.http/managed {:request {:url "/ping"}}]]})))   ;; :method defaults to :get
 ```
 
@@ -961,7 +971,7 @@ The `:rf.http/managed-abort` fx cancels any in-flight `:request-id :search`, the
 (rf/reg-event :ping
   (fn [{:keys [db]} [_ msg]]
     (if-let [reply (:rf/reply msg)]
-      {:db (assoc db :pinged-at (:elapsed-at reply))}
+      {:db (assoc db :pong (:value reply))}                  ;; co-located reply payload: {:kind :success :value …}
       {:fx [(rf.http/get "/ping")]})))                       ;; ← 1 line vs 1 envelope
 
 ;; B — schema-driven GET with retry:
@@ -1081,7 +1091,7 @@ For test suites that need to inspect or reset the in-flight request registry dir
 | `actor-in-flight-snapshot` | `(actor-in-flight-snapshot)` → map | Reads the current value of the actor-id-keyed in-flight map (per [§Abort on actor destroy](#abort-on-actor-destroy) and). For tests that need to assert the actor → request-id reverse index. |
 | `seed-in-flight-for-test!` | `(seed-in-flight-for-test! handle)` / `(seed-in-flight-for-test! request-id actor-id handle)` → handle | Registers a fabricated in-flight handle through the SAME `record-in-flight!` path production uses, so BOTH indexes stay consistent. For fixtures that need an in-flight slot present without issuing a real request. The 1-arity reads `:request-id` / `:actor-id` off the handle. The raw in-flight atoms are NOT exported — a fixture must seed through this helper rather than `swap!`-ing an atom directly. |
 
-These are **test-only** surfaces — not part of the user-facing API for production code paths. Application code SHOULD route through `:rf.http/managed` and the dispatch-shape replies; the helpers exist so test fixtures can observe, seed, and reset registry state without reaching into the namespace's atoms. The underlying `in-flight` / `actor-in-flight` storage atoms are **not** re-exported from `re-frame.http-managed` (rf2-hp772l) — exposing mutable internal storage as API let callers bypass `record-in-flight!` / `clear-in-flight!` and the actor-index cleanup invariants. The per-frame HTTP-interceptor chain has the symmetric pair: `interceptors-snapshot` (`(interceptors-snapshot)` → `frame-id → [slot …]`, or `(interceptors-snapshot frame-id)` → `[slot …]`) reads the chain for assertions; registration / clearing route through `reg-http-interceptor` / `clear-http-interceptor`, never a raw atom `swap!`.
+These are **test-only** surfaces — not part of the user-facing API for production code paths. Application code SHOULD route through `:rf.http/managed` and the dispatch-shape replies; the helpers exist so test fixtures can observe, seed, and reset registry state without reaching into the namespace's atoms. The underlying `in-flight` / `actor-in-flight` storage atoms are **not** re-exported from `re-frame.http-managed` — exposing mutable internal storage as API would let callers bypass `record-in-flight!` / `clear-in-flight!` and the actor-index cleanup invariants. The per-frame HTTP-interceptor chain has the symmetric pair: `interceptors-snapshot` (`(interceptors-snapshot)` → `frame-id → [slot …]`, or `(interceptors-snapshot frame-id)` → `[slot …]`) reads the chain for assertions; registration / clearing route through `reg-http-interceptor` / `clear-http-interceptor`, never a raw atom `swap!`.
 
 ## Machine-shape wrapper
 
@@ -1198,7 +1208,7 @@ Spec 014 specifies HTTP-side honouring on top of the Spec 009 contract: every `:
 
 ### Privacy at a glance — declaration surfaces and owning namespaces
 
-The privacy surface has four declaration surfaces, none of them a process-global mutation (EP-0015 §3, rf2-ppkh3v):
+The privacy surface has four declaration surfaces, none of them a process-global mutation (EP-0015 §3):
 
 | Surface | Purpose | Where declared |
 |---|---|---|
@@ -1211,7 +1221,7 @@ Response **bodies** are classified separately, per-slot, via the request's `:dec
 
 The composers that orchestrate per-emit redaction + stamping — `request-sensitive?`, `prepare-emit-tags`, `prepare-emit-failure` — live in `re-frame.http-privacy` as the privacy orchestrator. They consult the two built-in denylists, the emitting frame's frame-local carrier extension sets (resolved once per emit via `re-frame.frame-classification/http-carriers`), and the per-request / per-call `:sensitive?` flag, and produce the redacted slot values + stamped tags map that `trace/emit!` / `trace/emit-error!` sees.
 
-> **No process-global carrier mutation (EP-0015 §3, rf2-ppkh3v).** Earlier drafts exposed `declare-sensitive-header!` / `declare-sensitive-query-param!` (and `clear-*!` siblings) as a process-global denylist mutation on the `re-frame.http` façade. Those are **removed**: re-frame2 is multi-frame, so app-specific carrier policy is frame-owned durable config, not a process global. The immutable built-in defaults remain.
+> **No process-global carrier mutation (EP-0015 §3).** Earlier drafts exposed `declare-sensitive-header!` / `declare-sensitive-query-param!` (and `clear-*!` siblings) as a process-global denylist mutation on the `re-frame.http` façade. Those are **removed**: re-frame2 is multi-frame, so app-specific carrier policy is frame-owned durable config, not a process global. The immutable built-in defaults remain.
 
 ### 1. Header denylist (always-on)
 
@@ -1334,7 +1344,7 @@ Semantics:
 - The **emitting frame** is the one the request was issued from (the `:rf.http/managed` fx carries the cascade-envelope frame, propagated onto the in-flight handle so even an actor-destroy abort trace fired from the registry resolves the right frame's carriers). A completion that fires with no resolvable frame applies the built-in defaults only.
 - A frame-local query-param carrier hit **stamps `:sensitive? true`** on the trace event exactly like a built-in denylist hit — the carrier name is the signal.
 
-This replaces the removed process-global `declare-sensitive-header!` / `declare-sensitive-query-param!` mutators (EP-0015 §3, rf2-ppkh3v).
+This replaces the removed process-global `declare-sensitive-header!` / `declare-sensitive-query-param!` mutators (EP-0015 §3).
 
 ### Response-body classification (EP-0015 §5)
 
@@ -1358,7 +1368,7 @@ Rules:
 1. **Per-slot.** A `:sensitive?` prop on a `:decode`-schema slot redacts that slot of the decoded body (to the `:rf/redacted` sentinel), and a `:large?` prop elides that slot (to the `:rf.size/large-elided` marker), **before** the body rides a `:rf.http/*` trace event — and they fire **independently of** the per-call / per-request `:sensitive?` flag ([§3](#3-per-request--per-call-sensitive)). The owner's schema declaration is the signal. A non-marked sibling slot rides verbatim.
 2. **Whole-body root prop.** A root-level `:sensitive?` prop on the `:decode` schema (e.g. `[:string {:sensitive? true}]` — an opaque-token response whose entire body is the secret) redacts the whole body; a root-level `:large?` prop elides the whole body to the size marker.
 3. **Unschematized is whole-sensitive (fail-closed).** Only a Malli-**schema** `:decode` carries per-slot marks. The keyword decode modes (`:auto` / `:json` / `:text` / `:blob` / `:array-buffer` / `:form-data`) and a custom decoder fn are not schemas. An **unschematized** body has an unknown shape: for an **off-box** egress (production capture / off-box trace) it is treated as whole-sensitive and **omitted entirely** unless a classified projection is explicitly requested; on the in-process **dev** trace stream it rides governed by the per-call `:sensitive?` flag as before (the local operator inspects their own process). The disposition is `re-frame.http-privacy-body/off-box-body-disposition` (`:omit` for an unschematized body, `:classify` for a schema body); the HTTP trace-emit site **stamps it forward** on the `:rf.http/replied` / `:rf.http/accept-failure` trace event under `:rf.http/off-box-body`, and the off-box trace-events egress projector (`re-frame.epoch.tool-pair`) **enforces** it — omitting the body slot of an `:omit` event (the request's `:decode` is request-private and never on the trace event, so the disposition must travel forward on it).
-4. **Raw error-response bodies are unconditionally `:omit` off-box (fail-closed).** The **failure-category** trace events carry a *raw* (never-decoded) response body: `:rf.http/http-4xx` / `:rf.http/http-5xx` carry it at `:body`, `:rf.http/decode-failure` carries the raw text at `:body-text`, and `:rf.http/retry-attempt` nests an intermediate failure (which may carry one of those raw bodies) under `:failure`. Such a body is **unschematized by construction** — status classification (4xx/5xx) runs **before** decode, and a `:rf.http/decode-failure` is the decode step itself failing — so the request's `:decode` schema was never (and could never be) applied to it. The off-box disposition is therefore **unconditionally `:omit`**, irrespective of the per-call / per-request `:sensitive?` flag (error bodies frequently echo request context or tokens). The emit site stamps `:rf.http/off-box-body :omit` on these events; the off-box trace-events egress projector omits the raw body slot, lifted only by the trusted-local `:include-sensitive?` opt-in (the `local-raw` boundary). On-box, the raw body rides verbatim for the local operator (the omission is the off-box boundary). This closes the disposition-5 fail-OPEN where a raw error body was previously redacted off-box *only* when the call carried a per-call `:sensitive?` flag (rf2-t55hxg.10).
+4. **Raw error-response bodies are unconditionally `:omit` off-box (fail-closed).** The **failure-category** trace events carry a *raw* (never-decoded) response body: `:rf.http/http-4xx` / `:rf.http/http-5xx` carry it at `:body`, `:rf.http/decode-failure` carries the raw text at `:body-text`, and `:rf.http/retry-attempt` nests an intermediate failure (which may carry one of those raw bodies) under `:failure`. Such a body is **unschematized by construction** — status classification (4xx/5xx) runs **before** decode, and a `:rf.http/decode-failure` is the decode step itself failing — so the request's `:decode` schema was never (and could never be) applied to it. The off-box disposition is therefore **unconditionally `:omit`**, irrespective of the per-call / per-request `:sensitive?` flag (error bodies frequently echo request context or tokens). The emit site stamps `:rf.http/off-box-body :omit` on these events; the off-box trace-events egress projector omits the raw body slot, lifted only by the trusted-local `:include-sensitive?` opt-in (the `local-raw` boundary). On-box, the raw body rides verbatim for the local operator (the omission is the off-box boundary). This closes the disposition-5 fail-OPEN where a raw error body was previously redacted off-box *only* when the call carried a per-call `:sensitive?` flag.
 5. **Composition.** The per-call `:sensitive?` flag remains the **coarse** escape hatch (it redacts the whole body wholesale, regardless of schema marks); response-body classification is the **fine-grained** schema-driven layer that fires irrespective of that flag, and the off-box `:omit` of an unschematized / raw error body fires irrespective of it too. Sensitive wins over large (the shared `rf/elide-wire-value` ordering). The decoded body rides at `:value` on the `:rf.http/replied` success trace and at `:decoded` on an `:rf.http/accept-failure` trace; both apply the `:decode`-schema `:sensitive?` **and** `:large?` marks.
 
 ### Composition
@@ -1368,7 +1378,7 @@ Rules:
 | × `:large?` ([Spec 009 §Size elision](009-Instrumentation.md#size-elision-in-traces)) | A `:decode`-schema slot marked `:large?` (only) elides to the `:rf.size/large-elided` marker on the body trace, the parallel axis to `:sensitive?`. A slot marked BOTH sensitive AND large redacts to `:rf/redacted` (sensitive wins per Spec 009's unified `rf/elide-wire-value` walker — the size marker, which would carry `:path` / `:bytes` / `:digest`, is not emitted for a sensitive slot). |
 | × `redact-interceptor` (Spec 009 §Privacy) | `redact-interceptor` operates on event-vector slots; the HTTP redactor operates on `:rf.http/*` trace-event slots. Both compose additively — a handler that uses both gets event-vector redaction AND HTTP trace redaction. |
 | × Spec 014 §Middleware | Request-side interceptors run **before** the privacy machinery reads `:sensitive?` (the interceptor chain may itself attach an `Authorization` header). Headers added by interceptors are subject to the same denylist. |
-| × Spec 014 §Failure categories | Every category that carries body-side payload (`:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode-failure`, `:rf.http/accept-failure`) gets body redaction. **On-box**, the per-call `:sensitive?` flag redacts the body slot wholesale (the coarse escape hatch). **Off-box**, a raw error body (`:body` on 4xx/5xx, `:body-text` on decode-failure, and the same nested under a `:rf.http/retry-attempt` `:failure`) is **unconditionally omitted** — it is unschematized by construction (status classification runs before decode), so it fails closed irrespective of the per-call flag ([Rule 4](#response-body-classification-ep-0015-5), rf2-t55hxg.10). An `:rf.http/accept-failure`'s `:decoded` body rides the schema disposition (`:classify` when the request carried a `:decode` schema, else `:omit`). `:rf.http/aborted` carries no body so no body redaction; headers (the denylist) still apply. |
+| × Spec 014 §Failure categories | Every category that carries body-side payload (`:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode-failure`, `:rf.http/accept-failure`) gets body redaction. **On-box**, the per-call `:sensitive?` flag redacts the body slot wholesale (the coarse escape hatch). **Off-box**, a raw error body (`:body` on 4xx/5xx, `:body-text` on decode-failure, and the same nested under a `:rf.http/retry-attempt` `:failure`) is **unconditionally omitted** — it is unschematized by construction (status classification runs before decode), so it fails closed irrespective of the per-call flag ([Rule 4](#response-body-classification-ep-0015-5)). An `:rf.http/accept-failure`'s `:decoded` body rides the schema disposition (`:classify` when the request carried a `:decode` schema, else `:omit`). `:rf.http/aborted` carries no body so no body redaction; headers (the denylist) still apply. |
 | × Spec 005 actor-destroy abort | The in-flight handle propagates the effective `:sensitive?` flag, so the `:rf.http/aborted-on-actor-destroy` emit (issued from the registry namespace, distant from the originating fx ctx) still stamps correctly. |
 | × WebSockets (app/library-built) | re-frame2 does not ship a managed WebSocket, but an app or library that builds one per [Pattern-WebSocket](Pattern-WebSocket.md) can reuse the same denylist + per-request / per-call `:sensitive?` machinery; the per-message frame-stamping rule is its own affair, but the request-side concerns are shared. |
 

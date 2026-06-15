@@ -5,7 +5,7 @@
 
 > **Code samples are in ClojureScript** (the CLJS reference). The pattern itself is host-agnostic.
 >
-> **re-frame2 does NOT ship a managed WebSocket** (Mike-ruled). There is no `:rf.ws/*` fx and no reserved `:rf.ws/*` namespace — apps and library authors supply their own connection surface appropriate to their needs (or use a community library). This doc is a **convention for app & library authors** building a WebSocket connection on re-frame2's [state-machine substrate](005-StateMachines.md). The recommended shape below satisfies the [eight managed-effect properties](Managed-Effects.md) when an app implements it this way — effect-as-data, app-owned socket-actor lifecycle, a structured failure taxonomy under an app-chosen `:rf.ws/*`-style namespace, trace-bus observability, `:sensitive?` / `:large?` composition, retry / abort / teardown via the connection state machine, an in-flight socket-actor registry, and per-frame interceptor scoping — but those properties describe what a *good* implementation looks like, not a framework-shipped contract the runtime guarantees.
+> **re-frame2 does NOT ship a managed WebSocket** (Mike-ruled). There is no `:rf.ws/*` fx and no reserved `:rf.ws/*` namespace — apps and library authors supply their own connection surface appropriate to their needs (or use a community library). This doc is a **convention for app & library authors** building a WebSocket connection on re-frame2's [state-machine substrate](005-StateMachines.md). The recommended shape below satisfies the [nine managed-effect properties](Managed-Effects.md) when an app implements it this way — effect-as-data, app-owned socket-actor lifecycle, a structured failure taxonomy under an app-chosen `:rf.ws/*`-style namespace, trace-bus observability, `:sensitive?` / `:large?` composition, retry / abort / teardown via the connection state machine, an in-flight socket-actor registry, and per-frame interceptor scoping. A WebSocket is a long-lived synchronous connection, not a one-shot async request, so property 9 (the uniform async-reply envelope) is exempt — those eight synchronous properties are the ones it is graded on. They describe what a *good* implementation looks like, not a framework-shipped contract the runtime guarantees.
 
 ## Role
 
@@ -115,6 +115,12 @@ The connection machine composes the locked substrate:
 
       :bump-retry (fn [data _] {:data (update data :retries inc)})
 
+      :ws/socket-ready
+      ;; The child socket actor carries its own id back on entry
+      ;; (carry-the-id-back-to-the-parent idiom); the parent records it so
+      ;; :current-socket? and every (:socket-id data) dispatch have a value.
+      (fn [data [_ socket-id]] {:data (assoc data :socket-id socket-id)})
+
       :clear-socket-id
       (fn [data _] {:data (assoc data :socket-id nil)})
 
@@ -199,13 +205,17 @@ The connection machine composes the locked substrate:
                 ;; without any extra wiring.
                 :data       (fn [{snap :snapshot}]
                               {:url        (-> snap :data :url)
-                               :auth-token (-> snap :data :auth-token)})
-                ;; Record the spawned actor id so subsequent dispatches
-                ;; and :current-socket? checks have a value to compare.
-                ;; `:on-spawn` is advisory (return
-                ;; is dropped); read the id from runtime-db at
-                ;; `[:rf.runtime/machines :spawned <parent> <invoke-id>]` instead.
-                :on-spawn   (fn [{:keys [data id]}] (assoc data :socket-id id))}
+                               :auth-token (-> snap :data :auth-token)})}
+                ;; NOTE on recording the socket-id: the spawn's `:on-spawn` hook
+                ;; is advisory — its return is DROPPED ([005 §Path conventions
+                ;; in machine bodies]), so it cannot write the id into :data.
+                ;; The child socket actor instead carries its own id back to the
+                ;; parent (the carry-the-id-back-to-the-parent idiom,
+                ;; [Managed-Effects §`:spawn` / `:spawn-all`]): on its own entry
+                ;; it dispatches `[:ws/connection [:ws/socket-ready <self-id>]]`,
+                ;; and the parent's `:ws/socket-ready` action writes the id into
+                ;; `:data :socket-id`. From then on `:current-socket?` and every
+                ;; `(:socket-id data)` dispatch have a value to compare.
 
        ;; Exit cascade — on any transition that leaves :active, clear the
        ;; stale socket-id from :data. The runtime destroys the actor
@@ -326,7 +336,7 @@ For the canonical menu of mechanisms — event payload (used here for caller-sup
 
 ### Subscription protocol
 
-The connection machine tracks subscribed topics in `:data :subscriptions` (a set). On entry to `:connected`, the `:resubscribe` action re-issues subscribe messages for every topic — guaranteeing subscriptions survive reconnects.
+The connection machine tracks subscribed topics in `:data :subscriptions` (a set). On entry to `:connected`, the `:on-connected` entry action (the compound `:reset-retry` + resubscribe fn above) re-issues subscribe messages for every topic in `:subscriptions` — guaranteeing subscriptions survive reconnects.
 
 To subscribe / unsubscribe at runtime, the running app dispatches sub/unsub events the connection machine handles by updating `:subscriptions` and forwarding the wire-message:
 

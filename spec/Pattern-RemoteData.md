@@ -127,7 +127,7 @@ Every request lifecycle uses the same four events (per resource), namespaced by 
 | `:feature.resource/load-failed` | The fetch failed. Sets `:status :error`, `:error`. Existing `:data` from a prior `:loaded` is **kept**. |
 | `:feature.resource/reset` | **Optional convenience event.** Resets the slice to `:idle` (clears `:data`, `:error`, `:loaded-at`). Useful on navigation away or "clear results" affordances. Conformance does not require it; features that never need to clear the slice can omit it, and applications free to implement their own `clear-state` event with different semantics. |
 
-Worked example — articles list:
+Worked example — articles list. (The `:http` fx in the example is the **illustrative app-rolled** fx from [Pattern-AsyncEffect §Worked example — HTTP](Pattern-AsyncEffect.md#worked-example--http), not the framework's shipped HTTP surface — production code uses managed `:rf.http/managed` per [Spec 014](014-HTTPRequests.md). The lifecycle slice this pattern specifies sits on top of either.)
 
 ```clojure
 ;; Schema
